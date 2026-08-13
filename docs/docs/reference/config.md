@@ -15,7 +15,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[auto_trade]` | `proposals_enabled` | `*bool` | ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false. |
 | `[auto_trade]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks policy-file changes; default 30s. |
 | `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`. |
-| `[daemon]` | `log_level` | `string` | LogLevel is the daemon's log verbosity — one of "debug", "info" (default), "warn", or "error". |
+| `[daemon]` | `log_level` | `string` | LogLevel is the daemon's log verbosity — one of "debug", "info", "warn" (default), or "error". |
 | `[flex]` | `enabled` | `bool` | Enabled turns the daily Flex statement fetch on; default false. |
 | `[flex]` | `query_id` | `string` | QueryID is the IBKR Flex query id to fetch (create the query in Account Management with cash transactions, transfers, and equity summary sections); required when enabled. |
 | `[flex]` | `token_path` | `string` | TokenPath points to a file holding only the Flex Web Service token; default ~/.config/ibkr/flex-token (mode 0600). |
@@ -131,6 +131,7 @@ Read at process startup. Override TOML config where applicable; see the per-var 
 |----------|-------------|
 | `CANARY_AGENT_CONTEXT` | When set (any value), broker writes from this process are classified as agent-origin for audit and origin-specific policy. The variable can only restrict: no environment variable can claim a human origin. |
 | `CANARY_APP_ADDR` | HTTP listen address for `canary app`. Defaults to `0.0.0.0:8765` so a paired phone on the LAN can reach the app. |
+| `CANARY_APP_LOG_LEVEL` | Log verbosity for `canary app` — one of `debug`, `info`, `warn` (default), or `error`. Mirrors the daemon's `[daemon] log_level` config key. |
 | `CANARY_APP_PUBLIC_URL` | Public trusted HTTPS base URL for the `canary app` PWA/relay origin. Defaults to a LAN URL for wildcard listen addresses, falling back to loopback when no LAN address is available. |
 | `CANARY_APP_REMOTE` | Enable the outbound Cloudflare Worker relay for `canary app`, making pairing URLs reachable through the public relay origin. |
 | `CANARY_APP_REMOTE_URL` | Cloudflare Worker relay base URL for `canary app --remote`. Defaults to `https://remote.osauer.dev`. |

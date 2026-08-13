@@ -35,8 +35,8 @@ func TestLoad_MissingFileGivesFullAuto(t *testing.T) {
 	if res.Daemon.IdleTimeout.Std() != 15*time.Minute {
 		t.Errorf("default idle = %v, want 15m", res.Daemon.IdleTimeout.Std())
 	}
-	if res.Daemon.LogLevel != "info" {
-		t.Errorf("default log_level = %q, want info", res.Daemon.LogLevel)
+	if res.Daemon.LogLevel != "warn" {
+		t.Errorf("default log_level = %q, want warn", res.Daemon.LogLevel)
 	}
 	if res.Trading.Mode != TradingModeDisabled {
 		t.Errorf("trading mode = %q, want %q", res.Trading.Mode, TradingModeDisabled)

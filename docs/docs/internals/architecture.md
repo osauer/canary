@@ -308,10 +308,14 @@ typed database evidence, and bounded alert lifecycle and delivery counters. Ther
 is no external metrics stack and no tracing.
 
 - The daemon writes structured text logs through `log/slog`. The `log_level`
-  config key sets the level; the default is `info`. The log lives beside the
-  daemon database — `$XDG_STATE_HOME/ibkr/ibkr-daemon.log`, or
-  `~/.local/state/ibkr/ibkr-daemon.log` — and rotates at boot once it passes
-  64 MiB, keeping one older generation. The app logs to `ibkr-app.log`.
+  config key sets the level; the default is `warn`, so the log carries
+  actionable lines out of the box and `info` opts into routine broker traffic.
+  The log lives beside the daemon database —
+  `$XDG_STATE_HOME/ibkr/ibkr-daemon.log`, or
+  `~/.local/state/ibkr/ibkr-daemon.log` — and rotates whenever it passes
+  64 MiB, at open and at runtime, keeping one older generation. The app logs
+  to `ibkr-app.log` under the same rotation policy, with its level set by
+  `CANARY_APP_LOG_LEVEL` (same four values, same `warn` default).
 - `canary status` renders the daemon's `status.health` report: gateway,
   session, and TLS state, uptime, background tasks, subsystem health, data
   quality, data-farm notices, and trading state. Its typed gateway phase

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 
+	"github.com/osauer/canary/v2/internal/loglevel"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -16,29 +16,23 @@ type Logger struct {
 }
 
 // NewLogger constructs a slog text logger writing to w at the given level
-// ("debug"|"info"|"warn"|"error").
+// ("debug"|"info"|"warn"|"error"). Lifecycle markers pass at any level; see
+// internal/loglevel.
 func NewLogger(w io.Writer, level string) *Logger {
-	lv := parseLevel(level)
-	h := slog.NewTextHandler(w, &slog.HandlerOptions{Level: lv})
-	l := slog.New(h)
+	l := slog.New(loglevel.NewTextHandler(w, loglevel.Parse(level)))
 
 	ibkrlib.SetLogger(l)
-	ibkrlib.SetLogLevel(level)
+	// The library's own pre-filter must stay at info: it would otherwise drop
+	// the INFO "Connected to IB Gateway" lifecycle marker before the handler's
+	// lifecycle floor could pass it. Level filtering is the handler's job;
+	// only debug stays opt-in at the source.
+	wireLevel := "info"
+	if loglevel.Parse(level) == slog.LevelDebug {
+		wireLevel = "debug"
+	}
+	ibkrlib.SetLogLevel(wireLevel)
 
 	return &Logger{l: l}
-}
-
-func parseLevel(s string) slog.Level {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }
 
 // Debugf logs a formatted message at debug level.

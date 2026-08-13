@@ -23,6 +23,8 @@ import (
 	"github.com/osauer/canary/v2/internal/app/auth"
 	apphttp "github.com/osauer/canary/v2/internal/app/http"
 	"github.com/osauer/canary/v2/internal/cli"
+	"github.com/osauer/canary/v2/internal/loglevel"
+	"github.com/osauer/canary/v2/internal/logrotate"
 	"github.com/osauer/canary/v2/internal/productidentity"
 )
 
@@ -178,6 +180,7 @@ func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
 	remote := fs.Bool("remote", opts.Remote, "enable the outbound Cloudflare Worker relay")
 	remoteURL := fs.String("remote-url", opts.RemoteURL, "Cloudflare Worker relay base URL")
 	stateDir := fs.String("state-dir", opts.StateDir, "local app state directory")
+	logPath := fs.String("log", "", "log file path with 64 MiB rotation (default stderr; supervised restarts pass the state-dir app log)")
 	previewReadGrant := fs.Bool("preview-read-grant", false, "serve read-only views to unpaired loopback browsers (isolated preview instances only; refuses a non-loopback --addr)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -201,6 +204,19 @@ func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
 	}
 	opts.StateDir = strings.TrimSpace(*stateDir)
 	opts.PreviewReadGrant = *previewReadGrant
+
+	// Reconfigure onto the rotating file once the destination is known. Lines
+	// before this point (argument rejections) still reach the supervisor's
+	// stderr redirect, which lands in the same file.
+	if path := strings.TrimSpace(*logPath); path != "" && path != "stderr" {
+		w, err := logrotate.Open(path, logrotate.DefaultMaxBytes)
+		if err != nil {
+			logger.Error("canary app log open failed", "error", err, "path", path)
+			return 1
+		}
+		defer w.Close()
+		logger = configureAppLogger(w)
+	}
 
 	app, err := mobileapp.New(opts)
 	if err != nil {
@@ -229,9 +245,19 @@ func printAppServeUsage(w io.Writer, fs *flag.FlagSet) {
 // newAppLogger owns the physical production-log contract: one slog text
 // record per line, with an explicit level= field. App packages use
 // slog.Default and HyperServe holds its own default pointer, so configure both
-// before parsing or constructing any production app component.
+// before parsing or constructing any production app component. Lifecycle
+// markers pass at any level; see internal/loglevel.
 func newAppLogger(w io.Writer) *slog.Logger {
-	return slog.New(slog.NewTextHandler(w, nil))
+	return slog.New(loglevel.NewTextHandler(w, appLogLevel()))
+}
+
+// appLogLevel resolves the app-server verbosity with the same four-value
+// contract as the daemon's [daemon].log_level. Warn is the default for the
+// same reason: out of the box the log carries actionable lines, not one
+// record per poll request.
+func appLogLevel() slog.Level {
+	// docgen:env CANARY_APP_LOG_LEVEL | Log verbosity for `canary app` — one of `debug`, `info`, `warn` (default), or `error`. Mirrors the daemon's `[daemon] log_level` config key.
+	return loglevel.Parse(os.Getenv("CANARY_APP_LOG_LEVEL"))
 }
 
 func configureAppLogger(w io.Writer) *slog.Logger {

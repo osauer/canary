@@ -1208,6 +1208,15 @@ func startAppProcessFromExecutable(ctx context.Context, executable string, args 
 	if executable == "" {
 		return 0, errors.New("app executable is empty")
 	}
+	// The app owns its structured log through --log (rotating writer inside
+	// the process); the stdout/stderr redirect below stays as the backstop
+	// for panic output and pre-parse failures. An operator-supplied --log in
+	// args wins.
+	if appValueArg(args, "log") == "" {
+		if path := appRestartLogPath(); path != "" {
+			args = setAppValueArg(append([]string(nil), args...), "log", path)
+		}
+	}
 	cmd := exec.CommandContext(ctx, executable, args...)
 	cmd.Stdin = nil
 	logFile, err := openAppRestartLog()
