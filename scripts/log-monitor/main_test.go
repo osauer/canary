@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,51 @@ func TestKnownNoiseExplosionBecomesOneSignal(t *testing.T) {
 	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
 	if len(got.Signals) != 1 || got.Signals[0].Kind != "noise_loop" || got.Signals[0].Count != 151 {
 		t.Fatalf("noise report = %+v", got)
+	}
+}
+
+// Reproduces the 2026-08-13 night shape: a 3,000-line escalating retry loop,
+// dozens of paired connectivity warnings, and a spread of distinct one-off
+// warnings. The loop and the flap counts must occupy the top of the bounded
+// signal list, and everything the cap cuts must surface in the suppressed
+// rollup instead of vanishing behind a bare counter.
+func TestEscalatingLoopOutranksArrivalOrderAndSuppressionIsSummarized(t *testing.T) {
+	var lines []string
+	// Arrival order deliberately leads with the one-off warnings.
+	for i := range 30 {
+		lines = append(lines, fmt.Sprintf(`time=2026-08-13T04:%02d:00Z level=WARN msg="one-off warning variant %d"`, i, i))
+	}
+	for range 85 {
+		lines = append(lines, `time=2026-08-13T05:00:00Z level=WARN msg="TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice"`)
+	}
+	for range 3000 {
+		lines = append(lines, `time=2026-08-13T06:00:00Z level=WARN msg="System notice code=200: No security definition has been found for the request"`)
+	}
+	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
+
+	if len(got.Signals) != defaultMaxSignals {
+		t.Fatalf("signal count = %d, want %d", len(got.Signals), defaultMaxSignals)
+	}
+	top := got.Signals[0]
+	if top.Kind != "noise_loop" || top.Count != 3000 || !strings.Contains(top.Message, "broker_code_200_no_definition") {
+		t.Fatalf("top signal = %+v, want the 3000-line code-200 noise loop", top)
+	}
+	second := got.Signals[1]
+	if second.Kind != "log_level" || second.Count != 85 || !strings.Contains(second.Message, "code 1100") {
+		t.Fatalf("second signal = %+v, want the 85x backend-loss warning", second)
+	}
+
+	// 30 one-off warnings minus the 8 remaining kept slots = 22 suppressed
+	// occurrences, summarized with severity, kind, and a sample.
+	if got.SuppressedSignals != 22 {
+		t.Fatalf("suppressed = %d, want 22", got.SuppressedSignals)
+	}
+	if len(got.Suppressed) != 1 {
+		t.Fatalf("suppressed rollup = %+v, want one WARN/log_level row", got.Suppressed)
+	}
+	row := got.Suppressed[0]
+	if row.Severity != "WARN" || row.Kind != "log_level" || row.Count != 22 || row.Sample == "" {
+		t.Fatalf("suppressed row = %+v", row)
 	}
 }
 

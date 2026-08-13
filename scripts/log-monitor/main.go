@@ -47,14 +47,22 @@ type report struct {
 }
 
 type logReport struct {
-	State             string         `json:"state"`
-	NewLines          int            `json:"new_lines"`
-	KnownBenign       int            `json:"known_benign"`
-	Informational     int            `json:"informational"`
-	OffsetReset       bool           `json:"offset_reset,omitempty"`
-	Families          map[string]int `json:"families,omitempty"`
-	Signals           []signal       `json:"signals,omitempty"`
-	SuppressedSignals int            `json:"suppressed_signals,omitempty"`
+	State         string         `json:"state"`
+	NewLines      int            `json:"new_lines"`
+	KnownBenign   int            `json:"known_benign"`
+	Informational int            `json:"informational"`
+	OffsetReset   bool           `json:"offset_reset,omitempty"`
+	Families      map[string]int `json:"families,omitempty"`
+	// Signals holds the max-signals highest-ranked distinct signals —
+	// severity first, then occurrence count — never arrival order, so an
+	// escalating loop outranks a one-off stale quote no matter which the
+	// scan met first.
+	Signals []signal `json:"signals,omitempty"`
+	// Suppressed summarizes every signal the cap cut, one row per
+	// severity/kind pair, so nothing material drops without a trace. The
+	// row count is bounded by the closed kind set.
+	Suppressed        []suppressedSummary `json:"suppressed,omitempty"`
+	SuppressedSignals int                 `json:"suppressed_signals,omitempty"`
 }
 
 type signal struct {
@@ -62,6 +70,15 @@ type signal struct {
 	Kind     string `json:"kind"`
 	Message  string `json:"message"`
 	Count    int    `json:"count,omitempty"`
+}
+
+type suppressedSummary struct {
+	Severity string `json:"severity"`
+	Kind     string `json:"kind"`
+	Count    int    `json:"count"`
+	// Sample is the highest-ranked suppressed message of the pair, already
+	// redacted by safeMessage.
+	Sample string `json:"sample,omitempty"`
 }
 
 type scannedLog struct {
@@ -78,6 +95,12 @@ var (
 	spacePattern   = regexp.MustCompile(`\s+`)
 	statusPattern  = regexp.MustCompile(`(?:^|\s)status=(\d{3})(?:\s|$)`)
 	timePattern    = regexp.MustCompile(`(?:^|\s)time=([^\s]+)`)
+	// Ephemeral values embedded in messages (socket addresses, event
+	// timestamps) would make every occurrence a distinct signal, letting one
+	// reconnect storm fill the whole bounded list with unmergeable
+	// singletons. Normalize them so repeats collapse into one counted signal.
+	addrPattern     = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}\b`)
+	inlineTimestamp = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b`)
 )
 
 func main() {
@@ -244,7 +267,7 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 		case trimmed == "":
 			result.Informational++
 		case isPanicLine(trimmed):
-			addSignal(&result, maxSignals, "ERROR", "panic", "daemon panic detected", 0)
+			addSignal(&result, "ERROR", "panic", "daemon panic detected", 0)
 		case isStackContinuation(line):
 			result.Informational++
 		case isDaemonLifecycle(trimmed):
@@ -261,22 +284,23 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 			result.Families["shutdown_rate_limiter"]++
 			result.KnownBenign++
 		case severity(trimmed) == "WARN" || severity(trimmed) == "ERROR":
-			addSignal(&result, maxSignals, severity(trimmed), "log_level", safeMessage(trimmed), 0)
+			addSignal(&result, severity(trimmed), "log_level", safeMessage(trimmed), 0)
 		default:
 			result.Informational++
 		}
 	}
 	if count := result.Families["market_data_farm_disconnect"]; count > 2 {
-		addSignal(&result, maxSignals, "WARN", "repeated_farm_disconnect", "market-data farm disconnected repeatedly", count)
+		addSignal(&result, "WARN", "repeated_farm_disconnect", "market-data farm disconnected repeatedly", count)
 	}
 	if count := restartLoopCount(lifecycleTimes(scanned.lines, isDaemonStart)); count > restartLoopStarts {
-		addSignal(&result, maxSignals, "WARN", "restart_loop", "daemon connected repeatedly within "+restartLoopWindow.String(), count)
+		addSignal(&result, "WARN", "restart_loop", "daemon connected repeatedly within "+restartLoopWindow.String(), count)
 	}
 	for family, count := range result.Families {
 		if family != "lifecycle" && family != "market_data_farm_disconnect" && count > 150 {
-			addSignal(&result, maxSignals, "WARN", "noise_loop", "known-benign log family exceeded its daily volume limit: "+family, count)
+			addSignal(&result, "WARN", "noise_loop", "known-benign log family exceeded its daily volume limit: "+family, count)
 		}
 	}
+	finalizeSignals(&result, maxSignals)
 	return result
 }
 
@@ -291,7 +315,7 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 		}
 		if isPanicLine(trimmed) {
 			panicActive = true
-			addSignal(&result, maxSignals, "ERROR", "panic", "app panic detected", 0)
+			addSignal(&result, "ERROR", "panic", "app panic detected", 0)
 			continue
 		}
 		if panicActive && isStackContinuation(line) {
@@ -304,12 +328,12 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 		if isRequestCompleted(trimmed) {
 			status := httpStatus(trimmed)
 			if status >= 500 {
-				addSignal(&result, maxSignals, "ERROR", "http_5xx", fmt.Sprintf("app request completed with status %d", status), 0)
+				addSignal(&result, "ERROR", "http_5xx", fmt.Sprintf("app request completed with status %d", status), 0)
 			} else if status >= 100 {
 				result.Families["request_completed"]++
 				result.KnownBenign++
 			} else {
-				addSignal(&result, maxSignals, "WARN", "malformed_access_log", "app access log omitted a valid HTTP status", 0)
+				addSignal(&result, "WARN", "malformed_access_log", "app access log omitted a valid HTTP status", 0)
 			}
 			continue
 		}
@@ -320,16 +344,17 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 		}
 		switch level {
 		case "WARN", "ERROR", "FATAL":
-			addSignal(&result, maxSignals, level, "log_level", safeMessage(trimmed), 0)
+			addSignal(&result, level, "log_level", safeMessage(trimmed), 0)
 		case "DEBUG", "INFO":
 			result.Informational++
 		default:
-			addSignal(&result, maxSignals, "WARN", "missing_level", "production app line omitted an explicit severity", 0)
+			addSignal(&result, "WARN", "missing_level", "production app line omitted an explicit severity", 0)
 		}
 	}
 	if count := restartLoopCount(lifecycleTimes(scanned.lines, isAppStart)); count > restartLoopStarts {
-		addSignal(&result, maxSignals, "WARN", "restart_loop", "app started repeatedly within "+restartLoopWindow.String(), count)
+		addSignal(&result, "WARN", "restart_loop", "app started repeatedly within "+restartLoopWindow.String(), count)
 	}
+	finalizeSignals(&result, maxSignals)
 	return result
 }
 
@@ -342,7 +367,11 @@ func newLogReport(scanned scannedLog) logReport {
 	}
 }
 
-func addSignal(result *logReport, max int, severity, kind, message string, count int) {
+// addSignal collects without a cap, merging repeats of the same
+// severity/kind/message into one counted signal. The max-signals bound is
+// applied by finalizeSignals after classification, once every signal's true
+// weight is known.
+func addSignal(result *logReport, severity, kind, message string, count int) {
 	for i := range result.Signals {
 		item := &result.Signals[i]
 		if item.Severity != severity || item.Kind != kind || item.Message != message {
@@ -355,12 +384,57 @@ func addSignal(result *logReport, max int, severity, kind, message string, count
 		}
 		return
 	}
-	item := signal{Severity: severity, Kind: kind, Message: message, Count: count}
-	if len(result.Signals) < max {
-		result.Signals = append(result.Signals, item)
+	result.Signals = append(result.Signals, signal{Severity: severity, Kind: kind, Message: message, Count: count})
+}
+
+func severityRank(severity string) int {
+	switch severity {
+	case "ERROR", "FATAL":
+		return 2
+	case "WARN":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// effectiveCount reads a signal's occurrence weight; Count 0 means the signal
+// fired once.
+func effectiveCount(s signal) int {
+	return max(s.Count, 1)
+}
+
+// finalizeSignals ranks collected signals by severity then occurrence count
+// (stable on arrival order for ties), keeps the top max, and rolls everything
+// cut into the bounded per-severity/kind suppressed summary.
+func finalizeSignals(result *logReport, max int) {
+	slices.SortStableFunc(result.Signals, func(a, b signal) int {
+		if d := severityRank(b.Severity) - severityRank(a.Severity); d != 0 {
+			return d
+		}
+		return effectiveCount(b) - effectiveCount(a)
+	})
+	if len(result.Signals) <= max {
 		return
 	}
-	result.SuppressedSignals++
+	dropped := result.Signals[max:]
+	result.Signals = result.Signals[:max:max]
+	index := map[string]int{}
+	for _, s := range dropped {
+		key := s.Severity + "\x00" + s.Kind
+		i, ok := index[key]
+		if !ok {
+			i = len(result.Suppressed)
+			index[key] = i
+			result.Suppressed = append(result.Suppressed, suppressedSummary{
+				Severity: s.Severity,
+				Kind:     s.Kind,
+				Sample:   s.Message,
+			})
+		}
+		result.Suppressed[i].Count += effectiveCount(s)
+		result.SuppressedSignals += effectiveCount(s)
+	}
 }
 
 func daemonBenignFamily(line string) string {
@@ -369,8 +443,8 @@ func daemonBenignFamily(line string) string {
 		return "broker_code_354"
 	case strings.Contains(line, "code=300"):
 		return "broker_code_300"
-	case strings.Contains(line, "code=2129") && strings.Contains(line, "HGENQ"):
-		return "broker_code_2129_hgenq"
+	case strings.Contains(line, "code=2129"):
+		return "broker_code_2129_indicative"
 	case strings.Contains(line, "code=200") && strings.Contains(line, "No security definition has been found"):
 		return "broker_code_200_no_definition"
 	case strings.Contains(line, "code=366") && strings.Contains(line, "No historical data query found"):
@@ -476,6 +550,8 @@ func safeMessage(line string) string {
 	message = accountPattern.ReplaceAllString(message, "[account]")
 	message = sensitiveField.ReplaceAllString(message, "$1=[redacted]")
 	message = symbolPhrase.ReplaceAllString(message, "for [symbol] via")
+	message = addrPattern.ReplaceAllString(message, "[addr]")
+	message = inlineTimestamp.ReplaceAllString(message, "[time]")
 	message = spacePattern.ReplaceAllString(strings.TrimSpace(message), " ")
 	if len(message) > 240 {
 		message = message[:240] + "…"
