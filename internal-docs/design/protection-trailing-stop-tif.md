@@ -1,6 +1,6 @@
 # Policy-driven TIF for protective trailing stops
 
-Updated: 2026-06-10 11:54 CEST
+Updated: 2026-08-12
 Status: implemented
 
 Contract per `.agents/docs/daemon-cli-trading-contract.md`.
@@ -27,6 +27,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback / unavailable |
 |---|---|---|---|---|
 | Bucket TIF | protection-policy TOML | `protectionTrailPolicy.TIF`, resolved via `effectiveTIF()` | proposal `tif` + Details line; CLI/SPA render | unset → DAY (pre-tif files unchanged, fingerprint-stable via `json:",omitempty"`) |
+| Directional-option profit-trail TIF | protection-policy TOML | `protectionTrailOptionPolicy.TIF` | typed option-exit proposal + CLI/SPA | V1 requires DAY; parent stock/ETF GTC never flows into an option exit |
 | TIF on a draft | proposal generation / preview params | `rpc.TradeProposal.TIF`, `rpc.OrderDraft.TIF` | `canary proposals`, `canary orders`, SPA | empty journal/proposal TIF → DAY |
 | GTC-implies-trail rule | daemon preview validator + proto wire validator | `errBadRequest` / `unsupportedPlaceOrderProtoValue` | preview errors | LMT and modify paths stay DAY-only |
 | Stale GTC row closure | broker error 135 on a write | `OrderLifecycleInactive` via `brokerErrorProvesOrderGone` | `canary orders`, order status | without a 135 reply the row stays open (see residual risks) |
@@ -69,9 +70,12 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
   quantity-aware: a standing GTC stop for a smaller quantity blocks
   re-protection after the position grows. With DAY this self-resolved at the
   session close; with GTC, cancel + re-propose.
-- A GTC premium trail on a long option will eventually execute from theta
-  decay alone; the proposal Details say so. Option trails stay disabled by
-  default.
+- Directional-option profit trails no longer inherit the parent bucket's GTC
+  value. V1 requires option `tif = "DAY"`, precisely so theta decay cannot leave
+  a persistent premium trail working across sessions. A DAY trail can still
+  trigger from same-session theta or volatility changes; the exact-contract
+  profit-arm and locked-gain checks bound when it is offered, not why it later
+  triggers.
 
 ## Before/After artifact
 

@@ -496,6 +496,9 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 		if posLine := formatProposalPositionLine(env, &p); posLine != "" {
 			fmt.Fprintf(out, "      Position   %s\n", posLine)
 		}
+		if optionExit := formatProposalOptionExit(p.OptionExit); optionExit != "" {
+			fmt.Fprintf(out, "      Option exit: %s\n", optionExit)
+		}
 		if sizing := formatProposalTrailSizing(p.TrailSizing); sizing != "" {
 			fmt.Fprintf(out, "      Trail sizing: %s\n", sizing)
 		}
@@ -520,6 +523,19 @@ func formatProposalTrailSizing(sizing *rpc.TradeProposalTrailSizing) string {
 	if sizing.PolicyMinPct > 0 && sizing.PolicyMaxPct > 0 {
 		rangeText = fmt.Sprintf("dynamic range %.1f-%.1f%%, ", sizing.PolicyMinPct, sizing.PolicyMaxPct)
 	}
+	if strings.EqualFold(strings.TrimSpace(sizing.Method), "option-profit-lock-v1") {
+		source := strings.TrimSpace(sizing.SelectedBy)
+		if source == "" || source == "policy_default" {
+			source = "policy"
+		} else {
+			source = strings.ReplaceAll(source, "_", " ")
+		}
+		rangeText = ""
+		if sizing.PolicyMinPct > 0 && sizing.PolicyMaxPct > 0 {
+			rangeText = fmt.Sprintf("; policy bounds %.1f-%.1f%%", sizing.PolicyMinPct, sizing.PolicyMaxPct)
+		}
+		return fmt.Sprintf("native %.1f%% premium trail selected by %s%s", chosen, source, rangeText)
+	}
 	if sizing.Fallback {
 		fallback := sizing.PolicyFallbackPct
 		if fallback <= 0 {
@@ -536,6 +552,39 @@ func formatProposalTrailSizing(sizing *rpc.TradeProposalTrailSizing) string {
 		suffix = fmt.Sprintf(", capped at %.1f%%", sizing.PolicyMaxPct)
 	}
 	return fmt.Sprintf("%schosen %.1f%% by %s%s", rangeText, chosen, source, suffix)
+}
+
+func formatProposalOptionExit(exit *rpc.TradeProposalOptionExit) string {
+	if exit == nil {
+		return ""
+	}
+	var parts []string
+	if exit.ReturnPct != nil {
+		parts = append(parts, fmt.Sprintf("premium %+.1f%% vs cost", *exit.ReturnPct))
+	}
+	switch exit.Kind {
+	case "loss_exit":
+		if exit.LossExitPct > 0 {
+			parts = append(parts, fmt.Sprintf("full-close line -%.1f%%", exit.LossExitPct))
+		}
+		parts = append(parts, "event-driven DAY patient midpoint limit; may remain unfilled; no resting loss stop")
+	case "profit_trail":
+		if exit.ProfitArmGainPct > 0 {
+			parts = append(parts, fmt.Sprintf("armed at +%.1f%%", exit.ProfitArmGainPct))
+		}
+		if exit.InitialLockedGainPct != nil {
+			parts = append(parts, fmt.Sprintf("initial lock %+.1f%%", *exit.InitialLockedGainPct))
+		} else if exit.LockedGainPct > 0 {
+			parts = append(parts, fmt.Sprintf("minimum initial lock +%.1f%%", exit.LockedGainPct))
+		}
+		parts = append(parts, "DAY TRAIL LIMIT")
+	case "review":
+		parts = append(parts, "exact-contract exit evidence unavailable; blocked")
+	}
+	if exit.DTE >= 0 {
+		parts = append(parts, fmt.Sprintf("%d DTE", exit.DTE))
+	}
+	return strings.Join(parts, " · ")
 }
 
 func renderProposalPreviewText(env *Env, res *rpc.TradeProposalPreviewResult) {

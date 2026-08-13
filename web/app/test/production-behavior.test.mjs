@@ -135,6 +135,13 @@ test("embedded app asset graph pins disk, go:embed, and static imports with nega
   assert.throws(() => validateEmbeddedAppAssetGraph({ diskNames, embeddedNames, sources: unreachable }), /app\.js static import graph mismatch/);
 });
 
+test("header market selector keeps the compact US options label and fixed narrow control", async () => {
+	const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+	const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+	assert.match(html, /<option value="us-options">US opt\.<\/option>/);
+	assert.match(css, /\.market-strip__selector select\s*\{[^}]*width:\s*50px;[^}]*max-width:\s*50px;/s);
+});
+
 test("TestAppJSTradingStateUsesSnapshotCanWrite replacement exercises typed write and freeze-aware cancel gates", () => {
   reset();
   assert.equal(settings.tradingStatusSettingsLabel({}, { can_write: true }), "Write ready");
@@ -387,6 +394,49 @@ test("unconfirmed red market clusters render as provisional amber", () => {
   state.regimeDetailOpen = false;
 });
 
+test("Monitor summaries distinguish alert findings, monitor-only findings, and data gaps", () => {
+  reset();
+  const rules = {
+    rules: [
+      { mode: "alert", status: "act" },
+      { mode: "alert", status: "watch" },
+      { mode: "track", status: "act" },
+      { mode: "track", status: "watch" },
+      { mode: "track", status: "info" },
+      { mode: "track", status: "unknown" },
+      { mode: "off", status: "act" },
+    ],
+  };
+  assert.equal(stress.rulesTileFigure(rules), "2 alert-mode findings · 3 monitor-only · 1 data gap");
+  const nonAlertRules = { rules: rules.rules.slice(2) };
+  stress.renderRulesTileState(nonAlertRules, nonAlertRules.rules.map((_, index) => index));
+  assert.equal(dom.element("stressRulesState").textContent, "Data gaps");
+  assert.doesNotMatch(dom.element("stressRulesState").title, /every evaluated rule passes/i);
+  assert.equal(dom.element("stressRulesInfoDot").hidden, false);
+});
+
+test("healthy lamp-test line hides and a served source fault reveals it", () => {
+  reset();
+  const snap = { updated_at: "2026-08-12T05:00:00Z", regime: { source_health: [{ source: "gamma", status: "ok" }] } };
+  stress.renderLampTest(snap, { source_health: [{ source: "positions", status: "ok" }] });
+  assert.equal(dom.element("lampTest").hidden, true);
+
+  snap.regime.source_health[0].status = "stale";
+  stress.renderLampTest(snap, { source_health: [{ source: "positions", status: "ok" }] });
+  assert.equal(dom.element("lampTest").hidden, false);
+  assert.match(dom.element("lampTestStamp").textContent, /gamma.*stale/i);
+});
+
+test("Protection tile never presents zero actionable theta as portfolio theta", () => {
+  reset();
+  protection.renderProtectionTile({ counts: { actionable: 0 } }, [], { value: 0, currency: "EUR", title: "No theta-hygiene action is above policy threshold." });
+  assert.equal(dom.element("protectionTileCounts").textContent, "0 actions");
+  assert.doesNotMatch(dom.element("protectionTileCounts").textContent, /theta/i);
+
+  protection.renderProtectionTile({ counts: { actionable: 1 } }, [{}], { value: 12, currency: "EUR" });
+  assert.match(dom.element("protectionTileCounts").textContent, /theta action/i);
+});
+
 test("leaving Alerts for alert evidence cancels acknowledgement without a false error", async () => {
   reset();
   const now = "2026-08-09T12:00:00Z";
@@ -422,6 +472,43 @@ test("leaving Alerts for alert evidence cancels acknowledgement without a false 
   releaseAttention();
   assert.equal(await pending, false);
   assert.deepEqual(state.attentionStatus, { state: "", error: false });
+});
+
+test("Alerts recovery status explains retained truth and automatic retry", async () => {
+	reset();
+	globalThis.fetch = async () => response({ error: "synthetic unavailable" }, 503);
+	assert.equal(await alertInbox.refreshAlerts(), false);
+	assert.match(state.attentionStatus.state, /last verified list/i);
+	assert.match(state.attentionStatus.state, /retry automatically/i);
+
+	state.activeTab = "alerts";
+	dom.element("alertsTab").hidden = false;
+	state.attentionStatus = { state: "", error: false };
+	assert.equal(await alertInbox.acknowledgeAttention({ retry: false }), false);
+	assert.match(state.attentionStatus.state, /remain unread/i);
+	assert.match(state.attentionStatus.state, /retry automatically/i);
+});
+
+test("Open Orders shows check age and refreshes from the typed read surface", async () => {
+	reset();
+	const originalNow = Date.now;
+	try {
+		Date.now = () => Date.parse("2026-08-13T12:20:00Z");
+		state.ordersOpen = { as_of: "2026-08-13T12:00:00Z", orders: [] };
+		orders.renderOpenOrders();
+		assert.equal(dom.element("ordersAsOf").textContent, "checked 20m ago");
+		assert.equal(dom.element("ordersAsOf").classList.contains("stale"), true);
+
+		globalThis.fetch = async (url) => {
+			assert.equal(String(url), "/api/orders/open");
+			return response({ as_of: "2026-08-13T12:20:00Z", orders: [] });
+		};
+		assert.equal(await orders.refreshOpenOrders(), true);
+		assert.equal(dom.element("ordersAsOf").textContent, "checked now");
+		assert.equal(dom.element("ordersAsOf").classList.contains("stale"), false);
+	} finally {
+		Date.now = originalNow;
+	}
 });
 
 test("option exercise renders blockers, stale previews, explicit confirmation, and exact-once submit", async () => {
@@ -657,6 +744,38 @@ test("uncovered coverage rows stage a stop request that flows into the existing 
   assert.equal(note.blocked, false);
   assert.match(note.text, /Preview stop/);
   assert.match(note.text, /prior ignore cleared/);
+});
+
+test("option exits render the approved loss and profit-trail semantics without calling them coverage", () => {
+  reset();
+  const loss = {
+    bucket: "option_loss_exit", action: "SELL", tif: "DAY",
+    option_exit: { kind: "loss_exit", return_pct: -62, loss_exit_pct: 60, dte: 31 },
+  };
+  assert.equal(protection.protectionBucketLabel(loss), "Option loss exit");
+  assert.equal(protection.protectionSideLabel(loss), "Sell to close");
+  assert.equal(protection.protectionSubmitLabel(loss), "Preview exit");
+  assert.equal(protection.protectionFinalSubmitLabel(loss), "Submit exit");
+  assert.match(protection.protectionMetricText(loss), /premium −62\.0% · exit line −60\.0% · 31 DTE · DAY limit close/);
+  assert.match(protection.protectionActionTitle(loss), /may remain unfilled while the loss worsens/i);
+
+	const review = { bucket: "option_exit_review", option_exit: { kind: "review", dte: 31 } };
+	assert.equal(protection.protectionBucketLabel(review), "Option exit review");
+	assert.match(protection.protectionMetricText(review), /exact-contract evidence unavailable · 31 DTE · blocked/);
+
+  const profit = {
+    bucket: "trailing_stop", action: "SELL", tif: "DAY", sec_type: "OPT",
+    option_exit: { kind: "profit_trail", return_pct: 55, profit_arm_gain_pct: 50, locked_gain_pct: 5, initial_locked_gain_pct: 7, dte: 31 },
+		trail: { trailing_percent: 30, initial_stop_price: 1.1, limit_offset: 0.05 },
+    trail_sizing: { chosen_pct: 30, selected_by: "policy_default" },
+  };
+  assert.equal(protection.protectionBucketLabel(profit), "Option profit trail");
+  assert.equal(protection.protectionSideLabel(profit), "Sell profit trail");
+  assert.equal(protection.protectionSubmitLabel(profit), "Preview trail");
+  assert.equal(protection.protectionFinalSubmitLabel(profit), "Submit trail");
+  assert.match(protection.protectionMetricText(profit), /premium \+55\.0% · armed at \+50\.0% · initial lock \+7\.0% · 31 DTE/);
+	assert.match(protection.protectionMetricText(profit), /native 30\.0% premium trail/);
+  assert.match(protection.protectionActionTitle(profit), /DAY TRAIL LIMIT close for the full exact-contract position/i);
 });
 
 test("TestAppJSMoneyFormattersNeverDefaultToUSD replacement preserves unknown, base, and contract currency semantics", () => {

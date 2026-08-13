@@ -351,6 +351,7 @@ function renderFreshnessTimestamp(target, value, options = {}) {
   const staleMinutes = typeof options.staleMinutes === "number" ? options.staleMinutes : 15;
   const stale = ageMinutes >= staleMinutes;
   const absolute = shortTime(at.toISOString());
+  const relativeLabel = String(options.relativeLabel || "").trim();
   // Monitor panel heads run quiet: freshness is the expected state, so only
   if (options.quietWhenFresh) {
     el.hidden = !stale;
@@ -361,7 +362,10 @@ function renderFreshnessTimestamp(target, value, options = {}) {
       return;
     }
   }
-  if (ageMinutes < 1) {
+  if (relativeLabel) {
+    const age = ageMinutes < 1 ? "now" : ageLabel(ageMinutes).replace(/ old$/, " ago");
+    el.textContent = `${relativeLabel} ${age}`;
+  } else if (ageMinutes < 1) {
     // Fresh: "HH:MM · now" restates itself; keep the clock time in the title.
     el.textContent = options.compact ? "now" : "updated now";
   } else {

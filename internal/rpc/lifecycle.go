@@ -875,7 +875,7 @@ func regimeLifecycleInputVerdict(r RegimeSnapshotResult) regimeLifecycleInputs {
 		for _, name := range item.DegradedClusters {
 			// A cluster degraded only by its own publication cadence, while its
 			// fails closed.
-			if regimeClusterCadenceOnlyDegraded(r, name) {
+			if RegimeClusterCadenceOnlyDegraded(r, name) {
 				continue
 			}
 			mark(defects, name)
@@ -964,12 +964,14 @@ func regimeClusterKnown(name string) bool {
 	return slices.Contains(RegimeClusterNames, name)
 }
 
-// regimeClusterCadenceOnlyDegraded reports a degraded cluster whose only
+// RegimeClusterCadenceOnlyDegraded reports a degraded cluster whose only
 // blocker is its own publication cadence while its currency is a scheduled
 // state. Gamma at the options open is the case this exists for: a
 // current-session compute is in flight, so the served prior-session result is
 // rankability-blocked on session mismatch alone.
-func regimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool {
+// Consumers may keep the last band visible as non-confirming context, but
+// must not treat it as current evidence.
+func RegimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if _, scheduled := RegimeClusterScheduledContext(r, name); !scheduled {
 		return false

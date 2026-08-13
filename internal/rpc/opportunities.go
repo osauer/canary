@@ -305,9 +305,11 @@ const (
 	// snapshot schema. Persisted snapshots without concrete scope fail closed.
 	TradeProposalSnapshotSchemaVersion = "trade-proposal-snapshot-v2"
 
-	TradeProposalBucketThetaHygiene  = "theta_hygiene"
-	TradeProposalBucketRiskReduction = "risk_reduction"
-	TradeProposalBucketTrailingStop  = "trailing_stop"
+	TradeProposalBucketThetaHygiene     = "theta_hygiene"
+	TradeProposalBucketRiskReduction    = "risk_reduction"
+	TradeProposalBucketTrailingStop     = "trailing_stop"
+	TradeProposalBucketOptionLossExit   = "option_loss_exit"
+	TradeProposalBucketOptionExitReview = "option_exit_review"
 
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
@@ -350,6 +352,7 @@ type AutoTradeStatus struct {
 type TradeProposalSourceFingerprints struct {
 	Account      *Fingerprint `json:"account,omitempty"`
 	Positions    *Fingerprint `json:"positions,omitempty"`
+	Rulebook     *Fingerprint `json:"rulebook,omitempty"`
 	Regime       *Fingerprint `json:"regime,omitempty"`
 	MarketEvents *Fingerprint `json:"market_events,omitempty"`
 }
@@ -383,6 +386,8 @@ type TradeProposalCounts struct {
 	ThetaHygiene                int     `json:"theta_hygiene"`
 	RiskReduction               int     `json:"risk_reduction"`
 	TrailingStop                int     `json:"trailing_stop"`
+	OptionLossExit              int     `json:"option_loss_exit"`
+	OptionExitReview            int     `json:"option_exit_review"`
 	MarketFlags                 int     `json:"market_flags,omitempty"`
 	ThetaPerDay                 float64 `json:"theta_per_day"`
 	RiskReductionExcessNotional float64 `json:"risk_reduction_excess_notional,omitempty"`
@@ -415,6 +420,7 @@ type TradeProposal struct {
 	OrderType          string                           `json:"order_type"`
 	Trail              *OrderTrailSpec                  `json:"trail,omitempty"`
 	TrailSizing        *TradeProposalTrailSizing        `json:"trail_sizing,omitempty"`
+	OptionExit         *TradeProposalOptionExit         `json:"option_exit,omitempty"`
 	ExecutionSemantics *TradeProposalExecutionSemantics `json:"execution_semantics,omitempty"`
 	StopRisk           *TradeProposalStopRisk           `json:"stop_risk,omitempty"`
 	StopLadder         []TradeProposalStopLadderStep    `json:"stop_ladder,omitempty"`
@@ -447,6 +453,31 @@ type TradeProposal struct {
 	SourceFingerprints        TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
 	Blockers                  []TradingBlocker                `json:"blockers,omitempty"`
 	CreatedAt                 time.Time                       `json:"created_at,omitzero"`
+}
+
+// TradeProposalOptionExit explains an approved exact-contract directional
+// option exit. Values are daemon-authored from cost basis and a fresh
+// executable bid; adapters render them without re-evaluating thresholds.
+type TradeProposalOptionExit struct {
+	Kind                 string   `json:"kind"`
+	Intent               string   `json:"intent"`
+	EconomicRole         string   `json:"economic_role,omitempty"`
+	DTE                  int      `json:"dte"`
+	MinDTE               int      `json:"min_dte,omitempty"`
+	CostBasisPremium     *float64 `json:"cost_basis_premium,omitempty"`
+	ReferencePrice       *float64 `json:"reference_price,omitempty"`
+	ReturnPct            *float64 `json:"return_pct,omitempty"`
+	LossExitPct          float64  `json:"loss_exit_pct,omitempty"`
+	ProfitArmGainPct     float64  `json:"profit_arm_gain_pct,omitempty"`
+	LockedGainPct        float64  `json:"locked_gain_pct,omitempty"`
+	InitialLockedGainPct *float64 `json:"initial_locked_gain_pct,omitempty"`
+	ProfitTrailPct       float64  `json:"profit_trail_pct,omitempty"`
+	MinTrailPct          float64  `json:"min_trail_pct,omitempty"`
+	MaxTrailPct          float64  `json:"max_trail_pct,omitempty"`
+	MaxSpreadPctOfMid    float64  `json:"max_spread_pct_of_mid,omitempty"`
+	MinTrailAbs          float64  `json:"min_trail_abs,omitempty"`
+	SpreadMultiple       float64  `json:"spread_multiple,omitempty"`
+	Method               string   `json:"method,omitempty"`
 }
 
 // TradeProposalTrailSizing is the daemon-owned explanation for a protective

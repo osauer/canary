@@ -61,16 +61,21 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.theta_hygiene]` | `min_extrinsic_pct_of_mark` | `float64` | MinExtrinsicPctOfMark is the materiality gate: below this percent of mark the option is intrinsic-dominated and a theta-saving close is suppressed (default 40). |
 | `[buckets.trailing_stop]` | `enabled` | `bool` | Enabled turns the trailing-stop bucket on (default true). |
 | `[buckets.trailing_stop]` | `tif` | `string` | TIF applies to every trailing-stop proposal in this bucket: DAY or GTC, empty means DAY. |
-| `[buckets.trailing_stop.options]` | `allow_short_profit_trail` | `bool` | AllowShortProfitTrail permits trailing profit stops on short option positions (default false). |
-| `[buckets.trailing_stop.options]` | `default_pct` | `float64` | DefaultPct is the standard trailing distance in percent (default 30). |
-| `[buckets.trailing_stop.options]` | `enabled` | `bool` | Enabled turns trailing-stop proposals for option positions on (default false). |
-| `[buckets.trailing_stop.options]` | `limit_offset_abs` | `float64` | LimitOffsetAbs is the absolute limit offset for the stop; required positive when order_type is TRAIL LIMIT (default 0.05). |
+| `[buckets.trailing_stop.options]` | `allow_short_profit_trail` | `bool` | AllowShortProfitTrail is retained for config compatibility but must remain false; V1 option exits are long-only. |
+| `[buckets.trailing_stop.options]` | `default_pct` | `float64` | DefaultPct is the native broker percentage-trail distance before spread, minimum-amount, and tick floors (default 30). |
+| `[buckets.trailing_stop.options]` | `directional_intents` | `[]protectionOptionDirectionalIntent` | DirectionalIntents are time-bounded exact-contract declarations; an empty set proposes no option exits. |
+| `[buckets.trailing_stop.options]` | `enabled` | `bool` | Enabled turns approved directional-option loss exits and profit trails on (default false). |
+| `[buckets.trailing_stop.options]` | `limit_offset_abs` | `float64` | LimitOffsetAbs is the explicitly configured absolute limit offset for the stop; required positive when order_type is TRAIL LIMIT (default 0.05). |
+| `[buckets.trailing_stop.options]` | `locked_gain_pct` | `float64` | LockedGainPct is the minimum gain over cost the rounded initial trail stop must retain (default 5). |
 | `[buckets.trailing_stop.options]` | `max_pct` | `float64` | MaxPct is the upper bound on the trailing distance (default 50). |
 | `[buckets.trailing_stop.options]` | `max_spread_pct_of_mid` | `float64` | MaxSpreadPctOfMid skips option quotes wider than this percent of mid (default 25). |
+| `[buckets.trailing_stop.options]` | `min_dte` | `int` | MinDTE excludes options with fewer calendar days to expiry (default 14). |
 | `[buckets.trailing_stop.options]` | `min_pct` | `float64` | MinPct is the lower bound on the trailing distance (default 20). |
 | `[buckets.trailing_stop.options]` | `min_trail_abs` | `float64` | MinTrailAbs is the minimum absolute trailing amount in dollars (default 0.10). |
-| `[buckets.trailing_stop.options]` | `order_type` | `string` | OrderType is TRAIL or TRAIL LIMIT (default TRAIL LIMIT). |
+| `[buckets.trailing_stop.options]` | `order_type` | `string` | OrderType is TRAIL LIMIT in V1; a plain TRAIL market trigger is not approved (default TRAIL LIMIT). |
+| `[buckets.trailing_stop.options]` | `profit_arm_gain_pct` | `float64` | ProfitArmGainPct arms a premium trail when the fresh executable bid is this percent above cost (default 50). |
 | `[buckets.trailing_stop.options]` | `spread_multiple` | `float64` | SpreadMultiple sizes the trailing amount as a multiple of the observed spread (default 2). |
+| `[buckets.trailing_stop.options]` | `tif` | `string` | TIF is the option profit-trail lifetime; V1 requires DAY so theta cannot trigger a persistent order (default DAY). |
 | `[buckets.trailing_stop.stock_etf]` | `default_pct` | `float64` | DefaultPct is the standard trailing distance in percent (default 8). |
 | `[buckets.trailing_stop.stock_etf]` | `enabled` | `bool` | Enabled turns trailing-stop proposals for stock/ETF positions on (default true). |
 | `[buckets.trailing_stop.stock_etf]` | `fallback_pct` | `float64` | FallbackPct is the trailing distance used when the default cannot be applied; must lie within [min_pct, max_pct] (default 10). |

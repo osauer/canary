@@ -200,16 +200,20 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 	if !cachedPositionsMatchBrokerScope(projection.Positions, scope) {
 		return orderPositionAuthority{}, fmt.Errorf("%w: portfolio evidence belongs to another account; refresh and preview again", ErrTradingDisabled)
 	}
-	before, err := exactRiskPositionQuantity(projection.Positions, contract)
+	positionEvidence, err := exactRiskPositionEvidenceForContract(projection.Positions, contract)
 	if err != nil {
 		return orderPositionAuthority{}, fmt.Errorf("%w: exact contract position evidence unavailable: %v", ErrTradingDisabled, err)
 	}
+	before := positionEvidence.Quantity
 	delta := float64(qty)
 	if strings.EqualFold(action, rpc.OrderActionSell) {
 		delta = -delta
 	}
 	authority := orderPositionAuthority{
-		Impact:     rpc.OrderPositionImpact{Before: before, After: before + delta, Effect: classifyPositionEffect(before, before+delta)},
+		Impact: rpc.OrderPositionImpact{
+			Before: before, After: before + delta, Effect: classifyPositionEffect(before, before+delta),
+			AverageCost: positionEvidence.AverageCost, Multiplier: positionEvidence.Multiplier,
+		},
 		Generation: projection.Generation, Health: projection.Health,
 		EvidenceAt: portfolioStreamEvidenceAsOf(projection.Health),
 	}
@@ -345,17 +349,28 @@ func verifyStrategyPositionProjection(positions []*ibkrlib.RawPosition, draft rp
 // but position evidence alone never grants a close/reduce exemption. Same-
 // zero IDs, duplicate rows, or conflicting secType/currency evidence fail
 func exactRiskPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) (float64, error) {
+	evidence, err := exactRiskPositionEvidenceForContract(positions, contract)
+	return evidence.Quantity, err
+}
+
+type exactRiskPositionEvidence struct {
+	Quantity    float64
+	AverageCost float64
+	Multiplier  int
+}
+
+func exactRiskPositionEvidenceForContract(positions []*ibkrlib.RawPosition, contract rpc.ContractParams) (exactRiskPositionEvidence, error) {
 	if contract.ConID <= 0 {
-		return 0, fmt.Errorf("contract ConID must be positive")
+		return exactRiskPositionEvidence{}, fmt.Errorf("contract ConID must be positive")
 	}
 	wantSecType := strings.ToUpper(strings.TrimSpace(contract.SecType))
 	wantCurrency := strings.ToUpper(strings.TrimSpace(contract.Currency))
 	if wantSecType == "" || wantCurrency == "" {
-		return 0, fmt.Errorf("contract secType and currency are required")
+		return exactRiskPositionEvidence{}, fmt.Errorf("contract secType and currency are required")
 	}
 	wantSymbol := strings.ToUpper(strings.TrimSpace(contract.Symbol))
 	matched := false
-	var quantity float64
+	var evidence exactRiskPositionEvidence
 	for _, position := range positions {
 		if position == nil || position.Position == 0 {
 			continue
@@ -364,7 +379,7 @@ func exactRiskPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.Co
 		posSymbol := strings.ToUpper(strings.TrimSpace(position.Contract.Symbol))
 		if position.Contract.ConID <= 0 {
 			if posSymbol != "" && posSymbol == wantSymbol && riskSecTypeConsistent(wantSecType, posSecType) {
-				return 0, fmt.Errorf("same-symbol portfolio row has no positive ConID")
+				return exactRiskPositionEvidence{}, fmt.Errorf("same-symbol portfolio row has no positive ConID")
 			}
 			continue
 		}
@@ -372,22 +387,28 @@ func exactRiskPositionQuantity(positions []*ibkrlib.RawPosition, contract rpc.Co
 			continue
 		}
 		if !riskSecTypeConsistent(wantSecType, posSecType) {
-			return 0, fmt.Errorf("ConID %d has conflicting secType %q", contract.ConID, position.Contract.SecType)
+			return exactRiskPositionEvidence{}, fmt.Errorf("ConID %d has conflicting secType %q", contract.ConID, position.Contract.SecType)
 		}
 		posCurrency := strings.ToUpper(strings.TrimSpace(position.Contract.Currency))
 		if posCurrency == "" || posCurrency != wantCurrency {
-			return 0, fmt.Errorf("ConID %d has conflicting currency %q", contract.ConID, position.Contract.Currency)
+			return exactRiskPositionEvidence{}, fmt.Errorf("ConID %d has conflicting currency %q", contract.ConID, position.Contract.Currency)
 		}
 		if wantSymbol != "" && posSymbol != "" && posSymbol != wantSymbol {
-			return 0, fmt.Errorf("ConID %d has conflicting symbol %q", contract.ConID, position.Contract.Symbol)
+			return exactRiskPositionEvidence{}, fmt.Errorf("ConID %d has conflicting symbol %q", contract.ConID, position.Contract.Symbol)
 		}
 		if matched {
-			return 0, fmt.Errorf("ConID %d appears in duplicate portfolio rows", contract.ConID)
+			return exactRiskPositionEvidence{}, fmt.Errorf("ConID %d appears in duplicate portfolio rows", contract.ConID)
 		}
 		matched = true
-		quantity = position.Position
+		if math.IsNaN(position.AverageCost) || math.IsInf(position.AverageCost, 0) {
+			return exactRiskPositionEvidence{}, fmt.Errorf("ConID %d has non-finite average cost", contract.ConID)
+		}
+		evidence = exactRiskPositionEvidence{Quantity: position.Position, AverageCost: position.AverageCost, Multiplier: position.Contract.Multiplier}
 	}
-	return quantity, nil
+	if !matched {
+		return exactRiskPositionEvidence{Quantity: 0}, nil
+	}
+	return evidence, nil
 }
 
 func riskSecTypeConsistent(want, got string) bool {

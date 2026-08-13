@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -104,11 +106,21 @@ type protectionTrailAssetPolicy struct {
 }
 
 type protectionTrailOptionPolicy struct {
-	// Enabled turns trailing-stop proposals for option positions on (default false).
+	// Enabled turns approved directional-option loss exits and profit trails on (default false).
 	Enabled bool `toml:"enabled" json:"enabled"`
-	// OrderType is TRAIL or TRAIL LIMIT (default TRAIL LIMIT).
+	// DirectionalIntents are time-bounded exact-contract declarations; an empty set proposes no option exits.
+	DirectionalIntents []protectionOptionDirectionalIntent `toml:"directional_intents" json:"directional_intents,omitempty"`
+	// MinDTE excludes options with fewer calendar days to expiry (default 14).
+	MinDTE int `toml:"min_dte" json:"min_dte"`
+	// ProfitArmGainPct arms a premium trail when the fresh executable bid is this percent above cost (default 50).
+	ProfitArmGainPct float64 `toml:"profit_arm_gain_pct" json:"profit_arm_gain_pct"`
+	// LockedGainPct is the minimum gain over cost the rounded initial trail stop must retain (default 5).
+	LockedGainPct float64 `toml:"locked_gain_pct" json:"locked_gain_pct"`
+	// TIF is the option profit-trail lifetime; V1 requires DAY so theta cannot trigger a persistent order (default DAY).
+	TIF string `toml:"tif" json:"tif,omitempty"`
+	// OrderType is TRAIL LIMIT in V1; a plain TRAIL market trigger is not approved (default TRAIL LIMIT).
 	OrderType string `toml:"order_type" json:"order_type"`
-	// DefaultPct is the standard trailing distance in percent (default 30).
+	// DefaultPct is the native broker percentage-trail distance before spread, minimum-amount, and tick floors (default 30).
 	DefaultPct float64 `toml:"default_pct" json:"default_pct"`
 	// MinPct is the lower bound on the trailing distance (default 20).
 	MinPct float64 `toml:"min_pct" json:"min_pct"`
@@ -120,10 +132,23 @@ type protectionTrailOptionPolicy struct {
 	MinTrailAbs float64 `toml:"min_trail_abs" json:"min_trail_abs"`
 	// SpreadMultiple sizes the trailing amount as a multiple of the observed spread (default 2).
 	SpreadMultiple float64 `toml:"spread_multiple" json:"spread_multiple"`
-	// LimitOffsetAbs is the absolute limit offset for the stop; required positive when order_type is TRAIL LIMIT (default 0.05).
+	// LimitOffsetAbs is the explicitly configured absolute limit offset for the stop; required positive when order_type is TRAIL LIMIT (default 0.05).
 	LimitOffsetAbs float64 `toml:"limit_offset_abs" json:"limit_offset_abs,omitempty"`
-	// AllowShortProfitTrail permits trailing profit stops on short option positions (default false).
+	// limitOffsetExplicit records TOML presence without entering the semantic
+	// fingerprint. Enabled option exits may not inherit the dormant default.
+	limitOffsetExplicit bool
+	// AllowShortProfitTrail is retained for config compatibility but must remain false; V1 option exits are long-only.
 	AllowShortProfitTrail bool `toml:"allow_short_profit_trail" json:"allow_short_profit_trail"`
+}
+
+// protectionOptionDirectionalIntent records an operator's exact-contract
+// classification without turning it into permanent symbol-shape inference.
+// Expiry is chosen per declaration; the daemon never auto-renews intent.
+type protectionOptionDirectionalIntent struct {
+	ConID      int       `toml:"con_id" json:"con_id"`
+	Reason     string    `toml:"reason" json:"reason"`
+	ApprovedAt time.Time `toml:"approved_at" json:"approved_at"`
+	ExpiresAt  time.Time `toml:"expires_at" json:"expires_at"`
 }
 
 type protectionPolicyManager struct {
@@ -322,6 +347,10 @@ func defaultProtectionPolicy() protectionPolicy {
 				},
 				Options: protectionTrailOptionPolicy{
 					Enabled:               false,
+					MinDTE:                14,
+					ProfitArmGainPct:      50.0,
+					LockedGainPct:         5.0,
+					TIF:                   rpc.OrderTIFDay,
 					OrderType:             rpc.OrderTypeTRAILLIMIT,
 					DefaultPct:            30.0,
 					MinPct:                20.0,
@@ -372,6 +401,46 @@ func applyProtectionPolicyDefaults(p *protectionPolicy, md *toml.MetaData) {
 	}
 	if md != nil && md.IsDefined("buckets", "trailing_stop") && !md.IsDefined("buckets", "trailing_stop", "options") {
 		p.Buckets.TrailingStop.Options = defaults.Buckets.TrailingStop.Options
+		return
+	}
+	optionDefaults := defaults.Buckets.TrailingStop.Options
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "min_dte") {
+		p.Buckets.TrailingStop.Options.MinDTE = optionDefaults.MinDTE
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "profit_arm_gain_pct") {
+		p.Buckets.TrailingStop.Options.ProfitArmGainPct = optionDefaults.ProfitArmGainPct
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "locked_gain_pct") {
+		p.Buckets.TrailingStop.Options.LockedGainPct = optionDefaults.LockedGainPct
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "tif") {
+		p.Buckets.TrailingStop.Options.TIF = optionDefaults.TIF
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "order_type") {
+		p.Buckets.TrailingStop.Options.OrderType = optionDefaults.OrderType
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "default_pct") {
+		p.Buckets.TrailingStop.Options.DefaultPct = optionDefaults.DefaultPct
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "min_pct") {
+		p.Buckets.TrailingStop.Options.MinPct = optionDefaults.MinPct
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "max_pct") {
+		p.Buckets.TrailingStop.Options.MaxPct = optionDefaults.MaxPct
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "max_spread_pct_of_mid") {
+		p.Buckets.TrailingStop.Options.MaxSpreadPctOfMid = optionDefaults.MaxSpreadPctOfMid
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "min_trail_abs") {
+		p.Buckets.TrailingStop.Options.MinTrailAbs = optionDefaults.MinTrailAbs
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "spread_multiple") {
+		p.Buckets.TrailingStop.Options.SpreadMultiple = optionDefaults.SpreadMultiple
+	}
+	if md == nil || !md.IsDefined("buckets", "trailing_stop", "options", "limit_offset_abs") {
+		p.Buckets.TrailingStop.Options.LimitOffsetAbs = optionDefaults.LimitOffsetAbs
+	} else {
+		p.Buckets.TrailingStop.Options.limitOffsetExplicit = true
 	}
 }
 
@@ -425,9 +494,12 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		if err := validateTrailAssetPolicy("trailing_stop.stock_etf", p.Buckets.TrailingStop.StockETF); err != nil {
 			return err
 		}
-		if err := validateTrailOptionPolicy("trailing_stop.options", p.Buckets.TrailingStop.Options); err != nil {
-			return err
-		}
+	}
+	// Option-exit numeric and execution fields are validated even while the
+	// feature is disabled, so NaN/Inf or an unsafe order shape cannot sit
+	// dormant and later become active after only an enabled/version flip.
+	if err := validateTrailOptionPolicy("trailing_stop.options", p.Buckets.TrailingStop.Options); err != nil {
+		return err
 	}
 	return nil
 }
@@ -455,28 +527,77 @@ func validateTrailAssetPolicy(prefix string, p protectionTrailAssetPolicy) error
 }
 
 func validateTrailOptionPolicy(prefix string, p protectionTrailOptionPolicy) error {
-	if !p.Enabled {
-		return nil
+	if p.Enabled && !p.limitOffsetExplicit {
+		return fmt.Errorf("%s.limit_offset_abs must be explicitly set before option exits can be enabled", prefix)
 	}
-	if !supportedTrailOrderType(p.OrderType) {
-		return fmt.Errorf("%s.order_type must be TRAIL or TRAIL LIMIT", prefix)
+	if !sort.SliceIsSorted(p.DirectionalIntents, func(i, j int) bool {
+		return p.DirectionalIntents[i].ConID < p.DirectionalIntents[j].ConID
+	}) {
+		return fmt.Errorf("%s.directional_intents must be sorted by con_id ascending", prefix)
 	}
-	if p.DefaultPct <= 0 || p.MinPct <= 0 || p.MaxPct <= 0 || p.MinPct > p.DefaultPct || p.DefaultPct > p.MaxPct {
+	for i, intent := range p.DirectionalIntents {
+		if intent.ConID <= 0 {
+			return fmt.Errorf("%s.directional_intents must contain only positive exact contract ids", prefix)
+		}
+		if i > 0 && intent.ConID == p.DirectionalIntents[i-1].ConID {
+			return fmt.Errorf("%s.directional_intents must not contain duplicate con_id values", prefix)
+		}
+		if strings.TrimSpace(intent.Reason) == "" {
+			return fmt.Errorf("%s.directional_intents reason is required", prefix)
+		}
+		if intent.ApprovedAt.IsZero() || intent.ExpiresAt.IsZero() || !intent.ExpiresAt.After(intent.ApprovedAt) {
+			return fmt.Errorf("%s.directional_intents require approved_at and a later expires_at", prefix)
+		}
+	}
+	if p.MinDTE <= 0 {
+		return fmt.Errorf("%s.min_dte must be positive", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(p.ProfitArmGainPct) || p.ProfitArmGainPct <= 0 {
+		return fmt.Errorf("%s.profit_arm_gain_pct must be positive", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(p.LockedGainPct) || p.LockedGainPct < 0 {
+		return fmt.Errorf("%s.locked_gain_pct must not be negative", prefix)
+	}
+	if tif := strings.ToUpper(strings.TrimSpace(p.TIF)); tif != "" && tif != rpc.OrderTIFDay {
+		return fmt.Errorf("%s.tif must be DAY in V1", prefix)
+	}
+	if p.AllowShortProfitTrail {
+		return fmt.Errorf("%s.allow_short_profit_trail must be false in long-only V1", prefix)
+	}
+	if !strings.EqualFold(strings.TrimSpace(p.OrderType), rpc.OrderTypeTRAILLIMIT) {
+		return fmt.Errorf("%s.order_type must be TRAIL LIMIT in V1", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(p.DefaultPct) || !finiteProtectionOptionPolicyValue(p.MinPct) ||
+		!finiteProtectionOptionPolicyValue(p.MaxPct) || p.DefaultPct <= 0 || p.MinPct <= 0 || p.MaxPct <= 0 ||
+		p.MinPct > p.DefaultPct || p.DefaultPct > p.MaxPct {
 		return fmt.Errorf("%s percent bounds must satisfy 0 < min_pct <= default_pct <= max_pct", prefix)
 	}
-	if p.MaxSpreadPctOfMid <= 0 {
+	if !finiteProtectionOptionPolicyValue(p.MaxSpreadPctOfMid) || p.MaxSpreadPctOfMid <= 0 {
 		return fmt.Errorf("%s.max_spread_pct_of_mid must be positive", prefix)
 	}
-	if p.MinTrailAbs <= 0 {
+	if !finiteProtectionOptionPolicyValue(p.MinTrailAbs) || p.MinTrailAbs <= 0 {
 		return fmt.Errorf("%s.min_trail_abs must be positive", prefix)
 	}
-	if p.SpreadMultiple <= 0 {
+	if !finiteProtectionOptionPolicyValue(p.SpreadMultiple) || p.SpreadMultiple <= 0 {
 		return fmt.Errorf("%s.spread_multiple must be positive", prefix)
 	}
-	if strings.EqualFold(p.OrderType, rpc.OrderTypeTRAILLIMIT) && p.LimitOffsetAbs <= 0 {
+	if strings.EqualFold(p.OrderType, rpc.OrderTypeTRAILLIMIT) &&
+		(!finiteProtectionOptionPolicyValue(p.LimitOffsetAbs) || p.LimitOffsetAbs <= 0) {
 		return fmt.Errorf("%s.limit_offset_abs must be positive for TRAIL LIMIT", prefix)
 	}
+	baseLockedGain := (1+p.ProfitArmGainPct/100)*(1-p.DefaultPct/100)*100 - 100
+	if baseLockedGain+1e-9 < p.LockedGainPct {
+		return fmt.Errorf("%s profit_arm_gain_pct/default_pct combination locks %.2f%% before floors, below locked_gain_pct %.2f%%", prefix, baseLockedGain, p.LockedGainPct)
+	}
 	return nil
+}
+
+func finiteProtectionOptionPolicyValue(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func (p protectionTrailOptionPolicy) effectiveTIF() string {
+	return rpc.OrderTIFDay
 }
 
 // effectiveTIF resolves the bucket TIF for proposal generation: GTC when

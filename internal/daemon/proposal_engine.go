@@ -7,14 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -68,6 +70,7 @@ const (
 	stockTrailVolatilityDays     = 45
 	stockTrailVolatilityTimeout  = 4 * time.Second
 	stockTrailVolatilityCacheTTL = 4 * time.Hour
+	optionExitQuoteTimeout       = 4 * time.Second
 )
 
 type proposalEvent struct {
@@ -444,7 +447,9 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	}
 	accountFP := rpc.BuildAccountFingerprint(acct)
 	positionsFP := rpc.BuildPositionsFingerprint(pos, acct.NetLiquidation)
-	sources := rpc.TradeProposalSourceFingerprints{Account: &accountFP, Positions: &positionsFP}
+	rulebookPolicy := risk.DefaultRulebookPolicy()
+	rulebookFP := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: rulebookPolicy.FingerprintKey()}
+	sources := rpc.TradeProposalSourceFingerprints{Account: &accountFP, Positions: &positionsFP, Rulebook: &rulebookFP}
 	if fp, ok := e.regimeFingerprint(ctx); ok {
 		sources.Regime = &fp
 	}
@@ -593,12 +598,37 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 			}
 		}
 		if policy.Buckets.TrailingStop.Options.Enabled {
-			multiLegBySymbol := multiLegOptionSymbols(pos.Options)
+			intents := directionalOptionIntents(policy.Buckets.TrailingStop.Options)
+			strategyLegs, ambiguousStrategies := optionExitStrategyScope(pos)
+			rulebookPolicy := risk.DefaultRulebookPolicy()
 			for _, row := range pos.Options {
-				if p, ok := trailingStopOptionProposal(policy, status, row, sources, now, multiLegBySymbol[strings.ToUpper(strings.TrimSpace(row.Symbol))], e.resolveRowMinTick(row)); ok {
-					enrichProtectiveStopProposal(&p, row, acct)
-					enrichProposalPositionContext(&p, row, acct)
+				intent, declared := intents[row.ConID]
+				if !declared {
+					continue
+				}
+				exactRow := e.optionExitExactQuote(ctx, row)
+				standalone := !strategyLegs[row.ConID] && !ambiguousStrategies[strings.ToUpper(strings.TrimSpace(row.Symbol))]
+				roleAllowed, economicRole := optionExitEconomicRole(row, rulebookPolicy)
+				intentCurrent := !now.Before(intent.ApprovedAt) && now.Before(intent.ExpiresAt)
+				decision := evaluateOptionExit(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, rulebookPolicy.ExitActLossPct)
+				if decision.Action == "" && len(decision.Blockers) == 0 {
+					continue
+				}
+				minTick := 0.0
+				if decision.Action == risk.OptionExitActionProfitTrail {
+					minTick = e.resolveRowMinTick(exactRow)
+				}
+				if p, ok := optionExitProposal(policy, status, exactRow, sources, now, decision, economicRole, minTick, rulebookPolicy.ExitActLossPct); ok {
+					if p.Trail != nil {
+						p.ExecutionSemantics = buildProposalExecutionSemantics(p, "bid", decision.ReferencePrice, exactRow.PriceAt)
+					}
+					enrichProposalPositionContext(&p, exactRow, acct)
 					applyMarketEventFlagsToProposal(&p, marketEvents)
+					if decision.Action != "" {
+						for _, b := range e.duplicateProtectiveBlockers(ctx, p, pos) {
+							proposalBlock(&p, b.Code, b.Message)
+						}
+					}
 					if !e.isIgnored(scope, p.Key) {
 						out = append(out, p)
 					}
@@ -1035,72 +1065,112 @@ func firstStockTrailSizing(in []*rpc.TradeProposalTrailSizing) *rpc.TradeProposa
 	return cloneTrailSizing(in[0])
 }
 
-func trailingStopOptionProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, row rpc.PositionView, sources rpc.TradeProposalSourceFingerprints, now time.Time, multiLeg bool, minTick float64) (rpc.TradeProposal, bool) {
+func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, row rpc.PositionView, sources rpc.TradeProposalSourceFingerprints, now time.Time, decision risk.OptionExitDecision, economicRole string, minTick, lossExitPct float64) (rpc.TradeProposal, bool) {
 	if !strings.EqualFold(row.SecType, "OPTION") && !strings.EqualFold(row.SecType, "OPT") || row.Quantity == 0 {
 		return rpc.TradeProposal{}, false
 	}
 	cfg := policy.Buckets.TrailingStop.Options
-	qty := int(math.Ceil(math.Abs(row.Quantity)))
-	action := rpc.OrderActionSell
-	if row.Quantity < 0 {
-		action = rpc.OrderActionBuy
+	qty, remainder := 0, 0.0
+	if !math.IsNaN(row.Quantity) && !math.IsInf(row.Quantity, 0) {
+		qty, remainder = closeReduceQuantity(row.Quantity)
 	}
-	reference, spreadAbs, ok := optionTrailReference(row, action)
-	p := baseProposal(policy, status, sources, now, rpc.TradeProposalBucketTrailingStop, row, action, qty, rpc.OrderPositionEffectClose, fmt.Sprintf("broker-side option premium trailing stop at %.1f%%", cfg.DefaultPct))
+	bucket, reason := rpc.TradeProposalBucketOptionExitReview,
+		"directional option exit cannot be measured from current exact-contract evidence"
+	switch decision.Action {
+	case risk.OptionExitActionLoss:
+		bucket = rpc.TradeProposalBucketOptionLossExit
+		reason = fmt.Sprintf("fresh executable bid is %.1f%% below cost; Rulebook exits the full directional option at %.1f%% loss", math.Abs(decision.ReturnPct), lossExitPct)
+	case risk.OptionExitActionProfitTrail:
+		bucket = rpc.TradeProposalBucketTrailingStop
+		reason = fmt.Sprintf("directional option gained %.1f%% versus cost; profit trail armed at %.1f%%", decision.ReturnPct, cfg.ProfitArmGainPct)
+	}
+	p := baseProposal(policy, status, sources, now, bucket, row, rpc.OrderActionSell, qty, rpc.OrderPositionEffectClose, reason)
 	p.Contract.MinTick = minTick
-	p.TIF = policy.Buckets.TrailingStop.effectiveTIF()
-	applyTrailToProposal(&p, cfg.OrderType, cfg.DefaultPct, reference, action, cfg.LimitOffsetAbs)
+	p.TIF = cfg.effectiveTIF()
+	p.LimitPrice = nil
 	p.Score = math.Abs(row.MarketValue)
-	p.Details = append(p.Details, trailingStopPremiumTrailDetail(cfg.DefaultPct, p.Trail, p.Contract.Currency))
-	p.Details = append(p.Details, trailingStopTIFDetail(p.TIF, true))
-	enrichProtectiveStopProposal(&p, row, nil)
-	if row.Quantity < 0 && !cfg.AllowShortProfitTrail {
-		proposalBlock(&p, "short_option_trail_disabled", "short-option trailing stops require explicit buy-to-close profit-trail policy")
+	p.OptionExit = &rpc.TradeProposalOptionExit{
+		Kind: nonEmptyString(decision.Action, "review"), Intent: "directional", EconomicRole: economicRole,
+		DTE: optionExitDTE(row, now), MinDTE: cfg.MinDTE, LossExitPct: lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
+		LockedGainPct: cfg.LockedGainPct, ProfitTrailPct: cfg.DefaultPct, MinTrailPct: cfg.MinPct,
+		MaxTrailPct: cfg.MaxPct, MaxSpreadPctOfMid: cfg.MaxSpreadPctOfMid, MinTrailAbs: cfg.MinTrailAbs,
+		SpreadMultiple: cfg.SpreadMultiple, Method: "fresh_bid_vs_multiplier_adjusted_cost",
 	}
-	if multiLeg {
-		proposalBlock(&p, "multi_leg_option_trail_unsupported", "broker-side option trails are supported for single-leg option positions only in V1")
+	if decision.CostPremium > 0 && !math.IsNaN(decision.CostPremium) && !math.IsInf(decision.CostPremium, 0) {
+		p.OptionExit.CostBasisPremium = cloneFloat64Ptr(&decision.CostPremium)
 	}
-	if !ok {
-		proposalBlock(&p, "missing_option_bid_ask", "option trailing stop requires live two-sided option bid/ask")
+	if decision.ReferencePrice > 0 && !math.IsNaN(decision.ReferencePrice) && !math.IsInf(decision.ReferencePrice, 0) {
+		p.OptionExit.ReferencePrice = cloneFloat64Ptr(&decision.ReferencePrice)
+		p.OptionExit.ReturnPct = cloneFloat64Ptr(&decision.ReturnPct)
 	}
-	if row.Stale {
-		proposalBlock(&p, "stale_quote", "option trailing stop requires a fresh live option quote")
+	if remainder > 0 || qty <= 0 {
+		proposalBlock(&p, "whole_contract_quantity_required", "option exits require a positive whole-contract position quantity")
 	}
-	if row.SessionContext == nil || !row.SessionContext.IsOpen {
-		proposalBlock(&p, "option_rth_closed", "option trailing stop proposals require the regular option session to be open")
+	for _, code := range decision.Blockers {
+		proposalBlock(&p, code, optionExitBlockerMessage(code, cfg))
 	}
-	if row.SpreadPct != nil && *row.SpreadPct > cfg.MaxSpreadPctOfMid {
-		proposalBlock(&p, "wide_spread", fmt.Sprintf("option spread %.1f%% exceeds policy max %.1f%% of mid", *row.SpreadPct, cfg.MaxSpreadPctOfMid))
+	if decision.Action == "" {
+		proposalBlock(&p, "option_exit_measurement_unavailable", "exact-contract option exit evidence is incomplete; no threshold or order may be inferred")
+		p.LimitPrice = nil
+		return p, true
 	}
-	trailAbs := reference * cfg.DefaultPct / 100
-	if reference > 0 && trailAbs < cfg.MinTrailAbs {
-		proposalBlock(&p, "trail_too_small", fmt.Sprintf("option trail %.4f is below policy minimum %.4f", trailAbs, cfg.MinTrailAbs))
+	if decision.Action == risk.OptionExitActionLoss {
+		p.Details = append(p.Details,
+			fmt.Sprintf("rulebook_loss_exit=%.1f%% from multiplier-adjusted cost on fresh bid", lossExitPct),
+			"order=DAY patient midpoint limit; may remain unfilled; no resting loss stop and no overnight loss guarantee")
+		return p, true
 	}
-	if reference > 0 && spreadAbs > 0 && trailAbs < cfg.SpreadMultiple*spreadAbs {
-		proposalBlock(&p, "trail_inside_spread", fmt.Sprintf("option trail %.4f is below %.1fx spread %.4f", trailAbs, cfg.SpreadMultiple, spreadAbs))
+
+	trailAmount := ceilPriceToTick(decision.TrailAmount, trailMinimumTick(p.Contract, decision.ReferencePrice))
+	chosenPct := 0.0
+	if decision.ReferencePrice > 0 {
+		chosenPct = trailAmount / decision.ReferencePrice * 100
 	}
+	applyNativeTrailPercentToProposal(&p, cfg.OrderType, chosenPct, trailAmount, decision.ReferencePrice, rpc.OrderActionSell, cfg.LimitOffsetAbs)
+	initialLockPct := 0.0
+	if decision.CostPremium > 0 && p.Trail != nil {
+		initialLockPct = (p.Trail.InitialStopPrice/decision.CostPremium - 1) * 100
+		p.OptionExit.InitialLockedGainPct = cloneFloat64Ptr(&initialLockPct)
+	}
+	if p.Trail == nil || !risk.OptionExitLockedGainMet(decision.CostPremium, p.Trail.InitialStopPrice, cfg.LockedGainPct) {
+		proposalBlock(&p, "option_trail_locked_gain_not_met", fmt.Sprintf("rounded initial stop must retain at least %.1f%% over cost; wider spread/tick floors cannot weaken that invariant", cfg.LockedGainPct))
+	}
+	if !risk.OptionExitTrailPctWithinBounds(decision.ReferencePrice, trailAmount, cfg.MinPct, cfg.MaxPct) {
+		proposalBlock(&p, "option_trail_outside_policy_bounds", fmt.Sprintf("rounded premium trail must stay within the %.1f%% to %.1f%% approved range", cfg.MinPct, cfg.MaxPct))
+	}
+	p.TrailSizing = &rpc.TradeProposalTrailSizing{
+		Method: "option-profit-lock-v1", Version: "option-profit-lock-v1", SelectedBy: optionTrailSelectedBy(cfg, decision),
+		ReferencePrice: cloneFloat64Ptr(&decision.ReferencePrice), ReferenceSource: "bid", ReferenceAsOf: row.PriceAt,
+		PolicyMinPct: cfg.MinPct, PolicyDefaultPct: cfg.DefaultPct, PolicyMaxPct: cfg.MaxPct,
+		ChosenPct: chosenPct, ChosenAmount: cloneFloat64Ptr(&trailAmount), InitialStopPrice: cloneFloat64Ptr(&p.Trail.InitialStopPrice),
+		SpreadPct: cloneFloat64Ptr(&decision.SpreadPctOfMid), SpreadMultiplier: cloneFloat64Ptr(&cfg.SpreadMultiple), AsOf: now,
+	}
+	p.Details = append(p.Details,
+		trailingStopPremiumTrailDetail(chosenPct, p.Trail, p.Contract.Currency),
+		fmt.Sprintf("profit_arm=+%.1f%% locked_gain>=+%.1f%% initial=+%.1f%%", cfg.ProfitArmGainPct, cfg.LockedGainPct, initialLockPct),
+		trailingStopTIFDetail(p.TIF, true))
 	return p, true
 }
 
-func multiLegOptionSymbols(rows []rpc.PositionView) map[string]bool {
-	counts := make(map[string]int)
-	for _, row := range rows {
-		if row.Quantity == 0 {
-			continue
-		}
-		symbol := strings.ToUpper(strings.TrimSpace(row.Symbol))
-		if symbol == "" {
-			continue
-		}
-		counts[symbol]++
+// applyNativeTrailPercentToProposal sends the option profit-lock distance as
+// IBKR's broker-managed percentage trail. initialAmount is the exact-tick
+// activation distance used to seed and verify the initial stop; it is not sent
+// as a second trail field because IBKR requires amount xor percentage.
+func applyNativeTrailPercentToProposal(p *rpc.TradeProposal, orderType string, pct, initialAmount, reference float64, action string, limitOffset float64) {
+	if p == nil {
+		return
 	}
-	out := make(map[string]bool)
-	for symbol, count := range counts {
-		if count > 1 {
-			out[symbol] = true
-		}
+	p.OrderType = strings.ToUpper(strings.TrimSpace(orderType))
+	p.Trail = &rpc.OrderTrailSpec{
+		Basis:            rpc.OrderTrailBasisInstrumentPrice,
+		OffsetType:       rpc.OrderTrailOffsetPercent,
+		TrailingPercent:  cloneFloat64Ptr(&pct),
+		InitialStopPrice: trailingStopInitialPriceForContract(action, reference, initialAmount, p.Contract),
 	}
-	return out
+	if strings.EqualFold(p.OrderType, rpc.OrderTypeTRAILLIMIT) && limitOffset > 0 {
+		p.Trail.LimitOffset = cloneFloat64Ptr(&limitOffset)
+	}
+	p.LimitPrice = nil
 }
 
 func applyTrailToProposal(p *rpc.TradeProposal, orderType string, pct, reference float64, action string, limitOffset float64) {
@@ -1219,7 +1289,7 @@ func stockPositionLooksInactive(row rpc.PositionView) bool {
 }
 
 func optionTrailReference(row rpc.PositionView, action string) (reference float64, spreadAbs float64, ok bool) {
-	if row.OptionBid == nil || row.OptionAsk == nil || *row.OptionBid <= 0 || *row.OptionAsk <= *row.OptionBid {
+	if row.OptionBid == nil || row.OptionAsk == nil || *row.OptionBid <= 0 || *row.OptionAsk <= 0 || *row.OptionAsk < *row.OptionBid {
 		return 0, 0, false
 	}
 	spreadAbs = *row.OptionAsk - *row.OptionBid
@@ -1227,6 +1297,180 @@ func optionTrailReference(row rpc.PositionView, action string) (reference float6
 		return *row.OptionAsk, spreadAbs, true
 	}
 	return *row.OptionBid, spreadAbs, true
+}
+
+func directionalOptionIntents(cfg protectionTrailOptionPolicy) map[int]protectionOptionDirectionalIntent {
+	out := make(map[int]protectionOptionDirectionalIntent, len(cfg.DirectionalIntents))
+	for _, intent := range cfg.DirectionalIntents {
+		if intent.ConID > 0 {
+			out[intent.ConID] = intent
+		}
+	}
+	return out
+}
+
+// optionExitStrategyScope treats every reconstructed strategy leg as
+// non-standalone. An unresolved grouping issue blocks every option under that
+// underlying because choosing one leg could dismantle an economic strategy.
+func optionExitStrategyScope(pos *rpc.PositionsResult) (map[int]bool, map[string]bool) {
+	legs := make(map[int]bool)
+	ambiguous := make(map[string]bool)
+	if pos == nil {
+		return legs, ambiguous
+	}
+	for _, strategy := range pos.Strategies {
+		for _, leg := range strategy.Legs {
+			if leg.Contract.ConID > 0 {
+				legs[leg.Contract.ConID] = true
+			}
+		}
+	}
+	for _, issue := range pos.StrategyIssues {
+		if underlying := strings.ToUpper(strings.TrimSpace(issue.Underlying)); underlying != "" {
+			ambiguous[underlying] = true
+		}
+	}
+	return legs, ambiguous
+}
+
+// optionExitEconomicRole refuses to infer intent from a hedge-listed put's
+// product shape. Such a contract must be economically directional under the
+// current Rulebook as well as explicitly declared directional by the operator.
+func optionExitEconomicRole(row rpc.PositionView, pol risk.RulebookPolicy) (bool, string) {
+	if !pol.IsHedgeSymbol(row.Symbol) || !strings.EqualFold(strings.TrimSpace(row.Right), "P") {
+		return true, risk.IndexPutRoleDirectional
+	}
+	// The general positions Greeks cache is keyed by underlying/expiry/right/
+	// rounded strike and cannot prove SPX versus SPXW (or another exact class).
+	// Until option Greeks carry a positive-ConID receipt, every hedge-listed
+	// put remains unclassified here; a symbol-shape or shared-cache role must
+	// never authorize selling a possible hedge.
+	return false, risk.IndexPutRoleUnclassified
+}
+
+// optionExitExactQuote discards any symbol/Greeks-cache quote fields and reads
+// a new non-sharing subscription keyed by the held contract's positive ConID.
+// This keeps SPX/SPXW and other trading-class distinctions exact and carries
+// the broker tick receipt time into the decision row.
+func (e *proposalEngine) optionExitExactQuote(ctx context.Context, row rpc.PositionView) rpc.PositionView {
+	row.OptionBid = nil
+	row.OptionAsk = nil
+	row.DataType = ""
+	row.PriceAt = time.Time{}
+	row.PriceAsOf = ""
+	row.Stale = true
+	row.StaleReason = "exact option quote unavailable"
+	row.SessionContext = nil
+	if e == nil || e.server == nil || row.ConID <= 0 {
+		return row
+	}
+	authority, err := e.server.captureOrderPreviewBrokerAuthority()
+	if err != nil || authority == nil {
+		return row
+	}
+	contract := proposalContractFromPosition(row, positionWireSecType(row.SecType))
+	quote, err := e.server.previewExactSessionContractQuoteWithReady(ctx, authority, contract, optionExitQuoteTimeout, func(q *rpc.Quote) bool {
+		return q != nil && q.Bid != nil && q.Ask != nil
+	})
+	if err != nil {
+		return row
+	}
+	row.OptionBid = cloneFloat64Ptr(quote.Bid)
+	row.OptionAsk = cloneFloat64Ptr(quote.Ask)
+	row.DataType = quote.DataType
+	row.PriceAt = quote.PriceAt
+	row.PriceAsOf = quote.PriceAsOf
+	row.Stale = quote.Stale
+	row.StaleReason = quote.StaleReason
+	row.SessionContext = quote.SessionContext
+	return row
+}
+
+func evaluateOptionExit(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed bool, lossExitPct float64) risk.OptionExitDecision {
+	dte := optionExitDTE(row, now)
+	sessionOpen := optionSessionOpen(now)
+	if row.SessionContext != nil {
+		sessionOpen = row.SessionContext.IsOpen
+	}
+	in := risk.OptionExitInput{
+		ConID: row.ConID, Quantity: row.Quantity, Multiplier: row.Multiplier, AvgCost: row.AvgCost,
+		DTE: dte, DirectionalIntent: directionalIntent, Standalone: standalone, EconomicRoleAllowed: roleAllowed,
+		QuoteLive: rpc.IsLiveDataType(row.DataType), QuoteFresh: !row.Stale && !row.PriceAt.IsZero(),
+		SessionOpen: sessionOpen,
+	}
+	if row.OptionBid != nil {
+		in.Bid = *row.OptionBid
+	}
+	if row.OptionAsk != nil {
+		in.Ask = *row.OptionAsk
+	}
+	return risk.EvaluateOptionExit(in, risk.OptionExitPolicy{
+		MinDTE: cfg.MinDTE, LossExitPct: lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
+		ProfitTrailPct: cfg.DefaultPct, LockedGainPct: cfg.LockedGainPct, MinTrailPct: cfg.MinPct,
+		MaxTrailPct: cfg.MaxPct, MaxSpreadPctOfMid: cfg.MaxSpreadPctOfMid,
+		MinTrailAbs: cfg.MinTrailAbs, SpreadMultiple: cfg.SpreadMultiple,
+	})
+}
+
+func optionExitDTE(row rpc.PositionView, now time.Time) int {
+	if dte, ok := optionDTE(row.Expiry, now); ok {
+		return dte
+	}
+	return -1
+}
+
+func optionExitBlockerMessage(code string, cfg protectionTrailOptionPolicy) string {
+	switch code {
+	case "exact_contract_required":
+		return "option exits require a positive exact broker contract id"
+	case "directional_intent_required":
+		return "option exit requires explicit exact-contract directional intent"
+	case "standalone_option_required":
+		return "option belongs to or may belong to a multi-leg strategy; close it through the strategy workflow"
+	case "directional_role_not_confirmed":
+		return "current Rulebook role is protection or unknown; option exit cannot sell a possible hedge"
+	case "long_option_required":
+		return "option exit V1 supports long option positions only"
+	case "whole_contract_quantity_required":
+		return "option exits require a positive whole-contract position quantity"
+	case "option_exit_min_dte":
+		return fmt.Sprintf("option exit requires at least %d calendar DTE", cfg.MinDTE)
+	case "option_cost_basis_unavailable":
+		return "option exit requires positive multiplier-adjusted broker cost basis"
+	case "live_option_quote_required":
+		return "option exit requires live option market data"
+	case "fresh_option_quote_required":
+		return "option exit requires a fresh timestamped option quote"
+	case "option_rth_closed":
+		return "option exit proposals require the regular listed-options session to be open"
+	case "two_sided_option_quote_required":
+		return "option exit requires a positive two-sided option bid/ask"
+	case "option_spread_too_wide":
+		return fmt.Sprintf("option spread exceeds the %.1f%% of mid outer data-quality limit", cfg.MaxSpreadPctOfMid)
+	case "option_trail_outside_policy_bounds":
+		return fmt.Sprintf("computed premium trail falls outside the %.1f%% to %.1f%% policy bounds", cfg.MinPct, cfg.MaxPct)
+	case "option_trail_locked_gain_not_met":
+		return fmt.Sprintf("initial trail stop must retain at least %.1f%% over cost after spread and tick floors", cfg.LockedGainPct)
+	case "option_numeric_input_invalid":
+		return "option exit received a non-finite position, cost, or quote value and is blocked"
+	case "option_exit_policy_invalid":
+		return "option exit policy contains a non-finite numeric value and is blocked"
+	default:
+		return "option exit policy requirement is not satisfied"
+	}
+}
+
+func optionTrailSelectedBy(cfg protectionTrailOptionPolicy, decision risk.OptionExitDecision) string {
+	const eps = 1e-9
+	defaultAmount := decision.ReferencePrice * cfg.DefaultPct / 100
+	spreadFloor := cfg.SpreadMultiple * decision.SpreadAbs
+	if spreadFloor > defaultAmount+eps && spreadFloor >= cfg.MinTrailAbs-eps {
+		return "spread_floor"
+	}
+	if cfg.MinTrailAbs > defaultAmount+eps && cfg.MinTrailAbs >= spreadFloor-eps {
+		return "absolute_floor"
+	}
+	return "policy_default"
 }
 
 func proposalBlock(p *rpc.TradeProposal, code, message string) {
@@ -1255,7 +1499,11 @@ func positionWireSecType(raw string) string {
 func baseProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, bucket string, row rpc.PositionView, action string, qty int, effect string, reason string) rpc.TradeProposal {
 	secType := positionWireSecType(row.SecType)
 	contract := proposalContractFromPosition(row, secType)
-	p := rpc.TradeProposal{Key: proposalKey(bucket, contract, action), State: rpc.TradeProposalStateGenerated, Bucket: bucket, Symbol: contract.Symbol, SecType: secType, Action: action, Quantity: qty, MaxQuantity: int(math.Ceil(math.Abs(row.Quantity))), PositionQuantity: row.Quantity, PositionEffect: effect, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, Contract: contract, Reason: reason, PolicyID: policy.PolicyID, PolicyVersion: policy.PolicyVersion, PolicyFingerprint: status.Fingerprint, SourceFingerprints: sources, CreatedAt: now}
+	maxQuantity := 0
+	if !math.IsNaN(row.Quantity) && !math.IsInf(row.Quantity, 0) {
+		maxQuantity = int(math.Ceil(math.Abs(row.Quantity)))
+	}
+	p := rpc.TradeProposal{Key: proposalKey(bucket, contract, action), State: rpc.TradeProposalStateGenerated, Bucket: bucket, Symbol: contract.Symbol, SecType: secType, Action: action, Quantity: qty, MaxQuantity: maxQuantity, PositionQuantity: row.Quantity, PositionEffect: effect, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, Contract: contract, Reason: reason, PolicyID: policy.PolicyID, PolicyVersion: policy.PolicyVersion, PolicyFingerprint: status.Fingerprint, SourceFingerprints: sources, CreatedAt: now}
 	if row.Mark > 0 {
 		v := row.Mark
 		p.LimitPrice = &v
@@ -1468,7 +1716,10 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 		if prop.Key != key {
 			continue
 		}
-		if prop.Bucket != rpc.TradeProposalBucketTrailingStop {
+		// Directional-option exits depend on a current executable bid versus
+		// cost and must always re-evaluate the arm/loss/locked-gain invariants.
+		// The cached fast path remains stock/ETF protective-stop only.
+		if prop.Bucket != rpc.TradeProposalBucketTrailingStop || prop.OptionExit != nil {
 			return rpc.TradeProposal{}, nil, false
 		}
 		if len(snap.Blockers) > 0 {
@@ -1557,19 +1808,23 @@ func closeReduceQuantity(position float64) (int, float64) {
 	return qty, remainder
 }
 
-// duplicateProtectiveBlockers blocks a trailing-stop proposal when an open
+// duplicateProtectiveBlockers prevents two broker-working exits from
+// competing for the same position. Stock/ETF trails retain their stop-like
+// duplicate rule; an option loss exit or profit trail conflicts with any open
+// same-side exact-contract close order.
 func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.TradeProposal, currentPositions ...*rpc.PositionsResult) []rpc.TradingBlocker {
 	if e == nil || e.server == nil {
 		return nil
 	}
-	if p.Bucket != "" && p.Bucket != rpc.TradeProposalBucketTrailingStop {
-		return nil
-	}
-	if !isTrailOrderType(p.OrderType) {
+	optionExit := proposalIsOptionExit(p)
+	if !optionExit && (p.Bucket != "" && p.Bucket != rpc.TradeProposalBucketTrailingStop || !isTrailOrderType(p.OrderType)) {
 		return nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if optionExit {
+		return e.optionExitBrokerOrderBlockers(ctx, p, len(currentPositions) == 0)
 	}
 	var views []rpc.OrderView
 	var err error
@@ -1579,13 +1834,25 @@ func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.
 		views, _, err = e.server.loadOrderViewsReconciled(ctx)
 	}
 	if err != nil {
-		// Journal unavailability blocks the write path through the trading
-		return nil
+		return []rpc.TradingBlocker{{
+			Code: "protective_order_evidence_unavailable", Message: "current protective-order evidence is unavailable",
+			Action: "Refresh and retry after order evidence recovers.",
+		}}
 	}
 	if len(currentPositions) > 0 && currentPositions[0] != nil {
 		reconcileFlatPositionProtectiveOrders(views, currentPositions[0], e.clock())
 	}
 	for _, v := range views {
+		if optionExit {
+			if !proposalDuplicateOrderIsOptionExit(v, p) {
+				continue
+			}
+			return []rpc.TradingBlocker{{
+				Code:    "existing_option_exit_order",
+				Message: fmt.Sprintf("open order %s already works an exit for this exact option contract", v.OrderRef),
+				Action:  fmt.Sprintf("Keep the standing exit, or cancel it first with `canary order cancel %s` before submitting a replacement.", v.OrderRef),
+			}}
+		}
 		if !proposalDuplicateOrderIsProtective(v, p) {
 			continue
 		}
@@ -1596,6 +1863,93 @@ func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.
 		}}
 	}
 	return nil
+}
+
+func (e *proposalEngine) optionExitBrokerOrderBlockers(ctx context.Context, p rpc.TradeProposal, forceCurrent bool) []rpc.TradingBlocker {
+	block := func(code, message string) []rpc.TradingBlocker {
+		return []rpc.TradingBlocker{{Code: code, Message: message, Action: "Refresh and retry only after current broker open-order evidence is complete."}}
+	}
+	if e == nil || e.server == nil || p.Contract.ConID <= 0 {
+		return block("option_exit_order_evidence_unavailable", "exact-contract broker open-order evidence is unavailable")
+	}
+	binding := e.server.currentProtectionOrderSnapshotBinding()
+	if binding.connector == nil || !brokerScopeConcrete(binding.scope) {
+		return block("option_exit_order_evidence_unavailable", "broker open-order authority is not bound to a concrete account session")
+	}
+	var snapshot ibkrlib.OpenOrderSnapshot
+	var err error
+	if forceCurrent {
+		snapshot, err = e.server.snapshotOpenOrdersFrom(ctx, binding.connector)
+	} else {
+		snapshot, err = e.server.protectionSnapshotOpenOrders(ctx, binding)
+	}
+	now := e.clock().UTC()
+	if err != nil || !snapshot.Complete || snapshot.AsOf.IsZero() || snapshot.AsOf.After(now) || now.Sub(snapshot.AsOf.UTC()) > protectionOrderSnapshotMaxAge {
+		return block("option_exit_order_snapshot_unavailable", "complete current all-client API open-order inventory is unavailable")
+	}
+	receipt := binding
+	receipt.session = snapshot.Session
+	receipt.generation = snapshot.Generation
+	if e.server.orderSnapshotFn != nil && receipt.session == (ibkrlib.ConnectorSessionBinding{}) {
+		receipt.session = binding.session
+	}
+	if !e.server.protectionOrderSnapshotBindingCurrent(receipt) {
+		return block("option_exit_order_snapshot_changed", "broker order session changed during the open-order inventory read")
+	}
+	for _, order := range snapshot.Orders {
+		if order.Type != ibkrlib.OrderLifecycleEventOpenOrder || order.WhatIf || !strings.EqualFold(order.Action, p.Action) ||
+			!strings.EqualFold(order.SecType, "OPT") || optionExitSnapshotRemaining(order) <= 0 {
+			continue
+		}
+		if order.ConID == p.Contract.ConID {
+			return block("existing_option_exit_order", "a broker-working close order already exists for this exact option contract")
+		}
+		if order.ConID <= 0 && optionExitSnapshotContractCouldMatch(order, p.Contract) {
+			return block("option_exit_order_identity_unknown", "a broker-working option close may match this contract but lacks exact positive contract identity")
+		}
+	}
+	return nil
+}
+
+func optionExitSnapshotContractCouldMatch(order ibkrlib.OrderLifecycleEvent, contract rpc.ContractParams) bool {
+	conflicts := func(left, right string) bool {
+		left, right = strings.ToUpper(strings.TrimSpace(left)), strings.ToUpper(strings.TrimSpace(right))
+		return left != "" && right != "" && left != right
+	}
+	if conflicts(order.Symbol, contract.Symbol) || conflicts(order.Currency, contract.Currency) ||
+		conflicts(order.Expiry, contract.Expiry) || conflicts(order.Right, contract.Right) ||
+		conflicts(order.LocalSymbol, contract.LocalSymbol) || conflicts(order.TradingClass, contract.TradingClass) {
+		return false
+	}
+	if order.Strike > 0 && contract.Strike > 0 && math.Abs(order.Strike-contract.Strike) > 1e-9 {
+		return false
+	}
+	// With no contradictory field, even a partially parsed same-symbol order
+	// is plausible competition for the full close and must block.
+	return strings.TrimSpace(order.Symbol) == "" || strings.EqualFold(strings.TrimSpace(order.Symbol), strings.TrimSpace(contract.Symbol))
+}
+
+func optionExitSnapshotRemaining(order ibkrlib.OrderLifecycleEvent) float64 {
+	if order.Remaining > 0 {
+		return order.Remaining
+	}
+	if remaining := order.TotalQuantity - order.Filled; remaining > 0 {
+		return remaining
+	}
+	return 0
+}
+
+func proposalIsOptionExit(p rpc.TradeProposal) bool {
+	option := strings.EqualFold(p.SecType, "OPT") || strings.EqualFold(p.SecType, "OPTION") ||
+		strings.EqualFold(p.Contract.SecType, "OPT") || strings.EqualFold(p.Contract.SecType, "OPTION")
+	return option && (p.Bucket == rpc.TradeProposalBucketOptionLossExit || p.Bucket == rpc.TradeProposalBucketOptionExitReview || p.Bucket == rpc.TradeProposalBucketTrailingStop && p.OptionExit != nil)
+}
+
+func proposalDuplicateOrderIsOptionExit(v rpc.OrderView, p rpc.TradeProposal) bool {
+	if !v.Open || !strings.EqualFold(v.Action, p.Action) || !orderViewMatchesProposalContract(v, p) {
+		return false
+	}
+	return orderViewRemainingQuantity(v) > 0
 }
 
 func proposalDuplicateOrderIsProtective(v rpc.OrderView, p rpc.TradeProposal) bool {
@@ -1773,6 +2127,9 @@ func trailingStopTIFDetail(tif string, optionPremiumTrail bool) string {
 		}
 		return "tif=GTC: stop persists across sessions until filled or cancelled"
 	}
+	if optionPremiumTrail {
+		return "tif=DAY: option trail expires at the session close and provides no overnight order; GTC is unsupported in option-exit V1"
+	}
 	return "tif=DAY: stop expires at the session close and does not cover overnight gaps; set tif = \"GTC\" in [buckets.trailing_stop] to persist"
 }
 
@@ -1817,6 +2174,24 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 	if preview.Draft.Quantity <= 0 || preview.Draft.Quantity > prop.MaxQuantity {
 		add("quantity_outside_position", fmt.Sprintf("proposal preview quantity %d exceeds close/reduce cap %d", preview.Draft.Quantity, prop.MaxQuantity), "Refresh positions and preview a quantity within the current position.")
 	}
+	if prop.OptionExit != nil && preview.Draft.Quantity != prop.MaxQuantity {
+		add("option_exit_full_quantity_required", fmt.Sprintf("option exit preview quantity %d does not equal the full exact-contract quantity %d", preview.Draft.Quantity, prop.MaxQuantity), "Refresh positions and preview the full exact-contract option exit.")
+	}
+	if prop.OptionExit != nil {
+		before := preview.Position.Before
+		full := !math.IsNaN(before) && !math.IsInf(before, 0) && before > 0 &&
+			math.Abs(before-math.Round(before)) <= 1e-9 && int(math.Round(before)) == preview.Draft.Quantity &&
+			preview.Draft.Quantity == prop.MaxQuantity && preview.Position.Effect == rpc.OrderPositionEffectClose
+		if !full {
+			add("option_exit_fresh_full_close_required", "fresh preview evidence does not prove a full close of the current long exact-contract position", "Refresh positions and preview the full exact-contract close again.")
+		}
+		if prop.Contract.ConID <= 0 || preview.Draft.Contract.ConID != prop.Contract.ConID {
+			add("option_exit_contract_drift", "preview exact contract does not match the option-exit proposal", "Refresh proposals and preview the exact contract again.")
+		}
+		for _, blocker := range optionExitPreviewDecisionBlockers(prop, preview) {
+			add(blocker.Code, blocker.Message, blocker.Action)
+		}
+	}
 	if !strings.EqualFold(preview.Draft.Action, prop.Action) {
 		add("action_drift", fmt.Sprintf("preview action %q does not match proposal action %q", preview.Draft.Action, prop.Action), "Refresh proposals and preview again.")
 	}
@@ -1845,6 +2220,83 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 	}
 	if strings.TrimSpace(preview.Draft.Source) != proposalOrderSource {
 		add("source_drift", "proposal preview source does not match the protection proposal engine", "Refresh proposals and preview again.")
+	}
+	return blockers
+}
+
+func optionExitPreviewDecisionBlockers(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
+	if prop.OptionExit == nil || preview == nil {
+		return nil
+	}
+	var blockers []rpc.TradingBlocker
+	add := func(code, message string) {
+		blockers = appendTradingBlockerOnce(blockers, rpc.TradingBlocker{
+			Code: code, Message: message,
+			Action: "Refresh proposals and preview again from current exact-contract evidence.",
+		})
+	}
+	exit := prop.OptionExit
+	quote := preview.Quote
+	quantity := preview.Position.Before
+	multiplier := preview.Position.Multiplier
+	costPremium := 0.0
+	if multiplier > 0 && preview.Position.AverageCost > 0 &&
+		!math.IsNaN(preview.Position.AverageCost) && !math.IsInf(preview.Position.AverageCost, 0) {
+		costPremium = preview.Position.AverageCost / float64(multiplier)
+	}
+	sessionOpen := quote.SessionContext != nil && quote.SessionContext.IsOpen
+	in := risk.OptionExitInput{
+		ConID: preview.Draft.Contract.ConID, Quantity: quantity, Multiplier: multiplier,
+		AvgCost: preview.Position.AverageCost, DTE: exit.DTE,
+		DirectionalIntent: true, Standalone: true, EconomicRoleAllowed: true,
+		QuoteLive: rpc.IsLiveDataType(quote.DataType), QuoteFresh: !quote.Stale && !quote.PriceAt.IsZero(),
+		SessionOpen: sessionOpen,
+	}
+	if quote.Bid != nil {
+		in.Bid = *quote.Bid
+	}
+	if quote.Ask != nil {
+		in.Ask = *quote.Ask
+	}
+	decision := risk.EvaluateOptionExit(in, risk.OptionExitPolicy{
+		MinDTE: exit.MinDTE, LossExitPct: exit.LossExitPct, ProfitArmGainPct: exit.ProfitArmGainPct,
+		ProfitTrailPct: exit.ProfitTrailPct, LockedGainPct: exit.LockedGainPct,
+		MinTrailPct: exit.MinTrailPct, MaxTrailPct: exit.MaxTrailPct,
+		MaxSpreadPctOfMid: exit.MaxSpreadPctOfMid, MinTrailAbs: exit.MinTrailAbs,
+		SpreadMultiple: exit.SpreadMultiple,
+	})
+	if exit.CostBasisPremium == nil || !floatEqual(*exit.CostBasisPremium, costPremium) {
+		add("option_exit_cost_basis_changed", "fresh exact-contract average cost no longer matches the proposal")
+		return blockers
+	}
+	if len(decision.Blockers) > 0 {
+		add("option_exit_preview_policy_blocked", "fresh preview quote or position no longer satisfies option-exit policy")
+		return blockers
+	}
+	if decision.Action != exit.Kind {
+		add("option_exit_threshold_changed", "fresh preview evidence no longer selects the proposal's option-exit action")
+		return blockers
+	}
+	if decision.Action != risk.OptionExitActionProfitTrail {
+		return blockers
+	}
+	if preview.Draft.Trail == nil || preview.Draft.Trail.TrailingPercent == nil || preview.Draft.Trail.TrailingAmount != nil {
+		add("option_exit_preview_trail_missing", "fresh preview is missing the approved native percentage premium trail")
+		return blockers
+	}
+	tick := trailMinimumTick(preview.Draft.Contract, decision.ReferencePrice)
+	expectedAmount := ceilPriceToTick(decision.TrailAmount, tick)
+	expectedPct := expectedAmount / decision.ReferencePrice * 100
+	expectedStop := trailingStopInitialPriceForContract(prop.Action, decision.ReferencePrice, expectedAmount, preview.Draft.Contract)
+	if !risk.OptionExitTrailPctWithinBounds(decision.ReferencePrice, expectedAmount, exit.MinTrailPct, exit.MaxTrailPct) {
+		add("option_trail_outside_policy_bounds", "fresh rounded broker trail is outside the approved percentage range")
+	}
+	if !risk.OptionExitLockedGainMet(decision.CostPremium, expectedStop, exit.LockedGainPct) {
+		add("option_trail_locked_gain_not_met", "fresh rounded broker trail no longer preserves the approved locked gain")
+	}
+	if !floatEqual(*preview.Draft.Trail.TrailingPercent, expectedPct) ||
+		!floatEqual(preview.Draft.Trail.InitialStopPrice, expectedStop) {
+		add("option_exit_quote_drift", "fresh exact-contract quote changes the approved trail percentage or initial stop")
 	}
 	return blockers
 }
@@ -1936,6 +2388,18 @@ func cloneTrailSizing(in *rpc.TradeProposalTrailSizing) *rpc.TradeProposalTrailS
 	out.SpreadMultiplier = cloneFloat64Ptr(in.SpreadMultiplier)
 	out.SpreadFloorPct = cloneFloat64Ptr(in.SpreadFloorPct)
 	out.MissingReasons = append([]string(nil), in.MissingReasons...)
+	return &out
+}
+
+func cloneOptionExit(in *rpc.TradeProposalOptionExit) *rpc.TradeProposalOptionExit {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.CostBasisPremium = cloneFloat64Ptr(in.CostBasisPremium)
+	out.ReferencePrice = cloneFloat64Ptr(in.ReferencePrice)
+	out.ReturnPct = cloneFloat64Ptr(in.ReturnPct)
+	out.InitialLockedGainPct = cloneFloat64Ptr(in.InitialLockedGainPct)
 	return &out
 }
 
@@ -2257,6 +2721,10 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 			}
 		case rpc.TradeProposalBucketTrailingStop:
 			out.TrailingStop++
+		case rpc.TradeProposalBucketOptionLossExit:
+			out.OptionLossExit++
+		case rpc.TradeProposalBucketOptionExitReview:
+			out.OptionExitReview++
 		}
 	}
 	// A raw sum across different local currencies is meaningless. Rather
@@ -2310,7 +2778,11 @@ func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFin
 }
 
 func proposalKey(bucket string, contract rpc.ContractParams, action string) string {
-	raw := strings.Join([]string{bucket, strings.ToUpper(contract.Symbol), strings.ToUpper(contract.SecType), strings.ToUpper(contract.LocalSymbol), contract.Expiry, strings.ToUpper(contract.Right), fmt.Sprintf("%.4f", contract.Strike), strings.ToUpper(action)}, "|")
+	exactIdentity := ""
+	if contract.ConID > 0 && (strings.EqualFold(contract.SecType, "OPT") || strings.EqualFold(contract.SecType, "OPTION")) {
+		exactIdentity = "CONID:" + strconv.Itoa(contract.ConID)
+	}
+	raw := strings.Join([]string{bucket, exactIdentity, strings.ToUpper(contract.Symbol), strings.ToUpper(contract.SecType), strings.ToUpper(contract.LocalSymbol), strings.ToUpper(contract.TradingClass), strings.ToUpper(contract.Exchange), contract.Expiry, strings.ToUpper(contract.Right), fmt.Sprintf("%.4f", contract.Strike), strings.ToUpper(action)}, "|")
 	sum := sha256.Sum256([]byte(raw))
 	return bucket + ":" + hex.EncodeToString(sum[:8])
 }
@@ -2374,6 +2846,7 @@ func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapsh
 	for i := range out.Proposals {
 		out.Proposals[i].Trail = cloneTrailSpec(in.Proposals[i].Trail)
 		out.Proposals[i].TrailSizing = cloneTrailSizing(in.Proposals[i].TrailSizing)
+		out.Proposals[i].OptionExit = cloneOptionExit(in.Proposals[i].OptionExit)
 		out.Proposals[i].ExecutionSemantics = cloneExecutionSemantics(in.Proposals[i].ExecutionSemantics)
 		out.Proposals[i].StopRisk = cloneStopRisk(in.Proposals[i].StopRisk)
 		out.Proposals[i].StopLadder = cloneStopLadder(in.Proposals[i].StopLadder)

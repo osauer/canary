@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-08-13
 
 Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
@@ -36,13 +36,36 @@ protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
-Three buckets generate rows, each enabled separately in the protection policy:
+Four buckets generate rows, each enabled separately in the protection policy:
 
-- **Trailing stop** places a broker-side trail against a stock, ETF, or option
-  premium. Its time-in-force is a policy decision, DAY by default, and a DAY
+- **Trailing stop** places a broker-side trail against a stock or ETF. Its
+  time-in-force is a policy decision, DAY by default, and a DAY
   stop expires at the session close without covering the overnight gap. Set
   `tif = "GTC"` under `[buckets.trailing_stop]` to persist it. The proposal
   spells out which lifetime you are getting.
+- **Option loss exit** appears only for an exact standalone long contract that
+  has a current time-bounded `directional_intents` declaration. At the
+  Rulebook-owned 60% loss of premium paid,
+  measured on a fresh live bid against multiplier-adjusted cost, it proposes a
+  full DAY patient-midpoint-limit close. It may remain unfilled while the loss
+  worsens. It is event-driven: Canary does not install a resting loss stop or
+  claim the loss is capped.
+- **Option profit trail** shares the trailing-stop bucket but is a separate
+  decision contract. It arms after a 50% premium gain and proposes a
+  full-quantity DAY `TRAIL LIMIT` with a native percentage premium trail,
+  normally 30%. Spread, minimum-premium-distance and tick floors can widen the
+  effective percentage within the approved 20-50% range. The initial
+  rounded stop must retain at least 5% over cost after spread and tick floors.
+  Possible hedges, multi-leg strategies, stale/delayed quotes, wide spreads and
+  contracts under 14 DTE remain blocked. A hedge-listed index put needs both
+  exact operator intent, a current directional Rulebook role, and exact-ConID
+  Greeks evidence; symbol, option shape, and shared-cache Greeks never prove
+  intent. Until exact-ConID Greeks ship, hedge-listed puts remain blocked as
+  unclassified rather than risking the sale of a hedge.
+
+The option-exit policy uses the explicitly approved absolute `0.05`
+quote-currency `TRAIL LIMIT` offset. An inherited or omitted offset still fails
+activation, and an empty exact-contract intent list produces no candidates.
 - **Theta hygiene** proposes closing an option whose remaining value is mostly
   time value bleeding toward expiry. When the underlying spot or the option mark
   is missing or stale, the row still appears, blocked with
@@ -67,6 +90,13 @@ earlier `ignore` for that stop is cleared by the explicit request, and the
 result says so. The paired app offers the same action from the Protection
 panel's uncovered-positions list.
 
+Option exits do not enter the protection coverage ledger. That ledger remains
+stock/ETF stop coverage; calling a directional option exit portfolio protection
+would overstate what the broker is actually covering. Option proposals still
+use the same preview, WhatIf, full position-effect, duplicate-order, account,
+mode, freeze, origin and explicit submit gates as every other broker-adjacent
+proposal.
+
 ## A blocked row is the system working
 
 Every blocker carries a code, a message, and an action line. Under stress the
@@ -77,12 +107,16 @@ That is deliberate: a protective order priced against a symbol that is not
 trading is a guess about the reopening print. Recent flags that are no longer
 active stay visible as context and do not block.
 
-Other rows block because the evidence is not good enough. A stale option quote
-raises `stale_quote`. A revision older than the current snapshot raises
-`stale_revision`. A time-in-force that drifted between the proposal and its
-preview raises `tif_drift`, and a quantity beyond the position raises
-`quantity_outside_position`. The row stays visible with its reason attached
-rather than quietly disappearing.
+Other rows block because the evidence is not good enough. A stale option-exit
+quote raises `fresh_option_quote_required`. A revision older than the current
+snapshot raises `stale_revision`. A time-in-force that drifted between the
+proposal and its preview raises `tif_drift`, and a quantity beyond the position
+raises `quantity_outside_position`. The row stays visible with its reason
+attached rather than quietly disappearing.
+
+An explicitly declared option whose exact quote, cost, role, or session
+evidence is unavailable appears as a blocked **Option exit review** row. It is
+not silently dropped and it cannot be previewed as an order.
 
 ## When a stop no longer matches its position
 

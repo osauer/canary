@@ -2547,9 +2547,11 @@ type OrderQuoteSnapshot struct {
 // OrderPositionImpact reports local position-effect math. Broker permissions
 // and margin remain authoritative; this is a disclosure and local safety gate.
 type OrderPositionImpact struct {
-	Before float64 `json:"before"`
-	After  float64 `json:"after"`
-	Effect string  `json:"effect"`
+	Before      float64 `json:"before"`
+	After       float64 `json:"after"`
+	Effect      string  `json:"effect"`
+	AverageCost float64 `json:"average_cost,omitempty"`
+	Multiplier  int     `json:"multiplier,omitempty"`
 }
 
 // OrderMarginImpact is populated from IBKR WhatIf once the raw preview-only

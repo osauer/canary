@@ -878,7 +878,7 @@ function setAttentionStatus(copy, error = false) {
 
 const ALERTS_REFRESH_MIN_INTERVAL_MS = 15000;
 const ALERTS_FETCH_DEADLINE_MS = 10000;
-const ALERTS_REFRESH_FAILED_COPY = "Alert refresh unavailable; retained state shown";
+const ALERTS_REFRESH_FAILED_COPY = "Couldn't refresh alerts. Showing the last verified list; Canary will retry automatically.";
 
 function alertsFetchDeadlineMs() {
   return Number.isSafeInteger(state.alertsFetchDeadlineMs) && state.alertsFetchDeadlineMs > 0
@@ -1005,7 +1005,7 @@ async function acknowledgeAttention(options = {}) {
 
 const ATTENTION_DWELL_MS = 2000;
 const ATTENTION_RETRY_MS = 1500;
-const ATTENTION_RENDER_FAILED_COPY = "Alerts stayed unread because the current server set was not fully rendered.";
+const ATTENTION_RENDER_FAILED_COPY = "Canary could not verify that every unread alert is visible. They remain unread, and Canary will retry automatically.";
 let attentionDwellTimer = null;
 let attentionVisibilityBound = false;
 

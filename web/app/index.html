@@ -25,7 +25,7 @@
           <label class="market-strip__selector">
             <select id="marketSelect" aria-label="Market calendar">
               <option value="us">US</option>
-              <option value="us-options">US options</option>
+              <option value="us-options">US opt.</option>
               <option value="de">Xetra</option>
             </select>
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -236,7 +236,8 @@
                 </div>
               </div>
             </div>
-            <div class="pd-tile pd-tile--readout" id="deltaTile" role="group" aria-label="Net dollar delta">
+            <div class="pd-tile" id="deltaTile" role="group" aria-label="Net dollar delta">
+              <span class="pd-tile__bar" aria-hidden="true"></span>
               <span class="pd-tile__legend">Net $ Delta</span>
               <div class="pd-tile__fig delta-tile__lead" id="deltaTileLead">--</div>
               <div class="pd-tile__fig delta-tile__sub" id="deltaTileSub">--</div>
@@ -369,7 +370,7 @@
               Open Orders
             </span>
             <span class="alert-active-count" id="ordersOpenCount">0 open</span>
-            <span class="panel-time" id="ordersAsOf">--</span>
+            <span class="panel-time" id="ordersAsOf" title="Open-order view last checked">--</span>
           </div>
           <div class="orders-body">
             <div class="orders-list" id="ordersOpenList"></div>
@@ -554,7 +555,7 @@
                 <b id="protectionRiskExcess">--</b>
               </div>
               <div>
-                <span>No-stop exposure</span>
+                <span title="The protection coverage ledger matches stock and ETF quantities to open broker stops. Options are evaluated separately by Rules and option proposals.">Stock/ETF no-stop exposure</span>
                 <b id="protectionNoStopExposure">--</b>
               </div>
               <div>
@@ -562,6 +563,7 @@
                 <b id="protectionActions">--</b>
               </div>
             </div>
+            <p class="protection-data-note">Options are evaluated separately in Rules and option proposals; this stop-coverage ledger is stock/ETF only.</p>
             <p class="protection-data-note" id="protectionDataNote" hidden></p>
             <div class="protection-exposure-note" id="protectionExposure" hidden></div>
             <div class="market-flag-rail" id="protectionFlagRail" hidden></div>

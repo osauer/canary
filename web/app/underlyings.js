@@ -94,7 +94,15 @@ function renderDeltaTile(portfolio = {}, stress = {}, baseCurrency = "") {
   if (tile) {
     const deltaDrivers = ["net_delta_high", "gross_delta_high", "single_name_delta_high", "single_name_exposure_high", "gross_exposure_high"];
     const driven = (stress.primary_drivers || []).some((id) => deltaDrivers.includes(String(id || "").trim().toLowerCase()));
-    applyTileSeverity(tile, driven ? String(stress.severity || "").toLowerCase() : "");
+    // This is a context readout, not an independently evaluated pass/fail
+    // rule. Give measured context the design system's information lamp,
+    // preserve a daemon-served binding severity, and gray missing evidence.
+    const tone = !hasNumericValue(delta)
+      ? "stale"
+      : driven
+        ? String(stress.severity || "").toLowerCase()
+        : "info";
+    applyTileSeverity(tile, tone);
     tile.title = "Net $ delta: delta-weighted market exposure across held underlyings — a 1% move in the underlyings shifts P/L by about 1% of this figure. "
       + "Theta: option time decay per day. FX 1%: P/L from a 1% move in non-base currencies. "
       + "Largest: the single name with the biggest market value, as a share of net liquidation.";

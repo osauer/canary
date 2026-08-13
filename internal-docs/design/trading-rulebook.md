@@ -323,6 +323,12 @@ approval):
   deltas shrink, not lost premium. Averaging down resets the basis and
   clears the fence — documented deliberately; the order-preview cause on
   adding to a flagged line is the guard.
+  The desk operator explicitly approved these 40% watch / 60% act bands for
+  directional-option exit discipline on 2026-08-12. The protection proposal
+  engine consumes the 60% act line as an event-driven full-close candidate;
+  rule 13 remains the reporting authority for the 40% watch state. Hedge-
+  classified legs remain exempt from both the Rulebook loss act and the option
+  exit proposal.
 - **Rule 14 fx_exposure is watch-only in v2.** On a structurally high
   non-base-currency book, a permanent act and
   an every-USD-order preview cause would be pure alarm fatigue — a warning

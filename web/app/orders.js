@@ -1,6 +1,10 @@
 import { $, labelize, money, pct, protectionWriteConfirmation, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
 import { state } from "./state.js";
 
+const ACTIVE_ORDERS_REFRESH_MS = 60_000;
+let ordersRefreshInFlight = null;
+let ordersLastRefreshAttemptAt = 0;
+
 function warningMessages(warnings = []) {
   return warnings.map((warning) => {
     if (!warning) return "";
@@ -12,7 +16,11 @@ function warningMessages(warnings = []) {
 function renderOpenOrders() {
   const list = $("ordersOpenList");
   const orders = state.ordersOpen?.orders || [];
-  renderFreshnessTimestamp("ordersAsOf", state.ordersOpen?.as_of, { staleMinutes: 15, fallback: "--" });
+  renderFreshnessTimestamp("ordersAsOf", state.ordersOpen?.as_of, {
+    staleMinutes: 3,
+    fallback: "not checked",
+    relativeLabel: "checked",
+  });
   const count = $("ordersOpenCount");
   count.textContent = orders.length === 1 ? "1 open" : `${orders.length} open`;
   count.classList.toggle("is-zero", orders.length === 0);
@@ -333,15 +341,30 @@ async function cancelOpenOrder(order) {
   }
 }
 
-async function refreshOpenOrders() {
-  try {
-    const res = await fetch("/api/orders/open", { credentials: "include" });
-    if (!res.ok) return;
-    state.ordersOpen = await res.json();
-    renderOpenOrders();
-  } catch {
-    // Open orders are read-only context; the live snapshot remains primary.
-  }
+async function refreshOpenOrders(options = {}) {
+  if (ordersRefreshInFlight) return ordersRefreshInFlight;
+  const minIntervalMs = options.minIntervalMs === undefined
+    ? 0
+    : Math.max(0, Number(options.minIntervalMs) || 0);
+  const now = Date.now();
+  if (minIntervalMs > 0 && now - ordersLastRefreshAttemptAt < minIntervalMs) return false;
+  ordersLastRefreshAttemptAt = now;
+  ordersRefreshInFlight = (async () => {
+    try {
+      const res = await fetch("/api/orders/open", { credentials: "include" });
+      if (!res.ok) return false;
+      state.ordersOpen = await res.json();
+      renderOpenOrders();
+      return true;
+    } catch {
+      // Open orders are read-only context. Keep the last verified view; its
+      // checked age will turn stale if active refreshes keep failing.
+      return false;
+    } finally {
+      ordersRefreshInFlight = null;
+    }
+  })();
+  return ordersRefreshInFlight;
 }
 
 function orderIdentity(order) {
@@ -532,4 +555,4 @@ function previewToken(preview) {
   return String(preview?.preview_token || "").trim();
 }
 
-export { ORDER_LIFECYCLE_LABELS, ORDER_SEND_STATE_LABELS, applyOrderModify, cancelOpenOrder, modifyApplyDisabledReason, modifyPreviewBody, modifyPreviewLine, modifyPreviewReady, openOrderEdit, openOrderRowElement, openOrderStatusLine, orderActionButton, orderCancelGate, orderEditField, orderEditNumberInput, orderIdentity, orderIdentityLegend, orderIsPreviewState, orderIsTrail, orderLifecycleLabel, orderModifyGate, orderPriceFigures, orderReadingLine, orderReductionMax, orderSendStateLabel, previewOrderModify, previewToken, refreshOpenOrders, renderOpenOrders, tradingCancelAllowed };
+export { ACTIVE_ORDERS_REFRESH_MS, ORDER_LIFECYCLE_LABELS, ORDER_SEND_STATE_LABELS, applyOrderModify, cancelOpenOrder, modifyApplyDisabledReason, modifyPreviewBody, modifyPreviewLine, modifyPreviewReady, openOrderEdit, openOrderRowElement, openOrderStatusLine, orderActionButton, orderCancelGate, orderEditField, orderEditNumberInput, orderIdentity, orderIdentityLegend, orderIsPreviewState, orderIsTrail, orderLifecycleLabel, orderModifyGate, orderPriceFigures, orderReadingLine, orderReductionMax, orderSendStateLabel, previewOrderModify, previewToken, refreshOpenOrders, renderOpenOrders, tradingCancelAllowed };

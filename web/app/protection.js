@@ -84,8 +84,10 @@ function renderProtectionTile(proposals = {}, rows = [], theta = {}) {
   applyTileSeverity(tile, actionable > 0 ? "watch" : "");
   caption.textContent = actionable > 0 && top ? protectionBucketLabel(top) : blocked > 0 ? "Blocked" : "No action";
   const parts = [`${actionable} action${actionable === 1 ? "" : "s"}`];
-  if (hasNumericValue(theta.value)) parts.push(`theta ${money(theta.value, theta.currency)}/d`);
-  else if (theta.mixed) parts.push("theta mixed");
+  // Zero here means no theta-hygiene proposal crossed policy, not zero
+  // portfolio theta. Omit it rather than publishing a false book reading.
+  if (hasNumericValue(theta.value) && theta.value > 0) parts.push(`theta action ${money(theta.value, theta.currency)}/d`);
+  else if (theta.mixed && actionable > 0) parts.push("theta action mixed");
   if (blocked > 0) parts.push(`${blocked} blocked`);
   figure.textContent = parts.join(" · ");
   figure.title = theta.title || "";
@@ -888,6 +890,9 @@ function protectionProposalTitle(proposal = {}) {
 }
 
 function protectionSubmitLabel(proposal = {}) {
+	if (proposal.bucket === "option_exit_review") return "Review evidence";
+	if (proposal.bucket === "option_loss_exit") return "Preview exit";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Preview trail";
   if (proposal.bucket === "trailing_stop") return "Preview stop";
   return "Preview";
 }
@@ -897,6 +902,9 @@ function protectionUsesPreviewFlow(proposal = {}) {
 }
 
 function protectionFinalSubmitLabel(proposal = {}) {
+	if (proposal.bucket === "option_exit_review") return "Review evidence";
+	if (proposal.bucket === "option_loss_exit") return "Submit exit";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Submit trail";
   if (proposal.bucket === "trailing_stop") return "Submit stop";
   return "Submit order";
 }
@@ -909,12 +917,18 @@ function protectionButtonTitle(proposal = {}, gate = {}) {
 }
 
 function protectionSideLabel(proposal = {}) {
+	if (proposal.bucket === "option_exit_review") return "Option exit blocked";
+	if (proposal.bucket === "option_loss_exit") return "Sell to close";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Sell profit trail";
   if (proposal.bucket !== "trailing_stop") return protectionActionLabel(proposal);
   if (proposalIsBuyToCover(proposal)) return "Buy to cover stop";
   return String(proposal.action || "--").toUpperCase() === "BUY" ? "Buy stop" : "Sell stop";
 }
 
 function protectionBucketLabel(proposal = {}) {
+	if (proposal.bucket === "option_exit_review") return "Option exit review";
+	if (proposal.bucket === "option_loss_exit") return "Option loss exit";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Option profit trail";
   if (proposal.bucket === "trailing_stop") return "Broker stop";
   return labelize(proposal.bucket || "--");
 }
@@ -929,6 +943,18 @@ function protectionActionLabel(proposal = {}) {
 }
 
 function protectionActionTitle(proposal = {}, fallback = "") {
+	if (proposal.bucket === "option_loss_exit") {
+		return [
+			"Preview a DAY patient midpoint limit close for the full exact-contract position. It may remain unfilled while the loss worsens. This is an event-driven exit, not a resting loss stop.",
+			protectionMarketStateHint(proposal),
+		].filter(Boolean).join(" ");
+	}
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") {
+		return [
+			"Preview a DAY TRAIL LIMIT close for the full exact-contract position. IBKR maintains the percentage premium trail after submission; the limit can remain unfilled after a trigger.",
+			protectionMarketStateHint(proposal),
+		].filter(Boolean).join(" ");
+	}
   if (proposal.bucket === "trailing_stop" && String(proposal.action || "").toUpperCase() === "SELL") {
     return [
       "Preview a broker trailing stop sell order. Once submitted, IBKR maintains the stop and raises it as the instrument price rises above the submission reference.",
@@ -974,10 +1000,38 @@ function protectionReasonText(proposal = {}, { metricShown = false } = {}) {
 // theta burn + DTE; risk reduction → concentration vs NLV + excess to
 // never fabricated.
 function protectionMetricText(proposal = {}) {
+	const optionExit = proposal.option_exit || null;
+	if (proposal.bucket === "option_exit_review" && optionExit) {
+		const parts = ["exact-contract evidence unavailable"];
+		if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
+		parts.push("blocked");
+		return parts.join(" · ");
+	}
+	if (proposal.bucket === "option_loss_exit" && optionExit) {
+		const parts = [];
+		if (hasNumericValue(optionExit.return_pct)) {
+			const sign = optionExit.return_pct < 0 ? "−" : optionExit.return_pct > 0 ? "+" : "";
+			parts.push(`premium ${sign}${pct(Math.abs(optionExit.return_pct))}`);
+		}
+		if (hasNumericValue(optionExit.loss_exit_pct)) parts.push(`exit line −${pct(Math.abs(optionExit.loss_exit_pct))}`);
+		if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
+		parts.push("DAY limit close");
+		return parts.join(" · ");
+	}
   if (proposal.bucket === "trailing_stop") {
     const trail = proposal.trail || null;
     if (!trail) return "";
     const parts = [];
+		if (optionExit?.kind === "profit_trail") {
+			if (hasNumericValue(optionExit.return_pct)) parts.push(`premium +${pct(Math.abs(optionExit.return_pct))}`);
+			if (hasNumericValue(optionExit.profit_arm_gain_pct)) parts.push(`armed at +${pct(optionExit.profit_arm_gain_pct)}`);
+			if (hasNumericValue(optionExit.initial_locked_gain_pct)) {
+				parts.push(`initial lock +${pct(optionExit.initial_locked_gain_pct)}`);
+			} else if (hasNumericValue(optionExit.locked_gain_pct)) {
+				parts.push(`locks at least +${pct(optionExit.locked_gain_pct)}`);
+			}
+			if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
+		}
     const live = protectionLiveTrailStop(proposal, trail);
     if (live && protectionStopChanged(trail.initial_stop_price, live.stop)) {
       parts.push(`stop ${numberRead(live.stop)}`);
@@ -988,7 +1042,9 @@ function protectionMetricText(proposal = {}) {
     }
     const offset = protectionTrailOffsetLabel(trail);
     if (offset) parts.push(offset);
-    const sizing = protectionTrailSizingLabel(proposal.trail_sizing);
+		const sizing = optionExit?.kind === "profit_trail" && hasNumericValue(proposal.trail_sizing?.chosen_pct)
+			? `native ${pct(proposal.trail_sizing.chosen_pct)} premium trail${proposal.trail_sizing.selected_by && proposal.trail_sizing.selected_by !== "policy_default" ? ` by ${protectionTrailSizingSourceLabel(proposal.trail_sizing.selected_by)}` : ""}`
+			: protectionTrailSizingLabel(proposal.trail_sizing);
     if (sizing) parts.push(sizing);
     if (hasNumericValue(trail.limit_offset)) {
       parts.push(`limit offset ${numberRead(trail.limit_offset)}`);
@@ -1211,6 +1267,7 @@ function protectionStopLadderLabel(ladder = [], risk = {}) {
 }
 
 function protectionProposalDTE(proposal = {}) {
+	if (hasNumericValue(proposal.option_exit?.dte) && proposal.option_exit.dte >= 0) return Number(proposal.option_exit.dte);
   for (const value of proposal.details || []) {
     const match = String(value || "").match(/^dte=(\d+)$/);
     if (match) return Number(match[1]);
@@ -1658,7 +1715,8 @@ function protectionPreviewSubmitGate(proposal = {}, previewResult = null) {
   }
   const writeGate = protectionSubmitGate(proposal);
   if (!writeGate.ready) return writeGate;
-  return { ready: true, reason: "Submit the stop after confirmation; the daemon runs a fresh broker WhatIf before placing it" };
+	const noun = proposal.bucket === "option_loss_exit" ? "exit" : proposal.option_exit?.kind === "profit_trail" ? "trail" : "stop";
+	return { ready: true, reason: `Submit the ${noun} after confirmation; the daemon runs a fresh broker WhatIf before placing it` };
 }
 
 function protectionPreviewStateKey(proposal = {}) {
@@ -1668,7 +1726,7 @@ function protectionPreviewStateKey(proposal = {}) {
 function protectionPreviewText(result = null, proposal = {}) {
   if (!result) return "";
   if (result.local && result.pending) {
-    const draft = proposal.bucket === "trailing_stop" ? protectionStopDraftSummary(proposal) : protectionProposalTitle(proposal);
+		const draft = proposal.bucket === "trailing_stop" || proposal.bucket === "option_loss_exit" ? protectionStopDraftSummary(proposal) : protectionProposalTitle(proposal);
     return `Order draft ready; broker WhatIf running · ${draft}`;
   }
   if (result.pending) return "Previewing broker WhatIf; no order is placed";
@@ -1942,7 +2000,7 @@ async function previewProtectionProposal(proposal) {
         revision: proposal.revision,
         quantity: previewQuantity,
         timeout_ms: protectionPreviewTimeoutMs(proposal),
-        fast_path: proposal.bucket === "trailing_stop",
+				fast_path: proposal.bucket === "trailing_stop" && !proposal.option_exit,
       }),
     });
     if (!res.ok) throw new Error(await res.text());
@@ -1966,6 +2024,7 @@ async function previewProtectionProposal(proposal) {
 }
 
 function protectionPreviewTimeoutMs(proposal = {}) {
+	if (proposal.option_exit) return 10000;
   return proposal.bucket === "trailing_stop" ? 5000 : 10000;
 }
 

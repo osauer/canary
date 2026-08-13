@@ -6,7 +6,7 @@ import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMa
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
-import { renderOpenOrders } from "./orders.js";
+import { ACTIVE_ORDERS_REFRESH_MS, refreshOpenOrders, renderOpenOrders } from "./orders.js";
 import { renderPortfolioRisk, setPortfolioExpansion } from "./portfolio.js";
 import { cancelProtectionDerisk, previewProtectionDerisk, renderProtectionPanel } from "./protection.js";
 import { installRenderAll } from "./render-runtime.js";
@@ -125,6 +125,9 @@ function setupLiveRefreshLoop() {
       renderPortfolioRisk(snap.positions || {}, snap.account || {});
       renderProtectionPanel(snap.proposals || {}, snap.auto_trade || {}, snap.market_events || {});
       renderOpportunitiesPanel(snap.opportunities || {});
+    }
+    if (state.authenticated && state.activeTab === "orders") {
+      void refreshOpenOrders({ minIntervalMs: ACTIVE_ORDERS_REFRESH_MS });
     }
     refreshBootstrapIfSSEUnavailable();
   }, 1000);

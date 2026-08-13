@@ -1149,9 +1149,10 @@ async function assertNoViewportOverflow(page) {
       const regimeTiles = measured("#regimeSummaryCard > .pd-tile");
       const deskTiles = measured("#deskGrid > .pd-tile");
       const columns = (tiles) => new Set(tiles.map((tile) => Math.round(tile.left))).size;
-      const master = document.getElementById("masterAnnunciator")?.getBoundingClientRect();
-      const regimeGrid = document.getElementById("regimeSummaryCard")?.getBoundingClientRect();
-      const stress = document.getElementById("stressHero")?.getBoundingClientRect();
+		  const master = document.getElementById("masterAnnunciator")?.getBoundingClientRect();
+		  const regimeGrid = document.getElementById("regimeSummaryCard")?.getBoundingClientRect();
+		  const stress = document.getElementById("stressHero")?.getBoundingClientRect();
+		  const marketSelect = document.getElementById("marketSelect");
       // Panel Dark: the master annunciator spans the panel above two fixed
       const signalLayout = regimeTiles.length > 0 ? {
         regimeTiles: regimeTiles.length,
@@ -1159,6 +1160,7 @@ async function assertNoViewportOverflow(page) {
         deskTiles: deskTiles.length,
         deskColumns: columns(deskTiles),
         masterFullWidth: !!(master && regimeGrid) && Math.abs(master.width - regimeGrid.width) <= 4,
+        masterHeight: master ? Math.round(master.height) : 0,
         masterAboveGrid: !!master && master.top < regimeTiles[0].top,
         regimeBeforeDesk: !!stress && regimeTiles[0].top < stress.top,
         signalPanelFullWidth: !!(signalPanel && dashboard) && Math.abs(signalPanel.width - dashboard.width) <= 4,
@@ -1178,7 +1180,14 @@ async function assertNoViewportOverflow(page) {
           scrollWidth: el.scrollWidth,
           clientWidth: el.clientWidth,
         }));
-      return { clientWidth, pageScrollWidth, offenders, signalLayout };
+		  return {
+			clientWidth,
+			pageScrollWidth,
+			offenders,
+			signalLayout,
+			marketSelectWidth: marketSelect ? Math.round(marketSelect.getBoundingClientRect().width) : 0,
+			usOptionsLabel: [...(marketSelect?.options || [])].find((option) => option.value === "us-options")?.textContent?.trim() || "",
+		  };
     });
     results.push({ ...size, ...info });
     if (info.pageScrollWidth > info.clientWidth + 1) {
@@ -1191,6 +1200,12 @@ async function assertNoViewportOverflow(page) {
     if (!layout.masterFullWidth || !layout.masterAboveGrid || !layout.regimeBeforeDesk || !layout.signalPanelFullWidth) {
       throw new Error(`Master annunciator should span a full-width combined panel above the regime grid, with the desk grid beneath, at ${size.width}px: ${JSON.stringify(layout)}`);
     }
+		if (layout.masterHeight > 96) {
+		  throw new Error(`Master annunciator should remain a compact hierarchy signal at ${size.width}px: ${JSON.stringify(layout)}`);
+		}
+		if (info.marketSelectWidth > 52 || info.usOptionsLabel !== "US opt.") {
+		  throw new Error(`Market selector should stay narrow with the abbreviated options label at ${size.width}px: ${JSON.stringify(info)}`);
+		}
   }
   return results;
 }
@@ -1591,8 +1606,8 @@ async function assertPanelDarkInstruments(page) {
       clusters: [...document.querySelectorAll("#regimeSummaryCard > .pd-tile")].map(readTile),
       stress: readTile(document.getElementById("stressHero")),
       protection: readTile(document.getElementById("protectionTile")),
-      deltaReadout: document.getElementById("deltaTile")?.classList.contains("pd-tile--readout") || false,
-      deltaHasLampBar: !!document.querySelector("#deltaTile .pd-tile__bar"),
+		  deltaReadout: document.getElementById("deltaTile")?.classList.contains("pd-tile--readout") || false,
+		  deltaHasLampBar: !!document.querySelector("#deltaTile .pd-tile__bar"),
       movers: [...document.querySelectorAll("#moversRow b")].map((cell) => cell.textContent?.trim() || ""),
     };
   });
@@ -1611,8 +1626,8 @@ async function assertPanelDarkInstruments(page) {
   if (blankTrip) {
     throw new Error(`regime window renders a placeholder trip anchor instead of omitting it: ${JSON.stringify(blankTrip)}`);
   }
-  if (!instruments.deltaReadout || instruments.deltaHasLampBar) {
-    throw new Error(`Net $ Delta must be a flush readout tile with no lamp slot: ${JSON.stringify(instruments)}`);
+	if (instruments.deltaReadout || !instruments.deltaHasLampBar) {
+		throw new Error(`Net $ Delta must use the standard tile face and lamp slot: ${JSON.stringify(instruments)}`);
   }
   if (!/\d+\/\d+ sources ok/i.test(instruments.lampTest)) {
     throw new Error(`lamp-test stamp should report served source health: ${JSON.stringify(instruments.lampTest)}`);
@@ -1756,7 +1771,7 @@ async function exerciseProtectionRiskRendering(page) {
       },
       proposals: {
         as_of: new Date().toISOString(),
-        counts: { total: 1, actionable: 1, trailing_stop: 1 },
+        counts: { total: 3, actionable: 3, trailing_stop: 2, option_loss_exit: 1 },
         proposals: [{
           key: "smoke-trail",
           revision: "smoke",
@@ -1814,6 +1829,41 @@ async function exerciseProtectionRiskRendering(page) {
             stop_price: 88,
             estimated_loss_base: 120,
           }],
+        }, {
+          key: "smoke-option-loss",
+          revision: "smoke",
+          bucket: "option_loss_exit",
+          state: "generated",
+          symbol: "SYNLOSS",
+          sec_type: "OPT",
+          action: "SELL",
+          quantity: 2,
+          max_quantity: 2,
+          position_quantity: 2,
+          position_effect: "close",
+          order_type: "LMT",
+          tif: "DAY",
+          contract: { con_id: 9001, symbol: "SYNLOSS", sec_type: "OPT", currency: "USD", expiry: "20260918", strike: 100, right: "C" },
+          option_exit: { kind: "loss_exit", intent: "directional", economic_role: "directional", dte: 31, return_pct: -62, loss_exit_pct: 60 },
+        }, {
+          key: "smoke-option-profit",
+          revision: "smoke",
+          bucket: "trailing_stop",
+          state: "generated",
+          symbol: "SYNPROFIT",
+          sec_type: "OPT",
+          action: "SELL",
+          quantity: 1,
+          max_quantity: 1,
+          position_quantity: 1,
+          position_effect: "close",
+          order_type: "TRAIL LIMIT",
+          tif: "DAY",
+          contract: { con_id: 9002, symbol: "SYNPROFIT", sec_type: "OPT", currency: "USD", expiry: "20260918", strike: 100, right: "C" },
+          option_exit: { kind: "profit_trail", intent: "directional", economic_role: "directional", dte: 31, return_pct: 55, profit_arm_gain_pct: 50, locked_gain_pct: 5, initial_locked_gain_pct: 7 },
+		  trail: { offset_type: "percent", trailing_percent: 30, initial_stop_price: 1.1, limit_offset: 0.05 },
+          trail_sizing: { method: "option-profit-lock-v1", chosen_pct: 30, selected_by: "policy_default", policy_min_pct: 20, policy_max_pct: 50 },
+          execution_semantics: { reference_side: "bid", trigger_method_label: "broker default", trigger_effect: "limit_order_when_triggered", price_guarantee: "stop_limit_can_leave_position_unfilled" },
         }],
       },
     }, { protectionOpen: true, portfolioDetailOpen: true, stressDetailOpen: true });
@@ -1832,6 +1882,12 @@ async function exerciseProtectionRiskRendering(page) {
     riskTicket: document.querySelector(".protection-row__risk-ticket")?.textContent?.replace(/\s+/g, " ").trim() || "",
     ladder: document.querySelector(".protection-row__ladder")?.textContent?.replace(/\s+/g, " ").trim() || "",
     coverageLedger: document.querySelector(".protection-coverage-ledger")?.textContent?.replace(/\s+/g, " ").trim() || "",
+    optionRows: [...document.querySelectorAll(".protection-row")]
+      .map((row) => row.textContent?.replace(/\s+/g, " ").trim() || "")
+      .filter((text) => text.includes("Option loss exit") || text.includes("Option profit trail")),
+	optionRiskTickets: [...document.querySelectorAll(".protection-row")]
+		.filter((row) => /Option (loss exit|profit trail)/.test(row.textContent || ""))
+		.filter((row) => row.querySelector(".protection-row__risk-ticket, .protection-row__ladder")).length,
     portfolioDetail: document.getElementById("portfolioDetailList")?.textContent?.replace(/\s+/g, " ").trim() || "",
     stressDetail: document.getElementById("stressDetailGrid")?.textContent?.replace(/\s+/g, " ").trim() || "",
   }));
@@ -1849,6 +1905,13 @@ async function exerciseProtectionRiskRendering(page) {
       throw new Error(`Protection ladder missing ${JSON.stringify(text)}: ${JSON.stringify(info.ladder)}`);
     }
   }
+  if (info.optionRows.length !== 2 || !info.optionRows.some((text) => text.includes("Option loss exit") && text.includes("DAY limit close") && text.includes("Preview exit")) ||
+		!info.optionRows.some((text) => text.includes("Option profit trail") && text.includes("armed at +50.0%") && text.includes("native 30.0% premium trail") && text.includes("Preview trail"))) {
+    throw new Error(`Option exit rows did not render approved semantics: ${JSON.stringify(info.optionRows)}`);
+  }
+	if (info.optionRiskTickets !== 0) {
+		throw new Error(`Option exit rows must not inherit stock-stop loss ladders: ${JSON.stringify(info)}`);
+	}
   const coverageLedgerLower = info.coverageLedger.toLowerCase();
   for (const text of ["smoke", "unprotected", "part", "partial", "cover", "covered", "old", "reconcile required"]) {
     if (!coverageLedgerLower.includes(text)) {
@@ -2132,6 +2195,7 @@ async function assertBriefNarrative(page) {
 async function exerciseOpenOrders(page) {
   await page.locator("#tabOrders").click();
   await page.waitForFunction(() => document.getElementById("ordersTab")?.hidden === false, { timeout: 5000 });
+  await page.waitForFunction(() => document.getElementById("ordersAsOf")?.textContent?.trim().startsWith("checked "), { timeout: 5000 });
   const info = await page.evaluate(() => {
     const buttons = [...document.querySelectorAll("#ordersOpenList button")].map((button) => ({
       text: button.textContent?.trim() || "",
@@ -2140,6 +2204,7 @@ async function exerciseOpenOrders(page) {
     }));
     return {
       panelPresent: !!document.getElementById("ordersPanel"),
+      checkedCopy: document.getElementById("ordersAsOf")?.textContent?.trim() || "",
       countText: document.getElementById("ordersOpenCount")?.textContent?.trim() || "",
       rows: document.querySelectorAll("#ordersOpenList .open-order-row").length,
       empty: document.getElementById("ordersOpenList")?.textContent?.includes("None working.") || false,
@@ -2154,6 +2219,9 @@ async function exerciseOpenOrders(page) {
   });
   if (!info.panelPresent) {
     throw new Error("Orders panel should always be present once the Orders tab is active");
+  }
+  if (!/^checked (now|\d+[mh](?: \d+m)? ago)$/.test(info.checkedCopy)) {
+    throw new Error(`open-order timestamp should describe when the broker view was checked: ${JSON.stringify(info.checkedCopy)}`);
   }
   if (!info.foot.includes("Order journal") || !info.foot.includes("current broker") || !info.foot.includes("local order state")) {
     throw new Error(`orders journal must state its broker and local-state authority at the foot: ${JSON.stringify(info.foot)}`);
@@ -2189,6 +2257,7 @@ async function exerciseOpenOrders(page) {
     rows: info.rows,
     empty: info.empty,
     count_text: info.countText,
+    checked_copy: info.checkedCopy,
     legends: info.legends,
     readings: info.readings,
     foot: info.foot,

@@ -1176,8 +1176,12 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 	}()
 	q := &rpc.Quote{Symbol: contract.Symbol, Contract: contract, IVStatus: "unavailable", AsOf: s.orderNow()}
 	started := time.Now()
+	var priceTickAt time.Time
 	if err := pollMarketData(quoteCtx, authority.connector, key, started.Add(timeout), func(data *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, data)
+		if data != nil && data.LastPriceTickAt.After(priceTickAt) {
+			priceTickAt = data.LastPriceTickAt
+		}
 		hasPrice := q.Bid != nil || q.Ask != nil || q.Last != nil || q.Mark != nil
 		if hasPrice {
 			q.DataType = quoteDataTypeName(authority.connector.MarketDataTypeForSymbol(key), true, false)
@@ -1194,6 +1198,17 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 	}
 	q.AsOf = s.orderNow()
 	s.decorateExactPreviewQuote(q, contract)
+	if !priceTickAt.IsZero() {
+		// Exact-session subscriptions start empty, so this is the receipt time
+		// of a price tick observed after this request boundary—not a timestamp
+		// relabelled from a shared symbol/Greeks cache.
+		q.PriceAt = priceTickAt.UTC()
+		q.QuotePriceAt = priceTickAt.UTC()
+		if market, ok := quoteSessionMarketForContract(contract); ok {
+			q.PriceAsOf = quotePriceAsOf(q, market)
+			q.QuotePriceAsOf = quoteAsOfLabel(q, market, q.QuotePriceAt, q.QuotePriceSource, q.DataType)
+		}
+	}
 	return orderQuoteSnapshotFromQuote(q), nil
 }
 

@@ -1342,16 +1342,6 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 		if c == nil {
 			continue
 		}
-		if bid, ask, ok := c.OptionQuoteBidAsk(key); ok {
-			if bid > 0 {
-				b := bid
-				p.OptionBid = &b
-			}
-			if ask > 0 {
-				a := ask
-				p.OptionAsk = &a
-			}
-		}
 		if iv, ok := c.OptionIV(key); ok && iv > 0 {
 			v := iv
 			p.IV = &v

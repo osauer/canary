@@ -841,7 +841,7 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 			out.PartialClusters = append(out.PartialClusters, name)
 		}
 	}
-	if stressGammaDegraded(r.GammaZero) {
+	if stressGammaDegraded(r) {
 		out.DegradedClusters = append(out.DegradedClusters, "gamma")
 	}
 	slices.Sort(out.RedClusterNames)
@@ -861,7 +861,7 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 
 func stressMarketContextClusters(r rpc.RegimeSnapshotResult, now time.Time) map[string]bool {
 	out := map[string]bool{}
-	if stressGammaContextOnly(r.GammaZero) {
+	if _, scheduled := rpc.RegimeClusterScheduledContext(r, "gamma"); scheduled || stressGammaContextOnly(r.GammaZero) {
 		out["gamma"] = true
 	}
 	if stressVolClosedSessionContext(r, now) {
@@ -914,6 +914,14 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 			reading = item.row.StateNote
 		}
 		contextOnly := contextClusters[item.cluster]
+		// Keep the raw regime row's stale status available for audit truth, but
+		// do not print "stale" as the trader-facing reading when typed currency
+		// says this is the valid prior-session observation and no newer options
+		// session compute is due. The comment below carries the fuller schedule
+		// explanation; this figure names what the tile is actually showing.
+		if item.cluster == "gamma" && contextOnly && strings.EqualFold(strings.TrimSpace(item.status), rpc.RegimeStatusStale) {
+			reading = "Last-session read"
+		}
 		out = append(out, StressMarketIndicator{
 			Name:    item.row.Name,
 			Status:  stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility),
@@ -1008,11 +1016,16 @@ func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool
 		}
 		parts = append(parts, part)
 	}
-	add(row.Reason)
+	// A prior-session row retains its raw stale status for audit truth, while
+	// its typed publication currency says the next compute is not due or is
+	// bounded-pending. Do not turn that expected schedule into a fault label.
+	if !(contextOnly && row.Status == rpc.RegimeStatusStale && strings.EqualFold(strings.TrimSpace(row.Reason), "stale input")) {
+		add(row.Reason)
+	}
 	add(eligibilityComment)
 	if row.Status == rpc.RegimeStatusStale && !strings.Contains(strings.ToLower(row.Reason), "context") {
 		if contextOnly {
-			add("closed-session cached context")
+			add("last-session context; a newer options-session compute is not due")
 		} else {
 			add("stale input")
 		}
@@ -1041,7 +1054,8 @@ func stressEligibilityComment(indicator string, eligibility *rpc.RegimeEligibili
 	return "Provisional: waiting for confirmation"
 }
 
-func stressGammaDegraded(g rpc.RegimeGammaZero) bool {
+func stressGammaDegraded(r rpc.RegimeSnapshotResult) bool {
+	g := r.GammaZero
 	if g.Envelope.Result == nil {
 		return false
 	}
@@ -1054,7 +1068,7 @@ func stressGammaDegraded(g rpc.RegimeGammaZero) bool {
 	case rpc.GammaRankabilityContextOnly:
 		return !stressGammaContextOnly(g)
 	default:
-		return true
+		return !rpc.RegimeClusterCadenceOnlyDegraded(r, "gamma")
 	}
 }
 

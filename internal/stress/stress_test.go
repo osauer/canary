@@ -113,6 +113,50 @@ func TestComputeStressContextOnlyGammaDoesNotConfirmStress(t *testing.T) {
 	}
 }
 
+func TestComputeStressPriorSessionGammaIsScheduledContextNotFault(t *testing.T) {
+	t.Parallel()
+	r := healthyStressRegime()
+	r.GammaZero.Band = "yellow"
+	r.GammaZero.Status = rpc.RegimeStatusStale
+	r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
+	r.GammaZero.Envelope.Result.Quality = &rpc.GammaSignalQuality{
+		Rankability: rpc.GammaRankabilityBlocked,
+		Freshness:   rpc.GammaFreshnessSessionMismatch,
+		Gates: []rpc.GammaQualityGate{{
+			Name:   rpc.GammaQualityGateFreshness,
+			Status: rpc.GammaQualityGateBlock,
+			Reason: "prior options session",
+		}},
+	}
+
+	res := ComputeStress(StressInput{
+		Account:   baseStressAccount(),
+		Positions: freshStressPositions(),
+		Regime:    r,
+		Now:       stressTestNow,
+	})
+
+	if slices.Contains(res.Market.DegradedClusters, "gamma") || slices.Contains(res.Market.StaleClusters, "gamma") {
+		t.Fatalf("gamma data-quality clusters = degraded:%v stale:%v, want scheduled context", res.Market.DegradedClusters, res.Market.StaleClusters)
+	}
+	var gamma StressMarketIndicator
+	for _, row := range res.MarketIndicators {
+		if strings.Contains(strings.ToLower(row.Name), "gamma") || strings.Contains(row.Name, "γ") {
+			gamma = row
+			break
+		}
+	}
+	if gamma.Status != "context" {
+		t.Fatalf("gamma status = %q, want explicit last-session context", gamma.Status)
+	}
+	if gamma.Reading != "Last-session read" {
+		t.Fatalf("gamma reading = %q, want scheduled last-session label", gamma.Reading)
+	}
+	if !strings.Contains(gamma.Comment, "last-session context") || strings.Contains(gamma.Comment, "stale input") {
+		t.Fatalf("gamma comment = %q, want explicit scheduled context without a stale-input fault", gamma.Comment)
+	}
+}
+
 func TestComputeStressGrossDollarDeltaCatchesOffsettingOptionBook(t *testing.T) {
 	t.Parallel()
 	net := 0.0

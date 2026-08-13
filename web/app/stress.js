@@ -103,12 +103,18 @@ function renderRulesProvenance(rules = {}) {
   el.textContent = parts.join(" · ");
 }
 
-// The tile figure states the served tally over its denominator, so "2 watch"
+// The tile figure keeps notification policy separate from findings and data
+// gaps. Track-mode rows remain visible but cannot create alert episodes.
 function rulesTileFigure(rules = {}) {
   const rows = Array.isArray(rules.rules) ? rules.rules : [];
   const alerts = rows.filter((row) => (row?.mode || "alert") === "alert" && ["act", "watch"].includes(row?.status)).length;
-  const tracked = rows.filter((row) => row?.mode === "track" && !["pass", "not_evaluated"].includes(row?.status)).length;
-  return `${alerts} ${alerts === 1 ? "alert" : "alerts"}${tracked ? ` · ${tracked} tracked` : ""}`;
+  const monitorOnly = rows.filter((row) => row?.mode === "track" && ["act", "watch", "info"].includes(row?.status)).length;
+  const dataGaps = rows.filter((row) => row?.mode !== "off" && row?.status === "unknown").length;
+  const parts = [];
+  if (alerts > 0) parts.push(`${alerts} alert-mode ${alerts === 1 ? "finding" : "findings"}`);
+  if (monitorOnly > 0) parts.push(`${monitorOnly} monitor-only`);
+  if (dataGaps > 0) parts.push(`${dataGaps} data ${dataGaps === 1 ? "gap" : "gaps"}`);
+  return parts.join(" · ") || "No active findings";
 }
 
 
@@ -122,11 +128,20 @@ function renderRulesTileState(rules, order) {
   if (!card || !caption || !dot) return;
   const worst = order.map((ix) => rules.rules[ix]).find((rule) => rule && (rule.mode || "alert") === "alert" && ["act", "watch"].includes(rule.status));
   const status = String(worst?.status || "").toLowerCase();
-  const infoOnly = Boolean(worst) && status === "info";
+  const active = order.map((ix) => rules.rules[ix]).filter((rule) => rule && rule.mode !== "off");
+  const dataGaps = active.filter((rule) => rule.status === "unknown").length;
+  const monitorOnly = active.filter((rule) => rule.mode === "track" && ["act", "watch", "info"].includes(rule.status)).length;
+  const infoOnly = !worst && (dataGaps > 0 || monitorOnly > 0);
   applyTileSeverity(card, status === "act" ? "act" : status === "watch" ? "watch" : "");
   dot.hidden = !infoOnly;
-  caption.textContent = worst ? cleanDetail(worst.title) : "No alerts";
-  caption.title = worst ? `${worst.number} · ${worst.title} · ${ruleStatusLabel(worst.status, worst.reason)}` : "Every evaluated rule passes";
+  caption.textContent = worst ? cleanDetail(worst.title) : dataGaps > 0 ? "Data gaps" : monitorOnly > 0 ? "Monitor only" : "No findings";
+  caption.title = worst
+    ? `${worst.number} · ${worst.title} · ${ruleStatusLabel(worst.status, worst.reason)}`
+    : dataGaps > 0
+      ? `${dataGaps} active rule ${dataGaps === 1 ? "has" : "have"} unavailable input`
+      : monitorOnly > 0
+        ? `${monitorOnly} track-mode ${monitorOnly === 1 ? "finding is" : "findings are"} visible but cannot create alerts`
+        : "No active Rulebook findings";
 }
 
 
@@ -842,14 +857,17 @@ function applyTileSeverity(el, severity, { nominal = false } = {}) {
 }
 
 
-// masterSubline states the action first, then anything the panel would
-// otherwise disclose only in a subordinate window, then the served timing
+// masterSubline avoids restating the headline when the governed-note already
+// explains the watch. It still names off-panel/dark evidence and timing.
 function masterSubline(snap = {}, stress = {}) {
   const action = stressStageLabel(stress);
   const severity = masterSeverity(snap, stress);
   // Action and severity often share a word ("Watch"/"watch"); printing both
   // reads as a stutter, so the severity only appears when it adds information.
-  const parts = [action === "--" ? "" : action, severity.toLowerCase() === action.toLowerCase() ? "" : severity];
+  const governed = regimeGovernedNote(snap, stress.market || {});
+  const parts = governed
+    ? [governed]
+    : [action === "--" ? "" : action, severity.toLowerCase() === action.toLowerCase() ? "" : severity];
   // Every cluster the daemon ranks now has a window, so this clause fires
   // only for a red the panel genuinely cannot show: a cluster name the served
   // appear must still be named rather than silently dropped.
@@ -860,7 +878,6 @@ function masterSubline(snap = {}, stress = {}) {
     .filter((cluster) => regimeClusterBand(cluster, snap, stress) === "stale")
     .map((cluster) => cluster.legend.toLowerCase());
   if (dark.length > 0) parts.push(`${dark.join(", ")} dark`);
-  parts.push(regimeGovernedNote(snap, stress.market || {}));
   const timing = cleanDetail(snap.regime?.lifecycle?.timing);
   if (timing !== "--") parts.push(labelize(timing).toLowerCase());
   return parts.filter(Boolean).join(" · ");
@@ -881,8 +898,14 @@ function offPanelRedClusters(stress = {}) {
 // failures are named as faults but never silently change the feed count.
 function renderLampTest(snap = {}, stress = {}) {
   const stamp = $("lampTestStamp");
-  if (!stamp) return;
+  const line = $("lampTest");
+  if (!stamp || !line) return;
   const health = lampTestSources(snap, stress);
+  line.hidden = health.faults.length === 0;
+  if (line.hidden) {
+    const dialog = $("lampTestDialog");
+    if (dialog?.open) dialog.close();
+  }
   const at = parseDate(snap.updated_at);
   const when = at ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }) : "--";
   stamp.replaceChildren();
@@ -1299,9 +1322,11 @@ function regimeGovernedNote(snap, market) {
     // Name the actual signal, not its cluster key ("HYG 50-DMA", not
     // "credit"), and say that confirmation is Canary's job with both
     // outcomes stated: the signal earns its co-sign or clears, no operator
-    // step. "Awaits" not "unconfirmed" — the row's own gate already passed.
-    const verb = unconfirmed.length === 1 ? "awaits its co-sign or clears" : "await their co-signs or clear";
-    parts.push(`${humanList(unconfirmed.map(clusterInputLabel), 2)} ${verb} on the next fresh read`);
+    // step. "Provisional" names the evidence state without asking the trader
+    // to perform a confirmation ritual.
+    const subject = humanList(unconfirmed.map(clusterInputLabel), 2);
+    const verb = unconfirmed.length === 1 ? "is provisional" : "are provisional";
+    parts.push(`${subject} ${verb}; Canary will confirm or clear ${unconfirmed.length === 1 ? "it" : "them"} on the next fresh read`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {
     if (g?.action === "severity_capped") {
