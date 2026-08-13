@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.1.0 — 2026-08-13 20:55 CEST
+
+### What's new
+
+- **Logs are quiet by default and bounded on disk.** Both the daemon and the app server now log at `warn` out of the box, so the log carries actionable lines instead of one record per routine broker message, and both log files rotate at 64 MiB while running — a long-lived process can no longer grow its log without bound.
+- **Broker connectivity blips are reported as episodes, not floods.** When the TWS-to-IBKR backend link flaps, the daemon logs the first loss, the first recovery, and one end-of-episode summary instead of a warning per blip — while a loss during an open trading session or an outage past five minutes always warns immediately, because those are the ones that matter.
+
+### Added
+
+- `[gateway] maintenance_windows` configures the broker's scheduled reset windows (defaults to IBKR's documented North America schedule). Backend-link losses inside a window are annotated as expected maintenance in the log and counted separately in status, so a routine nightly reset no longer reads like an incident.
+- `canary status` shows a backend-link row — loss count, expected-maintenance split, and last/longest outage — and `canary status --json` carries the same data in a typed `backend_link` object. The row highlights only when losses happened outside scheduled maintenance or the link is currently down.
+- `CANARY_APP_LOG_LEVEL` sets the app server's log verbosity with the same four values as the daemon's `[daemon] log_level` config key.
+
+### Changed
+
+- The daemon's `[daemon] log_level` default moved from `info` to `warn`. Process-lifecycle markers (broker session established, app start/stop) still reach the log at any level so restart history stays reconstructable.
+- The regime dashboard's overnight "HYG spot delivered no tick" warning is reserved for regular US trading hours, when a dead feed is a real fault; overnight thin tape is recorded on the typed data-quality surface without a log line.
+
+### Fixed
+
+- A held symbol whose contract the broker can no longer resolve (for example after a delisting) no longer retries resolution at full poll rate — one night produced thousands of identical warnings. The broker's definitive "no security definition" answer now suppresses re-resolution with an escalating backoff, bounding a permanently dead symbol to about two probes an hour.
+- After the broker reports subscriptions lost (code 1101), the daemon no longer sends cancel requests for request IDs the broker already dropped; each futile cancel drew an error 300 ("Can't find EId") into the log.
+
 ## v3.0.1 — 2026-08-09 15:51 CEST
 
 ### What's new

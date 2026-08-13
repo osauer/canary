@@ -320,7 +320,11 @@ is no external metrics stack and no tracing.
   session, and TLS state, uptime, background tasks, subsystem health, data
   quality, data-farm notices, and trading state. Its typed gateway phase
   distinguishes a closed local API port, a reachable port whose API handshake
-  is not ready, and a ready TWS API whose IBKR backend link is down. It ends in
+  is not ready, and a ready TWS API whose IBKR backend link is down. Backend
+  link losses accumulate into a counted `backend_link` observation (losses,
+  expected-maintenance split per `[gateway] maintenance_windows`, last and
+  longest outage), and the daemon's log coalesces flap bursts into
+  episode-level lines instead of one warning per blip. It ends in
   one verdict: ready, attention, offline, or starting.
 - `canary app status` calls the local-Mac-only app diagnostic and keeps alert
   producer coverage separate from app-owned dispatcher delivery health.

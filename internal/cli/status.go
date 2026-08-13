@@ -80,7 +80,14 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		statusRow(env, out, "TWS", env.red("not connected"))
 	}
 	if link := res.BackendLink; link != nil && link.Losses > 0 {
-		statusRow(env, out, "Backend link", env.yellow(formatBackendLinkValue(*link)))
+		value := formatBackendLinkValue(*link)
+		// Yellow means attention: the link is down now, or losses happened
+		// outside the broker's scheduled maintenance. A session whose only
+		// losses were expected resets renders plain.
+		if link.Down || link.Losses > link.LossesInMaintenanceWindow {
+			value = env.yellow(value)
+		}
+		statusRow(env, out, "Backend link", value)
 	}
 	if len(res.BackgroundTasks) > 0 {
 		statusRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
