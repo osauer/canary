@@ -210,9 +210,10 @@ publisher with `gh api repos/osauer/canary/pages` and a live header request. Do 
 infer ownership from neighboring website repos. Cloudflare relay deployment is
 a separate explicit go/no-go; never deploy it as a side effect.
 
-When asked to show Canary in Codex, use the in-app Browser and the paired app
-served by `canary app`; do not use macOS `open`. Keep the shared host LAN-capable
-on `0.0.0.0:8765` and use `http://127.0.0.1:8765` in Codex.
+When asked to show Canary in Codex, use the repo-local `canary-preview` skill
+and the in-app Browser; do not use macOS `open`. The skill starts an isolated
+read-only host on `127.0.0.1:8766`. Never adopt, kill, restart, or bind the
+shared LAN host on `0.0.0.0:8765`; it belongs to the phone-paired app.
 
 The project `.codex` hooks, rules, and reviewer roles load only in trusted
 projects. After changing them, inspect/trust the hooks in a new Codex session.
