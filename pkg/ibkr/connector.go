@@ -1150,6 +1150,11 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 		if origin.connection != nil {
 			origin.connection.releaseMarketDataSlot(reqID)
 		}
+		if code == 200 && strings.Contains(strings.ToUpper(note.message), "NO SECURITY DEFINITION") {
+			if key := c.subscriptionMissKeyForNotice(reqID, alias); key != "" {
+				c.recordContractResolutionMiss(key)
+			}
+		}
 	case 10197:
 		firstTransition := origin.connection != nil && origin.connection.markCompetingLiveSession(strconv.Itoa(reqID))
 		postBarrier = func() {
@@ -1316,6 +1321,21 @@ func (c *Connector) maybeRememberAbsenceForReqID(reqID int, alias reqAliasEntry,
 // derivative aliases, and notices arriving while a market-data farm is
 // impaired (a bounce-window error is not a verdict on the contract).
 func (c *Connector) subscriptionKeyForNotice(reqID int, alias reqAliasEntry) string {
+	key := c.subscriptionMissKeyForNotice(reqID, alias)
+	if key == "" || c.marketDataFarmImpaired() {
+		return ""
+	}
+	return key
+}
+
+// subscriptionMissKeyForNotice resolves the subscription key a code-200
+// definition rejection should feed into the definition-miss backoff. Same
+// ownership and derivative exclusions as subscriptionKeyForNotice, but
+// deliberately without the farm-impairment veto: the backoff is a probe-rate
+// bound, not a contract verdict, and the flapping nights that keep farms
+// impaired for hours are exactly when an unresolvable route otherwise
+// re-requests at full poll rate.
+func (c *Connector) subscriptionMissKeyForNotice(reqID int, alias reqAliasEntry) string {
 	if reqID <= 0 {
 		return ""
 	}
@@ -1333,9 +1353,6 @@ func (c *Connector) subscriptionKeyForNotice(reqID int, alias reqAliasEntry) str
 	}
 	switch strings.ToUpper(strings.TrimSpace(alias.secType)) {
 	case "OPT", "FOP", "WAR", "BAG":
-		return ""
-	}
-	if c.marketDataFarmImpaired() {
 		return ""
 	}
 	return key
@@ -3844,6 +3861,14 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 	if absErr := c.marketDataAbsenceFor(key); absErr != nil {
 		c.logDebug("Skipping routed SubscribeMarketData for %s (%v)", key, absErr)
 		return key, absErr
+	}
+	// A routed subscribe can carry a position-derived ConID the broker no
+	// longer resolves (delisting): the request itself then draws code 200 on
+	// every poll cycle with no contract-details fetch involved, so the
+	// definition-miss backoff must gate this path too.
+	if missErr := c.contractResolutionMissFor(key); missErr != nil {
+		c.logDebug("Skipping routed SubscribeMarketData for %s (%v)", key, missErr)
+		return key, missErr
 	}
 
 	c.subMu.RLock()

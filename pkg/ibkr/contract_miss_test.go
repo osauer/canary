@@ -168,6 +168,78 @@ func TestContractResolutionMissEscalatesToCapAndClearsOnSuccess(t *testing.T) {
 	}
 }
 
+// A routed subscribe carrying a position-derived ConID the broker no longer
+// resolves draws code 200 on the market-data request itself — no
+// contract-details fetch involved — and the app's poll cycle re-subscribes
+// every few seconds. The rejection must feed the definition-miss backoff even
+// while a farm is impaired (the state that vetoes the inactive mark), and the
+// next routed subscribe must fail fast without wire traffic.
+func TestRoutedSubscribeGatedAfterDefinitionRejectionOnMarketDataReqID(t *testing.T) {
+	conn, out := newReadyWireTestConnection(t)
+	c := NewConnector(&ConnectorConfig{})
+	c.conn.rateLimiter.Stop()
+	c.conn = conn
+	conn.evidenceBarrier = &c.evidenceBarrier
+	conn.publicationBarrier = &c.publicationBarrier
+	c.running = true
+	c.ready = true
+	clock := &missClock{now: time.Now()}
+	c.contractMissNow = clock.Now
+
+	binding, ok := c.CaptureSession()
+	if !ok {
+		t.Fatal("capture session")
+	}
+
+	contract := Contract{Symbol: "HGENQ", SecType: "STK", ConID: 555, Exchange: "SMART", Currency: "USD"}
+	key := MarketDataKeyForContract(contract)
+	if key == "" {
+		t.Fatal("empty route key")
+	}
+	c.subMu.Lock()
+	c.subscriptions[key] = &Subscription{Symbol: key, ReqID: 77, RejectCh: make(chan SubscriptionRejection, 1)}
+	c.reqIDMap[77] = key
+	c.subMu.Unlock()
+
+	// The observed failure state: an impaired farm row, which blocks the
+	// 12-hour inactive mark — but must not block the probe backoff.
+	c.dataFarmMu.Lock()
+	c.dataFarms = map[string]DataFarmStatus{
+		dataFarmKey("historical", "ushmds"): {Name: "ushmds", Type: "historical", Status: "disconnected"},
+	}
+	c.dataFarmMu.Unlock()
+
+	post := c.recoverFromSystemNotice(binding, reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+		tickerID: 77,
+		code:     200,
+		message:  "No security definition has been found for the request",
+	})
+	if post != nil {
+		post()
+	}
+	if c.contractResolutionMissFor(key) == nil {
+		t.Fatal("code-200 on a subscription reqID did not record a definition miss")
+	}
+	if c.IsSymbolInactive(key) {
+		t.Fatal("impaired farm must still veto the inactive mark")
+	}
+
+	// The poll cycle released the dead subscription; the next subscribe must
+	// fail fast on the miss instead of re-requesting.
+	c.subMu.Lock()
+	delete(c.subscriptions, key)
+	delete(c.reqIDMap, 77)
+	c.subMu.Unlock()
+	wireBefore := out.Len()
+	_, err := c.SubscribeMarketDataWithContract(context.Background(), contract, nil)
+	if !errors.Is(err, ErrContractNoDefinition) {
+		t.Fatalf("routed subscribe error = %v, want definition-miss", err)
+	}
+	if out.Len() != wireBefore {
+		t.Fatal("suppressed routed subscribe still wrote wire frames")
+	}
+}
+
 // Backend-link losses and restores must accumulate into one counted
 // observation: 85 scattered 1100 warnings a night is not a status surface.
 func TestBackendLinkCountersPairLossAndRestore(t *testing.T) {
