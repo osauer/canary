@@ -145,6 +145,14 @@ type Connector struct {
 	absenceMu     sync.Mutex
 	mktDataAbsent map[string]marketDataAbsence
 	absenceNow    func() time.Time
+	// contractMisses rate-bounds re-resolution of symbols the broker answered
+	// "no security definition" for. Unlike inactiveSymbols this is not a
+	// verdict — only an escalating probe backoff — so it stays effective while
+	// a data-farm impairment vetoes inactive marking (the state in which an
+	// unresolvable held symbol was observed retrying at full poll rate).
+	contractMissMu  sync.Mutex
+	contractMisses  map[string]contractResolutionMiss
+	contractMissNow func() time.Time
 	// marketDataModeMu serializes connection-global reqMarketDataType changes.
 	marketDataModeMu sync.Mutex
 
@@ -161,10 +169,15 @@ type Connector struct {
 	pnlResubNow    func() time.Time
 
 	// backendConnMu guards backend-link health; a disconnected backend cannot
-	// carry a locally accepted broker operation.
-	backendConnMu   sync.Mutex
-	backendConnDown bool
-	backendConnAt   time.Time
+	// carry a locally accepted broker operation. The counters make chronic
+	// link flapping (dozens of loss/restore cycles a night) one first-class
+	// status observation instead of a scattering of repeated warnings.
+	backendConnMu            sync.Mutex
+	backendConnDown          bool
+	backendConnAt            time.Time
+	backendConnLosses        int
+	backendConnLastOutage    time.Duration
+	backendConnLongestOutage time.Duration
 	// mdReplayInFlight collapses concurrent code-1101 subscription replays.
 	mdReplayInFlight atomic.Bool
 
@@ -448,6 +461,101 @@ func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	c.absenceMu.Unlock()
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
+}
+
+// Definition-miss probe backoff: first miss earns the floor, each repeat
+// doubles it up to the cap. The floor keeps a nightly-reset wedge (gateway
+// answering code 200 for everything, observed 2026-07-08) recoverable within
+// a minute of the session healing, while the cap bounds a permanently
+// unresolvable contract to two honest probes an hour instead of an unbounded
+// retry loop (observed 2026-08-13: one delisted held symbol, 3,265 code-200
+// warnings in a night because farm impairment vetoed the inactive mark).
+const (
+	contractMissBackoffFloor = time.Minute
+	contractMissBackoffCap   = 30 * time.Minute
+)
+
+type contractResolutionMiss struct {
+	at      time.Time
+	backoff time.Duration
+}
+
+// ContractResolutionMissError reports that a recent broker "no security
+// definition" answer is suppressing re-resolution of a symbol until RetryAt.
+// It unwraps to ErrContractNoDefinition so existing classification holds.
+type ContractResolutionMissError struct {
+	Symbol  string
+	MissAt  time.Time
+	RetryAt time.Time
+}
+
+// Error describes the suppressed resolution attempt and its retry boundary.
+func (e *ContractResolutionMissError) Error() string {
+	return fmt.Sprintf("no security definition for %s (IBKR 200 at %s; retry after %s)",
+		e.Symbol, e.MissAt.Format("15:04:05"), e.RetryAt.Format("15:04:05"))
+}
+
+// Unwrap classifies the miss as the broker's definitive missing-contract
+// verdict for errors.Is callers.
+func (e *ContractResolutionMissError) Unwrap() error { return ErrContractNoDefinition }
+
+func (c *Connector) contractMissClock() time.Time {
+	if c.contractMissNow != nil {
+		return c.contractMissNow()
+	}
+	return time.Now()
+}
+
+// contractResolutionMissFor returns the active miss record for symbol, or nil
+// once the backoff has expired. Expired entries stay in the map (cleared only
+// by a successful resolution) so the next recorded miss keeps escalating
+// instead of restarting from the floor.
+func (c *Connector) contractResolutionMissFor(symbol string) *ContractResolutionMissError {
+	now := c.contractMissClock()
+	c.contractMissMu.Lock()
+	defer c.contractMissMu.Unlock()
+	entry, ok := c.contractMisses[symbol]
+	if !ok || now.Sub(entry.at) >= entry.backoff {
+		return nil
+	}
+	return &ContractResolutionMissError{
+		Symbol:  symbol,
+		MissAt:  entry.at,
+		RetryAt: entry.at.Add(entry.backoff),
+	}
+}
+
+// recordContractResolutionMiss notes a definitive broker code-200 answer for
+// symbol. Escalation applies even while a farm is impaired: unlike the 12-hour
+// inactive mark (which impairment rightly vetoes), the worst false-miss cost
+// here is one ≤30-minute probe delay that clears itself on the next success,
+// while the flapping nights that keep farms impaired for hours are exactly
+// when an unresolvable symbol otherwise retries unbounded.
+func (c *Connector) recordContractResolutionMiss(symbol string) {
+	now := c.contractMissClock()
+	c.contractMissMu.Lock()
+	if c.contractMisses == nil {
+		c.contractMisses = make(map[string]contractResolutionMiss)
+	}
+	backoff := contractMissBackoffFloor
+	if prev, ok := c.contractMisses[symbol]; ok {
+		if now.Sub(prev.at) < prev.backoff {
+			// A concurrent in-flight request failing inside the same window
+			// is the same probe, not evidence for escalation.
+			c.contractMissMu.Unlock()
+			return
+		}
+		backoff = min(prev.backoff*2, contractMissBackoffCap)
+	}
+	c.contractMisses[symbol] = contractResolutionMiss{at: now, backoff: backoff}
+	c.contractMissMu.Unlock()
+	c.logInfo("Contract resolution for %s rejected (code 200); suppressing re-resolution for %s", symbol, backoff)
+}
+
+func (c *Connector) clearContractResolutionMiss(symbol string) {
+	c.contractMissMu.Lock()
+	delete(c.contractMisses, symbol)
+	c.contractMissMu.Unlock()
 }
 
 // farmRecoverySettleWindow keeps the impairment verdict standing after a
@@ -1409,16 +1517,57 @@ func (c *Connector) setBackendConnectivityDown(down bool, at time.Time) {
 	}
 	c.backendConnMu.Lock()
 	changed := c.backendConnDown != down
+	if !changed {
+		// A repeated notice is the same episode; keep the transition instant
+		// so a later restore pairs against the episode's true start.
+		c.backendConnMu.Unlock()
+		return
+	}
+	var outage time.Duration
+	if down {
+		c.backendConnLosses++
+	} else if !c.backendConnAt.IsZero() {
+		outage = max(at.Sub(c.backendConnAt), 0)
+		c.backendConnLastOutage = outage
+		c.backendConnLongestOutage = max(c.backendConnLongestOutage, outage)
+	}
+	losses := c.backendConnLosses
 	c.backendConnDown = down
 	c.backendConnAt = at
 	c.backendConnMu.Unlock()
-	if !changed {
-		return
-	}
 	if down {
 		c.logWarn("TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice")
 	} else {
-		c.logInfo("TWS restored connectivity to the IBKR backend")
+		// WARN, not INFO: this line is the only evidence pairing a 1100 loss
+		// with its recovery, and it must survive the warn default log level.
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session)", outage.Round(time.Second), losses)
+	}
+}
+
+// BackendLinkReport summarizes the TWS-to-IBKR upstream link: the live latch
+// plus loss/outage counters accumulated since the connector started.
+type BackendLinkReport struct {
+	Down          bool
+	ChangedAt     time.Time
+	Losses        int
+	LastOutage    time.Duration
+	LongestOutage time.Duration
+}
+
+// BackendLink returns the current upstream-link latch and its session-scoped
+// flap counters.
+func (c *Connector) BackendLink() BackendLinkReport {
+	if c == nil {
+		return BackendLinkReport{}
+	}
+	c.backendConnMu.Lock()
+	defer c.backendConnMu.Unlock()
+	return BackendLinkReport{
+		Down:          c.backendConnDown,
+		ChangedAt:     c.backendConnAt,
+		Losses:        c.backendConnLosses,
+		LastOutage:    c.backendConnLastOutage,
+		LongestOutage: c.backendConnLongestOutage,
 	}
 }
 
@@ -1426,14 +1575,6 @@ func (c *Connector) backendConnectivityDown() (bool, time.Time) {
 	c.backendConnMu.Lock()
 	defer c.backendConnMu.Unlock()
 	return c.backendConnDown, c.backendConnAt
-}
-
-// BackendLinkStatus reports the current TWS-to-IBKR upstream-link latch.
-func (c *Connector) BackendLinkStatus() (down bool, changedAt time.Time) {
-	if c == nil {
-		return false, time.Time{}
-	}
-	return c.backendConnectivityDown()
 }
 
 // recoverFromBackendDataLoss is the 1101 post action. Exact-session
@@ -1480,7 +1621,10 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 			// Socket bounced mid-replay; the successor session rebuilds
 			return replayed, dropped
 		}
-		_ = origin.connection.CancelMarketData(e.oldReqID)
+		// 1101 means the gateway already dropped every server-side ticker; a
+		// wire cancel for the old reqID only draws error 300 ("Can't find
+		// EId"). Release the local slot instead, as the 10197 replay does.
+		origin.connection.releaseMarketDataSlotAtEpoch(e.oldReqID, origin.epoch)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		var (
 			newReqID int
@@ -2667,9 +2811,20 @@ func (c *Connector) FetchContractDetails(symbol string, timeout time.Duration) (
 		c.logDebug("Contract details fetch satisfied from cache symbol=%s conID=%d", symbol, cached.ConID)
 		return []ContractDetailsLite{*cached}, nil
 	}
-	return c.coalesceContractDetails("symbol\x00"+symbol, timeout, func(wireTimeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
+	if missErr := c.contractResolutionMissFor(symbol); missErr != nil {
+		c.logDebug("Contract details fetch suppressed for %s (%v)", symbol, missErr)
+		return nil, missErr
+	}
+	details, err := c.coalesceContractDetails("symbol\x00"+symbol, timeout, func(wireTimeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
 		return c.fetchContractDetailsSymbolWire(symbol, wireTimeout, observe)
 	})
+	switch {
+	case errors.Is(err, ErrContractNoDefinition):
+		c.recordContractResolutionMiss(symbol)
+	case err == nil && len(details) > 0:
+		c.clearContractResolutionMiss(symbol)
+	}
+	return details, err
 }
 
 func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.Duration, observe func([]ContractDetailsLite)) ([]ContractDetailsLite, error) {
@@ -3578,6 +3733,16 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 		c.logDebug("Skipping SubscribeMarketData for %s (%v)", symbol, absErr)
 		return absErr
 	}
+	// An unresolved symbol inside its definition-miss backoff must not fall
+	// through to the bare reqMktData path below: that wire request draws its
+	// own code-200 answer per call, which is the retry-loop shape the backoff
+	// exists to stop. A cached contract means the miss is stale — let it pass.
+	if !c.hasActiveContract(symbol) {
+		if missErr := c.contractResolutionMissFor(symbol); missErr != nil {
+			c.logDebug("Skipping SubscribeMarketData for %s (%v)", symbol, missErr)
+			return missErr
+		}
+	}
 	c.subMu.RLock()
 	if sub, exists := c.subscriptions[symbol]; exists {
 		c.subMu.RUnlock()
@@ -3591,6 +3756,16 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 	if c.conn != nil && c.conn.IsConnected() {
 		contract, ready := c.prepareContract(symbol, 2*time.Second, true)
 		contract, ready = c.waitForContractDetails(symbol, contract, ready)
+		if !ready && contract.ConID == 0 {
+			// prepareContract's fetch may just have recorded a fresh
+			// definition miss; the bare-symbol request below would draw one
+			// more code-200 answer for a symbol the broker has already ruled
+			// on this window.
+			if missErr := c.contractResolutionMissFor(symbol); missErr != nil {
+				c.logDebug("Skipping SubscribeMarketData for %s (%v)", symbol, missErr)
+				return missErr
+			}
+		}
 
 		var err error
 		switch {

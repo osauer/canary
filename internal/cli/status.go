@@ -79,6 +79,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	default:
 		statusRow(env, out, "TWS", env.red("not connected"))
 	}
+	if link := res.BackendLink; link != nil && link.Losses > 0 {
+		statusRow(env, out, "Backend link", env.yellow(formatBackendLinkValue(*link)))
+	}
 	if len(res.BackgroundTasks) > 0 {
 		statusRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
 	}
@@ -453,6 +456,21 @@ func formatDaemonValue(res rpc.HealthResult) string {
 		return nonEmpty(res.DaemonVersion, "unknown") + ", just started"
 	}
 	return fmt.Sprintf("%s, up %s", nonEmpty(res.DaemonVersion, "unknown"), uptime)
+}
+
+func formatBackendLinkValue(link rpc.BackendLinkHealth) string {
+	state := "restored"
+	if link.Down {
+		state = "down"
+	}
+	value := fmt.Sprintf("%s; %d losses this session", state, link.Losses)
+	if link.LastOutageSeconds > 0 {
+		value += fmt.Sprintf(", last outage %s", time.Duration(link.LastOutageSeconds)*time.Second)
+	}
+	if link.LongestOutageSeconds > link.LastOutageSeconds {
+		value += fmt.Sprintf(", longest %s", time.Duration(link.LongestOutageSeconds)*time.Second)
+	}
+	return value
 }
 
 func formatTWSValue(res rpc.HealthResult) string {

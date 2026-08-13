@@ -990,7 +990,12 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 			if hygSpotMissing {
 				qualityLabel = "HYG latest official daily close (spot-miss banding input)"
 				out.FieldsMissing = append(out.FieldsMissing, "hyg_spot_tick")
-				warnDeps(deps, "regime: HYG spot subscribe delivered no tick; latest official close is serving as banding input")
+				// Off-RTH a subscribe delivering no tick is the expected thin
+				// tape, recorded in FieldsMissing/quality; warning is reserved
+				// for the RTH case, where a dead HYG spot is a real feed fault.
+				if usEquityRTHOpen(now) {
+					warnDeps(deps, "regime: HYG spot subscribe delivered no tick; latest official close is serving as banding input")
+				}
 			}
 			out.HYGQuality = derivedQuality(historyBarAsOf(bars[len(bars)-1], now), qualityLabel)
 		}

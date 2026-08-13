@@ -2165,6 +2165,17 @@ type DataFarmHealth struct {
 	AsOf    time.Time `json:"as_of,omitzero"`
 }
 
+// BackendLinkHealth counts TWS↔IBKR upstream-link losses (code 1100) and the
+// paired restore outcomes (1101/1102) since the daemon's broker connection
+// started. Durations are whole seconds.
+type BackendLinkHealth struct {
+	Down                 bool      `json:"down"`
+	ChangedAt            time.Time `json:"changed_at,omitzero"`
+	Losses               int       `json:"losses"`
+	LastOutageSeconds    int64     `json:"last_outage_seconds,omitempty"`
+	LongestOutageSeconds int64     `json:"longest_outage_seconds,omitempty"`
+}
+
 // MarketDataAccessHealth reports one route key the gateway is currently
 // This is an observation of a time-windowed rejection, never an entitlement
 // rejection for a name the account does hold, and a name never requested during
@@ -2246,9 +2257,14 @@ type HealthResult struct {
 	// local API session is ready while TWS reports its IBKR backend link lost.
 	GatewayPhase   string    `json:"gateway_phase"`
 	GatewayPhaseAt time.Time `json:"gateway_phase_at,omitzero"`
-	DataType       string    `json:"data_type,omitempty"`
-	ServerVersion  int       `json:"server_version,omitempty"`
-	LastError      string    `json:"last_error,omitempty"`
+	// BackendLink summarizes TWS↔IBKR upstream-link flapping since the daemon
+	// connected: loss count plus last/longest outage. Present once at least
+	// one loss was observed or the link is currently down, so chronic
+	// flapping is one counted observation instead of scattered warnings.
+	BackendLink   *BackendLinkHealth `json:"backend_link,omitempty"`
+	DataType      string             `json:"data_type,omitempty"`
+	ServerVersion int                `json:"server_version,omitempty"`
+	LastError     string             `json:"last_error,omitempty"`
 	// BackgroundTasks lists daemon-internal long-running computes that
 	// is active. Always present on the wire (never omitted) so
 	BackgroundTasks []BackgroundTaskStatus `json:"background_tasks"`

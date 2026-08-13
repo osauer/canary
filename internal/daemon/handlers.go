@@ -3173,10 +3173,19 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	if c != nil {
 		localConnected = c.IsConnected()
 		apiReady = c.IsReady()
-		var backendAt time.Time
-		backendDown, backendAt = c.BackendLinkStatus()
+		link := c.BackendLink()
+		backendDown = link.Down
 		if backendDown {
-			res.GatewayPhaseAt = backendAt
+			res.GatewayPhaseAt = link.ChangedAt
+		}
+		if link.Losses > 0 || link.Down {
+			res.BackendLink = &rpc.BackendLinkHealth{
+				Down:                 link.Down,
+				ChangedAt:            link.ChangedAt,
+				Losses:               link.Losses,
+				LastOutageSeconds:    int64(link.LastOutage / time.Second),
+				LongestOutageSeconds: int64(link.LongestOutage / time.Second),
+			}
 		}
 	}
 	res.GatewayPhase = statusGatewayPhase(
