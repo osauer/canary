@@ -38,6 +38,7 @@ package_variant() {
 	local prefix="$1" binary_name="$2" compiled_binary="$3" warning="$4"
 	local base="${prefix}-${version}-${target}"
 	local stage="${dist_dir}/${base}"
+	local archive archive_inventory
 
 	rm -rf "$stage"
 	mkdir -p "$stage"
@@ -65,24 +66,28 @@ WARN
 	fi
 	( cd "$dist_dir" && tar -czf "$base.tar.gz" "$base" )
 	archive="$dist_dir/$base.tar.gz"
+	# Buffer the complete inventory before testing membership. Piping tar into
+	# grep -q is racy under pipefail: grep may close early after a match, making
+	# GNU tar report SIGPIPE and turning a present entry into a false failure.
+	archive_inventory="$(tar -tzf "$archive")"
 	for required_path in "$base/$binary_name" "$base/LICENSE" "$base/README.md"; do
-		if ! tar -tzf "$archive" | grep -Fqx "$required_path"; then
+		if ! grep -Fqx "$required_path" <<< "$archive_inventory" >/dev/null; then
 			echo "release archive missing required path: $required_path" >&2
 			exit 1
 		fi
 	done
 	assert_archive_capability "$archive" "$base" "$binary_name" "$warning"
-	if tar -tzf "$archive" | grep -Fqx "$base/ibkr"; then
+	if grep -Fqx "$base/ibkr" <<< "$archive_inventory" >/dev/null; then
 		echo "release archive contains retired executable entry: $base/ibkr" >&2
 		exit 1
 	fi
 	if [ "$warning" = "trading" ]; then
-		if ! tar -tzf "$archive" | grep -Fqx "$base/TRADING-WARNING.md"; then
+		if ! grep -Fqx "$base/TRADING-WARNING.md" <<< "$archive_inventory" >/dev/null; then
 			echo "trading release archive is missing TRADING-WARNING.md" >&2
 			exit 1
 		fi
 	else
-		if tar -tzf "$archive" | grep -Fq 'TRADING-WARNING.md'; then
+		if grep -F 'TRADING-WARNING.md' <<< "$archive_inventory" >/dev/null; then
 			echo "read-only release archive unexpectedly contains TRADING-WARNING.md" >&2
 			exit 1
 		fi

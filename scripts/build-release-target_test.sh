@@ -30,6 +30,22 @@ printf '%s\n' '#!/bin/sh' 'set -eu' \
 	'chmod 0755 "$out"' > "$test_root/fake-bin/go"
 chmod 0755 "$test_root/fake-bin/go"
 
+# Make archive listings large enough that a tar-to-grep -q pipeline reliably
+# encounters SIGPIPE after grep finds an early entry. The release script must
+# consume the complete listing before checking membership.
+printf '%s\n' '#!/bin/sh' 'set -eu' \
+	'if [ "${1:-}" = "-tzf" ]; then' \
+	'  /usr/bin/tar "$@"' \
+	'  i=0' \
+	'  while [ "$i" -lt 20000 ]; do' \
+	'    printf "canary-pipe-padding-%05d\\n" "$i"' \
+	'    i=$((i + 1))' \
+	'  done' \
+	'  exit 0' \
+	'fi' \
+	'exec /usr/bin/tar "$@"' > "$test_root/fake-bin/tar"
+chmod 0755 "$test_root/fake-bin/tar"
+
 (cd "$test_root/repo" && PATH="$test_root/fake-bin:$PATH" ./build-release-target.sh darwin-arm64 v1.2.3 '-s -w' "$test_root/dist")
 
 mkdir -p "$test_root/dist-goflags"
