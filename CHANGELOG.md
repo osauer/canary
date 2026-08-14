@@ -21,12 +21,16 @@ All notable changes to this project are documented here. The project adheres to 
 - The daemon's `[daemon] log_level` default moved from `info` to `warn`. Process-lifecycle markers (broker session established, app start/stop) still reach the log at any level so restart history stays reconstructable.
 - The regime dashboard's overnight "HYG spot delivered no tick" warning is reserved for regular US trading hours, when a dead feed is a real fault; overnight thin tape is recorded on the typed data-quality surface without a log line.
 
+### Security
+
+- The Go toolchain moved to 1.26.6, picking up the upstream standard-library fixes govulncheck flags on 1.26.5 (XML/asn1 recursion limits, net/http idna handling, and related).
+
 ### Fixed
 
 - A held symbol whose contract the broker can no longer resolve (for example after a delisting) no longer retries resolution at full poll rate — one night produced thousands of identical warnings. The broker's definitive "no security definition" answer now suppresses re-resolution with an escalating backoff, bounding a permanently dead symbol to about two probes an hour.
 - After the broker reports subscriptions lost (code 1101), the daemon no longer sends cancel requests for request IDs the broker already dropped; each futile cancel drew an error 300 ("Can't find EId") into the log.
 - **The app's source-health stamp no longer counts inherited staleness as an extra failed source.** The portfolio-stress "regime" row deliberately inherits its governed clusters' staleness, but the lamp-test badge counted it as an independent failure next to the stale clusters themselves — one cause read as two or three. The daemon now types the inheritance (`derived_from` on the source-health row), and the app renders it as a cause chain ("Regime stale — inherits funding series, breadth compute") outside the ok/total count. The app's regime stale-budget also derives from the served `max_age_seconds` again instead of silently falling back to a hardcoded 60 minutes. (#34)
-- **The Funding indicator can no longer go stale from a half-fetched Treasury series.** The bill leg's two-month fetch previously tolerated one month failing and cached the shorter series as a fresh success, dating the derived CP-minus-bill spread up to a month back and marking Funding stale for the cache's full 12-hour window while the upstream was healthy. The merge is now all-or-error with the two months fetched concurrently, the series cache refuses to replace a cached series with one whose newest observation is older, and every fetch failure, fallback serve, and refusal is logged — the previous path was entirely silent.
+- **The Funding indicator can no longer go stale from a half-fetched Treasury series.** The bill leg's two-month fetch previously tolerated one month failing and cached the shorter series as a fresh success, dating the derived CP-minus-bill spread up to a month back and marking Funding stale for the cache's full 12-hour window while the upstream was healthy. The merge is now all-or-error with the two months fetched concurrently, the series cache refuses to replace a cached series with one whose newest observation is older, and every fetch failure, fallback serve, and refusal is logged — the previous path was entirely silent. A fetched series whose newest observation trails the expected business-daily publication cadence is also flagged at write time, so a late or truncated upstream is named in the log before the indicator can go stale from it.
 
 ## v3.0.1 — 2026-08-09 15:51 CEST
 

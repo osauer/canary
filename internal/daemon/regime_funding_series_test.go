@@ -120,6 +120,37 @@ func TestRegimeSeriesCacheRefusesRegression(t *testing.T) {
 	}
 }
 
+// A truncated-but-parsable upstream response is accepted by the CSV fetcher —
+// truncation at a row boundary is indistinguishable from real publication lag
+// there — and the cache flags it at write time against the declared
+// business-daily cadence. This is the cold-cache case the regression guard
+// cannot catch: no better entry exists, so without the cadence check the
+// short series would be stored as an ordinary fresh success.
+func TestRegimeSeriesCacheFlagsBehindCadenceWrite(t *testing.T) {
+	stale := time.Now().UTC().AddDate(0, 0, -15)
+	body := "observation_date,BAMLH0A0HYM2\n" +
+		stale.AddDate(0, 0, -1).Format("2006-01-02") + ",3.10\n" +
+		stale.Format("2006-01-02") + ",3.15\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, body)
+	}))
+	defer srv.Close()
+
+	var warned []string
+	cache := newRegimeSeriesCache(t.TempDir(), func(format string, args ...any) {
+		warned = append(warned, fmt.Sprintf(format, args...))
+	})
+	points, err := cache.fetch(context.Background(), "BAMLH0A0HYM2", func(ctx context.Context, _ string) ([]regimeSeriesPoint, error) {
+		return fetchCSVSeries(ctx, srv.URL, "BAMLH0A0HYM2", "2006-01-02")
+	})
+	if err != nil || len(points) != 2 {
+		t.Fatalf("fetch: len %d err %v, want the short series accepted", len(points), err)
+	}
+	if len(warned) != 1 || !strings.Contains(warned[0], "behind a business-daily publication cadence") {
+		t.Fatalf("behind-cadence write not flagged, got %v", warned)
+	}
+}
+
 // A failed fetch that lands on the cached fallback logs the failure and the
 // age of what is being served; a failed fetch with no fallback logs too. The
 // silent path is what let a transient upstream failure go undiagnosed.

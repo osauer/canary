@@ -19,6 +19,17 @@ const (
 	regimeSeriesCacheMaxFallbackAge = 14 * 24 * time.Hour
 	regimeSeriesStateKind           = "regime_official_series.current.v1"
 	regimeSeriesObservationKind     = "regime_official_series.snapshot.v1"
+	// regimeSeriesMaxObservationLag is how far the newest observation in a
+	// freshly fetched series may trail the fetch time before the write is
+	// flagged. Every cached official series publishes each business day;
+	// six calendar days absorbs a long weekend, a holiday, and a one-day
+	// publication lag, and sits below the seven-day stale threshold so the
+	// log attributes the shortfall to the upstream before the dashboard
+	// lamp can go stale from it. A truncated-but-parsable response is
+	// indistinguishable from real publication lag at this boundary; the
+	// flag names the expectation so either cause surfaces the moment it is
+	// written, not a session later.
+	regimeSeriesMaxObservationLag = 6 * 24 * time.Hour
 )
 
 // regimeSeriesCache keeps official daily public-rate series from flapping on
@@ -161,6 +172,10 @@ func (c *regimeSeriesCache) put(seriesID string, points []regimeSeriesPoint, fet
 			_ = c.saveLocked(existing)
 			return cloneRegimeSeries(existing.Points)
 		}
+	}
+	if lag := fetchedAt.Sub(candidate.Date); lag > regimeSeriesMaxObservationLag {
+		c.warn("official series %s: fetched series ends %s, %.0f days behind a business-daily publication cadence; serving it, but the upstream is late or truncated",
+			seriesID, candidate.Date.Format("2006-01-02"), lag.Hours()/24)
 	}
 	entry := regimeSeriesCacheEntry{
 		SeriesID:  seriesID,
