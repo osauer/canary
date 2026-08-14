@@ -4892,6 +4892,32 @@ p {
   text-transform: none;
 }
 
+.sync-strip__update {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pd-watch-tint);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: inherit;
+  text-transform: none;
+}
+
+.sync-strip__update:disabled {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.sync-strip__update--complete {
+  color: var(--pd-money-up);
+}
+
+.sync-strip__update--failed {
+  color: var(--pd-money-down);
+}
+
 .signed.ok {
   color: var(--pd-money-up);
 }
@@ -4907,6 +4933,10 @@ p {
   .alert-row:hover,
   .brief-topic-link:hover {
     opacity: 0.82;
+  }
+
+  .sync-strip__update:not(:disabled):hover {
+    text-decoration: underline;
   }
 }
 

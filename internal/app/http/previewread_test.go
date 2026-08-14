@@ -14,6 +14,9 @@ func newPreviewGrantHandler(t *testing.T) http.Handler {
 	return newTestHandlerWithDependencies(t, routeFakeClient{}, relay.Noop{PublicURL: "https://relay.example"}, func(deps *Dependencies) {
 		deps.Addr = "127.0.0.1:8766"
 		deps.PreviewReadGrant = true
+		deps.UpdateController = &routeUpdateController{status: UpdateStatusDTO{
+			SchemaVersion: UpdateStatusSchemaVersion, State: UpdateStateCurrent, CurrentVersion: "v3.0.1",
+		}}
 	}).Handler()
 }
 
@@ -46,6 +49,7 @@ func TestPreviewReadGrantServesLoopbackReads(t *testing.T) {
 		{"loopback host", previewGet("/api/snapshot", "127.0.0.1:8766", "127.0.0.1:54321", "")},
 		{"localhost host", previewGet("/api/snapshot", "localhost:8766", "127.0.0.1:54321", "")},
 		{"same-origin fetch", previewGet("/api/proposals", "127.0.0.1:8766", "127.0.0.1:54321", "http://127.0.0.1:8766")},
+		{"update status", previewGet("/api/update", "127.0.0.1:8766", "127.0.0.1:54321", "")},
 	}
 	for _, tc := range cases {
 		res := httptest.NewRecorder()
@@ -86,6 +90,7 @@ func TestPreviewReadGrantNeverCoversActions(t *testing.T) {
 	}{
 		{http.MethodPost, "/api/proposals/refresh"},
 		{http.MethodPatch, "/api/settings"},
+		{http.MethodPost, "/api/update"},
 		{http.MethodPost, "/api/orders/ord-1/cancel"},
 	} {
 		req := httptest.NewRequest(target.method, "http://127.0.0.1:8766"+target.path, nil)

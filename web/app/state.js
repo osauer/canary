@@ -3,6 +3,9 @@
 const state = {
   snapshot: null,
   appVersion: "",
+  updateStatus: null,
+  updatePollTimer: null,
+  updateCompleteTimer: null,
   reconciliationCheck: { busy: false, state: "", error: false },
   safeNotificationTest: { busy: false, state: "", error: false },
   alertSettings: { mode: "watch_and_act" },
@@ -31,6 +34,7 @@ const state = {
   connectionOK: false,
   pairingRequired: false,
   authenticated: false,
+  readOnlyPreview: false,
   accountValueVisible: localStorage.getItem("canaryAccountValueVisible") === "true",
   stressDetailOpen: false,
   rulesDetailOpen: false,

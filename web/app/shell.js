@@ -186,7 +186,7 @@ function renderSyncStrip(snap) {
   if (!strip) return;
   const updatedAt = parseDate(snap.updated_at);
   if (!updatedAt) {
-    strip.hidden = true;
+    strip.hidden = $("updateAction")?.hidden !== false;
     return;
   }
 

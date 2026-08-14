@@ -28,9 +28,10 @@ const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
   "alerts", "alert-inbox", "brief", "chrome", "lifecycle", "market-events", "opportunities", "orders",
   "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "strategies", "stress", "underlyings",
+  "update",
 ];
 const modules = Object.fromEntries(await Promise.all(moduleNames.map(async (name) => [name, await import(`../${name}.js`)])));
-const { alerts, brief, chrome, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, strategies, stress, underlyings } = modules;
+const { alerts, brief, chrome, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, strategies, stress, underlyings, update } = modules;
 const alertInbox = modules["alert-inbox"];
 const coverage = modules["protection-coverage"];
 const marketEvents = modules["market-events"];
@@ -55,9 +56,12 @@ function reset() {
   renderCount = 0;
   if (state.alertsRefreshTimer) clearTimeout(state.alertsRefreshTimer);
   if (state.attentionRetryTimer) clearTimeout(state.attentionRetryTimer);
+  if (state.updatePollTimer) clearTimeout(state.updatePollTimer);
+  if (state.updateCompleteTimer) clearTimeout(state.updateCompleteTimer);
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
+    readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
     protectionSnapshotBusy: false, protectionSnapshotLastAt: 0, protectionSnapshotNotice: "",
     protectionDerisk: { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null },
@@ -207,6 +211,32 @@ test("sync strip combines app transport health with typed account-data authority
   snap.positions.authority = current;
   snap.sources.positions = { state: "stale" };
   assert.equal(shell.snapshotHasDataGaps(snap), true);
+});
+
+test("app update footer offers only a verified target and proves the served version after reconnect", async () => {
+  reset();
+  update.applyUpdateStatus({ state: "development_build", current_version: "v3.0.1-39-gabcdef0", available: false });
+  assert.equal(dom.element("updateAction").hidden, true);
+
+  update.applyUpdateStatus({ state: "available", current_version: "v3.0.1", latest_version: "v3.0.2", available: true });
+  assert.equal(dom.element("updateAction").hidden, false);
+  assert.equal(dom.element("updateAction").textContent, "v3.0.2 available · Update");
+
+  let requested = null;
+  globalThis.fetch = async (_url, options) => {
+    requested = JSON.parse(options.body);
+    return response({ state: "updating", current_version: "v3.0.1", latest_version: "v3.0.2", target_version: "v3.0.2", available: false });
+  };
+  await update.requestUpdate();
+  assert.deepEqual(requested, { target_version: "v3.0.2" });
+  assert.equal(storage.get("canaryUpdateTarget"), "v3.0.2");
+  assert.equal(dom.element("updateAction").textContent, "Updating to v3.0.2…");
+
+  assert.equal(update.observeAppVersion("v3.0.2"), true);
+  assert.equal(storage.has("canaryUpdateTarget"), false);
+  assert.equal(dom.element("updateAction").textContent, "Updated to v3.0.2");
+  clearTimeout(state.updateCompleteTimer);
+  state.updateCompleteTimer = null;
 });
 
 test("TestAppJSAccountPrivacyMasksUnderlyingPnl replacement masks both summary and row until explicitly revealed", () => {

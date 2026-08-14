@@ -25,6 +25,18 @@ running. It uses the same app-first stack path as `canary restart`: a running ap
 is restarted and verified on the installed binary before the daemon is touched.
 Processes that were stopped before the update remain stopped.
 
+The paired app performs the same signed, same-major check after bootstrap and
+caches it for six hours. When a newer stable release is provable, the footer
+names the exact version and offers one update action. The action runs the same
+updater and reconnects only after the app host serves the requested version.
+
+Ahead-of-tag `git describe` builds (for example `v3.0.1-12-gabcdef0`), dirty
+builds, `dev`, and commit-only versions are deliberately incomparable with a
+stable release. Neither the CLI nor the app offers an automatic replacement for
+them: semver would otherwise rank an ahead build as a prerelease below its base
+tag and could silently downgrade it. `canary update --force` remains the
+explicit recovery path when replacing such a build is intentional.
+
 ### Release integrity
 
 From v1.0.0 onward, every release ships `SHA256SUMS.asc`: a PGP detached signature over `SHA256SUMS`, produced by the maintainer's Ed25519 key (fingerprint `D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D`). The public key is embedded in every Canary binary, so `canary update` verifies the next release using a key your already-installed binary carries, with no network bootstrap an attacker could swap.

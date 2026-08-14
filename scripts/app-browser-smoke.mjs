@@ -188,6 +188,15 @@ async function runRound4SyntheticSmoke() {
     }
     if (method === "GET" && requestPath === "/api/alerts/attention") return json(attention);
     if (method === "GET" && requestPath === "/api/alerts") return json(alerts);
+    if (method === "GET" && requestPath === "/api/update") return json({
+      schema_version: "app-update-v1",
+      state: "available",
+      current_version: "v3.0.1",
+      latest_version: "v3.0.2",
+      available: true,
+      checking: false,
+      checked_at: now,
+    });
     if (method === "GET" && requestPath === "/api/orders/open") return json({
       as_of: now,
       orders: [{
@@ -283,6 +292,17 @@ async function runRound4SyntheticSmoke() {
       route: location.pathname + location.search,
       remote: localStorage.getItem("ibkrRemoteRoute") || "",
     }));
+    await page.waitForFunction(() => document.getElementById("updateAction")?.hidden === false, { timeout: 5000 });
+    const update = await page.evaluate(() => {
+      const button = document.getElementById("updateAction");
+      const rect = button?.getBoundingClientRect();
+      return {
+        text: button?.textContent || "",
+        enabled: button?.disabled === false,
+        visible: Boolean(rect?.width && rect?.height),
+        horizontal_overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      };
+    });
     const attentionRead = page.waitForResponse((response) => (
       response.request().method() === "POST"
         && new URL(response.url()).pathname === "/api/alerts/attention/read"
@@ -348,6 +368,7 @@ async function runRound4SyntheticSmoke() {
       submitRequests: globalThis.__canarySmoke?.fetches?.filter((item) => item.url.endsWith("/api/strategies/submit")).length || 0,
     }));
     if (!monitor.active || monitor.badge !== "1" || monitor.label !== "Alerts, 1 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
+    if (update.text !== "v3.0.2 available · Update" || !update.enabled || !update.visible || update.horizontal_overflow) throw new Error(`synthetic update footer failed: ${JSON.stringify(update)}`);
     if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
@@ -425,7 +446,7 @@ async function runRound4SyntheticSmoke() {
     }
     if (externalRequests.length > 0) throw new Error(`synthetic browser attempted external requests: ${JSON.stringify(externalRequests)}`);
     if (errors.length > 0) throw new Error(`synthetic browser errors: ${errors.join("\n")}`);
-    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, brief: briefView, alerts: alertsView, orders: ordersView, strategies: { grouped: strategyBefore, preview: strategyAfter, submit_clicked: false }, desktop_layout: desktopLayout, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
+    console.log(JSON.stringify({ ok: true, browser: browserName, mobile: true, isolated: true, synthetic_only: true, external_requests: 0, pairing: { expired_fallback: true, fresh_pairing: true, attempts: pairingAttempts }, monitor, update, brief: briefView, alerts: alertsView, orders: ordersView, strategies: { grouped: strategyBefore, preview: strategyAfter, submit_clicked: false }, desktop_layout: desktopLayout, settings, reload, auth_recovery: { device_cookie: true, session_reissued: true }, bootstrap_requests: bootstrapRequests, intercepted_mutations: mutationRequests.map(({ method, path }) => ({ method, path })) }, null, 2));
   } finally {
     await browser.close();
   }

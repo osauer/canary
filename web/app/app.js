@@ -16,6 +16,7 @@ import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect }
 import { state } from "./state.js";
 import { renderStrategies } from "./strategies.js";
 import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, setUnderlyingExpansion } from "./underlyings.js";
+import { renderUpdateStatus, requestUpdate } from "./update.js";
 
 installRenderAll(renderAll);
 installSmokeHooks();
@@ -169,6 +170,7 @@ function renderAll() {
   renderSettings();
   renderTabs();
   renderSyncStrip(snap);
+  renderUpdateStatus();
 }
 
 document.querySelectorAll("#alertSegments button").forEach((button) => {
@@ -179,6 +181,7 @@ $("enablePushButton").addEventListener("click", enablePush);
 $("safeNotificationTestButton").addEventListener("click", sendSafeNotificationTest);
 $("reconciliationCheckButton").addEventListener("click", sendReconciliationCheck);
 $("retryAuthButton").addEventListener("click", bootstrap);
+$("updateAction").addEventListener("click", requestUpdate);
 $("accountPrivacyToggle").addEventListener("click", () => {
   setAccountValueVisible(!state.accountValueVisible);
 });

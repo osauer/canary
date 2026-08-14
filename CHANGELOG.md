@@ -14,6 +14,7 @@ All notable changes to this project are documented here. The project adheres to 
 - `[gateway] maintenance_windows` configures the broker's scheduled reset windows (defaults to IBKR's documented North America schedule). Backend-link losses inside a window are annotated as expected maintenance in the log and counted separately in status, so a routine nightly reset no longer reads like an incident.
 - `canary status` shows a backend-link row — loss count, expected-maintenance split, and last/longest outage — and `canary status --json` carries the same data in a typed `backend_link` object. The row highlights only when losses happened outside scheduled maintenance or the link is currently down.
 - `CANARY_APP_LOG_LEVEL` sets the app server's log verbosity with the same four values as the daemon's `[daemon] log_level` config key.
+- **The paired app now offers one-tap signed updates.** When a newer stable release exists on the installed major line, the footer names its exact version; one tap runs the existing verified updater, restarts the app and daemon in their safe order, and reconnects to prove the newly served version.
 
 ### Changed
 
@@ -22,6 +23,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- **Development builds can no longer be mistaken for older releases.** Ahead-of-tag `git describe` versions, dirty builds, commit-only builds, and newer installed releases now fail closed instead of being ranked as downgrade candidates; `--force` remains the explicit manual replacement path.
 - A held symbol whose contract the broker can no longer resolve (for example after a delisting) no longer retries resolution at full poll rate — one night produced thousands of identical warnings. The broker's definitive "no security definition" answer now suppresses re-resolution with an escalating backoff, bounding a permanently dead symbol to about two probes an hour.
 - After the broker reports subscriptions lost (code 1101), the daemon no longer sends cancel requests for request IDs the broker already dropped; each futile cancel drew an error 300 ("Can't find EId") into the log.
 

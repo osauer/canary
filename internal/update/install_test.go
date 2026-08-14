@@ -98,6 +98,37 @@ func TestLatestReleaseForInstalledMajor(t *testing.T) {
 	}
 }
 
+func TestEvaluateAvailabilityFailsClosedForDevelopmentBuildsAndDowngrades(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		installed string
+		latest    string
+		state     AvailabilityState
+		available bool
+	}{
+		{name: "new stable", installed: "v3.0.1", latest: "v3.0.2", state: AvailabilityAvailable, available: true},
+		{name: "equal", installed: "v3.0.2", latest: "v3.0.2", state: AvailabilityCurrent},
+		{name: "newer installed", installed: "v3.1.0", latest: "v3.0.2", state: AvailabilityNewerInstalled},
+		{name: "git describe ahead", installed: "v3.0.1-39-g7b62a7d4", latest: "v3.0.1", state: AvailabilityDevelopmentBuild},
+		{name: "git describe dirty", installed: "v3.0.1-39-g7b62a7d4-dirty", latest: "v3.0.2", state: AvailabilityDevelopmentBuild},
+		{name: "tag dirty", installed: "v3.0.1-dirty", latest: "v3.0.2", state: AvailabilityDevelopmentBuild},
+		{name: "build metadata dirty", installed: "v2.8.5-0.20260813190449-dcc9af72fc6b+dirty", latest: "v2.8.5", state: AvailabilityDevelopmentBuild},
+		{name: "dev", installed: "dev", latest: "v3.0.2", state: AvailabilityDevelopmentBuild},
+		{name: "commit only", installed: "7b62a7d4", latest: "v3.0.2", state: AvailabilityInvalidVersion},
+		{name: "different major", installed: "v2.8.5", latest: "v3.0.2", state: AvailabilityDifferentMajor},
+		{name: "release candidate", installed: "v3.0.2-rc.1", latest: "v3.0.2", state: AvailabilityAvailable, available: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := EvaluateAvailability(tc.installed, tc.latest)
+			if got.State != tc.state || got.Available != tc.available {
+				t.Fatalf("EvaluateAvailability(%q, %q) = %+v, want state=%q available=%t", tc.installed, tc.latest, got, tc.state, tc.available)
+			}
+		})
+	}
+}
+
 func TestInstallCanonicalRejectsNonRegularPublicPaths(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

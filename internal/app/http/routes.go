@@ -30,15 +30,16 @@ import (
 // the HTTP layer. Registering a daemon client makes RPC methods reachable but
 // does not transfer daemon policy or broker-write authority to HTTP.
 type Dependencies struct {
-	Server          *hyperserve.Server
-	Store           *state.Store
-	Auth            *auth.Manager
-	Daemon          daemonclient.Client
-	Live            *live.Service
-	Relay           relay.Client
-	PublicURL       string
-	Version         string
-	AlertController AlertDeliveryController
+	Server           *hyperserve.Server
+	Store            *state.Store
+	Auth             *auth.Manager
+	Daemon           daemonclient.Client
+	Live             *live.Service
+	Relay            relay.Client
+	PublicURL        string
+	Version          string
+	AlertController  AlertDeliveryController
+	UpdateController UpdateController
 	// Addr is the listen address; the preview read grant derives its exact
 	// allowed Host values from it and stays disabled when it is unparsable.
 	Addr string
@@ -114,6 +115,8 @@ func Register(deps Dependencies) {
 	srv.POST("/api/auth/session", h.handleAuthSession)
 
 	srv.GET("/api/bootstrap", h.requireRead(h.handleBootstrap))
+	srv.GET("/api/update", h.requireRead(h.handleUpdateStatus))
+	srv.POST("/api/update", h.requireAuth(h.handleUpdateStart))
 	srv.GET("/api/snapshot", h.requireRead(h.handleSnapshot))
 	srv.GET("/api/settings", h.requireRead(h.handleGetSettings))
 	srv.PATCH("/api/settings", h.requireAuth(h.handlePatchSettings))

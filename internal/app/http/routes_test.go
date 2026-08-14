@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 
 	"net/http"
@@ -94,6 +95,67 @@ func TestSettingsGetPatchRequiresAuthAndRejectsReadOnly(t *testing.T) {
 	if patchRes.Code != http.StatusBadRequest {
 		t.Fatalf("settings patch status=%d, want 400; body=%s", patchRes.Code, patchRes.Body.String())
 	}
+}
+
+func TestUpdateRoutesRequireAuthAndPinDisplayedTarget(t *testing.T) {
+	t.Parallel()
+	controller := &routeUpdateController{status: UpdateStatusDTO{
+		SchemaVersion: UpdateStatusSchemaVersion, State: UpdateStateAvailable,
+		CurrentVersion: "v3.0.1", LatestVersion: "v3.0.2", Available: true,
+	}}
+	server := newTestHandlerWithDependencies(t, routeFakeClient{}, relay.Noop{PublicURL: "https://relay.example"}, func(deps *Dependencies) {
+		deps.UpdateController = controller
+	})
+	handler := server.Handler()
+
+	unauth := httptest.NewRequest(http.MethodGet, "/api/update", nil)
+	unauthRes := httptest.NewRecorder()
+	handler.ServeHTTP(unauthRes, unauth)
+	if unauthRes.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status=%d, want 401", unauthRes.Code)
+	}
+
+	cookie := routeSessionCookie(t, handler)
+	getReq := httptest.NewRequest(http.MethodGet, "/api/update", nil)
+	getReq.AddCookie(cookie)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("update status=%d, want 200; body=%s", getRes.Code, getRes.Body.String())
+	}
+
+	wrongReq := httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader([]byte(`{"target_version":"v3.0.3"}`)))
+	wrongReq.AddCookie(cookie)
+	wrongRes := httptest.NewRecorder()
+	handler.ServeHTTP(wrongRes, wrongReq)
+	if wrongRes.Code != http.StatusConflict {
+		t.Fatalf("wrong target status=%d, want 409; body=%s", wrongRes.Code, wrongRes.Body.String())
+	}
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader([]byte(`{"target_version":"v3.0.2"}`)))
+	startReq.AddCookie(cookie)
+	startRes := httptest.NewRecorder()
+	handler.ServeHTTP(startRes, startReq)
+	if startRes.Code != http.StatusAccepted || controller.started != "v3.0.2" {
+		t.Fatalf("start status=%d target=%q, want 202/v3.0.2; body=%s", startRes.Code, controller.started, startRes.Body.String())
+	}
+}
+
+type routeUpdateController struct {
+	status  UpdateStatusDTO
+	started string
+}
+
+func (c *routeUpdateController) Status() UpdateStatusDTO { return c.status }
+
+func (c *routeUpdateController) Start(target string) (UpdateStatusDTO, error) {
+	if target != c.status.LatestVersion {
+		return c.status, fmt.Errorf("%w: target changed", ErrUpdateConflict)
+	}
+	c.started = target
+	c.status.State = UpdateStateUpdating
+	c.status.TargetVersion = target
+	return c.status, nil
 }
 
 func TestOrderWritesRequireCurrentConfirmation(t *testing.T) {

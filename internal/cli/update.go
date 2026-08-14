@@ -10,8 +10,6 @@ import (
 	"runtime"
 	"strings"
 
-	"golang.org/x/mod/semver"
-
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/update"
 )
@@ -104,16 +102,21 @@ func runUpdateCore(ctx context.Context, opts *updateOptions, fetch fetchFunc, do
 
 	latest := normalizeVersion(rel.TagName)
 
-	// Version-compare decision. --force always installs (bypasses).
-	needsInstall := opts.force || versionNewer(latest, installed)
+	// The shared decision treats git-describe ahead/dirty builds as
+	// incomparable. Plain semver would rank vX.Y.Z-N-gSHA below vX.Y.Z and
+	// silently turn a stable update check into a development-build downgrade.
+	availability := update.EvaluateAvailability(installed, latest)
+	// --force remains the explicit operator override for recovery or a
+	// deliberate replacement of an incomparable local build.
+	needsInstall := opts.force || availability.Available
 
 	if opts.check {
-		renderCheck(opts.out, installed, latest, needsInstall, opts.force)
+		renderCheck(opts.out, availability, needsInstall, opts.force)
 		return 0
 	}
 
 	if !needsInstall {
-		fmt.Fprintf(opts.out, "%s update: already on %s (latest is %s)\n", productidentity.Executable, installed, latest)
+		renderNoInstall(opts.out, availability)
 		return 0
 	}
 
@@ -184,14 +187,30 @@ func promptRestart(in io.Reader, out io.Writer) bool {
 
 // renderCheck prints the dry-run summary. Exit code per design
 // (informational), non-zero only on actual fetch failures. So
-func renderCheck(w io.Writer, installed, latest string, needsInstall bool, forced bool) {
+func renderCheck(w io.Writer, availability update.Availability, needsInstall bool, forced bool) {
+	installed := availability.InstalledVersion
+	latest := availability.LatestVersion
 	switch {
 	case forced:
 		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n--force was set; `%s update` would re-install %s\n", installed, latest, productidentity.Executable, latest)
 	case needsInstall:
 		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n`%s update` would install %s\n", installed, latest, productidentity.Executable, latest)
 	default:
-		fmt.Fprintf(w, "installed: %s\nlatest:    %s\nalready on latest; nothing to do\n", installed, latest)
+		fmt.Fprintf(w, "installed: %s\nlatest:    %s\n", installed, latest)
+		renderNoInstall(w, availability)
+	}
+}
+
+func renderNoInstall(w io.Writer, availability update.Availability) {
+	switch availability.State {
+	case update.AvailabilityDevelopmentBuild, update.AvailabilityInvalidVersion:
+		fmt.Fprintf(w, "%s update: %s is a development or unversioned build; stable release ordering is not provable, so no update is offered (latest is %s; use --force only for an intentional replacement)\n", productidentity.Executable, availability.InstalledVersion, availability.LatestVersion)
+	case update.AvailabilityNewerInstalled:
+		fmt.Fprintf(w, "%s update: installed %s is newer than latest stable %s; refusing to downgrade\n", productidentity.Executable, availability.InstalledVersion, availability.LatestVersion)
+	case update.AvailabilityDifferentMajor:
+		fmt.Fprintf(w, "%s update: latest %s is on a different major from installed %s; refusing to cross major lines\n", productidentity.Executable, availability.LatestVersion, availability.InstalledVersion)
+	default:
+		fmt.Fprintf(w, "%s update: already on %s (latest is %s)\n", productidentity.Executable, availability.InstalledVersion, availability.LatestVersion)
 	}
 }
 
@@ -205,20 +224,6 @@ func normalizeVersion(v string) string {
 		v = "v" + v
 	}
 	return v
-}
-
-// versionNewer reports whether latest > installed. A "dev" or empty
-func versionNewer(latest, installed string) bool {
-	if installed == "" || installed == "dev" {
-		// Any tagged release is newer than the dev placeholder.
-		return semver.IsValid(latest)
-	}
-	if !semver.IsValid(latest) || !semver.IsValid(installed) {
-		// Can't compare — be conservative and say "not newer" so
-		// we don't install on a parse failure. --force overrides
-		return false
-	}
-	return semver.Compare(latest, installed) > 0
 }
 
 // isStdinTTY reports whether stdin is a real terminal. Mirrors the

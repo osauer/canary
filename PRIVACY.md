@@ -67,8 +67,9 @@ Normal operation requires access to your configured IB Gateway or TWS API
 socket. The project makes these additional outbound connections:
 
 - `install.sh` and `canary update` contact GitHub Releases when the user asks
-  to install or update. They disclose release/platform request metadata, not
-  broker account data.
+  to install or update. The paired app also checks GitHub Releases after app
+  bootstrap, cached for six hours, so it can show a newer stable version. These
+  requests disclose release/platform metadata, not broker account data.
 - The rulebook's automatic earnings refresh queries Nasdaq once per held or
   requested underlying that needs current evidence. Each request discloses the
   normalized ticker symbol, so a third party can infer that the name is being

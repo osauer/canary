@@ -6,6 +6,7 @@ import { renderAll } from "./render-runtime.js";
 import { $ } from "./shared.js";
 import { refreshSelectedMarketCalendar, renderTopbar } from "./shell.js";
 import { state } from "./state.js";
+import { observeAppVersion, refreshUpdateStatus } from "./update.js";
 
 async function bootstrap(options = {}) {
   try {
@@ -69,6 +70,7 @@ async function fetchBootstrap() {
 function applyBootstrap(data) {
   state.snapshot = data.snapshot;
   state.appVersion = String(data.version || "");
+  const updateCompleted = observeAppVersion(state.appVersion);
   state.authenticated = Boolean(data.auth?.authenticated);
   state.readOnlyPreview = Boolean(data.auth?.read_only);
   state.settings = data.settings || data.snapshot?.settings || state.settings;
@@ -86,6 +88,7 @@ function applyBootstrap(data) {
   $("alertsPanel").hidden = false;
   setConnection("Connected", true);
   renderAll();
+  if (!updateCompleted) refreshUpdateStatus();
   refreshPushState();
   handleAttentionContextChange();
   connectEvents();

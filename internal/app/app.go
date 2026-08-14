@@ -181,6 +181,7 @@ func newWithParts(opts Options, store *state.Store, authMgr *auth.Manager, daemo
 		PublicURL:        opts.PublicURL,
 		Version:          opts.Version,
 		AlertController:  alertController,
+		UpdateController: newUpdateCoordinator(opts.Version),
 		Addr:             opts.Addr,
 		PreviewReadGrant: opts.PreviewReadGrant,
 	})
