@@ -2,24 +2,31 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.1.0 — 2026-08-13 20:55 CEST
+## v3.1.0 — 2026-08-14 08:50 CEST
 
 ### What's new
 
-- **Logs are quiet by default and bounded on disk.** Both the daemon and the app server now log at `warn` out of the box, so the log carries actionable lines instead of one record per routine broker message, and both log files rotate at 64 MiB while running — a long-lived process can no longer grow its log without bound.
-- **Broker connectivity blips are reported as episodes, not floods.** When the TWS-to-IBKR backend link flaps, the daemon logs the first loss, the first recovery, and one end-of-episode summary instead of a warning per blip — while a loss during an open trading session or an outage past five minutes always warns immediately, because those are the ones that matter.
+- **Option positions now behave like strategies.** Canary conservatively groups current option legs, previews close or reduce actions as one combo, and keeps broker submission behind the existing confirmation, policy, and freeze gates.
+- **Protection covers more of the repair path.** Uncovered stock positions can request a governed stop proposal immediately, while eligible standalone long options can receive distinct loss-exit and profit-lock proposals without weakening hedge or intent classification.
+- **The paired app is clearer and easier to maintain.** Current alerts explain their evidence and destination, the Monitor separates live findings from data gaps, logs are quieter and bounded, and an exact-version footer action can run the signed updater.
 
 ### Added
 
-- `[gateway] maintenance_windows` configures the broker's scheduled reset windows (defaults to IBKR's documented North America schedule). Backend-link losses inside a window are annotated as expected maintenance in the log and counted separately in status, so a routine nightly reset no longer reads like an incident.
-- `canary status` shows a backend-link row — loss count, expected-maintenance split, and last/longest outage — and `canary status --json` carries the same data in a typed `backend_link` object. The row highlights only when losses happened outside scheduled maintenance or the link is currently down.
+- Current option strategies are available in the CLI and paired app, with exact grouped combo previews for closing or reducing a position.
+- Protection can request a trailing-stop proposal for an uncovered whole-share stock or ETF position, then reuse the ordinary preview and explicit-submit path.
+- Eligible standalone long options can receive a fresh-bid loss exit or a separately armed native `DAY TRAIL LIMIT` profit lock. Both remain advisory proposals until explicitly submitted.
+- `[gateway] maintenance_windows` configures scheduled broker resets. `canary status` and its JSON form now report backend-link loss episodes, maintenance attribution, and the last and longest outage.
 - `CANARY_APP_LOG_LEVEL` sets the app server's log verbosity with the same four values as the daemon's `[daemon] log_level` config key.
 - **The paired app now offers one-tap signed updates.** When a newer stable release exists on the installed major line, the footer names its exact version; one tap runs the existing verified updater, restarts the app and daemon in their safe order, and reconnects to prove the newly served version.
 
 ### Changed
 
-- **Breadth now survives a broker historical-data outage without losing a day.** The S&P 500 breadth refresh previously fanned 503 two-minute history requests into a farm the daemon already knew was broken, burned a fixed retry budget (~3 hours), and then slept until the next day's close — so an outage that cleared the same evening still cost a full extra session, and a gateway reconnect could not wake it. The engine now checks its own connection's historical-farm state before and during every sweep and defers cheaply while the farm is down, a rebuilt breadth connection wakes the scheduler immediately, and below-coverage retries continue on their paced cadence until the next daily tick instead of a counter budget. Status surfaces stop overstating health: a snapshot served while refreshes stay below the coverage threshold reports `degraded` (previously `ready`), the refresh progress object carries failed-fetch and next-attempt fields, and `canary status` data quality gains a breadth row with last-pass coverage and the next retry time.
+- Alerts now present only current occurrences as the active list, explain the evidence behind each item, and keep routine housekeeping monitor-only. Rulebook paging follows the composite decision instead of leaf noise.
+- Confirmed statement cash flows now resolve routine reconciliation confirmations automatically. A drawdown latch starts provisional, dissolves when a confirmed withdrawal explains it, and otherwise promotes fail-closed to the existing durable latch.
+- VVIX and Funding amber bands now mean transitions rather than broad zones, healthy regime windows are explicit, and market-data gaps no longer read as failed portfolio measurements or actions.
+- Breadth now defers cheaply while the broker historical-data farm is down, wakes on reconnection, and keeps paced retries until coverage recovers. Status reports degraded coverage and the next attempt instead of sleeping until the following session.
 - The daemon's `[daemon] log_level` default moved from `info` to `warn`. Process-lifecycle markers (broker session established, app start/stop) still reach the log at any level so restart history stays reconstructable.
+- Daemon and app logs now rotate at 64 MiB while running. Broker backend-link flaps are summarized as episodes, while an active-session loss or an outage past five minutes still warns immediately.
 - The regime dashboard's overnight "HYG spot delivered no tick" warning is reserved for regular US trading hours, when a dead feed is a real fault; overnight thin tape is recorded on the typed data-quality surface without a log line.
 
 ### Security
@@ -29,10 +36,12 @@ All notable changes to this project are documented here. The project adheres to 
 ### Fixed
 
 - **Development builds can no longer be mistaken for older releases.** Ahead-of-tag `git describe` versions, dirty builds, commit-only builds, and newer installed releases now fail closed instead of being ranked as downgrade candidates; `--force` remains the explicit manual replacement path.
-- A held symbol whose contract the broker can no longer resolve (for example after a delisting) no longer retries resolution at full poll rate — one night produced thousands of identical warnings. The broker's definitive "no security definition" answer now suppresses re-resolution with an escalating backoff, bounding a permanently dead symbol to about two probes an hour.
+- A held symbol whose contract the broker can no longer resolve now backs off after the definitive broker response instead of retrying at full poll rate.
 - After the broker reports subscriptions lost (code 1101), the daemon no longer sends cancel requests for request IDs the broker already dropped; each futile cancel drew an error 300 ("Can't find EId") into the log.
-- **The app's source-health stamp no longer counts inherited staleness as an extra failed source.** The portfolio-stress "regime" row deliberately inherits its governed clusters' staleness, but the lamp-test badge counted it as an independent failure next to the stale clusters themselves — one cause read as two or three. The daemon now types the inheritance (`derived_from` on the source-health row), and the app renders it as a cause chain ("Regime stale — inherits funding series, breadth compute") outside the ok/total count. The app's regime stale-budget also derives from the served `max_age_seconds` again instead of silently falling back to a hardcoded 60 minutes. (#34)
-- **The Funding indicator can no longer go stale from a half-fetched Treasury series.** The bill leg's two-month fetch previously tolerated one month failing and cached the shorter series as a fresh success, dating the derived CP-minus-bill spread up to a month back and marking Funding stale for the cache's full 12-hour window while the upstream was healthy. The merge is now all-or-error with the two months fetched concurrently, the series cache refuses to replace a cached series with one whose newest observation is older, and every fetch failure, fallback serve, and refusal is logged — the previous path was entirely silent. A fetched series whose newest observation trails the expected business-daily publication cadence is also flagged at write time, so a late or truncated upstream is named in the log before the indicator can go stale from it.
+- The app's source-health stamp no longer counts the derived Regime row as another failed source beside its stale inputs; it names the inheritance chain and uses the served freshness budget. (#34)
+- Funding no longer caches a half-fetched Treasury series as fresh. Its two-month input is all-or-error, older observations cannot replace newer cache data, and late publication is named at write time.
+- Public handbook pages and legacy redirects are restored after the v3.0.0 Pages publisher change. (#32)
+- The command hook now treats quoted shell separators as argument data, so safe read-only commands are not rejected while actual retired-command invocations remain blocked. (#33)
 
 ## v3.0.1 — 2026-08-09 15:51 CEST
 

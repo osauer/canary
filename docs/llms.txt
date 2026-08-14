@@ -1,8 +1,8 @@
 # Canary
 
-Updated: 2026-08-09
+Updated: 2026-08-14
 
-Canary is a local Interactive Brokers risk desk: a daemon, 22-command shell
+Canary is a local Interactive Brokers risk desk: a daemon, 23-command shell
 CLI, 13-tool read-only MCP server, paired app, and public Go TWS API. The daemon
 owns account scope, market sensors, rulebook evaluation, protection proposals,
 option-exercise opportunities, and typed source quality. The CLI, MCP server,
@@ -14,7 +14,8 @@ Use it for:
 - the Action Queue and daemon-composed daily brief;
 - the 14-rule desk rulebook, operator-authored risk policy, and Flex-backed
   reconciliation;
-- read-only protection proposals and option-exercise opportunity review;
+- current option-strategy grouping, read-only protection proposals, and
+  option-exercise opportunity review;
 - explicit freshness, entitlement, source-health, warning-code, and session
   context; and
 - Go services using the clean-room `github.com/osauer/canary/v2/pkg/ibkr`

@@ -1,9 +1,9 @@
 # Canary full context
 
-Updated: 2026-08-09
+Updated: 2026-08-14
 
 Canary is a local Interactive Brokers risk desk built as a Go daemon, a
-22-command CLI, a 13-tool stdio MCP server, a Claude Desktop MCPB, a Claude Code
+23-command CLI, a 13-tool stdio MCP server, a Claude Desktop MCPB, a Claude Code
 plugin, a paired app, and a clean-room TWS protocol library. The daemon owns the
 broker connection, account scope, runtime state, data-source health, market
 sensors, rulebook, protection proposals, and option-exercise opportunities.
@@ -85,6 +85,7 @@ canary brief
 canary rules
 canary policy show
 canary recon show
+canary strategies list
 canary proposals list
 canary opportunities list
 canary orders open
