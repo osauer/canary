@@ -11,7 +11,7 @@ function renderStrategies(positions = {}) {
   if (!list) return;
   const strategies = positions.strategies || [];
   const issues = positions.strategy_issues || [];
-  const current = strategies.filter((strategy) => strategy.status !== "closed");
+  const current = strategies;
   const count = $("strategiesCount");
   count.textContent = current.length === 0 ? "No groups" : current.length === 1 ? "1 group" : `${current.length} groups`;
   count.classList.toggle("is-zero", current.length === 0);

@@ -30,28 +30,25 @@ const (
 // cold-start fan-out. A previous refresh that resolved ~50 contracts
 // drained the bucket; waiting 12 min lets the next attempt land another
 // ~50 successful resolutions on top of the windows already persisted.
+//
+// The cadence holds until convergence or the next daily tick — a
+// calendar bound, not a counter. A counter budget once expired ~3 h
+// after the close; an HMDS outage that cleared later the same evening
+// then stayed unpublished until the NEXT day's tick even though the
+// data was one converged pass away. The health gate keeps a dead
+// transport from burning fan-outs during that window, so the only cost
+// of an unconverged evening is one paced attempt per delay.
 const belowThresholdRetryDelay = 12 * time.Minute
 
-// maxBelowThresholdRetries caps how many back-to-back retries the
-// scheduler performs before falling through to the daily cadence.
-// With belowThresholdRetryDelay = 12 min and ~50 new resolutions per
-// retry (IBKR's bucket math), 12 retries covers ~600 names — enough to
-// converge from a cold start for the S&P 500. The cap exists so a
-// genuinely broken gateway doesn't keep us in a tight retry loop
-// indefinitely: after the limit, we fall through to the daily 16:35 ET
-// wake-up and the operator can investigate.
-const maxBelowThresholdRetries = 15
-
-// errorRetryDelay is the back-off applied when Refresh returns an
-// error — distinct from belowThresholdRetryDelay (which assumes a
-// completed-but-partial fan-out limited by IBKR's reqContractDetails
-// bucket). Refresh errors are transport-level failures (gateway down,
-// bulk-connector not yet ready, ctx cancellation upstream); they
-// resolve in seconds, not minutes, so a short fixed back-off is
-// right. 30 s is long enough not to retry-storm a recovering gateway
-// and short enough that a one-shot blip clears within one user-visible
-// poll cycle.
-const errorRetryDelay = 30 * time.Second
+// transportRetryDelay paces attempts while Refresh reports the transport
+// path unusable (bulk lane down, historical farm broken). Each attempt is
+// refused by the health gate before any per-symbol fetch, so this is a
+// cheap in-memory poll, not gateway traffic — 60 s bounds how stale the
+// gate's answer can get when a farm recovers without a reconnect
+// handshake (IBKR sends farm-OK notices on existing connections). A
+// rebuild of the lane also Kicks the scheduler directly, so
+// reconnect-shaped recoveries do not wait even this long.
+const transportRetryDelay = 60 * time.Second
 
 // nyLocation returns the America/New_York time.Location, falling back
 // to UTC if the zoneinfo database isn't available on this host. The
@@ -230,39 +227,39 @@ func shouldRefreshOnStartup(snap *Snapshot, now time.Time) bool {
 func (e *Engine) Run(ctx context.Context) {
 	defer e.setRetryPending(false)
 
-	retries := 0
+	retrying := false
 	lastErrored := false
+	lastTransportWarn := ""
 	doRefresh := func(reason string) error {
 		err := e.Refresh(ctx)
 		if err != nil {
-			e.warnf("breadth: %s refresh: %v", reason, err)
+			// Transport waits poll every transportRetryDelay; warn only
+			// when the reason changes so an hours-long farm outage reads
+			// as an episode in the log, not a line per poll.
+			if msg := err.Error(); msg != lastTransportWarn {
+				e.warnf("breadth: %s refresh: %v", reason, err)
+				lastTransportWarn = msg
+			}
+		} else {
+			lastTransportWarn = ""
 		}
 		return err
 	}
-	// updateRetryState reads the post-refresh coverage signal and
-	// adjusts the retry counter for the next loop iteration. Called
+	// updateRetryState reads the post-refresh coverage signal. Called
 	// only after refreshes that COMPLETED (no transport error) so a
 	// below-threshold result triggers the short retry cadence —
 	// otherwise the bootstrap's below-threshold outcome would sit idle
 	// until the next 16:35 ET tick, defeating the retry mechanism.
-	// Refresh errors take the errorRetryDelay path instead.
+	// Refresh errors take the transportRetryDelay path instead.
 	updateRetryState := func() {
 		cov, mc := e.LastRefreshCoverage()
-		converged := mc > 0 && cov >= int(MinCoverageFraction*float64(mc))
-		switch {
-		case converged:
-			retries = 0
+		if mc > 0 && cov >= int(MinCoverageFraction*float64(mc)) {
+			retrying = false
 			e.setRetryPending(false)
-		case retries < maxBelowThresholdRetries:
-			retries++
-			e.setRetryPending(true)
-		default:
-			// Burned through the retry budget without converging.
-			e.warnf("breadth: %d consecutive refreshes stayed below the coverage threshold (last pass %d/%d); leaving the %s retry cadence and waiting for the next daily tick",
-				maxBelowThresholdRetries, cov, mc, belowThresholdRetryDelay)
-			retries = 0
-			e.setRetryPending(false)
+			return
 		}
+		retrying = true
+		e.setRetryPending(true)
 	}
 
 	if cur, _ := e.Get(); shouldRefreshOnStartup(cur, e.clock()) {
@@ -276,13 +273,19 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 
 	for {
-		wait := e.nextWait(retries, lastErrored)
+		wait := e.nextWait(retrying, lastErrored)
+		e.setNextAttempt(e.clock().Add(wait))
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return
 		case <-timer.C:
+		case <-e.kick:
+			// The lane was just rebuilt; waiting out a transport or
+			// retry delay would only defer recovery. A kick during the
+			// healthy daily-tick sleep costs one no-op recompute.
+			timer.Stop()
 		}
 
 		lastErrored = doRefresh("scheduled") != nil
@@ -299,12 +302,12 @@ func (e *Engine) Run(ctx context.Context) {
 
 // nextWait returns how long Run should sleep before the next refresh.
 // IBKR's per-account contract-details bucket has time to refill.
-// gateway hiccup must not consume the coverage retry budget.
-func (e *Engine) nextWait(retries int, lastErrored bool) time.Duration {
+// gateway hiccup must not consume the coverage retry cadence.
+func (e *Engine) nextWait(retrying, lastErrored bool) time.Duration {
 	if lastErrored {
-		return errorRetryDelay
+		return transportRetryDelay
 	}
-	if retries > 0 {
+	if retrying {
 		return belowThresholdRetryDelay
 	}
 	next := nextRefreshAt(e.clock())

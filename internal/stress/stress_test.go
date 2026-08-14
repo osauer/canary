@@ -468,3 +468,55 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 		}
 	}
 }
+
+// A market-event source row carrying a degraded-family status must degrade
+// the stress market_events source row. The escalation switch consumes the
+// SourceStatus vocabulary the producers actually emit; it previously
+// switched on a parallel constant family that shared values by string
+// coincidence, with one arm ("degraded") unreachable.
+func TestStressMarketEventsSourceHealthEscalatesOnStaleSource(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{rpc.SourceStatusUnknown, rpc.SourceStatusStale, rpc.SourceStatusDegraded} {
+		events := rpc.MarketEventsResult{
+			AsOf: stressTestNow.Add(-time.Minute),
+			SourceHealth: []rpc.SourceHealth{{
+				Source: "market_events",
+				Status: status,
+				AsOf:   stressTestNow.Add(-time.Minute),
+			}},
+		}
+		health := stressEstablishedMarketEventsSourceHealth(rpc.PositionsResult{}, events, stressTestNow, rpc.Fingerprint{})
+		if health.Status != "degraded" {
+			t.Fatalf("source status %q: market_events health = %q, want degraded", status, health.Status)
+		}
+	}
+
+	healthy := stressEstablishedMarketEventsSourceHealth(rpc.PositionsResult{}, rpc.MarketEventsResult{
+		AsOf:         stressTestNow.Add(-time.Minute),
+		SourceHealth: []rpc.SourceHealth{{Source: "market_events", Status: rpc.SourceStatusOK, AsOf: stressTestNow.Add(-time.Minute)}},
+	}, stressTestNow, rpc.Fingerprint{})
+	if healthy.Status != rpc.RegimeStatusOK {
+		t.Fatalf("healthy source: market_events health = %q, want ok", healthy.Status)
+	}
+}
+
+// The stress regime source row deliberately inherits governed-cluster
+// staleness; DerivedFrom types that inheritance so consumers can render the
+// cause chain instead of counting the aggregate as an extra failed source.
+func TestStressRegimeSourceHealthTypesInheritance(t *testing.T) {
+	t.Parallel()
+	regime := rpc.RegimeSnapshotResult{AsOf: stressTestNow.Add(-time.Minute)}
+	m := StressMarketSummary{StaleClusters: []string{"breadth", "funding"}}
+	health := stressRegimeSourceHealth(regime, stressTestNow, rpc.Fingerprint{}, "medium", m)
+	if health.Status != rpc.RegimeStatusStale {
+		t.Fatalf("status = %q, want stale", health.Status)
+	}
+	if !slices.Equal(health.DerivedFrom, []string{"breadth", "funding"}) {
+		t.Fatalf("derived_from = %v, want [breadth funding]", health.DerivedFrom)
+	}
+
+	healthy := stressRegimeSourceHealth(regime, stressTestNow, rpc.Fingerprint{}, "high", StressMarketSummary{})
+	if len(healthy.DerivedFrom) != 0 {
+		t.Fatalf("healthy derived_from = %v, want empty", healthy.DerivedFrom)
+	}
+}

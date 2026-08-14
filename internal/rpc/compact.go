@@ -86,14 +86,18 @@ type RegimeMonitorResult struct {
 // CompactSourceHealth retains the status, reason, and freshness needed to
 // interpret a compact result without raw upstream detail.
 type CompactSourceHealth struct {
-	Source       string         `json:"source"`
-	Status       string         `json:"status"`
-	AsOf         time.Time      `json:"as_of,omitzero"`
-	Confidence   string         `json:"confidence,omitempty"`
-	RefreshState string         `json:"refresh_state,omitempty"`
-	NextAttempt  *time.Time     `json:"next_attempt,omitempty"`
-	LastFailure  *SourceFailure `json:"last_failure,omitempty"`
-	Notes        []string       `json:"notes,omitempty"`
+	Source     string    `json:"source"`
+	Status     string    `json:"status"`
+	AsOf       time.Time `json:"as_of,omitzero"`
+	Confidence string    `json:"confidence,omitempty"`
+	// MaxAgeSeconds carries the served stale budget so consumers can derive
+	// freshness policy instead of hardcoding a twin of it.
+	MaxAgeSeconds int64          `json:"max_age_seconds,omitempty"`
+	RefreshState  string         `json:"refresh_state,omitempty"`
+	NextAttempt   *time.Time     `json:"next_attempt,omitempty"`
+	LastFailure   *SourceFailure `json:"last_failure,omitempty"`
+	Notes         []string       `json:"notes,omitempty"`
+	DerivedFrom   []string       `json:"derived_from,omitempty"`
 }
 
 // RegimeMonitorIndicator is a compact indicator reading and its data quality.
@@ -295,14 +299,16 @@ func compactSourceHealth(in []SourceHealth) []CompactSourceHealth {
 	out := make([]CompactSourceHealth, 0, len(in))
 	for _, src := range in {
 		out = append(out, CompactSourceHealth{
-			Source:       src.Source,
-			Status:       src.Status,
-			AsOf:         src.AsOf,
-			Confidence:   src.Confidence,
-			RefreshState: src.RefreshState,
-			NextAttempt:  src.NextAttempt,
-			LastFailure:  cloneSourceFailure(src.LastFailure),
-			Notes:        src.Notes,
+			Source:        src.Source,
+			Status:        src.Status,
+			AsOf:          src.AsOf,
+			Confidence:    src.Confidence,
+			MaxAgeSeconds: src.MaxAgeSeconds,
+			RefreshState:  src.RefreshState,
+			NextAttempt:   src.NextAttempt,
+			LastFailure:   cloneSourceFailure(src.LastFailure),
+			Notes:         src.Notes,
+			DerivedFrom:   src.DerivedFrom,
 		})
 	}
 	return out

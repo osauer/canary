@@ -3307,9 +3307,25 @@ func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealt
 			return sub
 		}
 	}
+	if gatewayStatus == "ready" {
+		s.mu.Lock()
+		lane := s.breadthConnector
+		s.mu.Unlock()
+		if farm, impaired := breadthLaneFarmImpaired(lane); impaired {
+			sub.Status = "degraded"
+			sub.Message = fmt.Sprintf("S&P 500 breadth is deferred: historical data farm %s is %s on the breadth connection", farm.Name, farm.Status)
+			sub.LastError = "breadth_hmds_farm_impaired"
+			sub.LastErrorAt = farm.AsOf
+			return sub
+		}
+	}
 	if s.breadth != nil && s.breadth.IsBusy() {
 		sub.Status = "computing"
 		sub.Message = "S&P 500 breadth refresh is running or waiting to retry"
+		if s.breadth.CoverageShort() {
+			cov, mc := s.breadth.LastRefreshCoverage()
+			sub.Message = fmt.Sprintf("S&P 500 breadth refresh is retrying: last pass covered %d/%d constituents, below the publication threshold", cov, mc)
+		}
 	}
 	return sub
 }
@@ -3524,16 +3540,20 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 
 	snap, ok := s.breadth.Get()
 	active := s.breadth.IsBusy()
-	res.State = classifyBreadthState(ok, active)
+	res.State = classifyBreadthState(ok, active, s.breadth.CoverageShort())
 	res.Refreshing = ok && active
 	if progress, exists := s.breadth.Progress(); exists {
 		res.Refresh = &rpc.BreadthRefreshProgress{
 			SessionKey:  progress.SessionKey,
 			StartedAt:   progress.StartedAt,
 			Processed:   progress.Processed,
+			Failed:      progress.Failed,
 			Total:       progress.Total,
 			Deadline:    progress.Deadline,
 			LastFailure: rpc.BreadthRefreshFailure(progress.LastFailure),
+		}
+		if next, exists := s.breadth.NextAttempt(); exists {
+			res.Refresh.NextAttempt = next
 		}
 	}
 
@@ -3563,12 +3583,17 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 }
 
 // classifyBreadthState projects the engine's (snapshot exists, refresh
-// active) pair onto the wire-visible BreadthState. This is the
-// must derive State the same way. The four states:
-//   - cold: no snapshot AND no active refresh/retry — rare; only seen
-//     engine, or after a coverage-threshold-failed refresh exhausts
-func classifyBreadthState(snapshotExists, active bool) rpc.BreadthState {
+// active, coverage-short) triple onto the wire-visible BreadthState.
+//   - degraded: a snapshot is being served but the most recent completed
+//     refresh pass stayed below the publication coverage threshold — the
+//     served reading is last-good, not the current session's convergence.
+//   - ready: a snapshot is served and the last pass met coverage.
+//   - computing: no snapshot yet, refresh in flight or waiting to retry.
+//   - cold: no snapshot AND no active refresh/retry.
+func classifyBreadthState(snapshotExists, active, coverageShort bool) rpc.BreadthState {
 	switch {
+	case snapshotExists && coverageShort:
+		return rpc.BreadthStateDegraded
 	case snapshotExists:
 		return rpc.BreadthStateReady
 	case active:

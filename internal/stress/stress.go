@@ -2813,7 +2813,7 @@ func stressEstablishedMarketEventsSourceHealth(pos rpc.PositionsResult, events r
 	}
 	for _, health := range events.SourceHealth {
 		switch health.Status {
-		case rpc.MarketEventStatusUnknown, rpc.MarketEventStatusStale, rpc.MarketEventStatusDegraded, rpc.RegimeStatusError, rpc.RegimeStatusUnavailable:
+		case rpc.SourceStatusUnknown, rpc.SourceStatusStale, rpc.SourceStatusDegraded, rpc.RegimeStatusError, rpc.RegimeStatusUnavailable:
 			if status == rpc.RegimeStatusOK {
 				status = "degraded"
 				confidence = "medium-low"
@@ -2929,6 +2929,10 @@ func stressRegimeSourceHealth(regime rpc.RegimeSnapshotResult, now time.Time, fp
 	}
 	health := stressTimedSourceHealth("regime", regime.AsOf, now, fp, status, dataConfidence)
 	health.Notes = notes
+	// The cluster-inherited portion of this row's status is typed, not just
+	// prose: consumers must not count this aggregate as an independent
+	// failure next to the leaf clusters it names.
+	health.DerivedFrom = stressUniqueClusters(m.StaleClusters, m.DegradedClusters, m.PartialClusters, m.AmbiguousClusters)
 	return health
 }
 

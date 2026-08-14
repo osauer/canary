@@ -489,6 +489,46 @@ test("master subline separates an allowed portfolio rebalance from an unavailabl
   );
 });
 
+test("a derived source row is named as inherited, not counted as an extra failure", () => {
+  reset();
+  const snap = {
+    updated_at: "2026-08-13T19:00:00Z",
+    regime: { source_health: [
+      { source: "funding", status: "stale" },
+      { source: "breadth", status: "stale" },
+      { source: "vol", status: "ok" },
+    ] },
+  };
+  const stressResult = { source_health: [
+    { source: "positions", status: "ok" },
+    { source: "regime", status: "stale", derived_from: ["funding", "breadth"], notes: ["stale clusters: breadth,funding"] },
+  ] };
+
+  const health = stress.lampTestSources(snap, stressResult);
+  assert.equal(health.total, 4, "derived row must not join the denominator");
+  assert.equal(health.ok, 2);
+  assert.equal(health.faults.length, 2, "only leaf faults count");
+  assert.equal(health.inherited.length, 1);
+  assert.match(health.inherited[0], /inherits.*funding series/i);
+
+  stress.renderLampTest(snap, stressResult);
+  assert.match(dom.element("lampTestStamp").textContent, /2\/4 sources ok/);
+  assert.match(dom.element("lampTestStamp").title, /inherits/i);
+
+  const labels = stress.stressInputIssueLabels({ market: { stale_clusters: ["funding", "breadth"] }, ...stressResult }, snap);
+  assert.ok(!labels.includes("regime snapshot"), `derived regime row must not add its own label, got ${labels.join(", ")}`);
+  assert.ok(labels.includes("funding series") && labels.includes("breadth compute"), labels.join(", "));
+
+  // A regime row without derived_from (older daemon payload) still counts
+  // as its own source, exactly as before.
+  const legacy = stress.lampTestSources(snap, { source_health: [
+    { source: "positions", status: "ok" },
+    { source: "regime", status: "stale", notes: ["stale clusters: breadth,funding"] },
+  ] });
+  assert.equal(legacy.total, 5);
+  assert.equal(legacy.faults.length, 3);
+});
+
 test("Protection tile never presents zero actionable theta as portfolio theta", () => {
   reset();
   protection.renderProtectionTile({ counts: { actionable: 0 } }, [], { value: 0, currency: "EUR", title: "No theta-hygiene action is above policy threshold." });

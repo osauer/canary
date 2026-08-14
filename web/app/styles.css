@@ -2706,12 +2706,6 @@ p {
   color: var(--pd-watch-tint);
 }
 
-.market-flag-chip--context {
-  border-color: rgba(111, 179, 255, 0.26);
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
 .market-flag-chip--muted {
   border-color: rgba(120, 132, 150, 0.28);
   background: rgba(120, 132, 150, 0.1);

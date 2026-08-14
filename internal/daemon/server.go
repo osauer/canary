@@ -598,7 +598,7 @@ func (s *Server) installRegimeSeriesCache() {
 		s.logger.Warnf("regime series cache: resolve dir: %v (persistence disabled)", err)
 		return
 	}
-	s.regimeSeries = newRegimeSeriesCache(dir)
+	s.regimeSeries = newRegimeSeriesCache(dir, s.warnf)
 }
 
 func (s *Server) installRegimeHistoryCache() {
@@ -660,7 +660,48 @@ func (s *Server) installBreadthEngine() {
 	fetcher := newBreadthFetcher(s.breadthGatewayConnector)
 	s.breadth = spx.New(spx.NewStore(dir), fetcher, spx.Options{
 		Logger: s.logger, MembersFn: s.resolveBreadthMembers, DeferStoreLoad: true,
+		HealthGate: s.breadthLaneHealth,
 	})
+}
+
+// breadthLaneHealth is the engine's transport gate: nil when a fan-out is
+// worth attempting, an error naming why not. It reads the bulk lane's OWN
+// connector state — the lane has its own cid and its own farm notices — so a
+// primary that looks healthy cannot green-light a sweep on a dead second
+// lane. Called once per planned symbol during a sweep; everything here is an
+// in-memory read.
+func (s *Server) breadthLaneHealth() error {
+	s.mu.Lock()
+	c := s.breadthConnector
+	s.mu.Unlock()
+	if c == nil || !c.IsReady() {
+		s.triggerBreadthConnect()
+		return fmt.Errorf("breadth bulk connector is not ready")
+	}
+	if farm, impaired := breadthLaneFarmImpaired(c); impaired {
+		return fmt.Errorf("historical data farm %s is %s; deferring fan-out until it recovers", farm.Name, farm.Status)
+	}
+	return nil
+}
+
+// breadthLaneFarmImpaired reports an explicit broken/disconnected notice on
+// the lane's historical or connectivity farm rows. Absence of any notice is
+// NOT impairment — a gateway that never replayed its farm burst must not
+// starve breadth — and "inactive" is routine off-hours idling.
+func breadthLaneFarmImpaired(c *ibkrlib.Connector) (ibkrlib.DataFarmStatus, bool) {
+	if c == nil {
+		return ibkrlib.DataFarmStatus{}, false
+	}
+	for _, farm := range c.DataFarmStatuses() {
+		farmType := strings.ToLower(strings.TrimSpace(farm.Type))
+		if farmType != "historical" && farmType != "connectivity" {
+			continue
+		}
+		if dataFarmNeedsAttention(farm.Status) {
+			return farm, true
+		}
+	}
+	return ibkrlib.DataFarmStatus{}, false
 }
 
 // resolveBreadthMembers is the deferred members source for the breadth
@@ -904,6 +945,12 @@ func (s *Server) breadthConnectFlow(ctx context.Context, primaryEp discover.Endp
 	s.breadthConnector = attempter
 	s.mu.Unlock()
 	s.logger.Infof("breadth bulk connector ready (cid=%d, separate 40-msg/sec budget from primary)", bulkEp.ClientID)
+
+	// Wake the scheduler: a rebuilt lane is exactly when a transport-blocked
+	// or unconverged refresh should try again, not after its current delay.
+	if s.breadth != nil {
+		s.breadth.Kick()
+	}
 
 	// Seed the bulk lane from the same persisted contract cache that
 	// the primary lane was seeded from in postConnectSetup. ConIDs are

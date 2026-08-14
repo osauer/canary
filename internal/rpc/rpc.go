@@ -39,7 +39,6 @@ const (
 const (
 	CodeUnknownMethod      = "unknown_method"
 	CodeBadRequest         = "bad_request"
-	CodeDaemonUnavailable  = "daemon_unavailable"
 	CodeGatewayUnavailable = "gateway_unavailable"
 	CodeSymbolInactive     = "symbol_inactive"
 	CodeTimeout            = "timeout"
@@ -152,10 +151,8 @@ func ClassifySession(now time.Time) SessionClass {
 // Frame-level error codes used in FrameError.Code. These are terminal: a
 // because the wire shape (frame, not Error) and lifecycle (mid-stream
 const (
-	FrameErrGatewayLost          = "gateway_lost"
-	FrameErrEntitlementLost      = "entitlement_lost"
-	FrameErrSubscriptionRejected = "subscription_rejected"
-	FrameErrDaemonShutdown       = "daemon_shutdown"
+	FrameErrGatewayLost    = "gateway_lost"
+	FrameErrDaemonShutdown = "daemon_shutdown"
 )
 
 // SecType values carried on PositionView.SecType. The daemon maps IBKR's
@@ -447,16 +444,25 @@ const (
 	BreadthRefreshFailureFetch     BreadthRefreshFailure = "fetch_failed"
 	BreadthRefreshFailurePersist   BreadthRefreshFailure = "persist_failed"
 	BreadthRefreshFailureCancelled BreadthRefreshFailure = "cancelled"
+	// BreadthRefreshFailureTransport marks an attempt refused or aborted by
+	// the engine's transport gate (bulk lane down, historical farm broken):
+	// the universe was not swept, so the failure is not a coverage verdict.
+	BreadthRefreshFailureTransport BreadthRefreshFailure = "transport_unavailable"
 )
 
 // BreadthRefreshProgress makes the long IBKR-paced fan-out observable without
 // exposing symbols or broker text. Processed includes successful and failed
+// symbol fetches; Failed counts only the failures, so a completed pass with
+// zero usable bars is distinguishable from a healthy one. NextAttempt is the
+// scheduler's next planned refresh.
 type BreadthRefreshProgress struct {
 	SessionKey  string                `json:"session_key"`
 	StartedAt   time.Time             `json:"started_at"`
 	Processed   int                   `json:"processed"`
+	Failed      int                   `json:"failed,omitempty"`
 	Total       int                   `json:"total"`
 	Deadline    time.Time             `json:"deadline,omitzero"`
+	NextAttempt time.Time             `json:"next_attempt,omitzero"`
 	LastFailure BreadthRefreshFailure `json:"last_failure,omitempty"`
 }
 
@@ -1750,13 +1756,10 @@ type PositionsResult struct {
 // shared by daemon-owned grouping and read-only adapters.
 const (
 	PositionStrategySourceCanary   = "canary_lineage"
-	PositionStrategySourceBroker   = "broker_combo"
 	PositionStrategySourceInferred = "inferred"
-	PositionStrategySourceOperator = "operator_confirmed"
 
 	PositionStrategyStatusCurrent = "current"
 	PositionStrategyStatusReview  = "review_required"
-	PositionStrategyStatusClosed  = "closed"
 
 	StrategyOperationClose  = "close"
 	StrategyOperationReduce = "reduce"

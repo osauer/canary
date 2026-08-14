@@ -145,17 +145,15 @@ const (
 	MarketEventLULDRecent           = MarketEventLULDPause
 	MarketEventHaltRegulatoryOrNews = "halt_regulatory_or_news"
 
-	MarketEventStatusActive   = "active"
-	MarketEventStatusRecent   = "recent"
-	MarketEventStatusInactive = "inactive"
-	MarketEventStatusUnknown  = "unknown"
-	MarketEventStatusStale    = "stale"
-	MarketEventStatusDegraded = "degraded"
+	// MarketEventStatusActive and MarketEventStatusRecent are the whole
+	// flag lifecycle: Active → Recent → dropped after the retention
+	// window. Source-row health uses the SourceStatus* family instead.
+	MarketEventStatusActive = "active"
+	MarketEventStatusRecent = "recent"
 
-	MarketEventSeverityContext = "context"
-	MarketEventSeverityWatch   = "watch"
-	MarketEventSeverityAct     = "act"
-	MarketEventSeverityBlock   = "block"
+	MarketEventSeverityWatch = "watch"
+	MarketEventSeverityAct   = "act"
+	MarketEventSeverityBlock = "block"
 
 	MarketEventRoleContext          = "context"
 	MarketEventRoleProposalModifier = "proposal_modifier"
