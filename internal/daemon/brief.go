@@ -480,7 +480,9 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			case strings.Contains(id, "borrow"):
 				kind = "borrow"
 			}
-			if kind != "" && flag.Status != rpc.MarketEventStatusInactive {
+			// Active and recent flags both count: a halt that lifted
+			// minutes ago is still desk-relevant on a held name.
+			if kind != "" {
 				sets[kind][strings.ToUpper(flag.Symbol)] = struct{}{}
 			}
 		}

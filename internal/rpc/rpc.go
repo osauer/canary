@@ -39,7 +39,6 @@ const (
 const (
 	CodeUnknownMethod      = "unknown_method"
 	CodeBadRequest         = "bad_request"
-	CodeDaemonUnavailable  = "daemon_unavailable"
 	CodeGatewayUnavailable = "gateway_unavailable"
 	CodeSymbolInactive     = "symbol_inactive"
 	CodeTimeout            = "timeout"
@@ -152,10 +151,8 @@ func ClassifySession(now time.Time) SessionClass {
 // Frame-level error codes used in FrameError.Code. These are terminal: a
 // because the wire shape (frame, not Error) and lifecycle (mid-stream
 const (
-	FrameErrGatewayLost          = "gateway_lost"
-	FrameErrEntitlementLost      = "entitlement_lost"
-	FrameErrSubscriptionRejected = "subscription_rejected"
-	FrameErrDaemonShutdown       = "daemon_shutdown"
+	FrameErrGatewayLost    = "gateway_lost"
+	FrameErrDaemonShutdown = "daemon_shutdown"
 )
 
 // SecType values carried on PositionView.SecType. The daemon maps IBKR's
@@ -1759,13 +1756,10 @@ type PositionsResult struct {
 // shared by daemon-owned grouping and read-only adapters.
 const (
 	PositionStrategySourceCanary   = "canary_lineage"
-	PositionStrategySourceBroker   = "broker_combo"
 	PositionStrategySourceInferred = "inferred"
-	PositionStrategySourceOperator = "operator_confirmed"
 
 	PositionStrategyStatusCurrent = "current"
 	PositionStrategyStatusReview  = "review_required"
-	PositionStrategyStatusClosed  = "closed"
 
 	StrategyOperationClose  = "close"
 	StrategyOperationReduce = "reduce"

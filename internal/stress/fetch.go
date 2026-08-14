@@ -83,7 +83,7 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 			Symbols:       symbols,
 			SourceHealth: []rpc.SourceHealth{{
 				Source:               "market_events",
-				Status:               rpc.MarketEventStatusUnknown,
+				Status:               rpc.SourceStatusUnknown,
 				AsOf:                 now,
 				Confidence:           "low",
 				FingerprintStability: rpc.FingerprintStabilitySemanticBuckets,

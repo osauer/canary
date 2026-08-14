@@ -2813,7 +2813,7 @@ func stressEstablishedMarketEventsSourceHealth(pos rpc.PositionsResult, events r
 	}
 	for _, health := range events.SourceHealth {
 		switch health.Status {
-		case rpc.MarketEventStatusUnknown, rpc.MarketEventStatusStale, rpc.MarketEventStatusDegraded, rpc.RegimeStatusError, rpc.RegimeStatusUnavailable:
+		case rpc.SourceStatusUnknown, rpc.SourceStatusStale, rpc.SourceStatusDegraded, rpc.RegimeStatusError, rpc.RegimeStatusUnavailable:
 			if status == rpc.RegimeStatusOK {
 				status = "degraded"
 				confidence = "medium-low"

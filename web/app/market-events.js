@@ -156,12 +156,9 @@ function marketEventIDLabel(id = "") {
 }
 
 function marketEventTone(flag = {}) {
-  const status = String(flag.status || "").toLowerCase();
-  if (status === "unknown" || status === "stale" || status === "degraded") return "muted";
   const severity = String(flag.severity || "").toLowerCase();
   if (severity === "block") return "hard";
   if (severity === "act" || severity === "watch") return "friction";
-  if (severity === "context") return "context";
   return "muted";
 }
 
