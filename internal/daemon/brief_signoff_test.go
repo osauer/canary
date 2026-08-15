@@ -73,6 +73,43 @@ func TestGovernanceMonthlyPulseIgnoresPinsWithoutSignoff(t *testing.T) {
 	}
 }
 
+func narrativeText(n *rpc.BriefNarrative) string {
+	var b strings.Builder
+	for _, run := range n.Lead {
+		b.WriteString(run.Text)
+	}
+	for _, paragraph := range append(append([]rpc.BriefParagraph{}, n.Review...), n.Ready...) {
+		for _, run := range paragraph.Runs {
+			b.WriteString(run.Text)
+		}
+	}
+	for _, run := range n.Coda {
+		b.WriteString(run.Text)
+	}
+	return b.String()
+}
+
+func TestBriefNarrativeMentionsPinsOnlyWhenSignoffMatters(t *testing.T) {
+	rows := []rpc.PolicyPinStatus{{Policy: "protection", PinnedID: "protection-mvp", PinnedVersion: "3", LiveID: "protection-mvp", LiveVersion: "5", Status: "drift"}}
+
+	informational := &rpc.BriefResult{Ready: rpc.BriefReadySection{PolicyDrift: rpc.BriefPolicyDriftRow{
+		BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK, Detail: "1 sibling-policy pin(s) differ from live; sign-off is not required"},
+		Rows:          rows,
+	}}}
+	if got := narrativeText(composeBriefNarrative(informational)); strings.Contains(got, "pin") {
+		t.Fatalf("informational pins leaked into the narrative: %q", got)
+	}
+
+	strict := &rpc.BriefResult{Ready: rpc.BriefReadySection{PolicyDrift: rpc.BriefPolicyDriftRow{
+		BriefRowState:   rpc.BriefRowState{Status: rpc.BriefStatusDegraded, Detail: "1 sibling-policy approval pin(s) do not match"},
+		Rows:            rows,
+		SignoffRequired: true,
+	}}}
+	if got := narrativeText(composeBriefNarrative(strict)); !strings.Contains(got, "not match") {
+		t.Fatalf("required sign-off drift lost its narrative sentence: %q", got)
+	}
+}
+
 func TestRulesEarningsSourceHealthQuietsUnentitledProvider(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 	failedAt := now.Add(-2 * time.Hour)

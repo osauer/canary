@@ -276,7 +276,16 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 			fmt.Fprintf(env.Stdout, "  %s  %s (%s) — %s\n", o.ID, o.Control, state, o.Reason)
 		}
 	}
-	if len(res.Inventory) > 0 {
+	// Without required sign-off the pins are bookkeeping, not operator
+	// material: the section renders only when a live identity is unreadable
+	// (a real data gap). The typed JSON keeps the rows in every mode.
+	showPins := res.SignoffRequired
+	for _, p := range res.Inventory {
+		if p.Status == "unavailable" {
+			showPins = true
+		}
+	}
+	if len(res.Inventory) > 0 && showPins {
 		if res.SignoffRequired {
 			fmt.Fprintln(env.Stdout, "\nOther policies on this system, compared with the versions you approved this constitution against:")
 		} else {

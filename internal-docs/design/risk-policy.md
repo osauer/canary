@@ -46,13 +46,14 @@ must not duplicate numbers.
 8. **Cadence:** routine brief viewing and clean monthly evidence are automated,
    never human attestations. Reconciliation lapses flow through the staleness
    posture; only exceptional repair returns to the operator.
-9. **Sibling pins (operator decision 2026-08-14):** a changed sibling policy is
-   informational disclosure by default — the sibling file edit is the human
-   act, and pin re-approval is a ritual on a single-trader desk. The v4-gated
-   `inventory.require_signoff = true` key restores the strict posture (drift
-   flags attention, raises the nudge, and blocks the monthly pulse) for
-   regulated environments. Pins stay factual in every mode; only their
-   governance weight changes.
+9. **Sibling pins (operator decisions 2026-08-14/15):** a changed sibling
+   policy is bookkeeping by default — the sibling file edit is the human act,
+   and pin re-approval is a ritual on a single-trader desk. Default-mode
+   human surfaces (policy show text, brief row, narrative, SPA) render pins
+   only when a live identity is unreadable; the typed JSON keeps the rows in
+   every mode. The v4-gated `inventory.require_signoff = true` key restores
+   the strict posture (visible section, attention row, drift nudge, blocked
+   monthly pulse) for regulated environments.
 
 ## Authority
 

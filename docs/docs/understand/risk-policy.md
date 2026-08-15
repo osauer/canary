@@ -124,11 +124,12 @@ changes — a protection-policy edit bumps its own version, for example — the
 pins no longer match the live identities. What that mismatch means is governed
 by `inventory.require_signoff` (version 4 or above, optional):
 
-- **Off, the default.** The change is informational disclosure. `canary policy
-  show` lists it ("changed since pinning"), the brief's policy-drift row stays
-  green with the rows attached, and the monthly pulse completes on its own.
-  On a single-trader desk the sibling file edit is itself the human decision;
-  the pins exist so the change is visible, not to demand a second signature.
+- **Off, the default.** The change is bookkeeping and the human surfaces stay
+  quiet: `canary policy show` and the brief mention pins only when a live
+  policy identity cannot be read (a real data gap), and the monthly pulse
+  completes on its own. The typed JSON keeps the pin rows in every mode so
+  tooling has the record. On a single-trader desk the sibling file edit is
+  itself the human decision; nothing about it needs re-announcing.
 - **On (`require_signoff = true`).** The mismatch is a governance blocker:
   the brief flags it for attention, a policy-drift nudge is raised, and the
   monthly pulse stays blocked until you review the changed sibling and update

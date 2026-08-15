@@ -240,7 +240,9 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	briefLine(env, "drawdown latch", ready.Latch.BriefRowState, latch)
 	briefLine(env, "premium at risk", ready.PremiumAtRisk.BriefRowState, briefMoney(ready.PremiumAtRisk))
 	briefLine(env, "hedge cost / day", ready.HedgeCost.BriefRowState, briefMoney(ready.HedgeCost))
-	briefLine(env, "policy drift", ready.PolicyDrift.BriefRowState, fmt.Sprintf("%d", len(ready.PolicyDrift.Rows)))
+	if ready.PolicyDrift.SignoffRequired || ready.PolicyDrift.Status != rpc.BriefStatusOK {
+		briefLine(env, "policy drift", ready.PolicyDrift.BriefRowState, fmt.Sprintf("%d", len(ready.PolicyDrift.Rows)))
+	}
 	if monthly := ready.MonthlyPulse; monthly != nil {
 		value := briefJoin(monthly.Status, monthly.Month)
 		if !monthly.DueAt.IsZero() {
