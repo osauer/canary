@@ -176,10 +176,15 @@ type ConstitutionArtefact struct {
 }
 
 // ConstitutionInventory pins the sibling policies by identity so the policy
+// can disclose when one changes after pinning.
 type ConstitutionInventory struct {
 	Rulebook   *ConstitutionPolicyPin `toml:"rulebook" json:"rulebook,omitempty"`
 	Protection *ConstitutionPolicyPin `toml:"protection" json:"protection,omitempty"`
 	Stress     *ConstitutionPolicyPin `toml:"stress" json:"stress,omitempty"`
+	// RequireSignoff makes a sibling version change a governance blocker until
+	// the operator updates the pin. A pointer so absent stays out of the
+	// fingerprint projections and existing policy fingerprints do not move.
+	RequireSignoff *bool `toml:"require_signoff" json:"require_signoff,omitempty"`
 }
 
 // ConstitutionPolicyPin identifies one sibling policy version. Version is a
@@ -313,6 +318,9 @@ func (c Constitution) Validate() error {
 			return fmt.Errorf("%s pin needs both id and version", p.key)
 		}
 	}
+	if c.Inventory.RequireSignoff != nil && c.PolicyVersion < 4 {
+		return fmt.Errorf("inventory.require_signoff requires policy_version >= 4")
+	}
 	return nil
 }
 
@@ -342,6 +350,16 @@ func (c Constitution) EffectiveBlockEnforcement() string {
 		return EnforcementShadow
 	}
 	return c.Drawdown.BlockEnforcement
+}
+
+// SignoffRequired reports whether a sibling-policy version change needs an
+// operator pin update in [inventory] before governance evidence counts as
+// clean. Default false (operator decision 2026-08-14): on a single-trader
+// desk the sibling file edit is itself the human act, and a second signature
+// is ritual; pins stay informational. Regulated desks opt back in with
+// require_signoff = true.
+func (c Constitution) SignoffRequired() bool {
+	return c.Inventory.RequireSignoff != nil && *c.Inventory.RequireSignoff
 }
 
 // UnapprovedKeys lists the material keys the operator has not chosen yet.

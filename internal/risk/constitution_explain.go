@@ -186,7 +186,13 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		if monthlyTime == nil {
 			timeValue, timeSource = DefaultMonthlyPulseAtLocal, "default"
 		}
+		signoffValue, signoffSource := "false", "default"
+		if c != nil && c.Inventory.RequireSignoff != nil {
+			signoffValue, signoffSource = strconv.FormatBool(*c.Inventory.RequireSignoff), "file"
+		}
 		rows = append(rows,
+			get("inventory.require_signoff", signoffValue, signoffSource,
+				"Whether a sibling-policy version change (rulebook, protection, stress) blocks governance evidence until the [inventory] pin is updated. Off: pins are informational; a changed sibling is disclosed but neither flags attention nor blocks the monthly pulse. Regulated desks set true to require the explicit pin sign-off.", "advisory"),
 			get("cadence.nudges.timezone", timezoneValue, timezoneSource,
 				"Clock cadence months and scheduled nudge instants are derived in. The machine's local timezone unless the file authors an override.", "structural"),
 			get("cadence.nudges.reconcile_warning_days", warningValue, warningSource,

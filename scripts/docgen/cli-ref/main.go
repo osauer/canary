@@ -26,7 +26,9 @@ const defaultOutput = "docs/docs/reference/cli.md"
 // that can reach the broker must not read like an ordinary lookup on a public
 // page, and a guard class on its own does not say that.
 var commandNotes = map[string]string{
-	"order": "`status` reads one journaled order. `cancel` is the only broker write in this command family and requires an explicit human instruction for that exact Canary-owned order. Candidate creation and submission live on the constrained proposal and opportunity surfaces; there is no free-form place, modify, or preview command.",
+	"order": "`status` reads one journaled order and `preview` mints a tokenized draft: it runs the broker WhatIf and never transmits, and a minted token is not submit eligibility. " +
+		"`place`, `modify`, and `cancel` are broker writes: each requires an explicit human instruction for that exact order, and place/modify additionally consume a submit-eligible preview token through the daemon's ordinary admission gates (mode and account pins, caps, freeze, origin, journal). " +
+		"The constrained proposal and opportunity surfaces remain the daemon-authored candidate paths; this family is the operator's direct gated path.",
 	"purge": "`canary purge SYMBOL`, `canary purge --all`, and `purge execute` close live positions through the broker. " +
 		"They carry the same gate as `canary order`: an explicit human instruction for that exact action, in that moment. " +
 		"`dry-run`, `status`, and `monitor` only read.",

@@ -236,6 +236,9 @@ type BriefOverridesRow struct {
 type BriefPolicyDriftRow struct {
 	BriefRowState
 	Rows []PolicyPinStatus `json:"rows"`
+	// SignoffRequired mirrors inventory.require_signoff; when false the rows
+	// are informational disclosure, not blockers.
+	SignoffRequired bool `json:"signoff_required,omitempty"`
 }
 
 // BriefProcessSection groups reconciliation and recurring process evidence.
@@ -1579,6 +1582,9 @@ type RiskPolicyResult struct {
 	Limits    []risk.ConstitutionLimit `json:"limits,omitempty"`
 	Overrides []OverrideRecord         `json:"overrides,omitempty"`
 	Inventory []PolicyPinStatus        `json:"inventory,omitempty"`
+	// SignoffRequired mirrors inventory.require_signoff: when false (the
+	// default) the inventory rows are informational disclosure, not blockers.
+	SignoffRequired bool `json:"signoff_required,omitempty"`
 
 	InputHealth []SourceHealth `json:"input_health,omitempty"`
 }

@@ -1039,7 +1039,7 @@ func positionBaseRate(p rpc.PositionView, baseCcy string) (float64, bool) {
 }
 
 func flagClosedOptionSession(options []rpc.PositionView, now time.Time) {
-	if len(options) == 0 || rpc.IsOptionRTH(now) {
+	if len(options) == 0 || optionSessionOpen(now) {
 		return
 	}
 	for i := range options {
@@ -1051,9 +1051,9 @@ func flagClosedOptionSession(options []rpc.PositionView, now time.Time) {
 			Code:     "options_closed",
 			Scope:    optionWarningScope(*p),
 			Severity: "info",
-			Message:  "The regular U.S. listed-options data surface is outside RTH.",
-			Impact:   "Option bid/ask, previous close, IV, and Greeks are closed-session context, not executable quotes, unless live fields landed; SPX/VIX extended sessions do not guarantee a complete API surface.",
-			Action:   "Use the account mark for held-position valuation; retry during 09:30-16:00 ET for the most complete quote/OI/IV surface.",
+			Message:  "The regular U.S. listed-options data surface is outside its official session.",
+			Impact:   "Option bid/ask, previous close, IV, and Greeks are closed-session context, not executable quotes, unless live fields landed; missing Greeks on a thinly quoted leg are expected here, not a data fault; SPX/VIX extended sessions do not guarantee a complete API surface.",
+			Action:   "Use the account mark for held-position valuation; Greeks and the full quote/OI/IV surface normally return with the next options session.",
 		})
 	}
 }

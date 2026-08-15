@@ -696,6 +696,97 @@ timezone = "Europe/Berlin"
 	}
 }
 
+func TestConstitutionInventoryRequireSignoffIsOptionalAndVersioned(t *testing.T) {
+	decode := func(t *testing.T, version int, body string) Constitution {
+		t.Helper()
+		input := "kind = \"ibkr.risk_policy\"\nschema_version = 1\npolicy_id = \"risk-constitution\"\npolicy_version = " + strconv.Itoa(version) + "\n" + body
+		var c Constitution
+		metadata, err := toml.Decode(input, &c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if undecoded := metadata.Undecoded(); len(undecoded) != 0 {
+			t.Fatalf("typed inventory left undecoded keys: %v", undecoded)
+		}
+		return c
+	}
+	body := `[inventory]
+require_signoff = true
+
+[inventory.rulebook]
+id = "rulebook-v2"
+version = "2"
+`
+	v4 := decode(t, 4, body)
+	if err := v4.Validate(); err != nil {
+		t.Fatalf("v4 authored require_signoff = %v", err)
+	}
+	if !v4.SignoffRequired() {
+		t.Fatal("authored require_signoff=true must require sign-off")
+	}
+
+	v3 := decode(t, 3, body)
+	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "requires policy_version >= 4") {
+		t.Fatalf("v3 parsed inventory.require_signoff without targeted rejection: %v", err)
+	}
+
+	absent := approvedV4Constitution()
+	if absent.SignoffRequired() {
+		t.Fatal("absent require_signoff must default to no sign-off")
+	}
+	for _, key := range absent.UnapprovedKeys() {
+		if strings.Contains(key, "require_signoff") {
+			t.Fatalf("absent require_signoff reported unapproved: %s", key)
+		}
+	}
+
+	authored := absent
+	authored.Inventory.RequireSignoff = new(false)
+	if authored.FingerprintKey() == absent.FingerprintKey() {
+		t.Fatal("an authored require_signoff must be fingerprint-material")
+	}
+}
+
+func TestGreeksGapOffSessionNoteExplainsExpectedUnknown(t *testing.T) {
+	pol := DefaultRulebookPolicy()
+	for _, open := range []bool{true, false} {
+		in := healthyInputs()
+		in.SessionOpen = open
+		for i := range in.Names {
+			gap := 0.0
+			for j := range in.Names[i].Legs {
+				in.Names[i].Legs[j].Delta = nil
+				in.Names[i].Legs[j].ExtrinsicBase = nil
+				gap += abs(in.Names[i].Legs[j].MarketValueBase)
+			}
+			in.Names[i].GreeksGapNotionalBase = gap
+		}
+		ev := EvaluateRulebook(in, pol)
+		checked := 0
+		for _, row := range ev.Rows {
+			if row.Status != RuleStatusUnknown || (row.Reason != "greeks_gap" && row.Reason != "extrinsic_uncomputable") {
+				continue
+			}
+			checked++
+			noted := false
+			for _, note := range row.Notes {
+				if strings.Contains(note, "off-session") {
+					noted = true
+				}
+			}
+			if open && noted {
+				t.Errorf("%s carries an off-session note during the open session", row.ID)
+			}
+			if !open && !noted {
+				t.Errorf("%s is a greeks-driven unknown off-session but carries no expectation note", row.ID)
+			}
+		}
+		if checked == 0 {
+			t.Fatalf("fixture produced no greeks-driven unknowns (open=%v)", open)
+		}
+	}
+}
+
 func TestEvaluateMonthlyPulseAutomatesRoutineEvidence(t *testing.T) {
 	c := approvedV4Constitution()
 	zone, day, at := "UTC", 1, "09:00"

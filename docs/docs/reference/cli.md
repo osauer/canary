@@ -30,7 +30,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary trading`](#canary-trading) | Desk | Local trading gate status and configuration | `read-only` | yes |
 | [`canary settings`](#canary-settings) | System | Runtime platform preferences and observed read-only state | `confirm` | yes |
 | [`canary orders`](#canary-orders) | Desk | Read current-context local order lifecycle state without transmitting orders | `read-only` | yes |
-| [`canary order`](#canary-order) | Desk | Inspect or cancel a Canary-owned order | `confirm` | yes |
+| [`canary order`](#canary-order) | Desk | Preview, place, modify, cancel, or inspect gated orders | `confirm` | yes |
 | [`canary app`](#canary-app) | System | Run the paired mobile PWA application layer | `confirm` | CLI only |
 | [`canary mcp`](#canary-mcp) | System | Run the stdio MCP server for local AI clients | `local` | CLI only |
 | [`canary daemon`](#canary-daemon) | System | Run the stateful gateway daemon (normally autospawned) | `local` | CLI only |
@@ -412,14 +412,17 @@ Subcommands: `open`, `history`.
 
 ## `canary order`
 
-Inspect or cancel a Canary-owned order.
+Preview, place, modify, cancel, or inspect gated orders.
 
-`status` reads one journaled order. `cancel` is the only broker write in this command family and requires an explicit human instruction for that exact Canary-owned order. Candidate creation and submission live on the constrained proposal and opportunity surfaces; there is no free-form place, modify, or preview command.
+`status` reads one journaled order and `preview` mints a tokenized draft: it runs the broker WhatIf and never transmits, and a minted token is not submit eligibility. `place`, `modify`, and `cancel` are broker writes: each requires an explicit human instruction for that exact order, and place/modify additionally consume a submit-eligible preview token through the daemon's ordinary admission gates (mode and account pins, caps, freeze, origin, journal). The constrained proposal and opportunity surfaces remain the daemon-authored candidate paths; this family is the operator's direct gated path.
 
 Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
 
 ```text
+canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT] [--json]
 canary order status ID [--json]
+canary order place --preview-token TOKEN [--json]
+canary order modify ID --preview-token TOKEN [--json]
 canary order cancel ID [--json]
 ```
 
@@ -427,13 +430,33 @@ canary order cancel ID [--json]
 
 | Subcommand | Guard |
 |------------|-------|
+| `preview` | `read-only` |
 | `status` | `read-only` |
+| `place` | `confirm` |
+| `modify` | `confirm` |
 | `cancel` | `confirm` |
 
 **Flags**
 
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
+| `--limit` | yes | - |
+| `--strategy` | yes | `patient-limit`, `explicit-limit` |
+| `--order-type` | yes | `LMT`, `TRAIL`, `TRAIL-LIMIT` |
+| `--trail-percent` | yes | - |
+| `--trail-amount` | yes | - |
+| `--initial-stop` | yes | - |
+| `--limit-offset` | yes | - |
+| `--trigger-method` | yes | `1`, `2`, `3`, `4`, `7`, `8` |
+| `--tif` | yes | `DAY`, `GTC` |
+| `--outside-rth` | no | - |
+| `--replace-order` | yes | - |
+| `--timeout` | yes | - |
+| `--market` | yes | `us`, `de` |
+| `--exchange` | yes | - |
+| `--primary` | yes | - |
+| `--currency` | yes | - |
+| `--preview-token` | yes | - |
 | `--json` | no | - |
 
 ## `canary app`

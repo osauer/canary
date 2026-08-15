@@ -222,7 +222,7 @@ func init() {
 		{"trading", "Local trading gate status and configuration", "canary trading status [--json]", runTrading},
 		{"settings", "Runtime platform preferences and observed read-only state", "canary settings show [--json] | canary settings set <supported-key>=true|false|null|number", runSettings},
 		{"orders", "Read current-context local order lifecycle state without transmitting orders", "canary orders open [--json] | canary orders history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--limit N] [--event-limit N] [--json]", runOrders},
-		{"order", "Inspect or cancel a Canary-owned order", "canary order status ID [--json] | canary order cancel ID [--json]", runOrder},
+		{"order", "Preview, place, modify, cancel, or inspect gated orders", "canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT] [--json] | canary order status ID [--json] | canary order place --preview-token TOKEN [--json] | canary order modify ID --preview-token TOKEN [--json] | canary order cancel ID [--json]", runOrder},
 		{"app", "Run the paired mobile PWA application layer", "canary app [--addr HOST:PORT] | canary app pair", nil},                                                // dispatched in cmd/canary/main.go — long-lived app server
 		{"mcp", "Run the stdio MCP server for local AI clients", "canary mcp", nil},                                                                                   // dispatched in cmd/canary/main.go — long-lived stdio server
 		{"daemon", "Run the stateful gateway daemon (normally autospawned)", "canary daemon [--foreground] [--config PATH] [--socket PATH] [--log PATH|stderr]", nil}, // dispatched in cmd/canary/main.go — long-lived daemon

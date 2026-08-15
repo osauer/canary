@@ -485,9 +485,12 @@ func (s *Server) governanceMonthlyPulseForAuthority(authority nudgeAuthorityStat
 		return risk.MonthlyPulseEvaluation{}
 	}
 	identity := nudgePolicyIdentity(constitution)
+	// Without require_signoff the pins are informational disclosure, so a
+	// changed or unpinned sibling never holds the pulse open.
+	pinsClean := !constitution.SignoffRequired() || policyPinsReady(authority.report.Inventory)
 	return risk.EvaluateMonthlyPulse(risk.MonthlyPulseInput{
 		Now: now, Cadence: constitution.Cadence, PolicyFingerprint: identity,
-		PolicyEvidenceReady: authority.cadenceEligible && authority.policyIdentity == identity && policyPinsReady(authority.report.Inventory),
+		PolicyEvidenceReady: authority.cadenceEligible && authority.policyIdentity == identity && pinsClean,
 	})
 }
 
@@ -524,6 +527,7 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 		state.report.PolicyVersion = mgr.policy.PolicyVersion
 		state.report.Unapproved = mgr.policy.UnapprovedKeys()
 		state.report.Inventory = s.riskPolicyInventory(mgr.policy)
+		state.report.SignoffRequired = mgr.policy.SignoffRequired()
 		if s.riskCapital != nil {
 			state.capitalNudge = s.riskCapital.NudgeSnapshotForScope(mgr.policy, nil, state.scope)
 			state.report.Capital = state.capitalNudge.Report
@@ -758,7 +762,7 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 	} else {
 		result.SourceHealth.Pins = setHealth(rpc.NudgeInputStatusUnavailable, rpc.NudgeHealthReasonSourceUnavailable)
 	}
-	if authority.pinsReadable {
+	if authority.pinsReadable && policy.SignoffRequired() {
 		if candidate := risk.EvaluatePolicyDrift(mismatches, stableNudgeTime(authority.loadedAt, now)); candidate != nil {
 			result.Candidates = append(result.Candidates, rpcNudgeCandidate(candidate))
 		}

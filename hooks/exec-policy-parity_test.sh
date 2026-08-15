@@ -48,9 +48,10 @@ run_shell_case() {
   echo "ok   $name ($want)"
 }
 
-# Retained read-only surfaces; free-form preview was retired in v3.
+# Retained read-only surfaces; free-form preview returned 2026-08-14 as an
+# allow (tokenized draft + WhatIf, never transmits).
 run_cli_case read-status canary allow status --json
-run_cli_case order-preview canary unmatched order preview --symbol AAPL --action BUY --quantity 1 --json
+run_cli_case order-preview canary allow order preview buy AAPL 1 --limit 100 --json
 run_cli_case order-status canary allow order status ORDER_ID --json
 run_cli_case orders-open canary allow orders open --json
 run_cli_case retired-read-status ibkr unmatched status --json
@@ -58,6 +59,9 @@ run_cli_case retired-order-preview ibkr unmatched order preview --symbol AAPL --
 
 # Broker writes retain the current-turn prompt boundary.
 run_cli_case order-cancel canary prompt order cancel ORDER_ID --json
+run_cli_case order-place canary prompt order place --preview-token TOKEN --json
+run_cli_case order-modify canary prompt order modify ORDER_ID --preview-token TOKEN --json
+run_cli_case strategies-close canary prompt strategies close STRAT_ID sha256:abc --json
 run_cli_case opportunity-exercise canary prompt opportunities exercise KEY REVISION --json
 
 # Runtime settings, freeze, and limit writes remain human-only.

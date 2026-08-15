@@ -1,18 +1,23 @@
-# Constrained orders and the trading build
+# Gated orders and the trading build
 
-Updated: 2026-08-09
+Updated: 2026-08-14
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
-The separate opt-in trading binary exposes only constrained actions:
+The separate opt-in trading binary exposes these actions:
 
+- preview, place, or modify a single-leg stock/ETF or option order through the
+  tokenized draft path (`canary order preview` → `place`/`modify`);
 - submit or reduce a daemon-owned close/reduce protection proposal;
 - exercise an eligible held option when the action reduces or closes risk;
-- cancel a Canary-owned order; and
-- modify or liquidate only through the product's approved constrained flows.
+- close or reduce a grouped option strategy as one combo; and
+- cancel a Canary-owned order.
 
-There is no free-form v3 place, modify, sizing, or order-preview command. A
-proposal or opportunity preview is candidate-specific evidence and never submit
-authority. The MCP server has no preview or execution tools.
+`order preview` mints a signed draft token and runs the broker WhatIf; it never
+transmits, and a minted token is not submit authority. `place` and `modify`
+consume a submit-eligible token for that exact draft and pass the same daemon
+admission gates as every other write. A proposal or opportunity preview is
+candidate-specific evidence and never submit authority. The MCP server has no
+preview or execution tools.
 
 ## Required authority
 
