@@ -75,6 +75,12 @@ class = "advisory"
 # Sibling-policy pins: the constitution records which policy versions it
 # was approved against; `Canary policy show` discloses drift. Identity only —
 # thresholds stay authoritative in their own files/code.
+#
+# By default a changed sibling is informational disclosure only. Regulated
+# desks can make it a governance blocker (attention row, monthly pulse held
+# until the pin is updated) by requiring the explicit sign-off:
+# [inventory]
+# require_signoff = true
 [inventory.rulebook]
 id = "rulebook-v2"
 version = "2"

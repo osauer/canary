@@ -513,6 +513,9 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			row.Reason = "greeks_gap"
 			row.Evidence = fmt.Sprintf("Canary is missing option delta for %d underlying(s) and a price or FX rate for %d.", len(gaps), len(unmeasured))
 		}
+		if len(gaps) > 0 {
+			c.offSessionGreeksNote(&row)
+		}
 	default:
 		row.Status = RuleStatusPass
 		row.Evidence = fmt.Sprintf("Largest name %.1f%% of NLV, under the %.0f%% cap.", round1(worst), act)
@@ -753,6 +756,7 @@ func (c *ruleContext) extrinsicBudget() RuleRow {
 		row.Reason = "extrinsic_uncomputable"
 		row.Offenders = unknowns
 		row.Evidence = fmt.Sprintf("Canary could not calculate time value for %d material option position(s).", len(unknowns))
+		c.offSessionGreeksNote(&row)
 		return row
 	}
 	sortOffenders(offenders)
@@ -1526,6 +1530,9 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			row.Reason = "greeks_gap"
 			row.Evidence = "Canary cannot calculate protection size because exposure and option delta are incomplete."
 		}
+		if len(gaps) > 0 {
+			c.offSessionGreeksNote(&row)
+		}
 		return row
 	}
 	if grossLong <= 0 {
@@ -1694,6 +1701,18 @@ func (c *ruleContext) fxExposure() RuleRow {
 
 func (c *ruleContext) greeksGapMaterial(n NameInput) bool {
 	return c.hasNLV && pct(n.GreeksGapNotionalBase, c.nlv) >= c.pol.GreeksGapFloorPctNLV
+}
+
+// offSessionGreeksNote marks a greeks-driven unknown reached while the
+// regular session is closed: the broker's model ticks pause off-session, so
+// the gap is the expected closed-market state rather than a data fault. The
+// status stays unknown — expected is still not clean — but the note lets a
+// consumer defer action until the open instead of treating it as broken.
+func (c *ruleContext) offSessionGreeksNote(row *RuleRow) {
+	if c.in.SessionOpen {
+		return
+	}
+	row.Notes = append(row.Notes, "off-session: option greeks pause outside the regular session; this unknown is expected to fill at the open")
 }
 
 // expiresBeforeCatalyst: rule 6 — an OTM long that dies before its name's

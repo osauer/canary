@@ -34,7 +34,7 @@ When the daemon serves no narrative — an older daemon, or a payload whose move
 
 Rendering the brief never changes process state. The CLI, paired app, and read-only MCP surface all call the same snapshot method, and repeated reads produce no acknowledgement, stamp, reconciliation sign-off, or artefact completion.
 
-Routine clean evidence is machine work. A monthly pulse becomes complete automatically once its due instant and current matching policy evidence are both present. Missing, stale, or conflicting evidence remains blocked and is returned as an exception through the Action Queue. Exceptional reconciliation repair remains a separate, explicit human policy action; merely looking at a report never invokes it.
+Routine clean evidence is machine work. A monthly pulse becomes complete automatically once its due instant and current matching policy evidence are both present. Missing, stale, or conflicting evidence remains blocked and is returned as an exception through the Action Queue. A changed sibling policy counts as conflicting evidence only when the constitution sets `inventory.require_signoff = true`; by default it is informational disclosure and does not hold the pulse. Exceptional reconciliation repair remains a separate, explicit human policy action; merely looking at a report never invokes it.
 
 ## Market context
 

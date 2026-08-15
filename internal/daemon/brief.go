@@ -550,6 +550,9 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			if notice := briefWSHEntitlementNotice(rules); notice != "" {
 				state.Detail += "; " + notice
 			}
+			if hint := briefEarningsOverrideHint(rules); hint != "" {
+				state.Detail += "; " + hint
+			}
 		}
 		rows = append(rows, rpc.BriefMarketEventRow{BriefRowState: state, Kind: kind, Count: len(syms), Symbols: syms})
 	}
@@ -592,6 +595,26 @@ func briefEarningsEvidenceInfo(rules *rpc.RulesResult) string {
 		}
 	}
 	return ""
+}
+
+// briefEarningsOverrideHint names the one operator action that resolves a
+// vendor-side date gap: no provider can supply a date the issuer has not
+// announced, so the row says what to do when it lands instead of reading as
+// an unactionable fault.
+func briefEarningsOverrideHint(rules *rpc.RulesResult) string {
+	if rules == nil {
+		return ""
+	}
+	var symbols []string
+	for _, info := range rules.Earnings {
+		if info.Status == rpc.EarningsStatusNoDatePublished {
+			symbols = append(symbols, info.Symbol)
+		}
+	}
+	if len(symbols) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("no vendor has published a date for %s; when the issuer announces one, record it with the settings key features.rulebook.earnings_overrides", strings.Join(symbols, ", "))
 }
 
 func briefWSHEntitlementNotice(rules *rpc.RulesResult) string {
@@ -952,14 +975,25 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 		out.Overrides.BriefRowState = briefAttention(fmt.Sprintf("%d active %s temporarily %s policy controls",
 			len(out.Overrides.Rows), pluralNoun(len(out.Overrides.Rows), "override"), verb))
 	}
+	out.PolicyDrift.SignoffRequired = policy.SignoffRequired
 	out.PolicyDrift.BriefRowState = briefOK("all approval pins match")
+	unavailable := 0
 	for _, pin := range policy.Inventory {
 		if pin.Status != "match" {
 			out.PolicyDrift.Rows = append(out.PolicyDrift.Rows, pin)
 		}
+		if pin.Status == "unavailable" {
+			unavailable++
+		}
 	}
-	if len(out.PolicyDrift.Rows) > 0 {
+	switch {
+	case unavailable > 0:
+		out.PolicyDrift.BriefRowState = briefDegraded(fmt.Sprintf("%d sibling-policy pin(s) cannot read a live identity", unavailable))
+	case len(out.PolicyDrift.Rows) == 0:
+	case policy.SignoffRequired:
 		out.PolicyDrift.BriefRowState = briefDegraded(fmt.Sprintf("%d sibling-policy approval pin(s) do not match", len(out.PolicyDrift.Rows)))
+	default:
+		out.PolicyDrift.BriefRowState = briefOK(fmt.Sprintf("%d sibling-policy pin(s) differ from live; sign-off is not required", len(out.PolicyDrift.Rows)))
 	}
 	out.BriefRowState = briefSectionState("risk and limits", out.Capital.BriefRowState, out.Latch.BriefRowState,
 		out.Overrides.BriefRowState, out.PolicyDrift.BriefRowState)

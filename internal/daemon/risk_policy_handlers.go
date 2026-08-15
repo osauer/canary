@@ -66,6 +66,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 	res.Limits = risk.ConstitutionLimits(mgr.policy)
 	res.Overrides = s.riskCapital.ActiveOverridesForScope(scope)
 	res.Inventory = s.riskPolicyInventory(mgr.policy)
+	res.SignoffRequired = mgr.policy != nil && mgr.policy.SignoffRequired()
 	res.InputHealth = health
 	return res, nil
 }

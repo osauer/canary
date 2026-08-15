@@ -861,7 +861,12 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 	clean := drift.Status == rpc.BriefStatusOK && eventsClean && monthlyClean
 
 	if clean {
-		clauses := []string{"policy pins match"}
+		pinsClause := "policy pins match"
+		if len(drift.Rows) > 0 && !drift.SignoffRequired {
+			pinsClause = briefCountPhrase(len(drift.Rows), "sibling-policy pin", "sibling-policy pins") + " " +
+				briefVerb(len(drift.Rows), "differs", "differ") + " from live (sign-off not required)"
+		}
+		clauses := []string{pinsClause}
 		if ready.MonthlyPulse != nil {
 			clauses = append(clauses, briefMonthlyPulseClause(*ready.MonthlyPulse))
 		}
@@ -880,8 +885,13 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 		for _, row := range drift.Rows {
 			names = append(names, row.Policy+" "+row.Status)
 		}
-		p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy approval pin", "sibling-policy approval pins")) + " " +
-			briefVerb(len(drift.Rows), "does", "do") + " not match: " + strings.Join(names, ", ") + ".")
+		if drift.SignoffRequired {
+			p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy approval pin", "sibling-policy approval pins")) + " " +
+				briefVerb(len(drift.Rows), "does", "do") + " not match: " + strings.Join(names, ", ") + ".")
+		} else {
+			p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy pin", "sibling-policy pins")) + " " +
+				briefVerb(len(drift.Rows), "differs", "differ") + " from live; sign-off is not required: " + strings.Join(names, ", ") + ".")
+		}
 	default:
 		p.text("Policy pins match.")
 	}

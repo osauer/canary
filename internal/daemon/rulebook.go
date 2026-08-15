@@ -735,7 +735,17 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 				nextAttempt = cloneTimePointer(provider.NextAttempt)
 			}
 			if resolved && failure != nil {
-				note := fmt.Sprintf("retained provider issue: source=%s code=%s stage=%s retry=scheduled", provider.Provider, failure.Code, failure.Stage)
+				// A permanently-unentitled provider is already explained once by
+				// the WSH entitlement notice; a per-symbol "retained issue" note
+				// would restate it every session and claim a retry it cannot use.
+				if earningsProviderUnentitled(provider.Status, failure) {
+					continue
+				}
+				retry := "retry=scheduled"
+				if !failure.Retryable {
+					retry = "retry=daily"
+				}
+				note := fmt.Sprintf("retained provider issue: source=%s code=%s stage=%s %s", provider.Provider, failure.Code, failure.Stage, retry)
 				informational[note] = struct{}{}
 			}
 		}

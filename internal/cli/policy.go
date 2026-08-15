@@ -277,15 +277,25 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		}
 	}
 	if len(res.Inventory) > 0 {
-		fmt.Fprintln(env.Stdout, "\nOther policies on this system, compared with the versions you approved this constitution against:")
+		if res.SignoffRequired {
+			fmt.Fprintln(env.Stdout, "\nOther policies on this system, compared with the versions you approved this constitution against:")
+		} else {
+			fmt.Fprintln(env.Stdout, "\nOther policies on this system (informational — sign-off is not required):")
+		}
 		for _, p := range res.Inventory {
-			switch p.Status {
-			case "match":
+			switch {
+			case p.Status == "match" && res.SignoffRequired:
 				fmt.Fprintf(env.Stdout, "  %-10s unchanged since approval (%s)\n", p.Policy, policyIdentity(p.LiveID, p.LiveVersion))
-			case "drift":
+			case p.Status == "match":
+				fmt.Fprintf(env.Stdout, "  %-10s unchanged since pinning (%s)\n", p.Policy, policyIdentity(p.LiveID, p.LiveVersion))
+			case p.Status == "drift" && res.SignoffRequired:
 				fmt.Fprintf(env.Stdout, "  %-10s CHANGED since approval: was %s, now %s — review it, then update [inventory] in the policy file\n", p.Policy, policyIdentity(p.PinnedID, p.PinnedVersion), policyIdentity(p.LiveID, p.LiveVersion))
-			case "unpinned":
+			case p.Status == "drift":
+				fmt.Fprintf(env.Stdout, "  %-10s changed since pinning: was %s, now %s\n", p.Policy, policyIdentity(p.PinnedID, p.PinnedVersion), policyIdentity(p.LiveID, p.LiveVersion))
+			case p.Status == "unpinned" && res.SignoffRequired:
 				fmt.Fprintf(env.Stdout, "  %-10s not recorded at approval time (currently %s) — add it under [inventory] to be told when it changes\n", p.Policy, policyIdentity(p.LiveID, p.LiveVersion))
+			case p.Status == "unpinned":
+				fmt.Fprintf(env.Stdout, "  %-10s not pinned (currently %s)\n", p.Policy, policyIdentity(p.LiveID, p.LiveVersion))
 			default:
 				fmt.Fprintf(env.Stdout, "  %-10s %s\n", p.Policy, p.Status)
 			}

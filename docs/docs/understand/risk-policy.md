@@ -50,7 +50,7 @@ on each revision.
 | `[override]` | `max_duration_hours` | The longest a one-shot exception may live |
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
-| `[inventory]` | `rulebook`, `protection`, `stress` pins | The sibling policy versions this constitution was approved against, identity only |
+| `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
 sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,
@@ -115,6 +115,28 @@ and the monthly pulse falls on the first working day at 09:00 — so the keys
 are optional overrides, never approval material. A version bump made for an
 unrelated edit can therefore move a complete policy to `unapproved` only
 through the non-cadence keys it newly requires.
+
+## Sibling policy changes and sign-off
+
+The `[inventory]` pins record which sibling-policy versions (rulebook,
+protection, stress) this constitution was written against. When a sibling
+changes — a protection-policy edit bumps its own version, for example — the
+pins no longer match the live identities. What that mismatch means is governed
+by `inventory.require_signoff` (version 4 or above, optional):
+
+- **Off, the default.** The change is informational disclosure. `canary policy
+  show` lists it ("changed since pinning"), the brief's policy-drift row stays
+  green with the rows attached, and the monthly pulse completes on its own.
+  On a single-trader desk the sibling file edit is itself the human decision;
+  the pins exist so the change is visible, not to demand a second signature.
+- **On (`require_signoff = true`).** The mismatch is a governance blocker:
+  the brief flags it for attention, a policy-drift nudge is raised, and the
+  monthly pulse stays blocked until you review the changed sibling and update
+  its `[inventory]` pin. Set this in environments where an explicit recorded
+  sign-off of every sibling revision is required.
+
+Adding or changing the key is itself a policy edit and becomes effective the
+same way as any other revision (see "Making a revision effective" above).
 
 Evaluation covers one selected account: the ladder measures that account's
 current equity against its own cash-flow-adjusted peak. Paper and live state are

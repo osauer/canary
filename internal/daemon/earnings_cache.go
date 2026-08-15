@@ -48,6 +48,7 @@ const (
 	earningsContractResolutionRetry = 5 * time.Minute
 	// Format, entitlement, protocol, and other non-retryable provider failures
 	// remain due failures, but one failed read is enough for the daily source
+	// cadence. Their typed outcome and next attempt survive daemon restart.
 	earningsNonRetryableFailureRetry = 24 * time.Hour
 	earningsFetchConcurrency         = 4
 	earningsAuthorityScope           = "market/events/earnings"
