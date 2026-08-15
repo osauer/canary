@@ -285,8 +285,13 @@ function renderReadySection(section, sources = {}) {
     briefRow("Premium at risk", section.premium_at_risk, moneyCoverageValue(section.premium_at_risk)),
     briefRow("Index-put theta / day", section.hedge_cost, moneyCoverageValue(section.hedge_cost)),
     briefRow("Protection proposals", section.proposals, readyProposalsValue(section.proposals || {})),
-    briefRow("Policy drift", section.policy_drift, (section.policy_drift?.rows || []).map((row) => joinValues(row.policy, row.status, row.live_id, row.live_version)).join(" · ")),
   );
+  // Pins are operator material only under required sign-off; otherwise the
+  // row appears solely when something is actually wrong (non-ok status).
+  const policyDrift = section.policy_drift;
+  if (policyDrift && (policyDrift.signoff_required || (policyDrift.status && policyDrift.status !== "ok"))) {
+    rows.push(briefRow("Policy drift", policyDrift, (policyDrift.rows || []).map((row) => joinValues(row.policy, row.status, row.live_id, row.live_version)).join(" · ")));
+  }
   if (Object.prototype.hasOwnProperty.call(section, "monthly_pulse") && section.monthly_pulse) {
     rows.push(renderMonthlyPulseRow(section.monthly_pulse));
   }

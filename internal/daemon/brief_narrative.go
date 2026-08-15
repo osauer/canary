@@ -861,12 +861,12 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 	clean := drift.Status == rpc.BriefStatusOK && eventsClean && monthlyClean
 
 	if clean {
-		pinsClause := "policy pins match"
-		if len(drift.Rows) > 0 && !drift.SignoffRequired {
-			pinsClause = briefCountPhrase(len(drift.Rows), "sibling-policy pin", "sibling-policy pins") + " " +
-				briefVerb(len(drift.Rows), "differs", "differ") + " from live (sign-off not required)"
+		// Pins are narrated only under required sign-off; otherwise they are
+		// bookkeeping the operator chose not to hear about.
+		var clauses []string
+		if drift.SignoffRequired {
+			clauses = append(clauses, "policy pins match")
 		}
-		clauses := []string{pinsClause}
 		if ready.MonthlyPulse != nil {
 			clauses = append(clauses, briefMonthlyPulseClause(*ready.MonthlyPulse))
 		}
@@ -880,19 +880,14 @@ func briefReadyProcess(p *briefProse, ready rpc.BriefReadySection) {
 	switch {
 	case drift.Status == rpc.BriefStatusUnavailable:
 		p.text("Policy pin status is unavailable.")
-	case len(drift.Rows) > 0:
+	case drift.Status != rpc.BriefStatusOK && len(drift.Rows) > 0:
 		names := make([]string, 0, len(drift.Rows))
 		for _, row := range drift.Rows {
 			names = append(names, row.Policy+" "+row.Status)
 		}
-		if drift.SignoffRequired {
-			p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy approval pin", "sibling-policy approval pins")) + " " +
-				briefVerb(len(drift.Rows), "does", "do") + " not match: " + strings.Join(names, ", ") + ".")
-		} else {
-			p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy pin", "sibling-policy pins")) + " " +
-				briefVerb(len(drift.Rows), "differs", "differ") + " from live; sign-off is not required: " + strings.Join(names, ", ") + ".")
-		}
-	default:
+		p.text(briefUpperFirst(briefCountPhrase(len(drift.Rows), "sibling-policy approval pin", "sibling-policy approval pins")) + " " +
+			briefVerb(len(drift.Rows), "does", "do") + " not match: " + strings.Join(names, ", ") + ".")
+	case drift.SignoffRequired:
 		p.text("Policy pins match.")
 	}
 
