@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.2.0 — 2026-08-14 18:04 CEST
+
+### Added
+
+- **The gated free-form order path is back in the CLI** (operator decision, reversing part of the v3 reduction): `canary order preview buy|sell` mints a tokenized single-leg stock/ETF or option draft and runs the broker WhatIf without transmitting, and `canary order place` / `modify` redeem a submit-eligible token for that exact draft. Every daemon admission gate is unchanged and binding — mode/account/client pins, notional and quantity caps, short/sell-to-open authority, `trading.freeze`, origin policy, journaling, and the 10-minute one-shot token. The daemon side never left; only the CLI verbs were removed in v3. Protective stops, protection proposals, strategy close/reduce, and option exercise keep their existing constrained flows.
+
+### Changed
+
+- **A changed sibling policy no longer demands a second signature.** The risk constitution's `[inventory]` pins stay factual, but by default a rulebook, protection, or stress policy that moved past its pin is informational disclosure: `canary policy show` lists the change, the brief's policy-drift row stays green with the rows attached, no nudge is raised, and the monthly pulse completes on its own. The sibling file edit is itself the operator's decision; the pin update was a ritual. Regulated desks restore the strict posture — attention row, policy-drift nudge, monthly pulse held until the pin is updated — with the new v4 policy key `inventory.require_signoff = true`, documented in the risk-policy reference and visible in `canary policy show --explain`.
+- **A greeks-driven unknown now says when it is expected.** Rulebook rows that go unknown because option greeks are missing (single-name exposure, time-value budget, hedge integrity) carry an explicit note while the session is closed: model ticks pause off-session, the gap normally fills at the open, and the unknown is the expected closed-market state rather than a fault. The status itself stays unknown — expected is still not clean.
+- **The earnings row now names the one action that resolves a vendor date gap.** When no provider has published a date for a held name, the brief's earnings detail says to record the date with the `features.rulebook.earnings_overrides` settings key once the issuer announces it, instead of reading as an unactionable fault.
+
+### Fixed
+
+- **The daily brief no longer contradicts itself about the optional Wall Street Horizon feed.** An account without the WSH research subscription saw two suffixes in one earnings row: the correct "feed unavailable, Nasdaq remains active" explanation next to a per-symbol "retained provider issue … retry=scheduled" note for the same permanently-unusable feed, every session, forever. The retained-issue note is now suppressed for a provider the code itself classifies as permanently unentitled, and for other non-retryable failures it discloses the real daily probe cadence (`retry=daily`) instead of claiming a scheduled retry.
+- **Held-option "options closed" context now follows the official options calendar.** The warning was gated on a holiday-blind weekday clock, so on an exchange holiday option positions showed stale closed-session marks and missing greeks with no explanation. The official calendar (holidays and early closes included) now drives the flag, and its text says plainly that missing greeks on a thinly quoted leg are expected off-session.
+
+### Security
+
+- The agent safety hook and Codex execution rules now cover `canary strategies close|reduce`: the strategy combo path previews and, with `--submit`, places a broker order, but neither guard matched the verbs, so an agent could reach a broker write without the prompt boundary every other write verb has. Both guards now treat the strategy verbs like the proposal and opportunity write verbs.
+
 ## v3.1.0 — 2026-08-14 08:50 CEST
 
 ### What's new

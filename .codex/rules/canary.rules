@@ -87,12 +87,42 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "order", "cancel"],
+    pattern = ["canary", "order", "preview"],
+    decision = "allow",
+    justification = "Order preview mints a tokenized draft and runs the broker WhatIf; it never transmits, and a token is not submit eligibility.",
+    match = [
+        "canary order preview buy AAPL 1 --limit 100 --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "order", ["place", "modify", "cancel"]],
     decision = "prompt",
     justification = "Broker writes require an explicit transaction-specific current-turn instruction in addition to hook and daemon gates.",
     match = [
         "ibkr order cancel ORDER_ID --json",
         "canary order cancel ORDER_ID --json",
+        "canary order place --preview-token TOKEN --json",
+        "canary order modify ORDER_ID --preview-token TOKEN --json",
+    ],
+)
+
+prefix_rule(
+    pattern = ["canary", "strategies", "list"],
+    decision = "allow",
+    justification = "Strategy grouping is a read-only positions view.",
+    match = [
+        "canary strategies list --json",
+    ],
+)
+
+prefix_rule(
+    pattern = [["ibkr", "canary"], "strategies", ["close", "reduce"]],
+    decision = "prompt",
+    justification = "Strategy close/reduce previews a combo order and with --submit places it; require a current-turn user decision.",
+    match = [
+        "canary strategies close STRAT_ID sha256:abc --json",
+        "canary strategies reduce STRAT_ID sha256:abc --units 1 --submit --json",
     ],
 )
 
