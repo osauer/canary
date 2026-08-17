@@ -375,9 +375,6 @@ hook-behavior-check: ## Run table-driven allow/block cases against the broker ho
 agent-config-check: hook-behavior-check ## Validate project agent config, hooks, and read-only reviewer roles
 	@bash -n hooks/canary-pre-tool-use.sh .codex/hooks/canary-pre-tool-use.sh
 	@jq -e . .codex/hooks.json >/dev/null
-	@jq -e . .claude/settings.json >/dev/null
-	@jq -e . .claude/launch.json >/dev/null
-	@sh -n .claude/preview-canary-app.sh
 	@go test ./internal/agentconfig/
 	@if command -v codex >/dev/null 2>&1; then \
 		read_decision=$$(codex execpolicy check --rules .codex/rules/canary.rules -- canary status --json | jq -r .decision); \
