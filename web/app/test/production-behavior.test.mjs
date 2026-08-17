@@ -23,7 +23,7 @@ Object.defineProperty(globalThis, "navigator", {
 Object.defineProperty(globalThis, "Notification", { configurable: true, value: undefined });
 Object.defineProperty(globalThis, "EventSource", { configurable: true, value: undefined });
 
-const { state } = await import("../state.js");
+const { normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
   "alerts", "alert-inbox", "brief", "chrome", "lifecycle", "market-events", "opportunities", "orders",
@@ -63,6 +63,7 @@ function reset() {
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
     readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
+    selectedUnderlying: "", positionsSort: "impact",
     protectionSnapshotBusy: false, protectionSnapshotLastAt: 0, protectionSnapshotNotice: "",
     protectionDerisk: { percent: 25, busy: "", result: null, submitted: null, requestRef: "", previewedAt: 0, abort: null },
     protectionStopRequestBusy: "", protectionStopRequests: {},
@@ -144,6 +145,70 @@ test("header market selector keeps the compact US options label and fixed narrow
 	const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
 	assert.match(html, /<option value="us-options">US opt\.<\/option>/);
 	assert.match(css, /\.market-strip__selector select\s*\{[^}]*width:\s*50px;[^}]*max-width:\s*50px;/s);
+});
+
+test("primary navigation seats Positions and folds the Daily brief into Monitor", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.equal(normalizedTab("positions"), "positions");
+  assert.equal(normalizedTab("brief"), "monitor");
+  assert.match(html, /id="tabPositions"[^>]*data-tab="positions"/);
+  assert.match(html, /id="dashboard"[^>]*data-tab-panel="monitor"[\s\S]*id="briefPanel"/);
+  assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="underlyingsSheet"/);
+  assert.doesNotMatch(html, /id="attentionStatus"/);
+});
+
+test("Positions is performance-first while typed risk and guarded actions stay behind selection", async () => {
+  reset();
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(html, /Watch what moved and how each position performed/);
+  assert.match(html, />Portfolio trim</);
+  assert.match(html, />Option groups</);
+  assert.doesNotMatch(html, /Stock &amp; ETF risk|underlyingDetailToggle/);
+  assert.equal(normalizedPositionsSort("exposure"), "exposure");
+  assert.equal(normalizedPositionsSort("invented"), "impact");
+
+  state.accountValueVisible = true;
+  state.selectedUnderlying = "SYN";
+  state.snapshot = {
+    positions: {
+      strategies: [{ id: "strategy-synthetic", underlying: "SYN", kind: "vertical", actionable: true }],
+      strategy_issues: [],
+      by_underlying: [],
+      portfolio: { base_currency: "EUR" },
+    },
+    market_quotes: {}, market_events: {},
+  };
+  const group = {
+    underlying: "SYN",
+    stock: { symbol: "SYN", currency: "USD", mark: 100, quote_expectation: "none" },
+    options: [{ symbol: "SYN", currency: "USD", daily_pnl_base: 5 }],
+    group_daily_pnl_base: 12,
+    group_unrealized_pnl_base: 45,
+    group_market_value_base: 1200,
+    group_market_value_pct_nlv: 6.5,
+    group_effective_delta: 8.25,
+    group_dollar_delta_base: 825,
+  };
+  state.snapshot.positions.by_underlying = [group];
+  const row = underlyings.heldUnderlyingRows(state.snapshot.positions, "EUR")[0];
+  assert.deepEqual({ daily: row.dailyPnl, open: row.openPnl, value: row.marketValue, delta: row.dollarDelta }, {
+    daily: 12, open: 45, value: 1200, delta: 825,
+  });
+  const rendered = underlyings.underlyingBookRow(row, "EUR");
+  assert.equal(byClass(rendered, "underlying-row__metric--pnl")[0].textContent.includes("Today"), true);
+  assert.equal(byClass(rendered, "underlying-row__metric--open")[0].textContent.includes("Open"), true);
+  assert.match(byClass(rendered, "position-inspector__distinction")[0].textContent, /Color shows direction, not an instruction/);
+  assert.deepEqual(byClass(rendered, "position-inspector__action").map((button) => button.dataset.positionAction), ["strategy", "trim"]);
+  assert.match(byClass(rendered, "position-inspector__scope")[0].textContent, /whole-book delta tool/);
+
+  const rows = [
+    { symbol: "A", dailyPnl: 10, marketValueBase: 100 },
+    { symbol: "B", dailyPnl: -30, marketValueBase: 50 },
+    { symbol: "C", dailyPnl: null, marketValueBase: 500 },
+  ];
+  assert.deepEqual([...rows].sort((a, b) => underlyings.compareUnderlyingRows(a, b, "impact")).map((item) => item.symbol), ["B", "A", "C"]);
+  assert.deepEqual([...rows].sort((a, b) => underlyings.compareUnderlyingRows(a, b, "winners")).map((item) => item.symbol), ["A", "B", "C"]);
+  assert.deepEqual([...rows].sort((a, b) => underlyings.compareUnderlyingRows(a, b, "exposure")).map((item) => item.symbol), ["C", "A", "B"]);
 });
 
 test("TestAppJSTradingStateUsesSnapshotCanWrite replacement exercises typed write and freeze-aware cancel gates", () => {
@@ -245,7 +310,7 @@ test("TestAppJSAccountPrivacyMasksUnderlyingPnl replacement masks both summary a
   assert.equal(dom.element("underlyingWinnerPnl").textContent, "******");
   assert.equal(dom.element("underlyingWinnerPnl").classList.contains("is-private"), true);
   const hiddenRow = underlyings.underlyingBookRow({ symbol: "SYN", detail: "Synthetic", price: 10, change: 1, changePct: 2, pnl: 12.5, pnlCurrency: "EUR", marketFlags: [] }, "EUR");
-  const hiddenPnl = byClass(hiddenRow, "underlying-row__metric--pnl")[0].children[0];
+  const hiddenPnl = byClass(hiddenRow, "underlying-row__metric--pnl")[0].children.find((child) => child.tagName === "B");
   assert.equal(hiddenPnl.textContent, "******");
   assert.equal(hiddenPnl.classList.contains("is-private"), true);
   chrome.syncAccountPrivacyState();
@@ -366,7 +431,7 @@ test("an alert touch preserves the card until its click opens evidence", () => {
   assert.equal(fetches, 0);
 });
 
-test("alert rows add current authenticated facts without changing fixed notification copy", () => {
+test("alert rows separate affected positions and expose the authoritative review destination", () => {
   reset();
   state.snapshot = {
     rules: { rules: [{ id: "extrinsic_budget", evidence: "Paid option time value is 14.3% of NLV. The budget is 7.5%.", offenders: [{ symbol: "SYN", leg: "SYN 20261016 P 700" }, { symbol: "ALT", leg: "ALT 20261016 C 100" }, { symbol: "THR", leg: "THR extra leg" }] }] },
@@ -377,9 +442,13 @@ test("alert rows add current authenticated facts without changing fixed notifica
     body: "The amount paid for time remaining in long options is above the Rulebook budget.", severity: "watch",
     first_seen_at: "2026-08-10T12:00:00Z", last_seen_at: "2026-08-10T12:00:00Z", state: "open", evidence_health: "current",
   });
-  // The fact line names the offending legs (capped at two) so the alert says
-  // which position it is about, not only the aggregate figure.
-  assert.equal(byClass(optionRow, "pd-alert__facts")[0].textContent, "Paid option time value is 14.3% of NLV. The budget is 7.5%. Offenders: SYN 20261016 P 700, ALT 20261016 C 100");
+  assert.equal(byClass(optionRow, "pd-alert__facts")[0].textContent, "Paid option time value is 14.3% of NLV. The budget is 7.5%.");
+  const affected = byClass(optionRow, "alert-row__affected")[0];
+  assert.equal(affected.children[0].textContent, "Affected positions · 3");
+  assert.deepEqual(affected.children[1].children.map((item) => item.textContent), [
+    "SYN 20261016 P 700", "ALT 20261016 C 100", "THR extra leg",
+  ]);
+  assert.equal(byClass(optionRow, "alert-row__action")[0].textContent, "Review rule details →");
 
   const drawdown = alertInbox.alertFactText({ presentation_code: "risk_policy_drawdown_latched" });
   assert.match(drawdown, /Current use 93\.4%/);
@@ -455,6 +524,21 @@ test("healthy lamp-test line hides and a served source fault reveals it", () => 
   stress.renderLampTest(snap, { source_health: [{ source: "positions", status: "ok" }] });
   assert.equal(dom.element("lampTest").hidden, false);
   assert.match(dom.element("lampTestStamp").textContent, /gamma.*stale/i);
+});
+
+test("lamp test translates the internal alert-candidate feed into operator meaning", () => {
+  const health = stress.lampTestSources({
+    sources: { alert_candidates: { state: "unavailable", error: "producer unavailable" } },
+  }, {});
+  assert.deepEqual(health.faults, ["alert checking unavailable — current Alerts unconfirmed"]);
+  assert.doesNotMatch(health.faults[0], /candidate/i);
+});
+
+test("market quote direction is literal for every symbol, including VIX", () => {
+  assert.equal(stress.marketQuoteChangeClass("SPY", 1.2), "signed ok");
+  assert.equal(stress.marketQuoteChangeClass("SPY", -1.2), "signed risk");
+  assert.equal(stress.marketQuoteChangeClass("VIX", 1.2), "signed ok");
+  assert.equal(stress.marketQuoteChangeClass("VIX", -1.2), "signed risk");
 });
 
 test("master subline separates an allowed portfolio rebalance from an unavailable market signal", () => {

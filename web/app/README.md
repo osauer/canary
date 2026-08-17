@@ -4,10 +4,10 @@ This is the small PWA served by `canary app`. It is meant for the thing you want
 on a phone: is the local IBKR setup alive, what does the account look like, and
 is the portfolio stress read asking for attention?
 
-Monitor is glance-only. Depth lives in tap-through sheets opened from the
-instrument that reports it: the Protection window opens the Protection sheet,
+Monitor is glance-oriented and includes the daemon-authored Daily brief. Depth
+lives in the owning surface: the Protection window opens the Protection sheet,
 the Rules window opens the rules checklist, and the movers row opens the
-Underlyings book.
+Positions tab.
 
 The Protection sheet shows proposal-bound market-event chips when halt, LULD,
 borrow, fee, or Reg SHO flags affect current protection proposals. Active halt
@@ -17,15 +17,22 @@ cover`. Option-exercise opportunities are exception-shaped: an advisory bar at
 the top of that sheet when the daemon serves any, and nothing at all when it
 does not.
 
-The Underlyings sheet shows held-name market-event tags in the hero and row
-tags for affected symbols, including long holdings where borrow pressure is
-observational squeeze context. Stale or unknown sources stay visible with
-source/as-of detail instead of disappearing.
+Positions is a performance-first book with one stable row per held underlying.
+Quote move, broker Daily P/L, and Open P/L stay visibly distinct; selecting a
+row reveals the daemon's typed market value, NLV share, dollar delta,
+composition, quote quality, and held-name event tags. Stale or unknown sources
+stay visible with source/as-of detail instead of disappearing. A persistent
+sort supports daily-impact, winner, loser, exposure, and name scans. Guarded
+grouped-option review stays contextual to an exact served group, while
+Portfolio trim is labeled as a whole-book delta tool rather than a promise that
+the selected holding can be reduced. The SPA does not infer sizing,
+recommendation, or eligibility.
 
 Settings is the instrument's back panel: engraved banks for Notifications,
 Workflows, System (process evidence, moved here from the Alerts log), and
-Status, plus the stamped type plate at the foot. Orders is a read-only journal
-of order bars; submission stays on the desk.
+Status, plus the stamped type plate at the foot. Orders is the current order
+journal; grouped position close/reduce previews live in Positions and retain
+the same daemon, broker-preview, confirmation, freeze, and journal gates.
 
 A Monitor window whose served source health is anything but `ok` goes dead
 rather than calm: no severity tint, the caption naming the served fault word,

@@ -1,7 +1,7 @@
 import { applyTileSeverity, heldStressEvidence, heldStressItems, humanList, marketQuoteErrorLabel, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime } from "./stress.js";
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
-import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, parseDate, pct, privacyMask, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
-import { state } from "./state.js";
+import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
+import { normalizedPositionsSort, state } from "./state.js";
 
 function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   const detail = $("accountOverviewDetail");
@@ -286,19 +286,19 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   const count = $("underlyingBookCount");
   const status = $("underlyingBookStatus");
   const freshness = $("underlyingBookFreshness");
+  const sort = $("positionsSort");
   const authorityView = positionsAuthorityView(positions, state.snapshot?.sources?.positions || {});
-	const heldSymbols = rows.slice(0, 3).map((row) => row.symbol);
-  const heldLabel = heldSymbols.length > 0 ? ` · ${heldSymbols.join(", ")}${heldCount > heldSymbols.length ? ` +${heldCount - heldSymbols.length}` : ""}` : "";
+  const legCount = rows.reduce((total, row) => total + row.stockCount + row.optionCount, 0);
   const quoteSummary = underlyingQuoteSummary(rows);
   renderUnderlyingPnlSummary(authorityView.available ? underlyingHeldDailyPnlTotals(rows, baseCurrency) : {});
   renderMovers(authorityView.available ? rows : [], baseCurrency);
   renderMarketFlagRail("underlyingFlagRail", underlyingHeroMarketFlags(rows, marketEvents));
 	if (count) {
 		count.textContent = !authorityView.available
-			? rows.length === 0 ? "Positions unavailable" : `${heldCount} last known${heldLabel}`
+			? rows.length === 0 ? "Positions unavailable" : `${heldCount} last known · ${legCount} ${legCount === 1 ? "leg" : "legs"}`
 			: rows.length === 0
 			? "No underlyings"
-			: `${heldCount} held${heldLabel}`;
+			: `${heldCount} held · ${legCount} ${legCount === 1 ? "leg" : "legs"}`;
 	}
   if (status) {
     status.textContent = state.underlyingNotice
@@ -309,22 +309,20 @@ function renderUnderlyings(positions = {}, account = {}, marketEvents = state.sn
   if (freshness) {
     renderPositionsFreshness(freshness, positions, state.snapshot?.sources?.positions || {});
   }
-  const panel = $("underlyingPanel");
-	if (panel && state.underlyingNotice) {
-		state.underlyingDetailOpen = true;
-	}
+  if (sort) sort.value = normalizedPositionsSort(state.positionsSort);
+  if (state.selectedUnderlying && !rows.some((row) => row.symbol === state.selectedUnderlying)) {
+    state.selectedUnderlying = "";
+  }
 
 	if (rows.length === 0) {
     const empty = document.createElement("div");
     empty.className = "underlying-book__empty";
 		empty.textContent = authorityView.available ? "No held underlyings." : "Position data unavailable.";
     list.replaceChildren(empty);
-    renderUnderlyingExpansion();
     return;
   }
 
   list.replaceChildren(...rows.map((row) => underlyingBookRow(row, baseCurrency)));
-  renderUnderlyingExpansion();
 }
 
 function positionsAuthorityView(positions = {}, source = {}) {
@@ -496,44 +494,40 @@ function underlyingHeldDailyPnlTotals(rows, baseCurrency) {
   };
 }
 
-function setUnderlyingExpansion(open) {
-  state.underlyingDetailOpen = Boolean(open);
-  renderUnderlyingExpansion();
-}
-
-function renderUnderlyingExpansion() {
-  const panel = $("underlyingPanel");
-  const listPanel = $("underlyingBookListPanel");
-  const button = $("underlyingDetailToggle");
-  if (!panel || !listPanel || !button) return;
-  panel.dataset.open = String(state.underlyingDetailOpen);
-  listPanel.hidden = !state.underlyingDetailOpen;
-  button.textContent = state.underlyingDetailOpen ? "Hide underlyings" : "Show underlyings";
-  button.setAttribute("aria-expanded", String(state.underlyingDetailOpen));
-}
-
 function underlyingBookRows(positions, baseCurrency, marketEvents = {}) {
-	return heldUnderlyingRows(positions, baseCurrency, marketEvents).sort(compareUnderlyingRows);
+	return heldUnderlyingRows(positions, baseCurrency, marketEvents)
+    .sort((a, b) => compareUnderlyingRows(a, b, state.positionsSort));
 }
 
-function compareUnderlyingRows(a, b) {
-	const aPnl = underlyingSortPnl(a);
-  const bPnl = underlyingSortPnl(b);
-  const aRank = underlyingPnlSortRank(aPnl);
-  const bRank = underlyingPnlSortRank(bPnl);
-  if (aRank !== bRank) return aRank - bRank;
-  if (aRank === 0) return aPnl - bPnl || a.symbol.localeCompare(b.symbol);
-  if (aRank === 1) return bPnl - aPnl || a.symbol.localeCompare(b.symbol);
-  return a.symbol.localeCompare(b.symbol);
+function setPositionsSort(sort) {
+  state.positionsSort = normalizedPositionsSort(sort);
+  localStorage.setItem("canaryPositionsSort", state.positionsSort);
+  renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {}, state.snapshot?.market_events || {});
 }
 
-function underlyingSortPnl(row) {
-	return row.dailyPnl;
+function setSelectedUnderlying(symbol) {
+  const selected = normalizeSymbol(symbol);
+  state.selectedUnderlying = state.selectedUnderlying === selected ? "" : selected;
+  renderUnderlyings(state.snapshot?.positions || {}, state.snapshot?.account || {}, state.snapshot?.market_events || {});
 }
 
-function underlyingPnlSortRank(value) {
-  if (typeof value !== "number" || value === 0) return 2;
-  return value < 0 ? 0 : 1;
+function compareUnderlyingRows(a, b, sort = state.positionsSort) {
+  const byName = () => String(a.symbol || "").localeCompare(String(b.symbol || ""));
+  const numeric = (left, right, direction = -1, absolute = false) => {
+    const leftNumber = typeof left === "number" ? (absolute ? Math.abs(left) : left) : null;
+    const rightNumber = typeof right === "number" ? (absolute ? Math.abs(right) : right) : null;
+    if (leftNumber === null && rightNumber === null) return byName();
+    if (leftNumber === null) return 1;
+    if (rightNumber === null) return -1;
+    return (leftNumber - rightNumber) * direction || byName();
+  };
+  switch (normalizedPositionsSort(sort)) {
+    case "winners": return numeric(a.dailyPnl, b.dailyPnl, -1);
+    case "losers": return numeric(a.dailyPnl, b.dailyPnl, 1);
+    case "exposure": return numeric(a.marketValueBase, b.marketValueBase, -1, true);
+    case "name": return byName();
+    default: return numeric(a.dailyPnl, b.dailyPnl, -1, true);
+  }
 }
 
 function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
@@ -547,6 +541,11 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
     const pnl = heldUnderlyingDailyPnl(group, baseCurrency, currency);
     const stockCount = group.stock ? 1 : 0;
     const optionCount = (group.options || []).length;
+    const groupStrategies = (positions.strategies || []).filter((strategy) => normalizeSymbol(strategy.underlying) === symbol);
+    const groupIssues = (positions.strategy_issues || []).filter((issue) => normalizeSymbol(issue.underlying) === symbol);
+    const marketValueBase = typeof group.group_market_value_base === "number" ? group.group_market_value_base : null;
+    const openPnlBase = typeof group.group_unrealized_pnl_base === "number" ? group.group_unrealized_pnl_base : null;
+    const dollarDeltaBase = typeof group.group_dollar_delta_base === "number" ? group.group_dollar_delta_base : null;
     const row = {
       symbol,
       currency,
@@ -568,6 +567,17 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
       stockCount,
       optionCount,
       detail: underlyingPositionDetail(stockCount, optionCount),
+      marketValue: marketValueBase ?? (currency !== "MIX" && typeof group.group_market_value_ccy === "number" ? group.group_market_value_ccy : null),
+      marketValueBase,
+      marketValueCurrency: marketValueBase !== null ? baseCurrency : currency,
+      marketValuePctNlv: typeof group.group_market_value_pct_nlv === "number" ? group.group_market_value_pct_nlv : null,
+      openPnl: openPnlBase ?? (currency !== "MIX" && typeof group.group_unrealized_pnl_ccy === "number" ? group.group_unrealized_pnl_ccy : null),
+      openPnlCurrency: openPnlBase !== null ? baseCurrency : currency,
+      effectiveDelta: typeof group.group_effective_delta === "number" ? group.group_effective_delta : null,
+      dollarDelta: dollarDeltaBase ?? (typeof group.group_dollar_delta_ccy === "number" ? group.group_dollar_delta_ccy : null),
+      dollarDeltaCurrency: dollarDeltaBase !== null ? baseCurrency : normalizeCurrency(group.group_dollar_delta_ccy_currency || currency),
+      strategies: groupStrategies,
+      strategyIssues: groupIssues,
       marketFlags: marketEventFlagsForSymbol(symbol, marketEvents),
     };
     row.quoteStatus = underlyingQuoteStatus(row);
@@ -752,14 +762,22 @@ function underlyingQuoteStatus(row) {
 }
 
 function underlyingBookRow(row, baseCurrency) {
-	const item = document.createElement("div");
-	item.className = "underlying-row";
+  const selected = state.selectedUnderlying === row.symbol;
+	const item = document.createElement("section");
+	item.className = `underlying-row${selected ? " is-selected" : ""}`;
   if (row.quoteError) item.classList.add("underlying-row--quote-error");
   item.dataset.symbol = row.symbol;
 
-  const identity = document.createElement("div");
+  const summary = document.createElement("button");
+  summary.type = "button";
+  summary.className = "underlying-row__summary";
+  summary.dataset.positionSelect = row.symbol;
+  summary.setAttribute("aria-expanded", String(selected));
+  summary.setAttribute("aria-label", `${selected ? "Hide" : "Show"} position context for ${row.symbol}`);
+
+  const identity = document.createElement("span");
   identity.className = "underlying-row__identity";
-  const title = document.createElement("div");
+  const title = document.createElement("span");
   title.className = "underlying-row__title";
   const symbol = document.createElement("strong");
   symbol.textContent = row.symbol;
@@ -770,39 +788,192 @@ function underlyingBookRow(row, baseCurrency) {
   const flagRow = marketFlagRow(row.marketFlags || []);
   if (flagRow) identity.append(flagRow);
 
-  const price = document.createElement("div");
+  const price = document.createElement("span");
   const quoteStatus = row.quoteStatus || underlyingQuoteStatus(row);
   price.className = "underlying-row__metric underlying-row__metric--quote quote-" + quoteStatus.tone;
+  const priceLabel = document.createElement("span");
+  priceLabel.className = "underlying-row__metric-label";
+  priceLabel.textContent = "Quote";
   const priceValue = document.createElement("b");
   priceValue.textContent = displayMoney(row.price, row.currency);
   const priceNote = document.createElement("small");
-  priceNote.className = "underlying-quote-status " + quoteStatus.tone;
-  priceNote.textContent = quoteStatus.label;
-  priceNote.title = quoteStatus.title;
-  price.append(priceValue, priceNote);
-
-  const change = document.createElement("div");
-  change.className = "underlying-row__metric underlying-row__metric--change";
-  const changeValue = document.createElement("b");
   const changeTone = typeof row.change === "number" ? row.change : row.changePct;
-  changeValue.className = signedClass(changeTone);
-  changeValue.textContent = signedDisplayMoney(row.change, row.currency);
-  const changeNote = document.createElement("small");
-  changeNote.className = signedClass(row.changePct);
-  changeNote.textContent = typeof row.changePct === "number" ? `${signedPct(row.changePct)} day` : "% change";
-  change.append(changeValue, changeNote);
+  priceNote.className = signedClass(changeTone);
+  priceNote.textContent = underlyingDayMoveText(row);
+  price.append(priceLabel, priceValue, priceNote);
 
-  const pnl = document.createElement("div");
+  const pnl = document.createElement("span");
   pnl.className = "underlying-row__metric underlying-row__metric--pnl";
+  const pnlLabel = document.createElement("span");
+  pnlLabel.className = "underlying-row__metric-label";
+  pnlLabel.textContent = "Today";
   const pnlValue = document.createElement("b");
   pnlValue.className = sensitiveMoneyHidden(row.pnl) ? "is-private" : signedClass(row.pnl);
   pnlValue.textContent = sensitiveDisplayMoney(row.pnl, row.pnlCurrency || baseCurrency);
   const pnlNote = document.createElement("small");
-  pnlNote.textContent = row.pnlSource || "P/L";
-  pnl.append(pnlValue, pnlNote);
+  pnlNote.textContent = row.pnlSource || "Daily P/L";
+  pnl.append(pnlLabel, pnlValue, pnlNote);
 
-	item.append(identity, price, change, pnl);
+  const openPnl = document.createElement("span");
+  openPnl.className = "underlying-row__metric underlying-row__metric--open";
+  const openLabel = document.createElement("span");
+  openLabel.className = "underlying-row__metric-label";
+  openLabel.textContent = "Open";
+  const openValue = document.createElement("b");
+  openValue.className = sensitiveMoneyHidden(row.openPnl) ? "is-private" : signedClass(row.openPnl);
+  openValue.textContent = sensitiveDisplayMoney(row.openPnl, row.openPnlCurrency || baseCurrency);
+  const openNote = document.createElement("small");
+  openNote.textContent = "Unrealized P/L";
+  openPnl.append(openLabel, openValue, openNote);
+
+  const disclosure = document.createElement("span");
+  disclosure.className = "underlying-row__disclosure";
+  disclosure.setAttribute("aria-hidden", "true");
+
+  summary.append(identity, price, pnl, openPnl, disclosure);
+  item.append(summary);
+  if (selected) item.append(positionInspector(row, baseCurrency, quoteStatus));
 	return item;
+}
+
+function underlyingDayMoveText(row) {
+  const parts = [];
+  const changeTone = typeof row.change === "number" ? row.change : row.changePct;
+  if (typeof row.change === "number") parts.push(signedDisplayMoney(row.change, row.currency));
+  if (typeof row.changePct === "number") parts.push(`(${signedPct(row.changePct)})`);
+  return parts.length > 0 ? parts.join(" ") : changeTone === 0 ? "Flat today" : "Move unavailable";
+}
+
+function positionInspector(row, baseCurrency, quoteStatus) {
+  const inspector = document.createElement("div");
+  inspector.className = "position-inspector";
+
+  const head = document.createElement("div");
+  head.className = "position-inspector__head";
+  const heading = document.createElement("span");
+  heading.textContent = "Position context";
+  const quality = document.createElement("span");
+  quality.className = `underlying-quote-status ${quoteStatus.tone}`;
+  quality.textContent = quoteStatus.label;
+  quality.title = quoteStatus.title;
+  head.append(heading, quality);
+
+  const facts = document.createElement("div");
+  facts.className = "position-inspector__facts";
+  facts.append(
+    positionContextFact(
+      "Market value",
+      sensitiveDisplayMoney(row.marketValue, row.marketValueCurrency || baseCurrency),
+      typeof row.marketValuePctNlv === "number"
+        ? `${sensitivePct(row.marketValuePctNlv)} of NLV`
+        : "Share of NLV unavailable",
+      sensitiveMoneyHidden(row.marketValue),
+    ),
+    positionContextFact(
+      "Dollar delta",
+      sensitiveDisplayMoney(row.dollarDelta, row.dollarDeltaCurrency || baseCurrency),
+      typeof row.effectiveDelta === "number"
+        ? `Effective delta ${sensitiveNumber(row.effectiveDelta)}`
+        : "Effective delta unavailable",
+      sensitiveMoneyHidden(row.dollarDelta),
+    ),
+    positionContextFact(
+      "Composition",
+      row.detail,
+      positionGroupingSummary(row),
+      false,
+    ),
+  );
+
+  const distinction = document.createElement("p");
+  distinction.className = "position-inspector__distinction";
+  distinction.textContent = "Today is broker Daily P/L; Quote is the underlying's market move; Open is unrealized P/L since entry. Color shows direction, not an instruction to trade.";
+
+  const actionArea = document.createElement("div");
+  actionArea.className = "position-inspector__actions";
+  const actionCopy = document.createElement("div");
+  const actionLabel = document.createElement("span");
+  actionLabel.textContent = "Available paths";
+  const actionDetail = document.createElement("small");
+  actionDetail.textContent = positionActionSummary(row);
+  actionCopy.append(actionLabel, actionDetail);
+  const actionButtons = document.createElement("div");
+  actionButtons.className = "position-inspector__buttons";
+
+  for (const strategy of (row.strategies || [])) {
+    const strategyButton = document.createElement("button");
+    strategyButton.type = "button";
+    strategyButton.className = `position-inspector__action${strategy.actionable ? " position-inspector__action--primary" : ""}`;
+    strategyButton.dataset.positionAction = "strategy";
+    strategyButton.dataset.strategyId = strategy.id || "";
+    strategyButton.textContent = strategy.actionable
+      ? `Review ${labelize(strategy.kind || "option")} group`
+      : "Review group blocker";
+    actionButtons.append(strategyButton);
+  }
+  if ((row.strategies || []).length === 0 && (row.strategyIssues || []).length > 0) {
+    const issueButton = document.createElement("button");
+    issueButton.type = "button";
+    issueButton.className = "position-inspector__action";
+    issueButton.dataset.positionAction = "option-groups";
+    issueButton.textContent = "Review grouping issue";
+    actionButtons.append(issueButton);
+  }
+  const trimButton = document.createElement("button");
+  trimButton.type = "button";
+  trimButton.className = "position-inspector__action";
+  trimButton.dataset.positionAction = "trim";
+  trimButton.textContent = "Review portfolio trim";
+  actionButtons.append(trimButton);
+  actionArea.append(actionCopy, actionButtons);
+
+  const scope = document.createElement("small");
+  scope.className = "position-inspector__scope";
+  scope.textContent = `Portfolio trim is a whole-book delta tool, not a recommendation or a ${row.symbol}-only order. Every route still begins with guarded preview.`;
+
+  inspector.append(head, facts, distinction, actionArea, scope);
+  return inspector;
+}
+
+function positionContextFact(labelText, valueText, noteText, hiddenValue) {
+  const fact = document.createElement("div");
+  fact.className = "position-inspector__fact";
+  const label = document.createElement("span");
+  label.textContent = labelText;
+  const value = document.createElement("b");
+  value.textContent = valueText;
+  if (hiddenValue) value.classList.add("is-private");
+  const note = document.createElement("small");
+  note.textContent = noteText;
+  fact.append(label, value, note);
+  return fact;
+}
+
+function positionGroupingSummary(row) {
+  const actionable = (row.strategies || []).filter((strategy) => strategy.actionable).length;
+  const review = (row.strategies || []).length - actionable;
+  if (actionable > 0) return `${actionable} daemon-grouped ${actionable === 1 ? "option path" : "option paths"}`;
+  if ((row.strategyIssues || []).length > 0) return row.strategyIssues[0].reason || "Option grouping needs review";
+  if (review > 0) return row.strategies[0].reason || "Grouped option action needs review";
+  return row.optionCount > 0 ? "No safe combo group is currently served" : "No option legs";
+}
+
+function positionActionSummary(row) {
+  const actionable = (row.strategies || []).filter((strategy) => strategy.actionable).length;
+  if (actionable > 0) return "An exact grouped option review is available; the portfolio trim remains global.";
+  if ((row.strategyIssues || []).length > 0) return "Canary cannot safely group every option leg; review the typed reason before acting elsewhere.";
+  if ((row.strategies || []).length > 0) return "A served option group is blocked; review its daemon-authored reason before acting elsewhere.";
+  return "No position-specific reduction is inferred here. The portfolio trim is a separate whole-book review.";
+}
+
+function sensitivePct(value) {
+  if (!hasNumericValue(value)) return "--";
+  return state.accountValueVisible ? pct(value) : privacyMask();
+}
+
+function sensitiveNumber(value) {
+  if (!hasNumericValue(value)) return "--";
+  return state.accountValueVisible ? numberRead(value) : privacyMask();
 }
 
 function quoteSourceLabel(quote, fallback) {
@@ -884,4 +1055,4 @@ function renderTradingEnvPill(modeClass) {
   pill.title = "Trading environment could not be resolved.";
 }
 
-export { accountAuthorityReason, accountDailyPnlPct, accountDailyPnlValue, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, positionsAuthorityView, quoteErrorBySymbol, quoteSourceLabel, renderAccountDailyPnlPct, renderAccountFreshness, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderPositionsFreshness, renderUnderlyingExpansion, renderUnderlyingPnlSummary, renderUnderlyings, setUnderlyingExpansion, setUnderlyingSummaryPnl, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarketQuote, underlyingPnlSortRank, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary, underlyingSortPnl };
+export { accountAuthorityReason, accountDailyPnlPct, accountDailyPnlValue, compareUnderlyingRows, currentAccountContext, exposureMetricRow, heldStressMetricRow, heldUnderlyingChange, heldUnderlyingChangePct, heldUnderlyingCurrency, heldUnderlyingDailyPnl, heldUnderlyingPrevClose, heldUnderlyingPrice, heldUnderlyingRows, maskedRiskMoney, moverCell, moverRows, positionsAuthorityView, quoteErrorBySymbol, quoteSourceLabel, renderAccountDailyPnlPct, renderAccountFreshness, renderAccountLargestExposure, renderAccountPanel, renderDeltaTile, renderMovers, renderPositionsFreshness, renderUnderlyingPnlSummary, renderUnderlyings, setPositionsSort, setSelectedUnderlying, setUnderlyingSummaryPnl, underlyingBookRow, underlyingBookRows, underlyingHeldDailyPnlTotals, underlyingMarketQuote, underlyingPositionDetail, underlyingQuoteStatus, underlyingQuoteSummary };

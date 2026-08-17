@@ -42,7 +42,8 @@ const state = {
   regimeStressExpansionInitialized: false,
   detailPreferenceSet: false,
   accountOverviewOpen: false,
-  underlyingDetailOpen: false,
+  selectedUnderlying: "",
+  positionsSort: normalizedPositionsSort(localStorage.getItem("canaryPositionsSort") || "impact"),
   portfolioDetailOpen: false,
   accountExposureOpen: false,
   protectionOpen: false,
@@ -84,8 +85,12 @@ const state = {
 };
 
 function normalizedTab(tab) {
-  if (tab === "brief" || tab === "alerts" || tab === "orders" || tab === "settings") return tab;
+  if (tab === "positions" || tab === "alerts" || tab === "orders" || tab === "settings") return tab;
   return "monitor";
 }
 
-export { normalizedTab, state };
+function normalizedPositionsSort(sort) {
+  return ["impact", "winners", "losers", "exposure", "name"].includes(sort) ? sort : "impact";
+}
+
+export { normalizedPositionsSort, normalizedTab, state };

@@ -36,8 +36,11 @@ if (channel) {
 }
 
 async function runRound4SyntheticSmoke() {
-  const syntheticOrigin = "http://canary-synthetic.invalid";
-  const syntheticURL = "http://canary-synthetic.invalid/?pair=expired-synthetic&nonce=synthetic-nonce&remote=synthetic-route";
+  // WebKit stores but does not attach cookies to an intercepted `.invalid`
+  // origin. Use a fully intercepted, non-listening loopback origin so the
+  // synthetic auth exercise matches Canary's actual HTTP cookie context.
+  const syntheticOrigin = "http://127.0.0.1:19876";
+  const syntheticURL = `${syntheticOrigin}/?pair=expired-synthetic&nonce=synthetic-nonce&remote=synthetic-route`;
   const staticRoot = resolve(fileURLToPath(new URL("../web/app/", import.meta.url)));
   const staticTypes = { ".css": "text/css", ".html": "text/html", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json" };
   const launchedSynthetic = await launchBrowser(playwright[browserName], browserName, { headless: true, ...(channel ? { channel } : {}) });
@@ -46,6 +49,7 @@ async function runRound4SyntheticSmoke() {
   let bootstrapRequests = 0;
   let deviceCookieRecoveries = 0;
   let deviceRecoveryRequired = false;
+  let deviceRecoveryObservation = null;
   let successfulPairings = 0;
   let pairingAttempts = 0;
   const externalRequests = [];
@@ -131,7 +135,12 @@ async function runRound4SyntheticSmoke() {
       },
     },
   };
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+    serviceWorkers: "block",
+  });
   await context.addInitScript(() => {
     globalThis.__canarySmoke = { applySnapshotPatch: null };
     try { Object.defineProperty(globalThis, "Notification", { configurable: true, value: undefined }); } catch {}
@@ -154,8 +163,15 @@ async function runRound4SyntheticSmoke() {
     if (method === "GET" && requestPath === "/api/bootstrap") {
       bootstrapRequests += 1;
       if (deviceRecoveryRequired) {
-        const cookie = request.headers().cookie || "";
-        if (!cookie.includes("ibkr_app_device=synthetic-device-cookie") || cookie.includes("ibkr_app_session=")) {
+        // WebKit sends this cookie to a real loopback server, but hides it from
+        // the Request exposed to a fulfilled route. The synthetic server uses
+        // the context jar that the surrounding assertions also inspect.
+        const cookieNames = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
+        deviceRecoveryObservation = {
+          deviceCookieStored: cookieNames.has("ibkr_app_device"),
+          sessionCookieStored: cookieNames.has("ibkr_app_session"),
+        };
+        if (!deviceRecoveryObservation.deviceCookieStored || deviceRecoveryObservation.sessionCookieStored) {
           return json({ error: "synthetic device-cookie recovery unavailable" }, 401);
         }
         await context.addCookies([{
@@ -326,8 +342,8 @@ async function runRound4SyntheticSmoke() {
       copy: document.querySelector(".settings-notification-card")?.textContent || "",
       pushState: document.getElementById("pushState")?.textContent || "",
     }));
-    await page.locator("#tabBrief").click();
-    await page.waitForFunction(() => document.getElementById("briefTab")?.hidden === false, { timeout: 5000 });
+    await page.locator("#tabMonitor").click();
+    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
     const briefView = await page.evaluate(() => ({
       narrative: document.getElementById("briefSections")?.classList.contains("brief-sections--narrative") === true,
       text: document.getElementById("briefSections")?.textContent || "",
@@ -354,7 +370,20 @@ async function runRound4SyntheticSmoke() {
         };
       })(),
     }));
+    await page.locator("#tabPositions").click();
+    await page.waitForFunction(() => document.getElementById("positionsTab")?.hidden === false, { timeout: 5000 });
+    const positionsView = await page.evaluate(() => ({
+      active: document.getElementById("positionsTab")?.hidden === false,
+      underlyingsExpanded: document.getElementById("underlyingBookListPanel")?.hidden === false,
+      reductionRoutes: document.querySelectorAll("#positionsTab .positions-route").length,
+      strategiesSeated: Boolean(document.querySelector("#positionsTab #strategiesPanel")),
+      strategiesCollapsed: document.getElementById("strategiesPanel")?.open === false,
+      performanceFirst: Boolean(document.querySelector("#underlyingPanel .underlying-pnl-summary + #underlyingPnlBasis")),
+      sortOptions: document.querySelectorAll("#positionsSort option").length,
+    }));
     await page.waitForFunction(() => document.getElementById("strategiesCount")?.textContent === "1 group", { timeout: 5000 });
+    await page.locator("#positionsOptionReduction").click();
+    await page.waitForFunction(() => document.getElementById("strategiesPanel")?.open === true, { timeout: 5000 });
     const strategyBefore = await page.evaluate(() => ({
       count: document.getElementById("strategiesCount")?.textContent || "",
       text: document.getElementById("strategiesList")?.textContent || "",
@@ -374,6 +403,7 @@ async function runRound4SyntheticSmoke() {
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
     if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
+    if (!positionsView.active || !positionsView.underlyingsExpanded || positionsView.reductionRoutes !== 2 || !positionsView.strategiesSeated || !positionsView.strategiesCollapsed || !positionsView.performanceFirst || positionsView.sortOptions !== 5) throw new Error(`synthetic Positions state failed: ${JSON.stringify(positionsView)}`);
     if (strategyBefore.count !== "1 group" || !strategyBefore.text.includes("SYN · Vertical spread") || !strategyBefore.text.includes("2 units") || strategyBefore.previewButtons !== 1) throw new Error(`synthetic strategy group failed: ${JSON.stringify(strategyBefore)}`);
     if (!strategyAfter.text.includes("$1.20 per strategy") || !strategyAfter.text.includes("Broker preview Accepted") || !strategyAfter.text.includes("0 remaining") || !strategyAfter.submitEnabled || strategyAfter.submitRequests !== 0) throw new Error(`synthetic strategy preview failed: ${JSON.stringify(strategyAfter)}`);
     if (ordersView.layout.viewport_width !== 591 || ordersView.layout.grid_columns.length !== 1 || ordersView.layout.identity_width < ordersView.layout.row_width * 0.8 || ordersView.layout.horizontal_overflow) {
@@ -430,7 +460,17 @@ async function runRound4SyntheticSmoke() {
     deviceRecoveryRequired = true;
     const recoveryBootstrapBefore = bootstrapRequests;
     await page.reload({ waitUntil: "domcontentloaded" });
-    await waitForAuthenticatedApp(page);
+    try {
+      await waitForAuthenticatedApp(page);
+    } catch (error) {
+      const recoveryUI = await page.evaluate(() => ({
+        pairingHidden: document.getElementById("pairingPanel")?.hidden === true,
+        tabsHidden: document.getElementById("tabPanels")?.hidden === true,
+        bottomTabsHidden: document.getElementById("bottomTabs")?.hidden === true,
+      }));
+      const cookieNames = (await context.cookies(syntheticOrigin)).map((cookie) => cookie.name).sort();
+      throw new Error(`synthetic device-cookie auth recovery did not settle: ${JSON.stringify({ deviceRecoveryObservation, recoveryUI, cookieNames, bootstrapRequests, recoveryBootstrapBefore, errors })}`, { cause: error });
+    }
     const recoveredCookieNames = new Set((await context.cookies(syntheticOrigin)).map((cookie) => cookie.name));
     const authRecovery = await page.evaluate(() => ({
       deviceStored: localStorage.getItem("ibkrDeviceID") === "synthetic-device",
@@ -1253,6 +1293,8 @@ async function exerciseStressControlsRemoved(page) {
 }
 
 async function exerciseUnderlyingPanelFixture(page) {
+	await page.locator("#tabPositions").click();
+	await page.waitForFunction(() => document.getElementById("positionsTab")?.hidden === false, { timeout: 5000 });
 	await page.evaluate(() => {
 		const now = new Date().toISOString();
 		globalThis.__canarySmoke.applySnapshotPatch({
@@ -1261,6 +1303,11 @@ async function exerciseUnderlyingPanelFixture(page) {
 				by_underlying: [{
 					underlying: "SMOKE",
 					group_daily_pnl_base: 125.5,
+					group_unrealized_pnl_base: 245.75,
+					group_market_value_base: 4441.2,
+					group_market_value_pct_nlv: 4.4,
+					group_effective_delta: 10,
+					group_dollar_delta_base: 4441.2,
 					stock: { symbol: "SMOKE", currency: "USD", mark: 444.12, quote_expectation: "none" },
 				}],
 				portfolio: { base_currency: "USD" },
@@ -1278,25 +1325,43 @@ async function exerciseUnderlyingPanelFixture(page) {
 			accountHasUnderlyingBook: Boolean(document.querySelector("#accountPanel #underlyingBookList")),
 			stressHasUnderlyingBook: Boolean(document.querySelector("#stressHero #underlyingBookList")),
 			standaloneHasUnderlyingBook: Boolean(document.querySelector("#underlyingPanel #underlyingBookList")),
-			foldIcon: Boolean(document.querySelector("#underlyingPanel #underlyingDetailToggle.panel-chevron")),
+			foldIcon: Boolean(document.querySelector("#underlyingPanel #underlyingDetailToggle")),
 			rowText: row?.textContent?.replace(/\s+/g, " ").trim() || "",
-			actions: row?.querySelectorAll("button").length || 0,
+			summaryButtons: row?.querySelectorAll("[data-position-select]").length || 0,
+			directWriteActions: row?.querySelectorAll(".strategy-preview, .strategy-submit, .underlying-action").length || 0,
 		};
 	});
-	if (info.accountHasUnderlyingBook || info.stressHasUnderlyingBook || !info.standaloneHasUnderlyingBook || !info.foldIcon) {
-		throw new Error(`underlyings book is in the wrong panel or lacks its disclosure: ${JSON.stringify(info)}`);
+	if (info.accountHasUnderlyingBook || info.stressHasUnderlyingBook || !info.standaloneHasUnderlyingBook || info.foldIcon) {
+		throw new Error(`Positions book is in the wrong panel or still collapsible: ${JSON.stringify(info)}`);
 	}
 	if (!/1 held/.test(info.count) || !/SMOKE/.test(info.rowText) || !info.winner) {
 		throw new Error(`held underlying did not render with its P\/L summary: ${JSON.stringify(info)}`);
 	}
-	if (info.actions !== 0) {
-		throw new Error(`monitoring rows must not expose retired write actions: ${JSON.stringify(info)}`);
+	if (info.summaryButtons !== 1 || info.directWriteActions !== 0) {
+		throw new Error(`position summaries must reveal context without exposing direct broker actions: ${JSON.stringify(info)}`);
+	}
+	await page.locator('#underlyingBookList [data-symbol="SMOKE"] [data-position-select]').click();
+	await page.waitForFunction(() => document.querySelector('#underlyingBookList [data-symbol="SMOKE"] .position-inspector'), { timeout: 5000 });
+	const selected = await page.evaluate(() => {
+		const row = document.querySelector('#underlyingBookList [data-symbol="SMOKE"]');
+		return {
+			facts: row?.querySelectorAll(".position-inspector__fact").length || 0,
+			trimRoutes: row?.querySelectorAll('[data-position-action="trim"]').length || 0,
+			groupRoutes: row?.querySelectorAll('[data-position-action="strategy"]').length || 0,
+			distinction: row?.querySelector(".position-inspector__distinction")?.textContent || "",
+			scope: row?.querySelector(".position-inspector__scope")?.textContent || "",
+			directSubmit: row?.querySelectorAll(".strategy-preview, .strategy-submit").length || 0,
+		};
+	});
+	if (selected.facts !== 3 || selected.trimRoutes !== 1 || selected.directSubmit !== 0 || !selected.distinction.includes("Color shows direction") || !selected.scope.includes("whole-book delta tool")) {
+		throw new Error(`selected position context is incomplete or bypasses guarded review: ${JSON.stringify(selected)}`);
 	}
 
+	await page.locator("#tabMonitor").click();
 	await page.reload({ waitUntil: "domcontentloaded" });
 	await page.waitForSelector("#dashboard:not([hidden])", { timeout: 15000 });
 	await waitForSnapshotEvent(page, 0);
-	return info;
+	return { ...info, selected };
 }
 
 async function exerciseStressDetail(page) {
@@ -1418,19 +1483,18 @@ async function exerciseRulesCard(page) {
 }
 
 
-// Panel Dark tap-through: the Monitor is glance-only, so depth must live in
-// sheets opened from the instruments — and Opportunities must be
+// Panel Dark tap-through: Protection depth remains a sheet, while held-name
+// depth now has a dedicated Positions destination — and Opportunities must be
 async function exerciseSheetLayer(page) {
   const before = await page.evaluate(() => ({
     protectionSheetOpen: Boolean(document.getElementById("protectionSheet")?.open),
-    underlyingsSheetOpen: Boolean(document.getElementById("underlyingsSheet")?.open),
     // A hidden ancestor means no boxes at all, which is exactly how a closed
     protectionOnMonitor: Boolean(document.getElementById("protectionPanel")?.offsetParent),
     underlyingsOnMonitor: Boolean(document.getElementById("underlyingPanel")?.offsetParent),
     opportunitiesHidden: Boolean(document.getElementById("opportunitiesPanel")?.hidden),
     opportunitiesCount: document.getElementById("opportunitiesCount")?.textContent?.trim() || "",
   }));
-  if (before.protectionSheetOpen || before.underlyingsSheetOpen) {
+  if (before.protectionSheetOpen) {
     throw new Error(`sheets should start closed: ${JSON.stringify(before)}`);
   }
   if (before.protectionOnMonitor || before.underlyingsOnMonitor) {
@@ -1472,29 +1536,32 @@ async function exerciseSheetLayer(page) {
   await page.waitForFunction(() => !document.getElementById("protectionSheet")?.open, { timeout: 5000 });
 
   const moversVisible = await page.locator("#moversRow").evaluate((el) => !el.hidden).catch(() => false);
-  let underlyingsSheet = { exercised: false, reason: "no movers row on this book" };
+  let positionsView = { exercised: false, reason: "no movers row on this book" };
   if (moversVisible) {
     await page.locator("#moversRow").click();
     await page.waitForFunction(() => {
-      const sheet = document.getElementById("underlyingsSheet");
-      return Boolean(sheet?.open) && Boolean(document.getElementById("underlyingPanel")?.offsetParent);
+      return document.getElementById("positionsTab")?.hidden === false
+        && Boolean(document.getElementById("underlyingPanel")?.offsetParent)
+        && document.getElementById("underlyingBookListPanel")?.hidden === false;
     }, { timeout: 5000 });
-		underlyingsSheet = await page.evaluate(() => ({
+		positionsView = await page.evaluate(() => ({
 			exercised: true,
-			title: document.getElementById("underlyingsSheetTitle")?.textContent?.trim() || "",
+			title: document.getElementById("positionsGuideTitle")?.textContent?.trim() || "",
 			bookExpanded: !document.getElementById("underlyingBookListPanel")?.hidden,
-			writeActions: document.querySelectorAll("#underlyingsSheet .underlying-action").length,
+			writeActions: document.querySelectorAll("#positionsTab .underlying-action").length,
+			strategiesSeated: Boolean(document.querySelector("#positionsTab #strategiesPanel")),
+			reductionRoutes: document.querySelectorAll("#positionsTab .positions-route").length,
 		}));
-		if (underlyingsSheet.writeActions !== 0) {
-			throw new Error(`Underlyings sheet must not retain retired write actions: ${JSON.stringify(underlyingsSheet)}`);
+		if (positionsView.writeActions !== 0) {
+			throw new Error(`underlying monitoring rows must not gain direct write actions: ${JSON.stringify(positionsView)}`);
     }
-    if (!underlyingsSheet.bookExpanded || underlyingsSheet.title !== "Underlyings") {
-      throw new Error(`Underlyings sheet should open on the expanded book: ${JSON.stringify(underlyingsSheet)}`);
+    if (!positionsView.bookExpanded || positionsView.title !== "Positions" || !positionsView.strategiesSeated || positionsView.reductionRoutes !== 2) {
+      throw new Error(`Positions should open on the expanded book with guarded reduction paths: ${JSON.stringify(positionsView)}`);
     }
-    await page.locator("#underlyingsSheetClose").click();
-    await page.waitForFunction(() => !document.getElementById("underlyingsSheet")?.open, { timeout: 5000 });
+    await page.locator("#tabMonitor").click();
+    await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
   }
-  return { monitor: before, protection_sheet: protectionSheet, underlyings_sheet: underlyingsSheet };
+  return { monitor: before, protection_sheet: protectionSheet, positions_view: positionsView };
 }
 
 async function exerciseMarketContext(page) {
@@ -2112,8 +2179,8 @@ async function assertBriefNarrative(page) {
   const MARKUP_LEAKS = ["[f]", "[/f]", "[w]", "[/w]", "[a]", "[/a]", "<span", "<b>"];
   const FIXTURE_REPORT = "smoke-signoff-fixture";
 
-  await page.locator("#tabBrief").click();
-  await page.waitForFunction(() => document.getElementById("briefTab")?.hidden === false, { timeout: 5000 });
+  await page.locator("#tabMonitor").click();
+  await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
   await page.waitForSelector("#briefPanel:not([hidden])", { timeout: 5000 });
   // A brief source that is down renders its own empty state; report that as
   const settled = await (await page.waitForFunction(() => {

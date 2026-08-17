@@ -39,6 +39,7 @@ function strategyRow(strategy) {
   const row = document.createElement("section");
   row.className = `strategy-row pd-tile pd-order${strategy.actionable ? " pd-tile--watch" : ""}`;
   row.dataset.strategyId = strategy.id || "";
+  row.tabIndex = -1;
   if (strategy.actionable) {
     const bar = document.createElement("span");
     bar.className = "pd-tile__bar";

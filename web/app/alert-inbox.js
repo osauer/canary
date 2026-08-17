@@ -460,11 +460,7 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
   const target = alertEvidenceTarget(occurrence);
   if (target.kind === "rule") {
     const rule = (snapshot.rules?.rules || []).find((candidate) => String(candidate?.id || "") === target.id);
-    // An alert that does not name its subject fails at its one job: append
-    // the rule's own offender legs so the row says which position it means.
-    const offenders = (rule?.offenders || []).slice(0, 2).map((o) => o.leg || o.symbol).filter(Boolean);
-    const fact = [rule?.evidence || rule?.reason, offenders.length ? `Offenders: ${offenders.join(", ")}` : ""].filter(Boolean).join(" ");
-    return boundedFact(fact);
+    return boundedFact(rule?.evidence || rule?.reason);
   }
 
   const stress = snapshot.stress || {};
@@ -550,6 +546,29 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
   return occurrence.evidence_as_of ? `Evidence checked ${formatAlertDateTime(occurrence.evidence_as_of)}` : "";
 }
 
+function alertAffectedPositions(occurrence = {}, snapshot = state.snapshot || {}) {
+  const target = alertEvidenceTarget(occurrence);
+  if (target.kind !== "rule") return { total: 0, labels: [] };
+  const rule = (snapshot.rules?.rules || []).find((candidate) => String(candidate?.id || "") === target.id);
+  const labels = (rule?.offenders || [])
+    .map((offender) => boundedFact(offender?.leg || offender?.symbol).slice(0, 120))
+    .filter(Boolean);
+  return { total: labels.length, labels: labels.slice(0, 3) };
+}
+
+function alertActionCopy(occurrence = {}) {
+  switch (alertEvidenceTarget(occurrence).kind) {
+    case "rule": return "Review rule details";
+    case "regime": return "Review market evidence";
+    case "stress": return "Review portfolio stress";
+    case "protection": return "Review protection";
+    case "brief": return "Review daily brief";
+    case "orders": return "Review open orders";
+    case "settings": return "Review workflow";
+    default: return "Review on Monitor";
+  }
+}
+
 function boundedFact(value) {
   const clean = String(value || "").replace(/\s+/g, " ").trim();
   if (!clean) return "";
@@ -616,7 +635,12 @@ function scheduleAlertEvidenceMark(target) {
 
 function openAlertEvidence(occurrence) {
   const target = alertEvidenceTarget(occurrence);
-  if (["brief", "orders", "settings"].includes(target.kind)) {
+  if (target.kind === "brief") {
+    $("tabMonitor")?.click();
+    scheduleAlertEvidenceMark(target);
+    return target;
+  }
+  if (["orders", "settings"].includes(target.kind)) {
     $(`tab${target.kind[0].toUpperCase()}${target.kind.slice(1)}`)?.click();
     scheduleAlertEvidenceMark(target);
     return target;
@@ -668,10 +692,34 @@ function alertRowElement(occurrence) {
   facts.className = "pd-alert__facts";
   facts.textContent = factText;
   facts.hidden = !factText;
+  const affected = alertAffectedPositions(occurrence);
+  const affectedGroup = document.createElement("div");
+  affectedGroup.className = "alert-row__affected";
+  affectedGroup.hidden = affected.total === 0;
+  if (affected.total > 0) {
+    const affectedTitle = document.createElement("span");
+    affectedTitle.textContent = `Affected positions · ${affected.total}`;
+    const affectedList = document.createElement("span");
+    affectedList.className = "alert-row__affected-list";
+    for (const label of affected.labels) {
+      const item = document.createElement("span");
+      item.textContent = label;
+      affectedList.append(item);
+    }
+    if (affected.total > affected.labels.length) {
+      const more = document.createElement("span");
+      more.textContent = `+${affected.total - affected.labels.length} more`;
+      affectedList.append(more);
+    }
+    affectedGroup.append(affectedTitle, affectedList);
+  }
   const age = document.createElement("span");
   age.className = "pd-alert__age";
   age.textContent = alertAgeLine(occurrence);
-  row.append(placard, title, body, facts, age);
+  const action = document.createElement("span");
+  action.className = "alert-row__action";
+  action.textContent = `${alertActionCopy(occurrence)} \u2192`;
+  row.append(placard, title, body, facts, affectedGroup, age, action);
   return row;
 }
 
@@ -748,11 +796,6 @@ function renderAttention() {
   // An invalidated feed makes the unread state unknown, not zero: never
   if (tab) tab.setAttribute("aria-label", alertCount > 0 ? `Alerts, ${alertCount} open` : feedInvalid ? "Alerts, state unknown" : "Alerts, none open");
   if (!feedInvalid) syncAppIconBadge(known ? unread : 0);
-  const status = $("attentionStatus");
-  if (status) {
-    status.textContent = state.attentionStatus.state;
-    status.classList.toggle("governance-action-status--error", state.attentionStatus.error);
-  }
 }
 
 // The tab badge follows the loudest ACTIVE alert, read straight off the
@@ -1088,6 +1131,8 @@ export {
   acknowledgeAttention,
   acknowledgeAttentionNow,
   activeAlertItems,
+  alertActionCopy,
+  alertAffectedPositions,
   alertEvidenceTarget,
   alertFactText,
   alertRowElement,

@@ -3,7 +3,7 @@ import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
-import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
+import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
 import { refreshOpportunities, renderOpportunitiesPanel } from "./opportunities.js";
 import { ACTIVE_ORDERS_REFRESH_MS, refreshOpenOrders, renderOpenOrders } from "./orders.js";
@@ -15,7 +15,7 @@ import { $, accountBaseCurrency, accountFieldValue, pct, renderSensitiveText } f
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
 import { renderStrategies } from "./strategies.js";
-import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, setUnderlyingExpansion } from "./underlyings.js";
+import { positionsAuthorityView, renderAccountPanel, renderPositionsFreshness, renderUnderlyings, setPositionsSort, setSelectedUnderlying } from "./underlyings.js";
 import { renderUpdateStatus, requestUpdate } from "./update.js";
 
 installRenderAll(renderAll);
@@ -81,7 +81,10 @@ async function main() {
   setupAttentionVisibility();
   await navigator.serviceWorker?.register("/service-worker.js");
   const params = new URLSearchParams(location.search);
-  const launchTab = ["monitor", "brief", "alerts"].includes(params.get("tab")) ? params.get("tab") : "";
+  const requestedTab = params.get("tab");
+  const launchTab = ["monitor", "positions", "alerts"].includes(requestedTab)
+    ? requestedTab
+    : requestedTab === "brief" ? "monitor" : "";
   const pair = params.get("pair");
   const nonce = params.get("nonce");
   const remote = params.get("remote");
@@ -204,8 +207,6 @@ $("stressRulesToggle").addEventListener("click", () => {
 for (const [openerID, setSheet] of [
   ["protectionTile", setProtectionSheetOpen],
   ["stressRulesCard", setRulesSheetOpen],
-  ["moversPlacard", setUnderlyingsSheetOpen],
-  ["moversRow", setUnderlyingsSheetOpen],
 ]) {
   $(openerID).addEventListener("click", () => setSheet(true));
   $(openerID).addEventListener("keydown", (event) => {
@@ -214,11 +215,18 @@ for (const [openerID, setSheet] of [
     setSheet(true);
   });
 }
+for (const openerID of ["moversPlacard", "moversRow"]) {
+  $(openerID).addEventListener("click", () => setActiveTab("positions"));
+  $(openerID).addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    setActiveTab("positions");
+  });
+}
 // Escape and backdrop dismissal never run the Close handler, so the dialog's
 for (const [sheetID, closeID, setSheet] of [
   ["protectionSheet", "protectionSheetClose", setProtectionSheetOpen],
   ["rulesSheet", "rulesSheetClose", setRulesSheetOpen],
-  ["underlyingsSheet", "underlyingsSheetClose", setUnderlyingsSheetOpen],
 ]) {
   $(closeID).addEventListener("click", () => setSheet(false));
   $(sheetID).addEventListener("close", () => setSheet(false));
@@ -265,14 +273,61 @@ $("opportunitiesRefreshButton").addEventListener("click", (event) => {
 $("regimeDetailToggle").addEventListener("click", () => {
   setRegimeStressExpansion("regime", !state.regimeDetailOpen);
 });
-$("underlyingDetailToggle").addEventListener("click", () => {
-  setUnderlyingExpansion(!state.underlyingDetailOpen);
-});
-$("underlyingPanel").addEventListener("click", handleUnderlyingPanelTap);
 $("portfolioDetailToggle").addEventListener("click", () => {
   setPortfolioExpansion(!state.portfolioDetailOpen);
 });
 $("portfolioPanel").addEventListener("click", handlePortfolioPanelTap);
+
+function openPortfolioTrimReview() {
+  setProtectionSheetOpen(true);
+  requestAnimationFrame(() => {
+    const panel = $("protectionDerisk");
+    if (!panel || panel.hidden) return;
+    panel.focus({ preventScroll: true });
+    panel.scrollIntoView({ block: "start" });
+  });
+}
+
+function openOptionGroups(strategyID = "") {
+  const panel = $("strategiesPanel");
+  if (!panel) return;
+  panel.open = true;
+  $("positionsOptionReduction")?.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    const rows = [...panel.querySelectorAll(".strategy-row")];
+    rows.forEach((row) => row.classList.remove("is-routed"));
+    const target = rows
+      .find((row) => row.dataset.strategyId === strategyID) || panel;
+    target.classList?.add("is-routed");
+    target.focus?.({ preventScroll: true });
+    target.scrollIntoView?.({ block: "nearest" });
+  });
+}
+
+$("positionsStockReduction").addEventListener("click", openPortfolioTrimReview);
+$("positionsOptionReduction").addEventListener("click", () => openOptionGroups());
+$("strategiesPanel").addEventListener("toggle", (event) => {
+  $("positionsOptionReduction").setAttribute("aria-expanded", String(event.currentTarget.open));
+});
+$("positionsSort").addEventListener("change", (event) => setPositionsSort(event.currentTarget.value));
+$("underlyingPanel").addEventListener("click", (event) => {
+  const action = event.target.closest("[data-position-action]");
+  if (action) {
+    if (action.dataset.positionAction === "trim") openPortfolioTrimReview();
+    if (action.dataset.positionAction === "strategy") openOptionGroups(action.dataset.strategyId || "");
+    if (action.dataset.positionAction === "option-groups") openOptionGroups();
+    return;
+  }
+  const selected = event.target.closest("[data-position-select]");
+  if (!selected) return;
+  const symbol = selected.dataset.positionSelect || "";
+  setSelectedUnderlying(symbol);
+  requestAnimationFrame(() => {
+    const current = [...$("underlyingBookList").querySelectorAll("[data-position-select]")]
+      .find((row) => row.dataset.positionSelect === symbol);
+    current?.focus?.({ preventScroll: true });
+  });
+});
 $("stockProtectionToggle").addEventListener("change", (event) => {
   setStockProtectionEnabled(event.currentTarget.checked);
 });

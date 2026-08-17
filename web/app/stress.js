@@ -737,7 +737,10 @@ function marketQuoteSessionClosed(calendar) {
 }
 
 function marketQuoteChangeClass(symbol, change) {
-  return signedClass(normalizeSymbol(symbol) === "VIX" && typeof change === "number" ? -change : change);
+  // This strip reports price direction only. VIX uses the same positive-green,
+  // negative-red convention as every other quote; market-stress meaning lives
+  // in the daemon-authored regime and stress surfaces below.
+  return signedClass(change);
 }
 
 function marketQuoteInterruptedLine(quote, marketQuotes, hasPrice) {
@@ -990,6 +993,12 @@ function lampTestSources(snap = {}, stress = {}) {
   for (const [name, meta] of Object.entries(snap.sources || {})) {
     const transport = String(meta?.state || "").trim().toLowerCase();
     if (!meta?.error && transport !== "unavailable" && transport !== "stale") continue;
+    if (String(name).trim().toLowerCase() === "alert_candidates") {
+      faults.push(transport === "stale"
+        ? "alert checking stale — current Alerts unconfirmed"
+        : "alert checking unavailable — current Alerts unconfirmed");
+      continue;
+    }
     faults.push(`${snapshotSourceName(name)} ${meta?.error || transport === "unavailable" ? "unavailable" : "stale"}`);
   }
   return { ok, total, faults: [...new Set(faults)], inherited: [...new Set(inherited)] };

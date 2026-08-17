@@ -120,7 +120,7 @@
       </section>
 
       <section class="tab-panels" id="tabPanels" hidden>
-      <section class="tab-panel tab-panel--brief" id="briefTab" data-tab-panel="brief" role="tabpanel" aria-labelledby="tabBrief" hidden>
+      <section class="dashboard tab-panel" id="dashboard" data-tab-panel="monitor" role="tabpanel" aria-labelledby="tabMonitor">
         <article class="panel brief-panel" id="briefPanel" hidden>
           <div class="panel-head">
             <span>Daily brief</span>
@@ -129,9 +129,6 @@
           <div class="source-inline brief-source" id="briefSourceBanner" role="status" hidden></div>
           <div class="brief-sections" id="briefSections"></div>
         </article>
-      </section>
-
-      <section class="dashboard tab-panel" id="dashboard" data-tab-panel="monitor" role="tabpanel" aria-labelledby="tabMonitor">
         <article class="panel signal-panel signal-panel--combined" id="signalPanel">
           <div class="panel-head">
             <span>Market &amp; Portfolio</span>
@@ -256,8 +253,8 @@
             </div>
             <div class="detail-list" id="stressDrivers"></div>
           </div>
-          <div class="pd-placard pd-placard--sheet" id="moversPlacard" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden>Daily P/L by name</div>
-          <div class="pd-movers pd-movers--sheet" id="moversRow" role="button" tabindex="0" aria-haspopup="dialog" aria-label="Underlyings book" hidden></div>
+          <div class="pd-placard pd-depth-link" id="moversPlacard" role="button" tabindex="0" aria-controls="positionsTab" aria-label="Open positions" hidden>Daily P/L by name</div>
+          <div class="pd-movers pd-depth-link" id="moversRow" role="button" tabindex="0" aria-controls="positionsTab" aria-label="Open positions" hidden></div>
         </article>
 
         <article class="panel portfolio-panel" id="portfolioPanel" data-open="false">
@@ -312,6 +309,95 @@
 
       </section>
 
+      <section class="tab-panel tab-panel--positions" id="positionsTab" data-tab-panel="positions" role="tabpanel" aria-labelledby="tabPositions" hidden>
+        <article class="panel positions-workspace underlying-panel" id="underlyingPanel" data-open="true" aria-labelledby="positionsGuideTitle">
+          <header class="positions-workspace__mast">
+            <div class="positions-workspace__intro">
+              <div class="positions-workspace__overline">
+                <span>Live book</span>
+                <span class="panel-time" id="underlyingBookFreshness">--</span>
+              </div>
+              <h2 id="positionsGuideTitle">Positions</h2>
+              <p>Watch what moved and how each position performed. Select a row for exposure, composition, and the reduction paths Canary can actually support.</p>
+            </div>
+            <div class="positions-workspace__routes" aria-label="Portfolio action routes">
+              <button class="positions-route" id="positionsStockReduction" type="button" aria-haspopup="dialog" aria-controls="protectionSheet">
+                <span>
+                  <b>Portfolio trim</b>
+                  <small>Whole-book &Delta; review</small>
+                </span>
+                <strong aria-hidden="true">&nearr;</strong>
+              </button>
+              <button class="positions-route" id="positionsOptionReduction" type="button" aria-controls="strategiesPanel" aria-expanded="false">
+                <span>
+                  <b>Option groups</b>
+                  <small>Daemon-kept combos</small>
+                </span>
+                <strong aria-hidden="true">&darr;</strong>
+              </button>
+            </div>
+          </header>
+          <div class="underlying-book" id="underlyingBook">
+            <div class="underlying-pnl-summary" aria-label="Today's position profit and loss totals">
+              <div class="underlying-pnl-card underlying-pnl-card--winner">
+                <span>Up today</span>
+                <b id="underlyingWinnerPnl">--</b>
+                <small>Daily P/L</small>
+              </div>
+              <div class="underlying-pnl-card underlying-pnl-card--loser">
+                <span>Down today</span>
+                <b id="underlyingLoserPnl">--</b>
+                <small>Daily P/L</small>
+              </div>
+            </div>
+            <small class="underlying-pnl-basis" id="underlyingPnlBasis" hidden></small>
+            <div class="market-flag-rail" id="underlyingFlagRail" hidden></div>
+            <div class="underlying-book__list-panel" id="underlyingBookListPanel">
+              <div class="underlying-book__head">
+                <div>
+                  <span>Position book</span>
+                  <b id="underlyingBookCount">No underlyings</b>
+                </div>
+                <div class="positions-book__tools">
+                  <small id="underlyingBookStatus">Current held underlyings</small>
+                  <label class="positions-sort" for="positionsSort">
+                    <span>Sort</span>
+                    <select id="positionsSort" aria-label="Sort positions">
+                      <option value="impact">Biggest daily move</option>
+                      <option value="winners">Winners first</option>
+                      <option value="losers">Losers first</option>
+                      <option value="exposure">Largest exposure</option>
+                      <option value="name">Name</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="underlying-book__list" id="underlyingBookList"></div>
+            </div>
+          </div>
+        </article>
+
+        <details class="panel strategies-panel" id="strategiesPanel">
+          <summary class="panel-head">
+            <span class="panel-title-with-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 7h4l2 3h8"></path>
+                <path d="M5 17h4l2-3h8"></path>
+                <circle cx="5" cy="7" r="1"></circle>
+                <circle cx="5" cy="17" r="1"></circle>
+              </svg>
+              Option strategy reductions
+            </span>
+            <span class="alert-active-count" id="strategiesCount">No groups</span>
+            <span class="panel-time" id="strategiesAsOf">--</span>
+          </summary>
+          <div class="strategies-body">
+            <p class="strategies-intro">These are exact daemon-authored groups, not client-side guesses. Preview keeps the full combo together; the daemon and broker still decide eligibility.</p>
+            <div class="strategies-list" id="strategiesList"></div>
+          </div>
+        </details>
+      </section>
+
       <section class="tab-panel tab-panel--alerts" id="alertsTab" data-tab-panel="alerts" role="tabpanel" aria-labelledby="tabAlerts" hidden>
         <details class="panel alerts-panel" id="alertsPanel" hidden open>
           <summary class="panel-head">
@@ -333,32 +419,11 @@
               </div>
               <div class="alert-log" id="currentSignalList"></div>
             </section>
-            <p class="governance-action-status" id="attentionStatus" role="status"></p>
           </div>
         </details>
       </section>
 
       <section class="tab-panel tab-panel--orders" id="ordersTab" data-tab-panel="orders" role="tabpanel" aria-labelledby="tabOrders" hidden>
-        <article class="panel strategies-panel" id="strategiesPanel">
-          <div class="panel-head">
-            <span class="panel-title-with-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 7h4l2 3h8"></path>
-                <path d="M5 17h4l2-3h8"></path>
-                <circle cx="5" cy="7" r="1"></circle>
-                <circle cx="5" cy="17" r="1"></circle>
-              </svg>
-              Option Strategies
-            </span>
-            <span class="alert-active-count" id="strategiesCount">No groups</span>
-            <span class="panel-time" id="strategiesAsOf">--</span>
-          </div>
-          <div class="strategies-body">
-            <p class="strategies-intro">Canary keeps each grouped position together when you close or reduce it.</p>
-            <div class="strategies-list" id="strategiesList"></div>
-          </div>
-        </article>
-
         <article class="panel orders-panel" id="ordersPanel">
           <div class="panel-head">
             <span class="panel-title-with-icon">
@@ -568,7 +633,7 @@
             <p class="protection-data-note" id="protectionDataNote" hidden></p>
             <div class="protection-exposure-note" id="protectionExposure" hidden></div>
             <div class="market-flag-rail" id="protectionFlagRail" hidden></div>
-            <section class="protection-derisk" id="protectionDerisk" hidden>
+            <section class="protection-derisk" id="protectionDerisk" tabindex="-1" hidden>
               <div class="protection-derisk__controls">
                 <span class="protection-derisk__label" title="Hedges are never touched — trimming one would increase net risk, not reduce it.">Trim Δ-adjusted risk</span>
                 <select id="protectionDeriskPercent" aria-label="Trim percentage">
@@ -630,47 +695,6 @@
         </div>
       </dialog>
 
-      <dialog class="app-dialog app-sheet" id="underlyingsSheet" aria-labelledby="underlyingsSheetTitle">
-        <div class="app-dialog__head app-sheet__head">
-          <b class="pd-placard" id="underlyingsSheetTitle">Underlyings</b>
-          <button class="app-dialog__close" id="underlyingsSheetClose" type="button">Close</button>
-        </div>
-        <div class="app-dialog__body app-sheet__body">
-          <article class="panel underlying-panel" id="underlyingPanel" data-open="false">
-            <div class="panel-head underlying-panel__head">
-              <span class="panel-time" id="underlyingBookFreshness">--</span>
-              <button class="panel-chevron" id="underlyingDetailToggle" type="button" aria-expanded="false" aria-controls="underlyingBookListPanel">
-                Show underlyings
-              </button>
-            </div>
-            <div class="underlying-book" id="underlyingBook">
-              <div class="underlying-pnl-summary" aria-label="Underlying daily profit and loss totals">
-                <div class="underlying-pnl-card underlying-pnl-card--winner">
-                  <span>Winner daily P/L</span>
-                  <b id="underlyingWinnerPnl">--</b>
-                </div>
-                <div class="underlying-pnl-card underlying-pnl-card--loser">
-                  <span>Loser daily P/L</span>
-                  <b id="underlyingLoserPnl">--</b>
-                </div>
-              </div>
-              <small class="underlying-pnl-basis" id="underlyingPnlBasis" hidden></small>
-              <div class="market-flag-rail" id="underlyingFlagRail" hidden></div>
-			  <div class="underlying-book__list-panel" id="underlyingBookListPanel" hidden>
-				<div class="underlying-book__head">
-				  <div>
-					<span>Held positions</span>
-					<b id="underlyingBookCount">No underlyings</b>
-				  </div>
-				  <small id="underlyingBookStatus">Current held underlyings</small>
-                </div>
-                <div class="underlying-book__list" id="underlyingBookList"></div>
-              </div>
-            </div>
-          </article>
-        </div>
-      </dialog>
-
       <nav class="bottom-tabs" id="bottomTabs" aria-label="Primary" hidden>
         <button class="bottom-tab" id="tabMonitor" type="button" data-tab="monitor" aria-selected="true">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -678,15 +702,16 @@
           </svg>
           <span>Monitor</span>
         </button>
-        <button class="bottom-tab" id="tabBrief" type="button" data-tab="brief" aria-selected="false">
+        <button class="bottom-tab" id="tabPositions" type="button" data-tab="positions" aria-selected="false">
           <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 7h16"></path>
+            <path d="M4 12h16"></path>
             <path d="M4 17h16"></path>
-            <path d="M8.5 17a3.5 3.5 0 0 1 7 0"></path>
-            <path d="M12 10V7"></path>
-            <path d="M6.8 11.8 5 10"></path>
-            <path d="M17.2 11.8 19 10"></path>
+            <circle cx="7" cy="7" r="1"></circle>
+            <circle cx="16" cy="12" r="1"></circle>
+            <circle cx="10" cy="17" r="1"></circle>
           </svg>
-          <span>Brief</span>
+          <span>Positions</span>
         </button>
         <button class="bottom-tab" id="tabAlerts" type="button" data-tab="alerts" aria-selected="false" aria-label="Alerts, no unread alerts">
           <svg viewBox="0 0 24 24" aria-hidden="true">

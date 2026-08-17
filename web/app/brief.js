@@ -1,4 +1,4 @@
-import { setActiveTab, setProtectionSheetOpen, setRulesSheetOpen, setUnderlyingsSheetOpen } from "./chrome.js";
+import { setActiveTab, setProtectionSheetOpen, setRulesSheetOpen } from "./chrome.js";
 import { $, money, privacyMask } from "./shared.js";
 import { state } from "./state.js";
 
@@ -106,7 +106,7 @@ function runsElement(tag, className, runs) {
 // latch-related control (Check again).
 function openBriefTopic(topic) {
   if (topic.startsWith("held_name")) {
-    setUnderlyingsSheetOpen(true);
+    setActiveTab("positions");
     return;
   }
   switch (topic) {
@@ -120,7 +120,7 @@ function openBriefTopic(topic) {
       setProtectionSheetOpen(true);
       return;
     case "attribution":
-      setUnderlyingsSheetOpen(true);
+      setActiveTab("positions");
       return;
     case "capital":
     case "capital_events":

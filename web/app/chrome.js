@@ -6,7 +6,7 @@ import { renderProtectionPanel } from "./protection.js";
 import { renderAll } from "./render-runtime.js";
 import { $ } from "./shared.js";
 import { normalizedTab, state } from "./state.js";
-import { renderAccountPanel, setUnderlyingExpansion } from "./underlyings.js";
+import { renderAccountPanel } from "./underlyings.js";
 
 function setupBottomTabs() {
   const tabs = $("bottomTabs");
@@ -126,11 +126,6 @@ function panelTapIgnored(target) {
   ].join(",")));
 }
 
-function handleUnderlyingPanelTap(event) {
-  if (panelTapIgnored(event.target)) return;
-  setUnderlyingExpansion(!state.underlyingDetailOpen);
-}
-
 function handlePortfolioPanelTap(event) {
   if (panelTapIgnored(event.target)) return;
   setPortfolioExpansion(!state.portfolioDetailOpen);
@@ -191,9 +186,4 @@ function setRulesSheetOpen(open) {
   setSheetOpen("rulesSheet", open);
 }
 
-function setUnderlyingsSheetOpen(open) {
-  setUnderlyingExpansion(open);
-  setSheetOpen("underlyingsSheet", open);
-}
-
-export { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, handleUnderlyingPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setSheetOpen, setUnderlyingsSheetOpen, setupBottomTabs, sheetElement, syncAccountPrivacyState };
+export { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, panelTapIgnored, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setSheetOpen, setupBottomTabs, sheetElement, syncAccountPrivacyState };
