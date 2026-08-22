@@ -119,8 +119,8 @@ func TestValidatePlaceOrderProtoComboRequiresExactDistinctLegs(t *testing.T) {
 	base := IBKROrder{
 		Symbol: "SPY", SecType: "BAG", Exchange: "SMART", Currency: "USD", Action: "SELL", TotalQty: 1,
 		OrderType: "LMT", LmtPriceSet: true, TIF: "DAY",
-	}
-	base.ComboLegs = []ComboLeg{{ConID: 1, Ratio: 1, Action: "BUY", Exchange: "SMART"}}
+
+		ComboLegs: []ComboLeg{{ConID: 1, Ratio: 1, Action: "BUY", Exchange: "SMART"}}}
 	if err := validatePlaceOrderProtoSupported(&base); err == nil {
 		t.Fatal("one-leg BAG unexpectedly accepted")
 	}

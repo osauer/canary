@@ -1170,8 +1170,8 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 				entry := view.Entry
 				if d, err := time.ParseInLocation("2006-01-02", entry.Date, loc); err == nil {
 					e := risk.EarningsInput{Known: true, Date: d, TimeOfDay: entry.TimeOfDay,
-						Estimated: entry.Estimated, Stale: view.Stale, Source: "fetched", Reason: view.Reason}
-					e.SessionsUntil = sessionsUntil(cal, now.In(loc), d)
+						Estimated: entry.Estimated, Stale: view.Stale, Source: "fetched", Reason: view.Reason,
+						SessionsUntil: sessionsUntil(cal, now.In(loc), d)}
 					earnings[sym] = e
 					info.Source = "fetched"
 					info.Date = entry.Date

@@ -125,15 +125,13 @@ func decodePlatformSettingsDocument(raw []byte) (platformSettingsDocument, error
 			return platformSettingsDocument{}, fmt.Errorf("unsupported version %d", legacy.Version)
 		}
 		return platformSettingsDocument{
-			platformSettingsData: platformSettingsData{
-				Version:                  legacy.Version,
-				TradingControlGeneration: legacy.TradingControlGeneration,
-				Features:                 legacy.Features,
-				Trading:                  legacy.Trading,
-				Regime:                   legacy.Regime,
-				History:                  legacy.History,
-			},
-			LegacyCanary: legacy.Canary,
+			Version:                  legacy.Version,
+			TradingControlGeneration: legacy.TradingControlGeneration,
+			Features:                 legacy.Features,
+			Trading:                  legacy.Trading,
+			Regime:                   legacy.Regime,
+			History:                  legacy.History,
+			LegacyCanary:             legacy.Canary,
 		}, nil
 	case platformSettingsDocVersion:
 		var current platformSettingsData

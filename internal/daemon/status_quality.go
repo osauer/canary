@@ -388,8 +388,8 @@ func regimeStatusQuality(r *rpc.RegimeSnapshotResult) []rpc.DataQualityHealth {
 		StaleClusters:   stale,
 		PartialClusters: partial,
 		AsOf:            r.AsOf,
-	}
-	q.Summary = strings.Join(summary, "; ")
+
+		Summary: strings.Join(summary, "; ")}
 	return []rpc.DataQualityHealth{q}
 }
 

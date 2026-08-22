@@ -2039,9 +2039,9 @@ func (e *proposalEngine) Ignore(p rpc.TradeProposalIgnoreParams) rpc.TradePropos
 	if !brokerScopeConcrete(scope) {
 		return rpc.TradeProposalIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "proposal ignore requires a concrete account and paper/live mode", AsOf: now}
 	}
-	ev := proposalEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "proposal ignored"}
-	ev.AccountID = scope.Account
-	ev.AccountMode = scope.Mode
+	ev := proposalEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "proposal ignored",
+		AccountID:   scope.Account,
+		AccountMode: scope.Mode}
 	if err := e.appendEvent(ev); err != nil {
 		return rpc.TradeProposalIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "proposal ignore was not persisted", AsOf: now}
 	}

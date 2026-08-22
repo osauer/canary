@@ -1113,10 +1113,10 @@ func parseNasdaqTradeHalts(r io.Reader) (marketEventHaltsEntry, error) {
 			Market:              strings.TrimSpace(item.Market),
 			ReasonCode:          strings.ToUpper(strings.TrimSpace(item.ReasonCode)),
 			PauseThresholdPrice: strings.TrimSpace(item.PauseThresholdPrice),
-		}
-		rec.HaltedAt = parseNasdaqHaltTime(item.HaltDate, item.HaltTime)
-		rec.ResumptionQuoteAt = parseNasdaqHaltTime(item.ResumptionDate, item.ResumptionQuoteTime)
-		rec.ResumptionTradeAt = parseNasdaqHaltTime(item.ResumptionDate, item.ResumptionTradeTime)
+
+			HaltedAt:          parseNasdaqHaltTime(item.HaltDate, item.HaltTime),
+			ResumptionQuoteAt: parseNasdaqHaltTime(item.ResumptionDate, item.ResumptionQuoteTime),
+			ResumptionTradeAt: parseNasdaqHaltTime(item.ResumptionDate, item.ResumptionTradeTime)}
 		entry.Records = append(entry.Records, rec)
 	}
 	return entry, nil

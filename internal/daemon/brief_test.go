@@ -1236,9 +1236,9 @@ func TestBriefNarrativeUsesHumanMarketWords(t *testing.T) {
 
 func TestBriefNarrativeDoesNotAssignUnresolvedEarningsToOperator(t *testing.T) {
 	res := &rpc.BriefResult{Ready: rpc.BriefReadySection{MarketEvents: []rpc.BriefMarketEventRow{{
-		BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusAttention},
-		Kind:          "earnings",
-		Count:         1,
+		Status: rpc.BriefStatusAttention,
+		Kind:   "earnings",
+		Count:  1,
 	}}}}
 	for _, topic := range briefFlaggedTopics(briefTopics(res)) {
 		if topic.label == "held-name earnings" {

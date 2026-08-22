@@ -507,9 +507,7 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	fresh.VIXTermStructure = rpc.RegimeVIXTerm{
 		Status: rpc.RegimeStatusOK, Ratio: &movedRatio,
 		Streak: &rpc.StreakInfo{Band: prior.LastBand, Sessions: prior.Sessions, Since: prior.SinceDate},
-		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Band: prior.LastBand, Freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
-		},
+		Band:   prior.LastBand, Freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
 	}
 	fresh.Fingerprint = rpc.BuildRegimeFingerprint(fresh)
 	freshPublication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: fresh.Fingerprint}

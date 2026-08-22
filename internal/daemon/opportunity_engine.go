@@ -890,9 +890,9 @@ func (e *opportunityEngine) Ignore(p rpc.OpportunityIgnoreParams) rpc.Opportunit
 	if !brokerScopeConcrete(scope) {
 		return rpc.OpportunityIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "opportunity ignore requires a concrete account and paper/live mode", AsOf: now}
 	}
-	ev := opportunityEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "opportunity ignored"}
-	ev.AccountID = scope.Account
-	ev.AccountMode = scope.Mode
+	ev := opportunityEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "opportunity ignored",
+		AccountID:   scope.Account,
+		AccountMode: scope.Mode}
 	if err := e.appendEvent(ev); err != nil {
 		return rpc.OpportunityIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "opportunity ignore was not persisted", AsOf: now}
 	}

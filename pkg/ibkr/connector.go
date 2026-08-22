@@ -3516,7 +3516,6 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 		tradingHours = safeGet(fields, idx)
 		idx++
 		liquidHours = safeGet(fields, idx)
-		idx++
 	}
 
 	industry, category, subcategory, stockType := "", "", "", ""

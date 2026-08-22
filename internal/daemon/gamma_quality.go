@@ -577,9 +577,9 @@ func gammaQualityCoverageNumbers(c *rpc.GammaZeroComputed, priced, oiObserved, o
 		DerivedIVPct:         percent(float64(c.DerivedIVLegs), float64(max(priced, 0))),
 		TopConcentrationPct:  c.TopConcentrationPct,
 		ExpirationCount:      len(c.Expirations),
-	}
-	out.OIObservedPct = percent(float64(oiObserved), float64(priced))
-	out.OIPositivePct = percent(float64(oiPositive), float64(priced))
+
+		OIObservedPct: percent(float64(oiObserved), float64(priced)),
+		OIPositivePct: percent(float64(oiPositive), float64(priced))}
 	// Every other ratio here divides by legs that survived the fan-out, so a
 	// chain that mostly timed out still scores clean. Requested legs is the
 	// only denominator that can see the legs that never landed.

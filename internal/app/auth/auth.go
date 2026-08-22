@@ -8,7 +8,6 @@ package auth
 import (
 	"bytes"
 	"context"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -414,40 +413,37 @@ func VerifyJWKSignature(raw json.RawMessage, message []byte, sigB64 string) erro
 	if err != nil {
 		return err
 	}
-	if _, err := validateP256PublicKey(xBytes, yBytes); err != nil {
+	pub, err := validateP256PublicKey(xBytes, yBytes)
+	if err != nil {
 		return err
 	}
-	x := new(big.Int).SetBytes(xBytes)
-	y := new(big.Int).SetBytes(yBytes)
-	curve := elliptic.P256()
 	sig, err := base64.RawURLEncoding.DecodeString(sigB64)
 	if err != nil {
 		return err
 	}
 	digest := sha256.Sum256(message)
-	pub := ecdsa.PublicKey{Curve: curve, X: x, Y: y}
 	if len(sig) == 64 {
 		r := new(big.Int).SetBytes(sig[:32])
 		s := new(big.Int).SetBytes(sig[32:])
-		if ecdsa.Verify(&pub, digest[:], r, s) {
+		if ecdsa.Verify(pub, digest[:], r, s) {
 			return nil
 		}
 	}
-	if ecdsa.VerifyASN1(&pub, digest[:], sig) {
+	if ecdsa.VerifyASN1(pub, digest[:], sig) {
 		return nil
 	}
 	var parsed struct {
 		R, S *big.Int
 	}
 	if _, err := asn1.Unmarshal(sig, &parsed); err == nil && parsed.R != nil && parsed.S != nil {
-		if ecdsa.Verify(&pub, digest[:], parsed.R, parsed.S) {
+		if ecdsa.Verify(pub, digest[:], parsed.R, parsed.S) {
 			return nil
 		}
 	}
 	return errors.New("invalid signature")
 }
 
-func validateP256PublicKey(xBytes, yBytes []byte) (*ecdh.PublicKey, error) {
+func validateP256PublicKey(xBytes, yBytes []byte) (*ecdsa.PublicKey, error) {
 	x, err := p256Coordinate(xBytes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid P-256 x coordinate: %w", err)
@@ -460,7 +456,7 @@ func validateP256PublicKey(xBytes, yBytes []byte) (*ecdh.PublicKey, error) {
 	encoded[0] = 4
 	copy(encoded[1:33], x)
 	copy(encoded[33:], y)
-	key, err := ecdh.P256().NewPublicKey(encoded)
+	key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), encoded)
 	if err != nil {
 		return nil, errors.New("public key is not on P-256")
 	}
