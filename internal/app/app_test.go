@@ -20,7 +20,7 @@ func TestNewRefusesPreviewReadGrantOffLoopback(t *testing.T) {
 	}
 }
 
-func TestHTTPServerClosesAmbientHyperServeCapabilities(t *testing.T) {
+func TestHTTPServerIgnoresAmbientHyperServeCapabilities(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "hyperserve.json")
 	config := `{
 		"tls": true,
@@ -29,6 +29,7 @@ func TestHTTPServerClosesAmbientHyperServeCapabilities(t *testing.T) {
 		"key_file": "/tmp/ambient-key.pem",
 		"run_health_server": true,
 		"health_addr": ":9999",
+		"fips_mode": true,
 		"static_dir": "/",
 		"template_dir": "/",
 		"mcp_enabled": true,
@@ -48,6 +49,7 @@ func TestHTTPServerClosesAmbientHyperServeCapabilities(t *testing.T) {
 	t.Setenv("HS_CONFIG_PATH", configPath)
 	t.Setenv("HS_MCP_ENABLED", "true")
 	t.Setenv("HS_MCP_DEV", "true")
+	t.Setenv("HS_FIPS_MODE", "true")
 	t.Setenv("HS_CORS_ALLOWED_ORIGINS", "https://ambient.example")
 	t.Setenv("HS_CSP_WEB_WORKER_SUPPORT", "true")
 
@@ -62,8 +64,8 @@ func TestHTTPServerClosesAmbientHyperServeCapabilities(t *testing.T) {
 	})
 
 	opts := srv.Options
-	if opts.EnableTLS || opts.RunHealthServer || opts.MCPEnabled || srv.MCPEnabled() {
-		t.Fatalf("ambient capability survived: tls=%v health=%v mcp=%v", opts.EnableTLS, opts.RunHealthServer, opts.MCPEnabled)
+	if opts.EnableTLS || opts.RunHealthServer || opts.FIPSMode || opts.MCPEnabled || srv.MCPEnabled() {
+		t.Fatalf("ambient capability survived: tls=%v health=%v fips=%v mcp=%v", opts.EnableTLS, opts.RunHealthServer, opts.FIPSMode, opts.MCPEnabled)
 	}
 	if opts.CORS != nil || opts.CSPWebWorkerSupport {
 		t.Fatalf("ambient browser policy survived: cors=%v worker=%v", opts.CORS, opts.CSPWebWorkerSupport)
@@ -102,6 +104,6 @@ func TestHTTPServerClosesAmbientHyperServeCapabilities(t *testing.T) {
 		t.Errorf("Access-Control-Allow-Origin=%q, want no ambient CORS policy", got)
 	}
 	if got := res.Header().Get("Server"); got != "" {
-		t.Errorf("Server=%q, want suppressed in hardened mode", got)
+		t.Errorf("Server=%q, want omitted by default", got)
 	}
 }

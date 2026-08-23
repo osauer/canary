@@ -223,7 +223,9 @@ func runAppServeWithIO(args []string, stdout, stderr io.Writer) int {
 		logger.Error("canary app failed to initialize", "error", err)
 		return 1
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// The command owns Unix signal policy; HyperServe only receives the resulting
+	// context and therefore cannot consume signals behind its embedding caller.
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	defer cancel()
 
 	logger.Info(productidentity.Executable+" app serving", "public_url", app.Options.PublicURL, "listen", app.Options.Addr)

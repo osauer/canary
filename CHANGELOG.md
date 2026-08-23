@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.2.1 — 2026-08-23 21:31 CEST
+
+### What's new
+
+- **The paired-app server now has an explicit ownership boundary.** It cannot inherit unrelated HyperServe settings from the process, and it shuts down through the lifecycle owned by the Canary command.
+
+### Changed
+
+- **The paired-app server now has one caller-owned shutdown path.** Canary owns Unix signal handling and passes its context to HyperServe, which performs one graceful shutdown when that context is cancelled.
+
+### Fixed
+
+- **Oversized or ambiguous paired-app requests now fail at the HTTP boundary.** JSON bodies stop at 1 MiB, trailing values are rejected, and an SSE connection exits when a socket write or flush fails instead of retaining a stale stream.
+
+### Security
+
+- **Ambient HyperServe configuration can no longer widen Canary's app server.** Canary uses HyperServe v1.6's deterministic option snapshot, leaving generic TLS, health, MCP, CORS, and filesystem-root capabilities off unless Canary explicitly adopts them.
+
 ## v3.2.0 — 2026-08-23 11:54 CEST
 
 ### What's new

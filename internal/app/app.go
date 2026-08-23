@@ -184,64 +184,27 @@ func newWithParts(opts Options, store *state.Store, authMgr *auth.Manager, daemo
 }
 
 func newHTTPServer(opts Options) (*hyperserve.Server, error) {
+	// Canary owns one reviewed HyperServe snapshot. Keep generic capabilities
+	// (TLS, health, MCP, CORS, and filesystem roots) at deterministic defaults;
+	// process-wide HS_* configuration must not widen the app server boundary.
+	serverOptions := hyperserve.DefaultServerOptions()
+	serverOptions.Addr = opts.Addr
+	serverOptions.ReadTimeout = 30 * time.Second
+	serverOptions.WriteTimeout = 30 * time.Second
+	serverOptions.IdleTimeout = 2 * time.Minute
+	serverOptions.ReadHeaderTimeout = 10 * time.Second
+
 	srv, err := hyperserve.NewServer(
-		hyperserve.WithAddr(opts.Addr),
-		hyperserve.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
-		hyperserve.WithSuppressBanner(true),
-		hyperserve.WithHardenedMode(),
-		withCanaryHTTPBoundary(),
+		hyperserve.WithOptions(serverOptions),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	// HardenedMode controls the policy used by HeadersMiddleware; SecureWeb
-	// installs that middleware so the policy is actually emitted on responses.
+	// SecureWeb installs Canary's browser security-header policy. HyperServe's
+	// server identification remains omitted by the reviewed option snapshot.
 	srv.AddMiddlewareStack(hyperserve.GlobalMiddlewareRoute, hyperserve.SecureWeb(srv.Options))
 	return srv, nil
-}
-
-// withCanaryHTTPBoundary runs last and closes capabilities that belong to
-// HyperServe's generic service configuration rather than Canary's app host.
-// HyperServe loads options.json and HS_* variables before functional options;
-// pinning these fields keeps ambient process configuration from adding a TLS
-// listener, health listener, CORS policy, filesystem roots, or HTTP MCP server.
-func withCanaryHTTPBoundary() hyperserve.ServerOptionFunc {
-	return func(srv *hyperserve.Server) error {
-		opts := srv.Options
-		opts.EnableTLS = false
-		opts.TLSAddr = ""
-		opts.KeyFile = ""
-		opts.CertFile = ""
-		opts.RunHealthServer = false
-		opts.HealthAddr = ""
-		opts.FIPSMode = false
-		opts.StaticDir = ""
-		opts.TemplateDir = ""
-
-		opts.MCPEnabled = false
-		opts.MCPToolsEnabled = false
-		opts.MCPResourcesEnabled = false
-		opts.MCPFileToolRoot = ""
-		opts.MCPDev = false
-		opts.MCPObservability = false
-		opts.MCPDiscoveryFilter = nil
-
-		opts.CORS = nil
-		opts.CSPWebWorkerSupport = false
-		opts.HardenedMode = true
-		opts.DebugMode = false
-		opts.SuppressBanner = true
-		opts.BannerColor = false
-
-		// Canary owns these transport budgets. The SSE route removes only its
-		// per-response write deadline after the request has been authenticated.
-		opts.ReadTimeout = 30 * time.Second
-		opts.WriteTimeout = 30 * time.Second
-		opts.IdleTimeout = 2 * time.Minute
-		opts.ReadHeaderTimeout = 10 * time.Second
-		return nil
-	}
 }
 
 // Run starts live-cache polling, relay transport, credential
@@ -256,11 +219,9 @@ func (a *App) Run(ctx context.Context) error {
 	go a.Live.Start(liveCtx)
 	go a.Relay.Run(liveCtx)
 	go a.Auth.StartReaper(liveCtx, time.Minute)
-	go func() {
-		<-ctx.Done()
-		_ = a.Server.Stop()
-	}()
-	err := a.Server.Run()
+	// The command owns signal policy; RunContext turns its cancellation into
+	// one graceful HyperServe shutdown instead of racing a separate Stop goroutine.
+	err := a.Server.RunContext(ctx)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
 		return nil
 	}

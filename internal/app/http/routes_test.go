@@ -422,7 +422,6 @@ func newTestHandlerWithDependencies(t *testing.T, fakeClient daemonclient.Client
 	liveSvc.PollOnce(t.Context())
 	srv, err := hyperserve.NewServer(
 		hyperserve.WithAddr("127.0.0.1:0"),
-		hyperserve.WithSuppressBanner(true),
 	)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)

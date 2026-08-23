@@ -12,8 +12,8 @@ github.com/mattn/go-isatty v0.0.20 h1:xfD0iDuEKnDkl03q4limB+vH+GxLEtL/jb4xVJSWWE
 github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D7dTCTo3Y=
 github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
-github.com/osauer/hyperserve v1.3.1 h1:TXLGXc7rTa/bTz/tgV0Z/ImQRHNDh4HIk+8NZdGkbLo=
-github.com/osauer/hyperserve v1.3.1/go.mod h1:N+V6doLHjlbQsiXHH2bpTFe5dAuTtI2CK8zi3zeD1WM=
+github.com/osauer/hyperserve v1.6.0 h1:/NaJUxjGCQfnJHkpoEKAWRdQGBeT0bKRROocM5Y3HR8=
+github.com/osauer/hyperserve v1.6.0/go.mod h1:N+V6doLHjlbQsiXHH2bpTFe5dAuTtI2CK8zi3zeD1WM=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e h1:MRM5ITcdelLK2j1vwZ3Je0FKVCfqOLp5zO6trqMLYs0=
