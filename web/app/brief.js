@@ -1,5 +1,5 @@
 import { setActiveTab, setProtectionSheetOpen, setRulesSheetOpen } from "./chrome.js";
-import { $, money, privacyMask } from "./shared.js";
+import { $, calendarDate, calendarDateTime, money, privacyMask, weekdayName } from "./shared.js";
 import { state } from "./state.js";
 
 function renderBriefCard(snap = state.snapshot || {}) {
@@ -16,7 +16,7 @@ function renderBriefCard(snap = state.snapshot || {}) {
     return;
   }
 
-  $("briefAsOf").textContent = dateTimeValue(brief.as_of);
+  $("briefAsOf").textContent = calendarDateTime(brief.as_of);
   const sections = $("briefSections");
   // The daemon composes the narrative; an older daemon serves none and the
   const narrative = servedNarrative(brief);
@@ -57,9 +57,9 @@ function paragraphList(paragraphs) {
 function renderNarrative(narrative, brief) {
   const nodes = [briefPlacardRow(brief)];
   if (narrative.lead.length > 0) nodes.push(runsElement("div", "pd-brf-lead", narrative.lead));
-  nodes.push(briefPlacard("Review \u00b7 since last close"));
+  nodes.push(briefPlacard("Review"));
   for (const runs of narrative.review) nodes.push(runsElement("p", "pd-brf-para", runs));
-  nodes.push(briefPlacard("Ready \u00b7 next open"));
+  nodes.push(briefPlacard("Ready"));
   for (const runs of narrative.ready) nodes.push(runsElement("p", "pd-brf-para", runs));
   if (narrative.coda.length > 0) nodes.push(runsElement("p", "pd-brf-coda", narrative.coda));
   return nodes;
@@ -148,12 +148,13 @@ function briefPlacard(text) {
   return placard;
 }
 
-// The placard row carries the brief's own stamp line and the served stress
+// The placard row names the last-session bridge and carries the served stress
 function briefPlacardRow(brief) {
   const row = document.createElement("div");
   row.className = "pd-placard pd-placard--row";
   const label = document.createElement("span");
-  label.textContent = joinValues("Briefing", dateValue(brief.as_of), timeValue(brief.as_of));
+  const weekday = weekdayName(brief.review?.last_session?.session_date || "");
+  label.textContent = weekday ? `${weekday}'s close → next open` : "Last close → next open";
   row.append(label);
   const stress = brief.ready?.stress || {};
   const severity = String(stress.severity || "").trim() || String(stress.status || "").trim();
@@ -486,10 +487,7 @@ function hasField(object, key) {
 }
 
 function dateValue(value) {
-  if (!value) return "";
-  const at = new Date(value);
-  if (Number.isNaN(at.getTime())) return String(value);
-  return `${at.getFullYear()}-${padDatePart(at.getMonth() + 1)}-${padDatePart(at.getDate())}`;
+  return calendarDate(value);
 }
 
 // Close-captured last-session Daily P/L. A populated session date without a
@@ -497,20 +495,17 @@ function dateValue(value) {
 function lastSessionValue(row) {
   if (!row.session_date) return "";
   if (typeof row.daily_pnl_base !== "number") {
-    return joinValues(row.session_date, "not captured");
+    return joinValues(dateValue(row.session_date), "not captured");
   }
   return joinValues(
-    row.session_date,
+    dateValue(row.session_date),
     moneyValue(row, "daily_pnl_base", row.base_currency || "", "Daily P/L"),
     row.captured_at ? `captured ${timeValue(row.captured_at)}` : "",
   );
 }
 
 function dateTimeValue(value) {
-  if (!value) return "";
-  const at = new Date(value);
-  if (Number.isNaN(at.getTime())) return String(value);
-  return `${dateValue(at)} ${padDatePart(at.getHours())}:${padDatePart(at.getMinutes())}`;
+  return calendarDateTime(value);
 }
 
 function timeValue(value) {

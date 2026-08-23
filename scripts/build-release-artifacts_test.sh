@@ -15,7 +15,8 @@ dist="$owner/dist"
 targets="darwin-arm64 darwin-amd64 linux-amd64 linux-arm64"
 mkdir -p "$owner/scripts" "$owner/internal/update" "$owner/fake-bin"
 cp "$repo_root/scripts/build-release-artifacts.sh" "$owner/scripts/"
-printf '%s\n' 'package update' 'const ReleaseSigningKeyFingerprint = "FIXTURE-FINGERPRINT"' > "$owner/internal/update/keyring.go"
+printf '%s\n' 'FIXTURE-FINGERPRINT' > "$owner/internal/update/release-signing-key.fingerprint"
+printf '%s\n' 'fixture compact public key' > "$owner/internal/update/release-signing-key.ed25519.pem"
 
 cat > "$owner/fake-bin/gpg" <<'EOF'
 #!/bin/sh
@@ -36,6 +37,25 @@ done
 printf '%s\n' 'fixture detached signature' > "$out"
 EOF
 chmod 0755 "$owner/fake-bin/gpg"
+
+cat > "$owner/fake-bin/go" <<'EOF'
+#!/bin/sh
+set -eu
+case " $* " in
+	*" -verify "*) exit 0 ;;
+esac
+out=""
+while [ "$#" -gt 0 ]; do
+	if [ "$1" = "-output" ]; then
+		out="$2"
+		break
+	fi
+	shift
+done
+[ -n "$out" ] || exit 2
+printf '%s\n' 'fixture compact detached signature' > "$out"
+EOF
+chmod 0755 "$owner/fake-bin/go"
 
 cat > "$owner/scripts/build-release-target.sh" <<'EOF'
 #!/bin/sh
@@ -144,6 +164,10 @@ actual="$(awk '{print $2}' "$dist/SHA256SUMS")"
 }
 [ -s "$dist/SHA256SUMS.asc" ] || {
 	echo "build-release-artifacts test: detached signature was not produced" >&2
+	exit 1
+}
+[ -s "$dist/SHA256SUMS.ed25519" ] || {
+	echo "build-release-artifacts test: compact detached signature was not produced" >&2
 	exit 1
 }
 

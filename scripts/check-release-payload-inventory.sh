@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 
 # Prove that an assembled release output holds the exact published payload
-# inventory the release contract fixes: for each canonical target one read-only
-# a signed SHA256SUMS covering exactly those ten payloads and nothing else.
+# inventory the release contract fixes: one read-only and one trading archive
+# per canonical target, two MCPB names, and two signatures over SHA256SUMS
+# covering exactly those ten payloads and nothing else.
 # The matrix below is a constant, deliberately not read from RELEASE_TARGETS.
 # caller cannot move. check-release-boundary.sh pins this literal against the
 # Makefile's RELEASE_TARGETS so the two can never drift apart.
@@ -70,7 +71,7 @@ done <<EOF
 $expected_payloads
 EOF
 
-for signed in SHA256SUMS SHA256SUMS.asc; do
+for signed in SHA256SUMS SHA256SUMS.asc SHA256SUMS.ed25519; do
 	[ -f "$dist_dir/$signed" ] || fail "$dist_dir/$signed missing — the Canary updater requires signed checksums"
 	[ ! -L "$dist_dir/$signed" ] || fail "$dist_dir/$signed is a symlink"
 	[ -s "$dist_dir/$signed" ] || fail "$dist_dir/$signed is empty"
@@ -86,6 +87,6 @@ if [ "$checksummed" != "$expected_payloads" ]; then
 fi
 
 sum_lines="$(grep -c '' "$dist_dir/SHA256SUMS")"
-[ "$sum_lines" -eq 10 ] || fail "expected 10 checksummed payloads (8 tarballs + 2 MCPB; 12 published assets including checksums/signature), got $sum_lines"
+[ "$sum_lines" -eq 10 ] || fail "expected 10 checksummed payloads (8 tarballs + 2 MCPB; 13 published assets including checksums/signatures), got $sum_lines"
 
-echo "check-release-payload-inventory: OK ($version, 10 payloads, 12 published assets)"
+echo "check-release-payload-inventory: OK ($version, 10 payloads, 13 published assets)"

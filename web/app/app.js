@@ -10,7 +10,7 @@ import { ACTIVE_ORDERS_REFRESH_MS, refreshOpenOrders, renderOpenOrders } from ".
 import { renderPortfolioRisk, setPortfolioExpansion } from "./portfolio.js";
 import { cancelProtectionDerisk, previewProtectionDerisk, renderProtectionPanel } from "./protection.js";
 import { installRenderAll } from "./render-runtime.js";
-import { renderSettings, setStockProtectionEnabled } from "./settings.js";
+import { renderSettings, setDateFormat, setStockProtectionEnabled } from "./settings.js";
 import { $, accountBaseCurrency, accountFieldValue, pct, renderSensitiveText } from "./shared.js";
 import { renderSourceBanners, renderSyncStrip, renderTopbar, setupMarketSelect } from "./shell.js";
 import { state } from "./state.js";
@@ -330,6 +330,9 @@ $("underlyingPanel").addEventListener("click", (event) => {
 });
 $("stockProtectionToggle").addEventListener("change", (event) => {
   setStockProtectionEnabled(event.currentTarget.checked);
+});
+$("dateFormatSelect").addEventListener("change", (event) => {
+  void setDateFormat(event.currentTarget.value);
 });
 $("protectionDeriskPercent").addEventListener("change", (event) => {
   state.protectionDerisk.percent = Number(event.currentTarget.value) || 25;

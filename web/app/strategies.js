@@ -1,5 +1,5 @@
 import { refreshOpenOrders } from "./orders.js";
-import { $, labelize, money, protectionWriteConfirmation, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
+import { $, calendarDate, labelize, money, protectionWriteConfirmation, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
 import { state } from "./state.js";
 
 function strategyKey(strategy = {}) {
@@ -287,9 +287,7 @@ function strategyContract(contract = {}) {
 function formatExpiry(value = "") {
   const raw = String(value).replaceAll("-", "");
   if (!/^\d{8}$/.test(raw)) return value;
-  const date = new Date(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(date);
+  return calendarDate(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, { dateOnly: true });
 }
 
 function formatStrike(value) {

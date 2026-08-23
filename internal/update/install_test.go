@@ -5,14 +5,14 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
-	"fmt"
-	"github.com/ProtonMail/go-crypto/openpgp"
-	"github.com/ProtonMail/go-crypto/openpgp/armor"
-	"github.com/ProtonMail/go-crypto/openpgp/packet"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -180,19 +180,16 @@ func TestInstallCanonicalRejectsNonRegularPublicPaths(t *testing.T) {
 }
 
 func TestRunInstall_EndToEnd(t *testing.T) {
-
-	signer := newTestSigner(t)
-	useTestKey(t, signer)
-
+	_, privateKey := useTestEd25519Key(t)
 	tarball := buildTarball(t, elfHeader)
 	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
 	sums := hashHex(tarball) + "  " + assetName + "\n"
-	sumsSig := signer.SignDetachedArmored(t, []byte(sums))
+	compact := base64.RawStdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(sums))) + "\n"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS.asc"):
-			_, _ = w.Write(sumsSig)
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS.ed25519"):
+			_, _ = io.WriteString(w, compact)
 		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS"):
 			_, _ = w.Write([]byte(sums))
 		case strings.HasSuffix(r.URL.Path, assetName):
@@ -212,7 +209,7 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 		TagName: "v9.9.9",
 		Assets: []Asset{
 			{Name: "SHA256SUMS", URL: srv.URL + "/SHA256SUMS"},
-			{Name: "SHA256SUMS.asc", URL: srv.URL + "/SHA256SUMS.asc"},
+			{Name: "SHA256SUMS.ed25519", URL: srv.URL + "/SHA256SUMS.ed25519"},
 			{Name: assetName, URL: srv.URL + "/" + assetName},
 		},
 	}
@@ -250,74 +247,85 @@ func TestRunInstall_EndToEnd(t *testing.T) {
 
 var _ = syscall.SIGINT
 
-type testSigner struct {
-	entity      *openpgp.Entity
-	armoredPub  []byte
-	fingerprint string
-}
-
-func newTestSigner(t *testing.T) *testSigner {
+func useTestEd25519Key(t *testing.T) (ed25519.PublicKey, ed25519.PrivateKey) {
 	t.Helper()
-
-	cfg := &packet.Config{Algorithm: packet.PubKeyAlgoEdDSA}
-	entity, err := openpgp.NewEntity("ibkr test signer", "throwaway", "test@example.invalid", cfg)
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		t.Fatalf("newTestSigner: NewEntity: %v", err)
+		t.Fatal(err)
 	}
-
-	buf := &bytes.Buffer{}
-	w, err := armor.Encode(buf, openpgp.PublicKeyType, nil)
+	der, err := x509.MarshalPKIXPublicKey(publicKey)
 	if err != nil {
-		t.Fatalf("newTestSigner: armor.Encode: %v", err)
+		t.Fatal(err)
 	}
-	if err := entity.Serialize(w); err != nil {
-		t.Fatalf("newTestSigner: serialize public key: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("newTestSigner: close armor: %v", err)
-	}
+	original := embeddedEd25519PublicKeyPEM
+	embeddedEd25519PublicKeyPEM = pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	t.Cleanup(func() { embeddedEd25519PublicKeyPEM = original })
+	return publicKey, privateKey
+}
 
-	fp := strings.ToUpper(fmt.Sprintf("%x", entity.PrimaryKey.Fingerprint))
-	return &testSigner{
-		entity:      entity,
-		armoredPub:  buf.Bytes(),
-		fingerprint: fp,
+func TestVerifyEd25519SignatureRoundtripAndTamper(t *testing.T) {
+	_, privateKey := useTestEd25519Key(t)
+	message := []byte("abc123  canary-v3.2.0-darwin-arm64.tar.gz\n")
+	signature := base64.RawStdEncoding.EncodeToString(ed25519.Sign(privateKey, message))
+	if err := VerifyEd25519Signature(bytes.NewReader(message), strings.NewReader(signature+"\n")); err != nil {
+		t.Fatalf("VerifyEd25519Signature: %v", err)
+	}
+	if err := VerifyEd25519Signature(bytes.NewReader(append(message, '!')), strings.NewReader(signature)); !errors.Is(err, ErrEd25519SignatureInvalid) {
+		t.Fatalf("tampered signature error = %v", err)
 	}
 }
 
-func (s *testSigner) SignDetachedArmored(t *testing.T, msg []byte) []byte {
-	t.Helper()
-	buf := &bytes.Buffer{}
-
-	if err := openpgp.ArmoredDetachSign(buf, s.entity, bytes.NewReader(msg), &packet.Config{
-		DefaultHash: crypto.SHA256,
-	}); err != nil {
-		t.Fatalf("SignDetachedArmored: %v", err)
+func TestRunInstallUsesEd25519WithoutRequestingPGP(t *testing.T) {
+	_, privateKey := useTestEd25519Key(t)
+	tarb := buildTarball(t, elfHeader)
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	sums := hashHex(tarb) + "  " + assetName + "\n"
+	compact := base64.RawStdEncoding.EncodeToString(ed25519.Sign(privateKey, []byte(sums))) + "\n"
+	requestedPGP := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS.ed25519"):
+			_, _ = io.WriteString(w, compact)
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS.asc"):
+			requestedPGP = true
+			http.Error(w, "must not fall back", http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/SHA256SUMS"):
+			_, _ = io.WriteString(w, sums)
+		case strings.HasSuffix(r.URL.Path, assetName):
+			_, _ = w.Write(tarb)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("CANARY_INSTALL_DIR", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	plan, err := PlanFor(&Release{TagName: "v9.9.9", Assets: []Asset{
+		{Name: "SHA256SUMS", URL: srv.URL + "/SHA256SUMS"},
+		{Name: "SHA256SUMS.asc", URL: srv.URL + "/SHA256SUMS.asc"},
+		{Name: "SHA256SUMS.ed25519", URL: srv.URL + "/SHA256SUMS.ed25519"},
+		{Name: assetName, URL: srv.URL + "/" + assetName},
+	}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return buf.Bytes()
+	if err := RunInstall(context.Background(), plan); err != nil {
+		t.Fatalf("RunInstall: %v", err)
+	}
+	if requestedPGP {
+		t.Fatal("RunInstall requested the OpenPGP fallback despite a compact signature")
+	}
 }
 
-func useTestKey(t *testing.T, s *testSigner) {
-	t.Helper()
-	origKey := embeddedPublicKey
-	origFp := ReleaseSigningKeyFingerprint
-	embeddedPublicKey = s.armoredPub
-	ReleaseSigningKeyFingerprint = s.fingerprint
-	t.Cleanup(func() {
-		embeddedPublicKey = origKey
-		ReleaseSigningKeyFingerprint = origFp
-	})
-}
-
-func TestVerifyDetachedSignature_Roundtrip(t *testing.T) {
-	signer := newTestSigner(t)
-	useTestKey(t, signer)
-
-	msg := []byte("abc123  canary-v1.0.0-darwin-arm64.tar.gz\ndef456  SHA256SUMS\n")
-	sig := signer.SignDetachedArmored(t, msg)
-
-	if err := VerifyDetachedSignature(bytes.NewReader(msg), bytes.NewReader(sig)); err != nil {
-		t.Fatalf("VerifyDetachedSignature: unexpected error: %v", err)
+func TestPlanForRequiresEd25519Signature(t *testing.T) {
+	assetName := "canary-v9.9.9-" + runtime.GOOS + "-" + runtime.GOARCH + ".tar.gz"
+	_, err := PlanFor(&Release{TagName: "v9.9.9", Assets: []Asset{
+		{Name: "SHA256SUMS", URL: "https://example.invalid/SHA256SUMS"},
+		{Name: "SHA256SUMS.asc", URL: "https://example.invalid/SHA256SUMS.asc"},
+		{Name: assetName, URL: "https://example.invalid/" + assetName},
+	}})
+	if !errors.Is(err, ErrEd25519SignatureMissing) {
+		t.Fatalf("PlanFor error = %v, want ErrEd25519SignatureMissing", err)
 	}
 }
 

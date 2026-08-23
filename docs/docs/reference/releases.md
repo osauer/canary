@@ -1,6 +1,6 @@
 # Releases and support
 
-Updated: 2026-08-09
+Updated: 2026-08-23
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
@@ -18,6 +18,7 @@ Assets hang off each tag on the [releases page](https://github.com/osauer/canary
 | `canary.mcpb` | The same bundle bytes under a stable latest-download name. |
 | `SHA256SUMS` | One SHA-256 line for every tarball and bundle above. |
 | `SHA256SUMS.asc` | PGP detached signature over `SHA256SUMS`. |
+| `SHA256SUMS.ed25519` | Compact Ed25519 signature over `SHA256SUMS` for current updaters. |
 
 The platforms are `darwin-arm64`, `darwin-amd64`, `linux-amd64`, and `linux-arm64`. There is no Windows build, because the daemon uses `setsid`, `flock`, and AF_UNIX sockets. WSL works.
 
@@ -52,7 +53,7 @@ The normal install paths land on the standard build:
 
 ## Verifying a download
 
-`install.sh` and `canary update` verify signature and checksum for you, and from v1.0.0 onward both refuse a release whose `SHA256SUMS.asc` is missing or does not verify. There is no override flag. Verify by hand when you took a tarball straight off the releases page.
+`install.sh` verifies the PGP signature. Current `canary update` binaries require the compact Ed25519 signature and never fall back to PGP. There is no override flag. The PGP path below remains the simplest manual check and keeps older installations able to update directly.
 
 1. Import the signing key and check its fingerprint against the table below.
 
@@ -85,17 +86,19 @@ On Linux, use `sha256sum` in place of `shasum -a 256`. The first command must re
 
 The order matters. Signing `SHA256SUMS` is what binds the hash list to a key an attacker does not have. Checking a hash on its own proves only that the tarball matches the list published beside it, and whoever could replace one could replace both.
 
-### The release-signing key
+### Release-signing keys
 
 | | |
 |---|---|
 | Owner | Oliver Sauer (`oliver.sauer@gmail.com`) |
 | Algorithm | Ed25519 |
 | Fingerprint | `D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D` |
-| Embedded in | every `canary` binary from v1.0.0 onward, at `internal/update/release-signing-key.asc` |
+| Compatibility | embedded in legacy binaries; retained at `internal/update/release-signing-key.asc` for `install.sh` and manual verification |
 | Also published at | `https://github.com/osauer.gpg` |
 
-Because the public key ships inside the binary you already run, `canary update` checks the next release against a key it carries, with no network bootstrap step to interpose on. The key has no expiry, since rotating it means shipping a new binary with a new key embedded. A revocation certificate is held offline.
+The current updater also embeds the dedicated compact-signature key at `internal/update/release-signing-key.ed25519.pem`. Its PKIX public-key SHA-256 is `c9a8685a83c8d8584c1469f6f03973943e439f4aa2485468ffcda5a5db8c5578`; the private key is held in the maintainer's macOS login Keychain rather than in a file.
+
+Current binaries carry the compact public key and use it to check the next release with no network bootstrap step to interpose on. Legacy binaries carry the PGP key; release assets retain both signatures so those binaries can still update directly. Rotating the compact identity requires another staged transition.
 
 This defends against an attacker who compromises the GitHub account and swaps the tarball and `SHA256SUMS` together: without the private key, the signature they can produce will not verify. It does not defend against theft of that private key, which is what the revocation certificate is for, nor against a compromised dependency at build time, which `govulncheck` covers separately.
 

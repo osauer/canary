@@ -3,7 +3,7 @@ import { marketEventFlagVisible, marketEventHealthItems, marketEventIDLabel, mar
 import { refreshOpenOrders } from "./orders.js";
 import { renderAll } from "./render-runtime.js";
 import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageBaseCurrency, protectionCoverageNotionalText, protectionCoverageQuantityText, protectionEmptyRow, protectionHiddenRowsText, protectionNoStopExposureSummary, protectionNotProtectableText, protectionVisibleRows } from "./protection-coverage.js";
-import { $, accountBaseCurrency, blockerText, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
+import { $, accountBaseCurrency, blockerText, calendarDate, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
 import { currentMarketCalendar, marketSessionLabel } from "./shell.js";
 import { state } from "./state.js";
 
@@ -1906,8 +1906,9 @@ function formatStrike(value) {
 function formatExpiry(value) {
   const raw = String(value || "").trim();
   if (/^\d{8}$/.test(raw)) {
-    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+    return calendarDate(`${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`, { dateOnly: true });
   }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return calendarDate(raw, { dateOnly: true });
   return raw;
 }
 

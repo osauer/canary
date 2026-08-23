@@ -769,7 +769,6 @@ p {
 .settings-panel {
   display: grid;
   gap: 12px;
-  min-height: 100%;
   align-content: start;
 }
 
@@ -4164,13 +4163,18 @@ p {
   padding: 18px 16px 15px;
 }
 
-.positions-workspace__intro {
+.workspace-heading--tab {
+  grid-column: 1 / -1;
+  padding: 8px 4px 6px;
+}
+
+.workspace-heading__intro {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
 
-.positions-workspace__overline {
+.workspace-heading__overline {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -4181,13 +4185,13 @@ p {
   text-transform: uppercase;
 }
 
-.positions-workspace__overline .panel-time {
+.workspace-heading__overline .panel-time {
   margin-left: 0;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.positions-workspace h2 {
+.workspace-heading h2 {
   margin: 0;
   color: var(--pd-readout);
   font-size: clamp(24px, 4vw, 30px);
@@ -4196,7 +4200,7 @@ p {
   line-height: 1;
 }
 
-.positions-workspace__intro p {
+.workspace-heading__copy {
   max-width: 64ch;
   margin: 0;
   color: var(--pd-prose);
@@ -5632,6 +5636,16 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .pd-set-row--select {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pd-setting-select {
+    width: 100%;
+    max-width: none;
+  }
+
   .alert-active-count {
     justify-self: start;
   }
@@ -5791,6 +5805,23 @@ p {
 
 .pd-set-copy .pd-set-val {
   text-align: left;
+}
+
+.pd-setting-select {
+  min-height: 34px;
+  max-width: min(230px, 48vw);
+  padding: 0 28px 0 9px;
+  border: 1px solid var(--pd-border);
+  border-radius: 6px;
+  background: var(--pd-readout-face);
+  color: var(--pd-strip-value);
+  font-size: 11.5px;
+  font-weight: 640;
+}
+
+.pd-setting-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .pd-set-note {

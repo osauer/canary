@@ -1,5 +1,5 @@
 import { humanList } from "./stress.js";
-import { $, cleanDetail, labelize, parseDate, shortTimeWithZone } from "./shared.js";
+import { $, calendarDateTime, cleanDetail, labelize, parseDate, shortTimeWithZone } from "./shared.js";
 import { state } from "./state.js";
 
 function renderSourceBanners(snap) {
@@ -350,21 +350,10 @@ function marketStatusPhrase(phase, verb, countdown) {
 }
 
 function marketSessionNow(session) {
-  const parts = new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
+  return calendarDateTime(new Date(), {
     timeZone: session?.timezone || undefined,
-  }).formatToParts(new Date());
-  const visiblePartTypes = new Set(["day", "month", "year", "hour", "minute", "dayPeriod", "timeZoneName", "literal"]);
-  return parts
-    .filter(({ type }) => visiblePartTypes.has(type))
-    .map(({ value }) => value)
-    .join("")
-    .trim();
+    timeZoneName: "short",
+  });
 }
 
 // Seconds precision: the ticking seconds digit is the proof the readout is

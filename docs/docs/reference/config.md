@@ -113,6 +113,7 @@ Daemon-owned preferences persisted in `$XDG_STATE_HOME/ibkr/daemon.db` and chang
 
 | Key | Value | Class | Description |
 |-----|-------|-------|-------------|
+| `display.date_format` | `us/eu/us_weekday/eu_weekday/null` | runtime | Calendar-date presentation in the SPA: us, eu, us_weekday, or eu_weekday; it never changes typed timestamps or market-session authority (default us). |
 | `features.stock_protection.enabled` | `true/false/null` | runtime | Allows stock/ETF protection proposal actions; false blocks them with a stock_protection_disabled blocker while proposal snapshots stay readable (default true). |
 | `features.rulebook.enabled` | `true/false/null` | runtime | Turns the advisory daily trading-rulebook checklist on; false hides the SPA card, empties rules.snapshot, and stops advisory rule_* preview warnings — it can never affect broker-write gating (default true). |
 | `features.rulebook.earnings_overrides.<SYMBOL>` | `YYYY-MM-DD[Tamc/Tbmo]/null` | runtime | Manual SYMBOL → YYYY-MM-DD (optional Tamc/Tbmo suffix) earnings pins, authoritative over fetched dates for rules 6-8; patches merge per symbol. |

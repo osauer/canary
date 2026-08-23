@@ -8,11 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
 	"net/http"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 // Sender transports one caller-selected, redacted payload and returns a
@@ -45,25 +45,26 @@ func SafeDiagnosticPayload() Payload {
 	}
 }
 
-// Subscriber is the VAPID contact claim presented to push services. It must
-// be an "https:" URL (webpush-go passes those through unchanged) or a bare
-// email without the "mailto:" prefix (the library prepends exactly one).
-// Never a "mailto:"-prefixed value — webpush-go v1.4.0 would double it into
-// "mailto:mailto:…" — and never an @localhost address: Apple rejects both
-// with 403 BadJwtToken, surfacing as http_rejected on every delivery.
+// Subscriber is the VAPID contact claim presented to push services. Apple
+// rejects localhost and malformed contact claims with 403 BadJwtToken.
 const Subscriber = "https://osauer.dev"
 
+// HTTPClient is the narrow transport surface needed to send a push request.
+type HTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // WebPushSender sends payloads through a Web Push service. A nil Client uses
-// the webpush library's default HTTP client.
+// http.DefaultClient.
 type WebPushSender struct {
 	Subscriber string
-	Client     webpush.HTTPClient
+	Client     HTTPClient
 }
 
 // GenerateVAPIDKeys creates a private/public VAPID key pair for app-owned push
 // subscriptions.
 func GenerateVAPIDKeys() (privateKey, publicKey string, err error) {
-	return webpush.GenerateVAPIDKeys()
+	return generateVAPIDKeys()
 }
 
 // Send validates sub, sends payload once, and classifies the response without
@@ -82,14 +83,14 @@ func (s WebPushSender) Send(ctx context.Context, sub state.PushSubscription, key
 		attempt.Class = state.GovernanceTransportHTTPRejected
 		return attempt
 	}
-	resp, err := webpush.SendNotificationWithContext(ctx, body, &webpush.Subscription{
-		Endpoint: sub.Endpoint,
-		Keys:     webpush.Keys{Auth: sub.Auth, P256dh: sub.P256DH},
-	}, &webpush.Options{
-		HTTPClient:      s.Client,
+	resp, err := sendWebPush(ctx, s.Client, webPushRequest{
+		Endpoint:        sub.Endpoint,
+		Auth:            sub.Auth,
+		P256DH:          sub.P256DH,
+		Payload:         body,
 		Subscriber:      s.Subscriber,
 		TTL:             60,
-		Urgency:         webpush.UrgencyHigh,
+		Urgency:         "high",
 		VAPIDPublicKey:  keys.PublicKey,
 		VAPIDPrivateKey: keys.PrivateKey,
 	})

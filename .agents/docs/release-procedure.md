@@ -74,8 +74,15 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
 
 ## Stage 1 — Auth preflight (verify-first)
 
-- Run `make release-auth-preflight`. It gates on `gh auth status`, the
+- Run `make release-auth-preflight`. It gates on the Keychain-backed compact
+  signing key matching the public key in the checkout, `gh auth status`, the
   `mcp-publisher` binary, and `MCP_REGISTRY_AUTO_LOGIN` staying armed.
+- The compact private key lives in the macOS login Keychain as service
+  `com.osauer.canary.release-ed25519`, account `release`. One-time provisioning
+  uses the signer tool's `-init-keychain` mode with
+  `internal/update/release-signing-key.ed25519.pem` as `-public`; the command
+  refuses an existing public file or Keychain item so routine preflight cannot
+  rotate it.
 - The normal registry path is the Actions-OIDC workflow, which publishes about
   a minute after the GitHub release; the pipeline's
   `registry-publish-verify-first` leg polls the registry (~4 min) and falls
@@ -288,7 +295,7 @@ questions go to the user. Never weaken a gate to reach GO.
   SHA's Actions evidence and proves each annotated remote tag has the same tag
   object and peels to that SHA before continuing plugin, GitHub, or registry
   publication. Existing GitHub releases are hydrated into a private staging
-  directory and must have the exact 12-asset inventory, GitHub digests, signed
+  directory and must have the exact 13-asset inventory, GitHub digests, signed
   checksum file, and tag-derived release body. Only an absent release is built
   and signed locally. Release creation requires the existing tag with
   `--verify-tag` and renders notes from tag blobs. Registry metadata likewise
@@ -301,11 +308,11 @@ questions go to the user. Never weaken a gate to reach GO.
 
 ## Stage 7 — Post-release verification (autonomous)
 
-- `gh release view vX.Y.Z --json assets,isDraft` — expect 12 assets, not draft:
+- `gh release view vX.Y.Z --json assets,isDraft` — expect 13 assets, not draft:
   four canonical read-only `canary-*` archives, four canonical
   `canary-trading-*` archives, canonical `canary-vX.Y.Z.mcpb` and
   `canary.mcpb`, `SHA256SUMS`, and
-  `SHA256SUMS.asc`.
+  `SHA256SUMS.asc`, and `SHA256SUMS.ed25519`.
 - `git ls-remote --tags origin` — both tag families (`vX.Y.Z`,
   `canary--vX.Y.Z`) point at the release commit.
 - Registry: wait ≥2 minutes after the publish leg (an early query catches the

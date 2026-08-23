@@ -31,13 +31,15 @@ type platformSettingsStore struct {
 
 // Persisted shape versions of the platform-settings state document. Version 1
 const (
-	platformSettingsDocVersion       = 2
+	platformSettingsDocVersion       = 3
+	platformSettingsDocVersionStress = 2
 	platformSettingsDocVersionCanary = 1
 )
 
 type platformSettingsData struct {
 	Version                  int                         `json:"version"`
 	TradingControlGeneration uint64                      `json:"trading_control_generation"`
+	Display                  platformDisplaySettingsData `json:"display"`
 	Features                 platformFeatureSettingsData `json:"features"`
 	Trading                  platformTradingSettingsData `json:"trading"`
 	Regime                   platformRegimeSettingsData  `json:"regime"`
@@ -64,6 +66,19 @@ type platformSettingsDocumentV1 struct {
 	History                  platformHistorySettingsData `json:"history"`
 }
 
+// platformSettingsDocumentV2 is the complete persisted version-2 shape. The
+// v3 display block is added only after this strict decode succeeds, so a new
+// preference cannot be mistaken for an old document during rollback.
+type platformSettingsDocumentV2 struct {
+	Version                  int                         `json:"version"`
+	TradingControlGeneration uint64                      `json:"trading_control_generation"`
+	Features                 platformFeatureSettingsData `json:"features"`
+	Trading                  platformTradingSettingsData `json:"trading"`
+	Regime                   platformRegimeSettingsData  `json:"regime"`
+	Stress                   platformStressSettingsData  `json:"stress"`
+	History                  platformHistorySettingsData `json:"history"`
+}
+
 // UnmarshalJSON keeps legacy-file cutover on the same version-specific decode
 // strictly decode only against the transitional union above, which would still
 func (d *platformSettingsDocument) UnmarshalJSON(raw []byte) error {
@@ -87,6 +102,9 @@ func (d platformSettingsDocument) upgrade() (platformSettingsData, error) {
 		if d.LegacyCanary != nil {
 			data.Stress = *d.LegacyCanary
 		}
+		data.Version = platformSettingsDocVersionStress
+		fallthrough
+	case platformSettingsDocVersionStress:
 		data.Version = platformSettingsDocVersion
 	case platformSettingsDocVersion:
 	default:
@@ -133,6 +151,22 @@ func decodePlatformSettingsDocument(raw []byte) (platformSettingsDocument, error
 			History:                  legacy.History,
 			LegacyCanary:             legacy.Canary,
 		}, nil
+	case platformSettingsDocVersionStress:
+		var prior platformSettingsDocumentV2
+		if err := decodeStrictPlatformSettingsJSON(raw, &prior); err != nil {
+			return platformSettingsDocument{}, err
+		}
+		if prior.Version != platformSettingsDocVersionStress {
+			return platformSettingsDocument{}, fmt.Errorf("unsupported version %d", prior.Version)
+		}
+		return platformSettingsDocument{
+			Version:                  prior.Version,
+			TradingControlGeneration: prior.TradingControlGeneration,
+			Features:                 prior.Features,
+			Trading:                  prior.Trading,
+			Regime:                   prior.Regime,
+			Stress:                   prior.Stress,
+			History:                  prior.History}, nil
 	case platformSettingsDocVersion:
 		var current platformSettingsData
 		if err := decodeStrictPlatformSettingsJSON(raw, &current); err != nil {
@@ -180,6 +214,10 @@ type platformSettingsUpdateEventV1 struct {
 	NewRevision                 int64                      `json:"new_revision"`
 	OldTradingControlGeneration uint64                     `json:"old_trading_control_generation"`
 	NewTradingControlGeneration uint64                     `json:"new_trading_control_generation"`
+}
+
+type platformDisplaySettingsData struct {
+	DateFormat *string `json:"date_format,omitempty"`
 }
 
 type platformRegimeSettingsData struct {
@@ -489,6 +527,8 @@ func deriveTradingControlGeneration(current platformSettingsData, next *platform
 func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.RawMessage, error) {
 	var value any
 	switch key {
+	case "display.date_format":
+		value = data.Display.DateFormat
 	case "features.stock_protection.enabled":
 		value = data.Features.StockProtection.Enabled
 	case "features.rulebook.enabled":
@@ -712,6 +752,13 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 		return nil
 	}
 	switch key {
+	case "display.date_format":
+		v, err := nullableString(raw)
+		if err != nil || (v != nil && !validDisplayDateFormat(*v)) {
+			return errBadRequest("display.date_format must be us, eu, us_weekday, eu_weekday, or null")
+		}
+		next.Display.DateFormat = v
+		return nil
 	case "features.stock_protection.enabled":
 		return boolField(&next.Features.StockProtection.Enabled)
 	case "features.rulebook.enabled":
@@ -828,6 +875,26 @@ func nullableInt(raw json.RawMessage) (*int, error) {
 	return &v, nil
 }
 
+func nullableString(raw json.RawMessage) (*string, error) {
+	if string(bytes.TrimSpace(raw)) == "null" {
+		return nil, nil
+	}
+	var v string
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+func validDisplayDateFormat(value string) bool {
+	switch value {
+	case rpc.DisplayDateFormatUS, rpc.DisplayDateFormatEU, rpc.DisplayDateFormatUSWeekday, rpc.DisplayDateFormatEUWeekday:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rpc.PlatformSettings {
 	data := s.platformSettings.snapshot()
 	trading := s.effectiveTradingConfig()
@@ -858,6 +925,9 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 	}
 	out := rpc.PlatformSettings{
 		Kind: "ibkr.platform_settings",
+		Display: rpc.PlatformDisplaySettings{
+			DateFormat: settingsString(displayDateFormatFrom(data), rpc.SettingsAccessWrite, rpc.SettingsSourceRuntime, "calendar-date presentation only; timestamps and market-session authority are unchanged"),
+		},
 		Features: rpc.PlatformFeatureSettings{
 			StockProtection: rpc.StockProtectionSettings{
 				Enabled: rpc.SettingsBool{Value: stockProtectionEnabled, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime},
@@ -922,6 +992,13 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 		out.Build.ExperimentalTradingNote = "stable read-only build; trading limit edits are disabled"
 	}
 	return out
+}
+
+func displayDateFormatFrom(data platformSettingsData) string {
+	if data.Display.DateFormat == nil || !validDisplayDateFormat(*data.Display.DateFormat) {
+		return rpc.DisplayDateFormatUS
+	}
+	return *data.Display.DateFormat
 }
 
 // regimeJournalEnabledFrom is the single default for forward regime-decision

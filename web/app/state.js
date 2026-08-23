@@ -8,6 +8,7 @@ const state = {
   updateCompleteTimer: null,
   reconciliationCheck: { busy: false, state: "", error: false },
   safeNotificationTest: { busy: false, state: "", error: false },
+  dateFormatUpdate: { busy: false, state: "", error: false },
   alertSettings: { mode: "watch_and_act" },
   alertSettingsUpdate: { busy: false, state: "", error: false },
   alertEvidenceTarget: null,

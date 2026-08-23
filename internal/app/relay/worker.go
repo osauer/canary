@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/osauer/hyperserve/pkg/websocket"
 
 	appweb "github.com/osauer/canary/v2/web/app"
 )
@@ -402,7 +402,7 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 		}
 		return fmt.Errorf("connect remote relay: %w", err)
 	}
-	defer conn.Close(websocket.StatusNormalClosure, "canary app relay reconnect")
+	defer conn.CloseWithStatus(websocket.CloseNormalClosure, "canary app relay reconnect")
 	w.setStatus(true, "connected")
 	if err := w.persistRouteExtension(time.Now().UTC()); err != nil {
 		slog.Error("canary app relay: persist route extension", "error", err)
@@ -420,7 +420,7 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 		defer writeMu.Unlock()
 		writeCtx, writeCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer writeCancel()
-		return conn.Write(writeCtx, websocket.MessageText, data)
+		return conn.Write(writeCtx, websocket.TextMessage, data)
 	}
 
 	var wg sync.WaitGroup
@@ -433,7 +433,7 @@ func (w *Worker) connectOnce(ctx context.Context) error {
 			w.setStatus(false, "disconnected")
 			return err
 		}
-		if typ != websocket.MessageText {
+		if typ != websocket.TextMessage {
 			continue
 		}
 		var f frame

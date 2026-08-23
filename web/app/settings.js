@@ -1,5 +1,6 @@
 import { renderProtectionPanel } from "./protection.js";
-import { $, accountBaseCurrency, currentSettings, labelize, maskAccountId, money, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
+import { renderAll } from "./render-runtime.js";
+import { $, accountBaseCurrency, currentSettings, dateFormatMode, labelize, maskAccountId, money, renderFreshnessTimestamp, renderSensitiveAccountId, stockProtectionSettingEnabled } from "./shared.js";
 import { state } from "./state.js";
 import { currentAccountContext, renderUnderlyings } from "./underlyings.js";
 
@@ -11,7 +12,15 @@ function renderSettings() {
   if (!settings || !settings.kind) return;
   state.settings = settings;
 	const stockProtection = settings.features?.stock_protection?.enabled || {};
+	const dateFormat = settings.display?.date_format || {};
 	renderFreshnessTimestamp("settingsAsOf", settings.as_of, { staleMinutes: 15 });
+  const dateSelect = $("dateFormatSelect");
+  dateSelect.value = dateFormatMode(dateFormat.value);
+  dateSelect.disabled = dateFormat.access !== "write" || state.dateFormatUpdate.busy;
+  dateSelect.title = dateFormat.reason || "Calendar-date presentation";
+  $("dateFormatSettingMeta").textContent = "Applied across every tab; relative freshness stays relative.";
+  $("dateFormatSettingStatus").textContent = state.dateFormatUpdate.state;
+  $("dateFormatSettingStatus").classList.toggle("governance-action-status--error", state.dateFormatUpdate.error);
   $("stockProtectionSettingState").textContent = stockProtection.value === false ? "Disabled" : "Enabled";
   $("stockProtectionSettingMeta").textContent = settingMeta(stockProtection);
   const stockToggle = $("stockProtectionToggle");
@@ -169,4 +178,52 @@ async function setStockProtectionEnabled(enabled) {
   renderProtectionPanel(state.snapshot?.proposals || {}, state.snapshot?.auto_trade || {}, state.snapshot?.market_events || {});
 }
 
-export { renderProtectionSettings, renderSettings, renderSettingsPlate, renderSettingsTradingMeta, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };
+async function setDateFormat(value) {
+  const allowed = new Set(["us", "eu", "us_weekday", "eu_weekday"]);
+  const nextValue = String(value || "").trim().toLowerCase();
+  if (!allowed.has(nextValue) || state.dateFormatUpdate.busy) return false;
+  const previous = dateFormatMode();
+  const setLocal = (dateFormat) => {
+    state.settings = {
+      ...currentSettings(),
+      display: {
+        ...(currentSettings().display || {}),
+        date_format: {
+          ...(currentSettings().display?.date_format || {}),
+          value: dateFormat,
+        },
+      },
+    };
+    if (state.snapshot) state.snapshot.settings = state.settings;
+  };
+
+  state.dateFormatUpdate = { busy: true, state: "Saving date format…", error: false };
+  setLocal(nextValue);
+  renderAll();
+  if (state.readOnlyPreview) {
+    state.dateFormatUpdate = { busy: false, state: "Preview only · not saved.", error: false };
+    renderAll();
+    return true;
+  }
+  try {
+    const res = await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ display: { date_format: nextValue } }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    state.settings = await res.json();
+    if (state.snapshot) state.snapshot.settings = state.settings;
+    state.dateFormatUpdate = { busy: false, state: "Date format saved.", error: false };
+    renderAll();
+    return true;
+  } catch {
+    setLocal(previous);
+    state.dateFormatUpdate = { busy: false, state: "Date format was not changed.", error: true };
+    renderAll();
+    return false;
+  }
+}
+
+export { renderProtectionSettings, renderSettings, renderSettingsPlate, renderSettingsTradingMeta, setDateFormat, setStockProtectionEnabled, settingMeta, settingsPolicyFileLabel, tradingLimitMeta, tradingLimitSummary, tradingStatusSettingsLabel };

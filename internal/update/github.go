@@ -126,10 +126,12 @@ func (r *Release) SHA256SUMSAsset() (name, url string, ok bool) {
 	return "", "", false
 }
 
-// SHA256SUMSSigAsset returns the ASCII-armored PGP detached signature
-func (r *Release) SHA256SUMSSigAsset() (name, url string, ok bool) {
+// SHA256SUMSEd25519Asset returns the compact detached signature required by
+// current updaters. SHA256SUMS.asc remains a release/bootstrap compatibility
+// asset for older binaries and install.sh, not a fallback for this binary.
+func (r *Release) SHA256SUMSEd25519Asset() (name, url string, ok bool) {
 	for _, a := range r.Assets {
-		if a.Name == "SHA256SUMS.asc" {
+		if a.Name == "SHA256SUMS.ed25519" {
 			return a.Name, a.URL, true
 		}
 	}

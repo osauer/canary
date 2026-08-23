@@ -1200,6 +1200,41 @@ func TestBriefNarrativeMarksOnlyAccountMoneySensitive(t *testing.T) {
 	}
 }
 
+func TestBriefNarrativeWeavesInLastSessionWeekday(t *testing.T) {
+	daily := 125.0
+	review := rpc.BriefReviewSection{
+		SessionPnL: rpc.BriefAccountRow{
+			BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK},
+			DailyPnLBase:  &daily,
+			BaseCurrency:  "USD",
+		},
+		LastSession: rpc.BriefLastSessionRow{
+			BriefRowState: rpc.BriefRowState{Status: rpc.BriefStatusOK},
+			SessionDate:   "2026-08-14",
+			DailyPnLBase:  &daily,
+			BaseCurrency:  "USD",
+			CapturedAt:    time.Date(2026, 8, 14, 20, 0, 0, 0, time.UTC),
+		},
+	}
+	paragraphs := briefNarrativeReview(review, rpc.BriefSessionRow{
+		Status: rpc.BriefStatusOK,
+		IsOpen: false,
+	})
+	var text strings.Builder
+	for _, paragraph := range paragraphs {
+		for _, run := range paragraph.Runs {
+			text.WriteString(run.Text)
+		}
+	}
+	got := text.String()
+	if !strings.Contains(got, "Friday closed with Daily P/L") || !strings.Contains(got, "Since Friday's close") {
+		t.Fatalf("last session weekday missing from narrative: %q", got)
+	}
+	if strings.Contains(got, "2026-08-14") {
+		t.Fatalf("raw session date duplicated in narrative: %q", got)
+	}
+}
+
 func TestBriefNarrativeNamesPostLatchReportCheck(t *testing.T) {
 	latchedAt := time.Date(2026, 8, 10, 6, 14, 0, 0, time.UTC)
 	checkedAt := time.Date(2026, 8, 10, 14, 44, 0, 0, time.UTC)

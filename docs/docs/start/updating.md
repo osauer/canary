@@ -1,6 +1,6 @@
 # Updating
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-08-23
 
 Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
@@ -16,7 +16,7 @@ canary update            # fetch latest, prompt to restart the local app/daemon 
 The CLI then:
 
 1. Lists stable GitHub releases, selects the newest release on the installed major line, and matches your OS/arch against its tarballs. A v2 install therefore follows maintained v2 releases and never silently crosses to v3; a development build follows the newest stable line.
-2. Verifies the **PGP signature on `SHA256SUMS`** against the maintainer's public key embedded in your current `canary` binary.
+2. Requires and verifies the compact **Ed25519 signature on `SHA256SUMS`** against the public key embedded in your current `canary` binary.
 3. SHA-verifies the tarball.
 4. Atomically replaces `~/.local/bin/canary`. Prior bytes exist only in hidden transaction staging and are deleted after publication; no runnable rollback binary is retained because daemon state migrations are forward-only.
 
@@ -39,13 +39,13 @@ explicit recovery path when replacing such a build is intentional.
 
 ### Release integrity
 
-From v1.0.0 onward, every release ships `SHA256SUMS.asc`: a PGP detached signature over `SHA256SUMS`, produced by the maintainer's Ed25519 key (fingerprint `D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D`). The public key is embedded in every Canary binary, so `canary update` verifies the next release using a key your already-installed binary carries, with no network bootstrap an attacker could swap.
+Transition releases ship two signatures over the same `SHA256SUMS` bytes. `SHA256SUMS.asc` keeps `install.sh` and older Canary binaries working. Current binaries require `SHA256SUMS.ed25519`, verified by a narrow standard-library implementation and a dedicated public key embedded in Canary. A missing or invalid compact signature fails closed; the binary carries no PGP fallback.
 
 Releases that publish an MCP Bundle include both `canary-vX.Y.Z.mcpb` and the stable latest-download asset `canary.mcpb` in `SHA256SUMS`. The MCP Registry publish artifact also records the versioned MCPB file's SHA-256 in `server.json` as `fileSha256`.
 
 The MCPB container itself is not yet code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless `mcpb verify canary-vX.Y.Z.mcpb` succeeds for a future release.
 
-`canary update` **refuses** any release missing the signature, and any release whose signature does not verify against the embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](../../../SECURITY.md#release-integrity-v100).
+`canary update` **refuses** any release missing the compact signature, and any release whose signature does not verify against its embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](../../../SECURITY.md#release-integrity-v100).
 
 ### Headless / scripted use
 

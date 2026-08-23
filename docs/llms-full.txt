@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-08-14
+Updated: 2026-08-23
 
 Canary is a local Interactive Brokers risk desk built as a Go daemon, a
 23-command CLI, a 13-tool stdio MCP server, a Claude Desktop MCPB, a Claude Code

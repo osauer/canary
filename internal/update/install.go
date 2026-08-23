@@ -66,10 +66,8 @@ func AcquireLock(cacheDir string) (*xdgcache.Lock, error) {
 	return lock, nil
 }
 
-// VerifySignature verifies that sumsSigPath is a valid PGP detached
-// failure reason) on any mismatch.
-// MUST run BEFORE VerifyChecksum: without this, a same-release attacker
-func VerifySignature(sumsPath, sumsSigPath string) error {
+// VerifyCompactSignature verifies the required Ed25519 release signature.
+func VerifyCompactSignature(sumsPath, sumsSigPath string) error {
 	signed, err := os.Open(sumsPath)
 	if err != nil {
 		return fmt.Errorf("open SHA256SUMS: %w", err)
@@ -77,10 +75,10 @@ func VerifySignature(sumsPath, sumsSigPath string) error {
 	defer signed.Close()
 	sig, err := os.Open(sumsSigPath)
 	if err != nil {
-		return fmt.Errorf("open SHA256SUMS.asc: %w", err)
+		return fmt.Errorf("open SHA256SUMS.ed25519: %w", err)
 	}
 	defer sig.Close()
-	return VerifyDetachedSignature(signed, sig)
+	return VerifyEd25519Signature(signed, sig)
 }
 
 // VerifyChecksum reads SHA256SUMS (one `<sha>  <filename>` line per
@@ -480,19 +478,19 @@ func CleanupOnSignal(paths ...string) (cancel func()) {
 
 // Plan is the full sequence of artefacts an install touches. Exposed
 type Plan struct {
-	CacheDir    string // ~/.cache/ibkr/update/ (durable namespace compatibility pin)
-	TarballPath string // CacheDir/<asset>.tar.gz
-	SumsPath    string // CacheDir/SHA256SUMS
-	SumsSigPath string // CacheDir/SHA256SUMS.asc (PGP detached signature)
-	ExtractDir  string // CacheDir/extract/
-	InstallDir  string // $CANARY_INSTALL_DIR or ~/.local/bin
-	DestPath    string // InstallDir/canary
+	CacheDir        string // ~/.cache/ibkr/update/ (durable namespace compatibility pin)
+	TarballPath     string // CacheDir/<asset>.tar.gz
+	SumsPath        string // CacheDir/SHA256SUMS
+	SumsEd25519Path string // CacheDir/SHA256SUMS.ed25519 (compact detached signature)
+	ExtractDir      string // CacheDir/extract/
+	InstallDir      string // $CANARY_INSTALL_DIR or ~/.local/bin
+	DestPath        string // InstallDir/canary
 	// ArchiveRoot is the exact top-level directory derived from AssetName
-	ArchiveRoot string
-	AssetName   string // <asset>.tar.gz (used for SHA lookup)
-	AssetURL    string // GitHub asset URL
-	SumsURL     string // SHA256SUMS asset URL
-	SumsSigURL  string // SHA256SUMS.asc asset URL
+	ArchiveRoot    string
+	AssetName      string // <asset>.tar.gz (used for SHA lookup)
+	AssetURL       string // GitHub asset URL
+	SumsURL        string // SHA256SUMS asset URL
+	SumsEd25519URL string // required SHA256SUMS.ed25519 asset URL
 }
 
 // PlanFor builds a Plan for the given release on the current host. The
@@ -506,11 +504,10 @@ func PlanFor(rel *Release) (*Plan, error) {
 		return nil, errors.New("release is missing SHA256SUMS asset")
 	}
 	_ = sumsName
-	sigName, sigURL, ok := rel.SHA256SUMSSigAsset()
+	_, ed25519URL, ok := rel.SHA256SUMSEd25519Asset()
 	if !ok {
-		return nil, fmt.Errorf("%w (release predates signing or signing step failed in the release pipeline)", ErrSignatureMissing)
+		return nil, fmt.Errorf("%w (the release predates compact signing or its publication is incomplete)", ErrEd25519SignatureMissing)
 	}
-	_ = sigName
 	cacheDir, err := CacheDir()
 	if err != nil {
 		return nil, err
@@ -520,18 +517,18 @@ func PlanFor(rel *Release) (*Plan, error) {
 		return nil, err
 	}
 	return &Plan{
-		CacheDir:    cacheDir,
-		TarballPath: filepath.Join(cacheDir, assetName),
-		SumsPath:    filepath.Join(cacheDir, "SHA256SUMS"),
-		SumsSigPath: filepath.Join(cacheDir, "SHA256SUMS.asc"),
-		ExtractDir:  filepath.Join(cacheDir, "extract"),
-		InstallDir:  installDir,
-		DestPath:    productidentity.CanonicalPath(installDir),
-		ArchiveRoot: strings.TrimSuffix(assetName, ".tar.gz"),
-		AssetName:   assetName,
-		AssetURL:    assetURL,
-		SumsURL:     sumsURL,
-		SumsSigURL:  sigURL,
+		CacheDir:        cacheDir,
+		TarballPath:     filepath.Join(cacheDir, assetName),
+		SumsPath:        filepath.Join(cacheDir, "SHA256SUMS"),
+		SumsEd25519Path: filepath.Join(cacheDir, "SHA256SUMS.ed25519"),
+		ExtractDir:      filepath.Join(cacheDir, "extract"),
+		InstallDir:      installDir,
+		DestPath:        productidentity.CanonicalPath(installDir),
+		ArchiveRoot:     strings.TrimSuffix(assetName, ".tar.gz"),
+		AssetName:       assetName,
+		AssetURL:        assetURL,
+		SumsURL:         sumsURL,
+		SumsEd25519URL:  ed25519URL,
 	}, nil
 }
 
@@ -551,19 +548,19 @@ func RunInstall(ctx context.Context, plan *Plan) error {
 	defer lock.Release()
 
 	// Signal-handler cleanup. Tempfiles get removed on Ctrl-C, on
-	cleanup := CleanupOnSignal(plan.TarballPath, plan.SumsPath, plan.SumsSigPath, plan.ExtractDir)
+	cleanup := CleanupOnSignal(plan.TarballPath, plan.SumsPath, plan.SumsEd25519Path, plan.ExtractDir)
 	defer cleanup()
 
 	if err := DownloadAsset(ctx, plan.SumsURL, plan.SumsPath); err != nil {
 		return fmt.Errorf("download SHA256SUMS: %w", err)
 	}
-	if err := DownloadAsset(ctx, plan.SumsSigURL, plan.SumsSigPath); err != nil {
-		return fmt.Errorf("download SHA256SUMS.asc: %w", err)
-	}
 	// Signature MUST verify before we trust SHA256SUMS — without this
 	// step, an attacker who could swap both files past the same
 	// HTTPS endpoint would still pass the SHA check.
-	if err := VerifySignature(plan.SumsPath, plan.SumsSigPath); err != nil {
+	if err := DownloadAsset(ctx, plan.SumsEd25519URL, plan.SumsEd25519Path); err != nil {
+		return fmt.Errorf("download SHA256SUMS.ed25519: %w", err)
+	}
+	if err := VerifyCompactSignature(plan.SumsPath, plan.SumsEd25519Path); err != nil {
 		return err
 	}
 	if err := DownloadAsset(ctx, plan.AssetURL, plan.TarballPath); err != nil {

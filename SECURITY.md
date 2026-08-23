@@ -81,22 +81,34 @@ Every GitHub release from v1.0.0 onward ships signed checksums for the published
 3. `canary.mcpb` — stable latest-download alias for the same MCP Bundle bytes, when published.
 4. `SHA256SUMS` — one line per tarball and MCPB asset with its SHA-256.
 5. `SHA256SUMS.asc` — a PGP detached signature over `SHA256SUMS`, produced by the maintainer's release-signing key.
+6. `SHA256SUMS.ed25519` — a compact Ed25519 signature over the same bytes, produced by a dedicated key held in macOS Keychain.
 
-`install.sh` and `canary update` (from v1.0.0 onward) **refuse** any release that does not publish `SHA256SUMS.asc`, and refuse any release whose `SHA256SUMS.asc` does not verify against the maintainer's release-signing key. `install.sh` pins the key fingerprint during bootstrap; `canary update` verifies against the public key embedded in the running binary. There is no fallback path. A release whose signature cannot be checked is treated as a compromised release.
+`install.sh` and older Canary binaries continue to require the PGP signature. Current `canary update` binaries require the compact signature and never fall back to PGP. Both public keys are pinned locally; neither verifier bootstraps trust from the release download. A release whose required signature cannot be checked is treated as compromised.
 
 The MCP Registry publish metadata for an MCPB release also includes the versioned bundle URL and `fileSha256`. That registry hash is a discovery/install integrity hint; the signed `SHA256SUMS` file remains the release-level trust anchor.
 
 The MCPB container itself is not yet code-signed. Do not treat the `.mcpb` file as signed unless `mcpb verify canary-vX.Y.Z.mcpb` succeeds. Signed checksums and the MCP Registry hash are the current integrity mechanisms for MCPB releases; self-signed bundles are not a trust upgrade.
 
-### The maintainer's release-signing key
+### Release-signing keys
+
+The PGP identity remains published for manual verification and compatibility with older installers:
 
 | | |
 |---|---|
 | Owner | Oliver Sauer (`oliver.sauer@gmail.com`) |
 | Algorithm | Ed25519 |
 | Fingerprint | `D984 26D4 8FED 85EF A339  0469 4D92 2A4F 922B 7D7D` |
-| Embedded in | every `canary` binary from v1.0.0 onward, at `internal/update/release-signing-key.asc` |
+| Compatibility | embedded in legacy binaries; retained at `internal/update/release-signing-key.asc` for `install.sh` and manual verification |
 | Also published at | `https://github.com/osauer.gpg` (served by GitHub) |
+
+The compact updater signature uses a separate raw Ed25519 key:
+
+| | |
+|---|---|
+| Algorithm | Ed25519 |
+| Public-key SHA-256 | `c9a8685a83c8d8584c1469f6f03973943e439f4aa2485468ffcda5a5db8c5578` |
+| Embedded at | `internal/update/release-signing-key.ed25519.pem` |
+| Private-key storage | macOS login Keychain; never stored in the repository |
 
 ### Verifying a release by hand
 
@@ -130,11 +142,11 @@ Both lines must end in `Good signature` and `OK` respectively. Either failing me
 
 **Defends against**: a GitHub account compromise that swaps both the tarball and `SHA256SUMS` — the attacker doesn't have the maintainer's private key, so the produced `SHA256SUMS.asc` won't verify. Also defends against MITM scenarios past github.com's TLS.
 
-**Does not defend against**: theft of the maintainer's private key (handled via revocation — see below) and supply-chain attacks on the Go module graph at build time (separate from release integrity; tracked by `govulncheck` in `make check`).
+**Does not defend against**: theft of either signing private key and supply-chain attacks on the Go module graph at build time (separate from release integrity; tracked by `govulncheck` in `make check`).
 
 ### Key rotation and revocation
 
-The signing key is long-lived (no expiration date) because it is embedded in every shipped binary. Rotation requires shipping a new Canary binary with the new public key embedded. A revocation certificate is held offline by the maintainer; if used, it will be published to keyservers and announced in `SECURITY.md`.
+The signing keys are long-lived trust identities. Rotating the compact key requires a transition release that carries the replacement public key before releases switch to it. The PGP revocation certificate is held offline; compromise or rotation of either identity will be announced here.
 
 ## Diagnostic data sensitivity
 

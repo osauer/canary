@@ -85,11 +85,18 @@ async function runRound4SyntheticSmoke() {
     delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: now },
   };
   const readyInput = { status: "ok", as_of: now };
+  const syntheticSettings = {
+    kind: "ibkr.platform_settings",
+    as_of: now,
+    display: { date_format: { value: "us_weekday", access: "write", source: "runtime" } },
+    features: { stock_protection: { enabled: { value: true, access: "write", source: "runtime" } } },
+    trading: {}, market_data: { quality: {} }, build: { channel: { value: "stable" } }, auto_trade: {},
+  };
   const bootstrap = {
     auth: { authenticated: true },
     alert_settings: { mode: "watch_and_act" },
     alerts,
-    settings: null,
+    settings: syntheticSettings,
     vapid_public_key: "",
     snapshot: {
       account: {},
@@ -115,7 +122,7 @@ async function runRound4SyntheticSmoke() {
           ready: [{ runs: [{ text: "Act only on served synthetic evidence.", role: "act" }] }],
           coda: [{ text: "No account-derived data was loaded.", role: "" }],
         },
-        review: { rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
+        review: { last_session: { session_date: "2026-08-17" }, rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
         ready: { stress: { severity: "watch" } },
       },
       trading: { mode: "paper", account: "SYNTHETIC-PAPER", can_preview: true, can_write: true },
@@ -133,6 +140,7 @@ async function runRound4SyntheticSmoke() {
         context: { shadow: { count: 1 }, drawdown: { tier: "block", consumed_pct: 0 } },
         confirmed_flow_coverage: { coverage_from: earlier },
       },
+      settings: syntheticSettings,
     },
   };
   const context = await browser.newContext({
@@ -307,6 +315,11 @@ async function runRound4SyntheticSmoke() {
       label: document.getElementById("tabAlerts")?.getAttribute("aria-label") || "",
       route: location.pathname + location.search,
       remote: localStorage.getItem("ibkrRemoteRoute") || "",
+      workspaceHeadings: [...document.querySelectorAll(".workspace-heading")].map((heading) => ({
+        tab: heading.closest("[data-tab-panel]")?.getAttribute("data-tab-panel") || "",
+        overline: heading.querySelector(".workspace-heading__overline > span:first-child")?.textContent?.trim() || "",
+        title: heading.querySelector("h2")?.textContent?.trim() || "",
+      })),
     }));
     await page.waitForFunction(() => document.getElementById("updateAction")?.hidden === false, { timeout: 5000 });
     const update = await page.evaluate(() => {
@@ -341,6 +354,8 @@ async function runRound4SyntheticSmoke() {
       modes: [...document.querySelectorAll("#alertSegments button")].map((button) => button.textContent.trim()),
       copy: document.querySelector(".settings-notification-card")?.textContent || "",
       pushState: document.getElementById("pushState")?.textContent || "",
+      dateFormat: document.getElementById("dateFormatSelect")?.value || "",
+      dateOptions: [...document.querySelectorAll("#dateFormatSelect option")].map((option) => option.value),
     }));
     await page.locator("#tabMonitor").click();
     await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
@@ -348,6 +363,7 @@ async function runRound4SyntheticSmoke() {
       narrative: document.getElementById("briefSections")?.classList.contains("brief-sections--narrative") === true,
       text: document.getElementById("briefSections")?.textContent || "",
       accountText: document.getElementById("accountLabel")?.textContent || "",
+      sessionBridge: document.querySelector("#briefSections .pd-placard")?.textContent?.trim() || "",
     }));
     await page.setViewportSize({ width: 591, height: 844 });
     await page.locator("#tabOrders").click();
@@ -397,11 +413,18 @@ async function runRound4SyntheticSmoke() {
       submitRequests: globalThis.__canarySmoke?.fetches?.filter((item) => item.url.endsWith("/api/strategies/submit")).length || 0,
     }));
     if (!monitor.active || monitor.badge !== "1" || monitor.label !== "Alerts, 1 open" || monitor.route !== "/" || monitor.remote !== "synthetic-route") throw new Error(`synthetic unread/pairing recovery state failed: ${JSON.stringify(monitor)}`);
+    if (JSON.stringify(monitor.workspaceHeadings) !== JSON.stringify([
+      { tab: "monitor", overline: "Market desk", title: "Monitor" },
+      { tab: "positions", overline: "Live book", title: "Positions" },
+      { tab: "alerts", overline: "Attention queue", title: "Alerts" },
+      { tab: "orders", overline: "Order journal", title: "Orders" },
+      { tab: "settings", overline: "Control panel", title: "Settings" },
+    ])) throw new Error(`workspace heading hierarchy drifted: ${JSON.stringify(monitor.workspaceHeadings)}`);
     if (update.text !== "v3.0.2 available · Update" || !update.enabled || !update.visible || update.horizontal_overflow) throw new Error(`synthetic update footer failed: ${JSON.stringify(update)}`);
     if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
-    if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported") throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
-    if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved") throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
+    if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported" || settings.dateFormat !== "us_weekday" || JSON.stringify(settings.dateOptions) !== JSON.stringify(["us", "eu", "us_weekday", "eu_weekday"])) throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
+    if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved" || !briefView.sessionBridge.startsWith("Monday's close → next open")) throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
     if (!positionsView.active || !positionsView.underlyingsExpanded || positionsView.reductionRoutes !== 2 || !positionsView.strategiesSeated || !positionsView.strategiesCollapsed || !positionsView.performanceFirst || positionsView.sortOptions !== 5) throw new Error(`synthetic Positions state failed: ${JSON.stringify(positionsView)}`);
     if (strategyBefore.count !== "1 group" || !strategyBefore.text.includes("SYN · Vertical spread") || !strategyBefore.text.includes("2 units") || strategyBefore.previewButtons !== 1) throw new Error(`synthetic strategy group failed: ${JSON.stringify(strategyBefore)}`);
@@ -2174,7 +2197,7 @@ async function exerciseLampTestDetail(page) {
 // Review movement exactly when the served row says it is signable.
 async function assertBriefNarrative(page) {
   // Declared inside the function: the smoke invokes itself through a
-  const MOVEMENT_PLACARDS = ["Review \u00b7 since last close", "Ready \u00b7 next open"];
+  const MOVEMENT_PLACARDS = ["Review", "Ready"];
   const SEVERITY_WORDS = ["observe", "watch", "act", "ok", "attention", "degraded", "unavailable"];
   const MARKUP_LEAKS = ["[f]", "[/f]", "[w]", "[/w]", "[a]", "[/a]", "<span", "<b>"];
   const FIXTURE_REPORT = "smoke-signoff-fixture";
@@ -2247,8 +2270,8 @@ async function assertBriefNarrative(page) {
     return { mode: rendered.mode, headings: rendered.sectionHeadings };
   }
 
-  if (!rendered.placards[0]?.startsWith("Briefing")) {
-    throw new Error(`the briefing placard must stamp the brief: ${JSON.stringify(rendered.placards)}`);
+  if (!/^(?:[A-Z][a-z]+'s|Last) close → next open/.test(rendered.placards[0] || "")) {
+    throw new Error(`the briefing placard must name the last session weekday once: ${JSON.stringify(rendered.placards)}`);
   }
   for (const placard of MOVEMENT_PLACARDS) {
     if (!rendered.placards.some((text) => text.startsWith(placard))) {

@@ -162,6 +162,12 @@ func settingsPatchFromAssignment(raw string) (json.RawMessage, error) {
 		}
 		return marshalPatch(append(path, mapSymbol), value)
 	}
+	if spec.Kind == rpc.SettingsKindDateFormat {
+		if strings.EqualFold(valueRaw, "null") {
+			return marshalPatch(path, nil)
+		}
+		return marshalPatch(path, strings.ToLower(strings.TrimSpace(valueRaw)))
+	}
 	value, err := parseSettingsValue(valueRaw)
 	if err != nil {
 		return nil, err
@@ -234,7 +240,8 @@ func printSettingsSetUsage(env *Env) {
 		fmt.Fprintf(env.Stdout, "  - %s\n      %s\n", display, spec.Doc)
 	}
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Values are true, false, null, or a number. Earnings overrides take")
+	fmt.Fprintln(env.Stdout, "Values are true, false, null, a number, or the documented closed string set.")
+	fmt.Fprintln(env.Stdout, "Date format takes us, eu, us_weekday, or eu_weekday. Earnings overrides take")
 	fmt.Fprintln(env.Stdout, "YYYY-MM-DD (optional Tamc/Tbmo suffix), null to clear one symbol, or")
 	fmt.Fprintln(env.Stdout, "null on the bare earnings_overrides key to clear all of them.")
 	fmt.Fprintln(env.Stdout)
@@ -264,6 +271,7 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Canary Settings  %s\n", env.statusBadge(settingsVerdict(*st)))
 	fmt.Fprintln(out)
+	statusRow(env, out, "Date format", nonEmpty(st.Display.DateFormat.Value, rpc.DisplayDateFormatUS))
 	statusRow(env, out, "Stock protection", formatSettingsBool(env, st.Features.StockProtection.Enabled))
 	statusRow(env, out, "Rulebook", formatSettingsBool(env, st.Features.Rulebook.Enabled))
 	if n := len(st.Features.Rulebook.EarningsOverrides.Value); n > 0 {

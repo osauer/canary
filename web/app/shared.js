@@ -2,9 +2,62 @@ import { sign } from "./auth.js";
 import { state } from "./state.js";
 
 const $ = (id) => document.getElementById(id);
+const DATE_FORMAT_MODES = new Set(["us", "eu", "us_weekday", "eu_weekday"]);
 
 function currentSettings() {
   return state.settings || state.snapshot?.settings || {};
+}
+
+function dateFormatMode(value = currentSettings().display?.date_format?.value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return DATE_FORMAT_MODES.has(normalized) ? normalized : "us";
+}
+
+function calendarDate(value, options = {}) {
+  if (!value) return "";
+  const raw = String(value);
+  const dateOnly = options.dateOnly ?? /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const at = value instanceof Date
+    ? value
+    : new Date(dateOnly ? `${raw}T12:00:00Z` : value);
+  if (Number.isNaN(at.getTime())) return raw;
+  if (dateOnly && at.toISOString().slice(0, 10) !== raw) return raw;
+  const mode = dateFormatMode(options.mode);
+  const formatOptions = {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    ...(mode.endsWith("_weekday") ? { weekday: "long" } : {}),
+  };
+  const timeZone = options.timeZone || (dateOnly ? "UTC" : "");
+  if (timeZone) formatOptions.timeZone = timeZone;
+  return new Intl.DateTimeFormat(mode.startsWith("eu") ? "en-GB" : "en-US", formatOptions).format(at);
+}
+
+function calendarDateTime(value, options = {}) {
+  if (!value) return "";
+  const at = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(at.getTime())) return String(value);
+  const mode = dateFormatMode(options.mode);
+  const timeOptions = {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(options.seconds ? { second: "2-digit" } : {}),
+    ...(options.timeZoneName ? { timeZoneName: options.timeZoneName } : {}),
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  };
+  const date = calendarDate(at, { mode, timeZone: options.timeZone });
+  const time = new Intl.DateTimeFormat(mode.startsWith("eu") ? "en-GB" : "en-US", timeOptions).format(at);
+  return `${date} · ${time}`;
+}
+
+function weekdayName(value, timeZone = "UTC") {
+  if (!value) return "";
+  const raw = String(value);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const at = value instanceof Date ? value : new Date(dateOnly ? `${raw}T12:00:00Z` : value);
+  if (Number.isNaN(at.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone }).format(at);
 }
 
 function stockProtectionSettingEnabled() {
@@ -398,4 +451,4 @@ function shortTimeWithZone(value) {
   });
 }
 
-export { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, blockerText, cleanDetail, compactMoney, compactWholeMoney, currentSettings, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, wholePct };
+export { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, blockerText, calendarDate, calendarDateTime, cleanDetail, compactMoney, compactWholeMoney, currentSettings, dateFormatMode, displayMoney, firstNumber, hasNumericValue, labelize, maskAccountId, mergeCurrency, money, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, quoteTimestamp, readJSONOrText, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveSignedMoney, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoney, sensitiveMoneyHidden, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTime, shortTimeWithZone, signedClass, signedDisplayMoney, signedMoneyRead, signedPct, signedTone, stockProtectionSettingEnabled, weekdayName, wholePct };

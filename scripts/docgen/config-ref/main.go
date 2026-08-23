@@ -522,6 +522,8 @@ func render(tables [][]tomlField, envs []envVar) string {
 		case rpc.SettingsKindDateMap:
 			key += ".<SYMBOL>"
 			grammar = "YYYY-MM-DD[Tamc/Tbmo]/null"
+		case rpc.SettingsKindDateFormat:
+			grammar = "us/eu/us_weekday/eu_weekday/null"
 		}
 		fmt.Fprintf(out, "| `%s` | `%s` | %s | %s |\n", key, grammar, spec.Class, escapeTable(spec.Doc))
 	}

@@ -72,6 +72,7 @@ function reset() {
     opportunitySnapshotBusy: false, opportunitySnapshotLastAt: 0, opportunitySnapshotNotice: "",
     governance: null, governanceRefreshSucceeded: null, reconciliationCheck: { busy: false, state: "", error: false },
     safeNotificationTest: { busy: false, state: "", error: false }, pushInspection: { state: "unsupported", busy: false },
+    dateFormatUpdate: { busy: false, state: "", error: false },
     alertSettings: { mode: "watch_and_act" }, alertsRefreshInFlight: null, alertsRefreshTimer: null,
     alertEvidenceTarget: null, attentionEpoch: 0, attentionReadInFlight: null, attentionRetryTimer: null,
     attentionStatus: { state: "", error: false },
@@ -155,6 +156,72 @@ test("primary navigation seats Positions and folds the Daily brief into Monitor"
   assert.match(html, /id="dashboard"[^>]*data-tab-panel="monitor"[\s\S]*id="briefPanel"/);
   assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="underlyingsSheet"/);
   assert.doesNotMatch(html, /id="attentionStatus"/);
+});
+
+test("primary workspaces share the Positions overline and title hierarchy", async () => {
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const css = await readFile(new URL("../styles.css", import.meta.url), "utf8");
+  const headings = [
+    ["dashboard", "Market desk", "monitorWorkspaceTitle", "Monitor"],
+    ["positionsTab", "Live book", "positionsGuideTitle", "Positions"],
+    ["alertsTab", "Attention queue", "alertsWorkspaceTitle", "Alerts"],
+    ["ordersTab", "Order journal", "ordersWorkspaceTitle", "Orders"],
+    ["settingsTab", "Control panel", "settingsWorkspaceTitle", "Settings"],
+  ];
+  for (const [panelID, overline, titleID, title] of headings) {
+    const escapedOverline = overline.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    assert.match(html, new RegExp(`id="${panelID}"[\\s\\S]{0,700}workspace-heading__overline[\\s\\S]{0,160}>${escapedOverline}<\\/span>[\\s\\S]{0,240}<h2 id="${titleID}">${title}<\\/h2>`));
+  }
+  assert.equal((html.match(/class="workspace-heading(?: workspace-heading--tab| positions-workspace__mast)"/g) || []).length, 5);
+  assert.match(css, /\.workspace-heading__overline\s*\{[^}]*color:\s*var\(--pd-advisory\);[^}]*text-transform:\s*uppercase;/s);
+  assert.match(css, /\.workspace-heading h2\s*\{[^}]*color:\s*var\(--pd-readout\);[^}]*font-size:\s*clamp\(24px, 4vw, 30px\);/s);
+});
+
+test("display date format offers US and European dates with optional weekdays", () => {
+  reset();
+  const expected = {
+    us: "Aug 18, 2026",
+    eu: "18 Aug 2026",
+    us_weekday: "Tuesday, Aug 18, 2026",
+    eu_weekday: "Tuesday, 18 Aug 2026",
+  };
+  for (const [mode, label] of Object.entries(expected)) {
+    state.settings = { kind: "ibkr.platform_settings", display: { date_format: { value: mode, access: "write", source: "runtime" } } };
+    assert.equal(shared.dateFormatMode(), mode);
+    assert.equal(shared.calendarDate("2026-08-18"), label);
+  }
+  state.settings = null;
+  assert.equal(shared.dateFormatMode(), "us");
+  assert.equal(shared.calendarDate("2026-08-18"), expected.us);
+});
+
+test("Settings date format uses the typed platform-settings patch and repaints", async () => {
+  reset();
+  const served = (value) => ({
+    kind: "ibkr.platform_settings",
+    as_of: "2026-08-18T12:00:00Z",
+    display: { date_format: { value, access: "write", source: "runtime" } },
+    features: { stock_protection: { enabled: { value: true, access: "write", source: "runtime" } } },
+  });
+  state.settings = served("us");
+  let request = null;
+  globalThis.fetch = async (url, init = {}) => {
+    request = { url: String(url), method: init.method, body: JSON.parse(init.body) };
+    return response(served("eu_weekday"));
+  };
+  assert.equal(await settings.setDateFormat("eu_weekday"), true);
+  assert.deepEqual(request, { url: "/api/settings", method: "PATCH", body: { display: { date_format: "eu_weekday" } } });
+  assert.equal(state.settings.display.date_format.value, "eu_weekday");
+  assert.equal(state.dateFormatUpdate.state, "Date format saved.");
+  assert.equal(renderCount > 0, true);
+
+  reset();
+  state.readOnlyPreview = true;
+  state.settings = served("us");
+  globalThis.fetch = async () => { throw new Error("read-only preview must not write"); };
+  assert.equal(await settings.setDateFormat("eu"), true);
+  assert.equal(state.settings.display.date_format.value, "eu");
+  assert.equal(state.dateFormatUpdate.state, "Preview only · not saved.");
 });
 
 test("Positions is performance-first while typed risk and guarded actions stay behind selection", async () => {
@@ -1015,15 +1082,18 @@ test("TestBriefCardStaticContract replacement renders production narrative, safe
       ready: [{ runs: [{ text: "Act only on served evidence.", role: "act" }] }],
       coda: [{ text: "End of brief.", role: "" }],
     },
-    review: { rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
+    review: { last_session: { session_date: "2026-06-26" }, rules: { status: "ok", pass: 10, watch: 0, act: 0, unknown: 0 } },
     ready: { stress: { severity: "watch" } },
   };
   state.snapshot = { brief: narrative, sources: { brief: {} } };
   brief.renderBriefCard(state.snapshot);
   const sections = dom.element("briefSections");
   assert.equal(sections.classList.contains("brief-sections--narrative"), true);
-  assert.equal(byClass(sections, "pd-placard").some((node) => node.textContent === "Review · since last close"), true);
-  assert.equal(byClass(sections, "pd-placard").some((node) => node.textContent === "Ready · next open"), true);
+  assert.deepEqual(byClass(sections, "pd-placard").map((node) => node.textContent), ["Friday's close → next openwatch", "Review", "Ready"]);
+  assert.match(dom.element("briefAsOf").textContent, /^Jul 1, 2026 · /);
+  state.settings = { kind: "ibkr.platform_settings", display: { date_format: { value: "eu_weekday" } } };
+  brief.renderBriefCard(state.snapshot);
+  assert.match(dom.element("briefAsOf").textContent, /^Wednesday, 1 Jul 2026 · /);
   assert.deepEqual(byClass(sections, "pd-fig").map((node) => node.textContent), ["******", " 42%"]);
   state.accountValueVisible = true;
   brief.renderBriefCard(state.snapshot);

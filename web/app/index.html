@@ -121,6 +121,14 @@
 
       <section class="tab-panels" id="tabPanels" hidden>
       <section class="dashboard tab-panel" id="dashboard" data-tab-panel="monitor" role="tabpanel" aria-labelledby="tabMonitor">
+        <header class="workspace-heading workspace-heading--tab" aria-labelledby="monitorWorkspaceTitle">
+          <div class="workspace-heading__intro">
+            <div class="workspace-heading__overline">
+              <span>Market desk</span>
+            </div>
+            <h2 id="monitorWorkspaceTitle">Monitor</h2>
+          </div>
+        </header>
         <article class="panel brief-panel" id="briefPanel" hidden>
           <div class="panel-head">
             <span>Daily brief</span>
@@ -311,14 +319,14 @@
 
       <section class="tab-panel tab-panel--positions" id="positionsTab" data-tab-panel="positions" role="tabpanel" aria-labelledby="tabPositions" hidden>
         <article class="panel positions-workspace underlying-panel" id="underlyingPanel" data-open="true" aria-labelledby="positionsGuideTitle">
-          <header class="positions-workspace__mast">
-            <div class="positions-workspace__intro">
-              <div class="positions-workspace__overline">
+          <header class="workspace-heading positions-workspace__mast">
+            <div class="workspace-heading__intro">
+              <div class="workspace-heading__overline">
                 <span>Live book</span>
                 <span class="panel-time" id="underlyingBookFreshness">--</span>
               </div>
               <h2 id="positionsGuideTitle">Positions</h2>
-              <p>Watch what moved and how each position performed. Select a row for exposure, composition, and the reduction paths Canary can actually support.</p>
+              <p class="workspace-heading__copy">Watch what moved and how each position performed. Select a row for exposure, composition, and the reduction paths Canary can actually support.</p>
             </div>
             <div class="positions-workspace__routes" aria-label="Portfolio action routes">
               <button class="positions-route" id="positionsStockReduction" type="button" aria-haspopup="dialog" aria-controls="protectionSheet">
@@ -399,6 +407,14 @@
       </section>
 
       <section class="tab-panel tab-panel--alerts" id="alertsTab" data-tab-panel="alerts" role="tabpanel" aria-labelledby="tabAlerts" hidden>
+        <header class="workspace-heading workspace-heading--tab" aria-labelledby="alertsWorkspaceTitle">
+          <div class="workspace-heading__intro">
+            <div class="workspace-heading__overline">
+              <span>Attention queue</span>
+            </div>
+            <h2 id="alertsWorkspaceTitle">Alerts</h2>
+          </div>
+        </header>
         <details class="panel alerts-panel" id="alertsPanel" hidden open>
           <summary class="panel-head">
             <span class="panel-title-with-icon">
@@ -406,7 +422,7 @@
                 <path d="M6.5 10.5a5.5 5.5 0 0 1 11 0c0 5 2 5.5 2 7H4.5c0-1.5 2-2 2-7Z"></path>
                 <path d="M10 20a2.3 2.3 0 0 0 4 0"></path>
               </svg>
-              Alerts
+              Current alerts
             </span>
             <span class="alert-active-count" id="alertCount">0 Active</span>
           </summary>
@@ -424,6 +440,14 @@
       </section>
 
       <section class="tab-panel tab-panel--orders" id="ordersTab" data-tab-panel="orders" role="tabpanel" aria-labelledby="tabOrders" hidden>
+        <header class="workspace-heading workspace-heading--tab" aria-labelledby="ordersWorkspaceTitle">
+          <div class="workspace-heading__intro">
+            <div class="workspace-heading__overline">
+              <span>Order journal</span>
+            </div>
+            <h2 id="ordersWorkspaceTitle">Orders</h2>
+          </div>
+        </header>
         <article class="panel orders-panel" id="ordersPanel">
           <div class="panel-head">
             <span class="panel-title-with-icon">
@@ -449,22 +473,34 @@
       </section>
 
       <section class="tab-panel tab-panel--settings" id="settingsTab" data-tab-panel="settings" role="tabpanel" aria-labelledby="tabSettings" hidden>
-        <article class="panel settings-panel">
-          <div class="panel-head">
-            <span class="panel-title-with-icon">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M4 7h7"></path>
-                <path d="M15 7h5"></path>
-                <circle cx="13" cy="7" r="2"></circle>
-                <path d="M4 17h5"></path>
-                <path d="M13 17h7"></path>
-                <circle cx="11" cy="17" r="2"></circle>
-              </svg>
-              Settings
-            </span>
-            <span class="panel-time" id="settingsAsOf">--</span>
+        <header class="workspace-heading workspace-heading--tab" aria-labelledby="settingsWorkspaceTitle">
+          <div class="workspace-heading__intro">
+            <div class="workspace-heading__overline">
+              <span>Control panel</span>
+              <span class="panel-time" id="settingsAsOf">--</span>
+            </div>
+            <h2 id="settingsWorkspaceTitle">Settings</h2>
           </div>
+        </header>
+        <article class="panel settings-panel">
           <div class="settings-stack">
+            <div class="pd-placard">Display</div>
+            <div class="pd-tile pd-bank">
+              <label class="pd-set-row pd-set-row--select" for="dateFormatSelect">
+                <span class="pd-set-copy">
+                  <span class="pd-tile__legend">Date format</span>
+                  <b class="pd-set-val">Calendar dates across Canary</b>
+                  <small class="pd-set-note" id="dateFormatSettingMeta">Typed timestamps remain unchanged.</small>
+                </span>
+                <select class="pd-setting-select" id="dateFormatSelect" aria-label="Calendar date format">
+                  <option value="us">Aug 18, 2026</option>
+                  <option value="eu">18 Aug 2026</option>
+                  <option value="us_weekday">Tuesday, Aug 18, 2026</option>
+                  <option value="eu_weekday">Tuesday, 18 Aug 2026</option>
+                </select>
+              </label>
+              <p class="governance-action-status" id="dateFormatSettingStatus" role="status"></p>
+            </div>
             <div class="pd-placard">Notifications</div>
             <section class="pd-tile pd-bank settings-notification-card" aria-labelledby="phoneNotificationsHeading">
               <div class="pd-set-row">

@@ -1,0 +1,14 @@
+Migration inventory:
+  inactive: instruction files - none found
+  active: skills - 1 found
+    - canary-preview
+  inactive: command sources - none found
+  inactive: subagents - none found
+Migration surfaces:
+  inactive: AGENTS.md - No supported instruction file found.
+  active: skills - 1 skill(s) converted.
+  inactive: MCP config - Not selected by CLI flags.
+  inactive: subagents - Not selected by CLI flags.
+Migration report:
+  rewritten: .agents/skills/canary-preview/SKILL.md - Converted Claude skill.
+  overwritten: .agents/skills/canary-preview - Existing Codex skill will be replaced.

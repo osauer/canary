@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 ./scripts/with-release-tag-checkout_test.sh
 ./scripts/build-release-target_test.sh
 ./scripts/build-release-artifacts_test.sh
+./scripts/check-release-payload-inventory_test.sh
 ./scripts/build-mcpb_test.sh
 ./scripts/install_test.sh
 ./scripts/check-changelog-entry_test.sh

@@ -639,7 +639,7 @@ while IFS= read -r line; do
 		if [[ "$code" == *"gh release create"* ]]; then
 			publish_create_line="$line_number"
 		fi
-		if [ "$code" = './scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \' ]; then
+		if [ "$code" = './scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc $(DIST_DIR)/SHA256SUMS.ed25519 && \' ]; then
 			publish_upload_count=$((publish_upload_count + 1))
 			publish_upload_line="$line_number"
 		fi

@@ -1,5 +1,5 @@
 import { b64urlToBytes } from "./auth.js";
-import { $ } from "./shared.js";
+import { $, calendarDate, calendarDateTime } from "./shared.js";
 import { state } from "./state.js";
 
 const alertModes = new Set(["none", "act_only", "watch_and_act"]);
@@ -301,8 +301,8 @@ function safeDate(value) {
 }
 
 function safeTime(value) { return typeof value === "string" && Number.isFinite(Date.parse(value)) ? value : ""; }
-function dateLabel(value) { return new Date(`${value}T12:00:00Z`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }); }
-function timeLabel(value) { return new Date(value).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+function dateLabel(value) { return calendarDate(value, { dateOnly: true }); }
+function timeLabel(value) { return calendarDateTime(value); }
 function notificationStateLabel() { return state.pushInspection.state; }
 function hasNotifications() { return typeof globalThis.Notification === "function"; }
 function canUseWebPush() { return hasNotifications() && "PushManager" in globalThis && !!navigator.serviceWorker; }

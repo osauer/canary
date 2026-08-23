@@ -1,4 +1,5 @@
 import { state } from "./state.js";
+import { calendarDate, calendarDateTime } from "./shared.js";
 
 const $ = (id) => globalThis.document?.getElementById(id) || null;
 
@@ -364,24 +365,13 @@ function canAssertAlertClear(value = state.alerts, now = Date.now()) {
 
 function timeLabel(value) {
   if (!value) return "not observed";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "not observed";
-  return parsed.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
+  const label = calendarDateTime(value, { timeZoneName: "short" });
+  return label || "not observed";
 }
-
-// Panel clock: the day and the minute, on the same 24-hour register the
-// earns its place; the seconds never do. Inside the week the weekday reads
-const WEEKDAY_CLOCK_MS = 6 * 24 * 60 * 60 * 1000;
 
 function clockLabel(value) {
   if (!value) return "not observed";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "not observed";
-  const day = Math.abs(Date.now() - parsed.getTime()) <= WEEKDAY_CLOCK_MS
-    ? parsed.toLocaleDateString([], { weekday: "short" })
-    : parsed.toLocaleDateString([], { day: "numeric", month: "short" });
-  const time = parsed.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  return `${day} ${time}`;
+  return calendarDateTime(value) || "not observed";
 }
 
 function alertSourceLabel(source) {
@@ -580,15 +570,11 @@ function formatAlertPercent(value) {
 }
 
 function formatAlertDate(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || "");
-  return date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+  return calendarDate(value);
 }
 
 function formatAlertDateTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || "");
-  return `${formatAlertDate(value)} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+  return calendarDateTime(value);
 }
 
 function humanAlertWord(value) {

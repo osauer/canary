@@ -58,6 +58,13 @@ errors roll back both records; no legacy-file write or fallback follows.
 
 ## Policy
 
+`display.date_format` is presentation-only and defaults to `us`. The closed
+values are `us`, `eu`, `us_weekday`, and `eu_weekday`; the weekday variants
+spell out the session day. The SPA applies the preference to absolute calendar
+dates across every tab while preserving relative freshness labels. The stored
+value never rewrites a typed timestamp, changes a timezone, or participates in
+market-session, risk, alert, or trading decisions.
+
 Stock/ETF protection proposals are enabled by default. Disabling
 `features.stock_protection.enabled` blocks stock/ETF protection proposal actions
 with a `stock_protection_disabled` blocker, while proposal/status surfaces

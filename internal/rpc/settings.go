@@ -52,6 +52,7 @@ type SettingsString struct {
 // PlatformSettings is the typed, daemon-authored settings view. It combines
 type PlatformSettings struct {
 	Kind       string                    `json:"kind"`
+	Display    PlatformDisplaySettings   `json:"display"`
 	Features   PlatformFeatureSettings   `json:"features"`
 	Trading    PlatformTradingSettings   `json:"trading"`
 	AutoTrade  PlatformAutoTradeSettings `json:"auto_trade"`
@@ -62,6 +63,22 @@ type PlatformSettings struct {
 	Build      PlatformBuildSettings     `json:"build"`
 	AsOf       time.Time                 `json:"as_of"`
 }
+
+// PlatformDisplaySettings holds presentation preferences. These values alter
+// only adapter rendering; timestamps and market-session authority stay typed
+// and unchanged.
+type PlatformDisplaySettings struct {
+	DateFormat SettingsString `json:"date_format"`
+}
+
+// DisplayDateFormat values are the closed calendar-date presentations shared
+// by platform settings and adapters.
+const (
+	DisplayDateFormatUS        = "us"
+	DisplayDateFormatEU        = "eu"
+	DisplayDateFormatUSWeekday = "us_weekday"
+	DisplayDateFormatEUWeekday = "eu_weekday"
+)
 
 // PlatformRegimeSettings holds the regime engine's runtime preferences.
 type PlatformRegimeSettings struct {
@@ -207,6 +224,9 @@ const (
 	// Tamc/Tbmo suffix) entries; a null entry clears that symbol, a null map
 	// clears all of them, and patches merge per symbol.
 	SettingsKindDateMap SettingsKeyKind = "date-map"
+	// SettingsKindDateFormat accepts one closed calendar-date presentation
+	// value or null to restore the US default.
+	SettingsKindDateFormat SettingsKeyKind = "date-format"
 )
 
 // Writability classes the daemon enforces beyond per-kind parsing.
@@ -237,6 +257,10 @@ type SettingsKeySpec struct {
 // SettingsKeys returns the registry in stable display order.
 func SettingsKeys() []SettingsKeySpec {
 	return []SettingsKeySpec{
+		{
+			Key: "display.date_format", Kind: SettingsKindDateFormat, Class: SettingsClassRuntime,
+			Doc: "Calendar-date presentation in the SPA: us, eu, us_weekday, or eu_weekday; it never changes typed timestamps or market-session authority (default us).",
+		},
 		{
 			Key: "features.stock_protection.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,
 			Doc: "Allows stock/ETF protection proposal actions; false blocks them with a stock_protection_disabled blocker while proposal snapshots stay readable (default true).",

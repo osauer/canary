@@ -360,13 +360,37 @@ func briefReviewLastSession(p *briefProse, row rpc.BriefLastSessionRow) {
 	if row.SessionDate == "" {
 		return
 	}
+	weekday := briefSessionWeekday(row.SessionDate)
 	if row.DailyPnLBase == nil {
-		p.text("The last completed session (" + row.SessionDate + ") has no close-time Daily P/L capture; the daemon records that figure only while observing the official close.")
+		if weekday != "" {
+			p.text(weekday + "'s close has no captured Daily P/L; the daemon records that figure only while observing the official close.")
+		} else {
+			p.text("The last completed session (" + row.SessionDate + ") has no captured Daily P/L; the daemon records that figure only while observing the official close.")
+		}
 		return
 	}
-	p.text("The last completed session (" + row.SessionDate + ") closed with Daily P/L ")
+	session := "The last completed session (" + row.SessionDate + ")"
+	if weekday != "" {
+		session = weekday
+	}
+	p.text(session + " closed with Daily P/L ")
 	p.accountFigure(briefMoney(*row.DailyPnLBase, row.BaseCurrency, true))
 	p.text(", captured " + briefCloseCaptureClock(row.CapturedAt) + ".")
+}
+
+func briefSessionWeekday(sessionDate string) string {
+	day, err := time.Parse("2006-01-02", strings.TrimSpace(sessionDate))
+	if err != nil {
+		return ""
+	}
+	return day.Weekday().String()
+}
+
+func briefCloseReference(sessionDate string) string {
+	if weekday := briefSessionWeekday(sessionDate); weekday != "" {
+		return weekday + "'s close"
+	}
+	return "the last regular close"
 }
 
 // briefCloseCaptureClock renders the capture instant on the session's own
@@ -391,7 +415,7 @@ func briefReviewSession(p *briefProse, review rpc.BriefReviewSection, session rp
 		p.text("Account P/L is unavailable, so the session cannot be summarized.")
 	case account.DailyPnLBase != nil:
 		if sessionClosed {
-			p.text("Since the last regular close, Daily P/L stands at ")
+			p.text("Since " + briefCloseReference(review.LastSession.SessionDate) + ", Daily P/L stands at ")
 		} else {
 			p.text("Daily P/L stands at ")
 		}

@@ -31,22 +31,29 @@ done
 script_dir="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(CDPATH= cd -- "$script_dir/.." && pwd)"
 release_key="$repo_root/internal/update/release-signing-key.asc"
-updater_contract="$repo_root/internal/update/keyring.go"
+release_fingerprint="$repo_root/internal/update/release-signing-key.fingerprint"
+compact_release_key="$repo_root/internal/update/release-signing-key.ed25519.pem"
+compact_verifier="$repo_root/scripts/release-sign-ed25519"
 expected_signing_fingerprint="D98426D48FED85EFA33904694D922A4F922B7D7D"
 if [ ! -f "$release_key" ] || [ -L "$release_key" ]; then
 	echo "check-github-release: canonical release-signing key is missing or unsafe" >&2
 	exit 1
 fi
-if [ ! -f "$updater_contract" ] || [ -L "$updater_contract" ]; then
-	echo "check-github-release: updater signing contract is missing or unsafe" >&2
+if [ ! -f "$compact_release_key" ] || [ -L "$compact_release_key" ]; then
+	echo "check-github-release: compact release-signing key is missing or unsafe" >&2
 	exit 1
 fi
-updater_fingerprint="$(
-	sed -n 's/^var ReleaseSigningKeyFingerprint = "\([0-9A-F]*\)"$/\1/p' \
-		"$updater_contract"
-)"
-if [ "$updater_fingerprint" != "$expected_signing_fingerprint" ]; then
-	echo "check-github-release: updater signing fingerprint does not match the pinned Canary release identity" >&2
+if [ ! -f "$compact_verifier/main.go" ] || [ -L "$compact_verifier/main.go" ]; then
+	echo "check-github-release: compact signature verifier is missing or unsafe" >&2
+	exit 1
+fi
+if [ ! -f "$release_fingerprint" ] || [ -L "$release_fingerprint" ]; then
+	echo "check-github-release: release-signing fingerprint is missing or unsafe" >&2
+	exit 1
+fi
+published_fingerprint="$(tr -d '[:space:]' < "$release_fingerprint")"
+if [ "$published_fingerprint" != "$expected_signing_fingerprint" ]; then
+	echo "check-github-release: release-signing fingerprint does not match the pinned Canary release identity" >&2
 	exit 1
 fi
 
@@ -129,7 +136,7 @@ if len(drafts) != 1:
     )
 Path(json_arg).write_text(json.dumps(drafts[0]), encoding="utf-8")
 PY
-	for checksum_asset in SHA256SUMS SHA256SUMS.asc; do
+	for checksum_asset in SHA256SUMS SHA256SUMS.asc SHA256SUMS.ed25519; do
 		asset_id="$(python3 - "$release_json" "$checksum_asset" <<'PY'
 import json
 import sys
@@ -157,7 +164,8 @@ else
 	gh api --hostname github.com -X GET \
 		"repos/osauer/canary/releases/tags/$version" >"$release_json"
 	gh release download "$version" --repo github.com/osauer/canary \
-		--dir "$download_dir" --pattern SHA256SUMS --pattern SHA256SUMS.asc
+		--dir "$download_dir" --pattern SHA256SUMS --pattern SHA256SUMS.asc \
+		--pattern SHA256SUMS.ed25519
 fi
 
 python3 "$script_dir/materialize-release-tag-file.py" \
@@ -188,7 +196,7 @@ payloads = {
     for prefix in ("canary", "canary-trading")
 }
 payloads.update({f"canary-{version}.mcpb", "canary.mcpb"})
-expected = payloads | {"SHA256SUMS", "SHA256SUMS.asc"}
+expected = payloads | {"SHA256SUMS", "SHA256SUMS.asc", "SHA256SUMS.ed25519"}
 
 try:
     release = json.loads(release_path.read_text(encoding="utf-8"))
@@ -243,15 +251,26 @@ if set(by_name) != expected:
 
 remote_sums = download / "SHA256SUMS"
 remote_signature = download / "SHA256SUMS.asc"
+remote_compact_signature = download / "SHA256SUMS.ed25519"
 local_sums = dist / "SHA256SUMS"
 local_signature = dist / "SHA256SUMS.asc"
-for path in (remote_sums, remote_signature, local_sums, local_signature):
+local_compact_signature = dist / "SHA256SUMS.ed25519"
+for path in (
+    remote_sums,
+    remote_signature,
+    remote_compact_signature,
+    local_sums,
+    local_signature,
+    local_compact_signature,
+):
     if not path.is_file() or path.is_symlink():
         raise SystemExit(f"check-github-release: missing or unsafe file {path}")
 if remote_sums.read_bytes() != local_sums.read_bytes():
     raise SystemExit("check-github-release: remote SHA256SUMS differs from local file")
 if remote_signature.read_bytes() != local_signature.read_bytes():
     raise SystemExit("check-github-release: remote SHA256SUMS.asc differs from local file")
+if remote_compact_signature.read_bytes() != local_compact_signature.read_bytes():
+    raise SystemExit("check-github-release: remote SHA256SUMS.ed25519 differs from local file")
 
 sum_entries = {}
 for number, line in enumerate(remote_sums.read_text(encoding="utf-8").splitlines(), 1):
@@ -299,6 +318,10 @@ if by_name["SHA256SUMS.asc"] != sha256(remote_signature):
     raise SystemExit("check-github-release: GitHub digest mismatch for SHA256SUMS.asc")
 if by_name["SHA256SUMS.asc"] != sha256(local_signature):
     raise SystemExit("check-github-release: local SHA256SUMS.asc digest mismatch")
+if by_name["SHA256SUMS.ed25519"] != sha256(remote_compact_signature):
+    raise SystemExit("check-github-release: GitHub digest mismatch for SHA256SUMS.ed25519")
+if by_name["SHA256SUMS.ed25519"] != sha256(local_compact_signature):
+    raise SystemExit("check-github-release: local SHA256SUMS.ed25519 digest mismatch")
 PY
 
 gpg --homedir "$keyring_dir" --batch --no-auto-key-retrieve \
@@ -308,4 +331,12 @@ gpg --homedir "$keyring_dir" --batch --no-auto-key-retrieve \
 	exit 1
 }
 
-echo "check-github-release: OK version=$version assets=12"
+go run "$compact_verifier" \
+	-public "$compact_release_key" \
+	-input "$download_dir/SHA256SUMS" \
+	-verify "$download_dir/SHA256SUMS.ed25519" >/dev/null 2>&1 || {
+	echo "check-github-release: remote compact checksum signature did not verify against the pinned Canary release identity" >&2
+	exit 1
+}
+
+echo "check-github-release: OK version=$version assets=13"

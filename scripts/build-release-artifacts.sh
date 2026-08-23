@@ -135,7 +135,12 @@ build_checksums() {
 		echo "build-release-artifacts: gpg not on PATH" >&2
 		exit 1
 	}
-	expected_fp="$(awk -F\" '/ReleaseSigningKeyFingerprint =/{print $2; exit}' internal/update/keyring.go)"
+	fingerprint_file="internal/update/release-signing-key.fingerprint"
+	if [ ! -f "$fingerprint_file" ] || [ -L "$fingerprint_file" ]; then
+		echo "build-release-artifacts: the tag's release-signing fingerprint is missing or unsafe" >&2
+		exit 1
+	fi
+	expected_fp="$(tr -d '[:space:]' < "$fingerprint_file")"
 	if [ -z "$expected_fp" ] || ! gpg --list-secret-keys --with-colons "$expected_fp" >/dev/null 2>&1; then
 		echo "build-release-artifacts: the tag's release signing key is unavailable" >&2
 		exit 1
@@ -146,6 +151,19 @@ build_checksums() {
 		gpg --batch --yes --local-user "$expected_fp" --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
 		gpg --verify SHA256SUMS.asc SHA256SUMS >/dev/null 2>&1
 	)
+	compact_public_key="internal/update/release-signing-key.ed25519.pem"
+	if [ ! -f "$compact_public_key" ] || [ -L "$compact_public_key" ]; then
+		echo "build-release-artifacts: the tag's compact release-signing public key is missing or unsafe" >&2
+		exit 1
+	fi
+	go run ./scripts/release-sign-ed25519 \
+		-public "$compact_public_key" \
+		-input "$artifact_dir/SHA256SUMS" \
+		-output "$artifact_dir/SHA256SUMS.ed25519"
+	go run ./scripts/release-sign-ed25519 \
+		-public "$compact_public_key" \
+		-input "$artifact_dir/SHA256SUMS" \
+		-verify "$artifact_dir/SHA256SUMS.ed25519"
 }
 
 case "$mode" in

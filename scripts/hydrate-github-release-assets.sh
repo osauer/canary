@@ -88,7 +88,8 @@ set -- "$@" \
 	--pattern "canary-$version.mcpb" \
 	--pattern canary.mcpb \
 	--pattern SHA256SUMS \
-	--pattern SHA256SUMS.asc
+	--pattern SHA256SUMS.asc \
+	--pattern SHA256SUMS.ed25519
 gh release download "$version" --repo github.com/osauer/canary \
 	--dir "$stage_dir" "$@"
 
@@ -101,4 +102,4 @@ fi
 mv "$stage_dir" "$dist_dir"
 stage_dir=""
 
-echo "hydrate-github-release-assets: OK version=$version assets=12"
+echo "hydrate-github-release-assets: OK version=$version assets=13"

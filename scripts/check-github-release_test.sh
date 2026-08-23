@@ -35,8 +35,10 @@ mkdir -p "$repo/scripts" "$repo/internal/update" "$repo/.github" \
 cp "$source_root/scripts/check-github-release.sh" "$repo/scripts/"
 cp "$source_root/scripts/materialize-release-tag-file.py" "$repo/scripts/"
 cp "$source_root/scripts/render-release-notes.sh" "$repo/scripts/"
+cp -R "$source_root/scripts/release-sign-ed25519" "$repo/scripts/"
 cp "$source_root/internal/update/release-signing-key.asc" "$repo/internal/update/"
-cp "$source_root/internal/update/keyring.go" "$repo/internal/update/"
+cp "$source_root/internal/update/release-signing-key.fingerprint" "$repo/internal/update/"
+cp "$source_root/internal/update/release-signing-key.ed25519.pem" "$repo/internal/update/"
 cat >"$repo/CHANGELOG.md" <<'EOF'
 # Changelog
 
@@ -90,6 +92,8 @@ write_sums
 cp "$dist/SHA256SUMS" "$remote/SHA256SUMS"
 printf '%s\n' fixture-signature >"$remote/SHA256SUMS.asc"
 cp "$remote/SHA256SUMS.asc" "$dist/SHA256SUMS.asc"
+printf '%s\n' fixture-compact-signature >"$remote/SHA256SUMS.ed25519"
+cp "$remote/SHA256SUMS.ed25519" "$dist/SHA256SUMS.ed25519"
 
 "$repo/scripts/render-release-notes.sh" "$version" \
 	"$repo/CHANGELOG.md" "$repo/.github/release-notes-template.md" \
@@ -150,6 +154,10 @@ if [ "$1" = "api" ]; then
 		cat "$TEST_REMOTE_ASSETS/SHA256SUMS.asc"
 		exit 0
 		;;
+	"api --hostname github.com -H Accept: application/octet-stream repos/osauer/canary/releases/assets/9103")
+		cat "$TEST_REMOTE_ASSETS/SHA256SUMS.ed25519"
+		exit 0
+		;;
 	*)
 		exit 96
 		;;
@@ -161,6 +169,7 @@ if [ "$1" = "release" ] && [ "$2" = "download" ]; then
 	repo_count=0
 	sum_pattern_count=0
 	signature_pattern_count=0
+	compact_signature_pattern_count=0
 	shift 3
 	while [ "$#" -gt 0 ]; do
 		case "$1" in
@@ -174,6 +183,7 @@ if [ "$1" = "release" ] && [ "$2" = "download" ]; then
 				case "$2" in
 				SHA256SUMS) sum_pattern_count=$((sum_pattern_count + 1)) ;;
 				SHA256SUMS.asc) signature_pattern_count=$((signature_pattern_count + 1)) ;;
+				SHA256SUMS.ed25519) compact_signature_pattern_count=$((compact_signature_pattern_count + 1)) ;;
 				*) exit 93 ;;
 				esac
 				shift 2
@@ -184,12 +194,22 @@ if [ "$1" = "release" ] && [ "$2" = "download" ]; then
 	[ "$repo_count" -eq 1 ] \
 		&& [ "$sum_pattern_count" -eq 1 ] \
 		&& [ "$signature_pattern_count" -eq 1 ] \
+		&& [ "$compact_signature_pattern_count" -eq 1 ] \
 		&& [ -n "$destination" ] || exit 92
 	cp "$TEST_REMOTE_ASSETS/SHA256SUMS" "$destination/SHA256SUMS"
 	cp "$TEST_REMOTE_ASSETS/SHA256SUMS.asc" "$destination/SHA256SUMS.asc"
+	cp "$TEST_REMOTE_ASSETS/SHA256SUMS.ed25519" "$destination/SHA256SUMS.ed25519"
 	exit 0
 fi
 exit 97
+EOF
+cat >"$bin/go" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case " $* " in
+	*" -verify "*) exit "${TEST_ED25519_EXIT:-0}" ;;
+esac
+exit 98
 EOF
 cat >"$bin/gpg" <<'EOF'
 #!/usr/bin/env bash
@@ -208,8 +228,9 @@ for argument in "$@"; do
 done
 exit 0
 EOF
-chmod 0755 "$bin/gh" "$bin/gpg"
+chmod 0755 "$bin/gh" "$bin/go" "$bin/gpg"
 cp "$bin/gh" "$real_bin/gh"
+cp "$bin/go" "$real_bin/go"
 
 run_checker() {
 	PATH="$bin:/usr/bin:/bin" \
@@ -218,6 +239,7 @@ run_checker() {
 		TEST_VERSION="$version" \
 		TEST_GPG_FINGERPRINT="${TEST_GPG_FINGERPRINT:-$expected_fingerprint}" \
 		TEST_GPG_EXIT="${TEST_GPG_EXIT:-0}" \
+		TEST_ED25519_EXIT="${TEST_ED25519_EXIT:-0}" \
 		"$checker" "$version" "$dist"
 }
 
@@ -227,6 +249,7 @@ run_checker_real_gpg() {
 		TEST_RELEASE_JSON="$test_root/release.json" \
 		TEST_REMOTE_ASSETS="$remote" \
 		TEST_VERSION="$version" \
+		TEST_ED25519_EXIT="${TEST_ED25519_EXIT:-0}" \
 		"$checker" "$version" "$dist"
 }
 
@@ -250,6 +273,8 @@ for asset in release["assets"]:
         asset["id"] = 9101
     elif asset["name"] == "SHA256SUMS.asc":
         asset["id"] = 9102
+    elif asset["name"] == "SHA256SUMS.ed25519":
+        asset["id"] = 9103
 Path(sys.argv[2]).write_text(json.dumps([release]), encoding="utf-8")
 PY
 if ! CHECK_GITHUB_RELEASE_STAGE=draft \
@@ -351,6 +376,11 @@ if TEST_GPG_EXIT=1 run_checker >/dev/null 2>&1; then
 	exit 1
 fi
 
+if TEST_ED25519_EXIT=1 run_checker >/dev/null 2>&1; then
+	echo "check-github-release test: invalid compact checksum signature passed" >&2
+	exit 1
+fi
+
 cp "$dist/SHA256SUMS.asc" "$test_root/local-signature.canonical"
 printf '%s\n' wrong-local-signature >"$dist/SHA256SUMS.asc"
 if run_checker >/dev/null 2>&1; then
@@ -358,6 +388,14 @@ if run_checker >/dev/null 2>&1; then
 	exit 1
 fi
 cp "$test_root/local-signature.canonical" "$dist/SHA256SUMS.asc"
+
+cp "$dist/SHA256SUMS.ed25519" "$test_root/local-compact-signature.canonical"
+printf '%s\n' wrong-local-compact-signature >"$dist/SHA256SUMS.ed25519"
+if run_checker >/dev/null 2>&1; then
+	echo "check-github-release test: mismatched local compact signature passed" >&2
+	exit 1
+fi
+cp "$test_root/local-compact-signature.canonical" "$dist/SHA256SUMS.ed25519"
 
 printf '%s\n' unexpected >"$dist/unexpected.mcpb"
 if run_checker >/dev/null 2>&1; then

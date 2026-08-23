@@ -81,7 +81,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -251,8 +251,9 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 # Binding pre-commit gate: agent config/hooks + formatting + go vet +
 # staticcheck + govulncheck + plugin manifest validation. Fails on stdlib
 # vulnerabilities too — keep Go patched.
-# staticcheck and govulncheck are pinned as go.mod tool dependencies and
-# invoked via `go tool`, so CI and local runs use the same versions.
+# staticcheck and govulncheck are pinned in tools/go.mod, outside the shipped
+# product graph. `go -C tools tool -n` resolves the pinned binary; invoking
+# that path here keeps analysis rooted at the product module.
 #
 # CHECK_DEPS gates the optional pieces of the check matrix. Default is the
 # full strict gate (plugin-check + parity-check). CI without the `claude`
@@ -262,7 +263,7 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -270,6 +271,9 @@ check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/
 product-identity-check: ## Reject retired product/module/site/CLI/MCP identities outside reviewed continuity exceptions
 	@./scripts/check-product-identity.sh
 	@./scripts/check-product-identity_test.sh
+
+go-dependencies-check: ## Enforce the minimal product module and tidy isolated build-tool modules
+	@./scripts/check-go-dependencies.sh
 
 go-doc-check: ## Verify package and exported API documentation across all tracked Go build variants
 	go run ./scripts/go-doc-audit -check
@@ -300,7 +304,7 @@ vet-check: ## Run go vet (both default and trading-tag builds)
 	go vet -tags trading ./internal/... ./pkg/...
 
 staticcheck-check: ## Run staticcheck
-	go tool staticcheck -tags trading ./...
+	@tool=$$(go -C tools tool -n staticcheck); "$$tool" -tags trading ./...
 
 # govulncheck's verdict is keyed on the dependency set + toolchain + the
 # vulnerability DB — not on local code edits — so re-running it on every
@@ -310,12 +314,15 @@ staticcheck-check: ## Run staticcheck
 # authority runs on fresh CI runners with no stamp cache, so it always scans.
 GOVULN_STAMP ?= $(HOME)/.cache/ibkr/govulncheck.stamp
 govulncheck-check: ## Run govulncheck (skipped when deps unchanged and already scanned today; GOVULN_FORCE=1 forces)
-	@depshash=$$( (cat go.mod go.sum 2>/dev/null; go version) | shasum -a 256 | cut -d' ' -f1); \
+	@depshash=$$( (cat go.mod go.sum tools/go.mod tools/go.sum scripts/docgen/docs-html/go.mod scripts/docgen/docs-html/go.sum 2>/dev/null; go version) | shasum -a 256 | cut -d' ' -f1); \
 	today=$$(date +%Y-%m-%d); \
 	if [ "$(GOVULN_FORCE)" != "1" ] && [ -r "$(GOVULN_STAMP)" ] && [ "$$(cat "$(GOVULN_STAMP)")" = "$$depshash $$today" ]; then \
 		echo "govulncheck: deps/toolchain unchanged, already scanned today — skipping (GOVULN_FORCE=1 to force)"; \
 	else \
-		go tool govulncheck ./... && \
+		tool=$$(go -C tools tool -n govulncheck) && \
+		"$$tool" ./... && \
+		"$$tool" -C tools -tags=tools -scan=module && \
+		(cd scripts/docgen/docs-html && "$$tool" ./...) && \
 		mkdir -p "$$(dirname "$(GOVULN_STAMP)")" && \
 		echo "$$depshash $$today" > "$(GOVULN_STAMP)"; \
 	fi
@@ -436,8 +443,9 @@ parity-check: ## Verify MCP tool inventory matches the CLI surface
 # Idiom-drift gate. `go fix -diff` is the toolchain-native fixer (tracks the
 # Go version pinned in go.mod); `go tool modernize` runs the broader gopls
 # analyzer suite (range N, wg.Go, b.Loop, maps.Copy, SplitSeq, new(expr), …).
-# Version of modernize is pinned via the `tool` directive in go.mod, so this
-# gate is reproducible without an `@latest` install step.
+# Version of modernize is pinned via the `tool` directive in tools/go.mod, so
+# this gate is reproducible without adding analyzer dependencies to the
+# product module or installing an ambient `@latest` binary.
 #
 # Stream discipline + chatter filter:
 #   - `go fix -diff` writes the unified diff to stdout, download chatter to
@@ -455,7 +463,8 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
-	@out=$$(go tool modernize ./... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	@tool=$$(go -C tools tool -n modernize); \
+	out=$$("$$tool" ./... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
@@ -463,7 +472,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 
 modernize: ## Apply go fix + modernize rewrites in place
 	go fix ./...
-	go tool modernize -fix ./...
+	@tool=$$(go -C tools tool -n modernize); "$$tool" -fix ./...
 
 # Regenerate the docs/reference/*.md pages from their generators. The
 # generators live under scripts/docgen/; each emits one markdown file
@@ -515,7 +524,7 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 # Pages artifact is built from tracked sources; generated HTML never returns to
 # the Git tree. Structural and link checks inspect the exact artifact deployed.
 docs-html-check: ## Build and verify the complete Pages artifact
-	@go test ./scripts/docgen/docs-html
+	@go -C scripts/docgen/docs-html test ./...
 	@node scripts/render-architecture.mjs --check
 	@$(MAKE) pages-build
 
@@ -523,7 +532,7 @@ pages-build: ## Build the deployable Pages artifact from tracked sources
 	@rm -rf dist/pages
 	@mkdir -p dist/pages
 	@cp -R docs/. dist/pages/
-	@go run ./scripts/docgen/docs-html -output-root dist/pages
+	@go -C scripts/docgen/docs-html run . -root ../../.. -output-root ../../../dist/pages
 	@node scripts/check-docs-html-structure.mjs dist/pages
 	@node scripts/check-pages-links.mjs dist/pages
 
@@ -819,7 +828,9 @@ release-registry-server: ## Generate and validate dist/server.json for MCP Regis
 registry-login: ## Refresh MCP Registry auth token (default: GitHub device flow)
 	$(MCP_PUBLISHER) login $(MCP_REGISTRY_LOGIN_METHOD)
 
-release-auth-preflight: ## Fail-fast gh auth + registry fallback preconditions (device code only if Actions OIDC fails)
+release-auth-preflight: ## Fail-fast signing key + gh auth + registry fallback preconditions
+	@go run ./scripts/release-sign-ed25519 \
+		-public internal/update/release-signing-key.ed25519.pem -check-key
 	MCP_REGISTRY_AUTO_LOGIN=$(MCP_REGISTRY_AUTO_LOGIN) \
 		./scripts/release-auth-preflight.sh "$(MCP_PUBLISHER)" "$(MCP_REGISTRY_LOGIN_METHOD)"
 
@@ -1035,7 +1046,7 @@ _release-publish:
 	./scripts/check-release-origin.sh && \
 	./scripts/check-release-tag.sh "$(RELEASE_VERSION)" && \
 	gh release create $(RELEASE_VERSION) --repo github.com/osauer/canary --verify-tag --draft --notes-file $$notes --title "$$title" && \
-	./scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc && \
+	./scripts/upload-release-assets.sh "$(RELEASE_VERSION)" $$assets $(DIST_DIR)/SHA256SUMS $(DIST_DIR)/SHA256SUMS.asc $(DIST_DIR)/SHA256SUMS.ed25519 && \
 	CHECK_GITHUB_RELEASE_STAGE=draft ./scripts/check-github-release.sh "$(RELEASE_VERSION)" "$(DIST_DIR)" && \
 	gh release edit $(RELEASE_VERSION) --repo github.com/osauer/canary --draft=false --latest
 

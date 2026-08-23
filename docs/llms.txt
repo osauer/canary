@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-08-14
+Updated: 2026-08-23
 
 Canary is a local Interactive Brokers risk desk: a daemon, 23-command shell
 CLI, 13-tool read-only MCP server, paired app, and public Go TWS API. The daemon
