@@ -9,11 +9,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/big"
 
 	"net/http"
 	"net/http/httptest"
+	"strings"
 
 	"testing"
 	"time"
@@ -49,6 +51,93 @@ func TestBootstrapRequiresAuth(t *testing.T) {
 	if res.Code != http.StatusUnauthorized {
 		t.Fatalf("status=%d, want 401; body=%s", res.Code, res.Body.String())
 	}
+}
+
+func TestJSONRequestBodyLimitReturnsPayloadTooLarge(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandler(t).Handler()
+	body := `{"public_url":"` + strings.Repeat("a", int(maxJSONRequestBytes)) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/pairing/sessions", strings.NewReader(body))
+	req.ContentLength = -1 // Exercise the streaming limit, not only the length precheck.
+	req.RemoteAddr = "127.0.0.1:12345"
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d, want 413; body=%s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "1 MiB") {
+		t.Fatalf("body=%q, want documented request limit", res.Body.String())
+	}
+}
+
+func TestSendSSEChecksWriteAndFlushErrors(t *testing.T) {
+	t.Parallel()
+	writeErr := errors.New("write failed")
+	writeFailure := &controlledSSEWriter{writeErr: writeErr}
+	err := sendSSE(writeFailure, http.NewResponseController(writeFailure), hyperserve.SSEMessage{Event: "snapshot", Data: "test"})
+	if !errors.Is(err, writeErr) {
+		t.Fatalf("write error=%v, want %v", err, writeErr)
+	}
+	if writeFailure.flushes != 0 {
+		t.Fatalf("flushes=%d after failed write, want 0", writeFailure.flushes)
+	}
+
+	flushErr := errors.New("flush failed")
+	flushFailure := &controlledSSEWriter{flushErr: flushErr}
+	wrapper := &legacyFlushWrapper{ResponseWriter: flushFailure}
+	err = sendSSE(wrapper, checkedResponseController(wrapper), hyperserve.SSEMessage{Event: "snapshot", Data: "test"})
+	if !errors.Is(err, flushErr) {
+		t.Fatalf("flush error=%v, want %v", err, flushErr)
+	}
+	if wrapper.flushes != 0 || flushFailure.flushes != 1 || flushFailure.body.Len() == 0 {
+		t.Fatalf("wrapper flushes=%d checked flushes=%d bytes=%d, want the error-capable underlying flush", wrapper.flushes, flushFailure.flushes, flushFailure.body.Len())
+	}
+}
+
+// legacyFlushWrapper matches HyperServe's logging response-writer shape: it
+// offers a no-error Flush for compatibility and an Unwrap path to the socket.
+type legacyFlushWrapper struct {
+	http.ResponseWriter
+	flushes int
+}
+
+func (w *legacyFlushWrapper) Flush() {
+	w.flushes++
+}
+
+func (w *legacyFlushWrapper) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+type controlledSSEWriter struct {
+	header   http.Header
+	body     bytes.Buffer
+	writeErr error
+	flushErr error
+	flushes  int
+}
+
+func (w *controlledSSEWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *controlledSSEWriter) Write(p []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	return w.body.Write(p)
+}
+
+func (*controlledSSEWriter) WriteHeader(int) {}
+
+func (w *controlledSSEWriter) FlushError() error {
+	w.flushes++
+	return w.flushErr
 }
 
 func TestAppStatusReadyRequiresBothAlertAuthorities(t *testing.T) {

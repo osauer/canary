@@ -188,8 +188,8 @@ func (h *handler) handleStartPairing(w nethttp.ResponseWriter, r *nethttp.Reques
 		PublicURL string `json:"public_url"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
-		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, nethttp.StatusBadRequest, err.Error())
+		if err := decodeJSON(w, r, &req); err != nil {
+			writeJSONRequestError(w, err, "")
 			return
 		}
 	}
@@ -254,8 +254,8 @@ func (h *handler) handleDevicesPrune(w nethttp.ResponseWriter, r *nethttp.Reques
 	var req struct {
 		KeepDays int `json:"keep_days"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if req.KeepDays < 1 {
@@ -293,8 +293,8 @@ func cleanPairingPublicURL(raw string) (string, error) {
 
 func (h *handler) handleCompletePairing(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req auth.CompletePairingRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Auth.CompletePairing(req)
@@ -317,8 +317,8 @@ func (h *handler) handleAuthChallenge(w nethttp.ResponseWriter, r *nethttp.Reque
 	var req struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	ch, err := h.deps.Auth.StartChallenge(req.DeviceID)
@@ -336,8 +336,8 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 		Challenge string `json:"challenge"`
 		Signature string `json:"signature"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	sess, err := h.deps.Auth.CompleteChallenge(req.DeviceID, req.Challenge, req.Signature)
@@ -410,8 +410,8 @@ func (h *handler) handleReconcileStatus(w nethttp.ResponseWriter, r *nethttp.Req
 }
 
 func (h *handler) handleReconcileCheck(w nethttp.ResponseWriter, r *nethttp.Request) {
-	if err := decodeRequiredEmptyJSONObject(r); err != nil {
-		writeError(w, nethttp.StatusBadRequest, "daily report check body must be an empty JSON object")
+	if err := decodeRequiredEmptyJSONObject(w, r); err != nil {
+		writeJSONRequestError(w, err, "daily report check body must be an empty JSON object")
 		return
 	}
 	client, ok := h.deps.Daemon.(daemonclient.ReconciliationClient)
@@ -435,12 +435,15 @@ func (h *handler) handleReconcileCheck(w nethttp.ResponseWriter, r *nethttp.Requ
 	writeJSON(w, reconciliationResponseDTO{Outcome: result.Outcome, Reconciliation: *reconciliation})
 }
 
-func decodeRequiredEmptyJSONObject(r *nethttp.Request) error {
+func decodeRequiredEmptyJSONObject(w nethttp.ResponseWriter, r *nethttp.Request) error {
 	if r.Body == nil || r.Body == nethttp.NoBody {
 		return errors.New("body is required")
 	}
 	defer r.Body.Close()
-	decoder := json.NewDecoder(r.Body)
+	decoder, err := boundedJSONDecoder(w, r)
+	if err != nil {
+		return err
+	}
 	var fixed map[string]json.RawMessage
 	if err := decoder.Decode(&fixed); err != nil {
 		return err
@@ -450,7 +453,7 @@ func decodeRequiredEmptyJSONObject(r *nethttp.Request) error {
 	}
 	var trailing json.RawMessage
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return errors.New("body must contain exactly one empty JSON object")
+		return jsonShapeError(err, "body must contain exactly one empty JSON object")
 	}
 	return nil
 }
@@ -475,8 +478,8 @@ func (h *handler) handleGetSettings(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (h *handler) handlePatchSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var patch map[string]json.RawMessage
-	if err := decodeJSON(r, &patch); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &patch); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if patch == nil {
@@ -535,28 +538,28 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	flusher, ok := w.(nethttp.Flusher)
-	if !ok {
+	if _, ok := w.(nethttp.Flusher); !ok {
 		writeError(w, nethttp.StatusInternalServerError, "streaming unsupported")
 		return
 	}
-	// The server's WriteTimeout (hyperserve's default; 0 in WithTimeouts
-	// means "keep default", not "disable") would sever this stream mid-chunk
-	// (the client sees ERR_INCOMPLETE_CHUNKED_ENCODING and re-bootstraps in
-	// a loop). Lift the deadline for this response only; every other
-	// endpoint keeps the protective timeout.
-	if err := nethttp.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+	controller := checkedResponseController(w)
+	// The server-wide WriteTimeout protects ordinary responses but would sever
+	// this long-lived stream mid-chunk. Lift the deadline for this authenticated
+	// response only; every other endpoint keeps the protective timeout.
+	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
 		slog.Warn("app events: write deadline not cleared; stream may be cut by server timeout", "err", err)
 	}
 	ch, release := h.deps.Live.Subscribe()
 	defer release()
-	msg := hyperserve.SSEMessage{Event: "snapshot", Data: h.deps.Live.Snapshot()}
-	fmt.Fprint(w, msg.String())
 	alerts := h.alertDTO()
 	alertCursor := newAlertStreamCursor(alerts)
-	msg = hyperserve.SSEMessage{Event: "alerts", Data: alerts}
-	fmt.Fprint(w, msg.String())
-	flusher.Flush()
+	if err := sendSSE(w, controller,
+		hyperserve.SSEMessage{Event: "snapshot", Data: h.deps.Live.Snapshot()},
+		hyperserve.SSEMessage{Event: "alerts", Data: alerts},
+	); err != nil {
+		slog.Debug("app events: initial stream write ended", "err", err)
+		return
+	}
 	heartbeat := time.NewTicker(20 * time.Second)
 	defer heartbeat.Stop()
 	alertPoll := time.NewTicker(alertPollInterval)
@@ -567,8 +570,10 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 			return
 		case <-heartbeat.C:
 			msg := hyperserve.SSEMessage{Event: "heartbeat", Data: map[string]any{"at": time.Now().UTC()}}
-			fmt.Fprint(w, msg.String())
-			flusher.Flush()
+			if err := sendSSE(w, controller, msg); err != nil {
+				slog.Debug("app events: heartbeat write ended", "err", err)
+				return
+			}
 		case <-alertPoll.C:
 			next := h.alertDTO()
 			nextCursor := newAlertStreamCursor(next)
@@ -577,16 +582,54 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 			}
 			alertCursor = nextCursor
 			msg := hyperserve.SSEMessage{Event: "alerts", Data: next}
-			fmt.Fprint(w, msg.String())
-			flusher.Flush()
+			if err := sendSSE(w, controller, msg); err != nil {
+				slog.Debug("app events: alert write ended", "err", err)
+				return
+			}
 		case ev, ok := <-ch:
 			if !ok {
 				return
 			}
 			msg := hyperserve.SSEMessage{Event: ev.Type, Data: ev.Data}
-			fmt.Fprint(w, msg.String())
-			flusher.Flush()
+			if err := sendSSE(w, controller, msg); err != nil {
+				slog.Debug("app events: live write ended", "err", err)
+				return
+			}
 		}
+	}
+}
+
+// sendSSE does not treat a successful Write as proof that bytes reached the
+// client: ResponseController.Flush reports wrapper and socket flush failures
+// that the legacy http.Flusher.Flush method cannot return.
+func sendSSE(w nethttp.ResponseWriter, controller *nethttp.ResponseController, messages ...hyperserve.SSEMessage) error {
+	for _, message := range messages {
+		if _, err := io.WriteString(w, message.String()); err != nil {
+			return fmt.Errorf("write SSE event %q: %w", message.Event, err)
+		}
+	}
+	if err := controller.Flush(); err != nil {
+		return fmt.Errorf("flush SSE events: %w", err)
+	}
+	return nil
+}
+
+// checkedResponseController unwraps middleware before controller operations.
+// HyperServe's logging writer exposes both Flush() and Unwrap(); net/http would
+// otherwise choose the legacy no-error Flush method before reaching the
+// underlying writer's FlushError method. Writes still pass through the wrapper
+// so metrics and response accounting remain intact.
+func checkedResponseController(w nethttp.ResponseWriter) *nethttp.ResponseController {
+	for {
+		unwrapper, ok := w.(interface{ Unwrap() nethttp.ResponseWriter })
+		if !ok {
+			return nethttp.NewResponseController(w)
+		}
+		next := unwrapper.Unwrap()
+		if next == nil {
+			return nethttp.NewResponseController(w)
+		}
+		w = next
 	}
 }
 
@@ -596,8 +639,8 @@ func (h *handler) handleGetAlertSettings(w nethttp.ResponseWriter, _ *nethttp.Re
 
 func (h *handler) handlePutAlertSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req state.AlertSettings
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if err := h.deps.AlertController.SetAlertMode(req.Mode); err != nil {
@@ -616,8 +659,8 @@ func (h *handler) handlePushSubscribe(w nethttp.ResponseWriter, r *nethttp.Reque
 			Auth   string `json:"auth"`
 		} `json:"keys"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	sub := state.PushSubscription{
@@ -654,11 +697,12 @@ type SafePushTestResult struct {
 func (h *handler) handleSafePushTest(w nethttp.ResponseWriter, r *nethttp.Request) {
 	if r.Body != nil && r.ContentLength != 0 {
 		var fixed map[string]json.RawMessage
-		if err := decodeJSON(r, &fixed); err != nil || fixed == nil || len(fixed) != 0 {
-			if err == nil {
-				err = errors.New("safe notification test body must be empty")
-			}
-			writeError(w, nethttp.StatusBadRequest, err.Error())
+		if err := decodeJSON(w, r, &fixed); err != nil {
+			writeJSONRequestError(w, err, "")
+			return
+		}
+		if fixed == nil || len(fixed) != 0 {
+			writeError(w, nethttp.StatusBadRequest, "safe notification test body must be empty")
 			return
 		}
 	}
@@ -763,36 +807,77 @@ func (h *handler) authStatus(r *nethttp.Request) map[string]any {
 	}
 }
 
-func decodeJSON(r *nethttp.Request, dst any) error {
+const maxJSONRequestBytes int64 = 1 << 20
+
+func decodeJSON(w nethttp.ResponseWriter, r *nethttp.Request, dst any) error {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
+	dec, err := boundedJSONDecoder(w, r)
+	if err != nil {
+		return err
+	}
 	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := dec.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return jsonShapeError(err, "request body must contain exactly one JSON value")
+	}
+	return nil
 }
 
-func decodeAttentionReadRequest(r *nethttp.Request) (uint64, error) {
+func decodeAttentionReadRequest(w nethttp.ResponseWriter, r *nethttp.Request) (uint64, error) {
 	defer r.Body.Close()
-	dec := json.NewDecoder(r.Body)
+	dec, err := boundedJSONDecoder(w, r)
+	if err != nil {
+		return 0, err
+	}
 	start, err := dec.Token()
 	if err != nil || start != json.Delim('{') {
-		return 0, errors.New("attention read body must be an object")
+		return 0, jsonShapeError(err, "attention read body must be an object")
 	}
 	key, err := dec.Token()
 	if err != nil || key != "through_seq" {
-		return 0, errors.New("attention read body must contain through_seq")
+		return 0, jsonShapeError(err, "attention read body must contain through_seq")
 	}
 	var throughSeq *uint64
 	if err := dec.Decode(&throughSeq); err != nil || throughSeq == nil {
-		return 0, errors.New("through_seq must be an unsigned integer")
+		return 0, jsonShapeError(err, "through_seq must be an unsigned integer")
 	}
 	end, err := dec.Token()
 	if err != nil || end != json.Delim('}') {
-		return 0, errors.New("attention read body must contain only through_seq")
+		return 0, jsonShapeError(err, "attention read body must contain only through_seq")
 	}
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return 0, errors.New("attention read body must contain exactly one object")
+		return 0, jsonShapeError(err, "attention read body must contain exactly one object")
 	}
 	return *throughSeq, nil
+}
+
+func boundedJSONDecoder(w nethttp.ResponseWriter, r *nethttp.Request) (*json.Decoder, error) {
+	if r.ContentLength > maxJSONRequestBytes {
+		return nil, &nethttp.MaxBytesError{Limit: maxJSONRequestBytes}
+	}
+	r.Body = nethttp.MaxBytesReader(w, r.Body, maxJSONRequestBytes)
+	return json.NewDecoder(r.Body), nil
+}
+
+func jsonShapeError(err error, message string) error {
+	if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
+		return err
+	}
+	return errors.New(message)
+}
+
+func writeJSONRequestError(w nethttp.ResponseWriter, err error, badRequestMessage string) {
+	if _, ok := errors.AsType[*nethttp.MaxBytesError](err); ok {
+		writeError(w, nethttp.StatusRequestEntityTooLarge, "request body exceeds 1 MiB limit")
+		return
+	}
+	if badRequestMessage == "" {
+		badRequestMessage = err.Error()
+	}
+	writeError(w, nethttp.StatusBadRequest, badRequestMessage)
 }
 
 func writeJSON(w nethttp.ResponseWriter, v any) {

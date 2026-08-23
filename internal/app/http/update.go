@@ -60,8 +60,8 @@ func (h *handler) handleUpdateStart(w nethttp.ResponseWriter, r *nethttp.Request
 	var req struct {
 		TargetVersion string `json:"target_version"`
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	req.TargetVersion = strings.TrimSpace(req.TargetVersion)

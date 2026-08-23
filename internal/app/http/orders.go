@@ -55,8 +55,8 @@ func (h *handler) handleOrderStatus(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (h *handler) handleOrderCancel(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req orderCancelRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerCancelConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -73,8 +73,8 @@ func (h *handler) handleOrderCancel(w nethttp.ResponseWriter, r *nethttp.Request
 
 func (h *handler) handleOrderPreviewModify(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req orderModifyPreviewRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	status, err := h.deps.Daemon.OrderStatus(r.Context(), rpc.OrderStatusParams{ID: r.PathValue("id")})
@@ -101,8 +101,8 @@ func (h *handler) handleOrderPreviewModify(w nethttp.ResponseWriter, r *nethttp.
 
 func (h *handler) handleOrderModify(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req orderModifyRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if strings.TrimSpace(req.PreviewToken) == "" {

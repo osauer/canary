@@ -26,8 +26,8 @@ func (h *handler) handleOpportunitiesRefresh(w nethttp.ResponseWriter, r *nethtt
 
 func (h *handler) handleOpportunitiesPreviewExercise(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.OpportunityExercisePreviewParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	req.Origin = rpc.OrderOriginPairedDevice
@@ -44,8 +44,8 @@ func (h *handler) handleOpportunitiesSubmitExercise(w nethttp.ResponseWriter, r 
 		rpc.OpportunityExerciseSubmitParams
 		BrokerWriteConfirmation
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerSessionConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -63,8 +63,8 @@ func (h *handler) handleOpportunitiesSubmitExercise(w nethttp.ResponseWriter, r 
 
 func (h *handler) handleOpportunitiesIgnore(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.OpportunityIgnoreParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Daemon.OpportunitiesIgnore(r.Context(), req)

@@ -320,9 +320,9 @@ func (h *handler) handleAlertAttention(w nethttp.ResponseWriter, _ *nethttp.Requ
 }
 
 func (h *handler) handleAlertAttentionRead(w nethttp.ResponseWriter, r *nethttp.Request) {
-	throughSeq, err := decodeAttentionReadRequest(r)
+	throughSeq, err := decodeAttentionReadRequest(w, r)
 	if err != nil {
-		writeError(w, nethttp.StatusBadRequest, "invalid alerts attention read request")
+		writeJSONRequestError(w, err, "invalid alerts attention read request")
 		return
 	}
 	current := h.alertDTO()

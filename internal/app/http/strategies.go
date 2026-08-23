@@ -14,8 +14,8 @@ type strategySubmitRequest struct {
 
 func (h *handler) handleStrategyPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.StrategyPreviewParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	// The paired app can identify a daemon-authored strategy, operation, and
@@ -31,8 +31,8 @@ func (h *handler) handleStrategyPreview(w nethttp.ResponseWriter, r *nethttp.Req
 
 func (h *handler) handleStrategySubmit(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req strategySubmitRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	req.PreviewToken = strings.TrimSpace(req.PreviewToken)

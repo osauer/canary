@@ -27,8 +27,8 @@ func (h *handler) handleProposalsRefresh(w nethttp.ResponseWriter, r *nethttp.Re
 
 func (h *handler) handleProposalsPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.TradeProposalPreviewParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Daemon.TradeProposalsPreview(r.Context(), req)
@@ -44,8 +44,8 @@ func (h *handler) handleProposalsSubmit(w nethttp.ResponseWriter, r *nethttp.Req
 		rpc.TradeProposalSubmitParams
 		BrokerWriteConfirmation
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerWriteConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -65,8 +65,8 @@ func (h *handler) handleProposalsSubmit(w nethttp.ResponseWriter, r *nethttp.Req
 
 func (h *handler) handleProposalsReducePreview(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.TradeProposalReduceParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Daemon.TradeProposalsReducePreview(r.Context(), req)
@@ -82,8 +82,8 @@ func (h *handler) handleProposalsReduceSubmit(w nethttp.ResponseWriter, r *netht
 		rpc.TradeProposalReduceParams
 		BrokerWriteConfirmation
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerWriteConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -103,8 +103,8 @@ func (h *handler) handleProposalsReduceSubmit(w nethttp.ResponseWriter, r *netht
 
 func (h *handler) handleProposalsReducePortfolioPreview(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.TradeProposalReducePortfolioParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Daemon.TradeProposalsReducePortfolioPreview(r.Context(), req)
@@ -120,8 +120,8 @@ func (h *handler) handleProposalsReducePortfolioSubmit(w nethttp.ResponseWriter,
 		rpc.TradeProposalReducePortfolioParams
 		BrokerWriteConfirmation
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerWriteConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -149,8 +149,8 @@ func (h *handler) handleProposalsRequestStop(w nethttp.ResponseWriter, r *nethtt
 		rpc.TradeProposalRequestStopParams
 		BrokerWriteConfirmation
 	}
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	if _, err := h.requireBrokerWriteConfirmation(r.Context(), req.BrokerWriteConfirmation); err != nil {
@@ -176,8 +176,8 @@ func writeBrokerWriteConfirmationError(w nethttp.ResponseWriter, err error) {
 
 func (h *handler) handleProposalsIgnore(w nethttp.ResponseWriter, r *nethttp.Request) {
 	var req rpc.TradeProposalIgnoreParams
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, nethttp.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
 		return
 	}
 	res, err := h.deps.Daemon.TradeProposalsIgnore(r.Context(), req)

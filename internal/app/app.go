@@ -154,12 +154,7 @@ func acquireAppLock(stateDir string) (*xdgcache.Lock, error) {
 }
 
 func newWithParts(opts Options, store *state.Store, authMgr *auth.Manager, daemonClient daemonclient.Client, liveSvc *live.Service, relayClient relay.Client, alertController *alerts.Dispatcher) (*App, error) {
-	srv, err := hyperserve.NewServer(
-		hyperserve.WithAddr(opts.Addr),
-		hyperserve.WithTimeouts(30*time.Second, 0, 0),
-		hyperserve.WithSuppressBanner(true),
-		hyperserve.WithHardenedMode(),
-	)
+	srv, err := newHTTPServer(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +181,67 @@ func newWithParts(opts Options, store *state.Store, authMgr *auth.Manager, daemo
 		PreviewReadGrant: opts.PreviewReadGrant,
 	})
 	return a, nil
+}
+
+func newHTTPServer(opts Options) (*hyperserve.Server, error) {
+	srv, err := hyperserve.NewServer(
+		hyperserve.WithAddr(opts.Addr),
+		hyperserve.WithTimeouts(30*time.Second, 30*time.Second, 2*time.Minute),
+		hyperserve.WithSuppressBanner(true),
+		hyperserve.WithHardenedMode(),
+		withCanaryHTTPBoundary(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// HardenedMode controls the policy used by HeadersMiddleware; SecureWeb
+	// installs that middleware so the policy is actually emitted on responses.
+	srv.AddMiddlewareStack(hyperserve.GlobalMiddlewareRoute, hyperserve.SecureWeb(srv.Options))
+	return srv, nil
+}
+
+// withCanaryHTTPBoundary runs last and closes capabilities that belong to
+// HyperServe's generic service configuration rather than Canary's app host.
+// HyperServe loads options.json and HS_* variables before functional options;
+// pinning these fields keeps ambient process configuration from adding a TLS
+// listener, health listener, CORS policy, filesystem roots, or HTTP MCP server.
+func withCanaryHTTPBoundary() hyperserve.ServerOptionFunc {
+	return func(srv *hyperserve.Server) error {
+		opts := srv.Options
+		opts.EnableTLS = false
+		opts.TLSAddr = ""
+		opts.KeyFile = ""
+		opts.CertFile = ""
+		opts.RunHealthServer = false
+		opts.HealthAddr = ""
+		opts.FIPSMode = false
+		opts.StaticDir = ""
+		opts.TemplateDir = ""
+
+		opts.MCPEnabled = false
+		opts.MCPToolsEnabled = false
+		opts.MCPResourcesEnabled = false
+		opts.MCPFileToolRoot = ""
+		opts.MCPDev = false
+		opts.MCPObservability = false
+		opts.MCPDiscoveryFilter = nil
+
+		opts.CORS = nil
+		opts.CSPWebWorkerSupport = false
+		opts.HardenedMode = true
+		opts.DebugMode = false
+		opts.SuppressBanner = true
+		opts.BannerColor = false
+
+		// Canary owns these transport budgets. The SSE route removes only its
+		// per-response write deadline after the request has been authenticated.
+		opts.ReadTimeout = 30 * time.Second
+		opts.WriteTimeout = 30 * time.Second
+		opts.IdleTimeout = 2 * time.Minute
+		opts.ReadHeaderTimeout = 10 * time.Second
+		return nil
+	}
 }
 
 // Run starts live-cache polling, relay transport, credential
