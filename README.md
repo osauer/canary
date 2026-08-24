@@ -6,142 +6,80 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/canary/v2.svg)](https://pkg.go.dev/github.com/osauer/canary/v2)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**[Documentation](https://osauer.dev/canary/docs/)** · [MCP tools](docs/docs/reference/mcp-tools.md) · [Configuration](docs/docs/reference/config.md) · [Rulebook](internal-docs/design/trading-rulebook.md) · [Architecture](docs/docs/internals/architecture.md) · [Working with agents](docs/docs/operate/agents.md) · [Mobile app](web/app/README.md)
+**[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Configuration](docs/docs/reference/config.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
-**A local command line, MCP server, and risk desk for Interactive Brokers.**
+Canary turns one local IB Gateway or TWS session into a daily risk brief for the
+terminal, an MCP host, and a paired phone. It keeps one daemon responsible for
+broker connectivity, market evidence, policy state, and the local order
+journal, so every surface reads the same account authority.
 
-`canary` turns one local IB Gateway or TWS session into an operator brief, an
-Action Queue, typed portfolio and policy evidence, and a paired mobile desk.
-The daemon owns broker connectivity, market sensors, durable state, and risk
-semantics; the CLI, MCP server, and app render that authority for their users.
-
-`canary mcp` is a deliberately small read-only adapter: 13 account, position,
-brief, rulebook, technical, proposal, opportunity, order-status, settings, and
-health tools. It has no streaming resources and cannot preview, place, modify,
-cancel, exercise, or transmit a broker action.
-
-Use it from a shell:
+Start with two commands:
 
 ```sh
-canary status
-canary positions --by underlying
-canary brief
-canary rules
-canary technical SPY,QQQ --json
-canary proposals list --json
-canary opportunities list --json
-canary orders open --json
-canary settings show
+canary status    # prove which gateway and account Canary reached
+canary brief     # review what changed and what needs attention
 ```
 
-Or connect it to Claude Desktop, Claude Code, Cursor, Continue, Zed, or any MCP host and ask:
+The standard binary is read-only by construction. Its 13 MCP tools can inspect
+the account, risk desk, proposals, opportunities, and local order state, but
+cannot preview or transmit a broker action. Trading-capable builds are separate,
+experimental artifacts with additional human and daemon gates.
 
-> "What's in my IBKR account?"
->
-> "Review my portfolio and rank the risks I should look at today."
->
-> "Show my AAPL exposure, including option deltas."
->
-> "What changed since the last close, and what needs attention now?"
->
-> "Which rulebook inputs are current, stale, or unavailable?"
->
-> "Are there close or reduce-only protection candidates?"
->
-> "Are any option-exercise candidates blocked or ready for human review?"
-
-Your account data stays on the machine running IB Gateway or TWS unless you
-choose to send it to an MCP host or enable an optional paired-app transport.
-Releases publish read-only and separately named trading builds for four
-OS/architecture targets. No Python runtime, Java runtime, or hosted account
-service is required.
+Canary is for an IBKR Pro user who runs Gateway or TWS locally and wants risk
+evidence to stay explicit when a source is stale, held, or unavailable. It is
+not a hosted brokerage service or a complete replacement for the TWS API. If
+you only need a Go wire-protocol client, use [`pkg/ibkr`](#go-library).
 
 **Contents** — [Install](#install) · [What you get](#what-you-get) · [Pick your path](#pick-your-path) · [How it works](#how-it-works) · [Configure](#configure) · [Safety](#safety) · [Other install paths](#other-install-paths) · [Troubleshooting](#troubleshooting)
 
 ## Install
 
-**Prerequisites.** A running [IB Gateway](https://www.interactivebrokers.com/en/trading/ibgateway-stable.php) 10.37+ or TWS (paper or live) on the same machine. Auto-discovered on the four standard ports. An **IBKR Pro** account (IBKR Lite cannot use the TWS API).
+You need:
 
-### Claude Desktop
+- IB Gateway 10.37+ or TWS, running and logged in with API socket access enabled
+- an IBKR Pro account; IBKR Lite does not include TWS API access
+- macOS or Linux on arm64 or amd64; WSL works, native Windows does not
 
-Download the latest MCP Bundle:
-
-<https://github.com/osauer/canary/releases/latest/download/canary.mcpb>
-
-Open the `.mcpb` file with Claude Desktop, drag it into Claude Desktop, or use Settings -> Extensions -> Advanced settings -> Install Extension. Quit Claude completely and relaunch it after installation.
-
-The MCPB bundles the `canary` binary for macOS and Linux, runs it locally through stdio, and does not require a separate shell install. Windows Claude Desktop is not supported because `canary` has no native Windows daemon; WSL works through the shell install path below.
-
-### Shell, Cursor, Continue, Zed, and generic MCP hosts
+### Shell installer
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-canary setup claude-desktop
+canary status
 ```
 
-The installer downloads the release for your OS and architecture, verifies the checksum, installs `canary` in `~/.local/bin`, and adds that directory to your shell rc when needed. On macOS, it also clears Gatekeeper quarantine.
+The installer downloads the matching release, verifies its signed checksum,
+and installs `canary` in `~/.local/bin`. To inspect it before running it, follow
+the [install guide](docs/docs/start/install.md#what-the-shell-installer-does).
 
-`canary setup claude-desktop` writes the legacy MCP server entry to Claude Desktop. Prefer the MCPB path above for Claude Desktop unless you specifically want one shared shell-managed binary. Skip the setup command if you only want the shell tool.
+### Claude Desktop
 
-For v1.0.0+ releases, the installer, `canary update`, and the MCPB release asset are covered by the signed `SHA256SUMS` file. The MCP Registry metadata also carries the MCPB file SHA-256. [Other install paths.](#other-install-paths)
+Download [canary.mcpb](https://github.com/osauer/canary/releases/latest/download/canary.mcpb),
+open it with Claude Desktop, then quit Claude completely and relaunch it. The
+bundle carries its own macOS and Linux binaries, so it does not need the shell
+installer.
+
+The [Claude Desktop walkthrough](https://osauer.dev/canary/claude-desktop-interactive-brokers/)
+covers installation and the first connection.
 
 ## What you get
 
-- **Action Queue and daily brief.** The app converges current alerts, protection
-  work, exercise candidates, and process exceptions into one queue. `canary
-  brief` and MCP `canary_brief` return the daemon's same Review/Ready briefing,
-  including explicit stale, held, unavailable, and not-due inputs.
-- **Account and positions.** Net liquidation, buying power, cash, margin, daily
-  P&L, positions, option Greeks, protection coverage, and portfolio exposure.
-  Every result identifies one account authority; missing is never zero and an
-  unresolved multi-account login is refused rather than combined.
-- **Rulebook, policy, and reconciliation.** `canary rules` evaluates the daily
-  desk discipline, `canary policy show` reports the approved risk constitution,
-  and `canary recon show` compares broker statements with declared capital.
-  Routine clean reports extend automatically; only exceptions return to the
-  operator.
-- **Daemon-owned market context.** Quotes, historical bars, official calendars,
-  breadth, dealer gamma, regime, stress, earnings, borrow, and halt sources feed
-  the brief, rulebook, proposals, alerts, and app Monitor. They preserve their
-  own data type, source health, freshness, warning codes, and session context;
-  they are not separate public v3 CLI or MCP commands.
-- **Named-symbol technical evidence.** `canary technical` and MCP
-  `canary_technical` batch daily trend, relative strength, ATR, and liquidity
-  reads for explicitly requested stock or ETF symbols.
-- **Protection and option exercise.** The daemon maintains close/reduce-only
-  proposals and option-exercise opportunities with blockers and freshness.
-  CLI, MCP, and app can inspect them; any broker action remains behind the
-  separate trading build, a fresh exact preview or preflight, daemon
-  revalidation, and a transaction-specific human instruction.
-- **Order lifecycle reads.** `canary orders open`, `canary orders history`, and
-  `canary order status` inspect the local journal and typed broker callbacks.
-  Reconciliation closes rows the broker no longer reports without inventing an
-  execution result.
-- **Paired app.** The embedded PWA provides Monitor, Brief, Alerts, Orders, and
-  Settings at desktop and mobile widths, with explicit current versus retained
-  alert state and local or optional remote pairing.
-- **Platform settings.** `canary settings show` and MCP `canary_settings` report
-  runtime preferences, build capability, account mode, and observed data
-  quality. Settings never authorize broker submission; freeze and limit changes
-  remain interactive-human-only.
+| Surface | What it answers |
+| --- | --- |
+| **Daily brief and Action Queue** | What changed since the close, what the next session needs, and which alerts, protection candidates, exercise candidates, or process exceptions deserve attention. |
+| **Account and positions** | Which selected account is authoritative, how the book is exposed, and whether values or Greeks are missing. Multi-account ambiguity is refused rather than blended. |
+| **Rulebook, policy, and reconciliation** | Which daily-desk rule is hardest, which inputs are unknown, what risk constitution is approved, and whether broker statements agree with the capital ledger. |
+| **Market and technical evidence** | How named stocks or ETFs trend, plus the calendar, breadth, gamma, regime, stress, earnings, borrow, and halt evidence used by the desk. Each source keeps its own freshness and health. |
+| **Current work** | Which close/reduce-only proposals, exercise opportunities, and local orders exist, why they are blocked or ready for review, and how they changed. |
 
-Every data command supports `--json`. `canary restart --json` is also useful for scripts: it reports whether a daemon was already running, old/new PIDs, whether `--force` was used, the post-start `status.health` snapshot, and any app process it refreshed. Lifecycle commands such as `setup`, `update`, `restart`, `mcp`, and `daemon` are for local operation and transport setup.
-
-For schemas and edge cases, see the [MCP tools reference](docs/docs/reference/mcp-tools.md), [configuration reference](docs/docs/reference/config.md), and [concept docs](docs/docs/understand/concepts.md).
-
-For ready-to-run prompts, see [examples/canary_portfolio_analysis_prompt.md](examples/canary_portfolio_analysis_prompt.md) for portfolio review and [examples/canary_portfolio_stress_prompt.md](examples/canary_portfolio_stress_prompt.md) for scheduled stress checks.
+Every data command supports `--json`. The embedded paired app presents the same
+daemon-owned evidence through Monitor, Brief, Alerts, Orders, and Settings.
 
 ## Pick your path
 
 ### Claude Desktop, Cursor, Continue, Zed
 
-`canary mcp` starts a local stdio MCP server with 13 read-only tools: status,
-trading status, settings, open orders, order history, one-order status, account,
-positions, technical analysis, brief, rules, proposals, and opportunities. It
-has no resources or order preview/execution tools. Local lifecycle and
-human-governance commands stay outside the MCP surface.
-
-For Claude Desktop, the recommended install path is the `.mcpb` asset from the latest release. For other clients, paste this into the client's MCP config (path varies):
+The MCP Bundle is the shortest path for Claude Desktop. For another local stdio
+host, install the shell binary and point the host at its absolute path:
 
 ```json
 {
@@ -154,219 +92,213 @@ For Claude Desktop, the recommended install path is the `.mcpb` asset from the l
 }
 ```
 
-The `command` must be the absolute path. `~` is not expanded by `exec` and `$PATH` is not consulted. `which canary` gives you the right value. After upgrading the binary, fully quit and relaunch the client — it caches the spawned server process. MCPB installs carry their own embedded binary; reinstall the new `.mcpb` release to update that path.
+Use `which canary` to find the path. After an upgrade, fully relaunch the host
+so it respawns the MCP process. A browser-only assistant cannot reach this
+local stdio server.
 
-`claude.ai` (web) accepts only remote MCP servers and cannot reach a local IB Gateway. Use Desktop.
+Ask questions in desk language:
 
-Logs (macOS, Claude Desktop): `~/Library/Logs/Claude/mcp-server-canary.log`.
+> What needs attention today, and which inputs are degraded?
+>
+> How is my portfolio exposed by underlying?
+>
+> Are any protection or exercise candidates ready for human review?
+
+See [Connect an MCP host](docs/docs/start/hosts.md) for Claude Code, host logs,
+and connection checks. The generated [MCP reference](docs/docs/reference/mcp-tools.md)
+lists all 13 tools and their schemas.
 
 ### Claude Code
 
-Inside a standalone Claude Code session:
+The plugin adds the skill, MCP configuration, and safety hooks; it does not ship
+the Canary binary:
 
-```
+```text
 /plugin marketplace add osauer/canary
 /plugin install canary@canary
 ```
 
-Or — for **Claude for Mac**'s embedded Claude Code pane, which doesn't expose `/plugin` slash commands — from a regular terminal:
-
-```sh
-claude plugin marketplace add osauer/canary
-claude plugin install canary@canary
-```
-
-The plugin carries a skill, Claude Code MCP server config for `canary mcp`, a `PreToolUse` hook that permits read-only commands, blocks shell command chaining around broker-adjacent writes, and refuses broker-write verbs unless the daemon reports a paper or live write-ready trading state (failing closed for broker-adjacent `canary` commands if `jq` is missing from PATH), plus a `SessionStart` hint when the binary isn't installed. The skill's `allowed-tools` lists only the retained read surfaces. For a global allowlist that fires *before* the skill activates, merge `settings/canary.settings.json` into `~/.claude/settings.json` by hand — it is permissions-only; broker writes remain decided by the hook and daemon gates.
-
-**The plugin doesn't ship the binary.** It carries the skill, hooks, MCP launcher config, and manifest — you still need the `canary` binary from [Install](#install). The MCP launcher looks at `CANARY_BIN`, the plugin's local development `bin/canary`, `PATH`, `~/.local/bin/canary`, Homebrew, and `/usr/local/bin/canary`. The binary and plugin have independent release cadences and independent update paths:
-
-```sh
-# Binary release (new MCP tool descriptions are baked into the binary):
-curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-
-# Plugin release (new skill commands, settings, hooks):
-claude plugin update canary@canary
-```
-
-Restart the host (Claude for Mac, standalone Claude Code session, Cursor, …) after either update so it respawns the MCP server subprocess with the new descriptions and reloads the skill at the next session start.
+Install the binary separately, and update the plugin and binary on their own
+cadences. The [agent guide](docs/docs/operate/agents.md) explains the authority
+boundary.
 
 ### The shell
 
 ```sh
-$ canary account --json | jq '.net_liquidation, .base_currency'
-$ canary positions --by underlying --json | jq '.portfolio.effective_delta'
-$ canary brief --json | jq '{review: .review.status, ready: .ready.status}'
-$ canary rules --json | jq '{status, summary, input_health}'
-$ canary technical AAPL,MSFT --json
-$ canary proposals list --json
-$ canary opportunities list --json
-$ canary orders open --json
-$ canary settings show --json | jq '.features.stock_protection.enabled'
+canary account
+canary positions --by underlying
+canary brief
+canary rules
+canary technical SPY,QQQ
+canary proposals list
+canary opportunities list
+canary orders open
 ```
 
-`canary --help` lists subcommands; `canary <cmd> --help` lists flags. `canary status` first if anything looks off.
+Add `--json` for machine-readable output. Run `canary status` first when
+anything looks wrong; `canary --help` and the [CLI reference](docs/docs/reference/cli.md)
+carry the full command and flag inventory.
 
 ### Mobile app
 
-`canary app` serves a paired PWA for iPhone-sized checks when you are away from the desk. It has five tabs. Monitor is a fixed grid of instrument windows covering every regime cluster the daemon ranks plus the rulebook, protection, and stress, each printing its reading and the level it would trip at. Brief carries the daemon-composed daily briefing. Alerts is the annunciator log. Orders shows the local order lifecycle and supports the constrained review flows compiled into the active build. Settings holds account and process state. Start it on the Mac running TWS or IB Gateway, then run `canary app pair` and scan the QR code. `canary app status` is the local operator check for app liveness, daemon alert-producer coverage, and app-owned dispatcher health.
+Run `canary app` on the machine that owns the Gateway or TWS session, then
+`canary app pair` and scan the QR code. Local pairing is the default; the
+optional remote relay and Web Push paths are documented in the
+[app operator guide](web/app/README.md) and [privacy policy](PRIVACY.md).
 
-For access away from the LAN without router setup, run `canary app --remote` to use the Cloudflare Worker relay at `remote.osauer.dev`, then run `canary app pair` as usual.
+### Go library
 
-See [web/app/README.md](web/app/README.md) for the short operator notes.
-
-### Go and other agent SDKs
-
-`pkg/ibkr` speaks the TWS API protocol directly:
+`pkg/ibkr` is a clean-room Go client for the TWS wire protocol:
 
 ```go
-import "github.com/osauer/canary/v2/pkg/ibkr"
+import (
+    "context"
+    "time"
 
-cfg := ibkr.DefaultConfig()    // 127.0.0.1:4001
-cfg.Port = 4002                // paper
+    "github.com/osauer/canary/v2/pkg/ibkr"
+)
 
-c := ibkr.NewConnector(&ibkr.ConnectorConfig{
-    PreferredClientID: 15,
-    BaseConfig:        cfg,
-})
-if err := c.Start(ctx); err != nil { return err }
+func accountSummary(ctx context.Context) (*ibkr.RawAccountSummary, error) {
+    cfg := ibkr.DefaultConfig()
+    cfg.Port = 4002 // Gateway paper
 
-snap, err := c.RequestAccountSummary(ctx, 5*time.Second)
-if err != nil { return err }
-if snap.NetLiquidation != nil {
-    fmt.Printf("NLV: %.2f %s\n", *snap.NetLiquidation, snap.Currency)
+    connector := ibkr.NewConnector(&ibkr.ConnectorConfig{
+        PreferredClientID: 15,
+        BaseConfig:        cfg,
+    })
+    if err := connector.Start(ctx); err != nil {
+        return nil, err
+    }
+    defer connector.Stop()
+
+    return connector.RequestAccountSummary(ctx, 5*time.Second)
 }
 ```
 
-From Python, TypeScript, or Rust, shell out to the CLI: subprocess in, JSON out. Wrap each `canary <cmd> --json` invocation as a function and register it with your model's tool-call API.
+Protocol coverage is purpose-driven, not exhaustive. The package transports
+broker requests but does not provide Canary's complete application-level
+authority boundary; direct users must supply their own policy, authorization,
+journaling, and reconciliation controls. Start with the
+[package documentation](pkg/ibkr/doc.go).
 
 ## How it works
 
-`canary` runs local commands against one background daemon.
-
-When you run a CLI command or an MCP tool, it connects to the daemon over a Unix socket. The daemon keeps the IB Gateway or TWS connection open, caches contract details, manages quote subscriptions, and returns JSON responses. It starts on first use and exits after 15 minutes of inactivity unless you run it in the foreground.
-
 ```text
-CLI or MCP host -> local canary daemon -> IB Gateway or TWS -> your account data
+shell, MCP host, or paired app
+              ↓ local Unix socket
+         canary daemon
+              ↓ local TCP by default
+       IB Gateway or TWS
 ```
 
-Use `canary restart` after upgrading, changing daemon-loaded config, or when you want to clear stale gateway connection state. It sends SIGTERM, waits for cleanup, starts a fresh daemon, reports the new process, then refreshes any already-running `canary app` host while preserving app flags such as `--remote`. If no daemon was running, it starts one and says so; if no app host was running, it leaves the app stopped. `canary restart --force` escalates to SIGKILL only after the graceful timeout. This restarts the shared daemon used by CLI and MCP tool calls; it does not restart the `canary mcp` stdio process itself, which is owned by the MCP host. Fully relaunch the host when you need it to respawn MCP from a new binary or bundle.
+The daemon starts on demand, keeps the gateway session warm, and normally exits
+after 15 idle minutes. One daemon serves every local client, so they share the
+same selected account, client ID, cached evidence, and durable state.
 
-`canary stop` puts the local processes down without a kill command. It stops the app first and the daemon second, so a running app cannot start a replacement daemon mid-stop; `--app` or `--daemon` stops just one. Before stopping a daemon that still has work in flight it names that work and asks, and `--yes` answers for scripts. `--force` escalates a process that ignored SIGTERM to SIGKILL once `--timeout` has passed. An app supervised by launchd is unloaded rather than signalled, because KeepAlive would otherwise restart it, and the reply says how to bring it back. MCP servers are counted and named with their AI client but never signalled: each belongs to the client that started it and exits with it.
-
-This means your shell, Claude Desktop, Claude Code, Cursor, and other MCP clients can share one IBKR connection and one client ID. Tool calls stay fast because the gateway session is already open.
-
-`pkg/ibkr` is a clean-room Go implementation of the TWS protocol. Unrestricted order methods are disabled in default builds; the separate trading build and the narrow all-build paper-order wrappers have distinct gates described in [docs/docs/internals/protocol.md](docs/docs/internals/protocol.md). Public package documentation lives in [pkg/ibkr/doc.go](pkg/ibkr/doc.go).
+Use `canary restart` after upgrading or changing daemon-loaded configuration.
+Use `canary stop` for an orderly shutdown. Restarting the daemon does not
+restart an MCP subprocess owned by another application; relaunch that host when
+you need it to load a new binary. The [architecture](docs/docs/internals/architecture.md)
+and [storage](docs/docs/internals/storage.md) pages describe the ownership
+boundaries in detail.
 
 ## Configure
 
-For normal read-only use, no config file is required. The daemon TCP-probes `4001` (Gateway live), `4002` (Gateway paper), `7496` (TWS live), `7497` (TWS paper), picks the first responder, and falls over to alternates if the first one accepts TCP but never completes the handshake. The account is auto-detected via `managedAccounts`. Default client ID is `15`.
-
-**TOML config** (`config.toml`) means "active local overrides." Create it only when you want to pin something: anything present is binding, anything omitted stays auto-detected, and unknown keys fail at startup with a message that names them. The safety-pinned pre-rename namespace remains `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`, so an upgrade cannot create a second configuration authority. For example, this read-only config pins TWS live and leaves everything else automatic:
+Normal read-only use needs no config file. Canary probes the standard Gateway
+and TWS ports on loopback, selects one account from `managedAccounts`, and uses
+client ID 15. Create `~/.config/ibkr/config.toml` only when you want a binding
+override, for example:
 
 ```toml
 [gateway]
-port = 7496
+port = 7496 # TWS live
 ```
 
-Every section and key — `[gateway]`, `[daemon]`, `[trading]`, `[rulebook]`, `[auto_trade]`, `[opportunities]`, and `[spx]` — is enumerated with types, defaults, and semantics in the generated [configuration reference](docs/docs/reference/config.md), alongside the public `CANARY_*` variables and the broker-wire `IBKR_*` diagnostics. `canary status` shows what the daemon ended up using and where each value came from (`pinned` or `discovered`).
-
-**Runtime platform preferences** are daemon-owned, live in the safety-pinned `$XDG_STATE_HOME/ibkr/daemon.db`, and change without a restart. Feature toggles and rulebook earnings overrides are available through `canary settings set`, the SPA Settings tab, or `PATCH /api/settings`; the `trading.freeze` brake and experimental trading-limit overrides require `canary settings set` from an interactive human terminal. The writable keys are listed in the [configuration reference](docs/docs/reference/config.md); ownership and semantics live in the [platform-settings design](internal-docs/design/platform-settings.md).
-
-**Trading policies** turn the desk's risk decisions into repeatable checks. The personal risk constitution stays at `~/.config/ibkr/policies/risk-policy.toml`; this safety-pinned path prevents a rename from hiding an approved policy. It has no embedded default: missing material decisions remain `unapproved`. Protection proposals (`protection-policy.toml`) and option-exercise opportunities (`opportunity-policy.toml`) do have conservative embedded defaults, printable with `canary policy default <protection|opportunity>`. The [trading-policy reference](docs/docs/understand/policy.md) explains who decides, what is advisory today, how controls change, and why local policy records are not broker execution evidence; every editable engine key remains enumerated in the generated [configuration reference](docs/docs/reference/config.md).
-
-**Trading config is opt-in and experimental.** Stable `canary` releases are read-only. Trading builds, when built or published separately, are experimental and provided as-is for explicit operator testing. Keep trading config inactive as `~/.config/ibkr/config.toml.trading`; it has no effect with that suffix. To activate it, a human or explicitly instructed local agent removes the `.trading` suffix so the file becomes `~/.config/ibkr/config.toml`, verifies the pinned account and endpoint, then runs `canary restart`. The example template lives at [examples/config.toml.trading](examples/config.toml.trading).
-
-References:
-
-- [Configuration reference](docs/docs/reference/config.md) for TOML sections and `IBKR_*` environment variables.
-- [Trading policy](docs/docs/understand/policy.md) for who decides risk boundaries, how Canary evaluates them, what is advisory today, and which actions still require a human.
-- [Trading Rulebook](internal-docs/design/trading-rulebook.md) for the compiled advisory
-  discipline model, its evidence contract, ownership, freshness, and limits.
-- [Storage](docs/docs/internals/storage.md) for how the daemon preserves state and evidence with SQLite, including data relationships, query boundaries, durability, recovery, and current limits.
-- [Sensors](docs/docs/understand/sensors.md) for Gamma, Regime, Stress, Rulebook, market-event authority, freshness, last-good behavior, and fail-closed checks.
-- [Experimental trading config](docs/docs/operate/orders.md) for the inactive `config.toml.trading` pattern and release-channel expectations.
-- [Concepts](docs/docs/understand/concepts.md) for breadth, gamma, and regime interpretation.
-- [Working with agents](docs/docs/operate/agents.md) for Claude and MCP workflows.
-- [Packaging and distribution](docs/docs/internals/packaging.md) for packaging notes.
-- [Privacy](PRIVACY.md) for data locality and local files.
+Unknown keys fail at startup. Runtime preferences and durable operational state
+remain under the existing `ibkr` XDG paths so an upgrade cannot create a second
+authority. See the generated [configuration reference](docs/docs/reference/config.md)
+for every TOML key and environment variable, and [Trading policy](docs/docs/understand/policy.md)
+for the risk constitution and advisory boundaries.
 
 ## Safety
 
-`canary` is the stable no-broker-write binary line. Experimental trading builds
-are separate, as-is, and never enter the stable update or MCP marketplace path.
-The Go library is not itself a complete no-write sandbox: its default build
-disables unrestricted order and exercise methods but retains narrowly
-paper-gated wrappers for daemon use. The stable binary's no-write posture is
-enforced across these layers:
+- **Read-only is the normal product.** The normal installer, updater, and MCP
+  bundles select the standard binary, whose broker-write handlers are not
+  compiled in.
+- **MCP remains read-only in every build.** Its registry contains no preview,
+  place, modify, cancel, or exercise tool.
+- **Trading is a separate decision.** Trading artifacts are explicitly named,
+  experimental, and require pinned connection authority, an eligible fresh
+  review contract, healthy journaling, daemon revalidation, an open runtime
+  freeze, and a transaction-specific human instruction.
+- **Missing evidence stays missing.** Source health, freshness, and retained
+  last-good state remain visible rather than becoming a clean or zero result.
+- **The Go package is lower-level.** Default builds disable unrestricted order
+  and exercise methods, but narrow paper-gated transport methods remain for
+  daemon use. A library build is not a substitute for application authority.
 
-1. Default `pkg/ibkr` builds return `ErrTradingDisabled` from unrestricted place/cancel and option-exercise methods before any wire write. Raw unrestricted methods require `-tags trading`; the all-build paper wrappers validate a concrete paper account and connection but do not grant application authority.
-2. The daemon's write-handler dispatch returns `ErrTradingDisabled` for broker-write RPCs in the standard build ([internal/daemon/trading_disabled.go](internal/daemon/trading_disabled.go)).
-3. The bundled [settings/canary.settings.json](settings/canary.settings.json) allowlists the retained read and local-control patterns. Broker writes are not hard-denied there; the project hook and daemon gates decide them.
-4. The plugin's `PreToolUse` hook blocks shell chaining around broker-adjacent writes and refuses broker-write patterns unless the daemon reports a paper or live write-ready trading state, failing closed for broker-adjacent `canary` commands if `jq` is missing from PATH.
-5. A unit test in `internal/mcp` permits only the 13 registered read tools and refuses unallowlisted order/trade/cancel/submit/place tool names.
+Read [SECURITY.md](SECURITY.md) and [Gated orders and the trading build](docs/docs/operate/orders.md)
+before using a trading-capable artifact.
 
-Stable releases keep broker-write RPC handlers unavailable. The paired app and
-trading CLI may expose constrained review flows only when the separately built
-trading capability and all runtime gates are present.
+Canary has no telemetry and does not send account IDs, balances, quantities, or
+P&L to the maintainer. Some public-source refreshes make outbound requests; an
+earnings lookup can disclose the normalized ticker being evaluated. An MCP host,
+remote app relay, or push service receives only the data sent through the path
+you enable. [PRIVACY.md](PRIVACY.md) is the authoritative data map.
 
 ## Other install paths
 
-- **Public Go module and source-built v2 CLI**: `go install github.com/osauer/canary/v2/cmd/canary@latest`. The module remains on its maintained v2 line; this command does not install product v3. Use the signed installer or release assets above for product v3. Requires Go 1.26+.
-- **Claude Desktop MCPB**: download `canary.mcpb` from the latest [release](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) and open it with Claude Desktop. The release also publishes `canary-vX.Y.Z.mcpb` for registry integrity and reproducible manual verification.
-- **Different install dir**: `CANARY_INSTALL_DIR=/usr/local/bin sh install.sh`. The installer won't touch your shell rc when you override; manage PATH yourself.
-- **Inspect the installer first**: `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh -o install.sh && less install.sh && sh install.sh`.
-- **Manual download**: pick a tarball from the latest [release](https://github.com/osauer/canary/releases/latest). Each contains `canary` plus `LICENSE` and `README.md`. Verify `SHA256SUMS.asc` against the release-signing key, then verify the tarball against `SHA256SUMS`; see [SECURITY.md](SECURITY.md#release-integrity-v100).
-- **Local build**: `git clone … && make install`.
-- **Self-update**: `canary update` fetches the next stable release, requires and verifies its pinned Ed25519 signature on `SHA256SUMS`, SHA-verifies the tarball, and atomically replaces `~/.local/bin/canary`. Prior bytes exist only in transaction staging and are deleted after publication; forward-only daemon state migrations make executable rollback unsafe. See [docs/docs/start/updating.md](docs/docs/start/updating.md) for headless flag matrix, daemon-restart semantics, `canary restart`, and how the runtime S&P-500 constituent refresh works.
+- **Release tarball:** download the asset for your platform and verify it
+  against signed `SHA256SUMS`; the [release guide](docs/docs/reference/releases.md)
+  has the exact commands and signing-key fingerprint.
+- **Public Go module / source-built v2 CLI:** `go install
+  github.com/osauer/canary/v2/cmd/canary@latest` requires Go 1.27+. This remains
+  on the maintained v2 module line and does not install product v3.
+- **Local development build:** clone the repository and run `make install`.
+- **Self-update:** `canary update` selects the newest stable release on the
+  installed product major, verifies its signature and checksum, and replaces
+  the binary atomically. It does not silently move a v2 installation to v3.
 
-Windows is not supported — the daemon uses Unix-only primitives (setsid, flock, AF_UNIX sockets). WSL works.
+See [Install and first run](docs/docs/start/install.md) for custom install paths,
+manual verification, native-platform limits, and the product/module version
+split.
 
 ## Testing
 
 ```sh
-make check      # gofmt + go vet + staticcheck + govulncheck + plugin/parity checks
-make test       # check + unit tests + hermetic daemon/CLI lifecycle integration
-make test-integration-live # strict live-Gateway integration; absence fails
+make check  # formatting, analysis, vulnerability, documentation, and parity gates
+make test   # make check plus unit and hermetic lifecycle tests
 ```
 
-`make check` is the binding gate. It fails on stdlib vulnerabilities, so an outdated Go toolchain is a build failure. The lint/vuln tools are pinned in `go.mod` and run via `go tool`, so CI and local checks use the same versions. The gate also checks that MCP tools, generated references, and plugin metadata stay aligned with the CLI commands.
-
-`make test` runs the binding repository checks, concentrated unit suites, and
-hermetic lifecycle inventory without probing a Gateway. `make smoke-fast` and
-`make smoke` are the read-only live-Gateway gates; they use an isolated daemon
-and disclose strict/loose mode, skips, and the first failure.
-
-No mock daemons. `pkg/ibkr/protocoltest/` is a wire-level encoder/decoder spec used by unit tests. Behavioural verification runs against a real IB Gateway.
+Live Gateway checks are separate and read-only: `make smoke-fast` is the quick
+gate and `make smoke` exercises the full CLI/daemon wire path. See
+[CONTRIBUTING.md](CONTRIBUTING.md) before sending a change.
 
 ## Troubleshooting
 
-**"gateway not responding to TWS handshake within 12s".** The gateway accepts your TCP connection but never replies to the v100 handshake. Almost always the API socket is disabled. Launch TWS once, accept "Enable ActiveX and Socket Clients", quit TWS, restart Gateway. The flag carries over via shared `~/Jts/<userdir>/ibg.xml`. It also silently un-ticks itself when more than one of TWS / IB Gateway / IBKR Desktop is launched against the same login — if it keeps coming back, run only one of them.
+| Symptom | First check |
+| --- | --- |
+| `no IBKR listener found` | Confirm Gateway or TWS is logged in and API socket access is enabled. Discovery probes only loopback and the four standard ports. |
+| `gateway not responding to TWS handshake` | In TWS settings, enable ActiveX and Socket Clients. Avoid running several IBKR desktop applications against the same login. |
+| `daemon socket did not appear` | Read `~/.local/state/ibkr/ibkr-daemon.log`; startup failures name the port, client ID, or config problem. |
+| MCP tools are absent | Confirm the host uses an absolute binary path, then fully quit and relaunch it. |
+| CLI and daemon versions differ | Run `canary restart`; relaunch MCP hosts separately. |
 
-**"no IBKR listener found on 127.0.0.1 ports ...".** Auto-discovery probed all four standard ports and got nothing. The error message tells you which case you're in: if TWS / IB Gateway / IBKR Desktop is running, the API socket is closed (checkbox unchecked, login pending, or non-default socket port — pin it in `[gateway]`); if nothing is running, just start one and the daemon reconnects automatically. On a non-loopback host, set `host = "192.168.x.y"` explicitly — auto-discovery only probes loopback.
-
-**"none of N discovered endpoint(s) completed TWS handshake".** Both Gateway and TWS are running, both accept TCP, but neither completes the API handshake. Usually a stale Gateway window from earlier in the day plus a freshly logged-in TWS. The status output names every endpoint that was tried. Quit the one you don't need.
-
-**`daemon socket did not appear`.** The daemon crashed during startup. Check the safety-pinned `~/.local/state/ibkr/ibkr-daemon.log`. Common causes: gateway not running, configured `client_id` already in use, wrong port. Orphaned sockets from crashed daemons are handled automatically.
-
-**Quotes time out.** Strict live entitlements, market closed. The daemon defaults to `SetMarketDataType(2)` (frozen), which returns the last-known price; with `live` only, snapshots stay empty out of trading hours. Loosen the gateway's market-data permissions.
-
-**`use of closed network connection` during handshake.** IB Gateway rate-limits fast handshake retries. Wait ~30 seconds before restarting.
-
-**CLI vs daemon version skew warning.** Run `canary restart`. It stops the old daemon and starts a new one from the current binary.
-
-**Capturing the wire protocol for diagnostics.** Set `IBKR_WIRE_INTERCEPTOR=1` to enable the in-process recorder; pair with `IBKR_WIRE_LOG_PATH=/path/to/wire.jsonl` to also persist every frame as JSON-lines. `IBKR_WIRE_RING_SIZE=N` sizes the in-memory ring (default 256). For raw bytes, `IBKR_PACKET_LOG_TEMPLATE=/path/to/packets.bin` enables the lower-level packet logger. All four are off by default. Captured frames carry account-sensitive data — see [SECURITY.md §Diagnostic data sensitivity](SECURITY.md#diagnostic-data-sensitivity) before sharing logs.
+The [troubleshooting guide](docs/docs/start/troubleshooting.md) covers endpoint
+discovery, subscriptions, permissions, logs, and safe diagnostic capture.
 
 ## Disclaimer & trademarks
 
-This project is an **independent, third-party client** for Interactive Brokers' [publicly documented TWS API](https://interactivebrokers.github.io/). It is not built, endorsed, sponsored, or supported by Interactive Brokers Group, Inc., or any of its affiliates.
+Canary is an independent third-party client for Interactive Brokers' publicly
+documented TWS API. It is not built, endorsed, sponsored, or supported by
+Interactive Brokers Group, Inc. or its affiliates.
 
-- "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. They are used here nominatively, solely to identify the brokerage and the API this project connects to.
-- `pkg/ibkr` is a clean-room Go re-implementation of the TWS wire protocol. **No code, libraries, or jars distributed by Interactive Brokers are included or redistributed in this project.**
-- This project does not redistribute IBKR market data. Data is read from a gateway you run locally, against your own account. The daemon keeps local operational caches and journals on your machine, and data leaves it only through features you explicitly enable — the remote app relay, Web Push — or an MCP host you choose to connect. [PRIVACY.md](PRIVACY.md) is the authoritative list.
-- Connecting to IBKR via the TWS API requires an **IBKR Pro** account; IBKR Lite does not include API access.
-- Nothing here is investment advice. Use at your own risk; the MIT license's AS IS clause applies in full.
+`pkg/ibkr` is a clean-room implementation and redistributes no Interactive
+Brokers code, libraries, jars, or market data. “Interactive Brokers”, “IBKR”,
+“TWS”, and “IB Gateway” are used only to identify the brokerage and API.
 
-If you are Interactive Brokers and have a concern with anything in this repository, please open a GitHub issue and we will respond promptly.
+Nothing here is investment advice. Use it at your own risk; the MIT license's
+AS IS clause applies in full.
 
 ## License
 
