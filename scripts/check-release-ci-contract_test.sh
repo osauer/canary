@@ -78,4 +78,23 @@ if "$checker" "$fixture" >/dev/null 2>&1; then
 	exit 1
 fi
 
+# The release contract must prove every cross-compile target and build mode,
+# not merely recognize the job's display name.
+copy_fixture incomplete-cross-compile
+python3 - "$fixture/.github/workflows/ci.yml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = "for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do"
+if old not in text:
+    raise SystemExit("cross-compile target witness missing")
+path.write_text(text.replace(old, "for target in darwin-arm64 darwin-amd64 linux-amd64; do", 1))
+PY
+if "$checker" "$fixture" >/dev/null 2>&1; then
+	echo "check-release-ci-contract test: incomplete cross-compile matrix passed" >&2
+	exit 1
+fi
+
 echo "check-release-ci-contract test: OK"

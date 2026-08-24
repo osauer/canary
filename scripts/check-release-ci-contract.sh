@@ -79,6 +79,19 @@ EXPECTED_CI_RUN_STEPS = {
             "run": "make app-render-check",
         },
     },
+    "cross-compile": {
+        "build matrix (darwin/linux × amd64/arm64)": {
+            "run": """set -euo pipefail
+for target in darwin-arm64 darwin-amd64 linux-amd64 linux-arm64; do
+  os=$(echo "$target" | cut -d- -f1)
+  arch=$(echo "$target" | cut -d- -f2)
+  echo "==> $os/$arch (default)"
+  GOOS=$os GOARCH=$arch go build -trimpath -buildvcs=false -o /tmp/canary-$target ./cmd/canary
+  echo "==> $os/$arch (trading)"
+  GOOS=$os GOARCH=$arch go build -tags trading -trimpath -buildvcs=false -o /tmp/canary-trading-$target ./cmd/canary
+done""",
+        },
+    },
 }
 EXPECTED_LEGACY_SHA = "3b548f6d63286448ac132ca4ade66484952612f5"
 CHECKOUT_ACTION = "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
@@ -861,21 +874,42 @@ def workflow_step_blocks(path, job_name, job_block):
 
 def direct_step_mapping(path, job_name, step):
     direct = {}
-    for number, indent, content in step["children"]:
+    children = step["children"]
+    index = 0
+    while index < len(children):
+        number, indent, content = children[index]
         if indent < 8:
             fail(f"{path}:{number}: malformed {job_name} step indentation")
         if indent > 8:
+            index += 1
             continue
         key, value = yaml_mapping_entry(content, f"{path}:{number}")
         if key in direct:
             fail(
                 f"{path}:{number}: duplicate {job_name} step key {key!r}"
             )
+        if key == "run" and value in {"|", "|-", "|+"}:
+            block = []
+            index += 1
+            while index < len(children) and children[index][1] > 8:
+                child_number, child_indent, child_content = children[index]
+                if child_indent < 10:
+                    fail(
+                        f"{path}:{child_number}: {job_name}.run block must "
+                        "use at least ten-space indentation"
+                    )
+                block.append(" " * (child_indent - 10) + child_content)
+                index += 1
+            if not block:
+                fail(f"{path}:{number}: {job_name}.run block is empty")
+            direct[key] = "\n".join(block)
+            continue
         direct[key] = (
             yaml_scalar(value, f"{path}:{number} {job_name}.{key}")
             if value
             else None
         )
+        index += 1
     return direct
 
 
