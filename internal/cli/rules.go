@@ -232,9 +232,9 @@ func runRulesHistory(ctx context.Context, env *Env, args []string) int {
 	return 0
 }
 
-// renderRulesHistoryText prints the newest-first transition table, the
-// shared index footer, and — when every row carries the same policy
-// provenance — one compact policy line.
+// renderRulesHistoryText prints the newest-first transition table, its direct
+// storage authority, and — when every row carries the same policy provenance —
+// one compact policy line.
 func renderRulesHistoryText(env *Env, out io.Writer, res *rpc.RulesHistoryResult) {
 	width := outputColumns(out)
 	if width < 60 {
@@ -247,7 +247,7 @@ func renderRulesHistoryText(env *Env, out io.Writer, res *rpc.RulesHistoryResult
 	}
 	fmt.Fprintln(out, header)
 	if len(res.Entries) == 0 {
-		fmt.Fprintln(out, "  no indexed rule transitions in this window")
+		fmt.Fprintln(out, "  no rule transitions recorded in this window")
 	} else {
 		ruleW, transW := 4, 10
 		for _, e := range res.Entries {
@@ -265,22 +265,10 @@ func renderRulesHistoryText(env *Env, out io.Writer, res *rpc.RulesHistoryResult
 				truncateVisible(e.Evidence, evidenceW))
 		}
 	}
-	renderHistoryIndexFooter(env, out, res.Index)
+	fmt.Fprintf(out, "  %s\n", env.dim("source: daemon.db · direct history read"))
 	if id, version, uniform := uniformRulesPolicy(res.Entries); uniform {
 		fmt.Fprintf(out, "  %s\n", env.dim(fmt.Sprintf("policy %s v%d", id, version)))
 	}
-}
-
-func renderHistoryIndexFooter(env *Env, out io.Writer, idx rpc.HistoryIndexHealth) {
-	if behind := idx.JournalBytes - idx.IngestedBytes; behind > 0 {
-		fmt.Fprintf(out, "  %s\n", env.yellow(fmt.Sprintf("index catching up: %d bytes behind (rows may be missing)", behind)))
-		return
-	}
-	label := "index: journal fully ingested"
-	if !idx.LastIngestAt.IsZero() {
-		label = fmt.Sprintf("index: through %s · journal fully ingested", idx.LastIngestAt.UTC().Format("2006-01-02 15:04Z"))
-	}
-	fmt.Fprintf(out, "  %s\n", env.dim(label))
 }
 
 // ruleTransitionLabel renders was→status; a first observation (empty was)
