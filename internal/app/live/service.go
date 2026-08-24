@@ -206,7 +206,9 @@ type SourceMeta struct {
 	LastSuccessAt time.Time `json:"last_success_at,omitzero"`
 	State         string    `json:"state,omitempty"`
 	Reason        string    `json:"reason,omitempty"`
-	Error         string    `json:"error,omitempty"`
+	// Error is retained for older app clients, but may contain only the
+	// stable publicSourceUnavailableMessage, never raw boundary error text.
+	Error string `json:"error,omitempty"`
 }
 
 // Source states and reasons classify app transport freshness independently of
@@ -222,6 +224,7 @@ const (
 	SourceReasonTransportUnavailable   = "transport_unavailable"
 	SourceReasonProducerUnavailable    = "producer_unavailable"
 	SourceReasonPersistenceUnavailable = "persistence_unavailable"
+	publicSourceUnavailableMessage     = "Source temporarily unavailable."
 	nudgesPollEvery                    = time.Minute
 )
 
@@ -321,6 +324,7 @@ func sourceUnavailableWithReason(prior SourceMeta, now time.Time, reason string)
 		LastSuccessAt: prior.LastSuccessAt,
 		State:         SourceStateUnavailable,
 		Reason:        reason,
+		Error:         publicSourceUnavailableMessage,
 	}
 }
 
@@ -360,10 +364,10 @@ func (s *Service) pollStatus(ctx context.Context) Snapshot {
 	errors := []SourceError{}
 	if status, err := s.client.Status(ctx); err != nil {
 		errors = append(errors, sourceErr("status", err, now))
-		snap.Sources["status"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["status"] = sourceUnavailable(snap.Sources["status"], now)
 	} else {
 		snap.Status = status
-		snap.Sources["status"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["status"] = sourceCurrent(now)
 		if s.changed("status", status) {
 			events = append(events, Event{Type: "status", Data: status})
 		}
@@ -433,20 +437,20 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 
 	if status, err := s.client.Status(ctx); err != nil {
 		errors = append(errors, sourceErr("status", err, now))
-		snap.Sources["status"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["status"] = sourceUnavailable(snap.Sources["status"], now)
 	} else {
 		snap.Status = status
-		snap.Sources["status"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["status"] = sourceCurrent(now)
 		if s.changed("status", status) {
 			events = append(events, Event{Type: "status", Data: status})
 		}
 	}
 	if calendar, err := s.client.MarketCalendar(ctx); err != nil {
 		errors = append(errors, sourceErr("calendar", err, now))
-		snap.Sources["calendar"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["calendar"] = sourceUnavailable(snap.Sources["calendar"], now)
 	} else {
 		snap.Calendar = calendar
-		snap.Sources["calendar"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["calendar"] = sourceCurrent(now)
 		if s.changed("calendar", calendar) {
 			events = append(events, Event{Type: "market_calendar", Data: calendar})
 		}
@@ -484,10 +488,10 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 	if symbols := liveMarketEventSymbols(snap.Positions); len(symbols) > 0 {
 		if marketEvents, err := s.client.MarketEvents(ctx, rpc.MarketEventsParams{Symbols: symbols}); err != nil {
 			errors = append(errors, sourceErr("market_events", err, now))
-			snap.Sources["market_events"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+			snap.Sources["market_events"] = sourceUnavailable(snap.Sources["market_events"], now)
 		} else {
 			snap.MarketEvents = marketEvents
-			snap.Sources["market_events"] = SourceMeta{UpdatedAt: now}
+			snap.Sources["market_events"] = sourceCurrent(now)
 			if s.changed("market_events", marketEvents) {
 				events = append(events, Event{Type: "market_events", Data: marketEvents})
 			}
@@ -495,7 +499,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 	}
 	if quotes, err := s.marketQuotes(ctx, now, snap.Positions, snap.Quotes); err != nil {
 		errors = append(errors, sourceErr("market_quotes", err, now))
-		snap.Sources["market_quotes"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["market_quotes"] = sourceUnavailable(snap.Sources["market_quotes"], now)
 		if quotes != nil {
 			snap.Quotes = mergeMarketQuotes(snap.Quotes, quotes)
 			if s.changed("market_quotes", snap.Quotes) {
@@ -504,57 +508,57 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 		}
 	} else {
 		snap.Quotes = mergeMarketQuotes(snap.Quotes, quotes)
-		snap.Sources["market_quotes"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["market_quotes"] = sourceCurrent(now)
 		if s.changed("market_quotes", snap.Quotes) {
 			events = append(events, Event{Type: "market_quotes", Data: snap.Quotes})
 		}
 	}
 	if trading, err := s.client.TradingStatus(ctx); err != nil {
 		errors = append(errors, sourceErr("trading", err, now))
-		snap.Sources["trading"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["trading"] = sourceUnavailable(snap.Sources["trading"], now)
 	} else {
 		snap.Trading = trading
-		snap.Sources["trading"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["trading"] = sourceCurrent(now)
 		if s.changed("trading", trading) {
 			events = append(events, Event{Type: "trading", Data: trading})
 		}
 	}
 	if autoTrade, err := s.client.AutoTradeStatus(ctx); err != nil {
 		errors = append(errors, sourceErr("auto_trade", err, now))
-		snap.Sources["auto_trade"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["auto_trade"] = sourceUnavailable(snap.Sources["auto_trade"], now)
 	} else {
 		snap.AutoTrade = autoTrade
-		snap.Sources["auto_trade"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["auto_trade"] = sourceCurrent(now)
 		if s.changed("auto_trade", autoTrade) {
 			events = append(events, Event{Type: "auto_trade", Data: autoTrade})
 		}
 	}
 	if proposals, err := s.client.TradeProposalsSnapshot(ctx, rpc.TradeProposalSnapshotParams{}); err != nil {
 		errors = append(errors, sourceErr("proposals", err, now))
-		snap.Sources["proposals"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["proposals"] = sourceUnavailable(snap.Sources["proposals"], now)
 	} else {
 		snap.Proposals = proposals
-		snap.Sources["proposals"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["proposals"] = sourceCurrent(now)
 		if s.changed("proposals", proposals) {
 			events = append(events, Event{Type: "proposals", Data: proposals})
 		}
 	}
 	if opportunities, err := s.client.OpportunitiesSnapshot(ctx, rpc.OpportunitySnapshotParams{}); err != nil {
 		errors = append(errors, sourceErr("opportunities", err, now))
-		snap.Sources["opportunities"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["opportunities"] = sourceUnavailable(snap.Sources["opportunities"], now)
 	} else {
 		snap.Opportunities = opportunities
-		snap.Sources["opportunities"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["opportunities"] = sourceCurrent(now)
 		if s.changed("opportunities", opportunities) {
 			events = append(events, Event{Type: "opportunities", Data: opportunities})
 		}
 	}
 	if settings, err := s.client.Settings(ctx); err != nil {
 		errors = append(errors, sourceErr("settings", err, now))
-		snap.Sources["settings"] = SourceMeta{Error: err.Error(), UpdatedAt: now}
+		snap.Sources["settings"] = sourceUnavailable(snap.Sources["settings"], now)
 	} else {
 		snap.Settings = settings
-		snap.Sources["settings"] = SourceMeta{UpdatedAt: now}
+		snap.Sources["settings"] = sourceCurrent(now)
 		if s.changed("settings", settings) {
 			events = append(events, Event{Type: "settings", Data: settings})
 		}
@@ -1569,7 +1573,7 @@ func sourceErr(source string, _ error, at time.Time) SourceError {
 	// Errors originate at broker, transport, and daemon boundaries and are
 	// therefore untrusted browser input. Preserve the source and observation
 	// time for operator diagnostics, but expose only a stable allowlisted
-	return SourceError{Source: source, Message: "Source temporarily unavailable.", At: at}
+	return SourceError{Source: source, Message: publicSourceUnavailableMessage, At: at}
 }
 
 func cloneSnapshot(in Snapshot) Snapshot {
