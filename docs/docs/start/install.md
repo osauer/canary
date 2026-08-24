@@ -103,4 +103,9 @@ No config file is needed for this. The daemon probes `4001` (Gateway live), `400
 
 ## Next
 
-Wire an agent to the server in [Connect an MCP host](hosts.md). Keep the binary current with [Updating](updating.md). Read [Constrained orders and the trading build](../operate/orders.md) before assuming anything about what this can and cannot send to the broker.
+Set up the shared IBKR statement source in [Set up broker
+reporting](reporting.md) before relying on reconciliation, statement-derived
+equity, or Canary Edge. Then wire an agent to the server in [Connect an MCP
+host](hosts.md). Keep the binary current with [Updating](updating.md). Read
+[Constrained orders and the trading build](../operate/orders.md) before
+assuming anything about what this can and cannot send to the broker.

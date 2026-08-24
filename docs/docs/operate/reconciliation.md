@@ -8,6 +8,10 @@ The declared ledger and the local order journal are claims about intent, never
 truth, so when the two disagree the report says so rather than splitting the
 difference.
 
+Recon does not create its own IBKR report. New installations must first
+complete [Set up broker reporting](../start/reporting.md); the resulting
+Activity Flex Query is shared with statement-derived equity and Canary Edge.
+
 The report is built for one selected account and paper/live mode. When a Flex
 response contains statements for sibling accounts, Canary skips those
 statements and reports how many it skipped. If it cannot resolve one account,

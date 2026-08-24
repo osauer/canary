@@ -4,6 +4,28 @@ Updated: 2026-08-09
 
 Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected.
 
+## Gateway is ready, but Recon or Edge has no statement evidence
+
+Gateway API access and broker reporting are separate. A new installation can
+connect successfully while every statement-backed feature remains empty.
+Complete [Set up broker reporting](reporting.md): create the nine-section XML
+Activity Flex Query, enable the Flex Web Service, and configure its Query ID
+and token file.
+
+Use the stable reason to choose the next step:
+
+| Reason or state | What to do |
+| --- | --- |
+| `backfilling`, `report_not_ready`, `service_busy`, `response_invalid` | Leave the query unchanged and let Canary retry. IBKR is preparing the report or returned a temporary response Canary could not use. |
+| `token_missing`, `token_invalid`, `token_expired` | Replace the protected token file; do not put the token in TOML or a shell argument. |
+| `query_missing`, `query_invalid` | Check the configured Query ID and that the exact same account selection still exposes the query in Client Portal. |
+| `service_inactive`, `ip_restricted` | Re-enable Flex Web Service or correct its IP restriction in Client Portal. |
+| `action_required`, `flex_query_incomplete` | Create a new query from the reporting checklist. Keep the working query until the replacement validates. |
+
+An empty section is **unproved**, not missing: no row means the XML cannot show
+which fields were selected. Never place a trade or move cash merely to populate
+a report section.
+
 ## Every command prints a hint pointing at `canary status`
 
 A command failed and the CLI appended this:

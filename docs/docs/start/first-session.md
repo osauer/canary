@@ -17,6 +17,11 @@ subsystem, data-farm, and background-task health. An idle daemon is neutral; a
 normal command starts it on demand. Missing or stale source evidence remains a
 warning or unavailable state rather than becoming a clean result.
 
+A ready Gateway does not configure IBKR statements. Before relying on Recon,
+statement-derived equity, or Canary Edge, complete [Set up broker
+reporting](reporting.md). It creates one shared Activity Flex Query for all
+three consumers.
+
 ## 2. Read the account and book
 
 ```sh
@@ -98,6 +103,8 @@ the host setup and evidence rules.
 
 ## Where to go next
 
+- [Set up broker reporting](reporting.md) if statement-backed rows are missing
+  or still need their first report.
 - [The daily desk](../operate/daily-desk.md) for the recurring workflow.
 - [Orders and trading safety](../operate/orders.md) for the constrained review
   boundary.
