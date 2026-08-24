@@ -584,14 +584,12 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 		observations = append([]corestore.ObservationInput{observation}, observations...)
 	}
 	for _, item := range completed {
-		if item.localErr != nil {
-			code, stage, retryable := "", "", false
-			if item.attempt.LastFailure != nil {
-				code = item.attempt.LastFailure.Code
-				stage = item.attempt.LastFailure.Stage
-				retryable = item.attempt.LastFailure.Retryable
-			}
-			c.logf("earnings provider %s outcome status=%s code=%s stage=%s retryable=%t", item.provider, item.attempt.Status, code, stage, retryable)
+		// An attempt without a failure record is the provider answering
+		// (no_date_published, unsupported_security), not breaking; those
+		// verdicts live in the earnings state, so only genuine failures warn.
+		if item.localErr != nil && item.attempt.LastFailure != nil {
+			failure := item.attempt.LastFailure
+			c.logf("earnings provider %s outcome symbol=%s status=%s code=%s stage=%s retryable=%t", item.provider, sym, item.attempt.Status, failure.Code, failure.Stage, failure.Retryable)
 		}
 	}
 	if completedIdentity != nil {
@@ -603,7 +601,7 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 				stage = identityCopy.LastFailure.Stage
 				retryable = identityCopy.LastFailure.Retryable
 			}
-			c.logf("earnings broker identity outcome=%s code=%s stage=%s retryable=%t", identityCopy.Outcome, code, stage, retryable)
+			c.logf("earnings broker identity symbol=%s outcome=%s code=%s stage=%s retryable=%t", sym, identityCopy.Outcome, code, stage, retryable)
 		}
 	}
 	decisionAt := c.clock()
