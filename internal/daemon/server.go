@@ -2290,9 +2290,9 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	case rpc.MethodAlertStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleAlertStatus(ctx, req) })
 	case rpc.MethodRulesHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(req) })
+		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(ctx, req) })
 	case rpc.MethodReconEquity:
-		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(req) })
+		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(ctx, req) })
 	case rpc.MethodMarketEventsSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketEventsSnapshot(ctx, req) })
 	case rpc.MethodStatusHealth:

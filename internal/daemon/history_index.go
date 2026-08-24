@@ -34,7 +34,7 @@ const (
 // model is derived state.
 var errHistoryIndexUnavailable = errors.New("authoritative history storage unavailable (daemon.db; inspect daemon storage health and logs)")
 
-func (s *Server) handleRulesHistory(req *rpc.Request) (*rpc.RulesHistoryResult, error) {
+func (s *Server) handleRulesHistory(ctx context.Context, req *rpc.Request) (*rpc.RulesHistoryResult, error) {
 	var p rpc.RulesHistoryParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (s *Server) handleRulesHistory(req *rpc.Request) (*rpc.RulesHistoryResult, 
 	if s.coreStore == nil {
 		return nil, errHistoryIndexUnavailable
 	}
-	entries, total, err := s.sqliteRulesHistory(context.Background(), since, until, strings.TrimSpace(p.Rule), limit)
+	entries, total, err := s.sqliteRulesHistory(ctx, since, until, strings.TrimSpace(p.Rule), limit)
 	if err != nil {
 		s.logger.Warnf("daemon authority: rules history query failed: %v", err)
 		return nil, errHistoryIndexUnavailable
@@ -135,7 +135,7 @@ func historyIndexLimitBounded(limit, def, maxLimit int) (int, error) {
 
 // JSON [] like orders.history, never null
 
-func (s *Server) handleReconEquity(req *rpc.Request) (*rpc.ReconEquityResult, error) {
+func (s *Server) handleReconEquity(ctx context.Context, req *rpc.Request) (*rpc.ReconEquityResult, error) {
 	var p rpc.ReconEquityParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
@@ -152,17 +152,17 @@ func (s *Server) handleReconEquity(req *rpc.Request) (*rpc.ReconEquityResult, er
 	if s.coreStore == nil {
 		return nil, errHistoryIndexUnavailable
 	}
-	days, total, err := s.sqliteStatementEquityDays(context.Background(), since, until, limit)
+	days, total, err := s.sqliteStatementEquityDays(ctx, since, until, limit)
 	var (
 		events          []rpc.CapitalEventEntry
 		eventsTruncated bool
 		stmtHealth      rpc.HistoryIndexHealth
 	)
 	if err == nil {
-		events, eventsTruncated, err = s.sqliteCapitalEvents(context.Background(), since, until, reconEquityEventsCap)
+		events, eventsTruncated, err = s.sqliteCapitalEvents(ctx, since, until, reconEquityEventsCap)
 	}
 	if err == nil {
-		stmtHealth, err = s.sqliteStatementsHealth(context.Background())
+		stmtHealth, err = s.sqliteStatementsHealth(ctx)
 	}
 	if err != nil {
 		s.logger.Warnf("daemon authority: recon equity query failed: %v", err)
