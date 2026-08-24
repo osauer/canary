@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.2.2 — 2026-08-24 11:40 CEST
+
+### What's new
+
+- **Failures now stop at the boundary that understands them.** The paired app reports stable source states, history reads respect caller deadlines, and routine earnings verdicts stay out of warning logs. Account values, positions, and trading controls are unchanged.
+
+### Changed
+
+- **Rulebook and reconciliation history now say where their evidence comes from.** Text output names `daemon.db` as the direct authority and no longer describes a separate ingest index that the current read path does not use.
+- **The README now gets a new operator to a first proof sooner.** It leads with `canary status` and `canary brief`, separates product and Go-library boundaries, and points deeper setup and troubleshooting details to the handbook.
+- **Release CI now pins the cross-compile job's exact commands.** Changes to any platform or trading build command are rejected unless the checked-in release contract moves with them.
+
+### Fixed
+
+- **Rulebook and reconciliation history reads no longer continue after their request deadline.** SQLite calls now receive the RPC context, so cancelled or timed-out clients release the work instead of leaving it running in the daemon.
+- **Ordinary earnings results no longer look like provider failures.** `no date published` and unsupported-security verdicts stay in typed earnings state without warning; genuine provider failures still warn with their symbol and failure classification.
+
+### Security
+
+- **The paired app no longer includes internal boundary errors in public snapshots.** A failed source now carries a stable unavailable state and allowlisted message; raw broker, transport, daemon, and storage errors remain local.
+
 ## v3.2.1 — 2026-08-23 21:31 CEST
 
 ### What's new
