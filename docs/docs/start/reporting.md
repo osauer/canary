@@ -250,6 +250,10 @@ is available for that completed date. Canary retries it conservatively; if it
 persists after the next statement publication, review the query's account
 selection and availability rather than regenerating the token blindly.
 
+A scheduled retry refreshes the current report; it is not a promise that an
+unproved section will appear. If matching activity exists inside the retained
+coverage and the section stays unproved, validate a replacement query.
+
 IBKR may also return numeric statuses not present in its published Flex error
 table. Canary exposes only the four-digit code. For example, code `1025` is
 currently undocumented: review the Flex Web Service and query configuration,
@@ -262,7 +266,7 @@ uses the same report and can remain `backfilling` while it requests its initial
 broker evidence. `action_required` means Canary proved a credential or report
 definition problem rather than merely waiting for IBKR.
 
-`insufficient_evidence` is an Edge state, not a Reporting state. It means account-level evidence may be usable but the returned reports did not prove the Trades section. Run `canary reporting status` (or the read-only `canary_reporting` MCP tool) and check the saved Portal query. If Trades is present and explicitly empty, Edge instead keeps a `current` zero-decision result with a plain explanation.
+`insufficient_evidence` is an Edge state, not a Reporting state. It means account-level evidence may be usable but the completed one-year report did not return a Trades section. Edge is not waiting for another copy of that same history. If the account traded during the covered dates, check that the saved Portal query includes Trades at execution detail; if it did not, there are no decisions to score. This correction uses the one-time reporting setup only—there are no Edge parameters or debug exports to maintain. If Trades is present and explicitly empty, Edge instead keeps a `current` zero-decision result with a plain explanation.
 
 An empty section is not proof that every field was selected. Canary calls that
 section **unproved** until a real row arrives. Do not manufacture a trade,

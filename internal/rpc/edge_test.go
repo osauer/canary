@@ -108,3 +108,27 @@ func TestEdgeSetupMissingRequirementsAreManifestAllowlisted(t *testing.T) {
 		t.Fatal("non-manifest missing requirement was accepted")
 	}
 }
+
+func TestEdgeSetupMayExplainOnlyTheTypedUnprovedTradeState(t *testing.T) {
+	result := EdgeResult{
+		SchemaVersion: "canary-edge-v1", State: EdgeStateInsufficient, Reason: "trade_history_unproved",
+		Window: "365d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
+		Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+		Setup: &EdgeSetup{
+			ManifestVersion: "canary-reporting-flex-v1", Steps: []string{"one", "two", "three"},
+			Sections: []EdgeSectionRequirement{{Key: "trades", Label: "Trades", Fields: []string{"tradePrice"}}},
+		},
+	}
+	if err := ValidateEdgeResult(result); err != nil {
+		t.Fatalf("typed unproved-trade setup rejected: %v", err)
+	}
+	result.Setup.MissingRequirements = []string{"trades"}
+	if err := ValidateEdgeResult(result); err == nil {
+		t.Fatal("unproved Trades was relabeled as a proven missing requirement")
+	}
+	result.Setup.MissingRequirements = nil
+	result.Reason = "another_reason"
+	if err := ValidateEdgeResult(result); err == nil {
+		t.Fatal("setup escaped the typed unproved-trade state")
+	}
+}

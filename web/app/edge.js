@@ -80,7 +80,8 @@ function renderEdge() {
   }
 
   $("edgeAsOf").textContent = result.as_of ? calendarDateTime(result.as_of) : labelize(result.state);
-  const setup = result.state === "action_required";
+  const setup = result.state === "action_required"
+    || (result.state === "insufficient_evidence" && result.reason === "trade_history_unproved" && result.setup);
   $("edgeSetup").hidden = !setup;
   if (setup) renderEdgeSetup(result);
   const hasResults = result.state !== "action_required" && edgeHasResults(result);
@@ -116,10 +117,13 @@ function renderEdgeStatus(result) {
     action_required: "Flex evidence setup is required.",
     backfilling: "Backfill is running. Available results remain explicitly partial.",
     degraded: "The prior snapshot is visible, but newer evidence is still rebuilding.",
-    insufficient_evidence: "Account evidence may be usable, but Canary is still waiting for broker-confirmed trade history. It will retry automatically.",
+    insufficient_evidence: result.reason === "trade_history_unproved"
+      ? "The completed one-year report returned no Trades section. This is not a backfill: verify the saved Flex query if the account traded during the period."
+      : "The broker evidence is insufficient for a sound decision review.",
     unavailable: "No sound Edge result is currently available.",
   }[result.state] || labelize(result.state);
-  const reason = result.reason ? ` ${labelize(result.reason)}.` : "";
+  const terminalTradeGap = result.state === "insufficient_evidence" && result.reason === "trade_history_unproved";
+  const reason = result.reason && !terminalTradeGap ? ` ${labelize(result.reason)}.` : "";
   target.textContent = copy + reason;
   target.classList.add(result.state === "degraded" || result.state === "insufficient_evidence" || result.state === "unavailable" ? "edge-status--risk" : "edge-status--watch");
 }
@@ -130,9 +134,13 @@ function edgeHasResults(result) {
 
 function renderEdgeSetup(result) {
   const setup = result.setup || {};
-  $("edgeSetupReason").textContent = result.reason
-    ? `Canary cannot calculate broker-truth results: ${labelize(result.reason)}.`
-    : "Canary needs the canonical IBKR Flex profile before it can calculate this review.";
+  const unprovedTrades = result.state === "insufficient_evidence" && result.reason === "trade_history_unproved";
+  $("edgeSetupTitle").textContent = unprovedTrades ? "Trade history was not returned" : "Connect broker evidence";
+  $("edgeSetupReason").textContent = unprovedTrades
+    ? "Canary finished the one-year report and is not waiting for more history. If this account traded during the period, verify that Trades is selected at execution detail in the saved Activity Flex Query; if it did not, there are no decisions to score."
+    : (result.reason
+      ? `Canary cannot calculate broker-truth results: ${labelize(result.reason)}.`
+      : "Canary needs the canonical IBKR Flex profile before it can calculate this review.");
   const steps = Array.isArray(setup.steps) ? setup.steps.slice(0, 3) : [];
   $("edgeSetupSteps").replaceChildren(...steps.map((text) => {
     const item = document.createElement("li");

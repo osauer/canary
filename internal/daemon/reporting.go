@@ -354,7 +354,11 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		return
 	case result.Broker.State != rpc.ReconReportStateCurrent:
 		result.State, result.Reason = rpc.ReportingStateBackfilling, result.Broker.Reason
-		result.Action = "Canary will retry automatically; use reporting status to follow the next broker check."
+		if len(result.UnprovedSections) > 0 {
+			result.Action = "Canary will retry the current report automatically. That retry does not prove unproved sections: if matching activity exists in the covered dates, validate a replacement query."
+		} else {
+			result.Action = "Canary will retry automatically; use reporting status to follow the next broker check."
+		}
 		return
 	case len(result.UnprovedSections) > 0:
 		result.State, result.Reason = rpc.ReportingStateConfigured, rpc.ReportingReasonEmptySectionsUnproved

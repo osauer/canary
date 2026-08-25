@@ -74,7 +74,7 @@ An Edge snapshot is in one of six states:
 - `backfilling`: the initial year or an exact-contract price series is still loading.
 - `current`: the published snapshot matches the retained evidence.
 - `degraded`: a last-good snapshot exists, but evidence changed or part of a refresh failed.
-- `insufficient_evidence`: account evidence may be usable, but the returned reports do not prove the Trades section, so Edge does not imply that a decision review exists.
+- `insufficient_evidence`: account evidence may be usable, but a completed one-year report did not return a Trades section, so Edge does not imply that a decision review exists. This is a terminal evidence diagnosis, not a backfill promise. If the account traded during the period, verify that Trades is selected at execution detail in the saved Activity Flex Query; if it did not, there are no decisions to score.
 - `unavailable`: no safely scoped result can be served.
 
 Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap any finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, and typed results or exclusion reasons. The interaction is explanatory and read-only; it cannot preview or submit a trade.

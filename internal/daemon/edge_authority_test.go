@@ -498,12 +498,23 @@ func TestEdgeHeadlineUsesMostObservedActionAndExplainsEmptyEvidence(t *testing.T
 	result.Findings = nil
 	result.ActionRollups = nil
 	result.Coverage.MissingSections = []string{"trades"}
-	if got := edgeHeadline(result); !strings.Contains(got, "waiting for broker-confirmed trade history") || !strings.Contains(got, "retries automatically") {
+	if got := edgeHeadline(result); !strings.Contains(got, "completed one-year broker report returned no Trades section") || !strings.Contains(got, "verify Trades at execution detail") || strings.Contains(got, "waiting") {
 		t.Fatalf("unproved headline=%q", got)
 	}
 	result.Coverage.MissingSections = nil
 	if got := edgeHeadline(result); !strings.Contains(got, "No stock or ETF position changes") || !strings.Contains(got, "account P/L remains separate") {
 		t.Fatalf("zero-trade headline=%q", got)
+	}
+}
+
+func TestUnprovedTradeHistoryCarriesSetupWithoutHidingAccountEvidence(t *testing.T) {
+	t.Parallel()
+	result := edgeStateOnlyResult(rpc.EdgeStateInsufficient, "trade_history_unproved", "365d", 20)
+	if result.Setup == nil || len(result.Setup.Steps) != 3 || len(result.Setup.Sections) == 0 {
+		t.Fatalf("unproved trade setup=%+v", result.Setup)
+	}
+	if err := rpc.ValidateEdgeResult(*result); err != nil {
+		t.Fatalf("unproved trade setup rejected: %v", err)
 	}
 }
 

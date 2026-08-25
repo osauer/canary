@@ -303,7 +303,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 		}
 	}
 	if result.Setup != nil {
-		if result.State != EdgeStateActionRequired || len(result.Setup.ManifestVersion) == 0 || len(result.Setup.ManifestVersion) > 128 || len(result.Setup.Steps) != 3 || len(result.Setup.Sections) == 0 || len(result.Setup.Sections) > 32 || len(result.Setup.MissingRequirements) > 256 {
+		setupAllowed := result.State == EdgeStateActionRequired || result.State == EdgeStateInsufficient && result.Reason == "trade_history_unproved"
+		unprovedTradesClaimedMissing := result.State == EdgeStateInsufficient && len(result.Setup.MissingRequirements) > 0
+		if !setupAllowed || unprovedTradesClaimedMissing || len(result.Setup.ManifestVersion) == 0 || len(result.Setup.ManifestVersion) > 128 || len(result.Setup.Steps) != 3 || len(result.Setup.Sections) == 0 || len(result.Setup.Sections) > 32 || len(result.Setup.MissingRequirements) > 256 {
 			return fmt.Errorf("invalid Edge setup contract")
 		}
 		allowed := make(map[string]bool)

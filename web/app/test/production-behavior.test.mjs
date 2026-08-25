@@ -306,11 +306,25 @@ test("Edge renders every authority state without turning missing evidence into r
   assert.match(dom.element("edgeStatus").textContent, /prior snapshot is visible/);
   assert.equal(dom.element("edgeStatus").classList.contains("edge-status--risk"), true);
 
-  state.edgeResult = { ...base, state: "insufficient_evidence", reason: "trade_history_unproved", fingerprint: "edge_account_only" };
+  state.edgeResult = {
+    ...base,
+    state: "insufficient_evidence",
+    reason: "trade_history_unproved",
+    fingerprint: "edge_account_only",
+    account: { requested_from: "2025-08-24", actual_from: "2025-08-25", actual_to: "2026-08-24", profit_loss_base: 10, external_flows_base: 0, definition: "Ending equity minus starting equity minus external flows." },
+    setup: { manifest_version: "canary-reporting-flex-v1", steps: ["Open the saved query.", "Confirm Trades.", "Validate the corrected query; no Edge parameters or debug export."], sections: [{ key: "trades", label: "Trades", fields: ["tradePrice"] }] },
+  };
   edge.renderEdge();
+  assert.equal(dom.element("edgeSetup").hidden, false, "the existing setup panel explains the terminal evidence gap");
+  assert.equal(dom.element("edgeSetupTitle").textContent, "Trade history was not returned");
   assert.equal(dom.element("edgeResults").hidden, false, "proved account evidence remains visible");
-  assert.match(dom.element("edgeStatus").textContent, /waiting for broker-confirmed trade history/);
-  assert.match(dom.element("edgeStatus").textContent, /retry automatically/);
+  assert.match(dom.element("edgeStatus").textContent, /completed one-year report returned no Trades section/);
+  assert.match(dom.element("edgeStatus").textContent, /not a backfill/);
+  assert.doesNotMatch(dom.element("edgeStatus").textContent, /waiting|retry automatically/);
+  assert.doesNotMatch(dom.element("edgeStatus").textContent, /Trade History Unproved/);
+  assert.match(dom.element("edgeSetupReason").textContent, /finished the one-year report and is not waiting/);
+  assert.match(dom.element("edgeSetupReason").textContent, /Trades is selected at execution detail/);
+  assert.match(dom.element("edgeSetupSteps").textContent, /no Edge parameters or debug export/);
   assert.equal(dom.element("edgeStatus").classList.contains("edge-status--risk"), true);
 
   state.edgeResult = { ...base, state: "unavailable", reason: "snapshot_authority_unavailable" };

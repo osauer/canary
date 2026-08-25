@@ -261,6 +261,19 @@ func TestReportingStatusPublishesOnlyTypedBrokerAndManifestDiagnostics(t *testin
 	}
 }
 
+func TestReportingRetryDoesNotPromiseUnprovedSectionsWillArrive(t *testing.T) {
+	result := &rpc.ReportingStatusResult{
+		Local:            rpc.ReportingLocalStatus{Enabled: true, QueryConfigured: true, TokenFilePresent: true, TokenFilePrivate: true},
+		Broker:           rpc.ReportingBrokerStatus{State: rpc.ReconReportStateRetryScheduled, Reason: rpc.ReconReportReasonReportNotReady},
+		Evidence:         rpc.ReportingEvidenceStatus{State: rpc.ReportingEvidenceObserved},
+		UnprovedSections: []string{"trades"},
+	}
+	setReportingOverallStatus(result, false)
+	if result.State != rpc.ReportingStateBackfilling || !strings.Contains(result.Action, "retry does not prove unproved sections") || !strings.Contains(result.Action, "validate a replacement query") {
+		t.Fatalf("reporting retry contract=%+v", result)
+	}
+}
+
 func TestReportingCandidateRejectsConsolidatedOrWrongAccountWithoutExposingIdentity(t *testing.T) {
 	tokenPath := writeReportingTestToken(t)
 	tests := []struct {

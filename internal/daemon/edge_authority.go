@@ -692,7 +692,7 @@ func (s *Server) edgeSubsystemHealth() rpc.SubsystemHealth {
 	case rpc.EdgeStateDegraded:
 		sub.Status, sub.Message = "degraded", "last snapshot has incomplete or newer evidence"
 	case rpc.EdgeStateInsufficient:
-		sub.Status, sub.Message = "degraded", "trade history is not proven by returned Flex evidence"
+		sub.Status, sub.Message = "degraded", "completed Flex backfill returned no Trades section"
 	case rpc.EdgeStateActionRequired:
 		sub.Status, sub.Message = "action_required", "Flex query or credentials require attention"
 	default:
@@ -821,14 +821,22 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 
 func edgeStateOnlyResult(state, reason, window string, horizon int) *rpc.EdgeResult {
 	result := &rpc.EdgeResult{SchemaVersion: edgecore.SchemaVersion, State: state, Reason: reason, Window: window, HorizonSessions: horizon, ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{}, Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true}
-	if state == rpc.EdgeStateActionRequired {
-		result.Setup = edgeSetup()
+	if state == rpc.EdgeStateActionRequired || state == rpc.EdgeStateInsufficient && reason == "trade_history_unproved" {
+		result.Setup = edgeSetup(reason)
 	}
 	return result
 }
 
-func edgeSetup() *rpc.EdgeSetup {
-	setup := &rpc.EdgeSetup{ManifestVersion: flexstmt.ManifestVersion, Steps: flexstmt.SetupSteps()}
+func edgeSetup(reason string) *rpc.EdgeSetup {
+	steps := flexstmt.SetupSteps()
+	if reason == "trade_history_unproved" {
+		steps = []string{
+			"Open the saved Activity Flex Query in IBKR Client Portal.",
+			"Confirm Trades is selected at execution detail for this account; create a corrected copy only if it was absent.",
+			"Run canary setup reporting once to validate the corrected Query ID. Edge needs no parameters or debug export.",
+		}
+	}
+	setup := &rpc.EdgeSetup{ManifestVersion: flexstmt.ManifestVersion, Steps: steps}
 	for _, section := range flexstmt.CanonicalQueryManifest() {
 		setup.Sections = append(setup.Sections, rpc.EdgeSectionRequirement{Key: section.Key, Label: section.Label, LevelOfDetail: section.LevelOfDetail, Fields: append([]string(nil), section.RequiredFields...)})
 	}
@@ -892,7 +900,7 @@ func edgeHeadline(result *rpc.EdgeResult) string {
 		}
 	}
 	if slices.Contains(result.Coverage.MissingSections, "trades") {
-		return "Canary is still waiting for broker-confirmed trade history. Account P/L remains available when proven, and reporting retries automatically."
+		return "The completed one-year broker report returned no Trades section, so Canary cannot reconstruct past decisions. If this account traded during the period, verify Trades at execution detail in the saved Activity Flex Query; otherwise there is no trade history to score."
 	}
 	if result.Coverage.TradeChanges == 0 {
 		return fmt.Sprintf("No stock or ETF position changes were observed in returned IBKR evidence for this %s window; account P/L remains separate when proven.", result.Window)
