@@ -215,6 +215,50 @@
       }
     },
     {
+      "name": "canary_reporting",
+      "description": "Read shared IBKR statement-reporting setup, broker reachability, backfill state, proven missing fields, and unproved empty sections for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "canary_edge",
+      "description": "Use for reviewing past trading decisions after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "change_id": {
+            "type": "string",
+            "description": "optional opaque change ID returned by a prior canary_edge call"
+          },
+          "horizon_sessions": {
+            "type": "integer",
+            "enum": [
+              1,
+              5,
+              20
+            ],
+            "description": "highlighted decision-price-impact horizon; default 20"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3,
+            "description": "maximum findings; default 3"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "90d",
+              "365d"
+            ],
+            "description": "review window; default 90d"
+          }
+        }
+      }
+    },
+    {
       "name": "canary_rules",
       "description": "Advisory 14-rule daily trading checklist evaluated daemon-side against the live book: per-name exposure cap (with disclosed lower-bound breaches under Greeks gaps), single option-line premium cap (hedge lines get their own higher tier), negative-cash sell-only mode, portfolio extrinsic (theta-rent) budget excluding classified hedge legs, expiry runway on long options, catalyst coverage vs earnings, short options spanning earnings (short calls act; short puts watch, act on assignment notional), pre-earnings size freeze, red-on-green-tape relative weakness, winner-trim into strength, green-day execution nudge, hedge-band integrity (act past twice the band top), exit discipline on long-option loss fences, and non-base-currency FX exposure (watch-only). Rules 3/4/12 thresholds are regime-conditional (calm/early_warning/confirmed sets from the latched regime lifecycle stage; a carried stage evaluates worse-of carried/calm, a never-seen stage uses calm thresholds — both disclosed in row notes). Use when the user asks \"what should I fix today?\", \"which rules am I breaking?\", \"is my book within my own risk rules?\", or wants a daily discipline review. Rows are ranked hardest-first (`ranked` indexes: act \u003e watch \u003e unknown, then base-currency impact); statuses are pass/info/watch/act/unknown/not_evaluated where `unknown` means an input was missing (positions pending, earnings unknown, Greeks gaps, FX report absent) — never treat unknown as pass; `observed_is_lower_bound` marks a breach proven from partial data (\"at least X%\"). `earnings[]` shows each name's next earnings date with source (fetched/override/unknown, with estimated and stale flags); `input_health[]` is the result-level gate (includes the regime_stage row). Advisory only: verdicts never block orders. NOT for the market-regime × portfolio alert verdict (use `canary_brief`), NOT for executable protective-stop candidates (use `canary_proposals`), and NOT a data source for positions themselves (use `canary_positions`).",
       "inputSchema": {

@@ -233,6 +233,15 @@ var pages = []pageSpec{
 		Legacy:      []string{"docs/concepts.html"},
 	},
 	{
+		Source:      "docs/docs/understand/edge.md",
+		Section:     "understand",
+		NavTitle:    "Canary Edge",
+		Summary:     "Broker-truth account P/L, fixed-horizon decision price impact, option actuals, and the coverage that bounds every result.",
+		Description: "How Canary Edge reconstructs IBKR portfolio history, calculates account P/L and stock or ETF decision price impact, reports option actuals, and fails closed when evidence is incomplete.",
+		Layout:      "architecture",
+		Status:      statusPublished,
+	},
+	{
 		Source:      "docs/docs/understand/sensors.md",
 		Section:     "understand",
 		NavTitle:    "Sensors",
@@ -315,6 +324,14 @@ var pages = []pageSpec{
 		Description: "Generated reference for Canary TOML configuration, policy files, runtime platform settings, and environment variables.",
 		Status:      statusPublished,
 		Legacy:      []string{"docs/reference/config.html"},
+	},
+	{
+		Source:      "docs/docs/reference/edge-flex.md",
+		Section:     "reference",
+		NavTitle:    "Reporting Flex query",
+		Summary:     "The exact shared Flex sections and fields Canary validates, generated from the parser manifest.",
+		Description: "Generated reference for the canonical IBKR Activity Flex Query shared by reconciliation, statement-derived equity, and Canary Edge.",
+		Status:      statusPublished,
 	},
 	{
 		Source:      "docs/docs/reference/releases.md",

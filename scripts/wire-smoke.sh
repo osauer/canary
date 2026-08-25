@@ -282,8 +282,11 @@ fi
 # v0.24.x bug broke. In loose mode this check warns instead of failing.
 echo "  [chain SPY 1-wide]..."
 
-# Pick the third near expiry from the retained typed daemon response.
-expiries="$("$ASSERT" --probe chain-expiries --socket "$SOCKET" --symbol SPY 2>/dev/null | grep -o '"date":[[:space:]]*"[0-9-]*"' | head -3 | tail -1 | cut -d'"' -f4)"
+# Pick the third near expiry from the retained typed daemon response. Drain the
+# complete probe before selecting row three: under pipefail, `head -3` can make
+# an otherwise successful large response fail when its producer gets SIGPIPE.
+expiry_rows="$("$ASSERT" --probe chain-expiries --socket "$SOCKET" --symbol SPY 2>/dev/null)" || expiry_rows=""
+expiries="$(printf '%s\n' "$expiry_rows" | grep -o '"date":[[:space:]]*"[0-9-]*"' | sed -n '3p' | cut -d'"' -f4)" || expiries=""
 if [[ -z "$expiries" ]]; then
     echo "wire-smoke: FAIL: could not list SPY expiries through the daemon probe" >&2
     exit 1

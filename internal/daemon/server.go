@@ -311,9 +311,24 @@ type Server struct {
 	// flexFetch tracks the daily Flex statement ingestion for post-trade
 	// the broker; sanitized status only, never the token.
 	flexFetch flexFetchState
+	// flexBrokerMu serializes the daily report and Edge's paced historical
+	// ranges. IBKR applies the Flex Web Service limit above Canary's query
+	// identities, so separate workers must still share one request lane.
+	flexBrokerMu sync.Mutex
 	// Test-only seams for the broker fetch and retained-statement projection.
-	flexFetchOnceFn  func(context.Context, time.Time) (flexFetchOutcome, error)
-	flexProjectionFn func(context.Context) error
+	flexFetchOnceFn          func(context.Context, time.Time) (flexFetchOutcome, error)
+	flexProjectionFn         func(context.Context) error
+	flexRawDateRangeLockedFn func(context.Context, time.Time, time.Time, int, string, string) ([]byte, error)
+	flexRetainRawFn          func([]byte) (flexFetchOutcome, error)
+	// edgeWake drives the single-worker, read-only Edge rebuild queue. Reads
+	// never write this channel; only startup, new statement evidence, and a
+	// successful gateway connection may schedule background work.
+	edgeWake              chan struct{}
+	edgeWorkerWG          sync.WaitGroup
+	edgeBusy              atomic.Bool
+	edgeFetchBarsFn       func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
+	edgeFlexFetchRangeFn  func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
+	edgeScheduleRebuildFn func(time.Duration)
 	// earnings backs the trading rulebook's catalyst rules (6-8); LKG cache,
 	// async refresh only — never fetched on a snapshot or preview path.
 	earnings *earningsCache
@@ -1240,6 +1255,7 @@ func (s *Server) Start(ctx context.Context) error {
 		go s.riskPolicies.Run(serverCtx, s.logger.Infof)
 	}
 	go s.runFlexFetchLoop(serverCtx)
+	s.startEdgeWorker(serverCtx)
 	s.startStressEvaluationLoop(serverCtx)
 	if s.tradeProposals != nil {
 		s.proposalsStarted.Do(func() {
@@ -1716,6 +1732,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// Order-journal broker reconcile: a settle-delayed one-shot on EVERY
 	// successful (re)connect — each reconnect is exactly when a terminal
 	if s.serverCtx != nil {
+		s.kickEdgeRebuild()
 		go func(ctx context.Context) {
 			select {
 			case <-ctx.Done():
@@ -2293,6 +2310,12 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(ctx, req) })
 	case rpc.MethodReconEquity:
 		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(ctx, req) })
+	case rpc.MethodReportingStatus:
+		s.unary(req, enc, func() (any, error) { return s.handleReportingStatus(ctx) })
+	case rpc.MethodReportingValidate:
+		s.unary(req, enc, func() (any, error) { return s.handleReportingValidate(ctx, req) })
+	case rpc.MethodEdgeSnapshot:
+		s.unary(req, enc, func() (any, error) { return s.handleEdgeSnapshot(ctx, req) })
 	case rpc.MethodMarketEventsSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketEventsSnapshot(ctx, req) })
 	case rpc.MethodStatusHealth:
@@ -2528,6 +2551,9 @@ func (s *Server) backgroundTasks() []rpc.BackgroundTaskStatus {
 	}
 	if s.flexFetch.isBusy() {
 		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "flex-report", Status: "checking"})
+	}
+	if s.edgeBusy.Load() {
+		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "canary-edge", Status: "backfilling"})
 	}
 	if scoped, total, err := s.openBrokerOrderCounts(); err != nil && !errors.Is(err, ErrTradingDisabled) {
 		// A configured journal that cannot be read is unknown order

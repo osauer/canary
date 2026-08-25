@@ -79,6 +79,12 @@ The `monitor` profile exposes exactly two tools, `canary_brief` and `canary_stat
 
 ## What the agent can then see
 
-Thirteen tools cover the daily brief, account and positions, named-symbol technical analysis, rulebook verdict, protection proposals, option-exercise opportunities, settings, trading readiness, and read-only order-journal views. Local lifecycle verbs (`setup`, `update`, `restart`, `mcp`, `daemon`, `version`) and human policy/reconciliation writes remain CLI-only. The [MCP tools reference](../reference/mcp-tools.md) is generated from the registry and lists every parameter.
+Fifteen tools cover the daily brief, Canary Edge, account and positions,
+option-strategy grouping, named-symbol technical analysis, rulebook verdict,
+protection proposals, option-exercise opportunities, settings, trading readiness,
+and read-only order-journal views. Local lifecycle verbs (`setup`, `update`,
+`restart`, `mcp`, `daemon`, `version`) and human policy/reconciliation writes
+remain CLI-only. The [MCP tools reference](../reference/mcp-tools.md) is generated
+from the registry and lists every parameter.
 
 The bundled MCP surface has no order-entry or preview tools. A unit test enforces that boundary against the tool registry by name. [Orders and the trading build](../operate/orders.md) owns the confirmed CLI and app paths.

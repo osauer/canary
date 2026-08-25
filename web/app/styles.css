@@ -261,6 +261,31 @@ h1 {
   content: "·";
 }
 
+.app-settings-button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pd-dim);
+}
+
+.app-settings-button svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.55;
+}
+
+.app-settings-button.active {
+  background: var(--pd-readout-face);
+  color: var(--pd-readout);
+}
+
 h1 sub {
   bottom: auto;
   color: var(--muted);
@@ -542,6 +567,7 @@ p {
 }
 
 .tab-panel--alerts,
+.tab-panel--edge,
 .tab-panel--positions,
 .tab-panel--orders,
 .tab-panel--settings {
@@ -770,6 +796,323 @@ p {
   display: grid;
   gap: 12px;
   align-content: start;
+}
+
+/* Edge is a review instrument, not another dashboard. Its hierarchy stays
+   fixed: period result, action matrix, exceptions, actual-only options, then
+   the evidence disclosure. */
+.tab-panel--edge > .workspace-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.edge-lens {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.edge-lens label {
+  display: grid;
+  gap: 4px;
+  color: var(--pd-dim);
+  font-size: 8.5px;
+  font-weight: 760;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.edge-lens select {
+  min-height: 31px;
+  padding: 0 25px 0 8px;
+  border: 1px solid var(--pd-border);
+  border-radius: 5px;
+  background: var(--pd-readout-face);
+  color: var(--pd-strip-value);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.edge-status {
+  min-height: 0;
+  padding: 0 3px;
+  color: var(--pd-caption);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.edge-status:empty {
+  display: none;
+}
+
+.edge-status--busy,
+.edge-status--watch {
+  color: var(--pd-watch-tint);
+}
+
+.edge-status--risk {
+  color: var(--pd-act-tint);
+}
+
+.edge-setup {
+  display: grid;
+  gap: 12px;
+  border-color: rgba(255, 180, 59, 0.22);
+}
+
+.edge-setup ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--pd-prose);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.edge-setup > small {
+  color: var(--pd-plate);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 9px;
+}
+
+#edgeSetupMissing {
+  color: var(--pd-watch-tint);
+  overflow-wrap: anywhere;
+}
+
+.edge-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.edge-impact,
+.edge-findings-panel,
+.edge-options,
+.edge-method {
+  grid-column: 1 / -1;
+}
+
+.edge-account__value {
+  display: block;
+  margin: 14px 0 8px;
+  color: var(--pd-readout);
+  font-size: clamp(28px, 6vw, 40px);
+  font-weight: 710;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.edge-account__value.ok,
+.edge-matrix__cell b.ok,
+.edge-finding strong.ok,
+.edge-option-row__values .ok {
+  color: var(--pd-money-up);
+}
+
+.edge-account__value.risk,
+.edge-matrix__cell b.risk,
+.edge-finding strong.risk,
+.edge-option-row__values .risk {
+  color: var(--pd-money-down);
+}
+
+.edge-account p,
+.edge-options__note {
+  color: var(--pd-caption);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.edge-headline {
+  margin: 11px 0 13px;
+  color: var(--pd-readout);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.edge-matrix {
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-matrix__row {
+  display: grid;
+  grid-template-columns: minmax(74px, 0.7fr) repeat(3, minmax(128px, 1fr));
+  min-width: 470px;
+  border-bottom: 1px solid var(--pd-hairline);
+}
+
+.edge-matrix__cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 8px;
+  border-left: 1px solid var(--pd-hairline);
+  color: var(--pd-engraved);
+  font-size: 10px;
+}
+
+.edge-matrix__cell:first-child {
+  border-left: 0;
+  color: var(--pd-strip-value);
+  font-weight: 700;
+}
+
+.edge-matrix__row--head .edge-matrix__cell {
+  padding-top: 7px;
+  padding-bottom: 7px;
+  color: var(--pd-dim);
+  font-size: 8.5px;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.edge-matrix__cell--highlight {
+  background: rgba(111, 179, 255, 0.055);
+}
+
+.edge-matrix__cell b {
+  color: var(--pd-strip-value);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.edge-matrix__cell small {
+  overflow: hidden;
+  color: var(--pd-engraved);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-findings,
+.edge-option-list {
+  display: grid;
+  margin-top: 8px;
+}
+
+.edge-finding,
+.edge-option-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 2px;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-finding:first-child,
+.edge-option-row:first-child {
+  border-top: 0;
+}
+
+.edge-finding > div,
+.edge-option-row > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.edge-finding b,
+.edge-option-row b {
+  overflow: hidden;
+  color: var(--pd-strip-value);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-finding small,
+.edge-option-row small {
+  color: var(--pd-engraved);
+  font-size: 9.5px;
+}
+
+.edge-finding strong {
+  color: var(--pd-readout);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.edge-options__note {
+  margin: 8px 0 2px;
+}
+
+.edge-option-row__values {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 3px 10px;
+  color: var(--pd-caption);
+  font-size: 10.5px;
+}
+
+.edge-method {
+  padding: 0;
+}
+
+.edge-method > summary {
+  padding: 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.edge-method > summary::-webkit-details-marker {
+  display: none;
+}
+
+.edge-method__body {
+  display: grid;
+  gap: 13px;
+  padding: 0 15px 15px;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-method__body > div {
+  display: grid;
+  gap: 5px;
+  padding-top: 12px;
+}
+
+.edge-method__body p,
+.edge-method__body dd,
+.edge-method__body dt {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.edge-method__body dl {
+  display: grid;
+  grid-template-columns: minmax(76px, auto) minmax(0, 1fr);
+  gap: 7px 12px;
+  margin: 0;
+}
+
+.edge-method__body dt {
+  color: var(--pd-engraved);
+  font-weight: 710;
+}
+
+.edge-method__body dd {
+  color: var(--pd-prose);
+}
+
+.edge-method__body > p:last-child {
+  color: var(--pd-caption);
 }
 
 /* The back panel is a stack of engraved banks: a placard names the bank, the
@@ -5398,6 +5741,23 @@ p {
     --shell-pad-x: 18px;
   }
 
+  .tab-panel--edge > .workspace-heading {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 11px;
+  }
+
+  .edge-lens {
+    justify-content: flex-start;
+  }
+
+  .edge-results {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .edge-account {
+    grid-column: 1 / -1;
+  }
+
   /* The desktop journal needs at least the combined width of its edit and
      control banks before identity gets any space. Stack the banks throughout
      the compact shell instead of allowing the identity column to collapse to
@@ -5634,6 +5994,24 @@ p {
   .orders-panel .panel-head {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .edge-lens {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .edge-lens select {
+    width: 100%;
+  }
+
+  .edge-finding,
+  .edge-option-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .edge-option-row__values {
+    justify-content: flex-start;
   }
 
   .pd-set-row--select {

@@ -118,6 +118,7 @@ func Register(deps Dependencies) {
 	srv.GET("/api/update", h.requireRead(h.handleUpdateStatus))
 	srv.POST("/api/update", h.requireAuth(h.handleUpdateStart))
 	srv.GET("/api/snapshot", h.requireRead(h.handleSnapshot))
+	srv.GET("/api/edge", h.requireRead(h.handleEdgeSnapshot))
 	srv.GET("/api/settings", h.requireRead(h.handleGetSettings))
 	srv.PATCH("/api/settings", h.requireAuth(h.handlePatchSettings))
 	srv.GET("/api/market-calendar", h.requireRead(h.handleMarketCalendar))
@@ -385,6 +386,44 @@ func reconciliationTerminal(status rpc.ReconAutomationStatus) bool {
 		return false
 	}
 	return status.Evaluation.State != rpc.ReconEvaluationStateChecking
+}
+
+func (h *handler) handleEdgeSnapshot(w nethttp.ResponseWriter, r *nethttp.Request) {
+	client, ok := h.deps.Daemon.(daemonclient.EdgeClient)
+	if !ok {
+		writeError(w, nethttp.StatusServiceUnavailable, "Canary Edge unavailable")
+		return
+	}
+	params := rpc.EdgeSnapshotParams{Window: strings.TrimSpace(r.URL.Query().Get("window")), ChangeID: strings.TrimSpace(r.URL.Query().Get("change"))}
+	if raw := strings.TrimSpace(r.URL.Query().Get("horizon")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, nethttp.StatusBadRequest, "invalid Edge horizon")
+			return
+		}
+		params.HorizonSessions = value
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			writeError(w, nethttp.StatusBadRequest, "invalid Edge limit")
+			return
+		}
+		params.Limit = value
+	}
+	var err error
+	params, err = rpc.NormalizeEdgeSnapshotParams(params)
+	if err != nil {
+		writeError(w, nethttp.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := client.EdgeSnapshot(r.Context(), params)
+	if err != nil || result == nil {
+		writeError(w, nethttp.StatusServiceUnavailable, "Canary Edge unavailable")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, result)
 }
 
 func (h *handler) handleReconcileStatus(w nethttp.ResponseWriter, r *nethttp.Request) {

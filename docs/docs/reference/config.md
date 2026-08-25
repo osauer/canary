@@ -4,7 +4,7 @@
 
 ## TOML config
 
-Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error.
+Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. For `[flex]`, use [Set up broker reporting](../start/reporting.md) rather than placing the token in TOML; the [generated reporting Flex reference](edge-flex.md) is the exact field authority.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -17,7 +17,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`. |
 | `[daemon]` | `log_level` | `string` | LogLevel is the daemon's log verbosity — one of "debug", "info", "warn" (default), or "error". |
 | `[flex]` | `enabled` | `bool` | Enabled turns the daily Flex statement fetch on; default false. |
-| `[flex]` | `query_id` | `string` | QueryID is the IBKR Flex query id to fetch (create the query in Account Management with cash transactions, transfers, and equity summary sections); required when enabled. |
+| `[flex]` | `query_id` | `string` | QueryID is the IBKR Activity Flex Query id to fetch. |
 | `[flex]` | `token_path` | `string` | TokenPath points to a file holding only the Flex Web Service token; default ~/.config/ibkr/flex-token (mode 0600). |
 | `[gateway]` | `account` | `string` | Account pins the IBKR account ID like "U1234567"; empty (default) defers to the gateway's managedAccounts list — fine for single-account logins, required disambiguator when the login carries multiple accounts. |
 | `[gateway]` | `breadth_client_id` | `*int` | BreadthClientID is the IBKR clientID used by the dedicated historical-bar connector that backs the SPX breadth refresh. |

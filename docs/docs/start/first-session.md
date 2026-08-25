@@ -20,7 +20,14 @@ warning or unavailable state rather than becoming a clean result.
 A ready Gateway does not configure IBKR statements. Before relying on Recon,
 statement-derived equity, or Canary Edge, complete [Set up broker
 reporting](reporting.md). It creates one shared Activity Flex Query for all
-three consumers.
+three consumers. Then verify the independent reporting lane:
+
+```sh
+canary reporting status
+```
+
+This distinguishes local credentials, broker reachability, report freshness,
+observed fields, and empty sections that cannot yet prove their field choices.
 
 ## 2. Read the account and book
 

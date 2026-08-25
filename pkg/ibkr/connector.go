@@ -6570,7 +6570,17 @@ func (c *Connector) fetchHistoricalDailyBars(ctx context.Context, symbol string,
 
 // FetchHistoricalDailyBarsWithContract requests daily bars using the supplied route.
 func (c *Connector) FetchHistoricalDailyBarsWithContract(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
-	return c.fetchHistoricalDailyBarsWithContract(ctx, contract, lookbackDays, timeout)
+	return c.fetchHistoricalDailyBarsWithContract(ctx, contract, lookbackDays, timeout, "")
+}
+
+// FetchHistoricalDailyTradeBarsWithContract requests only TRADES daily bars
+// using the supplied exact route. Unlike the general history helper, it never
+// falls back to midpoint or adjusted-last data.
+func (c *Connector) FetchHistoricalDailyTradeBarsWithContract(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
+	if contract.ConID == 0 {
+		return nil, fmt.Errorf("exact contract ID is required for TRADES history")
+	}
+	return c.fetchHistoricalDailyBarsWithContract(ctx, contract, lookbackDays, timeout, "TRADES")
 }
 
 // FetchHistoricalDailyFeeRates requests daily stock-borrow fee-rate bars for
@@ -7137,7 +7147,7 @@ func cloneSanitizedHistoricalError(err error) error {
 	return err
 }
 
-func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
+func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration, forceWhatToShow string) ([]HistoricalBar, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -7195,7 +7205,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, co
 			c.logDebug("Routed contract details for %s unavailable (%v)", symbol, err)
 		}
 	}
-	return c.fetchHistoricalDailyBarsWithBase(ctx, symbol, contract, fallbackPrimary, lookbackDays, timeout, false, "")
+	return c.fetchHistoricalDailyBarsWithBase(ctx, symbol, contract, fallbackPrimary, lookbackDays, timeout, false, forceWhatToShow)
 }
 
 func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol string, baseContract Contract, primary string, lookbackDays int, timeout time.Duration, requireConID bool, forceWhatToShow string) ([]HistoricalBar, error) {

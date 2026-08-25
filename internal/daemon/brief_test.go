@@ -410,14 +410,17 @@ func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T
 	if err := first.flexFetch.bindCore(t.Context(), firstCore); err != nil {
 		t.Fatal(err)
 	}
-	writeFlexFixture(t, "flex-crash.xml", "20260721;070000", "20260714", "20260720", "")
+	queryFingerprint := flexQueryFingerprint("daily-report")
+	fixtureName := "flex-" + queryFingerprint + "-crash.xml"
+	writeFlexFixture(t, fixtureName, "20260721;070000", "20260714", "20260720", "")
 	dir, _ := flexStatementsDirPath()
-	if err := os.Chtimes(filepath.Join(dir, "flex-crash.xml"), now, now); err != nil {
+	if err := os.Chtimes(filepath.Join(dir, fixtureName), now, now); err != nil {
 		t.Fatal(err)
 	}
 	target, _ := flexDailyWindow(now)
 	first.flexFetch.mu.Lock()
 	first.flexFetch.state.Stage = rpc.ReconReportStateChecking
+	first.flexFetch.state.QueryFingerprint = queryFingerprint
 	first.flexFetch.state.LastAttempt = now
 	first.flexFetch.state.TargetDate = target
 	if err := first.flexFetch.persistLocked(t.Context()); err != nil {
@@ -512,7 +515,7 @@ func TestDrawdownLatchFlexRechecksBackOffUntilCoverage(t *testing.T) {
 	}
 
 	// Retained coverage reaching the latch day ends the rechecks.
-	writeFlexFixture(t, "flex-latch-covered.xml", "20260810;170000", "20260810", "20260810", "")
+	writeFlexFixture(t, "flex-"+flexQueryFingerprint("daily-report")+"-latch-covered.xml", "20260810;170000", "20260810", "20260810", "")
 	current = current.Add(6 * time.Hour)
 	fire(false, "coverage reached the latch day")
 	if fetchCalls != 3 {

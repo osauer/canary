@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**14 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**16 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_status`
 
@@ -98,6 +98,25 @@ Analyze explicitly named stock or ETF symbols using daily trend, relative streng
 Read-only current daily brief composed by the daemon. It never acknowledges the brief or writes to the journal. Drill into canary_positions or canary_account only when the brief points there.
 
 *No parameters.*
+
+## `canary_reporting`
+
+Read shared IBKR statement-reporting setup, broker reachability, backfill state, proven missing fields, and unproved empty sections for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.
+
+*No parameters.*
+
+## `canary_edge`
+
+Use for reviewing past trading decisions after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `change_id` | string | no | optional opaque change ID returned by a prior canary_edge call |
+| `horizon_sessions` | integer | no | highlighted decision-price-impact horizon; default 20 |
+| `limit` | integer | no | maximum findings; default 3 |
+| `window` | string | no | review window; default 90d |
 
 ## `canary_rules`
 

@@ -3272,6 +3272,7 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 		{Name: "watchlist", Status: "ready", Message: "list-only path is local; quote enrichment requires gateway"},
 		statusSubsystemFromReadiness("quote", marketDataFarmReadiness(connected, farms, quoteWitnessCurrent, "quotes may time out")),
 		statusSubsystemFromReadiness("history", historicalDataFarmReadiness(connected, farms)),
+		s.edgeSubsystemHealth(),
 		chainSubsystemHealth(connected, farms, quoteWitnessCurrent),
 	}
 	gamma := rpc.SubsystemHealth{Name: "gamma", Status: gatewayStatus}

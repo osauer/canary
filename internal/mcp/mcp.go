@@ -261,7 +261,7 @@ func (s *Server) instructions() string {
 	if s.profile == ProfileMonitor {
 		return "Read-only Canary monitor profile. Read `canary_brief` first; use `canary_status` only for connectivity or degraded-input troubleshooting."
 	}
-	return "Read-only Canary desk tools. Start with `canary_brief`; drill into account, positions, rules, named-symbol technical analysis, proposals, opportunities, or order history only when the brief points there."
+	return "Read-only Canary desk tools. Start with `canary_brief`; use `canary_edge` only for retrospective decision review, and drill into account, positions, rules, named-symbol technical analysis, proposals, opportunities, or order history only when the brief points there."
 }
 
 // toolDescriptor is the wire shape MCP expects in tools/list.

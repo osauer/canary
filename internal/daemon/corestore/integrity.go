@@ -76,6 +76,8 @@ func checkApplicationHashes(ctx context.Context, db *sql.DB) error {
 		{table: "event_log", payloadColumn: "payload_json", digestColumn: "payload_sha256"},
 		{table: "observations", payloadColumn: "payload", digestColumn: "payload_sha256"},
 		{table: "statement_equity_day_versions", payloadColumn: "raw_json", digestColumn: "raw_sha256"},
+		{table: "statement_record_versions", payloadColumn: "raw_json", digestColumn: "raw_sha256"},
+		{table: "statement_metadata_versions", payloadColumn: "raw_json", digestColumn: "raw_sha256"},
 	}
 	for _, check := range checks {
 		var exists int

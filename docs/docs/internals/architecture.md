@@ -65,6 +65,9 @@ refreshable in-memory views do not.
   its inputs and clock are supplied; the fetch helpers collect those snapshots
   through the daemon's typed call surface and preserve unavailable or stale
   evidence rather than filling it in.
+- `internal/edge` is the pure functional core for position replay, fixed-horizon
+  decision price impact, option actuals, rollups, findings, coverage, and
+  deterministic fingerprints. It performs no I/O and owns no broker state.
 - `internal/rpc` defines the typed method names and request/response structs
   that daemon, CLI, app, and MCP adapters share. Add fields here first; teach
   surfaces to render them second.
@@ -116,7 +119,7 @@ sources.
 | Source | Runtime path | Data |
 |---|---|---|
 | TWS / IB Gateway API socket | TWS wire protocol over TCP/TLS | Account, positions, quotes, option chains/Greeks/OI, historical bars, order lifecycle, shortable-share observations, subscription-gated Wall Street Horizon earnings events, and broker WhatIf/eligibility. This includes an exact-contract historical `FEE_RATE` context fallback for currently held short stocks when the due FTP source is unusable; its scale is uncommissioned and policy-ineligible. |
-| IBKR Flex Web Service | HTTPS POST and polling | Daily raw Flex XML statements used as broker statement truth for reconciliation. |
+| IBKR Flex Web Service | HTTPS GET and polling | Raw Flex XML used as broker statement truth for reconciliation and Edge: four paced initial 365-day ranges, a trailing 35-day daily refresh, and monthly full-year revalidation. Each configured Query ID has an opaque evidence generation, so retained output from a retired query cannot certify its replacement. |
 | IBKR short-stock availability | FTP | Primary global borrow availability and annualized fee-rate evidence; only current/session-valid rows can drive the extreme-fee flag. |
 | Nasdaq | HTTPS JSON, pipe-delimited text, and RSS/XML | One independent earnings-date input, Reg SHO threshold securities, and LULD/trade-halt context. |
 | FRED, CBOE, Federal Reserve, US Treasury | HTTPS CSV/XML | Public regime and rates series. Cboe's VIX3M close is also the served off-window VIX3M leg and the independent check on the broker's own reading. |
@@ -174,8 +177,11 @@ Configuration is operator-owned, and daemon state and app state are separate
 authorities. `daemon.db` is the daemon's sole live authority for mutable state,
 append-only events, orders, and retained market observations. Retained Flex XML
 remains original broker evidence; the daemon transactionally refreshes its
-typed statement inventory and equity projection in `daemon.db` from the
-complete XML set. See [Storage](storage.md) for why the daemon uses SQLite,
+typed statement inventory, equity, explicit Open Positions snapshots (including
+empty snapshots), and current/immutable Edge record and query-coverage
+projections in `daemon.db` from the active query generation. Edge calculates
+and fingerprints one transactionally coherent projection snapshot;
+it does not resolve restatements from XML a second time. See [Storage](storage.md) for why the daemon uses SQLite,
 the physical data relationships, truth boundaries, supported query paths,
 durability and upgrade mechanics, and current recovery limits.
 
@@ -183,7 +189,7 @@ durability and upgrade mechanics, and current recovery limits.
 |---|---|---|
 | Operator configuration | `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`; policy defaults under `~/.config/ibkr/policies/` | Gateway/account/client pins, daemon/trading settings, protection/opportunity policy, the operator-authored `risk-policy.toml`, the optional private terminal-evidence import path, and the separate `flex-token` secret. The risk policy has no embedded default: missing approval stays unapproved. |
 | Daemon durable authority | `$XDG_STATE_HOME/ibkr/daemon.db` (SQLite, WAL), falling back to `~/.local/state/ibkr/daemon.db` | Sole live daemon authority for platform settings, risk-capital and governance state, the last-good Regime publication and projection receipt, source-neutral alert episodes, trading readiness, orders and token tombstones, proposals and opportunities, decision/event history, retained observations, and statement projections. It is not delete-safe and never falls back to legacy files. |
-| Original broker evidence | `$XDG_STATE_HOME/ibkr/statements/flex-*.xml` | Immutable retained Flex statements. SQLite stores a complete current inventory, immutable file/equity versions, and current per-day winners derived transactionally from this set; it does not replace the XML evidence claim. |
+| Original broker evidence | `$XDG_STATE_HOME/ibkr/statements/flex-*.xml` | Immutable retained Flex statements. New filenames carry only an opaque query fingerprint; pre-fingerprint XML is preserved but cannot certify a configured query until refetched. SQLite scopes the current inventory and immutable file/equity/typed-record/coverage versions by query generation, and stores explicit per-period position snapshots; it does not replace the XML evidence claim. |
 | Recovery artifacts | `$XDG_STATE_HOME/ibkr/backups/`, `$XDG_STATE_HOME/ibkr/legacy-sealed/<cutover-id>/`, and `$XDG_STATE_HOME/ibkr/daemon.db.head` | Verified database backups, hashed pre-cutover artifacts, and the external monotonic-head watermark. They are recovery and anti-rollback material only, never normal read fallbacks or dual-write targets. |
 | Private signer key | `$XDG_STATE_HOME/ibkr/order-preview-key-v2` | Private token-signing material bound to the current authority generation. It is deliberately outside ordinary database state. |
 | App durable state | `$XDG_STATE_HOME/ibkr/app`, falling back to `~/.local/state/ibkr/app` | Private `state.json` with device grants, push subscriptions, VAPID material, the source-neutral alert inbox, unread cursor, delivery attempts and receipts, delivery health, and relay credentials; `app.lock` enforces one app process per state directory. |
@@ -291,7 +297,8 @@ Routes register in `internal/app/http/routes.go` in four families: static
 PWA assets, pairing and auth, the authenticated app API, and the
 `/api/events` SSE stream. Handlers read app stores, the live snapshot, or
 typed daemon calls; they do not invent policy. Authenticated `/api/bootstrap`
-and `/api/snapshot` carry paired-device state. The separate local-Mac-only
+and `/api/snapshot` carry paired-device state; authenticated `/api/edge` makes
+one lazy, bounded daemon snapshot read only when the Edge tab opens. The separate local-Mac-only
 `/api/app-status` route is a redacted operator diagnostic: it reports app
 liveness, daemon-producer coverage, and app-dispatcher delivery health without
 device, occurrence, account, or transport identities; the relay refuses to
@@ -329,8 +336,8 @@ is no external metrics stack and no tracing.
 - `canary app status` calls the local-Mac-only app diagnostic and keeps alert
   producer coverage separate from app-owned dispatcher delivery health.
 - Typed read surfaces carry their own source health. Regime clusters, gamma,
-  the market calendar, and governance report stale, partial, degraded, or
-  unknown instead of guessing.
+  the market calendar, governance, and Edge report stale, partial, degraded,
+  backfilling, action-required, or unknown instead of guessing.
 - Append-only SQLite events are the evidence trail for orders, regime, rule,
   and stress decisions, proposal outcomes, capital events, and risk-policy
   governance. Mutable documents use compare-and-swap revisions, while coupled

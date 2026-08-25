@@ -784,27 +784,35 @@ function sqliteDataModel() {
   ${erFK({ parent: "broker_scopes", child: "order_events", d: "M171 908V876H336V806H350", parentLabel: "1", childLabel: "0..*", parentX: 180, parentY: 896, childX: 304, childY: 818 })}
   ${erSemantic("M654 984H638V1050H171V1034", "broker association enforced by code; no FK", 390, 1072)}
 
-  <rect x="36" y="1100" width="888" height="330" rx="16" fill="${C.panel}" stroke="${C.greenLine}"/>
+  <rect x="36" y="1100" width="888" height="642" rx="16" fill="${C.panel}" stroke="${C.greenLine}"/>
   <text x="56" y="1132" class="layer">BROKER STATEMENTS · CURRENT VIEW AND IMMUTABLE RESTATEMENTS</text>
   ${policyCard({ x: 56, y: 1152, width: 190, height: 128, iconName: "fileText", color: C.blue, title: "Original Flex XML", lines: ["broker evidence"], format: "outside SQLite" })}
   ${dbTable({ x: 278, y: 1152, width: 280, title: "statement_files", rows: [["PK", "scope + file_key"], ["UQ", "+ current sha256"]], accent: C.green })}
   ${dbTable({ x: 590, y: 1152, width: 314, title: "statement_equity_days", rows: [["PK", "equity_day_id"], ["UQ", "scope + account + day"], ["FK", "current file + sha256"]], accent: C.green })}
   ${dbTable({ x: 278, y: 1300, width: 280, title: "statement_file_versions", rows: [["PK", "scope + file + sha256"], ["", "immutable file version"]], accent: C.slate })}
   ${dbTable({ x: 590, y: 1300, width: 314, title: "statement_equity_day_versions", rows: [["PK", "equity_version_id"], ["FK", "file version + sha256"]], accent: C.slate })}
+  ${dbTable({ x: 278, y: 1448, width: 280, title: "statement_records", rows: [["PK", "record_id"], ["UQ", "scope + kind + key"], ["FK", "current file + sha256"]], accent: C.green })}
+  ${dbTable({ x: 590, y: 1448, width: 314, title: "statement_record_versions", rows: [["PK", "record_version_id"], ["UQ", "record + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
+  ${dbTable({ x: 278, y: 1596, width: 280, title: "statement_metadata", rows: [["PK", "metadata_id"], ["UQ", "scope + period key"], ["FK", "current file + sha256"]], accent: C.green })}
+  ${dbTable({ x: 590, y: 1596, width: 314, title: "statement_metadata_versions", rows: [["PK", "metadata_version_id"], ["UQ", "period + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
 
   ${erFK({ parent: "statement_files", child: "statement_equity_days", d: "M558 1204H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1194, childX: 558, childY: 1226 })}
   ${erFK({ parent: "statement_file_versions", child: "statement_equity_day_versions", d: "M558 1352H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1342, childX: 558, childY: 1374 })}
+  ${erFK({ parent: "statement_files", child: "statement_records", d: "M278 1204H262V1500H278", childLabel: "0..*", childX: 266, childY: 1522 })}
+  ${erFK({ parent: "statement_file_versions", child: "statement_record_versions", d: "M558 1352H574V1500H590", childLabel: "0..*", childX: 558, childY: 1522 })}
+  ${erFK({ parent: "statement_files", child: "statement_metadata", d: "M278 1204H252V1648H278", childLabel: "0..*", childX: 256, childY: 1670 })}
+  ${erFK({ parent: "statement_file_versions", child: "statement_metadata_versions", d: "M558 1352H578V1648H590", childLabel: "0..*", childX: 562, childY: 1670 })}
   ${erSemantic("M246 1216H272", "parsed from", 174, 1206)}
   ${erSemantic("M246 1232H260V1352H272", "retained versions", 96, 1344)}
   ${erSemantic("M418 1256V1294", "written together · no FK", 286, 1282)}
   ${erSemantic("M747 1278V1294", "", 0, 0)}
 
-  <text x="924" y="1466" text-anchor="end" class="footnote">schema v${schema.version} · ${schema.tables.length} tables · inventory checked against internal/daemon/corestore/schema.go</text>
+  <text x="924" y="1778" text-anchor="end" class="footnote">schema v${schema.version} · ${schema.tables.length} tables · inventory checked against internal/daemon/corestore/schema.go</text>
   `;
 
   const svg = svgFrame({
     width: 960,
-    height: 1490,
+    height: 1802,
     title: "How daemon.db Tables Relate (Canary)",
     description: `A physical entity relationship diagram for SQLite schema version ${schema.version}. Solid lines represent declared foreign keys with cardinalities. Dashed lines identify application-level relationships that are not enforced by SQLite. Standalone state, observation, migration, import, and order-floor tables have no invented relationships.`,
     body,

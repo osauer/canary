@@ -520,6 +520,45 @@ type StatementEquityDayRecord struct {
 	RawJSON             []byte
 }
 
+// Statement record kinds discriminate typed Flex payloads in the shared
+// current and immutable-version projections.
+const (
+	StatementRecordTrade           = "trade"
+	StatementRecordInstrument      = "instrument"
+	StatementRecordPosition        = "position"
+	StatementRecordOptionEvent     = "option_event"
+	StatementRecordCorporateAction = "corporate_action"
+	StatementRecordTransfer        = "transfer"
+	StatementRecordCash            = "cash"
+	StatementRecordFXRate          = "fx_rate"
+	StatementRecordMetadata        = "statement_metadata"
+)
+
+// StatementRecord is one typed Flex record in the current projection. RawJSON
+// is JSON for the Go type selected by Kind; raw broker XML remains the original
+// immutable evidence.
+type StatementRecord struct {
+	ID                  int64
+	ScopeKey            string
+	Kind                string
+	RecordKey           string
+	AccountKey          string
+	EffectiveAt         time.Time
+	StatementFileKey    string
+	StatementFileSHA256 [sha256.Size]byte
+	GeneratedAt         time.Time
+	RawJSON             []byte
+}
+
+// StatementProjectionSnapshot is one transactionally coherent read of the
+// current typed Flex projection and the authority head that contains it.
+// Consumers can calculate and fingerprint the same exact broker-derived view.
+type StatementProjectionSnapshot struct {
+	Head       AuthorityHead
+	Records    []StatementRecord
+	EquityDays []StatementEquityDayRecord
+}
+
 // CheckpointResult reports SQLite WAL checkpoint progress. A nonzero Busy value
 // means the authority was not fully quiesced.
 type CheckpointResult struct {

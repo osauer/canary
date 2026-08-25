@@ -60,7 +60,7 @@ func TestOpenCreatesPrivateAuthoritativeSchema(t *testing.T) {
 	if err := s.db.QueryRow(`PRAGMA journal_mode`).Scan(&journal); err != nil || journal != "wal" {
 		t.Fatalf("journal=%q err=%v", journal, err)
 	}
-	expected := []string{"store_meta", "schema_migrations", "legacy_imports", "state_documents", "event_log", "regime_decisions", "regime_indicators", "rule_transitions", "stress_transitions", "capital_events", "risk_policy_events", "proposal_outcomes", "order_events", "consumed_preview_tokens", "order_id_floors", "statement_files", "statement_file_versions", "statement_equity_days", "statement_equity_day_versions", "observations"}
+	expected := []string{"store_meta", "schema_migrations", "legacy_imports", "state_documents", "event_log", "regime_decisions", "regime_indicators", "rule_transitions", "stress_transitions", "capital_events", "risk_policy_events", "proposal_outcomes", "order_events", "consumed_preview_tokens", "order_id_floors", "statement_files", "statement_file_versions", "statement_equity_days", "statement_equity_day_versions", "statement_records", "statement_record_versions", "statement_metadata", "statement_metadata_versions", "observations"}
 	for _, table := range expected {
 		var n int
 		if err := s.db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&n); err != nil || n != 1 {

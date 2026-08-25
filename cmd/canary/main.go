@@ -223,6 +223,8 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak}, ordinaryHeadroom, ordinaryFloor
 	case "recon":
 		return []string{rpc.MethodReconSnapshot, rpc.MethodReconStatus, rpc.MethodReconCheck, rpc.MethodReconBacktest, rpc.MethodReconDismiss, rpc.MethodReconEquity}, ordinaryHeadroom, ordinaryFloor
+	case "reporting":
+		return []string{rpc.MethodReportingStatus}, ordinaryHeadroom, ordinaryFloor
 	case "proposals":
 		if hasInvocationToken(rest, "reduce") && hasInvocationToken(rest, "--portfolio", "-portfolio") {
 			return []string{rpc.MethodTradeProposalsReducePortfolioPreview, rpc.MethodTradeProposalsReducePortfolioSubmit}, 30 * time.Second, ordinaryFloor

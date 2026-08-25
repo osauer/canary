@@ -200,9 +200,10 @@ func (a AutoTrade) ProposalsEnabledResolved() bool {
 type Flex struct {
 	// Enabled turns the daily Flex statement fetch on; default false.
 	Enabled bool `toml:"enabled"`
-	// QueryID is the IBKR Flex query id to fetch (create the query in
-	// Account Management with cash transactions, transfers, and equity
-	// summary sections); required when enabled.
+	// QueryID is the IBKR Activity Flex Query id to fetch. Reconciliation needs
+	// the full generated reporting profile in
+	// docs/docs/reference/edge-flex.md. Required when enabled; the same query
+	// and token serve reconciliation, statement-derived equity, and Edge.
 	QueryID string `toml:"query_id"`
 	// TokenPath points to a file holding only the Flex Web Service token;
 	// default ~/.config/ibkr/flex-token (mode 0600). The token itself never

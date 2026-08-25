@@ -81,7 +81,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	process := s.composeBriefProcessForAuthority(policy, constitution, recon, rules, renderAuthority, now)
 
 	// The five domain sections above are composition intermediates: the two
-	res.Review = s.composeBriefReview(portfolio, riskLimits, process, now)
+	res.Review = s.composeBriefReview(portfolio, riskLimits, process, s.briefEdgeRow(ctx), now)
 	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process, s.briefReadyProposals())
 	res.BriefFingerprint = briefContentFingerprint(res)
 	// The narrative is a deterministic projection of the two movements above
@@ -144,10 +144,11 @@ func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr 
 }
 
 // composeBriefReview assembles the post-trade Review movement from the existing
-func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLimits rpc.BriefRiskSection, process rpc.BriefProcessSection, now time.Time) rpc.BriefReviewSection {
+func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLimits rpc.BriefRiskSection, process rpc.BriefProcessSection, edge rpc.BriefEdgeRow, now time.Time) rpc.BriefReviewSection {
 	out := rpc.BriefReviewSection{
 		SessionPnL:    portfolio.Account,
 		LastSession:   s.composeBriefLastSession(now),
+		Edge:          edge,
 		Attribution:   portfolio.Movers,
 		Rules:         process.Rules,
 		Proposals:     s.briefProposals(now),
@@ -157,12 +158,42 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 		AutoExtend:    process.AutoExtend,
 		WorkingOrders: portfolio.WorkingOrders,
 	}
+	// Edge is a retrospective discovery row, not current desk authority. Its
+	// setup/backfill state stays visible without degrading today's brief.
 	out.BriefRowState = briefSectionState("review",
 		out.SessionPnL.BriefRowState, out.LastSession.BriefRowState, out.Attribution.BriefRowState, out.Rules.BriefRowState,
 		out.Proposals.BriefRowState, out.Overrides.BriefRowState, out.CapitalEvents.BriefRowState,
 		out.Reconcile.BriefRowState, out.AutoExtend.BriefRowState,
 		out.WorkingOrders.BriefRowState)
 	return out
+}
+
+func (s *Server) briefEdgeRow(ctx context.Context) rpc.BriefEdgeRow {
+	row := rpc.BriefEdgeRow{State: rpc.EdgeStateUnavailable, HorizonSessions: 20}
+	result, err := s.handleEdgeSnapshot(ctx, &rpc.Request{Params: briefJSON(rpc.EdgeSnapshotParams{Window: "90d", HorizonSessions: 20, Limit: 1})})
+	if err != nil || result == nil {
+		row.BriefRowState = briefUnavailable("Canary Edge snapshot unavailable")
+		return row
+	}
+	row.State, row.Headline, row.Fingerprint = result.State, result.Headline, result.Fingerprint
+	switch result.State {
+	case rpc.EdgeStateCurrent:
+		row.BriefRowState = briefOK("broker-truth decision review current")
+	case rpc.EdgeStateDegraded, rpc.EdgeStateBackfilling, rpc.EdgeStateInsufficient:
+		row.BriefRowState = briefDegraded("broker-truth decision review " + result.State)
+	default:
+		row.BriefRowState = briefUnavailable("broker-truth decision review " + result.State)
+	}
+	if len(result.Findings) > 0 {
+		finding := result.Findings[0]
+		value := finding.DecisionImpactBase
+		row.ChangeID, row.Symbol, row.Action = finding.ChangeID, finding.Symbol, finding.Action
+		row.HorizonSessions, row.DecisionImpactBase = finding.HorizonSessions, &value
+	}
+	if result.Account != nil {
+		row.BaseCurrency = result.Account.BaseCurrency
+	}
+	return row
 }
 
 // composeBriefLastSession serves the daemon's close capture as the last

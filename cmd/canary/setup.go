@@ -23,12 +23,14 @@ func runSetup(args []string) int {
 		if args[0] == "--help" || args[0] == "-h" {
 			fmt.Printf("%s setup — write local integration config.\n", productidentity.Executable)
 			fmt.Println()
-			fmt.Printf("Usage: %s setup [client]\n", productidentity.Executable)
+			fmt.Printf("Usage: %s setup [target]\n", productidentity.Executable)
 			fmt.Printf("       %s setup app [--remote] [--remote-url URL]\n", productidentity.Executable)
+			fmt.Printf("       %s setup reporting [--accept-unproved] [--no-restart]\n", productidentity.Executable)
 			fmt.Println()
-			fmt.Println("Supported clients:")
+			fmt.Println("Supported targets:")
 			fmt.Println("  claude-desktop  (default)")
 			fmt.Println("  app             install the Canary app macOS LaunchAgent")
+			fmt.Println("  reporting       securely validate and activate IBKR Flex reporting")
 			fmt.Println()
 			fmt.Println("claude-desktop writes an mcpServers.canary entry pointing at this binary.")
 			fmt.Println("app writes ~/Library/LaunchAgents/com.osauer.ibkr-app.plist.")
@@ -42,9 +44,11 @@ func runSetup(args []string) int {
 		return setupClaudeDesktop()
 	case "app":
 		return setupAppLaunchAgent(args[1:])
+	case "reporting":
+		return setupReporting(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "%s setup: unknown client %q\n", productidentity.Executable, target)
-		fmt.Fprintln(os.Stderr, "supported: claude-desktop, app")
+		fmt.Fprintln(os.Stderr, "supported: claude-desktop, app, reporting")
 		return 2
 	}
 }

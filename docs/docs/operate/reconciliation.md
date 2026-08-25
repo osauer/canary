@@ -30,13 +30,15 @@ page touches submit eligibility, freeze, pins, or any order path.
 ## Running it
 
 ```sh
+canary reporting status
 canary recon
 canary recon --refresh
 canary recon equity
 canary recon backtest
 ```
 
-With no subcommand it runs `show`. `--refresh` kicks one background Flex fetch
+`reporting status` inspects the shared statement source before consumer-specific
+reconciliation. With no `recon` subcommand Canary runs `show`. `--refresh` kicks one background Flex fetch
 before reporting. `equity` prints the statement-derived daily equity series with
 your declared events interleaved at their place in the timeline. `backtest`
 replays the whole window and compares the replayed drawdown path against what

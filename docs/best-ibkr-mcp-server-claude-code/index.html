@@ -57,7 +57,7 @@
 <p>The short answer: choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), exposes explicit read-only tools, and makes order placement impossible at the tool boundary. <code>canary</code> is designed around that boundary.</p>
 <h2 id="why-read-only-matters">Why read-only matters</h2>
 <p>Claude Code is powerful enough to inspect files, run commands, and use MCP tools. That is useful for portfolio analysis, but it is the wrong default for unsupervised brokerage order placement.</p>
-<p><code>canary mcp</code> exposes exactly 13 tools for status, account, positions, named-symbol technical analysis, the daily brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads. It has no resources, preview tools, or execution tools.</p>
+<p><code>canary mcp</code> exposes exactly 15 tools for status, account, positions, option strategies, named-symbol technical analysis, the retrospective Edge review, the daily brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads. It has no resources, preview tools, or execution tools.</p>
 <h2 id="best-fit">Best fit</h2>
 <ul>
 <li>You want Claude Code to answer &#34;what do I own?&#34; and &#34;what changed?&#34; from live IBKR account context.</li>

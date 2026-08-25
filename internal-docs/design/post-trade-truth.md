@@ -98,6 +98,23 @@ resumes without silently marking the report current. Raw XML is retained
 immutably under `~/.local/state/ibkr/statements/` (0700/0600), one file per fetch, so every
 recon report is reproducible from kept evidence.
 
+Canary Edge shares this credential and request lane. Its initial activation
+uses four paced, durably resumable ranges covering the inclusive trailing 365
+days. The ordinary daily request explicitly refreshes the trailing 35 days;
+Edge revalidates the full year monthly. Each completed range refreshes the same
+transactional statement projection before the next range is scheduled. A range
+advances only when the returned statement interval fully contains the requested
+inclusive dates; a shorter or stale response is retained but retried and cannot
+stamp a full revalidation.
+
+Each retained response is bound to an opaque fingerprint of the configured
+Flex Query ID, and each query publishes into a separate SQLite scope.
+Pre-fingerprint XML remains immutable broker evidence but has unknown query
+provenance, so a configured query must refetch it under its own tag before it
+can satisfy schema coverage, Recon, or Edge. Retired query output is excluded
+the same way. Open Positions is projected as an explicit per-statement
+snapshot, including the broker-significant empty snapshot.
+
 **Parsing.** `internal/flexstmt` is a pure, fixture-tested parser: XML in,
 typed records out. Statement text is untrusted broker data — typed
 extraction only, unknown line types land in an `uncategorized` bucket that
@@ -105,6 +122,12 @@ always surfaces as an exception, never a silent drop, and nothing in a
 statement can carry an instruction anywhere. Restatements supersede by
 (account-day, line id); superseded lines are kept with a superseded mark
 for audit.
+
+Edge calculation never resolves those retained XML versions independently. It
+reads typed current records, daily equity, and statement/query-coverage metadata
+from the active query generation in one SQLite read transaction and fingerprints
+those same rows. The original XML remains broker evidence; the generation-scoped
+SQLite projection is the sole live analytical authority.
 
 ## Reconciliation
 
@@ -152,9 +175,9 @@ keeps outages visible instead of adding a quiet soft mode.
 
 ## Surfaces
 
-`internal/flexstmt` (pure parser) → daemon statement store + recon engine +
-scheduler → `internal/rpc` recon types → CLI `canary recon [--json]` and the
-extended reconcile verb. Canary receives only a redacted daily-report state,
+`internal/flexstmt` (pure parser) → daemon statement store + recon/Edge engines +
+schedulers → typed `internal/rpc` results → CLI, MCP, and authenticated app
+adapters. Canary receives only a redacted daily-report or Edge state,
 actual broker coverage date, safe reason, and retry timing. It separates
 report retrieval from report comparison and offers an authenticated
 `Check again` action when that action is safe. Credentials, raw broker text,

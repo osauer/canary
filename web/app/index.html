@@ -38,6 +38,12 @@
           <b id="accountLabel">--</b>
           <span class="trading-env-pill" id="tradingEnvPill">--</span>
         </div>
+        <button class="icon-button app-settings-button" id="settingsButton" type="button" aria-label="Open Settings" aria-pressed="false" title="Settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"></path>
+          </svg>
+        </button>
       </header>
 
       <section class="market-strip" aria-live="polite">
@@ -406,6 +412,96 @@
         </details>
       </section>
 
+      <section class="tab-panel tab-panel--edge" id="edgeTab" data-tab-panel="edge" role="tabpanel" aria-labelledby="tabEdge" hidden>
+        <header class="workspace-heading workspace-heading--tab" aria-labelledby="edgeWorkspaceTitle">
+          <div class="workspace-heading__intro">
+            <div class="workspace-heading__overline">
+              <span>Broker-truth review</span>
+              <span class="panel-time" id="edgeAsOf">not loaded</span>
+            </div>
+            <h2 id="edgeWorkspaceTitle">Edge</h2>
+            <p class="workspace-heading__copy">What your past decisions changed, measured against leaving the prior position untouched.</p>
+          </div>
+          <div class="edge-lens" aria-label="Edge review lens">
+            <label>
+              <span>Window</span>
+              <select id="edgeWindow" aria-label="Edge review window">
+                <option value="90d">90 days</option>
+                <option value="365d">365 days</option>
+              </select>
+            </label>
+            <label>
+              <span>Highlight</span>
+              <select id="edgeHorizon" aria-label="Highlighted Edge horizon">
+                <option value="1">1 session</option>
+                <option value="5">5 sessions</option>
+                <option value="20" selected>20 sessions</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <div class="edge-status" id="edgeStatus" role="status"></div>
+        <section class="edge-setup panel" id="edgeSetup" aria-labelledby="edgeSetupTitle" hidden>
+          <div class="panel-head">
+            <span id="edgeSetupTitle">Connect broker evidence</span>
+          </div>
+          <p id="edgeSetupReason">Canary needs the canonical IBKR Flex profile before it can calculate this review.</p>
+          <ol id="edgeSetupSteps"></ol>
+          <small id="edgeSetupMissing" hidden></small>
+          <small id="edgeSetupManifest"></small>
+        </section>
+
+        <section class="edge-results" id="edgeResults" hidden>
+          <article class="panel edge-account" aria-labelledby="edgeAccountTitle">
+            <div class="panel-head">
+              <span id="edgeAccountTitle">Account P/L after external flows</span>
+              <span class="panel-time" id="edgeAccountPeriod">--</span>
+            </div>
+            <strong class="edge-account__value" id="edgeAccountValue">--</strong>
+            <p id="edgeAccountDefinition">Ending equity − starting equity − statement-confirmed external flows.</p>
+          </article>
+
+          <article class="panel edge-impact" aria-labelledby="edgeImpactTitle">
+            <div class="panel-head">
+              <span id="edgeImpactTitle">Decision price impact</span>
+              <span class="panel-time" id="edgeImpactLens">20 sessions highlighted</span>
+            </div>
+            <p class="edge-headline" id="edgeHeadline">--</p>
+            <div class="edge-matrix" id="edgeMatrix" role="table" aria-label="Decision price impact by action and horizon"></div>
+          </article>
+
+          <article class="panel edge-findings-panel" aria-labelledby="edgeFindingsTitle">
+            <div class="panel-head">
+              <span id="edgeFindingsTitle">Strongest observed findings</span>
+              <span class="panel-time">maximum 3</span>
+            </div>
+            <div class="edge-findings" id="edgeFindings"></div>
+          </article>
+
+          <article class="panel edge-options" aria-labelledby="edgeOptionsTitle">
+            <div class="panel-head">
+              <span id="edgeOptionsTitle">Options · actual only</span>
+              <span class="panel-time" id="edgeOptionsCount">--</span>
+            </div>
+            <p class="edge-options__note">Exact strategy grouping requires shared IBKR order linkage. Canary does not synthesize expired-option history.</p>
+            <div class="edge-option-list" id="edgeOptionList"></div>
+          </article>
+
+          <details class="panel edge-method" id="edgeMethod">
+            <summary class="panel-head">
+              <span>Coverage &amp; method</span>
+              <span class="panel-time" id="edgeCoverageSummary">--</span>
+            </summary>
+            <div class="edge-method__body">
+              <div id="edgeCoverage"></div>
+              <dl id="edgeMethodList"></dl>
+              <p id="edgeRevalidation"></p>
+            </div>
+          </details>
+        </section>
+      </section>
+
       <section class="tab-panel tab-panel--alerts" id="alertsTab" data-tab-panel="alerts" role="tabpanel" aria-labelledby="tabAlerts" hidden>
         <header class="workspace-heading workspace-heading--tab" aria-labelledby="alertsWorkspaceTitle">
           <div class="workspace-heading__intro">
@@ -472,7 +568,7 @@
         </article>
       </section>
 
-      <section class="tab-panel tab-panel--settings" id="settingsTab" data-tab-panel="settings" role="tabpanel" aria-labelledby="tabSettings" hidden>
+      <section class="tab-panel tab-panel--settings" id="settingsTab" data-tab-panel="settings" role="tabpanel" aria-labelledby="settingsButton" hidden>
         <header class="workspace-heading workspace-heading--tab" aria-labelledby="settingsWorkspaceTitle">
           <div class="workspace-heading__intro">
             <div class="workspace-heading__overline">
@@ -749,6 +845,13 @@
           </svg>
           <span>Positions</span>
         </button>
+        <button class="bottom-tab" id="tabEdge" type="button" data-tab="edge" aria-selected="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 18 9 12l3 3 8-9"></path>
+            <path d="M15 6h5v5"></path>
+          </svg>
+          <span>Edge</span>
+        </button>
         <button class="bottom-tab" id="tabAlerts" type="button" data-tab="alerts" aria-selected="false" aria-label="Alerts, no unread alerts">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M6.5 10.5a5.5 5.5 0 0 1 11 0c0 5 2 5.5 2 7H4.5c0-1.5 2-2 2-7Z"></path>
@@ -764,17 +867,6 @@
             <path d="M5 17h8"></path>
           </svg>
           <span>Orders</span>
-        </button>
-        <button class="bottom-tab" id="tabSettings" type="button" data-tab="settings" aria-selected="false">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 7h7"></path>
-            <path d="M15 7h5"></path>
-            <circle cx="13" cy="7" r="2"></circle>
-            <path d="M4 17h5"></path>
-            <path d="M13 17h7"></path>
-            <circle cx="11" cy="17" r="2"></circle>
-          </svg>
-          <span>Settings</span>
         </button>
       </nav>
     </main>

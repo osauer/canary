@@ -74,6 +74,7 @@ func (s *Server) stopServerContextAndWait() {
 		cache.wait()
 	}
 	s.flexFetch.stopAndWait()
+	s.edgeWorkerWG.Wait()
 }
 
 // regimeRefreshWakeChannel returns the daemon-lifetime, capacity-one wake

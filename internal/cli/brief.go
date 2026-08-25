@@ -85,6 +85,7 @@ func renderBrief(env *Env, res rpc.BriefResult) {
 		return
 	}
 	renderBriefNarrative(env, narrative, res, briefProseWidth(env.Stdout))
+	renderBriefEdge(env, res.Review.Edge)
 }
 
 func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
@@ -98,6 +99,7 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 	}
 	briefLine(env, "session P&L", review.SessionPnL.BriefRowState, acct)
 	briefLine(env, "last session close", review.LastSession.BriefRowState, briefLastSessionValue(review.LastSession))
+	renderBriefEdge(env, review.Edge)
 	movers := make([]string, 0, len(review.Attribution.Rows)+1)
 	for _, mover := range review.Attribution.Rows {
 		movers = append(movers, fmt.Sprintf("%s %s", mover.Symbol, formatMoneyCcy(mover.DailyPnLBase, review.SessionPnL.BaseCurrency)))
@@ -153,6 +155,14 @@ func renderBriefReview(env *Env, review rpc.BriefReviewSection) {
 		orders = fmt.Sprintf("%d", *review.WorkingOrders.Count)
 	}
 	briefLine(env, "working orders", review.WorkingOrders.BriefRowState, orders)
+}
+
+func renderBriefEdge(env *Env, row rpc.BriefEdgeRow) {
+	value := row.Headline
+	if value == "" {
+		value = row.State
+	}
+	briefLine(env, "Canary Edge", row.BriefRowState, value)
 }
 
 // briefLastSessionValue renders the close-captured last-session P&L. The

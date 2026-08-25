@@ -6,12 +6,13 @@
 [![Go reference](https://pkg.go.dev/badge/github.com/osauer/canary/v2.svg)](https://pkg.go.dev/github.com/osauer/canary/v2)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Configuration](docs/docs/reference/config.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
+**[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [Broker reporting](docs/docs/start/reporting.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Configuration](docs/docs/reference/config.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
-Canary turns one local IB Gateway or TWS session into a daily risk brief for the
-terminal, an MCP host, and a paired phone. It keeps one daemon responsible for
-broker connectivity, market evidence, policy state, and the local order
-journal, so every surface reads the same account authority.
+Canary turns one local IB Gateway or TWS session into a daily risk brief and a
+broker-truth review of account P/L and past position changes for the terminal,
+an MCP host, and a paired phone. It keeps one daemon responsible for broker
+connectivity, market evidence, policy state, and the local order journal, so
+every surface reads the same account authority.
 
 Start with two commands:
 
@@ -20,7 +21,12 @@ canary status    # prove which gateway and account Canary reached
 canary brief     # review what changed and what needs attention
 ```
 
-The standard binary is read-only by construction. Its 13 MCP tools can inspect
+For reconciliation, statement-derived equity, and Canary Edge, configure the
+one shared IBKR Activity Flex Query with `canary setup reporting`; the
+[reporting guide](docs/docs/start/reporting.md) includes the Portal screenshots
+and exact field checklist.
+
+The standard binary is read-only by construction. Its 15 MCP tools can inspect
 the account, risk desk, proposals, opportunities, and local order state, but
 cannot preview or transmit a broker action. Trading-capable builds are separate,
 experimental artifacts with additional human and daemon gates.
@@ -67,12 +73,14 @@ covers installation and the first connection.
 | --- | --- |
 | **Daily brief and Action Queue** | What changed since the close, what the next session needs, and which alerts, protection candidates, exercise candidates, or process exceptions deserve attention. |
 | **Account and positions** | Which selected account is authoritative, how the book is exposed, and whether values or Greeks are missing. Multi-account ambiguity is refused rather than blended. |
+| **Canary Edge** | What the account earned after confirmed external flows, how stock and ETF opens/adds/trims/exits compared with leaving the prior position unchanged after 1/5/20 sessions, and what option strategies actually earned when IBKR linkage is exact. It requires the canonical Flex query; every result carries its coverage and limitations. |
 | **Rulebook, policy, and reconciliation** | Which daily-desk rule is hardest, which inputs are unknown, what risk constitution is approved, and whether broker statements agree with the capital ledger. |
 | **Market and technical evidence** | How named stocks or ETFs trend, plus the calendar, breadth, gamma, regime, stress, earnings, borrow, and halt evidence used by the desk. Each source keeps its own freshness and health. |
 | **Current work** | Which close/reduce-only proposals, exercise opportunities, and local orders exist, why they are blocked or ready for review, and how they changed. |
 
 Every data command supports `--json`. The embedded paired app presents the same
-daemon-owned evidence through Monitor, Brief, Alerts, Orders, and Settings.
+daemon-owned evidence through Monitor, Positions, Edge, Alerts, and Orders;
+Settings remains available from the header gear.
 
 ## Pick your path
 
@@ -102,11 +110,13 @@ Ask questions in desk language:
 >
 > How is my portfolio exposed by underlying?
 >
+> Which entries, adds, trims, or exits had the largest observed 20-session price impact, and what coverage bounds that answer?
+>
 > Are any protection or exercise candidates ready for human review?
 
 See [Connect an MCP host](docs/docs/start/hosts.md) for Claude Code, host logs,
 and connection checks. The generated [MCP reference](docs/docs/reference/mcp-tools.md)
-lists all 13 tools and their schemas.
+lists all 15 tools and their schemas.
 
 ### Claude Code
 
@@ -128,6 +138,7 @@ boundary.
 canary account
 canary positions --by underlying
 canary brief
+canary edge
 canary rules
 canary technical SPY,QQQ
 canary proposals list

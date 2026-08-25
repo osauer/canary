@@ -43,7 +43,8 @@ var structSources = []structSource{
 		Root:    "Config",
 		Heading: "TOML config",
 		Intro: "Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.toml`, else `$HOME/.config/ibkr/config.toml`. " +
-			"Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error.",
+			"Every field is optional; absent fields take their documented default. Unknown keys fail the load with a targeted error. " +
+			"For `[flex]`, use [Set up broker reporting](../start/reporting.md) rather than placing the token in TOML; the [generated reporting Flex reference](edge-flex.md) is the exact field authority.",
 	},
 	{
 		Path:    "internal/daemon/protection_policy.go",

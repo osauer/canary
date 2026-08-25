@@ -237,8 +237,8 @@ func dispatchMethodValues(t *testing.T, constants map[string]string) map[string]
 }
 
 func TestStartOpensSocketBeforeGatewayHandshake(t *testing.T) {
-	t.Parallel()
 	dir := shortTempDir(t)
+	t.Setenv("XDG_STATE_HOME", dir)
 	sockPath := filepath.Join(dir, "ibkrd.sock")
 
 	tlsFalse := false

@@ -254,6 +254,55 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name:         "canary_reporting",
+		Title:        "Canary Broker Reporting Status",
+		Description:  "Read shared IBKR statement-reporting setup, broker reachability, backfill state, proven missing fields, and unproved empty sections for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.",
+		ReadOnlyHint: new(true),
+		RPCMethods:   []string{rpc.MethodReportingStatus},
+		JSONSchema:   schemaObject(nil, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
+			var res rpc.ReportingStatusResult
+			if err := conn.Call(ctx, rpc.MethodReportingStatus, struct{}{}, &res); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateReportingStatusResult(res); err != nil {
+				return nil, fmt.Errorf("invalid reporting status: %w", err)
+			}
+			return json.Marshal(res)
+		},
+	},
+	{
+		Name:         "canary_edge",
+		Title:        "Canary Edge Decision Review",
+		Description:  "Use for reviewing past trading decisions after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.",
+		ReadOnlyHint: new(true),
+		RPCMethods:   []string{rpc.MethodEdgeSnapshot},
+		JSONSchema: schemaObject(map[string]json.RawMessage{
+			"window":           schemaEnum([]string{"90d", "365d"}, "review window; default 90d"),
+			"horizon_sessions": json.RawMessage(`{"type":"integer","enum":[1,5,20],"description":"highlighted decision-price-impact horizon; default 20"}`),
+			"limit":            json.RawMessage(`{"type":"integer","minimum":1,"maximum":3,"description":"maximum findings; default 3"}`),
+			"change_id":        schemaString("optional opaque change ID returned by a prior canary_edge call"),
+		}, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var in rpc.EdgeSnapshotParams
+			if err := unmarshalArgs(args, &in); err != nil {
+				return nil, err
+			}
+			in, err := rpc.NormalizeEdgeSnapshotParams(in)
+			if err != nil {
+				return nil, err
+			}
+			var res rpc.EdgeResult
+			if err := conn.Call(ctx, rpc.MethodEdgeSnapshot, in, &res); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateEdgeResult(res); err != nil {
+				return nil, fmt.Errorf("invalid Edge result: %w", err)
+			}
+			return json.Marshal(res)
+		},
+	},
+	{
 		Name:        "canary_rules",
 		RPCMethods:  []string{rpc.MethodRulesSnapshot},
 		Title:       "Canary Trading Rulebook",
@@ -384,7 +433,7 @@ var ExcludedCLI = map[string]string{
 	"mcp":     "transport server mode; the MCP host starts this process, no LLM should call it as a tool",
 	"daemon":  "local background service mode; autospawned by CLI/MCP clients and not an agent operation",
 	"app":     "local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool",
-	"setup":   "local configuration verb (writes claude_desktop_config.json); not a daemon RPC, no LLM should ever call it",
+	"setup":   "interactive local integration and credential configuration; not an LLM operation",
 	"update":  "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
 	"restart": "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
 	"stop":    "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",

@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -49,10 +50,11 @@ var knownNonFlowTypes = map[string]bool{
 type CashLine struct {
 	// ID is the broker transactionID when present, else a stable hash of
 	// the line's identifying attributes. Restatements supersede by ID.
-	ID       string
-	Category string // flow | classified | uncategorized
-	Type     string // raw Flex type attribute
-	Currency string
+	ID            string
+	TransactionID string
+	Category      string // flow | classified | uncategorized
+	Type          string // raw Flex type attribute
+	Currency      string
 	// Amount is nil when the statement omitted the amount attribute. An
 	// explicit zero remains a present value.
 	Amount *float64
@@ -68,9 +70,16 @@ type CashLine struct {
 // flow candidate downstream; a transfer with no computable base amount is
 // an uncategorized exception, not a guess.
 type Transfer struct {
-	ID        string
-	Direction string // IN | OUT
-	Date      time.Time
+	ID            string
+	TransactionID string
+	AccountID     string
+	ConID         int64
+	Symbol        string
+	AssetClass    string
+	Currency      string
+	Direction     string // IN | OUT
+	Date          time.Time
+	Quantity      *float64
 	// CashTransfer is nil when the statement omitted the cashTransfer
 	// attribute. An explicit zero remains a present value.
 	CashTransfer *float64
@@ -86,13 +95,21 @@ type EquityRow struct {
 
 // Statement is one parsed Flex statement.
 type Statement struct {
-	AccountID     string
-	FromDate      time.Time
-	ToDate        time.Time
-	WhenGenerated time.Time
-	Cash          []CashLine
-	Transfers     []Transfer
-	Equity        []EquityRow
+	AccountID        string
+	FromDate         time.Time
+	ToDate           time.Time
+	WhenGenerated    time.Time
+	ManifestVersion  string
+	Coverage         []SectionCoverage
+	Cash             []CashLine
+	Transfers        []Transfer
+	Equity           []EquityRow
+	Trades           []Trade
+	Instruments      []Instrument
+	Positions        []OpenPosition
+	OptionEvents     []OptionEvent
+	CorporateActions []CorporateAction
+	FXRates          []FXRate
 }
 
 type xmlFlexQueryResponse struct {
@@ -114,8 +131,14 @@ type xmlFlexQueryResponse struct {
 		} `xml:"CashTransactions>CashTransaction"`
 		Transfers []struct {
 			TransactionID        string   `xml:"transactionID,attr"`
+			AccountID            string   `xml:"accountId,attr"`
+			ConID                int64    `xml:"conid,attr"`
+			Symbol               string   `xml:"symbol,attr"`
+			AssetClass           string   `xml:"assetCategory,attr"`
+			Currency             string   `xml:"currency,attr"`
 			Date                 string   `xml:"date,attr"`
 			Direction            string   `xml:"direction,attr"`
+			Quantity             *float64 `xml:"quantity,attr"`
 			CashTransfer         *float64 `xml:"cashTransfer,attr"`
 			PositionAmountInBase float64  `xml:"positionAmountInBase,attr"`
 			FXRateToBase         float64  `xml:"fxRateToBase,attr"`
@@ -163,10 +186,11 @@ func Parse(data []byte) ([]Statement, error) {
 				amount = *c.Amount
 			}
 			line := CashLine{
-				Type:        strings.TrimSpace(c.Type),
-				Currency:    strings.TrimSpace(c.Currency),
-				Amount:      c.Amount,
-				Description: strings.TrimSpace(c.Description),
+				TransactionID: strings.TrimSpace(c.TransactionID),
+				Type:          strings.TrimSpace(c.Type),
+				Currency:      strings.TrimSpace(c.Currency),
+				Amount:        c.Amount,
+				Description:   strings.TrimSpace(c.Description),
 			}
 			switch {
 			case line.Type == "Deposits/Withdrawals":
@@ -192,9 +216,16 @@ func Parse(data []byte) ([]Statement, error) {
 		}
 		for _, t := range raw.Transfers {
 			tr := Transfer{
-				Direction:    strings.ToUpper(strings.TrimSpace(t.Direction)),
-				CashTransfer: t.CashTransfer,
-				Description:  strings.TrimSpace(t.Description),
+				TransactionID: strings.TrimSpace(t.TransactionID),
+				AccountID:     firstNonEmpty(t.AccountID, st.AccountID),
+				ConID:         t.ConID,
+				Symbol:        strings.TrimSpace(t.Symbol),
+				AssetClass:    strings.ToUpper(strings.TrimSpace(t.AssetClass)),
+				Currency:      strings.ToUpper(strings.TrimSpace(t.Currency)),
+				Direction:     strings.ToUpper(strings.TrimSpace(t.Direction)),
+				Quantity:      t.Quantity,
+				CashTransfer:  t.CashTransfer,
+				Description:   strings.TrimSpace(t.Description),
 			}
 			if tr.Date, err = parseFlexDate(t.Date); err != nil {
 				return nil, fmt.Errorf("transfer date: %w", err)
@@ -218,7 +249,7 @@ func Parse(data []byte) ([]Statement, error) {
 			if t.CashTransfer != nil {
 				amount += *t.CashTransfer
 			}
-			tr.ID = lineID(t.TransactionID, "transfer", tr.Direction, t.Date, amount, tr.Description)
+			tr.ID = brokerRecordID("transfer", tr.TransactionID, tr.AccountID, strconv.FormatInt(tr.ConID, 10), t.Date, tr.Direction, floatText(tr.Quantity), strconv.FormatFloat(amount, 'g', -1, 64))
 			st.Transfers = append(st.Transfers, tr)
 		}
 		for _, e := range raw.Equity {
@@ -229,6 +260,9 @@ func Parse(data []byte) ([]Statement, error) {
 			st.Equity = append(st.Equity, row)
 		}
 		out = append(out, st)
+	}
+	if err := parseEdgeRecords(data, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

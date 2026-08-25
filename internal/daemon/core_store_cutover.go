@@ -64,7 +64,7 @@ func (s *Server) createAndPublishCoreStore(ctx context.Context) (*corestore.Stor
 	if err := initializeFreshTradingAuthority(ctx, store); err != nil {
 		return nil, fmt.Errorf("initialize fresh trading authority: %w", err)
 	}
-	if err := store.ReplaceStatementProjection(ctx, statementProjectionScope, nil, nil); err != nil {
+	if err := store.ReplaceStatementProjection(ctx, statementProjectionScope, nil, nil, nil, nil); err != nil {
 		return nil, fmt.Errorf("initialize fresh statement projection: %w", err)
 	}
 	if err := initializeCleanProposalOpportunityAuthority(ctx, store); err != nil {

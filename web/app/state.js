@@ -82,11 +82,17 @@ const state = {
 	underlyingNotice: "",
   fallbackRefreshBusy: false,
   settings: null,
+  edgeResult: null,
+  edgeBusy: false,
+  edgeError: "",
+  edgeRequestID: 0,
+  edgeWindow: "90d",
+  edgeHorizon: 20,
   activeTab: normalizedTab(localStorage.getItem("canaryActiveTab") || "monitor"),
 };
 
 function normalizedTab(tab) {
-  if (tab === "positions" || tab === "alerts" || tab === "orders" || tab === "settings") return tab;
+  if (tab === "positions" || tab === "edge" || tab === "alerts" || tab === "orders" || tab === "settings") return tab;
   return "monitor";
 }
 

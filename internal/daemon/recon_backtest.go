@@ -47,7 +47,7 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 		return res
 	}
 
-	statements, problems, err := loadRetainedFlexStatements()
+	statements, problems, err := s.loadActiveRetainedFlexStatementsContext(context.Background(), nil)
 	switch {
 	case err != nil:
 		s.warnf("reconciliation backtest: retained Flex statement read failed: %v", err)

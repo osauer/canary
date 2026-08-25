@@ -2,6 +2,7 @@ import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliati
 import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
+import { refreshEdge, renderEdge } from "./edge.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, handleProtectionPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionExpansion, setProtectionSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
@@ -82,7 +83,7 @@ async function main() {
   await navigator.serviceWorker?.register("/service-worker.js");
   const params = new URLSearchParams(location.search);
   const requestedTab = params.get("tab");
-  const launchTab = ["monitor", "positions", "alerts"].includes(requestedTab)
+  const launchTab = ["monitor", "positions", "edge", "alerts", "orders", "settings"].includes(requestedTab)
     ? requestedTab
     : requestedTab === "brief" ? "monitor" : "";
   const pair = params.get("pair");
@@ -145,6 +146,7 @@ function renderAll() {
   syncAccountPrivacyState();
   ensureRegimeStressExpansion(stress);
   renderBriefCard(snap);
+  renderEdge();
   renderTopbar(snap);
   renderAccountPanel(account, positions, stress);
   renderUnderlyings(positions, account, snap.market_events || {});
@@ -188,6 +190,9 @@ $("updateAction").addEventListener("click", requestUpdate);
 $("accountPrivacyToggle").addEventListener("click", () => {
   setAccountValueVisible(!state.accountValueVisible);
 });
+$("settingsButton").addEventListener("click", () => setActiveTab("settings"));
+$("edgeWindow").addEventListener("change", () => refreshEdge());
+$("edgeHorizon").addEventListener("change", () => refreshEdge());
 $("accountLargestExposureToggle").addEventListener("click", () => {
   state.accountExposureOpen = !state.accountExposureOpen;
   renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.stress || {});

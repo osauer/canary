@@ -25,17 +25,20 @@ import (
 // Daily IBKR Flex statement ingestion (internal-docs/design/post-trade-truth.md).
 // Read-only toward the broker. The Flex token is read from its own 0600
 // file at fetch time and must never appear in any error, log line, journal,
-// never from request URLs.
+// or redirect. IBKR's documented GET contract necessarily places it in the
+// encrypted request URL, so the client refuses redirects and never reports
+// request URLs in errors.
 
 const (
-	flexSendRequestURL    = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest"
-	flexGetStatementURL   = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement"
+	flexSendRequestURL    = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest"
+	flexGetStatementURL   = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement"
 	flexUserAgent         = "canary-flex-reconciliation/1"
 	flexStatementsDir     = "statements"
 	flexFetchStateVersion = 2
 	flexFetchStateKind    = "flex_fetch"
 	flexFetchProjecting   = "projecting"
 	flexScheduleZone      = "Europe/Berlin"
+	flexReportingZone     = "America/New_York"
 	// IBKR says securities statements are available around midnight
 	flexMorningHour   = 6
 	flexMorningMinute = 30
@@ -63,14 +66,17 @@ type flexFetchStateV1 struct {
 }
 
 type flexFetchStateV2 struct {
-	Version       int       `json:"version"`
-	Stage         string    `json:"stage,omitempty"`
-	LastAttempt   time.Time `json:"last_attempt,omitzero"`
-	LastSuccess   time.Time `json:"last_success,omitzero"`
-	LastReason    string    `json:"last_reason,omitempty"`
-	LastRetryable bool      `json:"last_retryable,omitempty"`
-	// TargetDate is the Berlin calendar day whose one daily broker check is
-	// being attempted. CoverageTo is deliberately separate: IBKR activity
+	Version          int       `json:"version"`
+	QueryFingerprint string    `json:"query_fingerprint,omitempty"`
+	Stage            string    `json:"stage,omitempty"`
+	LastAttempt      time.Time `json:"last_attempt,omitzero"`
+	LastSuccess      time.Time `json:"last_success,omitzero"`
+	LastReason       string    `json:"last_reason,omitempty"`
+	LastBrokerCode   string    `json:"last_broker_code,omitempty"`
+	LastRetryable    bool      `json:"last_retryable,omitempty"`
+	// TargetDate is the latest completed New York reporting date whose one
+	// daily broker check is being attempted. CoverageTo is deliberately
+	// separate because IBKR may return a shorter range while generation runs.
 	TargetDate  time.Time `json:"target_date,omitzero"`
 	CoverageTo  time.Time `json:"coverage_to,omitzero"`
 	NextAttempt time.Time `json:"next_attempt,omitzero"`
@@ -90,14 +96,16 @@ type flexFetchState struct {
 
 type flexFetchOutcome struct {
 	Path          string
+	CoverageFrom  time.Time
 	CoverageTo    time.Time
 	WhenGenerated time.Time
 }
 
 type flexFetchFailure struct {
-	reason    string
-	retryable bool
-	detail    string // local log only; must already be redacted
+	reason     string
+	brokerCode string // exact four ASCII digits from a verified service envelope
+	retryable  bool
+	detail     string // local log only; must already be redacted
 }
 
 func (e *flexFetchFailure) Error() string {
@@ -173,6 +181,13 @@ func (st *flexFetchState) bindCore(ctx context.Context, core *corestore.Store) e
 			return fmt.Errorf("initialize Flex fetch state: %w", err)
 		}
 	}
+	if normalized := normalizeFlexBrokerCode(state.LastBrokerCode); normalized != state.LastBrokerCode {
+		state.LastBrokerCode = normalized
+		migrated = true
+	}
+	if state.QueryFingerprint != "" && !validFlexQueryFingerprint(state.QueryFingerprint) {
+		return fmt.Errorf("decode Flex fetch state: invalid query fingerprint")
+	}
 	// A daemon that stopped mid-request cannot still be checking after a
 	// restart. Recover it as an automatic retry without trusting the former
 	// process's unfinished stage.
@@ -181,6 +196,7 @@ func (st *flexFetchState) bindCore(ctx context.Context, core *corestore.Store) e
 	if recoveredInterrupted {
 		state.Stage = rpc.ReconReportStateRetryScheduled
 		state.LastReason = rpc.ReconReportReasonNetworkUnavailable
+		state.LastBrokerCode = ""
 		if recoveredProjecting || retainedFlexEvidenceSince(state.LastAttempt) {
 			state.LastReason = rpc.ReconReportReasonProjectionFailed
 		}
@@ -208,6 +224,7 @@ func (st *flexFetchState) persistLocked(ctx context.Context) error {
 		return fmt.Errorf("flex fetch state authority is unavailable")
 	}
 	st.state.Version = flexFetchStateVersion
+	st.state.LastBrokerCode = normalizeFlexBrokerCode(st.state.LastBrokerCode)
 	raw, err := json.Marshal(st.state)
 	if err != nil {
 		return err
@@ -345,9 +362,18 @@ func (s *Server) startFlexFetch(ctx context.Context, manual bool) bool {
 	}
 	s.mu.Unlock()
 	operationCtx, operationCancel := context.WithTimeout(parent, flexFetchTimeout)
+	selection := s.flexEvidenceSelection()
 	st := &s.flexFetch
 	st.mu.Lock()
-	if st.stopping || st.busy || (manual && !st.state.LastAttempt.IsZero() && now.Sub(st.state.LastAttempt) < flexManualRetryFloor) {
+	if st.stopping || st.busy {
+		st.mu.Unlock()
+		operationCancel()
+		return false
+	}
+	if !flexFetchStateMatchesSelection(st.state, selection) {
+		st.state = flexFetchStateV2{Version: flexFetchStateVersion, QueryFingerprint: selection.ActiveQueryFingerprint}
+	}
+	if manual && !st.state.LastAttempt.IsZero() && now.Sub(st.state.LastAttempt) < flexManualRetryFloor {
 		st.mu.Unlock()
 		operationCancel()
 		return false
@@ -357,12 +383,15 @@ func (s *Server) startFlexFetch(ctx context.Context, manual bool) bool {
 	st.done = make(chan struct{})
 	st.cancel = operationCancel
 	st.state.Stage = rpc.ReconReportStateChecking
+	st.state.QueryFingerprint = selection.ActiveQueryFingerprint
 	st.state.LastAttempt = now.UTC()
 	st.state.TargetDate = targetDate
+	st.state.LastBrokerCode = ""
 	st.state.NextAttempt = time.Time{}
 	if err := st.persistLocked(context.WithoutCancel(ctx)); err != nil {
 		st.state.Stage = rpc.ReconReportStateUnavailable
 		st.state.LastReason = rpc.ReconReportReasonAuthorityUnavailable
+		st.state.LastBrokerCode = ""
 		st.state.LastRetryable = false
 		st.state.NextAttempt = time.Time{}
 		st.busy = false
@@ -385,7 +414,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 	defer st.wg.Done()
 	defer operationCancel()
 
-	coverage, _, evidenceOK := latestFlexEvidence()
+	coverage, _, evidenceOK := s.latestFlexEvidence(ctx)
 	var outcome flexFetchOutcome
 	var err error
 	// Projection failures are retried locally from retained broker evidence on
@@ -427,6 +456,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 	}
 	if err == nil {
 		s.evaluateRiskPolicyV3Reconciliation()
+		s.kickEdgeRebuild()
 	}
 
 	finished := time.Now()
@@ -440,7 +470,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 		if !retryable {
 			st.state.Stage = rpc.ReconReportStateActionRequired
 		}
-		st.state.LastReason, st.state.LastRetryable = reason, retryable
+		st.state.LastReason, st.state.LastBrokerCode, st.state.LastRetryable = reason, flexFailureBrokerCode(err), retryable
 		if retryable {
 			st.state.NextAttempt = finished.UTC().Add(flexRetryAfterFail)
 		} else {
@@ -449,7 +479,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 		s.infof("Flex report check failed: %s", reason)
 	} else {
 		st.state.Stage = rpc.ReconReportStateCurrent
-		st.state.LastReason, st.state.LastRetryable = "", false
+		st.state.LastReason, st.state.LastBrokerCode, st.state.LastRetryable = "", "", false
 		st.state.LastSuccess = finished.UTC()
 		st.state.CoverageTo = coverage.UTC()
 		st.state.NextAttempt = time.Time{}
@@ -457,6 +487,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 	if persistErr := st.persistLocked(context.Background()); persistErr != nil {
 		st.state.Stage = rpc.ReconReportStateUnavailable
 		st.state.LastReason = rpc.ReconReportReasonAuthorityUnavailable
+		st.state.LastBrokerCode = ""
 		st.state.LastRetryable = false
 		st.state.NextAttempt = time.Time{}
 		s.warnf("Flex fetch state completion failed: %v", persistErr)
@@ -475,36 +506,85 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 // The saved raw file is validated through the parser before retention so a
 // service envelope can never sit in the statements dir pretending to be a
 // week with no activity.
-func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutcome, error) {
+func (s *Server) fetchFlexOnce(ctx context.Context, target time.Time) (flexFetchOutcome, error) {
+	to := dateOnlyUTC(target)
+	if to.IsZero() {
+		to = latestCompletedFlexDate(time.Now())
+		if s != nil && s.now != nil {
+			to = latestCompletedFlexDate(s.now())
+		}
+	}
+	return s.fetchFlexDateRange(ctx, to.AddDate(0, 0, -(edgeDailyLookbackDays-1)), to)
+}
+
+// fetchFlexDateRange requests one explicit inclusive window. The caller owns
+// scheduling; this method owns the single broker lane and the fixed endpoint.
+func (s *Server) fetchFlexDateRange(ctx context.Context, from, to time.Time) (flexFetchOutcome, error) {
+	return s.fetchFlexDateRangeWithPollAttempts(ctx, from, to, flexPollAttempts)
+}
+
+func (s *Server) fetchFlexDateRangeWithPollAttempts(ctx context.Context, from, to time.Time, pollAttempts int) (flexFetchOutcome, error) {
+	from, to = dateOnlyUTC(from), dateOnlyUTC(to)
+	if from.IsZero() || to.IsZero() || from.After(to) || int(to.Sub(from)/(24*time.Hour))+1 > 365 || pollAttempts < 1 {
+		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonQueryInvalid, detail: "Flex date range is invalid"}
+	}
+	s.flexBrokerMu.Lock()
+	defer s.flexBrokerMu.Unlock()
 	cfg := s.cfg.Flex
 	queryID := strings.TrimSpace(cfg.QueryID)
 	if queryID == "" {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonQueryMissing, detail: "Flex query id is not configured"}
 	}
-	tokenBytes, err := os.ReadFile(expandUserPath(cfg.TokenPath))
-	if err != nil {
-		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonTokenMissing, detail: "Flex token is unavailable"}
+	var (
+		raw []byte
+		err error
+	)
+	if s.flexRawDateRangeLockedFn != nil {
+		raw, err = s.flexRawDateRangeLockedFn(ctx, from, to, pollAttempts, queryID, cfg.TokenPath)
+	} else {
+		raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, pollAttempts, queryID, cfg.TokenPath)
 	}
-	token := strings.TrimSpace(string(tokenBytes))
-	if token == "" {
-		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonTokenMissing, detail: "Flex token is unavailable"}
-	}
-	client := &http.Client{Timeout: flexHTTPTimeout}
-
-	env, err := flexServiceCall(ctx, client, flexSendRequestURL, url.Values{"t": {token}, "q": {queryID}, "v": {"3"}})
 	if err != nil {
 		return flexFetchOutcome{}, err
 	}
+	if s.flexRetainRawFn != nil {
+		return s.flexRetainRawFn(raw)
+	}
+	return s.retainFlexStatementForQuery(ctx, raw, flexQueryFingerprint(queryID))
+}
+
+// fetchFlexRawDateRangeWithCredentialsLocked performs only the broker
+// protocol and returns one complete report in memory. The caller must hold
+// flexBrokerMu through its consumer-specific parse/retain step so active and
+// candidate work cannot interleave on IBKR's shared pacing lane.
+func fetchFlexRawDateRangeWithCredentialsLocked(ctx context.Context, from, to time.Time, pollAttempts int, queryID, tokenPath string) ([]byte, error) {
+	tokenBytes, err := os.ReadFile(expandUserPath(tokenPath))
+	if err != nil {
+		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonTokenMissing, detail: "Flex token is unavailable"}
+	}
+	token := strings.TrimSpace(string(tokenBytes))
+	if token == "" {
+		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonTokenMissing, detail: "Flex token is unavailable"}
+	}
+	client := &http.Client{Timeout: flexHTTPTimeout}
+
+	env, err := flexServiceCall(ctx, client, flexSendRequestURL, url.Values{
+		"t": {token}, "q": {queryID}, "v": {"3"},
+		"fd": {from.Format("20060102")}, "td": {to.Format("20060102")},
+	})
+	if err != nil {
+		return nil, err
+	}
 	if !strings.EqualFold(env.Status, "Success") || strings.TrimSpace(env.ReferenceCode) == "" {
-		return flexFetchOutcome{}, flexEnvelopeFailure(env.ErrorCode)
+		return nil, flexEnvelopeFailure(env.ErrorCode)
 	}
 
 	var raw []byte
-	for attempt := range flexPollAttempts {
+	for attempt := range pollAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
-				return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonNetworkUnavailable, retryable: true, detail: "Flex report check timed out"}
+				return nil, &flexFetchFailure{reason: rpc.ReconReportReasonNetworkUnavailable, retryable: true, detail: "Flex report check timed out"}
 			case <-time.After(flexPollInterval):
 			}
 		}
@@ -512,7 +592,7 @@ func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutco
 		// endpoint rather than following a broker-authored arbitrary host.
 		body, err := flexRawCall(ctx, client, flexGetStatementURL, url.Values{"t": {token}, "q": {env.ReferenceCode}, "v": {"3"}})
 		if err != nil {
-			return flexFetchOutcome{}, err
+			return nil, err
 		}
 		if strings.Contains(string(body), "<FlexStatementResponse") {
 			var progress flexServiceEnvelope
@@ -523,15 +603,23 @@ func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutco
 			if xml.Unmarshal(body, &progress) == nil {
 				code = progress.ErrorCode
 			}
-			return flexFetchOutcome{}, flexEnvelopeFailure(code)
+			return nil, flexEnvelopeFailure(code)
 		}
 		raw = body
 		break
 	}
 	if raw == nil {
-		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "Flex report is still being generated"}
+		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "Flex report is still being generated"}
 	}
-	return retainFlexStatement(raw)
+	return raw, nil
+}
+
+func dateOnlyUTC(value time.Time) time.Time {
+	if value.IsZero() {
+		return time.Time{}
+	}
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 // retainFlexStatement accepts every complete, typed broker report, even when
@@ -539,23 +627,41 @@ func (s *Server) fetchFlexOnce(ctx context.Context, _ time.Time) (flexFetchOutco
 // IBKR keeps the same generation timestamp. Exact bytes reuse retained
 // query result. Strictly older broker generations remain rejected.
 func retainFlexStatement(raw []byte) (flexFetchOutcome, error) {
+	return retainFlexStatementSelected(context.Background(), raw, flexEvidenceSelection{IncludeAll: true})
+}
+
+func (s *Server) retainFlexStatementForQuery(ctx context.Context, raw []byte, queryFingerprint string) (flexFetchOutcome, error) {
+	selection := s.flexEvidenceSelection()
+	if !validFlexQueryFingerprint(queryFingerprint) || selection.ActiveQueryFingerprint != queryFingerprint {
+		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonAuthorityUnavailable, retryable: true, detail: "Flex query generation changed during retention"}
+	}
+	return retainFlexStatementSelected(ctx, raw, selection)
+}
+
+func retainFlexStatementSelected(ctx context.Context, raw []byte, selection flexEvidenceSelection) (flexFetchOutcome, error) {
 	statements, err := flexstmt.Parse(raw)
 	if err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, retryable: true, detail: "Flex report did not match the expected format"}
 	}
-	var coverage, generated time.Time
+	var coverageFrom, coverageTo, generated time.Time
 	for _, statement := range statements {
-		if statement.ToDate.After(coverage) {
-			coverage = statement.ToDate
+		// Use the intersection across returned account statements. It is the
+		// range the response proves for every included account, rather than a
+		// min/max envelope that could hide a gap.
+		if coverageFrom.IsZero() || statement.FromDate.After(coverageFrom) {
+			coverageFrom = statement.FromDate
+		}
+		if coverageTo.IsZero() || statement.ToDate.Before(coverageTo) {
+			coverageTo = statement.ToDate
 		}
 		if statement.WhenGenerated.After(generated) {
 			generated = statement.WhenGenerated
 		}
 	}
-	if coverage.IsZero() || generated.IsZero() {
+	if coverageFrom.IsZero() || coverageTo.IsZero() || coverageFrom.After(coverageTo) || generated.IsZero() {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, retryable: true, detail: "Flex report did not carry a coverage date"}
 	}
-	_, latestGenerated, evidenceOK := latestFlexEvidence()
+	_, latestGenerated, evidenceOK := latestFlexEvidenceSelected(ctx, selection)
 	if evidenceOK && generated.Before(latestGenerated) {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "IBKR returned an older report generation"}
 	}
@@ -563,20 +669,24 @@ func retainFlexStatement(raw []byte) (flexFetchOutcome, error) {
 	if err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonStorageFailed, retryable: true, detail: "Flex report storage is unavailable"}
 	}
-	if retainedPath, duplicate, err := findRetainedFlexReport(dir, raw); err != nil {
+	if retainedPath, duplicate, err := findRetainedFlexReportSelected(dir, raw, selection); err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonStorageFailed, retryable: true, detail: "retained Flex reports could not be verified"}
 	} else if duplicate {
-		return flexFetchOutcome{Path: retainedPath, CoverageTo: coverage, WhenGenerated: generated}, nil
+		return flexFetchOutcome{Path: retainedPath, CoverageFrom: coverageFrom, CoverageTo: coverageTo, WhenGenerated: generated}, nil
 	}
 	digest := sha256.Sum256(raw)
-	path := filepath.Join(dir, fmt.Sprintf("flex-%s-%x.xml", time.Now().UTC().Format("20060102-150405.000000000"), digest[:6]))
+	prefix := "flex-"
+	if validFlexQueryFingerprint(selection.ActiveQueryFingerprint) {
+		prefix += selection.ActiveQueryFingerprint + "-"
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s%s-%x.xml", prefix, time.Now().UTC().Format("20060102-150405.000000000"), digest[:6]))
 	if err := writePrivateStateAtomic(path, raw); err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonStorageFailed, retryable: true, detail: "Flex report could not be retained"}
 	}
-	return flexFetchOutcome{Path: path, CoverageTo: coverage, WhenGenerated: generated}, nil
+	return flexFetchOutcome{Path: path, CoverageFrom: coverageFrom, CoverageTo: coverageTo, WhenGenerated: generated}, nil
 }
 
-func findRetainedFlexReport(dir string, raw []byte) (string, bool, error) {
+func findRetainedFlexReportSelected(dir string, raw []byte, selection flexEvidenceSelection) (string, bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -590,6 +700,13 @@ func findRetainedFlexReport(dir string, raw []byte) (string, bool, error) {
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return "", false, fmt.Errorf("retained report is a symlink")
+		}
+		included, err := selection.includesRetainedFlexFile(entry.Name())
+		if err != nil {
+			return "", false, err
+		}
+		if !included {
+			continue
 		}
 		path := filepath.Join(dir, entry.Name())
 		data, err := os.ReadFile(path)
@@ -635,8 +752,9 @@ func retainedFlexEvidenceSince(at time.Time) bool {
 	return false
 }
 
-// flexServiceCall performs one envelope-returning call. The token travels
-// only in the POST form body, and errors never include the request.
+// flexServiceCall performs one envelope-returning call. IBKR requires query
+// parameters on a GET; flexRawCall refuses redirects and errors never include
+// the request URL or parameters.
 func flexServiceCall(ctx context.Context, client *http.Client, endpoint string, params url.Values) (*flexServiceEnvelope, error) {
 	body, err := flexRawCall(ctx, client, endpoint, params)
 	if err != nil {
@@ -650,13 +768,19 @@ func flexServiceCall(ctx context.Context, client *http.Client, endpoint string, 
 }
 
 func flexRawCall(ctx context.Context, client *http.Client, endpoint string, params url.Values) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(params.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+params.Encode(), nil)
 	if err != nil {
 		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonResponseInvalid, retryable: true, detail: "Flex request could not be built"}
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", flexUserAgent)
-	resp, err := client.Do(req)
+	if client == nil {
+		client = &http.Client{}
+	}
+	redirectSafe := *client
+	redirectSafe.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := redirectSafe.Do(req)
 	if err != nil {
 		return nil, &flexFetchFailure{reason: rpc.ReconReportReasonNetworkUnavailable, retryable: true, detail: "IBKR Flex service could not be reached"}
 	}
@@ -676,28 +800,53 @@ func flexRawCall(ctx context.Context, client *http.Client, endpoint string, para
 }
 
 func flexEnvelopeFailure(code string) error {
-	switch strings.TrimSpace(code) {
-	case "1001", "1003", "1004", "1005", "1006", "1007", "1008":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "IBKR has not published the complete report yet"}
-	case "1009", "1019":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonServiceBusy, retryable: true, detail: "IBKR is still preparing the report"}
-	case "1018":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonRateLimited, retryable: true, detail: "IBKR Flex request limit was reached"}
-	case "1010":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonQueryInvalid, detail: "IBKR Flex query type is no longer supported"}
-	case "1011":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonServiceInactive, detail: "IBKR Flex Web Service is inactive"}
-	case "1012":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonTokenExpired, detail: "IBKR Flex token has expired"}
-	case "1013":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonIPRestricted, detail: "IBKR Flex token does not allow this network"}
-	case "1014", "1016":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonQueryInvalid, detail: "IBKR Flex query is not valid for this account"}
-	case "1015":
-		return &flexFetchFailure{reason: rpc.ReconReportReasonTokenInvalid, detail: "IBKR Flex token is invalid"}
-	default:
-		return &flexFetchFailure{reason: rpc.ReconReportReasonResponseInvalid, retryable: true, detail: "IBKR returned an unrecognized Flex status"}
+	brokerCode := normalizeFlexBrokerCode(code)
+	failure := func(reason string, retryable bool, detail string) error {
+		return &flexFetchFailure{reason: reason, brokerCode: brokerCode, retryable: retryable, detail: detail}
 	}
+	switch brokerCode {
+	case "1001", "1003", "1004", "1005", "1006", "1007", "1008":
+		return failure(rpc.ReconReportReasonReportNotReady, true, "IBKR has not published the complete report yet")
+	case "1009", "1019":
+		return failure(rpc.ReconReportReasonServiceBusy, true, "IBKR is still preparing the report")
+	case "1018":
+		return failure(rpc.ReconReportReasonRateLimited, true, "IBKR Flex request limit was reached")
+	case "1010":
+		return failure(rpc.ReconReportReasonQueryInvalid, false, "IBKR Flex query type is no longer supported")
+	case "1011":
+		return failure(rpc.ReconReportReasonServiceInactive, false, "IBKR Flex Web Service is inactive")
+	case "1012":
+		return failure(rpc.ReconReportReasonTokenExpired, false, "IBKR Flex token has expired")
+	case "1013":
+		return failure(rpc.ReconReportReasonIPRestricted, false, "IBKR Flex token does not allow this network")
+	case "1014", "1016":
+		return failure(rpc.ReconReportReasonQueryInvalid, false, "IBKR Flex query is not valid for this account")
+	case "1015":
+		return failure(rpc.ReconReportReasonTokenInvalid, false, "IBKR Flex token is invalid")
+	case "1017":
+		return failure(rpc.ReconReportReasonResponseInvalid, true, "IBKR rejected the Flex reference code")
+	case "1020":
+		return failure(rpc.ReconReportReasonResponseInvalid, true, "IBKR could not validate the Flex request")
+	case "1021":
+		return failure(rpc.ReconReportReasonReportNotReady, true, "IBKR could not retrieve the Flex report yet")
+	case "1025":
+		return failure(rpc.ReconReportReasonResponseInvalid, true, "IBKR returned an undocumented Flex response")
+	default:
+		return failure(rpc.ReconReportReasonResponseInvalid, true, "IBKR returned an unrecognized Flex status")
+	}
+}
+
+func normalizeFlexBrokerCode(code string) string {
+	code = strings.TrimSpace(code)
+	if len(code) != 4 {
+		return ""
+	}
+	for i := range len(code) {
+		if code[i] < '0' || code[i] > '9' {
+			return ""
+		}
+	}
+	return code
 }
 
 func flexFailureStatus(err error) (string, bool) {
@@ -707,6 +856,13 @@ func flexFailureStatus(err error) (string, bool) {
 	return rpc.ReconReportReasonResponseInvalid, true
 }
 
+func flexFailureBrokerCode(err error) string {
+	if failure, ok := err.(*flexFetchFailure); ok && failure != nil {
+		return normalizeFlexBrokerCode(failure.brokerCode)
+	}
+	return ""
+}
+
 func flexDailyWindow(now time.Time) (targetDate, firstAttempt time.Time) {
 	location, err := time.LoadLocation(flexScheduleZone)
 	if err != nil {
@@ -714,14 +870,32 @@ func flexDailyWindow(now time.Time) (targetDate, firstAttempt time.Time) {
 	}
 	local := now.In(location)
 	firstAttempt = time.Date(local.Year(), local.Month(), local.Day(), flexMorningHour, flexMorningMinute, 0, 0, location)
-	// The job runs every calendar day, including weekends and holidays, but
-	// does not invent an expected broker coverage date. IBKR's own report says
-	targetDate = time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	// The job runs every calendar day, including weekends and holidays. Flex
+	// accepts a weekend range end, but code 1003 proves that it does not accept
+	// the still-open New York reporting date.
+	targetDate = latestCompletedFlexDate(now)
 	return targetDate, firstAttempt.UTC()
 }
 
-func latestFlexEvidence() (coverage, generated time.Time, valid bool) {
-	statements, problems, err := loadRetainedFlexStatements()
+// latestCompletedFlexDate returns the most recent calendar date whose IBKR
+// reporting window has closed. IBKR documents its securities window and
+// statement publication in Eastern time, so a Canary host must not derive
+// this date from its own local calendar.
+func latestCompletedFlexDate(now time.Time) time.Time {
+	location, err := time.LoadLocation(flexReportingZone)
+	if err != nil {
+		location = time.FixedZone("EST", -5*60*60)
+	}
+	completed := now.In(location).AddDate(0, 0, -1)
+	return time.Date(completed.Year(), completed.Month(), completed.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func (s *Server) latestFlexEvidence(ctx context.Context) (coverage, generated time.Time, valid bool) {
+	return latestFlexEvidenceSelected(ctx, s.flexEvidenceSelection())
+}
+
+func latestFlexEvidenceSelected(ctx context.Context, selection flexEvidenceSelection) (coverage, generated time.Time, valid bool) {
+	statements, problems, err := loadRetainedFlexStatementsContextSelected(ctx, nil, selection)
 	if err != nil || len(problems) > 0 || len(statements) == 0 {
 		return time.Time{}, time.Time{}, false
 	}
@@ -739,7 +913,8 @@ func latestFlexEvidence() (coverage, generated time.Time, valid bool) {
 
 func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 	targetDate, firstAttempt := flexDailyWindow(now)
-	coverage, _, evidenceOK := latestFlexEvidence()
+	coverage, _, evidenceOK := s.latestFlexEvidence(context.Background())
+	selection := s.flexEvidenceSelection()
 	status := rpc.ReconFetchStatus{
 		CoverageTo: coverage, RetryAutomatic: true,
 	}
@@ -761,7 +936,12 @@ func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 	st.mu.Lock()
 	persisted, busy := st.state, st.busy
 	st.mu.Unlock()
+	if !flexFetchStateMatchesSelection(persisted, selection) {
+		persisted = flexFetchStateV2{Version: flexFetchStateVersion, QueryFingerprint: selection.ActiveQueryFingerprint}
+		busy = false
+	}
 	status.LastAttempt, status.LastSuccess = persisted.LastAttempt, persisted.LastSuccess
+	status.BrokerCode = normalizeFlexBrokerCode(persisted.LastBrokerCode)
 	status.Busy = busy
 	if busy {
 		status.State = rpc.ReconReportStateChecking
@@ -815,6 +995,10 @@ func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 	return status
 }
 
+func flexFetchStateMatchesSelection(state flexFetchStateV2, selection flexEvidenceSelection) bool {
+	return state.QueryFingerprint == selection.ActiveQueryFingerprint
+}
+
 func flexReasonMessage(reason string) string {
 	switch reason {
 	case rpc.ReconReportReasonReportNotReady, rpc.ReconReportReasonCoveragePending:
@@ -845,10 +1029,14 @@ func flexReasonMessage(reason string) string {
 // loadRetainedFlexStatements parses every retained raw statement, newest
 // file first. A file that no longer parses is reported, never skipped
 func loadRetainedFlexStatements() ([]flexstmt.Statement, []string, error) {
-	return loadRetainedFlexStatementsContext(context.Background(), nil)
+	return loadRetainedFlexStatementsContextSelected(context.Background(), nil, flexEvidenceSelection{IncludeAll: true})
 }
 
-func loadRetainedFlexStatementsContext(ctx context.Context, checkpoint func(string) error) ([]flexstmt.Statement, []string, error) {
+func (s *Server) loadActiveRetainedFlexStatementsContext(ctx context.Context, checkpoint func(string) error) ([]flexstmt.Statement, []string, error) {
+	return loadRetainedFlexStatementsContextSelected(ctx, checkpoint, s.flexEvidenceSelection())
+}
+
+func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection) ([]flexstmt.Statement, []string, error) {
 	check := func(stage string) error {
 		if checkpoint != nil {
 			return checkpoint(stage)
@@ -874,7 +1062,17 @@ func loadRetainedFlexStatementsContext(ctx context.Context, checkpoint func(stri
 		if err := check("retained_statements_entries"); err != nil {
 			return nil, nil, err
 		}
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".xml") {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".xml") {
+			continue
+		}
+		if e.Type()&os.ModeSymlink != 0 {
+			return nil, nil, fmt.Errorf("retained statement %q is not a regular non-symlink file", e.Name())
+		}
+		included, err := selection.includesRetainedFlexFile(e.Name())
+		if err != nil {
+			return nil, nil, err
+		}
+		if included {
 			names = append(names, e.Name())
 		}
 	}

@@ -337,12 +337,29 @@ type BriefLastSessionRow struct {
 	CapturedAt   time.Time `json:"captured_at,omitzero"`
 }
 
+// BriefEdgeRow is the compact discovery surface for the latest retrospective
+// Edge finding. Detail lives behind edge.snapshot; the daily brief carries no
+// execution controls and does not recalculate the finding.
+type BriefEdgeRow struct {
+	BriefRowState
+	State              string   `json:"state"`
+	Headline           string   `json:"headline,omitempty"`
+	ChangeID           string   `json:"change_id,omitempty"`
+	Symbol             string   `json:"symbol,omitempty"`
+	Action             string   `json:"action,omitempty"`
+	HorizonSessions    int      `json:"horizon_sessions,omitempty"`
+	DecisionImpactBase *float64 `json:"decision_impact_base,omitempty"`
+	BaseCurrency       string   `json:"base_currency,omitempty"`
+	Fingerprint        string   `json:"fingerprint,omitempty"`
+}
+
 // BriefReviewSection is the post-trade movement since the last regular close.
 // the section rolls up its worst child exactly like every other brief section.
 type BriefReviewSection struct {
 	BriefRowState
 	SessionPnL    BriefAccountRow       `json:"session_pnl"`
 	LastSession   BriefLastSessionRow   `json:"last_session"`
+	Edge          BriefEdgeRow          `json:"edge"`
 	Attribution   BriefMoversRow        `json:"attribution"`
 	Proposals     BriefProposalsRow     `json:"proposals"`
 	Overrides     BriefOverridesRow     `json:"overrides"`
@@ -1175,6 +1192,9 @@ type ReconFetchStatus struct {
 	RetryAutomatic     bool      `json:"retry_automatic"`
 	CanCheckNow        bool      `json:"can_check_now"`
 	Busy               bool      `json:"busy"`
+	// BrokerCode is present only for an exact four-ASCII-digit code from a
+	// verified IBKR Flex service envelope. Broker prose is never carried.
+	BrokerCode string `json:"broker_code,omitempty"`
 	// LastError is retained for CLI compatibility, but is now derived only
 	// from Reason. It never contains broker prose, paths, URLs, or parser
 	LastError string `json:"last_error,omitempty"`
@@ -1306,6 +1326,11 @@ func ValidateReconAutomationStatus(status ReconAutomationStatus) error {
 	if !reportStates[status.Report.State] || !reportReasons[status.Report.Reason] {
 		return errors.New("invalid reconciliation report automation state")
 	}
+	if status.Report.BrokerCode != "" {
+		if !validFlexBrokerCode(status.Report.BrokerCode) || status.Report.Reason == ReconReportReasonNone || status.Report.State == ReconReportStateChecking || status.Report.State == ReconReportStateCurrent {
+			return errors.New("invalid reconciliation report broker code")
+		}
+	}
 	if !evaluationStates[status.Evaluation.State] || !evaluationReasons[status.Evaluation.Reason] {
 		return errors.New("invalid reconciliation evaluation automation state")
 	}
@@ -1378,6 +1403,18 @@ func ValidateReconAutomationStatus(status ReconAutomationStatus) error {
 		return errors.New("reconciliation evaluation is complete without a current report")
 	}
 	return nil
+}
+
+func validFlexBrokerCode(code string) bool {
+	if len(code) != 4 {
+		return false
+	}
+	for i := range len(code) {
+		if code[i] < '0' || code[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ReconResult is the recon.snapshot payload.

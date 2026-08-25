@@ -8,9 +8,11 @@ Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts 
 
 Gateway API access and broker reporting are separate. A new installation can
 connect successfully while every statement-backed feature remains empty.
-Complete [Set up broker reporting](reporting.md): create the nine-section XML
+Complete [Set up broker reporting](reporting.md): create the eight-section XML
 Activity Flex Query, enable the Flex Web Service, and configure its Query ID
-and token file.
+and token file. Start diagnosis with `canary reporting status`; it separates
+local files, broker reachability, retained evidence, proven missing fields, and
+unproved empty sections.
 
 Use the stable reason to choose the next step:
 
@@ -21,6 +23,7 @@ Use the stable reason to choose the next step:
 | `query_missing`, `query_invalid` | Check the configured Query ID and that the exact same account selection still exposes the query in Client Portal. |
 | `service_inactive`, `ip_restricted` | Re-enable Flex Web Service or correct its IP restriction in Client Portal. |
 | `action_required`, `flex_query_incomplete` | Create a new query from the reporting checklist. Keep the working query until the replacement validates. |
+| broker code `1025` | IBKR does not document this code. Review Flex Web Service/query configuration; contact IBKR if it persists. Do not rotate a working query on a guessed meaning. |
 
 An empty section is **unproved**, not missing: no row means the XML cannot show
 which fields were selected. Never place a trade or move cash merely to populate

@@ -1,4 +1,5 @@
 import { handleAttentionContextChange } from "./alert-inbox.js";
+import { refreshEdge } from "./edge.js";
 import { renderRulesCard, renderStressDetail, renderRegimePanel } from "./stress.js";
 import { renderOpportunitiesPanel } from "./opportunities.js";
 import { setPortfolioExpansion } from "./portfolio.js";
@@ -41,6 +42,7 @@ function setActiveTab(tab, options = {}) {
   }
   renderTabs();
   handleAttentionContextChange();
+  if (state.activeTab === "edge") void refreshEdge();
 }
 
 function renderTabs() {
@@ -54,6 +56,11 @@ function renderTabs() {
   }
   const accountPanel = $("accountPanel");
   if (accountPanel) accountPanel.hidden = active === "settings";
+  const settingsButton = $("settingsButton");
+  if (settingsButton) {
+    settingsButton.classList.toggle("active", active === "settings");
+    settingsButton.setAttribute("aria-pressed", String(active === "settings"));
+  }
   for (const button of document.querySelectorAll("[data-tab]")) {
     const selected = button.dataset.tab === active;
     button.classList.toggle("active", selected);

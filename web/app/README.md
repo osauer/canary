@@ -28,9 +28,18 @@ Portfolio trim is labeled as a whole-book delta tool rather than a promise that
 the selected holding can be reduced. The SPA does not infer sizing,
 recommendation, or eligibility.
 
+Edge is the lazy-loaded retrospective review. It separates Flex account P/L
+after confirmed external flows from stock/ETF Decision price impact at 1, 5,
+and 20 sessions, and keeps options in an actual-only section. The tab renders
+only daemon-ranked typed results, at most three default findings, explicit
+coverage, and no alert, recommendation, or trading control. Opening the tab is
+a read: it never starts Flex or historical-data work.
+
 Settings is the instrument's back panel: engraved banks for Notifications,
 Workflows, System (process evidence, moved here from the Alerts log), and
-Status, plus the stamped type plate at the foot. Orders is the current order
+Status, plus the stamped type plate at the foot. It opens from the persistent
+header gear and remains addressable as `?tab=settings`. The bottom navigation
+is Monitor, Positions, Edge, Alerts, and Orders. Orders is the current order
 journal; grouped position close/reduce previews live in Positions and retain
 the same daemon, broker-preview, confirmation, freeze, and journal gates.
 

@@ -38,8 +38,11 @@ writes one ordered path instead of several competing writers.
   observations with time, provenance, and decision-eligibility metadata.
 - **Order safety:** exact broker-route bindings, consumed preview tokens,
   conservative order-ID floors, and pre-transmit order events.
-- **Statement-derived views:** file inventory and daily equity views rebuilt
-  from the complete retained set of original Flex XML statements.
+- **Statement-derived views:** file inventory, daily equity, statement date and
+  query-coverage metadata, and typed current trade/instrument/position/event/
+  action/transfer/cash/FX rows rebuilt from the complete retained set of
+  original Flex XML statements. Immutable typed versions preserve restatements
+  behind the current winners.
 
 Several records stay beside the database because they have different owners or
 recovery lifecycles:
@@ -77,11 +80,11 @@ The schema follows the questions the product must answer:
 
 | Product question | Storage structure | Meaning of one row |
 |---|---|---|
-| What is true now? | `state_documents`, `statement_files`, `statement_equity_days` | The latest accepted revision or selected statement-derived record for one scope and kind. |
+| What is true now? | `state_documents`, `statement_files`, `statement_equity_days`, `statement_records`, `statement_metadata` | The latest accepted revision or selected statement-derived record for one scope and kind. |
 | What did the software observe or decide? | `event_log` | One immutable local lifecycle event with its original JSON payload and digest. |
 | What was measured? | `observations` | One retained source measurement, including observation time and decision eligibility. |
 | What must never be reused or move backwards? | `broker_scopes`, `consumed_preview_tokens`, `order_id_floors`, `order_events` | Route identity, a spent capability, a conservative ID floor, or an order-lifecycle fact. |
-| What did the broker originally report? | Retained Flex XML plus four statement tables | SQLite records exact file versions and current or historical daily-equity projections. |
+| What did the broker originally report? | Retained Flex XML plus eight statement tables | SQLite records exact file versions and current or historical daily-equity, typed-record, and query-coverage projections. |
 
 Relational columns carry safety-critical identities and irreversible facts, and
 keys, foreign keys, constraints, indexes, and triggers make those rules visible
@@ -91,13 +94,13 @@ appear in relational projection tables. Those projections are not the read path
 yet: the main Regime, rules, Stress, and capital-history readers still load
 matching `event_log` JSON and filter it in Go.
 
-[![Physical entity relationships in daemon.db schema version 3](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
+[![Physical entity relationships in daemon.db schema version 8](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/canary/blob/main/internal/daemon/corestore/schema.go)
 
-The diagram shows schema version 3. Solid lines are declared SQLite foreign
+The diagram shows schema version 8. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as `scope_key` creates a namespace only when no foreign key joins it.
 
@@ -109,6 +112,10 @@ such as `scope_key` creates a namespace only when no foreign key joins it.
 | `broker_scopes` | `order_events` | One broker route to zero or more order events. |
 | `statement_files` | `statement_equity_days` | One current statement-file identity to zero or more current daily-equity rows. |
 | `statement_file_versions` | `statement_equity_day_versions` | One immutable file version to zero or more immutable daily-equity versions. |
+| `statement_files` | `statement_records` | One current statement-file identity to zero or more current typed Flex records. |
+| `statement_file_versions` | `statement_record_versions` | One immutable file version to zero or more immutable typed-record versions. |
+| `statement_files` | `statement_metadata` | One current statement-file identity to zero or more current date/query-coverage records. |
+| `statement_file_versions` | `statement_metadata_versions` | One immutable file version to zero or more immutable date/query-coverage versions. |
 
 Six tables stand alone: `store_meta`, `schema_migrations`, `legacy_imports`,
 `state_documents`, `observations`, and `order_id_floors`. Other useful
@@ -120,6 +127,9 @@ relationships also remain application conventions:
   permits several projection rows with the same `event_seq`;
 - current statement rows and immutable statement versions are written together
   without a foreign key joining the two families;
+- statement projection `scope_key` includes the active opaque Flex-query
+  generation, while per-period metadata preserves an explicit Open Positions
+  snapshot even when that snapshot contains zero rows;
 - validated broker-scope values associate order-ID floors with a route.
 
 The renderer compares its complete table and foreign-key inventory with
@@ -174,6 +184,7 @@ dashboards, and alternate files cannot replace this durable safety evidence.
 | Rules or capital history | `canary rules history` and `canary recon equity` over typed daemon RPC | Regime and Stress history remain internal event evidence, not product surfaces. |
 | Orders | `canary orders open`, `canary orders history`, and `canary order status` | Local lifecycle records explain intent and evidence; the broker Activity Statement remains execution truth. |
 | Statement-derived equity | Typed reconciliation and equity readers | The current reader has a fixed result ceiling rather than a general paginated API. |
+| Canary Edge review | `canary edge`, `edge.snapshot`, and authenticated `/api/edge` | Reads serve a bounded published snapshot and never trigger Flex or HMDS work. |
 | Retained observations | Narrow daemon-owned readers for their product purpose | General research access awaits a corrected time-and-ID pagination cursor. |
 | Offline forensic SQL | Stop the daemon and open `daemon.db` read-only, or inspect a verified consistent backup | SQL shapes are implementation details and may change with the binary. |
 
@@ -240,10 +251,12 @@ event or payload version retains a compatible reader or feeds a new projection.
 
 The crash-boundary protocol is implemented and tested in
 `internal/daemon/corestore` and the daemon's upgrade coordinator. Migration 1
-creates the schema. Migrations 2 and 3 rename the portfolio-stress sensor's
-projection table, its `event_log` label, and the observations imported from the
-pre-rename decision journal; they are the first transitions the general
-coordinator carries on an existing database.
+creates the schema; later migrations carry reviewed renames and one-time beta
+retention changes. Migration 7 adds the current `statement_records` projection
+and append-only `statement_record_versions` evidence needed by Canary Edge.
+Migration 8 additively stores statement date/query-coverage metadata without
+rewriting v7 tables that may already exist. The ordinary statement refresh
+repopulates all current rows from the complete retained XML set after upgrade.
 
 ### Backup and restore
 

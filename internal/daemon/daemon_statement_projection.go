@@ -20,8 +20,8 @@ import (
 
 const (
 	statementProjectionScope   = "statements"
-	statementProjectionVersion = 1
-	statementProjectionStatus  = "parsed_v1"
+	statementProjectionVersion = 5
+	statementProjectionStatus  = "parsed_v5"
 	statementProjectionMaxRows = 10000
 )
 
@@ -39,6 +39,16 @@ type statementEquityProjectionPayload struct {
 	TotalBase  string `json:"total_base"`
 }
 
+type statementMetadataProjectionPayload struct {
+	Version          int                        `json:"version"`
+	QueryFingerprint string                     `json:"query_fingerprint,omitempty"`
+	FromDate         time.Time                  `json:"from_date"`
+	ToDate           time.Time                  `json:"to_date"`
+	ManifestVersion  string                     `json:"manifest_version"`
+	Coverage         []flexstmt.SectionCoverage `json:"coverage"`
+	PositionSnapshot []flexstmt.OpenPosition    `json:"position_snapshot"`
+}
+
 // refreshStatementProjection fingerprints the complete retained Flex XML set,
 // parses every changed source before publishing anything, and transactionally
 // replaces only the current inventory/equity winners. The original XML remains
@@ -51,11 +61,13 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	if s == nil || s.coreStore == nil {
 		return fmt.Errorf("statement SQLite authority is unavailable")
 	}
-	files, err := readStatementProjectionFiles(ctx)
+	selection := s.flexEvidenceSelection()
+	projectionScope := statementProjectionScopeForSelection(selection)
+	files, err := readStatementProjectionFiles(ctx, selection)
 	if err != nil {
 		return err
 	}
-	recorded, err := s.coreStore.LoadStatementFiles(ctx, statementProjectionScope)
+	recorded, err := s.coreStore.LoadStatementFiles(ctx, projectionScope)
 	if err != nil {
 		return fmt.Errorf("load statement projection inventory: %w", err)
 	}
@@ -65,11 +77,11 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	if err := parseStatementProjectionFiles(ctx, files); err != nil {
 		return err
 	}
-	fileRecords, days, err := buildStatementProjection(files, s.statementProjectionNow())
+	fileRecords, days, records, recordVersions, err := buildStatementProjection(files, s.statementProjectionNow(), selection.ActiveQueryFingerprint)
 	if err != nil {
 		return err
 	}
-	if err := s.coreStore.ReplaceStatementProjection(ctx, statementProjectionScope, fileRecords, days); err != nil {
+	if err := s.coreStore.ReplaceStatementProjection(ctx, projectionScope, fileRecords, days, records, recordVersions); err != nil {
 		return fmt.Errorf("replace statement projection: %w", err)
 	}
 	return nil
@@ -85,7 +97,7 @@ func (s *Server) statementProjectionNow() time.Time {
 // readStatementProjectionFiles returns a coherent, deterministic snapshot of
 // regular XML files. Symlinks are rejected so mutable evidence outside the
 // private statements directory cannot enter the authoritative projection.
-func readStatementProjectionFiles(ctx context.Context) ([]statementProjectionFile, error) {
+func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSelection) ([]statementProjectionFile, error) {
 	dir, err := flexStatementsDirPath()
 	if err != nil {
 		return nil, err
@@ -115,7 +127,13 @@ func readStatementProjectionFiles(ctx context.Context) ([]statementProjectionFil
 		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
 			return nil, fmt.Errorf("statement source %q is not a regular non-symlink file", entry.Name())
 		}
-		names = append(names, entry.Name())
+		included, err := selection.includesRetainedFlexFile(entry.Name())
+		if err != nil {
+			return nil, err
+		}
+		if included {
+			names = append(names, entry.Name())
+		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 
@@ -200,9 +218,11 @@ func parseStatementProjectionFiles(ctx context.Context, files []statementProject
 	return nil
 }
 
-func buildStatementProjection(files []statementProjectionFile, ingestedAt time.Time) ([]corestore.StatementFileRecord, []corestore.StatementEquityDayRecord, error) {
+func buildStatementProjection(files []statementProjectionFile, ingestedAt time.Time, queryFingerprint string) ([]corestore.StatementFileRecord, []corestore.StatementEquityDayRecord, []corestore.StatementRecord, []corestore.StatementRecord, error) {
 	fileRecords := make([]corestore.StatementFileRecord, 0, len(files))
 	winners := make(map[string]corestore.StatementEquityDayRecord)
+	recordWinners := make(map[string]corestore.StatementRecord)
+	recordVersions := []corestore.StatementRecord{}
 	for _, file := range files {
 		var latestGenerated time.Time
 		for _, statement := range file.statements {
@@ -221,13 +241,16 @@ func buildStatementProjection(files []statementProjectionFile, ingestedAt time.T
 					Version: statementProjectionVersion, ReportDate: day, TotalBase: equityText,
 				})
 				if err != nil {
-					return nil, nil, fmt.Errorf("encode statement equity projection: %w", err)
+					return nil, nil, nil, nil, fmt.Errorf("encode statement equity projection: %w", err)
 				}
 				winners[key] = corestore.StatementEquityDayRecord{
 					AccountKey: statement.AccountID, Day: day, EquityBaseText: equityText,
 					StatementFileKey: file.name, StatementFileSHA256: file.digest,
 					GeneratedAt: generated, RawJSON: raw,
 				}
+			}
+			if err := addStatementTypedRecords(recordWinners, &recordVersions, file, statement, queryFingerprint); err != nil {
+				return nil, nil, nil, nil, err
 			}
 		}
 		generated := latestGenerated
@@ -246,7 +269,115 @@ func buildStatementProjection(files []statementProjectionFile, ingestedAt time.T
 	for _, key := range keys {
 		days = append(days, winners[key])
 	}
-	return fileRecords, days, nil
+	recordKeys := make([]string, 0, len(recordWinners))
+	for key := range recordWinners {
+		recordKeys = append(recordKeys, key)
+	}
+	sort.Strings(recordKeys)
+	records := make([]corestore.StatementRecord, 0, len(recordKeys))
+	for _, key := range recordKeys {
+		records = append(records, recordWinners[key])
+	}
+	return fileRecords, days, records, recordVersions, nil
+}
+
+func addStatementTypedRecords(winners map[string]corestore.StatementRecord, versions *[]corestore.StatementRecord, file statementProjectionFile, statement flexstmt.Statement, queryFingerprint string) error {
+	generated := statement.WhenGenerated.UTC()
+	account := statement.AccountID
+	add := func(kind, recordKey string, effectiveAt time.Time, payload any) error {
+		if effectiveAt.IsZero() {
+			effectiveAt = statement.ToDate
+		}
+		raw, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode %s statement record: %w", kind, err)
+		}
+		projectionKey := statementProjectionRecordKey(account, recordKey)
+		key := kind + "\x00" + projectionKey
+		candidate := corestore.StatementRecord{
+			Kind: kind, RecordKey: projectionKey, AccountKey: account,
+			EffectiveAt: effectiveAt.UTC(), StatementFileKey: file.name, StatementFileSHA256: file.digest,
+			GeneratedAt: generated, RawJSON: raw,
+		}
+		*versions = append(*versions, candidate)
+		current, ok := winners[key]
+		if !ok || generated.After(current.GeneratedAt) || (generated.Equal(current.GeneratedAt) && strings.Compare(hexDigest(file.digest), hexDigest(current.StatementFileSHA256)) > 0) {
+			winners[key] = candidate
+		}
+		return nil
+	}
+	metadataKey := "statement:" + statement.FromDate.UTC().Format(time.DateOnly) + ":" + statement.ToDate.UTC().Format(time.DateOnly)
+	positionSnapshot := []flexstmt.OpenPosition(nil)
+	if statementSectionPresent(statement.Coverage, "open_positions") {
+		positionSnapshot = append([]flexstmt.OpenPosition{}, statement.Positions...)
+	}
+	if err := add(corestore.StatementRecordMetadata, metadataKey, statement.ToDate, statementMetadataProjectionPayload{
+		Version: statementProjectionVersion, QueryFingerprint: queryFingerprint,
+		FromDate: statement.FromDate.UTC(), ToDate: statement.ToDate.UTC(),
+		ManifestVersion: statement.ManifestVersion, Coverage: append([]flexstmt.SectionCoverage(nil), statement.Coverage...),
+		PositionSnapshot: positionSnapshot,
+	}); err != nil {
+		return err
+	}
+	for _, item := range statement.Trades {
+		if err := add(corestore.StatementRecordTrade, item.RecordID, item.ExecutedAt, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.Instruments {
+		if err := add(corestore.StatementRecordInstrument, item.RecordID, item.ReportDate, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.Positions {
+		if err := add(corestore.StatementRecordPosition, item.RecordID, item.ReportDate, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.OptionEvents {
+		if err := add(corestore.StatementRecordOptionEvent, item.RecordID, item.Date, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.CorporateActions {
+		if err := add(corestore.StatementRecordCorporateAction, item.RecordID, item.Date, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.Transfers {
+		if err := add(corestore.StatementRecordTransfer, item.ID, item.Date, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.Cash {
+		if err := add(corestore.StatementRecordCash, item.ID, item.ValueDate, item); err != nil {
+			return err
+		}
+	}
+	for _, item := range statement.FXRates {
+		if err := add(corestore.StatementRecordFXRate, item.RecordID, item.Date, item); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statementSectionPresent(coverage []flexstmt.SectionCoverage, key string) bool {
+	for _, section := range coverage {
+		if section.Key == key && section.Present {
+			return true
+		}
+	}
+	return false
+}
+
+func hexDigest(value [sha256.Size]byte) string {
+	return fmt.Sprintf("%x", value[:])
+}
+
+func statementProjectionRecordKey(account, recordKey string) string {
+	digest := sha256.Sum256([]byte("canary.statement.record.v1\x00" + account + "\x00" + recordKey))
+	return fmt.Sprintf("rec_%x", digest[:16])
 }
 
 // sqliteStatementEquityDays is the SQLite replacement for history.db's
@@ -260,7 +391,8 @@ func (s *Server) sqliteStatementEquityDays(ctx context.Context, since, until tim
 	}
 	fromDay := since.UTC().Format("2006-01-02")
 	toDay := until.UTC().Add(-time.Nanosecond).Format("2006-01-02")
-	rows, err := s.coreStore.LoadStatementEquityDays(ctx, statementProjectionScope, fromDay, toDay, statementProjectionMaxRows)
+	projectionScope := s.activeStatementProjectionScope()
+	rows, err := s.coreStore.LoadStatementEquityDays(ctx, projectionScope, fromDay, toDay, statementProjectionMaxRows)
 	if err != nil {
 		return nil, 0, fmt.Errorf("load statement equity projection: %w", err)
 	}
@@ -298,7 +430,8 @@ func (s *Server) sqliteStatementsHealth(ctx context.Context) (rpc.HistoryIndexHe
 	if s == nil || s.coreStore == nil {
 		return health, fmt.Errorf("statement SQLite authority is unavailable")
 	}
-	files, err := s.coreStore.LoadStatementFiles(ctx, statementProjectionScope)
+	selection := s.flexEvidenceSelection()
+	files, err := s.coreStore.LoadStatementFiles(ctx, statementProjectionScopeForSelection(selection))
 	if err != nil {
 		return health, fmt.Errorf("load statement projection health: %w", err)
 	}
@@ -331,6 +464,13 @@ func (s *Server) sqliteStatementsHealth(ctx context.Context) (rpc.HistoryIndexHe
 	}
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".xml") {
+			continue
+		}
+		included, err := selection.includesRetainedFlexFile(entry.Name())
+		if err != nil {
+			return health, err
+		}
+		if !included {
 			continue
 		}
 		info, err := entry.Info()

@@ -99,7 +99,7 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		res.LastAutoExtendReportID, res.LastAutoExtendedAt = s.riskCapital.LastAutoExtendForScope(scope)
 	}
 
-	statements, problems, err := loadRetainedFlexStatementsContext(ctx, func(stage string) error { return s.nudgeScanCheck(ctx, stage) })
+	statements, problems, err := s.loadActiveRetainedFlexStatementsContext(ctx, func(stage string) error { return s.nudgeScanCheck(ctx, stage) })
 	if err != nil && ctx.Err() != nil {
 		return nil, nil, ctx.Err()
 	}

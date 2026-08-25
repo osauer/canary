@@ -68,6 +68,13 @@ type ReconciliationClient interface {
 	ReconcileCheck(context.Context) (*rpc.ReconCheckResult, error)
 }
 
+// EdgeClient is the optional, read-only retrospective review capability. It is
+// separate from Client so older app-host adapters fail closed without gaining
+// a new method implicitly.
+type EdgeClient interface {
+	EdgeSnapshot(context.Context, rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error)
+}
+
 // Real opens a short-lived daemon connection for each typed call and can
 // optionally autospawn the daemon when its socket is absent.
 type Real struct {
@@ -226,6 +233,19 @@ func (c Real) Brief(ctx context.Context) (*rpc.BriefResult, error) {
 	var out rpc.BriefResult
 	if err := c.call(ctx, rpc.MethodBriefSnapshot, rpc.BriefSnapshotParams{}, &out); err != nil {
 		return nil, err
+	}
+	return &out, nil
+}
+
+// EdgeSnapshot returns an already-published daemon result. The RPC read cannot
+// start Flex or HMDS work.
+func (c Real) EdgeSnapshot(ctx context.Context, params rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error) {
+	var out rpc.EdgeResult
+	if err := c.call(ctx, rpc.MethodEdgeSnapshot, params, &out); err != nil {
+		return nil, err
+	}
+	if err := rpc.ValidateEdgeResult(out); err != nil {
+		return nil, fmt.Errorf("invalid Edge result: %w", err)
 	}
 	return &out, nil
 }

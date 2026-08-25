@@ -1,0 +1,10 @@
+<FlexQueryResponse><FlexStatements><FlexStatement accountId="UEDGEZERO" fromDate="20250825" toDate="20260824" whenGenerated="20260825;010000">
+<Trades></Trades>
+<SecuritiesInfo></SecuritiesInfo>
+<OpenPositions></OpenPositions>
+<OptionEAE></OptionEAE>
+<CorporateActions></CorporateActions>
+<Transfers></Transfers>
+<CashTransactions></CashTransactions>
+<EquitySummaryInBase><EquitySummaryByReportDateInBase reportDate="20250825" total="50000"/><EquitySummaryByReportDateInBase reportDate="20260824" total="50500"/></EquitySummaryInBase>
+</FlexStatement></FlexStatements></FlexQueryResponse>

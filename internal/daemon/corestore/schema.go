@@ -527,6 +527,104 @@ func betaOperationalHistoryPrune() migration {
 	}
 }
 
+// edgeStatementProjectionMigration is migration 7. It adds one strict,
+// kind-discriminated projection pair rather than a table per Flex section: Go
+// owns the typed payload contract, SQLite owns current-versus-immutable
+// authority, and a single transaction can publish every section together.
+func edgeStatementProjectionMigration() migration {
+	return migration{
+		version: 7,
+		name:    "edge_statement_projection",
+		statements: []string{
+			`CREATE TABLE statement_record_versions (
+  record_version_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_key TEXT NOT NULL,
+  record_kind TEXT NOT NULL CHECK (record_kind IN ('trade','instrument','position','option_event','corporate_action','transfer','cash','fx_rate')),
+  record_key TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  statement_file_key TEXT NOT NULL,
+  statement_file_sha256 BLOB NOT NULL CHECK (length(statement_file_sha256) = 32),
+  generated_at TEXT NOT NULL,
+  raw_json BLOB NOT NULL CHECK (json_valid(raw_json)),
+  raw_sha256 BLOB NOT NULL CHECK (length(raw_sha256) = 32),
+  recorded_at TEXT NOT NULL,
+  FOREIGN KEY (scope_key, statement_file_key, statement_file_sha256)
+    REFERENCES statement_file_versions(scope_key, file_key, sha256),
+  UNIQUE (scope_key, record_kind, record_key, statement_file_key, statement_file_sha256, generated_at, raw_sha256)
+) STRICT`,
+			`CREATE TABLE statement_records (
+  record_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_key TEXT NOT NULL,
+  record_kind TEXT NOT NULL CHECK (record_kind IN ('trade','instrument','position','option_event','corporate_action','transfer','cash','fx_rate')),
+  record_key TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  statement_file_key TEXT NOT NULL,
+  statement_file_sha256 BLOB NOT NULL CHECK (length(statement_file_sha256) = 32),
+  generated_at TEXT NOT NULL,
+  raw_json BLOB NOT NULL CHECK (json_valid(raw_json)),
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (scope_key, statement_file_key, statement_file_sha256)
+    REFERENCES statement_files(scope_key, file_key, sha256),
+  UNIQUE (scope_key, record_kind, record_key)
+) STRICT`,
+			`CREATE INDEX statement_records_scope_kind_time ON statement_records(scope_key, record_kind, effective_at, record_id)`,
+			`CREATE INDEX statement_record_versions_scope_kind_time ON statement_record_versions(scope_key, record_kind, effective_at, record_version_id)`,
+			appendOnlyUpdateTrigger("statement_record_versions"),
+			appendOnlyDeleteTrigger("statement_record_versions"),
+		},
+	}
+}
+
+// edgeStatementMetadataMigration is migration 8. Migration 7's kind check is
+// frozen in already-created authorities, so statement-level date and query
+// coverage metadata gets its own current/immutable pair. This is additive:
+// no v7 evidence table is rewritten or dropped.
+func edgeStatementMetadataMigration() migration {
+	return migration{
+		version: 8,
+		name:    "edge_statement_metadata_projection",
+		statements: []string{
+			`CREATE TABLE statement_metadata_versions (
+  metadata_version_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_key TEXT NOT NULL,
+  record_key TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  statement_file_key TEXT NOT NULL,
+  statement_file_sha256 BLOB NOT NULL CHECK (length(statement_file_sha256) = 32),
+  generated_at TEXT NOT NULL,
+  raw_json BLOB NOT NULL CHECK (json_valid(raw_json)),
+  raw_sha256 BLOB NOT NULL CHECK (length(raw_sha256) = 32),
+  recorded_at TEXT NOT NULL,
+  FOREIGN KEY (scope_key, statement_file_key, statement_file_sha256)
+    REFERENCES statement_file_versions(scope_key, file_key, sha256),
+  UNIQUE (scope_key, record_key, statement_file_key, statement_file_sha256, generated_at, raw_sha256)
+) STRICT`,
+			`CREATE TABLE statement_metadata (
+  metadata_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope_key TEXT NOT NULL,
+  record_key TEXT NOT NULL,
+  account_key TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  statement_file_key TEXT NOT NULL,
+  statement_file_sha256 BLOB NOT NULL CHECK (length(statement_file_sha256) = 32),
+  generated_at TEXT NOT NULL,
+  raw_json BLOB NOT NULL CHECK (json_valid(raw_json)),
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (scope_key, statement_file_key, statement_file_sha256)
+    REFERENCES statement_files(scope_key, file_key, sha256),
+  UNIQUE (scope_key, record_key)
+) STRICT`,
+			`CREATE INDEX statement_metadata_scope_time ON statement_metadata(scope_key, effective_at, metadata_id)`,
+			`CREATE INDEX statement_metadata_versions_scope_time ON statement_metadata_versions(scope_key, effective_at, metadata_version_id)`,
+			appendOnlyUpdateTrigger("statement_metadata_versions"),
+			appendOnlyDeleteTrigger("statement_metadata_versions"),
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -551,6 +649,8 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 		contractCacheObservationPrune(),
 		alertEpisodeEventPrune(),
 		betaOperationalHistoryPrune(),
+		edgeStatementProjectionMigration(),
+		edgeStatementMetadataMigration(),
 	)
 }
 

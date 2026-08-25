@@ -53,6 +53,61 @@ func TestBootstrapRequiresAuth(t *testing.T) {
 	}
 }
 
+type routeEdgeClient struct {
+	routeFakeClient
+	params rpc.EdgeSnapshotParams
+	calls  int
+}
+
+func (c *routeEdgeClient) EdgeSnapshot(_ context.Context, params rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error) {
+	c.calls++
+	c.params = params
+	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	return &rpc.EdgeResult{
+		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, AsOf: now, Window: params.Window,
+		HorizonSessions: params.HorizonSessions, ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
+		Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
+		Method:      rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
+		Fingerprint: "edge_opaque", NotExecution: true,
+	}, nil
+}
+
+func TestEdgeRouteRequiresReadAuthAndForwardsOnlyBoundedTypedInputs(t *testing.T) {
+	client := &routeEdgeClient{}
+	handler := newTestHandlerWithClient(t, client).Handler()
+
+	unauth := httptest.NewRequest(http.MethodGet, "/api/edge?window=365d&horizon=5&limit=2&change=change_opaque", nil)
+	unauthRes := httptest.NewRecorder()
+	handler.ServeHTTP(unauthRes, unauth)
+	if unauthRes.Code != http.StatusUnauthorized || client.calls != 0 {
+		t.Fatalf("unauthenticated Edge read status=%d calls=%d", unauthRes.Code, client.calls)
+	}
+
+	cookie := routeSessionCookie(t, handler)
+	req := httptest.NewRequest(http.MethodGet, "/api/edge?window=365d&horizon=5&limit=2&change=change_opaque", nil)
+	req.AddCookie(cookie)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("Edge status=%d body=%s", res.Code, res.Body.String())
+	}
+	want := (rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 5, Limit: 2, ChangeID: "change_opaque"})
+	if client.params != want || client.calls != 1 {
+		t.Fatalf("Edge params=%+v calls=%d want %+v/1", client.params, client.calls, want)
+	}
+	if res.Header().Get("Cache-Control") != "no-store" || !strings.Contains(res.Body.String(), `"not_execution":true`) {
+		t.Fatalf("Edge response headers/body = %v %s", res.Header(), res.Body.String())
+	}
+
+	bad := httptest.NewRequest(http.MethodGet, "/api/edge?horizon=twenty", nil)
+	bad.AddCookie(cookie)
+	badRes := httptest.NewRecorder()
+	handler.ServeHTTP(badRes, bad)
+	if badRes.Code != http.StatusBadRequest || client.calls != 1 {
+		t.Fatalf("invalid horizon status=%d calls=%d", badRes.Code, client.calls)
+	}
+}
+
 func TestJSONRequestBodyLimitReturnsPayloadTooLarge(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t).Handler()

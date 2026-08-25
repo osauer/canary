@@ -21,10 +21,11 @@ Use it for:
 - Go services using the clean-room `github.com/osauer/canary/v2/pkg/ibkr`
   protocol package.
 
-The MCP server exposes exactly 13 tools: status, trading status, settings,
-open orders, order history, one-order status, account, positions, named-symbol
-technical analysis, brief, rules, proposals, and opportunities. It has no MCP
-resources, settings writes, order previews, or execution tools. Market calendar,
+The MCP server exposes exactly 15 tools: status, trading status, settings,
+open orders, order history, one-order status, account, positions, option
+strategies, named-symbol technical analysis, brief, Edge, rules, proposals, and
+opportunities. It has no MCP resources, settings writes, order previews, or
+execution tools. Market calendar,
 quote, event, breadth, gamma, regime, and stress engines remain daemon inputs and
 appear through the brief, rules, proposals, and app rather than separate MCP
 tools.

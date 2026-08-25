@@ -26,12 +26,12 @@ Object.defineProperty(globalThis, "EventSource", { configurable: true, value: un
 const { normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
-  "alerts", "alert-inbox", "brief", "chrome", "lifecycle", "market-events", "opportunities", "orders",
+  "alerts", "alert-inbox", "brief", "chrome", "edge", "lifecycle", "market-events", "opportunities", "orders",
   "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "strategies", "stress", "underlyings",
   "update",
 ];
 const modules = Object.fromEntries(await Promise.all(moduleNames.map(async (name) => [name, await import(`../${name}.js`)])));
-const { alerts, brief, chrome, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, strategies, stress, underlyings, update } = modules;
+const { alerts, brief, chrome, edge, lifecycle, opportunities, orders, portfolio, protection, settings, shared, shell, strategies, stress, underlyings, update } = modules;
 const alertInbox = modules["alert-inbox"];
 const coverage = modules["protection-coverage"];
 const marketEvents = modules["market-events"];
@@ -60,6 +60,7 @@ function reset() {
   if (state.updateCompleteTimer) clearTimeout(state.updateCompleteTimer);
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
+    edgeResult: null, edgeBusy: false, edgeError: "", edgeRequestID: 0, edgeWindow: "90d", edgeHorizon: 20,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
     readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
@@ -148,13 +149,16 @@ test("header market selector keeps the compact US options label and fixed narrow
 	assert.match(css, /\.market-strip__selector select\s*\{[^}]*width:\s*50px;[^}]*max-width:\s*50px;/s);
 });
 
-test("primary navigation seats Positions and folds the Daily brief into Monitor", async () => {
+test("primary navigation seats Edge and keeps Settings behind the header gear", async () => {
   const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
   assert.equal(normalizedTab("positions"), "positions");
+  assert.equal(normalizedTab("edge"), "edge");
   assert.equal(normalizedTab("brief"), "monitor");
   assert.match(html, /id="tabPositions"[^>]*data-tab="positions"/);
+  assert.match(html, /id="tabEdge"[^>]*data-tab="edge"/);
+  assert.match(html, /id="settingsButton"[^>]*aria-label="Open Settings"/);
   assert.match(html, /id="dashboard"[^>]*data-tab-panel="monitor"[\s\S]*id="briefPanel"/);
-  assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="underlyingsSheet"/);
+  assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="tabSettings"|id="underlyingsSheet"/);
   assert.doesNotMatch(html, /id="attentionStatus"/);
 });
 
@@ -164,6 +168,7 @@ test("primary workspaces share the Positions overline and title hierarchy", asyn
   const headings = [
     ["dashboard", "Market desk", "monitorWorkspaceTitle", "Monitor"],
     ["positionsTab", "Live book", "positionsGuideTitle", "Positions"],
+    ["edgeTab", "Broker-truth review", "edgeWorkspaceTitle", "Edge"],
     ["alertsTab", "Attention queue", "alertsWorkspaceTitle", "Alerts"],
     ["ordersTab", "Order journal", "ordersWorkspaceTitle", "Orders"],
     ["settingsTab", "Control panel", "settingsWorkspaceTitle", "Settings"],
@@ -172,9 +177,113 @@ test("primary workspaces share the Positions overline and title hierarchy", asyn
     const escapedOverline = overline.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     assert.match(html, new RegExp(`id="${panelID}"[\\s\\S]{0,700}workspace-heading__overline[\\s\\S]{0,160}>${escapedOverline}<\\/span>[\\s\\S]{0,240}<h2 id="${titleID}">${title}<\\/h2>`));
   }
-  assert.equal((html.match(/class="workspace-heading(?: workspace-heading--tab| positions-workspace__mast)"/g) || []).length, 5);
+  assert.equal((html.match(/class="workspace-heading(?: workspace-heading--tab| positions-workspace__mast)"/g) || []).length, 6);
   assert.match(css, /\.workspace-heading__overline\s*\{[^}]*color:\s*var\(--pd-advisory\);[^}]*text-transform:\s*uppercase;/s);
   assert.match(css, /\.workspace-heading h2\s*\{[^}]*color:\s*var\(--pd-readout\);[^}]*font-size:\s*clamp\(24px, 4vw, 30px\);/s);
+});
+
+test("Edge fetch is bounded, validates typed results, and masks monetary output", async () => {
+  reset();
+  const result = {
+    schema_version: "canary-edge-v1",
+    state: "current",
+    as_of: "2026-08-24T12:00:00Z",
+    window: "90d",
+    horizon_sessions: 20,
+    headline: "Adds had +EUR 125.00 observed impact at 20 sessions.",
+    account: {
+      base_currency: "EUR", requested_from: "2026-05-26T00:00:00Z", actual_from: "2026-05-27T00:00:00Z", actual_to: "2026-08-24T00:00:00Z",
+      starting_equity_base: 1000, ending_equity_base: 1150, external_flows_base: 50, profit_loss_base: 100,
+      definition: "Ending equity − starting equity − statement-confirmed external flows.",
+    },
+    action_rollups: ["open", "add", "trim", "exit"].map((action) => ({
+      action,
+      horizons: [1, 5, 20].map((sessions) => ({ sessions, sample_count: 1, total_base: sessions, median_base: sessions })),
+    })),
+    findings: [{ change_id: "change_safe", symbol: "SYN", action: "add", direction: "long", executed_at: "2026-07-01T14:00:00Z", horizon_sessions: 20, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5 }],
+    options: [{ id: "option_safe", grouping: "contract", symbol: "SYN OPT", leg_count: 1, actual_pnl_base: -12, actual_only: true }],
+    coverage: { trade_changes: 4, eligible_changes: 4, scored_by_horizon: { 1: 4, 5: 4, 20: 4 }, reason_counts: {}, present_sections: ["trades"], missing_sections: [] },
+    method: {
+      metric: "Decision price impact", counterfactual: "Leave the pre-trade position unchanged.", horizon_definition: "Available IBKR closes.",
+      headline_selection: "Most clean observations at the selected horizon.", finding_ranking: "Absolute percentage, then absolute dollars, then opaque ID.",
+      account_definition: "Ending equity − starting equity − external flows.", exclusions: "Distributions and financing.", options_method: "Broker actual only.",
+      no_causal_claim: true, no_predictive_claim: true, not_investment_advice: true,
+    },
+    fingerprint: "edge_safe", not_execution: true,
+  };
+  assert.equal(edge.validEdgeResult(result), true);
+  assert.equal(edge.validEdgeResult({ ...result, not_execution: false }), false);
+  let request = "";
+  globalThis.fetch = async (url) => {
+    request = String(url);
+    return response(result);
+  };
+  state.authenticated = true;
+  dom.element("edgeWindow").value = "90d";
+  dom.element("edgeHorizon").value = "20";
+  assert.equal(await edge.refreshEdge(), true);
+  assert.equal(request, "/api/edge?window=90d&horizon=20&limit=3");
+  assert.equal(dom.element("edgeAccountValue").textContent, "******");
+  assert.equal(dom.element("edgeHeadline").textContent, "Reveal account values to view the monetary headline.");
+  assert.equal(byClass(dom.element("edgeFindings"), "edge-finding")[0].textContent.includes("******"), true);
+  state.accountValueVisible = true;
+  edge.renderEdge();
+  assert.match(dom.element("edgeAccountValue").textContent, /100/);
+  assert.equal(dom.element("edgeHeadline").textContent, result.headline);
+  assert.equal(descendants(dom.element("edgeResults")).some((node) => node.tagName === "BUTTON"), false, "Edge results must expose no trading controls");
+});
+
+test("Edge renders every authority state without turning missing evidence into results", () => {
+  reset();
+  const base = {
+    schema_version: "canary-edge-v1",
+    state: "current",
+    window: "90d",
+    horizon_sessions: 20,
+    action_rollups: [],
+    findings: [],
+    options: [],
+    coverage: { trade_changes: 0, eligible_changes: 0, scored_by_horizon: {}, reason_counts: {} },
+    method: { metric: "Decision price impact", account_definition: "Ending equity − starting equity − external flows." },
+    not_execution: true,
+  };
+
+  state.edgeResult = {
+    ...base,
+    state: "action_required",
+    reason: "query_field_missing",
+    setup: { manifest_version: "edge-flex-v1", steps: ["Create query.", "Add fields.", "Save credentials."], sections: ["trades"], missing_requirements: ["trades.ibOrderID", "open_positions.markPrice"] },
+  };
+  edge.renderEdge();
+  assert.equal(dom.element("edgeSetup").hidden, false);
+  assert.equal(dom.element("edgeResults").hidden, true);
+  assert.equal(dom.element("edgeSetupSteps").children.length, 3);
+  assert.match(dom.element("edgeSetupMissing").textContent, /trades\.ibOrderID/);
+  assert.equal(dom.element("edgeSetupMissing").hidden, false);
+  assert.match(dom.element("edgeStatus").textContent, /Flex evidence setup is required/);
+
+  state.edgeResult = { ...base, state: "backfilling", reason: "statement_backfill_paced" };
+  edge.renderEdge();
+  assert.equal(dom.element("edgeSetup").hidden, true);
+  assert.equal(dom.element("edgeResults").hidden, true);
+  assert.match(dom.element("edgeStatus").textContent, /Backfill is running/);
+
+  state.edgeResult = { ...base, state: "degraded", reason: "newer_evidence_pending", fingerprint: "edge_prior_snapshot" };
+  edge.renderEdge();
+  assert.equal(dom.element("edgeResults").hidden, false, "a degraded last-good publication remains visible");
+  assert.match(dom.element("edgeStatus").textContent, /prior snapshot is visible/);
+  assert.equal(dom.element("edgeStatus").classList.contains("edge-status--risk"), true);
+
+  state.edgeResult = { ...base, state: "insufficient_evidence", reason: "trade_history_unproved", fingerprint: "edge_account_only" };
+  edge.renderEdge();
+  assert.equal(dom.element("edgeResults").hidden, false, "proved account evidence remains visible");
+  assert.match(dom.element("edgeStatus").textContent, /do not yet prove a decision review/);
+  assert.equal(dom.element("edgeStatus").classList.contains("edge-status--risk"), true);
+
+  state.edgeResult = { ...base, state: "unavailable", reason: "snapshot_authority_unavailable" };
+  edge.renderEdge();
+  assert.equal(dom.element("edgeResults").hidden, true);
+  assert.match(dom.element("edgeStatus").textContent, /No sound Edge result is currently available/);
 });
 
 test("display date format offers US and European dates with optional weekdays", () => {
