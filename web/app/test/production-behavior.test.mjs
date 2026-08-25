@@ -60,7 +60,7 @@ function reset() {
   if (state.updateCompleteTimer) clearTimeout(state.updateCompleteTimer);
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
-    edgeResult: null, edgeBusy: false, edgeError: "", edgeRequestID: 0, edgeWindow: "90d", edgeHorizon: 20,
+    edgeResult: null, edgeBusy: false, edgeError: "", edgeRequestID: 0,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
     readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
@@ -158,8 +158,11 @@ test("primary navigation seats Edge and keeps Settings behind the header gear", 
   assert.match(html, /id="tabEdge"[^>]*data-tab="edge"/);
   assert.match(html, /id="settingsButton"[^>]*aria-label="Open Settings"/);
   assert.match(html, /id="dashboard"[^>]*data-tab-panel="monitor"[\s\S]*id="briefPanel"/);
-  assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="tabSettings"|id="underlyingsSheet"/);
+  assert.doesNotMatch(html, /id="tabBrief"|id="briefTab"|id="tabSettings"|id="underlyingsSheet"|id="edgeWindow"|id="edgeHorizon"/);
   assert.doesNotMatch(html, /id="attentionStatus"/);
+  assert.match(html, /automatically reviews one year of broker-confirmed trades/);
+  assert.match(html, /Where decisions helped or hurt/);
+  assert.ok(html.indexOf('class="panel edge-impact"') < html.indexOf('class="panel edge-account"'), "decision insight must lead account P/L");
 });
 
 test("primary workspaces share the Positions overline and title hierarchy", async () => {
@@ -182,13 +185,13 @@ test("primary workspaces share the Positions overline and title hierarchy", asyn
   assert.match(css, /\.workspace-heading h2\s*\{[^}]*color:\s*var\(--pd-readout\);[^}]*font-size:\s*clamp\(24px, 4vw, 30px\);/s);
 });
 
-test("Edge fetch is bounded, validates typed results, and masks monetary output", async () => {
+test("Edge opens as an automatic one-year review and explains findings without trading controls", async () => {
   reset();
   const result = {
     schema_version: "canary-edge-v1",
     state: "current",
     as_of: "2026-08-24T12:00:00Z",
-    window: "90d",
+    window: "365d",
     horizon_sessions: 20,
     headline: "Adds had +EUR 125.00 observed impact at 20 sessions.",
     account: {
@@ -211,26 +214,55 @@ test("Edge fetch is bounded, validates typed results, and masks monetary output"
     },
     fingerprint: "edge_safe", not_execution: true,
   };
+  const change = {
+    id: "change_safe", symbol: "SYN", asset_class: "stock", currency: "EUR", action: "add", direction: "long",
+    executed_at: "2026-07-01T14:00:00Z", delta_quantity: 10, position_before: 20, position_after: 30,
+    execution_vwap: 250, multiplier: 1, direct_costs_base: 2,
+    scores: [
+      { sessions: 1, horizon_day: "2026-07-02T00:00:00Z", horizon_close: 251, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 8, decision_impact_pct: 0.32 },
+      { sessions: 5, reason: "intervening_change" },
+      { sessions: 20, horizon_day: "2026-07-29T00:00:00Z", horizon_close: 262.7, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5 },
+    ],
+  };
   assert.equal(edge.validEdgeResult(result), true);
+  assert.equal(edge.validEdgeResult({ ...result, change }), true);
+  assert.equal(edge.validEdgeResult({ ...result, change: { ...change, id: "broker-order" } }), false);
   assert.equal(edge.validEdgeResult({ ...result, not_execution: false }), false);
-  let request = "";
+  const requests = [];
   globalThis.fetch = async (url) => {
-    request = String(url);
-    return response(result);
+    requests.push(String(url));
+    return response(String(url).includes("change=change_safe") ? { ...result, change } : result);
   };
   state.authenticated = true;
-  dom.element("edgeWindow").value = "90d";
-  dom.element("edgeHorizon").value = "20";
   assert.equal(await edge.refreshEdge(), true);
-  assert.equal(request, "/api/edge?window=90d&horizon=20&limit=3");
+  assert.deepEqual(requests, ["/api/edge"]);
+  assert.equal(dom.element("edgeImpactLens").textContent, "One year · 20-session headline");
   assert.equal(dom.element("edgeAccountValue").textContent, "******");
   assert.equal(dom.element("edgeHeadline").textContent, "Reveal account values to view the monetary headline.");
-  assert.equal(byClass(dom.element("edgeFindings"), "edge-finding")[0].textContent.includes("******"), true);
+  const finding = byClass(dom.element("edgeFindings"), "edge-finding")[0];
+  assert.equal(finding.tagName, "BUTTON");
+  assert.equal(finding.getAttribute("aria-expanded"), "false");
+  assert.equal(finding.textContent.includes("******"), true);
+  finding.click();
+  await waitFor(() => requests.length === 2 && !state.edgeBusy, "finding detail did not load");
+  assert.equal(requests[1], "/api/edge?change=change_safe");
+  assert.equal(dom.element("edgeChangePanel").hidden, false);
+  assert.match(dom.element("edgeChangeSummary").textContent, /20 → 30/);
+  assert.equal(byClass(dom.element("edgeChangeScores"), "edge-change-score").length, 3);
+  assert.match(dom.element("edgeChangeScores").textContent, /Intervening Change/);
+  assert.match(dom.element("edgeChangeScores").textContent, /\*\*\*\*\*\*/);
   state.accountValueVisible = true;
   edge.renderEdge();
   assert.match(dom.element("edgeAccountValue").textContent, /100/);
   assert.equal(dom.element("edgeHeadline").textContent, result.headline);
-  assert.equal(descendants(dom.element("edgeResults")).some((node) => node.tagName === "BUTTON"), false, "Edge results must expose no trading controls");
+  assert.match(dom.element("edgeChangeSummary").textContent, /€250\.00/);
+  assert.match(dom.element("edgeChangeScores").textContent, /\+€125\.00/);
+  const resultButtons = descendants(dom.element("edgeFindings")).filter((node) => node.tagName === "BUTTON");
+  assert.equal(resultButtons.length, 1);
+  assert.equal(resultButtons.every((node) => node.classList.contains("edge-finding") && node.type === "button"), true, "Edge may expose explanation buttons only");
+  byClass(dom.element("edgeFindings"), "edge-finding")[0].click();
+  assert.equal(dom.element("edgeChangePanel").hidden, true, "tapping the expanded finding collapses its explanation");
+  assert.equal(requests.length, 2, "collapsing a finding should not issue another read");
 });
 
 test("Edge renders every authority state without turning missing evidence into results", () => {
@@ -277,7 +309,8 @@ test("Edge renders every authority state without turning missing evidence into r
   state.edgeResult = { ...base, state: "insufficient_evidence", reason: "trade_history_unproved", fingerprint: "edge_account_only" };
   edge.renderEdge();
   assert.equal(dom.element("edgeResults").hidden, false, "proved account evidence remains visible");
-  assert.match(dom.element("edgeStatus").textContent, /do not yet prove a decision review/);
+  assert.match(dom.element("edgeStatus").textContent, /waiting for broker-confirmed trade history/);
+  assert.match(dom.element("edgeStatus").textContent, /retry automatically/);
   assert.equal(dom.element("edgeStatus").classList.contains("edge-status--risk"), true);
 
   state.edgeResult = { ...base, state: "unavailable", reason: "snapshot_authority_unavailable" };

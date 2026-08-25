@@ -83,7 +83,7 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	if result.State != rpc.EdgeStateCurrent || result.Reason != "" || result.Account == nil || result.Account.ProfitLossBase != 2_500 {
 		t.Fatalf("published acceptance result: %+v", result)
 	}
-	if got, want := result.Headline, "Across 3 clean adds, observed 20-session Decision price impact totaled -453.00 USD; median -151.00 USD."; got != want {
+	if got, want := result.Headline, "Observed drag: across 3 clean adds, 20-session Decision price impact totaled -453.00 USD; median -151.00 USD."; got != want {
 		t.Fatalf("headline=%q want %q", got, want)
 	}
 	if len(result.Findings) != 3 || result.Findings[0].Symbol != "GAMMA" || result.Findings[0].Action != edgecore.ActionAdd || result.Findings[1].DecisionImpactBase <= 0 {

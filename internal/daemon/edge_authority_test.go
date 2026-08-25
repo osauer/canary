@@ -245,7 +245,7 @@ func TestEdgeSnapshotReadMakesNoFlexOrMarketDataRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.State != rpc.EdgeStateCurrent || !got.NotExecution || got.Fingerprint == "" {
+	if got.State != rpc.EdgeStateCurrent || got.Window != "365d" || got.HorizonSessions != 20 || !got.NotExecution || got.Fingerprint == "" {
 		t.Fatalf("unexpected Edge result: %+v", got)
 	}
 	if flexCalls != 0 || marketCalls != 0 {
@@ -276,9 +276,13 @@ func TestEdgeSnapshotMarksChangedProjectionDegradedWithoutBrokerRequest(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	result365, err := edgecore.Analyze(edgecore.Input{AsOf: now, WindowDays: 365, BaseCurrency: "USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := srv.saveEdgePublication(t.Context(), edgePublication{
 		ScopeFingerprint: scopeFingerprint, EvidenceFingerprint: oldEvidence,
-		State: rpc.EdgeStateCurrent, Windows: map[string]edgecore.Result{"90d": result90}, UpdatedAt: now,
+		State: rpc.EdgeStateCurrent, Windows: map[string]edgecore.Result{"90d": result90, "365d": result365}, UpdatedAt: now,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -480,13 +484,21 @@ func TestEdgeHeadlineUsesMostObservedActionAndExplainsEmptyEvidence(t *testing.T
 			{Action: edgecore.ActionAdd, Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 3, TotalBase: &totalAdds, MedianBase: &medianAdds}}},
 		},
 	}
-	if got := edgeHeadline(result); !strings.Contains(got, "Across 3 clean adds") || !strings.Contains(got, "totaled -300.00 USD") || !strings.Contains(got, "median -100.00 USD") {
+	if got := edgeHeadline(result); !strings.Contains(got, "Observed drag: across 3 clean adds") || !strings.Contains(got, "totaled -300.00 USD") || !strings.Contains(got, "median -100.00 USD") {
 		t.Fatalf("headline=%q", got)
+	}
+	totalAdds, medianAdds = 300, 100
+	if got := edgeHeadline(result); !strings.HasPrefix(got, "Observed strength:") {
+		t.Fatalf("positive pattern headline=%q", got)
+	}
+	medianAdds = -100
+	if got := edgeHeadline(result); !strings.HasPrefix(got, "Mixed observed pattern:") {
+		t.Fatalf("mixed pattern headline=%q", got)
 	}
 	result.Findings = nil
 	result.ActionRollups = nil
 	result.Coverage.MissingSections = []string{"trades"}
-	if got := edgeHeadline(result); !strings.Contains(got, "did not prove the Trades section") || !strings.Contains(got, "canary reporting status") {
+	if got := edgeHeadline(result); !strings.Contains(got, "waiting for broker-confirmed trade history") || !strings.Contains(got, "retries automatically") {
 		t.Fatalf("unproved headline=%q", got)
 	}
 	result.Coverage.MissingSections = nil

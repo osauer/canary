@@ -54,6 +54,22 @@ func TestEdgeCLIUsesBoundedTypedRPCParameters(t *testing.T) {
 	}
 }
 
+func TestEdgeCLIDefaultsToTheAutomaticOneYearReview(t *testing.T) {
+	conn := &edgeCLIConn{result: edgeCLIResult()}
+	var stdout, stderr bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
+	if code := Run(t.Context(), env, "edge", nil); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	want := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: rpc.MaxEdgeFindings}
+	if conn.params != want {
+		t.Fatalf("default params=%+v want %+v", conn.params, want)
+	}
+	if !strings.Contains(stdout.String(), "automatic one-year decision review") {
+		t.Fatalf("default output does not lead with the automatic review: %s", stdout.String())
+	}
+}
+
 func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	result := edgeCLIResult()
 	var stdout bytes.Buffer

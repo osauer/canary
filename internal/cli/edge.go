@@ -12,7 +12,7 @@ import (
 
 func runEdge(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "edge")
-	window := fs.String("window", "90d", "review window: 90d or 365d")
+	window := fs.String("window", "365d", "optional review override: 90d or 365d (default 365d)")
 	horizon := fs.Int("horizon", 20, "highlighted horizon in trading sessions: 1, 5, or 20")
 	limit := fs.Int("limit", rpc.MaxEdgeFindings, "maximum findings: 1-3")
 	change := fs.String("change", "", "opaque change ID for one detailed result")
@@ -42,11 +42,15 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 }
 
 func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
-	fingerprint := shortFingerprint(result.Fingerprint)
-	if fingerprint == "" {
-		fingerprint = "no snapshot"
+	heading := fmt.Sprintf("%s decision review · %d-session headline", result.Window, result.HorizonSessions)
+	if result.Window == "365d" && result.HorizonSessions == 20 {
+		heading = "automatic one-year decision review"
 	}
-	fmt.Fprintf(out, "Canary Edge — %s · %d sessions · %s · %s\n", result.Window, result.HorizonSessions, result.State, fingerprint)
+	fmt.Fprintf(out, "Canary Edge — %s", heading)
+	if result.State != rpc.EdgeStateCurrent {
+		fmt.Fprintf(out, " · %s", result.State)
+	}
+	fmt.Fprintln(out)
 	if result.State == rpc.EdgeStateActionRequired && result.Setup != nil {
 		fmt.Fprintln(out, "  Flex setup is required before Canary can calculate broker-truth results.")
 		for i, step := range result.Setup.Steps {

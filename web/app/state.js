@@ -86,8 +86,6 @@ const state = {
   edgeBusy: false,
   edgeError: "",
   edgeRequestID: 0,
-  edgeWindow: "90d",
-  edgeHorizon: 20,
   activeTab: normalizedTab(localStorage.getItem("canaryActiveTab") || "monitor"),
 };
 

@@ -420,24 +420,7 @@
               <span class="panel-time" id="edgeAsOf">not loaded</span>
             </div>
             <h2 id="edgeWorkspaceTitle">Edge</h2>
-            <p class="workspace-heading__copy">What your past decisions changed, measured against leaving the prior position untouched.</p>
-          </div>
-          <div class="edge-lens" aria-label="Edge review lens">
-            <label>
-              <span>Window</span>
-              <select id="edgeWindow" aria-label="Edge review window">
-                <option value="90d">90 days</option>
-                <option value="365d">365 days</option>
-              </select>
-            </label>
-            <label>
-              <span>Highlight</span>
-              <select id="edgeHorizon" aria-label="Highlighted Edge horizon">
-                <option value="1">1 session</option>
-                <option value="5">5 sessions</option>
-                <option value="20" selected>20 sessions</option>
-              </select>
-            </label>
+            <p class="workspace-heading__copy">Canary automatically reviews one year of broker-confirmed trades to show where your decisions historically helped—or hurt. Observed behavior, not a forecast.</p>
           </div>
         </header>
 
@@ -453,19 +436,10 @@
         </section>
 
         <section class="edge-results" id="edgeResults" hidden>
-          <article class="panel edge-account" aria-labelledby="edgeAccountTitle">
-            <div class="panel-head">
-              <span id="edgeAccountTitle">Account P/L after external flows</span>
-              <span class="panel-time" id="edgeAccountPeriod">--</span>
-            </div>
-            <strong class="edge-account__value" id="edgeAccountValue">--</strong>
-            <p id="edgeAccountDefinition">Ending equity − starting equity − statement-confirmed external flows.</p>
-          </article>
-
           <article class="panel edge-impact" aria-labelledby="edgeImpactTitle">
             <div class="panel-head">
-              <span id="edgeImpactTitle">Decision price impact</span>
-              <span class="panel-time" id="edgeImpactLens">20 sessions highlighted</span>
+              <span id="edgeImpactTitle">Your observed decision pattern</span>
+              <span class="panel-time" id="edgeImpactLens">One year · 20-session headline</span>
             </div>
             <p class="edge-headline" id="edgeHeadline">--</p>
             <div class="edge-matrix" id="edgeMatrix" role="table" aria-label="Decision price impact by action and horizon"></div>
@@ -473,10 +447,29 @@
 
           <article class="panel edge-findings-panel" aria-labelledby="edgeFindingsTitle">
             <div class="panel-head">
-              <span id="edgeFindingsTitle">Strongest observed findings</span>
-              <span class="panel-time">maximum 3</span>
+              <span id="edgeFindingsTitle">Where decisions helped or hurt</span>
+              <span class="panel-time">Tap to explain · maximum 3</span>
             </div>
             <div class="edge-findings" id="edgeFindings"></div>
+          </article>
+
+          <article class="panel edge-change-panel" id="edgeChangePanel" aria-labelledby="edgeChangeTitle" hidden>
+            <div class="panel-head">
+              <span id="edgeChangeTitle">Decision explanation</span>
+              <span class="panel-time">Read-only broker evidence</span>
+            </div>
+            <p class="edge-change__meta" id="edgeChangeMeta"></p>
+            <dl class="edge-change__facts" id="edgeChangeSummary"></dl>
+            <div class="edge-change__scores" id="edgeChangeScores"></div>
+          </article>
+
+          <article class="panel edge-account" aria-labelledby="edgeAccountTitle">
+            <div class="panel-head">
+              <span id="edgeAccountTitle">Account P/L after external flows</span>
+              <span class="panel-time" id="edgeAccountPeriod">--</span>
+            </div>
+            <strong class="edge-account__value" id="edgeAccountValue">--</strong>
+            <p id="edgeAccountDefinition">Ending equity − starting equity − statement-confirmed external flows.</p>
           </article>
 
           <article class="panel edge-options" aria-labelledby="edgeOptionsTitle">

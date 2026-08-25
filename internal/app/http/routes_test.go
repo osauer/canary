@@ -99,11 +99,23 @@ func TestEdgeRouteRequiresReadAuthAndForwardsOnlyBoundedTypedInputs(t *testing.T
 		t.Fatalf("Edge response headers/body = %v %s", res.Header(), res.Body.String())
 	}
 
+	automatic := httptest.NewRequest(http.MethodGet, "/api/edge", nil)
+	automatic.AddCookie(cookie)
+	automaticRes := httptest.NewRecorder()
+	handler.ServeHTTP(automaticRes, automatic)
+	if automaticRes.Code != http.StatusOK {
+		t.Fatalf("automatic Edge status=%d body=%s", automaticRes.Code, automaticRes.Body.String())
+	}
+	automaticWant := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: rpc.MaxEdgeFindings}
+	if client.params != automaticWant || client.calls != 2 {
+		t.Fatalf("automatic Edge params=%+v calls=%d want %+v/2", client.params, client.calls, automaticWant)
+	}
+
 	bad := httptest.NewRequest(http.MethodGet, "/api/edge?horizon=twenty", nil)
 	bad.AddCookie(cookie)
 	badRes := httptest.NewRecorder()
 	handler.ServeHTTP(badRes, bad)
-	if badRes.Code != http.StatusBadRequest || client.calls != 1 {
+	if badRes.Code != http.StatusBadRequest || client.calls != 2 {
 		t.Fatalf("invalid horizon status=%d calls=%d", badRes.Code, client.calls)
 	}
 }

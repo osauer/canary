@@ -99,7 +99,7 @@ async function runRound4SyntheticSmoke() {
     as_of: now,
     window: "365d",
     horizon_sessions: 20,
-    headline: "Across 3 clean adds, observed 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
+    headline: "Observed drag: across 3 clean adds, 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
     account: {
       base_currency: "USD",
       requested_from: "2025-08-25T00:00:00Z",
@@ -154,6 +154,26 @@ async function runRound4SyntheticSmoke() {
     fingerprint: "edge_synthetic_render",
     last_full_revalidation: now,
     not_execution: true,
+  };
+  const syntheticEdgeChange = {
+    id: "change_d189acf9efd2dfe8cf5f69fa",
+    symbol: "GAMMA",
+    asset_class: "etf",
+    currency: "USD",
+    action: "add",
+    direction: "long",
+    executed_at: "2025-11-10T15:00:00Z",
+    delta_quantity: 15,
+    position_before: 30,
+    position_after: 45,
+    execution_vwap: 55,
+    multiplier: 1,
+    direct_costs_base: 1,
+    scores: [
+      { sessions: 1, horizon_day: "2025-11-11T00:00:00Z", horizon_close: 54, horizon_fx: 1, decision_notional_base: 825, decision_impact_base: -16, decision_impact_pct: -1.9393939393939394 },
+      { sessions: 5, horizon_day: "2025-11-15T00:00:00Z", horizon_close: 50, horizon_fx: 1, decision_notional_base: 825, decision_impact_base: -76, decision_impact_pct: -9.212121212121213 },
+      { sessions: 20, horizon_day: "2025-11-30T00:00:00Z", horizon_close: 45, horizon_fx: 1, decision_notional_base: 825, decision_impact_base: -151, decision_impact_pct: -18.303030303030305 },
+    ],
   };
   const bootstrap = {
     auth: { authenticated: true },
@@ -277,9 +297,14 @@ async function runRound4SyntheticSmoke() {
     if (method === "GET" && requestPath === "/api/alerts") return json(alerts);
     if (method === "GET" && requestPath === "/api/edge") {
       edgeReads += 1;
-      if (requestURL.searchParams.get("window") !== "365d" || requestURL.searchParams.get("horizon") !== "20" || requestURL.searchParams.get("limit") !== "3") {
-        return json({ error: "unexpected synthetic Edge query" }, 400);
+      const changeID = requestURL.searchParams.get("change");
+      if (changeID) {
+        if (changeID !== syntheticEdgeChange.id || [...requestURL.searchParams.keys()].some((key) => key !== "change")) {
+          return json({ error: "unexpected synthetic Edge detail query" }, 400);
+        }
+        return json({ ...syntheticEdge, change: syntheticEdgeChange });
       }
+      if ([...requestURL.searchParams.keys()].length !== 0) return json({ error: "Edge should use the automatic server review" }, 400);
       return json(syntheticEdge);
     }
     if (method === "GET" && requestPath === "/api/update") return json({
@@ -428,7 +453,6 @@ async function runRound4SyntheticSmoke() {
       dateOptions: [...document.querySelectorAll("#dateFormatSelect option")].map((option) => option.value),
     }));
     if (edgeReads !== 0) throw new Error(`Edge detail loaded before the tab opened: ${edgeReads}`);
-    await page.locator("#edgeWindow").evaluate((select) => { select.value = "365d"; });
     const edgeRead = page.waitForResponse((response) => (
       response.request().method() === "GET"
         && new URL(response.url()).pathname === "/api/edge"
@@ -447,7 +471,31 @@ async function runRound4SyntheticSmoke() {
       options: document.querySelectorAll("#edgeOptionList .edge-option-row").length,
       optionText: document.getElementById("edgeOptionList")?.textContent || "",
       methodCollapsed: document.getElementById("edgeMethod")?.open === false,
-      resultButtons: document.querySelectorAll("#edgeResults button").length,
+      explanationButtons: document.querySelectorAll("#edgeResults button.edge-finding").length,
+      explanationOnly: [...document.querySelectorAll("#edgeResults button")].every((button) => button.matches("button.edge-finding[type='button']")),
+      controlsAbsent: !document.getElementById("edgeWindow") && !document.getElementById("edgeHorizon"),
+      decisionFirst: (() => {
+        const results = document.getElementById("edgeResults");
+        const children = [...(results?.children || [])];
+        return children.indexOf(results?.querySelector(".edge-impact")) < children.indexOf(results?.querySelector(".edge-account"));
+      })(),
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    }));
+    const edgeDetailRead = page.waitForResponse((response) => {
+      if (response.request().method() !== "GET") return false;
+      const url = new URL(response.url());
+      return url.pathname === "/api/edge" && url.searchParams.get("change") === syntheticEdgeChange.id;
+    }, { timeout: 5000 });
+    await page.locator("#edgeFindings .edge-finding").first().click();
+    await edgeDetailRead;
+    await page.waitForFunction(() => document.getElementById("edgeChangePanel")?.hidden === false, { timeout: 5000 });
+    await page.locator("#accountPrivacyToggle").click();
+    const edgeDetailView = await page.evaluate(() => ({
+      title: document.getElementById("edgeChangeTitle")?.textContent || "",
+      summary: document.getElementById("edgeChangeSummary")?.textContent || "",
+      scoreCount: document.querySelectorAll("#edgeChangeScores .edge-change-score").length,
+      scores: document.getElementById("edgeChangeScores")?.textContent || "",
+      expanded: document.querySelector("#edgeFindings .edge-finding")?.getAttribute("aria-expanded") || "",
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     }));
     await page.locator("#tabMonitor").click();
@@ -518,8 +566,11 @@ async function runRound4SyntheticSmoke() {
     if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported" || settings.dateFormat !== "us_weekday" || JSON.stringify(settings.dateOptions) !== JSON.stringify(["us", "eu", "us_weekday", "eu_weekday"])) throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
-    if (!edgeView.active || edgeReads !== 1 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Reveal account values to view the monetary headline." || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("******") || !edgeView.methodCollapsed || edgeView.resultButtons !== 0 || edgeView.horizontalOverflow) {
+    if (!edgeView.active || edgeReads !== 2 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Reveal account values to view the monetary headline." || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("******") || !edgeView.methodCollapsed || edgeView.explanationButtons !== 3 || !edgeView.explanationOnly || !edgeView.controlsAbsent || !edgeView.decisionFirst || edgeView.horizontalOverflow) {
       throw new Error(`synthetic Edge rendered state failed: ${JSON.stringify({ edgeReads, edgeView })}`);
+    }
+    if (edgeDetailView.title !== "GAMMA · Add decision" || !edgeDetailView.summary.includes("30 → 45") || !edgeDetailView.summary.includes("$55.00") || !edgeDetailView.summary.includes("$1.00") || edgeDetailView.scoreCount !== 3 || !edgeDetailView.scores.includes("-$151.00 · -18.30%") || edgeDetailView.expanded !== "true" || edgeDetailView.horizontalOverflow) {
+      throw new Error(`synthetic Edge calculation trail failed: ${JSON.stringify(edgeDetailView)}`);
     }
     if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved" || !briefView.sessionBridge.startsWith("Monday's close → next open")) throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);

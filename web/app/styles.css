@@ -799,45 +799,8 @@ p {
 }
 
 /* Edge is a review instrument, not another dashboard. Its hierarchy stays
-   fixed: period result, action matrix, exceptions, actual-only options, then
-   the evidence disclosure. */
-.tab-panel--edge > .workspace-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: end;
-}
-
-.edge-lens {
-  display: flex;
-  align-items: end;
-  justify-content: flex-end;
-  gap: 7px;
-}
-
-.edge-lens label {
-  display: grid;
-  gap: 4px;
-  color: var(--pd-dim);
-  font-size: 8.5px;
-  font-weight: 760;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.edge-lens select {
-  min-height: 31px;
-  padding: 0 25px 0 8px;
-  border: 1px solid var(--pd-border);
-  border-radius: 5px;
-  background: var(--pd-readout-face);
-  color: var(--pd-strip-value);
-  font: inherit;
-  font-size: 10.5px;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
-}
+   fixed: automatic decision pattern, concrete findings and their calculation
+   trail, account result, actual-only options, then evidence disclosure. */
 
 .edge-status {
   min-height: 0;
@@ -889,12 +852,14 @@ p {
 
 .edge-results {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
 .edge-impact,
 .edge-findings-panel,
+.edge-change-panel,
+.edge-account,
 .edge-options,
 .edge-method {
   grid-column: 1 / -1;
@@ -913,6 +878,7 @@ p {
 .edge-account__value.ok,
 .edge-matrix__cell b.ok,
 .edge-finding strong.ok,
+.edge-change-score strong.ok,
 .edge-option-row__values .ok {
   color: var(--pd-money-up);
 }
@@ -920,6 +886,7 @@ p {
 .edge-account__value.risk,
 .edge-matrix__cell b.risk,
 .edge-finding strong.risk,
+.edge-change-score strong.risk,
 .edge-option-row__values .risk {
   color: var(--pd-money-down);
 }
@@ -1014,6 +981,29 @@ p {
   border-top: 1px solid var(--pd-hairline);
 }
 
+.edge-finding {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.edge-finding:hover,
+.edge-finding[aria-expanded="true"] {
+  background: rgba(111, 179, 255, 0.06);
+}
+
+.edge-finding:focus-visible {
+  outline: 1px solid var(--pd-advisory);
+  outline-offset: 2px;
+}
+
 .edge-finding:first-child,
 .edge-option-row:first-child {
   border-top: 0;
@@ -1044,6 +1034,82 @@ p {
 .edge-finding strong {
   color: var(--pd-readout);
   font-size: 13px;
+  white-space: nowrap;
+}
+
+.edge-change-panel {
+  border-color: rgba(111, 179, 255, 0.2);
+}
+
+.edge-change__meta {
+  margin: 9px 0 11px;
+  color: var(--pd-caption);
+  font-size: 10.5px;
+}
+
+.edge-change__facts {
+  display: grid;
+  grid-template-columns: minmax(105px, auto) minmax(0, 1fr);
+  gap: 7px 13px;
+  margin: 0;
+}
+
+.edge-change__facts dt,
+.edge-change__facts dd {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.edge-change__facts dt {
+  color: var(--pd-engraved);
+  font-weight: 710;
+}
+
+.edge-change__facts dd {
+  color: var(--pd-strip-value);
+}
+
+.edge-change__facts dd.is-private,
+.edge-change-score strong.is-private,
+.edge-change-score small.is-private {
+  letter-spacing: 0.1em;
+}
+
+.edge-change__scores {
+  display: grid;
+  margin-top: 12px;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-change-score {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--pd-hairline);
+}
+
+.edge-change-score > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.edge-change-score b {
+  color: var(--pd-strip-value);
+  font-size: 11px;
+}
+
+.edge-change-score small {
+  color: var(--pd-engraved);
+  font-size: 9.5px;
+}
+
+.edge-change-score strong {
+  color: var(--pd-readout);
+  font-size: 12px;
   white-space: nowrap;
 }
 
@@ -5741,23 +5807,6 @@ p {
     --shell-pad-x: 18px;
   }
 
-  .tab-panel--edge > .workspace-heading {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 11px;
-  }
-
-  .edge-lens {
-    justify-content: flex-start;
-  }
-
-  .edge-results {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .edge-account {
-    grid-column: 1 / -1;
-  }
-
   /* The desktop journal needs at least the combined width of its edit and
      control banks before identity gets any space. Stack the banks throughout
      the compact shell instead of allowing the identity column to collapse to
@@ -5996,17 +6045,9 @@ p {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .edge-lens {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .edge-lens select {
-    width: 100%;
-  }
-
   .edge-finding,
-  .edge-option-row {
+  .edge-option-row,
+  .edge-change-score {
     grid-template-columns: minmax(0, 1fr);
   }
 

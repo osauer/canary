@@ -191,8 +191,6 @@ $("accountPrivacyToggle").addEventListener("click", () => {
   setAccountValueVisible(!state.accountValueVisible);
 });
 $("settingsButton").addEventListener("click", () => setActiveTab("settings"));
-$("edgeWindow").addEventListener("change", () => refreshEdge());
-$("edgeHorizon").addEventListener("change", () => refreshEdge());
 $("accountLargestExposureToggle").addEventListener("click", () => {
   state.accountExposureOpen = !state.accountExposureOpen;
   renderAccountPanel(state.snapshot?.account || {}, state.snapshot?.positions || {}, state.snapshot?.stress || {});

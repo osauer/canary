@@ -253,7 +253,7 @@
               "90d",
               "365d"
             ],
-            "description": "review window; default 90d"
+            "description": "optional review override; default 365d"
           }
         }
       }

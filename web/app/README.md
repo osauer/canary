@@ -28,12 +28,17 @@ Portfolio trim is labeled as a whole-book delta tool rather than a promise that
 the selected holding can be reduced. The SPA does not infer sizing,
 recommendation, or eligibility.
 
-Edge is the lazy-loaded retrospective review. It separates Flex account P/L
-after confirmed external flows from stock/ETF Decision price impact at 1, 5,
-and 20 sessions, and keeps options in an actual-only section. The tab renders
-only daemon-ranked typed results, at most three default findings, explicit
-coverage, and no alert, recommendation, or trading control. Opening the tab is
-a read: it never starts Flex or historical-data work.
+Edge is the lazy-loaded retrospective review. Opening the tab automatically
+shows the daemon's 365-day review with a 20-session headline; there are no
+window or horizon controls to configure. It leads with where broker-confirmed
+stock/ETF decisions historically helped or hurt, keeps the full 1/5/20-session
+action matrix, and puts account P/L after confirmed external flows in supporting
+context. At most three daemon-ranked findings are read-only explanation buttons:
+tapping one fetches its opaque calculation trail with position before/after,
+execution VWAP, costs, horizon evidence, FX, and result or typed exclusion
+reason. Options remain actual-only, coverage remains explicit, and the surface
+contains no alert, recommendation, preview, submit, or other trading control.
+Opening a finding is still a read: it never starts Flex or historical-data work.
 
 Settings is the instrument's back panel: engraved banks for Notifications,
 Workflows, System (process evidence, moved here from the Alerts log), and

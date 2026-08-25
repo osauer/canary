@@ -881,17 +881,24 @@ func edgeHeadline(result *rpc.EdgeResult) string {
 			}
 		}
 		if selected != nil && selectedHorizon != nil {
-			return fmt.Sprintf("Across %d clean %s, observed %d-session Decision price impact totaled %+.2f %s; median %+.2f %s.", selectedHorizon.SampleCount, edgeActionPlural(selected.Action), result.HorizonSessions, *selectedHorizon.TotalBase, currency, *selectedHorizon.MedianBase, currency)
+			pattern := "Mixed observed pattern"
+			switch {
+			case *selectedHorizon.TotalBase > 0 && *selectedHorizon.MedianBase > 0:
+				pattern = "Observed strength"
+			case *selectedHorizon.TotalBase < 0 && *selectedHorizon.MedianBase < 0:
+				pattern = "Observed drag"
+			}
+			return fmt.Sprintf("%s: across %d clean %s, %d-session Decision price impact totaled %+.2f %s; median %+.2f %s.", pattern, selectedHorizon.SampleCount, edgeActionPlural(selected.Action), result.HorizonSessions, *selectedHorizon.TotalBase, currency, *selectedHorizon.MedianBase, currency)
 		}
 	}
 	if slices.Contains(result.Coverage.MissingSections, "trades") {
-		return "Decision review unavailable: returned Flex reports did not prove the Trades section. Run canary reporting status and check the saved Activity Flex Query."
+		return "Canary is still waiting for broker-confirmed trade history. Account P/L remains available when proven, and reporting retries automatically."
 	}
 	if result.Coverage.TradeChanges == 0 {
 		return fmt.Sprintf("No stock or ETF position changes were observed in returned IBKR evidence for this %s window; account P/L remains separate when proven.", result.Window)
 	}
 	count := result.Coverage.ScoredByHorizon[result.HorizonSessions]
-	return fmt.Sprintf("No clean %d-session finding yet: %d of %d changes were scored; inspect coverage reasons.", result.HorizonSessions, count, result.Coverage.TradeChanges)
+	return fmt.Sprintf("No repeated %d-session pattern has complete, non-overlapping evidence yet: %d of %d changes were scored.", result.HorizonSessions, count, result.Coverage.TradeChanges)
 }
 
 func edgeActionPlural(action string) string {

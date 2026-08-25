@@ -99,6 +99,8 @@ func TestEdgeToolIsFullProfileOnlyAndStatesItsSafetyBoundary(t *testing.T) {
 	}
 	description := strings.ToLower(tool.Description)
 	for _, phrase := range []string{
+		"no arguments",
+		"automatic one-year review",
 		"after canary_brief",
 		"do not use for current risk",
 		"order decisions",
@@ -149,7 +151,7 @@ func TestEdgeToolPreservesTheTypedDecisionReviewExactly(t *testing.T) {
 	want := edgeMCPParityResult()
 	conn, calls := startMCPToolFakeConn(t, want)
 	defer conn.Close()
-	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"window":"365d","horizon_sessions":20,"limit":3}`))
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +213,7 @@ func edgeMCPParityResult() rpc.EdgeResult {
 	total, median, optionPNL := -453.0, -151.0, 90.0
 	return rpc.EdgeResult{
 		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, AsOf: now, Window: "365d", HorizonSessions: 20,
-		Headline:      "Across 3 clean adds, observed 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
+		Headline:      "Observed drag: across 3 clean adds, 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
 		Account:       &rpc.EdgeAccountResult{BaseCurrency: "USD", RequestedFrom: now.AddDate(0, 0, -365), ActualFrom: now.AddDate(0, 0, -365), ActualTo: now, StartingEquityBase: 100_000, EndingEquityBase: 112_500, ExternalFlowsBase: 10_000, ProfitLossBase: 2_500, Definition: "Ending equity minus starting equity minus statement-confirmed external flows."},
 		ActionRollups: []rpc.EdgeActionRollup{{Action: "add", Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 3, TotalBase: &total, MedianBase: &median}}}},
 		Findings:      []rpc.EdgeFinding{{ChangeID: "change_opaque", Symbol: "GAMMA", Action: "add", Direction: "long", ExecutedAt: now.AddDate(0, -9, 0), HorizonSessions: 20, DecisionNotionalBase: 825, DecisionImpactBase: -151, DecisionImpactPct: -151.0 / 825 * 100}},

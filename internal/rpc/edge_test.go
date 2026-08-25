@@ -79,7 +79,7 @@ func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Window != "90d" || got.HorizonSessions != 20 || got.Limit != MaxEdgeFindings {
+	if got.Window != "365d" || got.HorizonSessions != 20 || got.Limit != MaxEdgeFindings {
 		t.Fatalf("defaults=%+v", got)
 	}
 	for _, input := range []EdgeSnapshotParams{{Limit: 4}, {Window: "all"}, {HorizonSessions: 10}, {ChangeID: "broker-id"}} {

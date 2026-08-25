@@ -36,7 +36,7 @@ func NormalizeEdgeSnapshotParams(in EdgeSnapshotParams) (EdgeSnapshotParams, err
 	out := in
 	out.Window = strings.ToLower(strings.TrimSpace(out.Window))
 	if out.Window == "" {
-		out.Window = "90d"
+		out.Window = "365d"
 	}
 	if out.Window != "90d" && out.Window != "365d" {
 		return EdgeSnapshotParams{}, fmt.Errorf("edge window must be 90d or 365d")

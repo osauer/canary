@@ -7,6 +7,8 @@ Canary Edge is a retrospective broker-truth review. It answers two different que
 
 It does not grade the trader, recommend a trade, or claim that an outcome was caused by a decision. The result is deterministic: the daemon calculates and ranks it; an AI client may explain the typed result but cannot replace its arithmetic.
 
+The normal experience is automatic. Open the Edge tab, run `canary edge`, or call `canary_edge` with no arguments. Canary reviews the retained 365-day broker history, highlights the 20-session pattern, and returns no more than three concrete findings. There is no analysis form to configure. The shorter window and other highlighted horizons remain optional CLI/MCP inspection lenses, not prerequisites for getting the result.
+
 ## Account P/L
 
 For the selected 90- or 365-day window, account P/L is:
@@ -35,7 +37,7 @@ The horizons are the first, fifth, and twentieth available IBKR daily closing ba
 
 Decision price impact is not generic P/L. It excludes distributions, financing and borrow, market impact, and anything else outside that fixed price path. Rollups report only observed totals, medians, counts, and coverage. They are not a claim of causality, predictive edge, or statistical skill.
 
-The headline selects the action with the most clean observations at the chosen horizon; ties use the fixed order open, add, trim, then exit. This favors a repeated behavioral pattern over one large position. The detail list is capped at three changes and ranks by absolute Decision price impact as a percentage of disclosed execution notional, then absolute base-currency impact, then opaque change ID. Execution notional is:
+The headline selects the action with the most clean observations at the highlighted horizon; the automatic review uses 20 sessions. Ties use the fixed order open, add, trim, then exit. The headline calls the observed pattern a strength when both total and median are positive, a drag when both are negative, and mixed otherwise. These labels describe historical results, not durable or predictive alpha. This favors a repeated behavioral pattern over one large position. The detail list is capped at three changes and ranks by absolute Decision price impact as a percentage of disclosed execution notional, then absolute base-currency impact, then opaque change ID. Execution notional is:
 
 ```text
 absolute changed quantity x multiplier x execution VWAP x horizon FX
@@ -75,6 +77,8 @@ An Edge snapshot is in one of six states:
 - `insufficient_evidence`: account evidence may be usable, but the returned reports do not prove the Trades section, so Edge does not imply that a decision review exists.
 - `unavailable`: no safely scoped result can be served.
 
-Use `canary edge` for a concise terminal review, `canary edge --json` for the complete typed contract, the Edge tab in the paired app, or `canary_edge` after `canary_brief` in a full MCP profile. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. These reads never start Flex or historical-data work and expose no trading control.
+Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap any finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, and typed results or exclusion reasons. The interaction is explanatory and read-only; it cannot preview or submit a trade.
+
+For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 
 The exact shared field profile is generated from the parser manifest in the [Canary reporting Flex query reference](../reference/edge-flex.md). Follow [Set up broker reporting](../start/reporting.md) for the Client Portal ceremony.

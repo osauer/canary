@@ -6,25 +6,26 @@ const EDGE_HORIZONS = new Set([1, 5, 20]);
 const EDGE_STATES = new Set(["action_required", "backfilling", "current", "degraded", "insufficient_evidence", "unavailable"]);
 const EDGE_ACTIONS = ["open", "add", "trim", "exit"];
 
-async function refreshEdge(options = {}) {
+async function refreshEdge(changeID = "") {
   if (!state.authenticated) return false;
-  const windowValue = String(options.window || $("edgeWindow")?.value || state.edgeWindow || "90d");
-  const horizonValue = Number(options.horizon || $("edgeHorizon")?.value || state.edgeHorizon || 20);
-  const window = EDGE_WINDOWS.has(windowValue) ? windowValue : "90d";
-  const horizon = EDGE_HORIZONS.has(horizonValue) ? horizonValue : 20;
-  state.edgeWindow = window;
-  state.edgeHorizon = horizon;
+  const requestedChange = String(changeID || "").trim();
+  if (requestedChange && (requestedChange.length > 128 || !requestedChange.startsWith("change_"))) {
+    state.edgeError = "Canary Edge received an invalid finding reference";
+    renderEdge();
+    return false;
+  }
   const requestID = (state.edgeRequestID || 0) + 1;
   state.edgeRequestID = requestID;
   state.edgeBusy = true;
   state.edgeError = "";
   renderEdge();
   try {
-    const query = new URLSearchParams({ window, horizon: String(horizon), limit: "3" });
-    const response = await fetch(`/api/edge?${query}`, { credentials: "include" });
+    const path = requestedChange ? `/api/edge?${new URLSearchParams({ change: requestedChange })}` : "/api/edge";
+    const response = await fetch(path, { credentials: "include" });
     const body = await readJSONOrText(response);
     if (!response.ok) throw new Error(typeof body === "string" ? body : body.error || "Canary Edge unavailable");
     if (!validEdgeResult(body)) throw new Error("Canary Edge returned an invalid typed result");
+    if (requestedChange && body.change?.id !== requestedChange) throw new Error("Canary Edge returned the wrong finding explanation");
     if (state.edgeRequestID !== requestID) return false;
     state.edgeResult = body;
     return true;
@@ -47,14 +48,29 @@ function validEdgeResult(result) {
   if (!Array.isArray(result.action_rollups) || !Array.isArray(result.findings) || result.findings.length > 3) return false;
   if (!Array.isArray(result.options) || !result.coverage || typeof result.coverage !== "object" || !result.method) return false;
   if (result.fingerprint && (result.method.metric !== "Decision price impact" || !String(result.method.headline_selection || "").trim() || !String(result.method.finding_ranking || "").trim())) return false;
+  if (result.change != null && !validEdgeChange(result.change)) return false;
   return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct))
     && result.options.every((option) => String(option?.id || "").startsWith("option_") && option?.actual_only === true);
 }
 
+function validEdgeChange(change) {
+  if (!change || typeof change !== "object" || !String(change.id || "").startsWith("change_")) return false;
+  if (!EDGE_ACTIONS.includes(change.action) || !["long", "short"].includes(change.direction) || !String(change.executed_at || "").trim()) return false;
+  if (![change.delta_quantity, change.position_before, change.position_after].every(hasNumericValue)) return false;
+  if (![change.execution_vwap, change.multiplier, change.direct_costs_base].every((value) => value == null || hasNumericValue(value))) return false;
+  if (!Array.isArray(change.scores)) return false;
+  return change.scores.every((score) => {
+    if (!EDGE_HORIZONS.has(Number(score?.sessions))) return false;
+    const values = [score?.horizon_close, score?.horizon_fx, score?.decision_notional_base, score?.decision_impact_base, score?.decision_impact_pct];
+    if (!values.every((value) => value == null || hasNumericValue(value))) return false;
+    const hasImpact = score.decision_impact_base != null;
+    if (hasImpact && (score.reason || !hasNumericValue(score.decision_notional_base) || score.decision_notional_base <= 0 || !hasNumericValue(score.decision_impact_pct))) return false;
+    return !score.reason || !hasImpact;
+  });
+}
+
 function renderEdge() {
   const result = state.edgeResult;
-  if ($("edgeWindow")) $("edgeWindow").value = state.edgeWindow || result?.window || "90d";
-  if ($("edgeHorizon")) $("edgeHorizon").value = String(state.edgeHorizon || result?.horizon_sessions || 20);
   renderEdgeStatus(result);
   if (!result) {
     $("edgeSetup").hidden = true;
@@ -71,9 +87,10 @@ function renderEdge() {
   $("edgeResults").hidden = !hasResults;
   if (!hasResults) return;
 
-  renderEdgeAccount(result);
   renderEdgeMatrix(result);
   renderEdgeFindings(result);
+  renderEdgeChange(result);
+  renderEdgeAccount(result);
   renderEdgeOptions(result);
   renderEdgeMethod(result);
 }
@@ -82,7 +99,7 @@ function renderEdgeStatus(result) {
   const target = $("edgeStatus");
   target.className = "edge-status";
   if (state.edgeBusy) {
-    target.textContent = "Loading the published broker-truth snapshot…";
+    target.textContent = "Reviewing your published broker-confirmed history…";
     target.classList.add("edge-status--busy");
     return;
   }
@@ -99,7 +116,7 @@ function renderEdgeStatus(result) {
     action_required: "Flex evidence setup is required.",
     backfilling: "Backfill is running. Available results remain explicitly partial.",
     degraded: "The prior snapshot is visible, but newer evidence is still rebuilding.",
-    insufficient_evidence: "Account evidence may be usable, but the returned Flex reports do not yet prove a decision review.",
+    insufficient_evidence: "Account evidence may be usable, but Canary is still waiting for broker-confirmed trade history. It will retry automatically.",
     unavailable: "No sound Edge result is currently available.",
   }[result.state] || labelize(result.state);
   const reason = result.reason ? ` ${labelize(result.reason)}.` : "";
@@ -108,7 +125,7 @@ function renderEdgeStatus(result) {
 }
 
 function edgeHasResults(result) {
-  return Boolean(result.account || result.action_rollups?.length || result.findings?.length || result.options?.length || result.fingerprint);
+  return Boolean(result.account || result.action_rollups?.length || result.findings?.length || result.options?.length || result.change || result.fingerprint);
 }
 
 function renderEdgeSetup(result) {
@@ -154,7 +171,8 @@ function renderEdgeAccount(result) {
 }
 
 function renderEdgeMatrix(result) {
-  $("edgeImpactLens").textContent = `${result.horizon_sessions} sessions highlighted`;
+  const period = result.window === "365d" ? "One year" : "90 days";
+  $("edgeImpactLens").textContent = `${period} · ${result.horizon_sessions}-session headline`;
   $("edgeHeadline").textContent = state.accountValueVisible
     ? (result.headline || "No highlighted finding has sufficient evidence.")
     : "Reveal account values to view the monetary headline.";
@@ -206,8 +224,24 @@ function renderEdgeFindings(result) {
     return;
   }
   $("edgeFindings").replaceChildren(...findings.map((finding) => {
-    const row = document.createElement("div");
+    const row = document.createElement("button");
+    row.type = "button";
     row.className = "edge-finding";
+    const expanded = result.change?.id === finding.change_id;
+    row.setAttribute("aria-expanded", String(expanded));
+    row.setAttribute("aria-controls", "edgeChangePanel");
+    row.setAttribute("aria-label", `${finding.symbol || "Finding"} ${labelize(finding.action)}: explain the broker-backed calculation`);
+    row.addEventListener("click", () => {
+      if (state.edgeResult?.change?.id === finding.change_id) {
+        const next = { ...state.edgeResult };
+        delete next.change;
+        state.edgeResult = next;
+        state.edgeError = "";
+        renderEdge();
+        return;
+      }
+      void refreshEdge(finding.change_id);
+    });
     const identity = document.createElement("div");
     const title = document.createElement("b");
     title.textContent = `${finding.symbol || "—"} · ${labelize(finding.action)}`;
@@ -219,6 +253,70 @@ function renderEdgeFindings(result) {
     amount.textContent = edgeMoney(finding.decision_impact_base, edgeCurrency(result));
     amount.className = moneyTone(finding.decision_impact_base);
     amount.classList.toggle("is-private", !state.accountValueVisible);
+    row.append(identity, amount);
+    return row;
+  }));
+}
+
+function renderEdgeChange(result) {
+  const panel = $("edgeChangePanel");
+  const change = result.change;
+  panel.hidden = !change;
+  if (!change) {
+    $("edgeChangeMeta").textContent = "";
+    $("edgeChangeSummary").replaceChildren();
+    $("edgeChangeScores").replaceChildren();
+    return;
+  }
+
+  $("edgeChangeTitle").textContent = `${change.symbol || "Position"} · ${labelize(change.action)} decision`;
+  $("edgeChangeMeta").textContent = [calendarDate(change.executed_at), labelize(change.asset_class), labelize(change.direction)].filter(Boolean).join(" · ");
+  const priceCurrency = String(change.currency || "").toUpperCase();
+  const baseCurrency = edgeCurrency(result) || priceCurrency;
+  const facts = [
+    ["Position", `${edgeQuantity(change.position_before)} → ${edgeQuantity(change.position_after)}`, false],
+    ["Quantity changed", edgeSignedQuantity(change.delta_quantity), false],
+    ["Execution VWAP", edgePrice(change.execution_vwap, priceCurrency), change.execution_vwap != null],
+    ["Contract multiplier", change.multiplier == null ? "—" : edgeQuantity(change.multiplier), false],
+    ["Direct costs", edgePrice(change.direct_costs_base, baseCurrency), change.direct_costs_base != null],
+    ["Counterfactual", `Leave the pre-trade position at ${edgeQuantity(change.position_before)}`, false],
+  ];
+  $("edgeChangeSummary").replaceChildren(...facts.flatMap(([term, description, sensitive]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = term;
+    const dd = document.createElement("dd");
+    dd.textContent = description;
+    dd.classList.toggle("is-private", sensitive && !state.accountValueVisible);
+    return [dt, dd];
+  }));
+
+  const scores = [...change.scores].sort((left, right) => Number(left.sessions) - Number(right.sessions));
+  $("edgeChangeScores").replaceChildren(...scores.map((score) => {
+    const row = document.createElement("div");
+    row.className = "edge-change-score";
+    const identity = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = `${Number(score.sessions)} session${Number(score.sessions) === 1 ? "" : "s"}`;
+    const evidence = document.createElement("small");
+    if (score.reason) {
+      evidence.textContent = labelize(score.reason);
+    } else {
+      const parts = [];
+      if (score.horizon_day) parts.push(calendarDate(score.horizon_day));
+      if (score.horizon_close != null) parts.push(`close ${edgePrice(score.horizon_close, priceCurrency)}`);
+      if (score.horizon_fx != null) parts.push(`FX ${edgeQuantity(score.horizon_fx)}`);
+      evidence.textContent = parts.join(" · ") || "Broker horizon evidence";
+      evidence.classList.toggle("is-private", !state.accountValueVisible && score.horizon_close != null);
+    }
+    identity.append(title, evidence);
+    const amount = document.createElement("strong");
+    if (score.reason || score.decision_impact_base == null) {
+      amount.textContent = "Not scored";
+    } else {
+      amount.textContent = `${edgeMoney(score.decision_impact_base, baseCurrency)} · ${edgeSignedPercent(score.decision_impact_pct)}`;
+      amount.className = moneyTone(score.decision_impact_base);
+      amount.classList.toggle("is-private", !state.accountValueVisible);
+    }
     row.append(identity, amount);
     return row;
   }));
@@ -310,6 +408,28 @@ function edgeMoney(value, currency) {
   if (!hasNumericValue(value)) return "—";
   if (!state.accountValueVisible) return privacyMask();
   return currency ? signedMoneyRead(value, currency) : `${value > 0 ? "+" : ""}${money(value, "")}`;
+}
+
+function edgePrice(value, currency) {
+  if (!hasNumericValue(value)) return "—";
+  if (!state.accountValueVisible) return privacyMask();
+  return money(value, currency);
+}
+
+function edgeQuantity(value) {
+  if (!hasNumericValue(value)) return "—";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(value);
+}
+
+function edgeSignedQuantity(value) {
+  if (!hasNumericValue(value)) return "—";
+  return `${value > 0 ? "+" : ""}${edgeQuantity(value)}`;
+}
+
+function edgeSignedPercent(value) {
+  if (!hasNumericValue(value)) return "—";
+  if (!state.accountValueVisible) return privacyMask();
+  return `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
 }
 
 function moneyTone(value) {
