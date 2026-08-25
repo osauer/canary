@@ -214,7 +214,15 @@ func marketDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus, quo
 }
 
 func historicalDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus) farmReadiness {
-	return farmTypeReadiness(connected, farms, "historical", "historical-data", false, "history and technical screens may time out")
+	readiness := farmTypeReadiness(connected, farms, "historical", "historical-data", false, "history and technical screens may time out")
+	// TWS farm notices are informational, edge-triggered observations and may
+	// not be replayed to a daemon that connects after the farm is healthy.
+	// Missing positive notice evidence is therefore not impairment; explicit
+	// historical-farm or TWS/server failures above remain authoritative.
+	if readiness.status == "degraded" && readiness.lastError == "" {
+		return farmReadiness{status: "ready"}
+	}
+	return readiness
 }
 
 func farmTypeReadiness(connected bool, farms []ibkrlib.DataFarmStatus, farmType, label string, directWitness bool, impact string) farmReadiness {
