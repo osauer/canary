@@ -53,6 +53,15 @@ assert_rejected old-cli-argv 'exec.Command("ibkr", "status")'
 assert_rejected old-product-name '"name": "ibkr"'
 assert_rejected old-mcp-tool 'tool = "ibkr_status"'
 assert_rejected retired-public-surface 'run `canary gamma --json`' README.md
+stale_count="13"
+assert_rejected retired-public-surface "Canary exposes ${stale_count} typed tools." README.md
+retired_preview="preview-only"
+assert_rejected retired-public-surface "Canary offers ${retired_preview} drafts." README.md
+
+mkdir -p "$test_root/docs/docs/reference"
+printf '%s\n' 'Canary canonical generated reference: **16 tools** total.' > "$test_root/docs/docs/reference/mcp-tools.md"
+git -C "$test_root" add docs/docs/reference/mcp-tools.md
+"$checker" "$test_root" >/dev/null
 
 cat > "$test_root/internal/update/daemon_test.go" <<'EOF'
 package update

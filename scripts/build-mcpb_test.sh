@@ -92,6 +92,29 @@ fi
 	echo "build-mcpb test: manifest display name is not Canary" >&2
 	exit 1
 }
+description="$(jq -r '.description' "$packed_stage/manifest.json")"
+long_description="$(jq -r '.long_description' "$packed_stage/manifest.json")"
+[[ "$description" == *"read-only"* ]] || {
+	echo "build-mcpb test: manifest description does not state the read-only boundary" >&2
+	exit 1
+}
+[[ "$long_description" == *"broker-reporting status"* && "$long_description" == *"retrospective Edge review"* ]] || {
+	echo "build-mcpb test: manifest long description omits reporting or Edge" >&2
+	exit 1
+}
+[[ "$long_description" == *"no resources, order previews, settings writes, or broker-write tools"* ]] || {
+	echo "build-mcpb test: manifest long description does not state the adapter boundaries" >&2
+	exit 1
+}
+if [[ "$description" =~ [0-9]+[[:space:]]+([^[:space:]]+[[:space:]]+)?tools ]] ||
+	[[ "$long_description" =~ [0-9]+[[:space:]]+([^[:space:]]+[[:space:]]+)?tools ]]; then
+	echo "build-mcpb test: manifest carries a hand-maintained tool count" >&2
+	exit 1
+fi
+if [[ "$description" == *"preview-only drafts"* || "$long_description" == *"preview-only drafts"* ]]; then
+	echo "build-mcpb test: manifest carries retired preview wording" >&2
+	exit 1
+fi
 [ "$(jq -r '.server.entry_point' "$packed_stage/manifest.json")" = "server/canary" ] || {
 	echo "build-mcpb test: manifest does not use the canonical server/canary entry point" >&2
 	exit 1

@@ -40,7 +40,7 @@ old_path_re='(^|[^A-Za-z0-9_.-])(cmd/ibkr|bin/ibkr|skills/ibkr|settings/ibkr|scr
 old_cli_re='(^|[[:space:]`"'\''(])ibkr[[:space:]]+(account|positions|quote|calendar|watch|chain|history|scan|size|technical|breadth|gamma|regime|stress|brief|rules|market-events|proposals|opportunities|backtest|settings|policy|recon|trading|orders|order|status|version|update|app|daemon|mcp|setup|restart|purge|canary|--[a-z])([^A-Za-z0-9-]|$)'
 old_argv_re='(exec\.Command(Context)?\([^)]*|pattern[[:space:]]*=[[:space:]]*\[\[)["'\'']ibkr["'\''][[:space:]]*,'
 old_name_re='(^|[,{[:space:]])("name"[[:space:]]*:|name[[:space:]]*=|name[[:space:]]*:)[[:space:]]*["'\'']?ibkr["'\'']?([,}[:space:]]|$)'
-retired_public_re='(^|[^A-Za-z0-9_])(canary[[:space:]]+(quote|calendar|chain|history|scan|watch|size|breadth|gamma|regime|stress|market-events|backtest)([^A-Za-z0-9_-]|$)|canary_(quote|calendar|chain|history|scan|watch|size|breadth|gamma|regime|stress|market_events)([^A-Za-z0-9_]|$)|canary://|streaming quote resource|preview-only order drafts|[0-9]+ read/preview tools)'
+retired_public_re='(^|[^A-Za-z0-9_])(canary[[:space:]]+(quote|calendar|chain|history|scan|watch|size|breadth|gamma|regime|stress|market-events|backtest)([^A-Za-z0-9_-]|$)|canary_(quote|calendar|chain|history|scan|watch|size|breadth|gamma|regime|stress|market_events)([^A-Za-z0-9_]|$)|canary://|streaming quote resource|preview-only( order)? drafts|[0-9]+[[:space:]]+(typed[[:space:]]+|read-only[[:space:]]+|MCP[[:space:]]+|read/preview[[:space:]]+)?tools([^A-Za-z0-9_]|$))'
 
 scan_line() {
 	local path="$1" line_number="$2" text="$3" token remainder
@@ -93,13 +93,13 @@ fi
 while IFS= read -r -d '' path; do
 	[ -f "$root/$path" ] || continue
 	case "$path" in
-		CHANGELOG.md|scripts/check-product-identity.sh|scripts/check-product-identity_test.sh|scripts/product-identity-allowlist.tsv)
+		CHANGELOG.md|docs/docs/reference/mcp-tools.md|scripts/check-product-identity.sh|scripts/check-product-identity_test.sh|scripts/product-identity-allowlist.tsv)
 			continue
 			;;
 	esac
 	while IFS=: read -r line_number text; do
 		scan_line "$path" "$line_number" "$text"
-	done < <(grep -IEn 'ibkr|canary' "$root/$path" || true)
+	done < <(grep -IEni 'ibkr|canary' "$root/$path" || true)
 done < <(git -C "$root" ls-files --cached --others --exclude-standard -z)
 
 failure=0
