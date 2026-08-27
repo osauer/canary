@@ -23,7 +23,7 @@ The description used in listings:
 - Requires an IBKR Pro account; IBKR Lite does not include TWS API access.
 - The bundled path is a macOS or Linux binary.
 - The plugin/skill does not ship the binary; users install `canary` separately.
-- The MCP server exposes exactly 13 read-only tools with no resources, previews,
+- The MCP server exposes only the canonical read-only tool registry, with no resources, previews,
   settings writes, or broker actions. Standard binaries compile out broker
   writes. The opt-in trading binary retains only constrained CLI/app order
   actions, still bound by fresh confirmation/preflight and daemon safety gates.

@@ -94,13 +94,15 @@ silently ranking an incomplete row.
 
 ## 7. Ask through an MCP host
 
-The bundled MCP server has 13 read-only tools. Ask the question rather than
+The bundled MCP server is read-only. Ask the question rather than
 naming a tool:
 
 | Ask | Typical tool |
 | --- | --- |
 | “What needs attention today?” | `canary_brief` |
 | “How does my account look?” | `canary_account`, then `canary_positions` |
+| “Is broker reporting ready for Recon and Edge?” | `canary_reporting` |
+| “What did my past stock, ETF, and option activity actually deliver?” | `canary_edge` |
 | “Which rulebook inputs are unknown?” | `canary_rules` |
 | “Are there protection or exercise candidates?” | `canary_proposals` or `canary_opportunities` |
 | “Why is a local order still open?” | `canary_orders_open`, then `canary_order_status` |

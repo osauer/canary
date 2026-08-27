@@ -1,10 +1,10 @@
 # Canary Portfolio Review — MCP Workflow
 
-Last updated: 2026-08-09
+Last updated: 2026-08-27
 
 Use Canary's read-only MCP tools to review the user's current Interactive
-Brokers context. Produce analysis and review tasks only. The MCP server has 13
-tools and no resource subscriptions, settings writes, order previews, or broker
+Brokers context. Produce analysis and review tasks only. The MCP server has
+read-only tools and no resource subscriptions, settings writes, order previews, or broker
 execution tools.
 
 ## Workflow

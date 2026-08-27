@@ -576,7 +576,7 @@
       <div>
         <p class="eyebrow">IBKR / Interactive Brokers MCP server</p>
         <h1 id="hero-title">A local Interactive Brokers MCP server for trading research</h1>
-        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. Review account authority, positions, named-symbol technical evidence, the daily brief, rulebook, Action Queue, and source quality through 13 read-only tools.</p>
+        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. Review account authority, positions, broker-reporting status, retrospective Edge evidence, the daily brief, rulebook, Action Queue, and source quality through read-only tools.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#install">Install</a>
           <a class="button" href="https://github.com/osauer/canary">View on GitHub</a>
@@ -615,7 +615,7 @@
           </div>
           <div class="strip-item">
             <strong>Workflow tools</strong>
-            <span>13 read-only tools for health, account, positions, technical evidence, the brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads.</span>
+            <span>Read-only tools for health, account, positions, option strategies, technical evidence, broker-reporting status, the retrospective Edge review, the brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads.</span>
           </div>
           <div class="strip-item">
             <strong>Controlled boundary</strong>
@@ -628,7 +628,7 @@
     <section class="wrap">
       <div class="section-head">
         <h2>What an assistant can do with it.</h2>
-        <p>The MCP server is one adapter over a larger local desk. Canary's daemon evaluates account, market, calendar, event, breadth, gamma, regime, stress, rulebook, proposal, and opportunity inputs. The reduced MCP surface exposes the decision-relevant brief and reads without publishing every sensor as a separate tool.</p>
+        <p>The MCP server is one adapter over a larger local desk. Canary's daemon evaluates account, statement, market, calendar, event, breadth, gamma, regime, stress, rulebook, proposal, and opportunity inputs. The reduced MCP surface exposes decision-relevant current and retrospective reads without publishing every sensor as a separate tool.</p>
         <p>Everything flows through your own TWS or IB Gateway session. Coverage follows your IBKR subscriptions, market hours, and upstream source health; unavailable, stale, delayed, and held inputs remain explicit.</p>
       </div>
       <div class="grid">
@@ -641,6 +641,11 @@
           <small>Desk brief</small>
           <h3>Read the current decision surface</h3>
           <p>Review market/session context, source health, the morning brief, and the converged Action Queue.</p>
+        </article>
+        <article class="card">
+          <small>Edge</small>
+          <h3>Review broker-confirmed history</h3>
+          <p>Inspect adequately sampled stock and ETF decisions with fixed market context, plus separate broker-reported realized and dated open option evidence.</p>
         </article>
         <article class="card">
           <small>Rules</small>
@@ -669,7 +674,7 @@
       <div>
         <div class="section-head">
           <h2>What it does not expose.</h2>
-          <p>The boundary is simple: the MCP server has 13 read-only tools and no resources, settings writes, previews, or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained opt-in CLI and app order management; MCP remains read-only.</p>
+          <p>The boundary is simple: the MCP server has read-only tools and no resources, settings writes, previews, or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained opt-in CLI and app order management; MCP remains read-only.</p>
         </div>
       </div>
       <ul class="list negative">

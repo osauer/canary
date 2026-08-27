@@ -79,8 +79,8 @@ The `monitor` profile exposes exactly two tools, `canary_brief` and `canary_stat
 
 ## What the agent can then see
 
-Fifteen tools cover the daily brief, Canary Edge, account and positions,
-option-strategy grouping, named-symbol technical analysis, rulebook verdict,
+The full MCP profile covers the daily brief, broker-reporting status, Canary Edge,
+account and positions, option-strategy grouping, named-symbol technical analysis, rulebook verdict,
 protection proposals, option-exercise opportunities, settings, trading readiness,
 and read-only order-journal views. Local lifecycle verbs (`setup`, `update`,
 `restart`, `mcp`, `daemon`, `version`) and human policy/reconciliation writes

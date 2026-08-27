@@ -9,7 +9,7 @@
     {
       "name": "canary",
       "source": "./claude-plugin",
-      "description": "Canary's local Interactive Brokers risk desk: daily brief, account and positions, named-symbol technical evidence, rulebook, protection proposals, option-exercise opportunities, and order-lifecycle reads. The 13 MCP tools are read-only; constrained CLI broker actions remain gated by local trading status, fresh confirmation or preflight, and daemon policy. Requires the `canary` binary on PATH; see the project README for install and update instructions."
+      "description": "Canary's local Interactive Brokers risk desk: daily brief, account and positions, option strategies, named-symbol technical evidence, broker-reporting status, retrospective Edge review, rulebook, protection proposals, option-exercise opportunities, and order-lifecycle reads. The MCP tools are read-only; constrained CLI broker actions remain gated by local trading status, fresh confirmation or preflight, and daemon policy. Requires the `canary` binary on PATH; see the project README for install and update instructions."
     }
   ]
 }

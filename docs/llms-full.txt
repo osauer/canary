@@ -1,9 +1,9 @@
 # Canary full context
 
-Updated: 2026-08-23
+Updated: 2026-08-27
 
 Canary is a local Interactive Brokers risk desk built as a Go daemon, a
-23-command CLI, a 13-tool stdio MCP server, a Claude Desktop MCPB, a Claude Code
+shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code
 plugin, a paired app, and a clean-room TWS protocol library. The daemon owns the
 broker connection, account scope, runtime state, data-source health, market
 sensors, rulebook, protection proposals, and option-exercise opportunities.
@@ -51,7 +51,7 @@ cut from `release/2.x`; product v3 and later are cut from `main`.
 
 ## MCP tools
 
-Run the server with `canary mcp`. It exposes exactly these 13 read-only tools:
+Run the server with `canary mcp`. It exposes these read-only tools:
 
 - `canary_status`: daemon, gateway, storage, and source health.
 - `canary_trading_status`: pinned broker-write readiness and blockers.
@@ -61,15 +61,18 @@ Run the server with `canary mcp`. It exposes exactly these 13 read-only tools:
 - `canary_order_status`: typed lifecycle evidence for one journaled order.
 - `canary_account`: account financials with field-level authority.
 - `canary_positions`: held positions and exposure with account authority.
+- `canary_strategies`: current held-option strategy grouping; no order actions.
 - `canary_technical`: daily technical evidence for explicitly named symbols.
 - `canary_brief`: current daemon-composed desk brief and Action Queue.
+- `canary_reporting`: redacted broker-reporting setup and evidence status.
+- `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
 - `canary_rules`: ranked rulebook findings and explicit unknown inputs.
 - `canary_proposals`: read-only close/reduce protection candidates.
 - `canary_opportunities`: read-only held-option exercise candidates.
 
 Calendar, quote, market-event, breadth, gamma, regime, and stress engines remain
-internal daemon sensors. Their relevant results flow through the brief, rules,
-proposals, opportunities, and app; they are not separate v3 MCP tools. Policy
+internal daemon sensors. Their relevant results flow through the brief, Edge,
+rules, proposals, opportunities, and app; they are not separate v3 MCP tools. Policy
 and reconciliation reads remain CLI-only governance surfaces.
 
 ## CLI workflow

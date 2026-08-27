@@ -140,7 +140,7 @@ func printMCPUsage(w io.Writer) {
 	fmt.Fprintln(w, "  }")
 	fmt.Fprintln(w, "}")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "The full profile exposes 13 read-only canary_* tools. It has no resources,")
+	fmt.Fprintln(w, "The full profile exposes the read-only canary_* tool registry. It has no resources,")
 	fmt.Fprintln(w, "streaming subscriptions, settings writes, order previews, or broker actions.")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "The monitor profile exposes only canary_brief and canary_status for low-token checks.")

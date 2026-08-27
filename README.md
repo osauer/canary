@@ -26,7 +26,7 @@ one shared IBKR Activity Flex Query with `canary setup reporting`; the
 [reporting guide](docs/docs/start/reporting.md) includes the Portal screenshots
 and exact field checklist.
 
-The standard binary is read-only by construction. Its 15 MCP tools can inspect
+The standard binary is read-only by construction. Its MCP tools can inspect
 the account, risk desk, proposals, opportunities, and local order state, but
 cannot preview or transmit a broker action. Trading-capable builds are separate,
 experimental artifacts with additional human and daemon gates.
@@ -116,7 +116,7 @@ Ask questions in desk language:
 
 See [Connect an MCP host](docs/docs/start/hosts.md) for Claude Code, host logs,
 and connection checks. The generated [MCP reference](docs/docs/reference/mcp-tools.md)
-lists all 15 tools and their schemas.
+lists every tool and its schema.
 
 ### Claude Code
 
