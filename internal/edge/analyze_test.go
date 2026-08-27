@@ -382,6 +382,9 @@ func TestAnalyzeOptionActualIncludesOpenPositionsAndUnmatchedEvents(t *testing.T
 	if values["ACME CALL"] != 18 || values["ACME PUT"] != -9 {
 		t.Fatalf("option actual values = %+v", values)
 	}
+	if result.Options[0].Symbol != "ACME CALL" || result.Options[1].Symbol != "ACME PUT" {
+		t.Fatalf("options are not ranked by absolute actual P/L: %+v", result.Options)
+	}
 }
 
 func TestAnalyzeOptionOpenPNLUsesOnlyLatestPositionSnapshot(t *testing.T) {
@@ -505,7 +508,7 @@ func TestTradesWithoutOrderIdentityRemainIndependent(t *testing.T) {
 	}
 }
 
-func TestFindingsRankByDisclosedPercentageBeforePositionSize(t *testing.T) {
+func TestFindingsRequireAccountMaterialityBeforePercentageRanking(t *testing.T) {
 	t.Parallel()
 	change := func(id string, impact, notional float64) Change {
 		impactPct := impact / notional * 100
@@ -518,16 +521,68 @@ func TestFindingsRankByDisclosedPercentageBeforePositionSize(t *testing.T) {
 		change("change_gain_100", 100, 10_000),
 		change("change_gain_90", 90, 1_000),
 		change("change_gain_80", 80, 2_000),
+		change("change_loss_70", -70, 1_000),
 		change("change_loss_10", -10, 100),
-	})
+	}, 100_000)
 	if len(findings) != 3 {
 		t.Fatalf("findings=%+v", findings)
 	}
-	want := []string{"change_loss_10", "change_gain_90", "change_gain_80"}
+	want := []string{"change_gain_90", "change_loss_70", "change_gain_80"}
 	for i, id := range want {
 		if findings[i].ChangeID != id {
 			t.Fatalf("finding %d=%q want %q; all=%+v", i, findings[i].ChangeID, id, findings)
 		}
+	}
+}
+
+func TestCoverageKeepsOverlappedStockDecisionsInTheEligibleDenominator(t *testing.T) {
+	t.Parallel()
+	coverage := Coverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}
+	populateCoverage(&coverage, []Change{
+		{ID: "change_stock", AssetClass: "STK", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonInterveningChange}, {Sessions: 5, Reason: ReasonInterveningChange}, {Sessions: 20, Reason: ReasonInterveningChange}}},
+		{ID: "change_option", AssetClass: "OPT", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonUnsupportedAsset}}},
+	})
+	if coverage.TradeChanges != 2 || coverage.EligibleChanges != 1 || coverage.ScoredByHorizon[20] != 0 || coverage.ReasonCounts[ReasonInterveningChange] != 1 {
+		t.Fatalf("coverage=%+v", coverage)
+	}
+}
+
+func TestMarketContextExplainsTheSameIntervalWithoutChangingImpact(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	input := Input{
+		AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR",
+		Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 25, 105),
+	}
+	withoutContext, err := Analyze(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ContextBars = map[string][]DailyBar{
+		"SPY": {{Day: day("2026-01-02"), Close: 100}, {Day: day("2026-01-06"), Close: 110}, {Day: day("2026-01-10"), Close: 120}, {Day: day("2026-01-25"), Close: 130}},
+		"QQQ": {{Day: day("2026-01-02"), Close: 200}, {Day: day("2026-01-06"), Close: 190}, {Day: day("2026-01-10"), Close: 210}, {Day: day("2026-01-25"), Close: 220}},
+		"DIA": {{Day: day("2026-01-02"), Close: 400}, {Day: day("2026-01-06"), Close: 404}, {Day: day("2026-01-10"), Close: 408}, {Day: day("2026-01-25"), Close: 412}},
+		"VIX": {{Day: day("2026-01-02"), Close: 20}, {Day: day("2026-01-06"), Close: 25}, {Day: day("2026-01-10"), Close: 18}, {Day: day("2026-01-25"), Close: 15}},
+	}
+	withContext, err := Analyze(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, score := range withContext.Changes[0].Scores {
+		baseline := withoutContext.Changes[0].Scores[index]
+		if score.DecisionImpactBase == nil || baseline.DecisionImpactBase == nil || *score.DecisionImpactBase != *baseline.DecisionImpactBase {
+			t.Fatalf("context changed Decision price impact: with=%+v without=%+v", score, baseline)
+		}
+		if len(score.MarketContext) != 4 {
+			t.Fatalf("%d-session context=%+v", score.Sessions, score.MarketContext)
+		}
+	}
+	first := withContext.Changes[0].Scores[0].MarketContext
+	if first[0].Key != "spy" || !almostEqual(first[0].ChangePct, 10) || first[3].Key != "vix" || first[3].ChangePoints == nil || *first[3].ChangePoints != 5 {
+		t.Fatalf("unexpected first-horizon context=%+v", first)
+	}
+	if len(withContext.Rollups[0].Horizons[0].MarketContext) != 4 || len(withContext.Findings) == 0 || len(withContext.Findings[0].MarketContext) != 4 {
+		t.Fatalf("context did not travel through rollup/finding: rollup=%+v findings=%+v", withContext.Rollups, withContext.Findings)
 	}
 }
 

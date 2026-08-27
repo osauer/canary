@@ -82,6 +82,7 @@ type scoringIndex struct {
 	mutationsByConID map[int64][]mutation
 	barsByConID      map[int64][]DailyBar
 	rawBarsByConID   map[int64]bool
+	contextBars      map[string][]DailyBar
 }
 
 // Analyze deterministically computes one 90- or 365-day Edge result.
@@ -156,7 +157,11 @@ func Analyze(input Input) (Result, error) {
 		return result.Changes[i].ID < result.Changes[j].ID
 	})
 	result.Rollups = buildRollups(result.Changes)
-	result.Findings = buildFindings(result.Changes)
+	startingEquity := 0.0
+	if result.Account != nil {
+		startingEquity = result.Account.StartingEquityBase
+	}
+	result.Findings = buildFindings(result.Changes, startingEquity)
 	result.Options = buildOptionResults(ev, windowStart, asOf, input.BaseCurrency, ev.fxRates)
 	populateCoverage(&result.Coverage, result.Changes)
 	result.Fingerprint, err = fingerprint(result)
@@ -530,6 +535,7 @@ func buildScoringIndex(input Input, mutations []mutation) scoringIndex {
 		mutationsByConID: make(map[int64][]mutation),
 		barsByConID:      make(map[int64][]DailyBar, len(input.Bars)),
 		rawBarsByConID:   make(map[int64]bool, len(input.Bars)),
+		contextBars:      make(map[string][]DailyBar, len(input.ContextBars)),
 	}
 	for _, item := range mutations {
 		index.mutationsByConID[item.conid] = append(index.mutationsByConID[item.conid], item)
@@ -537,6 +543,9 @@ func buildScoringIndex(input Input, mutations []mutation) scoringIndex {
 	for conid, bars := range input.Bars {
 		index.rawBarsByConID[conid] = len(bars) > 0
 		index.barsByConID[conid] = normalizedBars(bars, input.AsOf)
+	}
+	for symbol, bars := range input.ContextBars {
+		index.contextBars[strings.ToUpper(strings.TrimSpace(symbol))] = normalizedBars(bars, input.AsOf)
 	}
 	return index
 }
@@ -738,7 +747,55 @@ func scoreHorizon(change Change, group groupedTrade, sessions int, input Input, 
 	score.DecisionImpactBase = &impact
 	impactPct := impact / notional * 100
 	score.DecisionImpactPct = &impactPct
+	score.MarketContext = buildMarketContext(index.contextBars, group.executedAt, bar.Day)
 	return score
+}
+
+func buildMarketContext(series map[string][]DailyBar, executedAt, horizonDay time.Time) []MarketContext {
+	out := make([]MarketContext, 0, len(marketBenchmarks))
+	for _, benchmark := range marketBenchmarks {
+		bars := series[benchmark.Symbol]
+		start, startOK := contextStartBar(bars, executedAt)
+		end, endOK := contextEndBar(bars, horizonDay)
+		if !startOK || !endOK || start.Close <= 0 || end.Close <= 0 {
+			continue
+		}
+		changePct := (end.Close/start.Close - 1) * 100
+		row := MarketContext{
+			Key: benchmark.Key, Label: benchmark.Label, Kind: benchmark.Kind,
+			StartDay: start.Day, EndDay: end.Day, StartClose: start.Close, EndClose: end.Close,
+			ChangePct: changePct,
+		}
+		if benchmark.Kind == MarketContextKindVolatility {
+			points := end.Close - start.Close
+			row.ChangePoints = &points
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// contextStartBar deliberately uses the last close before the execution
+// session. It cannot look through an intraday decision to that session's close.
+func contextStartBar(bars []DailyBar, executedAt time.Time) (DailyBar, bool) {
+	first := sort.Search(len(bars), func(i int) bool { return !bars[i].Day.Before(dayStart(executedAt)) })
+	if first == 0 {
+		return DailyBar{}, false
+	}
+	bar := bars[first-1]
+	if dayStart(executedAt).Sub(dayStart(bar.Day)) > 7*24*time.Hour {
+		return DailyBar{}, false
+	}
+	return bar, true
+}
+
+func contextEndBar(bars []DailyBar, horizonDay time.Time) (DailyBar, bool) {
+	target := dayKey(horizonDay)
+	index := sort.Search(len(bars), func(i int) bool { return dayKey(bars[i].Day) >= target })
+	if index >= len(bars) || dayKey(bars[index].Day) != target {
+		return DailyBar{}, false
+	}
+	return bars[index], true
 }
 
 func normalizedBars(in []DailyBar, through time.Time) []DailyBar {
@@ -854,10 +911,14 @@ func buildRollups(changes []Change) []ActionRollup {
 		row := ActionRollup{Action: action}
 		for _, sessions := range Horizons {
 			values := []float64{}
+			contextValues := make(map[string][]MarketContext)
 			for _, change := range changes {
 				if change.Action == action {
 					if score := scoreFor(change, sessions); score != nil && score.DecisionImpactBase != nil {
 						values = append(values, *score.DecisionImpactBase)
+						for _, context := range score.MarketContext {
+							contextValues[context.Key] = append(contextValues[context.Key], context)
+						}
 					}
 				}
 			}
@@ -874,6 +935,7 @@ func buildRollups(changes []Change) []ActionRollup {
 				}
 				h.TotalBase, h.MedianBase = &total, &median
 			}
+			h.MarketContext = buildMarketContextRollups(contextValues)
 			row.Horizons = append(row.Horizons, h)
 		}
 		out = append(out, row)
@@ -881,15 +943,50 @@ func buildRollups(changes []Change) []ActionRollup {
 	return out
 }
 
-func buildFindings(changes []Change) []Finding {
+func buildMarketContextRollups(values map[string][]MarketContext) []MarketContextRollup {
+	out := make([]MarketContextRollup, 0, len(marketBenchmarks))
+	for _, benchmark := range marketBenchmarks {
+		rows := values[benchmark.Key]
+		if len(rows) == 0 {
+			continue
+		}
+		percentages := make([]float64, 0, len(rows))
+		points := make([]float64, 0, len(rows))
+		for _, row := range rows {
+			percentages = append(percentages, row.ChangePct)
+			if row.ChangePoints != nil {
+				points = append(points, *row.ChangePoints)
+			}
+		}
+		rollup := MarketContextRollup{Key: benchmark.Key, Label: benchmark.Label, Kind: benchmark.Kind, SampleCount: len(rows)}
+		medianPct := median(percentages)
+		rollup.MedianChangePct = &medianPct
+		if len(points) > 0 {
+			medianPoints := median(points)
+			rollup.MedianChangePoints = &medianPoints
+		}
+		out = append(out, rollup)
+	}
+	return out
+}
+
+func buildFindings(changes []Change, startingEquity float64) []Finding {
 	// Store the strongest observations for every horizon; RPC selects a lens
 	// without ranking again.
 	out := []Finding{}
+	if startingEquity <= 0 {
+		return out
+	}
+	minimumNotional := startingEquity * MinimumFindingNotionalEquityPct / 100
+	minimumImpact := startingEquity * MinimumFindingImpactEquityPct / 100
 	for _, sessions := range Horizons {
 		candidates := []Finding{}
 		for _, change := range changes {
 			score := scoreFor(change, sessions)
 			if score == nil || score.DecisionNotionalBase == nil || score.DecisionImpactBase == nil || score.DecisionImpactPct == nil {
+				continue
+			}
+			if *score.DecisionNotionalBase < minimumNotional || math.Abs(*score.DecisionImpactBase) < minimumImpact {
 				continue
 			}
 			candidates = append(candidates, Finding{
@@ -898,6 +995,7 @@ func buildFindings(changes []Change) []Finding {
 				DecisionNotionalBase: *score.DecisionNotionalBase,
 				DecisionImpactBase:   *score.DecisionImpactBase,
 				DecisionImpactPct:    *score.DecisionImpactPct,
+				MarketContext:        append([]MarketContext(nil), score.MarketContext...),
 			})
 		}
 		sort.Slice(candidates, func(i, j int) bool {
@@ -1052,7 +1150,33 @@ func buildOptionResults(ev evidence, from, to time.Time, base string, fxRates []
 		}
 		out = append(out, row)
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		left, right := 0.0, 0.0
+		if out[i].ActualPNLBase != nil {
+			left = math.Abs(*out[i].ActualPNLBase)
+		}
+		if out[j].ActualPNLBase != nil {
+			right = math.Abs(*out[j].ActualPNLBase)
+		}
+		if !almostEqual(left, right) {
+			return left > right
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out
+}
+
+func median(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	copyValues := append([]float64(nil), values...)
+	sort.Float64s(copyValues)
+	middle := len(copyValues) / 2
+	if len(copyValues)%2 == 0 {
+		return (copyValues[middle-1] + copyValues[middle]) / 2
+	}
+	return copyValues[middle]
 }
 
 func populateCoverage(coverage *Coverage, changes []Change) {
@@ -1060,10 +1184,16 @@ func populateCoverage(coverage *Coverage, changes []Change) {
 	eligible := map[string]bool{}
 	reasonSeen := map[string]map[string]bool{}
 	for _, change := range changes {
+		// Eligibility is about the decision class, not whether a convenient
+		// horizon survived. Keeping every stock/ETF change in the denominator
+		// makes high-turnover overlap suppression visible instead of quietly
+		// shrinking the comparison set to isolated trades.
+		if eligibleAsset(change.AssetClass) {
+			eligible[change.ID] = true
+		}
 		for _, score := range change.Scores {
 			if score.DecisionImpactBase != nil {
 				coverage.ScoredByHorizon[score.Sessions]++
-				eligible[change.ID] = true
 				continue
 			}
 			if score.Reason != "" {

@@ -19,15 +19,17 @@ const (
 	EdgeStateInsufficient   = "insufficient_evidence"
 	EdgeStateUnavailable    = "unavailable"
 	MaxEdgeFindings         = 3
+	MaxEdgeOptionResults    = 20
 )
 
 // EdgeSnapshotParams selects one deterministic lens over the daemon-published
 // Edge snapshot. Reads never start Flex or market-data work.
 type EdgeSnapshotParams struct {
-	Window          string `json:"window,omitempty"`
-	HorizonSessions int    `json:"horizon_sessions,omitempty"`
-	Limit           int    `json:"limit,omitempty"`
-	ChangeID        string `json:"change_id,omitempty"`
+	Window           string `json:"window,omitempty"`
+	HorizonSessions  int    `json:"horizon_sessions,omitempty"`
+	AutomaticHorizon bool   `json:"automatic_horizon,omitempty"`
+	Limit            int    `json:"limit,omitempty"`
+	ChangeID         string `json:"change_id,omitempty"`
 }
 
 // NormalizeEdgeSnapshotParams is the single public input contract shared by
@@ -42,6 +44,7 @@ func NormalizeEdgeSnapshotParams(in EdgeSnapshotParams) (EdgeSnapshotParams, err
 		return EdgeSnapshotParams{}, fmt.Errorf("edge window must be 90d or 365d")
 	}
 	if out.HorizonSessions == 0 {
+		out.AutomaticHorizon = true
 		out.HorizonSessions = 20
 	}
 	if !validEdgeHorizon(out.HorizonSessions) {
@@ -63,24 +66,44 @@ func NormalizeEdgeSnapshotParams(in EdgeSnapshotParams) (EdgeSnapshotParams, err
 // EdgeResult is the sanitized public Broker-Truth Decision Review. It contains
 // no account, query, order, execution, statement-file, or filesystem identity.
 type EdgeResult struct {
-	SchemaVersion        string             `json:"schema_version"`
-	State                string             `json:"state"`
-	Reason               string             `json:"reason,omitempty"`
-	AsOf                 time.Time          `json:"as_of,omitzero"`
-	Window               string             `json:"window"`
-	HorizonSessions      int                `json:"horizon_sessions"`
-	Headline             string             `json:"headline,omitempty"`
-	Account              *EdgeAccountResult `json:"account,omitempty"`
-	ActionRollups        []EdgeActionRollup `json:"action_rollups"`
-	Findings             []EdgeFinding      `json:"findings"`
-	Options              []EdgeOptionResult `json:"options"`
-	Coverage             EdgeCoverage       `json:"coverage"`
-	Method               EdgeMethod         `json:"method"`
-	Setup                *EdgeSetup         `json:"setup,omitempty"`
-	Change               *EdgeChangeDetail  `json:"change,omitempty"`
-	Fingerprint          string             `json:"fingerprint,omitempty"`
-	LastFullRevalidation time.Time          `json:"last_full_revalidation,omitzero"`
-	NotExecution         bool               `json:"not_execution"`
+	SchemaVersion        string                    `json:"schema_version"`
+	State                string                    `json:"state"`
+	Reason               string                    `json:"reason,omitempty"`
+	AsOf                 time.Time                 `json:"as_of,omitzero"`
+	Window               string                    `json:"window"`
+	HorizonSessions      int                       `json:"horizon_sessions"`
+	AutomaticHorizon     bool                      `json:"automatic_horizon"`
+	HorizonSelection     EdgeHorizonSelection      `json:"horizon_selection"`
+	Headline             string                    `json:"headline,omitempty"`
+	MarketContext        []EdgeMarketContextRollup `json:"market_context"`
+	MarketContextMissing []string                  `json:"market_context_missing"`
+	Account              *EdgeAccountResult        `json:"account,omitempty"`
+	ActionRollups        []EdgeActionRollup        `json:"action_rollups"`
+	Findings             []EdgeFinding             `json:"findings"`
+	Options              []EdgeOptionResult        `json:"options"`
+	OptionsTotalCount    int                       `json:"options_total_count"`
+	OptionsTruncated     bool                      `json:"options_truncated"`
+	Coverage             EdgeCoverage              `json:"coverage"`
+	Method               EdgeMethod                `json:"method"`
+	Setup                *EdgeSetup                `json:"setup,omitempty"`
+	Change               *EdgeChangeDetail         `json:"change,omitempty"`
+	Fingerprint          string                    `json:"fingerprint,omitempty"`
+	LastFullRevalidation time.Time                 `json:"last_full_revalidation,omitzero"`
+	NotExecution         bool                      `json:"not_execution"`
+}
+
+// EdgeHorizonSelection explains whether the selected lens was explicit or the
+// daemon's deterministic best available automatic horizon.
+type EdgeHorizonSelection struct {
+	Mode                string  `json:"mode"`
+	Reason              string  `json:"reason"`
+	EligibleChanges     int     `json:"eligible_changes"`
+	ScoredChanges       int     `json:"scored_changes"`
+	CoveragePct         float64 `json:"coverage_pct"`
+	LargestActionSample int     `json:"largest_action_sample"`
+	MinimumSample       int     `json:"minimum_sample"`
+	MinimumCoveragePct  float64 `json:"minimum_coverage_pct"`
+	Adequate            bool    `json:"adequate"`
 }
 
 // EdgeAccountResult is the sanitized account-level result for exact statement
@@ -105,23 +128,49 @@ type EdgeActionRollup struct {
 
 // EdgeHorizonRollup is one count, total, and median matrix cell.
 type EdgeHorizonRollup struct {
-	Sessions    int      `json:"sessions"`
-	SampleCount int      `json:"sample_count"`
-	TotalBase   *float64 `json:"total_base,omitempty"`
-	MedianBase  *float64 `json:"median_base,omitempty"`
+	Sessions      int                       `json:"sessions"`
+	SampleCount   int                       `json:"sample_count"`
+	TotalBase     *float64                  `json:"total_base,omitempty"`
+	MedianBase    *float64                  `json:"median_base,omitempty"`
+	MarketContext []EdgeMarketContextRollup `json:"market_context,omitempty"`
+}
+
+// EdgeMarketContextRollup is informational benchmark context for the selected
+// action/horizon. It does not participate in the Edge impact calculation.
+type EdgeMarketContextRollup struct {
+	Key                string   `json:"key"`
+	Label              string   `json:"label"`
+	Kind               string   `json:"kind"`
+	SampleCount        int      `json:"sample_count"`
+	MedianChangePct    *float64 `json:"median_change_pct,omitempty"`
+	MedianChangePoints *float64 `json:"median_change_points,omitempty"`
+}
+
+// EdgeMarketContext is one exact benchmark interval attached to a finding.
+type EdgeMarketContext struct {
+	Key          string    `json:"key"`
+	Label        string    `json:"label"`
+	Kind         string    `json:"kind"`
+	StartDay     time.Time `json:"start_day"`
+	EndDay       time.Time `json:"end_day"`
+	StartClose   float64   `json:"start_close"`
+	EndClose     float64   `json:"end_close"`
+	ChangePct    float64   `json:"change_pct"`
+	ChangePoints *float64  `json:"change_points,omitempty"`
 }
 
 // EdgeFinding is one bounded, opaque-ID retrospective observation.
 type EdgeFinding struct {
-	ChangeID             string    `json:"change_id"`
-	Symbol               string    `json:"symbol"`
-	Action               string    `json:"action"`
-	Direction            string    `json:"direction"`
-	ExecutedAt           time.Time `json:"executed_at"`
-	HorizonSessions      int       `json:"horizon_sessions"`
-	DecisionNotionalBase float64   `json:"decision_notional_base"`
-	DecisionImpactBase   float64   `json:"decision_impact_base"`
-	DecisionImpactPct    float64   `json:"decision_impact_pct"`
+	ChangeID             string              `json:"change_id"`
+	Symbol               string              `json:"symbol"`
+	Action               string              `json:"action"`
+	Direction            string              `json:"direction"`
+	ExecutedAt           time.Time           `json:"executed_at"`
+	HorizonSessions      int                 `json:"horizon_sessions"`
+	DecisionNotionalBase float64             `json:"decision_notional_base"`
+	DecisionImpactBase   float64             `json:"decision_impact_base"`
+	DecisionImpactPct    float64             `json:"decision_impact_pct"`
+	MarketContext        []EdgeMarketContext `json:"market_context,omitempty"`
 }
 
 // EdgeChangeDetail expands one opaque change without exposing broker identity.
@@ -144,14 +193,15 @@ type EdgeChangeDetail struct {
 
 // EdgeHorizonScore exposes either one calculated impact or a typed reason.
 type EdgeHorizonScore struct {
-	Sessions             int        `json:"sessions"`
-	HorizonDay           *time.Time `json:"horizon_day,omitempty"`
-	HorizonClose         *float64   `json:"horizon_close,omitempty"`
-	HorizonFX            *float64   `json:"horizon_fx,omitempty"`
-	DecisionNotionalBase *float64   `json:"decision_notional_base,omitempty"`
-	DecisionImpactBase   *float64   `json:"decision_impact_base,omitempty"`
-	DecisionImpactPct    *float64   `json:"decision_impact_pct,omitempty"`
-	Reason               string     `json:"reason,omitempty"`
+	Sessions             int                 `json:"sessions"`
+	HorizonDay           *time.Time          `json:"horizon_day,omitempty"`
+	HorizonClose         *float64            `json:"horizon_close,omitempty"`
+	HorizonFX            *float64            `json:"horizon_fx,omitempty"`
+	DecisionNotionalBase *float64            `json:"decision_notional_base,omitempty"`
+	DecisionImpactBase   *float64            `json:"decision_impact_base,omitempty"`
+	DecisionImpactPct    *float64            `json:"decision_impact_pct,omitempty"`
+	MarketContext        []EdgeMarketContext `json:"market_context,omitempty"`
+	Reason               string              `json:"reason,omitempty"`
 }
 
 // EdgeOptionResult exposes broker-actual option P/L only.
@@ -185,6 +235,9 @@ type EdgeMethod struct {
 	HorizonDefinition   string `json:"horizon_definition"`
 	HeadlineSelection   string `json:"headline_selection"`
 	FindingRanking      string `json:"finding_ranking"`
+	MaterialityGate     string `json:"materiality_gate"`
+	AutomaticHorizon    string `json:"automatic_horizon"`
+	MarketContext       string `json:"market_context"`
 	AccountDefinition   string `json:"account_definition"`
 	Exclusions          string `json:"exclusions"`
 	OptionsMethod       string `json:"options_method"`
@@ -212,7 +265,7 @@ type EdgeSectionRequirement struct {
 // ValidateEdgeResult rejects malformed or accidentally execution-capable wire
 // results before adapters render them.
 func ValidateEdgeResult(result EdgeResult) error {
-	if result.SchemaVersion != "canary-edge-v1" {
+	if result.SchemaVersion != "canary-edge-v2" {
 		return fmt.Errorf("invalid Edge schema version %q", result.SchemaVersion)
 	}
 	switch result.State {
@@ -226,6 +279,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 	if result.HorizonSessions != 1 && result.HorizonSessions != 5 && result.HorizonSessions != 20 {
 		return fmt.Errorf("invalid Edge horizon %d", result.HorizonSessions)
 	}
+	if err := validateEdgeHorizonSelection(result); err != nil {
+		return err
+	}
 	if !result.NotExecution {
 		return fmt.Errorf("edge result must be marked not_execution")
 	}
@@ -238,7 +294,7 @@ func ValidateEdgeResult(result EdgeResult) error {
 	if result.State == EdgeStateCurrent && result.Fingerprint == "" {
 		return fmt.Errorf("current Edge result requires a fingerprint")
 	}
-	if result.Fingerprint != "" && (result.AsOf.IsZero() || result.Method.Metric != "Decision price impact" || strings.TrimSpace(result.Method.HeadlineSelection) == "" || strings.TrimSpace(result.Method.FindingRanking) == "" || !result.Method.NoCausalClaim || !result.Method.NoPredictiveClaim || !result.Method.NotInvestmentAdvice) {
+	if result.Fingerprint != "" && (result.AsOf.IsZero() || result.Method.Metric != "Decision price impact" || strings.TrimSpace(result.Method.HeadlineSelection) == "" || strings.TrimSpace(result.Method.FindingRanking) == "" || strings.TrimSpace(result.Method.MaterialityGate) == "" || strings.TrimSpace(result.Method.AutomaticHorizon) == "" || strings.TrimSpace(result.Method.MarketContext) == "" || !result.Method.NoCausalClaim || !result.Method.NoPredictiveClaim || !result.Method.NotInvestmentAdvice) {
 		return fmt.Errorf("published Edge result has an invalid method contract")
 	}
 	if result.Account != nil {
@@ -272,12 +328,46 @@ func ValidateEdgeResult(result EdgeResult) error {
 					return fmt.Errorf("invalid Edge rollup amount")
 				}
 			}
+			if err := validateEdgeMarketContextRollups(horizon.MarketContext); err != nil {
+				return err
+			}
+			for _, context := range horizon.MarketContext {
+				if context.SampleCount > horizon.SampleCount {
+					return fmt.Errorf("invalid Edge market context sample")
+				}
+			}
 		}
+	}
+	if err := validateEdgeMarketContextRollups(result.MarketContext); err != nil {
+		return err
+	}
+	presentContext := map[string]bool{}
+	for _, context := range result.MarketContext {
+		presentContext[context.Key] = true
+		if context.SampleCount > result.HorizonSelection.LargestActionSample {
+			return fmt.Errorf("invalid selected Edge market context sample")
+		}
+	}
+	missingContext := map[string]bool{}
+	for _, key := range result.MarketContextMissing {
+		if !validEdgeMarketContextKey(key) || presentContext[key] || missingContext[key] {
+			return fmt.Errorf("invalid missing Edge market context")
+		}
+		missingContext[key] = true
+	}
+	if len(presentContext)+len(missingContext) > 0 && len(presentContext)+len(missingContext) != 4 {
+		return fmt.Errorf("incomplete Edge market context disclosure")
 	}
 	for _, finding := range result.Findings {
 		if !strings.HasPrefix(finding.ChangeID, "change_") || !validEdgeAction(finding.Action) || !validEdgeDirection(finding.Direction) || finding.HorizonSessions != result.HorizonSessions || finding.ExecutedAt.IsZero() || !finite(finding.DecisionNotionalBase) || finding.DecisionNotionalBase <= 0 || !finite(finding.DecisionImpactBase) || !finite(finding.DecisionImpactPct) {
 			return fmt.Errorf("invalid Edge finding")
 		}
+		if err := validateEdgeMarketContext(finding.MarketContext); err != nil {
+			return err
+		}
+	}
+	if result.OptionsTotalCount < len(result.Options) || result.OptionsTotalCount < 0 || result.OptionsTruncated != (result.OptionsTotalCount > len(result.Options)) || len(result.Options) > MaxEdgeOptionResults {
+		return fmt.Errorf("invalid Edge option result count")
 	}
 	for _, option := range result.Options {
 		if !strings.HasPrefix(option.ID, "option_") || (option.Grouping != "contract" && option.Grouping != "exact_order") || option.LegCount < 1 || !option.ActualOnly {
@@ -346,6 +436,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 			if !validEdgeHorizon(score.Sessions) || score.DecisionImpactBase != nil && score.Reason != "" {
 				return fmt.Errorf("invalid Edge change score")
 			}
+			if score.DecisionImpactBase == nil && len(score.MarketContext) > 0 {
+				return fmt.Errorf("unscored Edge change carries market context")
+			}
 			if score.DecisionImpactBase != nil && (score.DecisionNotionalBase == nil || score.DecisionImpactPct == nil || *score.DecisionNotionalBase <= 0) {
 				return fmt.Errorf("invalid Edge score ranking inputs")
 			}
@@ -354,9 +447,94 @@ func ValidateEdgeResult(result EdgeResult) error {
 					return fmt.Errorf("invalid Edge score amount")
 				}
 			}
+			if err := validateEdgeMarketContext(score.MarketContext); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func validateEdgeHorizonSelection(result EdgeResult) error {
+	selection := result.HorizonSelection
+	if selection.Mode != "automatic" && selection.Mode != "explicit" {
+		return fmt.Errorf("invalid Edge horizon selection mode")
+	}
+	if result.AutomaticHorizon != (selection.Mode == "automatic") || selection.EligibleChanges < 0 || selection.ScoredChanges < 0 || selection.ScoredChanges > selection.EligibleChanges || selection.LargestActionSample < 0 || selection.LargestActionSample > selection.ScoredChanges || selection.MinimumSample != 3 || !finite(selection.CoveragePct) || selection.CoveragePct < 0 || selection.CoveragePct > 100 || selection.MinimumCoveragePct != 25 || strings.TrimSpace(selection.Reason) == "" {
+		return fmt.Errorf("invalid Edge horizon selection")
+	}
+	wantCoverage := 0.0
+	if selection.EligibleChanges > 0 {
+		wantCoverage = float64(selection.ScoredChanges) / float64(selection.EligibleChanges) * 100
+	}
+	wantAdequate := selection.ScoredChanges >= selection.MinimumSample && selection.LargestActionSample >= selection.MinimumSample && wantCoverage >= selection.MinimumCoveragePct
+	if math.Abs(selection.CoveragePct-wantCoverage) > 1e-9 || selection.Adequate != wantAdequate || selection.EligibleChanges != result.Coverage.EligibleChanges || selection.ScoredChanges != result.Coverage.ScoredByHorizon[result.HorizonSessions] {
+		return fmt.Errorf("inconsistent Edge horizon selection")
+	}
+	if selection.Mode == "automatic" {
+		validReason := selection.Reason == "snapshot_unavailable" || !selection.Adequate && selection.Reason == "best_available" || selection.Adequate && selection.Reason == "longest_adequately_covered"
+		if !validReason {
+			return fmt.Errorf("invalid automatic Edge horizon reason")
+		}
+	} else if selection.Reason != "snapshot_unavailable" && selection.Reason != "explicit_override" {
+		return fmt.Errorf("invalid explicit Edge horizon reason")
+	}
+	return nil
+}
+
+func validateEdgeMarketContextRollups(rows []EdgeMarketContextRollup) error {
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !validEdgeMarketContextIdentity(row.Key, row.Label, row.Kind) || seen[row.Key] || row.SampleCount < 1 || row.MedianChangePct == nil || !finite(*row.MedianChangePct) {
+			return fmt.Errorf("invalid Edge market context rollup")
+		}
+		seen[row.Key] = true
+		if row.Kind == "volatility_index" {
+			if row.MedianChangePoints == nil || !finite(*row.MedianChangePoints) {
+				return fmt.Errorf("invalid Edge volatility context rollup")
+			}
+		} else if row.MedianChangePoints != nil {
+			return fmt.Errorf("invalid Edge proxy context rollup")
+		}
+	}
+	return nil
+}
+
+func validateEdgeMarketContext(rows []EdgeMarketContext) error {
+	seen := map[string]bool{}
+	for _, row := range rows {
+		if !validEdgeMarketContextIdentity(row.Key, row.Label, row.Kind) || seen[row.Key] || row.StartDay.IsZero() || row.EndDay.IsZero() || !row.StartDay.Before(row.EndDay) || !finite(row.StartClose) || row.StartClose <= 0 || !finite(row.EndClose) || row.EndClose <= 0 || !finite(row.ChangePct) {
+			return fmt.Errorf("invalid Edge market context")
+		}
+		seen[row.Key] = true
+		if row.Kind == "volatility_index" {
+			if row.ChangePoints == nil || !finite(*row.ChangePoints) {
+				return fmt.Errorf("invalid Edge volatility context")
+			}
+		} else if row.ChangePoints != nil {
+			return fmt.Errorf("invalid Edge proxy context")
+		}
+	}
+	return nil
+}
+
+func validEdgeMarketContextIdentity(key, label, kind string) bool {
+	switch key {
+	case "spy":
+		return label == "S&P 500 proxy (SPY)" && kind == "market_proxy"
+	case "qqq":
+		return label == "Nasdaq-100 proxy (QQQ)" && kind == "market_proxy"
+	case "dia":
+		return label == "Dow proxy (DIA)" && kind == "market_proxy"
+	case "vix":
+		return label == "CBOE VIX" && kind == "volatility_index"
+	default:
+		return false
+	}
+}
+
+func validEdgeMarketContextKey(key string) bool {
+	return key == "spy" || key == "qqq" || key == "dia" || key == "vix"
 }
 
 func validEdgeHorizon(value int) bool { return value == 1 || value == 5 || value == 20 }

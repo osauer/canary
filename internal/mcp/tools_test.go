@@ -163,7 +163,7 @@ func TestEdgeToolPreservesTheTypedDecisionReviewExactly(t *testing.T) {
 		t.Fatalf("MCP changed the typed Edge result:\ngot  %+v\nwant %+v", got, want)
 	}
 	call := <-calls
-	if call.method != rpc.MethodEdgeSnapshot || call.params != (rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: 3}) {
+	if call.method != rpc.MethodEdgeSnapshot || call.params != (rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, AutomaticHorizon: true, Limit: 3}) {
 		t.Fatalf("MCP call=%+v", call)
 	}
 }
@@ -212,21 +212,22 @@ func edgeMCPParityResult() rpc.EdgeResult {
 	now := time.Date(2026, time.August, 24, 23, 0, 0, 0, time.UTC)
 	total, median, optionPNL := -453.0, -151.0, 90.0
 	return rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, AsOf: now, Window: "365d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, AsOf: now, Window: "365d", HorizonSessions: 20,
+		AutomaticHorizon: true, HorizonSelection: rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 15, ScoredChanges: 7, CoveragePct: 7.0 / 15 * 100, LargestActionSample: 3, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true},
 		Headline:      "Observed drag: across 3 clean adds, 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
 		Account:       &rpc.EdgeAccountResult{BaseCurrency: "USD", RequestedFrom: now.AddDate(0, 0, -365), ActualFrom: now.AddDate(0, 0, -365), ActualTo: now, StartingEquityBase: 100_000, EndingEquityBase: 112_500, ExternalFlowsBase: 10_000, ProfitLossBase: 2_500, Definition: "Ending equity minus starting equity minus statement-confirmed external flows."},
 		ActionRollups: []rpc.EdgeActionRollup{{Action: "add", Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 3, TotalBase: &total, MedianBase: &median}}}},
 		Findings:      []rpc.EdgeFinding{{ChangeID: "change_opaque", Symbol: "GAMMA", Action: "add", Direction: "long", ExecutedAt: now.AddDate(0, -9, 0), HorizonSessions: 20, DecisionNotionalBase: 825, DecisionImpactBase: -151, DecisionImpactPct: -151.0 / 825 * 100}},
-		Options:       []rpc.EdgeOptionResult{{ID: "option_opaque", Grouping: "exact_order", Symbol: "APEX option", LegCount: 2, ActualPNLBase: &optionPNL, ActualOnly: true}},
-		Coverage:      rpc.EdgeCoverage{TradeChanges: 17, EligibleChanges: 15, ScoredByHorizon: map[int]int{1: 13, 5: 10, 20: 7}, ReasonCounts: map[string]int{"intervening_change": 2}, PresentSections: []string{"trades"}},
-		Method:        rpc.EdgeMethod{Metric: "Decision price impact", Counterfactual: "Leave the pre-trade position unchanged.", HorizonDefinition: "First, fifth, and twentieth available IBKR closes after execution.", HeadlineSelection: "Most clean observations at the selected horizon; ties use open, add, trim, exit order.", FindingRanking: "Absolute decision impact percentage, then absolute base-currency impact, then opaque change ID.", AccountDefinition: "Ending equity minus starting equity minus statement-confirmed external flows.", Exclusions: "Distributions, financing, borrow, and market impact.", OptionsMethod: "Broker-actual P/L only.", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
-		Fingerprint:   "edge_acceptance", LastFullRevalidation: now, NotExecution: true,
+		Options:       []rpc.EdgeOptionResult{{ID: "option_opaque", Grouping: "exact_order", Symbol: "APEX option", LegCount: 2, ActualPNLBase: &optionPNL, ActualOnly: true}}, OptionsTotalCount: 1,
+		Coverage:    rpc.EdgeCoverage{TradeChanges: 17, EligibleChanges: 15, ScoredByHorizon: map[int]int{1: 13, 5: 10, 20: 7}, ReasonCounts: map[string]int{"intervening_change": 2}, PresentSections: []string{"trades"}},
+		Method:      rpc.EdgeMethod{Metric: "Decision price impact", Counterfactual: "Leave the pre-trade position unchanged.", HorizonDefinition: "First, fifth, and twentieth available IBKR closes after execution.", HeadlineSelection: "Most clean observations at the selected horizon; ties use open, add, trim, exit order.", FindingRanking: "Absolute decision impact percentage, then absolute base-currency impact, then opaque change ID.", MaterialityGate: "Account-relative gates.", AutomaticHorizon: "Longest adequately covered horizon.", MarketContext: "Informational benchmarks only.", AccountDefinition: "Ending equity minus starting equity minus statement-confirmed external flows.", Exclusions: "Distributions, financing, borrow, and market impact.", OptionsMethod: "Broker-actual P/L only.", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
+		Fingerprint: "edge_acceptance", LastFullRevalidation: now, NotExecution: true,
 	}
 }
 
 func TestEdgeWireShapeCannotExposeBrokerIdentifiers(t *testing.T) {
 	result := rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, Window: "90d", HorizonSessions: 20,
 		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{{ChangeID: "change_opaque", Symbol: "ABC", Action: "add", Direction: "long", HorizonSessions: 20}},
 		Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 	}

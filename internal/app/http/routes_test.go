@@ -63,11 +63,19 @@ func (c *routeEdgeClient) EdgeSnapshot(_ context.Context, params rpc.EdgeSnapsho
 	c.calls++
 	c.params = params
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	mode := "explicit"
+	reason := "explicit_override"
+	if params.AutomaticHorizon {
+		mode = "automatic"
+		reason = "best_available"
+	}
 	return &rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, AsOf: now, Window: params.Window,
-		HorizonSessions: params.HorizonSessions, ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
+		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, AsOf: now, Window: params.Window,
+		HorizonSessions: params.HorizonSessions, AutomaticHorizon: params.AutomaticHorizon,
+		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: reason, MinimumSample: 3, MinimumCoveragePct: 25},
+		ActionRollups:    []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
 		Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
-		Method:      rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
+		Method:      rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
 		Fingerprint: "edge_opaque", NotExecution: true,
 	}, nil
 }
@@ -106,7 +114,7 @@ func TestEdgeRouteRequiresReadAuthAndForwardsOnlyBoundedTypedInputs(t *testing.T
 	if automaticRes.Code != http.StatusOK {
 		t.Fatalf("automatic Edge status=%d body=%s", automaticRes.Code, automaticRes.Body.String())
 	}
-	automaticWant := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: rpc.MaxEdgeFindings}
+	automaticWant := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, AutomaticHorizon: true, Limit: rpc.MaxEdgeFindings}
 	if client.params != automaticWant || client.calls != 2 {
 		t.Fatalf("automatic Edge params=%+v calls=%d want %+v/2", client.params, client.calls, automaticWant)
 	}

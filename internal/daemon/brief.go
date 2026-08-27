@@ -170,7 +170,7 @@ func (s *Server) composeBriefReview(portfolio rpc.BriefPortfolioSection, riskLim
 
 func (s *Server) briefEdgeRow(ctx context.Context) rpc.BriefEdgeRow {
 	row := rpc.BriefEdgeRow{State: rpc.EdgeStateUnavailable, HorizonSessions: 20}
-	result, err := s.handleEdgeSnapshot(ctx, &rpc.Request{Params: briefJSON(rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: 1})})
+	result, err := s.handleEdgeSnapshot(ctx, &rpc.Request{Params: briefJSON(rpc.EdgeSnapshotParams{Window: "365d", AutomaticHorizon: true, Limit: 1})})
 	if err != nil || result == nil {
 		row.BriefRowState = briefUnavailable("Canary Edge snapshot unavailable")
 		return row

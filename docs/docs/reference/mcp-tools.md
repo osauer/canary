@@ -107,14 +107,14 @@ Read shared IBKR statement-reporting setup, broker reachability, backfill state,
 
 ## `canary_edge`
 
-Call with no arguments for Canary's automatic one-year review of where past decisions historically helped or hurt. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.
+Call with no arguments for Canary's automatic one-year review of where materially repeated past decisions historically helped or hurt, with fixed SPY, QQQ, DIA, and VIX context when available. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, inferred trade intent, or causal claims. It is read-only and cannot refresh data.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `change_id` | string | no | optional opaque change ID returned by a prior canary_edge call |
-| `horizon_sessions` | integer | no | highlighted decision-price-impact horizon; default 20 |
+| `horizon_sessions` | integer | no | optional explicit decision-price-impact horizon; omitted selects the longest adequately covered horizon automatically |
 | `limit` | integer | no | maximum findings; default 3 |
 | `window` | string | no | optional review override; default 365d |
 

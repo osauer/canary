@@ -10,9 +10,10 @@ import (
 
 func TestEdgeResultPreservesMissingFinancialValues(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: EdgeStateBackfilling, Window: "90d", HorizonSessions: 20,
-		ActionRollups: []EdgeActionRollup{{Action: "open", Horizons: []EdgeHorizonRollup{{Sessions: 20, SampleCount: 0}}}},
-		Findings:      []EdgeFinding{}, Options: []EdgeOptionResult{}, Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+		SchemaVersion: "canary-edge-v2", State: EdgeStateBackfilling, Window: "90d", HorizonSessions: 20,
+		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
+		ActionRollups:    []EdgeActionRollup{{Action: "open", Horizons: []EdgeHorizonRollup{{Sessions: 20, SampleCount: 0}}}},
+		Findings:         []EdgeFinding{}, Options: []EdgeOptionResult{}, Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -29,10 +30,11 @@ func TestEdgeResultPreservesMissingFinancialValues(t *testing.T) {
 func TestEdgeResultValidationFailsClosed(t *testing.T) {
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
 	base := EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
-		ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
+		SchemaVersion: "canary-edge-v2", State: EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
+		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
+		ActionRollups:    []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
 		Coverage:    EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
-		Method:      EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
+		Method:      EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
 		Fingerprint: "edge_safe", NotExecution: true,
 	}
 	if err := ValidateEdgeResult(base); err != nil {
@@ -51,6 +53,7 @@ func TestEdgeResultValidationFailsClosed(t *testing.T) {
 		{"change id", func(v *EdgeResult) { v.Findings = []EdgeFinding{{ChangeID: "raw-id"}} }},
 		{"method claims", func(v *EdgeResult) { v.Method.NoCausalClaim = false }},
 		{"finding ranking", func(v *EdgeResult) { v.Method.FindingRanking = "" }},
+		{"market context disclosure", func(v *EdgeResult) { v.MarketContextMissing = []string{"spy"} }},
 		{"account amount", func(v *EdgeResult) {
 			v.Account = &EdgeAccountResult{RequestedFrom: now.AddDate(0, 0, -90), ActualFrom: now.AddDate(0, 0, -89), ActualTo: now, StartingEquityBase: math.NaN(), Definition: "defined"}
 		}},
@@ -79,7 +82,7 @@ func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Window != "365d" || got.HorizonSessions != 20 || got.Limit != MaxEdgeFindings {
+	if got.Window != "365d" || got.HorizonSessions != 20 || !got.AutomaticHorizon || got.Limit != MaxEdgeFindings {
 		t.Fatalf("defaults=%+v", got)
 	}
 	for _, input := range []EdgeSnapshotParams{{Limit: 4}, {Window: "all"}, {HorizonSessions: 10}, {ChangeID: "broker-id"}} {
@@ -91,9 +94,10 @@ func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T
 
 func TestEdgeSetupMissingRequirementsAreManifestAllowlisted(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: EdgeStateActionRequired, Reason: "flex_query_incomplete",
+		SchemaVersion: "canary-edge-v2", State: EdgeStateActionRequired, Reason: "flex_query_incomplete",
 		Window: "90d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
-		Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
+		Coverage:         EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 		Setup: &EdgeSetup{
 			ManifestVersion: "canary-reporting-flex-v1", Steps: []string{"one", "two", "three"},
 			Sections:            []EdgeSectionRequirement{{Key: "trades", Label: "Trades", Fields: []string{"ibOrderID", "tradePrice"}}},
@@ -111,9 +115,10 @@ func TestEdgeSetupMissingRequirementsAreManifestAllowlisted(t *testing.T) {
 
 func TestEdgeSetupMayExplainOnlyTheTypedUnprovedTradeState(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: EdgeStateInsufficient, Reason: "trade_history_unproved",
+		SchemaVersion: "canary-edge-v2", State: EdgeStateInsufficient, Reason: "trade_history_unproved",
 		Window: "365d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
-		Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
+		Coverage:         EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 		Setup: &EdgeSetup{
 			ManifestVersion: "canary-reporting-flex-v1", Steps: []string{"one", "two", "three"},
 			Sections: []EdgeSectionRequirement{{Key: "trades", Label: "Trades", Fields: []string{"tradePrice"}}},
@@ -131,4 +136,22 @@ func TestEdgeSetupMayExplainOnlyTheTypedUnprovedTradeState(t *testing.T) {
 	if err := ValidateEdgeResult(result); err == nil {
 		t.Fatal("setup escaped the typed unproved-trade state")
 	}
+}
+
+func edgeTestSelection(automatic bool, eligible, scored, largest int) EdgeHorizonSelection {
+	mode := "explicit"
+	reason := "explicit_override"
+	if automatic {
+		mode = "automatic"
+		reason = "best_available"
+	}
+	coverage := 0.0
+	if eligible > 0 {
+		coverage = float64(scored) / float64(eligible) * 100
+	}
+	adequate := scored >= 3 && largest >= 3 && coverage >= 25
+	if automatic && adequate {
+		reason = "longest_adequately_covered"
+	}
+	return EdgeHorizonSelection{Mode: mode, Reason: reason, EligibleChanges: eligible, ScoredChanges: scored, CoveragePct: coverage, LargestActionSample: largest, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: adequate}
 }

@@ -5,6 +5,9 @@ const EDGE_WINDOWS = new Set(["90d", "365d"]);
 const EDGE_HORIZONS = new Set([1, 5, 20]);
 const EDGE_STATES = new Set(["action_required", "backfilling", "current", "degraded", "insufficient_evidence", "unavailable"]);
 const EDGE_ACTIONS = ["open", "add", "trim", "exit"];
+const EDGE_MARKET_LABELS = new Map([
+  ["spy", "S&P 500 proxy (SPY)"], ["qqq", "Nasdaq-100 proxy (QQQ)"], ["dia", "Dow proxy (DIA)"], ["vix", "CBOE VIX"],
+]);
 
 async function refreshEdge(changeID = "") {
   if (!state.authenticated) return false;
@@ -43,14 +46,37 @@ async function refreshEdge(changeID = "") {
 
 function validEdgeResult(result) {
   if (!result || typeof result !== "object") return false;
+  if (result.schema_version !== "canary-edge-v2") return false;
   if (!EDGE_STATES.has(result.state) || !EDGE_WINDOWS.has(result.window)) return false;
   if (!EDGE_HORIZONS.has(Number(result.horizon_sessions)) || result.not_execution !== true) return false;
+  const selection = result.horizon_selection;
+  if (!selection || !["automatic", "explicit"].includes(selection.mode) || Boolean(result.automatic_horizon) !== (selection.mode === "automatic")) return false;
+  if (![selection.eligible_changes, selection.scored_changes, selection.coverage_pct, selection.largest_action_sample].every(hasNumericValue)) return false;
   if (!Array.isArray(result.action_rollups) || !Array.isArray(result.findings) || result.findings.length > 3) return false;
-  if (!Array.isArray(result.options) || !result.coverage || typeof result.coverage !== "object" || !result.method) return false;
-  if (result.fingerprint && (result.method.metric !== "Decision price impact" || !String(result.method.headline_selection || "").trim() || !String(result.method.finding_ranking || "").trim())) return false;
+  if (!Array.isArray(result.market_context) || !result.market_context.every(validEdgeMarketContextRollup) || !Array.isArray(result.market_context_missing)) return false;
+  const presentContext = new Set(result.market_context.map((row) => row.key));
+  const missingContext = new Set(result.market_context_missing);
+  if (missingContext.size !== result.market_context_missing.length || result.market_context_missing.some((key) => !EDGE_MARKET_LABELS.has(key) || presentContext.has(key))) return false;
+  if (!Array.isArray(result.options) || !hasNumericValue(result.options_total_count) || result.options_total_count < result.options.length || Boolean(result.options_truncated) !== (result.options_total_count > result.options.length) || !result.coverage || typeof result.coverage !== "object" || !result.method) return false;
+  if (result.fingerprint && (result.method.metric !== "Decision price impact" || !String(result.method.headline_selection || "").trim() || !String(result.method.finding_ranking || "").trim() || !String(result.method.materiality_gate || "").trim() || !String(result.method.automatic_horizon || "").trim() || !String(result.method.market_context || "").trim())) return false;
   if (result.change != null && !validEdgeChange(result.change)) return false;
-  return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct))
+  return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct) && Array.isArray(finding.market_context || []) && (finding.market_context || []).every(validEdgeMarketContext))
     && result.options.every((option) => String(option?.id || "").startsWith("option_") && option?.actual_only === true);
+}
+
+function validEdgeMarketContextIdentity(row) {
+  return row && ["spy", "qqq", "dia", "vix"].includes(row.key) && ["market_proxy", "volatility_index"].includes(row.kind) && String(row.label || "").trim();
+}
+
+function validEdgeMarketContextRollup(row) {
+  return validEdgeMarketContextIdentity(row) && hasNumericValue(row.sample_count) && row.sample_count > 0 && hasNumericValue(row.median_change_pct)
+    && (row.kind === "volatility_index" ? hasNumericValue(row.median_change_points) : row.median_change_points == null);
+}
+
+function validEdgeMarketContext(row) {
+  return validEdgeMarketContextIdentity(row) && String(row.start_day || "").trim() && String(row.end_day || "").trim()
+    && hasNumericValue(row.start_close) && row.start_close > 0 && hasNumericValue(row.end_close) && row.end_close > 0 && hasNumericValue(row.change_pct)
+    && (row.kind === "volatility_index" ? hasNumericValue(row.change_points) : row.change_points == null);
 }
 
 function validEdgeChange(change) {
@@ -64,7 +90,7 @@ function validEdgeChange(change) {
     const values = [score?.horizon_close, score?.horizon_fx, score?.decision_notional_base, score?.decision_impact_base, score?.decision_impact_pct];
     if (!values.every((value) => value == null || hasNumericValue(value))) return false;
     const hasImpact = score.decision_impact_base != null;
-    if (hasImpact && (score.reason || !hasNumericValue(score.decision_notional_base) || score.decision_notional_base <= 0 || !hasNumericValue(score.decision_impact_pct))) return false;
+    if (hasImpact && (score.reason || !hasNumericValue(score.decision_notional_base) || score.decision_notional_base <= 0 || !hasNumericValue(score.decision_impact_pct) || !Array.isArray(score.market_context || []) || !(score.market_context || []).every(validEdgeMarketContext))) return false;
     return !score.reason || !hasImpact;
   });
 }
@@ -180,11 +206,25 @@ function renderEdgeAccount(result) {
 
 function renderEdgeMatrix(result) {
   const period = result.window === "365d" ? "One year" : "90 days";
-  $("edgeImpactLens").textContent = `${period} · ${result.horizon_sessions}-session headline`;
+  $("edgeImpactLens").textContent = `${period} · ${result.automatic_horizon ? "automatic · " : ""}${result.horizon_sessions}-session headline`;
   $("edgeHeadline").textContent = state.accountValueVisible
     ? (result.headline || "No highlighted finding has sufficient evidence.")
     : "Reveal account values to view the monetary headline.";
   $("edgeHeadline").classList.toggle("is-private", !state.accountValueVisible && Boolean(result.headline));
+  const contextChips = (result.market_context || []).map((context) => {
+    const chip = document.createElement("span");
+    const move = context.kind === "volatility_index" && hasNumericValue(context.median_change_points)
+      ? `${Number(context.median_change_points) > 0 ? "+" : ""}${Number(context.median_change_points).toFixed(2)} pts`
+      : edgeMarketPercent(context.median_change_pct);
+    chip.textContent = `${context.label} ${move} · n=${Number(context.sample_count || 0)}`;
+    return chip;
+  });
+  for (const key of result.market_context_missing || []) {
+    const chip = document.createElement("span");
+    chip.textContent = `${EDGE_MARKET_LABELS.get(key) || String(key).toUpperCase()} unavailable`;
+    contextChips.push(chip);
+  }
+  $("edgeMarketContext").replaceChildren(...contextChips);
   const rows = new Map((result.action_rollups || []).map((row) => [String(row.action || ""), row]));
   const header = document.createElement("div");
   header.className = "edge-matrix__row edge-matrix__row--head";
@@ -255,7 +295,8 @@ function renderEdgeFindings(result) {
     title.textContent = `${finding.symbol || "—"} · ${labelize(finding.action)}`;
     const meta = document.createElement("small");
     const impactPct = hasNumericValue(finding.decision_impact_pct) ? ` · ${Number(finding.decision_impact_pct).toFixed(2)}% of decision notional` : "";
-    meta.textContent = `${calendarDate(finding.executed_at)} · ${finding.horizon_sessions} sessions · ${labelize(finding.direction)}${impactPct}`;
+    const market = (finding.market_context || []).map(edgeMarketContextText).join(" · ");
+    meta.textContent = `${calendarDate(finding.executed_at)} · ${finding.horizon_sessions} sessions · ${labelize(finding.direction)}${impactPct}${market ? ` · ${market}` : ""}`;
     identity.append(title, meta);
     const amount = document.createElement("strong");
     amount.textContent = edgeMoney(finding.decision_impact_base, edgeCurrency(result));
@@ -316,6 +357,9 @@ function renderEdgeChange(result) {
       evidence.textContent = parts.join(" · ") || "Broker horizon evidence";
       evidence.classList.toggle("is-private", !state.accountValueVisible && score.horizon_close != null);
     }
+    if (!score.reason && score.market_context?.length) {
+      evidence.textContent += ` · ${score.market_context.map(edgeMarketContextText).join(" · ")}`;
+    }
     identity.append(title, evidence);
     const amount = document.createElement("strong");
     if (score.reason || score.decision_impact_base == null) {
@@ -332,7 +376,10 @@ function renderEdgeChange(result) {
 
 function renderEdgeOptions(result) {
   const options = result.options || [];
-  $("edgeOptionsCount").textContent = `${options.length} result${options.length === 1 ? "" : "s"}`;
+  const total = Number(result.options_total_count || 0);
+  $("edgeOptionsCount").textContent = result.options_truncated
+    ? `${options.length} of ${total} results`
+    : `${total} result${total === 1 ? "" : "s"}`;
   if (options.length === 0) {
     $("edgeOptionList").replaceChildren(emptyEdgeRow("No broker-actual option result is available for this window."));
     return;
@@ -365,7 +412,7 @@ function renderEdgeOptions(result) {
 function renderEdgeMethod(result) {
   const coverage = result.coverage || {};
   const scored = Number(coverage.scored_by_horizon?.[String(result.horizon_sessions)] ?? coverage.scored_by_horizon?.[result.horizon_sessions] ?? 0);
-  $("edgeCoverageSummary").textContent = `${scored}/${Number(coverage.trade_changes || 0)} scored at ${result.horizon_sessions}`;
+  $("edgeCoverageSummary").textContent = `${scored}/${Number(result.horizon_selection?.eligible_changes || 0)} eligible scored at ${result.horizon_sessions}`;
   const reasonEntries = Object.entries(coverage.reason_counts || {}).sort(([left], [right]) => left.localeCompare(right));
   const lines = [
     `${Number(coverage.eligible_changes || 0)} eligible of ${Number(coverage.trade_changes || 0)} reconstructed changes`,
@@ -384,6 +431,9 @@ function renderEdgeMethod(result) {
     ["Horizons", method.horizon_definition],
     ["Headline", method.headline_selection],
     ["Finding rank", method.finding_ranking],
+    ["Materiality", method.materiality_gate],
+    ["Automatic horizon", method.automatic_horizon],
+    ["Market context", method.market_context],
     ["Account", method.account_definition],
     ["Exclusions", method.exclusions],
     ["Options", method.options_method],
@@ -438,6 +488,18 @@ function edgeSignedPercent(value) {
   if (!hasNumericValue(value)) return "—";
   if (!state.accountValueVisible) return privacyMask();
   return `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
+}
+
+function edgeMarketPercent(value) {
+  if (!hasNumericValue(value)) return "—";
+  return `${value > 0 ? "+" : ""}${Number(value).toFixed(2)}%`;
+}
+
+function edgeMarketContextText(row) {
+  if (row.kind === "volatility_index" && hasNumericValue(row.change_points)) {
+    return `${row.label} ${Number(row.change_points) > 0 ? "+" : ""}${Number(row.change_points).toFixed(2)} pts`;
+  }
+  return `${row.label} ${edgeMarketPercent(row.change_pct)}`;
 }
 
 function moneyTone(value) {

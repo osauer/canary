@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"sort"
 	"strconv"
@@ -23,8 +24,8 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 1
-	edgeBarCacheVersion      = 2
+	edgePublicationVersion   = 2
+	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
 	edgeFullRevalidateAfter  = 30 * 24 * time.Hour
@@ -49,6 +50,7 @@ type edgeBarCache struct {
 	ScopeFingerprint     string                   `json:"scope_fingerprint"`
 	LastFullRevalidation time.Time                `json:"last_full_revalidation,omitzero"`
 	Contracts            map[string]edgeBarSeries `json:"contracts"`
+	MarketContext        map[string]edgeBarSeries `json:"market_context"`
 }
 
 type edgeBarSeries struct {
@@ -175,7 +177,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		return err
 	}
 	if cache.ScopeFingerprint != scopeFingerprint {
-		cache = edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scopeFingerprint, Contracts: map[string]edgeBarSeries{}}
+		cache = edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scopeFingerprint, Contracts: map[string]edgeBarSeries{}, MarketContext: map[string]edgeBarSeries{}}
 	}
 	contracts := edgeContracts(statements, s.edgeNow().AddDate(0, 0, -edgeFullLookbackDays))
 	now := s.edgeNow()
@@ -208,6 +210,33 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			return err
 		}
 	}
+	// Benchmarks are optional explanatory context. A failed context refresh
+	// never degrades or suppresses the broker-truth decision calculation; the
+	// last usable series remains available and missing series stay explicit by
+	// omission from the typed context arrays.
+	for _, benchmark := range edgecore.MarketBenchmarks() {
+		series := cache.MarketContext[benchmark.Symbol]
+		lookback, fetch := edgeBarRefreshPlan(now, full, series)
+		if !fetch {
+			continue
+		}
+		contextBars, fetchErr := s.fetchEdgeMarketBars(ctx, benchmark.Symbol, lookback)
+		if fetchErr != nil {
+			continue
+		}
+		series = edgeBarSeries{
+			Symbol: benchmark.Symbol, Currency: "USD", FetchedAt: now,
+			FullRevalidatedAt: series.FullRevalidatedAt,
+			Bars:              mergeEdgeBars(series.Bars, contextBars),
+		}
+		if lookback == edgeFullLookbackDays {
+			series.FullRevalidatedAt = now
+		}
+		cache.MarketContext[benchmark.Symbol] = series
+		if err := s.saveEdgeBarCache(ctx, cache); err != nil {
+			return err
+		}
+	}
 	if full && fetchedAll {
 		cache.LastFullRevalidation = now
 		if err := s.saveEdgeBarCache(ctx, cache); err != nil {
@@ -219,13 +248,17 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	for _, series := range cache.Contracts {
 		bars[series.ConID] = append([]edgecore.DailyBar(nil), series.Bars...)
 	}
+	contextBars := make(map[string][]edgecore.DailyBar, len(cache.MarketContext))
+	for symbol, series := range cache.MarketContext {
+		contextBars[symbol] = append([]edgecore.DailyBar(nil), series.Bars...)
+	}
 	baseCurrency := inferEdgeBaseCurrency(statements)
 	windows := make(map[string]edgecore.Result, 2)
 	for _, window := range []struct {
 		key  string
 		days int
 	}{{"90d", 90}, {"365d", 365}} {
-		result, analyzeErr := edgecore.Analyze(edgecore.Input{WindowDays: window.days, BaseCurrency: baseCurrency, Statements: statements, Bars: bars})
+		result, analyzeErr := edgecore.Analyze(edgecore.Input{WindowDays: window.days, BaseCurrency: baseCurrency, Statements: statements, Bars: bars, ContextBars: contextBars})
 		if analyzeErr != nil {
 			return analyzeErr
 		}
@@ -271,6 +304,30 @@ func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookb
 	if err != nil {
 		return nil, err
 	}
+	return edgeDailyBarsFromHistory(raw, spec.ConID)
+}
+
+func (s *Server) fetchEdgeMarketBars(ctx context.Context, symbol string, lookback int) ([]edgecore.DailyBar, error) {
+	var (
+		raw []ibkrlib.HistoricalBar
+		err error
+	)
+	if s.edgeFetchMarketBarsFn != nil {
+		raw, err = s.edgeFetchMarketBarsFn(ctx, symbol, lookback)
+	} else {
+		connector := s.gatewayConnector()
+		if connector == nil {
+			return nil, fmt.Errorf("gateway unavailable")
+		}
+		raw, err = connector.FetchHistoricalDailyBars(ctx, symbol, lookback, 0)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return edgeDailyBarsFromHistory(raw, 0)
+}
+
+func edgeDailyBarsFromHistory(raw []ibkrlib.HistoricalBar, conid int64) ([]edgecore.DailyBar, error) {
 	out := make([]edgecore.DailyBar, 0, len(raw))
 	for _, bar := range raw {
 		label := historyBarSessionDate(bar)
@@ -278,7 +335,7 @@ func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookb
 		if parseErr != nil || bar.Close <= 0 {
 			continue
 		}
-		out = append(out, edgecore.DailyBar{ConID: spec.ConID, Day: day, Close: bar.Close})
+		out = append(out, edgecore.DailyBar{ConID: conid, Day: day, Close: bar.Close})
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("no usable daily bars")
@@ -654,8 +711,13 @@ func (s *Server) loadEdgePublication(ctx context.Context) (edgePublication, bool
 	if err := json.Unmarshal(doc.JSON, &out); err != nil {
 		return out, false, fmt.Errorf("decode Edge publication: %w", err)
 	}
-	if out.Version != edgePublicationVersion {
-		return out, false, fmt.Errorf("unsupported Edge publication version")
+	if out.Version < edgePublicationVersion {
+		// Publications are regenerable. Treat an older analytical contract as
+		// absent so startup rebuilds it instead of serving mixed semantics.
+		return edgePublication{}, false, nil
+	}
+	if out.Version > edgePublicationVersion {
+		return out, false, fmt.Errorf("unsupported future Edge publication version")
 	}
 	return out, true, nil
 }
@@ -722,7 +784,7 @@ func (s *Server) edgeSubsystemHealth() rpc.SubsystemHealth {
 }
 
 func (s *Server) loadEdgeBarCache(ctx context.Context) (edgeBarCache, error) {
-	out := edgeBarCache{Version: edgeBarCacheVersion, Contracts: map[string]edgeBarSeries{}}
+	out := edgeBarCache{Version: edgeBarCacheVersion, Contracts: map[string]edgeBarSeries{}, MarketContext: map[string]edgeBarSeries{}}
 	doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, edgeBarCacheStateKind)
 	if err != nil || !ok {
 		return out, err
@@ -731,13 +793,20 @@ func (s *Server) loadEdgeBarCache(ctx context.Context) (edgeBarCache, error) {
 		return out, fmt.Errorf("decode Edge bar cache: %w", err)
 	}
 	if out.Version != 1 && out.Version != edgeBarCacheVersion {
-		return out, fmt.Errorf("unsupported Edge bar cache version")
+		if out.Version != 2 {
+			return out, fmt.Errorf("unsupported Edge bar cache version")
+		}
 	}
-	// Version 1 tracked only a global full refresh. Existing series therefore
-	// remain deliberately unproved until each one earns the v2 marker.
+	// Version 1 tracked only a global full refresh. Existing contract series
+	// therefore remain deliberately unproved until each one earns its own
+	// marker. Versions 1 and 2 predate the optional market-context cache, which
+	// starts empty and is regenerated without weakening the decision result.
 	out.Version = edgeBarCacheVersion
 	if out.Contracts == nil {
 		out.Contracts = map[string]edgeBarSeries{}
+	}
+	if out.MarketContext == nil {
+		out.MarketContext = map[string]edgeBarSeries{}
 	}
 	return out, nil
 }
@@ -783,14 +852,14 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	}
 	window, horizon, limit := params.Window, params.HorizonSessions, params.Limit
 	if s.cfg == nil || !s.cfg.Flex.Enabled || strings.TrimSpace(s.cfg.Flex.QueryID) == "" {
-		return edgeStateOnlyResult(rpc.EdgeStateActionRequired, "flex_configuration_required", window, horizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateActionRequired, "flex_configuration_required", window, horizon, params.AutomaticHorizon), nil
 	}
 	if s.coreStore == nil {
 		return nil, fmt.Errorf("edge authority is unavailable")
 	}
 	scope := s.currentBrokerStateScope()
 	if !brokerScopeConcrete(scope) {
-		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_unavailable", window, horizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_unavailable", window, horizon, params.AutomaticHorizon), nil
 	}
 	scopeFingerprint := edgeScopeFingerprint(scope)
 	publication, ok, err := s.loadEdgePublication(ctx)
@@ -799,10 +868,10 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	}
 	if !ok {
 		state, reason := rpc.EdgeStateBackfilling, "snapshot_pending"
-		return edgeStateOnlyResult(state, reason, window, horizon), nil
+		return edgeStateOnlyResult(state, reason, window, horizon, params.AutomaticHorizon), nil
 	}
 	if publication.ScopeFingerprint != scopeFingerprint {
-		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil
 	}
 	currentEvidence, fingerprintErr := s.edgeProjectionFingerprint(ctx, scope, scopeFingerprint)
 	if fingerprintErr != nil {
@@ -811,13 +880,16 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 		publication.State, publication.Reason = rpc.EdgeStateDegraded, "evidence_changed"
 	}
 	coreResult, haveWindow := publication.Windows[window]
-	result := edgeStateOnlyResult(publication.State, publication.Reason, window, horizon)
+	if haveWindow && params.AutomaticHorizon {
+		horizon = selectAutomaticEdgeHorizon(coreResult)
+	}
+	result := edgeStateOnlyResult(publication.State, publication.Reason, window, horizon, params.AutomaticHorizon)
 	if result.Setup != nil {
 		result.Setup.MissingRequirements = append([]string(nil), publication.MissingRequirements...)
 	}
 	result.LastFullRevalidation = publication.LastFullRevalidation
 	if haveWindow {
-		populateRPCEdgeResult(result, coreResult, horizon, limit)
+		populateRPCEdgeResult(result, coreResult, horizon, limit, params.AutomaticHorizon)
 		result.State, result.Reason = publication.State, publication.Reason
 	}
 	if params.ChangeID != "" {
@@ -842,8 +914,19 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	return result, nil
 }
 
-func edgeStateOnlyResult(state, reason, window string, horizon int) *rpc.EdgeResult {
-	result := &rpc.EdgeResult{SchemaVersion: edgecore.SchemaVersion, State: state, Reason: reason, Window: window, HorizonSessions: horizon, ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{}, Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true}
+func edgeStateOnlyResult(state, reason, window string, horizon int, automatic bool) *rpc.EdgeResult {
+	mode := "explicit"
+	if automatic {
+		mode = "automatic"
+	}
+	result := &rpc.EdgeResult{
+		SchemaVersion: edgecore.SchemaVersion, State: state, Reason: reason, Window: window,
+		HorizonSessions: horizon, AutomaticHorizon: automatic,
+		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: "snapshot_unavailable", MinimumSample: edgecore.MinimumPatternSample, MinimumCoveragePct: edgecore.MinimumAutomaticCoveragePct},
+		MarketContext:    []rpc.EdgeMarketContextRollup{}, MarketContextMissing: []string{},
+		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{}, Options: []rpc.EdgeOptionResult{},
+		Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+	}
 	if state == rpc.EdgeStateActionRequired || state == rpc.EdgeStateInsufficient && reason == "trade_history_unproved" {
 		result.Setup = edgeSetup(reason)
 	}
@@ -866,14 +949,16 @@ func edgeSetup(reason string) *rpc.EdgeSetup {
 	return setup
 }
 
-func populateRPCEdgeResult(out *rpc.EdgeResult, in edgecore.Result, horizon, limit int) {
+func populateRPCEdgeResult(out *rpc.EdgeResult, in edgecore.Result, horizon, limit int, automatic bool) {
 	out.AsOf, out.Account, out.Fingerprint = in.AsOf, rpcEdgeAccount(in.Account), in.Fingerprint
+	out.HorizonSessions, out.AutomaticHorizon = horizon, automatic
+	out.HorizonSelection = edgeHorizonSelection(in, horizon, automatic)
 	out.Coverage = rpc.EdgeCoverage{TradeChanges: in.Coverage.TradeChanges, EligibleChanges: in.Coverage.EligibleChanges, ScoredByHorizon: cloneIntMap(in.Coverage.ScoredByHorizon), ReasonCounts: cloneStringIntMap(in.Coverage.ReasonCounts), PresentSections: append([]string(nil), in.Coverage.PresentSections...), MissingSections: append([]string(nil), in.Coverage.MissingSections...)}
-	out.Method = rpc.EdgeMethod{Metric: in.Method.Metric, Counterfactual: in.Method.Counterfactual, HorizonDefinition: in.Method.HorizonDefinition, HeadlineSelection: in.Method.HeadlineSelection, FindingRanking: in.Method.FindingRanking, AccountDefinition: in.Method.AccountDefinition, Exclusions: in.Method.Exclusions, OptionsMethod: in.Method.OptionsMethod, NoCausalClaim: in.Method.NoCausalClaim, NoPredictiveClaim: in.Method.NoPredictiveClaim, NotInvestmentAdvice: in.Method.NotInvestmentAdvice}
+	out.Method = rpc.EdgeMethod{Metric: in.Method.Metric, Counterfactual: in.Method.Counterfactual, HorizonDefinition: in.Method.HorizonDefinition, HeadlineSelection: in.Method.HeadlineSelection, FindingRanking: in.Method.FindingRanking, MaterialityGate: in.Method.MaterialityGate, AutomaticHorizon: in.Method.AutomaticHorizon, MarketContext: in.Method.MarketContext, AccountDefinition: in.Method.AccountDefinition, Exclusions: in.Method.Exclusions, OptionsMethod: in.Method.OptionsMethod, NoCausalClaim: in.Method.NoCausalClaim, NoPredictiveClaim: in.Method.NoPredictiveClaim, NotInvestmentAdvice: in.Method.NotInvestmentAdvice}
 	for _, rollup := range in.Rollups {
 		row := rpc.EdgeActionRollup{Action: rollup.Action}
 		for _, item := range rollup.Horizons {
-			row.Horizons = append(row.Horizons, rpc.EdgeHorizonRollup{Sessions: item.Sessions, SampleCount: item.SampleCount, TotalBase: cloneAmount(item.TotalBase), MedianBase: cloneAmount(item.MedianBase)})
+			row.Horizons = append(row.Horizons, rpc.EdgeHorizonRollup{Sessions: item.Sessions, SampleCount: item.SampleCount, TotalBase: cloneAmount(item.TotalBase), MedianBase: cloneAmount(item.MedianBase), MarketContext: rpcEdgeMarketContextRollups(item.MarketContext)})
 		}
 		out.ActionRollups = append(out.ActionRollups, row)
 	}
@@ -881,46 +966,89 @@ func populateRPCEdgeResult(out *rpc.EdgeResult, in edgecore.Result, horizon, lim
 		if finding.HorizonSessions != horizon || len(out.Findings) >= limit {
 			continue
 		}
-		out.Findings = append(out.Findings, rpc.EdgeFinding{ChangeID: finding.ChangeID, Symbol: finding.Symbol, Action: finding.Action, Direction: finding.Direction, ExecutedAt: finding.ExecutedAt, HorizonSessions: finding.HorizonSessions, DecisionNotionalBase: finding.DecisionNotionalBase, DecisionImpactBase: finding.DecisionImpactBase, DecisionImpactPct: finding.DecisionImpactPct})
+		out.Findings = append(out.Findings, rpc.EdgeFinding{ChangeID: finding.ChangeID, Symbol: finding.Symbol, Action: finding.Action, Direction: finding.Direction, ExecutedAt: finding.ExecutedAt, HorizonSessions: finding.HorizonSessions, DecisionNotionalBase: finding.DecisionNotionalBase, DecisionImpactBase: finding.DecisionImpactBase, DecisionImpactPct: finding.DecisionImpactPct, MarketContext: rpcEdgeMarketContext(finding.MarketContext)})
 	}
+	out.OptionsTotalCount = len(in.Options)
 	for i, option := range in.Options {
-		if i == 20 {
+		if i == rpc.MaxEdgeOptionResults {
 			break
 		}
 		out.Options = append(out.Options, rpc.EdgeOptionResult{ID: option.ID, Grouping: option.Grouping, Symbol: option.Symbol, Underlying: option.Underlying, LegCount: option.LegCount, RealizedPNLBase: cloneAmount(option.RealizedPNLBase), OpenPNLBase: cloneAmount(option.OpenPNLBase), ActualPNLBase: cloneAmount(option.ActualPNLBase), ActualOnly: option.ActualOnly})
 	}
+	out.OptionsTruncated = out.OptionsTotalCount > len(out.Options)
+	_, selected := headlineEdgeActionHorizon(out)
+	if selected == nil {
+		_, selected = selectedEdgeActionHorizon(out)
+	}
+	if selected != nil {
+		out.MarketContext = append([]rpc.EdgeMarketContextRollup(nil), selected.MarketContext...)
+		present := make(map[string]bool, len(out.MarketContext))
+		for _, context := range out.MarketContext {
+			present[context.Key] = true
+		}
+		for _, benchmark := range edgecore.MarketBenchmarks() {
+			if !present[benchmark.Key] {
+				out.MarketContextMissing = append(out.MarketContextMissing, benchmark.Key)
+			}
+		}
+	}
 	out.Headline = edgeHeadline(out)
 }
 
+func selectAutomaticEdgeHorizon(in edgecore.Result) int {
+	bestHorizon, bestScored, bestLargest := 20, -1, -1
+	for _, horizon := range []int{20, 5, 1} {
+		selection := edgeHorizonSelection(in, horizon, true)
+		if selection.Adequate {
+			return horizon
+		}
+		if selection.ScoredChanges > bestScored || selection.ScoredChanges == bestScored && selection.LargestActionSample > bestLargest {
+			bestHorizon, bestScored, bestLargest = horizon, selection.ScoredChanges, selection.LargestActionSample
+		}
+	}
+	return bestHorizon
+}
+
+func edgeHorizonSelection(in edgecore.Result, horizon int, automatic bool) rpc.EdgeHorizonSelection {
+	mode, reason := "explicit", "explicit_override"
+	if automatic {
+		mode, reason = "automatic", "best_available"
+	}
+	eligible, scored := in.Coverage.EligibleChanges, in.Coverage.ScoredByHorizon[horizon]
+	coveragePct := 0.0
+	if eligible > 0 {
+		coveragePct = float64(scored) / float64(eligible) * 100
+	}
+	largest := 0
+	for _, rollup := range in.Rollups {
+		for _, item := range rollup.Horizons {
+			if item.Sessions == horizon && item.SampleCount > largest {
+				largest = item.SampleCount
+			}
+		}
+	}
+	adequate := scored >= edgecore.MinimumPatternSample && largest >= edgecore.MinimumPatternSample && coveragePct >= edgecore.MinimumAutomaticCoveragePct
+	if automatic && adequate {
+		reason = "longest_adequately_covered"
+	}
+	return rpc.EdgeHorizonSelection{Mode: mode, Reason: reason, EligibleChanges: eligible, ScoredChanges: scored, CoveragePct: coveragePct, LargestActionSample: largest, MinimumSample: edgecore.MinimumPatternSample, MinimumCoveragePct: edgecore.MinimumAutomaticCoveragePct, Adequate: adequate}
+}
+
 func edgeHeadline(result *rpc.EdgeResult) string {
-	if len(result.Findings) > 0 {
+	selected, selectedHorizon := headlineEdgeActionHorizon(result)
+	if selected != nil && selectedHorizon != nil && result.HorizonSelection.Adequate {
 		currency := "base"
-		if result.Account != nil && result.Account.BaseCurrency != "" {
+		if result.Account.BaseCurrency != "" {
 			currency = result.Account.BaseCurrency
 		}
-		var selected *rpc.EdgeActionRollup
-		var selectedHorizon *rpc.EdgeHorizonRollup
-		for i := range result.ActionRollups {
-			for j := range result.ActionRollups[i].Horizons {
-				candidate := &result.ActionRollups[i].Horizons[j]
-				if candidate.Sessions != result.HorizonSessions || candidate.SampleCount == 0 || candidate.TotalBase == nil || candidate.MedianBase == nil {
-					continue
-				}
-				if selectedHorizon == nil || candidate.SampleCount > selectedHorizon.SampleCount {
-					selected, selectedHorizon = &result.ActionRollups[i], candidate
-				}
-			}
+		pattern := "Mixed observed pattern"
+		switch {
+		case *selectedHorizon.TotalBase > 0 && *selectedHorizon.MedianBase > 0:
+			pattern = "Observed strength"
+		case *selectedHorizon.TotalBase < 0 && *selectedHorizon.MedianBase < 0:
+			pattern = "Observed drag"
 		}
-		if selected != nil && selectedHorizon != nil {
-			pattern := "Mixed observed pattern"
-			switch {
-			case *selectedHorizon.TotalBase > 0 && *selectedHorizon.MedianBase > 0:
-				pattern = "Observed strength"
-			case *selectedHorizon.TotalBase < 0 && *selectedHorizon.MedianBase < 0:
-				pattern = "Observed drag"
-			}
-			return fmt.Sprintf("%s: across %d clean %s, %d-session Decision price impact totaled %+.2f %s; median %+.2f %s.", pattern, selectedHorizon.SampleCount, edgeActionPlural(selected.Action), result.HorizonSessions, *selectedHorizon.TotalBase, currency, *selectedHorizon.MedianBase, currency)
-		}
+		return fmt.Sprintf("%s: across %d clean %s, %d-session Decision price impact totaled %+.2f %s; median %+.2f %s.", pattern, selectedHorizon.SampleCount, edgeActionPlural(selected.Action), result.HorizonSessions, *selectedHorizon.TotalBase, currency, *selectedHorizon.MedianBase, currency)
 	}
 	if slices.Contains(result.Coverage.MissingSections, "trades") {
 		return "The completed one-year broker report returned no Trades section, so Canary cannot reconstruct past decisions. If this account traded during the period, verify Trades at execution detail in the saved Activity Flex Query; otherwise there is no trade history to score."
@@ -928,8 +1056,53 @@ func edgeHeadline(result *rpc.EdgeResult) string {
 	if result.Coverage.TradeChanges == 0 {
 		return fmt.Sprintf("No stock or ETF position changes were observed in returned IBKR evidence for this %s window; account P/L remains separate when proven.", result.Window)
 	}
-	count := result.Coverage.ScoredByHorizon[result.HorizonSessions]
-	return fmt.Sprintf("No repeated %d-session pattern has complete, non-overlapping evidence yet: %d of %d changes were scored.", result.HorizonSessions, count, result.Coverage.TradeChanges)
+	selection := result.HorizonSelection
+	if result.Account == nil || result.Account.StartingEquityBase <= 0 {
+		return fmt.Sprintf("No repeated %d-session pattern can clear the account-relative materiality gate because starting equity is unavailable; %d of %d eligible changes were scored.", result.HorizonSessions, selection.ScoredChanges, selection.EligibleChanges)
+	}
+	return fmt.Sprintf("No repeated %d-session pattern clears the evidence and account-materiality gates: %d of %d eligible changes were scored; the largest action sample is %d and at least %d is required.", result.HorizonSessions, selection.ScoredChanges, selection.EligibleChanges, selection.LargestActionSample, selection.MinimumSample)
+}
+
+func headlineEdgeActionHorizon(result *rpc.EdgeResult) (*rpc.EdgeActionRollup, *rpc.EdgeHorizonRollup) {
+	if result.Account == nil || result.Account.StartingEquityBase <= 0 {
+		return nil, nil
+	}
+	var selected *rpc.EdgeActionRollup
+	var selectedHorizon *rpc.EdgeHorizonRollup
+	for i := range result.ActionRollups {
+		for j := range result.ActionRollups[i].Horizons {
+			candidate := &result.ActionRollups[i].Horizons[j]
+			if candidate.Sessions != result.HorizonSessions || candidate.SampleCount < edgecore.MinimumPatternSample || candidate.TotalBase == nil || candidate.MedianBase == nil {
+				continue
+			}
+			totalPct := math.Abs(*candidate.TotalBase) / result.Account.StartingEquityBase * 100
+			medianPct := math.Abs(*candidate.MedianBase) / result.Account.StartingEquityBase * 100
+			if totalPct < edgecore.MinimumPatternTotalImpactEquityPct || medianPct < edgecore.MinimumFindingImpactEquityPct {
+				continue
+			}
+			if selectedHorizon == nil || candidate.SampleCount > selectedHorizon.SampleCount {
+				selected, selectedHorizon = &result.ActionRollups[i], candidate
+			}
+		}
+	}
+	return selected, selectedHorizon
+}
+
+func selectedEdgeActionHorizon(result *rpc.EdgeResult) (*rpc.EdgeActionRollup, *rpc.EdgeHorizonRollup) {
+	var selected *rpc.EdgeActionRollup
+	var selectedHorizon *rpc.EdgeHorizonRollup
+	for i := range result.ActionRollups {
+		for j := range result.ActionRollups[i].Horizons {
+			candidate := &result.ActionRollups[i].Horizons[j]
+			if candidate.Sessions != result.HorizonSessions || candidate.SampleCount == 0 || candidate.TotalBase == nil || candidate.MedianBase == nil {
+				continue
+			}
+			if selectedHorizon == nil || candidate.SampleCount > selectedHorizon.SampleCount {
+				selected, selectedHorizon = &result.ActionRollups[i], candidate
+			}
+		}
+	}
+	return selected, selectedHorizon
 }
 
 func edgeActionPlural(action string) string {
@@ -957,12 +1130,28 @@ func rpcEdgeAccount(in *edgecore.AccountResult) *rpc.EdgeAccountResult {
 func rpcEdgeChange(in edgecore.Change) *rpc.EdgeChangeDetail {
 	out := &rpc.EdgeChangeDetail{ID: in.ID, Symbol: in.Symbol, AssetClass: in.AssetClass, Currency: in.Currency, Action: in.Action, Direction: in.Direction, ExecutedAt: in.ExecutedAt, DeltaQuantity: in.DeltaQuantity, PositionBefore: in.PositionBefore, PositionAfter: in.PositionAfter, ExecutionVWAP: cloneAmount(in.ExecutionVWAP), Multiplier: cloneAmount(in.Multiplier), DirectCostsBase: cloneAmount(in.DirectCostsBase)}
 	for _, score := range in.Scores {
-		row := rpc.EdgeHorizonScore{Sessions: score.Sessions, HorizonClose: cloneAmount(score.HorizonClose), HorizonFX: cloneAmount(score.HorizonFX), DecisionNotionalBase: cloneAmount(score.DecisionNotionalBase), DecisionImpactBase: cloneAmount(score.DecisionImpactBase), DecisionImpactPct: cloneAmount(score.DecisionImpactPct), Reason: score.Reason}
+		row := rpc.EdgeHorizonScore{Sessions: score.Sessions, HorizonClose: cloneAmount(score.HorizonClose), HorizonFX: cloneAmount(score.HorizonFX), DecisionNotionalBase: cloneAmount(score.DecisionNotionalBase), DecisionImpactBase: cloneAmount(score.DecisionImpactBase), DecisionImpactPct: cloneAmount(score.DecisionImpactPct), MarketContext: rpcEdgeMarketContext(score.MarketContext), Reason: score.Reason}
 		if score.HorizonDay != nil {
 			day := *score.HorizonDay
 			row.HorizonDay = &day
 		}
 		out.Scores = append(out.Scores, row)
+	}
+	return out
+}
+
+func rpcEdgeMarketContext(in []edgecore.MarketContext) []rpc.EdgeMarketContext {
+	out := make([]rpc.EdgeMarketContext, 0, len(in))
+	for _, row := range in {
+		out = append(out, rpc.EdgeMarketContext{Key: row.Key, Label: row.Label, Kind: row.Kind, StartDay: row.StartDay, EndDay: row.EndDay, StartClose: row.StartClose, EndClose: row.EndClose, ChangePct: row.ChangePct, ChangePoints: cloneAmount(row.ChangePoints)})
+	}
+	return out
+}
+
+func rpcEdgeMarketContextRollups(in []edgecore.MarketContextRollup) []rpc.EdgeMarketContextRollup {
+	out := make([]rpc.EdgeMarketContextRollup, 0, len(in))
+	for _, row := range in {
+		out = append(out, rpc.EdgeMarketContextRollup{Key: row.Key, Label: row.Label, Kind: row.Kind, SampleCount: row.SampleCount, MedianChangePct: cloneAmount(row.MedianChangePct), MedianChangePoints: cloneAmount(row.MedianChangePoints)})
 	}
 	return out
 }

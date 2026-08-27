@@ -13,7 +13,7 @@ import (
 func runEdge(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "edge")
 	window := fs.String("window", "365d", "optional review override: 90d or 365d (default 365d)")
-	horizon := fs.Int("horizon", 20, "highlighted horizon in trading sessions: 1, 5, or 20")
+	horizon := fs.Int("horizon", 0, "optional highlighted horizon override: 1, 5, or 20 (default automatic)")
 	limit := fs.Int("limit", rpc.MaxEdgeFindings, "maximum findings: 1-3")
 	change := fs.String("change", "", "opaque change ID for one detailed result")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
@@ -43,8 +43,12 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 
 func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 	heading := fmt.Sprintf("%s decision review · %d-session headline", result.Window, result.HorizonSessions)
-	if result.Window == "365d" && result.HorizonSessions == 20 {
-		heading = "automatic one-year decision review"
+	if result.AutomaticHorizon {
+		period := result.Window
+		if result.Window == "365d" {
+			period = "one-year"
+		}
+		heading = fmt.Sprintf("automatic %s decision review · selected %s", period, edgeSessionCount(result.HorizonSessions))
 	}
 	fmt.Fprintf(out, "Canary Edge — %s", heading)
 	if result.State != rpc.EdgeStateCurrent {
@@ -70,6 +74,20 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 	if result.Headline != "" {
 		fmt.Fprintln(out, "  "+result.Headline)
 	}
+	if len(result.MarketContext) > 0 || len(result.MarketContextMissing) > 0 {
+		parts := make([]string, 0, len(result.MarketContext)+len(result.MarketContextMissing))
+		for _, context := range result.MarketContext {
+			value := edgeSignedPercent(context.MedianChangePct)
+			if context.Kind == "volatility_index" && context.MedianChangePoints != nil {
+				value = fmt.Sprintf("%+.2f pts", *context.MedianChangePoints)
+			}
+			parts = append(parts, fmt.Sprintf("%s %s (n=%d)", context.Label, value, context.SampleCount))
+		}
+		for _, key := range result.MarketContextMissing {
+			parts = append(parts, edgeMarketContextLabel(key)+" unavailable")
+		}
+		fmt.Fprintln(out, "  Market context  "+strings.Join(parts, " · "))
+	}
 	if result.Account != nil {
 		fmt.Fprintf(out, "  Account P/L  %s  %s → %s  flows %s\n", edgeMoney(result.Account.ProfitLossBase, result.Account.BaseCurrency), result.Account.ActualFrom.Format("2006-01-02"), result.Account.ActualTo.Format("2006-01-02"), edgeMoney(result.Account.ExternalFlowsBase, result.Account.BaseCurrency))
 	}
@@ -86,12 +104,20 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 		}
 	}
 	for _, finding := range result.Findings {
-		fmt.Fprintf(out, "  %s (%+.2f%%)  %s %s · %s\n", edgeMoney(finding.DecisionImpactBase, edgeBaseCurrency(result)), finding.DecisionImpactPct, finding.Symbol, finding.Action, finding.ChangeID)
+		context := ""
+		if len(finding.MarketContext) > 0 {
+			context = " · " + edgeFindingContext(finding.MarketContext)
+		}
+		fmt.Fprintf(out, "  %s (%+.2f%%)  %s %s · %s%s\n", edgeMoney(finding.DecisionImpactBase, edgeBaseCurrency(result)), finding.DecisionImpactPct, finding.Symbol, finding.Action, finding.ChangeID, context)
 	}
-	if len(result.Options) > 0 {
-		fmt.Fprintf(out, "  Options · actual only  %d result(s); no historical counterfactual\n", len(result.Options))
+	if result.OptionsTotalCount > 0 {
+		shown := fmt.Sprintf("%d result(s)", result.OptionsTotalCount)
+		if result.OptionsTruncated {
+			shown = fmt.Sprintf("%d of %d result(s)", len(result.Options), result.OptionsTotalCount)
+		}
+		fmt.Fprintf(out, "  Options · actual only  %s, ranked by absolute actual P/L; no historical counterfactual\n", shown)
 	}
-	fmt.Fprintf(out, "  Coverage  %d/%d eligible · scored %d/%d at %d sessions", result.Coverage.EligibleChanges, result.Coverage.TradeChanges, result.Coverage.ScoredByHorizon[result.HorizonSessions], result.Coverage.TradeChanges, result.HorizonSessions)
+	fmt.Fprintf(out, "  Coverage  %d/%d eligible · scored %d/%d eligible at %s (%.1f%%) · largest action n=%d", result.Coverage.EligibleChanges, result.Coverage.TradeChanges, result.HorizonSelection.ScoredChanges, result.HorizonSelection.EligibleChanges, edgeSessionCount(result.HorizonSessions), result.HorizonSelection.CoveragePct, result.HorizonSelection.LargestActionSample)
 	if !result.LastFullRevalidation.IsZero() {
 		fmt.Fprintf(out, " · full %s", result.LastFullRevalidation.Local().Format("2006-01-02"))
 	}
@@ -126,7 +152,52 @@ func renderEdgeChange(out io.Writer, change rpc.EdgeChangeDetail, currency strin
 			}
 		}
 		fmt.Fprintf(out, "  %2d sessions  %s\n", score.Sessions, value)
+		if len(score.MarketContext) > 0 {
+			fmt.Fprintf(out, "               context %s\n", edgeFindingContext(score.MarketContext))
+		}
 	}
+}
+
+func edgeFindingContext(rows []rpc.EdgeMarketContext) string {
+	parts := make([]string, 0, len(rows))
+	for _, row := range rows {
+		value := fmt.Sprintf("%+.2f%%", row.ChangePct)
+		if row.Kind == "volatility_index" && row.ChangePoints != nil {
+			value = fmt.Sprintf("%+.2f pts", *row.ChangePoints)
+		}
+		parts = append(parts, row.Label+" "+value)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func edgeMarketContextLabel(key string) string {
+	switch key {
+	case "spy":
+		return "S&P 500 proxy (SPY)"
+	case "qqq":
+		return "Nasdaq-100 proxy (QQQ)"
+	case "dia":
+		return "Dow proxy (DIA)"
+	case "vix":
+		return "CBOE VIX"
+	default:
+		return strings.ToUpper(key)
+	}
+}
+
+func edgeSignedPercent(value *float64) string {
+	if value == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%+.2f%%", *value)
+}
+
+func edgeSessionCount(sessions int) string {
+	label := "sessions"
+	if sessions == 1 {
+		label = "session"
+	}
+	return fmt.Sprintf("%d %s", sessions, label)
 }
 
 func edgeRollupCell(value rpc.EdgeHorizonRollup, currency string) string {

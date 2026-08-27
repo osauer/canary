@@ -12,8 +12,8 @@ import (
 // Edge schema, action, direction, and exclusion-reason constants define the
 // deterministic vocabulary emitted by the analytical core.
 const (
-	SchemaVersion      = "canary-edge-v1"
-	FingerprintVersion = "canary-edge-fp-v1"
+	SchemaVersion      = "canary-edge-v2"
+	FingerprintVersion = "canary-edge-fp-v2"
 
 	ActionOpen = "open"
 	ActionAdd  = "add"
@@ -31,13 +31,62 @@ const (
 	ReasonMarketDataUnavailable  = "market_data_unavailable"
 	ReasonQueryFieldMissing      = "query_field_missing"
 	ReasonPositionPathUnbalanced = "position_path_unbalanced"
+
+	// MinimumPatternSample is the smallest repeated-action sample that may
+	// receive a pattern label.
+	MinimumPatternSample = 3
+	// MinimumAutomaticCoveragePct is the eligible-change coverage required for
+	// automatic horizon selection.
+	MinimumAutomaticCoveragePct = 25.0
+	// MinimumFindingNotionalEquityPct is the starting-equity notional floor for
+	// a ranked finding.
+	MinimumFindingNotionalEquityPct = 0.25
+	// MinimumFindingImpactEquityPct is the starting-equity impact floor for a
+	// ranked finding and a headline median.
+	MinimumFindingImpactEquityPct = 0.02
+	// MinimumPatternTotalImpactEquityPct is the starting-equity aggregate floor
+	// for a headline pattern.
+	MinimumPatternTotalImpactEquityPct = 0.10
 )
 
-// Horizons is the closed set of post-execution trading-session lenses in v1.
+// Horizons is the closed set of post-execution trading-session lenses.
 var Horizons = [...]int{1, 5, 20}
 
+// Market-context kind constants distinguish broad ETF proxies from the VIX
+// volatility index without assigning either class causal authority.
+const (
+	// MarketContextKindProxy identifies an ETF used as a named market proxy.
+	MarketContextKindProxy = "market_proxy"
+	// MarketContextKindVolatility identifies a volatility-index context series.
+	MarketContextKindVolatility = "volatility_index"
+)
+
+// marketBenchmarks is the closed, informational context set. ETF symbols are
+// deliberately named as proxies rather than presented as the cash indices.
+var marketBenchmarks = [...]MarketBenchmark{
+	{Key: "spy", Symbol: "SPY", Label: "S&P 500 proxy (SPY)", Kind: MarketContextKindProxy},
+	{Key: "qqq", Symbol: "QQQ", Label: "Nasdaq-100 proxy (QQQ)", Kind: MarketContextKindProxy},
+	{Key: "dia", Symbol: "DIA", Label: "Dow proxy (DIA)", Kind: MarketContextKindProxy},
+	{Key: "vix", Symbol: "VIX", Label: "CBOE VIX", Kind: MarketContextKindVolatility},
+}
+
+// MarketBenchmarks returns the fixed context catalog without exposing mutable
+// analytical authority to daemon or adapter packages.
+func MarketBenchmarks() []MarketBenchmark {
+	return append([]MarketBenchmark(nil), marketBenchmarks[:]...)
+}
+
+// MarketBenchmark identifies one fixed market-context series.
+type MarketBenchmark struct {
+	Key    string `json:"key"`
+	Symbol string `json:"symbol"`
+	Label  string `json:"label"`
+	Kind   string `json:"kind"`
+}
+
 // DailyBar is one exact-ConID IBKR TRADES daily bar. Day is interpreted as the
-// trading session label; only Close participates in v1 scoring.
+// trading session label; only Close participates in decision scoring or
+// informational market context.
 type DailyBar struct {
 	ConID int64     `json:"conid"`
 	Day   time.Time `json:"day"`
@@ -52,6 +101,7 @@ type Input struct {
 	BaseCurrency string
 	Statements   []flexstmt.Statement
 	Bars         map[int64][]DailyBar
+	ContextBars  map[string][]DailyBar
 }
 
 // Result is the complete deterministic core result for one window. Public
@@ -110,14 +160,41 @@ type Change struct {
 // used by the impact calculation; DecisionImpactPct is impact divided by that
 // disclosed notional.
 type HorizonScore struct {
-	Sessions             int        `json:"sessions"`
-	HorizonDay           *time.Time `json:"horizon_day,omitempty"`
-	HorizonClose         *float64   `json:"horizon_close,omitempty"`
-	HorizonFX            *float64   `json:"horizon_fx,omitempty"`
-	DecisionNotionalBase *float64   `json:"decision_notional_base,omitempty"`
-	DecisionImpactBase   *float64   `json:"decision_impact_base,omitempty"`
-	DecisionImpactPct    *float64   `json:"decision_impact_pct,omitempty"`
-	Reason               string     `json:"reason,omitempty"`
+	Sessions             int             `json:"sessions"`
+	HorizonDay           *time.Time      `json:"horizon_day,omitempty"`
+	HorizonClose         *float64        `json:"horizon_close,omitempty"`
+	HorizonFX            *float64        `json:"horizon_fx,omitempty"`
+	DecisionNotionalBase *float64        `json:"decision_notional_base,omitempty"`
+	DecisionImpactBase   *float64        `json:"decision_impact_base,omitempty"`
+	DecisionImpactPct    *float64        `json:"decision_impact_pct,omitempty"`
+	MarketContext        []MarketContext `json:"market_context,omitempty"`
+	Reason               string          `json:"reason,omitempty"`
+}
+
+// MarketContext is one benchmark move over the same observed interval as a
+// scored decision. It is explanatory evidence only and never changes Decision
+// price impact.
+type MarketContext struct {
+	Key          string    `json:"key"`
+	Label        string    `json:"label"`
+	Kind         string    `json:"kind"`
+	StartDay     time.Time `json:"start_day"`
+	EndDay       time.Time `json:"end_day"`
+	StartClose   float64   `json:"start_close"`
+	EndClose     float64   `json:"end_close"`
+	ChangePct    float64   `json:"change_pct"`
+	ChangePoints *float64  `json:"change_points,omitempty"`
+}
+
+// MarketContextRollup summarizes the benchmark path accompanying one action
+// and horizon without treating that path as an explanatory or causal factor.
+type MarketContextRollup struct {
+	Key                string   `json:"key"`
+	Label              string   `json:"label"`
+	Kind               string   `json:"kind"`
+	SampleCount        int      `json:"sample_count"`
+	MedianChangePct    *float64 `json:"median_change_pct,omitempty"`
+	MedianChangePoints *float64 `json:"median_change_points,omitempty"`
 }
 
 // ActionRollup aggregates observed horizon results for one action class.
@@ -128,25 +205,28 @@ type ActionRollup struct {
 
 // HorizonRollup carries count, total, and median for one action and horizon.
 type HorizonRollup struct {
-	Sessions    int      `json:"sessions"`
-	SampleCount int      `json:"sample_count"`
-	TotalBase   *float64 `json:"total_base,omitempty"`
-	MedianBase  *float64 `json:"median_base,omitempty"`
+	Sessions      int                   `json:"sessions"`
+	SampleCount   int                   `json:"sample_count"`
+	TotalBase     *float64              `json:"total_base,omitempty"`
+	MedianBase    *float64              `json:"median_base,omitempty"`
+	MarketContext []MarketContextRollup `json:"market_context,omitempty"`
 }
 
-// Finding is one ranked observed impact. Ranking uses disclosed impact as a
-// percentage of execution notional before absolute dollars, so position size
-// alone cannot determine the order.
+// Finding is one materially gated, ranked observed impact. After the fixed
+// account-relative floors, ranking uses disclosed impact as a percentage of
+// execution notional before absolute dollars, so position size alone cannot
+// determine the order.
 type Finding struct {
-	ChangeID             string    `json:"change_id"`
-	Symbol               string    `json:"symbol"`
-	Action               string    `json:"action"`
-	Direction            string    `json:"direction"`
-	ExecutedAt           time.Time `json:"executed_at"`
-	HorizonSessions      int       `json:"horizon_sessions"`
-	DecisionNotionalBase float64   `json:"decision_notional_base"`
-	DecisionImpactBase   float64   `json:"decision_impact_base"`
-	DecisionImpactPct    float64   `json:"decision_impact_pct"`
+	ChangeID             string          `json:"change_id"`
+	Symbol               string          `json:"symbol"`
+	Action               string          `json:"action"`
+	Direction            string          `json:"direction"`
+	ExecutedAt           time.Time       `json:"executed_at"`
+	HorizonSessions      int             `json:"horizon_sessions"`
+	DecisionNotionalBase float64         `json:"decision_notional_base"`
+	DecisionImpactBase   float64         `json:"decision_impact_base"`
+	DecisionImpactPct    float64         `json:"decision_impact_pct"`
+	MarketContext        []MarketContext `json:"market_context,omitempty"`
 }
 
 // OptionResult carries broker-actual option P/L without a synthesized
@@ -180,6 +260,9 @@ type Method struct {
 	HorizonDefinition   string `json:"horizon_definition"`
 	HeadlineSelection   string `json:"headline_selection"`
 	FindingRanking      string `json:"finding_ranking"`
+	MaterialityGate     string `json:"materiality_gate"`
+	AutomaticHorizon    string `json:"automatic_horizon"`
+	MarketContext       string `json:"market_context"`
 	AccountDefinition   string `json:"account_definition"`
 	Exclusions          string `json:"exclusions"`
 	OptionsMethod       string `json:"options_method"`
@@ -193,11 +276,14 @@ func defaultMethod() Method {
 		Metric:              "Decision price impact",
 		Counterfactual:      "Leave the exact-contract pre-trade position unchanged.",
 		HorizonDefinition:   "The 1st, 5th, and 20th available IBKR daily closes after the execution session; horizon FX is the latest broker conversion at or before that close, no more than seven calendar days old.",
-		HeadlineSelection:   "The action with the most clean observations at the selected horizon; ties use open, add, trim, then exit.",
-		FindingRanking:      "Absolute Decision price impact as a percentage of disclosed execution notional, then absolute base-currency impact, then opaque change ID.",
+		HeadlineSelection:   "Among actions that clear the evidence and account-materiality gates, select the one with the most clean observations at the selected horizon; ties use open, add, trim, then exit. Strength or drag requires at least 3 observations, absolute total impact of at least 0.10% of starting equity, and an absolute median impact of at least 0.02% of starting equity.",
+		FindingRanking:      "After account-relative materiality gates, absolute Decision price impact as a percentage of disclosed execution notional, then absolute base-currency impact, then opaque change ID.",
+		MaterialityGate:     "A ranked finding requires decision notional of at least 0.25% of starting equity and absolute Decision price impact of at least 0.02% of starting equity.",
+		AutomaticHorizon:    "Choose the longest of 20, 5, and 1 sessions with at least 3 clean observations, one action represented at least 3 times, and at least 25% of eligible changes scored; otherwise show the best-covered horizon without labeling strength or drag.",
+		MarketContext:       "For SPY, QQQ, DIA, and VIX, compare the last daily close before the execution session with the close on the decision horizon day. QQQ and DIA are ETF proxies. Context is informational and never changes Decision price impact.",
 		AccountDefinition:   "Ending equity minus starting equity minus statement-confirmed external flows.",
 		Exclusions:          "Decision price impact excludes distributions, financing and borrow, market impact, and effects outside the fixed price-path comparison.",
-		OptionsMethod:       "Broker-actual realized and open P/L only; no historical option counterfactual is synthesized.",
+		OptionsMethod:       "Broker-actual realized and open P/L only, ranked by absolute actual P/L. The public list is capped at 20 with total and truncation disclosed; no historical option counterfactual is synthesized.",
 		NoCausalClaim:       true,
 		NoPredictiveClaim:   true,
 		NotInvestmentAdvice: true,

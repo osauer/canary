@@ -327,6 +327,7 @@ type Server struct {
 	edgeWorkerWG          sync.WaitGroup
 	edgeBusy              atomic.Bool
 	edgeFetchBarsFn       func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
+	edgeFetchMarketBarsFn func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
 	edgeFlexFetchRangeFn  func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
 	edgeScheduleRebuildFn func(time.Duration)
 	// earnings backs the trading rulebook's catalyst rules (6-8); LKG cache,

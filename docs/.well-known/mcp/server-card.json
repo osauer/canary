@@ -239,7 +239,7 @@
               5,
               20
             ],
-            "description": "highlighted decision-price-impact horizon; default 20"
+            "description": "optional explicit decision-price-impact horizon; omitted selects the longest adequately covered horizon automatically"
           },
           "limit": {
             "type": "integer",

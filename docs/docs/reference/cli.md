@@ -22,7 +22,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary strategies`](#canary-strategies) | Desk | Group option legs and close or reduce them as one guaranteed combo | `confirm` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
-| [`canary edge`](#canary-edge) | Desk | Broker-truth review of account P/L and past decision price impact | `read-only` | yes |
+| [`canary edge`](#canary-edge) | Desk | Automatic broker-truth review of account P/L and past decision price impact | `read-only` | yes |
 | [`canary rules`](#canary-rules) | Desk | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
@@ -170,7 +170,7 @@ canary brief [--json]
 
 ## `canary edge`
 
-Broker-truth review of account P/L and past decision price impact.
+Automatic broker-truth review of account P/L and past decision price impact.
 
 Guard `read-only`. Also available as an MCP tool.
 

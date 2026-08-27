@@ -906,6 +906,26 @@ p {
   line-height: 1.4;
 }
 
+.edge-market-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -5px 0 13px;
+}
+
+.edge-market-context:empty {
+  display: none;
+}
+
+.edge-market-context span {
+  padding: 5px 7px;
+  border: 1px solid var(--pd-hairline);
+  border-radius: 4px;
+  color: var(--pd-caption);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
 .edge-matrix {
   min-width: 0;
   overflow-x: auto;

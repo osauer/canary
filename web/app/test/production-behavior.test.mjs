@@ -188,12 +188,21 @@ test("primary workspaces share the Positions overline and title hierarchy", asyn
 test("Edge opens as an automatic one-year review and explains findings without trading controls", async () => {
   reset();
   const result = {
-    schema_version: "canary-edge-v1",
+    schema_version: "canary-edge-v2",
     state: "current",
     as_of: "2026-08-24T12:00:00Z",
     window: "365d",
     horizon_sessions: 20,
+    automatic_horizon: true,
+    horizon_selection: { mode: "automatic", reason: "longest_adequately_covered", eligible_changes: 4, scored_changes: 4, coverage_pct: 100, largest_action_sample: 3, minimum_sample: 3, minimum_coverage_pct: 25, adequate: true },
     headline: "Adds had +EUR 125.00 observed impact at 20 sessions.",
+    market_context: [
+      { key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", sample_count: 3, median_change_pct: 2.1 },
+      { key: "qqq", label: "Nasdaq-100 proxy (QQQ)", kind: "market_proxy", sample_count: 3, median_change_pct: 3.2 },
+      { key: "dia", label: "Dow proxy (DIA)", kind: "market_proxy", sample_count: 3, median_change_pct: 1.4 },
+      { key: "vix", label: "CBOE VIX", kind: "volatility_index", sample_count: 3, median_change_pct: -8.5, median_change_points: -1.7 },
+    ],
+    market_context_missing: [],
     account: {
       base_currency: "EUR", requested_from: "2026-05-26T00:00:00Z", actual_from: "2026-05-27T00:00:00Z", actual_to: "2026-08-24T00:00:00Z",
       starting_equity_base: 1000, ending_equity_base: 1150, external_flows_base: 50, profit_loss_base: 100,
@@ -201,14 +210,21 @@ test("Edge opens as an automatic one-year review and explains findings without t
     },
     action_rollups: ["open", "add", "trim", "exit"].map((action) => ({
       action,
-      horizons: [1, 5, 20].map((sessions) => ({ sessions, sample_count: 1, total_base: sessions, median_base: sessions })),
+      horizons: [1, 5, 20].map((sessions) => ({ sessions, sample_count: action === "add" ? 3 : 1, total_base: sessions, median_base: sessions })),
     })),
-    findings: [{ change_id: "change_safe", symbol: "SYN", action: "add", direction: "long", executed_at: "2026-07-01T14:00:00Z", horizon_sessions: 20, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5 }],
+    findings: [{
+      change_id: "change_safe", symbol: "SYN", action: "add", direction: "long", executed_at: "2026-07-01T14:00:00Z", horizon_sessions: 20,
+      decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5,
+      market_context: [{ key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", start_day: "2026-06-30T00:00:00Z", end_day: "2026-07-29T00:00:00Z", start_close: 600, end_close: 612, change_pct: 2 }],
+    }],
     options: [{ id: "option_safe", grouping: "contract", symbol: "SYN OPT", leg_count: 1, actual_pnl_base: -12, actual_only: true }],
+    options_total_count: 1,
+    options_truncated: false,
     coverage: { trade_changes: 4, eligible_changes: 4, scored_by_horizon: { 1: 4, 5: 4, 20: 4 }, reason_counts: {}, present_sections: ["trades"], missing_sections: [] },
     method: {
       metric: "Decision price impact", counterfactual: "Leave the pre-trade position unchanged.", horizon_definition: "Available IBKR closes.",
       headline_selection: "Most clean observations at the selected horizon.", finding_ranking: "Absolute percentage, then absolute dollars, then opaque ID.",
+      materiality_gate: "Account-relative finding gates.", automatic_horizon: "Longest adequately covered horizon.", market_context: "Informational benchmark paths only.",
       account_definition: "Ending equity − starting equity − external flows.", exclusions: "Distributions and financing.", options_method: "Broker actual only.",
       no_causal_claim: true, no_predictive_claim: true, not_investment_advice: true,
     },
@@ -221,7 +237,7 @@ test("Edge opens as an automatic one-year review and explains findings without t
     scores: [
       { sessions: 1, horizon_day: "2026-07-02T00:00:00Z", horizon_close: 251, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 8, decision_impact_pct: 0.32 },
       { sessions: 5, reason: "intervening_change" },
-      { sessions: 20, horizon_day: "2026-07-29T00:00:00Z", horizon_close: 262.7, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5 },
+      { sessions: 20, horizon_day: "2026-07-29T00:00:00Z", horizon_close: 262.7, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5, market_context: [{ key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", start_day: "2026-06-30T00:00:00Z", end_day: "2026-07-29T00:00:00Z", start_close: 600, end_close: 612, change_pct: 2 }] },
     ],
   };
   assert.equal(edge.validEdgeResult(result), true);
@@ -236,7 +252,13 @@ test("Edge opens as an automatic one-year review and explains findings without t
   state.authenticated = true;
   assert.equal(await edge.refreshEdge(), true);
   assert.deepEqual(requests, ["/api/edge"]);
-  assert.equal(dom.element("edgeImpactLens").textContent, "One year · 20-session headline");
+  assert.equal(dom.element("edgeImpactLens").textContent, "One year · automatic · 20-session headline");
+  assert.match(dom.element("edgeMarketContext").textContent, /S&P 500 proxy \(SPY\) \+2\.10%/);
+  state.edgeResult = { ...result, market_context: result.market_context.filter((row) => row.key !== "vix"), market_context_missing: ["vix"] };
+  edge.renderEdge();
+  assert.match(dom.element("edgeMarketContext").textContent, /CBOE VIX unavailable/);
+  state.edgeResult = result;
+  edge.renderEdge();
   assert.equal(dom.element("edgeAccountValue").textContent, "******");
   assert.equal(dom.element("edgeHeadline").textContent, "Reveal account values to view the monetary headline.");
   const finding = byClass(dom.element("edgeFindings"), "edge-finding")[0];
@@ -257,6 +279,7 @@ test("Edge opens as an automatic one-year review and explains findings without t
   assert.equal(dom.element("edgeHeadline").textContent, result.headline);
   assert.match(dom.element("edgeChangeSummary").textContent, /€250\.00/);
   assert.match(dom.element("edgeChangeScores").textContent, /\+€125\.00/);
+  assert.match(dom.element("edgeChangeScores").textContent, /S&P 500 proxy \(SPY\) \+2\.00%/);
   const resultButtons = descendants(dom.element("edgeFindings")).filter((node) => node.tagName === "BUTTON");
   assert.equal(resultButtons.length, 1);
   assert.equal(resultButtons.every((node) => node.classList.contains("edge-finding") && node.type === "button"), true, "Edge may expose explanation buttons only");
@@ -268,13 +291,19 @@ test("Edge opens as an automatic one-year review and explains findings without t
 test("Edge renders every authority state without turning missing evidence into results", () => {
   reset();
   const base = {
-    schema_version: "canary-edge-v1",
+    schema_version: "canary-edge-v2",
     state: "current",
     window: "90d",
     horizon_sessions: 20,
+    automatic_horizon: true,
+    horizon_selection: { mode: "automatic", reason: "snapshot_unavailable", eligible_changes: 0, scored_changes: 0, coverage_pct: 0, largest_action_sample: 0, minimum_sample: 3, minimum_coverage_pct: 25, adequate: false },
+    market_context: [],
+    market_context_missing: [],
     action_rollups: [],
     findings: [],
     options: [],
+    options_total_count: 0,
+    options_truncated: false,
     coverage: { trade_changes: 0, eligible_changes: 0, scored_by_horizon: {}, reason_counts: {} },
     method: { metric: "Decision price impact", account_definition: "Ending equity − starting equity − external flows." },
     not_execution: true,

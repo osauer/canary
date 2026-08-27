@@ -93,6 +93,24 @@ func TestEdgeBarRefreshPlanRequiresContractSpecificFullSeed(t *testing.T) {
 	}
 }
 
+func TestFetchEdgeMarketBarsUsesTheFixedSymbolAndNormalizesDailyEvidence(t *testing.T) {
+	t.Parallel()
+	srv := &Server{}
+	srv.edgeFetchMarketBarsFn = func(_ context.Context, symbol string, lookback int) ([]ibkrlib.HistoricalBar, error) {
+		if symbol != "VIX" || lookback != edgeFullLookbackDays {
+			t.Fatalf("fetch=%s/%d", symbol, lookback)
+		}
+		return []ibkrlib.HistoricalBar{{Date: "2026-08-24", Close: 14.5}, {Date: "bad", Close: 20}, {Date: "2026-08-25", Close: 0}}, nil
+	}
+	bars, err := srv.fetchEdgeMarketBars(t.Context(), "VIX", edgeFullLookbackDays)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bars) != 1 || bars[0].ConID != 0 || bars[0].Day.Format("2006-01-02") != "2026-08-24" || bars[0].Close != 14.5 {
+		t.Fatalf("market bars=%+v", bars)
+	}
+}
+
 func TestEdgeBarCacheMigratesV1WithoutInventingContractProof(t *testing.T) {
 	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
 	if err != nil {
@@ -119,12 +137,39 @@ func TestEdgeBarCacheMigratesV1WithoutInventingContractProof(t *testing.T) {
 		t.Fatal(err)
 	}
 	series := cache.Contracts["1"]
-	if cache.Version != edgeBarCacheVersion || !series.FullRevalidatedAt.IsZero() {
+	if cache.Version != edgeBarCacheVersion || !series.FullRevalidatedAt.IsZero() || cache.MarketContext == nil {
 		t.Fatalf("migrated cache invented contract proof: %+v", cache)
 	}
 	lookback, fetch := edgeBarRefreshPlan(now, false, series)
 	if !fetch || lookback != edgeFullLookbackDays {
 		t.Fatalf("migrated series plan=(lookback=%d fetch=%v)", lookback, fetch)
+	}
+}
+
+func TestEdgePublicationRegeneratesOldSchemaButRejectsFutureSchema(t *testing.T) {
+	t.Parallel()
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	srv := &Server{coreStore: store}
+	write := func(version int) {
+		raw, marshalErr := json.Marshal(edgePublication{Version: version})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		if replaceErr := srv.replaceEdgeStateDocument(t.Context(), edgePublicationStateKind, raw); replaceErr != nil {
+			t.Fatal(replaceErr)
+		}
+	}
+	write(edgePublicationVersion - 1)
+	if _, ok, loadErr := srv.loadEdgePublication(t.Context()); loadErr != nil || ok {
+		t.Fatalf("old publication load ok=%v err=%v", ok, loadErr)
+	}
+	write(edgePublicationVersion + 1)
+	if _, _, loadErr := srv.loadEdgePublication(t.Context()); loadErr == nil {
+		t.Fatal("future publication schema was accepted")
 	}
 }
 
@@ -730,13 +775,15 @@ func TestEdgePublicationSeparatesUnprovedTradesFromProvenZeroTrades(t *testing.T
 
 func TestEdgeHeadlineUsesMostObservedActionAndExplainsEmptyEvidence(t *testing.T) {
 	t.Parallel()
-	totalOpen, medianOpen := 1_000.0, 1_000.0
+	totalOpen, medianOpen := 50.0, 5.0
 	totalAdds, medianAdds := -300.0, -100.0
 	result := &rpc.EdgeResult{
-		Window: "365d", HorizonSessions: 20, Account: &rpc.EdgeAccountResult{BaseCurrency: "USD"},
-		Findings: []rpc.EdgeFinding{{ChangeID: "change_one"}},
+		Window: "365d", HorizonSessions: 20, Account: &rpc.EdgeAccountResult{BaseCurrency: "USD", StartingEquityBase: 100_000},
+		HorizonSelection: rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 8, ScoredChanges: 8, CoveragePct: 100, LargestActionSample: 5, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true},
+		AutomaticHorizon: true,
+		Findings:         []rpc.EdgeFinding{{ChangeID: "change_one"}},
 		ActionRollups: []rpc.EdgeActionRollup{
-			{Action: edgecore.ActionOpen, Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 1, TotalBase: &totalOpen, MedianBase: &medianOpen}}},
+			{Action: edgecore.ActionOpen, Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 5, TotalBase: &totalOpen, MedianBase: &medianOpen}}},
 			{Action: edgecore.ActionAdd, Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 3, TotalBase: &totalAdds, MedianBase: &medianAdds}}},
 		},
 	}
@@ -763,9 +810,88 @@ func TestEdgeHeadlineUsesMostObservedActionAndExplainsEmptyEvidence(t *testing.T
 	}
 }
 
+func TestAutomaticEdgeHorizonChoosesLongestAdequatelyCoveredLens(t *testing.T) {
+	t.Parallel()
+	total, median := 100.0, 25.0
+	result := edgecore.Result{
+		Coverage: edgecore.Coverage{EligibleChanges: 10, ScoredByHorizon: map[int]int{1: 8, 5: 4, 20: 2}},
+		Rollups: []edgecore.ActionRollup{{Action: edgecore.ActionAdd, Horizons: []edgecore.HorizonRollup{
+			{Sessions: 1, SampleCount: 4, TotalBase: &total, MedianBase: &median},
+			{Sessions: 5, SampleCount: 3, TotalBase: &total, MedianBase: &median},
+			{Sessions: 20, SampleCount: 2, TotalBase: &total, MedianBase: &median},
+		}}},
+	}
+	if got := selectAutomaticEdgeHorizon(result); got != 5 {
+		t.Fatalf("automatic horizon=%d want 5", got)
+	}
+	selection := edgeHorizonSelection(result, 5, true)
+	if !selection.Adequate || selection.CoveragePct != 40 || selection.LargestActionSample != 3 {
+		t.Fatalf("selection=%+v", selection)
+	}
+
+	result.Coverage.ScoredByHorizon = map[int]int{1: 3, 5: 2, 20: 1}
+	result.Rollups[0].Horizons[0].SampleCount = 2
+	result.Rollups[0].Horizons[1].SampleCount = 2
+	result.Rollups[0].Horizons[2].SampleCount = 1
+	if got := selectAutomaticEdgeHorizon(result); got != 1 {
+		t.Fatalf("best available horizon=%d want 1", got)
+	}
+}
+
+func TestEdgeHeadlineRefusesTinyOrUnderSampledPatterns(t *testing.T) {
+	t.Parallel()
+	total, median := 1_000.0, 1_000.0
+	result := &rpc.EdgeResult{
+		Window: "365d", HorizonSessions: 20, AutomaticHorizon: true,
+		Account:          &rpc.EdgeAccountResult{BaseCurrency: "USD", StartingEquityBase: 100_000},
+		HorizonSelection: rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "best_available", EligibleChanges: 1, ScoredChanges: 1, CoveragePct: 100, LargestActionSample: 1, MinimumSample: 3, MinimumCoveragePct: 25},
+		ActionRollups:    []rpc.EdgeActionRollup{{Action: edgecore.ActionAdd, Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 1, TotalBase: &total, MedianBase: &median}}}},
+		Coverage:         rpc.EdgeCoverage{TradeChanges: 1, EligibleChanges: 1, ScoredByHorizon: map[int]int{20: 1}},
+	}
+	if got := edgeHeadline(result); strings.Contains(got, "Observed strength") || !strings.Contains(got, "at least 3 is required") {
+		t.Fatalf("under-sampled headline=%q", got)
+	}
+
+	total, median = 50, 10
+	result.HorizonSelection = rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 3, ScoredChanges: 3, CoveragePct: 100, LargestActionSample: 3, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true}
+	result.ActionRollups[0].Horizons[0] = rpc.EdgeHorizonRollup{Sessions: 20, SampleCount: 3, TotalBase: &total, MedianBase: &median}
+	if got := edgeHeadline(result); strings.Contains(got, "Observed strength") || !strings.Contains(got, "account-materiality gates") {
+		t.Fatalf("immaterial headline=%q", got)
+	}
+}
+
+func TestPopulateEdgeResultDisclosesOptionTruncation(t *testing.T) {
+	t.Parallel()
+	in := edgecore.Result{Coverage: edgecore.Coverage{ScoredByHorizon: map[int]int{}}, Method: edgecore.Method{}}
+	for i := range rpc.MaxEdgeOptionResults + 5 {
+		value := float64(i)
+		in.Options = append(in.Options, edgecore.OptionResult{ID: fmt.Sprintf("option_%02d", i), Grouping: "contract", Symbol: "SYN", LegCount: 1, ActualPNLBase: &value, ActualOnly: true})
+	}
+	out := edgeStateOnlyResult(rpc.EdgeStateCurrent, "", "365d", 20, true)
+	populateRPCEdgeResult(out, in, 20, 3, true)
+	if len(out.Options) != rpc.MaxEdgeOptionResults || out.OptionsTotalCount != rpc.MaxEdgeOptionResults+5 || !out.OptionsTruncated {
+		t.Fatalf("option disclosure=%d/%d truncated=%v", len(out.Options), out.OptionsTotalCount, out.OptionsTruncated)
+	}
+}
+
+func TestPopulateEdgeResultNamesEveryUnavailableMarketBenchmark(t *testing.T) {
+	t.Parallel()
+	total, median := 200.0, 50.0
+	in := edgecore.Result{
+		Account:  &edgecore.AccountResult{StartingEquityBase: 100_000},
+		Coverage: edgecore.Coverage{EligibleChanges: 3, ScoredByHorizon: map[int]int{20: 3}},
+		Rollups:  []edgecore.ActionRollup{{Action: edgecore.ActionAdd, Horizons: []edgecore.HorizonRollup{{Sessions: 20, SampleCount: 3, TotalBase: &total, MedianBase: &median}}}},
+	}
+	out := edgeStateOnlyResult(rpc.EdgeStateDegraded, "context_test", "365d", 20, true)
+	populateRPCEdgeResult(out, in, 20, 3, true)
+	if !slices.Equal(out.MarketContextMissing, []string{"spy", "qqq", "dia", "vix"}) || len(out.MarketContext) != 0 {
+		t.Fatalf("market context disclosure=%+v missing=%v", out.MarketContext, out.MarketContextMissing)
+	}
+}
+
 func TestUnprovedTradeHistoryCarriesSetupWithoutHidingAccountEvidence(t *testing.T) {
 	t.Parallel()
-	result := edgeStateOnlyResult(rpc.EdgeStateInsufficient, "trade_history_unproved", "365d", 20)
+	result := edgeStateOnlyResult(rpc.EdgeStateInsufficient, "trade_history_unproved", "365d", 20, true)
 	if result.Setup == nil || len(result.Setup.Steps) != 3 || len(result.Setup.Sections) == 0 {
 		t.Fatalf("unproved trade setup=%+v", result.Setup)
 	}

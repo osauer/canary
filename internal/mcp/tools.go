@@ -274,12 +274,12 @@ var Tools = []Tool{
 	{
 		Name:         "canary_edge",
 		Title:        "Canary Edge Decision Review",
-		Description:  "Call with no arguments for Canary's automatic one-year review of where past decisions historically helped or hurt. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.",
+		Description:  "Call with no arguments for Canary's automatic one-year review of where materially repeated past decisions historically helped or hurt, with fixed SPY, QQQ, DIA, and VIX context when available. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, inferred trade intent, or causal claims. It is read-only and cannot refresh data.",
 		ReadOnlyHint: new(true),
 		RPCMethods:   []string{rpc.MethodEdgeSnapshot},
 		JSONSchema: schemaObject(map[string]json.RawMessage{
 			"window":           schemaEnum([]string{"90d", "365d"}, "optional review override; default 365d"),
-			"horizon_sessions": json.RawMessage(`{"type":"integer","enum":[1,5,20],"description":"highlighted decision-price-impact horizon; default 20"}`),
+			"horizon_sessions": json.RawMessage(`{"type":"integer","enum":[1,5,20],"description":"optional explicit decision-price-impact horizon; omitted selects the longest adequately covered horizon automatically"}`),
 			"limit":            json.RawMessage(`{"type":"integer","minimum":1,"maximum":3,"description":"maximum findings; default 3"}`),
 			"change_id":        schemaString("optional opaque change ID returned by a prior canary_edge call"),
 		}, nil),

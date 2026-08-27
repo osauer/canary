@@ -23,6 +23,15 @@ func (c *edgeCLIConn) Call(_ context.Context, method string, params, out any) er
 	result := c.result
 	result.Window = c.params.Window
 	result.HorizonSessions = c.params.HorizonSessions
+	result.AutomaticHorizon = c.params.AutomaticHorizon
+	result.HorizonSelection.Mode = "explicit"
+	result.HorizonSelection.Reason = "explicit_override"
+	if c.params.AutomaticHorizon {
+		result.HorizonSelection.Mode = "automatic"
+		result.HorizonSelection.Reason = "best_available"
+	}
+	result.HorizonSelection.ScoredChanges = result.Coverage.ScoredByHorizon[c.params.HorizonSessions]
+	result.HorizonSelection.CoveragePct = float64(result.HorizonSelection.ScoredChanges) / float64(result.HorizonSelection.EligibleChanges) * 100
 	for i := range result.Findings {
 		result.Findings[i].HorizonSessions = c.params.HorizonSessions
 	}
@@ -61,7 +70,7 @@ func TestEdgeCLIDefaultsToTheAutomaticOneYearReview(t *testing.T) {
 	if code := Run(t.Context(), env, "edge", nil); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr.String())
 	}
-	want := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, Limit: rpc.MaxEdgeFindings}
+	want := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, AutomaticHorizon: true, Limit: rpc.MaxEdgeFindings}
 	if conn.params != want {
 		t.Fatalf("default params=%+v want %+v", conn.params, want)
 	}
@@ -85,9 +94,22 @@ func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	}
 }
 
+func TestAutomaticOneSessionOutputUsesSingularGrammar(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	result.AutomaticHorizon = true
+	result.HorizonSessions = 1
+	result.HorizonSelection = rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 6, ScoredChanges: 6, CoveragePct: 100, LargestActionSample: 3, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true}
+	var stdout bytes.Buffer
+	renderEdgeText(&stdout, result)
+	if strings.Contains(stdout.String(), "1 sessions") || !strings.Contains(stdout.String(), "selected 1 session") || !strings.Contains(stdout.String(), "at 1 session") {
+		t.Fatalf("one-session grammar=%s", stdout.String())
+	}
+}
+
 func TestEdgeSetupNamesProvenMissingQueryRequirements(t *testing.T) {
 	result := rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateActionRequired, Reason: "flex_query_incomplete", Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateActionRequired, Reason: "flex_query_incomplete", Window: "90d", HorizonSessions: 20,
 		Setup: &rpc.EdgeSetup{Steps: []string{"one", "two", "three"}, MissingRequirements: []string{"trades.ibOrderID", "open_positions.markPrice"}},
 	}
 	var stdout bytes.Buffer
@@ -103,13 +125,14 @@ func edgeCLIResult() rpc.EdgeResult {
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
 	value := 125.5
 	result := rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v1", State: rpc.EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
-		Headline:    "Best observed result: ABC add, USD +125.50 after 20 sessions.",
-		Account:     &rpc.EdgeAccountResult{BaseCurrency: "USD", RequestedFrom: now.AddDate(0, 0, -90), ActualFrom: now.AddDate(0, 0, -89), ActualTo: now, ProfitLossBase: 450, ExternalFlowsBase: 100, Definition: "Ending equity minus starting equity minus external flows."},
-		Coverage:    rpc.EdgeCoverage{TradeChanges: 8, EligibleChanges: 6, ScoredByHorizon: map[int]int{1: 6, 5: 5, 20: 4}, ReasonCounts: map[string]int{}},
-		Method:      rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
-		Fingerprint: "edge_0123456789abcdef", LastFullRevalidation: now, NotExecution: true,
-		Options: []rpc.EdgeOptionResult{{ID: "option_opaque", Grouping: "contract", Symbol: "ABC 100 C", LegCount: 1, ActualPNLBase: &value, ActualOnly: true}},
+		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
+		HorizonSelection: rpc.EdgeHorizonSelection{Mode: "explicit", Reason: "explicit_override", EligibleChanges: 6, ScoredChanges: 4, CoveragePct: 4.0 / 6 * 100, LargestActionSample: 1, MinimumSample: 3, MinimumCoveragePct: 25},
+		Headline:         "Best observed result: ABC add, USD +125.50 after 20 sessions.",
+		Account:          &rpc.EdgeAccountResult{BaseCurrency: "USD", RequestedFrom: now.AddDate(0, 0, -90), ActualFrom: now.AddDate(0, 0, -89), ActualTo: now, ProfitLossBase: 450, ExternalFlowsBase: 100, Definition: "Ending equity minus starting equity minus external flows."},
+		Coverage:         rpc.EdgeCoverage{TradeChanges: 8, EligibleChanges: 6, ScoredByHorizon: map[int]int{1: 6, 5: 5, 20: 4}, ReasonCounts: map[string]int{}},
+		Method:           rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
+		Fingerprint:      "edge_0123456789abcdef", LastFullRevalidation: now, NotExecution: true,
+		Options: []rpc.EdgeOptionResult{{ID: "option_opaque", Grouping: "contract", Symbol: "ABC 100 C", LegCount: 1, ActualPNLBase: &value, ActualOnly: true}}, OptionsTotalCount: 1,
 	}
 	for _, action := range []string{"open", "add", "trim", "exit"} {
 		row := rpc.EdgeActionRollup{Action: action}

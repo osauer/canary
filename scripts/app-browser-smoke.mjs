@@ -94,12 +94,21 @@ async function runRound4SyntheticSmoke() {
     trading: {}, market_data: { quality: {} }, build: { channel: { value: "stable" } }, auto_trade: {},
   };
   const syntheticEdge = {
-    schema_version: "canary-edge-v1",
+    schema_version: "canary-edge-v2",
     state: "current",
     as_of: now,
     window: "365d",
     horizon_sessions: 20,
+    automatic_horizon: true,
+    horizon_selection: { mode: "automatic", reason: "longest_adequately_covered", eligible_changes: 15, scored_changes: 7, coverage_pct: 46.6666666667, largest_action_sample: 3, minimum_sample: 3, minimum_coverage_pct: 25, adequate: true },
     headline: "Observed drag: across 3 clean adds, 20-session Decision price impact totaled -453.00 USD; median -151.00 USD.",
+    market_context: [
+      { key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", sample_count: 3, median_change_pct: 2.1 },
+      { key: "qqq", label: "Nasdaq-100 proxy (QQQ)", kind: "market_proxy", sample_count: 3, median_change_pct: 3.2 },
+      { key: "dia", label: "Dow proxy (DIA)", kind: "market_proxy", sample_count: 3, median_change_pct: 1.4 },
+      { key: "vix", label: "CBOE VIX", kind: "volatility_index", sample_count: 3, median_change_pct: -8.5, median_change_points: -1.7 },
+    ],
+    market_context_missing: [],
     account: {
       base_currency: "USD",
       requested_from: "2025-08-25T00:00:00Z",
@@ -130,6 +139,8 @@ async function runRound4SyntheticSmoke() {
       actual_pnl_base: 90,
       actual_only: true,
     }],
+    options_total_count: 1,
+    options_truncated: false,
     coverage: {
       trade_changes: 17,
       eligible_changes: 15,
@@ -144,6 +155,9 @@ async function runRound4SyntheticSmoke() {
       horizon_definition: "First, fifth, and twentieth available IBKR closes after execution.",
       headline_selection: "Most clean observations at the selected horizon; ties use open, add, trim, exit order.",
       finding_ranking: "Absolute decision impact percentage, then absolute base-currency impact, then opaque change ID.",
+      materiality_gate: "Account-relative finding gates.",
+      automatic_horizon: "Longest adequately covered horizon.",
+      market_context: "Informational benchmark paths only.",
       account_definition: "Ending equity − starting equity − statement-confirmed external flows.",
       exclusions: "Distributions, financing, borrow, and market impact.",
       options_method: "Broker-actual P/L only.",
