@@ -285,7 +285,8 @@ type OptionRealizedReview struct {
 }
 
 // OptionOpenReview summarizes the latest authoritative Flex Open Positions
-// snapshot. SnapshotDate is zero only when no open option row exists.
+// snapshot. SnapshotDate remains populated for a confirmed-empty option
+// inventory and is zero only when no authoritative snapshot exists.
 type OptionOpenReview struct {
 	SnapshotDate     time.Time            `json:"snapshot_date,omitzero"`
 	KnownPNLBase     *float64             `json:"known_pnl_base,omitempty"`

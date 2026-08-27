@@ -455,6 +455,36 @@ func TestAnalyzeOptionOpenSnapshotDoesNotDependOnRealizedEvidence(t *testing.T) 
 	}
 }
 
+func TestAnalyzeDistinguishesConfirmedEmptyFromMissingOptionOpenSnapshot(t *testing.T) {
+	t.Parallel()
+	confirmed := edgeStatement()
+	confirmed.Trades = nil
+	confirmed.Positions = nil
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{confirmed}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Options.Open.SnapshotDate.Equal(confirmed.ToDate) || len(result.Options.Open.Positions) != 0 || result.Options.Open.KnownPNLBase != nil {
+		t.Fatalf("confirmed-empty option snapshot = %+v", result.Options.Open)
+	}
+
+	missing := confirmed
+	missing.Coverage = slices.Clone(confirmed.Coverage)
+	for i := range missing.Coverage {
+		if missing.Coverage[i].Key == "open_positions" {
+			missing.Coverage[i].Present = false
+		}
+	}
+	result, err = Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{missing}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Options.Open.SnapshotDate.IsZero() || len(result.Options.Open.Positions) != 0 {
+		t.Fatalf("missing option snapshot acquired false date: %+v", result.Options.Open)
+	}
+}
+
 func TestAnalyzeOpeningOnlyZeroEpisodeIsCoverageNotRealizedResult(t *testing.T) {
 	t.Parallel()
 	st := edgeStatement()

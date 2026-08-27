@@ -101,6 +101,10 @@ func TestEdgeToolIsFullProfileOnlyAndStatesItsSafetyBoundary(t *testing.T) {
 	for _, phrase := range []string{
 		"no arguments",
 		"automatic one-year review",
+		"option lifecycle coverage",
+		"broker-reported realized option episodes",
+		"latest dated open option snapshot",
+		"returned option_id",
 		"after canary_brief",
 		"do not use for current risk",
 		"order decisions",

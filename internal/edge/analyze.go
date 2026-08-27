@@ -1128,6 +1128,10 @@ func buildOptionReview(ev evidence, from, to time.Time, base string, fxRates []f
 		return review.Open.Positions[i].ID < review.Open.Positions[j].ID
 	})
 	review.Open = summarizeOptionOpen(review.Open.Positions)
+	// The authoritative Open Positions snapshot can be present and empty.
+	// Preserve its through-date independently of whether it contains an option
+	// row so confirmed zero inventory does not look like missing evidence.
+	review.Open.SnapshotDate = ev.latestOpenPositionDate
 	return review
 }
 

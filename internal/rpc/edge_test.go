@@ -111,6 +111,11 @@ func TestEdgeResultValidationFailsClosed(t *testing.T) {
 	if err := ValidateEdgeResult(validOptions); err != nil {
 		t.Fatalf("valid option review and detail rejected: %v", err)
 	}
+	confirmedEmpty := base
+	confirmedEmpty.Options.Open = EdgeOptionOpenReview{SnapshotDate: now, Positions: []EdgeOptionOpenPositionSummary{}}
+	if err := ValidateEdgeResult(confirmedEmpty); err != nil {
+		t.Fatalf("confirmed-empty dated option snapshot rejected: %v", err)
+	}
 }
 
 func edgeTestOptionReview(now time.Time) EdgeOptionReview {

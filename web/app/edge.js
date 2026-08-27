@@ -104,7 +104,7 @@ function validEdgeOptionReview(review) {
   if (open.total_count !== open.complete_count + open.unavailable_count || open.positive_count + open.negative_count + open.flat_count !== open.complete_count) return false;
   if (Boolean(open.truncated) !== (open.total_count > open.positions.length)) return false;
   if ((open.complete_count > 0) !== hasNumericValue(open.known_pnl_base)) return false;
-  if ((open.total_count > 0) !== Boolean(String(open.snapshot_date || "").trim())) return false;
+  if (open.total_count > 0 && !String(open.snapshot_date || "").trim()) return false;
   return new Set(open.positions.map((position) => position?.id)).size === open.positions.length && open.positions.every(validEdgeOptionOpenPosition);
 }
 
@@ -512,9 +512,12 @@ function renderEdgeOptions(result) {
     amountLabel: "open",
     currency,
   }));
-  $("edgeOptionOpenList").replaceChildren(...(openRows.length ? openRows : [emptyEdgeRow(open.total_count
+  const emptyOpenMessage = open.total_count
     ? "No numeric open P/L row can be magnitude-ranked; unavailable positions remain counted above."
-    : "No open option position is present in the latest dated Flex snapshot.")]));
+    : open.snapshot_date
+      ? `0 open options as of ${calendarDate(open.snapshot_date)}.`
+      : "No dated Flex open-position snapshot is available.";
+  $("edgeOptionOpenList").replaceChildren(...(openRows.length ? openRows : [emptyEdgeRow(emptyOpenMessage)]));
 }
 
 function edgeOptionResultRow({ id, title, meta, amount, amountLabel, currency }) {

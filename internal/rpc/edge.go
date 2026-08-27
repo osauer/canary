@@ -628,7 +628,7 @@ func validateEdgeOptionReview(review EdgeOptionReview) error {
 	if (open.KnownPNLBase == nil) != (open.CompleteCount == 0) || open.KnownPNLBase != nil && !finite(*open.KnownPNLBase) {
 		return fmt.Errorf("invalid Edge open option total")
 	}
-	if open.TotalCount == 0 && !open.SnapshotDate.IsZero() || open.TotalCount > 0 && open.SnapshotDate.IsZero() {
+	if open.TotalCount > 0 && open.SnapshotDate.IsZero() {
 		return fmt.Errorf("invalid Edge open option snapshot date")
 	}
 	seen = map[string]bool{}

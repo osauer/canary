@@ -274,7 +274,7 @@ var Tools = []Tool{
 	{
 		Name:         "canary_edge",
 		Title:        "Canary Edge Decision Review",
-		Description:  "Call with no arguments for Canary's automatic one-year review of where materially repeated past decisions historically helped or hurt, with fixed SPY, QQQ, DIA, and VIX context when available. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, inferred trade intent, or causal claims. It is read-only and cannot refresh data.",
+		Description:  "Call with no arguments for Canary's automatic one-year review of where materially repeated past stock and ETF decisions historically helped or hurt, with fixed SPY, QQQ, DIA, and VIX context when available. The same result separately returns option lifecycle coverage, broker-reported realized option episodes, and the latest dated open option snapshot; use a returned option_id to inspect exact broker facts. Optional parameters are only for drill-down after canary_brief. Do not use for current risk, positions, order decisions, forecasting, inferred trade intent, or causal claims. It is read-only and cannot refresh data.",
 		ReadOnlyHint: new(true),
 		RPCMethods:   []string{rpc.MethodEdgeSnapshot},
 		JSONSchema: schemaObject(map[string]json.RawMessage{

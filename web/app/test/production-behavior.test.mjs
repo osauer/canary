@@ -340,6 +340,29 @@ test("Edge opens as an automatic one-year review and explains findings without t
   assert.match(dom.element("edgeOptionOpenSummary").textContent, /1 unavailable/);
   assert.doesNotMatch(dom.element("edgeOptionOpenSummary").textContent, /[+$€]0\.00/);
   assert.match(dom.element("edgeOptionOpenList").textContent, /unavailable positions remain counted/);
+
+  const confirmedEmptyOpen = {
+    ...result,
+    options: {
+      ...result.options,
+      open: { snapshot_date: result.options.open.snapshot_date, positive_count: 0, negative_count: 0, flat_count: 0, complete_count: 0, unavailable_count: 0, total_count: 0, truncated: false, positions: [] },
+    },
+  };
+  assert.equal(edge.validEdgeResult(confirmedEmptyOpen), true);
+  state.edgeResult = confirmedEmptyOpen;
+  edge.renderEdge();
+  assert.notEqual(dom.element("edgeOptionOpenAsOf").textContent, "No dated snapshot");
+  assert.match(dom.element("edgeOptionOpenList").textContent, /0 open options as of/);
+
+  const missingOpenSnapshot = {
+    ...confirmedEmptyOpen,
+    options: { ...confirmedEmptyOpen.options, open: { ...confirmedEmptyOpen.options.open, snapshot_date: undefined } },
+  };
+  assert.equal(edge.validEdgeResult(missingOpenSnapshot), true);
+  state.edgeResult = missingOpenSnapshot;
+  edge.renderEdge();
+  assert.equal(dom.element("edgeOptionOpenAsOf").textContent, "No dated snapshot");
+  assert.match(dom.element("edgeOptionOpenList").textContent, /No dated Flex open-position snapshot is available/);
 });
 
 test("Edge renders every authority state without turning missing evidence into results", () => {
