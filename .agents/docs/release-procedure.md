@@ -174,11 +174,9 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   correctly before it publishes. `make smoke-fast` (reduced matrix) and
   `make smoke` (full) run the identical wire invariants and are the
   risk-triggered replacement — run one when the candidate touched the wire
-  path, and on an intentional cadence rather than once per cut. Set
-  `SMOKE_CONTEXT=broker-wire` so the redacted local telemetry has an honest
-  denominator. Do **not** run a full
-  `make smoke` back-to-back with another full matrix on one session: that
-  produces a known "0 OPT subscribes" pacing artifact.
+  path, and on an intentional cadence rather than once per cut. Do **not** run
+  a full `make smoke` back-to-back with another full matrix on one session:
+  that produces a known "0 OPT subscribes" pacing artifact.
 - If you do run one against a fresh paper login, its "simulated trading"
   disclaimer dialog blocks the API and the click is human-only; if every
   connection fails msg-204, screenshot TWS and hand it to the user.

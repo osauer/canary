@@ -112,16 +112,14 @@ why, rather than a green check that examined none of your edits.
 the separate staged-tree planner so there is one canonical repository gate.
 
 Live smoke is risk-triggered, not a generic commit or release ritual.
-Run `make smoke-fast SMOKE_CONTEXT=broker-wire` after changes to broker wire
-decoding, Gateway connection/subscription lifecycle, or daemon broker adapters.
-Use full `make smoke SMOKE_CONTEXT=broker-wire` when the complete quote, chain,
+`make smoke-fast` is an optional boot, quote, and account diagnostic after
+changes to broker wire decoding, Gateway connection/subscription lifecycle, or
+daemon broker adapters. Use full `make smoke` when the complete quote, chain,
 regime, gamma, and account matrix is material, and on an intentional operating
-cadence. Pure risk logic, docs, release tooling, and SPA-only work stay
-hermetic. Gateway tests serialize through `scripts/with-gateway-lock.sh`; a
-busy gateway is a wait, not a flake. Report skips and first failures explicitly.
-Use `make gate-telemetry-summary` to inspect the redacted local outcome and
-latency history; the records never contain commands, broker output, or account
-data.
+cadence. Neither target is a generic commit or push gate. Pure risk logic, docs,
+release tooling, and SPA-only work stay hermetic. Gateway tests serialize
+through `scripts/with-gateway-lock.sh`; a busy gateway is a wait, not a flake.
+Report skips and first failures explicitly.
 
 Before deleting a retained safety test, run `make regression-spine-check`.
 It reintroduces selected historical production bugs in disposable archives and

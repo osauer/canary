@@ -84,7 +84,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check gate-telemetry-check gate-telemetry-summary build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -108,13 +108,6 @@ regression-spine-check: ## Reintroduce selected historical bugs and prove the co
 regression-spine-contract-check: ## Verify the historical-regression manifest still names present focused tests
 	@bash -n scripts/test-regression-spine.sh
 	@./scripts/test-regression-spine.sh --contract-only
-
-gate-telemetry-check: ## Verify redacted gate timing, outcome, skip, and retry summaries
-	@bash -n scripts/run-gate-with-telemetry.sh scripts/run-gate-with-telemetry_test.sh
-	@./scripts/run-gate-with-telemetry_test.sh
-
-gate-telemetry-summary: ## Summarize local redacted smoke outcome and latency records
-	@python3 ./scripts/summarize-gate-telemetry.py
 
 build: ## Compile the canonical bin/canary executable
 	@mkdir -p bin
@@ -280,7 +273,7 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check regression-spine-contract-check gate-telemetry-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -756,7 +749,6 @@ smoke-contract-check: ## Keep wire smoke on internal read-only probes after publ
 #                    wire-path witness so absence cannot masquerade as proof.
 #                    Paper TWS/Gateway is accepted because the smoke is read-only.
 SMOKE_STRICT ?= 0
-SMOKE_CONTEXT ?= manual
 
 # SPX_EXPECTED_REACHABLE — default ON in this repo because this is the
 # dev machine with CBOE OPRA entitlement; the user's standing guardrail
@@ -772,8 +764,7 @@ smoke-only: smoke-build ## Run wire smoke against existing bin/canary (no rebuil
 		echo "smoke-only: bin/canary missing — run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	./scripts/run-gate-with-telemetry.sh --gate smoke --class "$(SMOKE_CONTEXT)" --skip-marker 'wire-smoke: SKIP' -- \
-		env CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
+	CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
 smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds bin/canary; SKIP if no gateway)
 
@@ -781,8 +772,7 @@ smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds 
 # wire changes. It is intentionally absent from the generic commit and release
 # paths; pure logic, docs, release tooling, and SPA changes stay hermetic.
 smoke-fast: build smoke-build ## Fast risk-triggered wire smoke: boot + quote + account (~15s)
-	./scripts/run-gate-with-telemetry.sh --gate smoke-fast --class "$(SMOKE_CONTEXT)" --skip-marker 'wire-smoke: SKIP' -- \
-		env CANARY_SMOKE_FAST=1 CANARY_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
+	CANARY_SMOKE_FAST=1 CANARY_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
 release-binaries: ## Cross-compile canonical read-only/trading tarballs and the read-only MCPB
 	@if [ -z "$(RELEASE_VERSION)" ]; then \
