@@ -2,7 +2,7 @@
   "serverInfo": {
     "name": "canary",
     "title": "Canary MCP Server",
-    "version": "3.2.2",
+    "version": "3.3.0",
     "description": "Canary's local read-only MCP server for Interactive Brokers account, market, broker-reporting, retrospective Edge, and advisory risk context through IB Gateway or TWS.",
     "homepage": "https://osauer.dev/canary/",
     "repository": "https://github.com/osauer/canary",

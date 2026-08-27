@@ -3,7 +3,7 @@
   "name": "io.github.osauer/canary",
   "title": "Canary MCP",
   "description": "Read-only IBKR MCP: account, positions, daily brief, reporting status, Edge, and risk.",
-  "version": "3.2.2",
+  "version": "3.3.0",
   "websiteUrl": "https://osauer.dev/canary/",
   "repository": {
     "url": "https://github.com/osauer/canary",

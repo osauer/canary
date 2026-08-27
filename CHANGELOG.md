@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.3.0 — 2026-08-27 19:38 CEST
+
+### What's new
+
+- **Canary Edge shows what the broker-confirmed record says about past decisions.** Without an intent journal or analysis form, it automatically reviews retained 365-day history: account return after confirmed external flows; adequately sampled stock and ETF opens, adds, trims, and exits versus leaving the prior position unchanged; fixed SPY, QQQ, DIA, and VIX context; and separate broker-reported realized option episodes and dated open option P/L. Market context is explanatory and never changes the score, while missing or incomplete evidence stays explicit.
+- **Edge is available wherever review happens.** Run `canary edge`, open Edge in the paired app, or use the read-only `canary_edge` MCP tool; stock, ETF, and option rows expand into the exact facts and coverage behind the result without exposing a trading control.
+- **This release changes retrospective analysis, not broker-write authority.** Current account balances, positions, order paths, trading limits, confirmation requirements, and freeze semantics are unchanged.
+
+### Added
+
+- **One broker-reporting setup now serves Edge and reconciliation.** `canary setup reporting` validates the shared IBKR Activity Flex Query, while `canary reporting status` and the read-only `canary_reporting` MCP tool report setup, backfill, section, and field evidence without exposing the Query ID or token.
+- **Edge keeps stock and option evidence honest by using different review models.** Stock and ETF decisions use a fixed price-path comparison with materiality and sample gates; options report broker actuals and lifecycle coverage without inventing historical option marks, strategy names, intent, Greeks, or return on risk.
+
+### Changed
+
+- **An existing v3.2 database upgrades once before its first v3.3 broker connection.** The recoverable upgrade adds current and immutable Edge projection tables, requires temporary disk headroom for verified recovery artifacts, refreshes retained Flex XML into the current projection, and deletes no broker XML or account data; no manual cleanup is required.
+- **Edge evidence refreshes automatically.** Canary requests a paced one-year statement backfill, revalidates it monthly, builds exact-contract daily-bar context in the background, and publishes one coherent fingerprinted snapshot rather than asking the trader to maintain analysis inputs.
+
+### Fixed
+
+- **A completed report with no Trades section no longer looks like an endless backfill.** Edge reports insufficient evidence, while a present but empty Trades section returns a valid zero-decision review.
+- **Option results no longer turn absent evidence into zeroes.** Realized episodes and dated open snapshots preserve missing broker fields, and a proven-empty open snapshot remains distinct from no snapshot.
+- **Changing the saved Flex query no longer lets old evidence certify the new query.** Canary invalidates the retired query generation and rebuilds the projection and backfill proof from the replacement.
+- **A usable broker-history path no longer appears degraded merely because IBKR did not replay an informational connected notice.** Only an explicit farm failure marks it failed.
+- **MCP help and discovery no longer omit Reporting or Edge or advertise stale tool counts.** The generated reference and server card remain the exact inventory; public prose describes capabilities without duplicating a number that can drift.
+
 ## v3.2.2 — 2026-08-24 11:40 CEST
 
 ### What's new
