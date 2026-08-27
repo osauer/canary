@@ -12,7 +12,7 @@
   <meta property="og:url" content="https://osauer.dev/canary/canary-remote/">
   <meta property="og:title" content="Canary Remote App Beta">
   <meta property="og:description" content="A short beta guide for pairing the Canary app through the remote relay.">
-  <meta property="og:image" content="https://osauer.dev/canary/social/canary-app-mobile.png">
+  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta name="twitter:card" content="summary_large_image">
 
   <script type="application/ld+json">
@@ -274,7 +274,7 @@
 
     .screens {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 28px 22px;
       align-items: start;
     }
@@ -421,7 +421,7 @@
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#start">Start remote mode</a>
           <a class="button" href="#security">Security model</a>
-          <a class="button" href="#screenshots">Screenshots</a>
+          <a class="button" href="#screenshots">Current app</a>
           <a class="button" href="../feedback/">Give feedback</a>
         </div>
       </div>
@@ -433,7 +433,7 @@
     <section class="wrap" aria-labelledby="what-title">
       <div class="section-head">
         <h2 id="what-title">What this adds.</h2>
-        <p>The Brief tab has two movements composed by the daemon on your Mac: Review explains the last completed session, and Ready shows today's market, risk-capacity, and desk-readiness evidence.</p>
+        <p>Monitor includes two movements composed by the daemon on your Mac: Review explains the last completed session, and Ready shows today's market, risk-capacity, and desk-readiness evidence. Positions, Edge, Alerts, and Orders own the deeper reads.</p>
         <p>The remote path keeps the local-first design, but makes the paired PWA reachable from outside your home network.</p>
       </div>
       <div class="feature-grid">
@@ -474,7 +474,7 @@ canary app pair</code></pre>
         <li>Start TWS or IB Gateway locally and make sure <code>canary status</code> is healthy enough for app reads.</li>
         <li>Run <code>canary app --remote</code>. The app opens an outbound connector to the relay; you do not expose an inbound port on your Mac.</li>
         <li>Run <code>canary app pair</code> and open the printed URL on the phone. The URL includes a short-lived pairing id, nonce, and relay route.</li>
-        <li>Use the Monitor, Brief, Alerts, Orders, and Settings tabs from the PWA. Market and account values still come from your local IBKR session.</li>
+        <li>Use Monitor, Positions, Edge, Alerts, and Orders from the PWA; open Settings from the header gear. Market and account values still come from your local IBKR session.</li>
         <li>For a supervised app host, configure remote mode with <code>canary setup app --remote</code>, reload the LaunchAgent, then use <code>canary restart --app</code> without flag overrides.</li>
       </ol>
     </section>
@@ -506,25 +506,13 @@ canary app pair</code></pre>
 
     <section class="wrap" id="screenshots" aria-labelledby="screenshots-title">
       <div class="section-head">
-        <h2 id="screenshots-title">Screenshots.</h2>
-        <p>These captures are from the real PWA served by <code>canary app</code>. The complete monitor snapshot, including account, positions, orders, proposals, and market strip, is deterministic synthetic fixture data regenerated with <code>make app-screenshots</code>.</p>
+        <h2 id="screenshots-title">Current app surface.</h2>
+        <p>This current Canary Edge capture comes from the real PWA with synthetic data. It shows the automatic one-year review, 1/5/20-session matrix, and ranked findings without exposing a broker account. Edge describes observed historical outcomes, not a forecast or causal claim.</p>
       </div>
       <div class="screens">
-        <figure class="screen phone">
-          <img src="../social/canary-app-mobile.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile Monitor tab with account, regime, stress, and protection panels">
-          <figcaption>Mobile Monitor</figcaption>
-        </figure>
-        <figure class="screen phone">
-          <img src="../social/canary-app-mobile-brief.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile Brief tab showing the Review movement">
-          <figcaption>Mobile Brief</figcaption>
-        </figure>
         <figure class="screen">
-          <img src="../social/canary-app-desktop.png" width="2360" height="1520" loading="lazy" alt="Synthetic Canary wide Monitor tab with account, regime, stress, and protection panels">
-          <figcaption>Wide Monitor</figcaption>
-        </figure>
-        <figure class="screen">
-          <img src="../social/canary-app-desktop-brief.png" width="2360" height="1520" loading="lazy" alt="Synthetic Canary wide Brief tab showing Review and Ready">
-          <figcaption>Wide Brief</figcaption>
+          <img src="../social/canary-app-edge.png" width="821" height="684" loading="lazy" alt="Current Canary Edge SPA with synthetic one-year review data, a 1/5/20-session matrix, and ranked findings">
+          <figcaption>Canary Edge with synthetic account history</figcaption>
         </figure>
       </div>
     </section>

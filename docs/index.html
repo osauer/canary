@@ -372,7 +372,14 @@
     }
 
     .hero-shot {
+      margin: 0;
       padding: 0;
+    }
+
+    .hero-shot figcaption {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .hero-shot img,
@@ -539,6 +546,8 @@
     }
 
     pre {
+      min-width: 0;
+      max-width: 100%;
       overflow-x: auto;
       margin: 0;
       padding: 24px;
@@ -598,6 +607,7 @@
 
     .footer-links {
       display: flex;
+      flex-wrap: wrap;
       gap: 16px;
     }
 
@@ -726,8 +736,8 @@
       <div>
         <p class="eyebrow">Local Interactive Brokers risk desk</p>
         <h1 id="hero-title">Account, market, and risk context from your local broker session</h1>
-        <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. Its daemon composes the daily brief, 14-rule desk verdict, protection proposals, option-exercise opportunities, and Action Queue.</p>
-        <p class="lead">Account and market evidence keeps typed source health, freshness, session context, and warning codes. Delayed, held, unavailable, and not-due inputs do not masquerade as live data.</p>
+        <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. One daemon composes the daily brief, current portfolio and market evidence, and a broker-confirmed review of what past position changes delivered.</p>
+        <p class="lead">Canary Edge compares adequately repeated stock and ETF changes with leaving the prior position unchanged, while broker-recorded option P/L stays actual-only. Delayed, held, unavailable, and not-due inputs do not masquerade as live data.</p>
         <p class="safety">The MCP surface is read-only: no resources, settings writes, order previews, or execution tools.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a>
@@ -739,9 +749,10 @@
         <p class="disclaimer">Canary is analysis software, not financial advice. Nothing it shows or says is a recommendation to buy or sell any security.</p>
       </div>
       <div class="hero-media">
-        <div class="hero-shot">
-          <img src="social/positions.png" width="1280" height="608" alt="Sanitized Canary positions output grouped by underlying">
-        </div>
+        <figure class="hero-shot">
+          <img src="social/canary-app-edge.png" width="821" height="684" alt="Current Canary Edge SPA with synthetic one-year review data, a 1/5/20-session matrix, and ranked findings">
+          <figcaption>Synthetic account history. Observed outcomes, not a forecast.</figcaption>
+        </figure>
       </div>
     </section>
 
@@ -852,26 +863,12 @@ canary setup claude-desktop
         <article class="feature">
           <small>Desk brief</small>
           <h3>One daily brief, wherever you work</h3>
-          <p>The paired Canary app gives the daily brief its own tab, and the daemon writes it as a lead verdict followed by Review for the last completed session and Ready for the next one. <code>canary brief</code> prints the same briefing in the terminal, while <code>canary_brief</code> lets Claude and other MCP clients read it without signing anything off or changing process state. Sources the daemon could not read are named rather than skipped, so missing evidence never looks clean. An experimental relay adds phone access away from home.</p>
+          <p>Monitor includes the daemon-authored daily brief: a lead verdict followed by Review for the last completed session and Ready for the next one. <code>canary brief</code> prints the same briefing in the terminal, while <code>canary_brief</code> lets Claude and other MCP clients read it without signing anything off or changing process state. Sources the daemon could not read are named rather than skipped, so missing evidence never looks clean. An experimental relay adds phone access away from home.</p>
         </article>
         <article class="feature">
           <small>Boundary</small>
           <h3>Read-only by default</h3>
           <p>Standard downloads compile in no broker-write path, and MCP has no preview or execution tools. The opt-in trading binary keeps constrained CLI/app actions behind confirmation, journaling, daemon policy, and freeze gates.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="wrap">
-      <div class="section-head">
-        <h2>Account context without private account data.</h2>
-        <p>The retained terminal image uses sanitized fixture data and shows a current public CLI command.</p>
-      </div>
-      <div class="proof-grid">
-        <article class="proof">
-          <img src="social/positions.png" width="1280" height="608" loading="lazy" alt="sanitized canary positions by underlying terminal output">
-          <h3>Positions and exposure</h3>
-          <p>Underlying grouping, option legs, marks, Greek coverage, and portfolio-level exposure. Each read belongs to one account and keeps missing values separate from real zeros; sensitive values are redacted here.</p>
         </article>
       </div>
     </section>
@@ -895,7 +892,7 @@ canary setup claude-desktop
 
     <section class="wrap" aria-labelledby="surfaces-title">
       <div class="section-head">
-        <h2 id="surfaces-title">One local tool, three ways to use it.</h2>
+        <h2 id="surfaces-title">One local authority, three integration surfaces.</h2>
       </div>
       <div class="feature-grid">
         <article class="feature">
@@ -919,7 +916,7 @@ canary setup claude-desktop
     <section class="wrap" aria-labelledby="remote-title">
       <div class="section-head">
         <h2 id="remote-title">Experimental remote Canary app.</h2>
-        <p>The paired Canary PWA opens on the daily desk brief and can run through a beta HTTPS relay when you want phone access away from the LAN. The app and broker session still live on your Mac; the relay is transport-only and currently maintainer-assisted for early users.</p>
+        <p>The paired Canary PWA opens on Monitor and can run through a beta HTTPS relay when you want phone access away from the LAN. Monitor carries the daily brief; Positions, Edge, Alerts, and Orders own the deeper reads. The app and broker session still live on your Mac; the relay is transport-only and currently maintainer-assisted for early users.</p>
       </div>
       <div class="proof-grid remote-grid">
         <article class="proof">
@@ -928,11 +925,6 @@ canary setup claude-desktop
           </video>
           <h3>Away from the screen</h3>
           <p>You are in the water and the bird has the desk, back home on your Mac, checking the account against the rules you wrote down. While they hold, the phone by the towel stays quiet. The day one breaks, it buzzes once.</p>
-        </article>
-        <article class="proof">
-          <img src="social/canary-app-mobile-brief.png" width="780" height="1688" loading="lazy" alt="Synthetic Canary mobile app Daily brief tab">
-          <h3>Review and Ready</h3>
-          <p>The Brief tab reads as prose. A lead verdict, then the last completed session and today's readiness, with source quality and exceptions kept visible.</p>
         </article>
         <article class="feature">
           <small>Security</small>

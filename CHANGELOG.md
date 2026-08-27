@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.3.2 — 2026-08-27 22:09 CEST
+
+### What's new
+
+- **Canary's public entry point now starts with the problem, then the right surface.** The README routes agent/MCP, CLI JSON, paired-app, and lower-level Go users from one local authority and shows the current automatic Edge review with synthetic data.
+
+### Changed
+
+- **The README and Pages now use one current Canary Edge capture.** The retired Brief/Settings gallery and its deleted regeneration command are gone; the replacement shows the automatic one-year review, 1/5/20-session matrix, findings, and historical-not-predictive boundary.
+- **The Go example now requires a caller-chosen TWS client ID.** It warns direct library users not to reuse an ID already owned by Canary or another client.
+
+### Fixed
+
+- **Public safety copy no longer says the standard binary or MCP can preview broker actions.** The README, security policy, site, social card, and repository description now state the actual boundary: the standard binary has no broker-write path, and MCP has no preview or execution tools.
+
 ## v3.3.1 — 2026-08-27 21:05 CEST
 
 ### What's new

@@ -60,9 +60,9 @@ Protection, Orders, or Settings surface. The destination is scrolled into view
 and marked, so the operator can see which row or panel the alert opened. The
 authenticated Alerts view adds current figures from the same typed snapshot;
 lock-screen notification copy remains fixed and contains no account, position,
-symbol, or order data. A notification tap still navigates to
-one of three allowlisted routes: Monitor, Brief, or Alerts. Any other value,
-including a hostile payload string, falls back to Monitor. A URL inside a
+symbol, or order data. A notification tap navigates only to Monitor or Alerts;
+the retained legacy `brief` route is normalized to Monitor. Any other value,
+including a hostile payload string, also falls back to Monitor. A URL inside a
 payload is never followed.
 
 A tap never marks anything read. Reading happens only through the app's own acknowledgement path, which requires an authenticated, visible, fully rendered Alerts view plus a short dwell or an in-view interaction, and advances the cursor only across the exact set the page rendered.

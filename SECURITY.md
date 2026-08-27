@@ -40,7 +40,19 @@ migration, rollback, and explicit-decision evidence documented in the
 
 ## Threat model
 
-`canary` default builds are structurally no-broker-write: the order surface is limited to local preview/status reads, and the daemon cannot place, modify, cancel, or transmit broker orders unless built with the trading capability (see [README §Safety](README.md#safety)). The daemon listens only on a Unix-domain socket in the user's runtime directory, never on a TCP port. It speaks to a locally-running IB Gateway or TWS over loopback. The project sends no telemetry or account data to the maintainer, but configured features do make outbound requests: in particular, automatic earnings refresh can disclose held ticker symbols to Nasdaq, and optional remote access carries app traffic through the configured relay. [PRIVACY.md](PRIVACY.md#network-access) inventories the destinations, triggers, and disclosed data classes.
+`canary` standard builds are structurally no-broker-write: preview and action
+handlers are not compiled in, and the local order surface is limited to status
+and journal reads. The daemon cannot preview, place, modify, cancel, exercise,
+or transmit a broker action unless built with the separate trading capability;
+MCP has no preview or execution tools in either build (see
+[README §Safety](README.md#safety-and-privacy)). The daemon listens only on a Unix-domain
+socket in the user's runtime directory, never on a TCP port. It speaks to a
+locally-running IB Gateway or TWS over loopback. The project sends no telemetry
+or account data to the maintainer, but configured features do make outbound
+requests: in particular, automatic earnings refresh can disclose held ticker
+symbols to Nasdaq, and optional remote access carries app traffic through the
+configured relay. [PRIVACY.md](PRIVACY.md#network-access) inventories the
+destinations, triggers, and disclosed data classes.
 
 Reports that demonstrate a deviation from those properties — a successful place / modify / cancel / trade reaching the gateway, a daemon listener on a non-loopback or non-Unix socket, or undocumented or broader-than-documented data egress — take priority.
 
