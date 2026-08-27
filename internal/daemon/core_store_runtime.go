@@ -120,11 +120,11 @@ func (s *Server) upgradeCoreStoreSchema(ctx context.Context, minimum *corestore.
 	if s.logger != nil {
 		if sourceSizeErr == nil {
 			s.logger.Infof(
-				"daemon authority: one-time database maintenance starting; pruning reviewed redundant history and compacting %s before broker connection; do not interrupt",
+				"daemon authority: one-time database schema upgrade starting; preparing and verifying a recoverable candidate from %s of database state before broker connection; do not interrupt",
 				formatStorageBytes(sourceBytes),
 			)
 		} else {
-			s.logger.Infof("daemon authority: one-time database maintenance starting; pruning reviewed redundant history and compacting the database before broker connection; do not interrupt")
+			s.logger.Infof("daemon authority: one-time database schema upgrade starting; preparing and verifying a recoverable candidate before broker connection; do not interrupt")
 		}
 	}
 
@@ -137,14 +137,14 @@ func (s *Server) upgradeCoreStoreSchema(ctx context.Context, minimum *corestore.
 		targetBytes, targetSizeErr := coreSchemaUpgradeSourceFootprint(s.coreStorePath)
 		if sourceSizeErr == nil && targetSizeErr == nil {
 			s.logger.Infof(
-				"daemon authority: one-time database maintenance completed in %s; database %s -> %s; recovery artifacts verified",
+				"daemon authority: one-time database schema upgrade completed in %s; database %s -> %s; recovery artifacts verified",
 				elapsed,
 				formatStorageBytes(sourceBytes),
 				formatStorageBytes(targetBytes),
 			)
 		} else {
 			s.logger.Infof(
-				"daemon authority: one-time database maintenance completed in %s; recovery artifacts verified",
+				"daemon authority: one-time database schema upgrade completed in %s; recovery artifacts verified",
 				elapsed,
 			)
 		}
