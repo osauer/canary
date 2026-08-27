@@ -90,6 +90,35 @@ if "$checker" "$fixture" >/dev/null 2>&1; then
 fi
 finish_case
 
+# Every job that invokes the historical regression spine needs the commits it
+# replays, independently of the separate full-history requirement in check.
+restore_after_case .github/workflows/ci.yml
+python3 - "$fixture/.github/workflows/ci.yml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = """      - uses: actions/checkout@v4
+        with:
+          # The regression spine proves historical fix commits are ancestors.
+          fetch-depth: 0
+"""
+if old not in text:
+    raise SystemExit("full-history regression-spine checkout witness missing")
+path.write_text(text.replace(old, "      - uses: actions/checkout@v4\n", 1))
+PY
+if "$checker" "$fixture" >/dev/null 2>"$test_root/spine-error"; then
+	echo "check-release-ci-contract test: shallow regression-spine checkout passed" >&2
+	exit 1
+fi
+if ! grep -q "full history for regression-spine-check" "$test_root/spine-error"; then
+	echo "check-release-ci-contract test: shallow regression-spine checkout reported the wrong failure" >&2
+	cat "$test_root/spine-error" >&2
+	exit 1
+fi
+finish_case
+
 # The release contract must prove every cross-compile target and build mode,
 # not merely recognize the job's display name.
 restore_after_case .github/workflows/ci.yml

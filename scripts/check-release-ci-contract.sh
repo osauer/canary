@@ -922,6 +922,26 @@ def direct_step_mapping(path, job_name, step):
     return direct
 
 
+def require_full_history_checkout(path, job_name, steps, reason):
+    checkout_steps = [
+        step for step in steps if step.get("uses") == "actions/checkout@v4"
+    ]
+    if len(checkout_steps) != 1:
+        fail(
+            f"{path}: {job_name} job needs exactly one "
+            "actions/checkout@v4 step"
+        )
+    checkout_children = [
+        (indent, content)
+        for _number, indent, content in checkout_steps[0]["children"]
+    ]
+    if checkout_children != [(8, "with:"), (10, "fetch-depth: 0")]:
+        fail(
+            f"{path}:{checkout_steps[0]['number']}: {job_name} checkout "
+            f"must fetch full history for {reason}"
+        )
+
+
 def validate_ci_commands(path):
     job_blocks = workflow_job_blocks(path)
     for job_name, expected_steps in EXPECTED_CI_RUN_STEPS.items():
@@ -940,25 +960,6 @@ def validate_ci_commands(path):
                     )
 
         steps = workflow_step_blocks(path, job_name, job_block)
-        if job_name == "check":
-            checkout_steps = [
-                step
-                for step in steps
-                if step.get("uses") == "actions/checkout@v4"
-            ]
-            if len(checkout_steps) != 1:
-                fail(
-                    f"{path}: check job needs exactly one actions/checkout@v4 step"
-                )
-            checkout_children = [
-                (indent, content)
-                for _number, indent, content in checkout_steps[0]["children"]
-            ]
-            if checkout_children != [(8, "with:"), (10, "fetch-depth: 0")]:
-                fail(
-                    f"{path}:{checkout_steps[0]['number']}: check checkout must "
-                    "fetch full history for reduction-metrics-check"
-                )
         actual_run_steps = {}
         for step in steps:
             direct = direct_step_mapping(path, job_name, step)
@@ -976,6 +977,19 @@ def validate_ci_commands(path):
                     f"{step_name!r}"
                 )
             actual_run_steps[step_name] = (step["number"], direct)
+
+        full_history_reasons = []
+        if job_name == "check":
+            full_history_reasons.append("reduction-metrics-check")
+        if any(
+            direct.get("run") == "make regression-spine-check"
+            for _number, direct in actual_run_steps.values()
+        ):
+            full_history_reasons.append("regression-spine-check")
+        if full_history_reasons:
+            require_full_history_checkout(
+                path, job_name, steps, " and ".join(full_history_reasons)
+            )
 
         if set(actual_run_steps) != set(expected_steps):
             fail(
