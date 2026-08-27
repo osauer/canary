@@ -475,11 +475,39 @@
 
           <article class="panel edge-options" aria-labelledby="edgeOptionsTitle">
             <div class="panel-head">
-              <span id="edgeOptionsTitle">Options · actual only</span>
+              <span id="edgeOptionsTitle">Options · broker actual</span>
               <span class="panel-time" id="edgeOptionsCount">--</span>
             </div>
-            <p class="edge-options__note">Largest absolute broker-actual P/L first. Exact strategy grouping requires shared IBKR order linkage. Canary does not synthesize expired-option history.</p>
-            <div class="edge-option-list" id="edgeOptionList"></div>
+            <p class="edge-options__note">Realized episodes and the latest dated open snapshot stay separate. Gains and losses are seated before magnitude ranking. Tap a row for exact broker facts; Canary does not infer strategies, rolls, intent, or expired-option counterfactuals.</p>
+            <p class="edge-option-coverage" id="edgeOptionCoverage"></p>
+            <div class="edge-option-scopes" id="edgeOptionList">
+              <section class="edge-option-scope" aria-labelledby="edgeOptionRealizedTitle">
+                <div class="edge-option-scope__head">
+                  <strong id="edgeOptionRealizedTitle">Realized episodes</strong>
+                  <span>Selected window</span>
+                </div>
+                <p class="edge-option-scope__summary" id="edgeOptionRealizedSummary"></p>
+                <div class="edge-option-list" id="edgeOptionRealizedList"></div>
+              </section>
+              <section class="edge-option-scope" aria-labelledby="edgeOptionOpenTitle">
+                <div class="edge-option-scope__head">
+                  <strong id="edgeOptionOpenTitle">Latest open snapshot</strong>
+                  <span id="edgeOptionOpenAsOf">No dated snapshot</span>
+                </div>
+                <p class="edge-option-scope__summary" id="edgeOptionOpenSummary"></p>
+                <div class="edge-option-list" id="edgeOptionOpenList"></div>
+              </section>
+            </div>
+          </article>
+
+          <article class="panel edge-option-detail-panel" id="edgeOptionPanel" aria-labelledby="edgeOptionDetailTitle" hidden>
+            <div class="panel-head">
+              <span id="edgeOptionDetailTitle">Option evidence</span>
+              <span class="panel-time">Read-only broker evidence</span>
+            </div>
+            <p class="edge-option-detail__meta" id="edgeOptionDetailMeta"></p>
+            <dl class="edge-change__facts" id="edgeOptionDetailSummary"></dl>
+            <div class="edge-option-detail__legs" id="edgeOptionDetailLegs"></div>
           </article>
 
           <details class="panel edge-method" id="edgeMethod">

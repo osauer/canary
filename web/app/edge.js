@@ -5,15 +5,31 @@ const EDGE_WINDOWS = new Set(["90d", "365d"]);
 const EDGE_HORIZONS = new Set([1, 5, 20]);
 const EDGE_STATES = new Set(["action_required", "backfilling", "current", "degraded", "insufficient_evidence", "unavailable"]);
 const EDGE_ACTIONS = ["open", "add", "trim", "exit"];
+const EDGE_OPTION_GROUPINGS = new Set(["exact_order", "unlinked_execution", "option_event"]);
+const EDGE_OPTION_LIFECYCLES = new Set(["opening", "closing", "mixed", "event", "unknown"]);
+const EDGE_OPTION_EVENTS = new Set(["exercise", "assignment", "expiration", "other"]);
+const EDGE_OPTION_PNL_STATES = new Set(["complete", "partial", "unavailable"]);
+const EDGE_OPTION_MISSING = new Set(["realized_pnl", "open_pnl", "fx_conversion", "instrument_metadata"]);
 const EDGE_MARKET_LABELS = new Map([
   ["spy", "S&P 500 proxy (SPY)"], ["qqq", "Nasdaq-100 proxy (QQQ)"], ["dia", "Dow proxy (DIA)"], ["vix", "CBOE VIX"],
 ]);
 
-async function refreshEdge(changeID = "") {
+async function refreshEdge(changeID = "", optionID = "") {
   if (!state.authenticated) return false;
   const requestedChange = String(changeID || "").trim();
+  const requestedOption = String(optionID || "").trim();
   if (requestedChange && (requestedChange.length > 128 || !requestedChange.startsWith("change_"))) {
     state.edgeError = "Canary Edge received an invalid finding reference";
+    renderEdge();
+    return false;
+  }
+  if (requestedOption && (requestedOption.length > 128 || !requestedOption.startsWith("option_"))) {
+    state.edgeError = "Canary Edge received an invalid option reference";
+    renderEdge();
+    return false;
+  }
+  if (requestedChange && requestedOption) {
+    state.edgeError = "Canary Edge can explain one result at a time";
     renderEdge();
     return false;
   }
@@ -23,12 +39,14 @@ async function refreshEdge(changeID = "") {
   state.edgeError = "";
   renderEdge();
   try {
-    const path = requestedChange ? `/api/edge?${new URLSearchParams({ change: requestedChange })}` : "/api/edge";
+    const query = requestedChange ? { change: requestedChange } : requestedOption ? { option: requestedOption } : null;
+    const path = query ? `/api/edge?${new URLSearchParams(query)}` : "/api/edge";
     const response = await fetch(path, { credentials: "include" });
     const body = await readJSONOrText(response);
     if (!response.ok) throw new Error(typeof body === "string" ? body : body.error || "Canary Edge unavailable");
     if (!validEdgeResult(body)) throw new Error("Canary Edge returned an invalid typed result");
     if (requestedChange && body.change?.id !== requestedChange) throw new Error("Canary Edge returned the wrong finding explanation");
+    if (requestedOption && body.option?.id !== requestedOption) throw new Error("Canary Edge returned the wrong option explanation");
     if (state.edgeRequestID !== requestID) return false;
     state.edgeResult = body;
     return true;
@@ -46,7 +64,7 @@ async function refreshEdge(changeID = "") {
 
 function validEdgeResult(result) {
   if (!result || typeof result !== "object") return false;
-  if (result.schema_version !== "canary-edge-v2") return false;
+  if (result.schema_version !== "canary-edge-v3") return false;
   if (!EDGE_STATES.has(result.state) || !EDGE_WINDOWS.has(result.window)) return false;
   if (!EDGE_HORIZONS.has(Number(result.horizon_sessions)) || result.not_execution !== true) return false;
   const selection = result.horizon_selection;
@@ -57,11 +75,97 @@ function validEdgeResult(result) {
   const presentContext = new Set(result.market_context.map((row) => row.key));
   const missingContext = new Set(result.market_context_missing);
   if (missingContext.size !== result.market_context_missing.length || result.market_context_missing.some((key) => !EDGE_MARKET_LABELS.has(key) || presentContext.has(key))) return false;
-  if (!Array.isArray(result.options) || !hasNumericValue(result.options_total_count) || result.options_total_count < result.options.length || Boolean(result.options_truncated) !== (result.options_total_count > result.options.length) || !result.coverage || typeof result.coverage !== "object" || !result.method) return false;
-  if (result.fingerprint && (result.method.metric !== "Decision price impact" || !String(result.method.headline_selection || "").trim() || !String(result.method.finding_ranking || "").trim() || !String(result.method.materiality_gate || "").trim() || !String(result.method.automatic_horizon || "").trim() || !String(result.method.market_context || "").trim())) return false;
+  if (!validEdgeOptionReview(result.options) || !result.coverage || typeof result.coverage !== "object" || !result.method) return false;
+  if (result.fingerprint && (result.method.metric !== "Decision price impact" || !String(result.method.headline_selection || "").trim() || !String(result.method.finding_ranking || "").trim() || !String(result.method.materiality_gate || "").trim() || !String(result.method.automatic_horizon || "").trim() || !String(result.method.market_context || "").trim() || result.method.no_causal_claim !== true || result.method.no_predictive_claim !== true || result.method.not_investment_advice !== true)) return false;
   if (result.change != null && !validEdgeChange(result.change)) return false;
-  return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct) && Array.isArray(finding.market_context || []) && (finding.market_context || []).every(validEdgeMarketContext))
-    && result.options.every((option) => String(option?.id || "").startsWith("option_") && option?.actual_only === true);
+  if (result.option != null && !validEdgeOptionDetail(result.option)) return false;
+  if (result.change != null && result.option != null) return false;
+  return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct) && Array.isArray(finding.market_context || []) && (finding.market_context || []).every(validEdgeMarketContext));
+}
+
+function validEdgeOptionReview(review) {
+  if (!review || typeof review !== "object" || !review.coverage || !review.realized || !review.open) return false;
+  const coverage = review.coverage;
+  const coverageCounts = [coverage.execution_episodes, coverage.opening_episodes, coverage.opening_only_zero_episodes, coverage.closing_episodes, coverage.mixed_episodes, coverage.unknown_episodes, coverage.event_episodes];
+  if (!coverageCounts.every(validEdgeCount)) return false;
+  if (coverage.execution_episodes !== coverage.opening_episodes + coverage.closing_episodes + coverage.mixed_episodes + coverage.unknown_episodes || coverage.opening_only_zero_episodes > coverage.opening_episodes) return false;
+
+  const realized = review.realized;
+  const realizedCounts = [realized.positive_count, realized.negative_count, realized.flat_count, realized.complete_count, realized.partial_count, realized.unavailable_count, realized.total_count];
+  if (!realizedCounts.every(validEdgeCount) || !Array.isArray(realized.episodes) || realized.episodes.length > 20 || realized.total_count < realized.episodes.length) return false;
+  if (realized.total_count !== realized.complete_count + realized.partial_count + realized.unavailable_count || realized.positive_count + realized.negative_count + realized.flat_count !== realized.complete_count + realized.partial_count) return false;
+  if (Boolean(realized.truncated) !== (realized.total_count > realized.episodes.length)) return false;
+  if ((realized.complete_count + realized.partial_count > 0) !== hasNumericValue(realized.known_pnl_base)) return false;
+  if (new Set(realized.episodes.map((episode) => episode?.id)).size !== realized.episodes.length || !realized.episodes.every(validEdgeOptionEpisode)) return false;
+
+  const open = review.open;
+  const openCounts = [open.positive_count, open.negative_count, open.flat_count, open.complete_count, open.unavailable_count, open.total_count];
+  if (!openCounts.every(validEdgeCount) || !Array.isArray(open.positions) || open.positions.length > 20 || open.total_count < open.positions.length) return false;
+  if (open.total_count !== open.complete_count + open.unavailable_count || open.positive_count + open.negative_count + open.flat_count !== open.complete_count) return false;
+  if (Boolean(open.truncated) !== (open.total_count > open.positions.length)) return false;
+  if ((open.complete_count > 0) !== hasNumericValue(open.known_pnl_base)) return false;
+  if ((open.total_count > 0) !== Boolean(String(open.snapshot_date || "").trim())) return false;
+  return new Set(open.positions.map((position) => position?.id)).size === open.positions.length && open.positions.every(validEdgeOptionOpenPosition);
+}
+
+function validEdgeOptionEpisode(episode) {
+  if (!episode || !String(episode.id || "").startsWith("option_") || !EDGE_OPTION_GROUPINGS.has(episode.grouping) || !EDGE_OPTION_LIFECYCLES.has(episode.lifecycle)) return false;
+  if (!String(episode.activity_from || "").trim() || !String(episode.activity_to || "").trim() || !Array.isArray(episode.legs) || episode.legs.length === 0) return false;
+  if (episode.grouping === "option_event") {
+    if (episode.lifecycle !== "event" || !EDGE_OPTION_EVENTS.has(episode.event_type)) return false;
+  } else if (episode.lifecycle === "event" || episode.event_type) return false;
+  if (!validEdgeOptionPNL(episode.pnl_status, episode.realized_pnl_base, episode.missing_evidence)) return false;
+  return episode.legs.every((leg) => String(leg?.symbol || "").trim() && validEdgeOptionIdentity(leg, episode.missing_evidence));
+}
+
+function validEdgeOptionOpenPosition(position) {
+  return Boolean(position && String(position.id || "").startsWith("option_") && String(position.symbol || "").trim() && String(position.snapshot_date || "").trim()
+    && validEdgeOptionIdentity(position, position.missing_evidence) && validEdgeOptionPNL(position.pnl_status, position.open_pnl_base, position.missing_evidence));
+}
+
+function validEdgeOptionDetail(detail) {
+  if (!detail || !String(detail.id || "").startsWith("option_")) return false;
+  if (detail.kind === "realized_episode") {
+    const episode = detail.episode;
+    if (!episode || detail.open_position != null || episode.id !== detail.id || !Array.isArray(episode.legs)) return false;
+    if (!validEdgeOptionEpisode({ ...episode, legs: episode.legs.map((leg) => ({ symbol: leg?.symbol, underlying: leg?.underlying, expiry: leg?.expiry, strike: leg?.strike, put_call: leg?.put_call })) })) return false;
+    return episode.legs.every((leg) => String(leg?.id || "").startsWith("option-leg_")
+      && ["buy", "sell", "unknown"].includes(leg.side) && ["opening", "closing", "unknown"].includes(leg.open_close)
+      && [leg.strike, leg.multiplier, leg.quantity, leg.execution_price, leg.realized_pnl_base, leg.direct_costs_base].every((value) => value == null || hasNumericValue(value))
+      && validEdgeOptionMissing(leg.missing_evidence));
+  }
+  if (detail.kind === "open_position") {
+    const position = detail.open_position;
+    return Boolean(position && detail.episode == null && position.id === detail.id && validEdgeOptionOpenPosition(position)
+      && ["long", "short", "unknown"].includes(position.side)
+      && [position.strike, position.multiplier, position.quantity, position.mark_price, position.cost_basis_money, position.open_pnl_base].every((value) => value == null || hasNumericValue(value)));
+  }
+  return false;
+}
+
+function validEdgeOptionIdentity(row, missing) {
+  const missingInstrument = Array.isArray(missing) && missing.includes("instrument_metadata");
+  const expiry = String(row?.expiry || "");
+  const putCall = String(row?.put_call || "");
+  if (expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) return false;
+  if (row?.strike != null && !hasNumericValue(row.strike)) return false;
+  if (putCall && !["call", "put"].includes(putCall)) return false;
+  return missingInstrument || Boolean(expiry && row?.strike != null && putCall);
+}
+
+function validEdgeOptionPNL(status, amount, missing) {
+  if (!EDGE_OPTION_PNL_STATES.has(status) || !validEdgeOptionMissing(missing)) return false;
+  if (status === "complete") return hasNumericValue(amount);
+  if (status === "partial") return hasNumericValue(amount) && (missing || []).length > 0;
+  return amount == null && (missing || []).length > 0;
+}
+
+function validEdgeOptionMissing(missing) {
+  return missing == null || (Array.isArray(missing) && new Set(missing).size === missing.length && missing.every((reason) => EDGE_OPTION_MISSING.has(reason)));
+}
+
+function validEdgeCount(value) {
+  return Number.isInteger(value) && value >= 0;
 }
 
 function validEdgeMarketContextIdentity(row) {
@@ -119,6 +223,7 @@ function renderEdge() {
   renderEdgeChange(result);
   renderEdgeAccount(result);
   renderEdgeOptions(result);
+  renderEdgeOptionDetail(result);
   renderEdgeMethod(result);
 }
 
@@ -155,7 +260,8 @@ function renderEdgeStatus(result) {
 }
 
 function edgeHasResults(result) {
-  return Boolean(result.account || result.action_rollups?.length || result.findings?.length || result.options?.length || result.change || result.fingerprint);
+  const options = result.options || {};
+  return Boolean(result.account || result.action_rollups?.length || result.findings?.length || options.realized?.total_count || options.open?.total_count || options.coverage?.execution_episodes || options.coverage?.event_episodes || result.change || result.option || result.fingerprint);
 }
 
 function renderEdgeSetup(result) {
@@ -375,38 +481,219 @@ function renderEdgeChange(result) {
 }
 
 function renderEdgeOptions(result) {
-  const options = result.options || [];
-  const total = Number(result.options_total_count || 0);
-  $("edgeOptionsCount").textContent = result.options_truncated
-    ? `${options.length} of ${total} results`
-    : `${total} result${total === 1 ? "" : "s"}`;
-  if (options.length === 0) {
-    $("edgeOptionList").replaceChildren(emptyEdgeRow("No broker-actual option result is available for this window."));
+  const review = result.options || {};
+  const coverage = review.coverage || {};
+  const realized = review.realized || { episodes: [] };
+  const open = review.open || { positions: [] };
+  const currency = edgeCurrency(result);
+  $("edgeOptionsCount").textContent = `${Number(realized.total_count || 0)} realized · ${Number(open.total_count || 0)} open`;
+  $("edgeOptionCoverage").textContent = edgeOptionCoverageText(coverage);
+  $("edgeOptionRealizedSummary").textContent = edgeOptionRealizedSummary(realized, currency);
+  $("edgeOptionOpenSummary").textContent = edgeOptionOpenSummary(open, currency);
+  $("edgeOptionOpenAsOf").textContent = open.snapshot_date ? calendarDate(open.snapshot_date) : "No dated snapshot";
+
+  const realizedRows = (realized.episodes || []).map((episode) => edgeOptionResultRow({
+    id: episode.id,
+    title: edgeOptionEpisodeTitle(episode),
+    meta: [edgeOptionDateRange(episode.activity_from, episode.activity_to), labelize(episode.lifecycle), episode.event_type ? labelize(episode.event_type) : labelize(episode.grouping), edgeOptionEvidenceText(episode.pnl_status, episode.missing_evidence)].filter(Boolean).join(" · "),
+    amount: episode.realized_pnl_base,
+    amountLabel: "realized",
+    currency,
+  }));
+  $("edgeOptionRealizedList").replaceChildren(...(realizedRows.length ? realizedRows : [emptyEdgeRow(realized.total_count
+    ? "No numeric realized P/L row can be magnitude-ranked; incomplete episodes remain counted above."
+    : "No broker-reported realized option episode is available for this window.")]));
+
+  const openRows = (open.positions || []).map((position) => edgeOptionResultRow({
+    id: position.id,
+    title: edgeOptionContractLabel(position),
+    meta: [calendarDate(position.snapshot_date), "Open position", edgeOptionEvidenceText(position.pnl_status, position.missing_evidence)].filter(Boolean).join(" · "),
+    amount: position.open_pnl_base,
+    amountLabel: "open",
+    currency,
+  }));
+  $("edgeOptionOpenList").replaceChildren(...(openRows.length ? openRows : [emptyEdgeRow(open.total_count
+    ? "No numeric open P/L row can be magnitude-ranked; unavailable positions remain counted above."
+    : "No open option position is present in the latest dated Flex snapshot.")]));
+}
+
+function edgeOptionResultRow({ id, title, meta, amount, amountLabel, currency }) {
+  const row = document.createElement("button");
+  row.type = "button";
+  row.className = "edge-option-row edge-explanation";
+  const expanded = state.edgeResult?.option?.id === id;
+  row.setAttribute("aria-expanded", String(expanded));
+  row.setAttribute("aria-controls", "edgeOptionPanel");
+  row.setAttribute("aria-label", `${title}: explain the broker option evidence`);
+  row.addEventListener("click", () => {
+    if (state.edgeResult?.option?.id === id) {
+      const next = { ...state.edgeResult };
+      delete next.option;
+      state.edgeResult = next;
+      state.edgeError = "";
+      renderEdge();
+      return;
+    }
+    void refreshEdge("", id);
+  });
+  const identity = document.createElement("div");
+  const heading = document.createElement("b");
+  heading.textContent = title;
+  const evidence = document.createElement("small");
+  evidence.textContent = meta;
+  identity.append(heading, evidence);
+  const value = document.createElement("strong");
+  value.className = `edge-option-row__value ${moneyTone(amount)}`.trim();
+  value.textContent = amount == null ? "P/L unavailable" : edgeMoney(amount, currency);
+  value.classList.toggle("is-private", amount != null && !state.accountValueVisible);
+  value.title = amount == null ? "Broker P/L was not reported or could not be converted" : `${amountLabel} broker P/L`;
+  row.append(identity, value);
+  return row;
+}
+
+function renderEdgeOptionDetail(result) {
+  const panel = $("edgeOptionPanel");
+  const detail = result.option;
+  panel.hidden = !detail;
+  if (!detail) {
+    $("edgeOptionDetailMeta").textContent = "";
+    $("edgeOptionDetailSummary").replaceChildren();
+    $("edgeOptionDetailLegs").replaceChildren();
     return;
   }
-  $("edgeOptionList").replaceChildren(...options.map((option) => {
-    const row = document.createElement("div");
-    row.className = "edge-option-row";
-    const identity = document.createElement("div");
-    const title = document.createElement("b");
-    title.textContent = option.symbol || option.underlying || "Option position";
-    const meta = document.createElement("small");
-    meta.textContent = `${labelize(option.grouping)} · ${Number(option.leg_count || 0)} leg${Number(option.leg_count || 0) === 1 ? "" : "s"}`;
-    identity.append(title, meta);
-    const values = document.createElement("div");
-    values.className = "edge-option-row__values";
-    for (const [label, value] of [["Actual", option.actual_pnl_base], ["Realized", option.realized_pnl_base], ["Open", option.open_pnl_base]]) {
-      if (value == null) continue;
-      const span = document.createElement("span");
-      span.textContent = `${label} ${edgeMoney(value, edgeCurrency(result))}`;
-      span.className = moneyTone(value);
-      span.classList.toggle("is-private", !state.accountValueVisible);
-      values.append(span);
-    }
-    if (values.childElementCount === 0) values.textContent = "P/L unavailable";
-    row.append(identity, values);
-    return row;
+  const currency = edgeCurrency(result);
+  if (detail.episode) {
+    const episode = detail.episode;
+    $("edgeOptionDetailTitle").textContent = `${episode.underlying || "Option"} · ${episode.event_type ? labelize(episode.event_type) : labelize(episode.lifecycle)} episode`;
+    $("edgeOptionDetailMeta").textContent = [edgeOptionDateRange(episode.activity_from, episode.activity_to), labelize(episode.grouping), "Broker-reported execution evidence"].join(" · ");
+    renderEdgeOptionFacts([
+      ["Broker realized P/L", episode.realized_pnl_base == null ? "Unavailable" : edgeMoney(episode.realized_pnl_base, currency), episode.realized_pnl_base != null],
+      ["P/L evidence", labelize(episode.pnl_status), false],
+      ["Exact legs", String((episode.legs || []).length), false],
+      ["Missing evidence", edgeOptionMissingText(episode.missing_evidence), false],
+    ]);
+    const legs = (episode.legs || []).map((leg) => edgeOptionLegRow(leg, currency));
+    $("edgeOptionDetailLegs").replaceChildren(...legs);
+    $("edgeOptionDetailLegs").hidden = legs.length === 0;
+    return;
+  }
+  const position = detail.open_position;
+  $("edgeOptionDetailTitle").textContent = `${edgeOptionContractLabel(position)} · open snapshot`;
+  $("edgeOptionDetailMeta").textContent = `${calendarDate(position.snapshot_date)} · Broker-reported open-position evidence`;
+  const contractCurrency = String(position.currency || "").toUpperCase();
+  renderEdgeOptionFacts([
+    ["Side", labelize(position.side), false],
+    ["Quantity", edgeQuantity(position.quantity), false],
+    ["Contract multiplier", edgeQuantity(position.multiplier), false],
+    ["Broker mark", edgePrice(position.mark_price, contractCurrency), position.mark_price != null],
+    ["Cost basis", edgePrice(position.cost_basis_money, contractCurrency), position.cost_basis_money != null],
+    ["Broker open P/L", position.open_pnl_base == null ? "Unavailable" : edgeMoney(position.open_pnl_base, currency), position.open_pnl_base != null],
+    ["P/L evidence", labelize(position.pnl_status), false],
+    ["Missing evidence", edgeOptionMissingText(position.missing_evidence), false],
+  ]);
+  $("edgeOptionDetailLegs").replaceChildren();
+  $("edgeOptionDetailLegs").hidden = true;
+}
+
+function renderEdgeOptionFacts(facts) {
+  $("edgeOptionDetailSummary").replaceChildren(...facts.flatMap(([term, description, sensitive]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = term;
+    const dd = document.createElement("dd");
+    dd.textContent = description;
+    dd.classList.toggle("is-private", sensitive && !state.accountValueVisible);
+    return [dt, dd];
   }));
+}
+
+function edgeOptionLegRow(leg, currency) {
+  const row = document.createElement("div");
+  row.className = "edge-option-leg";
+  const identity = document.createElement("div");
+  const title = document.createElement("b");
+  title.textContent = edgeOptionContractLabel(leg);
+  const meta = document.createElement("small");
+  const contractCurrency = String(leg.currency || "").toUpperCase();
+  meta.textContent = [labelize(leg.side), labelize(leg.open_close), leg.quantity == null ? "quantity unavailable" : `qty ${edgeQuantity(leg.quantity)}`, leg.execution_price == null ? "price unavailable" : `at ${edgePrice(leg.execution_price, contractCurrency)}`, leg.multiplier == null ? "" : `multiplier ${edgeQuantity(leg.multiplier)}`, (leg.missing_evidence || []).length ? `missing ${edgeOptionMissingText(leg.missing_evidence)}` : ""].filter(Boolean).join(" · ");
+  identity.append(title, meta);
+  const values = document.createElement("div");
+  values.className = "edge-option-leg__values";
+  const realized = document.createElement("strong");
+  realized.textContent = leg.realized_pnl_base == null ? "Realized P/L unavailable" : edgeMoney(leg.realized_pnl_base, currency);
+  realized.className = moneyTone(leg.realized_pnl_base);
+  realized.classList.toggle("is-private", leg.realized_pnl_base != null && !state.accountValueVisible);
+  values.append(realized);
+  if (leg.direct_costs_base != null) {
+    const costs = document.createElement("small");
+    costs.textContent = `Costs ${edgeMoney(leg.direct_costs_base, currency)}`;
+    costs.classList.toggle("is-private", !state.accountValueVisible);
+    values.append(costs);
+  }
+  row.append(identity, values);
+  return row;
+}
+
+function edgeOptionCoverageText(coverage) {
+  const parts = [
+    [coverage.opening_episodes, "opening"],
+    [coverage.closing_episodes, "closing"],
+    [coverage.mixed_episodes, "mixed exact-order"],
+    [coverage.unknown_episodes, "unknown lifecycle"],
+    [coverage.event_episodes, "exercise / assignment / expiration event"],
+  ].filter(([count]) => Number(count || 0) > 0).map(([count, label]) => `${Number(count)} ${label}`);
+  if (parts.length === 0) return "No option execution or lifecycle-event evidence is present in this window.";
+  const openingZero = Number(coverage.opening_only_zero_episodes || 0);
+  return `Activity coverage: ${parts.join(" · ")}.${openingZero ? ` ${openingZero} opening-only zero-P/L episode${openingZero === 1 ? " is" : "s are"} retained as activity, not ranked as a realized result.` : ""}`;
+}
+
+function edgeOptionRealizedSummary(realized, currency) {
+  const total = Number(realized.total_count || 0);
+  const known = realized.known_pnl_base == null ? "No numeric broker realized P/L" : `${edgeMoney(realized.known_pnl_base, currency)} known broker realized P/L`;
+  const incomplete = Number(realized.partial_count || 0) + Number(realized.unavailable_count || 0);
+  const shown = realized.truncated ? ` · showing ${Number(realized.episodes?.length || 0)} numeric P/L rows of ${total}; unavailable rows stay counted, not magnitude-ranked` : "";
+  return `${known} · ${Number(realized.positive_count || 0)} gain · ${Number(realized.negative_count || 0)} loss · ${Number(realized.flat_count || 0)} flat${incomplete ? ` · ${incomplete} incomplete` : ""}${shown}`;
+}
+
+function edgeOptionOpenSummary(open, currency) {
+  const total = Number(open.total_count || 0);
+  const known = open.known_pnl_base == null ? "No numeric broker open P/L" : `${edgeMoney(open.known_pnl_base, currency)} known broker open P/L`;
+  const unavailable = Number(open.unavailable_count || 0);
+  const shown = open.truncated ? ` · showing ${Number(open.positions?.length || 0)} numeric P/L rows of ${total}; unavailable rows stay counted, not magnitude-ranked` : "";
+  return `${known} · ${Number(open.positive_count || 0)} gain · ${Number(open.negative_count || 0)} loss · ${Number(open.flat_count || 0)} flat${unavailable ? ` · ${unavailable} unavailable` : ""}${shown}`;
+}
+
+function edgeOptionEpisodeTitle(episode) {
+  const labels = (episode.legs || []).map(edgeOptionContractLabel);
+  if (labels.length === 0) return episode.underlying || "Option episode";
+  return `${labels.slice(0, 2).join(" + ")}${labels.length > 2 ? ` +${labels.length - 2} legs` : ""}`;
+}
+
+function edgeOptionContractLabel(contract) {
+  const root = String(contract?.underlying || contract?.symbol || "Option").trim();
+  const parts = [root];
+  if (contract?.expiry) parts.push(calendarDate(contract.expiry));
+  if (contract?.strike != null) parts.push(edgeQuantity(contract.strike));
+  if (contract?.put_call) parts.push(String(contract.put_call).slice(0, 1).toUpperCase());
+  return parts.join(" ");
+}
+
+function edgeOptionDateRange(from, to) {
+  if (!from) return "Undated";
+  if (!to || String(from).slice(0, 10) === String(to).slice(0, 10)) return calendarDate(from);
+  return `${calendarDate(from)} → ${calendarDate(to)}`;
+}
+
+function edgeOptionEvidenceText(status, missing) {
+  const gap = (missing || []).length ? ` · missing ${edgeOptionMissingText(missing)}` : "";
+  return `${labelize(status)} P/L${gap}`;
+}
+
+function edgeOptionMissingText(missing) {
+  if (!(missing || []).length) return "None reported";
+  const labels = new Map([
+    ["realized_pnl", "realized P/L"], ["open_pnl", "open P/L"], ["fx_conversion", "FX conversion"], ["instrument_metadata", "contract metadata"],
+  ]);
+  return missing.map((reason) => labels.get(reason) || labelize(reason)).join(", ");
 }
 
 function renderEdgeMethod(result) {

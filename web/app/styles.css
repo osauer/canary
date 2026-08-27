@@ -800,7 +800,7 @@ p {
 
 /* Edge is a review instrument, not another dashboard. Its hierarchy stays
    fixed: automatic decision pattern, concrete findings and their calculation
-   trail, account result, actual-only options, then evidence disclosure. */
+   trail, account result, broker-actual options, then evidence disclosure. */
 
 .edge-status {
   min-height: 0;
@@ -861,6 +861,7 @@ p {
 .edge-change-panel,
 .edge-account,
 .edge-options,
+.edge-option-detail-panel,
 .edge-method {
   grid-column: 1 / -1;
 }
@@ -879,7 +880,8 @@ p {
 .edge-matrix__cell b.ok,
 .edge-finding strong.ok,
 .edge-change-score strong.ok,
-.edge-option-row__values .ok {
+.edge-option-row__value.ok,
+.edge-option-leg__values .ok {
   color: var(--pd-money-up);
 }
 
@@ -887,12 +889,15 @@ p {
 .edge-matrix__cell b.risk,
 .edge-finding strong.risk,
 .edge-change-score strong.risk,
-.edge-option-row__values .risk {
+.edge-option-row__value.risk,
+.edge-option-leg__values .risk {
   color: var(--pd-money-down);
 }
 
 .edge-account p,
-.edge-options__note {
+.edge-options__note,
+.edge-option-coverage,
+.edge-option-scope__summary {
   color: var(--pd-caption);
   font-size: 11px;
   line-height: 1.4;
@@ -1001,7 +1006,8 @@ p {
   border-top: 1px solid var(--pd-hairline);
 }
 
-.edge-finding {
+.edge-finding,
+.edge-option-row {
   width: 100%;
   border-right: 0;
   border-bottom: 0;
@@ -1015,11 +1021,14 @@ p {
 }
 
 .edge-finding:hover,
-.edge-finding[aria-expanded="true"] {
+.edge-finding[aria-expanded="true"],
+.edge-option-row:hover,
+.edge-option-row[aria-expanded="true"] {
   background: rgba(111, 179, 255, 0.06);
 }
 
-.edge-finding:focus-visible {
+.edge-finding:focus-visible,
+.edge-option-row:focus-visible {
   outline: 1px solid var(--pd-advisory);
   outline-offset: 2px;
 }
@@ -1137,13 +1146,107 @@ p {
   margin: 8px 0 2px;
 }
 
-.edge-option-row__values {
+.edge-option-coverage {
+  margin: 8px 0 0;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--pd-hairline);
+}
+
+.edge-option-scopes {
+  display: grid;
+  gap: 14px;
+  margin-top: 11px;
+}
+
+.edge-option-scope {
+  min-width: 0;
+}
+
+.edge-option-scope + .edge-option-scope {
+  padding-top: 13px;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-option-scope__head {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 3px 10px;
+  gap: 9px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.edge-option-scope__head strong {
+  color: var(--pd-strip-value);
+  font-size: 11.5px;
+}
+
+.edge-option-scope__head span {
+  color: var(--pd-dim);
+  font-size: 9px;
+}
+
+.edge-option-scope__summary {
+  margin: 5px 0 2px;
+}
+
+.edge-option-row__value {
+  color: var(--pd-readout);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.edge-option-detail-panel {
+  border-color: rgba(111, 179, 255, 0.2);
+}
+
+.edge-option-detail__meta {
+  margin: 9px 0 11px;
   color: var(--pd-caption);
   font-size: 10.5px;
+}
+
+.edge-option-detail__legs {
+  display: grid;
+  margin-top: 12px;
+  border-top: 1px solid var(--pd-hairline);
+}
+
+.edge-option-leg {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--pd-hairline);
+}
+
+.edge-option-leg > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.edge-option-leg b {
+  overflow: hidden;
+  color: var(--pd-strip-value);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-option-leg small,
+.edge-option-leg__values {
+  color: var(--pd-engraved);
+  font-size: 9.5px;
+}
+
+.edge-option-leg__values {
+  text-align: right;
+}
+
+.edge-option-leg__values strong {
+  color: var(--pd-readout);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .edge-method {
@@ -6067,12 +6170,13 @@ p {
 
   .edge-finding,
   .edge-option-row,
-  .edge-change-score {
+  .edge-change-score,
+  .edge-option-leg {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .edge-option-row__values {
-    justify-content: flex-start;
+  .edge-option-leg__values {
+    text-align: left;
   }
 
   .pd-set-row--select {

@@ -1,9 +1,10 @@
 # Canary Edge
 
-Canary Edge is a retrospective broker-truth review. It answers two different questions without blending them:
+Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
 - What happened to the account after confirmed external cash and position flows?
 - How did each stock or ETF position change compare with leaving the pre-trade position unchanged?
+- What realized option episodes, lifecycle activity, and dated open option P/L did the broker actually report?
 
 It does not grade the trader, recommend a trade, or claim that an outcome was caused by a decision. The result is deterministic: the daemon calculates and ranks it; an AI client may explain the typed result but cannot replace its arithmetic.
 
@@ -62,11 +63,19 @@ Each move runs from the last daily close before the execution session to the ben
 
 This context is informational. It never changes Decision price impact, the selected action, or the sign of a headline. It helps the user see whether a repeated result accompanied a broad rise, selloff, technology-led move, Dow-led move, or volatility shift without asking them to tag trade intent manually. Edge does not infer why the user traded. If a benchmark has no matching daily interval, the public result names it as unavailable instead of silently omitting it.
 
-## Options: actual only
+## Options: broker actual, in separate scopes
 
-Listed options use broker-reported realized and open P/L. Several legs are called one strategy only when they share exact IBKR order linkage; otherwise Edge shows contract-level results. Open-position rows have no order linkage, so open option P/L remains contract-level. Results are ranked by absolute broker-actual P/L. The typed result reports the total option-result count and whether the public list was truncated at 20; the app says “20 of N” instead of presenting the cap as the total.
+Options are a first-class review surface, but they cannot credibly use the stock/ETF counterfactual. Edge therefore keeps three broker-evidence scopes separate:
 
-Edge never manufactures an expired-option price series. IBKR does not provide historical data for expired options through this API, so an unavailable counterfactual remains unavailable. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
+- **Activity coverage** counts exact execution episodes as opening, closing, mixed, or unknown lifecycle, plus unmatched exercise, assignment, and expiration events. An opening-only execution with broker-reported zero realized P/L remains visible in coverage and is not promoted into the realized ranking.
+- **Realized episodes** use only broker-reported realized P/L inside the selected review window. Executions share one episode only when they carry the same IBKR order identity on the same day. A row without order linkage remains its own execution episode. An `OptionEAE` row is a separate lifecycle event unless its broker trade identity matches an already retained trade.
+- **Latest open snapshot** uses only non-zero option positions in the latest dated Flex Open Positions snapshot. Its unrealized P/L is not added to historical realized P/L and is never presented as one all-time option total.
+
+The compact public lists seat at least one gain and one loss when both exist, then rank by absolute broker P/L. Realized and open lists each cap at 20 rows and disclose the full count, known P/L subtotal, sign counts, completeness counts, and truncation. Rows without numeric P/L stay in those counts but are not magnitude-ranked. Missing realized P/L, open P/L, FX conversion, or contract metadata remains typed missing evidence; none becomes zero.
+
+Tap an option row in the app, pass `--option option_…` to the CLI, or pass `option_id` to `canary_edge` to read the evidence behind that opaque result. A realized detail carries exact contracts, opening/closing indicator, side, quantity, execution price, multiplier, broker realized P/L, and direct costs where reported. An open detail carries the dated contract, side, quantity, mark, cost basis, and broker open P/L. This is evidence expansion, not a trading control.
+
+Exact shared-order grouping does not assert a strategy name. A mixed opening-and-closing order is reported as `mixed`, not called a roll. Edge does not infer trade intent, holding period, return on risk, max risk, Greeks, IV, theta, or a cross-order strategy identity. It also never manufactures an expired-option price series; an unavailable historical option counterfactual remains unavailable. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
 
 ## Coverage is part of the result
 
@@ -94,7 +103,7 @@ An Edge snapshot is in one of six states:
 - `insufficient_evidence`: account evidence may be usable, but a completed one-year report did not return a Trades section, so Edge does not imply that a decision review exists. This is a terminal evidence diagnosis, not a backfill promise. If the account traded during the period, verify that Trades is selected at execution detail in the saved Activity Flex Query; if it did not, there are no decisions to score.
 - `unavailable`: no safely scoped result can be served.
 
-Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap any finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. The interaction is explanatory and read-only; it cannot preview or submit a trade.
+Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap a stock/ETF finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. Tap an option row to expand its exact broker facts and missing-evidence state. Both interactions are explanatory and read-only; neither can preview or submit a trade.
 
 For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 

@@ -188,7 +188,7 @@ test("primary workspaces share the Positions overline and title hierarchy", asyn
 test("Edge opens as an automatic one-year review and explains findings without trading controls", async () => {
   reset();
   const result = {
-    schema_version: "canary-edge-v2",
+    schema_version: "canary-edge-v3",
     state: "current",
     as_of: "2026-08-24T12:00:00Z",
     window: "365d",
@@ -217,15 +217,26 @@ test("Edge opens as an automatic one-year review and explains findings without t
       decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5,
       market_context: [{ key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", start_day: "2026-06-30T00:00:00Z", end_day: "2026-07-29T00:00:00Z", start_close: 600, end_close: 612, change_pct: 2 }],
     }],
-    options: [{ id: "option_safe", grouping: "contract", symbol: "SYN OPT", leg_count: 1, actual_pnl_base: -12, actual_only: true }],
-    options_total_count: 1,
-    options_truncated: false,
+    options: {
+      coverage: { execution_episodes: 2, opening_episodes: 0, opening_only_zero_episodes: 0, closing_episodes: 2, mixed_episodes: 0, unknown_episodes: 0, event_episodes: 0 },
+      realized: {
+        known_pnl_base: 113, positive_count: 1, negative_count: 1, flat_count: 0, complete_count: 2, partial_count: 0, unavailable_count: 0, total_count: 2, truncated: false,
+        episodes: [
+          { id: "option_gain", grouping: "exact_order", lifecycle: "closing", underlying: "SYN", activity_from: "2026-06-15T14:00:00Z", activity_to: "2026-06-15T14:01:00Z", realized_pnl_base: 125, pnl_status: "complete", missing_evidence: [], legs: [{ symbol: "SYN CALL", underlying: "SYN", expiry: "2026-09-18", strike: 100, put_call: "call" }] },
+          { id: "option_loss", grouping: "unlinked_execution", lifecycle: "closing", underlying: "SYN", activity_from: "2026-07-15T14:00:00Z", activity_to: "2026-07-15T14:00:00Z", realized_pnl_base: -12, pnl_status: "complete", missing_evidence: [], legs: [{ symbol: "SYN PUT", underlying: "SYN", expiry: "2026-10-16", strike: 90, put_call: "put" }] },
+        ],
+      },
+      open: {
+        snapshot_date: "2026-08-24T00:00:00Z", known_pnl_base: -25, positive_count: 0, negative_count: 1, flat_count: 0, complete_count: 1, unavailable_count: 0, total_count: 1, truncated: false,
+        positions: [{ id: "option_open", symbol: "SYN CALL", underlying: "SYN", snapshot_date: "2026-08-24T00:00:00Z", expiry: "2026-11-20", strike: 105, put_call: "call", open_pnl_base: -25, pnl_status: "complete", missing_evidence: [] }],
+      },
+    },
     coverage: { trade_changes: 4, eligible_changes: 4, scored_by_horizon: { 1: 4, 5: 4, 20: 4 }, reason_counts: {}, present_sections: ["trades"], missing_sections: [] },
     method: {
       metric: "Decision price impact", counterfactual: "Leave the pre-trade position unchanged.", horizon_definition: "Available IBKR closes.",
       headline_selection: "Most clean observations at the selected horizon.", finding_ranking: "Absolute percentage, then absolute dollars, then opaque ID.",
       materiality_gate: "Account-relative finding gates.", automatic_horizon: "Longest adequately covered horizon.", market_context: "Informational benchmark paths only.",
-      account_definition: "Ending equity − starting equity − external flows.", exclusions: "Distributions and financing.", options_method: "Broker actual only.",
+      account_definition: "Ending equity − starting equity − external flows.", exclusions: "Distributions and financing.", options_method: "Broker-reported realized episodes and the dated open snapshot remain separate.",
       no_causal_claim: true, no_predictive_claim: true, not_investment_advice: true,
     },
     fingerprint: "edge_safe", not_execution: true,
@@ -240,14 +251,26 @@ test("Edge opens as an automatic one-year review and explains findings without t
       { sessions: 20, horizon_day: "2026-07-29T00:00:00Z", horizon_close: 262.7, horizon_fx: 1, decision_notional_base: 2500, decision_impact_base: 125, decision_impact_pct: 5, market_context: [{ key: "spy", label: "S&P 500 proxy (SPY)", kind: "market_proxy", start_day: "2026-06-30T00:00:00Z", end_day: "2026-07-29T00:00:00Z", start_close: 600, end_close: 612, change_pct: 2 }] },
     ],
   };
+  const option = {
+    id: "option_loss", kind: "realized_episode",
+    episode: {
+      id: "option_loss", grouping: "unlinked_execution", lifecycle: "closing", underlying: "SYN", activity_from: "2026-07-15T14:00:00Z", activity_to: "2026-07-15T14:00:00Z",
+      realized_pnl_base: -12, pnl_status: "complete", missing_evidence: [],
+      legs: [{ id: "option-leg_loss", symbol: "SYN PUT", underlying: "SYN", expiry: "2026-10-16", strike: 90, put_call: "put", multiplier: 100, side: "sell", open_close: "closing", quantity: 2, execution_price: 3.25, currency: "USD", realized_pnl_base: -12, direct_costs_base: 1.5, missing_evidence: [] }],
+    },
+  };
   assert.equal(edge.validEdgeResult(result), true);
   assert.equal(edge.validEdgeResult({ ...result, change }), true);
+  assert.equal(edge.validEdgeResult({ ...result, option }), true);
   assert.equal(edge.validEdgeResult({ ...result, change: { ...change, id: "broker-order" } }), false);
+  assert.equal(edge.validEdgeResult({ ...result, options: { ...result.options, open: { ...result.options.open, known_pnl_base: 0, complete_count: 0, unavailable_count: 1, positions: [{ ...result.options.open.positions[0], open_pnl_base: null, pnl_status: "unavailable", missing_evidence: [] }] } } }), false);
   assert.equal(edge.validEdgeResult({ ...result, not_execution: false }), false);
   const requests = [];
   globalThis.fetch = async (url) => {
     requests.push(String(url));
-    return response(String(url).includes("change=change_safe") ? { ...result, change } : result);
+    if (String(url).includes("change=change_safe")) return response({ ...result, change });
+    if (String(url).includes("option=option_loss")) return response({ ...result, option });
+    return response(result);
   };
   state.authenticated = true;
   assert.equal(await edge.refreshEdge(), true);
@@ -286,12 +309,43 @@ test("Edge opens as an automatic one-year review and explains findings without t
   byClass(dom.element("edgeFindings"), "edge-finding")[0].click();
   assert.equal(dom.element("edgeChangePanel").hidden, true, "tapping the expanded finding collapses its explanation");
   assert.equal(requests.length, 2, "collapsing a finding should not issue another read");
+  assert.equal(byClass(dom.element("edgeOptionRealizedList"), "edge-option-row").length, 2);
+  assert.equal(byClass(dom.element("edgeOptionOpenList"), "edge-option-row").length, 1);
+  assert.match(dom.element("edgeOptionRealizedSummary").textContent, /known broker realized P\/L/);
+  assert.match(dom.element("edgeOptionOpenSummary").textContent, /known broker open P\/L/);
+  const optionRow = byClass(dom.element("edgeOptionRealizedList"), "edge-option-row")[1];
+  assert.equal(optionRow.tagName, "BUTTON");
+  optionRow.click();
+  await waitFor(() => requests.length === 3 && !state.edgeBusy, "option detail did not load");
+  assert.equal(requests[2], "/api/edge?option=option_loss");
+  assert.equal(dom.element("edgeOptionPanel").hidden, false);
+  assert.match(dom.element("edgeOptionDetailSummary").textContent, /Broker realized P\/L-€12\.00/);
+  assert.match(dom.element("edgeOptionDetailLegs").textContent, /qty 2/);
+  assert.match(dom.element("edgeOptionDetailLegs").textContent, /at \$3\.25/);
+  assert.match(dom.element("edgeOptionDetailLegs").textContent, /Costs \+€1\.50/);
+  optionRow.click();
+  assert.equal(dom.element("edgeOptionPanel").hidden, true, "tapping the expanded option collapses its evidence");
+  assert.equal(requests.length, 3, "collapsing option evidence should not issue another read");
+  const unavailableOpen = {
+    ...result,
+    options: {
+      ...result.options,
+      open: { snapshot_date: result.options.open.snapshot_date, positive_count: 0, negative_count: 0, flat_count: 0, complete_count: 0, unavailable_count: 1, total_count: 1, truncated: true, positions: [] },
+    },
+  };
+  assert.equal(edge.validEdgeResult(unavailableOpen), true);
+  state.edgeResult = unavailableOpen;
+  edge.renderEdge();
+  assert.match(dom.element("edgeOptionOpenSummary").textContent, /No numeric broker open P\/L/);
+  assert.match(dom.element("edgeOptionOpenSummary").textContent, /1 unavailable/);
+  assert.doesNotMatch(dom.element("edgeOptionOpenSummary").textContent, /[+$€]0\.00/);
+  assert.match(dom.element("edgeOptionOpenList").textContent, /unavailable positions remain counted/);
 });
 
 test("Edge renders every authority state without turning missing evidence into results", () => {
   reset();
   const base = {
-    schema_version: "canary-edge-v2",
+    schema_version: "canary-edge-v3",
     state: "current",
     window: "90d",
     horizon_sessions: 20,
@@ -301,11 +355,13 @@ test("Edge renders every authority state without turning missing evidence into r
     market_context_missing: [],
     action_rollups: [],
     findings: [],
-    options: [],
-    options_total_count: 0,
-    options_truncated: false,
+    options: {
+      coverage: { execution_episodes: 0, opening_episodes: 0, opening_only_zero_episodes: 0, closing_episodes: 0, mixed_episodes: 0, unknown_episodes: 0, event_episodes: 0 },
+      realized: { positive_count: 0, negative_count: 0, flat_count: 0, complete_count: 0, partial_count: 0, unavailable_count: 0, total_count: 0, truncated: false, episodes: [] },
+      open: { positive_count: 0, negative_count: 0, flat_count: 0, complete_count: 0, unavailable_count: 0, total_count: 0, truncated: false, positions: [] },
+    },
     coverage: { trade_changes: 0, eligible_changes: 0, scored_by_horizon: {}, reason_counts: {} },
-    method: { metric: "Decision price impact", account_definition: "Ending equity − starting equity − external flows." },
+    method: { metric: "Decision price impact", account_definition: "Ending equity − starting equity − external flows.", no_causal_claim: true, no_predictive_claim: true, not_investment_advice: true },
     not_execution: true,
   };
 

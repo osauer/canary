@@ -94,7 +94,7 @@ async function runRound4SyntheticSmoke() {
     trading: {}, market_data: { quality: {} }, build: { channel: { value: "stable" } }, auto_trade: {},
   };
   const syntheticEdge = {
-    schema_version: "canary-edge-v2",
+    schema_version: "canary-edge-v3",
     state: "current",
     as_of: now,
     window: "365d",
@@ -131,16 +131,20 @@ async function runRound4SyntheticSmoke() {
       { change_id: "change_5e36d28684e845ae516b45aa", symbol: "APEX", action: "trim", direction: "long", executed_at: "2026-03-02T15:00:00Z", horizon_sessions: 20, decision_notional_base: 3300, decision_impact_base: 299, decision_impact_pct: 9.06060606060606 },
       { change_id: "change_26831084647ab693cb83e3ab", symbol: "APEX", action: "add", direction: "long", executed_at: "2025-09-10T15:00:00Z", horizon_sessions: 20, decision_notional_base: 2100, decision_impact_base: -201, decision_impact_pct: -9.571428571428571 },
     ],
-    options: [{
-      id: "option_exact_order",
-      grouping: "exact_order",
-      symbol: "APEX option",
-      leg_count: 2,
-      actual_pnl_base: 90,
-      actual_only: true,
-    }],
-    options_total_count: 1,
-    options_truncated: false,
+    options: {
+      coverage: { execution_episodes: 3, opening_episodes: 1, opening_only_zero_episodes: 1, closing_episodes: 2, mixed_episodes: 0, unknown_episodes: 0, event_episodes: 0 },
+      realized: {
+        known_pnl_base: 40, positive_count: 1, negative_count: 1, flat_count: 0, complete_count: 2, partial_count: 0, unavailable_count: 0, total_count: 2, truncated: false,
+        episodes: [
+          { id: "option_exact_order", grouping: "exact_order", lifecycle: "closing", underlying: "APEX", activity_from: "2026-03-15T15:00:00Z", activity_to: "2026-03-15T15:01:00Z", realized_pnl_base: 90, pnl_status: "complete", missing_evidence: [], legs: [{ symbol: "APEX CALL", underlying: "APEX", expiry: "2026-09-18", strike: 100, put_call: "call" }, { symbol: "APEX PUT", underlying: "APEX", expiry: "2026-09-18", strike: 90, put_call: "put" }] },
+          { id: "option_unlinked_loss", grouping: "unlinked_execution", lifecycle: "closing", underlying: "GAMMA", activity_from: "2026-04-20T15:00:00Z", activity_to: "2026-04-20T15:00:00Z", realized_pnl_base: -50, pnl_status: "complete", missing_evidence: [], legs: [{ symbol: "GAMMA PUT", underlying: "GAMMA", expiry: "2026-10-16", strike: 45, put_call: "put" }] },
+        ],
+      },
+      open: {
+        snapshot_date: "2026-08-24T00:00:00Z", known_pnl_base: -25, positive_count: 0, negative_count: 1, flat_count: 0, complete_count: 1, unavailable_count: 0, total_count: 1, truncated: false,
+        positions: [{ id: "option_open_gamma", symbol: "GAMMA CALL", underlying: "GAMMA", snapshot_date: "2026-08-24T00:00:00Z", expiry: "2026-11-20", strike: 55, put_call: "call", open_pnl_base: -25, pnl_status: "complete", missing_evidence: [] }],
+      },
+    },
     coverage: {
       trade_changes: 17,
       eligible_changes: 15,
@@ -160,7 +164,7 @@ async function runRound4SyntheticSmoke() {
       market_context: "Informational benchmark paths only.",
       account_definition: "Ending equity − starting equity − statement-confirmed external flows.",
       exclusions: "Distributions, financing, borrow, and market impact.",
-      options_method: "Broker-actual P/L only.",
+      options_method: "Broker-reported realized episodes and the latest dated open-position P/L snapshot are separate.",
       no_causal_claim: true,
       no_predictive_claim: true,
       not_investment_advice: true,
@@ -188,6 +192,18 @@ async function runRound4SyntheticSmoke() {
       { sessions: 5, horizon_day: "2025-11-15T00:00:00Z", horizon_close: 50, horizon_fx: 1, decision_notional_base: 825, decision_impact_base: -76, decision_impact_pct: -9.212121212121213 },
       { sessions: 20, horizon_day: "2025-11-30T00:00:00Z", horizon_close: 45, horizon_fx: 1, decision_notional_base: 825, decision_impact_base: -151, decision_impact_pct: -18.303030303030305 },
     ],
+  };
+  const syntheticEdgeOption = {
+    id: "option_exact_order",
+    kind: "realized_episode",
+    episode: {
+      id: "option_exact_order", grouping: "exact_order", lifecycle: "closing", underlying: "APEX", activity_from: "2026-03-15T15:00:00Z", activity_to: "2026-03-15T15:01:00Z",
+      realized_pnl_base: 90, pnl_status: "complete", missing_evidence: [],
+      legs: [
+        { id: "option-leg_call", symbol: "APEX CALL", underlying: "APEX", expiry: "2026-09-18", strike: 100, put_call: "call", multiplier: 100, side: "sell", open_close: "closing", quantity: 1, execution_price: 3, currency: "USD", realized_pnl_base: 120, direct_costs_base: 1, missing_evidence: [] },
+        { id: "option-leg_put", symbol: "APEX PUT", underlying: "APEX", expiry: "2026-09-18", strike: 90, put_call: "put", multiplier: 100, side: "buy", open_close: "closing", quantity: 1, execution_price: 2, currency: "USD", realized_pnl_base: -30, direct_costs_base: 1, missing_evidence: [] },
+      ],
+    },
   };
   const bootstrap = {
     auth: { authenticated: true },
@@ -312,11 +328,18 @@ async function runRound4SyntheticSmoke() {
     if (method === "GET" && requestPath === "/api/edge") {
       edgeReads += 1;
       const changeID = requestURL.searchParams.get("change");
+      const optionID = requestURL.searchParams.get("option");
       if (changeID) {
         if (changeID !== syntheticEdgeChange.id || [...requestURL.searchParams.keys()].some((key) => key !== "change")) {
           return json({ error: "unexpected synthetic Edge detail query" }, 400);
         }
         return json({ ...syntheticEdge, change: syntheticEdgeChange });
+      }
+      if (optionID) {
+        if (optionID !== syntheticEdgeOption.id || [...requestURL.searchParams.keys()].some((key) => key !== "option")) {
+          return json({ error: "unexpected synthetic Edge option query" }, 400);
+        }
+        return json({ ...syntheticEdge, option: syntheticEdgeOption });
       }
       if ([...requestURL.searchParams.keys()].length !== 0) return json({ error: "Edge should use the automatic server review" }, 400);
       return json(syntheticEdge);
@@ -483,10 +506,13 @@ async function runRound4SyntheticSmoke() {
       findings: document.querySelectorAll("#edgeFindings .edge-finding").length,
       findingText: document.getElementById("edgeFindings")?.textContent || "",
       options: document.querySelectorAll("#edgeOptionList .edge-option-row").length,
+      realizedOptions: document.querySelectorAll("#edgeOptionRealizedList .edge-option-row").length,
+      openOptions: document.querySelectorAll("#edgeOptionOpenList .edge-option-row").length,
       optionText: document.getElementById("edgeOptionList")?.textContent || "",
+      optionCoverage: document.getElementById("edgeOptionCoverage")?.textContent || "",
       methodCollapsed: document.getElementById("edgeMethod")?.open === false,
-      explanationButtons: document.querySelectorAll("#edgeResults button.edge-finding").length,
-      explanationOnly: [...document.querySelectorAll("#edgeResults button")].every((button) => button.matches("button.edge-finding[type='button']")),
+      explanationButtons: document.querySelectorAll("#edgeResults button.edge-finding, #edgeResults button.edge-option-row").length,
+      explanationOnly: [...document.querySelectorAll("#edgeResults button")].every((button) => button.matches("button.edge-finding[type='button'], button.edge-option-row[type='button']")),
       controlsAbsent: !document.getElementById("edgeWindow") && !document.getElementById("edgeHorizon"),
       decisionFirst: (() => {
         const results = document.getElementById("edgeResults");
@@ -510,6 +536,22 @@ async function runRound4SyntheticSmoke() {
       scoreCount: document.querySelectorAll("#edgeChangeScores .edge-change-score").length,
       scores: document.getElementById("edgeChangeScores")?.textContent || "",
       expanded: document.querySelector("#edgeFindings .edge-finding")?.getAttribute("aria-expanded") || "",
+      horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    }));
+    const edgeOptionRead = page.waitForResponse((response) => {
+      if (response.request().method() !== "GET") return false;
+      const url = new URL(response.url());
+      return url.pathname === "/api/edge" && url.searchParams.get("option") === syntheticEdgeOption.id;
+    }, { timeout: 5000 });
+    await page.locator("#edgeOptionRealizedList .edge-option-row").first().click();
+    await edgeOptionRead;
+    await page.waitForFunction(() => document.getElementById("edgeOptionPanel")?.hidden === false, { timeout: 5000 });
+    const edgeOptionView = await page.evaluate(() => ({
+      title: document.getElementById("edgeOptionDetailTitle")?.textContent || "",
+      summary: document.getElementById("edgeOptionDetailSummary")?.textContent || "",
+      legs: document.getElementById("edgeOptionDetailLegs")?.textContent || "",
+      legCount: document.querySelectorAll("#edgeOptionDetailLegs .edge-option-leg").length,
+      expanded: document.querySelector("#edgeOptionRealizedList .edge-option-row")?.getAttribute("aria-expanded") || "",
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     }));
     await page.locator("#tabMonitor").click();
@@ -580,11 +622,14 @@ async function runRound4SyntheticSmoke() {
     if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported" || settings.dateFormat !== "us_weekday" || JSON.stringify(settings.dateOptions) !== JSON.stringify(["us", "eu", "us_weekday", "eu_weekday"])) throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
-    if (!edgeView.active || edgeReads !== 2 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Reveal account values to view the monetary headline." || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("******") || !edgeView.methodCollapsed || edgeView.explanationButtons !== 3 || !edgeView.explanationOnly || !edgeView.controlsAbsent || !edgeView.decisionFirst || edgeView.horizontalOverflow) {
+    if (!edgeView.active || edgeReads !== 3 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Reveal account values to view the monetary headline." || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 3 || edgeView.realizedOptions !== 2 || edgeView.openOptions !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("Open position") || !edgeView.optionText.includes("******") || !edgeView.optionCoverage.includes("opening-only zero-P/L") || !edgeView.methodCollapsed || edgeView.explanationButtons !== 6 || !edgeView.explanationOnly || !edgeView.controlsAbsent || !edgeView.decisionFirst || edgeView.horizontalOverflow) {
       throw new Error(`synthetic Edge rendered state failed: ${JSON.stringify({ edgeReads, edgeView })}`);
     }
     if (edgeDetailView.title !== "GAMMA · Add decision" || !edgeDetailView.summary.includes("30 → 45") || !edgeDetailView.summary.includes("$55.00") || !edgeDetailView.summary.includes("$1.00") || edgeDetailView.scoreCount !== 3 || !edgeDetailView.scores.includes("-$151.00 · -18.30%") || edgeDetailView.expanded !== "true" || edgeDetailView.horizontalOverflow) {
       throw new Error(`synthetic Edge calculation trail failed: ${JSON.stringify(edgeDetailView)}`);
+    }
+    if (edgeOptionView.title !== "APEX · Closing episode" || !edgeOptionView.summary.includes("Broker realized P/L+$90.00") || edgeOptionView.legCount !== 2 || !edgeOptionView.legs.includes("qty 1") || !edgeOptionView.legs.includes("at $3.00") || !edgeOptionView.legs.includes("Costs +$1.00") || edgeOptionView.expanded !== "true" || edgeOptionView.horizontalOverflow) {
+      throw new Error(`synthetic Edge option trail failed: ${JSON.stringify(edgeOptionView)}`);
     }
     if (!briefView.narrative || !briefView.text.includes("Synthetic desk ready.") || !briefView.text.includes("No account-derived data was loaded.") || briefView.accountText !== "Account unresolved" || !briefView.sessionBridge.startsWith("Monday's close → next open")) throw new Error(`synthetic Brief state failed: ${JSON.stringify(briefView)}`);
     if (!ordersView.active || ordersView.count !== "1 open" || !ordersView.text.includes("SYN")) throw new Error(`synthetic Orders state failed: ${JSON.stringify(ordersView)}`);
