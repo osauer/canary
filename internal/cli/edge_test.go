@@ -107,6 +107,28 @@ func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	}
 }
 
+func TestEdgeHumanOutputDistinguishesConfirmedEmptyFromMissingOptionSnapshot(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	result.Options = rpc.EdgeOptionReview{
+		Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}},
+		Open:     rpc.EdgeOptionOpenReview{SnapshotDate: result.AsOf, Positions: []rpc.EdgeOptionOpenPositionSummary{}},
+	}
+
+	var stdout bytes.Buffer
+	renderEdgeText(&stdout, result)
+	if !strings.Contains(stdout.String(), "open snapshot "+result.AsOf.Format(time.DateOnly)+"  0 position(s) · confirmed empty") || strings.Contains(stdout.String(), "no dated Flex") {
+		t.Fatalf("confirmed-empty snapshot output=%s", stdout.String())
+	}
+
+	result.Options.Open.SnapshotDate = time.Time{}
+	stdout.Reset()
+	renderEdgeText(&stdout, result)
+	if !strings.Contains(stdout.String(), "open snapshot  no dated Flex Open Positions snapshot available") || strings.Contains(stdout.String(), "confirmed empty") {
+		t.Fatalf("missing snapshot output=%s", stdout.String())
+	}
+}
+
 func TestAutomaticOneSessionOutputUsesSingularGrammar(t *testing.T) {
 	t.Parallel()
 	result := edgeCLIResult()

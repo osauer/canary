@@ -127,33 +127,34 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 
 func renderEdgeOptions(out io.Writer, result rpc.EdgeResult) {
 	options := result.Options
-	if options.Realized.TotalCount == 0 && options.Open.TotalCount == 0 && options.Coverage.ExecutionEpisodes == 0 && options.Coverage.EventEpisodes == 0 {
-		return
-	}
 	currency := edgeBaseCurrency(result)
-	known := "unavailable"
-	if options.Realized.KnownPNLBase != nil {
-		known = edgeMoney(*options.Realized.KnownPNLBase, currency)
+	if options.Realized.TotalCount == 0 {
+		fmt.Fprintln(out, "  Options · realized  no broker-reported episode available in the selected window")
+	} else {
+		known := "unavailable"
+		if options.Realized.KnownPNLBase != nil {
+			known = edgeMoney(*options.Realized.KnownPNLBase, currency)
+		}
+		fmt.Fprintf(out, "  Options · realized  %s known · %d episode(s): %d positive, %d negative, %d flat", known, options.Realized.TotalCount, options.Realized.PositiveCount, options.Realized.NegativeCount, options.Realized.FlatCount)
+		if options.Realized.PartialCount+options.Realized.UnavailableCount > 0 {
+			fmt.Fprintf(out, " · %d incomplete", options.Realized.PartialCount+options.Realized.UnavailableCount)
+		}
+		if options.Realized.Truncated {
+			fmt.Fprintf(out, " · showing %d", len(options.Realized.Episodes))
+		}
+		fmt.Fprintln(out)
+		renderEdgeOptionExtremes(out, options.Realized.Episodes, currency)
 	}
-	fmt.Fprintf(out, "  Options · realized  %s known · %d episode(s): %d positive, %d negative, %d flat", known, options.Realized.TotalCount, options.Realized.PositiveCount, options.Realized.NegativeCount, options.Realized.FlatCount)
-	if options.Realized.PartialCount+options.Realized.UnavailableCount > 0 {
-		fmt.Fprintf(out, " · %d incomplete", options.Realized.PartialCount+options.Realized.UnavailableCount)
-	}
-	if options.Realized.Truncated {
-		fmt.Fprintf(out, " · showing %d", len(options.Realized.Episodes))
-	}
-	fmt.Fprintln(out)
-	renderEdgeOptionExtremes(out, options.Realized.Episodes, currency)
-	if options.Open.TotalCount > 0 {
-		known = "unavailable"
+	if options.Open.SnapshotDate.IsZero() {
+		fmt.Fprintln(out, "  Options · open snapshot  no dated Flex Open Positions snapshot available")
+	} else if options.Open.TotalCount == 0 {
+		fmt.Fprintf(out, "  Options · open snapshot %s  0 position(s) · confirmed empty\n", options.Open.SnapshotDate.Format(time.DateOnly))
+	} else {
+		known := "unavailable"
 		if options.Open.KnownPNLBase != nil {
 			known = edgeMoney(*options.Open.KnownPNLBase, currency)
 		}
-		asOf := "undated"
-		if !options.Open.SnapshotDate.IsZero() {
-			asOf = options.Open.SnapshotDate.Format(time.DateOnly)
-		}
-		fmt.Fprintf(out, "  Options · open snapshot %s  %s known · %d position(s): %d positive, %d negative, %d flat", asOf, known, options.Open.TotalCount, options.Open.PositiveCount, options.Open.NegativeCount, options.Open.FlatCount)
+		fmt.Fprintf(out, "  Options · open snapshot %s  %s known · %d position(s): %d positive, %d negative, %d flat", options.Open.SnapshotDate.Format(time.DateOnly), known, options.Open.TotalCount, options.Open.PositiveCount, options.Open.NegativeCount, options.Open.FlatCount)
 		if options.Open.UnavailableCount > 0 {
 			fmt.Fprintf(out, " · %d unavailable", options.Open.UnavailableCount)
 		}
