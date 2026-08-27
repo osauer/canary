@@ -1,0 +1,11 @@
+diff --git a/internal/daemon/handlers.go b/internal/daemon/handlers.go
+--- a/internal/daemon/handlers.go
++++ b/internal/daemon/handlers.go
+@@ -806,3 +806,6 @@
+ func positionViewKey(v rpc.PositionView) string {
+-	return fmt.Sprintf("%s|%s|%d|%s|%s|%.4f", v.SecType, v.Symbol, v.ConID, v.Expiry, v.Right, v.Strike)
++	if v.SecType == rpc.SecTypeOption {
++		return fmt.Sprintf("OPT|%s|%s|%s|%.4f", v.Symbol, v.Expiry, v.Right, v.Strike)
++	}
++	return "STK|" + v.Symbol
+ }

@@ -1,0 +1,20 @@
+diff --git a/internal/daemon/reduce.go b/internal/daemon/reduce.go
+--- a/internal/daemon/reduce.go
++++ b/internal/daemon/reduce.go
+@@ -38,10 +38,8 @@
+ func reduceEligible(row rpc.PositionView) bool {
+-	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
+-	case rpc.SecTypeOption, "OPT":
++	switch positionWireSecType(row.SecType) {
++	case "OPT":
+-		return row.Quantity > 0
++		return row.Quantity > 0
+-	case rpc.SecTypeStock, "STK", "ETF":
+-		return row.Quantity != 0
+-	default:
++	default:
+-		return false
++		return row.Quantity != 0
+-	}
++	}
+ }

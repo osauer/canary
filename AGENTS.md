@@ -111,10 +111,27 @@ why, rather than a green check that examined none of your edits.
 `make commit-check` remains a compatibility alias for `make check`; v3 retired
 the separate staged-tree planner so there is one canonical repository gate.
 
-`make smoke-fast` is the default live-gateway gate; full
-`make smoke` is required for daemon, CLI, or wire-path changes and for releases.
-Gateway tests serialize through `scripts/with-gateway-lock.sh`; a busy gateway
-is a wait, not a flake. Report skips and first failures explicitly.
+Live smoke is risk-triggered, not a generic commit or release ritual.
+Run `make smoke-fast SMOKE_CONTEXT=broker-wire` after changes to broker wire
+decoding, Gateway connection/subscription lifecycle, or daemon broker adapters.
+Use full `make smoke SMOKE_CONTEXT=broker-wire` when the complete quote, chain,
+regime, gamma, and account matrix is material, and on an intentional operating
+cadence. Pure risk logic, docs, release tooling, and SPA-only work stay
+hermetic. Gateway tests serialize through `scripts/with-gateway-lock.sh`; a
+busy gateway is a wait, not a flake. Report skips and first failures explicitly.
+Use `make gate-telemetry-summary` to inspect the redacted local outcome and
+latency history; the records never contain commands, broker output, or account
+data.
+
+Before deleting a retained safety test, run `make regression-spine-check`.
+It reintroduces selected historical production bugs in disposable archives and
+requires the focused spine to kill each known regression. A passing
+ordinary suite proves the current code, while this witness tests the suite's
+ability to detect code that is known to be wrong. Add a focused case to
+`scripts/regression-spine.tsv` when a new escaped regression earns permanent
+coverage; do not restore a broad old suite when one narrow contract suffices.
+The full local gate and exact-SHA CI run the witness automatically; the direct
+target is the fast proof to use while evaluating a deletion.
 
 After daemon or CLI edits, orchestrating sessions on the primary tree run
 `make restart-daemon`, then capture redacted `canary status --json` evidence

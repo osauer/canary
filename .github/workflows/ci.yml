@@ -36,19 +36,13 @@ jobs:
       - name: make check
         run: make check CHECK_DEPS=parity-check
 
-  # ubuntu only since 2026-08-03 (operator decision): the macOS lane ran the
-  # same suite ~2.5 min slower and was the release pipeline's pre-tag
-  # critical path. darwin-specific coverage now comes from the operator's
-  # local runs and the release smoke exercising the real darwin binary.
-  # The daemon root's two build modes are separate jobs (2026-08-04): they
-  # were the single test job's 7.5-minute tail and share only the scope check.
-  test:
-    name: make test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
+  # The hermetic groups are separate jobs so GitHub can run them in parallel
+  # and a failure identifies its owning surface without replaying unrelated
+  # packages. macOS remains deliberate local coverage: its former hosted lane
+  # ran the same suite roughly 2.5 minutes slower.
+  test-pkg:
+    name: make test-pkg (-race; broker protocol)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -61,11 +55,38 @@ jobs:
       - name: make test-pkg
         run: make test-pkg
 
+  test-support:
+    name: make test-support (-race; command and release helpers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: make test-support (-race; command and CI/release helpers)
         run: make test-support
 
+  test-internal:
+    name: make test-internal (-race; internal contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: make test-internal (-race; internal minus daemon root)
         run: make test-internal
+
+      - name: make regression-spine-check
+        run: make regression-spine-check
 
   test-daemon-default:
     name: make test-daemon-default (-race)
@@ -124,7 +145,6 @@ jobs:
   cross-compile:
     name: cross-compile release matrix
     runs-on: ubuntu-latest
-    needs: check
     steps:
       - uses: actions/checkout@v4
 

@@ -55,6 +55,7 @@ MAIN_BRANCH ?= $(if $(filter v2.%,$(RELEASE_VERSION)),release/2.x,main)
 RELEASE_SOURCE_MODE ?= controller
 RELEASE_CI_POLL ?= 15s
 RELEASE_CI_TIMEOUT ?= 30m
+RELEASE_PACKAGING_JOBS ?= 4
 RELEASE_CONTROLLER_CONTRACT = release-controller-v1
 override release_first_makeflag = $(firstword $(MAKEFLAGS))
 override release_compact_makeflags = $(if $(filter --%,$(release_first_makeflag)),,$(if $(findstring =,$(release_first_makeflag)),,$(release_first_makeflag)))
@@ -63,10 +64,12 @@ override release_unsafe_makeflags = $(strip $(filter -i --ignore-errors -k --kee
 # command-line or environment assignment beats a makefile one and propagates
 # into every sub-make, so each of these can narrow what a release proves while
 # every downstream gate still reports success: RELEASE_TARGETS shrinks the
-# artifact matrix that assembly then treats as complete, SPX_EXPECTED_REACHABLE
-# and SMOKE_STRICT disarm the binding live smoke, MAIN_BRANCH retargets the ref
+# artifact matrix that assembly then treats as complete. The retired release
+# smoke knobs SPX_EXPECTED_REACHABLE and SMOKE_STRICT remain rejected as ambient
+# release inputs so a caller cannot appear to weaken the hermetic evidence.
+# MAIN_BRANCH retargets the ref
 # the candidate lands on and that exact-SHA CI evidence is read for, GO_TAGS
-# decides whether the smoked binary can reach the broker write path at all, and
+# decides whether the locally built binary can reach the broker write path, and
 # STRIP_LDFLAGS is injected verbatim into the published binaries' link flags.
 # GO_BUILD_TAGS and LDFLAGS are pinned with them because a derived variable
 # that can be overridden directly is a way around the source it derives from,
@@ -81,7 +84,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help reduction-metrics reduction-metrics-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
+.PHONY: help reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check gate-telemetry-check gate-telemetry-summary build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -98,6 +101,20 @@ reduction-metrics: ## Measure committed files and maintained LOC against the v3 
 
 reduction-metrics-check: ## Verify the locked v3 reduction baseline remains reproducible
 	@./scripts/reduction-metrics.sh --verify-baseline c3ec1d81c8537c8b982791e6fdc78f3da4e2c28e >/dev/null
+
+regression-spine-check: ## Reintroduce selected historical bugs and prove the compact current tests kill them
+	@./scripts/test-regression-spine.sh
+
+regression-spine-contract-check: ## Verify the historical-regression manifest still names present focused tests
+	@bash -n scripts/test-regression-spine.sh
+	@./scripts/test-regression-spine.sh --contract-only
+
+gate-telemetry-check: ## Verify redacted gate timing, outcome, skip, and retry summaries
+	@bash -n scripts/run-gate-with-telemetry.sh scripts/run-gate-with-telemetry_test.sh
+	@./scripts/run-gate-with-telemetry_test.sh
+
+gate-telemetry-summary: ## Summarize local redacted smoke outcome and latency records
+	@python3 ./scripts/summarize-gate-telemetry.py
 
 build: ## Compile the canonical bin/canary executable
 	@mkdir -p bin
@@ -202,7 +219,7 @@ remote-relay-check: ## Cloudflare remote-relay unit tests (node --test, no npm n
 	cd cloudflare/remote-relay && node --test test/*.test.js
 
 release-packaging-check: ## Verify tag-isolated assembly, archive contents, release-pinned links, and release-gate fixtures
-	./scripts/check-release-packaging.sh
+	RELEASE_PACKAGING_JOBS=$(RELEASE_PACKAGING_JOBS) ./scripts/check-release-packaging.sh
 	@# release-site-check itself is release-time only (it needs RELEASE_VERSION
 	@# and reads the real tree), so its fixture runs here to stay inside `check`.
 	@./scripts/check-release-site-sync_test.sh
@@ -241,8 +258,8 @@ uninstall: ## Remove Canary and any pre-upgrade executable residue from $(PREFIX
 
 TEST_JOBS ?= 3
 TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
-test: ## Full gate: check + hermetic app render + pkg, command/support, and daemon/integration tests (-race), overlapped by default
-	$(MAKE) $(TEST_MAKEFLAGS) check app-render-check test-pkg test-support test-daemon
+test: ## Full gate: check + render + historical regressions + pkg, support, and daemon/integration tests (-race), overlapped
+	$(MAKE) $(TEST_MAKEFLAGS) check app-render-check test-pkg test-support test-daemon regression-spine-check
 
 # Compatibility spelling retained for older contributor and agent workflows.
 # The reduced v3 tree has one canonical repository gate.
@@ -263,7 +280,7 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 # review anyway.
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check regression-spine-contract-check gate-telemetry-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
@@ -735,11 +752,11 @@ smoke-contract-check: ## Keep wire smoke on internal read-only probes after publ
 #   SMOKE_STRICT=0 (default) → SKIP cleanly when no gateway is up; lets
 #                              user-invoked `make smoke` work on a laptop
 #                              without paper-account IBKR access.
-#   SMOKE_STRICT=1 → FAIL when no gateway is up; the release path passes
-#                    this so a vanished gateway can't silently bypass
-#                    the wire gate. Paper TWS/Gateway is accepted because
-#                    the smoke is read-only.
+#   SMOKE_STRICT=1 → FAIL when no gateway is up; use for an explicitly required
+#                    wire-path witness so absence cannot masquerade as proof.
+#                    Paper TWS/Gateway is accepted because the smoke is read-only.
 SMOKE_STRICT ?= 0
+SMOKE_CONTEXT ?= manual
 
 # SPX_EXPECTED_REACHABLE — default ON in this repo because this is the
 # dev machine with CBOE OPRA entitlement; the user's standing guardrail
@@ -755,17 +772,17 @@ smoke-only: smoke-build ## Run wire smoke against existing bin/canary (no rebuil
 		echo "smoke-only: bin/canary missing — run 'make build' first" >&2; \
 		exit 1; \
 	fi
-	CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
+	./scripts/run-gate-with-telemetry.sh --gate smoke --class "$(SMOKE_CONTEXT)" --skip-marker 'wire-smoke: SKIP' -- \
+		env CANARY_SMOKE_STRICT=$(SMOKE_STRICT) SPX_EXPECTED_REACHABLE=$(SPX_EXPECTED_REACHABLE) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
 smoke: build smoke-only ## Wire-level smoke vs. reachable TWS/Gateway (rebuilds bin/canary; SKIP if no gateway)
 
-# The per-commit inner-loop gate: boot + handshake + quote + account
-# against a real gateway (~15s) instead of the full wire matrix. The full
-# `make smoke` stays binding for daemon/CLI wire-path changes and for
-# releases — this tier exists so a docs/proposal/SPA change doesn't pay
-# the chain/regime/gamma fan-out every commit.
-smoke-fast: build smoke-build ## Fast wire smoke: boot + quote + account only (~15s; full matrix stays in `make smoke`)
-	CANARY_SMOKE_FAST=1 CANARY_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
+# Risk-triggered Gateway sanity check for connection, subscription, or broker
+# wire changes. It is intentionally absent from the generic commit and release
+# paths; pure logic, docs, release tooling, and SPA changes stay hermetic.
+smoke-fast: build smoke-build ## Fast risk-triggered wire smoke: boot + quote + account (~15s)
+	./scripts/run-gate-with-telemetry.sh --gate smoke-fast --class "$(SMOKE_CONTEXT)" --skip-marker 'wire-smoke: SKIP' -- \
+		env CANARY_SMOKE_FAST=1 CANARY_SMOKE_STRICT=$(SMOKE_STRICT) ./scripts/with-gateway-lock.sh ./scripts/wire-smoke.sh bin/canary bin/wire-assert
 
 release-binaries: ## Cross-compile canonical read-only/trading tarballs and the read-only MCPB
 	@if [ -z "$(RELEASE_VERSION)" ]; then \

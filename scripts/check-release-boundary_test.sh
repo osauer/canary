@@ -10,14 +10,21 @@ trap 'rm -rf "$test_root"' EXIT HUP INT TERM
 # The checked-in controller is the canonical positive witness.
 "$checker" "$repo_root" >/dev/null
 
+fixture="$test_root/repo"
+mkdir -p "$fixture/.github"
+cp "$repo_root/Makefile" "$fixture/Makefile"
+cp -R "$repo_root/scripts" "$fixture/scripts"
+cp -R "$repo_root/.github/workflows" "$fixture/.github/"
+
 expect_rejected() {
-	local mode="$1" fixture="$test_root/$1-repo"
-	mkdir -p "$fixture"
-	git -C "$repo_root" ls-files --cached --others --exclude-standard | while IFS= read -r path; do
-		[ -f "$repo_root/$path" ] || continue
-		mkdir -p "$fixture/$(dirname "$path")"
-		cp "$repo_root/$path" "$fixture/$path"
-	done
+	local mode="$1" relative backup="$test_root/$1.backup"
+	case "$mode" in
+	non-atomic) relative=Makefile ;;
+	pages-all-branches) relative=.github/workflows/pages-deploy.yml ;;
+	registry-main | registry-v2-main) relative=.github/workflows/registry-publish.yml ;;
+	*) echo "check-release-boundary test: unknown mutation $mode" >&2; exit 2 ;;
+	esac
+	cp "$fixture/$relative" "$backup"
 	python3 - "$fixture" "$mode" <<'PY'
 import sys
 from pathlib import Path
@@ -40,6 +47,7 @@ PY
 		echo "check-release-boundary test: $mode mutation passed" >&2
 		exit 1
 	fi
+	cp "$backup" "$fixture/$relative"
 }
 
 expect_rejected non-atomic

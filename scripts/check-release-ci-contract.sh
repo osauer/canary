@@ -45,15 +45,22 @@ EXPECTED_CI_RUN_STEPS = {
             "run": "make check CHECK_DEPS=parity-check",
         },
     },
-    "test": {
+    "test-pkg": {
         "make test-pkg": {
             "run": "make test-pkg",
         },
+    },
+    "test-support": {
         "make test-support (-race; command and CI/release helpers)": {
             "run": "make test-support",
         },
+    },
+    "test-internal": {
         "make test-internal (-race; internal minus daemon root)": {
             "run": "make test-internal",
+        },
+        "make regression-spine-check": {
+            "run": "make regression-spine-check",
         },
     },
     "test-daemon-default": {
@@ -102,7 +109,9 @@ EXPECTED_WORKFLOWS = {
         "name": "ci",
         "jobs": (
             "make check (lint + vet + vulncheck + parity)",
-            "make test (ubuntu-latest)",
+            "make test-pkg (-race; broker protocol)",
+            "make test-support (-race; command and release helpers)",
+            "make test-internal (-race; internal contracts)",
             "make test-daemon-default (-race)",
             "make test-daemon-trading (-race)",
             "isolated Canary app render",
@@ -924,6 +933,11 @@ def validate_ci_commands(path):
                 key, _value = yaml_mapping_entry(content, f"{path}:{number}")
                 if key in {"if", "continue-on-error"}:
                     fail(f"{path}:{number}: CI {job_name} job may not use {key}")
+                if job_name == "cross-compile" and key == "needs":
+                    fail(
+                        f"{path}:{number}: cross-compile must run in parallel; "
+                        "release authority joins all exact-SHA jobs"
+                    )
 
         steps = workflow_step_blocks(path, job_name, job_block)
         if job_name == "check":

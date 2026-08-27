@@ -6,7 +6,9 @@
       "name": "ci",
       "jobs": [
         "make check (lint + vet + vulncheck + parity)",
-        "make test (ubuntu-latest)",
+        "make test-pkg (-race; broker protocol)",
+        "make test-support (-race; command and release helpers)",
+        "make test-internal (-race; internal contracts)",
         "make test-daemon-default (-race)",
         "make test-daemon-trading (-race)",
         "isolated Canary app render",
