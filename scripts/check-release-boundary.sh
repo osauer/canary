@@ -30,6 +30,38 @@ require_line_count() {
 	failure=1
 }
 
+validate_public_update_witness() {
+	local target="$1" registry_call="$2" data
+	local registry_count registry_line witness_count witness_line
+	data="$(awk -v target="$target" -v registry_call="$registry_call" '
+		$0 ~ ("^" target ":") { in_target = 1; next }
+		in_target && $0 ~ /^[^[:space:]#][^:]*:/ { exit }
+		in_target {
+			line = $0
+			sub(/^[[:space:]]+/, "", line)
+			if (line == registry_call) {
+				registry_count++
+				registry_line = NR
+			}
+			if (line == "@./scripts/check-public-self-update.sh \"$(RELEASE_VERSION)\"") {
+				witness_count++
+				witness_line = NR
+			}
+		}
+		END {
+			printf "%d:%d:%d:%d\n", registry_count + 0, registry_line + 0,
+				witness_count + 0, witness_line + 0
+		}
+	' "$root/Makefile")"
+	IFS=: read -r registry_count registry_line witness_count witness_line <<<"$data"
+	if [ "$registry_count" -ne 1 ] || [ "$witness_count" -ne 1 ] \
+		|| [ "$registry_line" -ge "$witness_line" ]; then
+		printf 'check-release-boundary: %s must run one public self-update witness after registry verification\n' \
+			"$target" >&2
+		failure=1
+	fi
+}
+
 inspect_fail_closed_final_gate() {
 	local gate="$1"
 	awk -v gate="$gate" '
@@ -1609,6 +1641,11 @@ if [ "$historical_target_seen" -eq 1 ]; then
 		failure=1
 	fi
 fi
+
+validate_public_update_witness _release-run \
+	'$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION)'
+validate_public_update_witness _release-resume-run \
+	'$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)'
 
 if [ "$failure" -ne 0 ]; then
 	exit 1

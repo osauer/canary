@@ -92,7 +92,7 @@ help: ## List available targets
 		$(MAKEFILE_LIST)
 	@echo
 	@echo "Common flow:  make fmt && make test && make build   (test already runs check)"
-	@echo "Daemon flow:  make install restart-daemon   (FORCE=1 adds canary restart --force; refreshes any running app)"
+	@echo "Daemon flow:  make restart-daemon   (builds, installs, and activates; FORCE=1 adds canary restart --force)"
 	@echo "Release flow: make release RELEASE_VERSION=vX.Y.Z   (clean committed HEAD; origin/$(MAIN_BRANCH) not ahead)"
 	@echo "              tags + pushes + cross-compiles + creates GitHub Release with binaries attached"
 
@@ -146,8 +146,8 @@ install: build ## Install only the canonical canary executable to $(PREFIX)/bin
 # then buys nothing, disturbs other sessions' in-flight CLI calls, and
 # re-rolls the TWS client-slot retention race on the pinned client ID.
 # Byte-identity is meaningful because DATE stamps the commit date (above),
-# so unchanged source ⇒ unchanged binary. A daemon that is NOT running is
-# left alone too (the next CLI call autospawns it — that is the design).
+# so unchanged source ⇒ unchanged binary. A daemon that is not running does
+# not satisfy the skip: the target installs the binary and starts it.
 # FORCE=1 always installs and restarts.
 restart-daemon: build ## Install + restart daemon, skipped when the binary is unchanged (FORCE=1 always bounces)
 	@if [ -z "$(FORCE)" ] && cmp -s bin/canary "$(PREFIX)/bin/canary" && \
@@ -1383,6 +1383,7 @@ _release-resume-run:
 	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release-resume RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-public-self-update.sh "$(RELEASE_VERSION)"
 	@echo
 	@echo "Resumed $(RELEASE_VERSION):"
 	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"
@@ -1534,6 +1535,7 @@ _release-run:
 	$(MAKE) release-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) release-plugin-tag-candidate-check RELEASE_VERSION=$(RELEASE_VERSION)
 	$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION)
+	@./scripts/check-public-self-update.sh "$(RELEASE_VERSION)"
 	@echo
 	@echo "Released $(RELEASE_VERSION):"
 	@echo "  https://github.com/osauer/canary/releases/tag/$(RELEASE_VERSION)"

@@ -23,6 +23,7 @@ tests=(
 	./scripts/registry-publish-verify-first_test.sh
 	./scripts/check-release-source_test.sh
 	./scripts/check-github-release_test.sh
+	./scripts/check-public-self-update_test.sh
 	./scripts/check-release-ci-contract.sh
 	./scripts/check-release-ci-contract_test.sh
 	./scripts/check-release-boundary.sh

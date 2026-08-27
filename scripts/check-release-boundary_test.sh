@@ -19,7 +19,7 @@ cp -R "$repo_root/.github/workflows" "$fixture/.github/"
 expect_rejected() {
 	local mode="$1" relative backup="$test_root/$1.backup"
 	case "$mode" in
-	non-atomic) relative=Makefile ;;
+	non-atomic | update-before-registry) relative=Makefile ;;
 	pages-all-branches) relative=.github/workflows/pages-deploy.yml ;;
 	registry-main | registry-v2-main) relative=.github/workflows/registry-publish.yml ;;
 	*) echo "check-release-boundary test: unknown mutation $mode" >&2; exit 2 ;;
@@ -32,6 +32,7 @@ from pathlib import Path
 root, mode = Path(sys.argv[1]), sys.argv[2]
 mutations = {
     "non-atomic": ("Makefile", "git push --no-follow-tags --atomic origin HEAD:$(MAIN_BRANCH) $(RELEASE_VERSION)", "git push --no-follow-tags origin $(RELEASE_VERSION)"),
+    "update-before-registry": ("Makefile", "\t$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION)\n\t@./scripts/check-public-self-update.sh \"$(RELEASE_VERSION)\"", "\t@./scripts/check-public-self-update.sh \"$(RELEASE_VERSION)\"\n\t$(MAKE) registry-publish-verify-first RELEASE_PIPELINE_ENTRY=release RELEASE_VERSION=$(RELEASE_VERSION)"),
     "pages-all-branches": (".github/workflows/pages-deploy.yml", "    branches: [main]", "    branches: [main, release/2.x]"),
     "registry-main": (".github/workflows/registry-publish.yml", '-sha "$release_sha" -branch "$RELEASE_BRANCH" -event push', '-sha "$release_sha" -branch main -event push'),
     "registry-v2-main": (".github/workflows/registry-publish.yml", "            v2.*) release_branch=release/2.x ;;", "            v2.*) release_branch=main ;;"),
@@ -51,6 +52,7 @@ PY
 }
 
 expect_rejected non-atomic
+expect_rejected update-before-registry
 expect_rejected pages-all-branches
 expect_rejected registry-main
 expect_rejected registry-v2-main

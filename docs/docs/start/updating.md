@@ -1,8 +1,23 @@
 # Updating
 
-Updated: 2026-08-23
+Updated: 2026-08-27
 
 Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
+
+## Install and activate a new binary
+
+A copied binary does not change an already-running process. Choose the row that
+matches how the binary arrived:
+
+| Installation path | Automatic restart | Activation |
+| --- | --- | --- |
+| `canary update` | Interactive use asks whether to restart. `--restart` refreshes only the app and daemon processes that were already running; `--no-restart` refreshes neither. | Use `canary update --restart` for running processes. Run `canary restart` afterward when you also want to start an absent daemon. |
+| `make install` | No. It builds and atomically installs the current checkout only. | Prefer `make restart-daemon` when working from source: it builds, installs, and activates the checkout in one target. After a separate `make install`, run the installed `canary restart`. |
+| Manual download or binary replacement | No. Existing app, daemon, and MCP host processes keep executing their old image. | Run the newly installed `canary restart`. Fully relaunch the MCP host as well when it owns a `canary mcp` process. |
+
+After activation, `canary version` reports the CLI build and `canary status`
+reports the daemon build. A version mismatch warning means the file was replaced
+but the long-running process has not moved to it yet.
 
 ## Updating the binary: `canary update`
 

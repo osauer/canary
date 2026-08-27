@@ -324,6 +324,14 @@ questions go to the user. Never weaken a gate to reach GO.
   the verified versioned MCPB digest. A latest-version search or the immutable
   `io.github.osauer/ibkr` entry is not release proof. Heal only after a real
   timeout: `make registry-publish RELEASE_VERSION=vX.Y.Z`.
+- Public self-update: after GitHub, both tags, and the registry are verified,
+  the pipeline downloads the prior stable same-major standard binary and
+  verifies its archive against the signed public checksum before executing it.
+  That binary must install the new public standard asset through
+  `canary update --no-restart` into temporary install, cache, config, state,
+  runtime, and socket roots. The proof is broker- and process-side-effect-free
+  and is bounded to the release host's OS/architecture; it does not exercise
+  the opt-in trading asset.
 - Fresh clone (public-surface proof): clone `osauer/canary` into the
   scratchpad, `git checkout vX.Y.Z && make build`, assert
   `./bin/canary version` prints vX.Y.Z and no `bin/ibkr` executable or symlink
