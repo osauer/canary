@@ -59,7 +59,7 @@ func TestReportingStatusHumanOutputNamesEvidenceAndAction(t *testing.T) {
 	}
 	for _, required := range []string{
 		"Broker reporting — action_required", "reachability=reachable", "code=1025",
-		"missing: trades.ibOrderID", "unproved: transfers", "contact IBKR",
+		"missing: trades.ibOrderID", "empty: transfers", "absent: corporate_actions", "contact IBKR",
 	} {
 		if !strings.Contains(stdout.String(), required) {
 			t.Fatalf("human output omitted %q: %s", required, stdout.String())
@@ -76,7 +76,9 @@ func reportingCLIResult() rpc.ReportingStatusResult {
 		case "trades":
 			status, missing = flexstmt.QueryRequirementMissing, []string{"ibOrderID"}
 		case "transfers":
-			status = flexstmt.QueryRequirementUnproved
+			status = flexstmt.QueryRequirementEmpty
+		case "corporate_actions":
+			status = flexstmt.QueryRequirementAbsent
 		}
 		requirements = append(requirements, rpc.ReportingSectionRequirement{
 			Key: section.Key, Label: section.Label, Status: status, LevelOfDetail: section.LevelOfDetail,
@@ -92,7 +94,7 @@ func reportingCLIResult() rpc.ReportingStatusResult {
 			Reachability: rpc.ReportingReachabilityReachable, BrokerCode: "1025", RetryAutomatic: true,
 		},
 		Evidence:     rpc.ReportingEvidenceStatus{State: rpc.ReportingEvidenceObserved, SchemaFingerprint: "flex_schema_0123456789abcdef"},
-		Requirements: requirements, MissingRequirements: []string{"trades.ibOrderID"}, UnprovedSections: []string{"transfers"},
+		Requirements: requirements, MissingRequirements: []string{"trades.ibOrderID"}, UnprovedSections: []string{"transfers", "corporate_actions"},
 		Action: "IBKR returned an undocumented Flex response; review configuration or contact IBKR.",
 	}
 }

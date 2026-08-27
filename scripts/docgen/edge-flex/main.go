@@ -42,7 +42,7 @@ func render() string {
 	for i, step := range flexstmt.SetupSteps() {
 		fmt.Fprintf(out, "%d. %s\n", i+1, step)
 	}
-	out.WriteString("\nWhen a non-empty section proves that a required field is absent, reporting diagnostics name only the stable field key. An absent or empty section remains `unproved`: IBKR may omit empty containers, so no rows means its XML cannot prove which fields were selected.\n\n")
+	out.WriteString("\nReporting diagnostics keep three broker-evidence states separate: `absent` means the section was not returned, `empty` means its container was returned with no rows, and `missing` names fields absent from a real row. Absent and empty sections cannot prove their selected fields because IBKR may omit enabled sections with no matching activity; the setup wizard explains exactly what to check and asks before accepting that ambiguity.\n\n")
 
 	out.WriteString("## Required sections and fields\n\n")
 	for _, section := range flexstmt.CanonicalQueryManifest() {
@@ -61,7 +61,7 @@ func render() string {
 	out.WriteString("Some Client Portal account and interface variants offer a `Currency Conversion Rate` section; others do not. When it is available, selecting all four fields (`dateTime`, `fromCurrency`, `toCurrency`, and `rate`) gives Edge dated broker FX evidence for non-base-currency horizons. Its XML shape is `ConversionRates > ConversionRate`. It is optional and its absence never blocks reporting setup. `Forex Balances` and `Forex P/L Details` are different reports and are not substitutes. Rows that still lack enough broker-stated FX evidence remain unscored with a typed reason.\n\n")
 
 	out.WriteString("## Retrieval and evidence\n\n")
-	out.WriteString("The ordinary daily report refreshes the trailing 35 days. Edge additionally requests four paced, resumable ranges covering the inclusive trailing 365 days and revalidates the full year monthly. Every complete active-query XML response is retained as the original broker evidence; SQLite holds the typed current projection and immutable record versions. Candidate validation parses XML only in memory and discards it.\n\n")
+	out.WriteString("The ordinary daily report refreshes the trailing 35 days. Edge additionally requests four paced, resumable ranges covering the inclusive trailing 365 days and revalidates the full year monthly. A schema change in the latest report restarts that full-year validation even when the saved Query ID did not change. Every complete active-query XML response is retained as the original broker evidence; SQLite holds the typed current projection and immutable record versions. Candidate validation parses XML only in memory and discards it.\n\n")
 	out.WriteString("A backfill chunk advances only when the returned statement range fully contains the requested inclusive range. A shorter or stale broker response is retained as evidence but retried; it cannot mark the full-year revalidation complete.\n\n")
 	out.WriteString("Reading `canary reporting status`, `canary_reporting`, `canary edge`, `canary_edge`, or `/api/edge` never starts a Flex or market-data request. Only the explicit setup validation or background acquisition lane contacts Flex. Background work publishes a new fingerprinted snapshot atomically after the evidence and exact-ConID daily bars have been processed.\n\n")
 	out.WriteString("## Safety and scope\n\n")

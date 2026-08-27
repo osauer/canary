@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestWriteCandidateReportingTokenIsPrivate(t *testing.T) {
@@ -80,6 +81,30 @@ func TestSetupReportingPromptIsConciseAndExplainsHiddenPaste(t *testing.T) {
 	for _, phrase := range []string{"Command-V on macOS", "press Return", "Nothing will appear"} {
 		if !strings.Contains(prompt.String(), phrase) {
 			t.Fatalf("token prompt missing %q", phrase)
+		}
+	}
+}
+
+func TestSetupReportingValidationExplainsAbsentEmptyAndMissing(t *testing.T) {
+	t.Parallel()
+	result := rpc.ReportingValidationResult{
+		Outcome: rpc.ReportingValidationUnproved,
+		Requirements: []rpc.ReportingSectionRequirement{
+			{Key: "trades", Label: "Trades", Status: flexstmt.QueryRequirementAbsent, LevelOfDetail: "Executions", Fields: []string{"dateTime"}},
+			{Key: "transfers", Label: "Transfers", Status: flexstmt.QueryRequirementEmpty, Fields: []string{"date"}},
+			{Key: "open_positions", Label: "Open Positions", Status: flexstmt.QueryRequirementMissing, LevelOfDetail: "Summary", Fields: []string{"markPrice"}, MissingFields: []string{"markPrice"}},
+		},
+		Action: "Open each section and choose Select All.",
+	}
+	var out bytes.Buffer
+	renderSetupReportingValidation(&out, &result)
+	for _, phrase := range []string{
+		"absent: trades (Trades; detail=Executions; section was not returned)",
+		"empty: transfers (Transfers; section returned with no rows)",
+		"missing: open_positions.markPrice (Open Positions; detail=Summary; choose Select All)",
+	} {
+		if !strings.Contains(out.String(), phrase) {
+			t.Fatalf("validation output missing %q: %s", phrase, out.String())
 		}
 	}
 }

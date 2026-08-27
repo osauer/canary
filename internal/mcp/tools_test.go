@@ -133,7 +133,7 @@ func TestReportingToolExplainsSetupWithoutCredentialsOrRefreshAuthority(t *testi
 		t.Fatal("missing canary_reporting")
 	}
 	description := strings.ToLower(tool.Description)
-	for _, phrase := range []string{"broker reachability", "proven missing", "unproved", "read-only", "no query id or token", "cannot validate", "refresh reports", "change setup"} {
+	for _, phrase := range []string{"broker reachability", "proven missing", "absent sections", "present-empty sections", "read-only", "no query id or token", "cannot validate", "refresh reports", "change setup"} {
 		if !strings.Contains(description, phrase) {
 			t.Errorf("description missing %q: %s", phrase, tool.Description)
 		}

@@ -99,7 +99,7 @@ func TestFlexQueryRotationKeepsRetiredEvidenceOutOfActiveProjection(t *testing.T
 			tradeStatus = section.Status
 		}
 	}
-	if tradeStatus != flexstmt.QueryRequirementUnproved {
+	if tradeStatus != flexstmt.QueryRequirementEmpty {
 		t.Fatalf("retired complete Trades evidence certified replacement: status=%q", tradeStatus)
 	}
 	srv.flexFetch.state = flexFetchStateV2{

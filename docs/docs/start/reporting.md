@@ -159,14 +159,17 @@ memory and discarded: it is not retained, projected, logged, or returned by
 the local API.
 
 A date range with no trades, transfers, or corporate actions cannot prove the
-fields selected for those empty sections. The wizard calls them **unproved**
-and asks before activating the candidate. It refuses activation when a
-non-empty section proves that a named field is missing.
+fields selected for those sections. The wizard reports **absent** when a
+container was not returned, **empty** when the container was returned with no
+rows, and **missing** only when a real row proves a selected field is absent.
+It gives the Portal section, required detail level, and `Select All` repair,
+then asks before accepting absent or empty evidence. It refuses activation
+when a non-empty section proves that a named field is missing.
 
 For unattended recovery, `canary setup reporting --accept-unproved` accepts
-only that empty-section uncertainty. It never accepts a field that a returned
-row proves missing. Use the flag only after comparing the Portal definition
-with the generated field reference.
+only absent-or-empty uncertainty. It never accepts a field that a returned row
+proves missing. Use the flag only after comparing the Portal definition with
+the generated field reference.
 
 On success, Canary updates the `[flex]` settings atomically, keeps one private
 local config backup for rollback, restarts the daemon, and prints the shared
@@ -228,15 +231,15 @@ credential-file problems from broker and report evidence. Use these states:
 
 | Reporting state | Meaning |
 | --- | --- |
-| `configured` | Local setup is sound, but one or more empty sections are still unproved. |
+| `configured` | Local setup is sound, but one or more absent or empty sections cannot yet prove their field choices. |
 | `backfilling` | Canary is waiting for its first usable report or building the requested history. Temporary broker reasons are retried automatically. |
 | `current` | Fresh broker evidence satisfies every requirement that the returned XML can prove. |
-| `action_required` | Canary proved a local credential problem, a named report requirement is absent, or IBKR returned a response that needs operator attention. |
+| `action_required` | Canary proved a local credential problem, a returned row is missing a named field, or IBKR returned a response that needs operator attention. |
 | `unavailable` | Canary cannot read its local reporting authority. |
 
 `canary reporting status --json` reports local readiness, broker reachability,
 freshness, the reporting-manifest version, an account-free schema fingerprint,
-named missing requirements, and unproved sections. It never returns the token,
+named missing requirements, and explicit absent or empty sections. It never returns the token,
 Query ID, account ID, statement filename, holdings, balances, or raw XML.
 
 Temporary `report_not_ready`, `service_busy`, `rate_limited`, or
@@ -251,8 +254,10 @@ persists after the next statement publication, review the query's account
 selection and availability rather than regenerating the token blindly.
 
 A scheduled retry refreshes the current report; it is not a promise that an
-unproved section will appear. If matching activity exists inside the retained
-coverage and the section stays unproved, validate a replacement query.
+absent section will appear. If matching activity exists inside the retained
+coverage, edit the saved query, choose the named detail level and `Select All`,
+then save. Canary validates the next report automatically; run
+`canary setup reporting` only if you want an immediate candidate check.
 
 IBKR may also return numeric statuses not present in its published Flex error
 table. Canary exposes only the four-digit code. For example, code `1025` is
@@ -268,17 +273,19 @@ definition problem rather than merely waiting for IBKR.
 
 `insufficient_evidence` is an Edge state, not a Reporting state. It means account-level evidence may be usable but the completed one-year report did not return a Trades section. Edge is not waiting for another copy of that same history. If the account traded during the covered dates, check that the saved Portal query includes Trades at execution detail; if it did not, there are no decisions to score. This correction uses the one-time reporting setup only—there are no Edge parameters or debug exports to maintain. If Trades is present and explicitly empty, Edge instead keeps a `current` zero-decision result with a plain explanation.
 
-An empty section is not proof that every field was selected. Canary calls that
-section **unproved** until a real row arrives. Do not manufacture a trade,
+An empty section is not proof that every field was selected. Canary keeps its
+field choices unproved until a real row arrives. Do not manufacture a trade,
 transfer, or corporate action just to populate it.
 
 ## Fix an existing incomplete query safely
 
-Do not edit the working query in place. Create a second Activity Flex Query
-with the checklist above, then run `canary setup reporting` with its new Query
-ID and token. Canary validates and promotes the candidate without taking the
-working query offline. Keep the old Portal query until the replacement is
-current.
+You may edit the saved query in place: add the missing section or fields, save,
+and leave its Query ID configured. When the corrected report changes the
+observed schema fingerprint, Canary invalidates the old full-year validation
+and rebuilds the 365-day SQLite projection automatically. Use
+`canary reporting status` to follow it. If you prefer a blue/green change,
+create a second query and run `canary setup reporting`; Canary keeps the
+working query active until the candidate validates.
 
 ## Official IBKR references
 

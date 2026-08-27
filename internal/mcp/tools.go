@@ -256,7 +256,7 @@ var Tools = []Tool{
 	{
 		Name:         "canary_reporting",
 		Title:        "Canary Broker Reporting Status",
-		Description:  "Read shared IBKR statement-reporting setup, broker reachability, backfill state, proven missing fields, and unproved empty sections for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.",
+		Description:  "Read shared IBKR statement-reporting setup, broker reachability, backfill state, absent sections, present-empty sections, and proven missing fields for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.",
 		ReadOnlyHint: new(true),
 		RPCMethods:   []string{rpc.MethodReportingStatus},
 		JSONSchema:   schemaObject(nil, nil),

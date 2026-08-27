@@ -24,7 +24,7 @@ const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
 	edgePublicationVersion   = 1
-	edgeBarCacheVersion      = 1
+	edgeBarCacheVersion      = 2
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
 	edgeFullRevalidateAfter  = 30 * 24 * time.Hour
@@ -52,11 +52,12 @@ type edgeBarCache struct {
 }
 
 type edgeBarSeries struct {
-	ConID     int64               `json:"conid"`
-	Symbol    string              `json:"symbol"`
-	Currency  string              `json:"currency"`
-	FetchedAt time.Time           `json:"fetched_at"`
-	Bars      []edgecore.DailyBar `json:"bars"`
+	ConID             int64               `json:"conid"`
+	Symbol            string              `json:"symbol"`
+	Currency          string              `json:"currency"`
+	FetchedAt         time.Time           `json:"fetched_at"`
+	FullRevalidatedAt time.Time           `json:"full_revalidated_at,omitzero"`
+	Bars              []edgecore.DailyBar `json:"bars"`
 }
 
 type edgeContractSpec struct {
@@ -177,17 +178,15 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		cache = edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scopeFingerprint, Contracts: map[string]edgeBarSeries{}}
 	}
 	contracts := edgeContracts(statements, s.edgeNow().AddDate(0, 0, -edgeFullLookbackDays))
-	full := cache.LastFullRevalidation.IsZero() || s.edgeNow().Sub(cache.LastFullRevalidation) >= edgeFullRevalidateAfter
-	lookback := edgeDailyLookbackDays
-	if full {
-		lookback = edgeFullLookbackDays
-	}
+	now := s.edgeNow()
+	full := cache.LastFullRevalidation.IsZero() || now.Sub(cache.LastFullRevalidation) >= edgeFullRevalidateAfter
 	fetchFailures := 0
 	fetchedAll := true
 	for _, spec := range contracts {
 		key := strconv.FormatInt(spec.ConID, 10)
 		series := cache.Contracts[key]
-		if !full && !series.FetchedAt.IsZero() && s.edgeNow().Sub(series.FetchedAt) < edgeDailyRefreshAfter {
+		lookback, fetch := edgeBarRefreshPlan(now, full, series)
+		if !fetch {
 			continue
 		}
 		bars, fetchErr := s.fetchEdgeBars(ctx, spec, lookback)
@@ -196,14 +195,21 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			fetchedAll = false
 			continue
 		}
-		series = edgeBarSeries{ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency, FetchedAt: s.edgeNow(), Bars: mergeEdgeBars(series.Bars, bars)}
+		series = edgeBarSeries{
+			ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency,
+			FetchedAt: now, FullRevalidatedAt: series.FullRevalidatedAt,
+			Bars: mergeEdgeBars(series.Bars, bars),
+		}
+		if lookback == edgeFullLookbackDays {
+			series.FullRevalidatedAt = now
+		}
 		cache.Contracts[key] = series
 		if err := s.saveEdgeBarCache(ctx, cache); err != nil {
 			return err
 		}
 	}
 	if full && fetchedAll {
-		cache.LastFullRevalidation = s.edgeNow()
+		cache.LastFullRevalidation = now
 		if err := s.saveEdgeBarCache(ctx, cache); err != nil {
 			return err
 		}
@@ -231,6 +237,20 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	}
 	lastFull := oldestEdgeRevalidation(acquisition.LastFullRevalidation, cache.LastFullRevalidation)
 	return s.saveEdgePublication(ctx, edgePublication{Version: edgePublicationVersion, ScopeFingerprint: scopeFingerprint, State: state, Reason: reason, EvidenceFingerprint: evidenceFingerprint, Windows: windows, LastFullRevalidation: lastFull, UpdatedAt: s.edgeNow()})
+}
+
+// edgeBarRefreshPlan keeps full-history authority at contract granularity.
+// A recent global cache refresh cannot prove a contract that appeared only
+// after a corrected or expanded statement query received the 400-day seed.
+func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries) (lookback int, fetch bool) {
+	seriesFullDue := series.FullRevalidatedAt.IsZero() || now.Sub(series.FullRevalidatedAt) >= edgeFullRevalidateAfter
+	if !globalFullDue && !seriesFullDue && !series.FetchedAt.IsZero() && now.Sub(series.FetchedAt) < edgeDailyRefreshAfter {
+		return 0, false
+	}
+	if globalFullDue || seriesFullDue {
+		return edgeFullLookbackDays, true
+	}
+	return edgeDailyLookbackDays, true
 }
 
 func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookback int) ([]edgecore.DailyBar, error) {
@@ -710,9 +730,12 @@ func (s *Server) loadEdgeBarCache(ctx context.Context) (edgeBarCache, error) {
 	if err := json.Unmarshal(doc.JSON, &out); err != nil {
 		return out, fmt.Errorf("decode Edge bar cache: %w", err)
 	}
-	if out.Version != edgeBarCacheVersion {
+	if out.Version != 1 && out.Version != edgeBarCacheVersion {
 		return out, fmt.Errorf("unsupported Edge bar cache version")
 	}
+	// Version 1 tracked only a global full refresh. Existing series therefore
+	// remain deliberately unproved until each one earns the v2 marker.
+	out.Version = edgeBarCacheVersion
 	if out.Contracts == nil {
 		out.Contracts = map[string]edgeBarSeries{}
 	}
@@ -832,8 +855,8 @@ func edgeSetup(reason string) *rpc.EdgeSetup {
 	if reason == "trade_history_unproved" {
 		steps = []string{
 			"Open the saved Activity Flex Query in IBKR Client Portal.",
-			"Confirm Trades is selected at execution detail for this account; create a corrected copy only if it was absent.",
-			"Run canary setup reporting once to validate the corrected Query ID. Edge needs no parameters or debug export.",
+			"Under Trades choose Executions, choose Select All fields, and save the query.",
+			"Canary detects the corrected report and rebuilds the 365-day database automatically; use canary reporting status to follow it. Edge needs no parameters or debug export.",
 		}
 	}
 	setup := &rpc.EdgeSetup{ManifestVersion: flexstmt.ManifestVersion, Steps: steps}

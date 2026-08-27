@@ -15,7 +15,7 @@ const (
 	MethodReportingStatus   = "reporting.status"
 	MethodReportingValidate = "reporting.validate"
 
-	ReportingSchemaVersion = "canary-reporting-v1"
+	ReportingSchemaVersion = "canary-reporting-v2"
 
 	ReportingStateConfigured     = "configured"
 	ReportingStateBackfilling    = "backfilling"
@@ -40,6 +40,7 @@ const (
 	ReportingReasonFlexQueryIncomplete        = "flex_query_incomplete"
 	ReportingReasonReportNotReceived          = "report_not_received"
 	ReportingReasonEmptySectionsUnproved      = "empty_sections_unproved"
+	ReportingReasonAbsentSectionsUnproved     = "absent_sections_unproved"
 	ReportingReasonAccountScopeInvalid        = "report_account_scope_invalid"
 	ReportingReasonAccountScopeMismatch       = "report_account_scope_mismatch"
 )
@@ -287,9 +288,17 @@ func ValidateReportingStatusResult(result ReportingStatusResult) error {
 		if result.Evidence.SchemaFingerprint != "" || !result.Evidence.CoverageTo.IsZero() {
 			return errors.New("not-received reporting evidence carries observations")
 		}
-	case ReportingEvidenceObserved, ReportingEvidenceDegraded:
+	case ReportingEvidenceObserved:
 		if !strings.HasPrefix(result.Evidence.SchemaFingerprint, "flex_schema_") {
 			return errors.New("observed reporting evidence lacks a schema fingerprint")
+		}
+	case ReportingEvidenceDegraded:
+		if result.Evidence.SchemaFingerprint == "" {
+			if !result.Evidence.CoverageTo.IsZero() {
+				return errors.New("degraded reporting evidence has coverage without a schema fingerprint")
+			}
+		} else if !strings.HasPrefix(result.Evidence.SchemaFingerprint, "flex_schema_") {
+			return errors.New("invalid degraded reporting schema fingerprint")
 		}
 	default:
 		return errors.New("invalid reporting evidence state")
@@ -356,7 +365,7 @@ func validateReportingSectionEvidence(requirements []ReportingSectionRequirement
 		seenSections[section.Key] = true
 		allowedSections[section.Key] = section.Status
 		switch section.Status {
-		case "observed", "missing", "unproved", "not_received":
+		case "observed", "missing", "absent", "empty", "not_received":
 		default:
 			return errors.New("invalid reporting section evidence")
 		}
@@ -396,7 +405,8 @@ func validateReportingSectionEvidence(requirements []ReportingSectionRequirement
 	}
 	seen = make(map[string]bool)
 	for _, section := range unprovedSections {
-		if allowedSections[section] != "unproved" || seen[section] {
+		status := allowedSections[section]
+		if (status != "absent" && status != "empty") || seen[section] {
 			return errors.New("invalid reporting unproved section")
 		}
 		seen[section] = true
@@ -440,7 +450,8 @@ func validReportingReason(reason string) bool {
 	switch reason {
 	case ReportingReasonTokenPermissions, ReportingReasonBrokerResponseUndocumented,
 		ReportingReasonFlexQueryIncomplete, ReportingReasonReportNotReceived,
-		ReportingReasonEmptySectionsUnproved, ReportingReasonAccountScopeInvalid,
+		ReportingReasonEmptySectionsUnproved, ReportingReasonAbsentSectionsUnproved,
+		ReportingReasonAccountScopeInvalid,
 		ReportingReasonAccountScopeMismatch:
 		return true
 	default:

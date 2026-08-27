@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
 	edgeFlexAcquisitionStateKind = "edge_flex_acquisition"
-	edgeFlexAcquisitionVersion   = 1
+	edgeFlexAcquisitionVersion   = 2
 	edgeFlexChunkCount           = 4
 	edgeFlexPace                 = time.Minute
 	edgeFlexRetryAfter           = 30 * time.Minute
+	edgeFlexSchemaBasis          = "daily-window-v1"
+	edgeFlexReceiptMaxAge        = 24 * time.Hour
+	edgeFlexReceiptMaxSpan       = 2 * time.Hour
 	// Initial execution-detail ranges are materially heavier than the daily
 	// 35-day refresh. Keep the same ten-second cadence but allow 15 minutes
 	// before falling back to the durable retry schedule.
@@ -25,6 +29,8 @@ type edgeFlexAcquisition struct {
 	Version              int       `json:"version"`
 	ScopeFingerprint     string    `json:"scope_fingerprint"`
 	QueryFingerprint     string    `json:"query_fingerprint,omitempty"`
+	SchemaFingerprint    string    `json:"schema_fingerprint,omitempty"`
+	SchemaBasis          string    `json:"schema_basis,omitempty"`
 	AnchorDate           time.Time `json:"anchor_date,omitzero"`
 	NextChunk            int       `json:"next_chunk"`
 	NextAttempt          time.Time `json:"next_attempt,omitzero"`
@@ -54,11 +60,46 @@ func (s *Server) advanceEdgeFlexAcquisition(ctx context.Context, scopeFingerprin
 	if s.cfg != nil {
 		queryFingerprint = flexQueryFingerprint(s.cfg.Flex.QueryID)
 	}
+	schemaFingerprint, schemaObservedAt, err := s.latestReportingSchemaEvidence(ctx)
+	if err != nil {
+		return progress, err
+	}
 	if state.ScopeFingerprint != scopeFingerprint || state.QueryFingerprint != queryFingerprint {
 		state = edgeFlexAcquisition{
-			Version:          edgeFlexAcquisitionVersion,
-			ScopeFingerprint: scopeFingerprint,
-			QueryFingerprint: queryFingerprint,
+			Version:           edgeFlexAcquisitionVersion,
+			ScopeFingerprint:  scopeFingerprint,
+			QueryFingerprint:  queryFingerprint,
+			SchemaFingerprint: schemaFingerprint,
+			SchemaBasis:       edgeFlexSchemaBasis,
+		}
+	} else {
+		if state.SchemaBasis != edgeFlexSchemaBasis {
+			receiptAt, proved, receiptErr := s.recentCompletedEdgeFlexReceipt(ctx, queryFingerprint, schemaObservedAt, now)
+			if receiptErr != nil {
+				return progress, receiptErr
+			}
+			if proved {
+				state = edgeFlexAcquisition{
+					Version: edgeFlexAcquisitionVersion, ScopeFingerprint: scopeFingerprint,
+					QueryFingerprint: queryFingerprint, SchemaFingerprint: schemaFingerprint,
+					SchemaBasis: edgeFlexSchemaBasis, LastFullRevalidation: receiptAt,
+				}
+				if err := s.saveEdgeFlexAcquisition(ctx, state); err != nil {
+					return progress, err
+				}
+			}
+		}
+		if edgeFlexSchemaChanged(state, schemaFingerprint) {
+			state = edgeFlexAcquisition{
+				Version:           edgeFlexAcquisitionVersion,
+				ScopeFingerprint:  scopeFingerprint,
+				QueryFingerprint:  queryFingerprint,
+				SchemaFingerprint: schemaFingerprint,
+				SchemaBasis:       edgeFlexSchemaBasis,
+			}
+		} else if state.LastFullRevalidation.IsZero() && state.SchemaFingerprint == "" {
+			state.SchemaFingerprint = schemaFingerprint
+			state.SchemaBasis = edgeFlexSchemaBasis
 		}
 	}
 	progress.LastFullRevalidation = state.LastFullRevalidation
@@ -142,6 +183,12 @@ func (s *Server) advanceEdgeFlexAcquisition(ctx context.Context, scopeFingerprin
 		return progress, nil
 	}
 	state.LastFullRevalidation = now
+	schemaFingerprint, err = s.latestReportingSchemaFingerprint(ctx)
+	if err != nil {
+		return progress, err
+	}
+	state.SchemaFingerprint = schemaFingerprint
+	state.SchemaBasis = edgeFlexSchemaBasis
 	state.AnchorDate = time.Time{}
 	state.NextChunk = 0
 	state.NextAttempt = time.Time{}
@@ -188,9 +235,13 @@ func (s *Server) loadEdgeFlexAcquisition(ctx context.Context) (edgeFlexAcquisiti
 	if err := json.Unmarshal(doc.JSON, &out); err != nil {
 		return out, fmt.Errorf("decode Edge Flex acquisition: %w", err)
 	}
-	if out.Version != edgeFlexAcquisitionVersion {
+	if out.Version != 1 && out.Version != edgeFlexAcquisitionVersion {
 		return out, fmt.Errorf("unsupported Edge Flex acquisition version")
 	}
+	// Version 1 had no observed-schema binding. Leaving the new field empty
+	// deliberately makes a completed v1 acquisition due once current report
+	// evidence is available.
+	out.Version = edgeFlexAcquisitionVersion
 	return out, nil
 }
 
@@ -235,4 +286,57 @@ func firstNonEmptyEdgeReason(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func edgeFlexSchemaChanged(state edgeFlexAcquisition, current string) bool {
+	return current != "" && !state.LastFullRevalidation.IsZero() && state.AnchorDate.IsZero() && state.SchemaFingerprint != current
+}
+
+// recentCompletedEdgeFlexReceipt proves a just-completed four-chunk acquisition
+// from query-bound projection metadata. It is used only to migrate schema-basis
+// semantics without repeating broker work; ranges that predate the current
+// schema evidence, are stale, partial, or widely separated never qualify.
+func (s *Server) recentCompletedEdgeFlexReceipt(ctx context.Context, queryFingerprint string, schemaObservedAt, now time.Time) (time.Time, bool, error) {
+	if s == nil || s.coreStore == nil || queryFingerprint == "" || schemaObservedAt.IsZero() {
+		return time.Time{}, false, nil
+	}
+	records, err := s.coreStore.LoadStatementRecords(ctx, s.activeStatementProjectionScope(), []string{corestore.StatementRecordMetadata}, statementProjectionMaxRows)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if len(records) == statementProjectionMaxRows {
+		return time.Time{}, false, fmt.Errorf("edge Flex receipt projection exceeds supported size")
+	}
+	want := edgeFlexRanges(latestCompletedFlexDate(now))
+	generations := make([]time.Time, len(want))
+	for _, record := range records {
+		var item statementMetadataProjectionPayload
+		if err := json.Unmarshal(record.RawJSON, &item); err != nil || item.Version != statementProjectionVersion {
+			return time.Time{}, false, fmt.Errorf("decode edge Flex receipt metadata projection")
+		}
+		if item.QueryFingerprint != queryFingerprint {
+			continue
+		}
+		for i, expected := range want {
+			if dateOnlyUTC(item.FromDate).Equal(expected.From) && dateOnlyUTC(item.ToDate).Equal(expected.To) && record.GeneratedAt.After(generations[i]) {
+				generations[i] = record.GeneratedAt.UTC()
+			}
+		}
+	}
+	oldest, newest := time.Time{}, time.Time{}
+	for _, generated := range generations {
+		if generated.IsZero() {
+			return time.Time{}, false, nil
+		}
+		if oldest.IsZero() || generated.Before(oldest) {
+			oldest = generated
+		}
+		if generated.After(newest) {
+			newest = generated
+		}
+	}
+	if oldest.Before(schemaObservedAt) || newest.After(now.Add(5*time.Minute)) || now.Sub(newest) > edgeFlexReceiptMaxAge || newest.Sub(oldest) > edgeFlexReceiptMaxSpan {
+		return time.Time{}, false, nil
+	}
+	return newest, true, nil
 }

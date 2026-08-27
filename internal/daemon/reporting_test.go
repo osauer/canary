@@ -13,6 +13,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -209,6 +210,59 @@ func TestReportingCandidateValidationLeavesNoDurableOrProjectionSideEffects(t *t
 	}
 }
 
+func TestReportingCandidateNamesAbsentSectionsWithoutCallingThemEmpty(t *testing.T) {
+	tokenPath := writeReportingTestToken(t)
+	srv := &Server{now: func() time.Time { return time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC) }}
+	srv.flexRawDateRangeLockedFn = func(context.Context, time.Time, time.Time, int, string, string) ([]byte, error) {
+		return []byte(`<FlexQueryResponse><FlexStatements><FlexStatement accountId="REDACTED" fromDate="20260801" toDate="20260823" whenGenerated="20260824;120000"><EquitySummaryInBase><EquitySummaryByReportDateInBase reportDate="20260823" total="100"/></EquitySummaryInBase></FlexStatement></FlexStatements></FlexQueryResponse>`), nil
+	}
+	params, _ := json.Marshal(rpc.ReportingValidateParams{QueryID: "111", TokenPath: tokenPath})
+	result, err := srv.handleReportingValidate(t.Context(), &rpc.Request{Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Outcome != rpc.ReportingValidationUnproved || !result.ReadyForRotation || result.Reason != rpc.ReportingReasonAbsentSectionsUnproved || !strings.Contains(result.Action, "Select All") {
+		t.Fatalf("absent candidate diagnosis = %+v", result)
+	}
+	for _, requirement := range result.Requirements {
+		if requirement.Key == "trades" && requirement.Status != flexstmt.QueryRequirementAbsent {
+			t.Fatalf("Trades evidence = %+v", requirement)
+		}
+	}
+}
+
+func TestLatestReportingStatementsDoesNotLetOldSchemaMaskSavedQueryEdit(t *testing.T) {
+	to := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	fields := append([]string(nil), flexstmt.CanonicalQueryManifest()[0].RequiredFields...)
+	statements := []flexstmt.Statement{
+		{FromDate: to.AddDate(0, 0, -34), ToDate: to, WhenGenerated: to.Add(time.Hour), Coverage: []flexstmt.SectionCoverage{{Key: "trades", Present: true, RowCount: 1, ObservedFields: fields}}},
+		{FromDate: to.AddDate(0, 0, -34), ToDate: to, WhenGenerated: to.Add(2 * time.Hour), Coverage: []flexstmt.SectionCoverage{{Key: "equity", Present: true, RowCount: 1, ObservedFields: []string{"reportDate", "total"}}}},
+	}
+	latest := latestReportingStatements(statements)
+	if len(latest) != 1 || !latest[0].WhenGenerated.Equal(to.Add(2*time.Hour)) {
+		t.Fatalf("latest report selection = %+v", latest)
+	}
+	if got := flexstmt.QueryRequirementEvidence(latest)[0].Status; got != flexstmt.QueryRequirementAbsent {
+		t.Fatalf("latest Trades status = %q", got)
+	}
+}
+
+func TestLatestReportingStatementsPrefersDailyWindowOverLaterBackfillChunk(t *testing.T) {
+	to := time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC)
+	daily := flexstmt.Statement{
+		FromDate: to.AddDate(0, 0, -34), ToDate: to, WhenGenerated: to.Add(time.Hour),
+		Coverage: []flexstmt.SectionCoverage{{Key: "trades", Present: true, RowCount: 1}},
+	}
+	backfill := flexstmt.Statement{
+		FromDate: to.AddDate(0, 0, -90), ToDate: to, WhenGenerated: to.Add(2 * time.Hour),
+		Coverage: []flexstmt.SectionCoverage{{Key: "option_events", Present: true, RowCount: 1}},
+	}
+	latest := latestReportingStatements([]flexstmt.Statement{daily, backfill})
+	if len(latest) != 1 || !latest[0].WhenGenerated.Equal(daily.WhenGenerated) {
+		t.Fatalf("latest report selection = %+v", latest)
+	}
+}
+
 func TestReportingStatusPublishesOnlyTypedBrokerAndManifestDiagnostics(t *testing.T) {
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
@@ -266,10 +320,11 @@ func TestReportingRetryDoesNotPromiseUnprovedSectionsWillArrive(t *testing.T) {
 		Local:            rpc.ReportingLocalStatus{Enabled: true, QueryConfigured: true, TokenFilePresent: true, TokenFilePrivate: true},
 		Broker:           rpc.ReportingBrokerStatus{State: rpc.ReconReportStateRetryScheduled, Reason: rpc.ReconReportReasonReportNotReady},
 		Evidence:         rpc.ReportingEvidenceStatus{State: rpc.ReportingEvidenceObserved},
+		Requirements:     []rpc.ReportingSectionRequirement{{Key: "trades", Status: flexstmt.QueryRequirementEmpty}},
 		UnprovedSections: []string{"trades"},
 	}
 	setReportingOverallStatus(result, false)
-	if result.State != rpc.ReportingStateBackfilling || !strings.Contains(result.Action, "retry does not prove unproved sections") || !strings.Contains(result.Action, "validate a replacement query") {
+	if result.State != rpc.ReportingStateBackfilling || !strings.Contains(result.Action, "Empty sections remain unproved") {
 		t.Fatalf("reporting retry contract=%+v", result)
 	}
 }
@@ -339,7 +394,13 @@ func writeReportingTestToken(t *testing.T) string {
 func reportingFlexFixture(from, to string) []byte {
 	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
 <FlexQueryResponse><FlexStatements count="1"><FlexStatement accountId="REDACTED" fromDate="` + from + `" toDate="` + to + `" whenGenerated="20260824;120000">
+<Trades></Trades>
+<SecuritiesInfo></SecuritiesInfo>
+<OpenPositions></OpenPositions>
+<OptionEAE></OptionEAE>
+<CorporateActions></CorporateActions>
 <Transfers></Transfers>
+<CashTransactions></CashTransactions>
 <EquitySummaryInBase><EquitySummaryByReportDateInBase reportDate="20260824" total="100"/></EquitySummaryInBase>
 </FlexStatement></FlexStatements></FlexQueryResponse>`)
 }

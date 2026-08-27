@@ -9,7 +9,7 @@ import (
 func TestParseEdgeExecutionEvidenceAndCoverage(t *testing.T) {
 	t.Parallel()
 	xml := `<FlexQueryResponse><FlexStatements><FlexStatement accountId="U-PRIVATE" fromDate="20260101" toDate="20260131" whenGenerated="20260201;010203">
-<Trades><Trade accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" multiplier="1" tradeID="t1" ibOrderID="o1" ibExecID="e1" transactionID="x1" tradeDate="20260105" tradeTime="153045" buySell="BUY" quantity="10" tradePrice="100.25" proceeds="-1002.5" IBCommission="-1" IBCommissionCurrency="USD" taxes="0" openCloseIndicator="O" cost="1003.5" fifoPnlRealized="0" mtmPnl="2.5" closePrice="100.5" netCash="-1003.5" levelOfDetail="EXECUTION" /></Trades>
+<Trades><Trade accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" underlyingConid="0" underlyingSymbol="" multiplier="1" tradeID="t1" ibOrderID="o1" ibExecID="e1" transactionID="x1" dateTime="20260105;153045" tradeDate="20260105" buySell="BUY" quantity="10" tradePrice="100.25" proceeds="-1002.5" ibCommission="-1" ibCommissionCurrency="USD" taxes="0" openCloseIndicator="O" cost="1003.5" fifoPnlRealized="0" mtmPnl="2.5" closePrice="100.5" netCash="-1003.5" levelOfDetail="EXECUTION" /></Trades>
 <SecuritiesInfo><SecurityInfo assetCategory="STK" currency="USD" symbol="ACME" description="ACME CORP" conid="123" multiplier="1" listingExchange="NYSE" /></SecuritiesInfo>
 <OpenPositions><OpenPosition accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" reportDate="20260131" position="10" multiplier="1" markPrice="110" costBasisPrice="100.35" costBasisMoney="1003.5" fifoPnlUnrealized="96.5" side="Long" openDateTime="20260105;153045" levelOfDetail="SUMMARY" /></OpenPositions>
 <OptionEAE><OptionEAE accountId="U-PRIVATE" assetCategory="OPT" currency="USD" fxRateToBase="0.92" symbol="ACME  260116C00100000" conid="456" underlyingConid="123" underlyingSymbol="ACME" date="20260116" transactionType="Expiration" quantity="-1" tradePrice="0" markPrice="0" proceeds="0" commisionsAndTax="0" costBasis="-200" realizedPnl="-200" mtmPnl="0" tradeID="oe1" /></OptionEAE>
@@ -62,6 +62,9 @@ func TestParseEdgeExecutionEvidenceAndCoverage(t *testing.T) {
 		}
 	}
 	for _, section := range QueryRequirementEvidence(statements) {
+		if section.Key == "trades" && section.Status != QueryRequirementObserved {
+			t.Fatalf("current Trades wire coverage = %+v", section)
+		}
 		if section.Key == "option_events" && section.Status != QueryRequirementObserved {
 			t.Fatalf("OptionEAE wire coverage = %+v", section)
 		}
@@ -93,6 +96,27 @@ func TestCanonicalManifestReturnsDefensiveCopy(t *testing.T) {
 	}
 }
 
+func TestLegacyExecutionAliasesSatisfyCurrentManifest(t *testing.T) {
+	t.Parallel()
+	fields := append([]string(nil), CanonicalQueryManifest()[0].RequiredFields...)
+	for i, field := range fields {
+		switch field {
+		case "dateTime":
+			fields[i] = "tradeTime"
+		case "ibCommission":
+			fields[i] = "IBCommission"
+		case "ibCommissionCurrency":
+			fields[i] = "IBCommissionCurrency"
+		}
+	}
+	evidence := QueryRequirementEvidence([]Statement{{Coverage: []SectionCoverage{{
+		Key: "trades", Present: true, RowCount: 1, ObservedFields: fields,
+	}}}})
+	if evidence[0].Status != QueryRequirementObserved {
+		t.Fatalf("legacy Trades aliases = %+v", evidence[0])
+	}
+}
+
 func TestMissingQueryRequirementsUsesCanonicalSectionsAndObservedFields(t *testing.T) {
 	t.Parallel()
 	xml := `<FlexQueryResponse><FlexStatements><FlexStatement accountId="U" fromDate="20260101" toDate="20260102" whenGenerated="20260103"><Trades><Trade conid="123" dateTime="20260102;120000" buySell="BUY" quantity="1" tradePrice="10" levelOfDetail="EXECUTION" /></Trades><OpenPositions></OpenPositions></FlexStatement></FlexStatements></FlexQueryResponse>`
@@ -121,13 +145,13 @@ func TestMissingQueryRequirementsUsesCanonicalSectionsAndObservedFields(t *testi
 		t.Fatalf("trade field diagnostics = %+v", trades)
 	}
 	for _, section := range QueryRequirementEvidence(statements) {
-		if section.Key == "equity" && section.Status != QueryRequirementUnproved {
-			t.Fatalf("absent empty section status = %q", section.Status)
+		if section.Key == "equity" && section.Status != QueryRequirementAbsent {
+			t.Fatalf("absent section status = %q", section.Status)
 		}
 	}
 }
 
-func TestQueryRequirementEvidenceDistinguishesMissingUnprovedAndNotReceived(t *testing.T) {
+func TestQueryRequirementEvidenceDistinguishesAbsentEmptyMissingAndNotReceived(t *testing.T) {
 	t.Parallel()
 
 	none := QueryRequirementEvidence(nil)
@@ -148,10 +172,10 @@ func TestQueryRequirementEvidenceDistinguishesMissingUnprovedAndNotReceived(t *t
 	for _, section := range QueryRequirementEvidence(statements) {
 		byKey[section.Key] = section
 	}
-	if got := byKey["trades"].Status; got != QueryRequirementUnproved {
+	if got := byKey["trades"].Status; got != QueryRequirementAbsent {
 		t.Fatalf("trades status = %q", got)
 	}
-	if got := byKey["transfers"].Status; got != QueryRequirementUnproved {
+	if got := byKey["transfers"].Status; got != QueryRequirementEmpty {
 		t.Fatalf("transfers status = %q", got)
 	}
 	if got := byKey["equity"]; got.Status != QueryRequirementMissing || len(got.MissingFields) != 1 || got.MissingFields[0] != "total" {

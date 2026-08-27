@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-08-09
+Updated: 2026-08-27
 
 Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected.
 
@@ -11,8 +11,8 @@ connect successfully while every statement-backed feature remains empty.
 Complete [Set up broker reporting](reporting.md): create the eight-section XML
 Activity Flex Query, enable the Flex Web Service, and configure its Query ID
 and token file. Start diagnosis with `canary reporting status`; it separates
-local files, broker reachability, retained evidence, proven missing fields, and
-unproved empty sections.
+local files, broker reachability, retained evidence, absent sections,
+present-empty sections, and proven missing fields.
 
 Use the stable reason to choose the next step:
 
@@ -22,12 +22,13 @@ Use the stable reason to choose the next step:
 | `token_missing`, `token_invalid`, `token_expired` | Replace the protected token file; do not put the token in TOML or a shell argument. |
 | `query_missing`, `query_invalid` | Check the configured Query ID and that the exact same account selection still exposes the query in Client Portal. |
 | `service_inactive`, `ip_restricted` | Re-enable Flex Web Service or correct its IP restriction in Client Portal. |
-| `action_required`, `flex_query_incomplete` | Create a new query from the reporting checklist. Keep the working query until the replacement validates. |
+| `absent_sections_unproved` | Open each named section in the saved query, choose the reported detail level and `Select All`, then save. Canary validates the next report automatically. If there was no matching activity, IBKR may omit an enabled empty section. |
+| `action_required`, `flex_query_incomplete` | A real row proved fields missing. Edit the named section, choose `Select All`, then save. Canary validates the next report automatically; a new Query ID is optional. |
 | broker code `1025` | IBKR does not document this code. Review Flex Web Service/query configuration; contact IBKR if it persists. Do not rotate a working query on a guessed meaning. |
 
-An empty section is **unproved**, not missing: no row means the XML cannot show
-which fields were selected. Never place a trade or move cash merely to populate
-a report section.
+An absent section was not returned; an empty section was returned with zero
+rows. Neither proves which fields were selected. Never place a trade or move
+cash merely to populate a report section.
 
 ## Every command prints a hint pointing at `canary status`
 

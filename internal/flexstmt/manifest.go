@@ -11,7 +11,7 @@ import (
 // statement parser and the Recon and Edge reporting consumers. It is
 // deliberately not a setting: setup copy, diagnostics, generated
 // documentation, and parser coverage all consume this same manifest.
-const ManifestVersion = "canary-reporting-flex-v1"
+const ManifestVersion = "canary-reporting-flex-v2"
 
 // ManifestSection describes one section of the canonical Activity Flex Query.
 // Fields use IBKR's XML attribute names so the list can be compared directly
@@ -30,7 +30,8 @@ type ManifestSection struct {
 const (
 	QueryRequirementObserved    = "observed"
 	QueryRequirementMissing     = "missing"
-	QueryRequirementUnproved    = "unproved"
+	QueryRequirementAbsent      = "absent"
+	QueryRequirementEmpty       = "empty"
 	QueryRequirementNotReceived = "not_received"
 )
 
@@ -49,8 +50,8 @@ var canonicalManifest = []ManifestSection{
 		RequiredFields: []string{
 			"accountId", "assetCategory", "currency", "fxRateToBase", "symbol", "conid",
 			"underlyingConid", "underlyingSymbol", "multiplier", "tradeID", "ibOrderID",
-			"ibExecID", "transactionID", "tradeDate", "tradeTime", "buySell",
-			"quantity", "tradePrice", "proceeds", "IBCommission", "IBCommissionCurrency",
+			"ibExecID", "transactionID", "dateTime", "tradeDate", "buySell",
+			"quantity", "tradePrice", "proceeds", "ibCommission", "ibCommissionCurrency",
 			"taxes", "openCloseIndicator", "cost", "fifoPnlRealized", "mtmPnl", "closePrice",
 			"netCash", "levelOfDetail",
 		},
@@ -120,9 +121,9 @@ func CanonicalQueryManifest() []ManifestSection {
 // verbatim. The field list itself always comes from CanonicalQueryManifest.
 func SetupSteps() []string {
 	return []string{
-		"Create one XML Activity Flex Query and add every Canary reporting section and field shown below.",
-		"Keep Trades at execution detail and Open Positions at summary detail, then save the query.",
-		"Run canary setup reporting to validate and activate its Query ID and Flex Web Service token.",
+		"Open the saved XML Activity Flex Query in IBKR Client Portal and add every Canary reporting section shown below.",
+		"For each section choose Select All; keep Trades at Executions detail and Open Positions at Summary detail, then save.",
+		"Run canary setup reporting to validate it. Canary names sections that were absent, empty, or missing fields and explains the repair.",
 	}
 }
 
@@ -145,15 +146,39 @@ func observeManifestSections(statements []Statement) map[string]*observedManifes
 			section.rows += coverage.RowCount
 			for _, field := range coverage.ObservedFields {
 				section.fields[field] = true
+				if alias := canonicalObservedField(coverage.Key, field); alias != "" {
+					section.fields[alias] = true
+				}
 			}
 		}
 	}
 	return observed
 }
 
+// canonicalObservedField maps historical IBKR execution aliases onto the
+// current Portal XML names. Parsing remains backward compatible with retained
+// statements, while setup and diagnostics teach only the fields users can
+// select today.
+func canonicalObservedField(sectionKey, field string) string {
+	if sectionKey != "trades" {
+		return ""
+	}
+	switch field {
+	case "tradeTime":
+		return "dateTime"
+	case "IBCommission":
+		return "ibCommission"
+	case "IBCommissionCurrency":
+		return "ibCommissionCurrency"
+	default:
+		return ""
+	}
+}
+
 // QueryRequirementEvidence compares actual retained broker XML with the
-// canonical manifest. Empty sections are unproved: without a row, selected
-// fields cannot be inferred.
+// canonical manifest. An absent container and a present-but-empty container
+// are separate evidence states: neither proves its selected fields, but only
+// the former tells the operator that the section was not returned at all.
 func QueryRequirementEvidence(statements []Statement) []QuerySectionEvidence {
 	observed := observeManifestSections(statements)
 	evidence := make([]QuerySectionEvidence, 0, len(canonicalManifest))
@@ -166,8 +191,10 @@ func QueryRequirementEvidence(statements []Statement) []QuerySectionEvidence {
 		}
 		section := observed[required.Key]
 		switch {
-		case section == nil || !section.present || section.rows == 0:
-			row.Status = QueryRequirementUnproved
+		case section == nil || !section.present:
+			row.Status = QueryRequirementAbsent
+		case section.rows == 0:
+			row.Status = QueryRequirementEmpty
 		default:
 			for _, field := range required.RequiredFields {
 				if !section.fields[field] {
@@ -204,9 +231,8 @@ func QuerySchemaFingerprint(statements []Statement) string {
 }
 
 // MissingQueryRequirements reports required fields proven absent by non-empty
-// rows. An absent or empty section is unproved because IBKR may omit empty
-// containers. Values are stable manifest keys; broker text never enters the
-// diagnostic.
+// rows. Absent and empty sections remain separate, unproved evidence states.
+// Values are stable manifest keys; broker text never enters the diagnostic.
 func MissingQueryRequirements(statements []Statement) []string {
 	missing := []string{}
 	for _, section := range QueryRequirementEvidence(statements) {

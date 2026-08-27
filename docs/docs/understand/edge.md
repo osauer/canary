@@ -53,7 +53,7 @@ Edge never manufactures an expired-option price series. IBKR does not provide hi
 
 ## Coverage is part of the result
 
-Every snapshot says how many changes were found, how many were eligible, how many were scored at each horizon, which query sections were present, and why other values were unavailable. An absent Trades section is `unproved`, not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
+Every snapshot says how many changes were found, how many were eligible, how many were scored at each horizon, which query sections were present, and why other values were unavailable. Reporting labels a Trades container that was not returned as `absent`; it is not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
 
 - `missing_horizon`
 - `intervening_change`

@@ -40,24 +40,17 @@ func (s *Server) handleReportingStatus(ctx context.Context) (*rpc.ReportingStatu
 	}
 
 	var (
-		statements []flexstmt.Statement
-		loadErr    error
+		allStatements []flexstmt.Statement
+		loadErr       error
 	)
 	if s == nil || s.coreStore == nil {
 		loadErr = fmt.Errorf("reporting projection authority unavailable")
 	} else {
-		projectionScope := s.activeStatementProjectionScope()
-		var records []corestore.StatementRecord
-		records, loadErr = s.coreStore.LoadStatementRecords(ctx, projectionScope, []string{corestore.StatementRecordMetadata}, statementProjectionMaxRows)
-		if loadErr == nil && len(records) == statementProjectionMaxRows {
-			loadErr = fmt.Errorf("reporting metadata projection exceeds supported size")
-		}
-		if loadErr == nil {
-			statements, loadErr = reportingStatementsFromMetadata(records)
-		}
+		allStatements, loadErr = s.loadReportingStatements(ctx)
 	}
+	currentStatements := latestReportingStatements(allStatements)
 	manifest := flexstmt.CanonicalQueryManifest()
-	evidence := flexstmt.QueryRequirementEvidence(statements)
+	evidence := flexstmt.QueryRequirementEvidence(currentStatements)
 	result.Requirements = make([]rpc.ReportingSectionRequirement, 0, len(manifest))
 	for i, required := range manifest {
 		observed := evidence[i]
@@ -67,13 +60,13 @@ func (s *Server) handleReportingStatus(ctx context.Context) (*rpc.ReportingStatu
 			Fields:        append([]string(nil), required.RequiredFields...),
 			MissingFields: append([]string(nil), observed.MissingFields...),
 		})
-		if observed.Status == flexstmt.QueryRequirementUnproved {
+		if observed.Status == flexstmt.QueryRequirementAbsent || observed.Status == flexstmt.QueryRequirementEmpty {
 			result.UnprovedSections = append(result.UnprovedSections, required.Key)
 		}
 	}
-	result.MissingRequirements = flexstmt.MissingQueryRequirements(statements)
-	result.Evidence.SchemaFingerprint = flexstmt.QuerySchemaFingerprint(statements)
-	for _, statement := range statements {
+	result.MissingRequirements = flexstmt.MissingQueryRequirements(currentStatements)
+	result.Evidence.SchemaFingerprint = flexstmt.QuerySchemaFingerprint(currentStatements)
+	for _, statement := range allStatements {
 		if statement.ToDate.After(result.Evidence.CoverageTo) {
 			result.Evidence.CoverageTo = statement.ToDate.UTC()
 		}
@@ -81,7 +74,7 @@ func (s *Server) handleReportingStatus(ctx context.Context) (*rpc.ReportingStatu
 	switch {
 	case loadErr != nil:
 		result.Evidence.State = rpc.ReportingEvidenceDegraded
-	case len(statements) == 0:
+	case len(allStatements) == 0:
 		result.Evidence.State = rpc.ReportingEvidenceNotReceived
 	default:
 		result.Evidence.State = rpc.ReportingEvidenceObserved
@@ -92,6 +85,84 @@ func (s *Server) handleReportingStatus(ctx context.Context) (*rpc.ReportingStatu
 		return nil, err
 	}
 	return result, nil
+}
+
+func (s *Server) loadReportingStatements(ctx context.Context) ([]flexstmt.Statement, error) {
+	if s == nil || s.coreStore == nil {
+		return nil, fmt.Errorf("reporting projection authority unavailable")
+	}
+	records, err := s.coreStore.LoadStatementRecords(ctx, s.activeStatementProjectionScope(), []string{corestore.StatementRecordMetadata}, statementProjectionMaxRows)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == statementProjectionMaxRows {
+		return nil, fmt.Errorf("reporting metadata projection exceeds supported size")
+	}
+	return reportingStatementsFromMetadata(records)
+}
+
+// latestReportingStatements selects the normal daily-window report for the
+// latest covered date when one exists, then the newest generation of that
+// shape. Longer Edge backfill chunks still prove historical coverage, but
+// their wider activity sample must not masquerade as another saved-query edit.
+func latestReportingStatements(statements []flexstmt.Statement) []flexstmt.Statement {
+	var latestTo time.Time
+	for _, statement := range statements {
+		if statement.ToDate.After(latestTo) {
+			latestTo = statement.ToDate
+		}
+	}
+	preferDaily := false
+	for _, statement := range statements {
+		if statement.ToDate.Equal(latestTo) && reportingStatementWindowDays(statement) <= edgeDailyLookbackDays {
+			preferDaily = true
+			break
+		}
+	}
+	var latestGeneration time.Time
+	for _, statement := range statements {
+		if !statement.ToDate.Equal(latestTo) || preferDaily && reportingStatementWindowDays(statement) > edgeDailyLookbackDays {
+			continue
+		}
+		if statement.WhenGenerated.After(latestGeneration) {
+			latestGeneration = statement.WhenGenerated
+		}
+	}
+	latest := make([]flexstmt.Statement, 0, len(statements))
+	for _, statement := range statements {
+		if statement.ToDate.Equal(latestTo) && statement.WhenGenerated.Equal(latestGeneration) &&
+			(!preferDaily || reportingStatementWindowDays(statement) <= edgeDailyLookbackDays) {
+			latest = append(latest, statement)
+		}
+	}
+	return latest
+}
+
+func reportingStatementWindowDays(statement flexstmt.Statement) int {
+	if statement.FromDate.IsZero() || statement.ToDate.IsZero() || statement.FromDate.After(statement.ToDate) {
+		return int(^uint(0) >> 1)
+	}
+	return int(statement.ToDate.Sub(statement.FromDate).Hours()/24) + 1
+}
+
+func (s *Server) latestReportingSchemaFingerprint(ctx context.Context) (string, error) {
+	fingerprint, _, err := s.latestReportingSchemaEvidence(ctx)
+	return fingerprint, err
+}
+
+func (s *Server) latestReportingSchemaEvidence(ctx context.Context) (string, time.Time, error) {
+	statements, err := s.loadReportingStatements(ctx)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+	latest := latestReportingStatements(statements)
+	var generatedAt time.Time
+	for _, statement := range latest {
+		if statement.WhenGenerated.After(generatedAt) {
+			generatedAt = statement.WhenGenerated
+		}
+	}
+	return flexstmt.QuerySchemaFingerprint(latest), generatedAt, nil
 }
 
 func reportingStatementsFromMetadata(records []corestore.StatementRecord) ([]flexstmt.Statement, error) {
@@ -192,6 +263,7 @@ func populateReportingValidationEvidence(result *rpc.ReportingValidationResult, 
 	manifest := flexstmt.CanonicalQueryManifest()
 	evidence := flexstmt.QueryRequirementEvidence(statements)
 	result.Requirements = result.Requirements[:0]
+	hasAbsent := false
 	for i, section := range manifest {
 		observed := evidence[i]
 		result.Requirements = append(result.Requirements, rpc.ReportingSectionRequirement{
@@ -204,7 +276,10 @@ func populateReportingValidationEvidence(result *rpc.ReportingValidationResult, 
 			for _, field := range observed.MissingFields {
 				result.MissingRequirements = append(result.MissingRequirements, section.Key+"."+field)
 			}
-		case flexstmt.QueryRequirementUnproved:
+		case flexstmt.QueryRequirementAbsent:
+			hasAbsent = true
+			result.UnprovedSections = append(result.UnprovedSections, section.Key)
+		case flexstmt.QueryRequirementEmpty:
 			result.UnprovedSections = append(result.UnprovedSections, section.Key)
 		}
 	}
@@ -213,12 +288,17 @@ func populateReportingValidationEvidence(result *rpc.ReportingValidationResult, 
 	case len(result.MissingRequirements) > 0:
 		result.Outcome = rpc.ReportingValidationActionRequired
 		result.Reason = rpc.ReportingReasonFlexQueryIncomplete
-		result.Action = "Keep the active query and add the named missing fields to the candidate."
+		result.Action = "Keep the active query. In the saved candidate query, open each missing section, keep the named detail level, choose Select All, save, and validate again."
+	case hasAbsent:
+		result.Outcome = rpc.ReportingValidationUnproved
+		result.Reason = rpc.ReportingReasonAbsentSectionsUnproved
+		result.ReadyForRotation = true
+		result.Action = "Some required sections were not returned. Open each absent section in the saved query, choose its named detail level and Select All, save, then validate again. If there was truly no matching activity, IBKR may omit an enabled empty section."
 	case len(result.UnprovedSections) > 0:
 		result.Outcome = rpc.ReportingValidationUnproved
 		result.Reason = rpc.ReportingReasonEmptySectionsUnproved
 		result.ReadyForRotation = true
-		result.Action = "No field is proven missing; empty or absent sections remain unproved until representative activity arrives."
+		result.Action = "The named sections were returned but contained no rows, so their selected fields remain unproved until representative activity arrives."
 	default:
 		result.Outcome = rpc.ReportingValidationReady
 		result.ReadyForRotation = true
@@ -311,6 +391,7 @@ func reportingBrokerReachability(status rpc.ReconFetchStatus) string {
 }
 
 func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFailed bool) {
+	hasAbsent := reportingHasRequirementStatus(result.Requirements, flexstmt.QueryRequirementAbsent)
 	switch {
 	case !result.Local.Enabled:
 		result.State, result.Reason = rpc.ReportingStateActionRequired, rpc.ReconReportReasonFlexDisabled
@@ -338,7 +419,7 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		return
 	case len(result.MissingRequirements) > 0:
 		result.State, result.Reason = rpc.ReportingStateActionRequired, rpc.ReportingReasonFlexQueryIncomplete
-		result.Action = "Create a replacement query with the named missing requirements, validate it, then rotate to it."
+		result.Action = "Open the saved Activity Flex Query. For each missing section shown above, keep the named detail level and choose Select All fields, then save. Canary validates the next report automatically; run canary setup reporting only to check immediately."
 		return
 	case result.Evidence.State == rpc.ReportingEvidenceNotReceived:
 		result.State, result.Reason = rpc.ReportingStateBackfilling, rpc.ReportingReasonReportNotReceived
@@ -354,17 +435,34 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		return
 	case result.Broker.State != rpc.ReconReportStateCurrent:
 		result.State, result.Reason = rpc.ReportingStateBackfilling, result.Broker.Reason
-		if len(result.UnprovedSections) > 0 {
-			result.Action = "Canary will retry the current report automatically. That retry does not prove unproved sections: if matching activity exists in the covered dates, validate a replacement query."
+		if hasAbsent {
+			result.Action = "Canary will retry automatically, but a retry cannot prove an absent section. If matching activity should exist, edit the saved query, choose the named detail level and Select All, then save."
+		} else if len(result.UnprovedSections) > 0 {
+			result.Action = "Canary will retry automatically. Empty sections remain unproved until representative activity appears."
 		} else {
 			result.Action = "Canary will retry automatically; use reporting status to follow the next broker check."
 		}
 		return
 	case len(result.UnprovedSections) > 0:
-		result.State, result.Reason = rpc.ReportingStateConfigured, rpc.ReportingReasonEmptySectionsUnproved
-		result.Action = "Review the named unproved sections: if matching broker activity exists in the covered dates, validate a replacement query; otherwise wait for future rows to prove them."
+		result.State = rpc.ReportingStateConfigured
+		if hasAbsent {
+			result.Reason = rpc.ReportingReasonAbsentSectionsUnproved
+			result.Action = "Open the saved Activity Flex Query. For each absent section shown above, choose the named detail level and Select All fields, then save. Canary validates the next report automatically. If no matching activity exists, IBKR may omit an enabled empty section."
+		} else {
+			result.Reason = rpc.ReportingReasonEmptySectionsUnproved
+			result.Action = "The named sections were returned empty; future representative activity will prove their selected fields automatically."
+		}
 		return
 	default:
 		result.State = rpc.ReportingStateCurrent
 	}
+}
+
+func reportingHasRequirementStatus(requirements []rpc.ReportingSectionRequirement, status string) bool {
+	for _, requirement := range requirements {
+		if requirement.Status == status {
+			return true
+		}
+	}
+	return false
 }

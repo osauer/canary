@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -38,6 +39,92 @@ func TestEdgeFlexRangesCoverOneInclusiveYearWithoutOverlap(t *testing.T) {
 	}
 	if total != 365 || !ranges[0].From.Equal(time.Date(2025, time.August, 25, 0, 0, 0, 0, time.UTC)) || !ranges[3].To.Equal(time.Date(2026, time.August, 24, 0, 0, 0, 0, time.UTC)) {
 		t.Fatalf("unexpected yearly coverage: %+v", ranges)
+	}
+}
+
+func TestEdgeFlexSchemaChangeRestartsOnlyCompletedAcquisition(t *testing.T) {
+	completed := edgeFlexAcquisition{SchemaFingerprint: "flex_schema_old", LastFullRevalidation: time.Now()}
+	if !edgeFlexSchemaChanged(completed, "flex_schema_new") {
+		t.Fatal("completed acquisition ignored a new observed schema")
+	}
+	inProgress := completed
+	inProgress.AnchorDate = time.Now()
+	if edgeFlexSchemaChanged(inProgress, "flex_schema_new") {
+		t.Fatal("in-progress acquisition would restart on its own chunk evidence")
+	}
+	if edgeFlexSchemaChanged(completed, "") || edgeFlexSchemaChanged(completed, completed.SchemaFingerprint) {
+		t.Fatal("empty or unchanged schema triggered a restart")
+	}
+}
+
+func TestEdgeBarRefreshPlanRequiresContractSpecificFullSeed(t *testing.T) {
+	now := time.Date(2026, time.August, 27, 12, 0, 0, 0, time.UTC)
+	recent := now.Add(-time.Hour)
+	proved := now.Add(-24 * time.Hour)
+	cases := map[string]struct {
+		globalFullDue bool
+		series        edgeBarSeries
+		wantLookback  int
+		wantFetch     bool
+	}{
+		"new contract despite recent global refresh": {
+			series: edgeBarSeries{FetchedAt: recent}, wantLookback: edgeFullLookbackDays, wantFetch: true,
+		},
+		"recent contract proof skips duplicate refresh": {
+			series: edgeBarSeries{FetchedAt: recent, FullRevalidatedAt: proved}, wantFetch: false,
+		},
+		"stale daily refresh keeps proven contract bounded": {
+			series: edgeBarSeries{FetchedAt: now.Add(-edgeDailyRefreshAfter), FullRevalidatedAt: proved}, wantLookback: edgeDailyLookbackDays, wantFetch: true,
+		},
+		"expired contract proof forces full refresh": {
+			series: edgeBarSeries{FetchedAt: recent, FullRevalidatedAt: now.Add(-edgeFullRevalidateAfter)}, wantLookback: edgeFullLookbackDays, wantFetch: true,
+		},
+		"global refresh forces full refresh": {
+			globalFullDue: true, series: edgeBarSeries{FetchedAt: recent, FullRevalidatedAt: proved}, wantLookback: edgeFullLookbackDays, wantFetch: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			lookback, fetch := edgeBarRefreshPlan(now, tc.globalFullDue, tc.series)
+			if lookback != tc.wantLookback || fetch != tc.wantFetch {
+				t.Fatalf("plan=(lookback=%d fetch=%v) want (%d %v)", lookback, fetch, tc.wantLookback, tc.wantFetch)
+			}
+		})
+	}
+}
+
+func TestEdgeBarCacheMigratesV1WithoutInventingContractProof(t *testing.T) {
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, time.August, 27, 12, 0, 0, 0, time.UTC)
+	legacy := edgeBarCache{
+		Version: 1, LastFullRevalidation: now.Add(-time.Hour),
+		Contracts: map[string]edgeBarSeries{"1": {ConID: 1, FetchedAt: now.Add(-time.Hour)}},
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &Server{coreStore: store}
+	if err := srv.replaceEdgeStateDocument(t.Context(), edgeBarCacheStateKind, raw); err != nil {
+		t.Fatal(err)
+	}
+
+	cache, err := srv.loadEdgeBarCache(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	series := cache.Contracts["1"]
+	if cache.Version != edgeBarCacheVersion || !series.FullRevalidatedAt.IsZero() {
+		t.Fatalf("migrated cache invented contract proof: %+v", cache)
+	}
+	lookback, fetch := edgeBarRefreshPlan(now, false, series)
+	if !fetch || lookback != edgeFullLookbackDays {
+		t.Fatalf("migrated series plan=(lookback=%d fetch=%v)", lookback, fetch)
 	}
 }
 
@@ -200,6 +287,175 @@ func TestEdgeFlexAcquisitionRestartsWhenCanonicalQueryChanges(t *testing.T) {
 	}
 	if !strings.Contains(stateJSON, "query_") {
 		t.Fatalf("acquisition state omitted opaque query binding: %s", stateJSON)
+	}
+}
+
+func TestEdgeFlexAcquisitionMigratesV1AndRestartsWhenSameQuerySchemaChanged(t *testing.T) {
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	srv := &Server{
+		cfg:       &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "private-query"}},
+		coreStore: store,
+		now:       func() time.Time { return now },
+	}
+	queryFingerprint := flexQueryFingerprint(srv.cfg.Flex.QueryID)
+	digest := sha256.Sum256([]byte("same-query-current-schema"))
+	file := corestore.StatementFileRecord{FileKey: "current.xml", SHA256: digest, Status: statementProjectionStatus}
+	payload, err := json.Marshal(statementMetadataProjectionPayload{
+		Version: statementProjectionVersion, QueryFingerprint: queryFingerprint,
+		FromDate: now.AddDate(0, 0, -34), ToDate: now.AddDate(0, 0, -1), ManifestVersion: flexstmt.ManifestVersion,
+		Coverage: []flexstmt.SectionCoverage{{Key: "equity", Present: true, RowCount: 1, ObservedFields: []string{"reportDate", "total"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := corestore.StatementRecord{
+		Kind: corestore.StatementRecordMetadata, RecordKey: "statement:current", AccountKey: "UEDGE1",
+		EffectiveAt: now.AddDate(0, 0, -1), StatementFileKey: file.FileKey, StatementFileSHA256: digest,
+		GeneratedAt: now.Add(-time.Hour), RawJSON: payload,
+	}
+	if err := store.ReplaceStatementProjection(t.Context(), srv.activeStatementProjectionScope(), []corestore.StatementFileRecord{file}, nil, []corestore.StatementRecord{record}, nil); err != nil {
+		t.Fatal(err)
+	}
+	currentSchema, err := srv.latestReportingSchemaFingerprint(t.Context())
+	if err != nil || currentSchema == "" {
+		t.Fatalf("current schema=%q err=%v", currentSchema, err)
+	}
+	legacy := edgeFlexAcquisition{
+		Version: 1, ScopeFingerprint: "scope_test", QueryFingerprint: queryFingerprint,
+		LastFullRevalidation: now.Add(-time.Hour),
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.replaceEdgeStateDocument(t.Context(), edgeFlexAcquisitionStateKind, raw); err != nil {
+		t.Fatal(err)
+	}
+	fetches := 0
+	srv.edgeFlexFetchRangeFn = func(_ context.Context, from, to time.Time) (flexFetchOutcome, error) {
+		fetches++
+		return flexFetchOutcome{CoverageFrom: from, CoverageTo: to, WhenGenerated: now}, nil
+	}
+	srv.flexProjectionFn = func(context.Context) error { return nil }
+	srv.edgeScheduleRebuildFn = func(time.Duration) {}
+
+	progress, err := srv.advanceEdgeFlexAcquisition(t.Context(), "scope_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !progress.Pending || fetches != 1 {
+		t.Fatalf("same-ID schema change did not restart: progress=%+v fetches=%d", progress, fetches)
+	}
+	state, err := srv.loadEdgeFlexAcquisition(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Version != edgeFlexAcquisitionVersion || state.SchemaFingerprint != currentSchema || state.NextChunk != 1 || state.AnchorDate.IsZero() {
+		t.Fatalf("migrated acquisition state=%+v", state)
+	}
+}
+
+func TestEdgeFlexAcquisitionAdoptsRecentCompleteReceiptWhenSchemaBasisChanges(t *testing.T) {
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, time.August, 27, 12, 0, 0, 0, time.UTC)
+	srv := &Server{
+		cfg:       &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "private-query"}},
+		coreStore: store,
+		now:       func() time.Time { return now },
+	}
+	queryFingerprint := flexQueryFingerprint(srv.cfg.Flex.QueryID)
+	anchor := latestCompletedFlexDate(now)
+	ranges := edgeFlexRanges(anchor)
+	files := make([]corestore.StatementFileRecord, 0, len(ranges)+1)
+	records := make([]corestore.StatementRecord, 0, len(ranges)+1)
+	dailyGenerated := now.Add(-10 * time.Minute)
+	dailyDigest := sha256.Sum256([]byte("daily-schema-evidence"))
+	dailyRaw, err := json.Marshal(statementMetadataProjectionPayload{
+		Version: statementProjectionVersion, QueryFingerprint: queryFingerprint,
+		FromDate: anchor.AddDate(0, 0, -(edgeDailyLookbackDays - 1)), ToDate: anchor,
+		ManifestVersion: flexstmt.ManifestVersion,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, corestore.StatementFileRecord{FileKey: "daily.xml", SHA256: dailyDigest, Status: statementProjectionStatus})
+	records = append(records, corestore.StatementRecord{
+		Kind: corestore.StatementRecordMetadata, RecordKey: "statement:daily", AccountKey: "UEDGE1",
+		EffectiveAt: anchor, StatementFileKey: "daily.xml", StatementFileSHA256: dailyDigest,
+		GeneratedAt: dailyGenerated, RawJSON: dailyRaw,
+	})
+	var newest time.Time
+	for i, item := range ranges {
+		generated := now.Add(time.Duration(i-len(ranges)) * time.Minute)
+		newest = generated
+		digest := sha256.Sum256([]byte(fmt.Sprintf("receipt-%d", i)))
+		fileKey := fmt.Sprintf("receipt-%d.xml", i)
+		files = append(files, corestore.StatementFileRecord{FileKey: fileKey, SHA256: digest, Status: statementProjectionStatus})
+		raw, marshalErr := json.Marshal(statementMetadataProjectionPayload{
+			Version: statementProjectionVersion, QueryFingerprint: queryFingerprint,
+			FromDate: item.From, ToDate: item.To, ManifestVersion: flexstmt.ManifestVersion,
+		})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		records = append(records, corestore.StatementRecord{
+			Kind: corestore.StatementRecordMetadata, RecordKey: fmt.Sprintf("statement:%d", i), AccountKey: "UEDGE1",
+			EffectiveAt: item.To, StatementFileKey: fileKey, StatementFileSHA256: digest,
+			GeneratedAt: generated, RawJSON: raw,
+		})
+	}
+	if err := store.ReplaceStatementProjection(t.Context(), srv.activeStatementProjectionScope(), files, nil, records, nil); err != nil {
+		t.Fatal(err)
+	}
+	receiptAt, proved, err := srv.recentCompletedEdgeFlexReceipt(t.Context(), queryFingerprint, dailyGenerated, now)
+	if err != nil || !proved || !receiptAt.Equal(newest) {
+		t.Fatalf("recent receipt=(%s %v) err=%v", receiptAt, proved, err)
+	}
+	if _, proved, err := srv.recentCompletedEdgeFlexReceipt(t.Context(), queryFingerprint, now, now); err != nil || proved {
+		t.Fatalf("pre-schema receipt proved=%v err=%v", proved, err)
+	}
+	interrupted := edgeFlexAcquisition{
+		Version: edgeFlexAcquisitionVersion, ScopeFingerprint: "scope_test", QueryFingerprint: queryFingerprint,
+		SchemaFingerprint: "flex_schema_old_selection", AnchorDate: anchor,
+		NextAttempt: now.Add(edgeFlexRetryAfter), LastReason: rpc.ReconReportReasonReportNotReady,
+	}
+	raw, err := json.Marshal(interrupted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.replaceEdgeStateDocument(t.Context(), edgeFlexAcquisitionStateKind, raw); err != nil {
+		t.Fatal(err)
+	}
+	fetches := 0
+	srv.edgeFlexFetchRangeFn = func(context.Context, time.Time, time.Time) (flexFetchOutcome, error) {
+		fetches++
+		return flexFetchOutcome{}, nil
+	}
+
+	progress, err := srv.advanceEdgeFlexAcquisition(t.Context(), "scope_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if progress.Pending || fetches != 0 || !progress.LastFullRevalidation.Equal(newest) {
+		t.Fatalf("receipt migration progress=%+v fetches=%d", progress, fetches)
+	}
+	state, err := srv.loadEdgeFlexAcquisition(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.SchemaBasis != edgeFlexSchemaBasis || state.SchemaFingerprint == "" || !state.AnchorDate.IsZero() || state.LastReason != "" || !state.LastFullRevalidation.Equal(newest) {
+		t.Fatalf("receipt-migrated state=%+v", state)
 	}
 }
 

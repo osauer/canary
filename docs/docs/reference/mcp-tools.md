@@ -101,7 +101,7 @@ Read-only current daily brief composed by the daemon. It never acknowledges the 
 
 ## `canary_reporting`
 
-Read shared IBKR statement-reporting setup, broker reachability, backfill state, proven missing fields, and unproved empty sections for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.
+Read shared IBKR statement-reporting setup, broker reachability, backfill state, absent sections, present-empty sections, and proven missing fields for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.
 
 *No parameters.*
 

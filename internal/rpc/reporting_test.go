@@ -45,13 +45,18 @@ func TestReportingValidationRequiresCoherentRotationEvidence(t *testing.T) {
 
 	result := ReportingValidationResult{
 		SchemaVersion: ReportingSchemaVersion, Outcome: ReportingValidationUnproved,
-		ManifestVersion: "canary-reporting-flex-v1", SchemaFingerprint: "flex_schema_1234567890abcdef",
+		ManifestVersion: "canary-reporting-flex-v2", SchemaFingerprint: "flex_schema_1234567890abcdef",
 		ReadyForRotation: true,
-		Requirements:     []ReportingSectionRequirement{{Key: "trades", Label: "Trades", Status: "unproved", Fields: []string{"tradeID"}}},
+		Requirements:     []ReportingSectionRequirement{{Key: "trades", Label: "Trades", Status: "empty", Fields: []string{"tradeID"}}},
 		UnprovedSections: []string{"trades"},
 	}
 	if err := ValidateReportingValidationResult(result); err != nil {
 		t.Fatal(err)
+	}
+	result.Requirements[0].Status = "absent"
+	result.Reason = ReportingReasonAbsentSectionsUnproved
+	if err := ValidateReportingValidationResult(result); err != nil {
+		t.Fatalf("absent section evidence was rejected: %v", err)
 	}
 	result.MissingRequirements = []string{"trades"}
 	if err := ValidateReportingValidationResult(result); err == nil {
@@ -64,7 +69,7 @@ func TestReportingValidationFetchFailureRoundTripsWithoutOptionalEvidence(t *tes
 
 	result := ReportingValidationResult{
 		SchemaVersion: ReportingSchemaVersion, Outcome: ReportingValidationActionRequired,
-		Reason: ReconReportReasonReportNotReady, ManifestVersion: "canary-reporting-flex-v1",
+		Reason: ReconReportReasonReportNotReady, ManifestVersion: "canary-reporting-flex-v2",
 		BrokerCode: "1003",
 		Requirements: []ReportingSectionRequirement{{
 			Key: "trades", Label: "Trades", Status: "not_received", Fields: []string{"tradeID"},
@@ -94,7 +99,7 @@ func TestReportingCurrentStatusRoundTripsWithoutOptionalDiagnostics(t *testing.T
 
 	result := ReportingStatusResult{
 		SchemaVersion: ReportingSchemaVersion, State: ReportingStateCurrent,
-		ManifestVersion: "canary-reporting-flex-v1",
+		ManifestVersion: "canary-reporting-flex-v2",
 		Local:           ReportingLocalStatus{Enabled: true, QueryConfigured: true, TokenFilePresent: true, TokenFilePrivate: true},
 		Broker: ReportingBrokerStatus{
 			State: ReconReportStateCurrent, Reachability: ReportingReachabilityReachable,
@@ -117,10 +122,24 @@ func TestReportingCurrentStatusRoundTripsWithoutOptionalDiagnostics(t *testing.T
 	}
 }
 
+func TestReportingDegradedStatusDoesNotFabricateProjectionEvidence(t *testing.T) {
+	t.Parallel()
+	result := validReportingStatusFixture()
+	result.State = ReportingStateUnavailable
+	result.Reason = ReconReportReasonAuthorityUnavailable
+	result.Evidence = ReportingEvidenceStatus{State: ReportingEvidenceDegraded}
+	result.Requirements[0].Status = "not_received"
+	result.MissingRequirements = nil
+	result.Action = "Canary could not inspect retained broker evidence."
+	if err := ValidateReportingStatusResult(result); err != nil {
+		t.Fatalf("unavailable projection status was rejected: %v", err)
+	}
+}
+
 func validReportingStatusFixture() ReportingStatusResult {
 	return ReportingStatusResult{
 		SchemaVersion: ReportingSchemaVersion, State: ReportingStateActionRequired,
-		Reason: ReportingReasonBrokerResponseUndocumented, ManifestVersion: "canary-reporting-flex-v1",
+		Reason: ReportingReasonBrokerResponseUndocumented, ManifestVersion: "canary-reporting-flex-v2",
 		Local: ReportingLocalStatus{Enabled: true, QueryConfigured: true, TokenFilePresent: true, TokenFilePrivate: true},
 		Broker: ReportingBrokerStatus{
 			State: ReconReportStateRetryScheduled, Reason: ReconReportReasonResponseInvalid,

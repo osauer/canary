@@ -27,7 +27,8 @@ canary reporting status
 ```
 
 This distinguishes local credentials, broker reachability, report freshness,
-observed fields, and empty sections that cannot yet prove their field choices.
+observed fields, sections not returned, and returned-empty sections that cannot
+yet prove their field choices.
 
 ## 2. Read the account and book
 

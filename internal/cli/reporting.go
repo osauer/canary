@@ -47,7 +47,7 @@ func printReportingUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "       canary setup reporting")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "status separates local credentials, broker reachability, report freshness,")
-	fmt.Fprintln(env.Stdout, "observed schema, proven missing requirements, and unproved empty sections.")
+	fmt.Fprintln(env.Stdout, "observed schema, absent sections, present-empty sections, and proven missing fields.")
 }
 
 func renderReportingStatus(env *Env, result *rpc.ReportingStatusResult) {
@@ -77,6 +77,10 @@ func renderReportingStatus(env *Env, result *rpc.ReportingStatusResult) {
 	fmt.Fprintln(env.Stdout)
 
 	for _, section := range result.Requirements {
+		detail := ""
+		if section.LevelOfDetail != "" {
+			detail = "; detail=" + section.LevelOfDetail
+		}
 		switch section.Status {
 		case "missing":
 			if len(section.MissingFields) == 0 {
@@ -84,8 +88,10 @@ func renderReportingStatus(env *Env, result *rpc.ReportingStatusResult) {
 			} else {
 				fmt.Fprintf(env.Stdout, "  missing: %s.%s\n", section.Key, strings.Join(section.MissingFields, ", "+section.Key+"."))
 			}
-		case "unproved":
-			fmt.Fprintf(env.Stdout, "  unproved: %s (section was empty)\n", section.Key)
+		case "absent":
+			fmt.Fprintf(env.Stdout, "  absent: %s (%s%s; section was not returned)\n", section.Key, section.Label, detail)
+		case "empty":
+			fmt.Fprintf(env.Stdout, "  empty: %s (%s%s; section returned with no rows)\n", section.Key, section.Label, detail)
 		}
 	}
 	if result.Action != "" {

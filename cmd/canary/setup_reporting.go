@@ -22,7 +22,7 @@ import (
 func setupReporting(args []string) int {
 	fs := flag.NewFlagSet("canary setup reporting", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	acceptUnproved := fs.Bool("accept-unproved", false, "activate when no field is proven missing but empty sections remain unproved")
+	acceptUnproved := fs.Bool("accept-unproved", false, "activate when absent or empty sections cannot yet prove their selected fields")
 	noRestart := fs.Bool("no-restart", false, "write validated configuration without restarting the daemon")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -110,7 +110,7 @@ func setupReporting(args []string) int {
 		return 1
 	}
 	if validation.Outcome == rpc.ReportingValidationUnproved && !*acceptUnproved {
-		fmt.Fprint(os.Stdout, "Activate this candidate while empty sections remain unproved? [y/N]: ")
+		fmt.Fprint(os.Stdout, "Activate this candidate while absent or empty sections remain unproved? [y/N]: ")
 		answer, readErr := reader.ReadString('\n')
 		if readErr != nil || !strings.EqualFold(strings.TrimSpace(answer), "y") {
 			fmt.Fprintln(os.Stderr, "Existing reporting configuration was not changed.")
@@ -176,6 +176,7 @@ func printReportingChecklist(out io.Writer) {
 	fmt.Fprintln(out, "  Optional when offered: Currency Conversion Rate")
 	fmt.Fprintln(out, "Enable Flex Web Service and generate a token.")
 	fmt.Fprintln(out, "Canary validates a saved Query ID; IBKR exposes no documented query-definition API.")
+	fmt.Fprintln(out, "Validation distinguishes a section not returned, a returned-empty section, and missing fields.")
 	fmt.Fprintln(out, "Exact fields and screenshots: https://osauer.dev/canary/docs/start/reporting.html")
 	fmt.Fprintln(out)
 }
@@ -203,11 +204,23 @@ func renderSetupReportingValidation(out io.Writer, result *rpc.ReportingValidati
 		fmt.Fprintf(out, " · IBKR code %s", result.BrokerCode)
 	}
 	fmt.Fprintln(out)
-	for _, requirement := range result.MissingRequirements {
-		fmt.Fprintf(out, "  missing: %s\n", requirement)
-	}
-	for _, section := range result.UnprovedSections {
-		fmt.Fprintf(out, "  unproved: %s (no representative row)\n", section)
+	for _, requirement := range result.Requirements {
+		detail := ""
+		if requirement.LevelOfDetail != "" {
+			detail = "; detail=" + requirement.LevelOfDetail
+		}
+		switch requirement.Status {
+		case "missing":
+			if len(requirement.MissingFields) == 0 {
+				fmt.Fprintf(out, "  missing: %s (%s%s)\n", requirement.Key, requirement.Label, detail)
+			} else {
+				fmt.Fprintf(out, "  missing: %s.%s (%s%s; choose Select All)\n", requirement.Key, strings.Join(requirement.MissingFields, ", "+requirement.Key+"."), requirement.Label, detail)
+			}
+		case "absent":
+			fmt.Fprintf(out, "  absent: %s (%s%s; section was not returned)\n", requirement.Key, requirement.Label, detail)
+		case "empty":
+			fmt.Fprintf(out, "  empty: %s (%s%s; section returned with no rows)\n", requirement.Key, requirement.Label, detail)
+		}
 	}
 	if result.SchemaFingerprint != "" {
 		fmt.Fprintf(out, "  schema: %s\n", result.SchemaFingerprint)
