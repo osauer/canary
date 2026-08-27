@@ -75,6 +75,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The regression spine proves historical fix commits are ancestors.
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
