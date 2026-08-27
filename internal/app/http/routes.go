@@ -394,7 +394,7 @@ func (h *handler) handleEdgeSnapshot(w nethttp.ResponseWriter, r *nethttp.Reques
 		writeError(w, nethttp.StatusServiceUnavailable, "Canary Edge unavailable")
 		return
 	}
-	params := rpc.EdgeSnapshotParams{Window: strings.TrimSpace(r.URL.Query().Get("window")), ChangeID: strings.TrimSpace(r.URL.Query().Get("change"))}
+	params := rpc.EdgeSnapshotParams{Window: strings.TrimSpace(r.URL.Query().Get("window")), ChangeID: strings.TrimSpace(r.URL.Query().Get("change")), OptionID: strings.TrimSpace(r.URL.Query().Get("option"))}
 	if raw := strings.TrimSpace(r.URL.Query().Get("horizon")); raw != "" {
 		value, err := strconv.Atoi(raw)
 		if err != nil {

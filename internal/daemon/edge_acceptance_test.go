@@ -57,8 +57,8 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	if score := acceptanceScore(t, acceptanceChange(t, core.Changes, "APEX", edgecore.ActionOpen), 20); score.Reason != edgecore.ReasonInterveningChange || score.DecisionImpactBase != nil {
 		t.Fatalf("intervening add did not suppress the earlier open: %+v", score)
 	}
-	option := acceptanceOption(core.Options, "exact_order")
-	if option == nil || option.ActualPNLBase == nil || *option.ActualPNLBase != 90 || option.LegCount != 2 {
+	option := acceptanceOption(core.Options.Realized.Episodes, edgecore.OptionGroupingExactOrder)
+	if option == nil || option.RealizedPNLBase == nil || *option.RealizedPNLBase != 90 || len(option.Legs) != 2 {
 		t.Fatalf("exact-linked broker-actual option result mismatch: %+v", core.Options)
 	}
 
@@ -248,7 +248,7 @@ func acceptanceRPCScore(t *testing.T, scores []rpc.EdgeHorizonScore, sessions in
 	return rpc.EdgeHorizonScore{}
 }
 
-func acceptanceOption(options []edgecore.OptionResult, grouping string) *edgecore.OptionResult {
+func acceptanceOption(options []edgecore.OptionEpisode, grouping string) *edgecore.OptionEpisode {
 	for i := range options {
 		if options[i].Grouping == grouping {
 			return &options[i]

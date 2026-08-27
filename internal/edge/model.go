@@ -12,8 +12,8 @@ import (
 // Edge schema, action, direction, and exclusion-reason constants define the
 // deterministic vocabulary emitted by the analytical core.
 const (
-	SchemaVersion      = "canary-edge-v2"
-	FingerprintVersion = "canary-edge-fp-v2"
+	SchemaVersion      = "canary-edge-v3"
+	FingerprintVersion = "canary-edge-fp-v3"
 
 	ActionOpen = "open"
 	ActionAdd  = "add"
@@ -59,6 +59,25 @@ const (
 	MarketContextKindProxy = "market_proxy"
 	// MarketContextKindVolatility identifies a volatility-index context series.
 	MarketContextKindVolatility = "volatility_index"
+
+	OptionGroupingExactOrder        = "exact_order"
+	OptionGroupingUnlinkedExecution = "unlinked_execution"
+	OptionGroupingEvent             = "option_event"
+
+	OptionLifecycleOpening = "opening"
+	OptionLifecycleClosing = "closing"
+	OptionLifecycleMixed   = "mixed"
+	OptionLifecycleEvent   = "event"
+	OptionLifecycleUnknown = "unknown"
+
+	OptionPNLComplete    = "complete"
+	OptionPNLPartial     = "partial"
+	OptionPNLUnavailable = "unavailable"
+
+	OptionMissingRealizedPNL = "realized_pnl"
+	OptionMissingOpenPNL     = "open_pnl"
+	OptionMissingFX          = "fx_conversion"
+	OptionMissingInstrument  = "instrument_metadata"
 )
 
 // marketBenchmarks is the closed, informational context set. ETF symbols are
@@ -114,7 +133,7 @@ type Result struct {
 	Rollups       []ActionRollup `json:"rollups"`
 	Findings      []Finding      `json:"findings"`
 	Changes       []Change       `json:"changes"`
-	Options       []OptionResult `json:"options"`
+	Options       OptionReview   `json:"options"`
 	Coverage      Coverage       `json:"coverage"`
 	Method        Method         `json:"method"`
 	Fingerprint   string         `json:"fingerprint"`
@@ -229,18 +248,111 @@ type Finding struct {
 	MarketContext        []MarketContext `json:"market_context,omitempty"`
 }
 
-// OptionResult carries broker-actual option P/L without a synthesized
-// historical counterfactual.
-type OptionResult struct {
+// OptionReview keeps windowed realized activity separate from the latest
+// point-in-time open-position snapshot. The two scopes deliberately have no
+// combined P/L field.
+type OptionReview struct {
+	Coverage OptionCoverage       `json:"coverage"`
+	Realized OptionRealizedReview `json:"realized"`
+	Open     OptionOpenReview     `json:"open"`
+}
+
+// OptionCoverage accounts for option execution and lifecycle evidence that is
+// not itself a realized result. In particular, opening-only zero-P/L episodes
+// remain visible here instead of inflating the ranked result set.
+type OptionCoverage struct {
+	ExecutionEpisodes       int `json:"execution_episodes"`
+	OpeningEpisodes         int `json:"opening_episodes"`
+	OpeningOnlyZeroEpisodes int `json:"opening_only_zero_episodes"`
+	ClosingEpisodes         int `json:"closing_episodes"`
+	MixedEpisodes           int `json:"mixed_episodes"`
+	UnknownEpisodes         int `json:"unknown_episodes"`
+	EventEpisodes           int `json:"event_episodes"`
+}
+
+// OptionRealizedReview summarizes broker-reported realized P/L for bounded
+// episodes. KnownPNLBase is explicitly only the sum of available evidence when
+// PartialCount or UnavailableCount is non-zero.
+type OptionRealizedReview struct {
+	KnownPNLBase     *float64        `json:"known_pnl_base,omitempty"`
+	PositiveCount    int             `json:"positive_count"`
+	NegativeCount    int             `json:"negative_count"`
+	FlatCount        int             `json:"flat_count"`
+	CompleteCount    int             `json:"complete_count"`
+	PartialCount     int             `json:"partial_count"`
+	UnavailableCount int             `json:"unavailable_count"`
+	Episodes         []OptionEpisode `json:"episodes"`
+}
+
+// OptionOpenReview summarizes the latest authoritative Flex Open Positions
+// snapshot. SnapshotDate is zero only when no open option row exists.
+type OptionOpenReview struct {
+	SnapshotDate     time.Time            `json:"snapshot_date,omitzero"`
+	KnownPNLBase     *float64             `json:"known_pnl_base,omitempty"`
+	PositiveCount    int                  `json:"positive_count"`
+	NegativeCount    int                  `json:"negative_count"`
+	FlatCount        int                  `json:"flat_count"`
+	CompleteCount    int                  `json:"complete_count"`
+	UnavailableCount int                  `json:"unavailable_count"`
+	Positions        []OptionOpenPosition `json:"positions"`
+}
+
+// OptionEpisode is one exact-order execution group, one unlinked execution,
+// or one exact OptionEAE lifecycle event. It never claims cross-order strategy
+// identity.
+type OptionEpisode struct {
+	ID              string             `json:"id"`
+	Grouping        string             `json:"grouping"`
+	Lifecycle       string             `json:"lifecycle"`
+	EventType       string             `json:"event_type,omitempty"`
+	Underlying      string             `json:"underlying,omitempty"`
+	ActivityFrom    time.Time          `json:"activity_from"`
+	ActivityTo      time.Time          `json:"activity_to"`
+	RealizedPNLBase *float64           `json:"realized_pnl_base,omitempty"`
+	PNLStatus       string             `json:"pnl_status"`
+	MissingEvidence []string           `json:"missing_evidence"`
+	Legs            []OptionEpisodeLeg `json:"legs"`
+}
+
+// OptionEpisodeLeg carries the broker facts needed to identify and inspect an
+// episode without exposing ConID, order, execution, trade, or account identity.
+type OptionEpisodeLeg struct {
 	ID              string   `json:"id"`
-	Grouping        string   `json:"grouping"`
 	Symbol          string   `json:"symbol"`
 	Underlying      string   `json:"underlying,omitempty"`
-	LegCount        int      `json:"leg_count"`
+	Expiry          string   `json:"expiry,omitempty"`
+	Strike          *float64 `json:"strike,omitempty"`
+	PutCall         string   `json:"put_call,omitempty"`
+	Multiplier      *float64 `json:"multiplier,omitempty"`
+	Side            string   `json:"side,omitempty"`
+	OpenClose       string   `json:"open_close,omitempty"`
+	Quantity        *float64 `json:"quantity,omitempty"`
+	ExecutionPrice  *float64 `json:"execution_price,omitempty"`
+	Currency        string   `json:"currency,omitempty"`
 	RealizedPNLBase *float64 `json:"realized_pnl_base,omitempty"`
-	OpenPNLBase     *float64 `json:"open_pnl_base,omitempty"`
-	ActualPNLBase   *float64 `json:"actual_pnl_base,omitempty"`
-	ActualOnly      bool     `json:"actual_only"`
+	DirectCostsBase *float64 `json:"direct_costs_base,omitempty"`
+	MissingEvidence []string `json:"missing_evidence"`
+}
+
+// OptionOpenPosition is one exact-contract row from the latest authoritative
+// Flex open-position snapshot.
+type OptionOpenPosition struct {
+	ID              string    `json:"id"`
+	Symbol          string    `json:"symbol"`
+	Underlying      string    `json:"underlying,omitempty"`
+	SnapshotDate    time.Time `json:"snapshot_date"`
+	Expiry          string    `json:"expiry,omitempty"`
+	Strike          *float64  `json:"strike,omitempty"`
+	PutCall         string    `json:"put_call,omitempty"`
+	Multiplier      *float64  `json:"multiplier,omitempty"`
+	Side            string    `json:"side,omitempty"`
+	Quantity        *float64  `json:"quantity,omitempty"`
+	MarkPrice       *float64  `json:"mark_price,omitempty"`
+	CostBasisMoney  *float64  `json:"cost_basis_money,omitempty"`
+	Currency        string    `json:"currency,omitempty"`
+	OpenPNLBase     *float64  `json:"open_pnl_base,omitempty"`
+	PNLStatus       string    `json:"pnl_status"`
+	MissingEvidence []string  `json:"missing_evidence"`
 }
 
 // Coverage makes scored, excluded, and unavailable evidence explicit.
@@ -283,7 +395,7 @@ func defaultMethod() Method {
 		MarketContext:       "For SPY, QQQ, DIA, and VIX, compare the last daily close before the execution session with the close on the decision horizon day. QQQ and DIA are ETF proxies. Context is informational and never changes Decision price impact.",
 		AccountDefinition:   "Ending equity minus starting equity minus statement-confirmed external flows.",
 		Exclusions:          "Decision price impact excludes distributions, financing and borrow, market impact, and effects outside the fixed price-path comparison.",
-		OptionsMethod:       "Broker-actual realized and open P/L only, ranked by absolute actual P/L. The public list is capped at 20 with total and truncation disclosed; no historical option counterfactual is synthesized.",
+		OptionsMethod:       "Broker-reported realized option episodes and the latest dated open-position P/L snapshot are separate. Opening-only zero-P/L executions remain coverage, gains and losses are seated before magnitude ranking, missing evidence is never zero-filled, and no historical option counterfactual or cross-order strategy identity is synthesized.",
 		NoCausalClaim:       true,
 		NoPredictiveClaim:   true,
 		NotInvestmentAdvice: true,

@@ -10,10 +10,10 @@ import (
 
 func TestEdgeResultPreservesMissingFinancialValues(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: EdgeStateBackfilling, Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v3", State: EdgeStateBackfilling, Window: "90d", HorizonSessions: 20,
 		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
 		ActionRollups:    []EdgeActionRollup{{Action: "open", Horizons: []EdgeHorizonRollup{{Sessions: 20, SampleCount: 0}}}},
-		Findings:         []EdgeFinding{}, Options: []EdgeOptionResult{}, Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
+		Findings:         []EdgeFinding{}, Coverage: EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -30,9 +30,9 @@ func TestEdgeResultPreservesMissingFinancialValues(t *testing.T) {
 func TestEdgeResultValidationFailsClosed(t *testing.T) {
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
 	base := EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v3", State: EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
 		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
-		ActionRollups:    []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
+		ActionRollups:    []EdgeActionRollup{}, Findings: []EdgeFinding{},
 		Coverage:    EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
 		Method:      EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
 		Fingerprint: "edge_safe", NotExecution: true,
@@ -62,7 +62,37 @@ func TestEdgeResultValidationFailsClosed(t *testing.T) {
 			v.ActionRollups = []EdgeActionRollup{{Action: "open", Horizons: []EdgeHorizonRollup{{Sessions: 20, SampleCount: 1, TotalBase: &total, MedianBase: &median}}}}
 		}},
 		{"option grouping", func(v *EdgeResult) {
-			v.Options = []EdgeOptionResult{{ID: "option_safe", Grouping: "inferred", LegCount: 1, ActualOnly: true}}
+			zero := 0.0
+			v.Options.Realized = EdgeOptionRealizedReview{KnownPNLBase: &zero, FlatCount: 1, CompleteCount: 1, TotalCount: 1, Episodes: []EdgeOptionEpisodeSummary{{ID: "option_safe", Grouping: "inferred", Lifecycle: "closing", ActivityFrom: now, ActivityTo: now, RealizedPNLBase: &zero, PNLStatus: "complete", Legs: []EdgeOptionLegIdentity{{Symbol: "SYN", Expiry: "2026-09-18", Strike: new(float64(100)), PutCall: "call"}}}}}
+		}},
+		{"option counts", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Options.Realized.TotalCount++
+		}},
+		{"partial option without missing evidence", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Options.Realized.CompleteCount = 0
+			v.Options.Realized.PartialCount = 1
+			v.Options.Realized.Episodes[0].PNLStatus = "partial"
+		}},
+		{"option identity without evidence", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Options.Realized.Episodes[0].Legs[0].Expiry = ""
+		}},
+		{"open option snapshot date", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Options.Open.SnapshotDate = time.Time{}
+		}},
+		{"duplicate option episode", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Options.Realized.Episodes = append(v.Options.Realized.Episodes, v.Options.Realized.Episodes[0])
+			v.Options.Realized.TotalCount = 2
+			v.Options.Realized.CompleteCount = 2
+			v.Options.Realized.PositiveCount = 2
+		}},
+		{"option detail union", func(v *EdgeResult) {
+			v.Options = edgeTestOptionReview(now)
+			v.Option = &EdgeOptionDetail{ID: "option_safe", Kind: "realized_episode", Episode: edgeTestOptionDetail(now), OpenPosition: &EdgeOptionOpenPositionDetail{}}
 		}},
 		{"coverage", func(v *EdgeResult) { v.Coverage.TradeChanges = -1 }},
 	}
@@ -75,6 +105,40 @@ func TestEdgeResultValidationFailsClosed(t *testing.T) {
 			}
 		})
 	}
+	validOptions := base
+	validOptions.Options = edgeTestOptionReview(now)
+	validOptions.Option = &EdgeOptionDetail{ID: "option_safe", Kind: "realized_episode", Episode: edgeTestOptionDetail(now)}
+	if err := ValidateEdgeResult(validOptions); err != nil {
+		t.Fatalf("valid option review and detail rejected: %v", err)
+	}
+}
+
+func edgeTestOptionReview(now time.Time) EdgeOptionReview {
+	realized, open, strike := 90.0, -25.0, 100.0
+	return EdgeOptionReview{
+		Coverage: EdgeOptionCoverage{ExecutionEpisodes: 1, ClosingEpisodes: 1},
+		Realized: EdgeOptionRealizedReview{
+			KnownPNLBase: &realized, PositiveCount: 1, CompleteCount: 1, TotalCount: 1,
+			Episodes: []EdgeOptionEpisodeSummary{{
+				ID: "option_safe", Grouping: "exact_order", Lifecycle: "closing", Underlying: "SYN", ActivityFrom: now.Add(-time.Minute), ActivityTo: now,
+				RealizedPNLBase: &realized, PNLStatus: "complete", MissingEvidence: []string{},
+				Legs: []EdgeOptionLegIdentity{{Symbol: "SYN CALL", Underlying: "SYN", Expiry: "2026-09-18", Strike: &strike, PutCall: "call"}},
+			}},
+		},
+		Open: EdgeOptionOpenReview{
+			SnapshotDate: now, KnownPNLBase: &open, NegativeCount: 1, CompleteCount: 1, TotalCount: 1,
+			Positions: []EdgeOptionOpenPositionSummary{{ID: "option_open_safe", Symbol: "SYN PUT", Underlying: "SYN", SnapshotDate: now, Expiry: "2026-09-18", Strike: &strike, PutCall: "put", OpenPNLBase: &open, PNLStatus: "complete", MissingEvidence: []string{}}},
+		},
+	}
+}
+
+func edgeTestOptionDetail(now time.Time) *EdgeOptionEpisodeDetail {
+	realized, strike, quantity, price := 90.0, 100.0, 1.0, 2.5
+	return &EdgeOptionEpisodeDetail{
+		ID: "option_safe", Grouping: "exact_order", Lifecycle: "closing", Underlying: "SYN", ActivityFrom: now.Add(-time.Minute), ActivityTo: now,
+		RealizedPNLBase: &realized, PNLStatus: "complete", MissingEvidence: []string{},
+		Legs: []EdgeOptionEpisodeLeg{{ID: "option-leg_safe", Symbol: "SYN CALL", Underlying: "SYN", Expiry: "2026-09-18", Strike: &strike, PutCall: "call", Side: "sell", OpenClose: "closing", Quantity: &quantity, ExecutionPrice: &price, RealizedPNLBase: &realized, MissingEvidence: []string{}}},
+	}
 }
 
 func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T) {
@@ -85,7 +149,7 @@ func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T
 	if got.Window != "365d" || got.HorizonSessions != 20 || !got.AutomaticHorizon || got.Limit != MaxEdgeFindings {
 		t.Fatalf("defaults=%+v", got)
 	}
-	for _, input := range []EdgeSnapshotParams{{Limit: 4}, {Window: "all"}, {HorizonSessions: 10}, {ChangeID: "broker-id"}} {
+	for _, input := range []EdgeSnapshotParams{{Limit: 4}, {Window: "all"}, {HorizonSessions: 10}, {ChangeID: "broker-id"}, {OptionID: "broker-id"}, {ChangeID: "change_safe", OptionID: "option_safe"}} {
 		if _, err := NormalizeEdgeSnapshotParams(input); err == nil {
 			t.Fatalf("invalid params accepted: %+v", input)
 		}
@@ -94,8 +158,8 @@ func TestNormalizeEdgeSnapshotParamsIsTheSharedThreeFindingContract(t *testing.T
 
 func TestEdgeSetupMissingRequirementsAreManifestAllowlisted(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: EdgeStateActionRequired, Reason: "flex_query_incomplete",
-		Window: "90d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
+		SchemaVersion: "canary-edge-v3", State: EdgeStateActionRequired, Reason: "flex_query_incomplete",
+		Window: "90d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{},
 		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
 		Coverage:         EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 		Setup: &EdgeSetup{
@@ -115,8 +179,8 @@ func TestEdgeSetupMissingRequirementsAreManifestAllowlisted(t *testing.T) {
 
 func TestEdgeSetupMayExplainOnlyTheTypedUnprovedTradeState(t *testing.T) {
 	result := EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: EdgeStateInsufficient, Reason: "trade_history_unproved",
-		Window: "365d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{}, Options: []EdgeOptionResult{},
+		SchemaVersion: "canary-edge-v3", State: EdgeStateInsufficient, Reason: "trade_history_unproved",
+		Window: "365d", HorizonSessions: 20, ActionRollups: []EdgeActionRollup{}, Findings: []EdgeFinding{},
 		HorizonSelection: edgeTestSelection(false, 0, 0, 0),
 		Coverage:         EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 		Setup: &EdgeSetup{

@@ -70,11 +70,11 @@ func (c *routeEdgeClient) EdgeSnapshot(_ context.Context, params rpc.EdgeSnapsho
 		reason = "best_available"
 	}
 	return &rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, AsOf: now, Window: params.Window,
+		SchemaVersion: "canary-edge-v3", State: rpc.EdgeStateCurrent, AsOf: now, Window: params.Window,
 		HorizonSessions: params.HorizonSessions, AutomaticHorizon: params.AutomaticHorizon,
 		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: reason, MinimumSample: 3, MinimumCoveragePct: 25},
 		ActionRollups:    []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
-		Options: []rpc.EdgeOptionResult{}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
+		Options: rpc.EdgeOptionReview{Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}}, Open: rpc.EdgeOptionOpenReview{Positions: []rpc.EdgeOptionOpenPositionSummary{}}}, Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}},
 		Method:      rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
 		Fingerprint: "edge_opaque", NotExecution: true,
 	}, nil
@@ -118,12 +118,20 @@ func TestEdgeRouteRequiresReadAuthAndForwardsOnlyBoundedTypedInputs(t *testing.T
 	if client.params != automaticWant || client.calls != 2 {
 		t.Fatalf("automatic Edge params=%+v calls=%d want %+v/2", client.params, client.calls, automaticWant)
 	}
+	option := httptest.NewRequest(http.MethodGet, "/api/edge?option=option_opaque", nil)
+	option.AddCookie(cookie)
+	optionRes := httptest.NewRecorder()
+	handler.ServeHTTP(optionRes, option)
+	optionWant := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, AutomaticHorizon: true, Limit: rpc.MaxEdgeFindings, OptionID: "option_opaque"}
+	if optionRes.Code != http.StatusOK || client.params != optionWant || client.calls != 3 {
+		t.Fatalf("option Edge params=%+v status=%d calls=%d want %+v/3", client.params, optionRes.Code, client.calls, optionWant)
+	}
 
 	bad := httptest.NewRequest(http.MethodGet, "/api/edge?horizon=twenty", nil)
 	bad.AddCookie(cookie)
 	badRes := httptest.NewRecorder()
 	handler.ServeHTTP(badRes, bad)
-	if badRes.Code != http.StatusBadRequest || client.calls != 2 {
+	if badRes.Code != http.StatusBadRequest || client.calls != 3 {
 		t.Fatalf("invalid horizon status=%d calls=%d", badRes.Code, client.calls)
 	}
 }

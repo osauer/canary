@@ -3,6 +3,7 @@ package edge
 import (
 	"math"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 
@@ -151,16 +152,27 @@ func TestAnalyzePositionAnchorMismatchSuppressesContract(t *testing.T) {
 func TestAnalyzeExactOptionGroupingAndNoCounterfactual(t *testing.T) {
 	t.Parallel()
 	st := edgeStatement()
+	st.Instruments = append(st.Instruments,
+		flexstmt.Instrument{RecordID: "call-instrument", ConID: 456, UnderlyingConID: 123, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(100)), Expiry: "20260320", PutCall: "C"},
+		flexstmt.Instrument{RecordID: "put-instrument", ConID: 789, UnderlyingConID: 123, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(90)), Expiry: "20260320", PutCall: "P"},
+	)
 	st.Trades = append(st.Trades,
-		flexstmt.Trade{RecordID: "call", AccountID: "U", ConID: 456, UnderlyingConID: 123, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "combo", ExecutionID: "c", ExecutedAt: dayTime("2026-01-12", 10), Side: "SELL", Quantity: new(float64(1)), Price: new(float64(3)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(100)), LevelOfDetail: "EXECUTION"},
-		flexstmt.Trade{RecordID: "put", AccountID: "U", ConID: 789, UnderlyingConID: 123, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "combo", ExecutionID: "p", ExecutedAt: dayTime("2026-01-12", 10), Side: "SELL", Quantity: new(float64(1)), Price: new(float64(2)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(50)), LevelOfDetail: "EXECUTION"},
+		flexstmt.Trade{RecordID: "call", AccountID: "U", ConID: 456, UnderlyingConID: 123, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "combo", ExecutionID: "c", ExecutedAt: dayTime("2026-01-12", 10), Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), Price: new(float64(3)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(100)), LevelOfDetail: "EXECUTION"},
+		flexstmt.Trade{RecordID: "put", AccountID: "U", ConID: 789, UnderlyingConID: 123, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "combo", ExecutionID: "p", ExecutedAt: dayTime("2026-01-12", 10), Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), Price: new(float64(2)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(50)), LevelOfDetail: "EXECUTION"},
 	)
 	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Options) != 1 || result.Options[0].Grouping != "exact_order" || result.Options[0].LegCount != 2 || result.Options[0].ActualPNLBase == nil || *result.Options[0].ActualPNLBase != 135 || !result.Options[0].ActualOnly {
+	if len(result.Options.Realized.Episodes) != 1 {
 		t.Fatalf("option result = %+v", result.Options)
+	}
+	option := result.Options.Realized.Episodes[0]
+	if option.Grouping != OptionGroupingExactOrder || option.Lifecycle != OptionLifecycleClosing || len(option.Legs) != 2 || option.RealizedPNLBase == nil || *option.RealizedPNLBase != 135 || option.PNLStatus != OptionPNLComplete {
+		t.Fatalf("option episode = %+v", option)
+	}
+	if option.Legs[0].Expiry != "2026-03-20" || option.Legs[0].PutCall == "" || option.Legs[1].PutCall == "" {
+		t.Fatalf("option leg identity = %+v", option.Legs)
 	}
 	for _, change := range result.Changes {
 		if change.AssetClass == "OPT" {
@@ -361,29 +373,27 @@ func TestScoringIndexPartitionsMutationsAndNormalizesBarsOnce(t *testing.T) {
 	}
 }
 
-func TestAnalyzeOptionActualIncludesOpenPositionsAndUnmatchedEvents(t *testing.T) {
+func TestAnalyzeOptionReviewSeparatesOpenSnapshotAndUnmatchedEvents(t *testing.T) {
 	t.Parallel()
 	st := edgeStatement()
+	st.Instruments = append(st.Instruments,
+		flexstmt.Instrument{RecordID: "call-instrument", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(100)), Expiry: "20260320", PutCall: "C"},
+		flexstmt.Instrument{RecordID: "put-instrument", ConID: 789, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(90)), Expiry: "20260116", PutCall: "P"},
+	)
 	st.Positions = append(st.Positions, flexstmt.OpenPosition{RecordID: "open-opt", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), ReportDate: day("2026-02-01"), Quantity: new(float64(1)), UnrealizedPNL: new(float64(20))})
 	st.OptionEvents = append(st.OptionEvents, flexstmt.OptionEvent{RecordID: "expired-opt", AccountID: "U", ConID: 789, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), Date: day("2026-01-16"), TransactionType: "EXPIRATION", Quantity: new(float64(-1)), RealizedPNL: new(float64(-10))})
 	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Options) != 2 {
-		t.Fatalf("option rows = %+v", result.Options)
+	if len(result.Options.Open.Positions) != 1 || result.Options.Open.Positions[0].OpenPNLBase == nil || *result.Options.Open.Positions[0].OpenPNLBase != 18 {
+		t.Fatalf("open option snapshot = %+v", result.Options.Open)
 	}
-	values := map[string]float64{}
-	for _, row := range result.Options {
-		if row.ActualPNLBase != nil {
-			values[row.Symbol] = *row.ActualPNLBase
-		}
+	if len(result.Options.Realized.Episodes) != 1 || result.Options.Realized.Episodes[0].RealizedPNLBase == nil || *result.Options.Realized.Episodes[0].RealizedPNLBase != -9 || result.Options.Realized.Episodes[0].EventType != "expiration" {
+		t.Fatalf("realized option event = %+v", result.Options.Realized)
 	}
-	if values["ACME CALL"] != 18 || values["ACME PUT"] != -9 {
-		t.Fatalf("option actual values = %+v", values)
-	}
-	if result.Options[0].Symbol != "ACME CALL" || result.Options[1].Symbol != "ACME PUT" {
-		t.Fatalf("options are not ranked by absolute actual P/L: %+v", result.Options)
+	if result.Options.Open.KnownPNLBase == nil || *result.Options.Open.KnownPNLBase != 18 || result.Options.Realized.KnownPNLBase == nil || *result.Options.Realized.KnownPNLBase != -9 {
+		t.Fatalf("option summaries = %+v", result.Options)
 	}
 }
 
@@ -414,21 +424,21 @@ func TestAnalyzeOptionOpenPNLUsesOnlyLatestPositionSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Options) != 1 || result.Options[0].OpenPNLBase == nil || *result.Options[0].OpenPNLBase != 18 {
+	if len(result.Options.Open.Positions) != 1 || result.Options.Open.Positions[0].OpenPNLBase == nil || *result.Options.Open.Positions[0].OpenPNLBase != 18 {
 		t.Fatalf("latest option open P/L = %+v, want EUR 18 once", result.Options)
 	}
-	if result.Options[0].RealizedPNLBase != nil || result.Options[0].ActualPNLBase == nil || *result.Options[0].ActualPNLBase != 18 {
-		t.Fatalf("missing realized evidence was zero-filled: %+v", result.Options[0])
+	if !result.Options.Open.SnapshotDate.Equal(day("2026-02-01")) || len(result.Options.Realized.Episodes) != 0 {
+		t.Fatalf("open and realized scopes were blended: %+v", result.Options)
 	}
 }
 
-func TestAnalyzeOptionTotalStaysAbsentWhenRealizedEvidenceIsMissing(t *testing.T) {
+func TestAnalyzeOptionOpenSnapshotDoesNotDependOnRealizedEvidence(t *testing.T) {
 	t.Parallel()
 	st := edgeStatement()
 	st.Trades = append(st.Trades, flexstmt.Trade{
 		RecordID: "option-trade", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
 		AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), ExecutionID: "option-exec",
-		ExecutedAt: dayTime("2026-01-12", 10), Side: "BUY", Quantity: new(float64(1)), Price: new(float64(2)),
+		ExecutedAt: dayTime("2026-01-12", 10), Side: "BUY", OpenClose: "O", Quantity: new(float64(1)), Price: new(float64(2)),
 		Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), LevelOfDetail: "EXECUTION",
 	})
 	st.Positions = append(st.Positions, flexstmt.OpenPosition{
@@ -440,19 +450,19 @@ func TestAnalyzeOptionTotalStaysAbsentWhenRealizedEvidenceIsMissing(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Options) != 1 || result.Options[0].OpenPNLBase == nil || result.Options[0].RealizedPNLBase != nil || result.Options[0].ActualPNLBase != nil {
-		t.Fatalf("incomplete option total was presented as complete: %+v", result.Options)
+	if len(result.Options.Realized.Episodes) != 0 || len(result.Options.Open.Positions) != 1 || result.Options.Open.Positions[0].OpenPNLBase == nil || *result.Options.Open.Positions[0].OpenPNLBase != 18 {
+		t.Fatalf("open P/L was blended with missing realized evidence: %+v", result.Options)
 	}
 }
 
-func TestAnalyzeOmitsEmptyExactOrderBucketBeforeBoundingOptionResults(t *testing.T) {
+func TestAnalyzeOpeningOnlyZeroEpisodeIsCoverageNotRealizedResult(t *testing.T) {
 	t.Parallel()
 	st := edgeStatement()
 	st.Trades = append(st.Trades, flexstmt.Trade{
 		RecordID: "option-order-open", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
 		AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "option-order", ExecutionID: "option-exec",
-		ExecutedAt: dayTime("2026-01-12", 10), Side: "BUY", Quantity: new(float64(1)), Price: new(float64(2)),
-		Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), LevelOfDetail: "EXECUTION",
+		ExecutedAt: dayTime("2026-01-12", 10), Side: "BUY", OpenClose: "O", Quantity: new(float64(1)), Price: new(float64(2)),
+		Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(0)), LevelOfDetail: "EXECUTION",
 	})
 	st.Positions = append(st.Positions, flexstmt.OpenPosition{
 		RecordID: "option-order-open-position", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
@@ -463,8 +473,153 @@ func TestAnalyzeOmitsEmptyExactOrderBucketBeforeBoundingOptionResults(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Options) != 1 || result.Options[0].Grouping != "contract" || result.Options[0].ActualPNLBase == nil || *result.Options[0].ActualPNLBase != 18 {
-		t.Fatalf("empty exact-order bucket displaced actual option P/L: %+v", result.Options)
+	if len(result.Options.Realized.Episodes) != 0 || result.Options.Coverage.OpeningEpisodes != 1 || result.Options.Coverage.OpeningOnlyZeroEpisodes != 1 {
+		t.Fatalf("opening-only zero was treated as a realized result: %+v", result.Options)
+	}
+	if len(result.Options.Open.Positions) != 1 || result.Options.Open.Positions[0].OpenPNLBase == nil || *result.Options.Open.Positions[0].OpenPNLBase != 18 {
+		t.Fatalf("opening coverage displaced the open snapshot: %+v", result.Options.Open)
+	}
+}
+
+func TestAnalyzeOpeningOptionVolumeCannotDisplaceAClosingOutcome(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments, optionTestInstrument(456, "ACME CALL", 100, "20260320", "C"))
+	for i := range 100 {
+		st.Trades = append(st.Trades, flexstmt.Trade{
+			RecordID: "opening-" + time.Duration(i).String(), AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
+			AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "opening-order-" + time.Duration(i).String(),
+			ExecutedAt: dayTime("2026-01-12", 10).Add(time.Duration(i) * time.Second), Side: "BUY", OpenClose: "O",
+			Quantity: new(float64(1)), Price: new(float64(2)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(0)), LevelOfDetail: "EXECUTION",
+		})
+	}
+	st.Trades = append(st.Trades, flexstmt.Trade{
+		RecordID: "closing-loss", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
+		AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "closing-order", ExecutedAt: dayTime("2026-01-20", 10),
+		Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), Price: new(float64(1)), Multiplier: new(float64(100)),
+		Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(float64(-50)), LevelOfDetail: "EXECUTION",
+	})
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Options.Coverage.ExecutionEpisodes != 101 || result.Options.Coverage.OpeningEpisodes != 100 || result.Options.Coverage.OpeningOnlyZeroEpisodes != 100 || result.Options.Coverage.ClosingEpisodes != 1 {
+		t.Fatalf("option activity coverage=%+v", result.Options.Coverage)
+	}
+	if len(result.Options.Realized.Episodes) != 1 || result.Options.Realized.Episodes[0].RealizedPNLBase == nil || *result.Options.Realized.Episodes[0].RealizedPNLBase != -45 {
+		t.Fatalf("opening activity displaced the closing outcome: %+v", result.Options.Realized)
+	}
+}
+
+func TestAnalyzePartialOptionPNLStaysPartial(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments,
+		optionTestInstrument(456, "ACME CALL", 100, "20260320", "C"),
+		optionTestInstrument(789, "ACME PUT", 90, "20260320", "P"),
+	)
+	st.Trades = append(st.Trades,
+		flexstmt.Trade{RecordID: "known-leg", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "partial-order", ExecutedAt: dayTime("2026-01-20", 10), Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), Price: new(float64(3)), RealizedPNL: new(float64(100))},
+		flexstmt.Trade{RecordID: "missing-leg", AccountID: "U", ConID: 789, Symbol: "ACME PUT", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "partial-order", ExecutedAt: dayTime("2026-01-20", 10), Side: "BUY", OpenClose: "C", Quantity: new(float64(1)), Price: new(float64(2))},
+	)
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode := result.Options.Realized.Episodes[0]
+	if episode.PNLStatus != OptionPNLPartial || episode.RealizedPNLBase == nil || *episode.RealizedPNLBase != 90 || !hasString(episode.MissingEvidence, OptionMissingRealizedPNL) {
+		t.Fatalf("partial option P/L was overstated: %+v", episode)
+	}
+	if result.Options.Realized.PartialCount != 1 || result.Options.Realized.CompleteCount != 0 || result.Options.Realized.PositiveCount != 1 {
+		t.Fatalf("partial option summary=%+v", result.Options.Realized)
+	}
+}
+
+func TestAnalyzeMixedOptionOrderIsNotCalledARoll(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments,
+		optionTestInstrument(456, "ACME OLD CALL", 100, "20260320", "C"),
+		optionTestInstrument(789, "ACME NEW CALL", 105, "20260417", "C"),
+	)
+	st.Trades = append(st.Trades,
+		flexstmt.Trade{RecordID: "close-leg", AccountID: "U", ConID: 456, Symbol: "ACME OLD CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "mixed-order", ExecutedAt: dayTime("2026-01-20", 10), Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), RealizedPNL: new(float64(40))},
+		flexstmt.Trade{RecordID: "open-leg", AccountID: "U", ConID: 789, Symbol: "ACME NEW CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "mixed-order", ExecutedAt: dayTime("2026-01-20", 10), Side: "BUY", OpenClose: "O", Quantity: new(float64(1)), RealizedPNL: new(float64(0))},
+	)
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Options.Realized.Episodes) != 1 || result.Options.Realized.Episodes[0].Grouping != OptionGroupingExactOrder || result.Options.Realized.Episodes[0].Lifecycle != OptionLifecycleMixed {
+		t.Fatalf("mixed exact order was given invented strategy semantics: %+v", result.Options)
+	}
+}
+
+func TestAnalyzeSameOptionOrderIdentityOnDifferentDaysRemainsSeparate(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments, optionTestInstrument(456, "ACME CALL", 100, "20260320", "C"))
+	for i, date := range []string{"2026-01-20", "2026-01-21"} {
+		st.Trades = append(st.Trades, flexstmt.Trade{
+			RecordID: "same-order-" + time.Duration(i).String(), AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME",
+			AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: "reused-order-id", ExecutedAt: dayTime(date, 10),
+			Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), RealizedPNL: new(float64(10 + i)),
+		})
+	}
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Options.Realized.Episodes) != 2 || result.Options.Realized.Episodes[0].ID == result.Options.Realized.Episodes[1].ID {
+		t.Fatalf("same order identity across days was blended: %+v", result.Options.Realized.Episodes)
+	}
+}
+
+func TestAnalyzeOptionEventLinkedToTradeIsNotDoubleCounted(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments, optionTestInstrument(456, "ACME CALL", 100, "20260320", "C"))
+	st.Trades = append(st.Trades, flexstmt.Trade{
+		RecordID: "linked-trade", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9),
+		TradeID: "linked", ExecutedAt: dayTime("2026-01-20", 10), Side: "SELL", OpenClose: "C", Quantity: new(float64(1)), RealizedPNL: new(float64(25)),
+	})
+	st.OptionEvents = append(st.OptionEvents, flexstmt.OptionEvent{
+		RecordID: "linked-event", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9),
+		Date: day("2026-01-20"), TransactionType: "ASSIGNMENT", Quantity: new(float64(-1)), RealizedPNL: new(float64(25)), TradeID: "linked",
+	})
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Options.Realized.Episodes) != 1 || result.Options.Coverage.EventEpisodes != 0 || result.Options.Realized.KnownPNLBase == nil || *result.Options.Realized.KnownPNLBase != 22.5 {
+		t.Fatalf("linked trade and OptionEAE were double counted: %+v", result.Options)
+	}
+}
+
+func TestAnalyzeMissingOptionOpenPNLIsUnavailableNotZero(t *testing.T) {
+	t.Parallel()
+	st := edgeStatement()
+	st.Instruments = append(st.Instruments, optionTestInstrument(456, "ACME CALL", 100, "20260320", "C"))
+	st.Positions = append(st.Positions, flexstmt.OpenPosition{
+		RecordID: "open-missing-pnl", AccountID: "U", ConID: 456, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9),
+		ReportDate: day("2026-02-01"), Quantity: new(float64(1)), MarkPrice: new(float64(2)), CostBasisMoney: new(float64(200)), Side: "LONG",
+	})
+
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Options.Open.Positions) != 1 || result.Options.Open.KnownPNLBase != nil || result.Options.Open.CompleteCount != 0 || result.Options.Open.UnavailableCount != 1 {
+		t.Fatalf("missing open P/L became a numeric result: %+v", result.Options.Open)
+	}
+	position := result.Options.Open.Positions[0]
+	if position.OpenPNLBase != nil || position.PNLStatus != OptionPNLUnavailable || !hasString(position.MissingEvidence, OptionMissingOpenPNL) {
+		t.Fatalf("missing open P/L evidence=%+v", position)
 	}
 }
 
@@ -616,6 +771,17 @@ func risingBars(conid int64, start string, count int, firstClose float64) []Dail
 
 func barsMap(conid int64, start string, count int, firstClose float64) map[int64][]DailyBar {
 	return map[int64][]DailyBar{conid: risingBars(conid, start, count, firstClose)}
+}
+
+func optionTestInstrument(conid int64, symbol string, strike float64, expiry, putCall string) flexstmt.Instrument {
+	return flexstmt.Instrument{
+		RecordID: "instrument-" + symbol, ConID: conid, Symbol: symbol, UnderlyingSymbol: "ACME",
+		AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(strike), Expiry: expiry, PutCall: putCall,
+	}
+}
+
+func hasString(values []string, want string) bool {
+	return slices.Contains(values, want)
 }
 
 func day(v string) time.Time {

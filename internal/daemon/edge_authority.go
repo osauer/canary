@@ -24,7 +24,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 2
+	edgePublicationVersion   = 3
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -908,6 +908,16 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 			return nil, errBadRequest("edge change id was not found in this window")
 		}
 	}
+	if params.OptionID != "" {
+		if !haveWindow {
+			return nil, errBadRequest("edge option is unavailable before a snapshot is published")
+		}
+		if detail := rpcEdgeOptionDetail(coreResult.Options, params.OptionID); detail != nil {
+			result.Option = detail
+		} else {
+			return nil, errBadRequest("edge option id was not found in this window")
+		}
+	}
 	if err := rpc.ValidateEdgeResult(*result); err != nil {
 		return nil, fmt.Errorf("invalid Edge publication: %w", err)
 	}
@@ -924,7 +934,8 @@ func edgeStateOnlyResult(state, reason, window string, horizon int, automatic bo
 		HorizonSessions: horizon, AutomaticHorizon: automatic,
 		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: "snapshot_unavailable", MinimumSample: edgecore.MinimumPatternSample, MinimumCoveragePct: edgecore.MinimumAutomaticCoveragePct},
 		MarketContext:    []rpc.EdgeMarketContextRollup{}, MarketContextMissing: []string{},
-		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{}, Options: []rpc.EdgeOptionResult{},
+		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
+		Options:  rpc.EdgeOptionReview{Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}}, Open: rpc.EdgeOptionOpenReview{Positions: []rpc.EdgeOptionOpenPositionSummary{}}},
 		Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 	}
 	if state == rpc.EdgeStateActionRequired || state == rpc.EdgeStateInsufficient && reason == "trade_history_unproved" {
@@ -968,14 +979,7 @@ func populateRPCEdgeResult(out *rpc.EdgeResult, in edgecore.Result, horizon, lim
 		}
 		out.Findings = append(out.Findings, rpc.EdgeFinding{ChangeID: finding.ChangeID, Symbol: finding.Symbol, Action: finding.Action, Direction: finding.Direction, ExecutedAt: finding.ExecutedAt, HorizonSessions: finding.HorizonSessions, DecisionNotionalBase: finding.DecisionNotionalBase, DecisionImpactBase: finding.DecisionImpactBase, DecisionImpactPct: finding.DecisionImpactPct, MarketContext: rpcEdgeMarketContext(finding.MarketContext)})
 	}
-	out.OptionsTotalCount = len(in.Options)
-	for i, option := range in.Options {
-		if i == rpc.MaxEdgeOptionResults {
-			break
-		}
-		out.Options = append(out.Options, rpc.EdgeOptionResult{ID: option.ID, Grouping: option.Grouping, Symbol: option.Symbol, Underlying: option.Underlying, LegCount: option.LegCount, RealizedPNLBase: cloneAmount(option.RealizedPNLBase), OpenPNLBase: cloneAmount(option.OpenPNLBase), ActualPNLBase: cloneAmount(option.ActualPNLBase), ActualOnly: option.ActualOnly})
-	}
-	out.OptionsTruncated = out.OptionsTotalCount > len(out.Options)
+	out.Options = rpcEdgeOptionReview(in.Options)
 	_, selected := headlineEdgeActionHorizon(out)
 	if selected == nil {
 		_, selected = selectedEdgeActionHorizon(out)
@@ -1125,6 +1129,156 @@ func rpcEdgeAccount(in *edgecore.AccountResult) *rpc.EdgeAccountResult {
 		return nil
 	}
 	return &rpc.EdgeAccountResult{BaseCurrency: in.BaseCurrency, RequestedFrom: in.RequestedFrom, ActualFrom: in.ActualFrom, ActualTo: in.ActualTo, StartingEquityBase: in.StartingEquityBase, EndingEquityBase: in.EndingEquityBase, ExternalFlowsBase: in.ExternalFlowsBase, ProfitLossBase: in.ProfitLossBase, Definition: in.Definition}
+}
+
+func rpcEdgeOptionReview(in edgecore.OptionReview) rpc.EdgeOptionReview {
+	out := rpc.EdgeOptionReview{
+		Coverage: rpc.EdgeOptionCoverage{
+			ExecutionEpisodes: in.Coverage.ExecutionEpisodes, OpeningEpisodes: in.Coverage.OpeningEpisodes,
+			OpeningOnlyZeroEpisodes: in.Coverage.OpeningOnlyZeroEpisodes, ClosingEpisodes: in.Coverage.ClosingEpisodes,
+			MixedEpisodes: in.Coverage.MixedEpisodes, UnknownEpisodes: in.Coverage.UnknownEpisodes, EventEpisodes: in.Coverage.EventEpisodes,
+		},
+		Realized: rpc.EdgeOptionRealizedReview{
+			KnownPNLBase: cloneAmount(in.Realized.KnownPNLBase), PositiveCount: in.Realized.PositiveCount, NegativeCount: in.Realized.NegativeCount,
+			FlatCount: in.Realized.FlatCount, CompleteCount: in.Realized.CompleteCount, PartialCount: in.Realized.PartialCount,
+			UnavailableCount: in.Realized.UnavailableCount, TotalCount: len(in.Realized.Episodes), Episodes: []rpc.EdgeOptionEpisodeSummary{},
+		},
+		Open: rpc.EdgeOptionOpenReview{
+			SnapshotDate: in.Open.SnapshotDate, KnownPNLBase: cloneAmount(in.Open.KnownPNLBase), PositiveCount: in.Open.PositiveCount,
+			NegativeCount: in.Open.NegativeCount, FlatCount: in.Open.FlatCount, CompleteCount: in.Open.CompleteCount,
+			UnavailableCount: in.Open.UnavailableCount, TotalCount: len(in.Open.Positions), Positions: []rpc.EdgeOptionOpenPositionSummary{},
+		},
+	}
+	for _, episode := range selectEdgeOptionEpisodes(in.Realized.Episodes, rpc.MaxEdgeOptionResults) {
+		out.Realized.Episodes = append(out.Realized.Episodes, rpcEdgeOptionEpisodeSummary(episode))
+	}
+	out.Realized.Truncated = out.Realized.TotalCount > len(out.Realized.Episodes)
+	for _, position := range selectEdgeOptionOpenPositions(in.Open.Positions, rpc.MaxEdgeOptionResults) {
+		out.Open.Positions = append(out.Open.Positions, rpcEdgeOptionOpenSummary(position))
+	}
+	out.Open.Truncated = out.Open.TotalCount > len(out.Open.Positions)
+	return out
+}
+
+func selectEdgeOptionEpisodes(in []edgecore.OptionEpisode, limit int) []edgecore.OptionEpisode {
+	candidates := make([]edgecore.OptionEpisode, 0, len(in))
+	for _, episode := range in {
+		if episode.RealizedPNLBase != nil {
+			candidates = append(candidates, episode)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := math.Abs(*candidates[i].RealizedPNLBase), math.Abs(*candidates[j].RealizedPNLBase)
+		if math.Abs(left-right) > 1e-12 {
+			return left > right
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	return seatEdgeOptionSigns(candidates, limit, func(row edgecore.OptionEpisode) float64 { return *row.RealizedPNLBase })
+}
+
+func selectEdgeOptionOpenPositions(in []edgecore.OptionOpenPosition, limit int) []edgecore.OptionOpenPosition {
+	candidates := make([]edgecore.OptionOpenPosition, 0, len(in))
+	for _, position := range in {
+		if position.OpenPNLBase != nil {
+			candidates = append(candidates, position)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := math.Abs(*candidates[i].OpenPNLBase), math.Abs(*candidates[j].OpenPNLBase)
+		if math.Abs(left-right) > 1e-12 {
+			return left > right
+		}
+		return candidates[i].ID < candidates[j].ID
+	})
+	return seatEdgeOptionSigns(candidates, limit, func(row edgecore.OptionOpenPosition) float64 { return *row.OpenPNLBase })
+}
+
+func seatEdgeOptionSigns[T any](sorted []T, limit int, value func(T) float64) []T {
+	if limit <= 0 || len(sorted) == 0 {
+		return []T{}
+	}
+	if len(sorted) <= limit {
+		return append([]T(nil), sorted...)
+	}
+	out := append([]T(nil), sorted[:limit]...)
+	hasPositive, hasNegative := false, false
+	for _, row := range out {
+		hasPositive = hasPositive || value(row) > 0
+		hasNegative = hasNegative || value(row) < 0
+	}
+	if hasPositive && hasNegative {
+		return out
+	}
+	for _, row := range sorted[limit:] {
+		if !hasPositive && value(row) > 0 || !hasNegative && value(row) < 0 {
+			out[len(out)-1] = row
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return math.Abs(value(out[i])) > math.Abs(value(out[j])) })
+	return out
+}
+
+func rpcEdgeOptionEpisodeSummary(in edgecore.OptionEpisode) rpc.EdgeOptionEpisodeSummary {
+	out := rpc.EdgeOptionEpisodeSummary{
+		ID: in.ID, Grouping: in.Grouping, Lifecycle: in.Lifecycle, EventType: in.EventType, Underlying: in.Underlying,
+		ActivityFrom: in.ActivityFrom, ActivityTo: in.ActivityTo, RealizedPNLBase: cloneAmount(in.RealizedPNLBase), PNLStatus: in.PNLStatus,
+		MissingEvidence: append([]string(nil), in.MissingEvidence...), Legs: []rpc.EdgeOptionLegIdentity{},
+	}
+	for _, leg := range in.Legs {
+		out.Legs = append(out.Legs, rpc.EdgeOptionLegIdentity{Symbol: leg.Symbol, Underlying: leg.Underlying, Expiry: leg.Expiry, Strike: cloneAmount(leg.Strike), PutCall: leg.PutCall})
+	}
+	return out
+}
+
+func rpcEdgeOptionOpenSummary(in edgecore.OptionOpenPosition) rpc.EdgeOptionOpenPositionSummary {
+	return rpc.EdgeOptionOpenPositionSummary{
+		ID: in.ID, Symbol: in.Symbol, Underlying: in.Underlying, SnapshotDate: in.SnapshotDate, Expiry: in.Expiry,
+		Strike: cloneAmount(in.Strike), PutCall: in.PutCall, OpenPNLBase: cloneAmount(in.OpenPNLBase), PNLStatus: in.PNLStatus,
+		MissingEvidence: append([]string(nil), in.MissingEvidence...),
+	}
+}
+
+func rpcEdgeOptionDetail(in edgecore.OptionReview, id string) *rpc.EdgeOptionDetail {
+	for _, episode := range in.Realized.Episodes {
+		if episode.ID != id {
+			continue
+		}
+		detail := rpcEdgeOptionEpisodeDetail(episode)
+		return &rpc.EdgeOptionDetail{ID: id, Kind: "realized_episode", Episode: &detail}
+	}
+	for _, position := range in.Open.Positions {
+		if position.ID != id {
+			continue
+		}
+		detail := rpcEdgeOptionOpenDetail(position)
+		return &rpc.EdgeOptionDetail{ID: id, Kind: "open_position", OpenPosition: &detail}
+	}
+	return nil
+}
+
+func rpcEdgeOptionEpisodeDetail(in edgecore.OptionEpisode) rpc.EdgeOptionEpisodeDetail {
+	out := rpc.EdgeOptionEpisodeDetail{
+		ID: in.ID, Grouping: in.Grouping, Lifecycle: in.Lifecycle, EventType: in.EventType, Underlying: in.Underlying,
+		ActivityFrom: in.ActivityFrom, ActivityTo: in.ActivityTo, RealizedPNLBase: cloneAmount(in.RealizedPNLBase), PNLStatus: in.PNLStatus,
+		MissingEvidence: append([]string(nil), in.MissingEvidence...), Legs: []rpc.EdgeOptionEpisodeLeg{},
+	}
+	for _, leg := range in.Legs {
+		out.Legs = append(out.Legs, rpc.EdgeOptionEpisodeLeg{
+			ID: leg.ID, Symbol: leg.Symbol, Underlying: leg.Underlying, Expiry: leg.Expiry, Strike: cloneAmount(leg.Strike), PutCall: leg.PutCall,
+			Multiplier: cloneAmount(leg.Multiplier), Side: leg.Side, OpenClose: leg.OpenClose, Quantity: cloneAmount(leg.Quantity), ExecutionPrice: cloneAmount(leg.ExecutionPrice),
+			Currency: leg.Currency, RealizedPNLBase: cloneAmount(leg.RealizedPNLBase), DirectCostsBase: cloneAmount(leg.DirectCostsBase), MissingEvidence: append([]string(nil), leg.MissingEvidence...),
+		})
+	}
+	return out
+}
+
+func rpcEdgeOptionOpenDetail(in edgecore.OptionOpenPosition) rpc.EdgeOptionOpenPositionDetail {
+	return rpc.EdgeOptionOpenPositionDetail{
+		EdgeOptionOpenPositionSummary: rpcEdgeOptionOpenSummary(in), Multiplier: cloneAmount(in.Multiplier), Side: in.Side,
+		Quantity: cloneAmount(in.Quantity), MarkPrice: cloneAmount(in.MarkPrice), CostBasisMoney: cloneAmount(in.CostBasisMoney), Currency: in.Currency,
+	}
 }
 
 func rpcEdgeChange(in edgecore.Change) *rpc.EdgeChangeDetail {

@@ -30,6 +30,7 @@ type EdgeSnapshotParams struct {
 	AutomaticHorizon bool   `json:"automatic_horizon,omitempty"`
 	Limit            int    `json:"limit,omitempty"`
 	ChangeID         string `json:"change_id,omitempty"`
+	OptionID         string `json:"option_id,omitempty"`
 }
 
 // NormalizeEdgeSnapshotParams is the single public input contract shared by
@@ -60,6 +61,13 @@ func NormalizeEdgeSnapshotParams(in EdgeSnapshotParams) (EdgeSnapshotParams, err
 	if len(out.ChangeID) > 128 || out.ChangeID != "" && !strings.HasPrefix(out.ChangeID, "change_") {
 		return EdgeSnapshotParams{}, fmt.Errorf("edge change id is invalid")
 	}
+	out.OptionID = strings.TrimSpace(out.OptionID)
+	if len(out.OptionID) > 128 || out.OptionID != "" && !strings.HasPrefix(out.OptionID, "option_") {
+		return EdgeSnapshotParams{}, fmt.Errorf("edge option id is invalid")
+	}
+	if out.ChangeID != "" && out.OptionID != "" {
+		return EdgeSnapshotParams{}, fmt.Errorf("edge change and option detail are mutually exclusive")
+	}
 	return out, nil
 }
 
@@ -80,13 +88,12 @@ type EdgeResult struct {
 	Account              *EdgeAccountResult        `json:"account,omitempty"`
 	ActionRollups        []EdgeActionRollup        `json:"action_rollups"`
 	Findings             []EdgeFinding             `json:"findings"`
-	Options              []EdgeOptionResult        `json:"options"`
-	OptionsTotalCount    int                       `json:"options_total_count"`
-	OptionsTruncated     bool                      `json:"options_truncated"`
+	Options              EdgeOptionReview          `json:"options"`
 	Coverage             EdgeCoverage              `json:"coverage"`
 	Method               EdgeMethod                `json:"method"`
 	Setup                *EdgeSetup                `json:"setup,omitempty"`
 	Change               *EdgeChangeDetail         `json:"change,omitempty"`
+	Option               *EdgeOptionDetail         `json:"option,omitempty"`
 	Fingerprint          string                    `json:"fingerprint,omitempty"`
 	LastFullRevalidation time.Time                 `json:"last_full_revalidation,omitzero"`
 	NotExecution         bool                      `json:"not_execution"`
@@ -204,17 +211,150 @@ type EdgeHorizonScore struct {
 	Reason               string              `json:"reason,omitempty"`
 }
 
-// EdgeOptionResult exposes broker-actual option P/L only.
-type EdgeOptionResult struct {
+// EdgeOptionReview keeps realized option episodes and the dated open-position
+// snapshot as separate broker-truth scopes.
+type EdgeOptionReview struct {
+	Coverage EdgeOptionCoverage       `json:"coverage"`
+	Realized EdgeOptionRealizedReview `json:"realized"`
+	Open     EdgeOptionOpenReview     `json:"open"`
+}
+
+// EdgeOptionCoverage accounts for lifecycle evidence that is not necessarily
+// a realized result.
+type EdgeOptionCoverage struct {
+	ExecutionEpisodes       int `json:"execution_episodes"`
+	OpeningEpisodes         int `json:"opening_episodes"`
+	OpeningOnlyZeroEpisodes int `json:"opening_only_zero_episodes"`
+	ClosingEpisodes         int `json:"closing_episodes"`
+	MixedEpisodes           int `json:"mixed_episodes"`
+	UnknownEpisodes         int `json:"unknown_episodes"`
+	EventEpisodes           int `json:"event_episodes"`
+}
+
+// EdgeOptionRealizedReview is a bounded public view over all realized
+// episodes in the selected window.
+type EdgeOptionRealizedReview struct {
+	KnownPNLBase     *float64                   `json:"known_pnl_base,omitempty"`
+	PositiveCount    int                        `json:"positive_count"`
+	NegativeCount    int                        `json:"negative_count"`
+	FlatCount        int                        `json:"flat_count"`
+	CompleteCount    int                        `json:"complete_count"`
+	PartialCount     int                        `json:"partial_count"`
+	UnavailableCount int                        `json:"unavailable_count"`
+	TotalCount       int                        `json:"total_count"`
+	Truncated        bool                       `json:"truncated"`
+	Episodes         []EdgeOptionEpisodeSummary `json:"episodes"`
+}
+
+// EdgeOptionOpenReview is a bounded public view over the latest authoritative
+// Flex open-position snapshot.
+type EdgeOptionOpenReview struct {
+	SnapshotDate     time.Time                       `json:"snapshot_date,omitzero"`
+	KnownPNLBase     *float64                        `json:"known_pnl_base,omitempty"`
+	PositiveCount    int                             `json:"positive_count"`
+	NegativeCount    int                             `json:"negative_count"`
+	FlatCount        int                             `json:"flat_count"`
+	CompleteCount    int                             `json:"complete_count"`
+	UnavailableCount int                             `json:"unavailable_count"`
+	TotalCount       int                             `json:"total_count"`
+	Truncated        bool                            `json:"truncated"`
+	Positions        []EdgeOptionOpenPositionSummary `json:"positions"`
+}
+
+// EdgeOptionEpisodeSummary identifies one realized episode without carrying
+// its execution-size details.
+type EdgeOptionEpisodeSummary struct {
+	ID              string                  `json:"id"`
+	Grouping        string                  `json:"grouping"`
+	Lifecycle       string                  `json:"lifecycle"`
+	EventType       string                  `json:"event_type,omitempty"`
+	Underlying      string                  `json:"underlying,omitempty"`
+	ActivityFrom    time.Time               `json:"activity_from"`
+	ActivityTo      time.Time               `json:"activity_to"`
+	RealizedPNLBase *float64                `json:"realized_pnl_base,omitempty"`
+	PNLStatus       string                  `json:"pnl_status"`
+	MissingEvidence []string                `json:"missing_evidence"`
+	Legs            []EdgeOptionLegIdentity `json:"legs"`
+}
+
+// EdgeOptionLegIdentity carries only the contract description required to
+// distinguish a compact result row.
+type EdgeOptionLegIdentity struct {
+	Symbol     string   `json:"symbol"`
+	Underlying string   `json:"underlying,omitempty"`
+	Expiry     string   `json:"expiry,omitempty"`
+	Strike     *float64 `json:"strike,omitempty"`
+	PutCall    string   `json:"put_call,omitempty"`
+}
+
+// EdgeOptionOpenPositionSummary identifies one dated open contract without
+// carrying its size and mark details.
+type EdgeOptionOpenPositionSummary struct {
+	ID              string    `json:"id"`
+	Symbol          string    `json:"symbol"`
+	Underlying      string    `json:"underlying,omitempty"`
+	SnapshotDate    time.Time `json:"snapshot_date"`
+	Expiry          string    `json:"expiry,omitempty"`
+	Strike          *float64  `json:"strike,omitempty"`
+	PutCall         string    `json:"put_call,omitempty"`
+	OpenPNLBase     *float64  `json:"open_pnl_base,omitempty"`
+	PNLStatus       string    `json:"pnl_status"`
+	MissingEvidence []string  `json:"missing_evidence"`
+}
+
+// EdgeOptionDetail is one on-demand broker-evidence expansion. Exactly one of
+// Episode or OpenPosition is populated.
+type EdgeOptionDetail struct {
+	ID           string                        `json:"id"`
+	Kind         string                        `json:"kind"`
+	Episode      *EdgeOptionEpisodeDetail      `json:"episode,omitempty"`
+	OpenPosition *EdgeOptionOpenPositionDetail `json:"open_position,omitempty"`
+}
+
+// EdgeOptionEpisodeDetail carries the execution facts behind one episode.
+type EdgeOptionEpisodeDetail struct {
+	ID              string                 `json:"id"`
+	Grouping        string                 `json:"grouping"`
+	Lifecycle       string                 `json:"lifecycle"`
+	EventType       string                 `json:"event_type,omitempty"`
+	Underlying      string                 `json:"underlying,omitempty"`
+	ActivityFrom    time.Time              `json:"activity_from"`
+	ActivityTo      time.Time              `json:"activity_to"`
+	RealizedPNLBase *float64               `json:"realized_pnl_base,omitempty"`
+	PNLStatus       string                 `json:"pnl_status"`
+	MissingEvidence []string               `json:"missing_evidence"`
+	Legs            []EdgeOptionEpisodeLeg `json:"legs"`
+}
+
+// EdgeOptionEpisodeLeg carries one aggregated exact-contract execution leg.
+type EdgeOptionEpisodeLeg struct {
 	ID              string   `json:"id"`
-	Grouping        string   `json:"grouping"`
 	Symbol          string   `json:"symbol"`
 	Underlying      string   `json:"underlying,omitempty"`
-	LegCount        int      `json:"leg_count"`
+	Expiry          string   `json:"expiry,omitempty"`
+	Strike          *float64 `json:"strike,omitempty"`
+	PutCall         string   `json:"put_call,omitempty"`
+	Multiplier      *float64 `json:"multiplier,omitempty"`
+	Side            string   `json:"side,omitempty"`
+	OpenClose       string   `json:"open_close,omitempty"`
+	Quantity        *float64 `json:"quantity,omitempty"`
+	ExecutionPrice  *float64 `json:"execution_price,omitempty"`
+	Currency        string   `json:"currency,omitempty"`
 	RealizedPNLBase *float64 `json:"realized_pnl_base,omitempty"`
-	OpenPNLBase     *float64 `json:"open_pnl_base,omitempty"`
-	ActualPNLBase   *float64 `json:"actual_pnl_base,omitempty"`
-	ActualOnly      bool     `json:"actual_only"`
+	DirectCostsBase *float64 `json:"direct_costs_base,omitempty"`
+	MissingEvidence []string `json:"missing_evidence"`
+}
+
+// EdgeOptionOpenPositionDetail carries the size, mark, and cost basis behind
+// one dated open-position summary.
+type EdgeOptionOpenPositionDetail struct {
+	EdgeOptionOpenPositionSummary
+	Multiplier     *float64 `json:"multiplier,omitempty"`
+	Side           string   `json:"side,omitempty"`
+	Quantity       *float64 `json:"quantity,omitempty"`
+	MarkPrice      *float64 `json:"mark_price,omitempty"`
+	CostBasisMoney *float64 `json:"cost_basis_money,omitempty"`
+	Currency       string   `json:"currency,omitempty"`
 }
 
 // EdgeCoverage reports the sample and every typed exclusion count.
@@ -265,7 +405,7 @@ type EdgeSectionRequirement struct {
 // ValidateEdgeResult rejects malformed or accidentally execution-capable wire
 // results before adapters render them.
 func ValidateEdgeResult(result EdgeResult) error {
-	if result.SchemaVersion != "canary-edge-v2" {
+	if result.SchemaVersion != "canary-edge-v3" {
 		return fmt.Errorf("invalid Edge schema version %q", result.SchemaVersion)
 	}
 	switch result.State {
@@ -366,18 +506,8 @@ func ValidateEdgeResult(result EdgeResult) error {
 			return err
 		}
 	}
-	if result.OptionsTotalCount < len(result.Options) || result.OptionsTotalCount < 0 || result.OptionsTruncated != (result.OptionsTotalCount > len(result.Options)) || len(result.Options) > MaxEdgeOptionResults {
-		return fmt.Errorf("invalid Edge option result count")
-	}
-	for _, option := range result.Options {
-		if !strings.HasPrefix(option.ID, "option_") || (option.Grouping != "contract" && option.Grouping != "exact_order") || option.LegCount < 1 || !option.ActualOnly {
-			return fmt.Errorf("invalid Edge option result")
-		}
-		for _, value := range []*float64{option.RealizedPNLBase, option.OpenPNLBase, option.ActualPNLBase} {
-			if value != nil && !finite(*value) {
-				return fmt.Errorf("invalid Edge option amount")
-			}
-		}
+	if err := validateEdgeOptionReview(result.Options); err != nil {
+		return err
 	}
 	if result.Coverage.TradeChanges < 0 || result.Coverage.EligibleChanges < 0 || result.Coverage.EligibleChanges > result.Coverage.TradeChanges {
 		return fmt.Errorf("invalid Edge coverage counts")
@@ -452,7 +582,210 @@ func ValidateEdgeResult(result EdgeResult) error {
 			}
 		}
 	}
+	if result.Change != nil && result.Option != nil {
+		return fmt.Errorf("edge result cannot carry change and option detail together")
+	}
+	if result.Option != nil {
+		if err := validateEdgeOptionDetail(*result.Option); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateEdgeOptionReview(review EdgeOptionReview) error {
+	coverage := review.Coverage
+	counts := [...]int{coverage.ExecutionEpisodes, coverage.OpeningEpisodes, coverage.OpeningOnlyZeroEpisodes, coverage.ClosingEpisodes, coverage.MixedEpisodes, coverage.UnknownEpisodes, coverage.EventEpisodes}
+	for _, count := range counts {
+		if count < 0 {
+			return fmt.Errorf("invalid Edge option coverage")
+		}
+	}
+	if coverage.ExecutionEpisodes != coverage.OpeningEpisodes+coverage.ClosingEpisodes+coverage.MixedEpisodes+coverage.UnknownEpisodes || coverage.OpeningOnlyZeroEpisodes > coverage.OpeningEpisodes {
+		return fmt.Errorf("inconsistent Edge option coverage")
+	}
+	realized := review.Realized
+	if realized.TotalCount < 0 || realized.TotalCount != realized.CompleteCount+realized.PartialCount+realized.UnavailableCount || realized.PositiveCount+realized.NegativeCount+realized.FlatCount != realized.CompleteCount+realized.PartialCount || len(realized.Episodes) > MaxEdgeOptionResults || realized.TotalCount < len(realized.Episodes) || realized.Truncated != (realized.TotalCount > len(realized.Episodes)) {
+		return fmt.Errorf("invalid Edge realized option counts")
+	}
+	if (realized.KnownPNLBase == nil) != (realized.CompleteCount+realized.PartialCount == 0) || realized.KnownPNLBase != nil && !finite(*realized.KnownPNLBase) {
+		return fmt.Errorf("invalid Edge realized option total")
+	}
+	seen := map[string]bool{}
+	for _, episode := range realized.Episodes {
+		if seen[episode.ID] {
+			return fmt.Errorf("duplicate Edge realized option episode")
+		}
+		seen[episode.ID] = true
+		if err := validateEdgeOptionEpisodeSummary(episode); err != nil {
+			return err
+		}
+	}
+	open := review.Open
+	if open.TotalCount < 0 || open.TotalCount != open.CompleteCount+open.UnavailableCount || open.PositiveCount+open.NegativeCount+open.FlatCount != open.CompleteCount || len(open.Positions) > MaxEdgeOptionResults || open.TotalCount < len(open.Positions) || open.Truncated != (open.TotalCount > len(open.Positions)) {
+		return fmt.Errorf("invalid Edge open option counts")
+	}
+	if (open.KnownPNLBase == nil) != (open.CompleteCount == 0) || open.KnownPNLBase != nil && !finite(*open.KnownPNLBase) {
+		return fmt.Errorf("invalid Edge open option total")
+	}
+	if open.TotalCount == 0 && !open.SnapshotDate.IsZero() || open.TotalCount > 0 && open.SnapshotDate.IsZero() {
+		return fmt.Errorf("invalid Edge open option snapshot date")
+	}
+	seen = map[string]bool{}
+	for _, position := range open.Positions {
+		if seen[position.ID] {
+			return fmt.Errorf("duplicate Edge open option position")
+		}
+		seen[position.ID] = true
+		if err := validateEdgeOptionOpenSummary(position); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateEdgeOptionEpisodeSummary(episode EdgeOptionEpisodeSummary) error {
+	if !strings.HasPrefix(episode.ID, "option_") || !validEdgeOptionGrouping(episode.Grouping) || !validEdgeOptionLifecycle(episode.Lifecycle) || episode.ActivityFrom.IsZero() || episode.ActivityTo.IsZero() || episode.ActivityFrom.After(episode.ActivityTo) || len(episode.Legs) == 0 {
+		return fmt.Errorf("invalid Edge realized option episode")
+	}
+	if episode.Grouping == "option_event" {
+		if episode.Lifecycle != "event" || !validEdgeOptionEventType(episode.EventType) {
+			return fmt.Errorf("invalid Edge option lifecycle event")
+		}
+	} else if episode.EventType != "" || episode.Lifecycle == "event" {
+		return fmt.Errorf("invalid Edge option execution lifecycle")
+	}
+	if err := validateEdgeOptionPNL(episode.PNLStatus, episode.RealizedPNLBase, episode.MissingEvidence); err != nil {
+		return err
+	}
+	for _, leg := range episode.Legs {
+		if strings.TrimSpace(leg.Symbol) == "" || !validEdgeOptionIdentity(leg.Expiry, leg.Strike, leg.PutCall, episode.MissingEvidence) {
+			return fmt.Errorf("invalid Edge option leg identity")
+		}
+	}
+	return nil
+}
+
+func validateEdgeOptionOpenSummary(position EdgeOptionOpenPositionSummary) error {
+	if !strings.HasPrefix(position.ID, "option_") || strings.TrimSpace(position.Symbol) == "" || position.SnapshotDate.IsZero() || !validEdgeOptionIdentity(position.Expiry, position.Strike, position.PutCall, position.MissingEvidence) {
+		return fmt.Errorf("invalid Edge open option position")
+	}
+	return validateEdgeOptionPNL(position.PNLStatus, position.OpenPNLBase, position.MissingEvidence)
+}
+
+func validateEdgeOptionDetail(detail EdgeOptionDetail) error {
+	if !strings.HasPrefix(detail.ID, "option_") {
+		return fmt.Errorf("invalid Edge option detail id")
+	}
+	switch detail.Kind {
+	case "realized_episode":
+		if detail.Episode == nil || detail.OpenPosition != nil || detail.Episode.ID != detail.ID {
+			return fmt.Errorf("invalid Edge realized option detail")
+		}
+		episode := detail.Episode
+		identities := make([]EdgeOptionLegIdentity, 0, len(episode.Legs))
+		for _, leg := range episode.Legs {
+			identities = append(identities, EdgeOptionLegIdentity{Symbol: leg.Symbol, Underlying: leg.Underlying, Expiry: leg.Expiry, Strike: leg.Strike, PutCall: leg.PutCall})
+			if !strings.HasPrefix(leg.ID, "option-leg_") || !validEdgeOptionIdentity(leg.Expiry, leg.Strike, leg.PutCall, leg.MissingEvidence) || !validEdgeOptionTradeSide(leg.Side) || !validEdgeOptionOpenClose(leg.OpenClose) {
+				return fmt.Errorf("invalid Edge option execution leg")
+			}
+			for _, amount := range []*float64{leg.Strike, leg.Multiplier, leg.Quantity, leg.ExecutionPrice, leg.RealizedPNLBase, leg.DirectCostsBase} {
+				if amount != nil && !finite(*amount) {
+					return fmt.Errorf("invalid Edge option execution amount")
+				}
+			}
+		}
+		return validateEdgeOptionEpisodeSummary(EdgeOptionEpisodeSummary{ID: episode.ID, Grouping: episode.Grouping, Lifecycle: episode.Lifecycle, EventType: episode.EventType, Underlying: episode.Underlying, ActivityFrom: episode.ActivityFrom, ActivityTo: episode.ActivityTo, RealizedPNLBase: episode.RealizedPNLBase, PNLStatus: episode.PNLStatus, MissingEvidence: episode.MissingEvidence, Legs: identities})
+	case "open_position":
+		if detail.OpenPosition == nil || detail.Episode != nil || detail.OpenPosition.ID != detail.ID {
+			return fmt.Errorf("invalid Edge open option detail")
+		}
+		position := detail.OpenPosition
+		if err := validateEdgeOptionOpenSummary(position.EdgeOptionOpenPositionSummary); err != nil {
+			return err
+		}
+		if !validEdgeOptionPositionSide(position.Side) {
+			return fmt.Errorf("invalid Edge open option side")
+		}
+		for _, amount := range []*float64{position.Strike, position.Multiplier, position.Quantity, position.MarkPrice, position.CostBasisMoney, position.OpenPNLBase} {
+			if amount != nil && !finite(*amount) {
+				return fmt.Errorf("invalid Edge open option amount")
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid Edge option detail kind")
+	}
+}
+
+func validateEdgeOptionPNL(status string, amount *float64, missing []string) error {
+	switch status {
+	case "complete":
+		if amount == nil {
+			return fmt.Errorf("complete Edge option P/L is unavailable")
+		}
+	case "partial":
+		if amount == nil || len(missing) == 0 {
+			return fmt.Errorf("partial Edge option P/L lacks evidence state")
+		}
+	case "unavailable":
+		if amount != nil || len(missing) == 0 {
+			return fmt.Errorf("unavailable Edge option P/L has an amount")
+		}
+	default:
+		return fmt.Errorf("invalid Edge option P/L status")
+	}
+	if amount != nil && !finite(*amount) {
+		return fmt.Errorf("invalid Edge option P/L amount")
+	}
+	seen := map[string]bool{}
+	for _, reason := range missing {
+		if seen[reason] || reason != "realized_pnl" && reason != "open_pnl" && reason != "fx_conversion" && reason != "instrument_metadata" {
+			return fmt.Errorf("invalid Edge option missing evidence")
+		}
+		seen[reason] = true
+	}
+	return nil
+}
+
+func validEdgeOptionIdentity(expiry string, strike *float64, putCall string, missing []string) bool {
+	missingInstrument := false
+	for _, reason := range missing {
+		missingInstrument = missingInstrument || reason == "instrument_metadata"
+	}
+	if missingInstrument {
+		return (expiry == "" || validEdgeDate(expiry)) && (strike == nil || finite(*strike)) && (putCall == "" || putCall == "call" || putCall == "put")
+	}
+	return validEdgeDate(expiry) && strike != nil && finite(*strike) && (putCall == "call" || putCall == "put")
+}
+
+func validEdgeDate(value string) bool {
+	parsed, err := time.Parse(time.DateOnly, value)
+	return err == nil && parsed.Format(time.DateOnly) == value
+}
+
+func validEdgeOptionGrouping(value string) bool {
+	return value == "exact_order" || value == "unlinked_execution" || value == "option_event"
+}
+
+func validEdgeOptionLifecycle(value string) bool {
+	return value == "opening" || value == "closing" || value == "mixed" || value == "event" || value == "unknown"
+}
+
+func validEdgeOptionEventType(value string) bool {
+	return value == "exercise" || value == "assignment" || value == "expiration" || value == "other"
+}
+
+func validEdgeOptionTradeSide(value string) bool {
+	return value == "buy" || value == "sell" || value == "unknown"
+}
+
+func validEdgeOptionOpenClose(value string) bool {
+	return value == "opening" || value == "closing" || value == "unknown"
+}
+
+func validEdgeOptionPositionSide(value string) bool {
+	return value == "long" || value == "short" || value == "unknown"
 }
 
 func validateEdgeHorizonSelection(result EdgeResult) error {

@@ -623,17 +623,79 @@ func TestEdgeSnapshotMarksChangedProjectionDegradedWithoutBrokerRequest(t *testi
 func TestEdgeSnapshotRejectsUnboundedParametersBeforeReadingAuthority(t *testing.T) {
 	srv := &Server{}
 	for name, raw := range map[string]string{
-		"window":     `{"window":"all"}`,
-		"horizon":    `{"horizon_sessions":10}`,
-		"limit low":  `{"limit":-1}`,
-		"limit high": `{"limit":21}`,
-		"change":     `{"change_id":"broker-order-123"}`,
+		"window":            `{"window":"all"}`,
+		"horizon":           `{"horizon_sessions":10}`,
+		"limit low":         `{"limit":-1}`,
+		"limit high":        `{"limit":21}`,
+		"change":            `{"change_id":"broker-order-123"}`,
+		"option":            `{"option_id":"broker-order-123"}`,
+		"ambiguous details": `{"change_id":"change_safe","option_id":"option_safe"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := srv.handleEdgeSnapshot(t.Context(), &rpc.Request{Params: json.RawMessage(raw)}); err == nil {
 				t.Fatal("invalid Edge parameter was accepted")
 			}
 		})
+	}
+}
+
+func TestEdgeSnapshotReturnsOptionEvidenceOnlyOnDemand(t *testing.T) {
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	port := 4001
+	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
+	srv := &Server{
+		cfg:       &config.Resolved{Gateway: config.Gateway{Account: "UEDGE1", Port: &port}, Flex: config.Flex{Enabled: true, QueryID: "private-query"}},
+		coreStore: store,
+		now:       func() time.Time { return now },
+	}
+	result, err := edgecore.Analyze(edgecore.Input{AsOf: now, WindowDays: 365, BaseCurrency: "USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pnl, strike, quantity, price, costs := 125.0, 100.0, 2.0, 3.5, 2.0
+	result.Options = edgecore.OptionReview{
+		Coverage: edgecore.OptionCoverage{ExecutionEpisodes: 1, ClosingEpisodes: 1},
+		Realized: edgecore.OptionRealizedReview{
+			KnownPNLBase: &pnl, PositiveCount: 1, CompleteCount: 1,
+			Episodes: []edgecore.OptionEpisode{{
+				ID: "option_detail", Grouping: edgecore.OptionGroupingExactOrder, Lifecycle: edgecore.OptionLifecycleClosing, Underlying: "SYN",
+				ActivityFrom: now.Add(-time.Minute), ActivityTo: now, RealizedPNLBase: &pnl, PNLStatus: edgecore.OptionPNLComplete,
+				Legs: []edgecore.OptionEpisodeLeg{{
+					ID: "option-leg_detail", Symbol: "SYN CALL", Underlying: "SYN", Expiry: "2026-09-18", Strike: &strike, PutCall: "call",
+					Side: "sell", OpenClose: "closing", Quantity: &quantity, ExecutionPrice: &price, Currency: "USD", RealizedPNLBase: &pnl, DirectCostsBase: &costs,
+				}},
+			}},
+		},
+		Open: edgecore.OptionOpenReview{Positions: []edgecore.OptionOpenPosition{}},
+	}
+	if err := srv.saveEdgePublication(t.Context(), edgePublication{
+		ScopeFingerprint: edgeScopeFingerprint(srv.currentBrokerStateScope()), State: rpc.EdgeStateCurrent,
+		Windows: map[string]edgecore.Result{"365d": result}, UpdatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	compact, err := srv.handleEdgeSnapshot(t.Context(), &rpc.Request{Params: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compact.Option != nil || len(compact.Options.Realized.Episodes) != 1 {
+		t.Fatalf("compact option result leaked detail or lost its row: %+v", compact)
+	}
+	detailed, err := srv.handleEdgeSnapshot(t.Context(), &rpc.Request{Params: json.RawMessage(`{"option_id":"option_detail"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if detailed.Option == nil || detailed.Option.Kind != "realized_episode" || detailed.Option.Episode == nil || len(detailed.Option.Episode.Legs) != 1 {
+		t.Fatalf("option detail=%+v", detailed.Option)
+	}
+	leg := detailed.Option.Episode.Legs[0]
+	if leg.Quantity == nil || *leg.Quantity != 2 || leg.ExecutionPrice == nil || *leg.ExecutionPrice != 3.5 || leg.DirectCostsBase == nil || *leg.DirectCostsBase != 2 {
+		t.Fatalf("option evidence detail=%+v", leg)
 	}
 }
 
@@ -863,14 +925,58 @@ func TestEdgeHeadlineRefusesTinyOrUnderSampledPatterns(t *testing.T) {
 func TestPopulateEdgeResultDisclosesOptionTruncation(t *testing.T) {
 	t.Parallel()
 	in := edgecore.Result{Coverage: edgecore.Coverage{ScoredByHorizon: map[int]int{}}, Method: edgecore.Method{}}
+	known := 0.0
 	for i := range rpc.MaxEdgeOptionResults + 5 {
 		value := float64(i)
-		in.Options = append(in.Options, edgecore.OptionResult{ID: fmt.Sprintf("option_%02d", i), Grouping: "contract", Symbol: "SYN", LegCount: 1, ActualPNLBase: &value, ActualOnly: true})
+		known += value
+		in.Options.Realized.Episodes = append(in.Options.Realized.Episodes, edgecore.OptionEpisode{
+			ID: fmt.Sprintf("option_%02d", i), Grouping: edgecore.OptionGroupingUnlinkedExecution, Lifecycle: edgecore.OptionLifecycleClosing,
+			ActivityFrom: time.Date(2026, 1, 1+i, 12, 0, 0, 0, time.UTC), ActivityTo: time.Date(2026, 1, 1+i, 12, 0, 0, 0, time.UTC),
+			RealizedPNLBase: &value, PNLStatus: edgecore.OptionPNLComplete,
+			Legs: []edgecore.OptionEpisodeLeg{{ID: fmt.Sprintf("option-leg_%02d", i), Symbol: "SYN", Expiry: "2026-09-18", Strike: new(float64(100)), PutCall: "call", Side: "sell", OpenClose: "closing"}},
+		})
+		in.Options.Realized.CompleteCount++
+		if value == 0 {
+			in.Options.Realized.FlatCount++
+		} else {
+			in.Options.Realized.PositiveCount++
+		}
 	}
+	in.Options.Realized.KnownPNLBase = &known
 	out := edgeStateOnlyResult(rpc.EdgeStateCurrent, "", "365d", 20, true)
 	populateRPCEdgeResult(out, in, 20, 3, true)
-	if len(out.Options) != rpc.MaxEdgeOptionResults || out.OptionsTotalCount != rpc.MaxEdgeOptionResults+5 || !out.OptionsTruncated {
-		t.Fatalf("option disclosure=%d/%d truncated=%v", len(out.Options), out.OptionsTotalCount, out.OptionsTruncated)
+	if len(out.Options.Realized.Episodes) != rpc.MaxEdgeOptionResults || out.Options.Realized.TotalCount != rpc.MaxEdgeOptionResults+5 || !out.Options.Realized.Truncated {
+		t.Fatalf("option disclosure=%d/%d truncated=%v", len(out.Options.Realized.Episodes), out.Options.Realized.TotalCount, out.Options.Realized.Truncated)
+	}
+}
+
+func TestOptionRankingSeatsBothGainsAndLossesBeforeMagnitude(t *testing.T) {
+	t.Parallel()
+	episodes := make([]edgecore.OptionEpisode, 0, rpc.MaxEdgeOptionResults+1)
+	positions := make([]edgecore.OptionOpenPosition, 0, rpc.MaxEdgeOptionResults+1)
+	for i := range rpc.MaxEdgeOptionResults {
+		value := float64(1_000 - i)
+		episodes = append(episodes, edgecore.OptionEpisode{ID: fmt.Sprintf("option_gain_%02d", i), RealizedPNLBase: &value})
+		positions = append(positions, edgecore.OptionOpenPosition{ID: fmt.Sprintf("option_open_gain_%02d", i), OpenPNLBase: &value})
+	}
+	loss := -1.0
+	episodes = append(episodes, edgecore.OptionEpisode{ID: "option_loss", RealizedPNLBase: &loss})
+	positions = append(positions, edgecore.OptionOpenPosition{ID: "option_open_loss", OpenPNLBase: &loss})
+
+	selectedEpisodes := selectEdgeOptionEpisodes(episodes, rpc.MaxEdgeOptionResults)
+	selectedPositions := selectEdgeOptionOpenPositions(positions, rpc.MaxEdgeOptionResults)
+	if len(selectedEpisodes) != rpc.MaxEdgeOptionResults || len(selectedPositions) != rpc.MaxEdgeOptionResults {
+		t.Fatalf("ranked option sizes=%d/%d", len(selectedEpisodes), len(selectedPositions))
+	}
+	episodeLoss, positionLoss := false, false
+	for _, episode := range selectedEpisodes {
+		episodeLoss = episodeLoss || episode.ID == "option_loss"
+	}
+	for _, position := range selectedPositions {
+		positionLoss = positionLoss || position.ID == "option_open_loss"
+	}
+	if !episodeLoss || !positionLoss {
+		t.Fatalf("opposite-sign option evidence was displaced: realized=%v open=%v", episodeLoss, positionLoss)
 	}
 }
 

@@ -63,6 +63,19 @@ func TestEdgeCLIUsesBoundedTypedRPCParameters(t *testing.T) {
 	}
 }
 
+func TestEdgeCLIForwardsOpaqueOptionDetail(t *testing.T) {
+	conn := &edgeCLIConn{result: edgeCLIResult()}
+	var stdout, stderr bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: conn}
+	if code := Run(t.Context(), env, "edge", []string{"--option", "option_opaque", "--json"}); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	want := rpc.EdgeSnapshotParams{Window: "365d", HorizonSessions: 20, AutomaticHorizon: true, Limit: rpc.MaxEdgeFindings, OptionID: "option_opaque"}
+	if conn.params != want {
+		t.Fatalf("params=%+v want %+v", conn.params, want)
+	}
+}
+
 func TestEdgeCLIDefaultsToTheAutomaticOneYearReview(t *testing.T) {
 	conn := &edgeCLIConn{result: edgeCLIResult()}
 	var stdout, stderr bytes.Buffer
@@ -84,10 +97,10 @@ func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	var stdout bytes.Buffer
 	renderEdgeText(&stdout, result)
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) > 12 {
-		t.Fatalf("default output has %d lines, want at most 12:\n%s", len(lines), stdout.String())
+	if len(lines) > 18 {
+		t.Fatalf("default output has %d lines, want at most 18:\n%s", len(lines), stdout.String())
 	}
-	for _, required := range []string{"Canary Edge", "Account P/L", "OPEN", "ADD", "TRIM", "EXIT", "Options · actual only", "Coverage"} {
+	for _, required := range []string{"Canary Edge", "Account P/L", "OPEN", "ADD", "TRIM", "EXIT", "Options · realized", "Options · open snapshot", "Coverage"} {
 		if !strings.Contains(stdout.String(), required) {
 			t.Errorf("output missing %q:\n%s", required, stdout.String())
 		}
@@ -109,7 +122,7 @@ func TestAutomaticOneSessionOutputUsesSingularGrammar(t *testing.T) {
 
 func TestEdgeSetupNamesProvenMissingQueryRequirements(t *testing.T) {
 	result := rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateActionRequired, Reason: "flex_query_incomplete", Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v3", State: rpc.EdgeStateActionRequired, Reason: "flex_query_incomplete", Window: "90d", HorizonSessions: 20,
 		Setup: &rpc.EdgeSetup{Steps: []string{"one", "two", "three"}, MissingRequirements: []string{"trades.ibOrderID", "open_positions.markPrice"}},
 	}
 	var stdout bytes.Buffer
@@ -123,16 +136,23 @@ func TestEdgeSetupNamesProvenMissingQueryRequirements(t *testing.T) {
 
 func edgeCLIResult() rpc.EdgeResult {
 	now := time.Date(2026, time.August, 24, 12, 0, 0, 0, time.UTC)
-	value := 125.5
+	gain, loss, open, realizedTotal := 125.5, -50.0, -40.0, 75.5
 	result := rpc.EdgeResult{
-		SchemaVersion: "canary-edge-v2", State: rpc.EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
+		SchemaVersion: "canary-edge-v3", State: rpc.EdgeStateCurrent, AsOf: now, Window: "90d", HorizonSessions: 20,
 		HorizonSelection: rpc.EdgeHorizonSelection{Mode: "explicit", Reason: "explicit_override", EligibleChanges: 6, ScoredChanges: 4, CoveragePct: 4.0 / 6 * 100, LargestActionSample: 1, MinimumSample: 3, MinimumCoveragePct: 25},
 		Headline:         "Best observed result: ABC add, USD +125.50 after 20 sessions.",
 		Account:          &rpc.EdgeAccountResult{BaseCurrency: "USD", RequestedFrom: now.AddDate(0, 0, -90), ActualFrom: now.AddDate(0, 0, -89), ActualTo: now, ProfitLossBase: 450, ExternalFlowsBase: 100, Definition: "Ending equity minus starting equity minus external flows."},
 		Coverage:         rpc.EdgeCoverage{TradeChanges: 8, EligibleChanges: 6, ScoredByHorizon: map[int]int{1: 6, 5: 5, 20: 4}, ReasonCounts: map[string]int{}},
 		Method:           rpc.EdgeMethod{Metric: "Decision price impact", HeadlineSelection: "disclosed", FindingRanking: "disclosed", MaterialityGate: "disclosed", AutomaticHorizon: "disclosed", MarketContext: "disclosed", NoCausalClaim: true, NoPredictiveClaim: true, NotInvestmentAdvice: true},
 		Fingerprint:      "edge_0123456789abcdef", LastFullRevalidation: now, NotExecution: true,
-		Options: []rpc.EdgeOptionResult{{ID: "option_opaque", Grouping: "contract", Symbol: "ABC 100 C", LegCount: 1, ActualPNLBase: &value, ActualOnly: true}}, OptionsTotalCount: 1,
+		Options: rpc.EdgeOptionReview{
+			Coverage: rpc.EdgeOptionCoverage{ExecutionEpisodes: 2, ClosingEpisodes: 2},
+			Realized: rpc.EdgeOptionRealizedReview{KnownPNLBase: &realizedTotal, PositiveCount: 1, NegativeCount: 1, CompleteCount: 2, TotalCount: 2, Episodes: []rpc.EdgeOptionEpisodeSummary{
+				{ID: "option_gain", Grouping: "exact_order", Lifecycle: "closing", Underlying: "ABC", ActivityFrom: now.AddDate(0, 0, -5), ActivityTo: now.AddDate(0, 0, -5), RealizedPNLBase: &gain, PNLStatus: "complete", Legs: []rpc.EdgeOptionLegIdentity{{Symbol: "ABC CALL", Underlying: "ABC", Expiry: "2026-09-18", Strike: new(float64(100)), PutCall: "call"}}},
+				{ID: "option_loss", Grouping: "unlinked_execution", Lifecycle: "closing", Underlying: "XYZ", ActivityFrom: now.AddDate(0, 0, -3), ActivityTo: now.AddDate(0, 0, -3), RealizedPNLBase: &loss, PNLStatus: "complete", Legs: []rpc.EdgeOptionLegIdentity{{Symbol: "XYZ PUT", Underlying: "XYZ", Expiry: "2026-10-16", Strike: new(float64(90)), PutCall: "put"}}},
+			}},
+			Open: rpc.EdgeOptionOpenReview{SnapshotDate: now, KnownPNLBase: &open, NegativeCount: 1, CompleteCount: 1, TotalCount: 1, Positions: []rpc.EdgeOptionOpenPositionSummary{{ID: "option_open", Symbol: "ABC CALL", Underlying: "ABC", SnapshotDate: now, Expiry: "2026-09-18", Strike: new(float64(100)), PutCall: "call", OpenPNLBase: &open, PNLStatus: "complete"}}},
+		},
 	}
 	for _, action := range []string{"open", "add", "trim", "exit"} {
 		row := rpc.EdgeActionRollup{Action: action}

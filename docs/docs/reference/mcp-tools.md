@@ -116,6 +116,7 @@ Call with no arguments for Canary's automatic one-year review of where materiall
 | `change_id` | string | no | optional opaque change ID returned by a prior canary_edge call |
 | `horizon_sessions` | integer | no | optional explicit decision-price-impact horizon; omitted selects the longest adequately covered horizon automatically |
 | `limit` | integer | no | maximum findings; default 3 |
+| `option_id` | string | no | optional opaque option ID returned by a prior canary_edge call |
 | `window` | string | no | optional review override; default 365d |
 
 ## `canary_rules`

@@ -282,6 +282,7 @@ var Tools = []Tool{
 			"horizon_sessions": json.RawMessage(`{"type":"integer","enum":[1,5,20],"description":"optional explicit decision-price-impact horizon; omitted selects the longest adequately covered horizon automatically"}`),
 			"limit":            json.RawMessage(`{"type":"integer","minimum":1,"maximum":3,"description":"maximum findings; default 3"}`),
 			"change_id":        schemaString("optional opaque change ID returned by a prior canary_edge call"),
+			"option_id":        schemaString("optional opaque option ID returned by a prior canary_edge call"),
 		}, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var in rpc.EdgeSnapshotParams

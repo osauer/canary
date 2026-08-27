@@ -175,7 +175,7 @@ Automatic broker-truth review of account P/L and past decision price impact.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--json]
+canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--option ID] [--json]
 ```
 
 **Flags**
@@ -186,6 +186,7 @@ canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--
 | `--horizon` | yes | `1`, `5`, `20` |
 | `--limit` | yes | - |
 | `--change` | yes | - |
+| `--option` | yes | - |
 | `--json` | no | - |
 
 ## `canary rules`

@@ -16,6 +16,7 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	horizon := fs.Int("horizon", 0, "optional highlighted horizon override: 1, 5, or 20 (default automatic)")
 	limit := fs.Int("limit", rpc.MaxEdgeFindings, "maximum findings: 1-3")
 	change := fs.String("change", "", "opaque change ID for one detailed result")
+	option := fs.String("option", "", "opaque option episode or open-position ID for one detailed result")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -23,7 +24,7 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 0 {
 		return failUnexpectedArgs(env, fs)
 	}
-	params, err := rpc.NormalizeEdgeSnapshotParams(rpc.EdgeSnapshotParams{Window: *window, HorizonSessions: *horizon, Limit: *limit, ChangeID: *change})
+	params, err := rpc.NormalizeEdgeSnapshotParams(rpc.EdgeSnapshotParams{Window: *window, HorizonSessions: *horizon, Limit: *limit, ChangeID: *change, OptionID: *option})
 	if err != nil {
 		return fail(env, "edge: %v", err)
 	}
@@ -110,13 +111,7 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 		}
 		fmt.Fprintf(out, "  %s (%+.2f%%)  %s %s · %s%s\n", edgeMoney(finding.DecisionImpactBase, edgeBaseCurrency(result)), finding.DecisionImpactPct, finding.Symbol, finding.Action, finding.ChangeID, context)
 	}
-	if result.OptionsTotalCount > 0 {
-		shown := fmt.Sprintf("%d result(s)", result.OptionsTotalCount)
-		if result.OptionsTruncated {
-			shown = fmt.Sprintf("%d of %d result(s)", len(result.Options), result.OptionsTotalCount)
-		}
-		fmt.Fprintf(out, "  Options · actual only  %s, ranked by absolute actual P/L; no historical counterfactual\n", shown)
-	}
+	renderEdgeOptions(out, result)
 	fmt.Fprintf(out, "  Coverage  %d/%d eligible · scored %d/%d eligible at %s (%.1f%%) · largest action n=%d", result.Coverage.EligibleChanges, result.Coverage.TradeChanges, result.HorizonSelection.ScoredChanges, result.HorizonSelection.EligibleChanges, edgeSessionCount(result.HorizonSessions), result.HorizonSelection.CoveragePct, result.HorizonSelection.LargestActionSample)
 	if !result.LastFullRevalidation.IsZero() {
 		fmt.Fprintf(out, " · full %s", result.LastFullRevalidation.Local().Format("2006-01-02"))
@@ -125,6 +120,188 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 	if result.Change != nil {
 		renderEdgeChange(out, *result.Change, edgeBaseCurrency(result))
 	}
+	if result.Option != nil {
+		renderEdgeOptionDetail(out, *result.Option, edgeBaseCurrency(result))
+	}
+}
+
+func renderEdgeOptions(out io.Writer, result rpc.EdgeResult) {
+	options := result.Options
+	if options.Realized.TotalCount == 0 && options.Open.TotalCount == 0 && options.Coverage.ExecutionEpisodes == 0 && options.Coverage.EventEpisodes == 0 {
+		return
+	}
+	currency := edgeBaseCurrency(result)
+	known := "unavailable"
+	if options.Realized.KnownPNLBase != nil {
+		known = edgeMoney(*options.Realized.KnownPNLBase, currency)
+	}
+	fmt.Fprintf(out, "  Options · realized  %s known · %d episode(s): %d positive, %d negative, %d flat", known, options.Realized.TotalCount, options.Realized.PositiveCount, options.Realized.NegativeCount, options.Realized.FlatCount)
+	if options.Realized.PartialCount+options.Realized.UnavailableCount > 0 {
+		fmt.Fprintf(out, " · %d incomplete", options.Realized.PartialCount+options.Realized.UnavailableCount)
+	}
+	if options.Realized.Truncated {
+		fmt.Fprintf(out, " · showing %d", len(options.Realized.Episodes))
+	}
+	fmt.Fprintln(out)
+	renderEdgeOptionExtremes(out, options.Realized.Episodes, currency)
+	if options.Open.TotalCount > 0 {
+		known = "unavailable"
+		if options.Open.KnownPNLBase != nil {
+			known = edgeMoney(*options.Open.KnownPNLBase, currency)
+		}
+		asOf := "undated"
+		if !options.Open.SnapshotDate.IsZero() {
+			asOf = options.Open.SnapshotDate.Format(time.DateOnly)
+		}
+		fmt.Fprintf(out, "  Options · open snapshot %s  %s known · %d position(s): %d positive, %d negative, %d flat", asOf, known, options.Open.TotalCount, options.Open.PositiveCount, options.Open.NegativeCount, options.Open.FlatCount)
+		if options.Open.UnavailableCount > 0 {
+			fmt.Fprintf(out, " · %d unavailable", options.Open.UnavailableCount)
+		}
+		if options.Open.Truncated {
+			fmt.Fprintf(out, " · showing %d", len(options.Open.Positions))
+		}
+		fmt.Fprintln(out)
+		renderEdgeOpenOptionExtremes(out, options.Open.Positions, currency)
+	}
+	if options.Coverage.OpeningOnlyZeroEpisodes > 0 {
+		fmt.Fprintf(out, "  Options · activity  %d opening-only zero-P/L episode(s) retained as coverage, not realized results\n", options.Coverage.OpeningOnlyZeroEpisodes)
+	}
+}
+
+func renderEdgeOptionExtremes(out io.Writer, episodes []rpc.EdgeOptionEpisodeSummary, currency string) {
+	var gain, loss *rpc.EdgeOptionEpisodeSummary
+	for i := range episodes {
+		row := &episodes[i]
+		if row.RealizedPNLBase == nil {
+			continue
+		}
+		if *row.RealizedPNLBase > 0 && (gain == nil || *row.RealizedPNLBase > *gain.RealizedPNLBase) {
+			gain = row
+		}
+		if *row.RealizedPNLBase < 0 && (loss == nil || *row.RealizedPNLBase < *loss.RealizedPNLBase) {
+			loss = row
+		}
+	}
+	for _, row := range []*rpc.EdgeOptionEpisodeSummary{gain, loss} {
+		if row == nil {
+			continue
+		}
+		fmt.Fprintf(out, "    %s  %s · %s · %s · %s\n", edgeMoney(*row.RealizedPNLBase, currency), edgeOptionEpisodeLabel(*row), row.ActivityFrom.Format(time.DateOnly), row.PNLStatus, row.ID)
+	}
+}
+
+func renderEdgeOpenOptionExtremes(out io.Writer, positions []rpc.EdgeOptionOpenPositionSummary, currency string) {
+	var gain, loss *rpc.EdgeOptionOpenPositionSummary
+	for i := range positions {
+		row := &positions[i]
+		if row.OpenPNLBase == nil {
+			continue
+		}
+		if *row.OpenPNLBase > 0 && (gain == nil || *row.OpenPNLBase > *gain.OpenPNLBase) {
+			gain = row
+		}
+		if *row.OpenPNLBase < 0 && (loss == nil || *row.OpenPNLBase < *loss.OpenPNLBase) {
+			loss = row
+		}
+	}
+	for _, row := range []*rpc.EdgeOptionOpenPositionSummary{gain, loss} {
+		if row == nil {
+			continue
+		}
+		fmt.Fprintf(out, "    %s  %s · %s · %s\n", edgeMoney(*row.OpenPNLBase, currency), edgeOptionContractLabel(row.Underlying, row.Symbol, row.Expiry, row.Strike, row.PutCall), row.PNLStatus, row.ID)
+	}
+}
+
+func edgeOptionEpisodeLabel(row rpc.EdgeOptionEpisodeSummary) string {
+	labels := make([]string, 0, len(row.Legs))
+	for _, leg := range row.Legs {
+		labels = append(labels, edgeOptionContractLabel(leg.Underlying, leg.Symbol, leg.Expiry, leg.Strike, leg.PutCall))
+	}
+	if len(labels) == 0 {
+		return firstNonEmptyCLI(row.Underlying, "Option episode")
+	}
+	if len(labels) > 3 {
+		return strings.Join(labels[:3], " + ") + fmt.Sprintf(" +%d legs", len(labels)-3)
+	}
+	return strings.Join(labels, " + ")
+}
+
+func edgeOptionContractLabel(underlying, symbol, expiry string, strike *float64, putCall string) string {
+	root := firstNonEmptyCLI(underlying, symbol, "Option")
+	parts := []string{root}
+	if expiry != "" {
+		parts = append(parts, expiry)
+	}
+	if strike != nil {
+		parts = append(parts, fmt.Sprintf("%.4g", *strike))
+	}
+	if putCall != "" {
+		parts = append(parts, strings.ToUpper(putCall[:1]))
+	}
+	return strings.Join(parts, " ")
+}
+
+func firstNonEmptyCLI(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func renderEdgeOptionDetail(out io.Writer, detail rpc.EdgeOptionDetail, currency string) {
+	fmt.Fprintf(out, "\nOption %s — %s\n", detail.ID, strings.ReplaceAll(detail.Kind, "_", " "))
+	if detail.Episode != nil {
+		episode := detail.Episode
+		fmt.Fprintf(out, "  %s · %s · %s", episode.Grouping, episode.Lifecycle, episode.ActivityFrom.Format(time.RFC3339))
+		if episode.RealizedPNLBase != nil {
+			fmt.Fprintf(out, " · realized %s", edgeMoney(*episode.RealizedPNLBase, currency))
+		}
+		fmt.Fprintf(out, " · %s%s\n", episode.PNLStatus, edgeOptionMissingEvidence(episode.MissingEvidence))
+		for _, leg := range episode.Legs {
+			fmt.Fprintf(out, "  leg  %s · %s %s", edgeOptionContractLabel(leg.Underlying, leg.Symbol, leg.Expiry, leg.Strike, leg.PutCall), leg.Side, leg.OpenClose)
+			if leg.Quantity != nil {
+				fmt.Fprintf(out, " · qty %.4g", *leg.Quantity)
+			}
+			if leg.ExecutionPrice != nil {
+				fmt.Fprintf(out, " @ %.4g %s", *leg.ExecutionPrice, leg.Currency)
+			}
+			if leg.RealizedPNLBase != nil {
+				fmt.Fprintf(out, " · realized %s", edgeMoney(*leg.RealizedPNLBase, currency))
+			}
+			if leg.DirectCostsBase != nil {
+				fmt.Fprintf(out, " · costs %s", edgeMoney(*leg.DirectCostsBase, currency))
+			}
+			fmt.Fprint(out, edgeOptionMissingEvidence(leg.MissingEvidence))
+			fmt.Fprintln(out)
+		}
+		return
+	}
+	if detail.OpenPosition != nil {
+		position := detail.OpenPosition
+		fmt.Fprintf(out, "  %s · snapshot %s · %s", edgeOptionContractLabel(position.Underlying, position.Symbol, position.Expiry, position.Strike, position.PutCall), position.SnapshotDate.Format(time.DateOnly), position.Side)
+		if position.Quantity != nil {
+			fmt.Fprintf(out, " · qty %.4g", *position.Quantity)
+		}
+		if position.MarkPrice != nil {
+			fmt.Fprintf(out, " · mark %.4g %s", *position.MarkPrice, position.Currency)
+		}
+		if position.CostBasisMoney != nil {
+			fmt.Fprintf(out, " · cost basis %.4g %s", *position.CostBasisMoney, position.Currency)
+		}
+		if position.OpenPNLBase != nil {
+			fmt.Fprintf(out, " · open %s", edgeMoney(*position.OpenPNLBase, currency))
+		}
+		fmt.Fprintf(out, " · %s%s\n", position.PNLStatus, edgeOptionMissingEvidence(position.MissingEvidence))
+	}
+}
+
+func edgeOptionMissingEvidence(missing []string) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	return " · missing " + strings.Join(missing, ", ")
 }
 
 func renderEdgeChange(out io.Writer, change rpc.EdgeChangeDetail, currency string) {

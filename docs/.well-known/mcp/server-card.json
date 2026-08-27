@@ -247,6 +247,10 @@
             "maximum": 3,
             "description": "maximum findings; default 3"
           },
+          "option_id": {
+            "type": "string",
+            "description": "optional opaque option ID returned by a prior canary_edge call"
+          },
           "window": {
             "type": "string",
             "enum": [

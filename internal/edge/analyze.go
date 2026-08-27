@@ -23,6 +23,7 @@ type versioned[T any] struct {
 type evidence struct {
 	statements             []flexstmt.Statement
 	trades                 []flexstmt.Trade
+	instruments            []flexstmt.Instrument
 	positions              []flexstmt.OpenPosition
 	currentPositions       []flexstmt.OpenPosition
 	optionEvents           []flexstmt.OptionEvent
@@ -162,7 +163,7 @@ func Analyze(input Input) (Result, error) {
 		startingEquity = result.Account.StartingEquityBase
 	}
 	result.Findings = buildFindings(result.Changes, startingEquity)
-	result.Options = buildOptionResults(ev, windowStart, asOf, input.BaseCurrency, ev.fxRates)
+	result.Options = buildOptionReview(ev, windowStart, asOf, input.BaseCurrency, ev.fxRates)
 	populateCoverage(&result.Coverage, result.Changes)
 	result.Fingerprint, err = fingerprint(result)
 	if err != nil {
@@ -174,6 +175,7 @@ func Analyze(input Input) (Result, error) {
 func collectEvidence(statements []flexstmt.Statement) (evidence, error) {
 	ev := evidence{statements: append([]flexstmt.Statement(nil), statements...), presentSections: make(map[string]bool)}
 	tradeW := map[string]versioned[flexstmt.Trade]{}
+	instrumentW := map[string]versioned[flexstmt.Instrument]{}
 	positionW := map[string]versioned[flexstmt.OpenPosition]{}
 	positionSnapshots := map[string]positionSnapshot{}
 	optionW := map[string]versioned[flexstmt.OptionEvent]{}
@@ -191,6 +193,11 @@ func collectEvidence(statements []flexstmt.Statement) (evidence, error) {
 		generated := st.WhenGenerated.UTC()
 		for _, item := range st.Trades {
 			chooseWinner(tradeW, item.RecordID, generated, item)
+		}
+		for _, item := range st.Instruments {
+			if item.ConID != 0 {
+				chooseWinner(instrumentW, strconv.FormatInt(item.ConID, 10), generated, item)
+			}
 		}
 		for _, item := range st.Positions {
 			chooseWinner(positionW, item.RecordID, generated, item)
@@ -244,6 +251,7 @@ func collectEvidence(statements []flexstmt.Statement) (evidence, error) {
 		}
 	}
 	ev.trades = winnerValues(tradeW)
+	ev.instruments = winnerValues(instrumentW)
 	ev.positions = winnerValues(positionW)
 	ev.optionEvents = winnerValues(optionW)
 	ev.corporateActions = winnerValues(corpW)
@@ -1033,136 +1041,460 @@ func buildFindings(changes []Change, startingEquity float64) []Finding {
 	return out
 }
 
-func buildOptionResults(ev evidence, from, to time.Time, base string, fxRates []flexstmt.FXRate) []OptionResult {
-	type bucket struct {
-		key, grouping, symbol, underlying string
-		conids                            map[int64]bool
-		realized                          float64
-		realizedSeen                      bool
-		realizedMissing                   bool
-	}
-	buckets := map[string]*bucket{}
-	tradeIDs := map[string]bool{}
-	contractBucket := func(conid int64, symbol, underlying string) *bucket {
-		key := "contract:" + strconv.FormatInt(conid, 10)
-		b := buckets[key]
-		if b == nil {
-			b = &bucket{key: key, grouping: "contract", symbol: symbol, underlying: underlying, conids: map[int64]bool{}}
-			buckets[key] = b
+func buildOptionReview(ev evidence, from, to time.Time, base string, fxRates []flexstmt.FXRate) OptionReview {
+	instruments := make(map[int64]flexstmt.Instrument, len(ev.instruments))
+	for _, instrument := range ev.instruments {
+		if instrument.ConID != 0 {
+			instruments[instrument.ConID] = instrument
 		}
-		b.conids[conid] = true
-		return b
 	}
+	groups := map[string][]flexstmt.Trade{}
+	tradeIDs := map[string]bool{}
 	for _, trade := range ev.trades {
-		if !strings.EqualFold(trade.AssetClass, "OPT") || trade.ExecutedAt.Before(from) || trade.ExecutedAt.After(to) {
+		if !strings.EqualFold(trade.AssetClass, "OPT") || trade.ConID == 0 || trade.ExecutedAt.Before(from) || trade.ExecutedAt.After(to) {
 			continue
 		}
 		if trade.TradeID != "" {
 			tradeIDs[trade.TradeID] = true
 		}
-		key, grouping := "contract:"+strconv.FormatInt(trade.ConID, 10), "contract"
+		key := "execution:" + trade.RecordID
 		if trade.OrderID != "" {
-			key, grouping = "order:"+trade.AccountID+":"+trade.OrderID+":"+dayKey(trade.ExecutedAt), "exact_order"
+			key = strings.Join([]string{"order", trade.AccountID, trade.OrderID, dayKey(trade.ExecutedAt)}, "\x00")
 		}
-		b := buckets[key]
-		if b == nil {
-			b = &bucket{key: key, grouping: grouping, symbol: trade.Symbol, underlying: trade.UnderlyingSymbol, conids: map[int64]bool{}}
-			buckets[key] = b
-		}
-		b.conids[trade.ConID] = true
-		fx := baseConversionFX(trade.Currency, base, trade.ExecutedAt, trade.FXRateToBase, fxRates)
-		b.realizedSeen = true
-		if trade.RealizedPNL == nil || fx == nil {
-			b.realizedMissing = true
-		} else {
-			b.realized += *trade.RealizedPNL * *fx
-		}
+		groups[key] = append(groups[key], trade)
 	}
-	for _, event := range ev.optionEvents {
-		if event.Date.Before(from) || event.Date.After(to) || event.ConID == 0 || tradeIDs[event.TradeID] {
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	review := OptionReview{}
+	for _, key := range keys {
+		rows := groups[key]
+		grouping := OptionGroupingUnlinkedExecution
+		if strings.HasPrefix(key, "order\x00") {
+			grouping = OptionGroupingExactOrder
+		}
+		episode := optionEpisodeFromTrades(key, grouping, rows, instruments, base, fxRates)
+		review.Coverage.ExecutionEpisodes++
+		switch episode.Lifecycle {
+		case OptionLifecycleOpening:
+			review.Coverage.OpeningEpisodes++
+		case OptionLifecycleClosing:
+			review.Coverage.ClosingEpisodes++
+		case OptionLifecycleMixed:
+			review.Coverage.MixedEpisodes++
+		default:
+			review.Coverage.UnknownEpisodes++
+		}
+		openingOnlyZero := episode.Lifecycle == OptionLifecycleOpening && episode.PNLStatus == OptionPNLComplete && episode.RealizedPNLBase != nil && almostEqual(*episode.RealizedPNLBase, 0)
+		if openingOnlyZero {
+			review.Coverage.OpeningOnlyZeroEpisodes++
 			continue
 		}
-		b := contractBucket(event.ConID, event.Symbol, event.UnderlyingSymbol)
-		fx := baseConversionFX(event.Currency, base, event.Date, event.FXRateToBase, fxRates)
-		b.realizedSeen = true
-		if event.RealizedPNL == nil || fx == nil {
-			b.realizedMissing = true
-		} else {
-			b.realized += *event.RealizedPNL * *fx
+		// Opening-only rows without a non-zero broker realized value are
+		// lifecycle coverage, not realized outcomes.
+		if episode.Lifecycle == OptionLifecycleOpening && (episode.RealizedPNLBase == nil || almostEqual(*episode.RealizedPNLBase, 0)) {
+			continue
 		}
+		review.Realized.Episodes = append(review.Realized.Episodes, episode)
 	}
+	for _, event := range ev.optionEvents {
+		if event.ConID == 0 || event.Date.Before(from) || event.Date.After(to) || event.TradeID != "" && tradeIDs[event.TradeID] {
+			continue
+		}
+		review.Coverage.EventEpisodes++
+		review.Realized.Episodes = append(review.Realized.Episodes, optionEpisodeFromEvent(event, instruments, base, fxRates))
+	}
+	sort.Slice(review.Realized.Episodes, func(i, j int) bool {
+		if !review.Realized.Episodes[i].ActivityFrom.Equal(review.Realized.Episodes[j].ActivityFrom) {
+			return review.Realized.Episodes[i].ActivityFrom.Before(review.Realized.Episodes[j].ActivityFrom)
+		}
+		return review.Realized.Episodes[i].ID < review.Realized.Episodes[j].ID
+	})
+	review.Realized = summarizeOptionRealized(review.Realized.Episodes)
+
 	for _, position := range ev.currentPositions {
 		if !strings.EqualFold(position.AssetClass, "OPT") || position.ConID == 0 || position.Quantity == nil || almostEqual(*position.Quantity, 0) {
 			continue
 		}
-		contractBucket(position.ConID, position.Symbol, position.UnderlyingSymbol)
+		review.Open.Positions = append(review.Open.Positions, optionOpenPosition(position, instruments, base, fxRates))
 	}
-	keys := make([]string, 0, len(buckets))
-	for key := range buckets {
-		keys = append(keys, key)
+	sort.Slice(review.Open.Positions, func(i, j int) bool {
+		if !review.Open.Positions[i].SnapshotDate.Equal(review.Open.Positions[j].SnapshotDate) {
+			return review.Open.Positions[i].SnapshotDate.Before(review.Open.Positions[j].SnapshotDate)
+		}
+		return review.Open.Positions[i].ID < review.Open.Positions[j].ID
+	})
+	review.Open = summarizeOptionOpen(review.Open.Positions)
+	return review
+}
+
+func optionEpisodeFromTrades(key, grouping string, rows []flexstmt.Trade, instruments map[int64]flexstmt.Instrument, base string, fxRates []flexstmt.FXRate) OptionEpisode {
+	sort.Slice(rows, func(i, j int) bool {
+		if !rows[i].ExecutedAt.Equal(rows[j].ExecutedAt) {
+			return rows[i].ExecutedAt.Before(rows[j].ExecutedAt)
+		}
+		return rows[i].RecordID < rows[j].RecordID
+	})
+	episode := OptionEpisode{ID: opaqueID("option", "episode", key), Grouping: grouping, Lifecycle: optionTradeLifecycle(rows), ActivityFrom: rows[0].ExecutedAt, ActivityTo: rows[len(rows)-1].ExecutedAt}
+	legRows := map[string][]flexstmt.Trade{}
+	for _, row := range rows {
+		if episode.Underlying == "" {
+			episode.Underlying = firstNonEmpty(row.UnderlyingSymbol, instruments[row.ConID].UnderlyingSymbol)
+		}
+		legKey := strings.Join([]string{strconv.FormatInt(row.ConID, 10), strings.ToUpper(row.Side), optionOpenClose(row.OpenClose), strings.ToUpper(row.Currency)}, "\x00")
+		legRows[legKey] = append(legRows[legKey], row)
+	}
+	keys := make([]string, 0, len(legRows))
+	for legKey := range legRows {
+		keys = append(keys, legKey)
 	}
 	sort.Strings(keys)
-	out := make([]OptionResult, 0, len(keys))
-	for _, key := range keys {
-		b := buckets[key]
-		row := OptionResult{ID: opaqueID("option", key), Grouping: b.grouping, Symbol: b.symbol, Underlying: b.underlying, LegCount: len(b.conids), ActualOnly: true}
-		if b.grouping == "exact_order" && row.LegCount > 1 && row.Underlying != "" {
-			row.Symbol = row.Underlying
+	known, missing := 0, 0
+	var total float64
+	missingSet := map[string]bool{}
+	for _, legKey := range keys {
+		leg, legKnown, legMissing := optionEpisodeTradeLeg(legKey, legRows[legKey], instruments, base, fxRates)
+		episode.Legs = append(episode.Legs, leg)
+		if legKnown {
+			known++
+			total += *leg.RealizedPNLBase
 		}
-		if b.realizedSeen && !b.realizedMissing {
-			value := b.realized
-			row.RealizedPNLBase, row.ActualPNLBase = &value, cloneFloat(&value)
+		if legMissing {
+			missing++
 		}
-		// Summary Open Positions do not carry a strategy linkage. Open P/L is
-		// therefore attached only to contract-level rows.
-		if b.grouping == "contract" {
-			var open float64
-			known := true
-			found := false
-			for _, position := range ev.currentPositions {
-				if !b.conids[position.ConID] || !strings.EqualFold(position.AssetClass, "OPT") {
-					continue
-				}
-				found = true
-				fx := baseConversionFX(position.Currency, base, position.ReportDate, position.FXRateToBase, fxRates)
-				if position.UnrealizedPNL == nil || fx == nil {
-					known = false
-					break
-				}
-				open += *position.UnrealizedPNL * *fx
+		for _, reason := range leg.MissingEvidence {
+			missingSet[reason] = true
+		}
+	}
+	episode.RealizedPNLBase, episode.PNLStatus = optionPNLState(total, known, missing)
+	episode.MissingEvidence = sortedKeys(missingSet)
+	return episode
+}
+
+func optionEpisodeTradeLeg(key string, rows []flexstmt.Trade, instruments map[int64]flexstmt.Instrument, base string, fxRates []flexstmt.FXRate) (OptionEpisodeLeg, bool, bool) {
+	first := rows[0]
+	instrument, instrumentOK := instruments[first.ConID]
+	leg := OptionEpisodeLeg{
+		ID: opaqueID("option-leg", key), Symbol: first.Symbol,
+		Underlying: firstNonEmpty(first.UnderlyingSymbol, instrument.UnderlyingSymbol),
+		Expiry:     optionExpiry(instrument.Expiry), Strike: cloneFloat(instrument.Strike), PutCall: optionPutCall(instrument.PutCall),
+		Multiplier: cloneFloat(first.Multiplier), Side: optionTradeSide(first.Side), OpenClose: optionOpenClose(first.OpenClose), Currency: strings.ToUpper(first.Currency),
+	}
+	missingSet := map[string]bool{}
+	if !instrumentOK || leg.Expiry == "" || leg.Strike == nil || leg.PutCall == "" {
+		missingSet[OptionMissingInstrument] = true
+	}
+	var quantity, weighted, weight, realized, costs float64
+	quantityKnown, realizedKnown, realizedMissing, costsKnown, costsMissing := true, 0, 0, 0, 0
+	for _, row := range rows {
+		if row.Quantity == nil {
+			quantityKnown = false
+		} else {
+			q := math.Abs(*row.Quantity)
+			quantity += q
+			if row.Price != nil {
+				weighted += q * *row.Price
+				weight += q
 			}
-			if found && known {
-				row.OpenPNLBase = &open
-				if row.ActualPNLBase != nil {
-					total := *row.ActualPNLBase + open
-					row.ActualPNLBase = &total
-				} else if !b.realizedSeen {
-					row.ActualPNLBase = cloneFloat(&open)
-				}
-			}
 		}
-		// A trade identity with no broker-actual realized or open value is
-		// evidence of activity, not an option P/L result. Omitting it prevents
-		// empty order buckets from consuming the bounded public result list and
-		// hiding rows that do carry actual broker P/L.
-		if row.RealizedPNLBase == nil && row.OpenPNLBase == nil && row.ActualPNLBase == nil {
+		fx := baseConversionFX(row.Currency, base, row.ExecutedAt, row.FXRateToBase, fxRates)
+		if row.RealizedPNL == nil {
+			realizedMissing++
+			missingSet[OptionMissingRealizedPNL] = true
+		} else if fx == nil {
+			realizedMissing++
+			missingSet[OptionMissingFX] = true
+		} else {
+			realized += *row.RealizedPNL * *fx
+			realizedKnown++
+		}
+		if value, ok := optionTradeCostsBase(row, base, fxRates); ok {
+			costs += value
+			costsKnown++
+		} else {
+			costsMissing++
+		}
+	}
+	if quantityKnown {
+		leg.Quantity = &quantity
+	}
+	if weight > 0 {
+		value := weighted / weight
+		leg.ExecutionPrice = &value
+	}
+	leg.RealizedPNLBase, _ = optionPNLState(realized, realizedKnown, realizedMissing)
+	if costsKnown > 0 && costsMissing == 0 {
+		leg.DirectCostsBase = &costs
+	}
+	leg.MissingEvidence = sortedKeys(missingSet)
+	return leg, realizedKnown > 0, realizedMissing > 0
+}
+
+func optionEpisodeFromEvent(event flexstmt.OptionEvent, instruments map[int64]flexstmt.Instrument, base string, fxRates []flexstmt.FXRate) OptionEpisode {
+	instrument, instrumentOK := instruments[event.ConID]
+	missingSet := map[string]bool{}
+	leg := OptionEpisodeLeg{
+		ID: opaqueID("option-leg", "event", event.RecordID), Symbol: event.Symbol,
+		Underlying: firstNonEmpty(event.UnderlyingSymbol, instrument.UnderlyingSymbol),
+		Expiry:     optionExpiry(instrument.Expiry), Strike: cloneFloat(instrument.Strike), PutCall: optionPutCall(instrument.PutCall),
+		Multiplier: cloneFloat(instrument.Multiplier), Side: "unknown", OpenClose: "unknown", Quantity: cloneFloat(event.Quantity), ExecutionPrice: cloneFloat(event.TradePrice), Currency: strings.ToUpper(event.Currency),
+	}
+	if !instrumentOK || leg.Expiry == "" || leg.Strike == nil || leg.PutCall == "" {
+		missingSet[OptionMissingInstrument] = true
+	}
+	known, missing := 0, 0
+	var realized float64
+	fx := baseConversionFX(event.Currency, base, event.Date, event.FXRateToBase, fxRates)
+	if event.RealizedPNL == nil {
+		missing++
+		missingSet[OptionMissingRealizedPNL] = true
+	} else if fx == nil {
+		missing++
+		missingSet[OptionMissingFX] = true
+	} else {
+		realized = *event.RealizedPNL * *fx
+		known++
+		leg.RealizedPNLBase = &realized
+	}
+	if event.CommissionTax != nil && fx != nil {
+		costs := math.Abs(*event.CommissionTax) * *fx
+		leg.DirectCostsBase = &costs
+	}
+	leg.MissingEvidence = sortedKeys(missingSet)
+	value, status := optionPNLState(realized, known, missing)
+	return OptionEpisode{
+		ID: opaqueID("option", "event", event.RecordID), Grouping: OptionGroupingEvent, Lifecycle: OptionLifecycleEvent,
+		EventType: optionEventType(event.TransactionType), Underlying: leg.Underlying, ActivityFrom: event.Date, ActivityTo: event.Date,
+		RealizedPNLBase: value, PNLStatus: status, MissingEvidence: sortedKeys(missingSet), Legs: []OptionEpisodeLeg{leg},
+	}
+}
+
+func optionOpenPosition(position flexstmt.OpenPosition, instruments map[int64]flexstmt.Instrument, base string, fxRates []flexstmt.FXRate) OptionOpenPosition {
+	instrument, instrumentOK := instruments[position.ConID]
+	row := OptionOpenPosition{
+		ID:     opaqueID("option", "open", position.AccountID, strconv.FormatInt(position.ConID, 10), dayKey(position.ReportDate)),
+		Symbol: position.Symbol, Underlying: firstNonEmpty(position.UnderlyingSymbol, instrument.UnderlyingSymbol), SnapshotDate: position.ReportDate,
+		Expiry: optionExpiry(instrument.Expiry), Strike: cloneFloat(instrument.Strike), PutCall: optionPutCall(instrument.PutCall),
+		Multiplier: cloneFloat(position.Multiplier), Side: optionPositionSide(position.Side), Quantity: cloneFloat(position.Quantity), MarkPrice: cloneFloat(position.MarkPrice),
+		CostBasisMoney: cloneFloat(position.CostBasisMoney), Currency: strings.ToUpper(position.Currency), PNLStatus: OptionPNLUnavailable,
+	}
+	if row.Multiplier == nil {
+		row.Multiplier = cloneFloat(instrument.Multiplier)
+	}
+	missingSet := map[string]bool{}
+	if !instrumentOK || row.Expiry == "" || row.Strike == nil || row.PutCall == "" {
+		missingSet[OptionMissingInstrument] = true
+	}
+	fx := baseConversionFX(position.Currency, base, position.ReportDate, position.FXRateToBase, fxRates)
+	if position.UnrealizedPNL == nil {
+		missingSet[OptionMissingOpenPNL] = true
+	} else if fx == nil {
+		missingSet[OptionMissingFX] = true
+	} else {
+		value := *position.UnrealizedPNL * *fx
+		row.OpenPNLBase = &value
+		row.PNLStatus = OptionPNLComplete
+	}
+	row.MissingEvidence = sortedKeys(missingSet)
+	return row
+}
+
+func summarizeOptionRealized(episodes []OptionEpisode) OptionRealizedReview {
+	out := OptionRealizedReview{Episodes: episodes}
+	var known float64
+	knownSeen := false
+	for _, episode := range episodes {
+		switch episode.PNLStatus {
+		case OptionPNLComplete:
+			out.CompleteCount++
+		case OptionPNLPartial:
+			out.PartialCount++
+		default:
+			out.UnavailableCount++
+		}
+		if episode.RealizedPNLBase == nil {
 			continue
 		}
-		out = append(out, row)
+		knownSeen = true
+		known += *episode.RealizedPNLBase
+		switch {
+		case *episode.RealizedPNLBase > 0:
+			out.PositiveCount++
+		case *episode.RealizedPNLBase < 0:
+			out.NegativeCount++
+		default:
+			out.FlatCount++
+		}
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		left, right := 0.0, 0.0
-		if out[i].ActualPNLBase != nil {
-			left = math.Abs(*out[i].ActualPNLBase)
+	if knownSeen {
+		out.KnownPNLBase = &known
+	}
+	return out
+}
+
+func summarizeOptionOpen(positions []OptionOpenPosition) OptionOpenReview {
+	out := OptionOpenReview{Positions: positions}
+	var known float64
+	knownSeen := false
+	for _, position := range positions {
+		if position.SnapshotDate.After(out.SnapshotDate) {
+			out.SnapshotDate = position.SnapshotDate
 		}
-		if out[j].ActualPNLBase != nil {
-			right = math.Abs(*out[j].ActualPNLBase)
+		if position.PNLStatus == OptionPNLComplete {
+			out.CompleteCount++
+		} else {
+			out.UnavailableCount++
 		}
-		if !almostEqual(left, right) {
-			return left > right
+		if position.OpenPNLBase == nil {
+			continue
 		}
-		return out[i].ID < out[j].ID
-	})
+		knownSeen = true
+		known += *position.OpenPNLBase
+		switch {
+		case *position.OpenPNLBase > 0:
+			out.PositiveCount++
+		case *position.OpenPNLBase < 0:
+			out.NegativeCount++
+		default:
+			out.FlatCount++
+		}
+	}
+	if knownSeen {
+		out.KnownPNLBase = &known
+	}
+	return out
+}
+
+func optionTradeLifecycle(rows []flexstmt.Trade) string {
+	opening, closing, unknown := false, false, false
+	for _, row := range rows {
+		switch optionOpenClose(row.OpenClose) {
+		case OptionLifecycleOpening:
+			opening = true
+		case OptionLifecycleClosing:
+			closing = true
+		default:
+			unknown = true
+		}
+	}
+	if unknown {
+		return OptionLifecycleUnknown
+	}
+	if opening && closing {
+		return OptionLifecycleMixed
+	}
+	if opening {
+		return OptionLifecycleOpening
+	}
+	if closing {
+		return OptionLifecycleClosing
+	}
+	return OptionLifecycleUnknown
+}
+
+func optionOpenClose(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "O", "OPEN", "OPENING":
+		return OptionLifecycleOpening
+	case "C", "CLOSE", "CLOSING":
+		return OptionLifecycleClosing
+	default:
+		return OptionLifecycleUnknown
+	}
+}
+
+func optionTradeSide(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "BUY":
+		return "buy"
+	case "SELL":
+		return "sell"
+	default:
+		return "unknown"
+	}
+}
+
+func optionPositionSide(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "LONG", "L":
+		return "long"
+	case "SHORT", "S":
+		return "short"
+	default:
+		return "unknown"
+	}
+}
+
+func optionPutCall(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "C", "CALL":
+		return "call"
+	case "P", "PUT":
+		return "put"
+	default:
+		return ""
+	}
+}
+
+func optionExpiry(value string) string {
+	raw := strings.TrimSpace(value)
+	for _, layout := range []string{"20060102", "2006-01-02"} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed.Format(time.DateOnly)
+		}
+	}
+	return ""
+}
+
+func optionEventType(value string) string {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "EXERCISE":
+		return "exercise"
+	case "ASSIGNMENT":
+		return "assignment"
+	case "EXPIRATION", "EXPIRE", "EXPIRED":
+		return "expiration"
+	default:
+		return "other"
+	}
+}
+
+func optionPNLState(total float64, known, missing int) (*float64, string) {
+	if known == 0 {
+		return nil, OptionPNLUnavailable
+	}
+	value := total
+	if missing > 0 {
+		return &value, OptionPNLPartial
+	}
+	return &value, OptionPNLComplete
+}
+
+func optionTradeCostsBase(row flexstmt.Trade, base string, fxRates []flexstmt.FXRate) (float64, bool) {
+	if row.Commission == nil || row.Taxes == nil {
+		return 0, false
+	}
+	tradeFX := baseConversionFX(row.Currency, base, row.ExecutedAt, row.FXRateToBase, fxRates)
+	commissionCurrency := firstNonEmpty(row.CommissionCurrency, row.Currency)
+	commissionFX := baseConversionFX(commissionCurrency, base, row.ExecutedAt, nil, fxRates)
+	if strings.EqualFold(commissionCurrency, row.Currency) {
+		commissionFX = tradeFX
+	}
+	if tradeFX == nil || commissionFX == nil {
+		return 0, false
+	}
+	return math.Abs(*row.Commission)**commissionFX + math.Abs(*row.Taxes)**tradeFX, true
+}
+
+func sortedKeys(values map[string]bool) []string {
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
 	return out
 }
 
