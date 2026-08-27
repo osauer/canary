@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/websocket"
+	"github.com/osauer/hyperserve/v2/websocket"
 
 	appweb "github.com/osauer/canary/v2/web/app"
 )

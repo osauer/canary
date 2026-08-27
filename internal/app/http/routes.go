@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	hyperserve "github.com/osauer/hyperserve/pkg/server"
+	hyperserve "github.com/osauer/hyperserve/v2"
 
 	"github.com/osauer/canary/v2/internal/app/auth"
 	"github.com/osauer/canary/v2/internal/app/daemonclient"

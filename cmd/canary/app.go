@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	hyperserve "github.com/osauer/hyperserve/pkg/server"
 	"github.com/skip2/go-qrcode"
 
 	mobileapp "github.com/osauer/canary/v2/internal/app"
@@ -246,9 +245,10 @@ func printAppServeUsage(w io.Writer, fs *flag.FlagSet) {
 
 // newAppLogger owns the physical production-log contract: one slog text
 // record per line, with an explicit level= field. App packages use
-// slog.Default and HyperServe holds its own default pointer, so configure both
-// before parsing or constructing any production app component. Lifecycle
-// markers pass at any level; see internal/loglevel.
+// slog.Default; internal/app captures that logger and injects it into
+// HyperServe with WithLogger. Install the default before parsing or
+// constructing any production app component. Lifecycle markers pass at any
+// level; see internal/loglevel.
 func newAppLogger(w io.Writer) *slog.Logger {
 	return slog.New(loglevel.NewTextHandler(w, appLogLevel()))
 }
@@ -265,7 +265,6 @@ func appLogLevel() slog.Level {
 func configureAppLogger(w io.Writer) *slog.Logger {
 	logger := newAppLogger(w)
 	slog.SetDefault(logger)
-	hyperserve.SetDefaultLogger(logger)
 	return logger
 }
 

@@ -289,7 +289,7 @@ so changing only `CANARY_SOCKET` does not isolate persistence.
 ## HTTP app and remote access
 
 The app is the only HTTP process. It serves through HyperServe
-(`github.com/osauer/hyperserve`), the project's companion `net/http`-shaped
+(`github.com/osauer/hyperserve/v2`), the project's companion `net/http`-shaped
 server, with method-aware routes, hardened defaults, and SSE formatting. The
 daemon listens on the Unix socket and MCP speaks stdio; neither serves HTTP.
 

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,12 +59,14 @@ func TestHTTPServerIgnoresAmbientHyperServeCapabilities(t *testing.T) {
 		t.Fatalf("newHTTPServer: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := srv.Stop(); err != nil {
-			t.Errorf("stop server: %v", err)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown server: %v", err)
 		}
 	})
 
-	opts := srv.Options
+	opts := srv.Options()
 	if opts.EnableTLS || opts.RunHealthServer || opts.FIPSMode || opts.MCPEnabled || srv.MCPEnabled() {
 		t.Fatalf("ambient capability survived: tls=%v health=%v fips=%v mcp=%v", opts.EnableTLS, opts.RunHealthServer, opts.FIPSMode, opts.MCPEnabled)
 	}

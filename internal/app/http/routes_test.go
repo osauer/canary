@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	hyperserve "github.com/osauer/hyperserve/pkg/server"
+	hyperserve "github.com/osauer/hyperserve/v2"
 
 	"github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
@@ -503,11 +503,11 @@ func newTestHandlerWithDependencies(t *testing.T, fakeClient daemonclient.Client
 	authMgr := auth.NewManager(store, alertController, time.Minute)
 	liveSvc := live.New(fakeClient, time.Minute, time.Minute)
 	liveSvc.PollOnce(t.Context())
-	srv, err := hyperserve.NewServer(
+	srv, err := hyperserve.New(
 		hyperserve.WithAddr("127.0.0.1:0"),
 	)
 	if err != nil {
-		t.Fatalf("NewServer: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	deps := Dependencies{
 		Server:          srv,

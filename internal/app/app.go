@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	hyperserve "github.com/osauer/hyperserve/pkg/server"
+	hyperserve "github.com/osauer/hyperserve/v2"
 
 	"github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
@@ -187,15 +188,16 @@ func newHTTPServer(opts Options) (*hyperserve.Server, error) {
 	// Canary owns one reviewed HyperServe snapshot. Keep generic capabilities
 	// (TLS, health, MCP, CORS, and filesystem roots) at deterministic defaults;
 	// process-wide HS_* configuration must not widen the app server boundary.
-	serverOptions := hyperserve.DefaultServerOptions()
+	serverOptions := hyperserve.DefaultOptions()
 	serverOptions.Addr = opts.Addr
 	serverOptions.ReadTimeout = 30 * time.Second
 	serverOptions.WriteTimeout = 30 * time.Second
 	serverOptions.IdleTimeout = 2 * time.Minute
 	serverOptions.ReadHeaderTimeout = 10 * time.Second
 
-	srv, err := hyperserve.NewServer(
+	appServer, err := hyperserve.New(
 		hyperserve.WithOptions(serverOptions),
+		hyperserve.WithLogger(slog.Default()),
 	)
 	if err != nil {
 		return nil, err
@@ -203,8 +205,8 @@ func newHTTPServer(opts Options) (*hyperserve.Server, error) {
 
 	// SecureWeb installs Canary's browser security-header policy. HyperServe's
 	// server identification remains omitted by the reviewed option snapshot.
-	srv.AddMiddlewareStack(hyperserve.GlobalMiddlewareRoute, hyperserve.SecureWeb(srv.Options))
-	return srv, nil
+	appServer.Use(hyperserve.SecureWeb(appServer.Options()))
+	return appServer, nil
 }
 
 // Run starts live-cache polling, relay transport, credential
@@ -219,9 +221,9 @@ func (a *App) Run(ctx context.Context) error {
 	go a.Live.Start(liveCtx)
 	go a.Relay.Run(liveCtx)
 	go a.Auth.StartReaper(liveCtx, time.Minute)
-	// The command owns signal policy; RunContext turns its cancellation into
+	// The command owns signal policy; Run turns its cancellation into
 	// one graceful HyperServe shutdown instead of racing a separate Stop goroutine.
-	err := a.Server.RunContext(ctx)
+	err := a.Server.Run(ctx)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, context.Canceled) {
 		return nil
 	}

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/hyperserve/pkg/websocket"
+	"github.com/osauer/hyperserve/v2/websocket"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
