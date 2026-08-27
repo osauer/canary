@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.3.1 — 2026-08-27 21:05 CEST
+
+### What's new
+
+- **Edge now arrives with accurate discovery and a release-proven update path.** Public MCP copy names options, Reporting, and retrospective Edge review, while the release pipeline proves the prior signed standard binary can install the new public binary without touching a broker or restarting a process. Account data, Edge calculations, and order authority are unchanged.
+
+### Changed
+
+- **Binary activation is explicit for every installation path.** The updating guide distinguishes `canary update`, source `make install`, and manual binary replacement, including when `canary restart`, `make restart-daemon`, or an MCP-host relaunch is required.
+- **Release verification now exercises the real public self-updater.** After GitHub, both tags, and the registry are verified, the prior same-major standard binary must install the exact new tag commit in isolated temporary roots with `--no-restart`.
+
+### Fixed
+
+- **The MCP Bundle and landing page no longer omit options, Reporting, or Edge or describe retired preview-only drafts.** Hand-maintained tool counts are rejected outside the generated inventory so this public surface cannot silently drift again. ([#35](https://github.com/osauer/canary/issues/35))
+- **The historical regression spine can no longer run from a shallow CI checkout.** Every job that invokes it must fetch full history, with a negative contract fixture covering that requirement.
+
 ## v3.3.0 — 2026-08-27 19:38 CEST
 
 ### What's new
