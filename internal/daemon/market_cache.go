@@ -38,6 +38,9 @@ func (s *Server) handleMarketHistory(ctx context.Context, req *rpc.Request) (*rp
 	// A known series renders immediately, including during a broker outage.
 	// The joined daemon worker refreshes interest independently of browser life.
 	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
 	if saved, storedAt, err := s.loadMarketHistory(ctx, key); err != nil {
 		return nil, err
 	} else if saved != nil {

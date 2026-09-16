@@ -195,11 +195,39 @@ func (w *legacyFlushWrapper) Unwrap() http.ResponseWriter {
 }
 
 type controlledSSEWriter struct {
-	header   http.Header
-	body     bytes.Buffer
-	writeErr error
-	flushErr error
-	flushes  int
+	header      http.Header
+	body        bytes.Buffer
+	writeErr    error
+	flushErr    error
+	flushes     int
+	deadlines   []time.Time
+	deadlineErr error
+}
+
+func (w *controlledSSEWriter) SetWriteDeadline(deadline time.Time) error {
+	w.deadlines = append(w.deadlines, deadline)
+	return w.deadlineErr
+}
+
+func TestSendSSERequiresAndClearsWriteDeadline(t *testing.T) {
+	t.Parallel()
+	message := hyperserve.SSEMessage{Event: "snapshot", Data: "test"}
+	unbounded := &controlledSSEWriter{deadlineErr: http.ErrNotSupported}
+	if err := sendSSE(unbounded, checkedResponseController(unbounded), message); !errors.Is(err, http.ErrNotSupported) || unbounded.body.Len() != 0 {
+		t.Fatal("unsupported deadlines permitted an unbounded write", err)
+	}
+	w := &controlledSSEWriter{}
+	started := time.Now()
+	if err := sendSSE(w, checkedResponseController(w), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.deadlines) != 2 || w.deadlines[0].Before(started.Add(5*time.Second)) || !w.deadlines[1].IsZero() {
+		t.Fatal("successful send did not bound then clear its deadline", w.deadlines)
+	}
+	w = &controlledSSEWriter{flushErr: errors.New("timeout")}
+	if err := sendSSE(w, checkedResponseController(w), message); err == nil || len(w.deadlines) != 1 || w.deadlines[0].IsZero() {
+		t.Fatal("failed send cleared its deadline before net/http cleanup", err)
+	}
 }
 
 func (w *controlledSSEWriter) Header() http.Header {

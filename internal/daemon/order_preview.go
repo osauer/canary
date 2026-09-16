@@ -1137,7 +1137,7 @@ func (s *Server) previewExactSessionQuote(ctx context.Context, authority *orderP
 	if authority == nil || authority.connector == nil || contract.ConID <= 0 || !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact broker quote authority is unavailable", ErrTradingDisabled)
 	}
-	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout)
+	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, false)
 }
 
 // previewExactSessionFXQuote captures one direct CASH/IDEALPRO pair from the
@@ -1154,18 +1154,13 @@ func (s *Server) previewExactSessionFXQuote(ctx context.Context, authority *orde
 		!s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact broker FX quote authority is unavailable", ErrTradingDisabled)
 	}
-	return s.previewExactSessionContractQuoteWithReady(ctx, authority, contract, timeout, func(q *rpc.Quote) bool {
-		return q.Bid != nil && q.Ask != nil
-	})
+	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, true)
 }
 
-func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
-	return s.previewExactSessionContractQuoteWithReady(ctx, authority, contract, timeout, nil)
-}
-
-func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, ready func(*rpc.Quote) bool) (rpc.OrderQuoteSnapshot, error) {
+func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, requireBidAsk bool) (rpc.OrderQuoteSnapshot, error) {
 	quoteCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	started := time.Now()
 	key, err := authority.connector.SubscribeMarketDataWithContractForSession(quoteCtx, authority.session, *previewIBKRContract(contract), defaultGenericTicks)
 	if err != nil {
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
@@ -1176,8 +1171,7 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 		_ = authority.connector.UnsubscribeMarketDataForSession(cleanupCtx, authority.session, key)
 	}()
 	q := &rpc.Quote{Symbol: contract.Symbol, Contract: contract, IVStatus: "unavailable", AsOf: s.orderNow()}
-	started := time.Now()
-	var priceTickAt time.Time
+	var priceTickAt, bidAt, askAt time.Time
 	if err := pollMarketData(quoteCtx, authority.connector, key, started.Add(timeout), func(data *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, data)
 		if data != nil && data.LastPriceTickAt.After(priceTickAt) {
@@ -1185,12 +1179,10 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 		}
 		hasPrice := q.Bid != nil || q.Ask != nil || q.Last != nil || q.Mark != nil
 		if hasPrice {
-			q.DataType = quoteDataTypeName(authority.connector.MarketDataTypeForSymbol(key), true, false)
+			q.DataType = quoteDataTypeName(data.FeedType, true, false)
+			bidAt, askAt = data.BidAt, data.AskAt
 		}
-		if ready != nil {
-			return ready(q)
-		}
-		return hasPrice
+		return exactQuoteReady(q, requireBidAsk)
 	}); err != nil {
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact contract quote unavailable: %v", ErrTradingDisabled, err)
 	}
@@ -1198,6 +1190,9 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: broker session changed during exact quote", ErrTradingDisabled)
 	}
 	q.AsOf = s.orderNow()
+	if requireBidAsk {
+		return s.exactBidAskQuoteSnapshot(q, contract, started, bidAt, askAt), nil
+	}
 	s.decorateExactPreviewQuote(q, contract)
 	if !priceTickAt.IsZero() {
 		// Exact-session subscriptions start empty, so this is the receipt time
@@ -1211,6 +1206,49 @@ func (s *Server) previewExactSessionContractQuoteWithReady(ctx context.Context, 
 		}
 	}
 	return orderQuoteSnapshotFromQuote(q), nil
+}
+
+// exactQuoteReady waits for the broker's feed classification as well as prices.
+// Receiving a bid/ask before its data-type notice never establishes live data.
+func exactQuoteReady(q *rpc.Quote, requireBidAsk bool) bool {
+	if q == nil || (q.DataType != rpc.MarketDataLive && q.DataType != rpc.MarketDataFrozen && q.DataType != rpc.MarketDataDelayed && q.DataType != rpc.MarketDataDelayedFrozen) {
+		return false
+	}
+	if requireBidAsk {
+		return q.Bid != nil && q.Ask != nil
+	}
+	return q.Bid != nil || q.Ask != nil || q.Last != nil || q.Mark != nil
+}
+
+// exactBidAskQuoteSnapshot classifies the executable sides independently of a
+// last trade, which can be old even while an option has a current live market.
+// Only live, request-owned side receipts establish a bid/ask timestamp; receipt
+// of delayed or frozen values does not establish their broker-source freshness.
+func (s *Server) exactBidAskQuoteSnapshot(q *rpc.Quote, contract rpc.ContractParams, requestedAt, bidAt, askAt time.Time) rpc.OrderQuoteSnapshot {
+	view := *q
+	view.Last, view.Mark = nil, nil
+	s.decorateExactPreviewQuote(&view, contract)
+	view.PriceAt, view.QuotePriceAt = time.Time{}, time.Time{}
+	if q.DataType == rpc.MarketDataLive && !requestedAt.IsZero() && !bidAt.IsZero() && !askAt.IsZero() && !bidAt.Before(requestedAt) && !askAt.Before(requestedAt) && !bidAt.After(q.AsOf) && !askAt.After(q.AsOf) {
+		view.PriceAt = bidAt
+		if askAt.Before(bidAt) {
+			view.PriceAt = askAt
+		}
+		view.QuotePriceAt = view.PriceAt
+	}
+	if market, ok := quoteSessionMarketForContract(contract); ok {
+		view.Stale, view.StaleReason = quoteStaleness(&view, market)
+		if view.PriceAt.IsZero() {
+			view.Stale, view.StaleReason = true, "bid/ask source timestamp is unavailable"
+		}
+		view.DataType = quoteEffectiveDataType(&view, market, q.DataType)
+		view.PriceAsOf = quotePriceAsOf(&view, market)
+		view.QuoteQuality = quoteQuality(&view, market)
+		view.WarningDetails = quoteWarningDetails(&view, market)
+	}
+	out := orderQuoteSnapshotFromQuote(&view)
+	out.Last, out.Mark = q.Last, q.Mark
+	return out
 }
 
 func (s *Server) decorateExactPreviewQuote(q *rpc.Quote, contract rpc.ContractParams) {

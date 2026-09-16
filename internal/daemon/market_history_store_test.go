@@ -41,11 +41,18 @@ func TestMarketHistoryDurableOutageAndOfflineReload(t *testing.T) {
 	}
 	// New daemon state: no memory cache and no connector. Public chart reads
 	// must return the database record rather than first requiring a broker.
-	reloaded := &Server{coreStore: s.coreStore}
+	reloaded := &Server{coreStore: s.coreStore, now: func() time.Time { return now }}
 	raw, _ := json.Marshal(p)
 	got, err := reloaded.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
 	if err != nil || got.Cache.Selected != "cache" || got.AsOf != r.AsOf || got.Cache.StoredAt != result.Cache.StoredAt || len(got.Points) != 2 {
 		t.Fatalf("restart lost recorded history: %+v %v", got, err)
+	}
+	// A later view trims the requested window, while durable evidence retains
+	// the older point and its original source clock.
+	reloaded.now = func() time.Time { return now.AddDate(0, 0, 3) }
+	got, err = reloaded.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
+	if err != nil || len(got.Points) != 1 || got.AsOf != r.AsOf {
+		t.Fatalf("rolling selection changed retained evidence: %+v %v", got, err)
 	}
 	got, err = reloaded.readRetainedHistory(t.Context(), key, p, now.AddDate(0, 0, 3), func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error) {
 		return nil, errors.New("HMDS disconnected")
@@ -56,6 +63,43 @@ func TestMarketHistoryDurableOutageAndOfflineReload(t *testing.T) {
 	stored, _, err := s.loadMarketHistory(t.Context(), key)
 	if err != nil || stored.Result.AsOf != r.AsOf || len(stored.Result.Points) != 2 {
 		t.Fatal("failed read replaced successful document")
+	}
+}
+
+func TestMarketHistorySMARTCacheUsesResolvedCalendar(t *testing.T) {
+	_, p, key, _, r := historyFixture(t)
+	p.Range, p.Contract.Exchange, p.Contract.PrimaryExch = "1D", "SMART", ""
+	r.Contract.Exchange, r.Contract.PrimaryExch = "SMART", "NYSE"
+	r.Range, r.Interval, r.TimestampKind, r.RegularHoursOnly = "1D", "5 mins", "instant", false
+	resolved := p
+	resolved.Contract = r.Contract
+	for _, tc := range []struct{ name, fetchedAt, readAt string }{
+		{"weekday_cadence", "2026-09-15T16:00:00Z", "2026-09-15T16:01:00Z"},
+		{"closed_weekend", "2026-09-12T00:20:00Z", "2026-09-13T12:00:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fetched, _ := time.Parse(time.RFC3339, tc.fetchedAt)
+			now, _ := time.Parse(time.RFC3339, tc.readAt)
+			r.AsOf, r.RequestedStart = fetched, historyRequestStart(resolved, fetched)
+			r.Points = []rpc.MarketHistoryPoint{{At: fetched.Add(-25 * time.Minute), Value: 101}}
+			r.Start, r.End = r.Points[0].At, r.Points[0].At
+			saved := mergeMarketHistory(key, nil, r, true, fetched)
+			if historyRefreshDue(&saved, p, now) {
+				t.Fatal("unresolved SMART identity caused a premature refresh")
+			}
+			if tc.name == "weekday_cadence" && !historyRefreshDue(&saved, p, fetched.Add(5*time.Minute)) {
+				t.Fatal("resolved calendar suppressed the five-minute refresh")
+			}
+			if got := historyTailDays(&saved, p, now); got <= 0 {
+				t.Fatal("unresolved SMART identity forced a full read", got)
+			}
+			if got := selectStoredHistory(&saved, fetched, p, now, "cache", "", false); got.Cache.PreviousWindow || got.Cache.RefreshDue || got.AsOf != fetched {
+				t.Fatalf("current resolved session relabelled: %+v", got)
+			}
+			if !historyRefreshDue(&saved, p, fetched.AddDate(0, 0, 3)) {
+				t.Fatal("resolved calendar suppressed a later session refresh")
+			}
+		})
 	}
 }
 

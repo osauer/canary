@@ -223,7 +223,7 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 	e.mu.Unlock()
 	if seedExisting {
 		if md, ok := c.MarketDataSnapshot()[subKey]; ok {
-			frame := buildFrame(md, marketDataTypeName(c.MarketDataTypeForSymbol(subKey)))
+			frame := buildFrame(md, marketDataTypeName(md.FeedType))
 			select {
 			case tap.ch <- frame:
 			default:
@@ -420,7 +420,7 @@ func (m *subManager) tickLoop(e *subEntry) {
 			if !ok {
 				continue
 			}
-			dt := marketDataTypeName(c.MarketDataTypeForSymbol(e.sym))
+			dt := marketDataTypeName(md.FeedType)
 
 			e.mu.Lock()
 			if e.emitted &&
@@ -518,6 +518,9 @@ func (m *subManager) activeCount() int {
 // only carry positive prices and negative values would be a protocol bug,
 // so ptrIfPos is the safer semantic.
 func buildFrame(md *ibkrlib.MarketData, dt string) rpc.Frame {
+	if dt == "" && (md.Last > 0 || md.Bid > 0 || md.Ask > 0) {
+		dt = rpc.MarketDataUnknown
+	}
 	return rpc.Frame{
 		T:        time.Now(),
 		DataType: dt,

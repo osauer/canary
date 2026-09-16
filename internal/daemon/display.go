@@ -23,10 +23,11 @@ type displayInstrument struct {
 	kind, key string
 }
 type displayHold struct {
-	item        displayInstrument
-	cacheKey    string
-	release     func(context.Context)
-	resolvedDay string
+	item             displayInstrument
+	cacheKey         string
+	release          func(context.Context)
+	resolvedDay      string
+	requiredContract rpc.ContractParams
 }
 
 func displayContract(c ibkr.Contract) rpc.ContractParams {
@@ -71,15 +72,13 @@ func displayUniverse(snapshot ibkr.DisplaySnapshot) ([]displayInstrument, bool) 
 			add(ibkr.Contract{Symbol: route.Symbol, SecType: route.SecType, Exchange: route.Exchange, PrimaryExch: route.PrimaryExch, Currency: route.Currency}, "underlying", p.Contract.Symbol)
 		}
 	}
-	for _, item := range []struct{ key, symbol, sec, exchange string }{
-		{"sp500", "SPX", "IND", "CBOE"}, {"dow", "DIA", "STK", "SMART"}, {"nasdaq", "NDX", "IND", "NASDAQ"}, {"russell", "RUT", "IND", "CBOE"}, {"vix", "VIX", "IND", "CBOE"}, {"gold", "GLD", "STK", "SMART"},
-		{"sp500", "ES", "FUT", "CME"}, {"dow", "YM", "FUT", "CBOT"}, {"nasdaq", "NQ", "FUT", "CME"}, {"russell", "RTY", "FUT", "CME"}, {"gold", "GC", "FUT", "COMEX"},
-	} {
+	for _, item := range marketReferences() {
 		kind := "benchmark"
-		if item.sec == "FUT" {
+		if item.Kind == "future" {
 			kind = "future"
 		}
-		add(ibkr.Contract{Symbol: item.symbol, SecType: item.sec, Currency: "USD", Exchange: item.exchange}, kind, item.key)
+		p := item.Quote.Contract
+		add(ibkr.Contract{Symbol: p.Symbol, SecType: p.SecType, Currency: p.Currency, Exchange: p.Exchange}, kind, item.Key)
 	}
 	return items[:min(len(items), displayLimit)], len(items) > displayLimit
 }
@@ -144,6 +143,7 @@ reconcile:
 					continue
 				}
 				acquire, cancel := context.WithTimeout(ctx, 3*time.Second)
+				requiredContract := displayContract(item.contract)
 				contract := item.contract
 				var err error
 				if contract.SecType == "FUT" && contract.Expiry == "" {
@@ -155,7 +155,7 @@ reconcile:
 					cacheKey, release, err = s.subs.HoldContract(acquire, contract)
 					if err == nil {
 						item.contract = contract
-						held[key] = displayHold{item: item, cacheKey: cacheKey, release: release, resolvedDay: time.Now().UTC().Format("20060102")}
+						held[key] = displayHold{item: item, cacheKey: cacheKey, release: release, requiredContract: requiredContract, resolvedDay: time.Now().UTC().Format("20060102")}
 						publish()
 					}
 				}
@@ -227,6 +227,10 @@ func projectDisplay(snapshot ibkr.DisplaySnapshot, holds []displayHold, scope rp
 					q.PriceReceivedAt = md.AskAt
 				}
 			}
+			if q.Price == nil && md.Close > 0 {
+				q.Price, q.PriceSource, q.PriceReceivedAt = ptrIfPos(md.Close), "prev_close", md.CloseAt
+			}
+
 			if md.VolumeObserved && md.Volume >= 0 {
 				v := md.Volume
 				q.Volume = &v
@@ -316,6 +320,7 @@ func (s *Server) handleDisplaySubscribe(parent context.Context, req *rpc.Request
 			jobs <- items
 			previousUniverse = string(rawUniverse)
 		}
+		s.observeDisplayDataHealth(snapshot, holds, c)
 		frame := projectDisplay(snapshot, holds, accountDataScope(scope))
 		frame.Truncated = truncated || len(holds) < len(items)
 		frame.Generation = generation

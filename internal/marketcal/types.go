@@ -19,14 +19,18 @@ const (
 	MarketUSOptions Market = "us_options"
 	// MarketDEXetra is Deutsche Boerse Xetra's cash-equity session.
 	MarketDEXetra Market = "de_xetra"
+	// MarketUKLSE is London's SETS regular cash-equity session.
+	MarketUKLSE Market = "uk_lse"
+	// MarketJPTSE is Tokyo's cash-equity session, including its lunch break.
+	MarketJPTSE Market = "jp_tse"
+	// MarketHKHKEX is Hong Kong's ordinary cash-equity continuous session.
+	MarketHKHKEX Market = "hk_hkex"
 )
 
-// AllMarkets returns every supported market calendar. Consumers that reason
-// about "any supported market" (session-open unions, coverage checks) must
-// iterate this instead of naming markets, so adding a calendar extends them
-// automatically.
+// AllMarkets returns the calendar catalogue. Availability does not enable a
+// market for trading, desk scheduling, or backend-loss notification policy.
 func AllMarkets() []Market {
-	return []Market{MarketUSEquity, MarketUSOptions, MarketDEXetra}
+	return []Market{MarketUSEquity, MarketUSOptions, MarketDEXetra, MarketUKLSE, MarketJPTSE, MarketHKHKEX}
 }
 
 // State classifies a market at an instant or a calendar date.
@@ -42,7 +46,15 @@ const (
 	StateUnknown    State = "unknown"
 )
 
+// Window is a scheduled trading interval; its open is inclusive and close is
+// exclusive. It does not model unscheduled halts or auction extensions.
+type Window struct {
+	Open  time.Time
+	Close time.Time
+}
+
 // Session is one market's trading-session context for a date or instant.
+// Open and Close bound the day. Windows excludes scheduled lunch breaks.
 type Session struct {
 	Market        Market
 	Label         string
@@ -53,6 +65,7 @@ type Session struct {
 	Reason        string
 	Open          time.Time
 	Close         time.Time
+	Windows       []Window
 	NextOpen      *time.Time
 	NextClose     *time.Time
 	Source        string

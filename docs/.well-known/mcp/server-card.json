@@ -35,6 +35,38 @@
   ],
   "tools": [
     {
+      "name": "canary_data_health",
+      "description": "Read Canary's authoritative required-source health, receiving data modes, coverage, causes and producer clocks. A passive read performs no broker or provider acquisition. Follow next_offset with the returned revision for a consistent complete report. Unknown means unverified, never healthy. Use canary_data_check to request a bounded check, canary_status for service connectivity, and dataset tools for values.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64,
+            "description": "Maximum sources per bounded page; default 24. Byte limits may return fewer."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Zero-based page offset; default 0. Use the preceding next_offset."
+          },
+          "revision": {
+            "type": "string",
+            "description": "Report revision from the first page; omit to begin a current report. Expired revisions require restarting pagination."
+          }
+        }
+      }
+    },
+    {
+      "name": "canary_data_check",
+      "description": "Request or inspect a coalesced bounded check of required ordinary quote feeds. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_portfolio",
       "description": "Read current signed asset-class and IBKR industry values in account base currency, with valuation and classification coverage. Options are classified by their underlying. Cost basis uses broker average cost including the option multiplier. This is current valuation, not risk exposure, a return percentage, or statement performance.",
       "inputSchema": {
@@ -323,7 +355,10 @@
             "enum": [
               "us",
               "us-options",
-              "de"
+              "de",
+              "uk",
+              "jp",
+              "hk"
             ],
             "description": "exchange-session market; default us. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled"
           }

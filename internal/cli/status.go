@@ -59,7 +59,7 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	cliVersion := env.Version
 
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Gateway  %s\n", env.statusBadge(statusVerdict(*res, cliVersion)))
+	fmt.Fprintf(out, "IBKR Gateway  %s\n", env.statusBadge(apiStatusConcern(res.Verdict.State, res.Verdict.State)))
 	fmt.Fprintln(out)
 
 	statusRow(env, out, "Session", formatSessionValue(env, *res))
@@ -109,8 +109,14 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	if members := formatMembersValue(res.Members); members != "" {
 		statusRow(env, out, "SPX members", members)
 	}
-	if concern := nextConcern(*res, cliVersion); concern.Level != statusConcernNone {
-		statusRow(env, out, "Next concern", env.concernText(concern))
+	if res.DataHealth != nil {
+		statusRow(env, out, "Data health", res.DataHealth.Summary.Label)
+	}
+	if res.Verdict.Reason != "" {
+		statusRow(env, out, "Next concern", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
+	}
+	if daemonVersionDrift(res.DaemonVersion, cliVersion) {
+		statusRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
 	}
 
 	if isHandshakeInFlight(*res) {
@@ -416,6 +422,13 @@ func formatMarketDataAccessItem(item rpc.MarketDataAccessHealth) string {
 		name = "unknown"
 	}
 	part := name + " " + marketDataAccessReasonLabel(item.Reason)
+	if item.FallbackDataType == rpc.MarketDataDelayed || item.FallbackDataType == rpc.MarketDataDelayedFrozen {
+		label := "delayed data in use"
+		if item.FallbackDataType == rpc.MarketDataDelayedFrozen {
+			label = "delayed last-session data in use"
+		}
+		part = name + " live access unavailable; " + label
+	}
 	detail := make([]string, 0, 3)
 	if item.Code != 0 {
 		detail = append(detail, fmt.Sprintf("IBKR %d", item.Code))
@@ -712,4 +725,20 @@ func joinPorts(ports []int) string {
 		parts[i] = fmt.Sprintf("%d", p)
 	}
 	return strings.Join(parts, ", ")
+}
+
+// apiStatusConcern formats daemon posture without re-evaluating source health.
+func apiStatusConcern(state, text string) statusConcern {
+	switch state {
+	case "READY":
+		return statusConcern{Text: text, Level: statusConcernNone}
+	case "OFFLINE":
+		return statusConcern{Text: text, Level: statusConcernBad}
+	case "STARTING":
+		return statusConcern{Text: text, Level: statusConcernNotice}
+	case "ATTENTION":
+		return statusConcern{Text: text, Level: statusConcernWarn}
+	default:
+		return statusConcern{Text: "UNVERIFIED · daemon health verdict unavailable", Level: statusConcernWarn}
+	}
 }

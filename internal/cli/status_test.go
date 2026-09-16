@@ -33,11 +33,12 @@ func TestStatusAccountIDPrefersPinOverManagedAccountsAggregate(t *testing.T) {
 	}
 }
 
-func TestRenderStatus_DataQualityKeepsGatewayReady(t *testing.T) {
+func TestRenderStatus_PreservesDaemonVerdictWithSeparateDiagnostics(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
 	res := &rpc.HealthResult{
+		Verdict:       rpc.HealthVerdict{State: "READY"},
 		DaemonVersion: "v1.0.0",
 		UptimeSeconds: 1842,
 		GatewayHost:   "127.0.0.1",

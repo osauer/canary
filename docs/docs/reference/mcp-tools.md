@@ -4,7 +4,25 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**24 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**26 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+
+## `canary_data_health`
+
+Read Canary's authoritative provider/service health, receiving data modes, causes and producer clocks. Sources are services and data products, never individual instruments; quote availability and chart coverage stay in their dataset tools. A passive read performs no broker or provider acquisition. Follow next_offset with the returned revision for a consistent complete report. Unknown means unverified, never healthy. Use canary_data_check to request a bounded check, canary_status for service connectivity, and dataset tools for values.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `limit` | integer | no | Maximum sources per bounded page; default 24. Byte limits may return fewer. |
+| `offset` | integer | no | Zero-based page offset; default 0. Use the preceding next_offset. |
+| `revision` | string | no | Report revision from the first page; omit to begin a current report. Expired revisions require restarting pagination. |
+
+## `canary_data_check`
+
+Request or inspect a coalesced bounded check of required data sources using reference quote probes, not a holdings inventory. Counts describe sources, not instruments. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.
+
+*No parameters.*
 
 ## `canary_portfolio`
 
@@ -124,7 +142,7 @@ Analyze explicitly named stock or ETF symbols using daily trend, relative streng
 
 ## `canary_calendar`
 
-Read official exchange sessions to plan work around market opens, closes, holidays, and early closes. Supports US cash equities, US listed options, and Xetra. Preserve timezone, source, coverage bounds, and session.state: unknown is not closed and cannot supply a trading schedule. This is an exchange-session calendar, not an economic-release or earnings calendar; use canary_brief for current held-name event context. Read-only; no scheduling, refresh, or broker actions.
+Read official exchange sessions to plan work around market opens, closes, holidays, and early closes. Supports US cash equities, US listed options, Xetra, London SETS, Tokyo, and Hong Kong cash equities. Session windows exclude scheduled lunch breaks; outer open/close alone cannot establish tradability. Preserve timezone, source, coverage bounds, and session.state: unknown is not closed and cannot supply a trading schedule. This is an exchange-session calendar, not an economic-release or earnings calendar; use canary_brief for current held-name event context. Read-only; no scheduling, refresh, or broker actions.
 
 **Parameters:**
 

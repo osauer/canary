@@ -51,3 +51,19 @@ func TestCalendarSchedulingBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestCalendarWindowsReachConsumerWithoutExpandingWarningScope(t *testing.T) {
+	params := json.RawMessage(`{"market":"jp","at":"2026-09-14T12:00:00+09:00","days":1}`)
+	res, err := (&Server{}).handleMarketCalendar(&rpc.Request{Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Market != "jp_tse" || res.Session.IsOpen || len(res.Session.Windows) != 2 || len(res.Sessions[0].Windows) != 2 {
+		t.Fatalf("RPC lost lunch closure: %+v", res)
+	}
+	// Tokyo/Hong Kong open while the preexisting warning markets are closed.
+	at, _ := time.Parse(time.RFC3339, "2026-09-14T02:00:00Z")
+	if anySupportedMarketOpen(at) {
+		t.Fatal("calendar catalogue expanded backend warning policy")
+	}
+}

@@ -273,11 +273,11 @@ type ConnectorConfig struct {
 
 // Subscription holds the latest values for one streaming market-data request.
 type Subscription struct {
-	exactContract                Contract
-	exactSession                 ConnectorSessionBinding
-	optionRisk                   *OptionRiskMeasurement
-	LastAt, BidAt, AskAt, MarkAt time.Time
-	Symbol                       string
+	exactContract                         Contract
+	exactSession                          ConnectorSessionBinding
+	optionRisk                            *OptionRiskMeasurement
+	LastAt, BidAt, AskAt, MarkAt, CloseAt time.Time
+	Symbol                                string
 	// SessionEpoch is set for exact-session subscriptions. Zero identifies a
 	// legacy/shared subscription that cannot satisfy broker-write authority.
 	SessionEpoch uint64
@@ -317,7 +317,7 @@ type Subscription struct {
 	Week26High float64
 	Week52Low  float64
 	Week52High float64
-	// LastTradeTime is the Unix timestamp carried by tick-string type 45.
+	// LastTradeTime is the Unix timestamp carried by tick-string type 45 or 88.
 	LastTradeTime time.Time
 	// LastTickAt is when this process last received a tick message from the
 	// gateway on this subscription. Unlike LastTime it is never seeded at
@@ -346,6 +346,11 @@ type Subscription struct {
 	replaySpec *mdReplaySpec
 	// replayedAfter10197 bounds competing-session recovery to one replay.
 	replayedAfter10197 bool
+	delayedFallback    bool
+	delayedTicks       bool
+	liveRetryTimer     *time.Timer
+	previousQuote      *Subscription
+	previousDataType   int
 	// rejectedReqID records the reqID the gateway reported dead via a
 	// tears the ticker down itself, so a wire CancelMarketData for that
 	// exact reqID only draws error 300 "Can't find EId". Stored as the
@@ -388,19 +393,23 @@ const marketDataAbsenceRetry = 30 * time.Minute
 const inactiveMarkTTL = 12 * time.Hour
 
 type marketDataAbsence struct {
-	code    int
-	message string
-	at      time.Time
+	code             int
+	message          string
+	at               time.Time
+	delayedAttemptAt time.Time
+	delayedAvailable bool
 }
 
 // MarketDataAbsenceError reports that a recent terminal entitlement rejection
 // are local times; Message is untrusted broker text.
 type MarketDataAbsenceError struct {
-	Key        string
-	Code       int
-	Message    string
-	ObservedAt time.Time
-	RetryAt    time.Time
+	Key                string
+	Code               int
+	Message            string
+	ObservedAt         time.Time
+	RetryAt            time.Time
+	FallbackDataType   int
+	FallbackReceivedAt time.Time
 }
 
 // Error returns a concise description of the suppressed market-data request.
@@ -482,6 +491,21 @@ func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 		})
 	}
 	c.absenceMu.Unlock()
+	for i := range out {
+		c.subMu.RLock()
+		sub := c.subscriptions[out[i].Key]
+		if sub != nil {
+			dt := c.subscriptionDataType(sub)
+			if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
+				dt = sub.previousDataType
+				sub = sub.previousQuote
+			}
+			if (dt == 3 || dt == 4) && !sub.LastPriceTickAt.IsZero() {
+				out[i].FallbackDataType, out[i].FallbackReceivedAt = dt, sub.LastPriceTickAt
+			}
+		}
+		c.subMu.RUnlock()
+	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
@@ -1166,7 +1190,7 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 	// the connection enters delayed mode. Keep its RejectCh quiet until that
 	// attempt resolves so the original quote/gamma poll can receive the new
 	// reqID's delayed ticks. Every other terminal rejection still fast-aborts.
-	if code != 10197 {
+	if code != 10197 && code != 354 {
 		c.pushSubscriptionRejection(reqID, code, note.message)
 	}
 
@@ -1208,6 +1232,10 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 
 	if code == 354 {
 		c.maybeRememberAbsenceForReqID(reqID, alias, code, note.message)
+		if recover := c.prepareDelayedQuoteRecovery(origin, reqID); recover != nil {
+			return recover
+		}
+		c.pushSubscriptionRejection(reqID, code, note.message)
 	}
 	return postBarrier
 }
@@ -1333,7 +1361,13 @@ func (c *Connector) maybeRememberAbsenceForReqID(reqID int, alias reqAliasEntry,
 	if key == "" {
 		return
 	}
-	c.rememberMarketDataAbsence(key, code, message)
+	c.subMu.RLock()
+	sub := c.subscriptions[key]
+	delayed := sub != nil && sub.ReqID == reqID && sub.delayedFallback
+	c.subMu.RUnlock()
+	if !delayed {
+		c.rememberMarketDataAbsence(key, code, message)
+	}
 }
 
 // subscriptionKeyForNotice resolves the connector-owned subscription key a
@@ -1731,53 +1765,29 @@ func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding
 			// Socket bounced mid-replay; the successor session rebuilds
 			return replayed, dropped
 		}
-		// 1101 means the gateway already dropped every server-side ticker; a
-		// wire cancel for the old reqID only draws error 300 ("Can't find
-		// EId"). Release the local slot instead, as the 10197 replay does.
-		origin.connection.releaseMarketDataSlotAtEpoch(e.oldReqID, origin.epoch)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		var (
-			newReqID int
-			err      error
-		)
-		switch {
-		case e.spec.symbol == "":
-			newReqID, err = origin.connection.RequestMarketDataWithContract(ctx, e.spec.contract, e.spec.genericTicks, false, false)
-		case e.spec.primaryExch != "":
-			newReqID, err = origin.connection.RequestMarketDataWithPrimary(ctx, e.spec.symbol, e.spec.primaryExch)
-		default:
-			newReqID, err = origin.connection.RequestMarketData(ctx, e.spec.symbol)
-		}
-		cancel()
+		// The backend has already dropped this ticker. Reuse the common replay
+		// path, retaining delayed mode and its observation clocks when applicable.
 		c.subMu.Lock()
-		current := c.subscriptions[e.key]
-		if current != e.sub || current.ReqID != e.oldReqID {
-			// Raced with an unsubscribe or competing rebuild; do not adopt.
+		if c.subscriptions[e.key] != e.sub || e.sub.ReqID != e.oldReqID {
 			c.subMu.Unlock()
-			if err == nil && newReqID != 0 {
-				_ = origin.connection.CancelMarketData(newReqID)
-			}
 			continue
 		}
-		if err != nil || newReqID == 0 {
-			// Drop the entry so the demand paths re-create it instead of
-			// leaving a forever-dead reqID mapping behind.
-			delete(c.subscriptions, e.key)
-			delete(c.reqIDMap, e.oldReqID)
-			c.subMu.Unlock()
+		e.sub.rejectedReqID = e.oldReqID
+		mode := 0
+		if e.sub.delayedFallback {
+			mode = 4
+		}
+		c.subMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := c.replaceSharedQuote(ctx, origin, e.key, e.sub, e.oldReqID, mode)
+		cancel()
+		if err != nil {
+			c.removeSharedQuoteRequest(e.key, e.sub, e.oldReqID)
 			dropped++
 			c.logWarn("Failed to replay market data for %s after 1101 (%v); dropped for demand re-subscribe", e.key, err)
 			continue
 		}
-		delete(c.reqIDMap, e.oldReqID)
-		c.reqIDMap[newReqID] = e.key
-		e.sub.ReqID = newReqID
-		// LastTime only: re-issuing the request is not an observation. Both
-		// LastTickAt and LastPriceTickAt must keep pointing at the last real
-		// observations so a replay that never resumes stays visible as a
-		// growing gap.
-		e.sub.LastTime = time.Now()
-		c.subMu.Unlock()
+
 		replayed++
 	}
 	return replayed, dropped
@@ -1943,6 +1953,9 @@ func (c *Connector) detachSubscription(symbol string) func() {
 			cancelReqID = sub.ReqID
 		} else {
 			releaseReqID = sub.ReqID
+		}
+		if sub.liveRetryTimer != nil {
+			sub.liveRetryTimer.Stop()
 		}
 		delete(c.subscriptions, upper)
 	}
@@ -2229,6 +2242,11 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 		return
 	}
 	c.subMu.Lock()
+	for _, sub := range c.subscriptions {
+		if sub.liveRetryTimer != nil {
+			sub.liveRetryTimer.Stop()
+		}
+	}
 	clear(c.subscriptions)
 	clear(c.reqIDMap)
 	c.subMu.Unlock()
@@ -2293,18 +2311,29 @@ func (c *Connector) ensureHandlersRegistered(conn *Connection) {
 // 4=delayed-frozen, or 0 when the subscription or notice is absent.
 func (c *Connector) MarketDataTypeForSymbol(symbol string) int {
 	c.subMu.RLock()
-	sub, ok := c.subscriptions[strings.ToUpper(symbol)]
-	c.subMu.RUnlock()
-	if !ok || sub.ReqID == 0 {
+	defer c.subMu.RUnlock()
+	sub := c.subscriptions[strings.ToUpper(symbol)]
+	if sub == nil || sub.ReqID == 0 {
 		return 0
 	}
+	if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
+		return sub.previousDataType
+	}
+	return c.subscriptionDataType(sub)
+}
+
+func (c *Connector) subscriptionDataType(sub *Subscription) int {
+	notice := 0
 	c.mu.RLock()
 	conn := c.conn
 	c.mu.RUnlock()
-	if conn == nil {
-		return 0
+	if conn != nil {
+		notice = conn.MarketDataType(sub.ReqID)
 	}
-	return conn.MarketDataType(sub.ReqID)
+	if sub.delayedTicks && notice != 3 && notice != 4 {
+		return 3
+	}
+	return notice
 }
 
 // ContractDetailsLite contains the routing, identity, schedule, and price-tick
@@ -3843,10 +3872,7 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 			return ErrSymbolInactive
 		}
 	}
-	if absErr := c.marketDataAbsenceFor(symbol); absErr != nil {
-		c.logDebug("Skipping SubscribeMarketData for %s (%v)", symbol, absErr)
-		return absErr
-	}
+
 	// An unresolved symbol inside its definition-miss backoff must not fall
 	// through to the bare reqMktData path below: that wire request draws its
 	// own code-200 answer per call, which is the retry-loop shape the backoff
@@ -3865,76 +3891,22 @@ func (c *Connector) SubscribeMarketData(ctx context.Context, symbol string, fiel
 	}
 	c.subMu.RUnlock()
 
-	reqID := 0
-	var spec *mdReplaySpec
+	spec := mdReplaySpec{symbol: symbol}
 	if c.conn != nil && c.conn.IsConnected() {
 		contract, ready := c.prepareContract(symbol, 2*time.Second, true)
 		contract, ready = c.waitForContractDetails(symbol, contract, ready)
 		if !ready && contract.ConID == 0 {
-			// prepareContract's fetch may just have recorded a fresh
-			// definition miss; the bare-symbol request below would draw one
-			// more code-200 answer for a symbol the broker has already ruled
-			// on this window.
 			if missErr := c.contractResolutionMissFor(symbol); missErr != nil {
-				c.logDebug("Skipping SubscribeMarketData for %s (%v)", symbol, missErr)
 				return missErr
 			}
 		}
-
-		var err error
-		switch {
-		case ready:
-			reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, sharedGenericTicks, false, false)
-			spec = &mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks}
-		case contract.PrimaryExch != "":
-			reqID, err = c.conn.RequestMarketDataWithPrimary(ctx, symbol, contract.PrimaryExch)
-			spec = &mdReplaySpec{symbol: symbol, primaryExch: contract.PrimaryExch}
-		default:
-			reqID, err = c.conn.RequestMarketData(ctx, symbol)
-			spec = &mdReplaySpec{symbol: symbol}
-		}
-		if err != nil {
-			c.logWarn("Failed to request market data for %s: %v", symbol, err)
-			reqID = 0
-			spec = nil
+		if ready {
+			spec = mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks}
+		} else {
+			spec.primaryExch = contract.PrimaryExch
 		}
 	}
-
-	c.subMu.Lock()
-
-	// Race protection: another goroutine may have raced past the first
-	// idempotency check. If we issued a reqID to IBKR, cancel it so we
-	// don't leak a gateway-side subscription — but release subMu first
-	// so the cancel's rate-limited socket write doesn't block every
-	// other subscription reader.
-	if _, exists := c.subscriptions[symbol]; exists {
-		raceReqID := reqID
-		conn := c.conn
-		c.subMu.Unlock()
-		if raceReqID != 0 && conn != nil && conn.IsConnected() {
-			_ = conn.CancelMarketData(raceReqID)
-		}
-		marketDataLogger.Debugf("%s: SubscribeMarketData(%s) raced; reusing existing subscription", c.name, symbol)
-		return nil
-	}
-
-	if reqID != 0 {
-		c.reqIDMap[reqID] = symbol
-	}
-
-	c.subscriptions[symbol] = &Subscription{
-		Symbol:     symbol,
-		ReqID:      reqID,
-		Fields:     fields,
-		LastTime:   time.Now(),
-		RejectCh:   make(chan SubscriptionRejection, 1),
-		replaySpec: spec,
-	}
-	c.subMu.Unlock()
-
-	marketDataLogger.Debugf("%s: Subscribed to market data for %s (ReqID: %d)", c.name, symbol, reqID)
-
-	return nil
+	return c.subscribeSharedQuote(ctx, symbol, fields, spec)
 }
 
 // SubscribeMarketDataWithContract ensures a streaming subscription exists for
@@ -3955,10 +3927,7 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 		c.logDebug("Skipping routed SubscribeMarketData for %s (%s)", key, reason)
 		return key, ErrSymbolInactive
 	}
-	if absErr := c.marketDataAbsenceFor(key); absErr != nil {
-		c.logDebug("Skipping routed SubscribeMarketData for %s (%v)", key, absErr)
-		return key, absErr
-	}
+
 	// A routed subscribe can carry a position-derived ConID the broker no
 	// longer resolves (delisting): the request itself then draws code 200 on
 	// every poll cycle with no contract-details fetch involved, so the
@@ -3968,50 +3937,7 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 		return key, missErr
 	}
 
-	c.subMu.RLock()
-	if sub, exists := c.subscriptions[key]; exists {
-		c.subMu.RUnlock()
-		marketDataLogger.Debugf("%s: SubscribeMarketDataWithContract(%s) is a no-op; existing subscription reqID=%d", c.name, key, sub.ReqID)
-		return key, nil
-	}
-	c.subMu.RUnlock()
-
-	reqID := 0
-	if c.conn != nil && c.conn.IsConnected() {
-		var err error
-		reqID, err = c.conn.RequestMarketDataWithContract(ctx, contract, sharedGenericTicks, false, false)
-		if err != nil {
-			c.logWarn("Failed to request market data for %s: %v", key, err)
-			return key, err
-		}
-	}
-
-	c.subMu.Lock()
-	if _, exists := c.subscriptions[key]; exists {
-		raceReqID := reqID
-		conn := c.conn
-		c.subMu.Unlock()
-		if raceReqID != 0 && conn != nil && conn.IsConnected() {
-			_ = conn.CancelMarketData(raceReqID)
-		}
-		marketDataLogger.Debugf("%s: SubscribeMarketDataWithContract(%s) raced; reusing existing subscription", c.name, key)
-		return key, nil
-	}
-	if reqID != 0 {
-		c.reqIDMap[reqID] = key
-	}
-	c.subscriptions[key] = &Subscription{
-		Symbol:     key,
-		ReqID:      reqID,
-		Fields:     fields,
-		LastTime:   time.Now(),
-		RejectCh:   make(chan SubscriptionRejection, 1),
-		replaySpec: &mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks},
-	}
-	c.subMu.Unlock()
-
-	marketDataLogger.Debugf("%s: Subscribed to routed market data for %s (ReqID: %d)", c.name, key, reqID)
-	return key, nil
+	return key, c.subscribeSharedQuote(ctx, key, fields, mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks})
 }
 
 // SubscribeMarketDataWithContractForSession creates a short-lived,
@@ -4298,12 +4224,14 @@ func resetSubscriptionObservations(sub *Subscription) {
 	sub.BidAt = time.Time{}
 	sub.AskAt = time.Time{}
 	sub.MarkAt = time.Time{}
+	sub.CloseAt = time.Time{}
 	sub.LastTradeTime = time.Time{}
 	sub.LastTickAt = time.Time{}
 	sub.LastPriceTickAt = time.Time{}
 	sub.IV = 0
 	sub.LastTime = time.Time{}
 	sub.Observed = false
+	sub.delayedTicks = false
 	sub.rejectedReqID = 0
 }
 
@@ -4349,6 +4277,9 @@ func (c *Connector) unsubscribeMarketData(ctx context.Context, symbol string, bi
 	if !exists {
 		c.subMu.Unlock()
 		return nil
+	}
+	if sub.liveRetryTimer != nil {
+		sub.liveRetryTimer.Stop()
 	}
 	delete(c.subscriptions, symbol)
 	if c.reqIDMap[sub.ReqID] == symbol {
@@ -5773,21 +5704,42 @@ func (c *Connector) handleTickPrice(fields []string) {
 	defer c.subMu.Unlock()
 
 	sub, exists := c.subscriptions[symbol]
-	if !exists {
+	if !exists || sub.ReqID != reqID {
 		return
 	}
 
 	// Validate price before updating: reject zero and negative prices to prevent
 	// overwriting valid prices with "no quote available" indicators from IBKR.
-	if price <= 0 {
+	if price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 		// Update LastTime to show we received a tick, but don't update the price
 		sub.LastTime = time.Now()
 		sub.LastTickAt = sub.LastTime
 		return
 	}
 
-	// Mark subscription observed once we accept a valid price
-	sub.Observed = true
+	// Statistics such as a 52-week high cannot establish a usable quote or
+	// finish a live probe. Retain the previous priced observation until then.
+	quotePrice := false
+	switch tickType {
+	case 1, 2, 4, 9, 37, 66, 67, 68, 75:
+		quotePrice = true
+		sub.Observed = true
+		sub.previousQuote = nil
+	}
+	if tickType >= 66 && tickType <= 76 {
+		sub.delayedTicks = true
+	}
+	if quotePrice && sub.delayedFallback {
+		c.recordDelayedQuoteAvailable(symbol)
+	}
+	if quotePrice && !sub.delayedTicks && c.subscriptionDataType(sub) == 1 {
+		c.absenceMu.Lock()
+		delete(c.mktDataAbsent, symbol)
+		c.absenceMu.Unlock()
+		if sub.liveRetryTimer != nil {
+			sub.liveRetryTimer.Stop()
+		}
+	}
 
 	// Tick types: 1=bid, 2=ask, 4=last, 6=high, 7=low, 9=close, 14=open.
 	// Delayed subscriptions use 66/67/68/72/73/75/76 for the same fields.
@@ -5835,7 +5787,9 @@ func (c *Connector) handleTickPrice(fields []string) {
 	observedAt := time.Now()
 	sub.LastTime = observedAt
 	sub.LastTickAt = observedAt
-	sub.LastPriceTickAt = observedAt
+	if quotePrice {
+		sub.LastPriceTickAt = observedAt
+	}
 	stampDisplayPrice(sub, tickType, observedAt)
 }
 
@@ -7840,12 +7794,12 @@ func (c *Connector) handleTickString(fields []string) {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
 	sub, ok := c.subscriptions[symbol]
-	if !ok {
+	if !ok || sub.ReqID != reqID {
 		return
 	}
 	priceObserved := false
 	switch tickType {
-	case 45:
+	case 45, 88:
 		sec, err := strconv.ParseInt(value, 10, 64)
 		if err != nil || sec <= 0 {
 			return
@@ -8249,7 +8203,13 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 	data := make(map[string]*MarketData)
 
 	for symbol, sub := range c.subscriptions {
+		dataType := c.subscriptionDataType(sub)
+		if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
+			dataType = sub.previousDataType
+			sub = sub.previousQuote
+		}
 		data[symbol] = &MarketData{
+			FeedType:        dataType,
 			Symbol:          symbol,
 			Bid:             sub.Bid,
 			Ask:             sub.Ask,
@@ -8263,7 +8223,7 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 			AvgVolume:       sub.AvgVolume,
 			LastTickAt:      sub.LastTickAt,
 			LastPriceTickAt: sub.LastPriceTickAt,
-			LastAt:          sub.LastAt, BidAt: sub.BidAt, AskAt: sub.AskAt, MarkAt: sub.MarkAt,
+			LastAt:          sub.LastAt, BidAt: sub.BidAt, AskAt: sub.AskAt, MarkAt: sub.MarkAt, CloseAt: sub.CloseAt,
 			LastTradeTime:     sub.LastTradeTime,
 			OpenInt:           sub.OpenInt,
 			OpenIntObserved:   sub.OpenIntObserved,

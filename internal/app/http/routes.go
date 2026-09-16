@@ -115,6 +115,7 @@ func Register(deps Dependencies) {
 	srv.POST("/api/auth/session", h.handleAuthSession)
 
 	srv.GET("/api/bootstrap", h.requireRead(h.handleBootstrap))
+	srv.GET("/api/data/health", h.requireRead(h.handleDataHealth))
 	srv.GET("/api/update", h.requireRead(h.handleUpdateStatus))
 	srv.POST("/api/update", h.requireAuth(h.handleUpdateStart))
 	srv.GET("/api/snapshot", h.requireRead(h.handleSnapshot))
@@ -582,12 +583,9 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 		return
 	}
 	controller := checkedResponseController(w)
-	// The server-wide WriteTimeout protects ordinary responses but would sever
-	// this long-lived stream mid-chunk. Lift the deadline for this authenticated
-	// response only; every other endpoint keeps the protective timeout.
-	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
-		slog.Warn("app events: write deadline not cleared; stream may be cut by server timeout", "err", err)
-	}
+	// net/http writes a final chunk after this handler returns. Reapply a
+	// deadline even when cancellation arrives between otherwise healthy sends.
+	defer func() { _ = controller.SetWriteDeadline(time.Now().Add(sseWriteTimeout)) }()
 	ch, release := h.deps.Live.Subscribe()
 	defer release()
 	alerts := h.alertDTO()
@@ -638,10 +636,15 @@ func (h *handler) handleEvents(w nethttp.ResponseWriter, r *nethttp.Request) {
 	}
 }
 
+const sseWriteTimeout = 5 * time.Second
+
 // sendSSE does not treat a successful Write as proof that bytes reached the
 // client: ResponseController.Flush reports wrapper and socket flush failures
 // that the legacy http.Flusher.Flush method cannot return.
 func sendSSE(w nethttp.ResponseWriter, controller *nethttp.ResponseController, messages ...hyperserve.SSEMessage) error {
+	if err := controller.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil {
+		return fmt.Errorf("set SSE write deadline: %w", err)
+	}
 	for _, message := range messages {
 		if _, err := io.WriteString(w, message.String()); err != nil {
 			return fmt.Errorf("write SSE event %q: %w", message.Event, err)
@@ -650,14 +653,20 @@ func sendSSE(w nethttp.ResponseWriter, controller *nethttp.ResponseController, m
 	if err := controller.Flush(); err != nil {
 		return fmt.Errorf("flush SSE events: %w", err)
 	}
+	// Healthy streams can idle indefinitely between sends. On failure retain
+	// the deadline so net/http's final buffered flush cannot block again.
+	if err := controller.SetWriteDeadline(time.Time{}); err != nil {
+		return fmt.Errorf("clear SSE write deadline: %w", err)
+	}
 	return nil
 }
 
 // checkedResponseController unwraps middleware before controller operations.
-// HyperServe's logging writer exposes both Flush() and Unwrap(); net/http would
-// otherwise choose the legacy no-error Flush method before reaching the
-// underlying writer's FlushError method. Writes still pass through the wrapper
-// so metrics and response accounting remain intact.
+// Legacy wrappers exposing both Flush() and Unwrap() can hide flush errors:
+// net/http chooses the no-error Flush before reaching the underlying writer's
+// FlushError method. HyperServe v2.1.5 preserves that error itself; unwrapping
+// also protects against other legacy wrappers. Writes still pass through the
+// wrapper so metrics and response accounting remain intact.
 func checkedResponseController(w nethttp.ResponseWriter) *nethttp.ResponseController {
 	for {
 		unwrapper, ok := w.(interface{ Unwrap() nethttp.ResponseWriter })

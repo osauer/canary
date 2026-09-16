@@ -65,7 +65,7 @@ func (c *Connector) CaptureDisplay() (DisplaySnapshot, bool) {
 
 	out.Quotes = c.MarketDataSnapshot()
 	for key := range out.Quotes {
-		out.DataTypes[key] = c.MarketDataTypeForSymbol(key)
+		out.DataTypes[key] = out.Quotes[key].FeedType
 	}
 	if !c.SessionCurrent(binding) {
 		return DisplaySnapshot{}, false
@@ -131,5 +131,7 @@ func stampDisplayPrice(sub *Subscription, tick int, at time.Time) {
 		sub.LastAt = at
 	case 37:
 		sub.MarkAt = at
+	case 9, 75:
+		sub.CloseAt = at
 	}
 }

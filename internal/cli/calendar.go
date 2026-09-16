@@ -11,7 +11,7 @@ import (
 func runCalendar(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "calendar")
 	jsonOut := fs.Bool("json", false, "emit the daemon's typed exchange-session calendar")
-	market := fs.String("market", "us", "exchange sessions: us | us-options | de")
+	market := fs.String("market", "us", "exchange sessions: us | us-options | de | uk | jp | hk")
 	date := fs.String("date", "", "YYYY-MM-DD in the market timezone, evaluated at local noon; default now")
 	at := fs.String("at", "", "RFC3339 instant with timezone offset; takes precedence over --date")
 	days := fs.Int("days", 14, "forward calendar dates including the selected date; default 14, capped at 400")
@@ -52,6 +52,11 @@ func renderCalendar(env *Env, res rpc.MarketCalendarResult) {
 		riskReadLine(env, row.Date, row.State, row.Reason)
 		if !row.Open.IsZero() && !row.Close.IsZero() {
 			riskReadLine(env, "  Session", row.Open.Format(time.RFC3339)+" to "+row.Close.Format(time.RFC3339))
+			if len(row.Windows) > 1 {
+				for _, window := range row.Windows {
+					riskReadLine(env, "  Trading window", window.Open.Format(time.RFC3339)+" to "+window.Close.Format(time.RFC3339))
+				}
+			}
 		}
 	}
 	if res.Session.NextOpen != nil {

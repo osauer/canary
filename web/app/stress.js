@@ -824,6 +824,9 @@ function marketQuoteChangeClass(symbol, change) {
 }
 
 function marketQuoteInterruptedLine(quote, marketQuotes, hasPrice) {
+  if (String(quote?.feed_type || quote?.data_type || "").includes("delayed")) {
+    return `${marketQuoteSourceLine(quote, marketQuotes, "")} · feed interrupted`;
+  }
   const at = quoteTimestamp(quote) || marketQuotes?.as_of || "";
   const atLabel = at ? ` · ${quoteTime(at)}` : "";
   return hasPrice ? `Frozen${atLabel}` : "Feed issue";
@@ -850,13 +853,17 @@ function marketQuoteSourceLine(quote, marketQuotes, fallback) {
   const parts = [];
   const quality = String(quote?.quote_quality || "").trim();
   const dataType = String(quote?.data_type || "").trim();
+  const feedType = String(quote?.feed_type || dataType).trim();
+  const delayed = feedType.includes("delayed");
+  if (delayed) parts.push(feedType.includes("frozen") || dataType === "prev_close" ? "Delayed · last session" : "Delayed");
   if (quality && quality !== "firm") parts.push(labelize(quality));
-  if (dataType && dataType !== "live") parts.push(labelize(dataType));
+  if (!delayed && dataType && dataType !== "live") parts.push(labelize(dataType));
   const uniqueParts = [...new Set(parts)];
   // A healthy live quote is the default state; naming the source 6× across
   // the rail is noise. The label only appears when there is no quote yet;
   if (uniqueParts.length === 0 && !quote) uniqueParts.push(fallback || "Quote pending");
-  const at = quote?.quote_price_at || quote?.price_at || quote?.as_of || marketQuotes?.as_of;
+  const at = quoteTimestamp(quote) || (delayed ? "" : marketQuotes?.as_of);
+  if (delayed && !at) uniqueParts.push("quote time unknown");
   if (at) uniqueParts.push(quoteTime(at));
   return uniqueParts.join(" · ");
 }
@@ -1064,35 +1071,13 @@ function renderLampTest(snap = {}, stress = {}, assessment = "") {
 }
 
 function lampTestSources(snap = {}, stress = {}) {
-  const seen = new Map();
-  for (const source of [...(snap.regime?.source_health || []), ...(stress.source_health || [])]) {
-    const name = String(source?.source || "").trim().toLowerCase();
-    if (!name || seen.has(name)) continue;
-    seen.set(name, source);
-  }
-  const faults = [];
+  const report = snap.status?.data_health;
+  const summary = report?.schema_version === 1 ? report.summary : null;
+  const faults = summary ? (summary.state === "current" ? [] : [summary.label]) : ["Canary data health unverified"];
+  if (report?.valid_until && !(Date.parse(report.valid_until) > Date.now())) faults.push("Last Canary report · current health unconfirmed");
   const inherited = [];
-  let ok = 0;
-  let total = 0;
-  for (const [name, source] of seen) {
-    const status = String(source?.status || "").trim().toLowerCase();
-    const derivedFrom = Array.isArray(source?.derived_from) ? source.derived_from : [];
-    if (derivedFrom.length > 0) {
-      // A served aggregate row inheriting its inputs' health is not an
-      // extra failed source: name the leaves it inherits instead of
-      // counting one cause twice.
-      if (status && status !== "ok") {
-        inherited.push(`${clusterInputLabel(name)} ${status} — inherits ${humanList(derivedFrom.map(clusterInputLabel), 3)}`);
-      }
-      continue;
-    }
-    total++;
-    if (!status || status === "ok") {
-      ok++;
-      continue;
-    }
-    faults.push(`${clusterInputLabel(name)} ${status}`);
-  }
+  const ok = summary?.current ?? 0;
+  const total = summary?.required ?? 0;
   // App-transport failures arrive two ways: a served error string, or a served
   // and brief report a failed poll). Reading only the first left a dead window
   for (const [name, meta] of Object.entries(snap.sources || {})) {
@@ -1566,6 +1551,11 @@ function marketAccessBySymbol(snap = {}) {
 // free text never reaches the wire, so the code is the only classification
 // input, and 354 — the account is not subscribed — is the one a user can act
 function marketAccessReasonLabel(row = {}) {
+  if (row.fallback_data_type === "delayed" || row.fallback_data_type === "delayed-frozen") {
+    const kind = row.fallback_data_type === "delayed-frozen" ? "delayed last-session data" : "delayed data";
+    return `live access unavailable; ${kind} in use (IBKR ${Number(row.code || 354)})`;
+  }
+
   const reason = String(row.reason || "").toLowerCase();
   const phrase = reason === "not_subscribed" ? "not subscribed" : "market data refused";
   const code = Number(row.code || 0);

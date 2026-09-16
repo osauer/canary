@@ -23,6 +23,18 @@ app, and SPA code are adapters and must not re-create daemon or risk policy.
 - The Makefile is the target inventory. Run `make help` before using an
   unfamiliar target.
 
+## HyperServe updates
+
+Use the latest published stable HyperServe release. At the start of
+implementation work and before release preparation, check the supplier's
+latest release and the Go module version; update and validate Canary when a
+newer release exists. A new major version requires its corresponding module
+path migration and compatibility proof, not silently retaining the old major.
+Record the resolved version and checksums in `go.mod` and `go.sum`. Ordinary
+builds and checks use those exact versions; they must not discover or upgrade
+dependencies automatically. Keep Canary's strict JSON and flush-error adapters
+until the published replacement passes equivalent integration tests.
+
 ## Trading and data safety
 
 - Any broker write requires an explicit, transaction-specific instruction from

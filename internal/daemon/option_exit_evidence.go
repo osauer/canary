@@ -152,7 +152,7 @@ func (b optionExitBrokerSource) option(ctx context.Context, contract rpc.Contrac
 }
 
 func (b optionExitBrokerSource) quote(ctx context.Context, contract rpc.ContractParams) (rpc.OrderQuoteSnapshot, error) {
-	return b.server.previewExactSessionContractQuoteWithReady(ctx, b.authority, contract, optionExitQuoteTimeout, func(q *rpc.Quote) bool { return q != nil && q.Bid != nil && q.Ask != nil })
+	return b.server.previewExactSessionContractQuote(ctx, b.authority, contract, optionExitQuoteTimeout, true)
 }
 
 func (b optionExitBrokerSource) fx(ctx context.Context, currency, base string) (orderNotionalAuthority, error) {

@@ -87,6 +87,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		sourceFingerprints.MarketEvents = &marketEventsFingerprint
 	}
 	res := StressResult{
+		AccountScope:       stressAccountScope(in.Account, in.Positions),
 		AsOf:               now,
 		SourceAsOf:         sourceAsOf,
 		SourceFingerprints: sourceFingerprints,
@@ -139,6 +140,34 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 	}
 	res.Fingerprint = rpc.BuildStressFingerprint(&res)
 	return res
+}
+
+// stressAccountScope requires both observed sources to agree. Retained rows,
+// legacy payload IDs, and configured accounts cannot establish this binding.
+func stressAccountScope(account rpc.AccountResult, positions rpc.PositionsResult) *rpc.AccountDataScope {
+	a, p := account.Authority, positions.Authority
+	if a == nil || p == nil || a.Scope != p.Scope {
+		return nil
+	}
+	for _, authority := range []*rpc.AccountDataAuthority{a, p} {
+		if authority.Availability != rpc.AccountDataAvailable || authority.Freshness != rpc.AccountDataFreshnessCurrent || authority.Reason != "" || authority.AsOf.IsZero() {
+			return nil
+		}
+	}
+	if (a.Source != rpc.AccountDataSourceAccountSummaryRequest && a.Source != rpc.AccountDataSourceAccountUpdatesCache) || p.Source != rpc.AccountDataSourcePortfolioStream {
+		return nil
+	}
+	scope := a.Scope
+	if scope.AccountID == "" || strings.TrimSpace(scope.AccountID) != scope.AccountID || strings.EqualFold(scope.AccountID, "All") || strings.ContainsAny(scope.AccountID, ", \t\r\n") {
+		return nil
+	}
+	if scope.AccountMode != rpc.AccountModePaper && scope.AccountMode != rpc.AccountModeLive {
+		return nil
+	}
+	if account.AccountID != scope.AccountID || positions.AccountID != scope.AccountID || account.AsOf.IsZero() || positions.AsOf.IsZero() {
+		return nil
+	}
+	return &scope
 }
 
 // stressRelevantMarketEventsFingerprint applies the same exposure boundary as

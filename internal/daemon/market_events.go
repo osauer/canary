@@ -223,7 +223,9 @@ func (s *Server) marketEventsForSymbols(ctx context.Context, symbols []string) r
 	if s.marketEvents == nil {
 		s.installMarketEventCache()
 	}
-	return s.marketEvents.snapshot(ctx, symbols, s.subs, s.gatewayConnector(), s.currentBrokerStateScope)
+	result := s.marketEvents.snapshot(ctx, symbols, s.subs, s.gatewayConnector(), s.currentBrokerStateScope)
+	s.observeEventHealth(result)
+	return result
 }
 
 func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs *subManager, connector *ibkrlib.Connector, scopeProviders ...func() brokerStateScope) rpc.MarketEventsResult {

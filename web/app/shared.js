@@ -66,7 +66,9 @@ function stockProtectionSettingEnabled() {
 }
 
 function quoteTimestamp(quote) {
-  return quote?.quote_price_at || quote?.price_at || quote?.as_of || "";
+  const priceAt = quote?.quote_price_at || quote?.price_at || "";
+  if (String(quote?.feed_type || quote?.data_type || "").includes("delayed")) return priceAt;
+  return priceAt || quote?.as_of || "";
 }
 
 function normalizeSymbol(value) {

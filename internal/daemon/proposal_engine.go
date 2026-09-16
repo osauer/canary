@@ -605,8 +605,8 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 			rulebookPolicy := risk.DefaultRulebookPolicy()
 			var economicEvidence optionExitBookEvidence
 			for _, row := range pos.Options {
-				intent, declared := intents[row.ConID]
-				if declared && !now.Before(intent.ApprovedAt) && now.Before(intent.ExpiresAt) && row.Quantity > 0 {
+				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
+				if purpose != "unconfirmed" && row.Quantity > 0 {
 					// One complete book per refresh; independent exits still
 					// participate together in the same exposure calculation.
 					economicEvidence = e.optionExitEvidence(ctx, pos, now)
@@ -617,8 +617,9 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 				if row.Quantity == 0 {
 					continue
 				}
-				intent, declared := intents[row.ConID]
-				intentCurrent := declared && !now.Before(intent.ApprovedAt) && now.Before(intent.ExpiresAt)
+				intent := intents[row.ConID]
+				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
+				intentCurrent := purpose == "directional"
 				exactRow := optionExitWithoutQuote(row)
 				// Missing intent still creates review work, without spending a
 				// broker quote request on a contract that cannot yet qualify.
@@ -631,6 +632,13 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 				if economicEvidence.Closed && e.optionExitPreviouslyProtection(row.ConID) {
 					roleAllowed, economicRole = false, risk.IndexPutRoleProtection
 				}
+				purposeConflict := purpose == "protection" && economicRole == risk.IndexPutRoleDirectional
+				if purpose == "protection" && !purposeConflict {
+					// Standing protection purpose is not a directional exit task.
+					// Missing measurements remain source-health work; they do not
+					// turn a retained hedge into a routine owner declaration.
+					continue
+				}
 				decision := evaluateOptionExit(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, rulebookPolicy.ExitActLossPct)
 				if decision.Action == "" && len(decision.Blockers) == 0 {
 					continue
@@ -640,6 +648,15 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 					minTick = e.resolveRowMinTick(exactRow)
 				}
 				if p, ok := optionExitProposal(policy, status, exactRow, sources, now, decision, economicRole, minTick, rulebookPolicy.ExitActLossPct); ok {
+					p.OptionExit.Intent = purpose
+					if purposeConflict {
+						p.Reason = "Standing protection purpose conflicts with current portfolio evidence; resolve the hedge role before a directional exit."
+						p.Blockers = slices.DeleteFunc(p.Blockers, func(b rpc.TradingBlocker) bool { return b.Code == "directional_intent_required" })
+						optionExitBlock(&p, "option_purpose_conflict", "Standing policy treats this index put as protection, but current complete portfolio evidence classifies it as directional.")
+						p.Blockers[len(p.Blockers)-1].Action = "Resolve whether this hedge is still intended before any directional exit; no order is authorized."
+					} else if intentCurrent && optionExitIntentState(policy.Buckets.TrailingStop.Options, row.ConID, now) != "directional" {
+						p.Details = append(p.Details, "Standing policy classifies this ordinary long call as directional; exact-contract quote, risk, and broker-write checks still apply.")
+					}
 					explainOptionExitEconomicBlocker(&p, rowEvidence)
 					if rowEvidence.Fingerprint != "" {
 						p.OptionExit.EconomicEvidence = &rpc.OptionExitEconomicEvidence{Scope: rowEvidence.Scope, Fingerprint: rowEvidence.Fingerprint, AsOf: rowEvidence.AsOf, PortfolioGeneration: rowEvidence.Generation, TerminalFingerprint: rowEvidence.TerminalFingerprint}
@@ -1346,6 +1363,37 @@ func directionalOptionIntents(cfg protectionTrailOptionPolicy) map[int]protectio
 		}
 	}
 	return out
+}
+
+// optionExitPurpose applies standing policy only to an ordinary, ungrouped
+// contract with no exact override. An expired override remains an exception;
+// defaults cannot silently renew it or dissolve a strategy.
+func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, pos *rpc.PositionsResult, legs map[int]bool, ambiguous map[string]bool, now time.Time) string {
+	for _, intent := range cfg.DirectionalIntents {
+		if intent.ConID == row.ConID && row.ConID > 0 {
+			return optionExitIntentState(cfg, row.ConID, now)
+		}
+	}
+	contract, valid := optionExitContract(row)
+	if !valid || contract.SecType != "OPT" || row.Quantity <= 0 || row.Multiplier != 100 || legs[row.ConID] || ambiguous[normSym(row.Symbol)] || pos == nil {
+		return "unconfirmed"
+	}
+	if cfg.DefaultIndexPutsProtection && row.Right == "P" && risk.DefaultRulebookPolicy().IsHedgeSymbol(row.Symbol) {
+		return "protection"
+	}
+	if cfg.DefaultLongCallsDirectional && row.Right == "C" {
+		// A call can hedge a short book. Shape alone cannot resolve that
+		// conflict, including exposures held under another underlying.
+		for _, holdings := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
+			for _, holding := range holdings {
+				if holding.Quantity < 0 || math.IsNaN(holding.Quantity) || math.IsInf(holding.Quantity, 0) {
+					return "unconfirmed"
+				}
+			}
+		}
+		return "directional"
+	}
+	return "unconfirmed"
 }
 
 // optionExitStrategyScope preserves confirmed or unresolved strategy membership.

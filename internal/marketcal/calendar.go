@@ -20,6 +20,12 @@ func NormalizeMarket(v string) (Market, bool) {
 		return MarketUSOptions, true
 	case "de", "de-xetra", "de_xetra", "xetra", "germany", "ibis":
 		return MarketDEXetra, true
+	case "uk", "uk_lse", "uk-lse", "lse", "london":
+		return MarketUKLSE, true
+	case "jp", "jp_tse", "jp-tse", "tse", "tsej", "tokyo":
+		return MarketJPTSE, true
+	case "hk", "hk_hkex", "hk-hkex", "hkex", "sehk":
+		return MarketHKHKEX, true
 	default:
 		return "", false
 	}
@@ -158,16 +164,34 @@ func (c *Calendar) sessionForDate(spec calendarSpec, loc *time.Location, day, at
 	}
 	s.Open = atLocal(day, loc, spec.open)
 	s.Close = atLocal(day, loc, closeHM)
-	if !at.IsZero() && !at.Before(s.Open) && at.Before(s.Close) {
-		s.IsOpen = true
+	start := s.Open
+	for _, pause := range spec.breaks {
+		pauseStart, pauseEnd := atLocal(day, loc, pause.start), atLocal(day, loc, pause.end)
+		if !pauseStart.Before(s.Close) {
+			break
+		}
+		if start.Before(pauseStart) {
+			s.Windows = append(s.Windows, Window{Open: start, Close: pauseStart})
+		}
+		start = pauseEnd
+	}
+	if start.Before(s.Close) {
+		s.Windows = append(s.Windows, Window{Open: start, Close: s.Close})
+	}
+	for _, window := range s.Windows {
+		if !at.IsZero() && !at.Before(window.Open) && at.Before(window.Close) {
+			s.IsOpen = true
+		}
 	}
 	if !s.IsOpen && !at.IsZero() {
-		if at.Before(s.Open) {
-			open := s.Open
-			closeT := s.Close
-			s.NextOpen = &open
-			s.NextClose = &closeT
-		} else {
+		for _, window := range s.Windows {
+			if at.Before(window.Open) {
+				open, closeT := window.Open, window.Close
+				s.NextOpen, s.NextClose = &open, &closeT
+				break
+			}
+		}
+		if s.NextOpen == nil {
 			c.attachNext(spec, loc, &s, day)
 		}
 	}
@@ -180,7 +204,7 @@ func (c *Calendar) attachNext(spec calendarSpec, loc *time.Location, s *Session,
 		return
 	}
 	open := next.Open
-	closeT := next.Close
+	closeT := next.Windows[0].Close
 	s.NextOpen = &open
 	s.NextClose = &closeT
 }

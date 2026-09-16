@@ -908,7 +908,7 @@ test("Monitor summaries distinguish alert findings, monitor-only findings, and d
 
 test("healthy lamp-test line hides and a served source fault reveals it", () => {
   reset();
-  const snap = { updated_at: "2026-08-12T05:00:00Z", regime: { source_health: [{ source: "gamma", status: "ok" }] } };
+  const snap = { updated_at: "2026-08-12T05:00:00Z", status: {data_health:{schema_version:1,summary:{state:"current",label:"Required data meets its stated use",current:2,required:2}}}, regime: { source_health: [{ source: "gamma", status: "ok" }] } };
   stress.renderLampTest(snap, { source_health: [{ source: "positions", status: "ok" }] });
   assert.equal(dom.element("lampTest").hidden, true);
 
@@ -916,7 +916,7 @@ test("healthy lamp-test line hides and a served source fault reveals it", () => 
   assert.equal(dom.element("lampTest").hidden, false, "an unavailable assessment remains visible even when source counters are healthy");
   assert.match(dom.element("lampTestStamp").textContent, /Dealer gamma assessment unavailable/);
 
-  snap.regime.source_health[0].status = "stale";
+  snap.status.data_health.summary = {state:"limited",label:"Gamma stale",current:1,required:2};
   stress.renderLampTest(snap, { source_health: [{ source: "positions", status: "ok" }] });
   assert.equal(dom.element("lampTest").hidden, false);
   assert.match(dom.element("lampTestStamp").textContent, /gamma.*stale/i);
@@ -926,7 +926,7 @@ test("lamp test translates the internal alert-candidate feed into operator meani
   const health = stress.lampTestSources({
     sources: { alert_candidates: { state: "unavailable", error: "producer unavailable" } },
   }, {});
-  assert.deepEqual(health.faults, ["alert checking unavailable — current Alerts unconfirmed"]);
+  assert.deepEqual(health.faults, ["Canary data health unverified", "alert checking unavailable — current Alerts unconfirmed"]);
   assert.doesNotMatch(health.faults[0], /candidate/i);
 });
 
@@ -969,44 +969,39 @@ test("master subline separates an allowed portfolio rebalance from an unavailabl
   );
 });
 
-test("a derived source row is named as inherited, not counted as an extra failure", () => {
+test("source health uses Canary's counts and retains missing authority as unknown", () => {
   reset();
-  const snap = {
-    updated_at: "2026-08-13T19:00:00Z",
-    regime: { source_health: [
-      { source: "funding", status: "stale" },
-      { source: "breadth", status: "stale" },
-      { source: "vol", status: "ok" },
-    ] },
-  };
-  const stressResult = { source_health: [
-    { source: "positions", status: "ok" },
-    { source: "regime", status: "stale", derived_from: ["funding", "breadth"], notes: ["stale clusters: breadth,funding"] },
-  ] };
-
-  const health = stress.lampTestSources(snap, stressResult);
-  assert.equal(health.total, 4, "derived row must not join the denominator");
+  const snap = { updated_at: "2026-08-13T19:00:00Z", status: { data_health: {
+    schema_version: 1, summary: { state: "limited", label: "2 data problems · 1 unverified", current: 2, required: 5, problems: 2, unverified: 1 },
+  } }, regime: { source_health: [{ source: "unknown", status: "" }] } };
+  const health = stress.lampTestSources(snap, { source_health: [{ source: "other", status: "ok" }] });
+  assert.equal(health.total, 5);
   assert.equal(health.ok, 2);
-  assert.equal(health.faults.length, 2, "only leaf faults count");
-  assert.equal(health.inherited.length, 1);
-  assert.match(health.inherited[0], /inherits.*funding series/i);
+  assert.deepEqual(health.faults, ["2 data problems · 1 unverified"]);
+  stress.renderLampTest(snap, {});
+  assert.match(dom.element("lampTestStamp").textContent, /2\/5 sources ok/);
+  const legacy = stress.lampTestSources({ regime: { source_health: [{ source: "missing", status: "" }] } }, {});
+  assert.equal(legacy.ok, 0);
+  assert.deepEqual(legacy.faults, ["Canary data health unverified"]);
+});
 
-  stress.renderLampTest(snap, stressResult);
-  assert.match(dom.element("lampTestStamp").textContent, /2\/4 sources ok/);
-  assert.match(dom.element("lampTestStamp").title, /inherits/i);
-
-  const labels = stress.stressInputIssueLabels({ market: { stale_clusters: ["funding", "breadth"] }, ...stressResult }, snap);
-  assert.ok(!labels.includes("regime snapshot"), `derived regime row must not add its own label, got ${labels.join(", ")}`);
-  assert.ok(labels.includes("funding series") && labels.includes("breadth compute"), labels.join(", "));
-
-  // A regime row without derived_from (older daemon payload) still counts
-  // as its own source, exactly as before.
-  const legacy = stress.lampTestSources(snap, { source_health: [
-    { source: "positions", status: "ok" },
-    { source: "regime", status: "stale", notes: ["stale clusters: breadth,funding"] },
-  ] });
-  assert.equal(legacy.total, 5);
-  assert.equal(legacy.faults.length, 3);
+test("data-health pages preserve delayed evidence and reject incomplete coverage", async () => {
+  reset();
+  const health = await import("../data-health.js");
+  const originalFetch = globalThis.fetch;
+  const source = {id:"ibkr:quotes",name:"IBKR quote feed",state:"limited",receiving:"Delayed · last session",data_type:"delayed-frozen",source_time_kind:"unknown",access:{code:354,reason:"not_subscribed",retry_at:"2026-09-15T08:00:00Z"}};
+  const report = {schema_version:1,revision:"synthetic",as_of:"2026-09-15T06:00:00Z",valid_until:"2026-09-15T06:01:00Z",summary:{total:1,label:"1 data problem · 0 unverified"},sources:[source],offset:0,complete:true};
+  try {
+    globalThis.fetch = async () => response(report);
+    await health.refreshDataHealth();
+    assert.match(dom.element("dataHealthSources").textContent,/IBKR quote feed — Delayed · last session/);
+    assert.match(dom.element("dataHealthSources").textContent,/Source time: unknown/);
+    assert.match(dom.element("dataHealthReceipt").textContent,/last Canary assessment/);
+    globalThis.fetch = async () => response({...report,summary:{...report.summary,total:2}});
+    await health.refreshDataHealth();
+    assert.match(dom.element("dataHealthSources").textContent,/IBKR quote feed — Delayed · last session/);
+    assert.match(dom.element("dataHealthReceipt").textContent,/current health is unconfirmed/);
+  } finally { globalThis.fetch=originalFetch; }
 });
 
 test("Protection tile never presents zero actionable theta as portfolio theta", () => {
@@ -1750,4 +1745,19 @@ test("Brief overview preserves served priority, privacy, coverage and expandable
   details.open = true;
   brief.renderBriefCard(state.snapshot);
   assert.equal(byClass(sections, "brief-full-details")[0].open, true, "snapshot refresh must preserve expanded evidence");
+});
+
+test("delayed quotes retain origin and never use receipt time as quote time", () => {
+  reset();
+  const quote = { price: 100, price_source: "prev_close", data_type: "prev_close", feed_type: "delayed-frozen", as_of: "2026-09-15T05:34:00Z" };
+  assert.equal(shared.quoteTimestamp(quote), "");
+  const row = { price: 100, priceAt: quote.as_of, quote };
+  assert.equal(underlyings.underlyingQuoteStatus(row).label, "Delayed · last session");
+  const rendered = underlyings.underlyingBookRow({ ...row, symbol: "SYNTH", marketFlags: [] }, "USD");
+  assert.match(byClass(rendered, "underlying-row__metric--quote")[0].textContent, /Delayed · last session/);
+  assert.match(underlyings.underlyingQuoteStatus(row).title, /quote time unknown/);
+  assert.equal(underlyings.underlyingQuoteStatus({ ...row, quote: { ...quote, stale: true } }).label, "Delayed · stale");
+  assert.match(stress.marketQuoteSourceLine(quote, { as_of: quote.as_of }), /Delayed · last session.*quote time unknown/);
+  assert.doesNotMatch(stress.marketQuoteSourceLine(quote, { as_of: quote.as_of }), /05:34/);
+  assert.match(stress.marketAccessReasonLabel({ code: 354, reason: "not_subscribed", fallback_data_type: "delayed-frozen" }), /live access unavailable; delayed last-session data in use/);
 });

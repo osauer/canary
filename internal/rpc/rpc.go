@@ -59,6 +59,7 @@ const CodeRegimeUnavailable = "regime_unavailable"
 // based on the value. HealthResult.DataType remains on the wire shape
 // (omitempty) for renderer-fallback compatibility but is no longer
 const (
+	MarketDataUnknown       = "unknown"
 	MarketDataLive          = "live"
 	MarketDataFrozen        = "frozen"
 	MarketDataDelayed       = "delayed"
@@ -349,27 +350,35 @@ type MarketCalendarParams struct {
 	Days   int       `json:"days,omitempty"`
 }
 
+// MarketWindow is a scheduled interval with an inclusive open and exclusive
+// close. Gaps between windows are not tradable under this calendar contract.
+type MarketWindow struct {
+	Open  time.Time `json:"open"`
+	Close time.Time `json:"close"`
+}
+
 // MarketSession is one official market-calendar row. Open and Close are present
 // only for supported trading dates. State unknown means the date is outside
 // official coverage, not that the market is closed. IsOpen describes the queried
 // instant; future rows describe schedules and do not assert live market state.
 type MarketSession struct {
-	Market        string     `json:"market"`
-	Label         string     `json:"label,omitempty"`
-	Date          string     `json:"date"`
-	Timezone      string     `json:"timezone"`
-	State         string     `json:"state"`
-	IsOpen        bool       `json:"is_open"`
-	Reason        string     `json:"reason,omitempty"`
-	Open          time.Time  `json:"open,omitzero"`
-	Close         time.Time  `json:"close,omitzero"`
-	NextOpen      *time.Time `json:"next_open,omitempty"`
-	NextClose     *time.Time `json:"next_close,omitempty"`
-	Source        string     `json:"source,omitempty"`
-	SourceURL     string     `json:"source_url,omitempty"`
-	CoverageStart string     `json:"coverage_start,omitempty"`
-	CoverageEnd   string     `json:"coverage_end,omitempty"`
-	Notes         string     `json:"notes,omitempty"`
+	Market        string         `json:"market"`
+	Label         string         `json:"label,omitempty"`
+	Date          string         `json:"date"`
+	Timezone      string         `json:"timezone"`
+	State         string         `json:"state"`
+	IsOpen        bool           `json:"is_open"`
+	Reason        string         `json:"reason,omitempty"`
+	Open          time.Time      `json:"open,omitzero"`
+	Close         time.Time      `json:"close,omitzero"`
+	Windows       []MarketWindow `json:"windows,omitempty"`
+	NextOpen      *time.Time     `json:"next_open,omitempty"`
+	NextClose     *time.Time     `json:"next_close,omitempty"`
+	Source        string         `json:"source,omitempty"`
+	SourceURL     string         `json:"source_url,omitempty"`
+	CoverageStart string         `json:"coverage_start,omitempty"`
+	CoverageEnd   string         `json:"coverage_end,omitempty"`
+	Notes         string         `json:"notes,omitempty"`
 }
 
 // MarketCalendarResult is MethodMarketCalendar's payload.
@@ -1568,12 +1577,14 @@ type RegimeComposite struct {
 // Quote is the daemon's snapshot result.
 // as the legacy selected-price pair and mirror QuotePrice when an indicative
 type Quote struct {
-	Symbol   string         `json:"symbol"`
-	Contract ContractParams `json:"contract"`
-	Bid      *float64       `json:"bid"`
-	Ask      *float64       `json:"ask"`
-	Last     *float64       `json:"last"`
-	Mark     *float64       `json:"mark,omitempty"`
+	// ReceivedAt is the latest actual price-tick receipt, never the query time.
+	ReceivedAt time.Time      `json:"received_at,omitzero"`
+	Symbol     string         `json:"symbol"`
+	Contract   ContractParams `json:"contract"`
+	Bid        *float64       `json:"bid"`
+	Ask        *float64       `json:"ask"`
+	Last       *float64       `json:"last"`
+	Mark       *float64       `json:"mark,omitempty"`
 	// Price is the legacy selected price: QuotePrice when the gateway has a
 	// current indication, otherwise RegularClose. PriceSource names the
 	// selected input so consumers can avoid treating a close-only fallback
@@ -2226,6 +2237,10 @@ type BackendLinkHealth struct {
 // rejection for a name the account does hold, and a name never requested during
 // deliberately absent: broker free text is untrusted and never reaches a typed
 type MarketDataAccessHealth struct {
+	// FallbackDataType is populated only after a delayed price was observed.
+	FallbackDataType string `json:"fallback_data_type,omitempty"`
+	// FallbackReceivedAt is local receipt time, never the broker price time.
+	FallbackReceivedAt time.Time `json:"fallback_received_at,omitzero"`
 	// RouteKey is the connector's own subscription key — a bare symbol, or
 	RouteKey string `json:"route_key"`
 	// Symbol is RouteKey's leading symbol component, for display.
@@ -2274,10 +2289,12 @@ const (
 // HealthResult is the response to MethodStatusHealth.
 // ports that responded during discovery but lost the first-hit race.
 type HealthResult struct {
-	DaemonVersion string    `json:"daemon_version"`
-	DaemonStarted time.Time `json:"daemon_started"`
-	UptimeSeconds int64     `json:"uptime_seconds"`
-	Account       string    `json:"account,omitempty"`
+	Verdict       HealthVerdict     `json:"verdict"`
+	DataHealth    *DataHealthResult `json:"data_health,omitempty"`
+	DaemonVersion string            `json:"daemon_version"`
+	DaemonStarted time.Time         `json:"daemon_started"`
+	UptimeSeconds int64             `json:"uptime_seconds"`
+	Account       string            `json:"account,omitempty"`
 	// ConnectedAccount is the one account the connected TWS/Gateway session is
 	// scoped to, never a list. It is the code the session advertises via
 	// managedAccounts / accountSummary when that is a single account, and the

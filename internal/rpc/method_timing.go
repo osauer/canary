@@ -53,6 +53,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodChainExpiries, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
 	{Method: MethodTechnical, Lifetime: MethodLifetimeUnary, DaemonTimeout: 75 * time.Second},
 	{Method: MethodMarketCalendar, Lifetime: MethodLifetimeUnary, DaemonTimeout: 2 * time.Second},
+	{Method: MethodDataHealth, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodDataCheck, Lifetime: MethodLifetimeUnary, DaemonTimeout: 2 * time.Second},
 	{Method: MethodStatusHealth, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradingStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodSettingsGet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},

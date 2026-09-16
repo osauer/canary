@@ -108,13 +108,14 @@ func Catalog() []CommandSpec {
 func catalogExtras() map[string]CommandSpec {
 	return map[string]CommandSpec{
 		"status":        {Group: GroupDesk, Flags: flags(boolFlag("json"))},
+		"data":          {Group: GroupMarkets, Flags: flags(valueFlag("offset", nil), valueFlag("limit", nil), valueFlag("revision", nil), boolFlag("json")), Subcommands: subcommands("health", "check"), Guard: GuardReadOnly},
 		"account":       {Group: GroupDesk, Flags: flags(boolFlag("watch"), valueFlag("rate", nil), boolFlag("json"))},
 		"positions":     {Group: GroupDesk, Flags: flags(valueFlag("symbol", nil), valueFlag("type", []string{"stk", "opt"}), valueFlag("sort", []string{"alpha", "pnl", "value"}), boolFlag("quotes"), valueFlag("by", []string{"underlying"}), valueFlag("view", []string{"full", "risk"}), boolFlag("watch"), valueFlag("rate", nil), boolFlag("json"))},
 		"strategies":    {Group: GroupDesk, Flags: flags(valueFlag("units", nil), valueFlag("limit", nil), valueFlag("timeout", nil), boolFlag("submit"), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "list", Guard: GuardReadOnly}, {Name: "close", Guard: GuardConfirm}, {Name: "reduce", Guard: GuardConfirm}}, Guard: GuardConfirm},
 		"market":        {Group: GroupMarkets, Flags: flags(boolFlag("watch"), valueFlag("symbol", nil), valueFlag("range", []string{"1D", "5D", "1M", "6M", "YTD", "1Y", "5Y"}), valueFlag("exchange", nil), valueFlag("type", []string{"STK", "IND", "CASH"}), valueFlag("currency", nil), boolFlag("json"))},
 		"portfolio":     {Group: GroupDesk, Flags: flags(boolFlag("json"))},
 		"technical":     {Group: GroupMarkets, Flags: flags(valueFlag("benchmark", nil), valueFlag("market", []string{"us", "de"}), valueFlag("lookback-days", nil), valueFlag("exchange", nil), valueFlag("primary", nil), valueFlag("currency", nil), boolFlag("json"))},
-		"calendar":      {Group: GroupMarkets, Flags: flags(valueFlag("market", []string{"us", "us-options", "de"}), valueFlag("date", nil), valueFlag("at", nil), valueFlag("days", nil), boolFlag("json"))},
+		"calendar":      {Group: GroupMarkets, Flags: flags(valueFlag("market", []string{"us", "us-options", "de", "uk", "jp", "hk"}), valueFlag("date", nil), valueFlag("at", nil), valueFlag("days", nil), boolFlag("json"))},
 		"rules":         {Group: GroupDesk, Brief: "Advisory 14-rule daily checklist, hardest breach first", Flags: flags(boolFlag("all"), valueFlag("symbol", nil), valueFlag("since", nil), valueFlag("until", nil), valueFlag("rule", nil), valueFlag("limit", nil), boolFlag("json")), Subcommands: subcommands("history")},
 		"macro":         {Group: GroupMarkets, Brief: "Economic releases and official publications with source coverage", Flags: flags(valueFlag("window-start", nil), valueFlag("window-end", nil), boolFlag("json"))},
 		"regime":        {Group: GroupMarkets, Brief: "Market regime and all eight indicator readings", Flags: flags(boolFlag("explain"), valueFlag("view", []string{"full", "monitor"}), boolFlag("profiles"), boolFlag("json"))},

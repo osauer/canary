@@ -1239,6 +1239,10 @@ type StressInput struct {
 // alert identity for monitors; SourceFingerprints records the classified
 // upstream state the stress read consumed.
 type StressResult struct {
+	// AccountScope binds this assessment to matching available account and
+	// positions authority. Nil means no shared account/mode was established;
+	// it grants no execution authority and is not part of alert fingerprints.
+	AccountScope       *AccountDataScope        `json:"account_scope,omitempty"`
 	AsOf               time.Time                `json:"as_of"`
 	SourceAsOf         StressSourceAsOf         `json:"source_as_of,omitzero"`
 	Fingerprint        Fingerprint              `json:"fingerprint"`

@@ -10,12 +10,18 @@ type dayOverride struct {
 	close  hm
 }
 
+type sessionBreak struct {
+	start hm
+	end   hm
+}
+
 type calendarSpec struct {
 	market        Market
 	label         string
 	timezone      string
 	open          hm
 	close         hm
+	breaks        []sessionBreak
 	coverageStart string
 	coverageEnd   string
 	source        string

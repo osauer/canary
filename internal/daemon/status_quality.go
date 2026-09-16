@@ -836,12 +836,14 @@ func statusMarketDataAccess(absences []ibkrlib.MarketDataAbsenceError) []rpc.Mar
 			continue
 		}
 		out = append(out, rpc.MarketDataAccessHealth{
-			RouteKey:   key,
-			Symbol:     routeKeySymbol(key),
-			Code:       absence.Code,
-			Reason:     rpc.MarketDataAccessReason(absence.Code),
-			ObservedAt: absence.ObservedAt,
-			RetryAt:    absence.RetryAt,
+			FallbackDataType:   marketDataTypeName(absence.FallbackDataType),
+			FallbackReceivedAt: absence.FallbackReceivedAt,
+			RouteKey:           key,
+			Symbol:             routeKeySymbol(key),
+			Code:               absence.Code,
+			Reason:             rpc.MarketDataAccessReason(absence.Code),
+			ObservedAt:         absence.ObservedAt,
+			RetryAt:            absence.RetryAt,
 		})
 	}
 	if len(out) == 0 {

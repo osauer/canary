@@ -173,6 +173,13 @@
               <button class="app-dialog__close" id="lampTestDialogClose" type="button">Close</button>
             </div>
             <div class="app-dialog__body">
+              <section aria-labelledby="dataHealthHeading">
+                <div class="pd-placard" id="dataHealthHeading">Data supplied by Canary</div>
+                <p id="dataHealthSummary">Awaiting Canary's report.</p>
+                <p id="dataHealthReceipt"></p>
+                <button id="dataHealthReload" type="button">Reload report</button>
+                <div id="dataHealthSources"></div>
+              </section>
               <section class="alert-authority" id="alertAuthoritySection" aria-labelledby="alertAuthorityHeading">
                 <div class="pd-placard pd-placard--row">
                   <span id="alertAuthorityHeading">Source coverage</span>

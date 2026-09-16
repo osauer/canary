@@ -72,6 +72,17 @@ retains optional-live behavior for ordinary Go tooling.
 
 `make help` lists every target.
 
+## HyperServe dependency
+
+Canary follows the latest published stable HyperServe release. Check the
+supplier's latest release before implementation work and release preparation.
+For the current major, `GOWORK=off go get github.com/osauer/hyperserve/v2@latest`
+selects the latest version and records a concrete pin. If the latest release
+changes the major module path, migrate and validate that version. Review
+`go.mod` and `go.sum`, then run `make test`. Ordinary builds use the recorded
+versions and do not upgrade dependencies. Keep the app's stricter decoding and
+flush-error behavior until an equivalent supplier implementation is proven.
+
 ## What the project will not accept
 
 - **Weakened trading guardrails.** Freeze, limits, the preview-only MCP order

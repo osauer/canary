@@ -1,10 +1,72 @@
 package daemon
 
 import (
+	"context"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"math"
 	"testing"
 	"time"
 )
+
+func TestMarketHistorySMARTUsesResolvedSession(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, now, wantDay string }{
+		{"Sunday", "2026-09-13T12:00:00Z", "2026-09-11"},
+		{"holiday_Monday", "2026-09-07T16:00:00Z", "2026-09-04"},
+		{"after_holiday_before_premarket", "2026-09-08T07:59:00Z", "2026-09-04"},
+		{"after_holiday_premarket", "2026-09-08T08:00:00Z", "2026-09-08"},
+		{"spring_DST", "2026-03-08T12:00:00Z", "2026-03-06"},
+		{"fall_DST_before_premarket", "2026-11-02T08:59:00Z", "2026-10-30"},
+		{"fall_DST_premarket", "2026-11-02T09:00:00Z", "2026-11-02"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now, _ := time.Parse(time.RFC3339, tc.now)
+			start, _ := time.ParseInLocation("2006-01-02", tc.wantDay, loc)
+			p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
+			got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, days int, interval string, _ time.Duration) (ibkr.ChartSeries, error) {
+				if days < int(math.Ceil(now.Sub(start).Hours()/24)) || days > 6 || interval != "5 mins" {
+					t.Errorf("acquisition cannot cover the selected session within its bound: days=%d interval=%s start=%s", days, interval, start)
+				}
+				if c.Exchange != "SMART" || c.ConID != 0 || c.PrimaryExch != "" {
+					t.Fatal("unresolved request was relabelled before broker resolution")
+				}
+				c.ConID, c.PrimaryExch = 123456, "NYSE"
+				return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+					{Time: start.Add(-20 * time.Hour), Close: 99, Volume: 10},
+					{Time: start.Add(4 * time.Hour), Close: 101, Volume: 20},
+				}}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.RequestedStart.Equal(start) || len(got.Points) != 1 || got.Points[0].Value != 101 || got.Contract.PrimaryExch != "NYSE" {
+				t.Fatalf("resolved session not retained exactly: %+v", got)
+			}
+			if got.Range != "1D" || got.AsOf != now || got.RegularHoursOnly || got.TimestampKind != "instant" || got.PriceBasis != "TRADES" {
+				t.Fatalf("selection lost source semantics: %+v", got)
+			}
+		})
+	}
+}
+
+func TestMarketHistoryUnsupportedVenueKeepsRollingWindow(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
+	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
+		c.ConID, c.PrimaryExch = 123456, "LSE"
+		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+			{Time: now.Add(-48 * time.Hour), Close: 99},
+			{Time: now.Add(-time.Hour), Close: 101},
+		}}, nil
+	})
+	if err != nil || !got.RequestedStart.Equal(now.Add(-24*time.Hour)) || len(got.Points) != 1 || got.Points[0].Value != 101 {
+		t.Fatalf("unknown venue acquired a US calendar: %+v %v", got, err)
+	}
+}
 
 func TestMarketHistoryCannotTurnDailyBarsIntoIntraday(t *testing.T) {
 	for _, r := range []string{"", "All", "1S", "unbounded"} {

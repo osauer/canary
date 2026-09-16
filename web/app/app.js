@@ -1,3 +1,4 @@
+import { refreshDataHealth, updateDataHealthReceipt } from "./data-health.js";
 import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
 import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
@@ -135,6 +136,10 @@ function setupLiveRefreshLoop() {
       void refreshOpenOrders({ minIntervalMs: ACTIVE_ORDERS_REFRESH_MS });
     }
     refreshBootstrapIfSSEUnavailable();
+    if ($("lampTestDialog")?.open) {
+      updateDataHealthReceipt();
+      void refreshDataHealth({ minIntervalMs: 15000 });
+    }
   }, 1000);
 }
 
@@ -238,7 +243,9 @@ for (const [sheetID, closeID, setSheet] of [
 // broker report stands. Detail behind the stamp that reports it, not a
 $("lampTestButton").addEventListener("click", () => {
   $("lampTestDialog").showModal();
+  refreshDataHealth();
 });
+$("dataHealthReload").addEventListener("click", refreshDataHealth);
 $("lampTestDialogClose").addEventListener("click", () => {
   $("lampTestDialog").close();
 });

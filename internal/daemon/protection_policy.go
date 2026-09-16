@@ -108,7 +108,14 @@ type protectionTrailAssetPolicy struct {
 type protectionTrailOptionPolicy struct {
 	// Enabled turns approved directional-option loss exits and profit trails on (default false).
 	Enabled bool `toml:"enabled" json:"enabled"`
-	// DirectionalIntents are time-bounded exact-contract declarations; missing intent produces blocked reviews only.
+	// DefaultLongCallsDirectional assigns purpose to ungrouped standard long
+	// calls without a conflicting holding or exact-contract declaration.
+	DefaultLongCallsDirectional bool `toml:"default_long_calls_directional" json:"default_long_calls_directional,omitempty"`
+	// DefaultIndexPutsProtection keeps ungrouped hedge-listed long puts out of
+	// directional exits unless an exact declaration or economic conflict needs review.
+	DefaultIndexPutsProtection bool `toml:"default_index_puts_protection" json:"default_index_puts_protection,omitempty"`
+	// DirectionalIntents are time-bounded exact-contract overrides. Any listed
+	// contract, including an expired declaration, takes precedence over defaults.
 	DirectionalIntents []protectionOptionDirectionalIntent `toml:"directional_intents" json:"directional_intents,omitempty"`
 	// MinDTE excludes options with fewer calendar days to expiry (default 14).
 	MinDTE int `toml:"min_dte" json:"min_dte"`

@@ -214,6 +214,13 @@ func (c *Connection) tlsAttempts() []bool {
 
 // Connection owns one TWS protocol session and its request and receipt state.
 type Connection struct {
+	// marketDataDefaultMode records successful reqMarketDataType writes under
+	// transportMu. A request-local override is framed with its restore inside
+	// that same transport section, so concurrent requests cannot inherit it.
+	marketDataDefaultMode int
+	marketDataModeEpoch   uint64
+	marketDataModeDirty   bool
+
 	displayChanged       func()
 	displayAccount       string
 	displayAccountValues map[string]string
@@ -3353,6 +3360,10 @@ func (c *Connection) sendMessageWithTypeContextForEpoch(ctx context.Context, msg
 // frame byte can be written. A guard failure is a definite pre-wire refusal
 // and is never retried.
 func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Context, msg []byte, reqType RequestType, epoch uint64, requireEpoch bool, guard func() error) error {
+	return c.sendMessageWithMarketDataMode(ctx, msg, reqType, epoch, requireEpoch, guard, 0)
+}
+
+func (c *Connection) sendMessageWithMarketDataMode(ctx context.Context, msg []byte, reqType RequestType, epoch uint64, requireEpoch bool, guard func() error, dataType int) error {
 	// Broker instructions and epoch-bound authority reads must be exactly-once
 	protectedSend := requireEpoch || reqType == RequestTypeOrder
 	outboundState := c.outboundSessionState.Load()
@@ -3423,16 +3434,20 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 			if protectedSend && (outboundState&1 != 0 || c.outboundSessionState.Load() != outboundState) {
 				return brokerSendError(fmt.Errorf("broker outbound session changed before request send"), SendDispositionDefinitelyUnsent, true)
 			}
-			fields := c.decodeOutboundMessage(msg)
-			msgID := determineMessageID(c.serverVersion, msg)
-
-			c.logSuspiciousOutbound(msgID, fields)
-
-			lengthBytes := make([]byte, 4)
-			binary.BigEndian.PutUint32(lengthBytes, uint32(len(msg)))
-
-			// Debug: hex dump outgoing message
-			c.logOutgoingMessageHex(msg)
+			frames := [][]byte{msg}
+			defaultMode := c.marketDataDefaultMode
+			currentEpoch := c.BrokerSessionEpoch()
+			if defaultMode == 0 || c.marketDataModeEpoch != currentEpoch {
+				defaultMode = 1
+			}
+			repairMode := c.marketDataModeDirty && c.marketDataModeEpoch == currentEpoch && determineMessageID(c.serverVersion, msg) == reqMktData
+			if dataType != 0 || repairMode {
+				requestedMode := dataType
+				if requestedMode == 0 {
+					requestedMode = defaultMode
+				}
+				frames = [][]byte{c.encodeMsg(reqMarketDataType, 1, requestedMode), msg, c.encodeMsg(reqMarketDataType, 1, defaultMode)}
+			}
 
 			if guard != nil {
 				if err := guard(); err != nil {
@@ -3451,26 +3466,48 @@ func (c *Connection) sendMessageWithTypeContextForEpochGuarded(ctx context.Conte
 			}
 			bufferedBefore := c.writer.Buffered()
 			accepted := 0
-			n, err := c.writer.Write(lengthBytes)
-			accepted += n
-			if err != nil {
-				return brokerSendError(err, bufferedWriteDisposition(c.writer, bufferedBefore, accepted), protectedSend)
+			if len(frames) > 1 {
+				c.marketDataDefaultMode, c.marketDataModeEpoch, c.marketDataModeDirty = defaultMode, currentEpoch, true
 			}
-
-			n, err = c.writer.Write(msg)
-			accepted += n
-			if err != nil {
-				return brokerSendError(err, bufferedWriteDisposition(c.writer, bufferedBefore, accepted), protectedSend)
+			for _, frame := range frames {
+				fields := c.decodeOutboundMessage(frame)
+				msgID := determineMessageID(c.serverVersion, frame)
+				c.logSuspiciousOutbound(msgID, fields)
+				c.logOutgoingMessageHex(frame)
+				lengthBytes := make([]byte, 4)
+				binary.BigEndian.PutUint32(lengthBytes, uint32(len(frame)))
+				n, err := c.writer.Write(lengthBytes)
+				accepted += n
+				if err != nil {
+					return brokerSendError(err, bufferedWriteDisposition(c.writer, bufferedBefore, accepted), protectedSend)
+				}
+				n, err = c.writer.Write(frame)
+				accepted += n
+				if err != nil {
+					return brokerSendError(err, bufferedWriteDisposition(c.writer, bufferedBefore, accepted), protectedSend)
+				}
+				if c.wireTap != nil {
+					c.wireTap.RecordOutbound(msgID, frame, fields)
+				}
+				c.logPacketOutbound(frame)
 			}
-			if c.wireTap != nil {
-				c.wireTap.RecordOutbound(msgID, msg, fields)
-			}
-
-			c.logPacketOutbound(msg)
-
 			if err := c.writer.Flush(); err != nil {
 				return brokerSendError(err, bufferedWriteDisposition(c.writer, bufferedBefore, accepted), protectedSend)
 			}
+			if len(frames) > 1 {
+				c.marketDataModeDirty = false
+			}
+			// Only explicit mode setters change the default, and only after a
+			// successful send. Temporary request overrides leave it untouched.
+			if dataType == 0 && determineMessageID(c.serverVersion, msg) == reqMarketDataType {
+				fields := c.decodeOutboundMessage(msg)
+				if len(fields) >= 3 {
+					if mode, err := strconv.Atoi(fields[2]); err == nil && mode >= 1 && mode <= 4 {
+						c.marketDataDefaultMode, c.marketDataModeEpoch, c.marketDataModeDirty = mode, c.BrokerSessionEpoch(), false
+					}
+				}
+			}
+
 			return nil
 		})
 	}, maxRetries)
@@ -4259,15 +4296,10 @@ func ifEmpty(s, d string) string {
 
 // SetMarketDataType sets the market data type (live, delayed, etc.)
 func (c *Connection) SetMarketDataType(dataType int) error {
-	if !c.IsConnected() {
-		return fmt.Errorf("not connected to IBKR")
+	if dataType < 1 || dataType > 4 {
+		return fmt.Errorf("invalid market data type %d", dataType)
 	}
-
-	// Market data types:
-	msg := c.encodeMsg(reqMarketDataType, 1, dataType)
-
-	marketLogger.Infof("[cid=%d] Setting market data type to %d (1=Live, 3=Delayed)", c.config.ClientID, dataType)
-	return c.sendMessage(msg)
+	return c.setMarketDataTypeAtEpoch(dataType, c.BrokerSessionEpoch())
 }
 
 // restoreFrozenMarketDataTypeUnlessCompeting restores frozen mode when safe.
@@ -5053,17 +5085,17 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 // broker-write previews. It binds both request-ID allocation and the final
 // transport check to expectedEpoch, preventing reconnect-crossing requests.
 func (c *Connection) requestMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
-	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, snapshot, regulatorySnap, expectedEpoch, true, beforeSend)
+	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, snapshot, regulatorySnap, expectedEpoch, true, 0, beforeSend)
 }
 
 // requestSharedMarketDataWithContractForEpoch is the reconnect-safe form used
 // when a shared read subscription must be re-issued on its originating socket.
 // Unlike broker-write evidence, a shared subscription may be replayed after reconnect.
 func (c *Connection) requestSharedMarketDataWithContractForEpoch(ctx context.Context, contract Contract, genericTicks string, expectedEpoch uint64, beforeSend func(reqID int) func()) (int, error) {
-	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, false, false, expectedEpoch, false, beforeSend)
+	return c.requestMarketDataWithContractForEpochMode(ctx, contract, genericTicks, false, false, expectedEpoch, false, 0, beforeSend)
 }
 
-func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, requireExactContract bool, beforeSend func(reqID int) func()) (int, error) {
+func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Context, contract Contract, genericTicks string, snapshot bool, regulatorySnap bool, expectedEpoch uint64, requireExactContract bool, dataType int, beforeSend func(reqID int) func()) (int, error) {
 	if !c.IsConnected() {
 		return 0, fmt.Errorf("not connected to IBKR")
 	}
@@ -5099,7 +5131,7 @@ func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Conte
 	if beforeSend != nil {
 		cleanup = beforeSend(reqID)
 	}
-	if err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketData, expectedEpoch, true); err != nil {
+	if err := c.sendMessageWithMarketDataMode(ctx, msg, RequestTypeMarketData, expectedEpoch, true, nil, dataType); err != nil {
 		if cleanup != nil {
 			cleanup()
 		}

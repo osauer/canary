@@ -29,27 +29,7 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 		return nil, errors.New("current holdings scope unavailable")
 	}
 	result := &rpc.MarketSnapshotResult{AsOf: time.Now(), Authority: positions.Authority, CoverageStatus: "complete"}
-	// Cash indices and explicitly named fallback references retain their own identity.
-	for _, item := range []struct{ key, name, symbol, kind, exchange string }{
-		{"sp500", "S&P 500", "SPX", "index", "CBOE"},
-		{"dow", "Dow · DIA ETF", "DIA", "etf", "SMART"},
-		{"nasdaq", "Nasdaq 100", "NDX", "index", "NASDAQ"},
-		{"russell", "Russell 2000", "RUT", "index", "CBOE"},
-		{"vix", "VIX", "VIX", "index", "CBOE"},
-		{"gold", "Gold · GLD ETF", "GLD", "etf", "SMART"},
-	} {
-		sec := "STK"
-		if item.kind == "index" {
-			sec = "IND"
-		}
-		result.Instruments = append(result.Instruments, rpc.MarketInstrument{Key: item.key, Name: item.name, Kind: item.kind, Quote: &rpc.Quote{Contract: rpc.ContractParams{Symbol: item.symbol, SecType: sec, Exchange: item.exchange, Currency: "USD"}}})
-	}
-
-	for _, item := range []struct{ key, name, symbol, exchange string }{
-		{"sp500", "S&P 500 futures", "ES", "CME"}, {"dow", "Dow futures", "YM", "CBOT"}, {"nasdaq", "Nasdaq 100 futures", "NQ", "CME"}, {"russell", "Russell 2000 futures", "RTY", "CME"}, {"gold", "Gold futures", "GC", "COMEX"},
-	} {
-		result.Instruments = append(result.Instruments, rpc.MarketInstrument{Key: item.key, Name: item.name, Kind: "future", Quote: &rpc.Quote{Contract: rpc.ContractParams{Symbol: item.symbol, SecType: "FUT", Exchange: item.exchange, Currency: "USD"}}})
-	}
+	result.Instruments = marketReferences()
 	for _, g := range positions.ByUnderlying {
 		if !rpc.ExpectsMarketDataGroup(g) {
 			continue
@@ -150,12 +130,37 @@ func marketHistoryWindow(r string, now time.Time) (int, string, error) {
 }
 
 func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time) (*rpc.MarketHistoryResult, error) {
+	return fetchMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, contract ibkrlib.Contract, days int, interval string, timeout time.Duration) (ibkrlib.ChartSeries, error) {
+		c := s.gatewayConnector()
+		if c == nil {
+			return ibkrlib.ChartSeries{}, s.gatewayUnavailableError()
+		}
+		binding, ok := c.CaptureHistoricalSession()
+		if !ok {
+			return ibkrlib.ChartSeries{}, s.gatewayUnavailableError()
+		}
+		series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
+		if !c.HistoricalSessionCurrent(binding) {
+			return ibkrlib.ChartSeries{}, errors.New("broker session changed during history read")
+		}
+		s.observeHistorySource(len(series.Bars) > 0, err, c, binding)
+		return series, err
+	})
+}
+
+// fetchMarketHistory composes acquisition and selection around the broker reader;
+// the reader owns exact contract resolution and session continuity.
+func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, ibkrlib.Contract, int, string, time.Duration) (ibkrlib.ChartSeries, error)) (*rpc.MarketHistoryResult, error) {
 	days, interval, err := marketHistoryWindow(p.Range, now)
 	if err != nil {
 		return nil, err
 	}
 	if p.Range == "1D" {
-		days = min(6, max(days, int(math.Ceil(now.Sub(historyRequestStart(p, now)).Hours()/24))))
+		// SMART has no venue calendar until the broker resolves the contract.
+		// Six days cover the supported holiday/weekend closures without a
+		// second resolution request (at most 1,728 five-minute time slots).
+		// Selection below uses the resolved venue, not this padded lookback.
+		days = 6
 	}
 	if tailDays > 0 {
 		days = min(days, tailDays)
@@ -174,15 +179,7 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 	default:
 		return nil, errBadRequest("unsupported history security type")
 	}
-	c := s.gatewayConnector()
-	if c == nil {
-		return nil, s.gatewayUnavailableError()
-	}
-	binding, ok := c.CaptureHistoricalSession()
-	if !ok {
-		return nil, s.gatewayUnavailableError()
-	}
-	series, err := c.FetchChartBars(ctx, contract, days, interval, 25*time.Second)
+	series, err := fetch(ctx, contract, days, interval, 25*time.Second)
 	bars := series.Bars
 	echo.ConID = series.Contract.ConID
 	echo.Exchange = series.Contract.Exchange
@@ -192,9 +189,6 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 
 	if err != nil {
 		return nil, err
-	}
-	if !c.HistoricalSessionCurrent(binding) {
-		return nil, errors.New("broker session changed during history read")
 	}
 	if len(bars) == 0 {
 		return nil, errors.New("history unavailable: no observed bars")
@@ -206,6 +200,7 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 	}
 	result.PriceBasis = series.WhatToShow
 	result.RegularHoursOnly = interval == "1 day"
+	p.Contract = echo
 	result.RequestedStart = historyRequestStart(p, now)
 	if tailDays < 0 {
 		result.RequestedStart = now.AddDate(0, 0, -days)
@@ -221,7 +216,7 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 		return nil, errors.New("history exceeds bounded series size")
 	}
 	for _, b := range bars {
-		if b.Time.IsZero() || b.Time.After(time.Now().Add(time.Minute)) || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
+		if b.Time.IsZero() || b.Time.After(now.Add(time.Minute)) || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
 			return nil, errors.New("invalid historical observation")
 		}
 		cutoff := result.RequestedStart

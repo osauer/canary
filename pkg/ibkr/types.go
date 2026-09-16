@@ -15,6 +15,9 @@ type Greeks struct {
 // Callers must use the accompanying observed, timestamp, and data-type fields
 // where provided; a numeric zero alone does not always prove the broker
 type MarketData struct {
+	// FeedType is the broker mode (1-4), captured atomically with these prices.
+	FeedType  int       `json:"feed_type_id,omitempty"`
+	CloseAt   time.Time `json:"close_at,omitzero"`
 	LastAt    time.Time `json:"last_at,omitzero"`
 	BidAt     time.Time `json:"bid_at,omitzero"`
 	AskAt     time.Time `json:"ask_at,omitzero"`

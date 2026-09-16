@@ -695,15 +695,27 @@ function underlyingQuoteSummary(rows) {
 function underlyingQuoteStatus(row) {
   const quote = row.quote || null;
   const error = String(row.quoteError || "").trim();
-  const at = quoteTimestamp(quote) || row.priceAt || "";
+  const delayed = String(quote?.feed_type || quote?.data_type || "").includes("delayed");
+  const at = quoteTimestamp(quote) || (delayed ? "" : row.priceAt) || "";
   const atLabel = at ? quoteTime(at) : "";
   const dataType = String(quote?.data_type || "").toLowerCase();
+  const feedType = String(quote?.feed_type || dataType).toLowerCase();
   const quality = String(quote?.quote_quality || "").toLowerCase();
   const hasQuotePrice = typeof quotePrice(quote) === "number";
   const source = row.priceSource || quoteSourceLabel(quote, "IBKR quote");
   const sourceDetail = [source, atLabel].filter(Boolean).join(" · ");
   const frozenLabel = atLabel ? `Frozen · ${atLabel}` : "Frozen";
   const showSource = sourceDetail || "last available value";
+
+  if (feedType.includes("delayed") && hasQuotePrice) {
+    const state = quote?.stale || quality === "stale" || error
+      ? "stale" : feedType.includes("frozen") || dataType === "prev_close" ? "last session" : "";
+    return {
+      tone: "warn",
+      label: ["Delayed", state, atLabel].filter(Boolean).join(" · "),
+      title: `Delayed market-data feed; ${atLabel ? `showing ${sourceDetail}` : "quote time unknown"}${error ? `; ${marketQuoteErrorLabel(error)}` : ""}`,
+    };
+  }
 
   if (error) {
     return {
@@ -796,6 +808,10 @@ function underlyingBookRow(row, baseCurrency) {
   const priceLabel = document.createElement("span");
   priceLabel.className = "underlying-row__metric-label";
   priceLabel.textContent = row.priceSource === "account mark" ? "Account mark" : row.priceSource === "option model spot" ? "Model spot" : "Quote";
+  if (String(row.quote?.feed_type || row.quote?.data_type || "").includes("delayed") && typeof quotePrice(row.quote) === "number" && row.priceSource !== "account mark" && row.priceSource !== "option model spot") {
+    priceLabel.textContent = quoteStatus.label;
+    priceLabel.title = quoteStatus.title;
+  }
   const priceValue = document.createElement("b");
   priceValue.textContent = typeof row.price === "number" ? displayMoney(row.price, row.currency) : "—";
   const priceNote = document.createElement("small");

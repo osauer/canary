@@ -55,6 +55,7 @@ var perCandidateConnectBudget = 25 * time.Second
 
 // Server is the daemon process state.
 type Server struct {
+	dataHealth dataHealthState
 	marketData marketDataCache
 	cfg        *config.Resolved
 	socketPath string
@@ -1249,6 +1250,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startRulebookCanonicalRefreshLoop(serverCtx)
 	s.startAlertShadowObservationLoops(serverCtx)
 	s.startMarketHistoryRefresh(serverCtx)
+	s.startDataHealthChecks(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
 	go s.runAccountPnLAuthorityLoop(serverCtx)
 	go s.acceptLoop(ctx, s.listener)
@@ -1407,14 +1409,12 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	return connector
 }
 
-// anySupportedMarketOpen reports whether any market this system trades is in
-// its regular session at t — the union over every marketcal calendar (US
-// equities, US options, Xetra today). A backend-link loss during any of them
-// is an order-transmission hole worth a per-event warning; there is no
-// global quiet hour to special-case, only the union of what we trade.
+// anySupportedMarketOpen retains the backend-loss warning scope of US equities,
+// US options and Xetra. Adding a queryable calendar does not enable a market
+// for this policy; Desk separately owns its scheduled market selection.
 func anySupportedMarketOpen(t time.Time) bool {
 	cal := marketcal.New()
-	for _, market := range marketcal.AllMarkets() {
+	for _, market := range []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions, marketcal.MarketDEXetra} {
 		if s, err := cal.SessionAt(market, t); err == nil && s.IsOpen {
 			return true
 		}
@@ -2344,6 +2344,16 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleEdgeSnapshot(ctx, req) })
 	case rpc.MethodMarketEventsSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketEventsSnapshot(ctx, req) })
+	case rpc.MethodDataHealth:
+		s.unary(req, enc, func() (any, error) {
+			p, err := dataHealthParams(req)
+			if err != nil {
+				return nil, err
+			}
+			return s.handleDataHealth(p)
+		})
+	case rpc.MethodDataCheck:
+		s.unary(req, enc, func() (any, error) { return s.requestDataHealthCheck() })
 	case rpc.MethodStatusHealth:
 		s.unary(req, enc, func() (any, error) { return s.handleStatusHealth(), nil })
 	case rpc.MethodTradingStatus:

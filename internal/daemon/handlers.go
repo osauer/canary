@@ -51,8 +51,18 @@ func (s *Server) buildAccountSummary(ctx context.Context, observe bool) (*rpc.Ac
 
 // buildAccountSummaryWithAuthority preserves display fallback while returning
 // typed provenance. Cached fallback is never fresh Rulebook evidence.
-func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe bool) (*rpc.AccountResult, accountSummaryAuthority, error) {
+func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe bool) (healthResult *rpc.AccountResult, healthAuthority accountSummaryAuthority, healthErr error) {
 	c := s.gatewayConnector()
+	var healthBinding ibkrlib.ConnectorSessionBinding
+	if c != nil {
+		healthBinding, _ = c.CaptureSession()
+	}
+	defer func() {
+		if healthErr == nil {
+			s.observeAccountRPC(healthResult, c, healthBinding)
+		}
+	}()
+
 	if c == nil {
 		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
 	}
@@ -354,12 +364,22 @@ func (s *Server) handlePositionsListCaptured(ctx context.Context, req *rpc.Reque
 	return s.handlePositionsListCapturedForScope(ctx, req, portfolioHealth, s.currentBrokerStateScope())
 }
 
-func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *rpc.Request, portfolioHealth *ibkrlib.PortfolioStreamHealth, expectedScope brokerStateScope) (*rpc.PositionsResult, error) {
+func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *rpc.Request, portfolioHealth *ibkrlib.PortfolioStreamHealth, expectedScope brokerStateScope) (healthResult *rpc.PositionsResult, healthErr error) {
 	var p rpc.PositionsListParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
 	c := s.gatewayConnector()
+	var healthBinding ibkrlib.ConnectorSessionBinding
+	if c != nil {
+		healthBinding, _ = c.CaptureSession()
+	}
+	defer func() {
+		if healthErr == nil {
+			s.observeAccountRPC(healthResult, c, healthBinding)
+		}
+	}()
+
 	if c == nil {
 		return nil, s.gatewayUnavailableError()
 	}
@@ -760,7 +780,7 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 		ready := q.Bid != nil || q.Ask != nil || q.Last != nil
 		fallback := quoteFallbackReady(&q, pollStarted, timeout)
 		if ready || fallback {
-			q.DataType = quoteDataTypeName(c.MarketDataTypeForSymbol(pollKey), ready, fallback)
+			q.DataType = quoteDataTypeName(d.FeedType, ready, fallback)
 		}
 		return ready || fallback
 	})
@@ -1758,7 +1778,7 @@ func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]
 
 // handleQuoteSnapshot resolves a contract, briefly subscribes to streaming
 // returns a snapshot. We avoid IBKR's true snapshot mode (snapshot=true)
-func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rpc.Quote, error) {
+func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (result *rpc.Quote, resultErr error) {
 	var p rpc.QuoteSnapshotParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
@@ -1767,6 +1787,11 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 		return nil, errBadRequest("contract.symbol required")
 	}
 	c := s.gatewayConnector()
+	var healthBinding ibkrlib.ConnectorSessionBinding
+	if c != nil {
+		healthBinding, _ = c.CaptureSession()
+	}
+	defer func() { s.observeQuoteHealth(p.Contract, result, resultErr, c, healthBinding) }()
 	if c == nil {
 		return nil, s.gatewayUnavailableError()
 	}
@@ -1847,7 +1872,7 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (*rp
 			// always read "". When IBKR omits that notice but only
 			// fallback ticks landed, label the row frozen so JSON consumers
 			// don't mistake mark/close-only data for a live quote.
-			q.DataType = quoteDataTypeName(c.MarketDataTypeForSymbol(pollKey), ready, fallback)
+			q.DataType = quoteDataTypeName(d.FeedType, ready, fallback)
 		}
 		return ready || fallback
 	}); err != nil {
@@ -2274,6 +2299,11 @@ func fillQuoteMarketData(q *rpc.Quote, d *ibkrlib.MarketData) {
 		q.IVStatus = "model"
 	}
 	q.TradeAt = d.LastTradeTime
+	for _, at := range []time.Time{d.BidAt, d.AskAt, d.LastAt, d.MarkAt, d.CloseAt} {
+		if at.After(q.ReceivedAt) {
+			q.ReceivedAt = at
+		}
+	}
 	if !d.LastTradeTime.IsZero() {
 		q.PriceAt = d.LastTradeTime
 		q.QuotePriceAt = d.LastTradeTime
@@ -2728,6 +2758,9 @@ func quoteEffectiveDataType(q *rpc.Quote, market marketcal.Market, feedType stri
 	if q.PriceSource == "prev_close" || q.PriceSource == "historical_close" {
 		return rpc.MarketDataPrevClose
 	}
+	if feedType == rpc.MarketDataDelayed || feedType == rpc.MarketDataDelayedFrozen {
+		return feedType
+	}
 	session := quoteSessionFor(q, market)
 	if session != nil {
 		if quotePriceAtSessionClose(q, *session) && !session.IsOpen {
@@ -2740,7 +2773,7 @@ func quoteEffectiveDataType(q *rpc.Quote, market marketcal.Market, feedType stri
 	if feedType != "" {
 		return feedType
 	}
-	return rpc.MarketDataLive
+	return rpc.MarketDataUnknown
 }
 
 func quotePriceBeforeSessionDate(q *rpc.Quote, session rpc.MarketSession) bool {
@@ -2913,10 +2946,27 @@ func quotePriceTime(q *rpc.Quote, market marketcal.Market) time.Time {
 	return quotePriceTimeForSource(q, q.PriceSource, q.Price, market)
 }
 
+func quoteHasDelayedFeed(q *rpc.Quote) bool {
+	return q != nil && (q.DataType == rpc.MarketDataDelayed || q.DataType == rpc.MarketDataDelayedFrozen || q.FeedType == rpc.MarketDataDelayed || q.FeedType == rpc.MarketDataDelayedFrozen)
+}
+
 func quotePriceTimeForSource(q *rpc.Quote, source string, price *float64, market marketcal.Market) time.Time {
 	if q == nil || price == nil {
 		return time.Time{}
 	}
+	if quoteHasDelayedFeed(q) {
+		switch source {
+		case "last":
+			return q.TradeAt
+		case "historical_close":
+			return q.RegularCloseAt
+		case "prev_close":
+			return previousMarketCloseTime(market, q.AsOf)
+		default:
+			return time.Time{}
+		}
+	}
+
 	switch source {
 	case "last":
 		if quoteTickTimeUsable(q, price, q.PriceAt, market) {
@@ -3134,7 +3184,7 @@ func quoteDataTypeName(notice int, hasCurrentPrice, hasFallbackPrice bool) strin
 		if dt != "" {
 			return dt
 		}
-		return rpc.MarketDataLive
+		return rpc.MarketDataUnknown
 	}
 	if hasFallbackPrice {
 		switch dt {
@@ -3273,6 +3323,13 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		observedAt = s.now().UTC()
 	}
 	s.observeDataHealthAlertShadow(res, shadowScope, gatewayPhase, observedAt)
+	if report, err := s.handleDataHealth(rpc.DataHealthParams{Limit: 1}); err == nil {
+		report.Sources = nil
+		report.NextOffset = nil
+		report.Complete = false
+		res.DataHealth = &report
+	}
+	res.Verdict = authoritativeHealthVerdict(res)
 	return res
 }
 
@@ -3464,8 +3521,7 @@ func sp500EmbeddedAsOf() time.Time {
 }
 
 // handleMarketCalendar returns official exchange-session context for the
-// supported first-release markets: U.S. cash equities, U.S. listed options,
-// and Xetra cash equities.
+// supported markets, preserving their finite coverage and session windows.
 func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResult, error) {
 	var p rpc.MarketCalendarParams
 	if err := decodeParams(req.Params, &p); err != nil {
@@ -3473,7 +3529,7 @@ func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResu
 	}
 	market, ok := marketcal.NormalizeMarket(p.Market)
 	if !ok {
-		return nil, errBadRequest(fmt.Sprintf("unsupported market %q (supported: us, us-options, de)", p.Market))
+		return nil, errBadRequest(fmt.Sprintf("unsupported market %q (supported: us, us-options, de, uk, jp, hk)", p.Market))
 	}
 	res, err := marketcal.New().Query(marketcal.Query{
 		Market: market,
@@ -3503,6 +3559,10 @@ func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResu
 }
 
 func marketSessionToRPC(s marketcal.Session) rpc.MarketSession {
+	windows := make([]rpc.MarketWindow, 0, len(s.Windows))
+	for _, window := range s.Windows {
+		windows = append(windows, rpc.MarketWindow{Open: window.Open, Close: window.Close})
+	}
 	return rpc.MarketSession{
 		Market:        string(s.Market),
 		Label:         s.Label,
@@ -3513,6 +3573,7 @@ func marketSessionToRPC(s marketcal.Session) rpc.MarketSession {
 		Reason:        s.Reason,
 		Open:          s.Open,
 		Close:         s.Close,
+		Windows:       windows,
 		NextOpen:      s.NextOpen,
 		NextClose:     s.NextClose,
 		Source:        s.Source,

@@ -134,7 +134,13 @@ func usChartCalendar(c rpc.ContractParams) bool {
 }
 
 func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
-	if saved == nil || historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if saved == nil {
+		return true
+	}
+	// Request keys may still say SMART; only the retained broker identity
+	// can choose the venue calendar and establish whether a prefix is missing.
+	p.Contract = saved.Result.Contract
+	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
 		return true
 	}
 	r := saved.Result
@@ -175,10 +181,14 @@ func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, no
 }
 
 func historyTailDays(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) int {
-	if saved != nil && saved.Result.Interval == "1 day" && now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if saved == nil {
+		return 0
+	}
+	p.Contract = saved.Result.Contract
+	if saved.Result.Interval == "1 day" && now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
 		return -min(1830, max(1, int(math.Ceil(now.Sub(saved.Result.RequestedStart).Hours()/24))))
 	}
-	if saved == nil || historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
 		return 0 // Missing prefix or periodic corporate-action/correction reconciliation.
 	}
 	// IBKR durations are rounded days. Re-read the tail with an overlap rather

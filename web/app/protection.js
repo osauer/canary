@@ -1751,10 +1751,10 @@ function protectionInferredReference(proposal = {}, trail = {}, action = "") {
 function protectionQuoteStatusLabel(quote = null) {
   if (!quote) return "";
   const parts = [];
-  const dataType = String(quote.data_type || "").toLowerCase();
+  const dataType = String(quote.feed_type || quote.data_type || "").toLowerCase();
+  if (dataType.includes("delayed")) parts.push(dataType.includes("frozen") ? "delayed · last session" : "delayed");
   if (quote.stale || quote.stale_reason) parts.push("stale");
-  else if (dataType.includes("delayed")) parts.push("delayed");
-  else if (dataType.includes("frozen")) parts.push("frozen");
+  else if (!dataType.includes("delayed") && dataType.includes("frozen")) parts.push("frozen");
   if (quote.price_as_of) parts.push(quote.price_as_of);
   else if (quote.price_at) parts.push(shortTimeWithZone(quote.price_at));
   return parts.join(" ");
