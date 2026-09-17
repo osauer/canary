@@ -66,11 +66,11 @@ paid model requests, or release publication is part of this baseline. Those
 boundaries follow the task's source-only authorization. Private evidence and
 the saved-checkout alignment record remain outside Git.
 
-## Pending release notes
+## Release notes
 
-These reader-facing notes await the next authorized release. The existing
-published changelog is not retroactively changed, and no release version is
-assigned by this source cleanup.
+These source-baseline notes are incorporated into the v3.7.0 changelog, along
+with the subsequent reporting, connection-discovery and delayed-feed fixes.
+The verification above records the original source-only review scope.
 
 ### Added
 

@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-08-14
+Updated: 2026-09-17
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 The separate opt-in trading binary exposes these actions:
@@ -23,8 +23,8 @@ preview or execution tools.
 
 Trading configuration must pin `[gateway].account`,
 `[gateway].client_id`, and `[trading].mode` to `paper` or `live`. A missing or
-disabled mode means no order entry. The connected account and endpoint must
-match those pins in paper and live sessions.
+disabled mode means no order entry. The broker-confirmed account, client ID and mode must match those pins in
+paper and live sessions. An explicitly pinned endpoint must also match.
 
 Every broker action additionally keeps its exact candidate revision, fresh
 confirmation or preflight contract, quantity and exposure limits, journal

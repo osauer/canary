@@ -63,7 +63,14 @@ The gateway then returns live ticks for symbols your subscriptions cover and
 the last-known price when it cannot. Type 1, pure live, can leave snapshot
 requests hanging when the market is closed, so it is not used.
 
-Dealer gamma has one narrow regular-hours exception. If the gateway rejects an
+Shared ordinary quotes rejected with IBKR 354 receive one bounded delayed-aware
+retry under type 4, then the connection returns to type 2. The quote retains its
+actual live, frozen, delayed or delayed-frozen mode and source times. Live probes
+reuse the 30-minute retry window; usable delayed prices remain available while
+recovery is pending. Exact execution quotes and derivative subscriptions do not
+inherit this fallback.
+
+Dealer gamma has a separate regular-hours retry. If the gateway rejects an
 SPY or SPX spot request with IBKR 354, Canary retries that underlying once under
 type 3. An entitled request still comes back live; an unentitled one may come
 back 15–20 minutes delayed. The retry is bounded to the failed gamma phase and
@@ -88,7 +95,8 @@ a prior close rather than the current session, and `closed` replaces the data
 type on option chains outside option regular trading hours, with the real feed
 state moved to a `feed_type` field beside it. An empty data type means the
 gateway has not sent its notice yet, which happens for a few hundred
-milliseconds after a fresh subscription; it is treated as live.
+milliseconds after a fresh subscription. It is unknown, not evidence of a live
+feed; exact execution quotes require a known suitable mode.
 
 Some computations refuse delayed input rather than producing a plausible wrong
 answer. Dealer gamma accepts `live`, `frozen`, and clock-aligned `delayed`
@@ -101,12 +109,12 @@ every priced leg. `delayed-frozen` is still refused.
 There are two distinct causes and they need different fixes.
 
 **No subscription for that instrument class.** IBKR answers with error 354,
-"Requested market data is not subscribed". That rejection is terminal for the
-subscription. Ordinary quote paths do not retry it in delayed mode: the key is
-suppressed for 30 minutes so a poller stops hammering a dead name, and a
-gateway reconnect re-arms it immediately. The regular-hours dealer-gamma phase
-is the narrow exception described above; it rearms only its rejected
-underlying for one clock-aligned delayed attempt. Options are a separate entitlement
+"Requested market data is not subscribed". Shared ordinary quotes attempt the
+bounded delayed-aware recovery described above. If no usable fallback arrives,
+the restriction remains visible and retries are bounded; repeated reads do not
+hammer the rejected name. Other terminal request failures keep their backoff.
+A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
+requires clock-aligned delayed spot and option evidence. Options are a separate entitlement
 from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.
 

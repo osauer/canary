@@ -8,7 +8,7 @@ description: Use Canary through the local `canary` CLI for the daily brief,
   transaction-specific request and the gated CLI path.
 allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
   Bash(canary calendar*) Bash(canary regime*) Bash(canary stress*) Bash(canary brief*) Bash(canary edge*) Bash(canary rules*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*)
-  Bash(canary status*) Bash(canary version*)
+  Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
 ---
 
 # Canary
@@ -30,7 +30,9 @@ names.
 4. If it names protection work, read `canary proposals list --json`.
 5. If it names an option-exercise opportunity, read `canary opportunities list
    --json`.
-6. Use `canary status --json` only to diagnose connectivity or degraded inputs.
+6. Use `canary status --json` to diagnose connectivity, and `canary data health
+   --json` for passive source health. `canary data check --json` requests a bounded
+   ordinary-quote check; it cannot purchase subscriptions or change settings.
 
 For an explicitly named stock or ETF, `canary technical SYMBOL --json` returns
 trend, relative strength, ATR, and liquidity evidence. It is analysis, not an
@@ -39,8 +41,9 @@ order-entry path.
 ## Market regime and portfolio stress
 
 Use `canary calendar --json` / `canary_calendar` for official exchange sessions,
-holidays and early closes (`market`: `us`, `us-options`, `de`). Preserve the
-market timezone, source, coverage bounds and returned times. `unknown` is not
+holidays and early closes (`market`: `us`, `us-options`, `de`, `uk`, `jp`, `hk`). Preserve the
+market timezone, source, coverage bounds and returned times, including intraday
+windows that exclude lunch breaks. `unknown` is not
 closed and cannot supply a schedule. This is not an economic-release calendar;
 earnings context already appears in the brief. Scheduling work does not grant
 broker-write authority.

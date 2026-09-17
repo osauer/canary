@@ -1,12 +1,12 @@
 # Canary
 
-Updated: 2026-09-12
+Updated: 2026-09-17
 
-Version 3.6 adds `canary market --watch --json`, a read-only stream of broker
-display updates with account scope and separate source clocks. Validated chart
-history survives restart and feed outages as dated saved context. Option-exit
-reviews distinguish waiting for the regular session from missing evidence;
-portfolio-protection checks and broker-write authority remain binding.
+Version 3.7 adds daemon-owned data-health reports and bounded quote checks,
+plus London, Tokyo and Hong Kong exchange calendars. Ordinary quotes can retain
+usable delayed data while live access recovers. Received empty statement
+sections count as zero activity. Automatic Gateway/TWS discovery preserves
+account binding, fresh order evidence and all broker-write gates.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
 MCP server, paired app, and public Go TWS API. The daemon

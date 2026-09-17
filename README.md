@@ -85,7 +85,10 @@ that artifact.
 - **Can this reading be trusted?** Quotes, calendars, breadth, gamma, regime,
   stress, earnings, borrow, halt, and reporting sources carry their own health,
   freshness, coverage, and last-good state. Unavailable evidence stays
-  unavailable.
+  unavailable. `canary data health --json` reads the service report;
+  `canary data check --json` requests a bounded ordinary-quote check. Exchange
+  calendars cover the US, Germany, London, Tokyo and Hong Kong with explicit
+  coverage bounds and intraday breaks.
 - **What work already exists?** Proposals, opportunities, and the local order
   journal show what is blocked or ready for human review and how it changed.
   They are evidence, not broker authority.

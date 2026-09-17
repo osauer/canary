@@ -1,6 +1,6 @@
 # Concepts
 
-Updated: 2026-08-09
+Updated: 2026-09-17
 
 What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. [Sensors](sensors.md) owns authority, freshness, last-good behavior, and the safe checks; the [regime dashboard contract](../internals/regime-dashboard.md) owns methodology.
 
@@ -8,11 +8,18 @@ What the load-bearing context surfaces measure, in enough depth to read the outp
 
 Calendars answer one risk-relevant question: is this market supposed to be trading right now, and if not, when does the official session resume?
 
-The first release is official-source only and deliberately narrow:
+Supported calendars use official exchange schedules:
 
 - **US equities** (`us` / `us-equity`): regular NYSE/Nasdaq-style cash-equity sessions, holidays, and early closes.
 - **US listed options** (`us-options`): regular listed-options sessions, separate because options have their own close window and holiday schedule surface. Per-class global hours, SPX/VIX extended sessions, curb trading, and exercise/settlement nuance are not modeled in v1.
 - **German Xetra equities** (`de` / `de-xetra`): Deutsche Boerse Xetra cash-equity sessions and non-trading days. Frankfurt floor trading and Eurex derivatives are not modeled in v1.
+
+- **London equities** (`uk`): London Stock Exchange SETS sessions and holidays.
+- **Tokyo equities** (`jp`): Tokyo Stock Exchange cash sessions, including its lunch break.
+- **Hong Kong equities** (`hk`): Hong Kong Exchange cash sessions, lunch breaks and half-days.
+
+Intraday `windows` describe the actual trading intervals; a lunch break is not
+an open session. Preserve the returned coverage limits for each market.
 
 Treat futures, FX, crypto, bonds, Eurex, and exchange-specific derivatives as out of scope unless a result explicitly names a supported market.
 

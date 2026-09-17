@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.7.0 — 2026-09-17 21:09 CEST
+
+### What's new
+
+- **Data health explains missing or restricted inputs.** The app, CLI and MCP show source availability, original observation times and automatic retry state; a bounded check can recheck required ordinary quote feeds.
+- **Exchange calendars cover London, Tokyo and Hong Kong.** Sessions include lunch breaks and early closes, with explicit limits on published coverage.
+
+### Changed
+
+- **Automatic connections can select Gateway or TWS while keeping the account bound.** Account, client ID and trading-mode pins remain required; switching sessions requires fresh order evidence.
+- **Approved standing option-purpose settings cover routine classifications.** Standard ungrouped long calls can be directional and hedge-listed puts protective, while exact declarations, strategy membership and economic conflicts keep precedence.
+- **Usable delayed quote feeds are informational in service health.** Each quote retains its mode and timestamps; source failures and unknown modes remain visible.
+- **Stress results identify their account scope only when account and position sources agree.** Broker-write authority, risk thresholds, execution evidence and freeze controls remain binding.
+
+### Fixed
+
+- **Statements no longer remain unverified when a received section has no activity.** Empty sections count as zero activity; missing sections and invalid populated fields still require evidence. (#44)
+- **Ordinary quotes recover delayed data when live access is unavailable.** Retained delayed prices remain dated while live access is retried. (#43)
+- **One-day charts retain completed-session context across weekends and closures.** (#42)
+- **Current option bid/ask quotes no longer inherit an old last trade's time.**
+- **Healthy idle app streams stay connected, while stalled writes remain bounded.**
+
+### Security
+
+- **App request logs omit query credentials.**
+
 ## v3.6.0 — 2026-09-12 21:15 CEST
 
 ### What's new

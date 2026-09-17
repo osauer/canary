@@ -1,6 +1,6 @@
 # Set up broker reporting
 
-Updated: 2026-08-25
+Updated: 2026-09-17
 
 Canary needs one **Activity Flex Query** from Interactive Brokers. This is the
 broker-reporting foundation for reconciliation, statement-derived equity,

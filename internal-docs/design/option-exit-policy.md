@@ -1,6 +1,6 @@
 # Directional option exit policy
 
-Updated: 2026-09-12
+Updated: 2026-09-17
 Status: implemented locally; execution parameters approved
 
 ## Decision
@@ -41,8 +41,12 @@ Status: implemented locally; execution parameters approved
   Broker position types `OPT` and `OPTION` identify the same option security;
   reconstruction accepts both and emits canonical `OPT` contracts. Exact IDs,
   whole quantities and ambiguity checks remain required.
-- **Directional intent:** the exact contract must have a time-bounded
-  `directional_intents` record with reason, approval time and expiry. A
+- **Directional intent:** a current time-bounded `directional_intents` record
+  with reason, approval time and expiry takes precedence. Without an exact
+  declaration, approved `default_long_calls_directional` can classify standard
+  ungrouped long calls when no short-book conflict exists.
+  `default_index_puts_protection` keeps hedge-listed long puts in protection.
+  Expired declarations and strategy conflicts remain exceptions. A
   hedge-listed index put must additionally be
   classified `directional` by the current Rulebook economic-role classifier.
   A `protection`, conflicting, or unclassified role blocks the proposal.
@@ -143,10 +147,11 @@ Status: implemented locally; execution parameters approved
 
 The approved runtime policy sets `[buckets.trailing_stop.options].enabled =
 true` and explicitly supplies `limit_offset_abs = 0.05`. The loader still
-refuses activation when the field is inherited or omitted. An empty
-`directional_intents` list produces blocked option review rows. Each exact
-contract still requires its own current time-bounded intent record before an
-executable-price request or actionable directional exit can qualify.
+refuses activation when the field is inherited or omitted. Without an exact
+intent record, only a qualifying approved standing-purpose default can resolve
+intent. Missing intent, expired exact declarations and economic conflicts keep
+review rows blocked. Fresh exact-contract price and risk evidence remain
+required before an actionable directional exit can qualify.
 
 
 ## Incremental exact-contract evidence extension

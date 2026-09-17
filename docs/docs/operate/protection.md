@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-08-13
+Updated: 2026-09-17
 
 Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
@@ -44,7 +44,8 @@ Four buckets generate rows, each enabled separately in the protection policy:
   `tif = "GTC"` under `[buckets.trailing_stop]` to persist it. The proposal
   spells out which lifetime you are getting.
 - **Option loss exit** appears only for an exact standalone long contract that
-  has a current time-bounded `directional_intents` declaration. At the
+  has a current exact `directional_intents` declaration or qualifies under the
+  approved `default_long_calls_directional` setting. At the
   Rulebook-owned 60% loss of premium paid,
   measured on a fresh live bid against multiplier-adjusted cost, it proposes a
   full DAY patient-midpoint-limit close. It may remain unfilled while the loss
@@ -60,12 +61,16 @@ Four buckets generate rows, each enabled separately in the protection policy:
   contracts under 14 DTE remain blocked. A hedge-listed index put needs both
   exact operator intent, a current directional Rulebook role, and exact-ConID
   Greeks evidence; symbol, option shape, and shared-cache Greeks never prove
-  intent. Until exact-ConID Greeks ship, hedge-listed puts remain blocked as
-  unclassified rather than risking the sale of a hedge.
+  intent. Missing or invalid exact-ConID evidence keeps the role unclassified.
 
 The option-exit policy uses the explicitly approved absolute `0.05`
 quote-currency `TRAIL LIMIT` offset. An inherited or omitted offset still fails
-activation, and an empty exact-contract intent list produces no candidates.
+activation. Standing defaults apply only to standard ungrouped long contracts:
+`default_long_calls_directional` leaves short-book conflicts unresolved, and
+`default_index_puts_protection` excludes hedge-listed puts from directional
+exits. Exact declarations, including expired declarations, take precedence.
+Without a qualifying standing default or exact intent, an exit stays blocked.
+
 - **Theta hygiene** proposes closing an option whose remaining value is mostly
   time value bleeding toward expiry. When the underlying spot or the option mark
   is missing or stale, the row still appears, blocked with
