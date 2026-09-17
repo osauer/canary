@@ -12,6 +12,14 @@ IBKR's account management. What the project can do is tell you, per row, which
 kind of data you are looking at, and refuse to compute things that the data
 cannot support.
 
+The data-health indicator describes the quote service's availability. Receiving
+live and delayed quotes together is informational and does not count as a data
+problem. Feed modes and live-access restrictions remain visible in the details;
+each quote keeps its own mode and timestamps. Request failures, a rejected live
+request with no usable fallback, unknown modes, and delayed last-session data
+still raise source warnings. A healthy feed does not make a delayed quote live
+or establish that it is suitable for a particular calculation.
+
 A short list of regime inputs is the exception: they come from the institution
 that publishes them, not from your broker session.
 

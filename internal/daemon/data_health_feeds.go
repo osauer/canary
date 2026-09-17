@@ -151,7 +151,9 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 				label = "unverified mode"
 			}
 			labels = append(labels, label)
-			if mode == rpc.MarketDataDelayed || mode == rpc.MarketDataDelayedFrozen || mode == rpc.MarketDataUnknown {
+			// A usable delayed quote is a feed mode, not a service failure.
+			// Instrument clocks and suitability remain in the quote evidence.
+			if mode == rpc.MarketDataDelayedFrozen || mode == rpc.MarketDataUnknown {
 				row.State = "limited"
 			}
 		}
@@ -161,7 +163,8 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 		}
 	}
 	if row.Access != nil {
-		row.State = "limited"
+		// Keep live-access diagnostics even when a usable fallback arrived.
+		// A refusal without a quote is retained above as a request failure.
 		row.NextAttempt = row.Access.RetryAt
 		row.Action = "Canary retries restricted live access automatically when due"
 	}

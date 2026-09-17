@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -45,12 +46,19 @@ func TestDataHealthInstrumentAbsenceDoesNotCreateOrDegradeSource(t *testing.T) {
 	}
 }
 
-func TestDataHealthSourceKeepsRestrictionsBesideLiveSuccess(t *testing.T) {
+func TestDataHealthDelayedReceiptKeepsAccessInformational(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
 	delayed := projectQuoteSource(&rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, now)
+	s.recordFeedHealth(delayed, nil, ibkr.ConnectorSessionBinding{})
+	if row := s.feedDataHealth(quoteSourceID, now); row.State != "current" || len(row.ProblemIDs) != 0 || row.DataType != rpc.MarketDataDelayed {
+		t.Fatalf("usable delayed receipt became a source problem: %+v", row)
+	}
 	delayed.Access = &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now, RetryAt: now.Add(30 * time.Minute)}
 	s.recordFeedHealth(delayed, nil, ibkr.ConnectorSessionBinding{})
+	if row := s.feedDataHealth(quoteSourceID, now); row.State != "current" || len(row.ProblemIDs) != 0 || row.Access == nil {
+		t.Fatalf("usable delayed fallback became a source problem or lost access evidence: %+v", row)
+	}
 	now = now.Add(time.Minute)
 	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_OTHER_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
 	if row := s.feedDataHealth(quoteSourceID, now); row.Access == nil || row.Access.Code != 354 || !row.NextAttempt.Equal(delayed.Access.RetryAt) {
@@ -58,15 +66,56 @@ func TestDataHealthSourceKeepsRestrictionsBesideLiveSuccess(t *testing.T) {
 	}
 	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_LIVE"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataLive, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
 	row := s.feedDataHealth(quoteSourceID, now)
-	if row.State != "limited" || row.DataType != "mixed" || row.Access == nil || row.Access.Code != 354 || len(row.ProblemIDs) != 1 {
-		t.Fatalf("live receipt hid source restriction: %+v", row)
+	if row.State != "current" || row.DataType != "mixed" || row.Access == nil || row.Access.Code != 354 || len(row.ProblemIDs) != 0 {
+		t.Fatalf("mixed receipt became a source problem or lost access evidence: %+v", row)
 	}
 	if !row.SourceAt.IsZero() || !strings.Contains(row.Receiving, "delayed") || !strings.Contains(row.Receiving, "live") {
 		t.Fatal("aggregate invented an instrument clock or lost modes")
 	}
+	report, err := finalizeDataHealth([]rpc.DataSourceHealth{row}, "current", now, rpc.DataHealthParams{})
+	if err != nil || report.Summary.State != "current" || report.Summary.Problems != 0 || report.Summary.Limited != 0 || len(report.Concerns) != 0 {
+		t.Fatalf("informational feed mode became an aggregate warning: %+v, %v", report, err)
+	}
 	now = now.Add(5 * time.Minute)
 	if row = s.feedDataHealth(quoteSourceID, now); row.State != "unknown" || row.Access != nil {
 		t.Fatal("expired evidence established availability or entitlement")
+	}
+}
+
+func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name   string
+		quote  *rpc.Quote
+		err    error
+		access *rpc.DataAccessObservation
+	}{
+		{name: "unknown mode", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataUnknown, ReceivedAt: now}},
+		{name: "delayed last session", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayedFrozen, ReceivedAt: now}},
+		{name: "request timeout", err: context.DeadlineExceeded},
+		{name: "denied without fallback", quote: &rpc.Quote{}, access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{now: func() time.Time { return now }}
+			s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
+			problem := projectQuoteSource(tc.quote, tc.err, now)
+			problem.Access = tc.access
+			s.recordFeedHealth(problem, nil, ibkr.ConnectorSessionBinding{})
+			row := s.feedDataHealth(quoteSourceID, now)
+			if row.State != "limited" || len(row.ProblemIDs) != 1 || !strings.Contains(row.Receiving, "delayed") {
+				t.Fatalf("delayed receipt hid a feed problem: %+v", row)
+			}
+			if tc.err != nil && (row.Failure == nil || row.Failure.Code != rpc.SourceFailureTimeout) {
+				t.Fatalf("timeout evidence lost: %+v", row)
+			}
+			if tc.access != nil && (row.Access == nil || row.Failure == nil || row.Failure.Code != rpc.SourceFailureNotEntitled) {
+				t.Fatalf("unavailable fallback was treated as usable: %+v", row)
+			}
+			report, err := finalizeDataHealth([]rpc.DataSourceHealth{row}, "current", now, rpc.DataHealthParams{})
+			if err != nil || report.Summary.State != "limited" || report.Summary.Problems != 1 || len(report.Concerns) != 1 {
+				t.Fatalf("source problem missing from aggregate: %+v, %v", report, err)
+			}
+		})
 	}
 }
 
