@@ -21,7 +21,7 @@ preview or execution tools.
 
 ## Required authority
 
-Trading configuration must pin `[gateway].port`, `[gateway].account`,
+Trading configuration must pin `[gateway].account`,
 `[gateway].client_id`, and `[trading].mode` to `paper` or `live`. A missing or
 disabled mode means no order entry. The connected account and endpoint must
 match those pins in paper and live sessions.
@@ -48,6 +48,16 @@ reduce/cover candidate supplies the action authority.
 Option exercise is limited to daemon-owned candidates for held options. The
 confirmation surface must disclose the resulting underlying exposure and block
 an exercise that opens, increases, or flips risk.
+
+## Auto connections
+
+Auto endpoint discovery can select Gateway or TWS without a port pin. The
+broker must confirm the configured account; that account, not its port number,
+determines live/paper mode. Account and client ID pins, trading mode, freeze,
+risk checks and per-order authorization still apply. A switch requires a new
+order preview and current broker evidence. Pinned ports remain fixed. After an
+upstream loss lasting 30 seconds, Auto tries another discovered listener first;
+brief losses and outages with no alternative retain the existing connection.
 
 ## Release boundary
 

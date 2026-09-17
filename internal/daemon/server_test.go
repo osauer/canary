@@ -326,6 +326,8 @@ func TestStartOpensSocketBeforeGatewayHandshake(t *testing.T) {
 }
 
 type fakeAttempter struct {
+	account           string
+	backend           ibkrlib.BackendLinkReport
 	connectOk         bool
 	startErr          error
 	lastError         string
@@ -360,9 +362,11 @@ func (f *fakeAttempter) Stop() error {
 	f.connected.Store(false)
 	return nil
 }
-func (f *fakeAttempter) IsConnected() bool { return f.connected.Load() }
-func (f *fakeAttempter) UsingTLS() bool    { return false }
-func (f *fakeAttempter) LastError() string { return f.lastError }
+func (f *fakeAttempter) AccountID() string                      { return f.account }
+func (f *fakeAttempter) BackendLink() ibkrlib.BackendLinkReport { return f.backend }
+func (f *fakeAttempter) IsConnected() bool                      { return f.connected.Load() }
+func (f *fakeAttempter) UsingTLS() bool                         { return false }
+func (f *fakeAttempter) LastError() string                      { return f.lastError }
 func (f *fakeAttempter) SetMarketDataType(t int) error {
 	f.setMarketDataType.Store(int32(t))
 	return nil

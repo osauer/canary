@@ -117,14 +117,15 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 	default:
 		add("invalid_mode", fmt.Sprintf("trading mode %q is invalid", tr.Mode), "Set [trading].mode to disabled, paper, or live.")
 	}
-	if cfg.Gateway.Port == nil {
-		add("gateway_port_unpinned", "order submission requires a pinned gateway port", "Set [gateway].port.")
+	connectedAccount := s.connectedGatewayAccount()
+	if strings.TrimSpace(connectedAccount) == "" || strings.EqualFold(strings.TrimSpace(connectedAccount), "All") {
+		add("gateway_account_unconfirmed", "the broker session has not confirmed the authorized account", "Wait for the broker account handshake before trading.")
 	}
 	if cfg.Gateway.Account == "" {
 		add("gateway_account_unpinned", "order submission requires a pinned account", "Set [gateway].account.")
 	} else if strings.EqualFold(strings.TrimSpace(cfg.Gateway.Account), "All") {
 		add("gateway_account_not_concrete", "order preview requires a concrete IBKR account, not the aggregate account \"All\"", "Pin the paper/live account code shown by TWS, such as a DU paper account.")
-	} else if connectedAccount := s.connectedGatewayAccount(); connectedAccount != "" && accountMismatchesConnected(cfg.Gateway.Account, connectedAccount) {
+	} else if accountMismatchesConnected(cfg.Gateway.Account, connectedAccount) {
 		add("gateway_account_mismatch", fmt.Sprintf("configured account %q does not match connected account %q", cfg.Gateway.Account, connectedAccount), "Pin [gateway].account to the account advertised by the connected TWS/Gateway session.")
 	}
 	if cfg.Gateway.ClientID == nil {
@@ -135,12 +136,12 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 
 	switch tr.Mode {
 	case config.TradingModePaper:
-		if cfg.Gateway.Port != nil && cfg.Gateway.Account != "" && !looksPaper(port, account) {
-			add("paper_endpoint_unconfirmed", "paper trading requires a paper-looking endpoint or account", "Use port 4002/7497 or a DU paper account.")
+		if cfg.Gateway.Account != "" && accountModeForStatus(0, account) != rpc.AccountModePaper {
+			add("paper_endpoint_unconfirmed", "paper trading requires a paper account", "Select the authorized paper account.")
 		}
 	case config.TradingModeLive:
-		if cfg.Gateway.Port != nil && cfg.Gateway.Account != "" && looksPaper(port, account) {
-			add("live_endpoint_unconfirmed", "live trading requires a live-looking endpoint and account", "Use port 4001/7496 and pin the live account in [gateway].account.")
+		if cfg.Gateway.Account != "" && accountModeForStatus(0, account) != rpc.AccountModeLive {
+			add("live_endpoint_unconfirmed", "live trading requires a live account", "Select the authorized live account in [gateway].account.")
 		}
 	}
 
@@ -294,6 +295,9 @@ func (s *Server) connectedGatewayAccount() string {
 	if s == nil {
 		return ""
 	}
+	if s.gatewayAccountForTrading != nil {
+		return s.gatewayAccountForTrading()
+	}
 	s.mu.Lock()
 	c := s.connector
 	s.mu.Unlock()
@@ -368,22 +372,19 @@ func originPinnedOrDefault(pinned bool) string {
 	return string(discover.OriginDefault)
 }
 
-func looksPaper(port int, account string) bool {
-	if port == 4002 || port == 7497 {
-		return true
-	}
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(account)), "DU")
-}
-
+// A concrete broker account determines mode; port conventions are only a
+// display fallback before identity arrives, never trading authorization.
 func accountModeForStatus(port int, account string) string {
-	if looksPaper(port, account) {
-		return rpc.AccountModePaper
-	}
 	account = strings.TrimSpace(account)
-	if account != "" && !strings.EqualFold(account, "All") {
+	if brokerScopeAccountConcrete(account) {
+		if strings.HasPrefix(strings.ToUpper(account), "DU") {
+			return rpc.AccountModePaper
+		}
 		return rpc.AccountModeLive
 	}
 	switch port {
+	case 4002, 7497:
+		return rpc.AccountModePaper
 	case 4001, 7496:
 		return rpc.AccountModeLive
 	default:

@@ -381,6 +381,7 @@ type Server struct {
 	orderPreviewWhatIf           func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
 	orderWritesEnabled           func() bool
 	gatewayReadyForTrading       func() bool
+	gatewayAccountForTrading     func() string
 	orderReserveBrokerID         func(context.Context) (int, error)
 	orderPlaceBroker             func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error
 	orderCancelBroker            func(context.Context, int) error
@@ -1365,6 +1366,8 @@ type connectAttempter interface {
 	Start(ctx context.Context) error
 	Stop() error
 	IsConnected() bool
+	AccountID() string
+	BackendLink() ibkrlib.BackendLinkReport
 	UsingTLS() bool
 	SetMarketDataType(int) error
 	RequestAccountUpdates(account string) error
@@ -1633,7 +1636,26 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		}
 		return false
 	}
-	return true
+	if brokerScopeAccountConcrete(ep.Account) {
+		// managedAccounts can arrive just after the initial handshake. Stay
+		// within the existing candidate budget rather than accepting no identity.
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for strings.TrimSpace(a.AccountID()) == "" {
+			select {
+			case <-candidateCtx.Done():
+				return false
+			case <-ticker.C:
+			}
+		}
+		if strings.EqualFold(strings.TrimSpace(a.AccountID()), "All") || accountMismatchesConnected(ep.Account, a.AccountID()) {
+			s.mu.Lock()
+			s.lastConnectError = "API session does not confirm the configured account"
+			s.mu.Unlock()
+			return false
+		}
+	}
+	return !a.BackendLink().Down
 }
 
 func connectorLastError(a connectAttempter) string {
@@ -2001,7 +2023,8 @@ func (s *Server) triggerReconnect() bool {
 	// IsReady, not IsConnected: TCP-up is not enough. If the connector
 	// during a transient gateway hiccup), we must re-establish — and the
 	// only way out is to tear the old TCP socket down in reconnectFlow.
-	if s.connector != nil && s.connector.IsReady() {
+	if s.connector != nil && s.connector.IsReady() &&
+		!autoBackendRediscoveryDue(s.cfg.Gateway.Port != nil, s.connector.BackendLink(), s.now()) {
 		s.mu.Unlock()
 		return false
 	}
@@ -2045,8 +2068,26 @@ func (s *Server) triggerReconnect() bool {
 // safe even when the old connector never finished its first handshake.
 func (s *Server) reconnectFlow(ctx context.Context) {
 	s.mu.Lock()
-	old := s.connector
+	old, oldEndpoint := s.connector, s.endpoint
 	s.mu.Unlock()
+	// A local API can keep answering after losing its broker login. In Auto,
+	// try another listener first; do not tear down the only remaining socket.
+	var ep discover.Endpoint
+	var derr error
+	backendFailover := old != nil && old.IsReady() &&
+		autoBackendRediscoveryDue(s.cfg.Gateway.Port != nil, old.BackendLink(), s.now())
+	if backendFailover {
+		ep, derr = discover.Resolve(ctx, partialFromConfig(s.cfg.Gateway))
+		var alternate bool
+		ep, alternate = preferAlternateEndpoint(ep, oldEndpoint.Port)
+		if derr != nil || !alternate {
+			s.noteReconnectOutcome(ctx, false)
+			return
+		}
+		if !old.BackendLink().Down {
+			return
+		}
+	}
 	s.withConnectorEvidencePublication(old, nil, func() {
 		s.connector = nil
 		s.connectorEpoch++
@@ -2058,7 +2099,9 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 		s.forgetOrderLifecycleJournal(old)
 	}
 
-	ep, derr := discover.Resolve(ctx, partialFromConfig(s.cfg.Gateway))
+	if !backendFailover {
+		ep, derr = discover.Resolve(ctx, partialFromConfig(s.cfg.Gateway))
+	}
 	endpointSig := fmt.Sprintf("%s:%d tls=%v", ep.Host, ep.Port, ep.TLS)
 	s.mu.Lock()
 	s.endpoint = ep
@@ -2151,7 +2194,7 @@ func (s *Server) gatewayConnector() *ibkrlib.Connector {
 	s.mu.Unlock()
 	// IsReady, not IsConnected: handlers also need to be armed. A connector
 	// caller surfaces ErrIBKRUnavailable, while triggerReconnect rebuilds.
-	if c == nil || !c.IsReady() {
+	if c == nil || !c.IsReady() || c.BackendLink().Down {
 		s.triggerReconnect()
 		return nil
 	}

@@ -75,7 +75,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
   orders only when the full broker-write gate passes. There is no origin-only
   live hard block.
 - Paper and live agent writes remain gated by the full existing stack: trading
-  build, mode, connected gateway, pinned port/account/client-id, route
+  build, mode, connected gateway, pinned account/client-id and optional pinned port, route
   confirmation, single-use WhatIf-accepted preview tokens where applicable,
   journal availability, and `trading.freeze`.
 - Preview tokens are not submit eligibility; both fields stay separate.

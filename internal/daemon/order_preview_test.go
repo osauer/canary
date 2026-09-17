@@ -281,12 +281,13 @@ func newOrderPreviewTestServer(t *testing.T, trading config.Trading) *Server {
 			Gateway: config.Gateway{Host: "127.0.0.1", Port: new(4002), ClientID: new(31), Account: "DU1234567"},
 			Trading: trading,
 		},
-		endpoint:               discover.Endpoint{Host: "127.0.0.1", Port: 4002, ClientID: 31, Account: "DU1234567", PortOrigin: discover.OriginPinned},
-		now:                    func() time.Time { return now },
-		orderJournal:           journal,
-		orderTokens:            signer,
-		coreStore:              authority,
-		gatewayReadyForTrading: func() bool { return true },
+		endpoint:                 discover.Endpoint{Host: "127.0.0.1", Port: 4002, ClientID: 31, Account: "DU1234567", PortOrigin: discover.OriginPinned},
+		now:                      func() time.Time { return now },
+		orderJournal:             journal,
+		orderTokens:              signer,
+		coreStore:                authority,
+		gatewayReadyForTrading:   func() bool { return true },
+		gatewayAccountForTrading: func() string { return "DU1234567" },
 	}
 }
 
