@@ -19,6 +19,10 @@ need a Go wire-protocol client, use [`pkg/ibkr`](#go-wire-protocol-library).
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
+The [v3.7.0 release notes](https://github.com/osauer/canary/releases/tag/v3.7.0)
+cover data-health reports, expanded exchange calendars, delayed-quote recovery
+and statement-readiness fixes.
+
 ## Start
 
 You need IB Gateway 10.37+ or TWS with API socket access enabled, an IBKR Pro
@@ -35,7 +39,11 @@ canary brief     # review what changed and what needs attention
 
 The installer verifies the signed release checksum and installs to
 `~/.local/bin`. The [install guide](docs/docs/start/install.md) shows how to
-inspect the script first and covers every other installation path.
+inspect the script first and covers every other installation path. Canary can
+discover Gateway or TWS automatically; `canary status` identifies the selected
+connection and account. An explicit endpoint pin remains fixed. Market-data
+availability depends on your IBKR subscriptions: delayed values stay labeled
+and cannot satisfy live-only execution requirements.
 
 For Claude Desktop only, download
 [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb),
@@ -86,16 +94,22 @@ that artifact.
   stress, earnings, borrow, halt, and reporting sources carry their own health,
   freshness, coverage, and last-good state. Unavailable evidence stays
   unavailable. `canary data health --json` reads the service report;
-  `canary data check --json` requests a bounded ordinary-quote check. Exchange
-  calendars cover the US, Germany, London, Tokyo and Hong Kong with explicit
-  coverage bounds and intraday breaks.
+  `canary data check --json` requests a bounded ordinary-quote check. A healthy
+  service does not mean every quote is live or suitable for execution.
+- **When is the market open, and what is scheduled?** Exchange calendars cover
+  US equities and listed options, Xetra, London, Tokyo and Hong Kong, with
+  explicit coverage bounds and intraday breaks. `canary macro` separately reads
+  cached official economic calendars and publications with their source health.
 - **What work already exists?** Proposals, opportunities, and the local order
   journal show what is blocked or ready for human review and how it changed.
   They are evidence, not broker authority.
 
 Reconciliation, statement-derived equity, and Edge require one shared IBKR
 Activity Flex Query. Run `canary setup reporting`, then follow the
-[screenshot-driven field checklist](docs/docs/start/reporting.md).
+[screenshot-driven field checklist](docs/docs/start/reporting.md). A received
+empty section counts as zero reported activity and does not block readiness.
+Missing sections and missing required fields on populated rows remain distinct
+problems; `canary reporting status --json` shows the current evidence.
 
 ## MCP and agent frameworks
 
@@ -120,9 +134,10 @@ the MCP server.
 
 Continuously running agents can keep this MCP child process available and
 reuse Canary's brief, calendar, regime, risk, and order evidence. Use
-`canary_calendar` for official exchange sessions and coverage bounds; it is not
-an economic-release calendar. The host owns durable wakeups, model budgets,
-and process recovery. Canary owns the observations and risk semantics. See
+`canary_calendar` for official exchange sessions, `canary_macro` for official
+economic calendars and publications, and `canary_data_health` for passive source
+health. Preserve their coverage bounds and original source times. The host owns
+durable wakeups, model budgets, and process recovery. Canary owns the observations and risk semantics. See
 [continuous hosts](docs/docs/start/hosts.md#continuously-running-agents) for
 the lifecycle and data-quality contract.
 
@@ -146,6 +161,7 @@ safety hooks; it does not ship the binary.
 Every data command supports `--json`:
 
 ```sh
+canary data health
 canary account
 canary positions --by underlying
 canary brief
@@ -155,12 +171,21 @@ canary regime --explain
 canary stress --details
 canary technical SPY,QQQ
 canary calendar --market us --days 14
+canary macro
+canary market
+canary reporting status
 canary proposals list
 canary opportunities list
 canary orders open
 ```
 
-Run `canary status` first when anything looks wrong. `canary --help` and the
+For a continuous display, `canary market --watch --json` streams broker updates
+with explicit account scope and separate source clocks. One-day charts retain
+the last applicable session across weekends and closures; retained bars keep
+their actual dates.
+
+Run `canary status` first for connection problems and `canary data health` for
+missing or degraded inputs. `canary --help` and the
 [CLI reference](docs/docs/reference/cli.md) carry the complete command and flag
 inventory.
 
@@ -224,7 +249,9 @@ shell, MCP host, or paired app
 The daemon starts on demand, owns the selected account, broker connection,
 market evidence, policy state, and local order journal, and normally exits
 after 15 idle minutes. Adapters render typed daemon results; they do not
-re-create risk policy. The [architecture](docs/docs/internals/architecture.md)
+re-create risk policy. Official public-data sources also feed the daemon;
+embedded exchange calendars remain available without a broker connection.
+The [architecture](docs/docs/internals/architecture.md)
 and [storage guide](docs/docs/internals/storage.md) describe the boundaries and
 the retained `ibkr` XDG paths used for upgrade continuity.
 
@@ -235,7 +262,8 @@ the retained `ibkr` XDG paths used for upgrade continuity.
 - **MCP has no preview or execution tools in any build.** It cannot place,
   modify, cancel, submit, or exercise an order.
 - **Trading is a separate decision.** The experimental trading artifact keeps
-  actions behind pinned connection authority, a fresh exact review contract,
+  actions behind a pinned, broker-confirmed account, pinned client ID and trading mode,
+  any explicit endpoint pin, a fresh exact review contract,
   broker eligibility where applicable, healthy journaling, daemon
   revalidation, runtime freeze, and transaction-specific human authority.
 - **Missing evidence stays missing.** A stale or unavailable input never
