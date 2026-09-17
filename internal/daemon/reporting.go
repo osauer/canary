@@ -60,7 +60,9 @@ func (s *Server) handleReportingStatus(ctx context.Context) (*rpc.ReportingStatu
 			Fields:        append([]string(nil), required.RequiredFields...),
 			MissingFields: append([]string(nil), observed.MissingFields...),
 		})
-		if observed.Status == flexstmt.QueryRequirementAbsent || observed.Status == flexstmt.QueryRequirementEmpty {
+		// An explicitly present empty section is valid zero activity. Its row
+		// fields remain subject to validation when records actually arrive.
+		if observed.Status == flexstmt.QueryRequirementAbsent {
 			result.UnprovedSections = append(result.UnprovedSections, required.Key)
 		}
 	}
@@ -279,8 +281,6 @@ func populateReportingValidationEvidence(result *rpc.ReportingValidationResult, 
 		case flexstmt.QueryRequirementAbsent:
 			hasAbsent = true
 			result.UnprovedSections = append(result.UnprovedSections, section.Key)
-		case flexstmt.QueryRequirementEmpty:
-			result.UnprovedSections = append(result.UnprovedSections, section.Key)
 		}
 	}
 	result.SchemaFingerprint = flexstmt.QuerySchemaFingerprint(statements)
@@ -294,11 +294,6 @@ func populateReportingValidationEvidence(result *rpc.ReportingValidationResult, 
 		result.Reason = rpc.ReportingReasonAbsentSectionsUnproved
 		result.ReadyForRotation = true
 		result.Action = "Some required sections were not returned. Open each absent section in the saved query, choose its named detail level and Select All, save, then validate again. If there was truly no matching activity, IBKR may omit an enabled empty section."
-	case len(result.UnprovedSections) > 0:
-		result.Outcome = rpc.ReportingValidationUnproved
-		result.Reason = rpc.ReportingReasonEmptySectionsUnproved
-		result.ReadyForRotation = true
-		result.Action = "The named sections were returned but contained no rows, so their selected fields remain unproved until representative activity arrives."
 	default:
 		result.Outcome = rpc.ReportingValidationReady
 		result.ReadyForRotation = true
@@ -437,22 +432,14 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		result.State, result.Reason = rpc.ReportingStateBackfilling, result.Broker.Reason
 		if hasAbsent {
 			result.Action = "Canary will retry automatically, but a retry cannot prove an absent section. If matching activity should exist, edit the saved query, choose the named detail level and Select All, then save."
-		} else if len(result.UnprovedSections) > 0 {
-			result.Action = "Canary will retry automatically. Empty sections remain unproved until representative activity appears."
 		} else {
 			result.Action = "Canary will retry automatically; use reporting status to follow the next broker check."
 		}
 		return
-	case len(result.UnprovedSections) > 0:
+	case hasAbsent:
 		result.State = rpc.ReportingStateConfigured
-		if hasAbsent {
-			result.Reason = rpc.ReportingReasonAbsentSectionsUnproved
-			result.Action = "Open the saved Activity Flex Query. For each absent section shown above, choose the named detail level and Select All fields, then save. Canary validates the next report automatically. If no matching activity exists, IBKR may omit an enabled empty section."
-		} else {
-			result.Reason = rpc.ReportingReasonEmptySectionsUnproved
-			result.Action = "The named sections were returned empty; future representative activity will prove their selected fields automatically."
-		}
-		return
+		result.Reason = rpc.ReportingReasonAbsentSectionsUnproved
+		result.Action = "Open the saved Activity Flex Query. For each absent section shown above, choose the named detail level and Select All fields, then save. Canary validates the next report automatically. If no matching activity exists, IBKR may omit an enabled empty section."
 	default:
 		result.State = rpc.ReportingStateCurrent
 	}

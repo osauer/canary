@@ -185,7 +185,7 @@ func TestReportingCandidateValidationLeavesNoDurableOrProjectionSideEffects(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.ReadyForRotation || result.Outcome != rpc.ReportingValidationUnproved || len(result.MissingRequirements) != 0 {
+	if !result.ReadyForRotation || result.Outcome != rpc.ReportingValidationReady || len(result.UnprovedSections) != 0 || len(result.MissingRequirements) != 0 {
 		t.Fatalf("candidate result = %+v", result)
 	}
 	if !reflect.DeepEqual(srv.flexFetch.state, beforeState) {
@@ -301,8 +301,17 @@ func TestReportingStatusPublishesOnlyTypedBrokerAndManifestDiagnostics(t *testin
 	if result.State != rpc.ReportingStateActionRequired || result.Reason != rpc.ReportingReasonBrokerResponseUndocumented || result.Broker.BrokerCode != "1025" {
 		t.Fatalf("reporting state = %+v", result)
 	}
-	if !slices.Contains(result.UnprovedSections, "transfers") || len(result.MissingRequirements) != 0 || result.Evidence.SchemaFingerprint == "" {
+	if slices.Contains(result.UnprovedSections, "transfers") || len(result.MissingRequirements) != 0 || result.Evidence.SchemaFingerprint == "" {
 		t.Fatalf("reporting evidence = %+v", result)
+	}
+	// A current report containing explicitly empty activity sections must not
+	// wait for activity to occur before reporting healthy coverage.
+	current := *result
+	current.Broker.State, current.Broker.BrokerCode = rpc.ReconReportStateCurrent, ""
+	current.Reason, current.Action = "", ""
+	setReportingOverallStatus(&current, false)
+	if current.State != rpc.ReportingStateCurrent || len(current.UnprovedSections) != 0 {
+		t.Fatalf("zero activity stalled current reporting: %+v", current)
 	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
@@ -324,8 +333,32 @@ func TestReportingRetryDoesNotPromiseUnprovedSectionsWillArrive(t *testing.T) {
 		UnprovedSections: []string{"trades"},
 	}
 	setReportingOverallStatus(result, false)
-	if result.State != rpc.ReportingStateBackfilling || !strings.Contains(result.Action, "Empty sections remain unproved") {
+	if result.State != rpc.ReportingStateBackfilling || strings.Contains(result.Action, "Empty sections remain unproved") {
 		t.Fatalf("reporting retry contract=%+v", result)
+	}
+}
+
+func TestReportingEmptySectionDoesNotBypassLaterFieldValidation(t *testing.T) {
+	var coverage []flexstmt.SectionCoverage
+	for _, section := range flexstmt.CanonicalQueryManifest() {
+		coverage = append(coverage, flexstmt.SectionCoverage{Key: section.Key, Present: true})
+	}
+	check := func() *rpc.ReportingValidationResult {
+		result := newReportingValidationResult()
+		populateReportingValidationEvidence(result, []flexstmt.Statement{{Coverage: coverage}})
+		return result
+	}
+	if result := check(); result.Outcome != rpc.ReportingValidationReady || len(result.UnprovedSections) != 0 {
+		t.Fatalf("empty activity requires intervention: %+v", result)
+	}
+	for i := range coverage {
+		if coverage[i].Key == "transfers" {
+			coverage[i].RowCount = 1
+			coverage[i].ObservedFields = []string{"date"}
+		}
+	}
+	if result := check(); result.Outcome != rpc.ReportingValidationActionRequired || result.ReadyForRotation || len(result.MissingRequirements) == 0 {
+		t.Fatalf("populated transfer escaped field validation: %+v", result)
 	}
 }
 

@@ -162,12 +162,15 @@ A date range with no trades, transfers, or corporate actions cannot prove the
 fields selected for those sections. The wizard reports **absent** when a
 container was not returned, **empty** when the container was returned with no
 rows, and **missing** only when a real row proves a selected field is absent.
-It gives the Portal section, required detail level, and `Select All` repair,
-then asks before accepting absent or empty evidence. It refuses activation
-when a non-empty section proves that a named field is missing.
+A present empty section is accepted automatically as zero reported activity;
+it does not delay reporting readiness or require a confirmation. Fields are
+validated when records arrive. For absent sections, the wizard gives the Portal
+section, required detail level, and `Select All` repair, then asks before
+accepting that uncertainty. It refuses activation when a non-empty section
+proves that a named field is missing.
 
 For unattended recovery, `canary setup reporting --accept-unproved` accepts
-only absent-or-empty uncertainty. It never accepts a field that a returned row
+only absent-section uncertainty. It never accepts a field that a returned row
 proves missing. Use the flag only after comparing the Portal definition with
 the generated field reference.
 
@@ -231,7 +234,7 @@ credential-file problems from broker and report evidence. Use these states:
 
 | Reporting state | Meaning |
 | --- | --- |
-| `configured` | Local setup is sound, but one or more absent or empty sections cannot yet prove their field choices. |
+| `configured` | Local setup is sound, but one or more required sections were not returned. |
 | `backfilling` | Canary is waiting for its first usable report or building the requested history. Temporary broker reasons are retried automatically. |
 | `current` | Fresh broker evidence satisfies every requirement that the returned XML can prove. |
 | `action_required` | Canary proved a local credential problem, a returned row is missing a named field, or IBKR returned a response that needs operator attention. |
