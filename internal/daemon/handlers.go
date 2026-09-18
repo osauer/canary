@@ -436,6 +436,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			SecType:       positionSecType(pos.Contract.SecType),
 			ConID:         pos.Contract.ConID,
 			Exchange:      pos.Contract.Exchange,
+			PrimaryExch:   pos.Contract.PrimaryExch,
 			Currency:      pos.Contract.Currency,
 			LocalSymbol:   pos.Contract.LocalSymbol,
 			TradingClass:  pos.Contract.TradingClass,
