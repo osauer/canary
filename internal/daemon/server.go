@@ -169,6 +169,10 @@ type Server struct {
 	// prevCloses memoises per-symbol previous-session close (tick 9)
 	prevCloses *prevCloseCache
 
+	// classifications memoises the broker's business classification of
+	// held stock contracts for one connector session.
+	classifications *classificationCache[ibkrlib.ConnectorSessionBinding]
+
 	// greeks memoises per-option model-computation Greeks so the
 	// positions handler doesn't re-subscribe to each option leg on
 	// every invocation. Short TTL (60 s) because Greeks shift with
@@ -495,6 +499,7 @@ func New(opts Options) *Server {
 		quoteLiquidity:      newQuoteLiquidityCache(),
 		quoteHistory:        newQuoteHistoryCache(),
 		prevCloses:          newPrevCloseCache(),
+		classifications:     newClassificationCache[ibkrlib.ConnectorSessionBinding](),
 		greeks:              newGreeksCache(),
 		zeroGamma:           newGammaZeroCache(),
 		fxRates:             newFXRateCache(),

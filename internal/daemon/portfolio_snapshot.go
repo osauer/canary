@@ -9,12 +9,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func currentPortfolioAuthority(a *rpc.AccountDataAuthority) bool {
@@ -40,60 +38,13 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 	if !currentPortfolioAuthority(p.Authority) || !currentPortfolioAuthority(a.Authority) || p.Authority.Scope != a.Authority.Scope || a.BaseCurrency == "" || p.Portfolio == nil || p.Portfolio.BaseCurrency != a.BaseCurrency {
 		return nil, errors.New("current consistent portfolio scope unavailable")
 	}
-	broker := map[string]ibkrlib.MarketClassification{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, 4)
-	lookups := 0
-	for _, g := range p.ByUnderlying {
-		// Free sources settle S&P names and the embedded funds; the broker
-		// round-trip is spent only where they are silent, and bounded.
-		if classificationSettledWithoutBroker(g.Underlying) {
-			continue
-		}
-		if lookups >= 12 {
-			break
-		}
-		if !portfolioClassificationUnambiguous(g.Underlying, p) {
-			continue
-		}
-		contract, ok := rpc.UnderlyingMarketContract(g)
-		if !ok || !rpc.ExpectsMarketDataGroup(g) {
-			continue
-		}
-		lookups++
-		wg.Go(func() {
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				return
-			}
-			defer func() { <-sem }()
-			route, _, _, e := normaliseStockQuoteContract(contract)
-			if e != nil {
-				return
-			}
-			mc, e := c.MarketClassification(ctx, route, 3*time.Second)
-			if e != nil {
-				return
-			}
-			mu.Lock()
-			broker[strings.ToUpper(g.Underlying)] = mc
-			mu.Unlock()
-		})
-	}
-	wg.Wait()
+	classes := resolveUnderlyingClassifications(ctx, p, s.brokerClassificationResolver(c, binding))
 	if !c.SessionCurrent(binding) {
 		return nil, errors.New("broker session changed during portfolio observation")
 	}
 	// Account selection is distinct from connector lifetime.
 	if !sameBrokerScope(brokerStateScope{Account: a.Authority.Scope.AccountID, Mode: a.Authority.Scope.AccountMode}, s.currentBrokerStateScope()) {
 		return nil, errors.New("portfolio scope changed")
-	}
-	classes := map[string]underlyingClassification{}
-	for _, g := range p.ByUnderlying {
-		key := strings.ToUpper(g.Underlying)
-		classes[key] = classifyUnderlying(key, broker[key])
 	}
 	return projectPortfolio(a, p, classes), nil
 }
