@@ -90,26 +90,25 @@ func TestPortfolioCannotDrawADefunctHoldingAsExposure(t *testing.T) {
 	}
 }
 
-// A long index put is an asset on the balance sheet and short the market in
-// exposure. The two tables must disagree about it, in that order.
-func TestPortfolioCannotCountALongPutAsLongTheMarket(t *testing.T) {
+// An index fund position, option or stock, is spread over the fund's
+// published sector weights at its market value, with provenance.
+func TestPortfolioSpreadsAnIndexFundOverItsSectors(t *testing.T) {
 	n := func(v float64) *float64 { return &v }
 	a := &rpc.AccountResult{BaseCurrency: "USD", NetLiquidation: 100000, TotalCash: 0, Authority: &rpc.AccountDataAuthority{Fields: &rpc.AccountFieldAvailability{NetLiquidation: true, TotalCash: true}}}
-	put := rpc.PositionView{ConID: 5, Symbol: "SPY", SecType: "OPT", Currency: "USD", Quantity: 2, AvgCost: 500, Multiplier: 100, MarketValueBase: n(1200), Delta: n(-0.4), Underlying: n(500), Right: "P"}
+	put := rpc.PositionView{ConID: 5, Symbol: "SPY", SecType: "OPT", Currency: "USD", Quantity: 2, AvgCost: 500, Multiplier: 100, MarketValueBase: n(1200), Right: "P"}
 	p := &rpc.PositionsResult{Options: []rpc.PositionView{put}}
 	r := projectPortfolio(a, p, map[string]underlyingClassification{"SPY": classifyUnderlying("SPY", ibkrlib.MarketClassification{})})
 	if x := portfolioRow(t, r, "assets", "Options"); x.ValueBase == nil || *x.ValueBase != 1200 {
 		t.Fatalf("premium is the asset-class value: %+v", x)
 	}
-	// delta dollars: -0.4 × 2 × 100 × 500 = -40000, spread by SPY weights.
 	tech := portfolioRow(t, r, "sectors", "Information Technology")
-	if tech.ValueBase == nil || *tech.ValueBase >= 0 || math.Abs(*tech.ValueBase-(-40000*38.34/100)) > 1e-6 {
-		t.Fatalf("long put not short technology: %+v", tech)
+	if tech.ValueBase == nil || math.Abs(*tech.ValueBase-1200*38.34/100) > 1e-6 {
+		t.Fatalf("fund value not spread by weight: %+v", tech)
 	}
 	if len(r.LookThrough) != 1 || r.LookThrough[0].Symbol != "SPY" || r.LookThrough[0].AsOf == "" {
 		t.Fatalf("look-through provenance missing: %+v", r.LookThrough)
 	}
-	if r.SectorMeasure != rpc.AllocationMeasureDeltaNotional || r.AssetClassMeasure != rpc.AllocationMeasureMarketValue {
+	if r.SectorMeasure != rpc.AllocationMeasureMarketValue || r.AssetClassMeasure != rpc.AllocationMeasureMarketValue {
 		t.Fatal("measures unnamed")
 	}
 	for _, x := range r.Sectors {
@@ -119,21 +118,18 @@ func TestPortfolioCannotCountALongPutAsLongTheMarket(t *testing.T) {
 	}
 }
 
-// An option without a delta has an unknown exposure, which is not zero.
-func TestPortfolioCannotTreatAMissingDeltaAsZeroExposure(t *testing.T) {
+// A stale row is unvalued in both tables, never zero.
+func TestPortfolioCannotTreatAStaleValueAsZero(t *testing.T) {
 	n := func(v float64) *float64 { return &v }
 	a := &rpc.AccountResult{BaseCurrency: "USD", NetLiquidation: 1000, TotalCash: 0, Authority: &rpc.AccountDataAuthority{Fields: &rpc.AccountFieldAvailability{NetLiquidation: true, TotalCash: true}}}
 	p := &rpc.PositionsResult{
 		Stocks:  []rpc.PositionView{{ConID: 1, Symbol: "ACME", SecType: "STK", Currency: "USD", Quantity: 10, AvgCost: 10, Mark: 20, MarketValueBase: n(200)}},
-		Options: []rpc.PositionView{{ConID: 2, Symbol: "ACME", SecType: "OPT", Currency: "USD", Quantity: -1, AvgCost: 100, Multiplier: 100, MarketValueBase: n(-50), Underlying: n(20)}},
+		Options: []rpc.PositionView{{ConID: 2, Symbol: "ACME", SecType: "OPT", Currency: "USD", Quantity: -1, AvgCost: 100, Multiplier: 100, MarketValueBase: n(-50), Stale: true}},
 	}
 	r := projectPortfolio(a, p, map[string]underlyingClassification{"ACME": {Sector: "Energy"}})
 	x := portfolioRow(t, r, "sectors", "Energy")
 	if x.Missing != 1 || x.PercentNLV != nil || x.ValueBase == nil || *x.ValueBase != 200 {
-		t.Fatalf("missing delta silently zero: %+v", x)
-	}
-	if y := portfolioRow(t, r, "assets", "Options"); y.Missing != 0 || y.ValueBase == nil || *y.ValueBase != -50 {
-		t.Fatalf("premium view must not need a delta: %+v", y)
+		t.Fatalf("stale value silently zero: %+v", x)
 	}
 }
 

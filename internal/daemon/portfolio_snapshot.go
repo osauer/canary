@@ -98,18 +98,18 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 	return projectPortfolio(a, p, classes), nil
 }
 
-// projectPortfolio builds two tables from one book. Asset classes carry
-// signed market value, the balance-sheet view where a long put is an asset.
-// Sectors carry delta-adjusted notional, the exposure view where that same
-// put is short the market. A holding the broker no longer quotes, or one
-// flagged zero-mark and zero-value pending the broker's verdict, has nothing
-// to move and is counted out rather than drawn as a zero or unvalued row.
+// projectPortfolio builds two allocation tables from one book, both in
+// signed market value over net liquidation: where the money sits, so the
+// tabs sum to roughly the whole account with cash. Sectors are GICS, with
+// index funds spread over published weights. A holding the broker no longer
+// quotes, or one flagged zero-mark and zero-value pending the broker's
+// verdict, holds no value and is counted out rather than drawn as a zero row.
 func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, classes map[string]underlyingClassification) *rpc.PortfolioSnapshotResult {
 	r := &rpc.PortfolioSnapshotResult{
 		AsOf: time.Now(), AccountAsOf: a.AsOf, PositionsAsOf: p.AsOf, Authority: p.Authority, BaseCurrency: a.BaseCurrency,
 		AssetClassMeasure: rpc.AllocationMeasureMarketValue,
-		SectorMeasure:     rpc.AllocationMeasureDeltaNotional,
-		SectorBasis:       "GICS sector · delta-adjusted notional / NLV. Stocks at market value; options at delta × contracts × multiplier × underlying; index funds spread over published sector weights. S&P 500 names take Wikipedia's GICS sector, other stocks map from the broker's industry.",
+		SectorMeasure:     rpc.AllocationMeasureMarketValue,
+		SectorBasis:       "GICS sector · signed market value / NLV; options at premium value under their underlying's sector; index funds spread over published sector weights. S&P 500 names take Wikipedia's GICS sector, other stocks map from the broker's industry.",
 		CoverageStatus:    "complete",
 	}
 	valid := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
@@ -173,28 +173,23 @@ func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, classes map[
 		add(assetRows, class, value)
 
 		rate, rateOK := positionBaseRate(row, a.BaseCurrency)
-		var delta *float64
-		if local, ok := positionDollarDelta(row, isOption); ok && rateOK && valid(rate) && !stale {
-			v := local * rate
-			delta = &v
-		}
 		switch {
 		case cls.LookThrough != nil:
 			lookThrough[strings.ToUpper(row.Symbol)] = rpc.PortfolioLookThrough{Symbol: strings.ToUpper(row.Symbol), AsOf: cls.LookThrough.AsOf, Source: cls.LookThrough.Source}
 			for sector, weight := range cls.LookThrough.Weights {
 				var part *float64
-				if delta != nil {
-					v := *delta * weight / 100
+				if value != nil {
+					v := *value * weight / 100
 					part = &v
 				}
 				add(sectorRows, sector, part)
 			}
 		case cls.Fund:
-			add(sectorRows, sectorFunds, delta)
+			add(sectorRows, sectorFunds, value)
 		case cls.Sector != "":
-			add(sectorRows, cls.Sector, delta)
+			add(sectorRows, cls.Sector, value)
 		default:
-			add(sectorRows, sectorUnclassified, delta)
+			add(sectorRows, sectorUnclassified, value)
 			r.CoverageStatus = "partial"
 		}
 

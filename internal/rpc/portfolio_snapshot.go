@@ -22,13 +22,10 @@ type PortfolioLookThrough struct {
 	Source string `json:"source"`
 }
 
-// Allocation measures. Asset classes are balance-sheet market value; sectors
-// are delta-adjusted notional, so an option counts by what moves it, not by
-// its premium.
-const (
-	AllocationMeasureMarketValue   = "market_value"
-	AllocationMeasureDeltaNotional = "delta_notional"
-)
+// AllocationMeasureMarketValue names the measure of both tables: signed
+// market value, where the money sits. Directional risk lives in the
+// positions projection's dollar delta, not here.
+const AllocationMeasureMarketValue = "market_value"
 
 // PortfolioSnapshotResult separates current holdings valuation from statement returns.
 type PortfolioSnapshotResult struct {
