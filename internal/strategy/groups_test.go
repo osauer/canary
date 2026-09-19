@@ -93,3 +93,35 @@ func TestOptionSecurityTypeAliasesPreserveExactStrategyAndRejectIncompleteLegs(t
 		})
 	}
 }
+
+// Two long calls at different strikes and expiries were read as a "diagonal",
+// which then demanded per-leg operator declarations before either could be
+// exit-managed. Nothing in a same-direction stack depends on another leg.
+func TestInferPositionStrategiesLeavesSameDirectionStacksStandalone(t *testing.T) {
+	leg := func(symbol string, conID int, expiry, right string, strike, quantity float64) rpc.PositionView {
+		return rpc.PositionView{Symbol: symbol, SecType: "OPT", ConID: conID, Currency: "USD", Expiry: expiry, Right: right, Strike: strike, Multiplier: 100, Quantity: quantity}
+	}
+	for name, rows := range map[string][]rpc.PositionView{
+		"two long calls":    {leg("IBM", 1, "20261016", "C", 255, 20), leg("IBM", 2, "20261120", "C", 245, 25)},
+		"two long puts":     {leg("SPY", 3, "20261016", "P", 710, 10), leg("SPY", 4, "20261120", "P", 720, 10)},
+		"same expiry longs": {leg("IBM", 5, "20261016", "C", 255, 1), leg("IBM", 6, "20261016", "C", 260, 1)},
+		"two short calls":   {leg("IBM", 7, "20261016", "C", 255, -1), leg("IBM", 8, "20261120", "C", 245, -1)},
+		"three long calls":  {leg("IBM", 9, "20261016", "C", 255, 1), leg("IBM", 10, "20261120", "C", 245, 1), leg("IBM", 11, "20261218", "C", 240, 1)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			strategies, issues := InferPositionStrategies(rows)
+			if len(strategies) != 0 || len(issues) != 0 {
+				t.Fatalf("a same-direction stack became a strategy or an ambiguity: strategies=%+v issues=%+v", strategies, issues)
+			}
+		})
+	}
+	// Opposite signs of one right remain a spread; opposite rights keep their combos.
+	spread, issues := InferPositionStrategies([]rpc.PositionView{leg("IBM", 1, "20261016", "C", 255, 20), leg("IBM", 2, "20261120", "C", 245, -25)})
+	if len(issues) != 0 || len(spread) != 1 || spread[0].Kind != "diagonal" {
+		t.Fatalf("a long/short diagonal lost its grouping: %+v %+v", spread, issues)
+	}
+	straddle, issues := InferPositionStrategies([]rpc.PositionView{leg("IBM", 1, "20261016", "C", 255, 1), leg("IBM", 2, "20261016", "P", 255, 1)})
+	if len(issues) != 0 || len(straddle) != 1 || straddle[0].Kind != "straddle" {
+		t.Fatalf("a long straddle lost its grouping: %+v %+v", straddle, issues)
+	}
+}

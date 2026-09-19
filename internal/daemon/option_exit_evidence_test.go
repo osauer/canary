@@ -18,6 +18,7 @@ type optionEvidenceFixture struct {
 	scope      optionExitBookScope
 	models     map[int]*ibkr.OptionRiskMeasurement
 	price      rpc.OrderQuoteSnapshot
+	prices     map[int]rpc.OrderQuoteSnapshot // exact per-contract quotes, when a test needs legs to differ
 	fxEvidence orderNotionalAuthority
 	currentOK  bool
 	readErr    error
@@ -39,6 +40,9 @@ func (f *optionEvidenceFixture) option(_ context.Context, c rpc.ContractParams) 
 }
 func (f *optionEvidenceFixture) quote(_ context.Context, c rpc.ContractParams) (rpc.OrderQuoteSnapshot, error) {
 	f.reads++
+	if q, ok := f.prices[c.ConID]; ok {
+		return q, f.readErr
+	}
 	q := f.price
 	if c.SecType == "OPT" {
 		q.Bid, q.Ask = new(0.35), new(0.36)
@@ -390,8 +394,12 @@ func TestOptionExitGenerateClosedIndependentPairIsWaitingReview(t *testing.T) {
 	}
 	for _, p := range proposals {
 		if p.OptionExit == nil || p.OptionExit.Kind != "review" || p.OptionExit.Readiness != "waiting" || p.OptionExit.ExitManagement != "independent" ||
-			p.State != rpc.TradeProposalStateBlocked || p.OptionExit.ReturnPct != nil || !hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") || !hasTradingBlocker(p.Blockers, "option_rth_closed") {
+			p.State != rpc.TradeProposalStateBlocked || p.OptionExit.ReturnPct != nil || !hasTradingBlocker(p.Blockers, "option_rth_closed") {
 			t.Fatalf("closed independent exit was not a waiting review: %+v", p)
+		}
+		// Only the hedge-listed put has a role to prove; the call in the pair does not.
+		if (p.Contract.Right == "P") != hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") {
+			t.Fatalf("role gate applied to the wrong leg: %+v", p)
 		}
 	}
 }

@@ -25,12 +25,17 @@ func independentOptionExitFixture() (protectionPolicy, *rpc.PositionsResult) {
 	secondIntent := pol.Buckets.TrailingStop.Options.DirectionalIntents[0]
 	secondIntent.ConID = 43
 	pol.Buckets.TrailingStop.Options.DirectionalIntents = append(pol.Buckets.TrailingStop.Options.DirectionalIntents, secondIntent)
+	// A long put beside a long call is the one inferred two-leg group of long
+	// legs left: same-right stacks are standalone and need no declaration.
 	first := optionExitTestRow()
 	first.Symbol, first.Right = "SPY", "P"
 	second := first
-	second.ConID, second.Expiry = 43, "20261016"
+	second.ConID, second.Expiry, second.Right, second.LocalSymbol = 43, "20261016", "C", "SPY   261016C00100000"
 	pos := &rpc.PositionsResult{Options: []rpc.PositionView{first, second}}
 	pos.Strategies, pos.StrategyIssues = strategy.InferPositionStrategies(pos.Options)
+	if len(pos.Strategies) != 1 {
+		panic("fixture: a long put beside a long call must still reconstruct as one inferred group")
+	}
 	return pol, pos
 }
 
@@ -107,10 +112,17 @@ func TestOptionExitIndependentManagementRetainsCombinedExposureAndEconomicRole(t
 		t.Fatal("independent exit review changed the held book or lost review work")
 	}
 	for _, p := range proposals {
-		if p.OptionExit.ExitManagement != "independent" || hasTradingBlocker(p.Blockers, "standalone_option_required") ||
-			!hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") || p.OptionExit.EconomicRole != risk.IndexPutRoleUnclassified ||
-			p.State != rpc.TradeProposalStateBlocked || p.Trail != nil || p.LimitPrice != nil {
-			t.Fatalf("independent intent either lost its effect or bypassed risk evidence: %+v", p)
+		if p.OptionExit.ExitManagement != "independent" || hasTradingBlocker(p.Blockers, "standalone_option_required") {
+			t.Fatalf("independent intent lost its effect: %+v", p)
+		}
+		// The hedge-listed put keeps its exact risk-evidence gate; the call has
+		// no hedge role to prove and is measured on its own quote.
+		if p.Contract.Right == "P" && (!hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") || p.OptionExit.EconomicRole != risk.IndexPutRoleUnclassified ||
+			p.State != rpc.TradeProposalStateBlocked || p.Trail != nil || p.LimitPrice != nil) {
+			t.Fatalf("independent intent bypassed risk evidence: %+v", p)
+		}
+		if p.Contract.Right == "C" && (hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") || p.OptionExit.EconomicRole != risk.IndexPutRoleDirectional) {
+			t.Fatalf("a long call in a mixed pair was given a hedge role to prove: %+v", p)
 		}
 	}
 }

@@ -310,6 +310,9 @@ const (
 	TradeProposalBucketTrailingStop     = "trailing_stop"
 	TradeProposalBucketOptionLossExit   = "option_loss_exit"
 	TradeProposalBucketOptionExitReview = "option_exit_review"
+	// TradeProposalBucketStrategyExit evaluates a multi-leg unit as one virtual
+	// position: net premium paid against net close value at fresh quotes.
+	TradeProposalBucketStrategyExit = "strategy_exit"
 
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
@@ -388,6 +391,7 @@ type TradeProposalCounts struct {
 	TrailingStop                int     `json:"trailing_stop"`
 	OptionLossExit              int     `json:"option_loss_exit"`
 	OptionExitReview            int     `json:"option_exit_review"`
+	StrategyExit                int     `json:"strategy_exit,omitempty"`
 	MarketFlags                 int     `json:"market_flags,omitempty"`
 	ThetaPerDay                 float64 `json:"theta_per_day"`
 	RiskReductionExcessNotional float64 `json:"risk_reduction_excess_notional,omitempty"`
@@ -421,6 +425,7 @@ type TradeProposal struct {
 	Trail              *OrderTrailSpec                  `json:"trail,omitempty"`
 	TrailSizing        *TradeProposalTrailSizing        `json:"trail_sizing,omitempty"`
 	OptionExit         *TradeProposalOptionExit         `json:"option_exit,omitempty"`
+	Unit               *TradeProposalUnit               `json:"unit,omitempty"`
 	ExecutionSemantics *TradeProposalExecutionSemantics `json:"execution_semantics,omitempty"`
 	StopRisk           *TradeProposalStopRisk           `json:"stop_risk,omitempty"`
 	StopLadder         []TradeProposalStopLadderStep    `json:"stop_ladder,omitempty"`
@@ -487,6 +492,40 @@ type TradeProposalOptionExit struct {
 	MinTrailAbs          float64  `json:"min_trail_abs,omitempty"`
 	SpreadMultiple       float64  `json:"spread_multiple,omitempty"`
 	Method               string   `json:"method,omitempty"`
+}
+
+// TradeProposalUnit describes a multi-leg unit evaluated as one virtual
+// position: every current strategy, whatever its source, and every ambiguous
+// underlying. Legs are exact contracts with their ratio per unit. Money values
+// are per unit (multiplier-inclusive) and per share in the legs' currency. It
+// grants no order authority: a unit closes through the strategy workflow or at
+// the broker, never through a single-leg proposal order.
+type TradeProposalUnit struct {
+	StrategyID         string                 `json:"strategy_id,omitempty"`
+	StrategyRevision   int64                  `json:"strategy_revision,omitempty"`
+	Underlying         string                 `json:"underlying"`
+	Kind               string                 `json:"kind,omitempty"`
+	Source             string                 `json:"source"`
+	Units              int                    `json:"units"`
+	Legs               []TradeProposalUnitLeg `json:"legs"`
+	NetDebitPerUnit    float64                `json:"net_debit_per_unit"`
+	CostPerShare       float64                `json:"cost_per_share"`
+	CloseValuePerShare *float64               `json:"close_value_per_share,omitempty"`
+	HighWaterPerShare  *float64               `json:"high_water_per_share,omitempty"`
+	ProfitTrailStop    *float64               `json:"profit_trail_stop_per_share,omitempty"`
+	ComboRoute         bool                   `json:"combo_route"`
+	Route              string                 `json:"route"`
+}
+
+// TradeProposalUnitLeg is one exact leg of a unit with its fresh quote.
+type TradeProposalUnitLeg struct {
+	Contract ContractParams `json:"contract"`
+	Quantity float64        `json:"quantity"`
+	Ratio    int            `json:"ratio"`
+	AvgCost  float64        `json:"avg_cost"`
+	Bid      *float64       `json:"bid,omitempty"`
+	Ask      *float64       `json:"ask,omitempty"`
+	DTE      int            `json:"dte"`
 }
 
 // OptionExitEconomicEvidence identifies daemon-validated exact risk receipts.

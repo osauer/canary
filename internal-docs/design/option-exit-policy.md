@@ -32,12 +32,24 @@ Status: implemented locally; execution parameters approved
 - **Capital base:** IBKR multiplier-inclusive average cost divided by the exact
   contract multiplier, producing per-share option premium cost. The executable
   comparison price for a long exit is the fresh live bid.
-- **Aggregation unit:** one exact broker option contract (`con_id`). V1 accepts
-  only positive whole-contract long positions. Confirmed or unresolved
-  multi-leg strategy membership blocks a single-leg exit. The sole exception
-  is a current inferred two-leg group whose two exact long contracts each have
-  a current `independent_exit = true` declaration; this affects exit management,
-  not combined portfolio exposure.
+- **Aggregation unit:** one exact broker option contract (`con_id`) for a
+  standalone leg, or one multi-leg unit. V1 accepts only positive
+  whole-contract long positions and units that paid net premium. Legs of one
+  right that all point the same way (two long calls, three long puts) are not a
+  strategy: no leg's payoff depends on another, so reconstruction leaves each
+  standalone and the standing purpose defaults apply to it (2026-09-18). Only
+  opposite-signed legs form a spread. Every current strategy, whatever its
+  source, and every ambiguous underlying is evaluated as one unit
+  (`strategy_exit`): net premium paid against net close value at fresh leg
+  quotes (long legs at bid, short legs at ask), the Rulebook loss line on that
+  net figure, and a profit trail Canary manages from the unit's high-water
+  close value because a broker trail cannot follow a combo. A unit closes
+  through the strategy workflow (`canary strategies close`) or, without a
+  strategy record, at the broker as one combo; the single-leg proposal order
+  path refuses it (`strategy_workflow_required`). A current inferred two-leg
+  group of opposite rights whose two exact long contracts each carry a current
+  `independent_exit = true` declaration is exit-managed per leg instead; this
+  affects exit management, not combined portfolio exposure.
   Broker position types `OPT` and `OPTION` identify the same option security;
   reconstruction accepts both and emits canonical `OPT` contracts. Exact IDs,
   whole quantities and ambiguity checks remain required.
@@ -45,11 +57,16 @@ Status: implemented locally; execution parameters approved
   with reason, approval time and expiry takes precedence. Without an exact
   declaration, approved `default_long_calls_directional` can classify standard
   ungrouped long calls when no short-book conflict exists.
-  `default_index_puts_protection` keeps hedge-listed long puts in protection.
-  Expired declarations and strategy conflicts remain exceptions. A
-  hedge-listed index put must additionally be
-  classified `directional` by the current Rulebook economic-role classifier.
-  A `protection`, conflicting, or unclassified role blocks the proposal.
+  `default_index_puts_protection` keeps hedge-listed long puts in protection
+  while their role cannot be measured. A complete current measurement of the
+  whole book outranks that default (2026-09-18): a hedge-listed put the
+  Rulebook economic-role classifier finds `directional` is exit-managed as a
+  directional position, and the record says so; a `protection` or unclassified
+  role keeps the hedge and produces no exit row. A long call is a hedge only
+  where there is something it can cover: a short stock of its own underlying,
+  or, for an index call, a short stock anywhere in the book; a short elsewhere
+  is unrelated exposure. No owner declaration settles purpose. Expired
+  declarations and strategy conflicts remain exceptions.
   Shared-cache Greeks cannot prove exact option class. The daemon collects
   fresh positive-ConID model receipts for the complete book; absent or invalid
   exact evidence keeps the role unclassified.
@@ -90,8 +107,10 @@ Status: implemented locally; execution parameters approved
 
 - Only the desk operator may classify an exact contract as directional or
   approve a threshold, order-shape, or guardrail change.
-- There is no symbol-wide intent fallback and no automatic `SPY put = hedge`
-  or `SPY put = directional` rule. Borderline evidence remains a hedge.
+- There is no symbol-wide intent fallback and no name-based `SPY put = hedge`
+  or `SPY put = directional` rule. Purpose follows the measured whole-book
+  role; borderline or unmeasurable evidence remains a hedge (2026-09-18: the
+  owner rejected per-contract declarations as the way to settle purpose).
 - An explicit independent-exit declaration may resolve only the inferred
   pair described above. It cannot override Canary strategy lineage, a
   guaranteed combo, unknown/review-required grouping, conflicting membership,
@@ -179,11 +198,12 @@ model calls or risk thresholds:
    proposal revision; recheck role and scope at the existing preview/submit
    boundary so a formerly directional put cannot be sold after it becomes
    portfolio protection.
-4. Keep strategy grouping independent from economic role. Directional intent
-   alone cannot turn two inferred legs into independent exits. The explicit
-   `independent_exit` contract below may resolve that inferred pair; confirmed
-   strategy lineage and unresolved grouping still block. Economic-role proof
-   remains required regardless of the owner's exit-management declaration.
+4. Keep strategy grouping independent from economic role. A same-direction
+   stack of one right is never grouped, so its legs need no declaration. A
+   genuinely mixed group is one unit with its own exit rules; directional
+   intent alone cannot turn its legs into independent exits, the explicit
+   `independent_exit` contract below may. Economic-role proof remains required
+   for a hedge-listed put leg regardless of any declaration.
 
 Synthetic acceptance witnesses must reject same-symbol/different-class or
 ConID swaps, reconnects, stale/delayed computations, partial Greek components,
@@ -274,10 +294,13 @@ validation belong to the parent task.
 
 ## Remaining owner choices
 
-- Record the owner's purpose and exit-management choice for related option
-  legs; do not infer either from a contract name. The owner approved the
-  independent-exit capability on 2026-09-12. Actual held-contract declarations
-  remain in the private policy, not this source document.
+- Purpose and exit management are derived, not declared (owner decision,
+  2026-09-18): a same-direction stack is standalone legs under the standing
+  defaults, a hedge-listed put follows its measured whole-book role, and a
+  genuine multi-leg group is one unit with unit-level exit rules. The
+  `independent_exit` capability approved on 2026-09-12 remains only for a
+  mixed inferred pair. Any remaining held-contract declarations live in the
+  private policy, not this source document, and none is required.
 - The existing approved loss line is **60% premium loss** (40% is a Rulebook
   watch line). It creates a **DAY patient-limit close proposal**, not a resting
   loss stop. The profit trail arms at **50% premium gain**, normally trails

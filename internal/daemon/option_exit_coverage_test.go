@@ -82,7 +82,9 @@ func TestOptionExitReviewDoesNotInventFlatReturnOrDirectionalIntent(t *testing.T
 	}
 }
 
-func TestOptionExitCoverageRetainsStrategyAndEconomicRoleGates(t *testing.T) {
+// Two long puts of one underlying are a same-direction stack, not a spread:
+// each leg is standalone, and the exact-contract risk evidence still gates it.
+func TestOptionExitCoverageRetainsEconomicRoleGateForStandaloneStack(t *testing.T) {
 	pol := enabledOptionExitPolicy()
 	pol.Buckets.ThetaHygiene.Enabled = false
 	pol.Buckets.RiskReduction.Enabled = false
@@ -99,15 +101,18 @@ func TestOptionExitCoverageRetainsStrategyAndEconomicRoleGates(t *testing.T) {
 	pos.Strategies, pos.StrategyIssues = strategy.InferPositionStrategies(pos.Options)
 	engine := &proposalEngine{}
 	proposals, _ := engine.generate(context.Background(), pol, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
+	if len(pos.Strategies) != 0 || len(pos.StrategyIssues) != 0 {
+		t.Fatalf("a same-direction put stack was grouped: %+v %+v", pos.Strategies, pos.StrategyIssues)
+	}
 	if len(proposals) != 2 {
-		t.Fatalf("grouped options disappeared: got %d reviews", len(proposals))
+		t.Fatalf("standalone options disappeared: got %d reviews", len(proposals))
 	}
 	for _, p := range proposals {
 		if p.OptionExit.Intent != "directional" || p.State != rpc.TradeProposalStateBlocked ||
-			!hasTradingBlocker(p.Blockers, "standalone_option_required") ||
+			hasTradingBlocker(p.Blockers, "standalone_option_required") ||
 			!hasTradingBlocker(p.Blockers, "directional_role_not_confirmed") ||
-			p.OptionExit.EconomicRole != risk.IndexPutRoleUnclassified || p.Trail != nil {
-			t.Fatalf("intent bypassed unresolved grouping or exact risk evidence: %+v", p)
+			p.OptionExit.EconomicRole != risk.IndexPutRoleUnclassified || p.OptionExit.ExitManagement != "standalone" || p.Trail != nil {
+			t.Fatalf("a standalone leg was grouped, or the exact risk evidence gate was lost: %+v", p)
 		}
 	}
 }

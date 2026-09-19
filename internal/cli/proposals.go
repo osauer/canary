@@ -499,6 +499,9 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 		if optionExit := formatProposalOptionExit(p.OptionExit); optionExit != "" {
 			fmt.Fprintf(out, "      Option exit: %s\n", optionExit)
 		}
+		if unit := formatProposalUnit(p.Unit); unit != "" {
+			fmt.Fprintf(out, "      Unit:        %s\n", unit)
+		}
 		if sizing := formatProposalTrailSizing(p.TrailSizing); sizing != "" {
 			fmt.Fprintf(out, "      Trail sizing: %s\n", sizing)
 		}
@@ -818,9 +821,48 @@ func positionUnit(secType string) string {
 	switch strings.ToUpper(strings.TrimSpace(secType)) {
 	case "OPT", "OPTION":
 		return "ct"
+	case "BAG":
+		return "unit"
 	default:
 		return "sh"
 	}
+}
+
+// formatProposalUnit names the legs of a multi-leg unit with their ratio, the
+// net premium paid and the net close value the rule measured.
+func formatProposalUnit(unit *rpc.TradeProposalUnit) string {
+	if unit == nil {
+		return ""
+	}
+	legs := make([]string, 0, len(unit.Legs))
+	for _, leg := range unit.Legs {
+		side := "long"
+		if leg.Ratio < 0 {
+			side = "short"
+		}
+		ratio := leg.Ratio
+		if ratio < 0 {
+			ratio = -ratio
+		}
+		quote := "no fresh quote"
+		if leg.Bid != nil && leg.Ask != nil {
+			quote = fmt.Sprintf("%.2f/%.2f", *leg.Bid, *leg.Ask)
+		}
+		legs = append(legs, fmt.Sprintf("%s %d×%s %s %g%s %s", side, ratio, leg.Contract.Symbol, leg.Contract.Expiry, leg.Contract.Strike, leg.Contract.Right, quote))
+	}
+	parts := []string{fmt.Sprintf("%d unit(s) [%s]", unit.Units, strings.Join(legs, "; ")), fmt.Sprintf("net premium paid %.2f/share", unit.CostPerShare)}
+	if unit.CloseValuePerShare != nil {
+		parts = append(parts, fmt.Sprintf("net close value %.2f/share", *unit.CloseValuePerShare))
+	}
+	if unit.HighWaterPerShare != nil && unit.ProfitTrailStop != nil {
+		parts = append(parts, fmt.Sprintf("trail high %.2f stop %.2f", *unit.HighWaterPerShare, *unit.ProfitTrailStop))
+	}
+	if unit.StrategyID != "" {
+		parts = append(parts, "strategy "+unit.StrategyID)
+	} else {
+		parts = append(parts, "no combo route")
+	}
+	return strings.Join(parts, " · ")
 }
 
 // formatProposalDayChange renders today's position P&L with an explicit sign and

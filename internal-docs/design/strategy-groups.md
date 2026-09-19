@@ -46,7 +46,13 @@ Grouping uses this order of authority:
 Automatic reconstruction is allowed only when one exact decomposition exists.
 Several plausible decompositions are ambiguous even when each is a familiar
 option structure. Canary must not choose one because it produces the lowest
-risk number.
+risk number. Legs of one right that all point the same way (two long calls at
+different strikes or expiries, three long puts) have exactly one
+decomposition, each leg on its own: no leg's payoff depends on another, so they
+are standalone positions, not a vertical, calendar or diagonal (2026-09-18).
+Only opposite-signed legs reconstruct into a spread. An ambiguous set is still
+one position for exit purposes: the proposal engine evaluates all of its legs
+as one unit and says that no combo route exists for it.
 
 ## Operations
 

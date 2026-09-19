@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -41,9 +42,6 @@ func TestOptionExitStandingPurposePreservesExceptions(t *testing.T) {
 		"ambiguous strategy": func(_ *protectionPolicy, pos *rpc.PositionsResult) {
 			pos.StrategyIssues = []rpc.StrategyGroupingIssue{{Underlying: "TEST"}}
 		},
-		"short book": func(_ *protectionPolicy, pos *rpc.PositionsResult) {
-			pos.Stocks = []rpc.PositionView{{Symbol: "OTHER", Quantity: -1}}
-		},
 		"invalid book": func(_ *protectionPolicy, pos *rpc.PositionsResult) {
 			pos.Stocks = []rpc.PositionView{{Symbol: "OTHER", Quantity: math.NaN()}}
 		},
@@ -62,6 +60,37 @@ func TestOptionExitStandingPurposePreservesExceptions(t *testing.T) {
 			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
 			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != "unconfirmed" {
 				t.Fatalf("exception became %q", got)
+			}
+		})
+	}
+}
+
+// A short position somewhere else in the book turned every long call into an
+// open question. A call hedges only what it can cover: a short stock of its own
+// underlying, or, for an index call, a short stock anywhere. Those are hedges;
+// everything else is directional, with no declaration involved.
+func TestOptionExitStandingCallHedgesOnlyAShortItCanCover(t *testing.T) {
+	for name, tc := range map[string]struct {
+		symbol string
+		stocks []rpc.PositionView
+		others []rpc.PositionView
+		want   string
+	}{
+		"short stock elsewhere":      {"TEST", []rpc.PositionView{{Symbol: "OTHER", Quantity: -1}}, nil, "directional"},
+		"short option elsewhere":     {"TEST", nil, []rpc.PositionView{{Symbol: "OTHER", SecType: "OPT", ConID: 77, Right: "P", Quantity: -1, Multiplier: 100}}, "directional"},
+		"short stock same name":      {"TEST", []rpc.PositionView{{Symbol: "TEST", Quantity: -100}}, nil, "protection"},
+		"index call over short book": {"SPY", []rpc.PositionView{{Symbol: "OTHER", Quantity: -1}}, nil, "protection"},
+		"index call over long book":  {"SPY", []rpc.PositionView{{Symbol: "OTHER", Quantity: 1}}, nil, "directional"},
+		"long book":                  {"TEST", []rpc.PositionView{{Symbol: "OTHER", Quantity: 1}}, nil, "directional"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			policy := standingOptionExitPolicy()
+			row := optionExitTestRow()
+			row.Symbol = tc.symbol
+			pos := &rpc.PositionsResult{Stocks: tc.stocks, Options: append([]rpc.PositionView{row}, tc.others...)}
+			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
+			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != tc.want {
+				t.Fatalf("purpose %q, want %q", got, tc.want)
 			}
 		})
 	}
@@ -94,12 +123,23 @@ func TestOptionExitStandingCallFetchesExactQuoteWithoutManualDeclaration(t *test
 	}
 }
 
-func TestOptionExitStandingIndexPutEscalatesEconomicConflict(t *testing.T) {
+// An index put the measured book does not need as a hedge is a directional
+// position. The measurement settles its purpose; the standing default remains
+// the fallback while nothing can be measured.
+func TestOptionExitStandingIndexPutAdoptsMeasuredDirectionalRole(t *testing.T) {
 	f, pos, now := newOptionEvidenceFixture()
 	engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
 	proposals, _ := engine.generate(context.Background(), standingOptionExitPolicy(), rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
-	if len(proposals) != 1 || proposals[0].OptionExit.Intent != "protection" || !hasTradingBlocker(proposals[0].Blockers, "option_purpose_conflict") || proposals[0].State != rpc.TradeProposalStateBlocked || proposals[0].Trail != nil || proposals[0].LimitPrice != nil {
-		t.Fatalf("economic conflict was lost or became executable: %+v", proposals)
+	if len(proposals) != 1 || proposals[0].OptionExit.Intent != "directional" || proposals[0].OptionExit.EconomicRole != risk.IndexPutRoleDirectional {
+		t.Fatalf("measured directional role was not adopted: %+v", proposals)
+	}
+	for _, code := range []string{"option_purpose_conflict", "directional_intent_required", "directional_role_not_confirmed", "standalone_option_required"} {
+		if hasTradingBlocker(proposals[0].Blockers, code) {
+			t.Fatalf("measured role still raised %s: %+v", code, proposals[0].Blockers)
+		}
+	}
+	if !slices.ContainsFunc(proposals[0].Details, func(d string) bool { return strings.Contains(d, "classifies it as directional, which applies") }) {
+		t.Fatalf("the adopted measurement is not explained on the record: %+v", proposals[0].Details)
 	}
 	// A missing current classification is no permission to exit a standing hedge.
 	f.readErr = context.DeadlineExceeded

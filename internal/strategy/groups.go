@@ -40,7 +40,7 @@ func InferPositionStrategies(options []rpc.PositionView) ([]rpc.PositionStrategy
 	issues := make([]rpc.StrategyGroupingIssue, 0)
 	for _, underlying := range underlyings {
 		rows := byUnderlying[underlying]
-		if len(rows) == 1 {
+		if len(rows) == 1 || sameDirectionStack(rows) {
 			continue
 		}
 		if len(rows) != 2 {
@@ -63,6 +63,24 @@ func InferPositionStrategies(options []rpc.PositionView) ([]rpc.PositionStrategy
 		strategies = append(strategies, strategy)
 	}
 	return strategies, issues
+}
+
+// sameDirectionStack reports legs of one right that all point the same way:
+// two long calls, three long puts. No leg's payoff depends on another, so the
+// set is not a strategy and has exactly one decomposition, each leg on its own.
+// Only opposite-signed legs form a spread whose exits must stay together.
+func sameDirectionStack(rows []rpc.PositionView) bool {
+	if len(rows) < 2 {
+		return false
+	}
+	right := strings.ToUpper(strings.TrimSpace(rows[0].Right))
+	short := math.Signbit(rows[0].Quantity)
+	for _, row := range rows[1:] {
+		if strings.ToUpper(strings.TrimSpace(row.Right)) != right || math.Signbit(row.Quantity) != short {
+			return false
+		}
+	}
+	return true
 }
 
 func inferTwoLegStrategy(underlying string, rows []rpc.PositionView) (rpc.PositionStrategy, error) {

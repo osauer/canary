@@ -603,41 +603,56 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 			intents := directionalOptionIntents(policy.Buckets.TrailingStop.Options)
 			strategyLegs, ambiguousStrategies := optionExitStrategyScope(pos, intents, now)
 			rulebookPolicy := risk.DefaultRulebookPolicy()
+			// Every current strategy and every ambiguous underlying is one unit,
+			// evaluated as one position; its legs never raise per-leg questions.
+			units := optionExitUnitsFromBook(pos, strategyLegs, ambiguousStrategies)
+			unitCovered := optionExitUnitCovered(units)
 			var economicEvidence optionExitBookEvidence
+			needEvidence := len(units) > 0
 			for _, row := range pos.Options {
 				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
-				if purpose != "unconfirmed" && row.Quantity > 0 {
-					// One complete book per refresh; independent exits still
-					// participate together in the same exposure calculation.
-					economicEvidence = e.optionExitEvidence(ctx, pos, now)
+				if purpose != "unconfirmed" && row.Quantity > 0 && !unitCovered[row.ConID] {
+					needEvidence = true
 					break
 				}
 			}
+			if needEvidence {
+				// One complete book per refresh; independent exits and units
+				// participate together in the same exposure calculation.
+				economicEvidence = e.optionExitEvidence(ctx, pos, now)
+			}
 			for _, row := range pos.Options {
-				if row.Quantity == 0 {
+				if row.Quantity == 0 || unitCovered[row.ConID] {
 					continue
 				}
 				intent := intents[row.ConID]
 				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
-				intentCurrent := purpose == "directional"
 				exactRow := optionExitWithoutQuote(row)
-				// Missing intent still creates review work, without spending a
-				// broker quote request on a contract that cannot yet qualify.
-				if intentCurrent && row.Quantity > 0 && !economicEvidence.Closed {
-					exactRow = e.optionExitExactQuote(ctx, row)
-				}
 				standalone := !strategyLegs[row.ConID] && !ambiguousStrategies[strings.ToUpper(strings.TrimSpace(row.Symbol))]
 				rowEvidence := optionExitEvidenceAt(economicEvidence, e.clock())
 				roleAllowed, economicRole := optionExitEconomicRole(row, rulebookPolicy, rowEvidence)
 				if economicEvidence.Closed && e.optionExitPreviouslyProtection(row.ConID) {
 					roleAllowed, economicRole = false, risk.IndexPutRoleProtection
 				}
-				purposeConflict := purpose == "protection" && economicRole == risk.IndexPutRoleDirectional
-				if purpose == "protection" && !purposeConflict {
+				// The standing index-put default is the fallback for an unmeasured
+				// role. A complete current measurement of the whole book outranks
+				// it: a put the book does not need as a hedge is a directional
+				// position and is managed as one. No owner declaration is involved.
+				measuredDirectional := purpose == "protection" && row.Right == "P" && rulebookPolicy.IsHedgeSymbol(row.Symbol) && roleAllowed && economicRole == risk.IndexPutRoleDirectional
+				if measuredDirectional {
+					purpose = "directional"
+				}
+				if purpose == "protection" {
 					// Standing protection purpose is not a directional exit task.
 					// Missing measurements remain source-health work; they do not
 					// turn a retained hedge into a routine owner declaration.
 					continue
+				}
+				intentCurrent := purpose == "directional"
+				// Missing intent still creates review work, without spending a
+				// broker quote request on a contract that cannot yet qualify.
+				if intentCurrent && row.Quantity > 0 && !economicEvidence.Closed {
+					exactRow = e.optionExitExactQuote(ctx, row)
 				}
 				decision := evaluateOptionExit(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, rulebookPolicy.ExitActLossPct)
 				if decision.Action == "" && len(decision.Blockers) == 0 {
@@ -649,11 +664,8 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 				}
 				if p, ok := optionExitProposal(policy, status, exactRow, sources, now, decision, economicRole, minTick, rulebookPolicy.ExitActLossPct); ok {
 					p.OptionExit.Intent = purpose
-					if purposeConflict {
-						p.Reason = "Standing protection purpose conflicts with current portfolio evidence; resolve the hedge role before a directional exit."
-						p.Blockers = slices.DeleteFunc(p.Blockers, func(b rpc.TradingBlocker) bool { return b.Code == "directional_intent_required" })
-						optionExitBlock(&p, "option_purpose_conflict", "Standing policy treats this index put as protection, but current complete portfolio evidence classifies it as directional.")
-						p.Blockers[len(p.Blockers)-1].Action = "Resolve whether this hedge is still intended before any directional exit; no order is authorized."
+					if measuredDirectional {
+						p.Details = append(p.Details, "Standing policy treats this index put as protection; current complete portfolio evidence classifies it as directional, which applies. Exact-contract quote, risk, and broker-write checks still apply.")
 					} else if intentCurrent && optionExitIntentState(policy.Buckets.TrailingStop.Options, row.ConID, now) != "directional" {
 						p.Details = append(p.Details, "Standing policy classifies this ordinary long call as directional; exact-contract quote, risk, and broker-write checks still apply.")
 					}
@@ -684,6 +696,7 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 					}
 				}
 			}
+			out = append(out, e.unitExitProposals(ctx, policy, status, pos, sources, marketEvents, scope, now, economicEvidence, rulebookPolicy, units, rulebookPolicy.ExitActLossPct)...)
 		}
 	}
 	return out, suppressions
@@ -1382,14 +1395,22 @@ func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, po
 		return "protection"
 	}
 	if cfg.DefaultLongCallsDirectional && row.Right == "C" {
-		// A call can hedge a short book. Shape alone cannot resolve that
-		// conflict, including exposures held under another underlying.
+		// A long call is a hedge only where there is something it can cover:
+		// a short stock position in its own underlying, or, for an index call,
+		// a short stock anywhere in the book. A short elsewhere is unrelated
+		// exposure and does not turn every long call into an open question. A
+		// short option of the same underlying is already a spread or an
+		// ambiguous set above. An invalid quantity anywhere leaves the book
+		// unclassifiable.
 		for _, holdings := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
 			for _, holding := range holdings {
-				if holding.Quantity < 0 || math.IsNaN(holding.Quantity) || math.IsInf(holding.Quantity, 0) {
+				if math.IsNaN(holding.Quantity) || math.IsInf(holding.Quantity, 0) {
 					return "unconfirmed"
 				}
 			}
+		}
+		if optionExitCallHedge(row, pos, risk.DefaultRulebookPolicy()) {
+			return "protection"
 		}
 		return "directional"
 	}
@@ -1800,6 +1821,10 @@ func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreview
 		e.appendBlocked(prop, p.Key, p.Revision, blockers, err)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, err
 	}
+	if blockers := unitProposalOrderBlockers(prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+	}
 	preview, err := e.server.previewOrder(ctx, proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs))
 	if err != nil {
 		blockers := []rpc.TradingBlocker{{Code: "preview_failed", Message: err.Error()}}
@@ -1918,6 +1943,10 @@ func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	if len(blockers) > 0 || err != nil {
 		e.appendBlocked(prop, p.Key, p.Revision, blockers, err)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, err
+	}
+	if blockers := unitProposalOrderBlockers(prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
 	if !cfg.FastPathEnabledResolved() || !p.FastPath {
 		blockers := []rpc.TradingBlocker{{Code: "fast_path_disabled", Message: "proposal submit requires fast_path=true and [auto_trade].fast_path_enabled=true"}}
@@ -2913,6 +2942,8 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 			out.OptionLossExit++
 		case rpc.TradeProposalBucketOptionExitReview:
 			out.OptionExitReview++
+		case rpc.TradeProposalBucketStrategyExit:
+			out.StrategyExit++
 		}
 	}
 	// A raw sum across different local currencies is meaningless. Rather

@@ -36,7 +36,7 @@ protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
-Four buckets generate rows, each enabled separately in the protection policy:
+Five buckets generate rows, enabled through the protection policy:
 
 - **Trailing stop** places a broker-side trail against a stock or ETF. Its
   time-in-force is a policy decision, DAY by default, and a DAY
@@ -119,9 +119,23 @@ proposal and its preview raises `tif_drift`, and a quantity beyond the position
 raises `quantity_outside_position`. The row stays visible with its reason
 attached rather than quietly disappearing.
 
-An explicitly declared option whose exact quote, cost, role, or session
-evidence is unavailable appears as a blocked **Option exit review** row. It is
-not silently dropped and it cannot be previewed as an order.
+A directional option whose exact quote, cost, role, or session evidence is
+unavailable appears as a blocked **Option exit review** row. It is not
+silently dropped and it cannot be previewed as an order.
+
+- **Unit exit** (`strategy_exit`) covers every multi-leg unit: each current
+  strategy, whatever its source, and every underlying whose legs have no single
+  decomposition. Canary never asks which leg is which. It values the unit as
+  one position: net premium paid per unit against the net close value at fresh
+  leg quotes (long legs at bid, short legs at ask), applies the same
+  Rulebook loss line to that net figure, and manages a profit trail itself from
+  the unit's high-water close value, since a broker trail cannot follow a combo.
+  Two long calls or two long puts of one underlying are not a unit; each is a
+  standalone position under the standing defaults. A unit row names its route:
+  `canary strategies close ID REVISION` for a recorded strategy, or a combo
+  order at the broker when Canary has no strategy record. `canary proposals
+  preview` and `submit` refuse a unit with `strategy_workflow_required`; nothing
+  about a unit row places an order.
 
 ## When a stop no longer matches its position
 
