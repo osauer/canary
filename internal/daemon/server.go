@@ -781,7 +781,13 @@ func (s *Server) installMembersRefresher() {
 	_ = enabled // refresher derives state from the Pinned* flags
 
 	fetch := func(ctx context.Context) ([]string, time.Time, error) {
-		return spx.FetchAndParse(ctx, spx.WikipediaURL)
+		symbols, sectors, asOf, err := spx.FetchAndParseWithSectors(ctx, spx.WikipediaURL)
+		if err == nil && len(symbols) >= spx.MinMembers && len(symbols) <= spx.MaxMembers {
+			// The sector map rides along with a membership page that passed
+			// the same sanity band; the refresher keeps deciding about members.
+			spx.SetSectors(sectors, asOf)
+		}
+		return symbols, asOf, err
 	}
 	s.membersRefresher = spx.NewRefresher(spx.RefresherOptions{
 		Engine:         s.breadth,

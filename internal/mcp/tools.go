@@ -53,7 +53,7 @@ var Tools = []Tool{
 		}
 		return json.Marshal(r)
 	}},
-	{Name: "canary_portfolio", Title: "Canary Portfolio Composition", RPCMethods: []string{rpc.MethodPortfolioSnapshot}, Description: "Read current signed asset-class and IBKR industry values in account base currency, with valuation and classification coverage. Options are classified by their underlying. Cost basis uses broker average cost including the option multiplier. This is current valuation, not risk exposure, a return percentage, or statement performance.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+	{Name: "canary_portfolio", Title: "Canary Portfolio Composition", RPCMethods: []string{rpc.MethodPortfolioSnapshot}, Description: "Read current portfolio composition in account base currency: signed asset-class market value, and GICS-sector exposure as delta-adjusted notional where options count by delta times underlying and the embedded index funds (SPY, QQQ, IWM) spread over published sector weights with their as-of dates. Holdings the broker no longer quotes are excluded and counted. Cost basis uses broker average cost including the option multiplier. This is not a return percentage or statement performance.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 		var res rpc.PortfolioSnapshotResult
 		if err := conn.Call(ctx, rpc.MethodPortfolioSnapshot, nil, &res); err != nil {
 			return nil, err

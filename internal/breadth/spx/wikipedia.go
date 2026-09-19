@@ -51,39 +51,63 @@ var tickerRE = regexp.MustCompile(`^[A-Z][A-Z0-9.\-]{0,5}$`)
 // tagRE strips inline HTML tags so a cell like `<b>FOO</b>` collapses
 var tagRE = regexp.MustCompile(`<[^>]*>`)
 
+// headerCellRE captures each <th>...</th> of the header row so the GICS
+// sector column is located by name rather than by a fixed position.
+var headerCellRE = regexp.MustCompile(`(?s)<th[^>]*>(.*?)</th>`)
+
 // ParseHTML extracts the S&P-500 ticker list from a Wikipedia
 // runtime refresher) handle a bounds-fail differently (script
 func ParseHTML(html []byte) ([]string, error) {
+	members, _, err := ParseHTMLWithSectors(html)
+	return members, err
+}
+
+// ParseHTMLWithSectors extracts the ticker list and, when the table carries a
+// "GICS Sector" column, each ticker's GICS sector. A page without that column
+// still yields the members with an empty sector map, so the membership path
+// never depends on the classification path.
+func ParseHTMLWithSectors(html []byte) ([]string, map[string]string, error) {
 	tbl := constituentsTableRE.FindSubmatch(html)
 	if tbl == nil {
-		return nil, fmt.Errorf("constituents table not found (Wikipedia structure may have changed)")
+		return nil, nil, fmt.Errorf("constituents table not found (Wikipedia structure may have changed)")
 	}
 	rows := rowRE.FindAllSubmatch(tbl[1], -1)
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("no rows found inside constituents table")
+		return nil, nil, fmt.Errorf("no rows found inside constituents table")
+	}
+
+	sectorCol := -1
+	for _, row := range rows {
+		heads := headerCellRE.FindAllSubmatch(row[1], -1)
+		if len(heads) == 0 {
+			continue
+		}
+		for i, h := range heads {
+			if strings.EqualFold(strings.TrimSpace(stripTags(string(h[1]))), "GICS Sector") {
+				sectorCol = i
+			}
+		}
+		break
 	}
 
 	seen := make(map[string]struct{}, MaxMembers)
 	out := make([]string, 0, MaxMembers)
+	sectors := map[string]string{}
 	for _, row := range rows {
-		cell := firstCellRE.FindSubmatch(row[1])
-		if cell == nil {
+		cells := firstCellRE.FindAllSubmatch(row[1], -1)
+		if len(cells) == 0 {
 			// Header row (only <th> cells), or malformed — skip.
 			continue
 		}
+		cell := cells[0]
+		var ticker string
 		link := linkTextRE.FindSubmatch(cell[1])
 		if link == nil {
 			// Some cells contain plain text rather than a link. Try
-			text := stripTags(string(cell[1]))
-			if tickerRE.MatchString(text) {
-				if _, dup := seen[text]; !dup {
-					seen[text] = struct{}{}
-					out = append(out, text)
-				}
-			}
-			continue
+			ticker = stripTags(string(cell[1]))
+		} else {
+			ticker = strings.TrimSpace(stripTags(string(link[1])))
 		}
-		ticker := strings.TrimSpace(stripTags(string(link[1])))
 		// Wikipedia uses ASCII hyphens internally — but a class-share
 		ticker = strings.ReplaceAll(ticker, " ", "")
 		if !tickerRE.MatchString(ticker) {
@@ -94,9 +118,14 @@ func ParseHTML(html []byte) ([]string, error) {
 		}
 		seen[ticker] = struct{}{}
 		out = append(out, ticker)
+		if sectorCol >= 0 && sectorCol < len(cells) {
+			if sector := strings.TrimSpace(stripTags(string(cells[sectorCol][1]))); sector != "" {
+				sectors[ticker] = sector
+			}
+		}
 	}
 	sort.Strings(out)
-	return slices.Clip(out), nil
+	return slices.Clip(out), sectors, nil
 }
 
 // FetchAndParse pulls the constituent list from url (typically
@@ -110,9 +139,16 @@ func ParseHTML(html []byte) ([]string, error) {
 // behaviour on bounds-fail. Request identity follows the shared anonymous
 // public-data policy used by both runtime and release-time collection.
 func FetchAndParse(ctx context.Context, url string) ([]string, time.Time, error) {
+	symbols, _, asOf, err := FetchAndParseWithSectors(ctx, url)
+	return symbols, asOf, err
+}
+
+// FetchAndParseWithSectors is FetchAndParse plus the GICS sector map the same
+// page carries. One round-trip serves both membership and classification.
+func FetchAndParseWithSectors(ctx context.Context, url string) ([]string, map[string]string, time.Time, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, time.Time{}, err
 	}
 	publichttp.SetUserAgent(req)
 	req.Header.Set("Accept", "text/html")
@@ -120,21 +156,21 @@ func FetchAndParse(ctx context.Context, url string) ([]string, time.Time, error)
 	client := &http.Client{Timeout: HTTPTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, time.Time{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, time.Time{}, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, nil, time.Time{}, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("read body: %w", err)
+		return nil, nil, time.Time{}, fmt.Errorf("read body: %w", err)
 	}
-	symbols, err := ParseHTML(body)
+	symbols, sectors, err := ParseHTMLWithSectors(body)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, time.Time{}, err
 	}
-	return symbols, time.Now().UTC(), nil
+	return symbols, sectors, time.Now().UTC(), nil
 }
 
 func stripTags(s string) string {

@@ -14,19 +14,41 @@ type PortfolioAllocation struct {
 	Missing    int      `json:"missing"`
 }
 
+// PortfolioLookThrough names a held fund whose value was spread over
+// published sector weights, and how old those weights are.
+type PortfolioLookThrough struct {
+	Symbol string `json:"symbol"`
+	AsOf   string `json:"as_of"`
+	Source string `json:"source"`
+}
+
+// Allocation measures. Asset classes are balance-sheet market value; sectors
+// are delta-adjusted notional, so an option counts by what moves it, not by
+// its premium.
+const (
+	AllocationMeasureMarketValue   = "market_value"
+	AllocationMeasureDeltaNotional = "delta_notional"
+)
+
 // PortfolioSnapshotResult separates current holdings valuation from statement returns.
 type PortfolioSnapshotResult struct {
-	AsOf              time.Time             `json:"as_of"`
-	AccountAsOf       time.Time             `json:"account_as_of"`
-	PositionsAsOf     time.Time             `json:"positions_as_of"`
-	Authority         *AccountDataAuthority `json:"authority"`
-	BaseCurrency      string                `json:"base_currency"`
-	NetLiquidation    *float64              `json:"net_liquidation"`
-	AssetClasses      []PortfolioAllocation `json:"asset_classes"`
-	Sectors           []PortfolioAllocation `json:"sectors"`
-	SectorBasis       string                `json:"sector_basis"`
-	CostBasisBase     *float64              `json:"cost_basis_base"`
-	CostBasisObserved int                   `json:"cost_basis_observed"`
-	CostBasisMissing  int                   `json:"cost_basis_missing"`
-	CoverageStatus    string                `json:"coverage_status"`
+	AsOf              time.Time              `json:"as_of"`
+	AccountAsOf       time.Time              `json:"account_as_of"`
+	PositionsAsOf     time.Time              `json:"positions_as_of"`
+	Authority         *AccountDataAuthority  `json:"authority"`
+	BaseCurrency      string                 `json:"base_currency"`
+	NetLiquidation    *float64               `json:"net_liquidation"`
+	AssetClasses      []PortfolioAllocation  `json:"asset_classes"`
+	AssetClassMeasure string                 `json:"asset_class_measure"`
+	Sectors           []PortfolioAllocation  `json:"sectors"`
+	SectorMeasure     string                 `json:"sector_measure"`
+	SectorBasis       string                 `json:"sector_basis"`
+	LookThrough       []PortfolioLookThrough `json:"look_through,omitempty"`
+	// DefunctExcluded counts holdings the broker no longer quotes; they carry
+	// no exposure and appear in neither table.
+	DefunctExcluded   int      `json:"defunct_excluded"`
+	CostBasisBase     *float64 `json:"cost_basis_base"`
+	CostBasisObserved int      `json:"cost_basis_observed"`
+	CostBasisMissing  int      `json:"cost_basis_missing"`
+	CoverageStatus    string   `json:"coverage_status"`
 }

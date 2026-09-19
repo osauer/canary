@@ -48,17 +48,28 @@ func (c *Connector) FetchChartBars(ctx context.Context, contract Contract, days 
 	return result, err
 }
 
-// MarketIndustry preserves the classification of an exact session-bound contract.
-func (c *Connector) MarketIndustry(ctx context.Context, contract Contract, timeout time.Duration) (string, error) {
+// MarketClassification is the broker's own description of a contract's
+// business: the coarse industry, the finer category, and the stock type
+// (COMMON, ETF, ADR, ...). Any field may be empty; an ETF typically carries
+// only its stock type.
+type MarketClassification struct {
+	Industry  string
+	Category  string
+	StockType string
+}
+
+// MarketClassification preserves the classification of an exact
+// session-bound contract.
+func (c *Connector) MarketClassification(ctx context.Context, contract Contract, timeout time.Duration) (MarketClassification, error) {
 	binding, ok := c.CaptureSession()
 	if !ok {
-		return "", fmt.Errorf("broker session unavailable")
+		return MarketClassification{}, fmt.Errorf("broker session unavailable")
 	}
 	resolved, err := c.ResolveOrderContractForSession(ctx, binding, contract, timeout)
 	if err != nil {
-		return "", err
+		return MarketClassification{}, err
 	}
-	return resolved.Industry, nil
+	return MarketClassification{Industry: resolved.Industry, Category: resolved.Category, StockType: resolved.StockType}, nil
 }
 
 // FrontFuture identifies the nearest strictly future expiry from broker details.

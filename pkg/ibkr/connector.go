@@ -2368,6 +2368,8 @@ type ContractDetailsLite struct {
 // ConID; MinTick is zero only when the broker omitted it.
 type ResolvedOrderContract struct {
 	Industry   string
+	Category   string
+	StockType  string
 	Contract   Contract
 	MinTick    float64
 	TimeZoneID string
@@ -2542,7 +2544,7 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	if selected.TradingClass != "" {
 		resolved.TradingClass = selected.TradingClass
 	}
-	return ResolvedOrderContract{Contract: resolved, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, Industry: selected.Industry}, nil
+	return ResolvedOrderContract{Contract: resolved, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType}, nil
 }
 
 // exactOrderContractRouteMatches applies caller-supplied routing as an

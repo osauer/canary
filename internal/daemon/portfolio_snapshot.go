@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func currentPortfolioAuthority(a *rpc.AccountDataAuthority) bool {
@@ -35,12 +40,18 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 	if !currentPortfolioAuthority(p.Authority) || !currentPortfolioAuthority(a.Authority) || p.Authority.Scope != a.Authority.Scope || a.BaseCurrency == "" || p.Portfolio == nil || p.Portfolio.BaseCurrency != a.BaseCurrency {
 		return nil, errors.New("current consistent portfolio scope unavailable")
 	}
-	sectors := map[string]string{}
+	broker := map[string]ibkrlib.MarketClassification{}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
-	for i, g := range p.ByUnderlying {
-		if i >= 12 {
+	lookups := 0
+	for _, g := range p.ByUnderlying {
+		// Free sources settle S&P names and the embedded funds; the broker
+		// round-trip is spent only where they are silent, and bounded.
+		if classificationSettledWithoutBroker(g.Underlying) {
+			continue
+		}
+		if lookups >= 12 {
 			break
 		}
 		if !portfolioClassificationUnambiguous(g.Underlying, p) {
@@ -50,6 +61,7 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 		if !ok || !rpc.ExpectsMarketDataGroup(g) {
 			continue
 		}
+		lookups++
 		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
@@ -61,12 +73,12 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 			if e != nil {
 				return
 			}
-			name, e := c.MarketIndustry(ctx, route, 3*time.Second)
-			if e != nil || name == "" {
+			mc, e := c.MarketClassification(ctx, route, 3*time.Second)
+			if e != nil {
 				return
 			}
 			mu.Lock()
-			sectors[g.Underlying] = name
+			broker[strings.ToUpper(g.Underlying)] = mc
 			mu.Unlock()
 		})
 	}
@@ -78,17 +90,34 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 	if !sameBrokerScope(brokerStateScope{Account: a.Authority.Scope.AccountID, Mode: a.Authority.Scope.AccountMode}, s.currentBrokerStateScope()) {
 		return nil, errors.New("portfolio scope changed")
 	}
-	return projectPortfolio(a, p, sectors), nil
+	classes := map[string]underlyingClassification{}
+	for _, g := range p.ByUnderlying {
+		key := strings.ToUpper(g.Underlying)
+		classes[key] = classifyUnderlying(key, broker[key])
+	}
+	return projectPortfolio(a, p, classes), nil
 }
-func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, sectors map[string]string) *rpc.PortfolioSnapshotResult {
-	r := &rpc.PortfolioSnapshotResult{AsOf: time.Now(), AccountAsOf: a.AsOf, PositionsAsOf: p.AsOf, Authority: p.Authority, BaseCurrency: a.BaseCurrency, SectorBasis: "IBKR industry classification · signed held value / NLV; options use underlying classification", CoverageStatus: "complete"}
+
+// projectPortfolio builds two tables from one book. Asset classes carry
+// signed market value, the balance-sheet view where a long put is an asset.
+// Sectors carry delta-adjusted notional, the exposure view where that same
+// put is short the market. A holding the broker no longer quotes has no
+// exposure and is counted out rather than drawn as a zero row.
+func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, classes map[string]underlyingClassification) *rpc.PortfolioSnapshotResult {
+	r := &rpc.PortfolioSnapshotResult{
+		AsOf: time.Now(), AccountAsOf: a.AsOf, PositionsAsOf: p.AsOf, Authority: p.Authority, BaseCurrency: a.BaseCurrency,
+		AssetClassMeasure: rpc.AllocationMeasureMarketValue,
+		SectorMeasure:     rpc.AllocationMeasureDeltaNotional,
+		SectorBasis:       "GICS sector · delta-adjusted notional / NLV. Stocks at market value; options at delta × contracts × multiplier × underlying; index funds spread over published sector weights. S&P 500 names take Wikipedia's GICS sector, other stocks map from the broker's industry.",
+		CoverageStatus:    "complete",
+	}
 	valid := func(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 	if a.Authority.Fields != nil && a.Authority.Fields.NetLiquidation && valid(a.NetLiquidation) && a.NetLiquidation > 0 {
 		v := a.NetLiquidation
 		r.NetLiquidation = &v
 	}
-	classes := map[string]*rpc.PortfolioAllocation{}
-	industry := map[string]*rpc.PortfolioAllocation{}
+	assetRows := map[string]*rpc.PortfolioAllocation{}
+	sectorRows := map[string]*rpc.PortfolioAllocation{}
 	add := func(rows map[string]*rpc.PortfolioAllocation, name string, v *float64) {
 		x := rows[name]
 		if x == nil {
@@ -112,40 +141,76 @@ func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, sectors map[
 		v := a.TotalCash
 		cash = &v
 	}
-	add(classes, "Cash", cash)
+	add(assetRows, "Cash", cash)
+	lookThrough := map[string]rpc.PortfolioLookThrough{}
 	cost := 0.0
-	for _, row := range append(append([]rpc.PositionView{}, p.Stocks...), p.Options...) {
-		class := "Other"
-		switch strings.ToUpper(row.SecType) {
-		case "STK", "STOCK":
-			class = "Stocks"
-		case "OPT", "OPTION":
-			class = "Options"
+	visit := func(row rpc.PositionView, isOption bool) {
+		if !isOption && row.QuoteExpectation == rpc.QuoteExpectationNone {
+			r.DefunctExcluded++
+			return
 		}
+		cls := classes[strings.ToUpper(row.Symbol)]
+		class := "Other"
+		switch {
+		case isOption:
+			class = "Options"
+		case strings.EqualFold(row.SecType, "STK"), strings.EqualFold(row.SecType, "STOCK"):
+			class = "Stocks"
+			if cls.Fund {
+				class = "Funds"
+			}
+		}
+		stale := row.Stale && rpc.ExpectsMarketData(row)
 		value := row.MarketValueBase
-		if row.Stale && rpc.ExpectsMarketData(row) {
+		if stale {
 			value = nil
 		}
-		add(classes, class, value)
-		name := sectors[strings.ToUpper(row.Symbol)]
-		if name == "" {
-			name = "Unclassified"
+		add(assetRows, class, value)
+
+		rate, rateOK := positionBaseRate(row, a.BaseCurrency)
+		var delta *float64
+		if local, ok := positionDollarDelta(row, isOption); ok && rateOK && valid(rate) && !stale {
+			v := local * rate
+			delta = &v
+		}
+		switch {
+		case cls.LookThrough != nil:
+			lookThrough[strings.ToUpper(row.Symbol)] = rpc.PortfolioLookThrough{Symbol: strings.ToUpper(row.Symbol), AsOf: cls.LookThrough.AsOf, Source: cls.LookThrough.Source}
+			for sector, weight := range cls.LookThrough.Weights {
+				var part *float64
+				if delta != nil {
+					v := *delta * weight / 100
+					part = &v
+				}
+				add(sectorRows, sector, part)
+			}
+		case cls.Fund:
+			add(sectorRows, sectorFunds, delta)
+		case cls.Sector != "":
+			add(sectorRows, cls.Sector, delta)
+		default:
+			add(sectorRows, sectorUnclassified, delta)
 			r.CoverageStatus = "partial"
 		}
-		add(industry, name, value)
-		rate, ok := positionBaseRate(row, a.BaseCurrency)
+
 		// IBKR average option cost already includes its contract multiplier.
-		if class == "Other" || !ok || !valid(rate) || !valid(row.AvgCost) || row.AvgCost <= 0 || !valid(row.Quantity) {
+		if class == "Other" || !rateOK || !valid(rate) || !valid(row.AvgCost) || row.AvgCost <= 0 || !valid(row.Quantity) {
 			r.CostBasisMissing++
-			continue
+			return
 		}
 		v := row.Quantity * row.AvgCost * rate
 		if !valid(v) {
 			r.CostBasisMissing++
-			continue
+			return
 		}
 		cost += v
 		r.CostBasisObserved++
+	}
+	for _, row := range p.Stocks {
+		visit(row, false)
+	}
+	for _, row := range p.Options {
+		visit(row, true)
 	}
 	finish := func(rows map[string]*rpc.PortfolioAllocation) []rpc.PortfolioAllocation {
 		out := []rpc.PortfolioAllocation{}
@@ -159,13 +224,19 @@ func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, sectors map[
 		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 		return out
 	}
-	r.AssetClasses = finish(classes)
-	r.Sectors = finish(industry)
+	r.AssetClasses = finish(assetRows)
+	r.Sectors = finish(sectorRows)
+	for _, symbol := range slices.Sorted(maps.Keys(lookThrough)) {
+		r.LookThrough = append(r.LookThrough, lookThrough[symbol])
+	}
 	if r.NetLiquidation == nil || r.CostBasisMissing > 0 {
 		r.CoverageStatus = "partial"
 	}
 	if r.CostBasisMissing == 0 && valid(cost) {
 		r.CostBasisBase = &cost
+	}
+	if !spx.SectorsAsOf().IsZero() {
+		r.SectorBasis += " S&P sectors as of " + spx.SectorsAsOf().Format("2006-01-02") + "."
 	}
 	return r
 }

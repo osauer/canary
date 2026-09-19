@@ -26,7 +26,7 @@ Request or inspect a coalesced bounded check of required data sources using refe
 
 ## `canary_portfolio`
 
-Read current signed asset-class and IBKR industry values in account base currency, with valuation and classification coverage. Options are classified by their underlying. Cost basis uses broker average cost including the option multiplier. This is current valuation, not risk exposure, a return percentage, or statement performance.
+Read current portfolio composition in account base currency: signed asset-class market value, and GICS-sector exposure as delta-adjusted notional where options count by delta times underlying and the embedded index funds (SPY, QQQ, IWM) spread over published sector weights with their as-of dates. Holdings the broker no longer quotes are excluded and counted. Cost basis uses broker average cost including the option multiplier. This is not a return percentage or statement performance.
 
 *No parameters.*
 
