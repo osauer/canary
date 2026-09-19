@@ -62,9 +62,17 @@ func TestPortfolioCannotDrawADefunctHoldingAsExposure(t *testing.T) {
 		{ConID: 1, Symbol: "DEAD", SecType: "STK", Currency: "USD", Quantity: 1000, AvgCost: 3, Mark: 0, MarketValueBase: n(0), QuoteExpectation: rpc.QuoteExpectationNone},
 		{ConID: 2, Symbol: "LIVE", SecType: "STK", Currency: "USD", Quantity: 10, AvgCost: 50, Mark: 60, MarketValueBase: n(600)},
 	}}
+	// A zero-mark row the broker has not ruled on is flagged, not defunct.
+	p.Stocks = append(p.Stocks, rpc.PositionView{ConID: 3, Symbol: "LIMBO", SecType: "STK", Currency: "USD", Quantity: 500, AvgCost: 2, Mark: 0, MarketValueBase: n(0), Stale: true,
+		WarningDetails: []rpc.DataWarning{{Code: "zero_value_stock_position", Scope: "LIMBO"}}})
 	r := projectPortfolio(a, p, map[string]underlyingClassification{"LIVE": {Sector: "Industrials"}})
-	if r.DefunctExcluded != 1 {
-		t.Fatalf("defunct count %d", r.DefunctExcluded)
+	if r.DefunctExcluded != 1 || r.UnquotedExcluded != 1 {
+		t.Fatalf("defunct %d unquoted %d", r.DefunctExcluded, r.UnquotedExcluded)
+	}
+	for _, x := range r.Sectors {
+		if x.Missing != 0 {
+			t.Fatalf("unquoted holding drawn as an unvalued gap: %+v", x)
+		}
 	}
 	for _, x := range r.Sectors {
 		if x.Name == sectorUnclassified {

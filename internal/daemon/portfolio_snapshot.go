@@ -101,8 +101,9 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 // projectPortfolio builds two tables from one book. Asset classes carry
 // signed market value, the balance-sheet view where a long put is an asset.
 // Sectors carry delta-adjusted notional, the exposure view where that same
-// put is short the market. A holding the broker no longer quotes has no
-// exposure and is counted out rather than drawn as a zero row.
+// put is short the market. A holding the broker no longer quotes, or one
+// flagged zero-mark and zero-value pending the broker's verdict, has nothing
+// to move and is counted out rather than drawn as a zero or unvalued row.
 func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, classes map[string]underlyingClassification) *rpc.PortfolioSnapshotResult {
 	r := &rpc.PortfolioSnapshotResult{
 		AsOf: time.Now(), AccountAsOf: a.AsOf, PositionsAsOf: p.AsOf, Authority: p.Authority, BaseCurrency: a.BaseCurrency,
@@ -147,6 +148,10 @@ func projectPortfolio(a *rpc.AccountResult, p *rpc.PositionsResult, classes map[
 	visit := func(row rpc.PositionView, isOption bool) {
 		if !isOption && row.QuoteExpectation == rpc.QuoteExpectationNone {
 			r.DefunctExcluded++
+			return
+		}
+		if !isOption && positionWarningHasCode(row.WarningDetails, "zero_value_stock_position") {
+			r.UnquotedExcluded++
 			return
 		}
 		cls := classes[strings.ToUpper(row.Symbol)]

@@ -40,4 +40,3 @@ func TestSectorRegistryCannotBeBlankedByAShortMap(t *testing.T) {
 		t.Fatalf("class-share lookup: %q %v", s, ok)
 	}
 }
-

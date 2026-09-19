@@ -45,8 +45,11 @@ type PortfolioSnapshotResult struct {
 	SectorBasis       string                 `json:"sector_basis"`
 	LookThrough       []PortfolioLookThrough `json:"look_through,omitempty"`
 	// DefunctExcluded counts holdings the broker no longer quotes; they carry
-	// no exposure and appear in neither table.
+	// no exposure and appear in neither table. UnquotedExcluded counts
+	// zero-mark, zero-value stock rows the broker has not yet ruled on: they
+	// remain account position truth elsewhere but have nothing to move here.
 	DefunctExcluded   int      `json:"defunct_excluded"`
+	UnquotedExcluded  int      `json:"unquoted_excluded"`
 	CostBasisBase     *float64 `json:"cost_basis_base"`
 	CostBasisObserved int      `json:"cost_basis_observed"`
 	CostBasisMissing  int      `json:"cost_basis_missing"`
