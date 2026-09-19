@@ -175,7 +175,22 @@ func AutospawnAndConnect(socketPath string) (*Conn, error) {
 }
 
 // AutospawnAndConnectContext is AutospawnAndConnect with a caller-owned
+// context. It starts this executable's daemon mode.
 func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, error) {
+	bin, err := os.Executable()
+	if err != nil {
+		return nil, fmt.Errorf("locate self: %w", err)
+	}
+	return AutospawnAndConnectContextFromExecutable(ctx, socketPath, bin)
+}
+
+// AutospawnAndConnectContextFromExecutable is AutospawnAndConnectContext for
+// a caller that is not the canary binary, such as a program embedding the
+// client: executable names the canary binary whose daemon mode is started
+// when no live daemon owns the lock. It keeps the ordinary path's waiting
+// semantics, so a caller that finds a daemon still booting waits for its
+// socket instead of starting a second one.
+func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, executable string) (*Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -203,7 +218,7 @@ func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	spawnedPID, err := spawnDaemon()
+	spawnedPID, err := spawnDaemonFromExecutable(executable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
@@ -311,21 +326,14 @@ func waitForSocketOrPIDDeath(ctx context.Context, socketPath string, pid int, ti
 	return nil, false
 }
 
-// spawnDaemon starts this executable's `daemon` mode detached from the caller.
-// current binary is located via os.Executable() — no PATH lookup, no separate
-// daemon binary, no executable-name environment override.
+// spawnDaemonFromExecutable starts bin's `daemon` mode detached from the
+// caller. No PATH lookup and no executable-name environment override: the
+// caller names the binary, which is os.Executable() for the canary command
+// itself.
 //
 // Stdout/stderr route to the daemon log file (or /dev/null on fallback).
 // Leaving Cmd.Stdout/Stderr at the zero value wired exec to a closed fd on
 // macOS and wedged the daemon during startup before it could log.
-func spawnDaemon() (int, error) {
-	bin, err := os.Executable()
-	if err != nil {
-		return 0, fmt.Errorf("locate self: %w", err)
-	}
-	return spawnDaemonFromExecutable(bin)
-}
-
 func spawnDaemonFromExecutable(bin string) (int, error) {
 	bin = strings.TrimSpace(bin)
 	if bin == "" {
