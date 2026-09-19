@@ -19,9 +19,9 @@ need a Go wire-protocol client, use [`pkg/ibkr`](#go-wire-protocol-library).
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
-The [v3.7.0 release notes](https://github.com/osauer/canary/releases/tag/v3.7.0)
-cover data-health reports, expanded exchange calendars, delayed-quote recovery
-and statement-readiness fixes.
+The [v3.8.0 release notes](https://github.com/osauer/canary/releases/tag/v3.8.0)
+cover unit-level review of multi-leg option positions, option purpose derived
+from the book, and the listing venue on held positions.
 
 ## Start
 
@@ -82,8 +82,8 @@ that artifact.
   and exercise candidates without turning any row into submit authority.
 - **How is the book exposed?** Account and position reads identify one selected
   account, group stock and option legs by underlying, and keep missing values
-  separate from real zeros. Multi-account ambiguity is refused rather than
-  blended.
+  separate from real zeros. Each position carries the listing venue IBKR
+  reports. Multi-account ambiguity is refused rather than blended.
 - **What did past decisions actually deliver?** Canary Edge uses retained IBKR
   Flex records and exact-contract market history. It reviews account P/L after
   confirmed external flows, compares adequately repeated stock and ETF
@@ -102,7 +102,11 @@ that artifact.
   cached official economic calendars and publications with their source health.
 - **What work already exists?** Proposals, opportunities, and the local order
   journal show what is blocked or ready for human review and how it changed.
-  They are evidence, not broker authority.
+  They are evidence, not broker authority. A multi-leg option position is
+  reviewed as one unit, net premium paid against net close value at fresh leg
+  quotes, and routed to the strategy workflow or a broker combo; the row
+  places no order. Option purpose follows the measured book, not per-leg
+  declarations.
 
 Reconciliation, statement-derived equity, and Edge require one shared IBKR
 Activity Flex Query. Run `canary setup reporting`, then follow the

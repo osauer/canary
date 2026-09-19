@@ -1,12 +1,14 @@
 # Canary full context
 
-Updated: 2026-09-17
+Updated: 2026-09-19
 
-Version 3.7 adds daemon-owned data-health reports and bounded quote checks,
-plus London, Tokyo and Hong Kong exchange calendars. Ordinary quotes can retain
-usable delayed data while live access recovers. Received empty statement
-sections count as zero activity. Automatic Gateway/TWS discovery preserves
-account binding, fresh order evidence and all broker-write gates.
+Version 3.8 reviews every multi-leg option position as one unit: net premium
+paid against net close value at fresh leg quotes, the Rulebook loss line on
+that figure, and a Canary-managed profit trail, routed to the strategy workflow
+or a broker combo. Option purpose follows the measured book rather than
+per-leg declarations; same-direction stacks are standalone positions. Position
+rows carry the listing venue. Unit rows place no order; broker-write gates are
+unchanged.
 
 Canary is a local Interactive Brokers risk desk built as a Go daemon, a
 shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code

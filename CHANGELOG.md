@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.8.0 — 2026-09-19 10:40 CEST
+
+### What's new
+
+- **Multi-leg option positions are reviewed as one unit.** Every recorded strategy and every underlying whose legs have no single decomposition appears as a `strategy_exit` proposal row valued as one position: net premium paid against the net close value at fresh leg quotes, the Rulebook loss line applied to that net figure, and a profit trail Canary manages from the unit's high-water close value. The row names its route, `canary strategies close` for a recorded strategy or a combo order at the broker; single-leg preview and submit refuse a unit with `strategy_workflow_required`. Legs of a unit raise no per-leg question.
+- **Position rows report the listing venue.** `primary_exchange` carries the venue IBKR reports for each held contract (IBIS, NASDAQ, NYSE, ...), so a consumer that scopes work by venue no longer sees every holding as unmapped. The field is additive; existing fields are unchanged.
+
+### Changed
+
+- **Option purpose and grouping follow the book, not per-leg declarations.** Two long calls or two long puts of one underlying are standalone positions under the standing purpose defaults, not a spread that required operator declarations. Only opposite-signed legs reconstruct into a spread.
+- **A hedge-listed put follows its measured whole-book role.** The protection default applies only while the role cannot be measured. A put the Rulebook classifier finds directional is exit-managed as directional and the record says so; a protection or unclassified role keeps the hedge and produces no exit row.
+- **A long call counts as a hedge only over a short it can cover.** That is a short stock of its own underlying or, for an index call, any short stock in the book. A short elsewhere is unrelated exposure.
+- **Broker-write authority is unchanged.** Unit rows place no order. Portfolio protection, fresh exact-contract evidence, and transaction-specific human authority remain binding.
+
 ## v3.7.0 — 2026-09-17 21:09 CEST
 
 ### What's new

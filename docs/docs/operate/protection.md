@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-17
+Updated: 2026-09-19
 
 Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
