@@ -13,7 +13,8 @@ func performanceDay(day string) time.Time {
 	return t
 }
 
-func performanceFloat(v float64) *float64 { return &v }
+//go:fix inline
+func performanceFloat(v float64) *float64 { return new(v) }
 
 // Two overlapping generations of the same account: the newer restates one
 // equity day and repeats every line. The series must keep one value per day,
@@ -22,28 +23,28 @@ func performanceFloat(v float64) *float64 { return &v }
 func TestReportingPerformanceMergesRestatementsAndCountsEachLineOnce(t *testing.T) {
 	older := flexstmt.Statement{
 		AccountID: "DUPERF1", FromDate: performanceDay("2025-12-29"), ToDate: performanceDay("2026-01-06"), WhenGenerated: performanceDay("2026-01-07"),
-		FXRates: []flexstmt.FXRate{{FromCurrency: "USD", ToCurrency: "EUR", Rate: performanceFloat(0.9)}},
+		FXRates: []flexstmt.FXRate{{FromCurrency: "USD", ToCurrency: "EUR", Rate: new(0.9)}},
 		Equity: []flexstmt.EquityRow{
 			{ReportDate: performanceDay("2025-12-31"), TotalBase: 100000},
 			{ReportDate: performanceDay("2026-01-02"), TotalBase: 101000},
 			{ReportDate: performanceDay("2026-01-05"), TotalBase: 99000},
 		},
 		Cash: []flexstmt.CashLine{
-			{ID: "flow-1", Category: flexstmt.CategoryFlow, Type: "Deposits/Withdrawals", AmountBase: performanceFloat(5000), ValueDate: performanceDay("2026-01-05")},
-			{ID: "div-old", Category: flexstmt.CategoryClassified, Type: "Dividends", AmountBase: performanceFloat(80), ValueDate: performanceDay("2025-12-30")},
-			{ID: "div-1", Category: flexstmt.CategoryClassified, Type: "Dividends", AmountBase: performanceFloat(120), ValueDate: performanceDay("2026-01-05")},
-			{ID: "wht-1", Category: flexstmt.CategoryClassified, Type: "Withholding Tax", AmountBase: performanceFloat(-18), ValueDate: performanceDay("2026-01-05")},
-			{ID: "odd-1", Category: flexstmt.CategoryUncategorized, Type: "Mystery", AmountBase: performanceFloat(-7), ValueDate: performanceDay("2026-01-05")},
+			{ID: "flow-1", Category: flexstmt.CategoryFlow, Type: "Deposits/Withdrawals", AmountBase: new(float64(5000)), ValueDate: performanceDay("2026-01-05")},
+			{ID: "div-old", Category: flexstmt.CategoryClassified, Type: "Dividends", AmountBase: new(float64(80)), ValueDate: performanceDay("2025-12-30")},
+			{ID: "div-1", Category: flexstmt.CategoryClassified, Type: "Dividends", AmountBase: new(float64(120)), ValueDate: performanceDay("2026-01-05")},
+			{ID: "wht-1", Category: flexstmt.CategoryClassified, Type: "Withholding Tax", AmountBase: new(float64(-18)), ValueDate: performanceDay("2026-01-05")},
+			{ID: "odd-1", Category: flexstmt.CategoryUncategorized, Type: "Mystery", AmountBase: new(float64(-7)), ValueDate: performanceDay("2026-01-05")},
 		},
 		Transfers: []flexstmt.Transfer{
-			{ID: "xfer-1", Direction: "OUT", AmountBase: performanceFloat(2000), Date: performanceDay("2026-01-06")},
+			{ID: "xfer-1", Direction: "OUT", AmountBase: new(float64(2000)), Date: performanceDay("2026-01-06")},
 		},
 		Trades: []flexstmt.Trade{
-			{RecordID: "t-old", Currency: "EUR", ReportDate: performanceDay("2025-12-30"), RealizedPNL: performanceFloat(999), LevelOfDetail: "EXECUTION"},
-			{RecordID: "t-1", Currency: "USD", FXRateToBase: performanceFloat(0.9), ReportDate: performanceDay("2026-01-02"), RealizedPNL: performanceFloat(200), Commission: performanceFloat(-2), LevelOfDetail: "EXECUTION"},
-			{RecordID: "t-1-lot", Currency: "USD", FXRateToBase: performanceFloat(0.9), ReportDate: performanceDay("2026-01-02"), RealizedPNL: performanceFloat(200), LevelOfDetail: "CLOSED_LOT"},
-			{RecordID: "t-2", Currency: "EUR", ReportDate: performanceDay("2026-01-05"), RealizedPNL: performanceFloat(0), Commission: performanceFloat(-1.5), LevelOfDetail: "EXECUTION"},
-			{RecordID: "t-3", Currency: "CHF", ReportDate: performanceDay("2026-01-05"), RealizedPNL: performanceFloat(50), LevelOfDetail: "EXECUTION"},
+			{RecordID: "t-old", Currency: "EUR", ReportDate: performanceDay("2025-12-30"), RealizedPNL: new(float64(999)), LevelOfDetail: "EXECUTION"},
+			{RecordID: "t-1", Currency: "USD", FXRateToBase: new(0.9), ReportDate: performanceDay("2026-01-02"), RealizedPNL: new(float64(200)), Commission: new(float64(-2)), LevelOfDetail: "EXECUTION"},
+			{RecordID: "t-1-lot", Currency: "USD", FXRateToBase: new(0.9), ReportDate: performanceDay("2026-01-02"), RealizedPNL: new(float64(200)), LevelOfDetail: "CLOSED_LOT"},
+			{RecordID: "t-2", Currency: "EUR", ReportDate: performanceDay("2026-01-05"), RealizedPNL: new(float64(0)), Commission: new(-1.5), LevelOfDetail: "EXECUTION"},
+			{RecordID: "t-3", Currency: "CHF", ReportDate: performanceDay("2026-01-05"), RealizedPNL: new(float64(50)), LevelOfDetail: "EXECUTION"},
 		},
 	}
 	newer := older
