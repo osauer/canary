@@ -120,6 +120,10 @@ func WithRequestPriority(ctx context.Context, p RequestPriority) context.Context
 	return context.WithValue(ctx, requestPriorityContextKey{}, p)
 }
 
+// RequestPriorityFrom reports the pacing lane a context carries; contexts
+// without one submit as PriorityInteractive.
+func RequestPriorityFrom(ctx context.Context) RequestPriority { return requestPriorityFrom(ctx) }
+
 func requestPriorityFrom(ctx context.Context) RequestPriority {
 	if ctx == nil {
 		return PriorityInteractive

@@ -214,6 +214,16 @@ func historicalOverlapChanged(old, next rpc.MarketHistoryResult) bool {
 	return false
 }
 
+// logMarketHistoryFallback records why a refresh served recorded history
+// instead of fresh bars: the RPC carries only a fixed detail, and a silent
+// refresh loop cannot be told apart from a broker that never answers.
+func (s *Server) logMarketHistoryFallback(p rpc.MarketHistoryParams, saved *storedMarketHistory, cause error) {
+	if s.logger == nil || saved == nil {
+		return
+	}
+	s.logger.Warnf("market history %s %s: IBKR refresh failed: %v; serving recorded history through %s", p.Contract.Symbol, p.Range, cause, saved.Result.End.UTC().Format("2006-01-02"))
+}
+
 // readRetainedHistory is the daemon-owned acquisition/selection path. Requests
 // own fetch cancellation; the server owns the database and its short merge lock.
 func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.MarketHistoryParams, now time.Time, fetch func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error)) (*rpc.MarketHistoryResult, error) {
@@ -255,9 +265,11 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		if saved == nil {
 			return nil, fetchErr
 		}
+		s.logMarketHistoryFallback(p, saved, fetchErr)
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR refresh unavailable; showing recorded history", true), nil
 	}
 	if saved != nil && tail <= 0 && historyLostStablePoints(saved.Result, *fresh, now) {
+		s.logMarketHistoryFallback(p, saved, errors.New("response lacks sessions the recorded history has"))
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
 	}
 	if err := ctx.Err(); err != nil {
