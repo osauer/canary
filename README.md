@@ -67,6 +67,7 @@ historical outcomes; it is not a forecast or a causal claim._
 | Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; no settings writes, previews, or execution tools |
 | Work in a terminal or script | `canary brief`, `canary positions --by underlying`, and `--json` | Deterministic CLI output over the same daemon authority |
 | Check the desk from a phone | `canary app`, then `canary app pair` | Paired PWA; local by default, optional remote relay |
+| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client, with `canarytest` for tests | The MCP tool catalogue over the daemon socket without an MCP process; the daemon keeps every policy and broker gate |
 | Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | Lower-level transport; your application owns policy, authorization, and journaling |
 
 Constrained broker actions are not a fifth onboarding path. They require a
