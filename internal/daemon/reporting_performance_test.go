@@ -13,9 +13,6 @@ func performanceDay(day string) time.Time {
 	return t
 }
 
-//go:fix inline
-func performanceFloat(v float64) *float64 { return new(v) }
-
 // Two overlapping generations of the same account: the newer restates one
 // equity day and repeats every line. The series must keep one value per day,
 // count each flow and trade once, sign transfers out, and exclude the previous
