@@ -159,6 +159,9 @@ type Server struct {
 
 	// quoteLiquidity memoises 20-day average volume / dollar volume derived
 	quoteLiquidity *quoteLiquidityCache
+	// quoteHistory memoises the daily bars behind closed-market quote context
+	// per contract until the market's next close.
+	quoteHistory *quoteHistoryCache
 	// marketDataWitnessAt is the last successful broker price observation.
 	// failed quote path without treating the witness as durable entitlement.
 	marketDataWitnessAt atomic.Int64
@@ -490,6 +493,7 @@ func New(opts Options) *Server {
 		logger:              opts.Logger,
 		expiryIVs:           newExpiryIVCache(),
 		quoteLiquidity:      newQuoteLiquidityCache(),
+		quoteHistory:        newQuoteHistoryCache(),
 		prevCloses:          newPrevCloseCache(),
 		greeks:              newGreeksCache(),
 		zeroGamma:           newGammaZeroCache(),

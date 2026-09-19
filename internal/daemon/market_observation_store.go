@@ -410,6 +410,56 @@ func (c *quoteLiquidityCache) put(key quoteLiquidityKey, e quoteLiquidityEntry, 
 	c.inner.put(key, e, now)
 }
 
+// quoteHistoryCache memoises the daily bars behind a quote's closed-market
+// context per contract. Regular close, prior close, day range, 52-week range,
+// volume and liquidity all derive from the same bars, and completed sessions
+// do not change until the next one closes, so one broker read serves every
+// quote request until then. Without it each quote request on a closed market
+// spent one of the connector's sixty historical reads per ten minutes on the
+// same bars and starved every other history read.
+type quoteHistoryCache struct {
+	inner *ttlMap[quoteLiquidityKey, quoteHistoryEntry]
+}
+
+type quoteHistoryEntry struct {
+	bars    []ibkrlib.HistoricalBar
+	fetched time.Time
+	until   time.Time // when the bars stop being current; zero when unknown
+	err     error
+}
+
+func newQuoteHistoryCache() *quoteHistoryCache {
+	return &quoteHistoryCache{inner: newTTLMap[quoteLiquidityKey, quoteHistoryEntry](quoteHistoryTTL)}
+}
+
+// quoteHistoryTTL keeps bars until the market's next close (see
+// quoteHistoryValidUntil), bars of an unknown calendar for an hour and a
+// failed read for five minutes, so a refused symbol is not asked for on every
+// quote request either.
+func quoteHistoryTTL(e quoteHistoryEntry, _ time.Time) time.Duration {
+	switch {
+	case e.err != nil:
+		return 5 * time.Minute
+	case e.until.IsZero():
+		return time.Hour
+	}
+	return max(e.until.Sub(e.fetched), 0)
+}
+
+func (c *quoteHistoryCache) get(key quoteLiquidityKey, now time.Time) (quoteHistoryEntry, bool) {
+	if c == nil || c.inner == nil {
+		return quoteHistoryEntry{}, false
+	}
+	return c.inner.get(key, now)
+}
+
+func (c *quoteHistoryCache) put(key quoteLiquidityKey, e quoteHistoryEntry, now time.Time) {
+	if c == nil || c.inner == nil {
+		return
+	}
+	c.inner.put(key, e, now)
+}
+
 const (
 	contractAuthorityScope = "market/contracts"
 	contractStateKind      = "contract_cache.current.v3"

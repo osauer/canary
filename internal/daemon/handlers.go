@@ -2361,7 +2361,9 @@ func (s *Server) fillQuoteHistoricalFallback(ctx context.Context, c *ibkrlib.Con
 	if c == nil || q == nil || q.Symbol == "" {
 		return nil
 	}
-	bars, err := s.fetchQuoteHistoricalBars(ctx, c, q, timeout, 400)
+	bars, err := s.quoteHistoryBars(quoteLiquidityCacheKey(q), market, time.Now(), func() ([]ibkrlib.HistoricalBar, error) {
+		return s.fetchQuoteHistoricalBars(ctx, c, q, timeout, 400)
+	})
 	if err != nil {
 		if s.logger != nil {
 			s.logger.Debugf("quote historical fallback %s: %v", q.Symbol, err)
@@ -2370,6 +2372,49 @@ func (s *Server) fillQuoteHistoricalFallback(ctx context.Context, c *ibkrlib.Con
 	}
 	applyQuoteHistoricalFallback(q, market, bars)
 	return bars
+}
+
+// quoteHistoryBars serves a contract's daily bars from the quote history
+// cache, or reads them once and keeps them until the market's next close.
+// A failed read is kept too, briefly, so one refused symbol does not spend a
+// paced broker read on every quote request.
+func (s *Server) quoteHistoryBars(key quoteLiquidityKey, market marketcal.Market, now time.Time, fetch func() ([]ibkrlib.HistoricalBar, error)) ([]ibkrlib.HistoricalBar, error) {
+	if e, ok := s.quoteHistory.get(key, now); ok {
+		return e.bars, e.err
+	}
+	bars, err := fetch()
+	s.quoteHistory.put(key, quoteHistoryEntry{bars: bars, fetched: now, until: quoteHistoryValidUntil(market, now), err: err}, now)
+	return bars, err
+}
+
+// quoteHistoryValidUntil is when a market's completed-session bars stop
+// being current. During a session they are kept a minute, since the last bar
+// is still moving. For fifteen minutes after a close they are kept only until
+// that settle window ends, so the new session's bar is read once it is final.
+// Otherwise they stand until the next regular close. An unknown calendar
+// yields zero.
+func quoteHistoryValidUntil(market marketcal.Market, now time.Time) time.Time {
+	if market == "" {
+		return time.Time{}
+	}
+	last, current, ok := lastCompletedMarketSessionWindow(now, market)
+	if !ok {
+		return time.Time{}
+	}
+	if current.IsOpen {
+		return now.Add(time.Minute)
+	}
+	if settled := last.Close.Add(15 * time.Minute); now.Before(settled) {
+		return settled
+	}
+	next := current.Close
+	if !next.After(now) && current.NextClose != nil {
+		next = *current.NextClose
+	}
+	if !next.After(now) {
+		return time.Time{}
+	}
+	return next
 }
 
 func (s *Server) fetchQuoteHistoricalBars(ctx context.Context, c *ibkrlib.Connector, q *rpc.Quote, timeout time.Duration, lookbackDays int) ([]ibkrlib.HistoricalBar, error) {
