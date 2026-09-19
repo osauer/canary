@@ -76,6 +76,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodRulesHistory, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodReconEquity, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodReportingStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodReportingPerformance, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodReportingValidate, Lifetime: MethodLifetimeUnary, DaemonTimeout: 9 * time.Minute},
 	{Method: MethodEdgeSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodMarketEventsSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},

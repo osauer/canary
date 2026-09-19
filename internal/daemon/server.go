@@ -2381,6 +2381,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(ctx, req) })
 	case rpc.MethodReportingStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleReportingStatus(ctx) })
+	case rpc.MethodReportingPerformance:
+		s.unary(req, enc, func() (any, error) { return s.handleReportingPerformance(ctx) })
 	case rpc.MethodReportingValidate:
 		s.unary(req, enc, func() (any, error) { return s.handleReportingValidate(ctx, req) })
 	case rpc.MethodEdgeSnapshot:

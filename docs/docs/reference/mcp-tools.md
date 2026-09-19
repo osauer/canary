@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**26 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**27 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -190,6 +190,12 @@ Start here for the daemon's current desk summary: regime stage and verdict, port
 ## `canary_reporting`
 
 Read shared IBKR statement-reporting setup, broker reachability, backfill state, absent sections, present-empty sections, and proven missing fields for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.
+
+*No parameters.*
+
+## `canary_reporting_performance`
+
+Read the retained IBKR statement equity series in the account base currency (one close per report date), dated external capital flows (deposits, withdrawals, position transfers in and out), statement coverage, and year-to-date sums of FIFO realised trading P&L, commissions, dividends, interest, withholding tax and fees, so that a consumer can compute cash-flow-adjusted (time-weighted) performance, drawdowns and a benchmark comparison itself. A missing report date is a gap, never interpolated; nothing is annualised or compared here. Use canary_account for live net liquidation and today's P&L, canary_reporting for statement setup and broker reachability, and canary_recon_status for capital-flow reconciliation verdicts. Read-only; returns no account identity, computes no return figure, and cannot refresh statements.
 
 *No parameters.*
 

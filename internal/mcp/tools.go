@@ -426,6 +426,24 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name:         "canary_reporting_performance",
+		Title:        "Canary Statement Performance Series",
+		Description:  "Read the retained IBKR statement equity series in the account base currency (one close per report date), dated external capital flows (deposits, withdrawals, position transfers in and out), statement coverage, and year-to-date sums of FIFO realised trading P&L, commissions, dividends, interest, withholding tax and fees, so that a consumer can compute cash-flow-adjusted (time-weighted) performance, drawdowns and a benchmark comparison itself. A missing report date is a gap, never interpolated; nothing is annualised or compared here. Use canary_account for live net liquidation and today's P&L, canary_reporting for statement setup and broker reachability, and canary_recon_status for capital-flow reconciliation verdicts. Read-only; returns no account identity, computes no return figure, and cannot refresh statements.",
+		ReadOnlyHint: new(true),
+		RPCMethods:   []string{rpc.MethodReportingPerformance},
+		JSONSchema:   schemaObject(nil, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
+			var res rpc.ReportingPerformanceResult
+			if err := conn.Call(ctx, rpc.MethodReportingPerformance, struct{}{}, &res); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateReportingPerformanceResult(res); err != nil {
+				return nil, fmt.Errorf("invalid reporting performance: %w", err)
+			}
+			return json.Marshal(res)
+		},
+	},
+	{
 		Name:         "canary_edge",
 		Title:        "Canary Edge Decision Review",
 		Description:  "Call with no arguments after canary_brief for an automatic one-year review of historical decision price outcomes: action/direction coverage, comparisons of the same decisions at different horizons, monthly consistency, concentration, and exact local protection provenance when available. SPY, QQQ, DIA, and VIX supply informational context. Options separately report option lifecycle coverage, proven flat-to-flat exact-contract positions, broker-reported realized option episodes, and the latest dated open option snapshot; these scopes overlap and must not be added. Use a returned change_id or returned option_id for broker-fact details; completed position cycles are already expanded in options.cycles. Do not use for current risk, order decisions, forecasting, or causal claims. Do not infer skill, strategy win rates, trade intent, or risk effectiveness. Use canary_brief for current portfolio risk and canary_positions for current holdings. Read-only; parameters select retained evidence and cannot refresh data.",

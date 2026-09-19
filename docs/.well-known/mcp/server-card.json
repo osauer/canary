@@ -428,6 +428,14 @@
       }
     },
     {
+      "name": "canary_reporting_performance",
+      "description": "Read the retained IBKR statement equity series in the account base currency (one close per report date), dated external capital flows (deposits, withdrawals, position transfers in and out), statement coverage, and year-to-date sums of FIFO realised trading P\u0026L, commissions, dividends, interest, withholding tax and fees, so that a consumer can compute cash-flow-adjusted (time-weighted) performance, drawdowns and a benchmark comparison itself. A missing report date is a gap, never interpolated; nothing is annualised or compared here. Use canary_account for live net liquidation and today's P\u0026L, canary_reporting for statement setup and broker reachability, and canary_recon_status for capital-flow reconciliation verdicts. Read-only; returns no account identity, computes no return figure, and cannot refresh statements.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_edge",
       "description": "Use for reviewing past trading decisions after canary_brief. Do not use for current risk, positions, order decisions, forecasting, or causal claims. It is read-only and cannot refresh data.",
       "inputSchema": {

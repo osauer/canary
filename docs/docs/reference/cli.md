@@ -447,10 +447,10 @@ Shared IBKR statement reporting status for Recon and Edge.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary reporting status [--json]
+canary reporting status|performance [--json]
 ```
 
-Subcommands: `status`.
+Subcommands: `status`, `performance`.
 
 **Flags**
 

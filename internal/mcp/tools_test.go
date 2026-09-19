@@ -147,6 +147,22 @@ func TestReportingToolExplainsSetupWithoutCredentialsOrRefreshAuthority(t *testi
 	}
 }
 
+func TestReportingPerformanceToolServesFactsWithoutComputingReturns(t *testing.T) {
+	tool, ok := lookupTool("canary_reporting_performance")
+	if !ok {
+		t.Fatal("missing canary_reporting_performance")
+	}
+	description := strings.ToLower(tool.Description)
+	for _, phrase := range []string{"equity series", "external capital flows", "year-to-date", "gap, never interpolated", "canary_account", "canary_reporting for", "canary_recon_status", "read-only", "no account identity", "computes no return figure", "cannot refresh"} {
+		if !strings.Contains(description, phrase) {
+			t.Errorf("description missing %q: %s", phrase, tool.Description)
+		}
+	}
+	if tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint || !slices.Equal(tool.RPCMethods, []string{rpc.MethodReportingPerformance}) {
+		t.Fatalf("performance authority metadata=%+v", tool)
+	}
+}
+
 func TestEdgeToolPreservesTheTypedDecisionReviewExactly(t *testing.T) {
 	tool, ok := lookupTool("canary_edge")
 	if !ok {
