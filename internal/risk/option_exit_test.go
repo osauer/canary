@@ -155,3 +155,27 @@ func TestOptionExitTrailPctWithinBoundsRejectsRoundedAmountAboveMaximum(t *testi
 func containsOptionExitBlocker(blockers []string, want string) bool {
 	return slices.Contains(blockers, want)
 }
+
+// A caller that deliberately requested no quote (the leg's purpose is not yet
+// confirmed) gets the blockers it can act on, not quote failures for a quote
+// nobody asked for. The valuation stays unavailable either way.
+func TestEvaluateOptionExitSkippedQuoteReportsNoQuoteBlocker(t *testing.T) {
+	pol := OptionExitPolicy{MinDTE: 14, LossExitPct: 60, ProfitArmGainPct: 50, ProfitTrailPct: 30, LockedGainPct: 5, MinTrailPct: 20, MaxTrailPct: 50, MaxSpreadPctOfMid: 25, MinTrailAbs: 0.1, SpreadMultiple: 2}
+	in := OptionExitInput{ConID: 42, Quantity: 1, Multiplier: 100, AvgCost: 350, DTE: 30, DirectionalIntent: false, Standalone: true, EconomicRoleAllowed: true, SessionOpen: true, QuoteSkipped: true}
+	out := EvaluateOptionExit(in, pol)
+	if out.Action != "" || out.ReferencePrice != 0 {
+		t.Fatalf("a skipped quote produced a valuation or an action: %+v", out)
+	}
+	want := []string{"directional_intent_required"}
+	if !slices.Equal(out.Blockers, want) {
+		t.Fatalf("blockers %v, want %v", out.Blockers, want)
+	}
+	// The same leg with a quote requested but not received reports the quote failures.
+	in.QuoteSkipped = false
+	out = EvaluateOptionExit(in, pol)
+	for _, code := range []string{"live_option_quote_required", "fresh_option_quote_required", "two_sided_option_quote_required"} {
+		if !slices.Contains(out.Blockers, code) {
+			t.Fatalf("requested quote absent but %q not reported: %v", code, out.Blockers)
+		}
+	}
+}

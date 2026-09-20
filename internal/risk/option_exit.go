@@ -42,6 +42,12 @@ type OptionExitInput struct {
 	QuoteLive           bool
 	QuoteFresh          bool
 	SessionOpen         bool
+	// QuoteSkipped records that the caller deliberately requested no broker
+	// quote, because the contract cannot qualify for an exit yet (its purpose is
+	// unconfirmed). The valuation stays unavailable, but the absence of a quote
+	// is then the caller's decision, not a quote failure, and no quote blocker
+	// is reported for it.
+	QuoteSkipped bool
 }
 
 // OptionExitDecision is a pure candidate decision. TrailAmount is the
@@ -104,17 +110,21 @@ func EvaluateOptionExit(in OptionExitInput, pol OptionExitPolicy) OptionExitDeci
 	} else {
 		out.CostPremium = in.AvgCost / float64(in.Multiplier)
 	}
-	if !in.QuoteLive {
-		add("live_option_quote_required")
-	}
-	if !in.QuoteFresh {
-		add("fresh_option_quote_required")
-	}
 	if !in.SessionOpen {
 		add("option_rth_closed")
 	}
-	if in.Bid <= 0 || in.Ask <= 0 || in.Ask < in.Bid {
-		add("two_sided_option_quote_required")
+	if in.QuoteSkipped {
+		valuationOK = false
+	} else if in.Bid <= 0 || in.Ask <= 0 || in.Ask < in.Bid || !in.QuoteLive || !in.QuoteFresh {
+		if !in.QuoteLive {
+			add("live_option_quote_required")
+		}
+		if !in.QuoteFresh {
+			add("fresh_option_quote_required")
+		}
+		if in.Bid <= 0 || in.Ask <= 0 || in.Ask < in.Bid {
+			add("two_sided_option_quote_required")
+		}
 		valuationOK = false
 	} else {
 		out.ReferencePrice = in.Bid

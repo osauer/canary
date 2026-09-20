@@ -64,7 +64,7 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.trailing_stop]` | `tif` | `string` | TIF applies to every trailing-stop proposal in this bucket: DAY or GTC, empty means DAY. |
 | `[buckets.trailing_stop.options]` | `allow_short_profit_trail` | `bool` | AllowShortProfitTrail is retained for config compatibility but must remain false; V1 option exits are long-only. |
 | `[buckets.trailing_stop.options]` | `default_index_puts_protection` | `bool` | DefaultIndexPutsProtection keeps ungrouped hedge-listed long puts out of directional exits unless an exact declaration or economic conflict needs review. |
-| `[buckets.trailing_stop.options]` | `default_long_calls_directional` | `bool` | DefaultLongCallsDirectional assigns purpose to ungrouped standard long calls without a conflicting holding or exact-contract declaration. |
+| `[buckets.trailing_stop.options]` | `default_long_calls_directional` | `bool` | DefaultLongCallsDirectional assigns purpose to ungrouped standard long calls and non-hedge-listed long puts without a conflicting holding or exact-contract declaration. |
 | `[buckets.trailing_stop.options]` | `default_pct` | `float64` | DefaultPct is the native broker percentage-trail distance before spread, minimum-amount, and tick floors (default 30). |
 | `[buckets.trailing_stop.options]` | `directional_intents` | `[]protectionOptionDirectionalIntent` | DirectionalIntents are time-bounded exact-contract overrides. |
 | `[buckets.trailing_stop.options]` | `enabled` | `bool` | Enabled turns approved directional-option loss exits and profit trails on (default false). |

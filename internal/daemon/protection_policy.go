@@ -109,7 +109,8 @@ type protectionTrailOptionPolicy struct {
 	// Enabled turns approved directional-option loss exits and profit trails on (default false).
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// DefaultLongCallsDirectional assigns purpose to ungrouped standard long
-	// calls without a conflicting holding or exact-contract declaration.
+	// calls and non-hedge-listed long puts without a conflicting holding or
+	// exact-contract declaration.
 	DefaultLongCallsDirectional bool `toml:"default_long_calls_directional" json:"default_long_calls_directional,omitempty"`
 	// DefaultIndexPutsProtection keeps ungrouped hedge-listed long puts out of
 	// directional exits unless an exact declaration or economic conflict needs review.

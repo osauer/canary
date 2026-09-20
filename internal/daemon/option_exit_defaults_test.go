@@ -49,9 +49,12 @@ func TestOptionExitStandingPurposePreservesExceptions(t *testing.T) {
 		"missing identity":  func(_ *protectionPolicy, pos *rpc.PositionsResult) { pos.Options[0].ConID = 0 },
 		"short call":        func(_ *protectionPolicy, pos *rpc.PositionsResult) { pos.Options[0].Quantity = -1 },
 		"fractional call":   func(_ *protectionPolicy, pos *rpc.PositionsResult) { pos.Options[0].Quantity = 1.5 },
-		"ordinary put":      func(_ *protectionPolicy, pos *rpc.PositionsResult) { pos.Options[0].Right = "P" },
 		"disabled default": func(p *protectionPolicy, _ *rpc.PositionsResult) {
 			p.Buckets.TrailingStop.Options.DefaultLongCallsDirectional = false
+		},
+		"disabled default, ordinary put": func(p *protectionPolicy, pos *rpc.PositionsResult) {
+			p.Buckets.TrailingStop.Options.DefaultLongCallsDirectional = false
+			pos.Options[0].Right = "P"
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -88,6 +91,42 @@ func TestOptionExitStandingCallHedgesOnlyAShortItCanCover(t *testing.T) {
 			row := optionExitTestRow()
 			row.Symbol = tc.symbol
 			pos := &rpc.PositionsResult{Stocks: tc.stocks, Options: append([]rpc.PositionView{row}, tc.others...)}
+			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
+			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != tc.want {
+				t.Fatalf("purpose %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// An ordinary long put was "unconfirmed": no standing rule named it, so it
+// carried an owner question and quote blockers it could never clear. A put
+// hedges only what it can cover: a long stock of its own underlying, or, for a
+// hedge-listed put with the protection default off, a long stock anywhere.
+// Everything else is directional, with no declaration involved.
+func TestOptionExitStandingPutHedgesOnlyALongStockItCovers(t *testing.T) {
+	for name, tc := range map[string]struct {
+		symbol         string
+		indexProtected bool
+		stocks         []rpc.PositionView
+		want           string
+	}{
+		"no stock":                      {"TEST", true, nil, "directional"},
+		"long stock elsewhere":          {"TEST", true, []rpc.PositionView{{Symbol: "OTHER", Quantity: 100}}, "directional"},
+		"short stock same name":         {"TEST", true, []rpc.PositionView{{Symbol: "TEST", Quantity: -100}}, "directional"},
+		"long stock same name":          {"TEST", true, []rpc.PositionView{{Symbol: "TEST", Quantity: 100}}, "protection"},
+		"index put, protection default": {"SPY", true, nil, "protection"},
+		"index put over long book":      {"SPY", false, []rpc.PositionView{{Symbol: "OTHER", Quantity: 100}}, "protection"},
+		"index put over short book":     {"SPY", false, []rpc.PositionView{{Symbol: "OTHER", Quantity: -100}}, "directional"},
+		"index put, nothing to cover":   {"SPY", false, nil, "directional"},
+		"long stock same name, invalid": {"TEST", true, []rpc.PositionView{{Symbol: "TEST", Quantity: math.NaN()}}, "unconfirmed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			policy := standingOptionExitPolicy()
+			policy.Buckets.TrailingStop.Options.DefaultIndexPutsProtection = tc.indexProtected
+			row := optionExitTestRow()
+			row.Symbol, row.Right = tc.symbol, "P"
+			pos := &rpc.PositionsResult{Stocks: tc.stocks, Options: []rpc.PositionView{row}}
 			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
 			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != tc.want {
 				t.Fatalf("purpose %q, want %q", got, tc.want)

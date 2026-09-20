@@ -65,11 +65,17 @@ Five buckets generate rows, enabled through the protection policy:
 
 The option-exit policy uses the explicitly approved absolute `0.05`
 quote-currency `TRAIL LIMIT` offset. An inherited or omitted offset still fails
-activation. Standing defaults apply only to standard ungrouped long contracts:
-`default_long_calls_directional` leaves short-book conflicts unresolved, and
-`default_index_puts_protection` excludes hedge-listed puts from directional
-exits. Exact declarations, including expired declarations, take precedence.
-Without a qualifying standing default or exact intent, an exit stays blocked.
+activation. Standing defaults apply only to standard ungrouped long contracts.
+`default_long_calls_directional` classifies long calls and non-hedge-listed
+long puts as directional unless they cover a holding: a call over a short stock
+of its own underlying, a put over a long stock of its own underlying, or an
+index option over such a stock anywhere in the book, which makes the option
+protection. `default_index_puts_protection` excludes hedge-listed puts from
+directional exits. Exact declarations, including expired declarations, take
+precedence. A contract no standing default covers, such as a short option, a
+non-standard multiplier or a strategy leg, stays an owner review; Canary
+requests no quote for it and reports no quote blocker. Without a qualifying
+standing default or exact intent, an exit stays blocked.
 
 - **Theta hygiene** proposes closing an option whose remaining value is mostly
   time value bleeding toward expiry. When the underlying spot or the option mark

@@ -651,10 +651,13 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 				intentCurrent := purpose == "directional"
 				// Missing intent still creates review work, without spending a
 				// broker quote request on a contract that cannot yet qualify.
-				if intentCurrent && row.Quantity > 0 && !economicEvidence.Closed {
+				// The evaluator is told so; a quote that was never requested
+				// is not reported as a quote failure.
+				quoteRequested := intentCurrent && row.Quantity > 0 && !economicEvidence.Closed
+				if quoteRequested {
 					exactRow = e.optionExitExactQuote(ctx, row)
 				}
-				decision := evaluateOptionExit(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, rulebookPolicy.ExitActLossPct)
+				decision := evaluateOptionExitRow(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, !quoteRequested, rulebookPolicy.ExitActLossPct)
 				if decision.Action == "" && len(decision.Blockers) == 0 {
 					continue
 				}
@@ -1394,27 +1397,38 @@ func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, po
 	if cfg.DefaultIndexPutsProtection && row.Right == "P" && risk.DefaultRulebookPolicy().IsHedgeSymbol(row.Symbol) {
 		return "protection"
 	}
-	if cfg.DefaultLongCallsDirectional && row.Right == "C" {
-		// A long call is a hedge only where there is something it can cover:
-		// a short stock position in its own underlying, or, for an index call,
-		// a short stock anywhere in the book. A short elsewhere is unrelated
-		// exposure and does not turn every long call into an open question. A
-		// short option of the same underlying is already a spread or an
-		// ambiguous set above. An invalid quantity anywhere leaves the book
-		// unclassifiable.
-		for _, holdings := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
-			for _, holding := range holdings {
-				if math.IsNaN(holding.Quantity) || math.IsInf(holding.Quantity, 0) {
-					return "unconfirmed"
-				}
-			}
+	if cfg.DefaultLongCallsDirectional && (row.Right == "C" || row.Right == "P") {
+		// A long option is a hedge only where there is something it can cover:
+		// a call over a short stock of its own underlying, a put over a long
+		// stock of its own underlying, or, for an index option, such a stock
+		// anywhere in the book. A holding elsewhere is unrelated exposure and
+		// does not turn every long option into an open question. A short
+		// option of the same underlying is already a spread or an ambiguous
+		// set above. An invalid quantity anywhere leaves the book
+		// unclassifiable. Hedge-listed puts were classified above when the
+		// protection default is on; with it off they follow the same rule.
+		if !optionExitBookQuantitiesValid(pos) {
+			return "unconfirmed"
 		}
-		if optionExitCallHedge(row, pos, risk.DefaultRulebookPolicy()) {
+		if optionExitCallHedge(row, pos, risk.DefaultRulebookPolicy()) || optionExitPutHedge(row, pos, risk.DefaultRulebookPolicy()) {
 			return "protection"
 		}
 		return "directional"
 	}
 	return "unconfirmed"
+}
+
+// optionExitBookQuantitiesValid reports whether every held quantity is a
+// number; a NaN or infinite quantity anywhere leaves the book unclassifiable.
+func optionExitBookQuantitiesValid(pos *rpc.PositionsResult) bool {
+	for _, holdings := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
+		for _, holding := range holdings {
+			if math.IsNaN(holding.Quantity) || math.IsInf(holding.Quantity, 0) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // optionExitStrategyScope preserves confirmed or unresolved strategy membership.
@@ -1540,6 +1554,12 @@ func optionExitWithoutQuote(row rpc.PositionView) rpc.PositionView {
 }
 
 func evaluateOptionExit(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed bool, lossExitPct float64) risk.OptionExitDecision {
+	return evaluateOptionExitRow(cfg, row, now, directionalIntent, standalone, roleAllowed, false, lossExitPct)
+}
+
+// evaluateOptionExitRow is evaluateOptionExit with the quote decision stated:
+// quoteSkipped means the engine requested no broker quote for this row.
+func evaluateOptionExitRow(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed, quoteSkipped bool, lossExitPct float64) risk.OptionExitDecision {
 	dte := optionExitDTE(row, now)
 	sessionOpen := optionSessionOpen(now)
 	if row.SessionContext != nil {
@@ -1549,7 +1569,7 @@ func evaluateOptionExit(cfg protectionTrailOptionPolicy, row rpc.PositionView, n
 		ConID: row.ConID, Quantity: row.Quantity, Multiplier: row.Multiplier, AvgCost: row.AvgCost,
 		DTE: dte, DirectionalIntent: directionalIntent, Standalone: standalone, EconomicRoleAllowed: roleAllowed,
 		QuoteLive: rpc.IsLiveDataType(row.DataType), QuoteFresh: !row.Stale && !row.PriceAt.IsZero(),
-		SessionOpen: sessionOpen,
+		SessionOpen: sessionOpen, QuoteSkipped: quoteSkipped,
 	}
 	if row.OptionBid != nil {
 		in.Bid = *row.OptionBid

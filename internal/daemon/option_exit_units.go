@@ -156,6 +156,21 @@ func optionExitCallHedge(row rpc.PositionView, pos *rpc.PositionsResult, pol ris
 	return false
 }
 
+// optionExitPutHedge reports whether a long put covers a long stock it can
+// protect: a long stock of its own underlying, or, for a hedge-listed put, a
+// long stock anywhere in the book. A long holding elsewhere is unrelated.
+func optionExitPutHedge(row rpc.PositionView, pos *rpc.PositionsResult, pol risk.RulebookPolicy) bool {
+	if pos == nil || !strings.EqualFold(strings.TrimSpace(row.Right), "P") {
+		return false
+	}
+	for _, holding := range pos.Stocks {
+		if holding.Quantity > 0 && (normSym(holding.Symbol) == normSym(row.Symbol) || pol.IsHedgeSymbol(row.Symbol)) {
+			return true
+		}
+	}
+	return false
+}
+
 // optionExitUnitHedge reports whether the unit is portfolio protection: a
 // long hedge-listed put leg whose measured whole-book role is not directional,
 // or a long call leg covering a short. Protection is never sold on a loss.

@@ -46,6 +46,13 @@ func TestOptionExitGenerationDoesNotLoseUnconfirmedHeldOptions(t *testing.T) {
 				if p.LimitPrice != nil || p.Trail != nil || p.OptionExit.ReferencePrice != nil || p.OptionExit.ReturnPct != nil {
 					t.Fatalf("shared quote authorized an unconfirmed exit: %+v", p)
 				}
+				// No quote was requested for an unconfirmed leg; reporting its
+				// absence as a quote failure was an artefact the owner could not clear.
+				for _, code := range []string{"live_option_quote_required", "fresh_option_quote_required", "two_sided_option_quote_required", "option_spread_too_wide"} {
+					if hasTradingBlocker(p.Blockers, code) {
+						t.Fatalf("quote blocker %q invented for a leg whose quote was never requested: %+v", code, p.Blockers)
+					}
+				}
 				for _, b := range p.Blockers {
 					if b.Action == "" {
 						t.Fatalf("blocker %q has no next step", b.Code)
