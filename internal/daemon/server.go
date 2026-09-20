@@ -106,6 +106,15 @@ type Server struct {
 	lastEndpointResolvedSig string
 	lastGatewayUnreachable  string
 	lastNoEndpointUsable    string
+	// lastHandshakeFailedPort is the discovered port whose listener accepted
+	// TCP but never completed the IBKR handshake in the most recent connect
+	// cycle: an app at its login screen after the other app took the one
+	// login. The next rediscovery tries it last so a healthy alternate is not
+	// kept waiting behind its handshake budget. Zero once a handshake succeeds.
+	lastHandshakeFailedPort int
+	// lastMultiListenerSig dedupes the one-time warning that two local IBKR
+	// API listeners answered the probe.
+	lastMultiListenerSig string
 
 	// connectInFlight is true while a connect attempt (initial or reconnect)
 	connectInFlight bool
@@ -1502,7 +1511,9 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 			return
 		}
 		if i > 0 {
-			s.logger.Infof("Failover: %s:%d did not handshake; trying alternate %s:%d (%d/%d)",
+			// WARN, not INFO: the default log level is WARN, and a port switch is
+			// the one fact an operator needs when two IBKR apps are running.
+			s.logger.Warnf("Failover: %s:%d did not handshake; trying alternate %s:%d (%d/%d)",
 				candidates[i-1].Host, candidates[i-1].Port, cand.Host, cand.Port, i+1, len(candidates))
 		}
 
@@ -1532,8 +1543,16 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		}
 
 		if s.tryOneHandshake(ctx, a, cand) {
+			s.mu.Lock()
+			s.lastHandshakeFailedPort = 0
+			s.mu.Unlock()
 			s.postConnectSetup(a, cand)
 			return
+		}
+		if cand.PortOrigin == discover.OriginDiscovered {
+			s.mu.Lock()
+			s.lastHandshakeFailedPort = cand.Port
+			s.mu.Unlock()
 		}
 
 		// This candidate failed. Unpublish it under the exclusive evidence
@@ -2116,6 +2135,14 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 
 	if !backendFailover {
 		ep, derr = discover.Resolve(ctx, partialFromConfig(s.cfg.Gateway))
+		if derr == nil {
+			ep = s.demoteHandshakeFailedPort(ep)
+		}
+	}
+	if derr == nil {
+		if warning, log := s.noteMultipleListeners(ep); log {
+			s.logger.Warnf("%s", warning)
+		}
 	}
 	endpointSig := fmt.Sprintf("%s:%d tls=%v", ep.Host, ep.Port, ep.TLS)
 	s.mu.Lock()
@@ -2166,6 +2193,44 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 	connected := s.connector != nil && s.connector.IsReady()
 	s.mu.Unlock()
 	s.noteReconnectOutcome(ctx, connected)
+}
+
+// demoteHandshakeFailedPort moves the port that failed the previous cycle's
+// handshake behind its alternates. Discovery orders listeners by port number,
+// so an IB Gateway left at its login screen on 4001 would otherwise be tried
+// before the TWS that holds the login on 7496, every cycle, for the full
+// handshake budget. A pinned port and a sole listener are left alone.
+func (s *Server) demoteHandshakeFailedPort(ep discover.Endpoint) discover.Endpoint {
+	s.mu.Lock()
+	failed := s.lastHandshakeFailedPort
+	s.mu.Unlock()
+	if failed == 0 {
+		return ep
+	}
+	demoted, _ := preferAlternateEndpoint(ep, failed)
+	return demoted
+}
+
+// noteMultipleListeners returns the one-time warning that more than one local
+// IBKR API port answered the probe. IBKR grants one login per user, so two
+// listeners mean one app is signed in and the other is waiting at its login
+// screen; the daemon can only find out which by handshaking. The warning
+// repeats only when the set of listeners changes, and clears when it shrinks
+// to one so a later recurrence is reported again.
+func (s *Server) noteMultipleListeners(ep discover.Endpoint) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ep.PortOrigin != discover.OriginDiscovered || len(ep.Alternates) == 0 {
+		s.lastMultiListenerSig = ""
+		return "", false
+	}
+	ports := append([]int{ep.Port}, ep.Alternates...)
+	sig := fmt.Sprintf("%s %v", ep.Host, ports)
+	if sig == s.lastMultiListenerSig {
+		return "", false
+	}
+	s.lastMultiListenerSig = sig
+	return fmt.Sprintf("Two IBKR API listeners on %s (ports %v): IBKR allows one login per user, so one app holds the session and the other is waiting at its login screen. Trying %d first and the rest on handshake failure; quit the app you are not using to avoid a handshake wait on every reconnect.", ep.Host, ports, ep.Port), true
 }
 
 // noteReconnectOutcome records the result of a reconnect cycle for the backoff

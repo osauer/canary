@@ -59,6 +59,15 @@ order preview and current broker evidence. Pinned ports remain fixed. After an
 upstream loss lasting 30 seconds, Auto tries another discovered listener first;
 brief losses and outages with no alternative retain the existing connection.
 
+IBKR grants one login per user. When both IB Gateway and TWS run, the app that
+signed in last holds the session and the other keeps listening at its login
+screen. The daemon warns once, at WARN level, when two local API listeners
+answer the probe, names the port it tries first, and logs every failover at
+WARN. A listener that accepted the connection but never completed the handshake
+is tried last on the next rediscovery, so the signed-in app is reached without
+waiting out the handshake budget; a pinned port or a sole listener is never
+reordered. Quit the app you are not using.
+
 ## Release boundary
 
 Each release publishes standard and `canary-trading-*` artifacts side by side.

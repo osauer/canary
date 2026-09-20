@@ -327,3 +327,91 @@ func TestAutoBackendLossDrivesRediscoveryThroughGatewayRead(t *testing.T) {
 		t.Fatal("retired socket not closed")
 	}
 }
+
+// An IB Gateway left at its login screen keeps listening on 4001 after TWS
+// takes the one IBKR login. Discovery orders by port, so without memory the
+// daemon would spend the full handshake budget on 4001 before every reconnect
+// reached TWS. The port that failed the handshake is tried last next time, a
+// success forgets it, and a pinned port or a sole listener is never reordered.
+func TestHandshakeFailedPortIsTriedLastOnNextReconnect(t *testing.T) {
+	s := newTestServer(t)
+	s.cfg.Gateway.Port = nil
+	var attempted []int
+	s.attempterFactory = func(ep discover.Endpoint) connectAttempter {
+		attempted = append(attempted, ep.Port)
+		if ep.Port == 4001 {
+			return &fakeAttempter{startErr: errors.New("gateway at login screen: no handshake")}
+		}
+		return &fakeAttempter{connectOk: true}
+	}
+	probe := discover.Endpoint{Host: "127.0.0.1", Port: 4001, Alternates: []int{7496}, PortOrigin: discover.OriginDiscovered}
+	s.connectWithFailover(t.Context(), probe)
+	if !reflect.DeepEqual(attempted, []int{4001, 7496}) || s.endpoint.Port != 7496 {
+		t.Fatalf("first cycle attempted %v, endpoint %d", attempted, s.endpoint.Port)
+	}
+	// A success clears the memory: the cycle ended on 7496, so nothing is demoted.
+	if got := s.demoteHandshakeFailedPort(probe); got.Port != 4001 {
+		t.Fatalf("a successful cycle still demoted %d", got.Port)
+	}
+	// Now the cycle exhausts every candidate: 4001 at the login screen, 7496 down.
+	attempted = nil
+	s.attempterFactory = func(ep discover.Endpoint) connectAttempter {
+		attempted = append(attempted, ep.Port)
+		return &fakeAttempter{startErr: errors.New("no handshake")}
+	}
+	s.connectWithFailover(t.Context(), probe)
+	if !reflect.DeepEqual(attempted, []int{4001, 7496}) {
+		t.Fatalf("exhausting cycle attempted %v", attempted)
+	}
+	// The next rediscovery finds the same two listeners; the last failure
+	// was 7496, so the fresh probe order (4001 first) is kept as-is only if
+	// 4001 was not the failed port. Here 7496 failed last, so 4001 leads.
+	if got := s.demoteHandshakeFailedPort(probe); got.Port != 4001 || !reflect.DeepEqual(got.Alternates, []int{7496}) {
+		t.Fatalf("unexpected reorder after 7496 failed last: %+v", got)
+	}
+	// Record 4001 as the failed port and rediscover: 7496 now leads, 4001 last.
+	s.mu.Lock()
+	s.lastHandshakeFailedPort = 4001
+	s.mu.Unlock()
+	if got := s.demoteHandshakeFailedPort(probe); got.Port != 7496 || !reflect.DeepEqual(got.Alternates, []int{4001}) {
+		t.Fatalf("failed port not demoted: %+v", got)
+	}
+	// A sole listener and a pinned port are never reordered.
+	sole := discover.Endpoint{Host: "127.0.0.1", Port: 4001, PortOrigin: discover.OriginDiscovered}
+	if got := s.demoteHandshakeFailedPort(sole); got.Port != 4001 {
+		t.Fatalf("sole listener reordered: %+v", got)
+	}
+	pinned := discover.Endpoint{Host: "127.0.0.1", Port: 4001, Alternates: []int{7496}, PortOrigin: discover.OriginPinned}
+	if got := s.demoteHandshakeFailedPort(pinned); got.Port != 4001 {
+		t.Fatalf("pinned port reordered: %+v", got)
+	}
+}
+
+// Two listeners are reported once per set of ports, again after the set
+// changes, and again after a spell with a single listener.
+func TestTwoListenersAreWarnedOncePerSet(t *testing.T) {
+	s := newTestServer(t)
+	two := discover.Endpoint{Host: "127.0.0.1", Port: 4001, Alternates: []int{7496}, PortOrigin: discover.OriginDiscovered}
+	msg, log := s.noteMultipleListeners(two)
+	if !log || !strings.Contains(msg, "ports [4001 7496]") || !strings.Contains(msg, "Trying 4001 first") {
+		t.Fatalf("first sighting not warned: %q %v", msg, log)
+	}
+	if _, log := s.noteMultipleListeners(two); log {
+		t.Fatal("same listener set warned twice")
+	}
+	swapped := discover.Endpoint{Host: "127.0.0.1", Port: 7496, Alternates: []int{4001}, PortOrigin: discover.OriginDiscovered}
+	if msg, log := s.noteMultipleListeners(swapped); !log || !strings.Contains(msg, "Trying 7496 first") {
+		t.Fatalf("changed order not warned: %q %v", msg, log)
+	}
+	one := discover.Endpoint{Host: "127.0.0.1", Port: 7496, PortOrigin: discover.OriginDiscovered}
+	if _, log := s.noteMultipleListeners(one); log {
+		t.Fatal("a single listener was warned")
+	}
+	if _, log := s.noteMultipleListeners(swapped); !log {
+		t.Fatal("recurrence after a single-listener spell was not warned")
+	}
+	pinned := discover.Endpoint{Host: "127.0.0.1", Port: 4001, Alternates: []int{7496}, PortOrigin: discover.OriginPinned}
+	if _, log := s.noteMultipleListeners(pinned); log {
+		t.Fatal("a pinned port warned about alternates")
+	}
+}
