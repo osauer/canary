@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The project adheres to 
 ### Changed
 
 - **The S&P sector map survives a daemon restart.** The map parsed from the daily membership refresh is kept in daemon.db beside the member list and restored at start, so allocation no longer falls back to the release baseline until the next refresh. A stored map older than the release baseline is ignored, and the database schema is unchanged.
+- **A remembered chart series pauses once the broker says it has no definition.** The background history refresh no longer re-asks the broker about a delisted holding on every attempt; it pauses that series for the rest of the broker session and at least thirty minutes, logs the verdict once, keeps serving the recorded history, and resumes after a read that returns bars.
 
 ### Fixed
 
