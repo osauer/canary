@@ -117,6 +117,9 @@ func renderReportingStatus(env *Env, result *rpc.ReportingStatusResult) {
 	if result.Broker.BrokerCode != "" {
 		fmt.Fprintf(env.Stdout, "  code=%s", result.Broker.BrokerCode)
 	}
+	if !result.Broker.NextAttempt.IsZero() {
+		fmt.Fprintf(env.Stdout, "  next_attempt=%s", result.Broker.NextAttempt.Local().Format("2006-01-02 15:04 MST"))
+	}
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintf(env.Stdout, "  evidence: %s", result.Evidence.State)
 	if result.Evidence.SchemaFingerprint != "" {

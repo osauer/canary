@@ -24,7 +24,7 @@ Use the stable reason to choose the next step:
 | `service_inactive`, `ip_restricted` | Re-enable Flex Web Service or correct its IP restriction in Client Portal. |
 | `absent_sections_unproved` | Open each named section in the saved query, choose the reported detail level and `Select All`, then save. Canary validates the next report automatically. If there was no matching activity, IBKR may omit an enabled empty section. |
 | `action_required`, `flex_query_incomplete` | A real row proved fields missing. Edit the named section, choose `Select All`, then save. Canary validates the next report automatically; a new Query ID is optional. |
-| broker code `1025` | IBKR does not document this code. Review Flex Web Service/query configuration; contact IBKR if it persists. Do not rotate a working query on a guessed meaning. |
+| broker code `1025` | IBKR does not document this code. Canary requests only ranges that end on a US session day, because a Saturday-ended range was observed to return it. If it appears on a session-day check, review Flex Web Service/query configuration; contact IBKR if it persists. Do not rotate a working query on a guessed meaning. |
 
 An absent section was not returned; an empty section was returned with zero
 rows. Neither proves which fields were selected. Never place a trade or move

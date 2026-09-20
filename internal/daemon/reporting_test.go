@@ -138,8 +138,8 @@ func TestLatestCompletedFlexDateUsesNewYorkCalendar(t *testing.T) {
 		},
 		{
 			name: "before eastern midnight",
-			now:  time.Date(2026, 8, 25, 2, 0, 0, 0, time.UTC),
-			want: time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC),
+			now:  time.Date(2026, 8, 26, 2, 0, 0, 0, time.UTC),
+			want: time.Date(2026, 8, 24, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name: "winter offset",

@@ -37,14 +37,9 @@ const (
 	flexFetchStateVersion = 2
 	flexFetchStateKind    = "flex_fetch"
 	flexFetchProjecting   = "projecting"
-	flexScheduleZone      = "Europe/Berlin"
-	flexReportingZone     = "America/New_York"
-	// IBKR says securities statements are available around midnight
-	flexMorningHour   = 6
-	flexMorningMinute = 30
-	flexPollInterval  = 10 * time.Second
-	flexPollAttempts  = 30
-	flexHTTPTimeout   = 30 * time.Second
+	flexPollInterval      = 10 * time.Second
+	flexPollAttempts      = 30
+	flexHTTPTimeout       = 30 * time.Second
 	// One SendRequest plus every documented GetStatement attempt may each
 	// consume the HTTP timeout. Keep the outer budget larger than that exact
 	flexFetchTimeout     = (flexPollAttempts+1)*flexHTTPTimeout + (flexPollAttempts-1)*flexPollInterval + time.Minute
@@ -863,33 +858,6 @@ func flexFailureBrokerCode(err error) string {
 	return ""
 }
 
-func flexDailyWindow(now time.Time) (targetDate, firstAttempt time.Time) {
-	location, err := time.LoadLocation(flexScheduleZone)
-	if err != nil {
-		location = time.FixedZone("CET", 60*60)
-	}
-	local := now.In(location)
-	firstAttempt = time.Date(local.Year(), local.Month(), local.Day(), flexMorningHour, flexMorningMinute, 0, 0, location)
-	// The job runs every calendar day, including weekends and holidays. Flex
-	// accepts a weekend range end, but code 1003 proves that it does not accept
-	// the still-open New York reporting date.
-	targetDate = latestCompletedFlexDate(now)
-	return targetDate, firstAttempt.UTC()
-}
-
-// latestCompletedFlexDate returns the most recent calendar date whose IBKR
-// reporting window has closed. IBKR documents its securities window and
-// statement publication in Eastern time, so a Canary host must not derive
-// this date from its own local calendar.
-func latestCompletedFlexDate(now time.Time) time.Time {
-	location, err := time.LoadLocation(flexReportingZone)
-	if err != nil {
-		location = time.FixedZone("EST", -5*60*60)
-	}
-	completed := now.In(location).AddDate(0, 0, -1)
-	return time.Date(completed.Year(), completed.Month(), completed.Day(), 0, 0, 0, 0, time.UTC)
-}
-
 func (s *Server) latestFlexEvidence(ctx context.Context) (coverage, generated time.Time, valid bool) {
 	return latestFlexEvidenceSelected(ctx, s.flexEvidenceSelection())
 }
@@ -954,6 +922,12 @@ func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 	if persisted.LastReason == "" && persisted.TargetDate.Equal(targetDate) && !persisted.LastSuccess.IsZero() && evidenceOK {
 		status.State = rpc.ReconReportStateCurrent
 		status.CanCheckNow = canCheckNow()
+		// Nothing is due until the next session day's statement can exist.
+		// Short broker coverage leaves the window open so latch rechecks may
+		// still ask for the completed target.
+		if !coverage.Before(targetDate) {
+			status.NextAttempt = nextFlexDailyWindow(targetDate)
+		}
 		return status
 	}
 	if persisted.LastReason != "" {

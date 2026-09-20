@@ -84,10 +84,17 @@ action message; renewal is a human act at IBKR.
 reference code; GetStatement polls until the report is generated) with
 aggressive server-side throttling. The daemon makes its first automatic
 attempt at 06:30 Europe/Berlin, before the morning report, and retries a
-temporary failure every 30 minutes. It starts a daily check on every local
-calendar day, including weekends and holidays, but never invents a broker
-coverage date: the report's own `toDate` remains the truth and may be the
-last business day. Every successful response is parsed and compared again,
+temporary failure every 30 minutes. It evaluates the check on every local
+calendar day, but the daily target is the latest completed US equity session
+date from the embedded exchange calendar (`flex_schedule.go`). A weekend or
+exchange holiday presents the same target as the previous check, so the
+scheduler stays current without a broker call and names the next window
+instead. IBKR publishes no statement for a non-session date, and a range that
+ended on a Saturday was observed to return the undocumented Flex code 1025.
+A date outside the embedded calendar's coverage falls back to the plain
+completed date rather than blocking the check. The scheduler never invents a
+broker coverage date: the report's own `toDate` remains the truth and may be
+the last business day. Every successful response is parsed and compared again,
 even when IBKR returns the same `whenGenerated` value, because the configured
 Flex query may have changed. Changed contents at the same generation are
 retained as the latest query result; strictly older broker generations remain
