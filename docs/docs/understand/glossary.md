@@ -14,6 +14,11 @@ wider industry uses a word differently, the entry says so.
   Origin is recorded for audit and origin-specific policy; it grants no
   authority by itself. See `CANARY_AGENT_CONTEXT` in the
   [configuration reference](../reference/config.md).
+- **Allocation:** where the money sits: signed market value by asset class and
+  by GICS sector as a share of net liquidation, so a book adds up with its
+  cash. Distinct from exposure, which weights each position by what moves it;
+  a long put is an asset in allocation and short the market in exposure. See
+  [Concepts](concepts.md#portfolio-allocation).
 - **Borrow stress:** the two short-borrow flags on a stock.
   `borrow_inventory_tight` fires at 10,000 shortable shares or fewer and reads
   scarce at 1,000 or fewer; `borrow_fee_extreme` fires at an annualized fee of
@@ -73,6 +78,11 @@ wider industry uses a word differently, the entry says so.
   Sensors report it as an explicit state instead of leaving you to compare
   timestamps, and a failed refresh never restamps an old value. See
   [Sensors](sensors.md#read-the-state-before-the-number).
+- **GICS sector:** the Global Industry Classification Standard's eleven
+  sectors, the vocabulary of the allocation tables. S&P 500 names take the
+  sector Wikipedia lists for them; other stocks are mapped from the broker's
+  industry and category; index funds spread over published weights. See
+  [Concepts](concepts.md#portfolio-allocation).
 - **Greeks:** delta, gamma, theta, and vega, the standard option sensitivities.
   `canary` reports them per option leg when the daemon captured a valid
   model-computation tick, and discloses partial coverage as `greeks_coverage`
@@ -92,6 +102,10 @@ wider industry uses a word differently, the entry says so.
 - **Local decision record:** what `canary` observed, evaluated, or attempted. It
   explains context; it is not evidence of what the broker executed. See
   [Trading policy](policy.md).
+- **Look-through:** spreading a held index fund over its constituents' sectors
+  instead of treating the fund as one line. Canary looks through SPY, QQQ, and
+  IWM at dated, embedded weights and pools every other fund as
+  "Funds (no look-through)". See [Concepts](concepts.md#portfolio-allocation).
 - **LULD:** limit up-limit down, the US volatility pause on a single name. An
   active `luld_pause` blocks protection preview and submit; a recent one is a
   warning tag that needs fresh quote context before acting. See

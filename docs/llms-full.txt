@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-09-19
+Updated: 2026-09-20
 
 Version 3.8 reviews every multi-leg option position as one unit: net premium
 paid against net close value at fresh leg quotes, the Rulebook loss line on
@@ -71,7 +71,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_order_status`: typed lifecycle evidence for one journaled order.
 - `canary_account`: account financials with field-level authority.
 - `canary_positions`: held positions and exposure with account authority.
-- `canary_portfolio`: current asset-class and industry composition, with valuation coverage.
+- `canary_portfolio`: signed allocation by asset class and GICS sector as a share of net liquidation, with index-fund look-through and valuation coverage.
 - `canary_recon_status`: redacted statement acquisition and reconciliation health.
 - `canary_market`: benchmark and held-underlying quotes with actual contract identity.
 - `canary_market_history`: bounded observed underlying bars for charts.

@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-09-19
+Updated: 2026-09-20
 
 Version 3.8 reviews every multi-leg option position as one unit: net premium
 paid against net close value at fresh leg quotes, the Rulebook loss line on
@@ -32,7 +32,7 @@ Use it for:
 The MCP server exposes read-only tools for status, trading status, settings,
 open orders, order history, one-order status, account, positions, option
 strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status,
-Edge, rules, proposals, opportunities, portfolio composition, reconciliation status,
+Edge, rules, proposals, opportunities, portfolio allocation, reconciliation status,
 market quotes and price history, exchange sessions, and official macro calendars
 and publications. It has no MCP resources, settings writes, order previews, or
 execution tools. Breadth and gamma remain daemon inputs. Use

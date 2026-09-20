@@ -217,6 +217,15 @@ engine. On any failure (network, parse error, count outside the 450–520 sanity
 band), the daemon keeps using the last valid SQLite snapshot, then the embedded
 list as the cold-start fallback, so breadth never goes silent.
 
+The same page carries each constituent's GICS sector, and the fetch keeps that
+column too. Sectors classify held S&P 500 names for the
+[allocation tables](../understand/concepts.md#portfolio-allocation); they are
+held in memory only, with an embedded baseline that `make refresh-spx-members`
+regenerates beside the member list on every release. A restart therefore uses
+the baseline sectors until the next successful refresh. A page whose sector
+column has moved leaves the sectors untouched: the member list is validated on
+its own, and a sector map smaller than the membership sanity floor is ignored.
+
 ### Pinning the list (regulated traders, reproducibility audits, air-gapped)
 
 Two override layers, with symmetric semantics:

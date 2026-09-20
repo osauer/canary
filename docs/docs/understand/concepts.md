@@ -69,6 +69,32 @@ Stress marks the alert boundary. The diagnosis behind an alert comes from the
 brief/rulebook evidence, account and positions reads, or the matching app
 Monitor window.
 
+## Portfolio allocation
+
+`canary portfolio` and the `canary_portfolio` tool answer one question: where the money sits. Two tables, both in signed market value as a share of net liquidation, so a book adds up with its cash. The `asset_class_measure` and `sector_measure` fields name that measure on every response.
+
+This is allocation, not directional risk. An option counts at its premium value, so a long put is a positive asset here even though it is short the market. The delta-weighted figure lives in the positions projection as `portfolio.exposure_base[].dollar_delta_base`; a sector bar built from it can exceed the whole account many times over in an options-heavy book, which answers a risk question and not a composition one.
+
+**Asset classes** are Cash, Stocks, Funds, Options, and Other. A fund is a stock row whose broker stock type is ETF, ETN, or another pooled vehicle.
+
+**Sectors** follow GICS. Each underlying is classified in this order, and the first source with an answer wins:
+
+1. The embedded fund table: SPY, QQQ, and IWM.
+2. The broker's stock type, which sends any other fund to the pooled row.
+3. Wikipedia's GICS sector for S&P 500 names, taken from the same constituents page the [breadth refresh](../start/updating.md#updating-the-sp-500-list-automatic) fetches daily.
+4. A fixed map from the broker's industry and category. The category disambiguates where the broker's ten-sector scheme is coarser than GICS: pharmaceuticals, biotechnology, and health-care categories become Health Care, food and beverages become Consumer Staples, REITs become Real Estate, and the broker's "Internet" filing of online retailers becomes Consumer Discretionary.
+5. Otherwise the row is Unclassified.
+
+Options take their underlying's classification.
+
+**Look-through** spreads a held index fund, stock or option, over that fund's published sector weights. Only the three funds in the embedded table look through; the weights are a dated snapshot, and `look_through[]` names each fund's `as_of` and `source` so a stale split is visible rather than silent. Every other fund pools under "Funds (no look-through)". Cash and derivatives inside a fund are not sector allocation, so a fund's weights need not sum to 100.
+
+**Exclusions.** A holding the broker no longer quotes carries no value and is counted in `defunct_excluded`; a stock row flagged zero-mark and zero-value pending the broker's verdict is counted in `unquoted_excluded`. Neither appears in either table. Both remain account position truth in `canary positions`, where reconciliation needs them.
+
+**Coverage.** Each row carries `observed` and `missing` counts. A row with any missing input reports no percentage: a stale price, an absent currency conversion, or a valuation the broker withheld is unvalued, never zero. `coverage_status` reads `partial` whenever a row is missing an input, an underlying is unclassified, net liquidation is unavailable, or cost basis could not be observed.
+
+Known limits: the broker map is a best effort for names outside the S&P 500 and stays conservative, so an unknown pairing lands in Unclassified and the daemon logs the pairing without its symbol. Fund weights change only with a release. The S&P sector list refreshes with the membership and falls back to the embedded baseline after a restart until the next refresh.
+
 ## Market events
 
 Market events answer a single-name context question: does this held or requested stock or ETF have borrow, threshold-list, LULD, or halt evidence that should affect risk review or protection proposals?

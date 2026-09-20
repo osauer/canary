@@ -83,7 +83,9 @@ socket. The project makes these additional outbound connections:
 - Regime refreshes download public series from FRED, CBOE, the Federal Reserve,
   and the US Treasury. The requests contain no portfolio or account fields.
 - The S&P 500 constituent refresher downloads Wikipedia's public constituent
-  list on its schedule unless disabled in config. Holdings are matched locally.
+  list, symbols and GICS sectors, on its schedule unless disabled in config.
+  Holdings are matched locally. Index fund sector weights used for allocation
+  look-through are embedded in the binary; no fund issuer is contacted.
 - Configured IBKR Flex reconciliation contacts IBKR's Flex Statement service
   using the user's query credential and receives the requested broker report.
   That report is exchanged with IBKR, not with this project's maintainer.

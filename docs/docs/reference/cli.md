@@ -21,7 +21,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary account`](#canary-account) | Desk | Account summary snapshot (NLV, BP, cash, margin, daily P&L) | `read-only` | yes |
 | [`canary positions`](#canary-positions) | Desk | List open positions (stocks + options) | `read-only` | yes |
 | [`canary strategies`](#canary-strategies) | Desk | Group option legs and close or reduce them as one guaranteed combo | `confirm` | yes |
-| [`canary portfolio`](#canary-portfolio) | Desk | Current signed portfolio composition with coverage | `read-only` | yes |
+| [`canary portfolio`](#canary-portfolio) | Desk | Signed allocation by asset class and GICS sector, with coverage | `read-only` | yes |
 | [`canary market`](#canary-market) | Markets | Observed benchmark and held-underlying quotes; bounded price history | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary calendar`](#canary-calendar) | Markets | Official exchange sessions, holidays, early closes, and coverage bounds | `read-only` | yes |
@@ -161,7 +161,7 @@ canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]
 
 ## `canary portfolio`
 
-Current signed portfolio composition with coverage.
+Signed allocation by asset class and GICS sector, with coverage.
 
 Guard `read-only`. Also available as an MCP tool.
 
