@@ -2,13 +2,13 @@
 
 Updated: 2026-09-20
 
-Version 3.8 reviews every multi-leg option position as one unit: net premium
-paid against net close value at fresh leg quotes, the Rulebook loss line on
-that figure, and a Canary-managed profit trail, routed to the strategy workflow
-or a broker combo. Option purpose follows the measured book rather than
-per-leg declarations; same-direction stacks are standalone positions. Position
-rows carry the listing venue. Unit rows place no order; broker-write gates are
-unchanged.
+Version 3.9 adds a Go daemon client that runs the read-only tool catalogue
+over the daemon socket, the statement performance series with dated flows and
+year-to-date income, sector allocation under GICS with fund look-through at
+market value, and a listing of every option held as portfolio protection. The
+broker's "no security definition" answer is remembered instead of asked again,
+and closed-market quote context no longer starves other history reads.
+Broker-write gates are unchanged.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
 MCP server, paired app, and a public Go module with a daemon client and the TWS

@@ -23,9 +23,9 @@ tests.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
-The [v3.8.0 release notes](https://github.com/osauer/canary/releases/tag/v3.8.0)
-cover unit-level review of multi-leg option positions, option purpose derived
-from the book, and the listing venue on held positions.
+The [v3.9.0 release notes](https://github.com/osauer/canary/releases/tag/v3.9.0)
+cover the Go daemon client, the statement performance series, sector allocation
+under GICS, and options held as protection listed beside the proposals.
 
 ## Start
 

@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.9.0 — 2026-09-20 09:24 CEST
+
+### What's new
+
+- **Read Canary from your own Go program.** The module root package `github.com/osauer/canary/v2` runs the same read-only tool catalogue as `canary mcp` over the daemon socket, one connection per call and under the same per-tool budgets, so results and redaction match the MCP server exactly. `canarytest` serves the wire types on a temporary socket for tests. The daemon keeps every policy and broker gate.
+- **Statement performance series.** `canary reporting performance`, the `reporting.performance` method and the `canary_reporting_performance` tool return the retained statement closes in the base currency, dated external flows (deposits, withdrawals, position transfers) and year-to-date sums of realised P&L, commissions, dividends, interest, withholding tax and fees, so a consumer can compute cash-flow-adjusted returns itself. No return is computed, a missing report date stays a gap, and the envelope names no account.
+- **Sector allocation under GICS with fund look-through.** `portfolio.snapshot` classifies S&P 500 names by their GICS sector and other stocks by the broker's industry, and spreads SPY, QQQ and IWM over a dated sector-weight table whose as-of date travels in `look_through`. Both tables are signed market value over net liquidation, so they add up with cash. Holdings the broker no longer quotes and zero-mark rows awaiting a verdict are counted in `defunct_excluded` and `unquoted_excluded` rather than drawn. Classification is remembered per broker session and no longer stops at twelve names.
+- **Option hedges are listed beside the proposals.** The proposal snapshot carries `option_hedges`: one record per held long option the exit engine holds as protection, with what it covers, the Rulebook's role and how that role was established, days to expiry, cost basis per contract unit, mark and market value. A hedge is a standing fact, so the record carries no threshold, premium return or order terms, and `counts.option_hedges` is separate from the proposal counts. A hedge's detail sentence now says that the whole-book check is Canary's own work and asks nothing of the owner.
+
+### Changed
+
+- **A single-name long put follows the same rule as a long call.** It is protection when it covers a long stock of its own underlying, otherwise directional. Before, its purpose stayed unconfirmed and the missing quote surfaced as blockers the owner could never clear; a leg no standing rule covers now gets no quote request and reports no quote blocker. Hedge-listed puts under the protection default are unchanged.
+- **Discovery tries a logged-out listener last.** When IB Gateway and TWS both answer, the port that accepted a connection but never completed the handshake is tried last on the next cycle, the daemon warns once naming the port it tries first, and every failover is logged at WARN. Before, a logged-out Gateway on 4001 was tried before TWS on every cycle for the full handshake budget. Pinned ports and a sole listener are never reordered.
+- **The broker's "no security definition" answer is remembered.** The connector, a quote's closed-market context, the allocation tables and the breadth sweep each keep the verdict for as long as it can stay true, and `canary restart` clears them all. Before, a delisted holding was asked about on every snapshot and the log repeated the same refusal every few minutes.
+- **Broker-write authority is unchanged.** Hedge records and allocation tables place no order. Portfolio protection, fresh exact-contract evidence, and transaction-specific human authority remain binding.
+
+### Fixed
+
+- **Closed-market quote context no longer exhausts the history allowance.** The daily bars behind a quote's close, ranges and volume are read once per contract and kept until the market's next close, so other history reads stop waiting or timing out behind them.
+- **Remembered chart series grow again.** A refresh now reads on the background lane and waits for its turn instead of timing out behind the interactive deadline, so a long series asked for by Desk fills in past its first window.
+- **CME futures charts stand over the weekend.** A futures series read after Friday's close is not refreshed until Sunday evening New York time, and a venue without a calendar serves its last traded day on a one-day range instead of an error.
+- **Quieter logs.** A socket the daemon closed itself is no longer logged as a read error, and a market-data request by contract description is no longer reported as a protocol misalignment.
+
 ## v3.8.0 — 2026-09-19 10:40 CEST
 
 ### What's new
