@@ -95,12 +95,19 @@ func TestEdgeCLIDefaultsToTheAutomaticOneYearReview(t *testing.T) {
 func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	result := edgeCLIResult()
 	var stdout bytes.Buffer
-	renderEdgeText(&stdout, result)
-	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) > 18 {
-		t.Fatalf("default output has %d lines, want at most 18:\n%s", len(lines), stdout.String())
+	renderEdgeText(&Env{Stdout: &stdout}, result)
+	// Section headers and their blank-line separators are part of the desk
+	// layout; the cap counts content lines so the screen stays scannable.
+	content := 0
+	for line := range strings.SplitSeq(strings.TrimSpace(stdout.String()), "\n") {
+		if strings.TrimSpace(line) != "" {
+			content++
+		}
 	}
-	for _, required := range []string{"Canary Edge", "Account P/L", "OPEN", "ADD", "TRIM", "EXIT", "Options · realized", "Options · open snapshot", "Coverage"} {
+	if content > 32 {
+		t.Fatalf("default output has %d content lines, want at most 32:\n%s", content, stdout.String())
+	}
+	for _, required := range []string{"Canary Edge", "Evidence", "Coverage", "Horizon", "Account P/L", "Decisions by action", "OPEN", "ADD", "TRIM", "EXIT", "Findings", "Realized episodes", "Open snapshot", "Details: canary edge"} {
 		if !strings.Contains(stdout.String(), required) {
 			t.Errorf("output missing %q:\n%s", required, stdout.String())
 		}
@@ -116,15 +123,15 @@ func TestEdgeHumanOutputDistinguishesConfirmedEmptyFromMissingOptionSnapshot(t *
 	}
 
 	var stdout bytes.Buffer
-	renderEdgeText(&stdout, result)
-	if !strings.Contains(stdout.String(), "open snapshot "+result.AsOf.Format(time.DateOnly)+"  0 position(s) · confirmed empty") || strings.Contains(stdout.String(), "no dated Flex") {
+	renderEdgeText(&Env{Stdout: &stdout}, result)
+	if !strings.Contains(stdout.String(), "Open snapshot "+result.AsOf.Format(time.DateOnly)+" · 0 positions · confirmed empty") || strings.Contains(stdout.String(), "no dated Flex") {
 		t.Fatalf("confirmed-empty snapshot output=%s", stdout.String())
 	}
 
 	result.Options.Open.SnapshotDate = time.Time{}
 	stdout.Reset()
-	renderEdgeText(&stdout, result)
-	if !strings.Contains(stdout.String(), "open snapshot  no dated Flex Open Positions snapshot available") || strings.Contains(stdout.String(), "confirmed empty") {
+	renderEdgeText(&Env{Stdout: &stdout}, result)
+	if !strings.Contains(stdout.String(), "Open snapshot · no dated Flex Open Positions snapshot available") || strings.Contains(stdout.String(), "confirmed empty") {
 		t.Fatalf("missing snapshot output=%s", stdout.String())
 	}
 }
@@ -136,7 +143,7 @@ func TestAutomaticOneSessionOutputUsesSingularGrammar(t *testing.T) {
 	result.HorizonSessions = 1
 	result.HorizonSelection = rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 6, ScoredChanges: 6, CoveragePct: 100, LargestActionSample: 3, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true}
 	var stdout bytes.Buffer
-	renderEdgeText(&stdout, result)
+	renderEdgeText(&Env{Stdout: &stdout}, result)
 	if strings.Contains(stdout.String(), "1 sessions") || !strings.Contains(stdout.String(), "selected 1 session") || !strings.Contains(stdout.String(), "at 1 session") {
 		t.Fatalf("one-session grammar=%s", stdout.String())
 	}
@@ -148,7 +155,7 @@ func TestEdgeSetupNamesProvenMissingQueryRequirements(t *testing.T) {
 		Setup: &rpc.EdgeSetup{Steps: []string{"one", "two", "three"}, MissingRequirements: []string{"trades.ibOrderID", "open_positions.markPrice"}},
 	}
 	var stdout bytes.Buffer
-	renderEdgeText(&stdout, result)
+	renderEdgeText(&Env{Stdout: &stdout}, result)
 	for _, requirement := range result.Setup.MissingRequirements {
 		if !strings.Contains(stdout.String(), requirement) {
 			t.Fatalf("setup output omitted %q: %s", requirement, stdout.String())
@@ -188,4 +195,65 @@ func edgeCLIResult() rpc.EdgeResult {
 		result.Findings = append(result.Findings, rpc.EdgeFinding{ChangeID: "change_" + strings.ToLower(symbol), Symbol: symbol, Action: "add", Direction: "long", ExecutedAt: now.Add(time.Duration(i) * time.Hour), HorizonSessions: 20, DecisionNotionalBase: 1_000, DecisionImpactBase: float64(100 - i), DecisionImpactPct: float64(10 - i)})
 	}
 	return result
+}
+
+// The CLI composes the headline from the typed selected pattern so its money
+// matches every other line, and lays the screen out so each caveat sits next
+// to what it qualifies.
+func TestEdgeHumanOutputComposesHeadlineAndOrdersSections(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	result.AutomaticHorizon = true
+	result.HorizonSessions = 1
+	result.Account.BaseCurrency = "EUR"
+	result.HorizonSelection = rpc.EdgeHorizonSelection{Mode: "automatic", Reason: "longest_adequately_covered", EligibleChanges: 296, ScoredChanges: 121, CoveragePct: 40.9, LargestActionSample: 40, MinimumSample: 3, MinimumCoveragePct: 25, Adequate: true}
+	result.Coverage = rpc.EdgeCoverage{TradeChanges: 1009, EligibleChanges: 296, ScoredByHorizon: map[int]int{1: 121, 5: 56, 20: 29}, ReasonCounts: map[string]int{}}
+	result.Headline = "Long trims: -4208.84 EUR price impact across 40 of 89 changes at 1 sessions; median -53.76 EUR."
+	result.ReviewAction, result.ReviewDirection = "trim", "long"
+	total, median, without, notional := -4208.84, -53.76, -2132.94, 42.5
+	earlier, later, paired := -1030.15, -4613.02, -32.14
+	result.Patterns = []rpc.EdgeDecisionPattern{{Action: "trim", Direction: "long", EligibleChanges: 89,
+		Horizons: []rpc.EdgePatternHorizon{{Sessions: 1, SampleCount: 40, TotalBase: &total, MedianBase: &median, NotionalCoveragePct: &notional, WithoutLargestBase: &without, LargestDateSharePct: new(float64(17.4)), LargestContractSharePct: new(float64(46.7)), DistinctDates: 29,
+			Months: []rpc.EdgePatternMonth{{Month: "2025-11", SampleCount: 1, TotalBase: 128.09, MedianBase: 128.09}}}},
+		Comparisons: []rpc.EdgeHorizonComparison{{EarlierSessions: 1, LaterSessions: 5, SampleCount: 12, EarlierTotalBase: &earlier, LaterTotalBase: &later, MedianDifferenceBase: &paired}},
+	}}
+	var stdout bytes.Buffer
+	renderEdgeText(&Env{Stdout: &stdout}, result)
+	got := stdout.String()
+	// Rows wrap at the prose measure with a four-space hanging indent; join
+	// continuation lines before matching whole rows.
+	flat := strings.ReplaceAll(got, "\n    ", " ")
+	for _, want := range []string{
+		"Long trims: -€ 4,208.84 price impact across 40 of 89 changes at 1 session; median -€ 53.76.",
+		"Coverage · 121 of 296 eligible stock/ETF changes scored at 1 session (40.9%) · 1,009 broker position changes found, 713 outside the stock/ETF review",
+		"Horizon · 1 session selected automatically · 20 sessions 9.8% coverage · 5 sessions 18.9% coverage",
+		"Selected sample · 40 of 89 long trims · size coverage 42.5% of execution notional",
+		"2025-11   1 decision   total",
+		"Same decisions 1 to 5 sessions · n=12 · -€ 1,030.15 becomes -€ 4,613.02 · median paired change -€ 32.14",
+		"Findings  by absolute impact at 1 session; not the headline group",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Fatalf("output missing %q:\n%s", want, got)
+		}
+	}
+	for _, stale := range []string{"-4208.84 EUR", "1 sessions", "1 decisions", "EUR -"} {
+		if strings.Contains(flat, stale) {
+			t.Fatalf("output still contains %q:\n%s", stale, got)
+		}
+	}
+	order := []string{"Canary Edge", "Long trims:", "\nEvidence\n", "\nAccount P/L\n", "\nDecisions by action\n", "separate decision sets", "ACTION", "TRIM", "\nFindings", "change_abc", "\nOptions", "Realized episodes", "\nDetails: canary edge"}
+	last := -1
+	for _, marker := range order {
+		at := strings.Index(got, marker)
+		if at <= last {
+			t.Fatalf("%q out of order (at %d, previous %d):\n%s", marker, at, last, got)
+		}
+		last = at
+	}
+	// The matrix caveat must sit directly above the matrix header.
+	caveat := strings.Index(got, "separate decision sets")
+	header := strings.Index(got, "ACTION")
+	if between := got[caveat:header]; strings.Count(between, "\n") > 2 {
+		t.Fatalf("matrix caveat is not adjacent to the matrix:\n%s", got)
+	}
 }

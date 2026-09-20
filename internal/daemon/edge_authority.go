@@ -1061,7 +1061,40 @@ func edgeUnselectedHeadline(result *rpc.EdgeResult) string {
 	if result.Account == nil || result.Account.StartingEquityBase <= 0 {
 		return fmt.Sprintf("No repeated %d-session pattern can clear the account-relative materiality gate because starting equity is unavailable; %d of %d eligible changes were scored.", result.HorizonSessions, selection.ScoredChanges, selection.EligibleChanges)
 	}
-	return fmt.Sprintf("No repeated %d-session pattern clears the evidence and account-materiality gates: %d of %d eligible changes were scored; the largest action sample is %d; at least %d is required within one action and direction.", result.HorizonSessions, selection.ScoredChanges, selection.EligibleChanges, selection.LargestActionSample, selection.MinimumSample)
+	scored := fmt.Sprintf("%d of %d eligible changes were scored", selection.ScoredChanges, selection.EligibleChanges)
+	if !selection.Adequate {
+		// Name every evidence gate that failed. A reader must be able to tell
+		// a coverage shortfall from a thin action sample without the JSON.
+		parts := []string{scored}
+		if selection.ScoredChanges < edgecore.MinimumPatternSample {
+			parts = append(parts, fmt.Sprintf("at least %d scored changes are required", edgecore.MinimumPatternSample))
+		}
+		if selection.LargestActionSample < edgecore.MinimumPatternSample {
+			parts = append(parts, fmt.Sprintf("the largest action sample is %d; at least %d is required within one action and direction", selection.LargestActionSample, edgecore.MinimumPatternSample))
+		}
+		if selection.CoveragePct < edgecore.MinimumAutomaticCoveragePct {
+			parts = append(parts, fmt.Sprintf("coverage is %.1f%%; at least %.0f%% is required", selection.CoveragePct, edgecore.MinimumAutomaticCoveragePct))
+		}
+		return fmt.Sprintf("No repeated %d-session pattern clears the evidence gates: %s.", result.HorizonSessions, strings.Join(parts, "; "))
+	}
+	// Patterns split each action by direction, so the largest group can be
+	// smaller than the pooled action sample the selection reports. A result
+	// without typed patterns falls back to that pooled sample.
+	largest, split := 0, false
+	for _, p := range result.Patterns {
+		for _, h := range p.Horizons {
+			if h.Sessions == result.HorizonSessions {
+				largest, split = max(largest, h.SampleCount), true
+			}
+		}
+	}
+	if !split {
+		largest = selection.LargestActionSample
+	}
+	if largest < edgecore.MinimumPatternSample {
+		return fmt.Sprintf("No repeated %d-session pattern clears the evidence gates: %s, but the largest action and direction group has %d %s; at least %d is required.", result.HorizonSessions, scored, largest, pluralNoun(largest, "observation"), edgecore.MinimumPatternSample)
+	}
+	return fmt.Sprintf("No repeated %d-session pattern clears the account-materiality gates: %s and the largest action and direction group has %d observations, but no group reaches %.2f%% of starting equity in total impact and %.2f%% in median impact.", result.HorizonSessions, scored, largest, edgecore.MinimumPatternTotalImpactEquityPct, edgecore.MinimumFindingImpactEquityPct)
 }
 
 func edgeActionPlural(action string) string {

@@ -3,8 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,28 +40,28 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, result)
 	}
-	renderEdgeText(env.Stdout, result)
+	renderEdgeText(env, result)
 	return 0
 }
 
-func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
-	heading := fmt.Sprintf("%s decision review · %d-session headline", result.Window, result.HorizonSessions)
-	if result.AutomaticHorizon {
-		period := result.Window
-		if result.Window == "365d" {
-			period = "one-year"
-		}
-		heading = fmt.Sprintf("automatic %s decision review · selected %s", period, edgeSessionCount(result.HorizonSessions))
-	}
-	fmt.Fprintf(out, "Canary Edge — %s", heading)
-	if result.State != rpc.EdgeStateCurrent {
-		fmt.Fprintf(out, " · %s", result.State)
-	}
-	fmt.Fprintln(out)
+// edgeMoneyWidth right-aligns money cells; "-€ 13,716.62" is 12 cells.
+const edgeMoneyWidth = 13
+
+// renderEdgeText projects the typed Edge result in the desk layout shared
+// with brief and stress: a title line, the headline, then labelled
+// sections separated by blank lines. Money goes through the house
+// formatter everywhere, including the headline, which is composed here from
+// the typed pattern the daemon selected. The daemon's own prose headline is
+// shown only when no pattern is selected, because that text explains a gate
+// and carries no amounts.
+func renderEdgeText(env *Env, result rpc.EdgeResult) {
+	out := env.Stdout
+	width := briefProseWidth(out)
+	fmt.Fprintln(out, edgeTitle(env, result))
 	if result.State == rpc.EdgeStateActionRequired && result.Setup != nil {
 		fmt.Fprintln(out, "  Flex setup is required before Canary can calculate broker-truth results.")
 		for i, step := range result.Setup.Steps {
-			fmt.Fprintf(out, "  %d. %s\n", i+1, step)
+			fmt.Fprintf(out, "  %d. %s\n", i+1, sanitizeRunText(step))
 		}
 		if missing := result.Setup.MissingRequirements; len(missing) > 0 {
 			shown := missing
@@ -69,16 +70,120 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 				shown = shown[:8]
 				suffix = fmt.Sprintf(" (+%d more; use --json)", len(missing)-len(shown))
 			}
-			fmt.Fprintf(out, "  Missing (%d): %s%s\n", len(missing), strings.Join(shown, ", "), suffix)
+			fmt.Fprintf(out, "  Missing (%d): %s%s\n", len(missing), sanitizeRunText(strings.Join(shown, ", ")), suffix)
 		}
 		return
 	}
-	if result.Headline != "" {
-		fmt.Fprintln(out, "  "+result.Headline)
+	edgeProse(env, edgeHeadlineText(env, result), width)
+	if result.ReviewNote != "" {
+		edgeProse(env, sanitizeRunText(result.ReviewNote), width)
 	}
-	renderEdgeLearning(out, result)
+	renderEdgeEvidence(env, result)
+	renderEdgeAccount(env, result, width)
+	renderEdgeMatrix(env, result, width)
+	renderEdgeFindings(env, result)
+	renderEdgeOptions(env, result)
+	if result.Change != nil {
+		renderEdgeChange(env, *result.Change, edgeBaseCurrency(result))
+	}
+	if result.Option != nil {
+		renderEdgeOptionDetail(env, *result.Option, edgeBaseCurrency(result))
+	}
+	fmt.Fprintln(out, "\nDetails: canary edge --change <id> · canary edge --option <id> · canary edge --json")
+}
+
+func edgeTitle(env *Env, result rpc.EdgeResult) string {
+	parts := []string{"Canary Edge"}
+	if result.AutomaticHorizon {
+		period := result.Window
+		if result.Window == "365d" {
+			period = "one-year"
+		}
+		parts = append(parts, fmt.Sprintf("automatic %s decision review", period), "selected "+edgeSessionCount(result.HorizonSessions))
+	} else {
+		parts = append(parts, fmt.Sprintf("%s decision review", result.Window), fmt.Sprintf("%d-session lens", result.HorizonSessions))
+	}
+	if !result.AsOf.IsZero() {
+		parts = append(parts, "evidence to "+result.AsOf.Format(time.DateOnly))
+	}
+	if result.State != rpc.EdgeStateCurrent {
+		parts = append(parts, env.yellow(string(result.State)))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// edgeHeadlineText composes the headline from the typed pattern the daemon
+// selected so its money matches every other line; it never re-selects or
+// re-ranks. Without a selected pattern the daemon's gate explanation stands.
+func edgeHeadlineText(env *Env, result rpc.EdgeResult) string {
+	pattern, lens := edgeSelectedPattern(result)
+	if pattern == nil || lens.TotalBase == nil || lens.MedianBase == nil || pattern.Direction == "" {
+		return sanitizeRunText(result.Headline)
+	}
+	ccy := edgeBaseCurrency(result)
+	direction := strings.ToUpper(pattern.Direction[:1]) + pattern.Direction[1:]
+	return fmt.Sprintf("%s %s: %s price impact across %d of %d changes at %s; median %s.", direction, edgeActionPlural(pattern.Action), edgeSignedMoney(env, *lens.TotalBase, ccy), lens.SampleCount, pattern.EligibleChanges, edgeSessionCount(lens.Sessions), edgeSignedMoney(env, *lens.MedianBase, ccy))
+}
+
+func edgeSelectedPattern(result rpc.EdgeResult) (*rpc.EdgeDecisionPattern, *rpc.EdgePatternHorizon) {
+	if result.ReviewAction == "" {
+		return nil, nil
+	}
+	for i := range result.Patterns {
+		pattern := &result.Patterns[i]
+		if pattern.Action != result.ReviewAction || pattern.Direction != result.ReviewDirection {
+			continue
+		}
+		for j := range pattern.Horizons {
+			if pattern.Horizons[j].Sessions == result.HorizonSessions {
+				return pattern, &pattern.Horizons[j]
+			}
+		}
+	}
+	return nil, nil
+}
+
+func renderEdgeEvidence(env *Env, result rpc.EdgeResult) {
+	out := env.Stdout
+	ccy := edgeBaseCurrency(result)
+	selection := result.HorizonSelection
+	fmt.Fprintln(out, "\nEvidence")
+	coverage := []string{fmt.Sprintf("%d of %d eligible stock/ETF changes scored at %s (%.1f%%)", selection.ScoredChanges, selection.EligibleChanges, edgeSessionCount(result.HorizonSessions), selection.CoveragePct)}
+	if result.Coverage.TradeChanges > 0 {
+		outside := result.Coverage.TradeChanges - result.Coverage.EligibleChanges
+		coverage = append(coverage, fmt.Sprintf("%s broker position changes found, %s outside the stock/ETF review", edgeCount(result.Coverage.TradeChanges), edgeCount(outside)))
+	}
+	edgeRow(env, "Coverage", coverage...)
+	edgeRow(env, "Horizon", edgeHorizonNote(result)...)
+	if pattern, lens := edgeSelectedPattern(result); pattern != nil {
+		group := pattern.Direction + " " + edgeActionPlural(pattern.Action)
+		notional := "size coverage unavailable: incomplete execution amounts"
+		if lens.NotionalCoveragePct != nil {
+			notional = fmt.Sprintf("size coverage %.1f%% of execution notional", *lens.NotionalCoveragePct)
+		}
+		edgeRow(env, "Selected sample", fmt.Sprintf("%d of %d %s", lens.SampleCount, pattern.EligibleChanges, group), notional)
+		if lens.LargestDateSharePct != nil && lens.LargestContractSharePct != nil && lens.WithoutLargestBase != nil {
+			edgeRow(env, "Concentration", fmt.Sprintf("largest date %.1f%% and largest contract %.1f%% of absolute impact", *lens.LargestDateSharePct, *lens.LargestContractSharePct), "without the largest decision "+edgeSignedMoney(env, *lens.WithoutLargestBase, ccy))
+		}
+		if len(lens.Months) > 0 {
+			fmt.Fprintln(out, "  By month")
+			for _, month := range lens.Months {
+				fmt.Fprintf(out, "    %s  %2d %-9s  total %s  median %s\n", month.Month, month.SampleCount, pluralWord(month.SampleCount, "decision", "decisions"), padLeftVisible(edgeSignedMoney(env, month.TotalBase, ccy), edgeMoneyWidth), padLeftVisible(edgeSignedMoney(env, month.MedianBase, ccy), edgeMoneyWidth))
+			}
+		}
+		for _, comparison := range pattern.Comparisons {
+			label := fmt.Sprintf("Same decisions %d to %d sessions", comparison.EarlierSessions, comparison.LaterSessions)
+			if comparison.SampleCount == 0 || comparison.EarlierTotalBase == nil || comparison.LaterTotalBase == nil || comparison.MedianDifferenceBase == nil {
+				edgeRow(env, label, "no common sample")
+				continue
+			}
+			edgeRow(env, label, fmt.Sprintf("n=%d", comparison.SampleCount), fmt.Sprintf("%s becomes %s", edgeSignedMoney(env, *comparison.EarlierTotalBase, ccy), edgeSignedMoney(env, *comparison.LaterTotalBase, ccy)), "median paired change "+edgeSignedMoney(env, *comparison.MedianDifferenceBase, ccy))
+		}
+		edgeRow(env, "Risk context", fmt.Sprintf("%d linked protection, %d partial; purpose of the rest unknown", lens.LinkedProtectionCount, lens.PartialProtectionCount), "local context "+result.ProtectionState, "a price outcome does not grade risk management")
+	}
 	if len(result.MarketContext) > 0 || len(result.MarketContextMissing) > 0 {
-		parts := make([]string, 0, len(result.MarketContext)+len(result.MarketContextMissing))
+		parts := make([]string, 0, len(result.MarketContext)+len(result.MarketContextMissing)+1)
+		parts = append(parts, "median benchmark move over the selected intervals")
 		for _, context := range result.MarketContext {
 			value := edgeSignedPercent(context.MedianChangePct)
 			if context.Kind == "volatility_index" && context.MedianChangePoints != nil {
@@ -89,90 +194,196 @@ func renderEdgeText(out io.Writer, result rpc.EdgeResult) {
 		for _, key := range result.MarketContextMissing {
 			parts = append(parts, edgeMarketContextLabel(key)+" unavailable")
 		}
-		fmt.Fprintln(out, "  Market context  "+strings.Join(parts, " · "))
+		edgeRow(env, "Market context", parts...)
 	}
-	if result.Account != nil {
-		fmt.Fprintf(out, "  Account P/L  %s  %s → %s  flows %s\n", edgeMoney(result.Account.ProfitLossBase, result.Account.BaseCurrency), result.Account.ActualFrom.Format("2006-01-02"), result.Account.ActualTo.Format("2006-01-02"), edgeMoney(result.Account.ExternalFlowsBase, result.Account.BaseCurrency))
+	if !result.LastFullRevalidation.IsZero() {
+		edgeRow(env, "Last full revalidation", result.LastFullRevalidation.Local().Format(time.DateOnly))
 	}
-	if len(result.ActionRollups) > 0 {
-		for _, row := range result.ActionRollups {
-			values := make([]string, 0, 3)
-			for _, horizon := range row.Horizons {
-				values = append(values, edgeRollupCell(horizon, edgeBaseCurrency(result)))
-			}
-			for len(values) < 3 {
-				values = append(values, "—")
-			}
-			fmt.Fprintf(out, "  %-5s  1s %s · 5s %s · 20s %s\n", strings.ToUpper(row.Action), values[0], values[1], values[2])
+}
+
+// edgeHorizonNote says which horizon the review shows and why, including
+// the coverage of every longer horizon the automatic selection passed over.
+func edgeHorizonNote(result rpc.EdgeResult) []string {
+	selection := result.HorizonSelection
+	floors := ""
+	if selection.MinimumCoveragePct > 0 && selection.MinimumSample > 0 {
+		floors = fmt.Sprintf("at least %.0f%% coverage and a %d-observation action sample", selection.MinimumCoveragePct, selection.MinimumSample)
+	}
+	if !result.AutomaticHorizon {
+		parts := []string{edgeSessionCount(result.HorizonSessions) + " selected with --horizon"}
+		if floors != "" {
+			parts = append(parts, "automatic mode picks the longest horizon with "+floors)
 		}
+		return parts
+	}
+	parts := []string{edgeSessionCount(result.HorizonSessions) + " selected automatically"}
+	for _, sessions := range []int{20, 5} {
+		if sessions <= result.HorizonSessions || selection.EligibleChanges <= 0 {
+			continue
+		}
+		pct := float64(result.Coverage.ScoredByHorizon[sessions]) / float64(selection.EligibleChanges) * 100
+		parts = append(parts, fmt.Sprintf("%s %.1f%% coverage", edgeSessionCount(sessions), pct))
+	}
+	if floors != "" {
+		parts = append(parts, "the longest horizon with "+floors+" is selected")
+	}
+	return parts
+}
+
+func renderEdgeAccount(env *Env, result rpc.EdgeResult, width int) {
+	if result.Account == nil {
+		return
+	}
+	out := env.Stdout
+	account := result.Account
+	fmt.Fprintln(out, "\nAccount P/L")
+	edgeRow(env, env.bold(edgeSignedMoney(env, account.ProfitLossBase, account.BaseCurrency)), fmt.Sprintf("%s to %s", account.ActualFrom.Format(time.DateOnly), account.ActualTo.Format(time.DateOnly)), "external flows "+edgeSignedMoney(env, account.ExternalFlowsBase, account.BaseCurrency))
+	edgeProse(env, env.dim("Everything after confirmed flows, options and market moves included; not a sum of the rows below."), width)
+}
+
+// renderEdgeMatrix prints the all-sample matrix with its caveat directly
+// above it, so "different decision sets" refers to the rows the reader is
+// looking at.
+func renderEdgeMatrix(env *Env, result rpc.EdgeResult, width int) {
+	if len(result.ActionRollups) == 0 {
+		return
+	}
+	out := env.Stdout
+	ccy := edgeBaseCurrency(result)
+	fmt.Fprintln(out, "\nDecisions by action")
+	edgeProse(env, env.dim("Columns are separate decision sets; compare horizons under Same decisions."), width)
+	fmt.Fprintln(out, strings.TrimRight(fmt.Sprintf("  %-6s  %s  %s  %s", "ACTION", edgeMatrixHeader("1 SESSION"), edgeMatrixHeader("5 SESSIONS"), edgeMatrixHeader("20 SESSIONS")), " "))
+	for _, row := range result.ActionRollups {
+		cells := make([]string, 0, 3)
+		for _, sessions := range []int{1, 5, 20} {
+			cells = append(cells, edgeRollupCell(env, edgeRollupAt(row, sessions), ccy))
+		}
+		fmt.Fprintln(out, strings.TrimRight(fmt.Sprintf("  %-6s  %s", strings.ToUpper(row.Action), strings.Join(cells, "  ")), " "))
+	}
+}
+
+func edgeMatrixHeader(label string) string {
+	return padLeftVisible(label, edgeMoneyWidth) + "  " + strings.Repeat(" ", 5)
+}
+
+func edgeRollupAt(row rpc.EdgeActionRollup, sessions int) *rpc.EdgeHorizonRollup {
+	for i := range row.Horizons {
+		if row.Horizons[i].Sessions == sessions {
+			return &row.Horizons[i]
+		}
+	}
+	return nil
+}
+
+func edgeRollupCell(env *Env, value *rpc.EdgeHorizonRollup, currency string) string {
+	if value == nil {
+		return padLeftVisible(env.dim("—"), edgeMoneyWidth) + "  " + padRightVisible("", 5)
+	}
+	count := padRightVisible(fmt.Sprintf("n=%d", value.SampleCount), 5)
+	if value.TotalBase == nil {
+		return padLeftVisible(env.dim("—"), edgeMoneyWidth) + "  " + count
+	}
+	return padLeftVisible(edgeSignedMoney(env, *value.TotalBase, currency), edgeMoneyWidth) + "  " + count
+}
+
+func renderEdgeFindings(env *Env, result rpc.EdgeResult) {
+	out := env.Stdout
+	ccy := edgeBaseCurrency(result)
+	fmt.Fprintf(out, "\nFindings  %s\n", env.dim(fmt.Sprintf("by absolute impact at %s; not the headline group", edgeSessionCount(result.HorizonSessions))))
+	if len(result.Findings) == 0 {
+		fmt.Fprintln(out, env.dim("  none clears the account-materiality gates"))
+		return
 	}
 	for _, finding := range result.Findings {
-		context := ""
+		fmt.Fprintf(out, "  %s  %s  %s %s  %s\n", padLeftVisible(edgeSignedMoney(env, finding.DecisionImpactBase, ccy), edgeMoneyWidth), padLeftVisible(fmt.Sprintf("%+.2f%%", finding.DecisionImpactPct), 8), sanitizeRunText(finding.Symbol), finding.Action, env.dim(sanitizeRunText(finding.ChangeID)))
 		if len(finding.MarketContext) > 0 {
-			context = " · " + edgeFindingContext(finding.MarketContext)
+			fmt.Fprintln(out, "      "+env.dim(edgeFindingContext(finding.MarketContext)))
 		}
-		fmt.Fprintf(out, "  %s (%+.2f%%)  %s %s · %s%s\n", edgeMoney(finding.DecisionImpactBase, edgeBaseCurrency(result)), finding.DecisionImpactPct, finding.Symbol, finding.Action, finding.ChangeID, context)
-	}
-	renderEdgeOptionCycles(out, result)
-	renderEdgeOptions(out, result)
-	fmt.Fprintf(out, "  Coverage  %d/%d eligible · scored %d/%d eligible at %s (%.1f%%) · largest action n=%d", result.Coverage.EligibleChanges, result.Coverage.TradeChanges, result.HorizonSelection.ScoredChanges, result.HorizonSelection.EligibleChanges, edgeSessionCount(result.HorizonSessions), result.HorizonSelection.CoveragePct, result.HorizonSelection.LargestActionSample)
-	if !result.LastFullRevalidation.IsZero() {
-		fmt.Fprintf(out, " · full %s", result.LastFullRevalidation.Local().Format("2006-01-02"))
-	}
-	fmt.Fprintln(out)
-	if result.Change != nil {
-		renderEdgeChange(out, *result.Change, edgeBaseCurrency(result))
-	}
-	if result.Option != nil {
-		renderEdgeOptionDetail(out, *result.Option, edgeBaseCurrency(result))
 	}
 }
 
-func renderEdgeOptions(out io.Writer, result rpc.EdgeResult) {
+func renderEdgeOptions(env *Env, result rpc.EdgeResult) {
+	out := env.Stdout
 	options := result.Options
 	currency := edgeBaseCurrency(result)
+	fmt.Fprintf(out, "\nOptions  %s\n", env.dim("broker actuals in separate scopes; they do not add together"))
+	renderEdgeOptionCycles(env, result)
 	if options.Realized.TotalCount == 0 {
-		fmt.Fprintln(out, "  Options · realized  no broker-reported episode available in the selected window")
+		edgeRow(env, "Realized episodes", "no broker-reported episode available in the selected window")
 	} else {
-		known := "unavailable"
+		known := "P/L unavailable"
 		if options.Realized.KnownPNLBase != nil {
-			known = edgeMoney(*options.Realized.KnownPNLBase, currency)
+			known = edgeSignedMoney(env, *options.Realized.KnownPNLBase, currency) + " known"
 		}
-		fmt.Fprintf(out, "  Options · realized  %s known · %d episode(s): %d positive, %d negative, %d flat", known, options.Realized.TotalCount, options.Realized.PositiveCount, options.Realized.NegativeCount, options.Realized.FlatCount)
-		if options.Realized.PartialCount+options.Realized.UnavailableCount > 0 {
-			fmt.Fprintf(out, " · %d incomplete", options.Realized.PartialCount+options.Realized.UnavailableCount)
+		values := []string{known, fmt.Sprintf("%d %s: %d positive, %d negative, %d flat", options.Realized.TotalCount, pluralWord(options.Realized.TotalCount, "episode", "episodes"), options.Realized.PositiveCount, options.Realized.NegativeCount, options.Realized.FlatCount)}
+		if incomplete := options.Realized.PartialCount + options.Realized.UnavailableCount; incomplete > 0 {
+			values = append(values, fmt.Sprintf("%d incomplete", incomplete))
 		}
 		if options.Realized.Truncated {
-			fmt.Fprintf(out, " · showing %d", len(options.Realized.Episodes))
+			values = append(values, fmt.Sprintf("showing %d", len(options.Realized.Episodes)))
 		}
-		fmt.Fprintln(out)
-		renderEdgeOptionExtremes(out, options.Realized.Episodes, currency)
+		edgeRow(env, "Realized episodes", values...)
+		renderEdgeOptionExtremes(env, options.Realized.Episodes, currency)
 	}
-	if options.Open.SnapshotDate.IsZero() {
-		fmt.Fprintln(out, "  Options · open snapshot  no dated Flex Open Positions snapshot available")
-	} else if options.Open.TotalCount == 0 {
-		fmt.Fprintf(out, "  Options · open snapshot %s  0 position(s) · confirmed empty\n", options.Open.SnapshotDate.Format(time.DateOnly))
-	} else {
-		known := "unavailable"
+	switch {
+	case options.Open.SnapshotDate.IsZero():
+		edgeRow(env, "Open snapshot", "no dated Flex Open Positions snapshot available")
+	case options.Open.TotalCount == 0:
+		edgeRow(env, "Open snapshot "+options.Open.SnapshotDate.Format(time.DateOnly), "0 positions", "confirmed empty")
+	default:
+		known := "P/L unavailable"
 		if options.Open.KnownPNLBase != nil {
-			known = edgeMoney(*options.Open.KnownPNLBase, currency)
+			known = edgeSignedMoney(env, *options.Open.KnownPNLBase, currency) + " known"
 		}
-		fmt.Fprintf(out, "  Options · open snapshot %s  %s known · %d position(s): %d positive, %d negative, %d flat", options.Open.SnapshotDate.Format(time.DateOnly), known, options.Open.TotalCount, options.Open.PositiveCount, options.Open.NegativeCount, options.Open.FlatCount)
+		values := []string{known, fmt.Sprintf("%d %s: %d positive, %d negative, %d flat", options.Open.TotalCount, pluralWord(options.Open.TotalCount, "position", "positions"), options.Open.PositiveCount, options.Open.NegativeCount, options.Open.FlatCount)}
 		if options.Open.UnavailableCount > 0 {
-			fmt.Fprintf(out, " · %d unavailable", options.Open.UnavailableCount)
+			values = append(values, fmt.Sprintf("%d unavailable", options.Open.UnavailableCount))
 		}
 		if options.Open.Truncated {
-			fmt.Fprintf(out, " · showing %d", len(options.Open.Positions))
+			values = append(values, fmt.Sprintf("showing %d", len(options.Open.Positions)))
 		}
-		fmt.Fprintln(out)
-		renderEdgeOpenOptionExtremes(out, options.Open.Positions, currency)
+		edgeRow(env, "Open snapshot "+options.Open.SnapshotDate.Format(time.DateOnly), values...)
+		renderEdgeOpenOptionExtremes(env, options.Open.Positions, currency)
 	}
-	if options.Coverage.OpeningOnlyZeroEpisodes > 0 {
-		fmt.Fprintf(out, "  Options · activity  %d opening-only zero-P/L episode(s) retained as coverage, not realized results\n", options.Coverage.OpeningOnlyZeroEpisodes)
+	if n := options.Coverage.OpeningOnlyZeroEpisodes; n > 0 {
+		edgeRow(env, "Activity", fmt.Sprintf("%d opening-only zero-P/L %s retained as coverage, not realized results", n, pluralWord(n, "episode", "episodes")))
 	}
 }
 
-func renderEdgeOptionExtremes(out io.Writer, episodes []rpc.EdgeOptionEpisodeSummary, currency string) {
+func renderEdgeOptionCycles(env *Env, result rpc.EdgeResult) {
+	cycles := result.Options.Cycles
+	if cycles.Reasons == nil {
+		return
+	}
+	out := env.Stdout
+	ccy := edgeBaseCurrency(result)
+	edgeRow(env, "Completed positions",
+		fmt.Sprintf("%d proven flat-to-flat contract %s", cycles.CompletedCount, pluralWord(cycles.CompletedCount, "cycle", "cycles")),
+		fmt.Sprintf("%d complete P/L", cycles.CompletePNLCount),
+		fmt.Sprintf("%d %s still open", cycles.OpenContractCount, pluralWord(cycles.OpenContractCount, "contract", "contracts")),
+		fmt.Sprintf("%d %s excluded", cycles.ExcludedContracts, pluralWord(cycles.ExcludedContracts, "contract", "contracts")),
+		"a subset of realized activity, not an additional total or a multi-leg strategy")
+	if len(cycles.Reasons) > 0 {
+		reasons := make([]string, 0, len(cycles.Reasons))
+		for reason, count := range cycles.Reasons {
+			reasons = append(reasons, fmt.Sprintf("%d %s", count, strings.ReplaceAll(reason, "_", " ")))
+		}
+		sort.Strings(reasons)
+		edgeRow(env, "Reconstruction gaps", strings.Join(reasons, "; "), "opening/window exclusions count positions; other exclusions count contracts")
+	}
+	for i, row := range cycles.Cycles {
+		if i == 3 {
+			break
+		}
+		amount := env.dim("unavailable")
+		if row.RealizedPNLBase != nil {
+			amount = edgeSignedMoney(env, *row.RealizedPNLBase, ccy)
+		}
+		fmt.Fprintf(out, "    %s  %s %s · %s to %s · %d %s · %s\n", padLeftVisible(amount, edgeMoneyWidth), row.Direction, edgeCompactSymbol(row.Symbol), row.OpenedAt.Format(time.DateOnly), row.ClosedAt.Format(time.DateOnly), row.ExecutionCount, pluralWord(row.ExecutionCount, "execution", "executions"), row.PNLStatus)
+	}
+}
+
+func renderEdgeOptionExtremes(env *Env, episodes []rpc.EdgeOptionEpisodeSummary, currency string) {
 	var gain, loss *rpc.EdgeOptionEpisodeSummary
 	for i := range episodes {
 		row := &episodes[i]
@@ -190,11 +401,11 @@ func renderEdgeOptionExtremes(out io.Writer, episodes []rpc.EdgeOptionEpisodeSum
 		if row == nil {
 			continue
 		}
-		fmt.Fprintf(out, "    %s  %s · %s · %s · %s\n", edgeMoney(*row.RealizedPNLBase, currency), edgeOptionEpisodeLabel(*row), row.ActivityFrom.Format(time.DateOnly), row.PNLStatus, row.ID)
+		fmt.Fprintf(env.Stdout, "    %s  %s · %s · %s · %s\n", padLeftVisible(edgeSignedMoney(env, *row.RealizedPNLBase, currency), edgeMoneyWidth), edgeOptionEpisodeLabel(*row), row.ActivityFrom.Format(time.DateOnly), row.PNLStatus, env.dim(sanitizeRunText(row.ID)))
 	}
 }
 
-func renderEdgeOpenOptionExtremes(out io.Writer, positions []rpc.EdgeOptionOpenPositionSummary, currency string) {
+func renderEdgeOpenOptionExtremes(env *Env, positions []rpc.EdgeOptionOpenPositionSummary, currency string) {
 	var gain, loss *rpc.EdgeOptionOpenPositionSummary
 	for i := range positions {
 		row := &positions[i]
@@ -212,7 +423,7 @@ func renderEdgeOpenOptionExtremes(out io.Writer, positions []rpc.EdgeOptionOpenP
 		if row == nil {
 			continue
 		}
-		fmt.Fprintf(out, "    %s  %s · %s · %s\n", edgeMoney(*row.OpenPNLBase, currency), edgeOptionContractLabel(row.Underlying, row.Symbol, row.Expiry, row.Strike, row.PutCall), row.PNLStatus, row.ID)
+		fmt.Fprintf(env.Stdout, "    %s  %s · %s · %s\n", padLeftVisible(edgeSignedMoney(env, *row.OpenPNLBase, currency), edgeMoneyWidth), edgeOptionContractLabel(row.Underlying, row.Symbol, row.Expiry, row.Strike, row.PutCall), row.PNLStatus, env.dim(sanitizeRunText(row.ID)))
 	}
 }
 
@@ -222,7 +433,7 @@ func edgeOptionEpisodeLabel(row rpc.EdgeOptionEpisodeSummary) string {
 		labels = append(labels, edgeOptionContractLabel(leg.Underlying, leg.Symbol, leg.Expiry, leg.Strike, leg.PutCall))
 	}
 	if len(labels) == 0 {
-		return firstNonEmptyCLI(row.Underlying, "Option episode")
+		return firstNonEmptyCLI(sanitizeRunText(row.Underlying), "Option episode")
 	}
 	if len(labels) > 3 {
 		return strings.Join(labels[:3], " + ") + fmt.Sprintf(" +%d legs", len(labels)-3)
@@ -231,10 +442,10 @@ func edgeOptionEpisodeLabel(row rpc.EdgeOptionEpisodeSummary) string {
 }
 
 func edgeOptionContractLabel(underlying, symbol, expiry string, strike *float64, putCall string) string {
-	root := firstNonEmptyCLI(underlying, symbol, "Option")
+	root := firstNonEmptyCLI(sanitizeRunText(underlying), edgeCompactSymbol(symbol), "Option")
 	parts := []string{root}
 	if expiry != "" {
-		parts = append(parts, expiry)
+		parts = append(parts, sanitizeRunText(expiry))
 	}
 	if strike != nil {
 		parts = append(parts, fmt.Sprintf("%.4g", *strike))
@@ -243,6 +454,12 @@ func edgeOptionContractLabel(underlying, symbol, expiry string, strike *float64,
 		parts = append(parts, strings.ToUpper(putCall[:1]))
 	}
 	return strings.Join(parts, " ")
+}
+
+// edgeCompactSymbol collapses the padded OCC spelling a broker row carries
+// ("NOW   260821C00115000") to single spaces after dropping control bytes.
+func edgeCompactSymbol(symbol string) string {
+	return strings.Join(strings.Fields(sanitizeRunText(symbol)), " ")
 }
 
 func firstNonEmptyCLI(values ...string) string {
@@ -254,91 +471,98 @@ func firstNonEmptyCLI(values ...string) string {
 	return ""
 }
 
-func renderEdgeOptionDetail(out io.Writer, detail rpc.EdgeOptionDetail, currency string) {
-	fmt.Fprintf(out, "\nOption %s — %s\n", detail.ID, strings.ReplaceAll(detail.Kind, "_", " "))
+func renderEdgeOptionDetail(env *Env, detail rpc.EdgeOptionDetail, currency string) {
+	out := env.Stdout
+	fmt.Fprintf(out, "\nOption %s · %s\n", sanitizeRunText(detail.ID), strings.ReplaceAll(detail.Kind, "_", " "))
 	if detail.Episode != nil {
 		episode := detail.Episode
-		fmt.Fprintf(out, "  %s · %s · %s", episode.Grouping, episode.Lifecycle, episode.ActivityFrom.Format(time.RFC3339))
+		values := []string{episode.Grouping, episode.Lifecycle, episode.ActivityFrom.Local().Format("2006-01-02 15:04 MST")}
 		if episode.RealizedPNLBase != nil {
-			fmt.Fprintf(out, " · realized %s", edgeMoney(*episode.RealizedPNLBase, currency))
+			values = append(values, "realized "+edgeSignedMoney(env, *episode.RealizedPNLBase, currency))
 		}
-		fmt.Fprintf(out, " · %s%s\n", episode.PNLStatus, edgeOptionMissingEvidence(episode.MissingEvidence))
+		values = append(values, episode.PNLStatus)
+		if len(episode.MissingEvidence) > 0 {
+			values = append(values, "missing "+strings.Join(episode.MissingEvidence, ", "))
+		}
+		edgeRow(env, "Episode", values...)
 		for _, leg := range episode.Legs {
-			fmt.Fprintf(out, "  leg  %s · %s %s", edgeOptionContractLabel(leg.Underlying, leg.Symbol, leg.Expiry, leg.Strike, leg.PutCall), leg.Side, leg.OpenClose)
+			values := []string{leg.Side + " " + leg.OpenClose}
 			if leg.Quantity != nil {
-				fmt.Fprintf(out, " · qty %.4g", *leg.Quantity)
+				values = append(values, fmt.Sprintf("qty %.4g", *leg.Quantity))
 			}
 			if leg.ExecutionPrice != nil {
-				fmt.Fprintf(out, " @ %.4g %s", *leg.ExecutionPrice, leg.Currency)
+				values = append(values, fmt.Sprintf("@ %.4g %s", *leg.ExecutionPrice, sanitizeRunText(leg.Currency)))
 			}
 			if leg.RealizedPNLBase != nil {
-				fmt.Fprintf(out, " · realized %s", edgeMoney(*leg.RealizedPNLBase, currency))
+				values = append(values, "realized "+edgeSignedMoney(env, *leg.RealizedPNLBase, currency))
 			}
 			if leg.DirectCostsBase != nil {
-				fmt.Fprintf(out, " · costs %s", edgeMoney(*leg.DirectCostsBase, currency))
+				values = append(values, "costs "+edgeSignedMoney(env, *leg.DirectCostsBase, currency))
 			}
-			fmt.Fprint(out, edgeOptionMissingEvidence(leg.MissingEvidence))
-			fmt.Fprintln(out)
+			if len(leg.MissingEvidence) > 0 {
+				values = append(values, "missing "+strings.Join(leg.MissingEvidence, ", "))
+			}
+			edgeRow(env, "Leg "+edgeOptionContractLabel(leg.Underlying, leg.Symbol, leg.Expiry, leg.Strike, leg.PutCall), values...)
 		}
 		return
 	}
 	if detail.OpenPosition != nil {
 		position := detail.OpenPosition
-		fmt.Fprintf(out, "  %s · snapshot %s · %s", edgeOptionContractLabel(position.Underlying, position.Symbol, position.Expiry, position.Strike, position.PutCall), position.SnapshotDate.Format(time.DateOnly), position.Side)
+		values := []string{"snapshot " + position.SnapshotDate.Format(time.DateOnly), position.Side}
 		if position.Quantity != nil {
-			fmt.Fprintf(out, " · qty %.4g", *position.Quantity)
+			values = append(values, fmt.Sprintf("qty %.4g", *position.Quantity))
 		}
 		if position.MarkPrice != nil {
-			fmt.Fprintf(out, " · mark %.4g %s", *position.MarkPrice, position.Currency)
+			values = append(values, fmt.Sprintf("mark %.4g %s", *position.MarkPrice, sanitizeRunText(position.Currency)))
 		}
 		if position.CostBasisMoney != nil {
-			fmt.Fprintf(out, " · cost basis %.4g %s", *position.CostBasisMoney, position.Currency)
+			values = append(values, fmt.Sprintf("cost basis %s %s", formatMoneyBare(*position.CostBasisMoney), sanitizeRunText(position.Currency)))
 		}
 		if position.OpenPNLBase != nil {
-			fmt.Fprintf(out, " · open %s", edgeMoney(*position.OpenPNLBase, currency))
+			values = append(values, "open "+edgeSignedMoney(env, *position.OpenPNLBase, currency))
 		}
-		fmt.Fprintf(out, " · %s%s\n", position.PNLStatus, edgeOptionMissingEvidence(position.MissingEvidence))
+		values = append(values, position.PNLStatus)
+		if len(position.MissingEvidence) > 0 {
+			values = append(values, "missing "+strings.Join(position.MissingEvidence, ", "))
+		}
+		edgeRow(env, edgeOptionContractLabel(position.Underlying, position.Symbol, position.Expiry, position.Strike, position.PutCall), values...)
 	}
 }
 
-func edgeOptionMissingEvidence(missing []string) string {
-	if len(missing) == 0 {
-		return ""
-	}
-	return " · missing " + strings.Join(missing, ", ")
-}
-
-func renderEdgeChange(out io.Writer, change rpc.EdgeChangeDetail, currency string) {
-	fmt.Fprintf(out, "\nChange %s — %s %s %+.4g on %s\n", change.ID, change.Symbol, change.Action, change.DeltaQuantity, change.ExecutedAt.Format(time.RFC3339))
-	fmt.Fprintf(out, "  position  %.4g → %.4g", change.PositionBefore, change.PositionAfter)
+func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
+	out := env.Stdout
+	fmt.Fprintf(out, "\nChange %s · %s %s %+.4g · %s\n", sanitizeRunText(change.ID), sanitizeRunText(change.Symbol), change.Action, change.DeltaQuantity, change.ExecutedAt.Local().Format("2006-01-02 15:04 MST"))
+	values := []string{fmt.Sprintf("%.4g to %.4g", change.PositionBefore, change.PositionAfter)}
 	if change.ExecutionVWAP != nil {
-		fmt.Fprintf(out, " · execution VWAP %.4g", *change.ExecutionVWAP)
+		values = append(values, fmt.Sprintf("execution VWAP %.4g", *change.ExecutionVWAP))
 	}
 	if change.Multiplier != nil {
-		fmt.Fprintf(out, " · multiplier %.4g", *change.Multiplier)
+		values = append(values, fmt.Sprintf("multiplier %.4g", *change.Multiplier))
 	}
 	if change.DirectCostsBase != nil {
-		fmt.Fprintf(out, " · direct costs %s", edgeMoney(*change.DirectCostsBase, currency))
+		values = append(values, "direct costs "+edgeSignedMoney(env, *change.DirectCostsBase, currency))
 	}
-	fmt.Fprintln(out)
+	edgeRow(env, "Position", values...)
 	for _, score := range change.Scores {
-		value := "unavailable (" + score.Reason + ")"
+		value := env.dim("unavailable (" + score.Reason + ")")
 		if score.DecisionImpactBase != nil {
-			value = edgeMoney(*score.DecisionImpactBase, currency)
+			value = edgeSignedMoney(env, *score.DecisionImpactBase, currency)
 			if score.DecisionImpactPct != nil && score.DecisionNotionalBase != nil {
-				value += fmt.Sprintf(" · %+.2f%% of %s", *score.DecisionImpactPct, edgeMoney(*score.DecisionNotionalBase, currency))
+				value += fmt.Sprintf(" · %+.2f%% of %s", *score.DecisionImpactPct, edgeSignedMoney(env, *score.DecisionNotionalBase, currency))
 			}
 			if score.HorizonDay != nil && score.HorizonClose != nil && score.HorizonFX != nil {
-				value += fmt.Sprintf(" · %s close %.4g FX %.6g", score.HorizonDay.Format("2006-01-02"), *score.HorizonClose, *score.HorizonFX)
+				value += fmt.Sprintf(" · %s close %.4g FX %.6g", score.HorizonDay.Format(time.DateOnly), *score.HorizonClose, *score.HorizonFX)
 			}
 		}
-		fmt.Fprintf(out, "  %2d sessions  %s\n", score.Sessions, value)
+		fmt.Fprintf(out, "  %-11s  %s\n", edgeSessionCount(score.Sessions), value)
 		if len(score.MarketContext) > 0 {
-			fmt.Fprintf(out, "               context %s\n", edgeFindingContext(score.MarketContext))
+			fmt.Fprintln(out, "               "+env.dim(edgeFindingContext(score.MarketContext)))
 		}
 	}
 }
 
+// edgeFindingContext keeps per-decision benchmark moves short: the ticker
+// keys stand in for the full proxy labels that the Evidence row spells out.
 func edgeFindingContext(rows []rpc.EdgeMarketContext) string {
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -346,9 +570,13 @@ func edgeFindingContext(rows []rpc.EdgeMarketContext) string {
 		if row.Kind == "volatility_index" && row.ChangePoints != nil {
 			value = fmt.Sprintf("%+.2f pts", *row.ChangePoints)
 		}
-		parts = append(parts, row.Label+" "+value)
+		label := strings.ToUpper(row.Key)
+		if label == "" {
+			label = row.Label
+		}
+		parts = append(parts, sanitizeRunText(label)+" "+value)
 	}
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, " · ")
 }
 
 func edgeMarketContextLabel(key string) string {
@@ -366,6 +594,21 @@ func edgeMarketContextLabel(key string) string {
 	}
 }
 
+func edgeActionPlural(action string) string {
+	switch action {
+	case "open":
+		return "opens"
+	case "add":
+		return "adds"
+	case "trim":
+		return "trims"
+	case "exit":
+		return "exits"
+	default:
+		return action + "s"
+	}
+}
+
 func edgeSignedPercent(value *float64) string {
 	if value == nil {
 		return "—"
@@ -374,18 +617,7 @@ func edgeSignedPercent(value *float64) string {
 }
 
 func edgeSessionCount(sessions int) string {
-	label := "sessions"
-	if sessions == 1 {
-		label = "session"
-	}
-	return fmt.Sprintf("%d %s", sessions, label)
-}
-
-func edgeRollupCell(value rpc.EdgeHorizonRollup, currency string) string {
-	if value.TotalBase == nil {
-		return fmt.Sprintf("— (n=%d)", value.SampleCount)
-	}
-	return fmt.Sprintf("%s n=%d", edgeMoney(*value.TotalBase, currency), value.SampleCount)
+	return fmt.Sprintf("%d %s", sessions, pluralWord(sessions, "session", "sessions"))
 }
 
 func edgeBaseCurrency(result rpc.EdgeResult) string {
@@ -395,76 +627,51 @@ func edgeBaseCurrency(result rpc.EdgeResult) string {
 	return "BASE"
 }
 
-func edgeMoney(value float64, currency string) string {
-	if currency == "" {
-		currency = "BASE"
-	}
-	return fmt.Sprintf("%s %+.2f", strings.ToUpper(currency), value)
+// edgeSignedMoney is the one money spelling on the Edge screen: the house
+// currency prefix, thousands grouping, a real zero, and sign colour.
+func edgeSignedMoney(env *Env, value float64, currency string) string {
+	return env.colorBySign(value, formatMoneyCcyForPnL(value, currency), signPnL)
 }
 
-func renderEdgeLearning(out io.Writer, result rpc.EdgeResult) {
-	selection := result.HorizonSelection
-	fmt.Fprintf(out, "  Review coverage  %d of %d eligible stock/ETF changes scored (%.1f%%); the remaining changes are not assessed at this horizon.\n", selection.ScoredChanges, selection.EligibleChanges, selection.CoveragePct)
-	if result.ReviewNote != "" {
-		fmt.Fprintln(out, "  "+result.ReviewNote)
-	}
-	for _, p := range result.Patterns {
-		if p.Action != result.ReviewAction || p.Direction != result.ReviewDirection {
-			continue
-		}
-		for _, h := range p.Horizons {
-			if h.Sessions != result.HorizonSessions {
-				continue
-			}
-			notional := "unavailable: incomplete execution amounts"
-			if h.NotionalCoveragePct != nil {
-				notional = fmt.Sprintf("%.1f%% of execution notional", *h.NotionalCoveragePct)
-			}
-			fmt.Fprintf(out, "  Selected sample  %d/%d changes; size coverage %s\n", h.SampleCount, p.EligibleChanges, notional)
-			if h.LargestDateSharePct != nil && h.LargestContractSharePct != nil && h.WithoutLargestBase != nil {
-				fmt.Fprintf(out, "  Concentration  largest date %.1f%%, largest contract %.1f%% of absolute impact; without largest decision %s\n", *h.LargestDateSharePct, *h.LargestContractSharePct, edgeMoney(*h.WithoutLargestBase, edgeBaseCurrency(result)))
-			}
-			for _, m := range h.Months {
-				fmt.Fprintf(out, "    %s · %d decisions · total %s · median %s\n", m.Month, m.SampleCount, edgeMoney(m.TotalBase, edgeBaseCurrency(result)), edgeMoney(m.MedianBase, edgeBaseCurrency(result)))
-			}
-			fmt.Fprintf(out, "  Risk context  %d linked protection, %d partial; remaining purpose unknown. Local context %s. Price outcome does not grade risk management.\n", h.LinkedProtectionCount, h.PartialProtectionCount, result.ProtectionState)
-		}
-		for _, c := range p.Comparisons {
-			if c.SampleCount == 0 {
-				fmt.Fprintf(out, "  Same decisions · %d→%d sessions  no common sample\n", c.EarlierSessions, c.LaterSessions)
-				continue
-			}
-			fmt.Fprintf(out, "  Same decisions · %d→%d sessions  n=%d; %s → %s; median paired change %s\n", c.EarlierSessions, c.LaterSessions, c.SampleCount, edgeMoney(*c.EarlierTotalBase, edgeBaseCurrency(result)), edgeMoney(*c.LaterTotalBase, edgeBaseCurrency(result)), edgeMoney(*c.MedianDifferenceBase, edgeBaseCurrency(result)))
-		}
-	}
-	if len(result.Patterns) > 0 {
-		fmt.Fprintln(out, "  The all-sample matrix below uses different decision sets; use the matched comparisons for horizon differences.")
-	}
+func edgeCount(n int) string {
+	return groupThousands(strconv.Itoa(n))
 }
 
-func renderEdgeOptionCycles(out io.Writer, result rpc.EdgeResult) {
-	c := result.Options.Cycles
-	if c.Reasons == nil {
-		return
+func pluralWord(n int, one, many string) string {
+	if n == 1 {
+		return one
 	}
-	fmt.Fprintf(out, "  Options · completed positions  %d proven flat-to-flat contract cycles; %d complete P/L; %d contracts still open; %d contracts excluded\n", c.CompletedCount, c.CompletePNLCount, c.OpenContractCount, c.ExcludedContracts)
-	if len(c.Reasons) > 0 {
-		reasons := make([]string, 0, len(c.Reasons))
-		for reason, count := range c.Reasons {
-			reasons = append(reasons, fmt.Sprintf("%d %s", count, strings.ReplaceAll(reason, "_", " ")))
+	return many
+}
+
+// edgeRow prints one labelled row in the desk's "Label · value · value"
+// shape with a hanging indent. Unlike riskReadLine it does not strip escape
+// bytes, so sign colour survives; callers sanitize broker-sourced text.
+func edgeRow(env *Env, label string, values ...string) {
+	text := briefJoin(append([]string{label}, values...)...)
+	edgeProse(env, text, briefProseWidth(env.Stdout))
+}
+
+// edgeMoneyGlue matches the house money prefix ("€ ", "-$ ", "CHF ") before
+// its amount so a wrapped row never splits the two.
+var edgeMoneyGlue = regexp.MustCompile(`([€$£¥]|\b[A-Z]{3,4}) (\d)`)
+
+// edgeGlue stands in for a space the wrapper must not break on. It is a
+// private-use rune, one cell wide for visibleLen, and never reaches the
+// terminal; a no-break space would not do because unicode.IsSpace splits it.
+const edgeGlue = "\ue000"
+
+// edgeProse wraps one row or paragraph at the prose measure with a hanging
+// indent. Money keeps its prefix and amount together, and the "·" joiner
+// stays at the end of a line rather than opening the continuation.
+func edgeProse(env *Env, text string, width int) {
+	glued := edgeMoneyGlue.ReplaceAllString(text, "$1"+edgeGlue+"$2")
+	glued = strings.ReplaceAll(glued, " · ", edgeGlue+"· ")
+	for i, line := range wrapVisibleText(glued, width-4) {
+		indent := "  "
+		if i > 0 {
+			indent = "    "
 		}
-		sort.Strings(reasons)
-		fmt.Fprintf(out, "  Reconstruction gaps  %s. Opening/window exclusions count positions; other exclusions count contracts.\n", strings.Join(reasons, "; "))
+		fmt.Fprintln(env.Stdout, indent+strings.ReplaceAll(line, edgeGlue, " "))
 	}
-	for i, row := range c.Cycles {
-		if i == 3 {
-			break
-		}
-		amount := "unavailable"
-		if row.RealizedPNLBase != nil {
-			amount = edgeMoney(*row.RealizedPNLBase, edgeBaseCurrency(result))
-		}
-		fmt.Fprintf(out, "    %s · %s %s · %s → %s · %d executions · %s\n", amount, row.Direction, row.Symbol, row.OpenedAt.Format(time.DateOnly), row.ClosedAt.Format(time.DateOnly), row.ExecutionCount, row.PNLStatus)
-	}
-	fmt.Fprintln(out, "  Completed positions are a subset of realized activity, not an additional P/L total or inferred multi-leg strategy.")
 }

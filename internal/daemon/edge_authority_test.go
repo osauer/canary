@@ -1037,7 +1037,7 @@ func TestEdgeHeadlineDoesNotPoolOpposingDirections(t *testing.T) {
 		r.Patterns = append(r.Patterns, rpc.EdgeDecisionPattern{Action: "open", Direction: direction, EligibleChanges: 2, Horizons: []rpc.EdgePatternHorizon{{Sessions: 20, SampleCount: 2, TotalBase: new(float64(200)), MedianBase: new(float64(100))}}})
 	}
 	r.ActionRollups = []rpc.EdgeActionRollup{{Action: "open", Horizons: []rpc.EdgeHorizonRollup{{Sessions: 20, SampleCount: 4, TotalBase: new(float64(400)), MedianBase: new(float64(100))}}}}
-	if got := edgeHeadline(r); r.ReviewAction != "" || !strings.Contains(got, "No repeated") {
+	if got := edgeHeadline(r); r.ReviewAction != "" || !strings.Contains(got, "No repeated") || !strings.Contains(got, "largest action and direction group has 2 observations; at least 3 is required") {
 		t.Fatalf("directions pooled: %s", got)
 	}
 }

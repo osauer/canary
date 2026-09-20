@@ -113,7 +113,7 @@ func populateEdgeLearningSummary(out *rpc.EdgeResult) {
 			out.MarketContextMissing = append(out.MarketContextMissing, b.Key)
 		}
 	}
-	out.Headline = fmt.Sprintf("%s %s: %+.2f %s price impact across %d of %d changes at %d sessions; median %+.2f %s.", strings.ToUpper(selected.Direction[:1])+selected.Direction[1:], edgeActionPlural(selected.Action), *lens.TotalBase, out.Account.BaseCurrency, lens.SampleCount, selected.EligibleChanges, lens.Sessions, *lens.MedianBase, out.Account.BaseCurrency)
+	out.Headline = fmt.Sprintf("%s %s: %+.2f %s price impact across %d of %d changes at %d %s; median %+.2f %s.", strings.ToUpper(selected.Direction[:1])+selected.Direction[1:], edgeActionPlural(selected.Action), *lens.TotalBase, out.Account.BaseCurrency, lens.SampleCount, selected.EligibleChanges, lens.Sessions, pluralNoun(lens.Sessions, "session"), *lens.MedianBase, out.Account.BaseCurrency)
 	positive, negative := 0, 0
 	for _, m := range lens.Months {
 		if m.TotalBase > 0 {
@@ -122,7 +122,7 @@ func populateEdgeLearningSummary(out *rpc.EdgeResult) {
 			negative++
 		}
 	}
-	out.ReviewNote = fmt.Sprintf("The covered decisions span %d months and %d execution dates: %d positive months, %d negative. This is a price outcome, not proof of skill or risk-management quality.", len(lens.Months), lens.DistinctDates, positive, negative)
+	out.ReviewNote = fmt.Sprintf("The covered decisions span %d %s and %d execution %s: %d positive %s, %d negative. This is a price outcome, not proof of skill or risk-management quality.", len(lens.Months), pluralNoun(len(lens.Months), "month"), lens.DistinctDates, pluralNoun(lens.DistinctDates, "date"), positive, pluralNoun(positive, "month"), negative)
 }
 
 func rpcEdgeProtectionContext(in edgecore.ProtectionContext) rpc.EdgeProtectionContext {
