@@ -73,3 +73,27 @@ func TestClassificationCannotStopAtTwelveNames(t *testing.T) {
 		}
 	}
 }
+
+// The broker's own "no security definition" answer is a confirmed empty
+// classification for the session, not a failure to retry on every snapshot.
+func TestClassificationRemembersTheBrokersDefinitionVerdictForTheSession(t *testing.T) {
+	cache := newClassificationCache[string]()
+	var calls atomic.Int32
+	lookup := func(_ context.Context, c ibkrlib.Contract) (ibkrlib.MarketClassification, error) {
+		calls.Add(1)
+		return ibkrlib.MarketClassification{}, fmt.Errorf("resolve: %w", ibkrlib.ErrContractNoDefinition)
+	}
+	book := syntheticStockBook(2)
+	first := resolveUnderlyingClassifications(context.Background(), book, cachedClassificationResolver(cache, "session-a", lookup, nil))
+	if calls.Load() != 2 || first["ZZQ00"].Sector != "" {
+		t.Fatalf("first pass calls=%d classes=%+v", calls.Load(), first)
+	}
+	resolveUnderlyingClassifications(context.Background(), book, cachedClassificationResolver(cache, "session-a", lookup, nil))
+	if calls.Load() != 2 {
+		t.Fatalf("the verdict was asked for again within the session: calls=%d", calls.Load())
+	}
+	resolveUnderlyingClassifications(context.Background(), book, cachedClassificationResolver(cache, "session-b", lookup, nil))
+	if calls.Load() != 4 {
+		t.Fatalf("a new session must ask again: calls=%d", calls.Load())
+	}
+}

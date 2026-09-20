@@ -2424,10 +2424,22 @@ func (s *Server) fetchQuoteHistoricalBars(ctx context.Context, c *ibkrlib.Connec
 	fallbackCtx, cancel := context.WithTimeout(ctx, quoteHistoricalFallbackTimeout(timeout))
 	defer cancel()
 	bars, err := c.FetchHistoricalDailyBarsWithContract(fallbackCtx, quoteHistoricalContract(q), lookbackDays, 0)
-	if err != nil {
+	if err != nil && quoteHistoryRetriesBySymbol(q.Contract.SecType, err) {
 		bars, err = c.FetchHistoricalDailyBars(fallbackCtx, q.Symbol, lookbackDays, 0)
 	}
 	return bars, err
+}
+
+// quoteHistoryRetriesBySymbol reports whether a failed routed history read is
+// worth repeating by bare symbol. The symbol classifier knows a few indices
+// and otherwise assumes a SMART-routed stock, so it can only re-route a
+// stock; and a broker that has just said it has no definition for the
+// contract, or a name marked inactive, is not asked the same question twice.
+func quoteHistoryRetriesBySymbol(secType string, err error) bool {
+	if secType = strings.ToUpper(strings.TrimSpace(secType)); secType != "" && secType != "STK" {
+		return false
+	}
+	return !errors.Is(err, ibkrlib.ErrContractNoDefinition) && !errors.Is(err, ibkrlib.ErrSymbolInactive)
 }
 
 func (s *Server) fillQuoteLiquidity(ctx context.Context, c *ibkrlib.Connector, q *rpc.Quote, market marketcal.Market, timeout time.Duration, bars []ibkrlib.HistoricalBar) {

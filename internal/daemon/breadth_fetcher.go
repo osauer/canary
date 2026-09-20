@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -63,6 +64,9 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	// same client are not queued behind the 500-name history sweep.
 	ctx = ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground)
 	raw, err := c.FetchHistoricalDailyBars(ctx, symbol, lookbackDays, f.defaultTimeout)
+	if errors.Is(err, ibkrlib.ErrContractNoDefinition) {
+		return nil, spx.ErrNoDefinition
+	}
 	if err != nil {
 		return nil, err
 	}

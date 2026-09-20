@@ -2,10 +2,17 @@ package spx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 )
+
+// ErrNoDefinition is returned by a BarFetcher when the broker has no
+// contract definition for the symbol. The engine leaves such a name out of
+// the fetch plan until the next completed session: the answer does not
+// change within one, and asking again on every retry pass only repeats it.
+var ErrNoDefinition = errors.New("no security definition (skipped until the next session)")
 
 // Bar is the engine's view of one daily price bar — just the date
 // and close, since 50-DMA breadth needs nothing else. Decoupling

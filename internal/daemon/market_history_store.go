@@ -133,6 +133,43 @@ func usChartCalendar(c rpc.ContractParams) bool {
 	return false
 }
 
+// globexContract reports a USD future on a CME Group venue. Those trade on
+// Globex almost around the clock and have no embedded venue calendar; the
+// one closure the daemon can name for them is the weekend.
+func globexContract(c rpc.ContractParams) bool {
+	return c.SecType == "FUT" && c.Currency == "USD" && slices.Contains([]string{"CME", "CBOT", "COMEX", "NYMEX", "GLOBEX"}, c.Exchange)
+}
+
+// globexWeekendSince returns when the Globex weekend closure containing now
+// began, Friday 17:00 New York, or zero while Globex trades. Holidays are
+// not modelled: Globex mostly trades through them, and a refresh on one only
+// re-reads bars, so the ordinary cadence stands.
+func globexWeekendSince(now time.Time) time.Time {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.Time{}
+	}
+	local := now.In(loc)
+	daysSinceFriday := 0
+	switch local.Weekday() {
+	case time.Friday:
+		if local.Hour() < 17 {
+			return time.Time{}
+		}
+	case time.Saturday:
+		daysSinceFriday = 1
+	case time.Sunday:
+		if local.Hour() >= 18 {
+			return time.Time{}
+		}
+		daysSinceFriday = 2
+	default:
+		return time.Time{}
+	}
+	friday := local.AddDate(0, 0, -daysSinceFriday)
+	return time.Date(friday.Year(), friday.Month(), friday.Day(), 17, 0, 0, 0, loc)
+}
+
 func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
 	if saved == nil {
 		return true
@@ -144,6 +181,13 @@ func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, no
 		return true
 	}
 	r := saved.Result
+	if globexContract(r.Contract) {
+		// Bars read after Friday's close stand until Sunday evening; a
+		// weekend refresh would only ask the broker for the same session.
+		if since := globexWeekendSince(now); !since.IsZero() && r.AsOf.After(since) {
+			return false
+		}
+	}
 	if usChartCalendar(r.Contract) && r.Interval == "1 day" {
 		last, current, ok := lastCompletedMarketSessionWindow(now.Add(-15*time.Minute), marketcal.MarketUSEquity)
 		if ok && !current.IsOpen && r.AsOf.After(last.Close.Add(15*time.Minute)) && r.End.Format("2006-01-02") >= last.Date {

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -136,7 +137,9 @@ func (s *Server) brokerClassificationResolver(c *ibkrlib.Connector, binding ibkr
 
 // cachedClassificationResolver answers from the cache for the given
 // session binding and asks lookup otherwise. A confirmed answer, including
-// an empty one, is remembered for the session; an error is not.
+// an empty one, is remembered for the session; an error is not, except the
+// broker's own verdict that it has no definition for the contract, which a
+// delisted holding would otherwise draw on every snapshot.
 func cachedClassificationResolver[B comparable](cache *classificationCache[B], binding B, lookup func(context.Context, ibkrlib.Contract) (ibkrlib.MarketClassification, error), logger *Logger) classificationResolver {
 	return func(ctx context.Context, contract ibkrlib.Contract) (ibkrlib.MarketClassification, bool) {
 		key := classificationKeyOf(contract)
@@ -144,6 +147,10 @@ func cachedClassificationResolver[B comparable](cache *classificationCache[B], b
 			return mc, true
 		}
 		mc, err := lookup(ctx, contract)
+		if errors.Is(err, ibkrlib.ErrContractNoDefinition) {
+			cache.put(binding, key, ibkrlib.MarketClassification{})
+			return ibkrlib.MarketClassification{}, true
+		}
 		if err != nil {
 			return ibkrlib.MarketClassification{}, false
 		}

@@ -208,6 +208,12 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 	if tailDays > 0 && now.AddDate(0, 0, -days).After(result.RequestedStart) {
 		result.RequestedStart = now.AddDate(0, 0, -days)
 	}
+	if p.Range == "1D" && !usChartCalendar(echo) && len(bars) > 0 && bars[len(bars)-1].Time.Before(result.RequestedStart) {
+		// No venue calendar names the last session of a closed venue; the
+		// newest bar does. Serve the day ending there, as selectStoredHistory
+		// does for recorded history, instead of refusing bars just supplied.
+		result.RequestedStart = historyRequestStart(p, bars[len(bars)-1].Time)
+	}
 	if interval == "1 day" {
 		start := result.RequestedStart
 		result.RequestedStart = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)

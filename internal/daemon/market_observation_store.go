@@ -435,9 +435,12 @@ func newQuoteHistoryCache() *quoteHistoryCache {
 // quoteHistoryTTL keeps bars until the market's next close (see
 // quoteHistoryValidUntil), bars of an unknown calendar for an hour and a
 // failed read for five minutes, so a refused symbol is not asked for on every
-// quote request either.
+// quote request either. The broker's own "no security definition" verdict is
+// kept for thirty minutes, the connector's longest re-resolution backoff.
 func quoteHistoryTTL(e quoteHistoryEntry, _ time.Time) time.Duration {
 	switch {
+	case errors.Is(e.err, ibkrlib.ErrContractNoDefinition):
+		return 30 * time.Minute
 	case e.err != nil:
 		return 5 * time.Minute
 	case e.until.IsZero():

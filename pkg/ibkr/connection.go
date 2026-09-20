@@ -1752,6 +1752,14 @@ func (c *Connection) readMessages() {
 					c.handleDisconnection(err)
 					return
 				}
+				if errors.Is(err, net.ErrClosed) {
+					// Only this side closes its own socket: Disconnect and
+					// the connect retry both do so to unblock this read. The
+					// reader is being told to stop, not losing the stream.
+					connectLogger.Debugf("Reader stopped on closed socket (Client ID: %d)", c.config.ClientID)
+					c.handleDisconnection(err)
+					return
+				}
 				// Any other error means stream alignment is uncertain —
 				// errors before disconnect). Fail fast: log, signal
 				ibkrLogger.Errorf("Error reading message: %v", err)
@@ -3581,6 +3589,10 @@ type protocolWarning struct {
 	Summary string
 	Key     string
 	Symbol  string
+	// Expected marks a frame the broker resolves itself: a market-data
+	// request naming symbol, security type, exchange and currency needs no
+	// conID. It is kept as parser context but is not a misalignment.
+	Expected bool
 }
 
 func (c *Connection) logSuspiciousOutbound(msgID int, fields []string) {
@@ -3613,12 +3625,16 @@ func (c *Connection) logSuspiciousOutbound(msgID int, fields []string) {
 		c.recordSuspiciousSummary(warning.Symbol, warning.Summary)
 	}
 
-	if c.shouldLogSuspicious(warning.Key) {
-		if warning.Symbol != "" {
-			ibkrLogger.Warnf("[WARNING] Protocol misalignment for %s via %s: %s", warning.Symbol, category, warning.Summary)
-		} else {
-			ibkrLogger.Warnf("[WARNING] Protocol misalignment (%s): %s", category, warning.Summary)
-		}
+	if !c.shouldLogSuspicious(warning.Key) {
+		return
+	}
+	switch {
+	case warning.Expected:
+		ibkrLogger.Debugf("%s for %s sent by contract description: %s", category, warning.Symbol, warning.Summary)
+	case warning.Symbol != "":
+		ibkrLogger.Warnf("[WARNING] Protocol misalignment for %s via %s: %s", warning.Symbol, category, warning.Summary)
+	default:
+		ibkrLogger.Warnf("[WARNING] Protocol misalignment (%s): %s", category, warning.Summary)
 	}
 }
 
@@ -3711,11 +3727,19 @@ func summarizeReqMktDataFields(fields []string) (protocolWarning, bool) {
 	reqID := fieldValue(fields, 2)
 	conID := fieldValue(fields, 3)
 	symbol := fieldValue(fields, 4)
+	secType := fieldValue(fields, 5)
 	exchange := fieldValue(fields, 10)
 	primary := fieldValue(fields, 11)
-	generic := fieldValue(fields, 18)
-	snapshot := fieldValue(fields, 19)
-	regSnap := fieldValue(fields, 20)
+	currency := fieldValue(fields, 12)
+	// buildReqMktDataFields: deltaNeutral at 15, then ticks, snapshot and
+	// regulatory snapshot; a combo carries its leg count before them.
+	tail := 16
+	if secType == "BAG" {
+		tail++
+	}
+	generic := fieldValue(fields, tail)
+	snapshot := fieldValue(fields, tail+1)
+	regSnap := fieldValue(fields, tail+2)
 	if reqID != "0" && reqID != "" && conID != "0" {
 		return protocolWarning{}, false
 	}
@@ -3725,7 +3749,8 @@ func summarizeReqMktDataFields(fields []string) (protocolWarning, bool) {
 		summary += " (contract details pending)"
 	}
 	key := fmt.Sprintf("mkt:%s:%s", symbol, conID)
-	return protocolWarning{Summary: summary, Key: key, Symbol: symbol}, true
+	expected := reqID != "0" && reqID != "" && conID == "0" && symbol != "" && secType != "" && exchange != "" && currency != ""
+	return protocolWarning{Summary: summary, Key: key, Symbol: symbol, Expected: expected}, true
 }
 
 func summarizeReqContractFields(fields []string) (protocolWarning, bool) {
@@ -3856,7 +3881,8 @@ func (c *Connection) readMessage() ([]byte, error) {
 	// Debug: Reading message length
 	if _, err := io.ReadFull(c.reader, lengthBytes); err != nil {
 		// Only log non-timeout errors (timeouts are expected when no messages)
-		if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		// and not a socket this side closed on purpose.
+		if netErr, ok := err.(net.Error); (!ok || !netErr.Timeout()) && !errors.Is(err, net.ErrClosed) {
 			connectLogger.Warnf("Client %d: Failed to read length: %v", c.config.ClientID, err)
 		}
 		return nil, err

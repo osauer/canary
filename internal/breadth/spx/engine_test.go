@@ -248,3 +248,50 @@ func TestEngineSnapshotPersistsAcrossRestart(t *testing.T) {
 		t.Errorf("persisted vs reloaded mismatch:\n  want %+v\n  got  %+v", want, got)
 	}
 }
+
+// A name the broker refuses with ErrNoDefinition is asked once per completed
+// session: the retry passes that converge the rest of the universe must not
+// draw the same code 200 each time.
+func TestEngineSkipsANameTheBrokerCannotDefineUntilTheNextSession(t *testing.T) {
+	current := time.Date(2026, 9, 19, 14, 0, 0, 0, time.UTC) // Saturday
+	anchor := time.Date(2026, 9, 18, 0, 0, 0, 0, time.UTC)
+	members := []string{"AAA", "BBB", "CCC", "DDD", "OKE"}
+	fake := &FakeBarFetcher{
+		Bars: map[string][]Bar{
+			"AAA": makeSeries(100, 1, WindowSize, anchor),
+			"BBB": makeSeries(50, 1, WindowSize, anchor),
+			"CCC": makeSeries(75, 1, WindowSize, anchor),
+			"DDD": makeSeries(60, 1, WindowSize, anchor),
+		},
+		Errors: map[string]error{"OKE": ErrNoDefinition},
+	}
+	e := newTestEngine(t, fake, func() time.Time { return current }, members)
+	refused := func() int {
+		n := 0
+		for _, c := range fake.Calls {
+			if c.Symbol == "OKE" {
+				n++
+			}
+		}
+		return n
+	}
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if refused() != 1 {
+		t.Fatalf("the first pass asks once: %d", refused())
+	}
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if refused() != 1 {
+		t.Fatalf("a retry pass in the same session asked the broker again: %d", refused())
+	}
+	current = time.Date(2026, 9, 21, 22, 0, 0, 0, time.UTC) // Monday, after the close settles
+	if err := e.Refresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if refused() != 2 {
+		t.Fatalf("the next session must ask again: %d", refused())
+	}
+}

@@ -3,7 +3,7 @@ package ibkr
 import (
 	"bufio"
 	"context"
-
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -678,5 +678,38 @@ func TestReusedConnectionInvalidatesUnstampedObservationAuthority(t *testing.T) 
 	}
 	if got := marketDataSlotCount(conn); got != 0 {
 		t.Fatalf("successor inherited market-data slot count=%d", got)
+	}
+}
+
+// A definition rejection addressed to the resolution's own reqID ends the
+// wait with the broker's verdict. It used to burn the whole timeout and come
+// back as a deadline nobody could tell from a slow gateway, so a delisted
+// holding was resolved again on every portfolio snapshot.
+func TestResolveOrderContractForSessionEndsOnDefinitionRejection(t *testing.T) {
+	conn, connector, _, _, _ := newQueuedInstructionReconnectFixture(t)
+	binding, ok := connector.CaptureSession()
+	if !ok {
+		t.Fatal("capture session")
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := connector.ResolveOrderContractForSession(context.Background(), binding, Contract{Symbol: "HGENQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 5*time.Second)
+		done <- err
+	}()
+	reqID := waitForHandlerReqID(t, conn, msgContractData)
+	started := time.Now()
+	if !connector.failPendingContractDetails(reqID, 200, "No security definition has been found for the request") {
+		t.Fatalf("resolution reqID %d was not armed for the broker's rejection", reqID)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrContractNoDefinition) {
+			t.Fatalf("error = %v, want the definition verdict", err)
+		}
+		if time.Since(started) > time.Second {
+			t.Fatal("the rejection did not end the wait promptly")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("resolution burned its timeout after the broker rejected it")
 	}
 }

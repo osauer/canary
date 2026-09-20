@@ -123,6 +123,10 @@ type Engine struct {
 	// nextAttempt is when the scheduler will next try a refresh; zero until
 	// Run's first sleep.
 	nextAttempt time.Time
+	// definitionMisses maps a symbol the broker refused with ErrNoDefinition
+	// to the session key that refresh targeted; planFetches skips the name
+	// while that session is still the target.
+	definitionMisses map[string]string
 
 	healthGate func() error
 	// kick wakes a sleeping Run immediately (capacity 1, non-blocking send).
@@ -158,9 +162,11 @@ func New(store *Store, fetcher BarFetcher, opts Options) *Engine {
 		warmLookback: opts.WarmLookbackDays,
 		windows:      map[string]ConstituentWindow{},
 		members:      members,
-		membersFn:    membersFn,
-		healthGate:   opts.HealthGate,
-		kick:         make(chan struct{}, 1),
+
+		definitionMisses: map[string]string{},
+		membersFn:        membersFn,
+		healthGate:       opts.HealthGate,
+		kick:             make(chan struct{}, 1),
 	}
 	if e.clock == nil {
 		e.clock = time.Now
@@ -414,8 +420,14 @@ type fetchPlan struct {
 // planFetches walks the membership list and decides what to fetch
 func (e *Engine) planFetches(members []string, cached map[string]ConstituentWindow) []fetchPlan {
 	targetSession := CompletedSessionKey(e.clock())
+	e.mu.RLock()
+	refused := maps.Clone(e.definitionMisses)
+	e.mu.RUnlock()
 	plan := make([]fetchPlan, 0, len(members))
 	for _, sym := range members {
+		if refused[sym] == targetSession {
+			continue
+		}
 		w, ok := cached[sym]
 		if !ok || len(w.Closes) == 0 {
 			plan = append(plan, fetchPlan{Symbol: sym, LookbackDays: e.coldLookback})
@@ -495,6 +507,9 @@ dispatch:
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					failure = RefreshFailureCancelled
 				}
+				if errors.Is(err, ErrNoDefinition) {
+					e.rememberDefinitionMiss(item.Symbol)
+				}
 				e.recordRefreshProcessed(failure)
 				return
 			}
@@ -520,6 +535,17 @@ dispatch:
 	checkpointLocked()
 	mu.Unlock()
 	return errs, transportErr
+}
+
+// rememberDefinitionMiss keeps a name the broker refused out of the fetch
+// plan for the rest of the session this refresh targets.
+func (e *Engine) rememberDefinitionMiss(symbol string) {
+	e.mu.Lock()
+	if e.definitionMisses == nil {
+		e.definitionMisses = map[string]string{}
+	}
+	e.definitionMisses[symbol] = e.progress.SessionKey
+	e.mu.Unlock()
 }
 
 func constituentWindowsEqual(a, b ConstituentWindow) bool {

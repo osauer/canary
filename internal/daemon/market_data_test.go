@@ -118,3 +118,22 @@ func TestMarketHistoryClampsMonthEnds(t *testing.T) {
 		}
 	}
 }
+
+// On a closed venue without an embedded calendar the padded 1D read returns
+// only older bars. The day ending at the newest bar is served, as
+// selectStoredHistory does for recorded history, instead of an error.
+func TestMarketHistoryClosedVenueServesItsLastTradedDay(t *testing.T) {
+	sunday := time.Date(2026, 9, 20, 4, 9, 0, 0, time.UTC)
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{ConID: 654321, Symbol: "ES", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}, Range: "1D"}
+	friday := time.Date(2026, 9, 18, 20, 55, 0, 0, time.UTC)
+	got, err := fetchMarketHistory(t.Context(), p, 0, sunday, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
+		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+			{Time: friday.Add(-30 * time.Hour), Close: 98},
+			{Time: friday.Add(-20 * time.Hour), Close: 99},
+			{Time: friday, Close: 101},
+		}}, nil
+	})
+	if err != nil || !got.RequestedStart.Equal(friday.Add(-24*time.Hour)) || len(got.Points) != 2 || !got.End.Equal(friday) {
+		t.Fatalf("a closed venue's last traded day was not served: %+v %v", got, err)
+	}
+}

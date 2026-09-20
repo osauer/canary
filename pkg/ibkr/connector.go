@@ -738,6 +738,14 @@ func (e *HistoricalRequestError) Error() string {
 	return fmt.Sprintf("historical data error %d", e.Code)
 }
 
+// Is reports a code-200 history rejection as [ErrContractNoDefinition]: the
+// broker cannot define the contract as described, the same verdict a
+// contract-details miss carries, so callers classify both alike. The code
+// alone decides, as the redacted form of this error keeps no message.
+func (e *HistoricalRequestError) Is(target error) bool {
+	return target == ErrContractNoDefinition && e.Code == 200
+}
+
 // HistoricalDataValidationError reports a connector-authored validation
 // failure. Reason is an allowlisted token and never includes broker payload.
 type HistoricalDataValidationError struct {
@@ -2438,6 +2446,11 @@ func (c *Connector) ResolveOrderContractForSession(ctx context.Context, binding 
 	})
 	defer conn.UnregisterHandler(msgContractData, dataHandlerID)
 	defer conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+	// A rejection addressed to this reqID ends the wait with the broker's
+	// verdict; without it a code 200 burned the whole timeout and came back
+	// as a deadline nobody could tell from a slow gateway.
+	req, releaseReq := c.registerContractDetailsRequest(reqID, "")
+	defer releaseReq()
 
 	if err := conn.sendContractDetailsRequestForEpoch(resolveCtx, contract, reqID, binding.epoch); err != nil {
 		return ResolvedOrderContract{}, err
@@ -2447,6 +2460,8 @@ func (c *Connector) ResolveOrderContractForSession(ctx context.Context, binding 
 		select {
 		case detail := <-detailsCh:
 			details = append(details, detail)
+		case err := <-req.fail:
+			return ResolvedOrderContract{}, err
 		case <-overflowCh:
 			return ResolvedOrderContract{}, fmt.Errorf("contract details overflow")
 		case <-doneCh:
@@ -7214,8 +7229,20 @@ func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, co
 		}
 	}
 	if contract.ConID == 0 {
+		// A routed resolution draws its own code 200 per read; the miss
+		// backoff that gates the symbol and subscription paths applies here
+		// too, keyed by the route.
+		routeKey := MarketDataKeyForContract(contract)
+		if missErr := c.contractResolutionMissFor(routeKey); missErr != nil {
+			c.logDebug("Routed contract details for %s suppressed (%v)", symbol, missErr)
+			return nil, missErr
+		}
 		resolveTimeout := min(timeout, 12*time.Second)
 		details, err := c.fetchContractDetailsForContract(contract, resolveTimeout)
+		if errors.Is(err, ErrContractNoDefinition) {
+			c.recordContractResolutionMiss(routeKey)
+			return nil, fmt.Errorf("contract details unresolved for %s: %w", symbol, err)
+		}
 		if len(details) > 0 {
 			for _, detail := range details {
 				candidate := contract
@@ -7260,6 +7287,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 	// wire alongside reqHistoricalData; even with the rate limiter's
 	// per-request dispatcher (no HoL blocking) IBKR can take several
 	// gateway was busy and the awaitContractDetail grace window
+	var resolveErr error
 	if baseContract.ConID == 0 && requireConID {
 		var fetchErr error
 		resolveTimeout := 30 * time.Second
@@ -7275,7 +7303,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 				}
 			}
 		} else {
-			fetchErr = err
+			fetchErr, resolveErr = err, err
 			late := c.awaitContractDetailCtx(ctx, symbol, graceWindow)
 			candidate := baseContract
 			if late != nil && c.applyContractDetail(*late, &candidate) {
@@ -7292,6 +7320,13 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 
 	// The only WARN in this chain. A quote-history fallback runs the routed
 	if requireConID && baseContract.ConID == 0 {
+		if errors.Is(resolveErr, ErrContractNoDefinition) {
+			// The broker has answered. The definition-miss backoff owns the
+			// retry cadence and already logged the symbol once; a WARN per
+			// suppressed read would only repeat it.
+			c.logDebug("Historical data request skipped for %s: %v", symbol, resolveErr)
+			return nil, fmt.Errorf("contract details unresolved for %s: %w", symbol, resolveErr)
+		}
 		message := fmt.Sprintf("Historical data request aborted for %s: contract ID unresolved (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
 		if summary, emit := c.coalesceContractWarning("historical_unresolved\x00"+symbol+"\x00"+baseContract.Exchange+"\x00"+baseContract.PrimaryExch, contractWarningWindow, message); emit {
 			c.logWarn("%s", summary)

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -87,5 +88,49 @@ func TestQuoteHistoryKeepsAFailedReadBrieflyAndWorksWithoutACache(t *testing.T) 
 	bare := &Server{}
 	if _, _ = bare.quoteHistoryBars(key, marketcal.MarketUSEquity, now, fetch); reads != 3 {
 		t.Fatalf("without a cache every request reads, as before: reads=%d", reads)
+	}
+}
+
+// The broker's own "no security definition" verdict is kept as long as the
+// connector's longest re-resolution backoff, so a delisted holding is not
+// asked for on every five-minute cycle.
+func TestQuoteHistoryKeepsTheBrokersDefinitionVerdictLonger(t *testing.T) {
+	s := &Server{quoteHistory: newQuoteHistoryCache()}
+	now := time.Date(2026, 9, 19, 14, 0, 0, 0, time.UTC)
+	reads := 0
+	verdict := fmt.Errorf("contract details unresolved for HGENQ: %w", ibkr.ErrContractNoDefinition)
+	fetch := func() ([]ibkr.HistoricalBar, error) { reads++; return nil, verdict }
+	key := quoteLiquidityKey{symbol: "HGENQ", exchange: "SMART", currency: "USD"}
+	if _, err := s.quoteHistoryBars(key, marketcal.MarketUSEquity, now, fetch); !errors.Is(err, ibkr.ErrContractNoDefinition) || reads != 1 {
+		t.Fatalf("first read: %v reads=%d", err, reads)
+	}
+	if _, _ = s.quoteHistoryBars(key, marketcal.MarketUSEquity, now.Add(25*time.Minute), fetch); reads != 1 {
+		t.Fatalf("the verdict was asked for again within half an hour: reads=%d", reads)
+	}
+	if _, _ = s.quoteHistoryBars(key, marketcal.MarketUSEquity, now.Add(31*time.Minute), fetch); reads != 2 {
+		t.Fatalf("after half an hour the name earns one probe: reads=%d", reads)
+	}
+}
+
+// The bare-symbol fallback re-routes a stock the classifier may know better;
+// it cannot help an index or future, a definition verdict, or an inactive
+// name, and re-asking there only draws a second code 200.
+func TestQuoteHistoryRetriesBySymbolOnlyWhereTheClassifierCanHelp(t *testing.T) {
+	transport := errors.New("historical rate limit: context deadline exceeded")
+	for _, tc := range []struct {
+		secType string
+		err     error
+		want    bool
+	}{
+		{"STK", transport, true},
+		{"", transport, true},
+		{"IND", transport, false},
+		{"FUT", transport, false},
+		{"STK", fmt.Errorf("unresolved: %w", ibkr.ErrContractNoDefinition), false},
+		{"STK", ibkr.ErrSymbolInactive, false},
+	} {
+		if got := quoteHistoryRetriesBySymbol(tc.secType, tc.err); got != tc.want {
+			t.Errorf("quoteHistoryRetriesBySymbol(%q, %v) = %t, want %t", tc.secType, tc.err, got, tc.want)
+		}
 	}
 }

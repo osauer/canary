@@ -323,3 +323,83 @@ func TestReplayAfter1101ReleasesSlotsWithoutWireCancel(t *testing.T) {
 		t.Fatalf("market-data slots = %d, want 1 (old slot released, new held)", got)
 	}
 }
+
+// A code-200 answer to a history request is the same verdict as a
+// contract-details miss, with or without the broker text the redacted form
+// drops.
+func TestHistoricalCode200IsTheDefinitionVerdict(t *testing.T) {
+	for _, err := range []error{
+		&HistoricalRequestError{Code: 200, Message: "No security definition has been found for the request"},
+		&HistoricalRequestError{Code: 200, Category: HistoricalFailureContractUnavailable},
+	} {
+		if !errors.Is(err, ErrContractNoDefinition) {
+			t.Fatalf("%v does not classify as ErrContractNoDefinition", err)
+		}
+	}
+	if errors.Is(&HistoricalRequestError{Code: 162, Message: "pacing"}, ErrContractNoDefinition) {
+		t.Fatal("a pacing violation classified as a definition miss")
+	}
+}
+
+// Inside the definition-miss backoff a symbol-routed history read fails with
+// the broker's verdict: no wire request, and none of the "request aborted"
+// WARNs that used to repeat once per suppressed read all weekend.
+func TestHistoricalReadInsideDefinitionMissIsQuiet(t *testing.T) {
+	c, conn, out, _ := newMissTestConnector(t)
+	buf := captureConnectorLogs(t)
+	c.recordContractResolutionMiss("HGENQ")
+	before := len(decodeOutboundFrames(t, conn, out.Bytes()))
+	base := Contract{Symbol: "HGENQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	_, err := c.fetchHistoricalDailyBarsWithBase(context.Background(), "HGENQ", base, "", 10, time.Second, true, "")
+	if !errors.Is(err, ErrContractNoDefinition) {
+		t.Fatalf("error = %v, want the definition verdict", err)
+	}
+	if got := len(decodeOutboundFrames(t, conn, out.Bytes())); got != before {
+		t.Fatalf("suppressed read wrote wire frames: %d -> %d", before, got)
+	}
+	if lines := logLines(buf, "Historical data request aborted"); len(lines) != 0 {
+		t.Fatalf("suppressed read still warned: %q", lines)
+	}
+}
+
+// A routed history read (an index or future the caller already describes)
+// draws its own code 200 per resolution, so it must both honour and feed the
+// definition-miss backoff under its route key.
+func TestRoutedHistoricalReadHonoursAndRecordsDefinitionMiss(t *testing.T) {
+	c, conn, out, _ := newMissTestConnector(t)
+	c.mu.Lock()
+	c.ready = true
+	c.mu.Unlock()
+	contract := Contract{Symbol: "RUT", SecType: "IND", Exchange: "CBOE", Currency: "USD"}
+	key := MarketDataKeyForContract(normalizeMarketDataContract(contract))
+
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := c.FetchHistoricalDailyBarsWithContract(context.Background(), contract, 10, 5*time.Second)
+		errCh <- err
+	}()
+	reqID := waitForPendingContractDetails(t, c)
+	if !c.failPendingContractDetails(reqID, 200, "No security definition has been found for the request") {
+		t.Fatalf("failPendingContractDetails did not own reqID %d", reqID)
+	}
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, ErrContractNoDefinition) {
+			t.Fatalf("first routed read error = %v, want the definition verdict", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("routed read did not return after the injected code-200")
+	}
+	if c.contractResolutionMissFor(key) == nil {
+		t.Fatal("the routed verdict was not recorded under its route key")
+	}
+
+	before := len(decodeOutboundFrames(t, conn, out.Bytes()))
+	_, err := c.FetchHistoricalDailyBarsWithContract(context.Background(), contract, 10, time.Second)
+	if _, ok := errors.AsType[*ContractResolutionMissError](err); !ok {
+		t.Fatalf("suppressed routed read error = %v, want ContractResolutionMissError", err)
+	}
+	if got := len(decodeOutboundFrames(t, conn, out.Bytes())); got != before {
+		t.Fatalf("suppressed routed read wrote wire frames: %d -> %d", before, got)
+	}
+}

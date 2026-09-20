@@ -311,3 +311,46 @@ func TestMarketHistoryPremarketAndClosedIntraday(t *testing.T) {
 		t.Fatal("new premarket did not request a refresh")
 	}
 }
+
+// A CME Group future has no embedded venue calendar, but its weekend is
+// known: bars read after Friday's close stand until Globex reopens on Sunday
+// evening, for the intraday and the daily series alike.
+func TestMarketHistoryGlobexWeekendNeedsNoRefresh(t *testing.T) {
+	_, p, key, _, r := historyFixture(t)
+	p.Range = "1D"
+	p.Contract = rpc.ContractParams{ConID: 654321, Symbol: "ES", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}
+	r.Contract = p.Contract
+	r.Range, r.Interval, r.TimestampKind, r.RegularHoursOnly = "1D", "5 mins", "instant", false
+	fridayClose := time.Date(2026, 9, 18, 21, 0, 0, 0, time.UTC) // 17:00 New York
+	r.Points = []rpc.MarketHistoryPoint{{At: fridayClose.Add(-5 * time.Minute), Value: 101}}
+	r.Start, r.End = r.Points[0].At, r.Points[0].At
+	r.RequestedStart = fridayClose.Add(-24 * time.Hour)
+	r.AsOf = fridayClose.Add(10 * time.Minute)
+	saved := mergeMarketHistory(key, nil, r, true, r.AsOf)
+	sunday := time.Date(2026, 9, 20, 4, 9, 0, 0, time.UTC)
+	if historyRefreshDue(&saved, p, sunday) {
+		t.Fatal("a futures series read after Friday's close was refreshed on the weekend")
+	}
+	daily, pDaily := saved, p
+	pDaily.Range = "1Y"
+	daily.Result.Interval, daily.Result.TimestampKind, daily.Result.RegularHoursOnly = "1 day", "session_date", true
+	daily.Result.RequestedStart = sunday.AddDate(-1, 0, -2)
+	if historyRefreshDue(&daily, pDaily, sunday) {
+		t.Fatal("the daily futures series was refreshed on the weekend too")
+	}
+	beforeClose := saved
+	beforeClose.Result.AsOf = fridayClose.Add(-time.Hour)
+	if !historyRefreshDue(&beforeClose, p, sunday) {
+		t.Fatal("bars read before Friday's close must be completed once")
+	}
+	sundayEvening := time.Date(2026, 9, 20, 22, 30, 0, 0, time.UTC) // 18:30 New York
+	if !historyRefreshDue(&saved, p, sundayEvening) {
+		t.Fatal("Globex reopened on Sunday evening without a refresh")
+	}
+	if since := globexWeekendSince(time.Date(2026, 9, 18, 20, 59, 0, 0, time.UTC)); !since.IsZero() {
+		t.Fatalf("Friday afternoon is a trading session: %v", since)
+	}
+	if since := globexWeekendSince(sunday); !since.Equal(fridayClose) {
+		t.Fatalf("the weekend closure begins at Friday's close: %v", since)
+	}
+}
