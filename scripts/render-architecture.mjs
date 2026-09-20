@@ -16,6 +16,7 @@ const icons = {
   user: `<path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0"/><path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2"/>`,
   cpu: `<path d="M5 6a1 1 0 0 1 1 -1h12a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-12a1 1 0 0 1 -1 -1l0 -12"/><path d="M8 10v-2h2m6 6v2h-2m-4 0h-2v-2m8 -4v-2h-2"/><path d="M3 10h2M3 14h2M10 3v2M14 3v2M21 10h-2M21 14h-2M14 21v-2M10 21v-2"/>`,
   terminal: `<path d="M8 9l3 3l-3 3M13 15h3"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2z"/>`,
+  code: `<path d="M7 8l-4 4l4 4"/><path d="M17 8l4 4l-4 4"/><path d="M14 4l-4 16"/>`,
   plugConnected: `<path d="M7 12l5 5l-1.5 1.5a3.536 3.536 0 1 1 -5 -5l1.5 -1.5M17 12l-5 -5l1.5 -1.5a3.536 3.536 0 1 1 5 5l-1.5 1.5M3 21l2.5 -2.5M18.5 5.5l2.5 -2.5M10 11l-2 2M13 14l-2 2"/>`,
   mobileCode: `<path d="M11.5 21h-3.5a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v8M20 21l2 -2l-2 -2M17 17l-2 2l2 2M11 4h2M12 17v.01"/>`,
   exchange: `<path d="M7 10h14l-4 -4M17 14h-14l4 4"/>`,
@@ -233,14 +234,14 @@ function stripNode(x, y, width, label, iconName = "") {
 }
 
 function systemArchitecture() {
-  const rows = [210, 352, 494];        // consumer/adapter tile tops
+  const rows = [212, 324, 436, 548];   // consumer/adapter tile tops
   const arrowY = rows.map((y) => y + 22);
   const intRows = [212, 324, 436, 548]; // integration tile tops
   const intArrowY = intRows.map((y) => y + 22);
   const busX = 884;
 
   const body = `
-  ${header("Runtime Architecture", "One daemon owns the broker session; typed adapters serve humans, AI hosts, and the app.")}
+  ${header("Runtime Architecture", "One daemon owns the broker session; typed adapters serve humans, AI hosts, Go programs, and the app.")}
 
   ${legendItem(1157, 40, "slate", "Local typed flow")}
   ${legendItem(1304, 40, "green", "Broker path")}
@@ -262,14 +263,17 @@ function systemArchitecture() {
   ${component({ x: 36, y: rows[0], iconName: "user", color: C.slate, title: "Human Operator", subtitle: ["shell · local browser"], width: 172 })}
   ${component({ x: 36, y: rows[1], iconName: "cpu", color: C.slate, title: "AI / MCP Host", subtitle: ["Claude · Codex", "other MCP clients"], width: 172 })}
   ${component({ x: 36, y: rows[2], iconName: "mobileCode", color: C.yellow, iconColor: C.ink, title: "Canary PWA", subtitle: ["browser", "iOS Home Screen"], width: 172 })}
+  ${component({ x: 36, y: rows[3], iconName: "code", color: C.slate, title: "Go Program", subtitle: ["embedding service", "tests via canarytest"], width: 172 })}
 
   ${component({ x: 246, y: rows[0], iconName: "terminal", color: C.slate, title: "CLI", subtitle: ["argv · stdout"], mono: "internal/cli", width: 180 })}
   ${component({ x: 246, y: rows[1], iconName: "plugConnected", color: C.slate, title: "MCP Adapter", subtitle: ["JSON-RPC 2.0 · stdio"], mono: "internal/mcp", width: 180 })}
   ${component({ x: 246, y: rows[2], iconName: "mobileCode", color: C.yellow, iconColor: C.ink, title: "Canary App Host", subtitle: ["HTTP JSON · SSE"], mono: "internal/app", width: 180 })}
+  ${component({ x: 246, y: rows[3], iconName: "plugConnected", color: C.slate, title: "Daemon Client", subtitle: ["Go API · tool calls"], mono: "canary", width: 180 })}
 
   ${line(`M214 ${arrowY[0]}H240`, "slate")}
   ${line(`M214 ${arrowY[1]}H240`, "slate")}
   ${line(`M214 ${arrowY[2]}H240`, "slate", { both: true })}
+  ${line(`M214 ${arrowY[3]}H240`, "slate")}
 
   <rect x="452" y="200" width="110" height="450" rx="14" fill="${C.greenSoft}" stroke="${C.greenLine}"/>
   ${icon("exchange", 492, 222, 30, C.greenDark, 1.8)}
@@ -281,6 +285,7 @@ function systemArchitecture() {
   ${line(`M432 ${arrowY[0]}H446`, "slate")}
   ${line(`M432 ${arrowY[1]}H446`, "slate")}
   ${line(`M432 ${arrowY[2]}H446`, "slate")}
+  ${line(`M432 ${arrowY[3]}H446`, "slate")}
   ${line("M562 420H578", "slate")}
 
   <rect x="584" y="200" width="290" height="450" rx="16" fill="${C.terminal}"/>
