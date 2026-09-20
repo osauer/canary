@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.9.2 — 2026-09-20 20:18 CEST
+
+### What's new
+
+- **The daily statement check follows the exchange calendar.** Canary asks IBKR for a statement only after a US session day, and `canary reporting` names when the next check is due. Weekends and exchange holidays stay current on the last session's statement instead of starting a check that cannot succeed.
+
+### Changed
+
+- **`canary edge` reads like the other desk views.** The review is laid out as Evidence, Account P/L, Decisions by action, Findings and Options, every amount uses the house money format, coverage is stated once, and rows wrap without separating a currency from its amount. It replaces the single-block rendering.
+
+### Fixed
+
+- **`canary status` reported broker statements as "Action required" every Sunday.** The Sunday check asked for a range ending on Saturday, which IBKR answers with the undocumented Flex code 1025, and retried every thirty minutes until Tuesday. Reconciliation, positions and orders were never affected; Friday's statement was already retained.
+- **An Edge headline without a selected pattern quoted a gate that had passed.** It now names the evidence gate that failed (coverage, scored count or action sample), and one session, one month or one date reads in the singular.
+
 ## v3.9.1 — 2026-09-20 16:08 CEST
 
 ### What's new
