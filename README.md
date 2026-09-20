@@ -16,6 +16,10 @@ Canary is for an IBKR Pro user who runs Gateway or TWS locally and wants stale,
 missing, or held evidence to remain visible. It is not a hosted brokerage
 service, a trade recommender, or a complete TWS API replacement. If you only
 need a Go wire-protocol client, use [`pkg/ibkr`](#go-wire-protocol-library).
+To read a running Canary from your own Go program, import the module root
+`github.com/osauer/canary/v2`: it runs the same read-only tool catalogue over the
+daemon socket, and `canarytest` serves the wire types on a temporary socket for
+tests.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 

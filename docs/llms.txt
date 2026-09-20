@@ -11,7 +11,8 @@ rows carry the listing venue. Unit rows place no order; broker-write gates are
 unchanged.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
-MCP server, paired app, and public Go TWS API. The daemon
+MCP server, paired app, and a public Go module with a daemon client and the TWS
+wire protocol. The daemon
 owns account scope, market sensors, rulebook evaluation, protection proposals,
 option-exercise opportunities, and typed source quality. The CLI, MCP server,
 and app are adapters over that authority.
@@ -26,13 +27,13 @@ Use it for:
   option-exercise opportunity review;
 - explicit freshness, entitlement, source-health, warning-code, and session
   context; and
-- Go services using the clean-room `github.com/osauer/canary/v2/pkg/ibkr`
-  protocol package.
+- Go programs reading the daemon through `github.com/osauer/canary/v2`, or
+  building on the clean-room `pkg/ibkr` protocol package.
 
 The MCP server exposes read-only tools for status, trading status, settings,
 open orders, order history, one-order status, account, positions, option
-strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status,
-Edge, rules, proposals, opportunities, portfolio allocation, reconciliation status,
+strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status and the
+statement performance series, Edge, rules, proposals, opportunities, portfolio allocation, reconciliation status,
 market quotes and price history, exchange sessions, and official macro calendars
 and publications. It has no MCP resources, settings writes, order previews, or
 execution tools. Breadth and gamma remain daemon inputs. Use

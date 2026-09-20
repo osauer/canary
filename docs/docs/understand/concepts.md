@@ -93,7 +93,7 @@ Options take their underlying's classification.
 
 **Coverage.** Each row carries `observed` and `missing` counts. A row with any missing input reports no percentage: a stale price, an absent currency conversion, or a valuation the broker withheld is unvalued, never zero. `coverage_status` reads `partial` whenever a row is missing an input, an underlying is unclassified, net liquidation is unavailable, or cost basis could not be observed.
 
-Known limits: the broker map is a best effort for names outside the S&P 500 and stays conservative, so an unknown pairing lands in Unclassified and the daemon logs the pairing without its symbol. Fund weights change only with a release. The S&P sector list refreshes with the membership and falls back to the embedded baseline after a restart until the next refresh.
+Known limits: the broker map is a best effort for names outside the S&P 500 and stays conservative, so an unknown pairing lands in Unclassified and the daemon logs the pairing without its symbol. Fund weights change only with a release. The S&P sector list refreshes with the membership and falls back to the embedded baseline after a restart until the next refresh. Broker classifications are asked once per broker session and kept until the session changes; the lookup phase of a first, uncached snapshot is bounded at 20 seconds, so names left over on a large book read Unclassified on that call and resolve on the next. A name the broker has no definition for is kept as unclassified for the session.
 
 ## Market events
 

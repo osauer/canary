@@ -115,7 +115,9 @@ watch command has been retired.
 
 IBKR's nightly reset can make the gateway answer "no security definition" for everything for a while, and names asked for during that window get marked inactive. The mark is a cache rather than a verdict: it lives in memory only, expires after 12 hours, and is rebuilt from scratch on every reconnect.
 
-So the fix is a reconnect. `canary restart` gets you one immediately instead of waiting out the TTL. A separate 30 minute retry window covers entitlement rejections, which are a different failure with the same symptom.
+The daemon also remembers that answer so it does not ask again on every read. The connector holds off re-resolving the name for one minute, doubling to 30 minutes, until a resolution succeeds. A quote's closed-market context keeps the refusal for 30 minutes. The allocation tables keep it for the rest of the broker session, and the breadth sweep leaves the name out until the next completed session.
+
+So the fix is `canary restart`. It restarts the daemon and clears all of these at once; a gateway reconnect on its own clears only the inactive mark and the allocation memo. A separate 30 minute retry window covers entitlement rejections, which are a different failure with the same symptom.
 
 ## Breadth shows `0.0 %`, or stays `computing`
 

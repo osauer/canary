@@ -177,7 +177,8 @@ const (
 	CodeBadRequest = rpc.CodeBadRequest
 	// CodeGatewayUnavailable means the broker gateway is not connected.
 	CodeGatewayUnavailable = rpc.CodeGatewayUnavailable
-	// CodeSymbolInactive means the requested instrument is not active.
+	// CodeSymbolInactive means the requested instrument is not active or the
+	// broker has no definition for it.
 	CodeSymbolInactive = rpc.CodeSymbolInactive
 	// CodeTimeout means the daemon gave up waiting on the broker.
 	CodeTimeout = rpc.CodeTimeout

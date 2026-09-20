@@ -48,9 +48,10 @@ curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
 canary setup claude-desktop
 ```
 
-The public Go module intentionally remains
-`github.com/osauer/canary/v2/pkg/ibkr`. Its semantic-version authority is the
-maintained v2 tag line. `go install github.com/osauer/canary/v2/cmd/canary@latest`
+The public Go module intentionally remains `github.com/osauer/canary/v2`: its
+root package is the daemon client, `canarytest` its test double, and `pkg/ibkr`
+the TWS wire protocol. Its semantic-version authority is the maintained v2 tag
+line. `go install github.com/osauer/canary/v2/cmd/canary@latest`
 therefore installs the newest compatible v2 module tag, not a root product v3
 tag. Product v3 users should use the installer or signed release assets.
 
@@ -83,6 +84,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_stress`: full portfolio-stress assessment with risk evidence and source health.
 - `canary_brief`: current daemon-composed desk summary and Action Queue.
 - `canary_reporting`: redacted broker-reporting setup and evidence status.
+- `canary_reporting_performance`: retained statement equity series with dated external flows and year-to-date income sums; computes no return.
 - `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
 - `canary_rules`: ranked rulebook findings and explicit unknown inputs.
 - `canary_proposals`: read-only close/reduce protection candidates.

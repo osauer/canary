@@ -132,8 +132,9 @@ MCP remains without previews or execution tools in every build.
 
 ## What the agent can then see
 
-The full MCP profile covers the daily brief, broker-reporting status, Canary Edge,
-account and positions, option-strategy grouping, named-symbol technical analysis,
+The full MCP profile covers the daily brief, broker-reporting status and the
+statement performance series, Canary Edge, account, positions and allocation,
+option-strategy grouping, named-symbol technical analysis,
 official exchange sessions, detailed regime and portfolio stress, rulebook verdict,
 protection proposals, option-exercise opportunities, settings, trading readiness,
 and read-only order-journal views. Local lifecycle verbs (`setup`, `update`,

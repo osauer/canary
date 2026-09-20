@@ -33,7 +33,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary rules`](#canary-rules) | Desk | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
-| [`canary reporting`](#canary-reporting) | Desk | Shared IBKR statement reporting status for Recon and Edge | `read-only` | yes |
+| [`canary reporting`](#canary-reporting) | Desk | IBKR statement reporting status and performance series for Recon and Edge | `read-only` | yes |
 | [`canary proposals`](#canary-proposals) | Desk | Daemon-owned close/reduce-only protection proposals | `confirm` | yes |
 | [`canary opportunities`](#canary-opportunities) | Desk | Daemon-owned option exercise opportunities | `confirm` | yes |
 | [`canary trading`](#canary-trading) | Desk | Local trading gate status and configuration | `read-only` | yes |
@@ -442,7 +442,7 @@ canary recon dismiss --line ID --reason S
 
 ## `canary reporting`
 
-Shared IBKR statement reporting status for Recon and Edge.
+IBKR statement reporting status and performance series for Recon and Edge.
 
 Guard `read-only`. Also available as an MCP tool.
 
