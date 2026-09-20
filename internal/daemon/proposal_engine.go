@@ -745,18 +745,22 @@ func optionHedgeRecord(row rpc.PositionView, pos *rpc.PositionsResult, pol risk.
 	case indexPut:
 		out.Covers = "book"
 		switch {
+		// The check is Canary's own work and asks nothing of the owner; the
+		// sentence says so in plain words and names the standing rule that
+		// applies meanwhile.
 		case economicRole == risk.IndexPutRoleProtection:
 			out.Role, out.RoleEvidence = risk.IndexPutRoleProtection, rpc.OptionHedgeEvidenceMeasured
-			out.Detail = "Standing policy holds this index put as portfolio protection; the current whole-book measurement confirms the role."
+			out.Detail = "Standing policy holds this index put as portfolio protection, and Canary's check of the whole book confirms it."
 		case evidence.Closed:
 			out.Role, out.RoleEvidence = risk.IndexPutRoleUnclassified, rpc.OptionHedgeEvidenceClosedMarket
-			out.Detail = "Standing policy holds this index put as portfolio protection; the whole-book measurement is deferred until the next session."
+			out.Detail = "Standing policy holds this index put as portfolio protection. Canary checks the whole book during the options session; the standing rule applies until then."
 		default:
 			out.Role, out.RoleEvidence = risk.IndexPutRoleUnclassified, rpc.OptionHedgeEvidenceUnmeasured
-			out.Detail = "Standing policy holds this index put as portfolio protection; the whole-book measurement has not classified it."
+			out.Detail = "Standing policy holds this index put as portfolio protection. Canary's check of the whole book has not completed"
 			if evidence.Failure != "" {
-				out.Detail += " " + evidence.Failure + "."
+				out.Detail += " (" + evidence.Failure + ")"
 			}
+			out.Detail += "; the standing rule applies."
 		}
 	case pol.IsHedgeSymbol(row.Symbol):
 		out.Covers = "book"

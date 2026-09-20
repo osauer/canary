@@ -114,10 +114,12 @@ A held long option the engine holds as protection produces no exit row, but it
 is not silent either. The snapshot lists it under `option_hedges` with what it
 covers (`book` for a hedge-listed index option, otherwise the underlying whose
 stock it covers), the Rulebook's role for a hedge-listed put (`protection` or
-`unclassified`) and how that role was established: `measured` by the current
-whole-book classification, `structural` because it covers a holding of its own
-underlying, `unmeasured` when the classifier reached no verdict (the detail says
-why), or `closed_market` when the measurement waits for the next session. A
+`unclassified`) and how that role was established: `measured` by Canary's check
+of the whole book, `structural` because it covers a holding of its own
+underlying, `unmeasured` when that check has not completed (the detail says
+why), or `closed_market` when it waits for the options session. The check is
+Canary's own work and asks nothing of the owner; the standing rule applies
+until it completes, and the detail sentence says so in plain words. A
 hedge record carries its days to expiry, cost basis per contract unit, mark and
 market value, and no threshold, premium return or order terms. A hedge the
 classifier measures as directional leaves the list and appears as an exit

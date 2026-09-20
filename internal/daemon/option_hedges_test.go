@@ -55,7 +55,7 @@ func TestOptionHedgesAreRecordedBesideProposals(t *testing.T) {
 		t.Fatalf("closed-market deferral lost: %+v", deferred)
 	}
 	failed := optionHedgeRecord(spyPut, pos, risk.DefaultRulebookPolicy(), risk.IndexPutRoleUnclassified, optionExitBookEvidence{Failure: "exact-contract Greeks unavailable"}, now)
-	if failed.RoleEvidence != rpc.OptionHedgeEvidenceUnmeasured || failed.Detail != "Standing policy holds this index put as portfolio protection; the whole-book measurement has not classified it. exact-contract Greeks unavailable." {
+	if failed.RoleEvidence != rpc.OptionHedgeEvidenceUnmeasured || failed.Detail != "Standing policy holds this index put as portfolio protection. Canary's check of the whole book has not completed (exact-contract Greeks unavailable); the standing rule applies." {
 		t.Fatalf("measurement failure not named: %+v", failed)
 	}
 	// The snapshot copy owns its hedge list and pointers.
