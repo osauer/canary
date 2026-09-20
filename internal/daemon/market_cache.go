@@ -15,8 +15,12 @@ type marketDataCache struct {
 	storeMu  sync.Mutex
 	loopWG   sync.WaitGroup
 	interest map[string]marketHistoryInterest
-	history  map[string]*marketHistoryEntry
-	slots    chan struct{}
+	// definitionMisses holds the broker's "no security definition" verdict
+	// by normalised history contract, so every remembered range of that
+	// contract pauses together; see rememberMarketHistoryDefinitionMiss.
+	definitionMisses map[rpc.ContractParams]marketHistoryDefinitionMiss
+	history          map[string]*marketHistoryEntry
+	slots            chan struct{}
 }
 type marketHistoryEntry struct {
 	done    chan struct{}

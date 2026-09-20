@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -89,36 +90,120 @@ func (s *Server) startMarketHistoryRefresh(ctx context.Context) {
 // bounded request path, on the background pacing lane and within the refresh
 // window, without extending interest merely because this reader ran. A
 // failed or refused refresh backs the key off (thirty seconds doubling to
-// fifteen minutes); a later success clears the streak and says so.
+// fifteen minutes); a later success clears the streak and says so. A series
+// whose contract the broker has said it cannot define is not read at all
+// while that verdict holds; see rememberMarketHistoryDefinitionMiss.
 func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, request func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)) {
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
 	s.marketData.mu.Lock()
 	item, ok := s.marketData.interest[key]
+	miss, refused := s.marketData.definitionMisses[item.Params.Contract]
 	s.marketData.mu.Unlock()
-	if !ok || time.Now().After(item.Until) || time.Now().Before(item.RetryAt) {
+	if !ok || now.After(item.Until) || now.Before(item.RetryAt) || refused && s.marketHistoryDefinitionMissHolds(miss, now) {
 		return
 	}
 	readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), marketHistoryRefreshWindow)
 	result, err := request(readCtx, item.Params)
 	cancel()
+	verdict := errors.Is(err, ibkrlib.ErrContractNoDefinition)
 	s.marketData.mu.Lock()
 	current := s.marketData.interest[key]
 	failed := err != nil || result != nil && result.Cache != nil && result.Cache.RefreshFailed
 	recovered := !failed && current.Failures > 0
 	if failed {
 		current.Failures = min(current.Failures+1, 5)
-		current.RetryAt = time.Now().Add(min(15*time.Minute, time.Duration(1<<current.Failures)*30*time.Second))
+		current.RetryAt = now.Add(min(15*time.Minute, time.Duration(1<<current.Failures)*30*time.Second))
 	} else {
 		current.Failures = 0
 		current.RetryAt = time.Time{}
+		delete(s.marketData.definitionMisses, item.Params.Contract)
 	}
 	s.marketData.interest[key] = current
 	s.marketData.mu.Unlock()
+	if verdict {
+		s.rememberMarketHistoryDefinitionMiss(item.Params.Contract, now, err)
+	}
 	if s.logger == nil {
 		return
 	}
-	if err != nil {
+	if err != nil && !verdict {
 		s.logger.Warnf("market history refresh %s %s: %v; next attempt after %s", item.Params.Contract.Symbol, item.Params.Range, err, current.RetryAt.Format(time.TimeOnly))
 	} else if recovered {
 		s.logger.Infof("market history refresh %s %s: recovered", item.Params.Contract.Symbol, item.Params.Range)
 	}
+}
+
+// marketHistoryDefinitionMiss is the broker's "no security definition"
+// verdict for one history contract. The answer does not change within a
+// broker session, so the refresh worker stops asking until that session ends,
+// and for at least marketHistoryDefinitionMissFloor either way. Connector and
+// Session name the session that answered; both are zero when none was ready.
+type marketHistoryDefinitionMiss struct {
+	At        time.Time
+	Connector *ibkrlib.Connector
+	Session   ibkrlib.ConnectorSessionBinding
+}
+
+// marketHistoryDefinitionMissFloor is how long a definition verdict pauses a
+// contract's refresh even across a reconnect: the connector's longest
+// re-resolution backoff, which the quote-history cache keeps the verdict for
+// as well.
+const marketHistoryDefinitionMissFloor = 30 * time.Minute
+
+// rememberMarketHistoryDefinitionMiss records the broker's verdict for
+// contract and says so once at WARN; a verdict that still holds is neither
+// re-recorded nor repeated. Any recorded history keeps being served. Lapsed
+// verdicts are dropped on the way, and the memory is bounded like interest.
+func (s *Server) rememberMarketHistoryDefinitionMiss(contract rpc.ContractParams, now time.Time, cause error) {
+	s.mu.Lock()
+	connector := s.connector
+	s.mu.Unlock()
+	session, _ := connector.CaptureSession()
+	s.marketData.mu.Lock()
+	if s.marketData.definitionMisses == nil {
+		s.marketData.definitionMisses = make(map[rpc.ContractParams]marketHistoryDefinitionMiss)
+	}
+	misses := s.marketData.definitionMisses
+	if miss, ok := misses[contract]; ok && s.marketHistoryDefinitionMissHolds(miss, now) {
+		s.marketData.mu.Unlock()
+		return
+	}
+	for other, miss := range misses {
+		if !s.marketHistoryDefinitionMissHolds(miss, now) {
+			delete(misses, other)
+		}
+	}
+	if len(misses) >= 64 {
+		s.marketData.mu.Unlock()
+		return
+	}
+	misses[contract] = marketHistoryDefinitionMiss{At: now, Connector: connector, Session: session}
+	s.marketData.mu.Unlock()
+	if s.logger != nil {
+		s.logger.Warnf("market history refresh %s: %v; paused for the rest of this broker session and until at least %s (recorded history is still served)", contract.Symbol, cause, now.Add(marketHistoryDefinitionMissFloor).Format(time.TimeOnly))
+	}
+}
+
+// clearMarketHistoryDefinitionMiss forgets a verdict the broker has since
+// contradicted with bars.
+func (s *Server) clearMarketHistoryDefinitionMiss(contract rpc.ContractParams) {
+	s.marketData.mu.Lock()
+	delete(s.marketData.definitionMisses, contract)
+	s.marketData.mu.Unlock()
+}
+
+// marketHistoryDefinitionMissHolds reports whether a verdict still pauses a
+// contract's refresh: for the floor after it was given, and beyond that for
+// as long as the broker session that gave it is current.
+func (s *Server) marketHistoryDefinitionMissHolds(miss marketHistoryDefinitionMiss, now time.Time) bool {
+	if now.Before(miss.At.Add(marketHistoryDefinitionMissFloor)) {
+		return true
+	}
+	if s.marketHistorySessionCurrentForTest != nil {
+		return s.marketHistorySessionCurrentForTest(miss.Connector, miss.Session)
+	}
+	return miss.Connector.SessionCurrent(miss.Session)
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Chart retention is independent of freshness. Failed acquisition never
@@ -309,9 +310,19 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		if saved == nil {
 			return nil, fetchErr
 		}
-		s.logMarketHistoryFallback(p, saved, fetchErr)
+		if errors.Is(fetchErr, ibkrlib.ErrContractNoDefinition) {
+			// The served fallback carries only a fixed detail, so the
+			// refresh worker cannot classify it. Relay the broker's verdict
+			// to its memory here, which says it once instead of per attempt.
+			s.rememberMarketHistoryDefinitionMiss(p.Contract, now, fetchErr)
+		} else {
+			s.logMarketHistoryFallback(p, saved, fetchErr)
+		}
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR refresh unavailable; showing recorded history", true), nil
 	}
+	// The broker defined the contract and answered with bars, so a remembered
+	// definition verdict for it no longer holds.
+	s.clearMarketHistoryDefinitionMiss(p.Contract)
 	if saved != nil && tail <= 0 && historyLostStablePoints(saved.Result, *fresh, now) {
 		s.logMarketHistoryFallback(p, saved, errors.New("response lacks sessions the recorded history has"))
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
