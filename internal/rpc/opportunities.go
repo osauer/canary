@@ -377,21 +377,70 @@ type TradeProposalSnapshot struct {
 	SourceFingerprints TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
 	MarketEvents       *MarketEventsResult             `json:"market_events,omitempty"`
 	Proposals          []TradeProposal                 `json:"proposals"`
-	Counts             TradeProposalCounts             `json:"counts"`
-	Blockers           []TradingBlocker                `json:"blockers,omitempty"`
-	LoadedFromState    bool                            `json:"loaded_from_state,omitempty"`
+	// OptionHedges lists the held long options the exit engine holds as
+	// portfolio protection. They are standing facts, not work: no exit rule
+	// applies to them and no order follows from them. A hedge the whole-book
+	// classifier measures as directional leaves this list and appears as an
+	// exit review among Proposals instead.
+	OptionHedges    []OptionHedge       `json:"option_hedges,omitempty"`
+	Counts          TradeProposalCounts `json:"counts"`
+	Blockers        []TradingBlocker    `json:"blockers,omitempty"`
+	LoadedFromState bool                `json:"loaded_from_state,omitempty"`
+}
+
+// OptionHedge role evidence values. Measured means the Rulebook's whole-book
+// classification confirmed the protection role; structural means the option
+// covers a holding of its own underlying and no measurement is involved;
+// unmeasured means the classifier could not reach a verdict (Detail says why);
+// closed_market means the measurement was deferred to the next session.
+const (
+	OptionHedgeEvidenceMeasured     = "measured"
+	OptionHedgeEvidenceStructural   = "structural"
+	OptionHedgeEvidenceUnmeasured   = "unmeasured"
+	OptionHedgeEvidenceClosedMarket = "closed_market"
+)
+
+// OptionHedge is a held long option kept as portfolio protection. It carries
+// what the option covers and how that role was established; it carries no
+// exit threshold, premium return or order terms, because none applies.
+type OptionHedge struct {
+	Symbol   string         `json:"symbol"`
+	SecType  string         `json:"sec_type"`
+	Contract ContractParams `json:"contract"`
+	Quantity float64        `json:"quantity"`
+	// Purpose is always "protection" here; the field is explicit so a consumer
+	// never has to infer it from the list the record sits in.
+	Purpose string `json:"purpose"`
+	// Covers is "book" for a hedge-listed index option, otherwise the
+	// underlying symbol whose stock holding the option covers.
+	Covers string `json:"covers"`
+	// Role is the Rulebook verdict for a hedge-listed put ("protection" or
+	// "unclassified"); a structural hedge reports "protection".
+	Role         string `json:"role"`
+	RoleEvidence string `json:"role_evidence"`
+	DTE          int    `json:"dte"`
+	// CostBasisPremium is the average cost per contract unit (avg_cost divided
+	// by the multiplier), the same figure an exit review would start from.
+	CostBasisPremium  float64  `json:"cost_basis_premium"`
+	Mark              float64  `json:"mark,omitempty"`
+	MarketValueBase   *float64 `json:"market_value_base,omitempty"`
+	MarketValuePctNLV *float64 `json:"market_value_pct_nlv,omitempty"`
+	Detail            string   `json:"detail"`
 }
 
 // TradeProposalCounts summarizes proposals and their currency-qualified money
 type TradeProposalCounts struct {
-	Total                       int     `json:"total"`
-	Actionable                  int     `json:"actionable"`
-	ThetaHygiene                int     `json:"theta_hygiene"`
-	RiskReduction               int     `json:"risk_reduction"`
-	TrailingStop                int     `json:"trailing_stop"`
-	OptionLossExit              int     `json:"option_loss_exit"`
-	OptionExitReview            int     `json:"option_exit_review"`
-	StrategyExit                int     `json:"strategy_exit,omitempty"`
+	Total            int `json:"total"`
+	Actionable       int `json:"actionable"`
+	ThetaHygiene     int `json:"theta_hygiene"`
+	RiskReduction    int `json:"risk_reduction"`
+	TrailingStop     int `json:"trailing_stop"`
+	OptionLossExit   int `json:"option_loss_exit"`
+	OptionExitReview int `json:"option_exit_review"`
+	StrategyExit     int `json:"strategy_exit,omitempty"`
+	// OptionHedges counts the standing protection records beside the
+	// proposals; they are not included in Total or Actionable.
+	OptionHedges                int     `json:"option_hedges,omitempty"`
 	MarketFlags                 int     `json:"market_flags,omitempty"`
 	ThetaPerDay                 float64 `json:"theta_per_day"`
 	RiskReductionExcessNotional float64 `json:"risk_reduction_excess_notional,omitempty"`

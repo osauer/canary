@@ -108,6 +108,22 @@ use the same preview, WhatIf, full position-effect, duplicate-order, account,
 mode, freeze, origin and explicit submit gates as every other broker-adjacent
 proposal.
 
+### Option hedges are listed, not proposed
+
+A held long option the engine holds as protection produces no exit row, but it
+is not silent either. The snapshot lists it under `option_hedges` with what it
+covers (`book` for a hedge-listed index option, otherwise the underlying whose
+stock it covers), the Rulebook's role for a hedge-listed put (`protection` or
+`unclassified`) and how that role was established: `measured` by the current
+whole-book classification, `structural` because it covers a holding of its own
+underlying, `unmeasured` when the classifier reached no verdict (the detail says
+why), or `closed_market` when the measurement waits for the next session. A
+hedge record carries its days to expiry, cost basis per contract unit, mark and
+market value, and no threshold, premium return or order terms. A hedge the
+classifier measures as directional leaves the list and appears as an exit
+review among the proposals. `counts.option_hedges` reports the list size
+separately from the proposal counts.
+
 ## A blocked row is the system working
 
 Every blocker carries a code, a message, and an action line. Under stress the

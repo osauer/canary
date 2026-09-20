@@ -463,7 +463,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		}
 		sources.MarketEvents = &fp
 	}
-	proposals, thetaSuppressions := e.generate(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
+	proposals, thetaSuppressions, hedges := e.generateBook(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
 	slices.SortStableFunc(proposals, func(a, b rpc.TradeProposal) int {
 		if a.Score > b.Score {
 			return -1
@@ -494,8 +494,10 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		SourceFingerprints: sources,
 		MarketEvents:       marketEvents,
 		Proposals:          proposals,
+		OptionHedges:       hedges,
 		Counts:             proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
 	}
+	snap.Counts.OptionHedges = len(hedges)
 	return e.installScoped(snap, scope, show, thetaSuppressions)
 }
 
@@ -546,6 +548,15 @@ func (e *proposalEngine) thetaSuppressionEvents(snap rpc.TradeProposalSnapshot, 
 }
 
 func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression) {
+	proposals, suppressions, _ := e.generateBook(ctx, policy, status, acct, pos, sources, marketEvents, scope, now)
+	return proposals, suppressions
+}
+
+// generateBook is generate with the book's standing protection records: the
+// held long options the engine skips as hedges are returned beside the
+// proposals, so a consumer can show a hedge as what it is instead of nothing.
+func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression, []rpc.OptionHedge) {
+	var hedges []rpc.OptionHedge
 	var out []rpc.TradeProposal
 	var suppressions []thetaSuppression
 	baseCcy := protectionCoverageBaseCurrency(pos)
@@ -645,7 +656,9 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 				if purpose == "protection" {
 					// Standing protection purpose is not a directional exit task.
 					// Missing measurements remain source-health work; they do not
-					// turn a retained hedge into a routine owner declaration.
+					// turn a retained hedge into a routine owner declaration. The
+					// hedge is still a held fact: record it so it is visible.
+					hedges = append(hedges, optionHedgeRecord(row, pos, rulebookPolicy, economicRole, economicEvidence, now))
 					continue
 				}
 				intentCurrent := purpose == "directional"
@@ -702,7 +715,61 @@ func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, 
 			out = append(out, e.unitExitProposals(ctx, policy, status, pos, sources, marketEvents, scope, now, economicEvidence, rulebookPolicy, units, rulebookPolicy.ExitActLossPct)...)
 		}
 	}
-	return out, suppressions
+	return out, suppressions, hedges
+}
+
+// optionHedgeRecord describes one held long option the engine holds as
+// protection. A hedge-listed put covers the book and carries the Rulebook's
+// whole-book verdict; any other protection leg covers a stock of its own
+// underlying, which is structural and needs no measurement.
+func optionHedgeRecord(row rpc.PositionView, pos *rpc.PositionsResult, pol risk.RulebookPolicy, economicRole string, evidence optionExitBookEvidence, now time.Time) rpc.OptionHedge {
+	secType := positionWireSecType(row.SecType)
+	out := rpc.OptionHedge{
+		Symbol:            strings.ToUpper(strings.TrimSpace(row.Symbol)),
+		SecType:           secType,
+		Contract:          proposalContractFromPosition(row, secType),
+		Quantity:          row.Quantity,
+		Purpose:           "protection",
+		Role:              risk.IndexPutRoleProtection,
+		RoleEvidence:      rpc.OptionHedgeEvidenceStructural,
+		DTE:               optionExitDTE(row, now),
+		Mark:              row.Mark,
+		MarketValueBase:   cloneFloat64Ptr(row.MarketValueBase),
+		MarketValuePctNLV: protectionCoverageMarketValuePct(row, pos),
+	}
+	if row.Multiplier > 0 && row.AvgCost > 0 {
+		out.CostBasisPremium = row.AvgCost / float64(row.Multiplier)
+	}
+	indexPut := pol.IsHedgeSymbol(row.Symbol) && strings.EqualFold(strings.TrimSpace(row.Right), "P")
+	switch {
+	case indexPut:
+		out.Covers = "book"
+		switch {
+		case economicRole == risk.IndexPutRoleProtection:
+			out.Role, out.RoleEvidence = risk.IndexPutRoleProtection, rpc.OptionHedgeEvidenceMeasured
+			out.Detail = "Standing policy holds this index put as portfolio protection; the current whole-book measurement confirms the role."
+		case evidence.Closed:
+			out.Role, out.RoleEvidence = risk.IndexPutRoleUnclassified, rpc.OptionHedgeEvidenceClosedMarket
+			out.Detail = "Standing policy holds this index put as portfolio protection; the whole-book measurement is deferred until the next session."
+		default:
+			out.Role, out.RoleEvidence = risk.IndexPutRoleUnclassified, rpc.OptionHedgeEvidenceUnmeasured
+			out.Detail = "Standing policy holds this index put as portfolio protection; the whole-book measurement has not classified it."
+			if evidence.Failure != "" {
+				out.Detail += " " + evidence.Failure + "."
+			}
+		}
+	case pol.IsHedgeSymbol(row.Symbol):
+		out.Covers = "book"
+		out.Detail = "This index option covers a short stock position in the book."
+	default:
+		out.Covers = out.Symbol
+		if strings.EqualFold(strings.TrimSpace(row.Right), "P") {
+			out.Detail = "This put covers the long " + out.Symbol + " stock position."
+		} else {
+			out.Detail = "This call covers the short " + out.Symbol + " stock position."
+		}
+	}
+	return out
 }
 
 func (e *proposalEngine) marketEventsSnapshot(ctx context.Context, pos *rpc.PositionsResult) *rpc.MarketEventsResult {
@@ -3091,6 +3158,13 @@ func proposalSupportedSecType(secType string) bool {
 func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapshot {
 	out := in
 	out.Proposals = append([]rpc.TradeProposal(nil), in.Proposals...)
+	if in.OptionHedges != nil {
+		out.OptionHedges = append([]rpc.OptionHedge(nil), in.OptionHedges...)
+		for i := range out.OptionHedges {
+			out.OptionHedges[i].MarketValueBase = cloneFloat64Ptr(in.OptionHedges[i].MarketValueBase)
+			out.OptionHedges[i].MarketValuePctNLV = cloneFloat64Ptr(in.OptionHedges[i].MarketValuePctNLV)
+		}
+	}
 	for i := range out.Proposals {
 		out.Proposals[i].Trail = cloneTrailSpec(in.Proposals[i].Trail)
 		out.Proposals[i].TrailSizing = cloneTrailSizing(in.Proposals[i].TrailSizing)
