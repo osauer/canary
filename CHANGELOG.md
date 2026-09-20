@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 - **The Russell 2000 index is back on the market view.** RUT quotes and price history load in the CLI, the app and the MCP tools; the row had been empty since the index was first listed.
 
+### Changed
+
+- **The S&P sector map survives a daemon restart.** The map parsed from the daily membership refresh is kept in daemon.db beside the member list and restored at start, so allocation no longer falls back to the release baseline until the next refresh. A stored map older than the release baseline is ignored, and the database schema is unchanged.
+
 ### Fixed
 
 - **Russell 2000 (RUT) quote and chart never loaded; the broker answered "no security definition".** Canary described the index on CBOE, where only its options are listed; it now describes it on the RUSSELL exchange, as it does NDX on NASDAQ. Nothing about positions, orders or valuation changed. (#46)

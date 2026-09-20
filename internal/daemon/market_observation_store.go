@@ -89,6 +89,9 @@ func (s *Server) attachCoreMarketAuthority(store *corestore.Store) error {
 		if err := spx.UseCoreMembersStore(s.membersCachePath, store); err != nil {
 			return fmt.Errorf("attach SPX-members authority: %w", err)
 		}
+		if asOf, ok := spx.RestoreSectors(s.membersCachePath); ok {
+			s.infof("breadth: restored S&P sector map from daemon.db (as_of %s)", asOf.Format("2006-01-02"))
+		}
 	}
 	return nil
 }

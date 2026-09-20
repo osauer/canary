@@ -806,7 +806,12 @@ func (s *Server) installMembersRefresher() {
 		if err == nil && len(symbols) >= spx.MinMembers && len(symbols) <= spx.MaxMembers {
 			// The sector map rides along with a membership page that passed
 			// the same sanity band; the refresher keeps deciding about members.
-			spx.SetSectors(sectors, asOf)
+			// An accepted map is kept in daemon.db so a restart resumes from it.
+			if spx.SetSectors(sectors, asOf) {
+				if err := spx.SaveSectors(cachePath, sectors, asOf); err != nil {
+					s.warnf("members refresh: persist sector map: %v", err)
+				}
+			}
 		}
 		return symbols, asOf, err
 	}

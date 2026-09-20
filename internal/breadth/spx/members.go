@@ -252,8 +252,15 @@ func normalizeMembers(members []string) ([]string, error) {
 func saveMembersAuthority(ctx context.Context, authority *corestore.Store, payload, metadata []byte, observedAt time.Time) error {
 	_ = metadata
 	_ = observedAt
+	return saveAuthorityDocument(ctx, authority, membersStateKind, payload)
+}
+
+// saveAuthorityDocument replaces the current document of kind under the
+// members scope with a compare-and-swap on its revision, retrying a bounded
+// number of times against a concurrent writer.
+func saveAuthorityDocument(ctx context.Context, authority *corestore.Store, kind string, payload []byte) error {
 	for range membersAuthorityWriteTries {
-		doc, ok, err := authority.GetStateDocument(ctx, membersAuthorityScope, membersStateKind)
+		doc, ok, err := authority.GetStateDocument(ctx, membersAuthorityScope, kind)
 		if err != nil {
 			return err
 		}
@@ -262,14 +269,14 @@ func saveMembersAuthority(ctx context.Context, authority *corestore.Store, paylo
 			revision = doc.Revision
 		}
 		_, err = authority.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
-			ScopeKey: membersAuthorityScope, Kind: membersStateKind,
+			ScopeKey: membersAuthorityScope, Kind: kind,
 			ExpectedRevision: revision, JSON: payload,
 		})
 		if !errors.Is(err, corestore.ErrRevisionConflict) {
 			return err
 		}
 	}
-	return fmt.Errorf("save SPX members authority: %w", corestore.ErrRevisionConflict)
+	return fmt.Errorf("save SPX %s authority: %w", kind, corestore.ErrRevisionConflict)
 }
 
 // membersFile is the on-disk envelope. Mirrors the gamma-zero store's
