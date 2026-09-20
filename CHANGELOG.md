@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.9.1 — 2026-09-20 16:08 CEST
+
+### What's new
+
+- **The Russell 2000 index is back on the market view.** RUT quotes and price history load in the CLI, the app and the MCP tools; the row had been empty since the index was first listed.
+
+### Fixed
+
+- **Russell 2000 (RUT) quote and chart never loaded; the broker answered "no security definition".** Canary described the index on CBOE, where only its options are listed; it now describes it on the RUSSELL exchange, as it does NDX on NASDAQ. Nothing about positions, orders or valuation changed. (#46)
+
 ## v3.9.0 — 2026-09-20 09:24 CEST
 
 ### What's new
