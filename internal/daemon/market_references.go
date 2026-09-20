@@ -10,7 +10,7 @@ func marketReferences() []rpc.MarketInstrument {
 		{"sp500", "S&P 500", "SPX", "index", "CBOE"},
 		{"dow", "Dow · DIA ETF", "DIA", "etf", "SMART"},
 		{"nasdaq", "Nasdaq 100", "NDX", "index", "NASDAQ"},
-		{"russell", "Russell 2000", "RUT", "index", "CBOE"},
+		{"russell", "Russell 2000", "RUT", "index", "RUSSELL"},
 		{"vix", "VIX", "VIX", "index", "CBOE"},
 		{"gold", "Gold · GLD ETF", "GLD", "etf", "SMART"},
 		{"sp500", "S&P 500 futures", "ES", "future", "CME"},

@@ -95,6 +95,13 @@ func classifySymbol(symbol string) (string, string, string, string) {
 		secType = "IND"
 		exchange = "NASDAQ"
 		primary = "NASDAQ"
+	// IBKR lists the Russell 2000 index on its provider's venue, as it does
+	// NDX; CBOE carries only the options on it and answers a RUT index
+	// described there with "no security definition".
+	case "RUT":
+		secType = "IND"
+		exchange = "RUSSELL"
+		primary = "RUSSELL"
 	case "DJI", "DJX":
 		secType = "IND"
 		exchange = "CBOE"

@@ -72,7 +72,7 @@ func fallbackUnderlyingQuoteContract(symbol, currency string) ContractParams {
 var indexUnderlyingContracts = map[string]ContractParams{
 	"SPX": {Symbol: "SPX", SecType: "IND", Exchange: "CBOE", PrimaryExch: "CBOE", Currency: "USD"},
 	"NDX": {Symbol: "NDX", SecType: "IND", Exchange: "NASDAQ", PrimaryExch: "NASDAQ", Currency: "USD"},
-	"RUT": {Symbol: "RUT", SecType: "IND", Exchange: "CBOE", PrimaryExch: "CBOE", Currency: "USD"},
+	"RUT": {Symbol: "RUT", SecType: "IND", Exchange: "RUSSELL", PrimaryExch: "RUSSELL", Currency: "USD"},
 	"VIX": {Symbol: "VIX", SecType: "IND", Exchange: "CBOE", PrimaryExch: "CBOE", Currency: "USD"},
 }
 
