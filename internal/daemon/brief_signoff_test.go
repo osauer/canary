@@ -31,7 +31,7 @@ func driftInventory() []rpc.PolicyPinStatus {
 func TestComposeBriefRiskPolicyDriftFollowsSignoffMode(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 12, 0, 0, 0, time.UTC)
 
-	informational := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: driftInventory()}, now)
+	informational := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: driftInventory()}, nil, now)
 	if got := informational.PolicyDrift.Status; got != rpc.BriefStatusOK {
 		t.Fatalf("drift without sign-off = %s, want ok (informational)", got)
 	}
@@ -42,14 +42,14 @@ func TestComposeBriefRiskPolicyDriftFollowsSignoffMode(t *testing.T) {
 		t.Fatalf("informational detail = %q", informational.PolicyDrift.Detail)
 	}
 
-	strict := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: driftInventory(), SignoffRequired: true}, now)
+	strict := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: driftInventory(), SignoffRequired: true}, nil, now)
 	if got := strict.PolicyDrift.Status; got != rpc.BriefStatusDegraded {
 		t.Fatalf("drift with sign-off required = %s, want degraded", got)
 	}
 
 	unavailable := driftInventory()
 	unavailable[1] = rpc.PolicyPinStatus{Policy: "protection", Status: "unavailable"}
-	unreadable := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: unavailable}, now)
+	unreadable := composeBriefRisk(&rpc.RiskPolicyResult{Inventory: unavailable}, nil, now)
 	if got := unreadable.PolicyDrift.Status; got != rpc.BriefStatusDegraded {
 		t.Fatalf("an unreadable live identity is a data gap in any mode, got %s", got)
 	}

@@ -70,7 +70,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	s.journalStressDecision(&can)
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)
-	riskLimits := composeBriefRisk(policy, now)
+	riskLimits := composeBriefRisk(policy, constitution, now)
 	if recon != nil {
 		riskLimits.Latch.ReportCoverageTo = recon.CoverageTo
 		riskLimits.Latch.ReportCheckedAt = recon.Fetch.LastAttempt
@@ -245,6 +245,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		PolicyDrift:   riskLimits.PolicyDrift,
 		MonthlyPulse:  process.MonthlyPulse,
 	}
+	out.PremiumAtRisk.PctOfRiskCapital = briefPremiumPctOfRiskCapital(out.PremiumAtRisk, out.Capital)
 	out.BriefRowState = briefReadySectionState(out)
 	return out
 }
@@ -966,7 +967,11 @@ func (s *Server) briefWorkingOrders() rpc.BriefCountRow {
 	return rpc.BriefCountRow{BriefRowState: briefOK("daemon open-orders journal view"), Count: &count}
 }
 
-func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRiskSection {
+// composeBriefRisk frames the constitution's capital state. constitution is
+// the active policy the report was evaluated against; its declared figures
+// reach the capital row only while the capital section is approved, so a row
+// with a nil declared_risk_capital_base means the owner has not decided it.
+func composeBriefRisk(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, now time.Time) rpc.BriefRiskSection {
 	out := rpc.BriefRiskSection{}
 	if policy == nil || policy.Status == rpc.RiskPolicyStatusAbsent {
 		state := briefUnavailable("risk constitution absent; capital controls are unapproved")
@@ -978,6 +983,7 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 	out.Capital = rpc.BriefCapitalRow{BriefRowState: briefOK("constitution capital state"), Tier: c.Tier,
 		Enforcement: c.Enforcement, ConsumedPct: c.ConsumedPct, DrawdownBase: c.DrawdownBase,
 		AdjustedPeakBase: c.AdjustedPeakBase, PeakAsOf: c.PeakAsOf, BaseCurrency: c.BaseCurrency}
+	briefCapitalRowFigures(&out.Capital, policy, constitution)
 	// The capital status derives from the values it shows: a breached tier or
 	// a fully consumed budget can never render ok, whatever produced it. In
 	blockDetail := "drawdown block tier is breached; risk-increasing orders are the enforcement target"
@@ -1043,6 +1049,35 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, now time.Time) rpc.BriefRisk
 	out.BriefRowState = briefSectionState("risk and limits", out.Capital.BriefRowState, out.Latch.BriefRowState,
 		out.Overrides.BriefRowState, out.PolicyDrift.BriefRowState)
 	return out
+}
+
+// briefCapitalRowFigures copies the constitution's ladder and capital numbers
+// onto the row. Every figure stays nil while the constitution is absent or any
+// material key is unapproved: a partially written policy renders as undecided,
+// not as the subset of numbers that happen to exist.
+func briefCapitalRowFigures(row *rpc.BriefCapitalRow, policy *rpc.RiskPolicyResult, constitution *risk.Constitution) {
+	if row == nil || policy == nil || constitution == nil {
+		return
+	}
+	if policy.Capital.Tier == risk.CapitalTierUnapproved || len(policy.Unapproved) > 0 || len(constitution.UnapprovedKeys()) > 0 {
+		return
+	}
+	row.WarnPct = cloneFloat64Ptr(constitution.Drawdown.WarnConsumedPct)
+	row.BlockPct = cloneFloat64Ptr(constitution.Drawdown.BlockConsumedPct)
+	row.ProtectedFloorBase = cloneFloat64Ptr(constitution.Capital.ProtectedFloor)
+	row.DeclaredRiskCapitalBase = cloneFloat64Ptr(constitution.Capital.DeclaredRiskCapital)
+	row.EffectiveRiskCapitalBase = cloneFloat64Ptr(policy.Capital.EffectiveRiskCapitalBase)
+}
+
+// briefPremiumPctOfRiskCapital measures the premium-at-risk amount against the
+// declared risk capital the capital row carries. Nil when either side is
+// missing; a zero premium over an approved budget is a genuine 0%.
+func briefPremiumPctOfRiskCapital(premium rpc.BriefMoneyCoverageRow, capital rpc.BriefCapitalRow) *float64 {
+	if premium.AmountBase == nil || capital.DeclaredRiskCapitalBase == nil || *capital.DeclaredRiskCapitalBase <= 0 {
+		return nil
+	}
+	pct := *premium.AmountBase / *capital.DeclaredRiskCapitalBase * 100
+	return &pct
 }
 
 func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, constitution *risk.Constitution, recon *rpc.ReconResult, rules *rpc.RulesResult, authority nudgeAuthorityState, now time.Time) rpc.BriefProcessSection {

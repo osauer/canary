@@ -270,6 +270,14 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	if ready.Capital.ConsumedPct != nil {
 		capital = briefJoin(capital, fmt.Sprintf("%.1f%% consumed", *ready.Capital.ConsumedPct))
 	}
+	if ready.Capital.WarnPct != nil && ready.Capital.BlockPct != nil {
+		capital = briefJoin(capital, fmt.Sprintf("ladder %.0f/%.0f%%", *ready.Capital.WarnPct, *ready.Capital.BlockPct))
+	}
+	if ready.Capital.EffectiveRiskCapitalBase != nil && ready.Capital.DeclaredRiskCapitalBase != nil {
+		capital = briefJoin(capital, fmt.Sprintf("money at risk (max) %s of %s declared",
+			formatMoneyCcy(*ready.Capital.EffectiveRiskCapitalBase, ready.Capital.BaseCurrency),
+			formatMoneyCcy(*ready.Capital.DeclaredRiskCapitalBase, ready.Capital.BaseCurrency)))
+	}
 	if !ready.Capital.PeakAsOf.IsZero() {
 		capital = briefJoin(capital, "peak set "+ready.Capital.PeakAsOf.Local().Format("2006-01-02 15:04"))
 	}
@@ -289,7 +297,11 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 		}
 	}
 	briefLine(env, "drawdown latch", ready.Latch.BriefRowState, latch)
-	briefLine(env, "premium at risk", ready.PremiumAtRisk.BriefRowState, briefMoney(ready.PremiumAtRisk))
+	premium := briefMoney(ready.PremiumAtRisk)
+	if ready.PremiumAtRisk.PctOfRiskCapital != nil {
+		premium = briefJoin(premium, fmt.Sprintf("%.1f%% of risk capital", *ready.PremiumAtRisk.PctOfRiskCapital))
+	}
+	briefLine(env, "premium at risk", ready.PremiumAtRisk.BriefRowState, premium)
 	briefLine(env, "hedge cost / day", ready.HedgeCost.BriefRowState, briefMoney(ready.HedgeCost))
 	if ready.PolicyDrift.SignoffRequired || ready.PolicyDrift.Status != rpc.BriefStatusOK {
 		briefLine(env, "policy drift", ready.PolicyDrift.BriefRowState, fmt.Sprintf("%d", len(ready.PolicyDrift.Rows)))
