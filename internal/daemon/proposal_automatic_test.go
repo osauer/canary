@@ -169,7 +169,7 @@ func TestAutomaticRecordCreatedWithWindowForPreAuthorisedRow(t *testing.T) {
 	if rec.State != rpc.TradeProposalAutomaticPending || rec.Bucket != preAuthorisedBucketTrailingStop {
 		t.Fatalf("record = %+v, want pending trailing_stop", rec)
 	}
-	if !rec.SubmitAt.Equal(rig.now.Add(30 * time.Minute)) || rec.LatchSkippedWindow {
+	if !rec.SubmitAt.Equal(rig.now.Add(30*time.Minute)) || rec.LatchSkippedWindow {
 		t.Fatalf("submit_at = %s (latched=%v), want now+30m", rec.SubmitAt, rec.LatchSkippedWindow)
 	}
 	if rec.Symbol != "" && rec.Quantity == 0 {
