@@ -14,7 +14,7 @@ func (s *Server) proposalPlaceOrder(context.Context, rpc.OrderPlaceParams) (*rpc
 
 func (s *Server) proposalSubmitWriteBlockers(origin string) []rpc.TradingBlocker {
 	auth := s.brokerWriteAuthorization(s.currentTradingStatus())
-	for _, blocker := range liveOriginBlockers(auth.Status, origin) {
+	for _, blocker := range s.brokerWriteOriginBlockers(auth.Status, origin) {
 		auth.Blockers = appendTradingBlockerOnce(auth.Blockers, blocker)
 		auth.Allowed = false
 	}

@@ -258,7 +258,7 @@ func (s *Server) brokerWriteAuthorizationWithControls(status rpc.TradingStatus, 
 // the same trading gates, preview tokens, freeze state, and broker checks for
 // every origin.
 func normalizedWriteOrigin(origin string) string {
-	if originIsHuman(origin) {
+	if originIsHuman(origin) || origin == rpc.OrderOriginDaemonPreAuthorised {
 		return origin
 	}
 	return rpc.OrderOriginAgent

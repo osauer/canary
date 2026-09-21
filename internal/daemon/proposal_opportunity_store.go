@@ -181,6 +181,11 @@ func (e *proposalEngine) bindCore(ctx context.Context, core *corestore.Store) er
 	}
 	e.ignored = ignored
 	e.mu.Unlock()
+	if e.automatic != nil {
+		if err := e.automatic.bindCore(ctx, core); err != nil {
+			return fmt.Errorf("attach automatic submission records: %w", err)
+		}
+	}
 	return nil
 }
 

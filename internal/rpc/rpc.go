@@ -2429,6 +2429,12 @@ const (
 	OrderOriginAgent = "agent"
 	// OrderOriginHumanTTY identifies an audited request origin; it does not grant authority by itself.
 	OrderOriginHumanTTY = "human-tty"
+	// OrderOriginDaemonPreAuthorised marks a broker write the daemon's own
+	// scheduler issues for a proposal in a pre-authorised protection bucket
+	// after the veto window. The write gate accepts it only while the
+	// scheduler holds a grant for that exact proposal and the active policy
+	// still lists its bucket; every other gate applies unchanged.
+	OrderOriginDaemonPreAuthorised = "daemon-preauthorised"
 	// OrderOriginPairedDevice identifies an audited request origin; it does not grant authority by itself.
 	OrderOriginPairedDevice = "human-paired-device"
 
