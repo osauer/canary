@@ -34,8 +34,12 @@ type proposalEngine struct {
 	now                    func() time.Time
 	// scope resolves the connected broker session identity. Test seam;
 	// nil falls back to server.currentBrokerStateScope.
-	scope    func() brokerStateScope
-	snapshot rpc.TradeProposalSnapshot
+	scope func() brokerStateScope
+	// budgetInput resolves the risk constitution and its capital verdict for
+	// the premium budget governor. Test seam; nil reads the daemon's own
+	// risk-policy manager and capital state.
+	budgetInput func(acct *rpc.AccountResult, now time.Time) budgetGovernorInput
+	snapshot    rpc.TradeProposalSnapshot
 	// ignored is keyed by scopedIgnoreKey (account|mode|proposal key):
 	ignored map[string]struct{}
 	// refreshFailStreak counts consecutive refreshes that ended on a
@@ -92,6 +96,9 @@ type proposalEvent struct {
 	Message            string                              `json:"message,omitempty"`
 	Reason             string                              `json:"reason,omitempty"`
 	SourceFingerprints rpc.TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
+	// Shadow records that the row was generated under a shadow-mode bucket,
+	// so the journal distinguishes observation from an offer to act.
+	Shadow bool `json:"shadow,omitempty"`
 }
 
 func (s *Server) installProposalEngine() {
@@ -463,7 +470,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		}
 		sources.MarketEvents = &fp
 	}
-	proposals, thetaSuppressions, hedges := e.generateBook(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
+	proposals, thetaSuppressions, hedges, budget := e.generateBook(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
 	slices.SortStableFunc(proposals, func(a, b rpc.TradeProposal) int {
 		if a.Score > b.Score {
 			return -1
@@ -495,6 +502,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		MarketEvents:       marketEvents,
 		Proposals:          proposals,
 		OptionHedges:       hedges,
+		BudgetReduction:    budget,
 		Counts:             proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
 	}
 	snap.Counts.OptionHedges = len(hedges)
@@ -548,17 +556,20 @@ func (e *proposalEngine) thetaSuppressionEvents(snap rpc.TradeProposalSnapshot, 
 }
 
 func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression) {
-	proposals, suppressions, _ := e.generateBook(ctx, policy, status, acct, pos, sources, marketEvents, scope, now)
+	proposals, suppressions, _, _ := e.generateBook(ctx, policy, status, acct, pos, sources, marketEvents, scope, now)
 	return proposals, suppressions
 }
 
 // generateBook is generate with the book's standing protection records: the
 // held long options the engine skips as hedges are returned beside the
 // proposals, so a consumer can show a hedge as what it is instead of nothing.
-func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression, []rpc.OptionHedge) {
+// The fourth value is the premium budget governor's status, nil while its
+// bucket is not enabled.
+func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression, []rpc.OptionHedge, *rpc.TradeProposalBudgetStatus) {
 	var hedges []rpc.OptionHedge
 	var out []rpc.TradeProposal
 	var suppressions []thetaSuppression
+	var budget *rpc.TradeProposalBudgetStatus
 	baseCcy := protectionCoverageBaseCurrency(pos)
 	if policy.Buckets.ThetaHygiene.Enabled {
 		for _, row := range pos.Options {
@@ -588,6 +599,11 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 				}
 			}
 		}
+	}
+	if policy.Buckets.BudgetReduction.enabled() {
+		rows, st := e.budgetReductionProposals(policy, status, e.resolveBudgetInput(acct, now), acct, pos, sources, marketEvents, scope, now)
+		out = append(out, rows...)
+		budget = st
 	}
 	if policy.Buckets.TrailingStop.Enabled {
 		stockEnabled := true
@@ -715,7 +731,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			out = append(out, e.unitExitProposals(ctx, policy, status, pos, sources, marketEvents, scope, now, economicEvidence, rulebookPolicy, units, rulebookPolicy.ExitActLossPct)...)
 		}
 	}
-	return out, suppressions, hedges
+	return out, suppressions, hedges, budget
 }
 
 // optionHedgeRecord describes one held long option the engine holds as
@@ -2720,6 +2736,29 @@ func cloneExecutionSemantics(in *rpc.TradeProposalExecutionSemantics) *rpc.Trade
 	return &out
 }
 
+func cloneProposalBudget(in *rpc.TradeProposalBudget) *rpc.TradeProposalBudget {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.LineExcessBase = cloneFloat64Ptr(in.LineExcessBase)
+	out.TotalExcessBase = cloneFloat64Ptr(in.TotalExcessBase)
+	out.UnrealizedPnLBase = cloneFloat64Ptr(in.UnrealizedPnLBase)
+	return &out
+}
+
+func cloneBudgetStatus(in *rpc.TradeProposalBudgetStatus) *rpc.TradeProposalBudgetStatus {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.DeclaredRiskCapitalBase = cloneFloat64Ptr(in.DeclaredRiskCapitalBase)
+	out.MeasuredPremiumBase = cloneFloat64Ptr(in.MeasuredPremiumBase)
+	out.MeasuredPctOfRiskCapital = cloneFloat64Ptr(in.MeasuredPctOfRiskCapital)
+	out.TotalExcessBase = cloneFloat64Ptr(in.TotalExcessBase)
+	return &out
+}
+
 func cloneStopRisk(in *rpc.TradeProposalStopRisk) *rpc.TradeProposalStopRisk {
 	if in == nil {
 		return nil
@@ -2915,7 +2954,7 @@ func (e *proposalEngine) appendBlocked(prop rpc.TradeProposal, key, revision str
 }
 
 func proposalEventForProposal(eventType string, prop rpc.TradeProposal, at time.Time, tokenID, orderRef, msg string) proposalEvent {
-	return proposalEvent{At: at, Type: eventType, Key: prop.Key, Revision: prop.Revision, Bucket: prop.Bucket, PolicyID: prop.PolicyID, PolicyVersion: prop.PolicyVersion, PolicyFingerprint: prop.PolicyFingerprint, PreviewTokenID: tokenID, OrderRef: orderRef, Message: msg, SourceFingerprints: prop.SourceFingerprints}
+	return proposalEvent{At: at, Type: eventType, Key: prop.Key, Revision: prop.Revision, Bucket: prop.Bucket, PolicyID: prop.PolicyID, PolicyVersion: prop.PolicyVersion, PolicyFingerprint: prop.PolicyFingerprint, PreviewTokenID: tokenID, OrderRef: orderRef, Message: msg, SourceFingerprints: prop.SourceFingerprints, Shadow: prop.Shadow}
 }
 
 func (e *proposalEngine) appendEvent(ev proposalEvent) error {
@@ -3004,7 +3043,7 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 	var thetaBase, riskBase float64
 	thetaBaseOK, riskBaseOK := true, true
 	for _, p := range proposals {
-		if len(p.Blockers) == 0 {
+		if p.AutomaticEligible() {
 			out.Actionable++
 		}
 		out.MarketFlags += len(p.MarketFlags)
@@ -3035,6 +3074,11 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 			out.OptionExitReview++
 		case rpc.TradeProposalBucketStrategyExit:
 			out.StrategyExit++
+		case rpc.TradeProposalBucketBudgetReduction:
+			out.BudgetReduction++
+			if p.Shadow {
+				out.BudgetReductionShadow++
+			}
 		}
 	}
 	// A raw sum across different local currencies is meaningless. Rather
@@ -3179,7 +3223,9 @@ func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapsh
 		out.Proposals[i].Details = append([]string(nil), in.Proposals[i].Details...)
 		out.Proposals[i].MarketFlags = append([]rpc.MarketEventFlag(nil), in.Proposals[i].MarketFlags...)
 		out.Proposals[i].Blockers = append([]rpc.TradingBlocker(nil), in.Proposals[i].Blockers...)
+		out.Proposals[i].Budget = cloneProposalBudget(in.Proposals[i].Budget)
 	}
+	out.BudgetReduction = cloneBudgetStatus(in.BudgetReduction)
 	out.Blockers = append([]rpc.TradingBlocker(nil), in.Blockers...)
 	if in.MarketEvents != nil {
 		events := *in.MarketEvents

@@ -24,7 +24,7 @@ func TestOptionHedgesAreRecordedBesideProposals(t *testing.T) {
 		Options: []rpc.PositionView{spyPut, testPut, call},
 	}
 	engine := &proposalEngine{}
-	proposals, _, hedges := engine.generateBook(context.Background(), policy, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
+	proposals, _, hedges, _ := engine.generateBook(context.Background(), policy, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 	if len(proposals) != 1 || proposals[0].Contract.ConID != call.ConID {
 		t.Fatalf("a protection leg produced an exit row, or the directional call lost its review: %+v", proposals)
 	}

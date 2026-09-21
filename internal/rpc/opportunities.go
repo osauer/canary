@@ -392,10 +392,85 @@ type TradeProposalSnapshot struct {
 	// applies to them and no order follows from them. A hedge the whole-book
 	// classifier measures as directional leaves this list and appears as an
 	// exit review among Proposals instead.
-	OptionHedges    []OptionHedge       `json:"option_hedges,omitempty"`
-	Counts          TradeProposalCounts `json:"counts"`
-	Blockers        []TradingBlocker    `json:"blockers,omitempty"`
-	LoadedFromState bool                `json:"loaded_from_state,omitempty"`
+	OptionHedges []OptionHedge       `json:"option_hedges,omitempty"`
+	Counts       TradeProposalCounts `json:"counts"`
+	// BudgetReduction is the premium budget governor's typed status for this
+	// generation: why it generated nothing, or what it measured. Absent when
+	// the bucket is not enabled in the protection policy.
+	BudgetReduction *TradeProposalBudgetStatus `json:"budget_reduction,omitempty"`
+	Blockers        []TradingBlocker           `json:"blockers,omitempty"`
+	LoadedFromState bool                       `json:"loaded_from_state,omitempty"`
+}
+
+// Budget governor states. The first four explain an empty generation; the
+// last three describe a measurement.
+const (
+	BudgetStateConstitutionUnapproved = "constitution_unapproved"
+	BudgetStateEnforcementShadow      = "enforcement_shadow"
+	BudgetStateNotLatched             = "not_latched"
+	BudgetStateCurrencyMismatch       = "currency_mismatch"
+	BudgetStateUnmeasurable           = "unmeasurable"
+	BudgetStateWithinBudget           = "within_budget"
+	BudgetStateOverBudget             = "over_budget"
+)
+
+// TradeProposalBudgetStatus is the premium budget governor's account of one
+// generation. Money fields are base currency; nil means unavailable, never
+// zero. Rows counts the proposals the governor emitted in this generation.
+type TradeProposalBudgetStatus struct {
+	Mode   string `json:"mode"`
+	Shadow bool   `json:"shadow"`
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+	// The caps as written in the protection policy.
+	PremiumAtRiskPctOfRiskCapital float64 `json:"premium_at_risk_pct_of_risk_capital"`
+	PerLinePctOfRiskCapital       float64 `json:"per_line_pct_of_risk_capital"`
+	// What the governor measured, once the gates are open.
+	DeclaredRiskCapitalBase  *float64 `json:"declared_risk_capital_base,omitempty"`
+	MeasuredPremiumBase      *float64 `json:"measured_premium_base,omitempty"`
+	MeasuredPctOfRiskCapital *float64 `json:"measured_pct_of_risk_capital,omitempty"`
+	TotalExcessBase          *float64 `json:"total_excess_base,omitempty"`
+	// IncludedLegs were measured; ProtectionLegs were left out as protection;
+	// ExcludedLegs had no base market value and could not be measured.
+	IncludedLegs   int    `json:"included_legs"`
+	ProtectionLegs int    `json:"protection_legs"`
+	ExcludedLegs   int    `json:"excluded_legs"`
+	Rows           int    `json:"rows"`
+	BaseCurrency   string `json:"base_currency,omitempty"`
+}
+
+// TradeProposalBudget is one governor row's arithmetic: which cap selected the
+// line, what was measured, the excess, and the row's place in the reduction
+// order. Base currency throughout.
+type TradeProposalBudget struct {
+	Mode string `json:"mode"`
+	// Cap is per_line, total, or per_line+total when both passes trimmed the
+	// same line.
+	Cap                           string  `json:"cap"`
+	PremiumAtRiskPctOfRiskCapital float64 `json:"premium_at_risk_pct_of_risk_capital"`
+	PerLinePctOfRiskCapital       float64 `json:"per_line_pct_of_risk_capital"`
+	DeclaredRiskCapitalBase       float64 `json:"declared_risk_capital_base"`
+	// Line figures: the measured line value, its share of declared risk
+	// capital, and the excess over the per-line cap (nil when the per-line
+	// cap did not select it).
+	LineMarketValueBase  float64  `json:"line_market_value_base"`
+	LinePctOfRiskCapital float64  `json:"line_pct_of_risk_capital"`
+	LineExcessBase       *float64 `json:"line_excess_base,omitempty"`
+	// Total figures: the measured total across every non-protection leg, its
+	// share, and the excess over the total cap (nil when within the cap).
+	TotalMeasuredBase     float64  `json:"total_measured_base"`
+	TotalPctOfRiskCapital float64  `json:"total_pct_of_risk_capital"`
+	TotalExcessBase       *float64 `json:"total_excess_base,omitempty"`
+	// Order is the row's place in the total-cap reduction order (1 = first);
+	// zero when only the per-line cap selected it.
+	Order int `json:"order,omitempty"`
+	// ContractsPerLine and ContractsTotal split the row's quantity by the cap
+	// that asked for it; the sum is the proposal quantity before the order
+	// notional cap.
+	ContractsPerLine  int      `json:"contracts_per_line,omitempty"`
+	ContractsTotal    int      `json:"contracts_total,omitempty"`
+	UnrealizedPnLBase *float64 `json:"unrealized_pnl_base,omitempty"`
+	BaseCurrency      string   `json:"base_currency,omitempty"`
 }
 
 // OptionHedge role evidence values. Measured means the Rulebook's whole-book
@@ -450,7 +525,12 @@ type TradeProposalCounts struct {
 	StrategyExit     int `json:"strategy_exit,omitempty"`
 	// OptionHedges counts the standing protection records beside the
 	// proposals; they are not included in Total or Actionable.
-	OptionHedges                int     `json:"option_hedges,omitempty"`
+	OptionHedges int `json:"option_hedges,omitempty"`
+	// BudgetReduction counts the premium budget governor's rows;
+	// BudgetReductionShadow is the subset generated in shadow mode, which are
+	// counted in Total but never in Actionable.
+	BudgetReduction             int     `json:"budget_reduction,omitempty"`
+	BudgetReductionShadow       int     `json:"budget_reduction_shadow,omitempty"`
 	MarketFlags                 int     `json:"market_flags,omitempty"`
 	ThetaPerDay                 float64 `json:"theta_per_day"`
 	RiskReductionExcessNotional float64 `json:"risk_reduction_excess_notional,omitempty"`
@@ -517,6 +597,27 @@ type TradeProposal struct {
 	SourceFingerprints        TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
 	Blockers                  []TradingBlocker                `json:"blockers,omitempty"`
 	CreatedAt                 time.Time                       `json:"created_at,omitzero"`
+	// Shadow marks a row generated under a shadow-mode bucket: listed and
+	// journaled for observation, refused by preview and submit with
+	// shadow_mode, and never eligible for automatic placement.
+	Shadow bool `json:"shadow,omitempty"`
+	// NeverSkipVeto tells the pre-authorisation scheduler that this row must
+	// wait its full veto window even when the drawdown brake is latched. A
+	// reduction to budget is a discretionary-scale action, not a stop.
+	NeverSkipVeto bool `json:"never_skip_veto,omitempty"`
+	// Budget is the premium budget governor's arithmetic for a
+	// budget_reduction row; nil on every other bucket.
+	Budget *TradeProposalBudget `json:"budget,omitempty"`
+}
+
+// AutomaticEligible is the predicate the pre-authorisation scheduler calls
+// before it may place a proposal without a per-order instruction: never a
+// shadow row, never a row with blockers. It is a necessary condition only —
+// the scheduler's own veto window, the bucket authority in the protection
+// policy, and every broker-write gate still apply, and NeverSkipVeto must be
+// honoured on top of it.
+func (p TradeProposal) AutomaticEligible() bool {
+	return !p.Shadow && len(p.Blockers) == 0
 }
 
 // TradeProposalOptionExit explains an option exit or blocked review. Intent
