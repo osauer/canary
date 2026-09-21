@@ -39,7 +39,10 @@ type proposalEngine struct {
 	// the premium budget governor. Test seam; nil reads the daemon's own
 	// risk-policy manager and capital state.
 	budgetInput func(acct *rpc.AccountResult, now time.Time) budgetGovernorInput
-	snapshot    rpc.TradeProposalSnapshot
+	// resolve returns the proposal a preview or submit names. Test seam; nil
+	// re-validates against a fresh refresh (revalidatedProposal).
+	resolve  func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error)
+	snapshot rpc.TradeProposalSnapshot
 	// ignored is keyed by scopedIgnoreKey (account|mode|proposal key):
 	ignored map[string]struct{}
 	// refreshFailStreak counts consecutive refreshes that ended on a
@@ -1928,6 +1931,12 @@ func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreview
 		e.appendBlocked(prop, p.Key, p.Revision, blockers, err)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, err
 	}
+	// A shadow row is observation, never an order: refuse before any broker
+	// preview, whatever blockers the row itself carried.
+	if blockers := shadowProposalBlockers(prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+	}
 	if blockers := unitProposalOrderBlockers(prop); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
@@ -1965,7 +1974,7 @@ func (e *proposalEngine) previewProposal(ctx context.Context, p rpc.TradeProposa
 			return prop, blockers, nil
 		}
 	}
-	return e.revalidatedProposal(ctx, p.Key, p.Revision)
+	return e.resolveProposal(ctx, p.Key, p.Revision)
 }
 
 func (e *proposalEngine) submitProposal(ctx context.Context, p rpc.TradeProposalSubmitParams, fastPathEnabled bool) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
@@ -1974,7 +1983,14 @@ func (e *proposalEngine) submitProposal(ctx context.Context, p rpc.TradeProposal
 			return prop, blockers, nil
 		}
 	}
-	return e.revalidatedProposal(ctx, p.Key, p.Revision)
+	return e.resolveProposal(ctx, p.Key, p.Revision)
+}
+
+func (e *proposalEngine) resolveProposal(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
+	if e != nil && e.resolve != nil {
+		return e.resolve(ctx, key, revision)
+	}
+	return e.revalidatedProposal(ctx, key, revision)
 }
 
 func (e *proposalEngine) fastPathPreviewProposal(key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, bool) {
@@ -2050,6 +2066,10 @@ func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	if len(blockers) > 0 || err != nil {
 		e.appendBlocked(prop, p.Key, p.Revision, blockers, err)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, err
+	}
+	if blockers := shadowProposalBlockers(prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
 	if blockers := unitProposalOrderBlockers(prop); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
