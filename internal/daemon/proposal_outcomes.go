@@ -54,6 +54,9 @@ type proposalOutcomeMark struct {
 	ExecutionPnL       float64                             `json:"execution_pnl,omitempty"`
 	BenchmarkSymbol    string                              `json:"benchmark_symbol,omitempty"`
 	Message            string                              `json:"message,omitempty"`
+	// Shadow marks a row generated under a shadow-mode bucket: the mark keeps
+	// the baseline for a retrospective, but the row was never offered.
+	Shadow bool `json:"shadow,omitempty"`
 }
 
 func defaultProposalOutcomesPath() (string, error) {
@@ -199,8 +202,10 @@ func (s *proposalOutcomeStore) loadOutcomeKeysLocked() (map[string]struct{}, err
 // how many distinct protection proposals were offered versus acted on. It reads
 // the journal read-only and never mutates the append cache. "Offered" is any
 // distinct proposal with a recorded outcome that day (marks are shadow-hold
-// offers); "acted" is a proposal that was submitted or filled. Raw proposal
-// identities are used only to count distinct subjects and never returned.
+// offers); "acted" is a proposal that was submitted or filled. A mark from a
+// shadow-mode bucket keeps its baseline for the retrospective but is not an
+// offer and does not count. Raw proposal identities are used only to count
+// distinct subjects and never returned.
 func (s *proposalOutcomeStore) SessionSummary() (offered, acted int, day string, ok bool, err error) {
 	if s == nil || (s.core == nil && s.Path == "") {
 		return 0, 0, "", false, nil
@@ -249,7 +254,7 @@ func (s *proposalOutcomeStore) SessionSummary() (offered, acted int, day string,
 	latest := ""
 	for _, mark := range marks {
 		subject := proposalOutcomeSubject(mark)
-		if subject == "" || mark.MarkDate == "" {
+		if subject == "" || mark.MarkDate == "" || mark.Shadow {
 			continue
 		}
 		if mark.MarkDate > latest {
@@ -360,6 +365,7 @@ func proposalOutcomeMarked(prop rpc.TradeProposal, at time.Time) proposalOutcome
 		BaselinePrice:      markPrice,
 		MarkPrice:          markPrice,
 		BenchmarkSymbol:    "SPY",
+		Shadow:             prop.Shadow,
 		Message:            "daily shadow-hold proposal mark",
 	}
 }
