@@ -49,6 +49,43 @@ type protectionPolicyBuckets struct {
 	ThetaHygiene  protectionThetaPolicy `toml:"theta_hygiene" json:"theta_hygiene"`
 	RiskReduction protectionRiskPolicy  `toml:"risk_reduction" json:"risk_reduction"`
 	TrailingStop  protectionTrailPolicy `toml:"trailing_stop" json:"trailing_stop"`
+	// BudgetReduction is a pointer so an absent table stays absent: the
+	// embedded default does not carry it, and a policy file written before it
+	// existed keeps its fingerprint byte-for-byte.
+	BudgetReduction *protectionBudgetPolicy `toml:"budget_reduction" json:"budget_reduction,omitempty"`
+}
+
+// protectionBudgetPolicy is the options premium budget governor. It reduces
+// long option premium to a declared share of the risk constitution's declared
+// risk capital, and only while the constitution's drawdown block tier is
+// latched or breached under an advisory or stronger enforcement class. The
+// caps have no embedded default: the owner writes them (decision D4,
+// 2026-09-21; internal-docs/design/budget-governor.md).
+type protectionBudgetPolicy struct {
+	// Enabled turns the premium budget governor on (default false; the table is absent from the embedded default).
+	Enabled bool `toml:"enabled" json:"enabled"`
+	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals.
+	Mode string `toml:"mode" json:"mode,omitempty"`
+	// PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default.
+	PremiumAtRiskPctOfRiskCapital float64 `toml:"premium_at_risk_pct_of_risk_capital" json:"premium_at_risk_pct_of_risk_capital"`
+	// PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default.
+	PerLinePctOfRiskCapital float64 `toml:"per_line_pct_of_risk_capital" json:"per_line_pct_of_risk_capital"`
+	// MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does; the remainder waits for the next cycle.
+	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
+}
+
+// effectiveMode resolves the governor mode: active only when the file says so,
+// shadow otherwise — the fail-safe direction (list and journal, never act).
+func (p *protectionBudgetPolicy) effectiveMode() string {
+	if p != nil && strings.EqualFold(strings.TrimSpace(p.Mode), rpc.BudgetReductionModeActive) {
+		return rpc.BudgetReductionModeActive
+	}
+	return rpc.BudgetReductionModeShadow
+}
+
+// enabled reports whether the governor bucket is present and switched on.
+func (p *protectionBudgetPolicy) enabled() bool {
+	return p != nil && p.Enabled
 }
 
 type protectionThetaPolicy struct {
@@ -511,6 +548,44 @@ func validateProtectionPolicy(p protectionPolicy) error {
 	// dormant and later become active after only an enabled/version flip.
 	if err := validateTrailOptionPolicy("trailing_stop.options", p.Buckets.TrailingStop.Options); err != nil {
 		return err
+	}
+	if err := validateBudgetPolicy("budget_reduction", p.Buckets.BudgetReduction); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateBudgetPolicy checks the governor table when it is present. The mode
+// is a closed two-value set in every state; the caps and the order notional
+// are required only when the bucket is enabled, but a written cap must be
+// well-formed even while disabled so a bad number cannot sit dormant behind an
+// enabled/version flip.
+func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
+	if p == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Mode)) {
+	case "", rpc.BudgetReductionModeShadow, rpc.BudgetReductionModeActive:
+	default:
+		return fmt.Errorf("%s.mode %q is invalid; use shadow or active", prefix, p.Mode)
+	}
+	pct := func(name string, v float64) error {
+		if !finiteProtectionOptionPolicyValue(v) || v < 0 || v > 100 || (p.Enabled && v == 0) {
+			return fmt.Errorf("%s.%s must be in (0, 100]", prefix, name)
+		}
+		return nil
+	}
+	if err := pct("premium_at_risk_pct_of_risk_capital", p.PremiumAtRiskPctOfRiskCapital); err != nil {
+		return err
+	}
+	if err := pct("per_line_pct_of_risk_capital", p.PerLinePctOfRiskCapital); err != nil {
+		return err
+	}
+	if p.PerLinePctOfRiskCapital > p.PremiumAtRiskPctOfRiskCapital {
+		return fmt.Errorf("%s.per_line_pct_of_risk_capital must not exceed premium_at_risk_pct_of_risk_capital", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 || (p.Enabled && p.MaxOrderNotional == 0) {
+		return fmt.Errorf("%s.max_order_notional must be positive", prefix)
 	}
 	return nil
 }

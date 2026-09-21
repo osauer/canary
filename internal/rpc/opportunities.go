@@ -313,6 +313,16 @@ const (
 	// TradeProposalBucketStrategyExit evaluates a multi-leg unit as one virtual
 	// position: net premium paid against net close value at fresh quotes.
 	TradeProposalBucketStrategyExit = "strategy_exit"
+	// TradeProposalBucketBudgetReduction reduces long option premium to the
+	// declared share of the risk constitution's declared risk capital while
+	// the drawdown brake is engaged. Rows are close-or-reduce only; in shadow
+	// mode they are listed and journaled but never previewable or submittable.
+	TradeProposalBucketBudgetReduction = "budget_reduction"
+
+	// BudgetReductionModeShadow and BudgetReductionModeActive are the two
+	// governor modes. Shadow is the policy default.
+	BudgetReductionModeShadow = "shadow"
+	BudgetReductionModeActive = "active"
 
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
