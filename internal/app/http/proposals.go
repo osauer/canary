@@ -187,3 +187,26 @@ func (h *handler) handleProposalsIgnore(w nethttp.ResponseWriter, r *nethttp.Req
 	}
 	writeJSON(w, res)
 }
+
+// handleProposalsVeto stops a pending pre-authorised submission. It sends no
+// broker write; it prevents one. Origin is server-assigned: every
+// authenticated app caller is a paired device, which the daemon accepts as a
+// human origin for a veto.
+func (h *handler) handleProposalsVeto(w nethttp.ResponseWriter, r *nethttp.Request) {
+	var req rpc.TradeProposalVetoParams
+	if err := decodeJSON(w, r, &req); err != nil {
+		writeJSONRequestError(w, err, "")
+		return
+	}
+	req.Origin = rpc.OrderOriginPairedDevice
+	res, err := h.deps.Daemon.TradeProposalsVeto(r.Context(), req)
+	if err != nil {
+		if rpcErr, ok := errors.AsType[*rpc.Error](err); ok {
+			writeError(w, nethttp.StatusBadRequest, rpcErr.Message)
+			return
+		}
+		writeError(w, nethttp.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, res)
+}

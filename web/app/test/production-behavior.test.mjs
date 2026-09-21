@@ -1274,6 +1274,54 @@ function protectionActionFixture() {
   return proposal;
 }
 
+test("pre-authorised rows show the countdown and a veto that follows the daemon record", () => {
+  reset();
+  const proposal = protectionActionFixture();
+  proposal.automatic = { pre_authorised: true, bucket: "trailing_stop", state: "pending", submit_at: "2026-09-21T14:30:00Z", veto_window: "30m0s" };
+  protection.renderProtectionPanel(state.snapshot.proposals);
+  const rows = dom.element("protectionRows");
+  const [veto] = byClass(rows, "protection-veto");
+  assert.ok(veto, "a pending automatic record offers a veto");
+  assert.equal(veto.disabled, false);
+  assert.match(veto.title, /hold lasts until the proposal changes/);
+  const [automatic] = byClass(rows, "protection-row__automatic");
+  assert.match(automatic.textContent, /Canary places this itself at .* unless you veto/);
+  assert.equal(protection.protectionVetoAvailable(proposal), true);
+
+  // Latched brake: no window, the copy says so, the veto still shows while pending.
+  proposal.automatic.latch_skipped_window = true;
+  assert.match(protection.protectionAutomaticText(proposal), /placing this now.*brake is latched/);
+
+  // Terminal states name the outcome and offer no veto.
+  for (const [state_, pattern] of [["vetoed", /^Vetoed at/], ["submitted", /^Placed by Canary at/], ["failed", /did not place this: trading_frozen/], ["superseded", /superseded/]]) {
+    proposal.automatic = { pre_authorised: true, state: state_, vetoed_at: "2026-09-21T14:10:00Z", submitted_at: "2026-09-21T14:30:00Z", reason: "trading_frozen: frozen" };
+    assert.match(protection.protectionAutomaticText(proposal), pattern, state_);
+    assert.equal(protection.protectionVetoAvailable(proposal), false, state_);
+  }
+  // A pre-authorised row without a record is told what will happen; an
+  // ordinary row says nothing about automation.
+  proposal.automatic = { pre_authorised: true, bucket: "trailing_stop" };
+  assert.match(protection.protectionAutomaticText(proposal), /^Pre-authorised: Canary places this itself once the row is unblocked/);
+  assert.equal(protection.protectionVetoAvailable(proposal), false);
+  proposal.automatic = { pre_authorised: false, bucket: "trailing_stop" };
+  assert.equal(protection.protectionAutomaticText(proposal), "");
+  delete proposal.automatic;
+  protection.renderProtectionPanel(state.snapshot.proposals);
+  assert.equal(byClass(dom.element("protectionRows"), "protection-veto").length, 0, "no record, no veto button");
+});
+
+test("read-only preview disables the veto like every other protection action", () => {
+  reset();
+  const proposal = protectionActionFixture();
+  proposal.automatic = { pre_authorised: true, state: "pending", submit_at: "2026-09-21T14:30:00Z" };
+  state.readOnlyPreview = true;
+  protection.renderProtectionPanel(state.snapshot.proposals);
+  const [veto] = byClass(dom.element("protectionRows"), "protection-veto");
+  assert.ok(veto);
+  assert.equal(veto.disabled, true);
+  assert.match(veto.title, /Read-only preview/);
+});
+
 test("read-only protection explains and disables stop, repair, ignore, and portfolio trim actions", () => {
   reset();
   const proposal = protectionActionFixture();

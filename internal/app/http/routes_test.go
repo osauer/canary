@@ -727,6 +727,13 @@ func (routeFakeClient) TradeProposalsIgnore(context.Context, rpc.TradeProposalIg
 	return &rpc.TradeProposalIgnoreResult{Accepted: true, Key: "proposal"}, nil
 }
 
+func (routeFakeClient) TradeProposalsVeto(_ context.Context, params rpc.TradeProposalVetoParams) (*rpc.TradeProposalVetoResult, error) {
+	if params.Origin != rpc.OrderOriginPairedDevice {
+		return nil, &rpc.Error{Code: "bad_request", Message: "proposal veto is human-only"}
+	}
+	return &rpc.TradeProposalVetoResult{Accepted: true, Key: params.Key, State: rpc.TradeProposalAutomaticVetoed}, nil
+}
+
 func (routeFakeClient) Settings(context.Context) (*rpc.PlatformSettings, error) {
 	return &rpc.PlatformSettings{
 		Kind: "ibkr.platform_settings",

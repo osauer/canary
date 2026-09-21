@@ -146,6 +146,7 @@ func Register(deps Dependencies) {
 	srv.POST("/api/proposals/reduce-portfolio/submit", h.requireAuth(h.handleProposalsReducePortfolioSubmit))
 	srv.POST("/api/proposals/request-stop", h.requireAuth(h.handleProposalsRequestStop))
 	srv.POST("/api/proposals/ignore", h.requireAuth(h.handleProposalsIgnore))
+	srv.POST("/api/proposals/veto", h.requireAuth(h.handleProposalsVeto))
 	srv.GET("/api/opportunities", h.requireRead(h.handleOpportunitiesSnapshot))
 	srv.POST("/api/opportunities/refresh", h.requireAuth(h.handleOpportunitiesRefresh))
 	srv.POST("/api/opportunities/preview-exercise", h.requireAuth(h.handleOpportunitiesPreviewExercise))
