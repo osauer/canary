@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.10.0 — 2026-09-22 09:15 CEST
+
+### What's new
+
+- **Optional protection scheduling with a veto window.** Trading builds can schedule explicitly pre-authorised close/reduce proposals, with a default thirty-minute window and a veto action in the CLI and app. Automation is off by default; installation does not enable a bucket or change the owner's policy.
+- **Budget reductions can be evaluated in shadow.** An optional governor proposes reductions against owner-defined option-risk budgets while preserving protection legs. Shadow proposals cannot submit. The daily brief also shows the constitution's warning/block levels and risk-capital figures.
+- **Gateway logging can follow configured operating hours.** Cached calendars cover US equities/options, Xetra, London, Tokyo and Hong Kong, with preparation and post-close time. Conservative logging remains the default; scheduled quieting is opt-in and uncertain coverage retains warnings.
+
+### Changed
+
+- Repeated gateway failures and dependent history, proposal and gamma warnings share a bounded incident with reminders and a recovery summary.
+- The daemon publishes protection alerts for consuming apps; it does not confirm phone delivery. For opted-in automation, a latched drawdown brake can bypass the notice and veto wait for eligible protection buckets; budget-reduction rows keep the full window.
+
+### Fixed
+
+- Delayed recovery work from a retired broker connection could disturb the current P&L subscriptions. Recovery and incoming frames now remain bound to the originating session; failed requests remain retryable. Broker-write gates, positions and balances are unchanged by this fix.
+
 ## v3.9.2 — 2026-09-20 20:18 CEST
 
 ### What's new

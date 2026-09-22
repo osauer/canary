@@ -84,6 +84,19 @@ Honest limits of this interlock:
   QA read-only and use the agent-origin gated CLI for an explicitly requested
   write. App writes still require the preview token and server-validated
   account/mode confirmation fields.
+### Opt-in daemon protection scheduling
+
+Trading builds also recognize `daemon-preauthorised`, restricted to the running
+scheduler's exact proposal grant and a bucket explicitly listed in the active
+owner policy. The default list is empty. Agent-origin requests cannot obtain
+that grant, and standard binaries still compile out broker submission. The
+scheduler retains build, mode/account, freeze, evidence, preview and journal
+gates. See [pre-authorised buckets](docs/docs/operate/protection.md#pre-authorised-buckets)
+for veto timing and the latched-brake exception.
+
+A recorded daemon alert proves registry publication, not phone delivery. The
+consuming application's delivery channel is a separate operational boundary.
+
 ## Release integrity (v1.0.0+)
 
 Every GitHub release from v1.0.0 onward ships signed checksums for the published install assets:

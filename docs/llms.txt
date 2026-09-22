@@ -1,14 +1,13 @@
 # Canary
 
-Updated: 2026-09-20
+Updated: 2026-09-22
 
-Version 3.9 adds a Go daemon client that runs the read-only tool catalogue
-over the daemon socket, the statement performance series with dated flows and
-year-to-date income, sector allocation under GICS with fund look-through at
-market value, and a listing of every option held as portfolio protection. The
-broker's "no security definition" answer is remembered instead of asked again,
-and closed-market quote context no longer starves other history reads.
-Broker-write gates are unchanged.
+Version 3.10 adds opt-in protection scheduling with a veto window, shadow
+budget-reduction proposals, and risk-capital figures in the daily brief.
+Automation stays off until the owner explicitly enables policy buckets.
+Gateway diagnostics group repeated failures and support cached market schedules,
+including Tokyo and Hong Kong; P&L recovery rejects work from retired sessions.
+Notification delivery belongs to consuming apps and is not proved by the daemon.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
 MCP server, paired app, and a public Go module with a daemon client and the TWS

@@ -176,10 +176,8 @@ engine, the policy schema or the write gate.
 
 ## Known consequences to say plainly to the owner
 
-- The live brief on 21 Sept put premium at risk at roughly three times the
-  declared risk capital, so once the governor is active it will propose
-  cutting most of the current option book while the brake is latched.
-  That is the constitution as written (D1), not a defect.
+- Budget reductions follow the active constitution and current exposure; review
+  shadow results before separately activating the bucket.
 - A pre-authorised stop or exit under a latched brake submits without the
   window. The governor's rows never do.
 
@@ -190,3 +188,17 @@ design, the risk-policy contract template, "Fix what you find, no homework",
 and the Desk memory notes on the product view. Never propose purpose
 declarations, self-tuning thresholds, forecasts or a second risk engine in
 Desk.
+
+## Release preparation update, 2026-09-22
+
+The commits listed above are now integrated on main. Full local gates passed
+again during the logging/P&L work. The release includes operational pre-authorised
+bucket documentation and the security boundary. The installation authorization
+requires automation to remain inactive; the active policy was checked read-only
+and contains no pre-authorised buckets or pending automatic submissions. No
+policy, freeze, trading limit, or broker order was changed.
+
+The owner clarified that notification delivery may belong to another app, such
+as Desk. Canary's current receipt means alert-registry publication, not phone
+delivery. Future activation must account for that boundary and the existing
+latched-brake exception; release approval is not activation approval.

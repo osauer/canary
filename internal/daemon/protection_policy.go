@@ -45,7 +45,7 @@ type protectionPolicyAuthority struct {
 	// AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path.
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
 	// PreAuthorised lists the reduce-only buckets whose unblocked proposals
-	// the daemon places itself after a phone notice and the veto window
+	// the daemon places itself after recording an alert and the veto window
 	// (owner decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
 	// option_loss_exit, option_profit_trail, budget_reduction. Empty by
 	// default, so nothing submits itself until the owner lists a bucket
@@ -53,7 +53,8 @@ type protectionPolicyAuthority struct {
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
 	// VetoWindow is how long a pre-authorised proposal waits between its
 	// notice and its submission; default 30m, minimum 5m. A latched
-	// drawdown brake skips the wait.
+	// drawdown brake skips the wait except for budget reductions; the daemon
+	// records alert publication, not proof of app or phone delivery.
 	VetoWindow string `toml:"veto_window" json:"veto_window,omitempty"`
 }
 

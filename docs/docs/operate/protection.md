@@ -1,10 +1,12 @@
 # Protection and risk reduction
 
-Updated: 2026-09-21
+Updated: 2026-09-22
 
-Nothing here submits an order for you. The daemon can propose a close or a
-reduce and can price one against the broker. Placing it stays an explicit
-instruction from you, for that exact order, in that moment.
+Proposals are advisory by default. The standard binary cannot place an order.
+In a trading build, manual submission requires the exact proposal and its
+fresh preview; optional pre-authorised buckets let the daemon schedule
+close/reduce actions under an owner-edited policy. Installing Canary does not
+enable that automation.
 
 A blocked proposal row is normally the system refusing to act on evidence it
 cannot trust, not a fault to work around. Canary exposes only constrained
@@ -19,6 +21,7 @@ close/reduce actions here; use TWS for an unmodeled emergency exit.
 | `canary proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
 | `canary proposals submit KEY REVISION` | yes | place that one protective order |
 | `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close |
+| `canary proposals veto KEY` | no | hold the current automatic proposal revision before submission |
 | `canary proposals request-stop SYMBOL` | no | stage a trailing-stop proposal for one uncovered stock/ETF holding now |
 
 `canary proposals` with no subcommand runs `list`. In a standard build the submit
@@ -26,7 +29,7 @@ path fails closed anyway: the daemon's write handler is compiled out behind the
 `trading` build tag and returns `ErrTradingDisabled`. See
 [Constrained orders and the trading build](orders.md).
 
-## Proposals are advisory, and close or reduce only
+## Proposals close or reduce only
 
 The daemon owns generation. It rebuilds the set from current positions, the
 protection policy, and market-event context, and every row it emits closes or
@@ -249,3 +252,30 @@ the exact quantity a reduce-modify has to target, and it appears with
 `short_risk_quantity` in `canary orders open --json`. The same holdings show up in
 `canary positions` as `reconcile_required` under protection coverage, where a
 stale protective order is deliberately not counted as protection.
+
+## Pre-authorised buckets
+
+The protection policy's `[authority].pre_authorised` list is empty by default.
+Only an explicit owner policy edit and version bump enable the named buckets:
+`trailing_stop`, `option_loss_exit`, `option_profit_trail`, or `budget_reduction`.
+`auto_submit` remains false; it is not the switch for this scoped scheduler.
+Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
+and broker eligibility gates still apply to every submission.
+
+`veto_window` defaults to `"30m"` and cannot be less than five minutes. The
+window starts after the daemon records the Protection alert in its registry.
+The paired app or another consuming application owns notification delivery;
+registry acceptance does not prove that a phone received or displayed it.
+Do not treat the window as a guaranteed opportunity to receive a push.
+
+A latched drawdown brake lets eligible non-budget protection records bypass
+both the notice prerequisite and the waiting window. Budget reductions always
+retain the notice prerequisite and full veto window; shadow rows never schedule.
+`canary proposals status` reports authorised buckets and pending counts. A human
+can veto from `canary proposals veto KEY` or the app before submission. Agent
+origins cannot veto. A veto applies to that proposal revision; changed evidence
+can create a new revision and window.
+
+The daemon persists submission intent before the broker call and reconciles
+it against its journal after restart. Installing or updating the binary does
+not edit policy, enable buckets, or clear freeze.
