@@ -88,7 +88,41 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 	if s != nil && s.orderWriteOriginBlockersForTest != nil {
 		return s.orderWriteOriginBlockersForTest(status, origin)
 	}
-	return liveOriginBlockers(status, origin)
+	blockers := liveOriginBlockers(status, origin)
+	if origin == rpc.OrderOriginDaemonPreAuthorised {
+		for _, blocker := range s.daemonPreAuthorisedOriginBlockers() {
+			blockers = appendTradingBlockerOnce(blockers, blocker)
+		}
+	}
+	return blockers
+}
+
+// daemonPreAuthorisedOriginBlockers is the origin-specific policy for the
+// daemon's own submissions: the write is accepted only while the scheduler
+// holds a grant for one exact proposal (it holds brokerWriteMu for the
+// duration, so nothing else can ride on it) and the protection policy active
+// at this instant still pre-authorises that proposal's bucket. Every other
+// gate — build, mode, gateway, pins, freeze, limits, journal, preview token —
+// is evaluated by the same authorization as a human write.
+func (s *Server) daemonPreAuthorisedOriginBlockers() []rpc.TradingBlocker {
+	if s == nil {
+		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "daemon-preauthorised writes require the daemon's own scheduler", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
+	}
+	grant := s.automaticGrant.Load()
+	if grant == nil {
+		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "daemon-preauthorised writes are issued only by the daemon's pre-authorised protection scheduler; no submission is in progress", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
+	}
+	if s.protectionPolicies == nil {
+		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: "no protection policy is loaded, so no bucket is pre-authorised", Action: "List the bucket under [authority].pre_authorised and bump policy_version."}}
+	}
+	policy, status := s.protectionPolicies.Active()
+	if status.Status != rpc.ProtectionPolicyStatusActive && status.Status != rpc.ProtectionPolicyStatusDefault {
+		return []rpc.TradingBlocker{{Code: "policy_" + status.Status, Message: nonEmptyString(status.Message, "protection policy is not active"), Action: "Fix the protection policy file and bump policy_version."}}
+	}
+	if !policy.Authority.preAuthorised(grant.Bucket) {
+		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not listed under [authority].pre_authorised in the active protection policy", grant.Bucket), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
+	}
+	return nil
 }
 
 // authorizeBrokerWriteTransaction evaluates the trading gate against one

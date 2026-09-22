@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -43,6 +44,62 @@ type protectionPolicyAuthority struct {
 	CloseReduceOnly bool `toml:"close_reduce_only" json:"close_reduce_only"`
 	// AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path.
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
+	// PreAuthorised lists the reduce-only buckets whose unblocked proposals
+	// the daemon places itself after a phone notice and the veto window
+	// (owner decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
+	// option_loss_exit, option_profit_trail, budget_reduction. Empty by
+	// default, so nothing submits itself until the owner lists a bucket
+	// and bumps policy_version.
+	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
+	// VetoWindow is how long a pre-authorised proposal waits between its
+	// notice and its submission; default 30m, minimum 5m. A latched
+	// drawdown brake skips the wait.
+	VetoWindow string `toml:"veto_window" json:"veto_window,omitempty"`
+}
+
+// Pre-authorised bucket identifiers. They name what the owner authorised,
+// not the engine's internal bucket constants: the option profit trail shares
+// the engine's trailing_stop bucket but is its own decision contract.
+const (
+	preAuthorisedBucketTrailingStop      = "trailing_stop"
+	preAuthorisedBucketOptionLossExit    = "option_loss_exit"
+	preAuthorisedBucketOptionProfitTrail = "option_profit_trail"
+	// preAuthorisedBucketBudgetReduction is accepted ahead of the bucket that
+	// generates it (reductions back to budget while the brake is latched);
+	// listing it before that bucket exists authorises nothing.
+	preAuthorisedBucketBudgetReduction = "budget_reduction"
+
+	defaultVetoWindow = 30 * time.Minute
+	minimumVetoWindow = 5 * time.Minute
+)
+
+func validPreAuthorisedBucket(name string) bool {
+	switch name {
+	case preAuthorisedBucketTrailingStop, preAuthorisedBucketOptionLossExit,
+		preAuthorisedBucketOptionProfitTrail, preAuthorisedBucketBudgetReduction:
+		return true
+	default:
+		return false
+	}
+}
+
+// preAuthorised reports whether the owner listed bucket for daemon
+// submission. The empty name (a proposal outside the vocabulary) never is.
+func (a protectionPolicyAuthority) preAuthorised(bucket string) bool {
+	return bucket != "" && slices.Contains(a.PreAuthorised, bucket)
+}
+
+// vetoWindow resolves the configured window; validateProtectionPolicy has
+// already rejected anything unparsable or shorter than the minimum.
+func (a protectionPolicyAuthority) vetoWindow() time.Duration {
+	if strings.TrimSpace(a.VetoWindow) == "" {
+		return defaultVetoWindow
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(a.VetoWindow))
+	if err != nil || d < minimumVetoWindow {
+		return defaultVetoWindow
+	}
+	return d
 }
 
 type protectionPolicyBuckets struct {
@@ -510,6 +567,23 @@ func validateProtectionPolicy(p protectionPolicy) error {
 	}
 	if p.Authority.AutoSubmit {
 		return fmt.Errorf("protection policy authority.auto_submit must be false in MVP")
+	}
+	for i, bucket := range p.Authority.PreAuthorised {
+		if !validPreAuthorisedBucket(bucket) {
+			return fmt.Errorf("protection policy authority.pre_authorised[%d] %q is not a pre-authorisable bucket; use trailing_stop, option_loss_exit, option_profit_trail or budget_reduction", i, bucket)
+		}
+		if slices.Contains(p.Authority.PreAuthorised[:i], bucket) {
+			return fmt.Errorf("protection policy authority.pre_authorised lists %q twice", bucket)
+		}
+	}
+	if raw := strings.TrimSpace(p.Authority.VetoWindow); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return fmt.Errorf("protection policy authority.veto_window %q is not a duration: %w", p.Authority.VetoWindow, err)
+		}
+		if d < minimumVetoWindow {
+			return fmt.Errorf("protection policy authority.veto_window %s is below the %s minimum", d, minimumVetoWindow)
+		}
 	}
 	if p.Buckets.ThetaHygiene.Enabled {
 		if p.Buckets.ThetaHygiene.MaxDTE <= 0 {

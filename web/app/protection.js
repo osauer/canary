@@ -846,6 +846,13 @@ function protectionRow(proposal) {
   status.textContent = [proposal.option_exit ? protectionBucketLabel(proposal) : "", coverageText, staged].filter(Boolean).join(" · ");
   if (blocked || proposal.state === "blocked") status.classList.add("protection-row__status--blocked");
   identity.append(title, status);
+  const automaticText = protectionAutomaticText(proposal);
+  if (automaticText) {
+    const automatic = document.createElement("span");
+    automatic.className = `protection-row__automatic protection-row__automatic--${proposal.automatic?.state || "armed"}`;
+    automatic.textContent = automaticText;
+    identity.append(automatic);
+  }
   const metric = document.createElement("span");
   metric.className = "protection-row__compact-metric";
   metric.textContent = protectionCompactMetric(proposal);
@@ -978,9 +985,51 @@ function protectionRow(proposal) {
   ignore.title = state.readOnlyPreview ? PROTECTION_READ_ONLY_REASON : "Ignore this proposal; no market order is sent";
   ignore.addEventListener("click", () => ignoreProtectionProposal(proposal));
   actions.append(ignore);
+  if (protectionVetoAvailable(proposal)) {
+    const veto = document.createElement("button");
+    veto.type = "button";
+    veto.className = "app-button app-button--secondary protection-veto";
+    veto.dataset.protectionFocus = "veto";
+    veto.textContent = "Veto";
+    veto.disabled = state.readOnlyPreview;
+    veto.title = state.readOnlyPreview ? PROTECTION_READ_ONLY_REASON : "Stop Canary from placing this order itself; the hold lasts until the proposal changes";
+    veto.addEventListener("click", () => vetoProtectionProposal(proposal));
+    actions.append(veto);
+  }
   review.append(actions);
   row.append(review);
   return row;
+}
+
+// protectionVetoAvailable is true only while the daemon holds a pending
+// pre-authorised record for this row: a veto is meaningful then and only then.
+function protectionVetoAvailable(proposal = {}) {
+  return proposal.automatic?.pre_authorised === true && proposal.automatic?.state === "pending";
+}
+
+// protectionAutomaticText renders the daemon's automatic-submission record
+// in the row header: the countdown, or what became of it. It repeats the
+// daemon's typed state; it never decides anything itself.
+function protectionAutomaticText(proposal = {}) {
+  const automatic = proposal.automatic;
+  if (!automatic || !automatic.pre_authorised) return "";
+  switch (automatic.state) {
+    case "pending":
+      if (automatic.latch_skipped_window) return "Canary is placing this now: the drawdown brake is latched";
+      return `Canary places this itself at ${shortTimeWithZone(automatic.submit_at)} unless you veto`;
+    case "submitting":
+      return "Canary is placing this order";
+    case "submitted":
+      return `Placed by Canary at ${shortTimeWithZone(automatic.submitted_at)}`;
+    case "vetoed":
+      return `Vetoed at ${shortTimeWithZone(automatic.vetoed_at)}; holds until the proposal changes`;
+    case "failed":
+      return `Canary did not place this: ${automatic.reason || "refused by a trading gate"}`;
+    case "superseded":
+      return "Automatic placement superseded; a new window starts if the row returns";
+    default:
+      return "Pre-authorised: Canary places this itself once the row is unblocked, after the veto window";
+  }
 }
 
 function protectionCompactMetric(proposal = {}) {
@@ -2180,6 +2229,18 @@ async function ignoreProtectionProposal(proposal) {
   await refreshProtectionProposals();
 }
 
+async function vetoProtectionProposal(proposal) {
+  if (state.readOnlyPreview) return;
+  const res = await fetch("/api/proposals/veto", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ key: proposal.key, revision: proposal.revision }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  await syncProtectionSnapshot();
+}
+
 async function refreshProtectionProposals() {
   if (state.readOnlyPreview) return syncProtectionSnapshot();
   const res = await fetch("/api/proposals/refresh", { method: "POST", credentials: "include" });
@@ -2256,4 +2317,4 @@ function queueProposalMarketCalendarSync(market = "") {
     });
 }
 
-export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionCompactMetric, protectionExecutionReviewText, protectionRepairProposal, protectionProposalCoverage, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRepairConID, protectionRepairRow, protectionRepairRows, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRequestGate, protectionStopRequestNote, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionCoverageRepair, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTile, renderProtectionTimestamp, requestProtectionStop, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot };
+export { DERISK_PREVIEW_VALID_MS, cancelProtectionDerisk, deriskBasketLine, deriskLegRow, deriskPreviewExpired, deriskPreviewRemainingMs, deriskRequestRef, deriskValidityTicker, formatExpiry, formatStrike, goDurationMinutes, ignoreProtectionProposal, marketCalendarMatches, nudgeProtectionQuantity, previewProtectionDerisk, previewProtectionProposal, proposalIsBuyToCover, proposalMarketKey, proposalMarketLabel, protectionActionLabel, protectionActionTitle, protectionAutomaticText, protectionCompactMetric, protectionExecutionReviewText, protectionRepairProposal, protectionProposalCoverage, protectionBlockerText, protectionBucketLabel, protectionButtonTitle, protectionContractLabel, protectionDecisionFlags, protectionDeriskStateText, protectionEffectiveQuantity, protectionExecutionTriggerLabel, protectionExecutionWarningLabel, protectionFinalSubmitLabel, protectionHeroMarketFlags, protectionInferredReference, protectionLiveTrailStop, protectionLossCurrency, protectionMarketCalendar, protectionMarketStateHint, protectionMetricText, protectionNeedsSnapshotSync, protectionOptionLeg, protectionPositionLine, protectionPositionUnitLabel, protectionPreviewGate, protectionPreviewOutcomeLabel, protectionPreviewStale, protectionPreviewStateKey, protectionPreviewSubmitBlockedReason, protectionPreviewSubmitEligible, protectionPreviewSubmitGate, protectionPreviewText, protectionPreviewTimeoutMs, protectionProposalDTE, protectionProposalTitle, protectionQuantityAcceleratedStep, protectionQuantityStepDelta, protectionQuantityStepper, protectionQuoteFor, protectionQuoteFrozen, protectionQuoteLine, protectionQuoteStatusLabel, protectionQuoteTickDir, protectionReason, protectionReasonText, protectionReferenceLabel, protectionRepairConID, protectionRepairRow, protectionRepairRows, protectionRiskExcessCurrency, protectionRiskExcessSummary, protectionRiskTicket, protectionRiskTicketParts, protectionRiskTicketTitle, protectionRow, protectionSideLabel, protectionSnapshotRefreshReason, protectionStopChanged, protectionStopDraftSummary, protectionStopLadder, protectionStopLadderDisplaySteps, protectionStopLadderLabel, protectionStopLadderShortLabel, protectionStopLadderStepClass, protectionStopLadderStepDetail, protectionStopLadderStepTitle, protectionStopRequestGate, protectionStopRequestNote, protectionStopRiskGapLabel, protectionStopRiskGapName, protectionStopRiskLossLabel, protectionSubmitButtonTitle, protectionSubmitGate, protectionSubmitLabel, protectionSubmitResultText, protectionSubmitStateClass, protectionSubmitStateText, protectionThetaSummary, protectionTrailOffsetLabel, protectionTrailSizingFallback, protectionTrailSizingLabel, protectionTrailSizingRangeLabel, protectionTrailSizingSourceLabel, protectionTransientSnapshotBlocker, protectionUsesPreviewFlow, protectionVetoAvailable, protectionWhatIfDetails, queueProposalMarketCalendarSync, queueProtectionSnapshotSync, reduceEligibleHoldings, reduceIsOption, refreshProtectionProposals, renderProtectionCoverageRepair, renderProtectionDerisk, renderProtectionDeriskBasket, renderProtectionExposure, renderProtectionPanel, renderProtectionTile, renderProtectionTimestamp, requestProtectionStop, setProtectionQuantity, submitProtectionDerisk, submitProtectionProposal, syncDeriskValidityTicker, syncProtectionSnapshot, vetoProtectionProposal };

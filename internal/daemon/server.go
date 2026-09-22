@@ -67,6 +67,10 @@ type Server struct {
 	// races, not a throughput concern. Cancel stays outside so a protective
 	// cancel is never queued behind a longer placement flow.
 	brokerWriteMu sync.Mutex
+	// automaticGrant names the one proposal the pre-authorised scheduler is
+	// submitting right now; it is set and cleared under brokerWriteMu and is
+	// what lets the write gate accept the daemon-preauthorised origin.
+	automaticGrant atomic.Pointer[automaticWriteGrant]
 
 	// reduceBasketMu guards reduceBasketDedupe, the short-TTL replay cache for
 	// so a double-tap or client retry can never fan the basket out twice.
@@ -2529,6 +2533,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSubmit(ctx, req) })
 	case rpc.MethodTradeProposalsIgnore:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsIgnore(req), nil })
+	case rpc.MethodTradeProposalsVeto:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsVeto(ctx, req) })
 	case rpc.MethodTradeProposalsRequestStop:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsRequestStop(ctx, req) })
 	case rpc.MethodTradeProposalsReducePreview:

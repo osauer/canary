@@ -51,11 +51,16 @@ type AlertKind string
 
 // AlertKindMarketState and the related constants classify the root operator
 const (
-	AlertKindMarketState             AlertKind = "market_state"
-	AlertKindPortfolioRisk           AlertKind = "portfolio_risk"
-	AlertKindMarginSafety            AlertKind = "margin_safety"
-	AlertKindDrawdown                AlertKind = "drawdown"
-	AlertKindProtectionGap           AlertKind = "protection_gap"
+	AlertKindMarketState   AlertKind = "market_state"
+	AlertKindPortfolioRisk AlertKind = "portfolio_risk"
+	AlertKindMarginSafety  AlertKind = "margin_safety"
+	AlertKindDrawdown      AlertKind = "drawdown"
+	AlertKindProtectionGap AlertKind = "protection_gap"
+	// AlertKindProtectionAutomatic is one pre-authorised protection
+	// submission the daemon will place itself after the veto window (or now,
+	// under a latched drawdown brake). One episode per proposal key and
+	// revision; it recovers when the record leaves pending.
+	AlertKindProtectionAutomatic     AlertKind = "protection_automatic"
 	AlertKindOrderIntegrity          AlertKind = "order_integrity"
 	AlertKindReconciliationException AlertKind = "reconciliation_exception"
 	AlertKindGovernance              AlertKind = "governance"
@@ -97,46 +102,56 @@ type AlertPresentationCode string
 // version-2 registry is upgraded; the next producer observation replaces them
 // with the precise code without opening a new occurrence.
 const (
-	AlertPresentationPortfolioStress                  AlertPresentationCode = "portfolio_stress"
-	AlertPresentationMarginCushion                    AlertPresentationCode = "margin_cushion"
-	AlertPresentationRegimeMarketStress               AlertPresentationCode = "regime_market_stress"
-	AlertPresentationRulebookSingleNameExposure       AlertPresentationCode = "rulebook_single_name_exposure"
-	AlertPresentationRulebookOptionLinePremium        AlertPresentationCode = "rulebook_option_line_premium"
-	AlertPresentationRulebookCashSellOnly             AlertPresentationCode = "rulebook_cash_sell_only"
-	AlertPresentationRulebookExtrinsicBudget          AlertPresentationCode = "rulebook_extrinsic_budget"
-	AlertPresentationRulebookExpiryRunway             AlertPresentationCode = "rulebook_expiry_runway"
-	AlertPresentationRulebookCatalystCoverage         AlertPresentationCode = "rulebook_catalyst_coverage"
-	AlertPresentationRulebookOverwriteEarnings        AlertPresentationCode = "rulebook_overwrite_earnings"
-	AlertPresentationRulebookEarningsSizeFreeze       AlertPresentationCode = "rulebook_earnings_size_freeze"
-	AlertPresentationRulebookRedOnGreen               AlertPresentationCode = "rulebook_red_on_green"
-	AlertPresentationRulebookWinnerTrim               AlertPresentationCode = "rulebook_winner_trim"
-	AlertPresentationRulebookGreenDayAction           AlertPresentationCode = "rulebook_green_day_action"
-	AlertPresentationRulebookHedgeIntegrity           AlertPresentationCode = "rulebook_hedge_integrity"
-	AlertPresentationRulebookExitDiscipline           AlertPresentationCode = "rulebook_exit_discipline"
-	AlertPresentationRulebookFXExposure               AlertPresentationCode = "rulebook_fx_exposure"
-	AlertPresentationProtectionOrphanedOrder          AlertPresentationCode = "protection_orphaned_order"
-	AlertPresentationProtectionReconciliationRequired AlertPresentationCode = "protection_reconciliation_required"
-	AlertPresentationOrderIntegrityMismatch           AlertPresentationCode = "order_integrity_mismatch"
-	AlertPresentationDataHealthGateway                AlertPresentationCode = "data_health_gateway"
-	AlertPresentationDataHealthStorage                AlertPresentationCode = "data_health_storage"
-	AlertPresentationDataHealthProposals              AlertPresentationCode = "data_health_proposals"
-	AlertPresentationDataHealthOpportunities          AlertPresentationCode = "data_health_opportunities"
-	AlertPresentationDataHealthDataFarms              AlertPresentationCode = "data_health_data_farms"
-	AlertPresentationDataHealthRegime                 AlertPresentationCode = "data_health_regime"
-	AlertPresentationDataHealthGamma                  AlertPresentationCode = "data_health_gamma"
-	AlertPresentationDataHealthQuality                AlertPresentationCode = "data_health_quality"
-	AlertPresentationRiskPolicyLimitWouldBlock        AlertPresentationCode = "risk_policy_limit_would_block"
-	AlertPresentationRiskPolicyDrawdownLatched        AlertPresentationCode = "risk_policy_drawdown_latched"
-	AlertPresentationRiskPolicyDrift                  AlertPresentationCode = "risk_policy_drift"
-	AlertPresentationReconciliationDue                AlertPresentationCode = "reconciliation_due"
-	AlertPresentationReconciliationException          AlertPresentationCode = "reconciliation_exception"
-	AlertPresentationReconciliationConfirmedFlow      AlertPresentationCode = "reconciliation_confirmed_flow"
-	AlertPresentationGovernanceMonthlyPulse           AlertPresentationCode = "governance_monthly_pulse"
-	AlertPresentationDeliveryHealth                   AlertPresentationCode = "delivery_health"
-	AlertPresentationRulebookLegacyCondition          AlertPresentationCode = "rulebook_condition"
-	AlertPresentationRiskPolicyLegacyCondition        AlertPresentationCode = "risk_policy_condition"
-	AlertPresentationReconciliationLegacyCondition    AlertPresentationCode = "reconciliation_condition"
-	AlertPresentationGovernanceLegacyCondition        AlertPresentationCode = "governance_condition"
+	AlertPresentationPortfolioStress            AlertPresentationCode = "portfolio_stress"
+	AlertPresentationMarginCushion              AlertPresentationCode = "margin_cushion"
+	AlertPresentationRegimeMarketStress         AlertPresentationCode = "regime_market_stress"
+	AlertPresentationRulebookSingleNameExposure AlertPresentationCode = "rulebook_single_name_exposure"
+	AlertPresentationRulebookOptionLinePremium  AlertPresentationCode = "rulebook_option_line_premium"
+	AlertPresentationRulebookCashSellOnly       AlertPresentationCode = "rulebook_cash_sell_only"
+	AlertPresentationRulebookExtrinsicBudget    AlertPresentationCode = "rulebook_extrinsic_budget"
+	AlertPresentationRulebookExpiryRunway       AlertPresentationCode = "rulebook_expiry_runway"
+	AlertPresentationRulebookCatalystCoverage   AlertPresentationCode = "rulebook_catalyst_coverage"
+	AlertPresentationRulebookOverwriteEarnings  AlertPresentationCode = "rulebook_overwrite_earnings"
+	AlertPresentationRulebookEarningsSizeFreeze AlertPresentationCode = "rulebook_earnings_size_freeze"
+	AlertPresentationRulebookRedOnGreen         AlertPresentationCode = "rulebook_red_on_green"
+	AlertPresentationRulebookWinnerTrim         AlertPresentationCode = "rulebook_winner_trim"
+	AlertPresentationRulebookGreenDayAction     AlertPresentationCode = "rulebook_green_day_action"
+	AlertPresentationRulebookHedgeIntegrity     AlertPresentationCode = "rulebook_hedge_integrity"
+	AlertPresentationRulebookExitDiscipline     AlertPresentationCode = "rulebook_exit_discipline"
+	AlertPresentationRulebookFXExposure         AlertPresentationCode = "rulebook_fx_exposure"
+	AlertPresentationProtectionOrphanedOrder    AlertPresentationCode = "protection_orphaned_order"
+	// Pre-authorised protection notices: one code per bucket, each with a
+	// variant for the latched brake placing the order without a window.
+	AlertPresentationProtectionAutoTrailingStop         AlertPresentationCode = "protection_auto_trailing_stop"
+	AlertPresentationProtectionAutoTrailingStopNow      AlertPresentationCode = "protection_auto_trailing_stop_now"
+	AlertPresentationProtectionAutoOptionLossExit       AlertPresentationCode = "protection_auto_option_loss_exit"
+	AlertPresentationProtectionAutoOptionLossExitNow    AlertPresentationCode = "protection_auto_option_loss_exit_now"
+	AlertPresentationProtectionAutoOptionProfitTrail    AlertPresentationCode = "protection_auto_option_profit_trail"
+	AlertPresentationProtectionAutoOptionProfitTrailNow AlertPresentationCode = "protection_auto_option_profit_trail_now"
+	AlertPresentationProtectionAutoBudgetReduction      AlertPresentationCode = "protection_auto_budget_reduction"
+	AlertPresentationProtectionAutoBudgetReductionNow   AlertPresentationCode = "protection_auto_budget_reduction_now"
+	AlertPresentationProtectionReconciliationRequired   AlertPresentationCode = "protection_reconciliation_required"
+	AlertPresentationOrderIntegrityMismatch             AlertPresentationCode = "order_integrity_mismatch"
+	AlertPresentationDataHealthGateway                  AlertPresentationCode = "data_health_gateway"
+	AlertPresentationDataHealthStorage                  AlertPresentationCode = "data_health_storage"
+	AlertPresentationDataHealthProposals                AlertPresentationCode = "data_health_proposals"
+	AlertPresentationDataHealthOpportunities            AlertPresentationCode = "data_health_opportunities"
+	AlertPresentationDataHealthDataFarms                AlertPresentationCode = "data_health_data_farms"
+	AlertPresentationDataHealthRegime                   AlertPresentationCode = "data_health_regime"
+	AlertPresentationDataHealthGamma                    AlertPresentationCode = "data_health_gamma"
+	AlertPresentationDataHealthQuality                  AlertPresentationCode = "data_health_quality"
+	AlertPresentationRiskPolicyLimitWouldBlock          AlertPresentationCode = "risk_policy_limit_would_block"
+	AlertPresentationRiskPolicyDrawdownLatched          AlertPresentationCode = "risk_policy_drawdown_latched"
+	AlertPresentationRiskPolicyDrift                    AlertPresentationCode = "risk_policy_drift"
+	AlertPresentationReconciliationDue                  AlertPresentationCode = "reconciliation_due"
+	AlertPresentationReconciliationException            AlertPresentationCode = "reconciliation_exception"
+	AlertPresentationReconciliationConfirmedFlow        AlertPresentationCode = "reconciliation_confirmed_flow"
+	AlertPresentationGovernanceMonthlyPulse             AlertPresentationCode = "governance_monthly_pulse"
+	AlertPresentationDeliveryHealth                     AlertPresentationCode = "delivery_health"
+	AlertPresentationRulebookLegacyCondition            AlertPresentationCode = "rulebook_condition"
+	AlertPresentationRiskPolicyLegacyCondition          AlertPresentationCode = "risk_policy_condition"
+	AlertPresentationReconciliationLegacyCondition      AlertPresentationCode = "reconciliation_condition"
+	AlertPresentationGovernanceLegacyCondition          AlertPresentationCode = "governance_condition"
 )
 
 // AlertEvidenceHealth describes whether a candidate's supporting observation
@@ -781,7 +796,7 @@ func validAlertSource(value AlertSource) bool {
 func validAlertKind(value AlertKind) bool {
 	switch value {
 	case AlertKindMarketState, AlertKindPortfolioRisk, AlertKindMarginSafety, AlertKindDrawdown,
-		AlertKindProtectionGap, AlertKindOrderIntegrity, AlertKindReconciliationException,
+		AlertKindProtectionGap, AlertKindProtectionAutomatic, AlertKindOrderIntegrity, AlertKindReconciliationException,
 		AlertKindGovernance, AlertKindPolicyDrift, AlertKindDataHealth, AlertKindDeliveryHealth:
 		return true
 	default:
@@ -819,7 +834,14 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 		return value == AlertPresentationRiskPolicyLimitWouldBlock || value == AlertPresentationRiskPolicyDrawdownLatched ||
 			value == AlertPresentationRiskPolicyDrift || value == AlertPresentationRiskPolicyLegacyCondition
 	case AlertSourceProtection:
-		return value == AlertPresentationProtectionOrphanedOrder || value == AlertPresentationProtectionReconciliationRequired
+		switch value {
+		case AlertPresentationProtectionOrphanedOrder, AlertPresentationProtectionReconciliationRequired,
+			AlertPresentationProtectionAutoTrailingStop, AlertPresentationProtectionAutoTrailingStopNow,
+			AlertPresentationProtectionAutoOptionLossExit, AlertPresentationProtectionAutoOptionLossExitNow,
+			AlertPresentationProtectionAutoOptionProfitTrail, AlertPresentationProtectionAutoOptionProfitTrailNow,
+			AlertPresentationProtectionAutoBudgetReduction, AlertPresentationProtectionAutoBudgetReductionNow:
+			return true
+		}
 	case AlertSourceOrderIntegrity:
 		return value == AlertPresentationOrderIntegrityMismatch
 	case AlertSourceReconciliation:

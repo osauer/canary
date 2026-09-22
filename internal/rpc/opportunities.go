@@ -280,6 +280,9 @@ const (
 	MethodTradeProposalsPreview  = "trade_proposals.preview"
 	MethodTradeProposalsSubmit   = "trade_proposals.submit"
 	MethodTradeProposalsIgnore   = "trade_proposals.ignore"
+	// MethodTradeProposalsVeto stops a pending pre-authorised submission for
+	// one proposal key. Human-terminal and paired-device origins only.
+	MethodTradeProposalsVeto = "trade_proposals.veto"
 	// MethodTradeProposalsRequestStop asks the proposal engine to generate a
 	// protective trailing-stop proposal for one named position now. It is a
 	// generation verb: the result flows into the ordinary preview/submit gates.
@@ -326,7 +329,66 @@ const (
 
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
+
+	// Automatic submission record states for pre-authorised buckets.
+	// pending waits for the veto window; submitting has persisted its intent
+	// and is at the broker; the remaining four are terminal for that key
+	// and revision.
+	TradeProposalAutomaticPending    = "pending"
+	TradeProposalAutomaticSubmitting = "submitting"
+	TradeProposalAutomaticVetoed     = "vetoed"
+	TradeProposalAutomaticSubmitted  = "submitted"
+	TradeProposalAutomaticSuperseded = "superseded"
+	TradeProposalAutomaticFailed     = "failed"
 )
+
+// TradeProposalAutomatic reports whether the daemon will place this proposal
+// itself under the protection policy's pre_authorised list, and the state of
+// that automatic submission for this key and revision. PreAuthorised is the
+// policy fact; State and the timestamps are the durable record, absent until
+// an unblocked proposal creates one. It is read-only on every surface.
+type TradeProposalAutomatic struct {
+	PreAuthorised bool `json:"pre_authorised"`
+	// Bucket is the pre-authorised bucket identifier the policy names
+	// (trailing_stop, option_loss_exit, option_profit_trail,
+	// budget_reduction); empty for a proposal outside that vocabulary.
+	Bucket    string    `json:"bucket,omitempty"`
+	State     string    `json:"state,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitzero"`
+	// SubmitAt is when the daemon submits unless vetoed first; it equals the
+	// creation time when the drawdown brake latch skipped the window.
+	SubmitAt    time.Time `json:"submit_at,omitzero"`
+	NoticedAt   time.Time `json:"noticed_at,omitzero"`
+	VetoedAt    time.Time `json:"vetoed_at,omitzero"`
+	SubmittedAt time.Time `json:"submitted_at,omitzero"`
+	// OrderReference is the journaled order reference once submitted.
+	OrderReference     string `json:"order_reference,omitempty"`
+	Reason             string `json:"reason,omitempty"`
+	LatchSkippedWindow bool   `json:"latch_skipped_window,omitempty"`
+	VetoWindow         string `json:"veto_window,omitempty"`
+}
+
+// TradeProposalVetoParams stops the pending automatic submission for one
+// proposal key. Origin must be a human origin; agent and missing origins are
+// refused. The veto holds for the key until its revision changes.
+type TradeProposalVetoParams struct {
+	Key      string `json:"key"`
+	Revision string `json:"revision,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+	Origin   string `json:"origin,omitempty"`
+}
+
+// TradeProposalVetoResult reports whether the veto took effect and the
+// resulting automatic record.
+type TradeProposalVetoResult struct {
+	Accepted  bool                    `json:"accepted"`
+	Key       string                  `json:"key"`
+	Revision  string                  `json:"revision,omitempty"`
+	State     string                  `json:"state,omitempty"`
+	Message   string                  `json:"message,omitempty"`
+	Automatic *TradeProposalAutomatic `json:"automatic,omitempty"`
+	AsOf      time.Time               `json:"as_of"`
+}
 
 // ProtectionPolicyStatus reports the loaded policy identity and blockers.
 type ProtectionPolicyStatus struct {
@@ -356,8 +418,14 @@ type AutoTradeStatus struct {
 	ReloadInterval   string                 `json:"reload_interval,omitempty"`
 	ProposalCadence  string                 `json:"proposal_cadence,omitempty"`
 	Policy           ProtectionPolicyStatus `json:"policy"`
-	Blocked          bool                   `json:"blocked"`
-	Blockers         []TradingBlocker       `json:"blockers,omitempty"`
+	// PreAuthorised lists the buckets the active protection policy lets the
+	// daemon submit itself; VetoWindow is the wait between notice and
+	// submission; AutomaticPending counts records waiting in that window.
+	PreAuthorised    []string         `json:"pre_authorised,omitempty"`
+	VetoWindow       string           `json:"veto_window,omitempty"`
+	AutomaticPending int              `json:"automatic_pending"`
+	Blocked          bool             `json:"blocked"`
+	Blockers         []TradingBlocker `json:"blockers,omitempty"`
 }
 
 // TradeProposalSourceFingerprints identifies the snapshots used to derive a
@@ -608,6 +676,9 @@ type TradeProposal struct {
 	// Budget is the premium budget governor's arithmetic for a
 	// budget_reduction row; nil on every other bucket.
 	Budget *TradeProposalBudget `json:"budget,omitempty"`
+	// Automatic is served, never persisted: the daemon decorates each row
+	// with its pre-authorisation and automatic-submission record at read time.
+	Automatic *TradeProposalAutomatic `json:"automatic,omitempty"`
 }
 
 // AutomaticEligible is the predicate the pre-authorisation scheduler calls

@@ -57,6 +57,24 @@ type proposalEngine struct {
 	// kick wakes Run for an immediate refresh (gateway reconnect). Lazily
 	// need no extra setup. Buffered: senders never block.
 	kick chan struct{}
+	// automatic holds the pre-authorised submission records (see
+	// proposal_automatic.go); startedAt lets restart recovery tell a
+	// submitting record of this process from one a previous process left.
+	automatic      *automaticSubmissionStore
+	startedAt      time.Time
+	latchedForTest func(brokerStateScope) bool
+	// revalidateForTest replaces the live account/position revalidation
+	// (which needs a gateway) in hermetic tests of the submit path.
+	revalidateForTest func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error)
+}
+
+// proposalSubmitOptions distinguishes the daemon's own pre-authorised
+// submission from a human or agent request. beforePlace runs after the
+// preview is minted and every pre-place gate has passed, immediately before
+// the broker call; an error refuses the write.
+type proposalSubmitOptions struct {
+	automatic   bool
+	beforePlace func(preview *rpc.OrderPreviewResult) error
 }
 
 type cachedStockTrailVolatility struct {
@@ -106,12 +124,14 @@ type proposalEvent struct {
 
 func (s *Server) installProposalEngine() {
 	e := &proposalEngine{
-		server:  s,
-		store:   &proposalStore{},
-		cadence: s.cfg.AutoTrade.WithDefaults().ProposalCadenceDuration(),
-		now:     s.now,
-		ignored: map[string]struct{}{},
+		server:    s,
+		store:     &proposalStore{},
+		automatic: &automaticSubmissionStore{},
+		cadence:   s.cfg.AutoTrade.WithDefaults().ProposalCadenceDuration(),
+		now:       s.now,
+		ignored:   map[string]struct{}{},
 	}
+	e.startedAt = e.clock()
 	s.tradeProposals = e
 }
 
@@ -143,6 +163,9 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		} else {
 			failures = 0
 		}
+		// Pre-authorised submission rides the same cadence: reconcile the
+		// records against what was just generated, then place what is due.
+		e.runAutomaticCycle(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -271,6 +294,7 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	if show {
 		e.appendShownEvents(snap)
 	}
+	e.decorateAutomatic(&snap)
 	return snap
 }
 
@@ -282,6 +306,7 @@ const proposalRefreshWarnStreak = 3
 func (e *proposalEngine) Refresh(ctx context.Context, show bool) (rpc.TradeProposalSnapshot, error) {
 	snap, err := e.refresh(ctx, show)
 	e.noteRefreshOutcome(snap, err)
+	e.decorateAutomatic(&snap)
 	return snap, err
 }
 
@@ -1986,9 +2011,15 @@ func (e *proposalEngine) submitProposal(ctx context.Context, p rpc.TradeProposal
 	return e.resolveProposal(ctx, p.Key, p.Revision)
 }
 
+// resolveProposal is the one seam behind preview and submit: the injected
+// resolver (budget tests) or the injected revalidation (pre-authorisation
+// tests) when set, otherwise the live account and position revalidation.
 func (e *proposalEngine) resolveProposal(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
 	if e != nil && e.resolve != nil {
 		return e.resolve(ctx, key, revision)
+	}
+	if e != nil && e.revalidateForTest != nil {
+		return e.revalidateForTest(ctx, key, revision)
 	}
 	return e.revalidatedProposal(ctx, key, revision)
 }
@@ -2060,6 +2091,10 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 }
 
 func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitParams) (rpc.TradeProposalSubmitResult, error) {
+	return e.submit(ctx, p, proposalSubmitOptions{})
+}
+
+func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitParams, opts proposalSubmitOptions) (rpc.TradeProposalSubmitResult, error) {
 	now := e.clock()
 	cfg := e.server.cfg.AutoTrade.WithDefaults()
 	prop, blockers, err := e.submitProposal(ctx, p, cfg.FastPathEnabledResolved())
@@ -2075,7 +2110,16 @@ func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
-	if !cfg.FastPathEnabledResolved() || !p.FastPath {
+	if opts.automatic {
+		// The daemon's own submission always revalidates; it never uses the
+		// cached fast path, and the fast-path toggle (a one-confirm UX
+		// setting for humans) does not govern it. The bucket must still be
+		// pre-authorised by the policy active at this moment.
+		if blockers := e.automaticSubmitBlockers(prop); len(blockers) > 0 {
+			e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+			return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+		}
+	} else if !cfg.FastPathEnabledResolved() || !p.FastPath {
 		blockers := []rpc.TradingBlocker{{Code: "fast_path_disabled", Message: "proposal submit requires fast_path=true and [auto_trade].fast_path_enabled=true"}}
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
@@ -2107,6 +2151,13 @@ func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	if blockers := e.revalidateOptionExitEconomics(ctx, prop, preview); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: e.clock()}, nil
+	}
+	if opts.beforePlace != nil {
+		if err := opts.beforePlace(preview); err != nil {
+			blockers := []rpc.TradingBlocker{{Code: "submit_intent_not_persisted", Message: err.Error()}}
+			e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
+			return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
+		}
 	}
 	place, err := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, TimeoutMs: p.TimeoutMs, Origin: p.Origin})
 	if err != nil {
@@ -3360,6 +3411,13 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
 		ReloadInterval:   cfg.ReloadIntervalDuration().String(),
 		ProposalCadence:  cfg.ProposalCadenceDuration().String(),
 		Policy:           policy,
+	}
+	if s.tradeProposals != nil {
+		if active, ok := s.tradeProposals.automaticPolicy(); ok {
+			out.PreAuthorised = append([]string(nil), active.Authority.PreAuthorised...)
+			out.VetoWindow = active.Authority.vetoWindow().String()
+		}
+		out.AutomaticPending = s.tradeProposals.automaticPendingCount(s.tradeProposals.currentScope())
 	}
 	if !out.ProposalsEnabled {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "proposals_disabled", Message: "manual proposals are disabled by config"})

@@ -42,6 +42,8 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 		return runProposalsRequestStop(ctx, env, args)
 	case "ignore":
 		return runProposalsIgnore(ctx, env, args)
+	case "veto":
+		return runProposalsVeto(ctx, env, args)
 	default:
 		return fail(env, "proposals: unknown subcommand %q", sub)
 	}
@@ -50,7 +52,7 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 func proposalsSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "refresh", "list", "preview", "submit", "reduce", "request-stop", "ignore":
+		case "status", "refresh", "list", "preview", "submit", "reduce", "request-stop", "ignore", "veto":
 			return i
 		}
 	}
@@ -446,6 +448,37 @@ func runProposalsIgnore(ctx context.Context, env *Env, args []string) int {
 	return 0
 }
 
+// runProposalsVeto stops the pending pre-authorised submission for one
+// proposal key. The daemon accepts only human origins; an agent session is
+// refused with a clear error, the same rule as freeze.
+func runProposalsVeto(ctx context.Context, env *Env, args []string) int {
+	fs := flagSet(env, "proposals veto")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	reason := fs.String("reason", "", "veto reason")
+	if err := fs.Parse(args); err != nil {
+		return parseExit(err)
+	}
+	if fs.NArg() < 1 || fs.NArg() > 2 {
+		return fail(env, "proposals veto: usage is `canary proposals veto KEY [REVISION]`")
+	}
+	params := rpc.TradeProposalVetoParams{Key: fs.Arg(0), Reason: strings.TrimSpace(*reason), Origin: env.Origin}
+	if fs.NArg() == 2 {
+		params.Revision = fs.Arg(1)
+	}
+	var res rpc.TradeProposalVetoResult
+	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsVeto, params, &res); err != nil {
+		return fail(env, "proposals veto: %v", err)
+	}
+	if *jsonOut {
+		return printJSON(env, res)
+	}
+	if !res.Accepted {
+		return fail(env, "proposals veto: %s", nonEmpty(res.Message, "not accepted"))
+	}
+	fmt.Fprintf(env.Stdout, "Vetoed %s (%s)\n", res.Key, res.Message)
+	return 0
+}
+
 func renderProposalStatusText(env *Env, st *rpc.AutoTradeStatus) {
 	out := env.Stdout
 	fmt.Fprintln(out)
@@ -453,6 +486,11 @@ func renderProposalStatusText(env *Env, st *rpc.AutoTradeStatus) {
 	statusRow(env, out, "Proposals", fmt.Sprint(st.ProposalsEnabled))
 	statusRow(env, out, "Fast path", fmt.Sprint(st.FastPathEnabled))
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d %s", st.Policy.PolicyID, st.Policy.PolicyVersion, st.Policy.Fingerprint.Key))
+	if len(st.PreAuthorised) > 0 {
+		statusRow(env, out, "Pre-authorised", fmt.Sprintf("%s (veto window %s, %d pending)", strings.Join(st.PreAuthorised, ", "), nonEmpty(st.VetoWindow, "30m0s"), st.AutomaticPending))
+	} else {
+		statusRow(env, out, "Pre-authorised", "none; every submission is a human instruction")
+	}
 	if len(st.Blockers) > 0 {
 		fmt.Fprintln(out, "Blockers:")
 		printTradingBlockers(out, "  ", st.Blockers)
@@ -519,7 +557,7 @@ func renderProposalRow(env *Env, out io.Writer, p *rpc.TradeProposal) {
 	if p.Trail != nil {
 		head += " " + formatOrderTrail(p.Trail)
 	}
-	fmt.Fprintf(out, "  %s  %s  [%s]\n", head, p.Reason, state)
+	fmt.Fprintf(out, "  %s  %s  [%s]%s\n", head, p.Reason, state, formatProposalAutomaticColumn(p.Automatic))
 	if posLine := formatProposalPositionLine(env, p); posLine != "" {
 		fmt.Fprintf(out, "      Position   %s\n", posLine)
 	}
@@ -596,6 +634,34 @@ func ordinal(n int) string {
 		return fmt.Sprintf("%drd", n)
 	default:
 		return fmt.Sprintf("%dth", n)
+	}
+}
+
+// formatProposalAutomaticColumn is the short pre-authorisation column on a
+// list row: nothing for an ordinary row, the countdown or outcome for a
+// pre-authorised one.
+func formatProposalAutomaticColumn(a *rpc.TradeProposalAutomatic) string {
+	if a == nil || !a.PreAuthorised {
+		return ""
+	}
+	switch a.State {
+	case rpc.TradeProposalAutomaticPending:
+		if a.LatchSkippedWindow {
+			return "  auto: placing now (brake latched)"
+		}
+		return "  auto: places itself at " + a.SubmitAt.UTC().Format("15:04 MST") + " unless vetoed"
+	case rpc.TradeProposalAutomaticSubmitting:
+		return "  auto: placing"
+	case rpc.TradeProposalAutomaticSubmitted:
+		return "  auto: placed " + a.SubmittedAt.UTC().Format("15:04 MST")
+	case rpc.TradeProposalAutomaticVetoed:
+		return "  auto: vetoed"
+	case rpc.TradeProposalAutomaticFailed:
+		return "  auto: not placed (" + nonEmpty(a.Reason, "failed") + ")"
+	case rpc.TradeProposalAutomaticSuperseded:
+		return "  auto: superseded"
+	default:
+		return "  auto: pre-authorised, waiting for an unblocked row"
 	}
 }
 

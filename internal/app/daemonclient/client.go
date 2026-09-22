@@ -49,6 +49,7 @@ type Client interface {
 	TradeProposalsReducePortfolioSubmit(context.Context, rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error)
 	TradeProposalsRequestStop(context.Context, rpc.TradeProposalRequestStopParams) (*rpc.TradeProposalRequestStopResult, error)
 	TradeProposalsIgnore(context.Context, rpc.TradeProposalIgnoreParams) (*rpc.TradeProposalIgnoreResult, error)
+	TradeProposalsVeto(context.Context, rpc.TradeProposalVetoParams) (*rpc.TradeProposalVetoResult, error)
 	Settings(context.Context) (*rpc.PlatformSettings, error)
 	UpdateSettings(context.Context, json.RawMessage) (*rpc.PlatformSettings, error)
 	OrderPreview(context.Context, rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error)
@@ -448,6 +449,17 @@ func (c Real) TradeProposalsRequestStop(ctx context.Context, params rpc.TradePro
 func (c Real) TradeProposalsIgnore(ctx context.Context, params rpc.TradeProposalIgnoreParams) (*rpc.TradeProposalIgnoreResult, error) {
 	var out rpc.TradeProposalIgnoreResult
 	if err := c.call(ctx, rpc.MethodTradeProposalsIgnore, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// TradeProposalsVeto stops the pending pre-authorised submission for one
+// proposal key. The app stamps the paired-device origin; the daemon refuses
+// every other origin.
+func (c Real) TradeProposalsVeto(ctx context.Context, params rpc.TradeProposalVetoParams) (*rpc.TradeProposalVetoResult, error) {
+	var out rpc.TradeProposalVetoResult
+	if err := c.call(ctx, rpc.MethodTradeProposalsVeto, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
