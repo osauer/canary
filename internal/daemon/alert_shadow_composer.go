@@ -61,6 +61,7 @@ const (
 	alertShadowDecisionOrderIntegrityActive        = "order_integrity_active"
 	alertShadowDecisionRegimeActive                = "regime_active"
 	alertShadowDecisionProtectionActive            = "protection_active"
+	alertShadowDecisionProtectionAutomatic         = "protection_automatic_pending"
 	alertShadowDecisionDataHealthActive            = "data_health_active"
 	alertShadowDecisionClassifiedClear             = "classified_clear"
 	alertShadowDecisionClassifiedNegativeUntrusted = "classified_negative_untrusted"
@@ -212,6 +213,11 @@ type alertShadowProtectionInput struct {
 	OrderUniverse         string
 	orderJournal          *orderJournalStore
 	orderAuthorityHeadSeq int64
+	// Automatic lists the pending pre-authorised submission records in
+	// scope. Each becomes one act-severity episode: the phone notice that
+	// precedes the daemon placing the order. No symbol or quantity travels
+	// here; the notice names the bucket and the Protection row holds the rest.
+	Automatic []automaticNoticeKey
 }
 
 type alertShadowGatewayPhase string
@@ -1552,7 +1558,78 @@ func alertShadowMapProtection(input alertShadowProtectionInput, observedAt time.
 			PolicyFingerprint: policyFingerprint, ProducerDecisionReason: alertShadowDecisionProtectionActive,
 		})
 	}
+	for _, notice := range input.Automatic {
+		observation, err := alertShadowAutomaticObservation(input.Scope, notice, policyFingerprint, evidenceAsOf, observedAt)
+		if err != nil {
+			batch.Covered, batch.NegativeReady = false, false
+			batch.Status, batch.Reason, batch.EvidenceHealth = alertShadowStatusError, alertShadowReasonCandidateInvalid, rpc.AlertEvidenceError
+			return batch
+		}
+		batch.Observations = append(batch.Observations, observation)
+	}
 	return batch
+}
+
+// alertShadowAutomaticEpisodeKey is the opaque identity of the notice for
+// one pre-authorised record: the proposal key and revision, so a new
+// revision is a new notice and a veto or submission recovers the old one.
+func alertShadowAutomaticEpisodeKey(scope alertShadowBrokerScope, notice automaticNoticeKey) (string, error) {
+	return rpc.BuildAlertEpisodeKey(rpc.AlertSourceProtection, rpc.AlertKindProtectionAutomatic, scope.account, scope.mode, notice.Key, notice.Revision)
+}
+
+// alertShadowAutomaticObservation is the act-severity notice for one pending
+// record. Its evidence fingerprint deliberately excludes the submission time:
+// the window moving by the notice latency is not new evidence.
+func alertShadowAutomaticObservation(scope alertShadowBrokerScope, notice automaticNoticeKey, policyFingerprint string, evidenceAsOf, observedAt time.Time) (alertEpisodeObservation, error) {
+	episodeKey, err := alertShadowAutomaticEpisodeKey(scope, notice)
+	if err != nil {
+		return alertEpisodeObservation{}, err
+	}
+	evidenceFingerprint, err := alertShadowFingerprint(struct {
+		Policy   string `json:"policy"`
+		Key      string `json:"key"`
+		Revision string `json:"revision"`
+		Bucket   string `json:"bucket"`
+		Latched  bool   `json:"latched"`
+	}{policyFingerprint, notice.Key, notice.Revision, notice.Bucket, notice.Latched})
+	if err != nil {
+		return alertEpisodeObservation{}, err
+	}
+	return alertEpisodeObservation{
+		EpisodeKey: episodeKey, Source: rpc.AlertSourceProtection, Kind: rpc.AlertKindProtectionAutomatic,
+		PresentationCode: alertProtectionAutomaticPresentationCode(notice), Active: true, Severity: rpc.AlertSeverityAct,
+		EvidenceFingerprint: evidenceFingerprint, EvidenceHealth: rpc.AlertEvidenceCurrent,
+		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: evidenceAsOf, ObservedAt: observedAt.UTC(),
+		PolicyFingerprint: policyFingerprint, ProducerDecisionReason: alertShadowDecisionProtectionAutomatic,
+	}, nil
+}
+
+// alertProtectionAutomaticPresentationCode picks the fixed app copy: one
+// code per pre-authorised bucket, with the "now" variant when the latched
+// drawdown brake skipped the veto window.
+func alertProtectionAutomaticPresentationCode(notice automaticNoticeKey) rpc.AlertPresentationCode {
+	switch notice.Bucket {
+	case preAuthorisedBucketOptionLossExit:
+		if notice.Latched {
+			return rpc.AlertPresentationProtectionAutoOptionLossExitNow
+		}
+		return rpc.AlertPresentationProtectionAutoOptionLossExit
+	case preAuthorisedBucketOptionProfitTrail:
+		if notice.Latched {
+			return rpc.AlertPresentationProtectionAutoOptionProfitTrailNow
+		}
+		return rpc.AlertPresentationProtectionAutoOptionProfitTrail
+	case preAuthorisedBucketBudgetReduction:
+		if notice.Latched {
+			return rpc.AlertPresentationProtectionAutoBudgetReductionNow
+		}
+		return rpc.AlertPresentationProtectionAutoBudgetReduction
+	default:
+		if notice.Latched {
+			return rpc.AlertPresentationProtectionAutoTrailingStopNow
+		}
+		return rpc.AlertPresentationProtectionAutoTrailingStop
+	}
 }
 
 func alertShadowProtectionFacts(summary rpc.ProtectionCoverageSummary) ([]alertShadowProtectionFact, bool) {
@@ -3281,6 +3358,22 @@ func alertShadowProtectionInputFingerprint(input alertShadowProtectionInput) (st
 		return rows[i].State < rows[j].State
 	})
 	facts, valid := alertShadowProtectionFacts(input.Summary)
+	type automaticState struct {
+		Key      string `json:"key"`
+		Revision string `json:"revision"`
+		Bucket   string `json:"bucket"`
+		Latched  bool   `json:"latched"`
+	}
+	automatic := make([]automaticState, 0, len(input.Automatic))
+	for _, notice := range input.Automatic {
+		automatic = append(automatic, automaticState{Key: notice.Key, Revision: notice.Revision, Bucket: notice.Bucket, Latched: notice.Latched})
+	}
+	sort.Slice(automatic, func(i, j int) bool {
+		if automatic[i].Key != automatic[j].Key {
+			return automatic[i].Key < automatic[j].Key
+		}
+		return automatic[i].Revision < automatic[j].Revision
+	})
 	return alertShadowFingerprint(struct {
 		Account               string                      `json:"account"`
 		Mode                  string                      `json:"mode"`
@@ -3294,9 +3387,10 @@ func alertShadowProtectionInputFingerprint(input alertShadowProtectionInput) (st
 		Rows                  []rowState                  `json:"rows"`
 		Facts                 []alertShadowProtectionFact `json:"facts"`
 		Valid                 bool                        `json:"valid"`
+		Automatic             []automaticState            `json:"automatic,omitempty"`
 	}{input.Scope.account, input.Scope.mode, input.Status, input.Summary.Status,
 		input.EvidenceAsOf.UTC(), input.OrderSnapshotAsOf.UTC(), input.Summary.AsOf.UTC(), input.OrderUniverse,
-		input.OrderSnapshotComplete, rows, facts, valid})
+		input.OrderSnapshotComplete, rows, facts, valid, automatic})
 }
 
 func alertShadowDataHealthInputFingerprint(input alertShadowDataHealthInput) (string, error) {

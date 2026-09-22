@@ -217,8 +217,42 @@ func (s *Server) commitProtectionAlertShadow(ctx context.Context, input alertSha
 	if s == nil || s.alertShadow == nil {
 		return nil
 	}
-	_, err := s.alertShadow.ObserveProtection(ctx, input)
-	return err
+	snapshot, err := s.alertShadow.ObserveProtection(ctx, input)
+	if err != nil {
+		return err
+	}
+	// The notice is recorded only once its episode is in the registry: the
+	// veto window is measured from that moment, never from an observation
+	// the registry did not take.
+	if noticed := alertShadowAutomaticNoticed(input, snapshot); len(noticed) > 0 && s.tradeProposals != nil {
+		s.tradeProposals.markAutomaticNoticed(ctx, noticed, s.orderNow())
+	}
+	return nil
+}
+
+// alertShadowAutomaticNoticed returns the pending records whose notice
+// episode the registry now carries as open or escalated.
+func alertShadowAutomaticNoticed(input alertShadowProtectionInput, snapshot rpc.AlertCandidateSnapshot) []automaticNoticeKey {
+	if len(input.Automatic) == 0 || len(snapshot.Candidates) == 0 {
+		return nil
+	}
+	open := make(map[string]struct{}, len(snapshot.Candidates))
+	for _, candidate := range snapshot.Candidates {
+		if candidate.Kind == rpc.AlertKindProtectionAutomatic && candidate.State != rpc.AlertEpisodeRecovered {
+			open[candidate.EpisodeKey] = struct{}{}
+		}
+	}
+	var out []automaticNoticeKey
+	for _, notice := range input.Automatic {
+		key, err := alertShadowAutomaticEpisodeKey(input.Scope, notice)
+		if err != nil {
+			continue
+		}
+		if _, ok := open[key]; ok {
+			out = append(out, notice)
+		}
+	}
+	return out
 }
 
 // observeProtectionAlertShadowStable reports whether the observation settled:

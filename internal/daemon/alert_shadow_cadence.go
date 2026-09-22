@@ -470,6 +470,9 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context, 
 		AsOf: now, Status: orderIntegrityHealthUnavailable, StatusArm: "connector_not_ready", Scope: shadowScope,
 		Summary: rpc.ProtectionCoverageSummary{AsOf: now, Status: rpc.ProtectionCoverageStateUnknown},
 	}
+	if s.tradeProposals != nil {
+		input.Automatic = s.tradeProposals.automaticPendingNotices(scope)
+	}
 	if c == nil || !c.IsReady() {
 		s.observeProtectionAlertShadow(ctx, input)
 		return true
