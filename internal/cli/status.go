@@ -76,6 +76,8 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		statusRow(env, out, "TWS", formatTWSValue(*res))
 	case isHandshakeInFlight(*res):
 		statusRow(env, out, "TWS", env.dim("handshake in progress"))
+	case res.GatewayPhase == rpc.GatewayPhasePortRejecting:
+		statusRow(env, out, "TWS", env.red(formatPortRejectionValue(*res)))
 	default:
 		statusRow(env, out, "TWS", env.red("not connected"))
 	}
@@ -129,9 +131,37 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	} else if !res.Connected {
 		fmt.Fprintln(out)
+		if res.GatewayPhase == rpc.GatewayPhasePortRejecting && res.LastError != "" {
+			// The daemon's verdict names the app that owns the port and what
+			// to verify in it; the generic checklist above would send the
+			// user to a TWS checkbox IB Gateway does not have.
+			fmt.Fprintln(out, "  "+res.LastError)
+		}
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
 	fmt.Fprintln(out)
+}
+
+// formatPortRejectionValue renders the port_rejecting phase as one fact:
+// which port accepts connections and how it ends them, plus the app that
+// owns it when the daemon found one.
+func formatPortRejectionValue(res rpc.HealthResult) string {
+	r := res.PortRejection
+	if r == nil {
+		return "port accepts connections and drops them before the API handshake"
+	}
+	ended := "drops"
+	switch r.Ended {
+	case "closed":
+		ended = "closes"
+	case "reset":
+		ended = "resets"
+	}
+	value := fmt.Sprintf("port %d accepts connections and %s them before the API handshake", r.Port, ended)
+	if r.App != "" {
+		value += fmt.Sprintf(" (%s pid %d)", r.App, r.PID)
+	}
+	return value
 }
 
 // formatAlertCoverageValue is the push-delivery readiness headline: delivery
@@ -636,7 +666,7 @@ func isHandshakeInFlight(res rpc.HealthResult) bool {
 	switch res.GatewayPhase {
 	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
 		return !res.Connected
-	case rpc.GatewayPhasePortDown, rpc.GatewayPhaseBackendLinkDown, rpc.GatewayPhaseReady:
+	case rpc.GatewayPhasePortDown, rpc.GatewayPhasePortRejecting, rpc.GatewayPhaseBackendLinkDown, rpc.GatewayPhaseReady:
 		return false
 	}
 	return !res.Connected && res.LastError == ""

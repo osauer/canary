@@ -332,8 +332,10 @@ is no external metrics stack and no tracing.
 - `canary status` renders the daemon's `status.health` report: gateway,
   session, and TLS state, uptime, background tasks, subsystem health, data
   quality, data-farm notices, and trading state. Its typed gateway phase
-  distinguishes a closed local API port, a reachable port whose API handshake
-  is not ready, and a ready TWS API whose IBKR backend link is down. Backend
+  distinguishes a closed local API port, a port whose listener accepts the
+  connection and drops it before the API handshake, a reachable port whose
+  API handshake is not ready, and a ready TWS API whose IBKR backend link is
+  down. Backend
   link losses accumulate into a counted `backend_link` observation (losses,
   expected-maintenance split per `[gateway] maintenance_windows`, last and
   longest outage), and the daemon's log coalesces flap bursts into

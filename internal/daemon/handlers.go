@@ -3273,6 +3273,12 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	c := s.connector
 	lastErr := s.lastConnectError
 	connectInFlight := s.connectInFlight
+	// The rejection is current only while it is still the published
+	// verdict; a later verdict of another kind supersedes it in place.
+	rejection := s.lastPortRejection
+	if rejection != nil && (lastErr == "" || lastErr != s.lastPortRejectionHint) {
+		rejection = nil
+	}
 	s.mu.Unlock()
 
 	res := &rpc.HealthResult{
@@ -3334,12 +3340,22 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 			}
 		}
 	}
+	if rejection != nil {
+		res.PortRejection = &rpc.PortRejectionHealth{
+			Host:  rejection.Host,
+			Port:  rejection.Port,
+			Ended: string(rejection.Verdict),
+			App:   rejection.App.Name,
+			PID:   rejection.App.PID,
+		}
+	}
 	res.GatewayPhase = statusGatewayPhase(
 		localConnected,
 		apiReady,
 		setupComplete,
 		connectInFlight,
 		backendDown,
+		rejection != nil,
 		lastErr,
 		time.Since(s.startedAt),
 	)
@@ -3393,7 +3409,10 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 
 // statusGatewayPhase classifies the exact connectivity boundary without
 // parsing broker or dial error text. Startup grace preserves the existing
-func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight, backendDown bool, lastError string, uptime time.Duration) string {
+// "connecting" reading until the first verdict lands. portRejecting is the
+// daemon's typed record that the listener ended the connection before the
+// API handshake, which outranks the bare "port down" reading.
+func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight, backendDown, portRejecting bool, lastError string, uptime time.Duration) string {
 	if localConnected {
 		if backendDown {
 			return rpc.GatewayPhaseBackendLinkDown
@@ -3405,6 +3424,9 @@ func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight
 	}
 	if connectInFlight || (!setupComplete && strings.TrimSpace(lastError) == "" && uptime < alertShadowGatewayStartupGrace) {
 		return rpc.GatewayPhaseConnecting
+	}
+	if portRejecting {
+		return rpc.GatewayPhasePortRejecting
 	}
 	return rpc.GatewayPhasePortDown
 }

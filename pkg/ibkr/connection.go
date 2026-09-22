@@ -49,12 +49,22 @@ var (
 	errHandshakeNoData = errors.New("ibkr handshake: no response")
 	// errClientIDInUse marks the IBKR code-326 client-ID collision.
 	errClientIDInUse = errors.New("IBKR: client ID already in use")
-	ibkrLogger       = logging.Component("IBKR")
-	connectLogger    = logging.Component("IBKR Connect")
-	wireLogger       = logging.Component("IBKR Wire")
-	handshakeLogger  = logging.Component("IBKR Handshake")
-	portfolioLogger  = logging.Component("IBKR Portfolio")
-	marketLogger     = logging.Component("IBKR MarketData")
+	// ErrRejectedBeforeHandshake marks a connect attempt the listener ended
+	// before the API handshake exchanged a byte: the TCP connection was
+	// accepted and then closed or reset — at the dial, at the first socket
+	// option, on the version-descriptor write, or in place of the reply.
+	// TWS and IB Gateway do this while their API is turning clients away
+	// (an unfinished login, a pending incoming-connection prompt, a
+	// trusted-IP rule), and so does an OS firewall that resets accepted
+	// connections to the app. A refused or timed-out dial is not this
+	// error: there, nothing answered. Test with errors.Is.
+	ErrRejectedBeforeHandshake = errors.New("listener ended the connection before the API handshake")
+	ibkrLogger                 = logging.Component("IBKR")
+	connectLogger              = logging.Component("IBKR Connect")
+	wireLogger                 = logging.Component("IBKR Wire")
+	handshakeLogger            = logging.Component("IBKR Handshake")
+	portfolioLogger            = logging.Component("IBKR Portfolio")
+	marketLogger               = logging.Component("IBKR MarketData")
 )
 
 func clientIDInUseError(clientID int, gatewayMsg string) error {
@@ -661,19 +671,38 @@ func NewConnection(config *ConnectionConfig) *Connection {
 	return conn
 }
 
+// rejectedBeforeHandshake wraps err with ErrRejectedBeforeHandshake when it
+// is the peer ending the connection — a reset, a broken pipe, or an EOF in
+// place of the first byte — and returns every other error unchanged.
+func rejectedBeforeHandshake(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("%w: %w", ErrRejectedBeforeHandshake, err)
+	}
+	return err
+}
+
 func (c *Connection) dialEndpoint(ctx context.Context, useTLS bool) (net.Conn, error) {
 	addr := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
 	dialer := net.Dialer{Timeout: c.config.ConnectTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to IBKR at %s: %w", addr, err)
+		// A reset here means the kernel completed the TCP handshake and the
+		// peer tore the connection down before the dialer looked at it.
+		return nil, fmt.Errorf("failed to connect to IBKR at %s: %w", addr, rejectedBeforeHandshake(err))
 	}
 
 	// Disable Nagle's algorithm so buffered protocol frames transmit immediately.
 	if tcpConn, ok := conn.(*net.TCPConn); ok {
 		if err := tcpConn.SetNoDelay(true); err != nil {
 			conn.Close()
-			return nil, fmt.Errorf("failed to set TCP_NODELAY: %w", err)
+			// The only way this option fails on a socket the dial just
+			// returned is the peer having reset it in between: Darwin
+			// answers EINVAL once both directions are shut down.
+			return nil, fmt.Errorf("failed to set TCP_NODELAY: %w: %w", ErrRejectedBeforeHandshake, err)
 		}
 	}
 
@@ -694,7 +723,7 @@ func (c *Connection) dialEndpoint(ctx context.Context, useTLS bool) (net.Conn, e
 	// HandshakeContext bounds a server that accepts TCP but never completes TLS.
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("tls handshake failed: %w", err)
+		return nil, fmt.Errorf("tls handshake failed: %w", rejectedBeforeHandshake(err))
 	}
 	return tlsConn, nil
 }
@@ -1422,10 +1451,14 @@ func (c *Connection) handshake() error {
 	}
 
 	var sawNoData bool
+	// peerEnded keeps the first no-data verdict in which the peer ended the
+	// connection (EOF or reset in place of the reply) rather than staying
+	// silent, so the final error still says which one it was.
+	var peerEnded error
 
 	for idx, payload := range attemptPayloads {
 		if err := c.sendHandshakePayload(payload); err != nil {
-			return fmt.Errorf("failed to send handshake payload %q: %w", payload, err)
+			return fmt.Errorf("failed to send handshake payload %q: %w", payload, rejectedBeforeHandshake(err))
 		}
 
 		err := c.readHandshakeResponse()
@@ -1434,6 +1467,11 @@ func (c *Connection) handshake() error {
 		}
 		if errors.Is(err, errHandshakeNoData) {
 			sawNoData = true
+			// Both a hang-up and a silence retry the same way — the TLS
+			// fallback's cue — but only the hang-up is a rejection.
+			if peerEnded == nil && errors.Is(err, ErrRejectedBeforeHandshake) {
+				peerEnded = err
+			}
 			c.logConnectAttempt("Client %d: no response to payload %q (attempt %d/%d)", c.config.ClientID, payload, idx+1, len(attemptPayloads))
 			continue
 		}
@@ -1441,6 +1479,9 @@ func (c *Connection) handshake() error {
 	}
 
 	if sawNoData {
+		if peerEnded != nil {
+			return fmt.Errorf("no response from IBKR gateway after %d attempts: %w", len(attemptPayloads), peerEnded)
+		}
 		return fmt.Errorf("%w: no response from IBKR gateway after %d attempts", errHandshakeNoData, len(attemptPayloads))
 	}
 
@@ -1475,7 +1516,7 @@ func (c *Connection) readHandshakeResponse() error {
 	head, err := c.reader.Peek(4)
 	if err != nil {
 		if isHandshakeNoDataErr(err) {
-			return errHandshakeNoData
+			return handshakeNoData(err)
 		}
 		return fmt.Errorf("handshake peek failed: %w", err)
 	}
@@ -1491,7 +1532,7 @@ func (c *Connection) readLengthPrefixedHandshake() error {
 	var lengthBuf [4]byte
 	if _, err := io.ReadFull(c.reader, lengthBuf[:]); err != nil {
 		if isHandshakeNoDataErr(err) {
-			return errHandshakeNoData
+			return handshakeNoData(err)
 		}
 		return fmt.Errorf("handshake read frame length: %w", err)
 	}
@@ -1507,7 +1548,7 @@ func (c *Connection) readLengthPrefixedHandshake() error {
 	payload := make([]byte, frameLen)
 	if _, err := io.ReadFull(c.reader, payload); err != nil {
 		if isHandshakeNoDataErr(err) {
-			return errHandshakeNoData
+			return handshakeNoData(err)
 		}
 		return fmt.Errorf("handshake read frame payload: %w", err)
 	}
@@ -1561,7 +1602,7 @@ func (c *Connection) readAsciiHandshake() error {
 	verStr, err := c.readHandshakeCString()
 	if err != nil {
 		if isHandshakeNoDataErr(err) {
-			return errHandshakeNoData
+			return handshakeNoData(err)
 		}
 		return fmt.Errorf("handshake read version string: %w", err)
 	}
@@ -1610,6 +1651,18 @@ func (c *Connection) readHandshakeCString() (string, error) {
 		return "", err
 	}
 	return strings.TrimSuffix(data, "\x00"), nil
+}
+
+// handshakeNoData is the no-data verdict for a failed read of the handshake
+// reply. The peer ending the connection (EOF, reset) is a rejection before
+// the handshake and says so in the chain; a timeout is a listener that has
+// not answered. Both satisfy errHandshakeNoData for the retry and TLS
+// fallback logic.
+func handshakeNoData(err error) error {
+	if wrapped := rejectedBeforeHandshake(err); wrapped != err {
+		return fmt.Errorf("%w: %w", errHandshakeNoData, wrapped)
+	}
+	return errHandshakeNoData
 }
 
 // isHandshakeNoDataErr reports whether err means "the peer hung up before

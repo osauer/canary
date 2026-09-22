@@ -48,11 +48,19 @@ The CLI adds those three lines whenever the daemon's error contains `gateway_una
 
 Nothing answered a TCP probe on any of the four standard ports (4001 Gateway live, 4002 Gateway paper, 7496 TWS live, 7497 TWS paper) within the 200 ms per-port budget. The rest of the message tells you which case you are in.
 
-If an IBKR app is running, the error names it and its PID, then lists the three causes it cannot tell apart from outside the process: `'Enable ActiveX and Socket Clients'` unchecked under Global Configuration → API → Settings, a login that has not finished (2FA or a day-end dialog), or a non-default Socket port. Pin the port in `~/.config/ibkr/config.toml` under `[gateway]` for the third case.
+If an IBKR app is running, the error names it and its PID. For TWS and IBKR Desktop it lists the three causes it cannot tell apart from outside the process: `'Enable ActiveX and Socket Clients'` unchecked under Global Configuration → API → Settings, a login that has not finished (2FA or a day-end dialog), or a non-default Socket port. IB Gateway has no such checkbox — its API is always on — so for the Gateway the message names the two that remain: it is still starting (the port opens once its login has completed), or it listens on a non-default Socket port. Pin the port in `~/.config/ibkr/config.toml` under `[gateway]` for that case.
 
 If no app is running, the message says so and ends with `start one and Canary will reconnect automatically`. It will.
 
 Discovery only probes the host in your config, which defaults to `127.0.0.1`. A gateway on another machine needs `host` set explicitly; it will never be found by probing.
+
+## `accepts connections on 127.0.0.1:4001 and resets them before the API handshake`
+
+The port is open, but whatever owns it ends every connection before a byte of the API handshake is exchanged. The probe's connection is closed (FIN) or reset (RST) before Canary has sent anything, and the daemon's own connect attempts fail at the dial (`connection reset by peer`), at the first socket option (`failed to set TCP_NODELAY: ... invalid argument`) or on the version-descriptor write (`broken pipe`), depending on which step the reset lands on. Canary reports all of these as one state: `canary status --json` shows `port_rejecting` as `gateway_phase` with the evidence under `port_rejection`, the text `TWS` row states the fact, and the daemon log carries the verdict once per change instead of a different socket error every cycle.
+
+The message names the app that owns the port and what to verify in it. For IB Gateway, which has no API on/off switch: login and initialisation finished (2FA, the daily auto-restart, an "existing session" dialog), no incoming-connection prompt waiting in the Gateway window, and under Configure → Settings → API → Settings and Precautions that Trusted IPs covers the daemon's address with its action not set to reject and that the Socket port is the one probed. An OS application firewall in front of the Gateway can reset accepted connections the same way, before the Gateway ever sees them (macOS: System Settings → Network → Firewall). For TWS the `'Enable ActiveX and Socket Clients'` checkbox is listed first.
+
+A rejecting port stays a candidate. When another listener holds its connection — a ready TWS beside a Gateway that drops — the daemon tries that one first.
 
 ## `not responding to TWS handshake within 12s`
 

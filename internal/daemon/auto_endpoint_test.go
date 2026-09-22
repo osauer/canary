@@ -282,7 +282,9 @@ func TestAutoBackendLossDrivesRediscoveryThroughGatewayRead(t *testing.T) {
 	s.now = func() time.Time { return c.BackendLink().ChangedAt.Add(31 * time.Second) }
 	oldProbe, oldPorts := discover.Probe, discover.StandardPorts
 	discover.StandardPorts = []int{port, 7496}
-	discover.Probe = func(context.Context, string, int, time.Duration) error { return nil }
+	discover.Probe = func(context.Context, string, int, time.Duration) (discover.ProbeVerdict, error) {
+		return discover.ProbeListening, nil
+	}
 	defer func() { discover.Probe, discover.StandardPorts = oldProbe, oldPorts }()
 	var mu sync.Mutex
 	var attempted []int

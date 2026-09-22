@@ -66,7 +66,10 @@ answer the probe, names the port it tries first, and logs every failover at
 WARN. A listener that accepted the connection but never completed the handshake
 is tried last on the next rediscovery, so the signed-in app is reached without
 waiting out the handshake budget; a pinned port or a sole listener is never
-reordered. Quit the app you are not using.
+reordered. A listener that closes or resets the probe's connection before
+reading a byte is ordered behind every listener that holds it at discovery
+time already, and is reported as its own state (`port_rejecting`) when it is
+the only one. Quit the app you are not using.
 
 ## Release boundary
 

@@ -319,6 +319,9 @@ func authoritativeHealthVerdict(h *rpc.HealthResult) rpc.HealthVerdict {
 	if h.GatewayPhase == rpc.GatewayPhaseConnecting || h.GatewayPhase == rpc.GatewayPhaseAPINotReady {
 		return rpc.HealthVerdict{State: "STARTING", Reason: "Broker API handshake is incomplete"}
 	}
+	if h.GatewayPhase == rpc.GatewayPhasePortRejecting {
+		return rpc.HealthVerdict{State: "OFFLINE", Reason: "Broker API port accepts connections and drops them before the handshake"}
+	}
 	if !h.Connected || h.GatewayPhase == rpc.GatewayPhaseBackendLinkDown {
 		return rpc.HealthVerdict{State: "OFFLINE", Reason: "Broker data connection unavailable"}
 	}

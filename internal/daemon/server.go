@@ -116,6 +116,14 @@ type Server struct {
 	// lastMultiListenerSig dedupes the one-time warning that two local IBKR
 	// API listeners answered the probe.
 	lastMultiListenerSig string
+	// lastPortRejection is the listener that accepted TCP and ended the
+	// connection before the API handshake in the most recent connect cycle:
+	// the evidence behind the port_rejecting status phase. It is current
+	// only while lastConnectError still equals lastPortRejectionHint; a
+	// verdict of any other kind, or a cleared error, supersedes it without
+	// touching these fields, and a completed handshake clears them.
+	lastPortRejection     *discover.RejectedListener
+	lastPortRejectionHint string
 
 	// connectInFlight is true while a connect attempt (initial or reconnect)
 	connectInFlight bool
@@ -1247,8 +1255,8 @@ func (s *Server) Start(ctx context.Context) error {
 	if derr != nil {
 		s.logGatewayUnavailable(derr.Error())
 	} else {
-		s.logger.Infof("Endpoint resolved: %s:%d (port=%s, tls=%v %s, alternates=%v)",
-			ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates)
+		s.logger.Infof("Endpoint resolved: %s:%d (port=%s, tls=%v %s, alternates=%v, rejecting=%v)",
+			ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates, rejectingPorts(ep))
 	}
 
 	// With AUTO discovery, a startup with no IBKR running ends up with
@@ -1412,6 +1420,13 @@ type lastErrorReporter interface {
 	LastError() string
 }
 
+// connectErrorReporter is the optional attempter surface that keeps the
+// connect error's wrapping, so the daemon can classify how an attempt
+// failed rather than parse its text.
+type connectErrorReporter interface {
+	LastConnectError() error
+}
+
 // newConnector constructs (but does not start) the IBKR connector from
 // the supplied endpoint. Returns immediately — no network I/O.
 //
@@ -1507,6 +1522,9 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		candidates = append(candidates, alt)
 	}
 
+	// rejected collects the candidates whose listener ended the connection
+	// before the API handshake, so the exhaustion verdict can be theirs.
+	var rejected []discover.RejectedListener
 	for i, cand := range candidates {
 		if ctx.Err() != nil {
 			return
@@ -1546,12 +1564,16 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 			s.mu.Unlock()
 		}
 
-		if s.tryOneHandshake(ctx, a, cand) {
+		connected, rejection := s.tryOneHandshake(ctx, a, cand)
+		if connected {
 			s.mu.Lock()
 			s.lastHandshakeFailedPort = 0
 			s.mu.Unlock()
 			s.postConnectSetup(a, cand)
 			return
+		}
+		if rejection != nil {
+			rejected = append(rejected, *rejection)
 		}
 		if cand.PortOrigin == discover.OriginDiscovered {
 			s.mu.Lock()
@@ -1589,17 +1611,34 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		"none of %d discovered endpoint(s) completed TWS handshake (tried %s); confirm the IBKR app you intend to use has 'Enable ActiveX and Socket Clients' on and is logged in",
 		len(candidates), strings.Join(names, ", "),
 	)
+	var rejection *discover.RejectedListener
+	if len(rejected) == len(candidates) {
+		// Every listener ended the connection before the handshake: the
+		// verdict is theirs, not a checkbox IB Gateway does not have.
+		hints := make([]string, 0, len(rejected))
+		for _, r := range rejected {
+			hints = append(hints, r.Hint)
+		}
+		hint = strings.Join(hints, "; ")
+		rejection = &rejected[0]
+	}
 	s.mu.Lock()
 	s.lastConnectError = hint
+	if rejection != nil {
+		s.lastPortRejection = rejection
+		s.lastPortRejectionHint = hint
+	}
 	s.mu.Unlock()
 	s.logGatewayUnavailable(hint)
 }
 
 // tryOneHandshake runs a single candidate's connect under the watchdog
-// and returns true iff the attempter ended Connected. On failure it
-// mid-failover shows the truth.
-// the failover loop can advance even when pkg/ibkr's TLS-handshake
-func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep discover.Endpoint) bool {
+// and reports whether the attempter ended Connected. On failure it
+// publishes the verdict to lastConnectError so `canary status` mid-failover
+// shows the truth; when the listener ended the connection before the API
+// handshake, the verdict is that listener's and is also returned, so the
+// failover loop can advance even when pkg/ibkr's TLS-handshake retry hangs.
+func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep discover.Endpoint) (bool, *discover.RejectedListener) {
 	candidateCtx, candidateCancel := context.WithTimeout(ctx, perCandidateConnectBudget)
 	defer candidateCancel()
 
@@ -1610,7 +1649,7 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 	err := a.Start(candidateCtx)
 	// Outer (daemon) ctx cancelled → shutdown raced with us; exit silently
 	if ctx.Err() != nil {
-		return false
+		return false, nil
 	}
 	switch {
 	case err != nil && errors.Is(err, context.DeadlineExceeded):
@@ -1621,7 +1660,7 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		s.lastConnectError = hint
 		s.mu.Unlock()
 		s.logGatewayUnavailable(hint)
-		return false
+		return false, nil
 	case err != nil && candidateCtx.Err() != nil:
 		// SDK returned a wrapped ctx error (e.g. "tls handshake failed:
 		hint := fmt.Sprintf("gateway %s:%d did not handshake within %s; check IB Gateway is running and 'Enable ActiveX and Socket Clients' is on",
@@ -1630,27 +1669,46 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		s.lastConnectError = hint
 		s.mu.Unlock()
 		s.logGatewayUnavailable(hint)
-		return false
+		return false, nil
 	case err != nil:
+		hint := err.Error()
+		rejection, isRejected := rejectedListener(ctx, a, err, ep)
+		if isRejected {
+			hint = rejection.Hint
+		}
 		s.mu.Lock()
-		s.lastConnectError = err.Error()
+		s.lastConnectError = hint
+		if isRejected {
+			s.lastPortRejection, s.lastPortRejectionHint = rejection, hint
+		}
 		s.mu.Unlock()
-		s.logGatewayUnavailable(err.Error())
-		return false
+		s.logGatewayUnavailable(hint)
+		return false, rejection
 	}
 
 	// pkg/ibkr's pool returns success even when the underlying TCP
 	if !a.IsConnected() {
 		hint := connectorLastError(a)
+		// A listener that ended the connection before the handshake gets
+		// its own verdict: stable text, so the dedupe below holds across
+		// cycles, and a hint for the app that owns the port instead of
+		// the raw dial, setsockopt or write error the peer's reset left.
+		rejection, isRejected := rejectedListener(ctx, a, nil, ep)
+		if isRejected {
+			hint = rejection.Hint
+		}
 		if hint == "" {
 			hint = fmt.Sprintf("gateway %s:%d did not complete TWS handshake; check IB Gateway is running and 'Enable ActiveX and Socket Clients' is on",
 				ep.Host, ep.Port)
 		}
 		s.mu.Lock()
 		s.lastConnectError = hint
+		if isRejected {
+			s.lastPortRejection, s.lastPortRejectionHint = rejection, hint
+		}
 		s.mu.Unlock()
 		s.logGatewayUnavailable(hint)
-		return false
+		return false, rejection
 	}
 	if brokerScopeAccountConcrete(ep.Account) {
 		// managedAccounts can arrive just after the initial handshake. Stay
@@ -1660,7 +1718,7 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		for strings.TrimSpace(a.AccountID()) == "" {
 			select {
 			case <-candidateCtx.Done():
-				return false
+				return false, nil
 			case <-ticker.C:
 			}
 		}
@@ -1668,10 +1726,10 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 			s.mu.Lock()
 			s.lastConnectError = "API session does not confirm the configured account"
 			s.mu.Unlock()
-			return false
+			return false, nil
 		}
 	}
-	return !a.BackendLink().Down
+	return !a.BackendLink().Down, nil
 }
 
 func connectorLastError(a connectAttempter) string {
@@ -1680,6 +1738,45 @@ func connectorLastError(a connectAttempter) string {
 		return ""
 	}
 	return strings.TrimSpace(reporter.LastError())
+}
+
+// rejectedListener classifies a failed connect attempt against ep. When the
+// listener ended the connection before the API handshake — a reset at the
+// dial, a socket option refused on a socket the peer had already shut down,
+// a broken pipe on the version descriptor, or an EOF or reset in place of
+// the reply — it returns the verdict for the app that owns the port and
+// true. startErr is the error Start returned; when Start returned none, the
+// attempter's kept connect error is consulted instead.
+func rejectedListener(ctx context.Context, a connectAttempter, startErr error, ep discover.Endpoint) (*discover.RejectedListener, bool) {
+	err := startErr
+	if err == nil {
+		if reporter, ok := a.(connectErrorReporter); ok {
+			err = reporter.LastConnectError()
+		}
+	}
+	if !errors.Is(err, ibkrlib.ErrRejectedBeforeHandshake) {
+		return nil, false
+	}
+	// A FIN before any byte reads as EOF; everything else the peer can do
+	// to an accepted connection — a reset at the dial, EINVAL on the socket
+	// option, a broken pipe on the write — is a reset.
+	verdict := discover.ProbeReset
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		verdict = discover.ProbeClosed
+	}
+	r := discover.DescribeRejectedListener(ctx, ep.Host, ep.Port, verdict)
+	return &r, true
+}
+
+// rejectingPorts lists the discovered ports whose listener ended the
+// probe's connection before reading a byte, for the resolved-endpoint log
+// line.
+func rejectingPorts(ep discover.Endpoint) []int {
+	ports := make([]int, 0, len(ep.Rejections))
+	for _, r := range ep.Rejections {
+		ports = append(ports, r.Port)
+	}
+	return ports
 }
 
 func (s *Server) gatewayUnavailableError() error {
@@ -1699,6 +1796,7 @@ func (s *Server) gatewayUnavailableError() error {
 func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	s.mu.Lock()
 	s.lastConnectError = ""
+	s.lastPortRejection, s.lastPortRejectionHint = nil, ""
 	// A completed handshake ends the outage: clear the reconnect backoff so a
 	// later drop reconnects immediately instead of inheriting an escalated
 	// quiet period (same reasoning as the gamma resetRetryBackoff below).
@@ -2128,11 +2226,11 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 		s.noteReconnectOutcome(ctx, false)
 		return
 	}
-	const endpointFormat = "Reconnect: endpoint resolved: %s:%d (port=%s, tls=%v %s, alternates=%v)"
+	const endpointFormat = "Reconnect: endpoint resolved: %s:%d (port=%s, tls=%v %s, alternates=%v, rejecting=%v)"
 	if endpointChanged {
-		s.logger.Infof(endpointFormat, ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates)
+		s.logger.Infof(endpointFormat, ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates, rejectingPorts(ep))
 	} else {
-		s.logger.Debugf(endpointFormat, ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates)
+		s.logger.Debugf(endpointFormat, ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates, rejectingPorts(ep))
 	}
 
 	s.connectWithFailover(ctx, ep)

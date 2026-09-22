@@ -2259,14 +2259,33 @@ type MarketDataAccessHealth struct {
 
 // Gateway phases distinguish the local TWS/Gateway API socket from the
 // gateway's own upstream broker link. Connected remains the compatibility
-// authority and must not be inferred from LastError prose.
+// authority and must not be inferred from LastError prose. PortRejecting is
+// a port whose listener accepts the TCP connection and closes or resets it
+// before the API handshake: the app owns the port, but nothing reaches its
+// API — a login or prompt it is waiting on, a trusted-IP rule, or an OS
+// firewall resetting the connection.
 const (
 	GatewayPhaseConnecting      = "connecting"
 	GatewayPhasePortDown        = "port_down"
+	GatewayPhasePortRejecting   = "port_rejecting"
 	GatewayPhaseAPINotReady     = "api_not_ready"
 	GatewayPhaseBackendLinkDown = "backend_link_down"
 	GatewayPhaseReady           = "ready"
 )
+
+// PortRejectionHealth is the evidence behind GatewayPhasePortRejecting: the
+// local API listener that accepted the TCP connection and ended it before
+// the API handshake. App and PID name the IBKR process found on the host;
+// both are absent when none was detected.
+type PortRejectionHealth struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	// Ended is "closed" (the listener sent FIN before reading a byte) or
+	// "reset" (it sent RST).
+	Ended string `json:"ended"`
+	App   string `json:"app,omitempty"`
+	PID   int    `json:"pid,omitempty"`
+}
 
 // Market-data access reasons classify a rejection by IBKR code alone.
 const (
@@ -2323,6 +2342,10 @@ type HealthResult struct {
 	// local API session is ready while TWS reports its IBKR backend link lost.
 	GatewayPhase   string    `json:"gateway_phase"`
 	GatewayPhaseAt time.Time `json:"gateway_phase_at,omitzero"`
+	// PortRejection is present exactly while GatewayPhase is
+	// GatewayPhasePortRejecting; LastError then carries the hint for the
+	// app that owns the port.
+	PortRejection *PortRejectionHealth `json:"port_rejection,omitempty"`
 	// BackendLink summarizes TWS↔IBKR upstream-link flapping since the daemon
 	// connected: loss count plus last/longest outage. Present once at least
 	// one loss was observed or the link is currently down, so chronic

@@ -2215,6 +2215,16 @@ func (c *Connector) LastError() string {
 	return c.lastError.Error()
 }
 
+// LastConnectError returns the error behind LastError with its wrapping
+// intact, so a caller can classify it — for example with errors.Is against
+// ErrRejectedBeforeHandshake. It is nil when the connector is healthy or
+// has no connector-level diagnosis.
+func (c *Connector) LastConnectError() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.lastError
+}
+
 func (c *Connector) attachConnectionHooks(conn *Connection) {
 	c.ensureHandlersRegistered(conn)
 	conn.SetOnConnect(func() {
