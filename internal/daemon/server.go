@@ -1890,7 +1890,9 @@ func (s *Server) runGammaRefreshLoop(ctx context.Context) {
 func (s *Server) kickZeroGamma(ctx context.Context, caller string) {
 	c := s.gatewayConnector()
 	if c == nil {
-		s.logger.Warnf("gamma %s: gateway connector unavailable, skipping compute", caller)
+		if !s.logGatewayDependency("gamma gateway connector unavailable, skipping compute") {
+			s.logger.Warnf("gamma %s: gateway connector unavailable, skipping compute", caller)
+		}
 		return
 	}
 	params := normalizeGammaParams(rpc.GammaZeroParams{})

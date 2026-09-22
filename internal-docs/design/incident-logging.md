@@ -9,8 +9,9 @@ status is updated on every failure, independently of this diagnostic cadence.
 
 History refreshes classified by the typed IBKR-unavailable error and proposal or
 opportunity refreshes blocked solely by `account_unavailable` may join an
-already-open connection incident. They cannot create that incident. Independent
-history defects and other blockers retain their warnings. The counter measures
+already-open connection incident. Gamma refreshes with no usable connector join
+the same incident instead of warning each minute. They cannot create that
+incident. Independent history defects and other blockers retain their warnings. The counter measures
 observations, including dependent failures, not distinct outages or retries.
 
 Managed broker connections send recoverable handshake-attempt detail to debug;

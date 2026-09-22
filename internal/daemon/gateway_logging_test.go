@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -11,6 +12,39 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
+
+func TestGammaGatewayDependencyKeepsStandaloneFailuresVisible(t *testing.T) {
+	for _, level := range []string{"warn", "debug"} {
+		t.Run(level, func(t *testing.T) {
+			var buf bytes.Buffer
+			s := &Server{logger: NewLogger(&buf, level)}
+			s.kickZeroGamma(context.Background(), "scheduler")
+			if strings.Count(buf.String(), "level=WARN") != 1 {
+				t.Fatal("standalone gamma failure must warn")
+			}
+			buf.Reset()
+			s.logGatewayUnavailable("synthetic outage")
+			for range 60 {
+				s.kickZeroGamma(context.Background(), "scheduler")
+			}
+			if strings.Count(buf.String(), "level=WARN") != 1 {
+				t.Fatal("gamma duplicated an open gateway warning")
+			}
+			if level == "debug" && strings.Count(buf.String(), "Gateway dependency unavailable: gamma") != 60 {
+				t.Fatal("debug diagnostics lost")
+			}
+			s.logGatewayRecovered()
+			if !strings.Contains(buf.String(), "61 unavailable observations") {
+				t.Fatal("gamma observations missing from incident summary")
+			}
+			buf.Reset()
+			s.kickZeroGamma(context.Background(), "scheduler")
+			if strings.Count(buf.String(), "level=WARN") != 1 {
+				t.Fatal("gamma failure hidden after gateway recovery")
+			}
+		})
+	}
+}
 
 func TestGatewayRetryAndHistoryFanoutShareIncident(t *testing.T) {
 	var buf bytes.Buffer
@@ -47,6 +81,15 @@ func BenchmarkSuppressedGatewayDiagnostic(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		s.logGatewayUnavailable("synthetic unavailable")
+	}
+}
+
+func BenchmarkSuppressedGammaGatewayDiagnostic(b *testing.B) {
+	s := &Server{logger: NewLogger(io.Discard, "warn")}
+	s.logGatewayUnavailable("synthetic unavailable")
+	b.ReportAllocs()
+	for b.Loop() {
+		s.kickZeroGamma(context.Background(), "scheduler")
 	}
 }
 
