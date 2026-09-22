@@ -60,13 +60,12 @@ Gates, by commit (logs in the orchestrator's scratchpad, not in the repo):
 | d8e6da27 (governor) | pass | pass | pass |
 | 4a588972 (pre-auth) | fail: docs-check, go-doc-check only | not run | not run |
 | 954f338f | pass | fail: veto timing entry | not run |
-| 08e0be60 | pass | (in `make test`) | see next session's log |
-| aefae4ad | not yet | not yet | **run it first** |
+| 08e0be60 | pass | pass | pass |
+| abebc1ff (this note) | pass | pass | **pass, clean tree, 2026-09-22** |
 
-First action for the next session: from this worktree (or a fresh one at
-`bounded-phase-1`), run `make test` (the binding full gate; about 10
-minutes; background it with a log). Expect green. If not, the failing test
-names the seam.
+The full gate is proven at abebc1ff. Do not re-run it as ritual; re-run
+`make check` plus the daemon tests only if a change touches the proposal
+engine, the policy schema or the write gate.
 
 ## What was built
 
