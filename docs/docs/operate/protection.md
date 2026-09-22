@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-19
+Updated: 2026-09-21
 
 Nothing here submits an order for you. The daemon can propose a close or a
 reduce and can price one against the broker. Placing it stays an explicit
@@ -36,7 +36,7 @@ protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
-Five buckets generate rows, enabled through the protection policy:
+Six buckets generate rows, enabled through the protection policy:
 
 - **Trailing stop** places a broker-side trail against a stock or ETF. Its
   time-in-force is a policy decision, DAY by default, and a DAY
@@ -85,6 +85,76 @@ standing default or exact intent, an exit stays blocked.
 - **Risk reduction** proposes trimming a single-name group that exceeds
   `single_name_target_pct_nlv`. It becomes a full close only when the computed
   quantity equals the whole position.
+- **Budget reduction** brings long option premium back inside a declared share
+  of the risk constitution's declared risk capital while the constitution's
+  drawdown brake is engaged. It is absent from the embedded default and
+  disabled until you write it; the section below says how.
+
+### Budget reduction
+
+The bucket measures the market value of every long option leg Canary does not
+hold as protection — a hedge-listed index put (`SPY`, `SPX`, `SPXW`, `QQQ`,
+`IWM`), a put over a long stock of its own underlying, or a call over a short
+one is never counted and never selected — against two caps you write as a
+percent of `capital.declared_risk_capital` from `risk-policy.toml`:
+
+```toml
+[buckets.budget_reduction]
+enabled = true
+mode = "shadow"                            # shadow (default) or active
+premium_at_risk_pct_of_risk_capital = 40   # total, (0, 100]
+per_line_pct_of_risk_capital = 15          # one line, at most the total
+max_order_notional = 10000                 # one order, as risk_reduction
+```
+
+Bump `policy_version` when you add it. Neither cap has a default in code: a
+value you did not write is a value the bucket does not have, and the file
+fails validation if `enabled = true` without both. The numbers above are the
+2026-09-21 mandate the product manager set for the desk owner to confirm by
+writing them; they are not a recommendation from the software.
+
+It generates rows only when all of the following hold, and the snapshot's
+`budget_reduction` status names the first one that does not:
+
+| State | Meaning |
+|---|---|
+| `constitution_unapproved` | no risk constitution is active, or a material key is unapproved |
+| `enforcement_shadow` | `drawdown.block_enforcement` is `shadow`; the bucket acts only under `advisory` or stronger |
+| `not_latched` | the drawdown block tier is neither latched nor breached |
+| `currency_mismatch` | the constitution's base currency is not the account's |
+| `unmeasurable` | no long option leg has a base market value |
+| `within_budget` / `over_budget` | measured; the status carries the total, the share of risk capital, and the leg counts |
+
+Selection runs per line first: a line above the per-line cap is cut to the
+cap in whole contracts (`keep = floor(cap ÷ value per contract)`), and a cap
+that leaves no whole contract is a full close. Then the total: while the
+projected sum still exceeds the total cap, lines are cut in order of largest
+unrealised loss first, then largest market value, whole contracts, until the
+sum is within the cap. Every row names the cap that selected it, the measured
+line and total, the excess, and its place in the order, under `budget` in JSON
+and on a `Budget:` line in the text. `max_order_notional` bounds one order
+exactly as `risk_reduction.max_order_notional` does; the next cycle measures
+what is left. A stale mark blocks the row with `fresh_option_quote_required`;
+a leg of a multi-leg unit is measured but routes to the strategy workflow.
+Rows are close or reduce only, like every proposal.
+
+**Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
+the snapshot with `shadow: true`, and listed by `canary proposals list` under
+a *Shadow (budget reduction)* heading of their own, so you can read what the
+rule would have done beside what you did. `preview` and `submit` refuse them
+with `shadow_mode`, and the pre-authorisation scheduler skips them: a row is
+eligible for automatic placement only when `AutomaticEligible()` holds, which
+a shadow row never does. `counts.budget_reduction` and
+`counts.budget_reduction_shadow` report the rows; shadow rows are never
+`actionable`.
+
+**Activating.** Set `mode = "active"` and bump `policy_version`. The rows
+become ordinary proposals under every existing gate (preview, WhatIf, the
+double check of position effect, duplicate orders, account, mode, freeze,
+origin and the explicit submit). One thing does not change with the mode:
+every row carries `never_skip_veto`, so a scheduler that shortens or skips the
+veto window under a latched brake must still wait the full window for these.
+A reduction to budget is a discretionary-scale action, not a stop.
 
 `canary proposals reduce` is separate: a discretionary partial close you size
 yourself. It previews unless you pass `--submit`. Under `--portfolio` the

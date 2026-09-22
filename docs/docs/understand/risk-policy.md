@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-09-21 15:38 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -68,6 +68,20 @@ Effective risk capital is the lesser of `declared_risk_capital` and equity above
 revision does that. If `capital.base_currency` differs from the account's base
 currency, the equity observation is reported as unusable for capital math rather
 than converted.
+
+The brief's capital row (`ready.capital` in `canary brief --json`) carries the
+figures this file declares beside the measured state, so a reader can place
+the consumed share against the ladder without opening the file: `warn_pct` and
+`block_pct` from `[drawdown]`, `protected_floor_base` and
+`declared_risk_capital_base` from `[capital]`, and
+`effective_risk_capital_base`, the money at risk (max) —
+min(declared, equity − floor). All five are nil while no constitution is
+active or any material key is unapproved; a partially written policy renders
+as undecided, never as the subset of numbers that happen to exist. The
+premium-at-risk row gains `pct_of_risk_capital`, long-option market value as a
+percent of the declared figure, nil when either side is missing. The
+[budget reduction](../operate/protection.md#budget-reduction) bucket measures
+against the same declared figure.
 
 ## What the file cannot do
 

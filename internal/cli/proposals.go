@@ -479,39 +479,124 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 	statusRow(env, out, "Revision", snap.Revision)
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
 	statusRow(env, out, "Theta/day", fmt.Sprintf("%.2f", snap.Counts.ThetaPerDay))
+	if budget := formatProposalBudgetStatus(snap.BudgetReduction); budget != "" {
+		statusRow(env, out, "Budget", budget)
+	}
 	printTradingBlockers(out, "  ", snap.Blockers)
+	var shadow []rpc.TradeProposal
 	for _, p := range snap.Proposals {
-		state := "ready"
-		if len(p.Blockers) > 0 {
-			state = "blocked"
+		if p.Shadow {
+			shadow = append(shadow, p)
+			continue
 		}
-		head := fmt.Sprintf("%s  %s  %s %d %s", p.Key, p.Bucket, p.Action, p.Quantity, p.Symbol)
-		if p.OrderType != "" {
-			head += "  " + p.OrderType
+		renderProposalRow(env, out, &p)
+	}
+	// Shadow rows are observation, not an offer: they sit under their own
+	// heading so nobody reads them as work, and the heading says what happens
+	// to a preview.
+	if len(shadow) > 0 {
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "  Shadow (budget reduction)  %d %s listed for observation; preview and submit refuse them\n", len(shadow), pluralWord(len(shadow), "row", "rows"))
+		for _, p := range shadow {
+			renderProposalRow(env, out, &p)
 		}
-		if p.Trail != nil {
-			head += " " + formatOrderTrail(p.Trail)
-		}
-		fmt.Fprintf(out, "  %s  %s  [%s]\n", head, p.Reason, state)
-		if posLine := formatProposalPositionLine(env, &p); posLine != "" {
-			fmt.Fprintf(out, "      Position   %s\n", posLine)
-		}
-		if optionExit := formatProposalOptionExit(p.OptionExit); optionExit != "" {
-			fmt.Fprintf(out, "      Option exit: %s\n", optionExit)
-		}
-		if unit := formatProposalUnit(p.Unit); unit != "" {
-			fmt.Fprintf(out, "      Unit:        %s\n", unit)
-		}
-		if sizing := formatProposalTrailSizing(p.TrailSizing); sizing != "" {
-			fmt.Fprintf(out, "      Trail sizing: %s\n", sizing)
-		}
-		renderProposalRiskTicket(env, out, &p)
-		for _, d := range p.Details {
-			fmt.Fprintf(out, "      %s\n", d)
-		}
-		printTradingBlockers(out, "      ", p.Blockers)
 	}
 	fmt.Fprintln(out)
+}
+
+func renderProposalRow(env *Env, out io.Writer, p *rpc.TradeProposal) {
+	state := "ready"
+	if len(p.Blockers) > 0 {
+		state = "blocked"
+	}
+	if p.Shadow {
+		state = "shadow"
+	}
+	head := fmt.Sprintf("%s  %s  %s %d %s", p.Key, p.Bucket, p.Action, p.Quantity, p.Symbol)
+	if p.OrderType != "" {
+		head += "  " + p.OrderType
+	}
+	if p.Trail != nil {
+		head += " " + formatOrderTrail(p.Trail)
+	}
+	fmt.Fprintf(out, "  %s  %s  [%s]\n", head, p.Reason, state)
+	if posLine := formatProposalPositionLine(env, p); posLine != "" {
+		fmt.Fprintf(out, "      Position   %s\n", posLine)
+	}
+	if optionExit := formatProposalOptionExit(p.OptionExit); optionExit != "" {
+		fmt.Fprintf(out, "      Option exit: %s\n", optionExit)
+	}
+	if unit := formatProposalUnit(p.Unit); unit != "" {
+		fmt.Fprintf(out, "      Unit:        %s\n", unit)
+	}
+	if budget := formatProposalBudget(p.Budget); budget != "" {
+		fmt.Fprintf(out, "      Budget:      %s\n", budget)
+	}
+	if sizing := formatProposalTrailSizing(p.TrailSizing); sizing != "" {
+		fmt.Fprintf(out, "      Trail sizing: %s\n", sizing)
+	}
+	renderProposalRiskTicket(env, out, p)
+	for _, d := range p.Details {
+		fmt.Fprintf(out, "      %s\n", d)
+	}
+	printTradingBlockers(out, "      ", p.Blockers)
+}
+
+// formatProposalBudgetStatus is the one-line account of the premium budget
+// governor for the list header: mode, state, and the measured share when the
+// gates were open.
+func formatProposalBudgetStatus(st *rpc.TradeProposalBudgetStatus) string {
+	if st == nil {
+		return ""
+	}
+	parts := []string{st.Mode, strings.ReplaceAll(st.State, "_", " ")}
+	if st.MeasuredPctOfRiskCapital != nil {
+		parts = append(parts, fmt.Sprintf("premium %.1f%% of risk capital (caps %.0f%% total, %.0f%% per line)", *st.MeasuredPctOfRiskCapital, st.PremiumAtRiskPctOfRiskCapital, st.PerLinePctOfRiskCapital))
+	}
+	if st.ProtectionLegs > 0 {
+		parts = append(parts, fmt.Sprintf("%d protection %s left out", st.ProtectionLegs, pluralWord(st.ProtectionLegs, "leg", "legs")))
+	}
+	if st.Reason != "" && st.MeasuredPctOfRiskCapital == nil {
+		parts = append(parts, st.Reason)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatProposalBudget names the cap that selected the row, the measured
+// values, the excess and the row's place in the order.
+func formatProposalBudget(b *rpc.TradeProposalBudget) string {
+	if b == nil {
+		return ""
+	}
+	var parts []string
+	if b.LineExcessBase != nil {
+		parts = append(parts, fmt.Sprintf("line %.1f%% > %.0f%% cap (excess %s, %d ct)", b.LinePctOfRiskCapital, b.PerLinePctOfRiskCapital, formatProposalMoney(*b.LineExcessBase, b.BaseCurrency), b.ContractsPerLine))
+	} else {
+		parts = append(parts, fmt.Sprintf("line %.1f%% of risk capital", b.LinePctOfRiskCapital))
+	}
+	if b.TotalExcessBase != nil {
+		total := fmt.Sprintf("total %.1f%% > %.0f%% cap (excess %s)", b.TotalPctOfRiskCapital, b.PremiumAtRiskPctOfRiskCapital, formatProposalMoney(*b.TotalExcessBase, b.BaseCurrency))
+		if b.Order > 0 {
+			total += fmt.Sprintf(", %s in order, %d ct", ordinal(b.Order), b.ContractsTotal)
+		}
+		parts = append(parts, total)
+	}
+	return strings.Join(parts, " · ")
+}
+
+func ordinal(n int) string {
+	switch {
+	case n%100 >= 11 && n%100 <= 13:
+		return fmt.Sprintf("%dth", n)
+	case n%10 == 1:
+		return fmt.Sprintf("%dst", n)
+	case n%10 == 2:
+		return fmt.Sprintf("%dnd", n)
+	case n%10 == 3:
+		return fmt.Sprintf("%drd", n)
+	default:
+		return fmt.Sprintf("%dth", n)
+	}
 }
 
 func formatProposalTrailSizing(sizing *rpc.TradeProposalTrailSizing) string {

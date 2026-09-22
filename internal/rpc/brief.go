@@ -182,6 +182,11 @@ type BriefMoneyCoverageRow struct {
 	BaseCurrency string   `json:"base_currency,omitempty"`
 	IncludedLegs int      `json:"included_legs"`
 	ExcludedLegs int      `json:"excluded_legs"`
+	// PctOfRiskCapital is AmountBase as a percentage of the constitution's
+	// declared risk capital. Served on the premium-at-risk row only, and nil
+	// whenever either side is missing: no amount, no constitution, or an
+	// unapproved capital section. Nil is unavailable, never zero.
+	PctOfRiskCapital *float64 `json:"pct_of_risk_capital,omitempty"`
 }
 
 // BriefCountRow reports an optional count; nil means unavailable, not zero.
@@ -212,6 +217,18 @@ type BriefCapitalRow struct {
 	// window is the tell that exposes a poisoned observation.
 	PeakAsOf     time.Time `json:"peak_as_of,omitzero"`
 	BaseCurrency string    `json:"base_currency,omitempty"`
+	// The constitution's own figures, so a reader of the row can place the
+	// consumed share against the ladder and the budget without opening the
+	// policy file. All nil when no constitution is active or its capital
+	// section is unapproved; a nil here is "not decided", never zero.
+	WarnPct                 *float64 `json:"warn_pct,omitempty"`
+	BlockPct                *float64 `json:"block_pct,omitempty"`
+	ProtectedFloorBase      *float64 `json:"protected_floor_base,omitempty"`
+	DeclaredRiskCapitalBase *float64 `json:"declared_risk_capital_base,omitempty"`
+	// EffectiveRiskCapitalBase is the money at risk (max):
+	// min(declared_risk_capital, equity − protected_floor). Nil also when
+	// no usable equity observation exists.
+	EffectiveRiskCapitalBase *float64 `json:"effective_risk_capital_base,omitempty"`
 }
 
 // BriefLatchRow reports drawdown-latch state and its original trigger.
