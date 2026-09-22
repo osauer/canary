@@ -23,6 +23,7 @@ type optionEvidenceFixture struct {
 	currentOK  bool
 	readErr    error
 	captureErr error
+	quoteErr   error // fails exact option quote reads only; stock pricing for the book evidence still answers
 	reads      int
 	onRead     func()
 }
@@ -40,6 +41,9 @@ func (f *optionEvidenceFixture) option(_ context.Context, c rpc.ContractParams) 
 }
 func (f *optionEvidenceFixture) quote(_ context.Context, c rpc.ContractParams) (rpc.OrderQuoteSnapshot, error) {
 	f.reads++
+	if f.quoteErr != nil && c.SecType == "OPT" {
+		return rpc.OrderQuoteSnapshot{}, f.quoteErr
+	}
 	if q, ok := f.prices[c.ConID]; ok {
 		return q, f.readErr
 	}
@@ -370,6 +374,56 @@ func TestOptionExitGenerateUsesExactEconomicEvidence(t *testing.T) {
 	proposals, _ = e.generate(context.Background(), pol, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, f.scope.Scope, now)
 	if len(proposals) != 1 || !hasTradingBlocker(proposals[0].Blockers, "directional_role_not_confirmed") || proposals[0].OptionExit.EconomicEvidence != nil {
 		t.Fatal("generate reused invalidated exact evidence")
+	}
+}
+
+// On 22 Sep 2026 option exit rows asked the owner to "refresh during the
+// listed-options session with live two-sided quotes" while the session was
+// open and the broker connection kept dropping: a failed read and a missing
+// market produced the same three blockers.
+func TestOptionExitFailedQuoteReadLeadsWithItsCause(t *testing.T) {
+	for _, tc := range []struct {
+		name, code string
+		err        error
+	}{
+		{"broker", optionQuoteBrokerUnavailable, errOptionExitBrokerUnavailable},
+		{"request", optionQuoteRequestFailed, errors.New("synthetic market data rejection U_SYNTHETIC")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, pos, now := newOptionEvidenceFixture()
+			f.quoteErr = tc.err
+			pol := enabledOptionExitPolicy()
+			pol.Buckets.ThetaHygiene.Enabled, pol.Buckets.RiskReduction.Enabled, pol.Buckets.TrailingStop.StockETF.Enabled = false, false, false
+			e := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+			proposals, _ := e.generate(context.Background(), pol, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, f.scope.Scope, now)
+			if len(proposals) != 1 {
+				t.Fatalf("got %d proposals", len(proposals))
+			}
+			p := proposals[0]
+			if len(p.Blockers) == 0 || p.Blockers[0].Code != tc.code || p.Blockers[0].Action == "" {
+				t.Fatalf("a failed quote read did not lead with its cause: %+v", p.Blockers)
+			}
+			if strings.Contains(p.Blockers[0].Message, "synthetic") || strings.Contains(p.Blockers[0].Message, "U_SYNTHETIC") {
+				t.Fatalf("broker error text crossed into the blocker: %q", p.Blockers[0].Message)
+			}
+			// Adapters classify on the unmet requirements; they stay.
+			if !hasTradingBlocker(p.Blockers, "fresh_option_quote_required") || p.OptionExit == nil || p.OptionExit.Kind != "review" ||
+				p.OptionExit.Readiness != "blocked" || p.State != rpc.TradeProposalStateBlocked {
+				t.Fatalf("failed quote read changed the review contract: %+v", p)
+			}
+			f.quoteErr = nil
+			proposals, _ = e.generate(context.Background(), pol, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, f.scope.Scope, now)
+			if len(proposals) != 1 || hasTradingBlocker(proposals[0].Blockers, tc.code) {
+				t.Fatal("a quote that was read still reports a failed read")
+			}
+		})
+	}
+	engine, f, pol, pos, now := unitFixture(t, 0.50, 0.55, 0.20, 0.22)
+	f.quoteErr = errOptionExitBrokerUnavailable
+	proposals, _ := engine.generate(context.Background(), pol, rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
+	if len(proposals) != 1 || len(proposals[0].Blockers) == 0 || proposals[0].Blockers[0].Code != optionQuoteBrokerUnavailable ||
+		!hasTradingBlocker(proposals[0].Blockers, "two_sided_option_quote_required") {
+		t.Fatalf("unit exit hid the failed leg read: %+v", proposals)
 	}
 }
 

@@ -281,6 +281,13 @@ Fixed, redacted blocker messages distinguish exact model data, stock pricing,
 currency data, complete-book/scope failures, unknown calendars, intentional
 deferral and measured protection. No private broker text creates authority.
 
+An exact quote that was requested and never read leads the row with
+`option_quote_broker_unavailable` (the broker connection changed or was not
+ready) or `option_quote_request_failed` (the request failed, or no two-sided
+quote arrived within the read budget). The quote requirements the failure
+leaves unmet stay in the payload for adapters that classify on them. Neither
+code permits waiting: a failed read in an open session is not a deferral.
+
 ### Local proof limits
 
 Synthetic connector, risk, generation, preview-contract, token-age and wire

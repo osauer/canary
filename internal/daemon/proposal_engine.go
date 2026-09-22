@@ -714,8 +714,9 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 				// The evaluator is told so; a quote that was never requested
 				// is not reported as a quote failure.
 				quoteRequested := intentCurrent && row.Quantity > 0 && !economicEvidence.Closed
+				quoteFailure := ""
 				if quoteRequested {
-					exactRow = e.optionExitExactQuote(ctx, row)
+					exactRow, quoteFailure = e.optionExitExactQuote(ctx, row)
 				}
 				decision := evaluateOptionExitRow(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, !quoteRequested, rulebookPolicy.ExitActLossPct)
 				if decision.Action == "" && len(decision.Blockers) == 0 {
@@ -733,6 +734,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 						p.Details = append(p.Details, "Standing policy classifies this ordinary long call as directional; exact-contract quote, risk, and broker-write checks still apply.")
 					}
 					explainOptionExitEconomicBlocker(&p, rowEvidence)
+					leadWithQuoteReadFailure(&p, quoteFailure, policy.Buckets.TrailingStop.Options)
 					if rowEvidence.Fingerprint != "" {
 						p.OptionExit.EconomicEvidence = &rpc.OptionExitEconomicEvidence{Scope: rowEvidence.Scope, Fingerprint: rowEvidence.Fingerprint, AsOf: rowEvidence.AsOf, PortfolioGeneration: rowEvidence.Generation, TerminalFingerprint: rowEvidence.TerminalFingerprint}
 					}
@@ -1624,14 +1626,29 @@ func optionExitEconomicRole(row rpc.PositionView, pol risk.RulebookPolicy, evide
 	return false, risk.IndexPutRoleUnclassified
 }
 
+// Blocker codes for an exact option quote that was requested and never read.
+// They lead the quote requirements the failure leaves unmet, so a broker
+// outage does not read as a missing market.
+const (
+	optionQuoteBrokerUnavailable = "option_quote_broker_unavailable"
+	optionQuoteRequestFailed     = "option_quote_request_failed"
+)
+
+// errOptionExitBrokerUnavailable marks a quote read that ended because the
+// broker connection changed or was not ready, rather than a request the
+// broker refused or did not answer in time.
+var errOptionExitBrokerUnavailable = errors.New("broker connection changed or not ready")
+
 // optionExitExactQuote discards any symbol/Greeks-cache quote fields and reads
 // a new non-sharing subscription keyed by the held contract's positive ConID.
 // This keeps SPX/SPXW and other trading-class distinctions exact and carries
-// the broker tick receipt time into the decision row.
-func (e *proposalEngine) optionExitExactQuote(ctx context.Context, row rpc.PositionView) rpc.PositionView {
+// the broker tick receipt time into the decision row. When no quote was read
+// it also returns the fixed blocker code naming why; broker error text never
+// leaves this function.
+func (e *proposalEngine) optionExitExactQuote(ctx context.Context, row rpc.PositionView) (rpc.PositionView, string) {
 	row = optionExitWithoutQuote(row)
 	if e == nil || e.server == nil || row.ConID <= 0 {
-		return row
+		return row, ""
 	}
 	contract := proposalContractFromPosition(row, positionWireSecType(row.SecType))
 	var quote rpc.OrderQuoteSnapshot
@@ -1641,12 +1658,15 @@ func (e *proposalEngine) optionExitExactQuote(ctx context.Context, row rpc.Posit
 	} else {
 		authority, captureErr := e.server.captureOrderPreviewBrokerAuthority()
 		if captureErr != nil || authority == nil {
-			return row
+			return row, optionQuoteBrokerUnavailable
 		}
 		quote, err = (optionExitBrokerSource{server: e.server, authority: authority}).quote(ctx, contract)
 	}
+	if errors.Is(err, errOptionExitBrokerUnavailable) {
+		return row, optionQuoteBrokerUnavailable
+	}
 	if err != nil {
-		return row
+		return row, optionQuoteRequestFailed
 	}
 	row.OptionBid = cloneFloat64Ptr(quote.Bid)
 	row.OptionAsk = cloneFloat64Ptr(quote.Ask)
@@ -1656,7 +1676,18 @@ func (e *proposalEngine) optionExitExactQuote(ctx context.Context, row rpc.Posit
 	row.Stale = quote.Stale
 	row.StaleReason = quote.StaleReason
 	row.SessionContext = quote.SessionContext
-	return row
+	return row, ""
+}
+
+// leadWithQuoteReadFailure puts the reason no quote was read ahead of every
+// other blocker. The quote requirements it leaves unmet stay in the payload
+// for adapters that classify on them.
+func leadWithQuoteReadFailure(p *rpc.TradeProposal, code string, cfg protectionTrailOptionPolicy) {
+	if p == nil || code == "" {
+		return
+	}
+	p.State = rpc.TradeProposalStateBlocked
+	p.Blockers = slices.Insert(p.Blockers, 0, rpc.TradingBlocker{Code: code, Message: optionExitBlockerMessage(code, cfg), Action: optionExitBlockerAction(code)})
 }
 
 func optionExitWithoutQuote(row rpc.PositionView) rpc.PositionView {
@@ -1740,6 +1771,10 @@ func optionExitBlockerAction(code string) string {
 		return "Review this short option through the strategy or short-position workflow; the approved option exit policy covers long positions only."
 	case "exact_contract_required", "whole_contract_quantity_required", "option_cost_basis_unavailable", "option_numeric_input_invalid":
 		return "Refresh broker positions and resolve the missing or invalid contract, quantity or cost evidence before considering an exit."
+	case optionQuoteBrokerUnavailable:
+		return "This says nothing about the contract's market. Canary reads the quote again on its next refresh once the broker connection is ready; `canary status` shows the connection."
+	case optionQuoteRequestFailed:
+		return "Canary requests the quote again on its next refresh. If this repeats while the options session is open, check `canary status` and the options market-data subscription; a contract without a two-sided market stays blocked."
 	case "live_option_quote_required", "fresh_option_quote_required", "two_sided_option_quote_required", "option_spread_too_wide":
 		return "Once intent is current, refresh during the listed-options session with live two-sided quotes for this exact contract. Canary must verify freshness and spread."
 	case "option_rth_closed":
@@ -1773,6 +1808,10 @@ func optionExitBlockerMessage(code string, cfg protectionTrailOptionPolicy) stri
 		return fmt.Sprintf("option exit requires at least %d calendar DTE", cfg.MinDTE)
 	case "option_cost_basis_unavailable":
 		return "option exit requires positive multiplier-adjusted broker cost basis"
+	case optionQuoteBrokerUnavailable:
+		return "no option quote was read: the broker connection changed or was not ready"
+	case optionQuoteRequestFailed:
+		return fmt.Sprintf("no option quote was read: the exact-contract request failed or no two-sided quote arrived within %s", optionExitQuoteTimeout)
 	case "live_option_quote_required":
 		return "option exit requires live option market data"
 	case "fresh_option_quote_required":

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -261,10 +262,13 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 		minDTE := math.MaxInt
 		legs := make([]rpc.TradeProposalUnitLeg, 0, len(unit.legs))
 		positionValue := 0.0
+		quoteFailure := ""
 		for _, leg := range unit.legs {
 			row := optionExitWithoutQuote(leg.row)
 			if !evidence.Closed && len(blockers) == 0 {
-				row = e.optionExitExactQuote(ctx, leg.row)
+				var failure string
+				row, failure = e.optionExitExactQuote(ctx, leg.row)
+				quoteFailure = cmp.Or(quoteFailure, failure)
 			}
 			if row.SessionContext != nil {
 				sessionOpen = row.SessionContext.IsOpen
@@ -291,6 +295,9 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 			legs = append(legs, unitLeg)
 		}
 		if len(blockers) == 0 {
+			if quoteFailure != "" {
+				blockers = append(blockers, blocker{quoteFailure, optionExitBlockerMessage(quoteFailure, cfg)})
+			}
 			if !live {
 				blockers = append(blockers, blocker{"live_option_quote_required", optionExitBlockerMessage("live_option_quote_required", cfg)})
 			}
