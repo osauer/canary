@@ -37,7 +37,7 @@ func TestDelayedCloseSuppliesDisplayAndRecoveryStatus(t *testing.T) {
 	md := &ibkr.MarketData{Close: 100, CloseAt: received, FeedType: 4}
 	snapshot := ibkr.DisplaySnapshot{Quotes: map[string]*ibkr.MarketData{"key": md}, DataTypes: map[string]int{"key": 4}}
 	holds := []displayHold{{item: displayInstrument{contract: ibkr.Contract{Symbol: "SYNTH", SecType: "IND", Currency: "USD"}}, cacheKey: "key"}}
-	out := projectDisplay(snapshot, holds, rpc.AccountDataScope{})
+	out := projectDisplay(snapshot, holds, rpc.AccountDataScope{}, nil)
 	q := out.Quotes[0]
 	if q.Price == nil || *q.Price != 100 || q.PriceSource != "prev_close" || q.DataType != rpc.MarketDataDelayedFrozen || !q.TradeAt.IsZero() || q.PriceReceivedAt != received {
 		t.Fatalf("bad delayed display: %+v", q)

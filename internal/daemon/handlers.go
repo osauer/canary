@@ -529,8 +529,8 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 
 	// Daily P&L: kick off reqPnLSingle subscriptions (idempotent — the
 	// "DBL_MAX sentinel" — never zero-substituted.
-	s.fillDailyPnL(c, res.Stocks, conIDByPositionKey, expectedScope.Account)
-	s.fillDailyPnL(c, res.Options, conIDByPositionKey, expectedScope.Account)
+	s.fillDailyPnL(c, res.Stocks, conIDByPositionKey, expectedScope.Account, baseCcy)
+	s.fillDailyPnL(c, res.Options, conIDByPositionKey, expectedScope.Account, baseCcy)
 	fillBaseValues(res.Stocks, baseCcy)
 	fillBaseValues(res.Options, baseCcy)
 	flagClosedOptionSession(res.Options, res.AsOf)
@@ -839,11 +839,9 @@ func positionViewKey(v rpc.PositionView) string {
 // accounts above the cap receive per-position P&L only for the first rows.
 const maxDailyPnLSubscriptions = 50
 
-// fillDailyPnL subscribes (if needed) to reqPnLSingle for each row's
-//   - cache empty → subscribe (if we have an account and we're under
-//
-// Subscribing requires a concrete account; cached values remain readable without one.
-func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, conIDs map[string]int, account string) {
+// fillDailyPnL reuses bounded reqPnLSingle subscriptions and projects their
+// account-base amounts into both base and native position fields.
+func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, conIDs map[string]int, account, baseCcy string) {
 	if c == nil || len(rows) == 0 {
 		return
 	}
@@ -864,11 +862,30 @@ func (s *Server) fillDailyPnL(c *ibkrlib.Connector, rows []rpc.PositionView, con
 				continue
 			}
 		}
-		if snap, exists := c.PositionDailyPnL(conID); exists && snap.DailyPnL != nil {
-			v := *snap.DailyPnL
-			view.DailyPnL = &v
+		if snap, exists := c.PositionDailyPnL(conID); exists {
+			fillPositionDailyPnL(view, snap.DailyPnL, baseCcy)
 		}
 	}
+}
+
+// reqPnLSingle is account-base money. Retain that amount independently of
+// whether a native-currency conversion is available, without applying FX twice.
+func fillPositionDailyPnL(view *rpc.PositionView, amount *float64, baseCcy string) {
+	view.DailyPnL, view.DailyPnLBase = nil, nil
+	if amount == nil || normCcy(baseCcy) == "" {
+		return
+	}
+	view.DailyPnLBase = displayNumber(*amount)
+	if rate, ok := positionBaseRate(*view, baseCcy); ok {
+		view.DailyPnL = nativePositionPnL(amount, rate)
+	}
+}
+
+func nativePositionPnL(amount *float64, basePerCurrency float64) *float64 {
+	if amount == nil || displayNumber(*amount) == nil || basePerCurrency <= 0 || displayNumber(basePerCurrency) == nil {
+		return nil
+	}
+	return displayNumber(*amount / basePerCurrency)
 }
 
 // activeDailyPnLCount is a thin probe of how many per-conId PnL
@@ -1043,7 +1060,7 @@ func fillBaseValues(rows []rpc.PositionView, baseCcy string) {
 		p.UnrealizedPnLBase = &unrealizedBase
 		realizedBase := p.RealizedPnL * rate
 		p.RealizedPnLBase = &realizedBase
-		if p.DailyPnL != nil {
+		if p.DailyPnLBase == nil && p.DailyPnL != nil {
 			dailyBase := *p.DailyPnL * rate
 			p.DailyPnLBase = &dailyBase
 		}

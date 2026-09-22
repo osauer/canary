@@ -1760,9 +1760,10 @@ type PositionView struct {
 	RealizedPnL       float64        `json:"realized_pnl_ccy"`
 	RealizedPnLBase   *float64       `json:"realized_pnl_base,omitempty"`
 
-	// DailyPnL is the start-of-trading-day to now P&L for this single
-	// contract, sourced from IBKR's reqPnLSingle stream (TWS msg 95).
-	// sentinel". Never zero-substituted. For options, the daily figure
+	// DailyPnL is start-of-trading-day to now P&L in the contract currency.
+	// DailyPnLBase retains the account-base reqPnLSingle amount; DailyPnL
+	// divides it by FXRate when conversion is required. Missing inputs stay
+	// nil, including native P&L when only its base amount is known.
 	DailyPnL     *float64 `json:"daily_pnl_ccy,omitempty"`
 	DailyPnLBase *float64 `json:"daily_pnl_base,omitempty"`
 

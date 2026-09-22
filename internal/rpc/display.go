@@ -30,8 +30,10 @@ type DisplayAccount struct {
 	PnLAt            time.Time `json:"pnl_at,omitzero"`
 }
 
-// DisplayPosition holds one exact portfolio contract. DailyPnL is native currency
-// only when the raw P&L currency is unambiguous; otherwise it is unavailable.
+// DisplayPosition holds one exact portfolio contract. DailyPnL is in the
+// contract currency: account-base reqPnLSingle money divided by a recent cached
+// BASE-per-CCY rate. Missing currency, rate or P&L leaves it unavailable.
+// PnLAt remains the broker P&L receipt time, never an FX refresh or read time.
 type DisplayPosition struct {
 	UnrealizedAt  time.Time      `json:"unrealized_at,omitzero"`
 	ValuationAt   time.Time      `json:"valuation_at,omitzero"`

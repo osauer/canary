@@ -166,11 +166,11 @@ reconcile:
 	}
 }
 
-func projectDisplay(snapshot ibkr.DisplaySnapshot, holds []displayHold, scope rpc.AccountDataScope) rpc.DisplaySnapshot {
+func projectDisplay(snapshot ibkr.DisplaySnapshot, holds []displayHold, scope rpc.AccountDataScope, rates map[string]float64) rpc.DisplaySnapshot {
 	out := rpc.DisplaySnapshot{Version: 1, Available: true, Scope: scope, Positions: []rpc.DisplayPosition{}, Quotes: []rpc.DisplayQuote{}, PositionsAt: snapshot.Health.LastUpdateAt}
 	base := ""
 	if a := snapshot.Account; a != nil && a.AccountID == scope.AccountID && a.BaseCurrencyProvenance.Proven() {
-		base = a.BaseCurrency
+		base = normCcy(a.BaseCurrency)
 		out.Account.Currency = base
 		if !snapshot.NetLiquidationAt.IsZero() {
 			out.Account.NetLiquidation = a.NetLiquidation
@@ -190,14 +190,23 @@ func projectDisplay(snapshot ibkr.DisplaySnapshot, holds []displayHold, scope rp
 			continue
 		}
 		row := rpc.DisplayPosition{UnrealizedAt: p.ValuationAt, ValuationAt: p.ValuationAt, Contract: displayContract(p.Contract), Quantity: p.Position, AverageCost: displayNumber(p.AverageCost), Mark: ptrIfPos(p.MarketPrice), MarketValue: displayNumber(p.MarketValue), UnrealizedPnL: displayNumber(p.UnrealizedPNL)}
-		if base != "" && snapshot.PnLAccount == scope.AccountID && strings.EqualFold(p.Contract.Currency, base) {
+		if base != "" && snapshot.PnLAccount == scope.AccountID {
 			pnl := snapshot.PositionPnL[p.Contract.ConID]
-			row.DailyPnL = pnl.DailyPnL
-			if pnl.UnrealizedTotalPnL != nil {
-				row.UnrealizedPnL = pnl.UnrealizedTotalPnL
-				row.UnrealizedAt = pnl.AsOf
+			ccy := normCcy(p.Contract.Currency)
+			rate := rates[ccy]
+			if ccy == base {
+				rate = 1
+				if pnl.UnrealizedTotalPnL != nil {
+					row.UnrealizedPnL = pnl.UnrealizedTotalPnL
+					row.UnrealizedAt = pnl.AsOf
+				}
 			}
-			row.PnLAt = pnl.AsOf
+			if ccy != "" && !pnl.AsOf.IsZero() {
+				row.DailyPnL = nativePositionPnL(pnl.DailyPnL, rate)
+				if row.DailyPnL != nil {
+					row.PnLAt = pnl.AsOf
+				}
+			}
 		}
 		out.Positions = append(out.Positions, row)
 	}
@@ -244,6 +253,27 @@ func projectDisplay(snapshot ibkr.DisplaySnapshot, holds []displayHold, scope rp
 	})
 	return out
 }
+
+// Display reuses the account/positions FX cache without broker calls per tick.
+// The longer weekend fallback used for saved positions is not fresh enough here.
+func (s *Server) displayPnLRates(snapshot ibkr.DisplaySnapshot, scope rpc.AccountDataScope) map[string]float64 {
+	a := snapshot.Account
+	if a == nil || a.AccountID != scope.AccountID || !a.BaseCurrencyProvenance.Proven() || normCcy(a.BaseCurrency) == "" {
+		return nil
+	}
+	rates := make(map[string]float64)
+	for _, p := range snapshot.Positions {
+		ccy := normCcy(p.Contract.Currency)
+		if p.Account != scope.AccountID || ccy == "" || ccy == normCcy(a.BaseCurrency) {
+			continue
+		}
+		if rate, age, ok := s.fxRates.get(a.BaseCurrency, ccy, fxCacheFreshWindow); ok && age >= 0 && displayNumber(rate) != nil {
+			rates[ccy] = rate
+		}
+	}
+	return rates
+}
+
 func ibkrDisplayKey(c rpc.ContractParams) string { raw, _ := json.Marshal(c); return string(raw) }
 
 func (s *Server) handleDisplaySubscribe(parent context.Context, req *rpc.Request, conn net.Conn, r *bufio.Reader) {
@@ -321,7 +351,7 @@ func (s *Server) handleDisplaySubscribe(parent context.Context, req *rpc.Request
 			previousUniverse = string(rawUniverse)
 		}
 		s.observeDisplayDataHealth(snapshot, holds, c)
-		frame := projectDisplay(snapshot, holds, accountDataScope(scope))
+		frame := projectDisplay(snapshot, holds, accountDataScope(scope), s.displayPnLRates(snapshot, accountDataScope(scope)))
 		frame.Truncated = truncated || len(holds) < len(items)
 		frame.Generation = generation
 		sequence++

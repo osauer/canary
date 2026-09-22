@@ -16,20 +16,20 @@ func TestDisplayProjectionKeepsClockUnitsAndZeroVolume(t *testing.T) {
 	snapshot := ibkr.DisplaySnapshot{PnLAccount: "U_SYNTHETIC", Account: &ibkr.RawAccountSummary{AccountID: "U_SYNTHETIC", BaseCurrency: "USD", BaseCurrencyProvenance: ibkr.AccountBaseCurrencyExplicitTag}, AccountPnL: ibkr.AccountDailyPnL{DailyPnL: &pnl, AsOf: at}, Positions: []*ibkr.RawPosition{{Account: "U_SYNTHETIC", Contract: c, Position: 1}}, PositionPnL: map[int]ibkr.PositionDailyPnL{101: {DailyPnL: &pnl, AsOf: at}}, Quotes: map[string]*ibkr.MarketData{"key": {Last: 10, LastAt: at, VolumeObserved: true, Volume: 0, VolumeAt: at}}, DataTypes: map[string]int{"key": 1}}
 	holds := []displayHold{{item: displayInstrument{contract: c}, cacheKey: "key"}}
 	scope := rpc.AccountDataScope{AccountID: "U_SYNTHETIC", AccountMode: "paper"}
-	out := projectDisplay(snapshot, holds, scope)
+	out := projectDisplay(snapshot, holds, scope, nil)
 	if out.Account.PnLAt != at || out.Quotes[0].PriceReceivedAt != at || out.Quotes[0].Volume == nil || *out.Quotes[0].Volume != 0 || out.Positions[0].DailyPnL == nil {
 		t.Fatal("lost clock, zero, or same-currency PnL")
 	}
 	snapshot.Positions[0].Contract.Currency = "EUR"
-	if projectDisplay(snapshot, holds, scope).Positions[0].DailyPnL != nil {
+	if projectDisplay(snapshot, holds, scope, nil).Positions[0].DailyPnL != nil {
 		t.Fatal("unproved PnL FX conversion")
 	}
 	snapshot.PnLAccount = "U_FOREIGN"
-	if projectDisplay(snapshot, holds, scope).Account.DailyPnL != nil {
+	if projectDisplay(snapshot, holds, scope, nil).Account.DailyPnL != nil {
 		t.Fatal("foreign account PnL admitted")
 	}
 	snapshot.Quotes["key"].Volume = -1
-	if projectDisplay(snapshot, holds, scope).Quotes[0].Volume != nil {
+	if projectDisplay(snapshot, holds, scope, nil).Quotes[0].Volume != nil {
 		t.Fatal("invalid volume admitted")
 	}
 }
