@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -36,7 +37,11 @@ func NewLogger(w io.Writer, level string) *Logger {
 }
 
 // Debugf logs a formatted message at debug level.
-func (l *Logger) Debugf(f string, args ...any) { l.l.Debug(fmt.Sprintf(f, args...)) }
+func (l *Logger) Debugf(f string, args ...any) {
+	if l.debugEnabled() {
+		l.l.Debug(fmt.Sprintf(f, args...))
+	}
+}
 
 // Infof logs a formatted message at info level.
 func (l *Logger) Infof(f string, args ...any) { l.l.Info(fmt.Sprintf(f, args...)) }
@@ -46,3 +51,7 @@ func (l *Logger) Warnf(f string, args ...any) { l.l.Warn(fmt.Sprintf(f, args...)
 
 // Errorf logs a formatted message at error level.
 func (l *Logger) Errorf(f string, args ...any) { l.l.Error(fmt.Sprintf(f, args...)) }
+
+func (l *Logger) debugEnabled() bool {
+	return l.l.Enabled(context.Background(), slog.LevelDebug)
+}

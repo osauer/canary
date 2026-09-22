@@ -202,6 +202,9 @@ func (e *opportunityEngine) noteRefreshOutcome(snap rpc.OpportunitySnapshot, err
 	if streak < proposalRefreshWarnStreak || e.server == nil {
 		return
 	}
+	if len(codes) == 1 && codes[0] == "account_unavailable" && e.server.logGatewayDependency("account refresh blocked") {
+		return
+	}
 	e.server.warnf("opportunities: refresh blocked %d consecutive times over %s (codes: %s); serving snapshot as_of %s (%s old)",
 		streak, now.Sub(since).Round(time.Second), strings.Join(codes, ","),
 		snap.AsOf.Format(time.RFC3339), now.Sub(snap.AsOf).Round(time.Second))

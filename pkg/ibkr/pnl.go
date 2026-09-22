@@ -47,7 +47,8 @@ type PositionDailyPnL struct {
 // pnlCache holds account and per-position subscription identities and the
 // immutable snapshots published by their handlers.
 type pnlCache struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	session ConnectorSessionBinding
 
 	accountReqID int // 0 means no active subscription
 	accountAcct  string
@@ -240,53 +241,69 @@ func parsePositionPnLFields(fields []string) (reqID int, snap PositionDailyPnL, 
 // stream. Use [Connector.AccountDailyPnL] for non-blocking cache reads. Callers
 // must serialize attempts to switch one connector between different accounts.
 func (c *Connector) SubscribeAccountPnL(account string) error {
-	if !c.isConnected() {
+	origin, ok := c.CaptureSession()
+	if !ok {
 		return ErrIBKRUnavailable
 	}
+	return c.subscribeAccountPnLForSession(origin, account)
+}
+
+func (c *Connector) subscribeAccountPnLForSession(origin ConnectorSessionBinding, account string) error {
 	if account == "" {
 		return fmt.Errorf("account is required")
 	}
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	if conn == nil {
+	if err := ensureASCII("account", account); err != nil {
+		return err
+	}
+	conn := origin.connection
+	if !c.SessionCurrent(origin) {
 		return ErrIBKRUnavailable
 	}
 
 	c.pnl.mu.Lock()
-	if c.pnl.accountReqID != 0 && c.pnl.accountAcct == account {
+	if c.pnl.session == origin && c.pnl.accountReqID != 0 && c.pnl.accountAcct == account {
 		c.pnl.mu.Unlock()
 		return nil
 	}
 	// Account changed (rare): tear down the old subscription before
 	// claiming the new reqID slot.
-	oldReqID := c.pnl.accountReqID
+	oldReqID := 0
+	if c.pnl.session == origin {
+		oldReqID = c.pnl.accountReqID
+	}
 	c.pnl.mu.Unlock()
 	if oldReqID != 0 {
-		if err := conn.CancelPnL(oldReqID); err != nil {
+		if err := c.sendPnLForSession(context.Background(), origin, conn.encodeMsg(cancelPnL, oldReqID), nil); err != nil {
 			connectorLogger.Debugf("CancelPnL(reqID=%d) failed during account change: %v", oldReqID, err)
 		}
 	}
 
-	reqID, err := conn.nextRequestIDForForwarding()
+	reqID, _, err := conn.reserveNextRequestIDForEpoch(origin.epoch)
 	if err != nil {
 		return err
 	}
-	defer conn.discardRequestIDReservation(reqID)
-	c.pnl.mu.Lock()
-	if c.pnl.accountReqID != 0 && c.pnl.accountAcct == account {
-		c.pnl.mu.Unlock()
+	defer discardPnLReservation(origin, reqID)
+	adopted := false
+	if !c.mutatePnLForSession(origin, func() {
+		c.resetPnLSessionLocked(origin)
+		if c.pnl.accountReqID != 0 && c.pnl.accountAcct == account {
+			return
+		}
+		c.pnl.accountReqID, c.pnl.accountAcct = reqID, account
+		c.pnl.accountStartedAt, c.pnl.account = c.pnlResubClock().UTC(), AccountDailyPnL{}
+		adopted = true
+	}) {
+		return ErrIBKRUnavailable
+	}
+	if !adopted {
 		return nil
 	}
-	c.pnl.accountReqID = reqID
-	c.pnl.accountAcct = account
-	c.pnl.accountStartedAt = c.pnlResubClock().UTC()
-	c.pnl.account = AccountDailyPnL{}
-	c.pnl.mu.Unlock()
-
-	if err := conn.RequestPnL(reqID, account, ""); err != nil {
+	if _, err = conn.claimRequestIDForEpoch(reqID, origin.epoch); err == nil {
+		err = c.sendPnLForSession(context.Background(), origin, conn.encodeMsg(reqPnL, reqID, account, ""), func() bool { return c.pnl.session == origin && c.pnl.accountReqID == reqID })
+	}
+	if err != nil {
 		c.pnl.mu.Lock()
-		if c.pnl.accountReqID == reqID {
+		if c.pnl.session == origin && c.pnl.accountReqID == reqID {
 			c.pnl.accountReqID = 0
 			c.pnl.accountAcct = ""
 			c.pnl.accountStartedAt = time.Time{}
@@ -304,7 +321,7 @@ func (c *Connector) SubscribeAccountPnL(account string) error {
 func (c *Connector) AccountDailyPnL() (AccountDailyPnL, bool) {
 	c.pnl.mu.RLock()
 	defer c.pnl.mu.RUnlock()
-	if c.pnl.accountReqID == 0 || c.pnl.account.AsOf.IsZero() {
+	if c.pnl.accountReqID == 0 || c.pnl.account.AsOf.IsZero() || !c.SessionCurrent(c.pnl.session) {
 		return AccountDailyPnL{}, false
 	}
 	// Defensive copy; the snapshot holds pointers but they aren't
@@ -323,51 +340,62 @@ func (c *Connector) SubscribePositionDailyPnL(account string, conID int) error {
 // with caller-owned cancellation. The connector retains at most 50 contracts;
 // an existing contract is idempotent and remains daemon-owned after this returns.
 func (c *Connector) SubscribePositionDailyPnLContext(ctx context.Context, account string, conID int) error {
-	if !c.isConnected() {
+	origin, ok := c.CaptureSession()
+	if !ok {
 		return ErrIBKRUnavailable
 	}
-	if account == "" {
-		return fmt.Errorf("account is required")
+	return c.subscribePositionPnLForSession(ctx, origin, account, conID)
+}
+
+func (c *Connector) subscribePositionPnLForSession(ctx context.Context, origin ConnectorSessionBinding, account string, conID int) error {
+	if account == "" || conID <= 0 {
+		return fmt.Errorf("account and positive conId are required")
 	}
-	if conID <= 0 {
-		return fmt.Errorf("conId is required")
+	if err := ensureASCII("account", account); err != nil {
+		return err
 	}
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	if conn == nil {
+	if !c.SessionCurrent(origin) {
 		return ErrIBKRUnavailable
 	}
+	conn := origin.connection
+
 	c.pnl.mu.Lock()
-	if _, ok := c.pnl.positionReqIDs[conID]; ok {
+	if _, ok := c.pnl.positionReqIDs[conID]; ok && c.pnl.session == origin {
 		c.pnl.mu.Unlock()
 		return nil
 	}
 	c.pnl.mu.Unlock()
 
-	reqID, err := conn.nextRequestIDForForwarding()
+	reqID, _, err := conn.reserveNextRequestIDForEpoch(origin.epoch)
 	if err != nil {
 		return err
 	}
-	defer conn.discardRequestIDReservation(reqID)
-	c.pnl.mu.Lock()
-	if _, ok := c.pnl.positionReqIDs[conID]; ok {
-		c.pnl.mu.Unlock()
-		return nil
+	defer discardPnLReservation(origin, reqID)
+	adopted := false
+	if !c.mutatePnLForSession(origin, func() {
+		c.resetPnLSessionLocked(origin)
+		if _, ok := c.pnl.positionReqIDs[conID]; ok {
+			return
+		}
+		if len(c.pnl.positionReqIDs) >= 50 {
+			err = fmt.Errorf("position PnL subscription limit reached")
+			return
+		}
+		c.pnl.positionReqIDs[conID], c.pnl.positionByReqID[reqID] = reqID, conID
+		c.pnl.positionSnapshot[conID] = PositionDailyPnL{}
+		adopted = true
+	}) {
+		return ErrIBKRUnavailable
 	}
-	if len(c.pnl.positionReqIDs) >= 50 {
-		c.pnl.mu.Unlock()
-		return fmt.Errorf("position PnL subscription limit reached")
+	if err != nil || !adopted {
+		return err
 	}
-	c.pnl.positionReqIDs[conID] = reqID
-	c.pnl.positionByReqID[reqID] = conID
-	// Pre-populate an empty snapshot so AccountDailyPnL-style "exists
-	c.pnl.positionSnapshot[conID] = PositionDailyPnL{}
-	c.pnl.mu.Unlock()
-
-	if err := conn.requestPnLSingleContext(ctx, reqID, account, "", conID); err != nil {
+	if _, err = conn.claimRequestIDForEpoch(reqID, origin.epoch); err == nil {
+		err = c.sendPnLForSession(ctx, origin, conn.encodeMsg(reqPnLSingle, reqID, account, "", conID), func() bool { return c.pnl.session == origin && c.pnl.positionReqIDs[conID] == reqID })
+	}
+	if err != nil {
 		c.pnl.mu.Lock()
-		if current, ok := c.pnl.positionReqIDs[conID]; ok && current == reqID {
+		if current, ok := c.pnl.positionReqIDs[conID]; ok && c.pnl.session == origin && current == reqID {
 			delete(c.pnl.positionReqIDs, conID)
 			delete(c.pnl.positionByReqID, reqID)
 			delete(c.pnl.positionSnapshot, conID)
@@ -384,7 +412,7 @@ func (c *Connector) PositionDailyPnL(conID int) (PositionDailyPnL, bool) {
 	c.pnl.mu.RLock()
 	defer c.pnl.mu.RUnlock()
 	snap, ok := c.pnl.positionSnapshot[conID]
-	return snap, ok
+	return snap, ok && c.SessionCurrent(c.pnl.session)
 }
 
 // ActiveDailyPnLSubscriptions reports the number of tracked per-contract
@@ -458,10 +486,11 @@ func (c *Connector) pnlResubClock() time.Time {
 // MaybeResubscribeStaleDailyPnL rebuilds all Daily P&L streams when marketOpen
 // is true and the account stream has not produced its first frame or its last
 func (c *Connector) MaybeResubscribeStaleDailyPnL(marketOpen bool) bool {
-	if !marketOpen || !c.isConnected() {
+	if !marketOpen || !c.isConnected() || c.BackendLink().Down {
 		return false
 	}
 	c.pnl.mu.RLock()
+	origin := c.pnl.session
 	reqID := c.pnl.accountReqID
 	asOf := c.pnl.account.AsOf
 	startedAt := c.pnl.accountStartedAt
@@ -487,9 +516,11 @@ func (c *Connector) MaybeResubscribeStaleDailyPnL(marketOpen bool) bool {
 	c.pnlResubLastAt = now
 	c.pnlResubMu.Unlock()
 
-	connectorLogger.Warnf("account daily P&L stream silent for %s during market hours; rebuilding reqPnL subscriptions", now.Sub(referenceAt).Round(time.Second))
-	c.forceResubscribeDailyPnL()
-	return true
+	warn, attempts, age := c.pnlSilenceLog.Observe(now)
+	if warn {
+		connectorLogger.Warnf("account daily P&L stream silent during market hours; rebuilding reqPnL subscriptions (attempts=%d, incident_duration=%s, last_frame_age=%s)", attempts, age.Round(time.Second), now.Sub(referenceAt).Round(time.Second))
+	}
+	return c.rebuildPnLForSession(origin, reqID)
 }
 
 // forceResubscribeDailyPnL tears down and re-issues the account and per-position
@@ -498,54 +529,73 @@ func (c *Connector) MaybeResubscribeStaleDailyPnL(marketOpen bool) bool {
 // the idempotency guards re-arm, then the old wire subscriptions are cancelled
 // by handlePnL (reqID mismatch), so no stale frame races the rebuild.
 func (c *Connector) forceResubscribeDailyPnL() {
-	defer c.display.notify()
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	if conn == nil {
-		return
+	origin, ok := c.CaptureSession()
+	if ok {
+		c.forceResubscribeDailyPnLForSession(origin)
 	}
+}
 
-	c.pnl.mu.Lock()
-	acct := c.pnl.accountAcct
-	acctReq := c.pnl.accountReqID
-	posConIDs := make([]int, 0, len(c.pnl.positionReqIDs))
-	posReqs := make([]int, 0, len(c.pnl.positionReqIDs))
-	for conID, r := range c.pnl.positionReqIDs {
-		posConIDs = append(posConIDs, conID)
-		posReqs = append(posReqs, r)
+func (c *Connector) forceResubscribeDailyPnLForSession(origin ConnectorSessionBinding) {
+	c.rebuildPnLForSession(origin, 0)
+}
+
+func (c *Connector) rebuildPnLForSession(origin ConnectorSessionBinding, expectedAccountRequest int) bool {
+	c.pnlRepairMu.Lock()
+	defer c.pnlRepairMu.Unlock()
+	defer c.display.notify()
+	conn := origin.connection
+	var acct string
+	var acctReq int
+	var posConIDs, posReqs []int
+	if !c.mutatePnLForSession(origin, func() {
+		if c.pnl.session != origin || (expectedAccountRequest != 0 && c.pnl.accountReqID != expectedAccountRequest) {
+			return
+		}
+
+		acct = c.pnl.accountAcct
+		acctReq = c.pnl.accountReqID
+		posConIDs = make([]int, 0, len(c.pnl.positionReqIDs))
+		posReqs = make([]int, 0, len(c.pnl.positionReqIDs))
+		for conID, r := range c.pnl.positionReqIDs {
+			posConIDs = append(posConIDs, conID)
+			posReqs = append(posReqs, r)
+		}
+		c.pnl.accountReqID = 0
+		c.pnl.accountAcct = ""
+		c.pnl.accountStartedAt = time.Time{}
+		c.pnl.account = AccountDailyPnL{}
+		c.pnl.positionReqIDs = make(map[int]int)
+		c.pnl.positionByReqID = make(map[int]int)
+		c.pnl.positionSnapshot = make(map[int]PositionDailyPnL)
+	}) {
+		return false
 	}
-	c.pnl.accountReqID = 0
-	c.pnl.accountAcct = ""
-	c.pnl.accountStartedAt = time.Time{}
-	c.pnl.account = AccountDailyPnL{}
-	c.pnl.positionReqIDs = make(map[int]int)
-	c.pnl.positionByReqID = make(map[int]int)
-	c.pnl.positionSnapshot = make(map[int]PositionDailyPnL)
-	c.pnl.mu.Unlock()
 
 	if acctReq != 0 {
-		if err := conn.CancelPnL(acctReq); err != nil {
+		if err := c.sendPnLForSession(context.Background(), origin, conn.encodeMsg(cancelPnL, acctReq), nil); err != nil {
 			connectorLogger.Debugf("CancelPnL(reqID=%d) during resubscribe: %v", acctReq, err)
 		}
 	}
 	for _, r := range posReqs {
-		if err := conn.CancelPnLSingle(r); err != nil {
+		if err := c.sendPnLForSession(context.Background(), origin, conn.encodeMsg(cancelPnLSingle, r), nil); err != nil {
 			connectorLogger.Debugf("CancelPnLSingle(reqID=%d) during resubscribe: %v", r, err)
 		}
 	}
 
 	if acct == "" {
-		return
+		return false
 	}
-	if err := c.SubscribeAccountPnL(acct); err != nil {
-		connectorLogger.Debugf("SubscribeAccountPnL(%s) during resubscribe: %v", acct, err)
-	}
+	accountSent := c.subscribeAccountPnLForSession(origin, acct) == nil
+	positionFailures := 0
 	for _, conID := range posConIDs {
-		if err := c.SubscribePositionDailyPnL(acct, conID); err != nil {
-			connectorLogger.Debugf("SubscribePositionDailyPnL(%s,%d) during resubscribe: %v", acct, conID, err)
+		if err := c.subscribePositionPnLForSession(context.Background(), origin, acct, conID); err != nil {
+			positionFailures++
 		}
 	}
+	if c.SessionCurrent(origin) && (!accountSent || positionFailures > 0) {
+		connectorLogger.Warnf("P&L rebuild requests incomplete: account_request_sent=%t position_request_failures=%d; account upkeep and position demand can retry", accountSent, positionFailures)
+	}
+	return true
 }
 
 // handlePnL is the connector-side msgPnL handler. Decodes the frame
@@ -564,6 +614,9 @@ func (c *Connector) handlePnL(fields []string) {
 	}
 	c.pnl.account = snap
 	c.pnl.mu.Unlock()
+	if attempts, age := c.pnlSilenceLog.Recover(c.pnlResubClock()); attempts > 0 {
+		connectorLogger.Warnf("account daily P&L stream resumed after %s (%d rebuild attempts); frame quality remains in account health", age.Round(time.Second), attempts)
+	}
 }
 
 // handlePnLSingle is the connector-side msgPnLSingle handler.

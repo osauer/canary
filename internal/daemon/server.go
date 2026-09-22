@@ -27,6 +27,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/logepisode"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -103,13 +104,9 @@ type Server struct {
 	connector        *ibkrlib.Connector
 	streams          map[string]context.CancelFunc
 	lastConnectError string
-	// lastDiscoveryWarn remembers the most recent reconnect-discovery
-	lastDiscoveryWarn string
-
-	// lastEndpointResolvedSig / lastGatewayUnreachable / lastNoEndpointUsable
+	gatewayLog       logepisode.State
+	// lastEndpointResolvedSig avoids repeating unchanged endpoint diagnostics.
 	lastEndpointResolvedSig string
-	lastGatewayUnreachable  string
-	lastNoEndpointUsable    string
 	// lastHandshakeFailedPort is the discovered port whose listener accepted
 	// TCP but never completed the IBKR handshake in the most recent connect
 	// cycle: an app at its login screen after the other app took the one
@@ -1247,7 +1244,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 	if derr != nil {
-		s.logger.Warnf("Endpoint discovery: %v (daemon will start anyway)", derr)
+		s.logGatewayUnavailable(derr.Error())
 	} else {
 		s.logger.Infof("Endpoint resolved: %s:%d (port=%s, tls=%v %s, alternates=%v)",
 			ep.Host, ep.Port, ep.PortOrigin, ep.TLS, ep.TLSOrigin, ep.Alternates)
@@ -1437,6 +1434,7 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	// reconnectFlow. Keep the low-level connection from racing that owner with
 	// a second reconnect loop on the same client ID.
 	conn.AutoReconnect = false
+	conn.ManagedConnectionLogging = true
 
 	cc := &ibkrlib.ConnectorConfig{
 		PreferredClientID: ep.ClientID,
@@ -1599,18 +1597,8 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 	)
 	s.mu.Lock()
 	s.lastConnectError = hint
-	// Dedupe like the per-candidate verdict above: exhaustion recurs every
-	// reconnect cycle while the gateway is down, so log once per changed
-	// verdict and demote repeats to Debug.
-	verdictChanged := s.lastNoEndpointUsable != hint
-	s.lastNoEndpointUsable = hint
 	s.mu.Unlock()
-	const format = "Daemon up but no endpoint usable: %s"
-	if verdictChanged {
-		s.logger.Warnf(format, hint)
-	} else {
-		s.logger.Debugf(format, hint)
-	}
+	s.logGatewayUnavailable(hint)
 }
 
 // tryOneHandshake runs a single candidate's connect under the watchdog
@@ -1638,7 +1626,7 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		s.mu.Lock()
 		s.lastConnectError = hint
 		s.mu.Unlock()
-		s.logger.Warnf("Candidate budget expired: %s", hint)
+		s.logGatewayUnavailable(hint)
 		return false
 	case err != nil && candidateCtx.Err() != nil:
 		// SDK returned a wrapped ctx error (e.g. "tls handshake failed:
@@ -1647,13 +1635,13 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		s.mu.Lock()
 		s.lastConnectError = hint
 		s.mu.Unlock()
-		s.logger.Warnf("Candidate budget expired: %s", hint)
+		s.logGatewayUnavailable(hint)
 		return false
 	case err != nil:
 		s.mu.Lock()
 		s.lastConnectError = err.Error()
 		s.mu.Unlock()
-		s.logger.Errorf("connect to IB Gateway %s:%d: %v", ep.Host, ep.Port, err)
+		s.logGatewayUnavailable(err.Error())
 		return false
 	}
 
@@ -1666,20 +1654,8 @@ func (s *Server) tryOneHandshake(ctx context.Context, a connectAttempter, ep dis
 		}
 		s.mu.Lock()
 		s.lastConnectError = hint
-		// Dedupe: the daemon rebuilds and re-fails against a down gateway every
-		// reconnect cycle. Log the transition once at WARN and demote identical
-		// repeats to Debug. Compare-and-set under the same lock as
-		// lastConnectError so two racing status-driven reconnects can't both
-		// decide "changed" (see resetConnectVerdicts for the recovery reset).
-		verdictChanged := s.lastGatewayUnreachable != hint
-		s.lastGatewayUnreachable = hint
 		s.mu.Unlock()
-		const format = "Daemon up but gateway not connected: %s"
-		if verdictChanged {
-			s.logger.Warnf(format, hint)
-		} else {
-			s.logger.Debugf(format, hint)
-		}
+		s.logGatewayUnavailable(hint)
 		return false
 	}
 	if brokerScopeAccountConcrete(ep.Account) {
@@ -1722,22 +1698,6 @@ func (s *Server) gatewayUnavailableError() error {
 	return fmt.Errorf("%w: %s", ibkrlib.ErrIBKRUnavailable, lastErr)
 }
 
-// resetConnectVerdicts clears the connect-retry verdict dedupe on a successful
-// handshake so the next unreachable episode logs its transition afresh. It
-// returns true iff the daemon was in a logged-unreachable episode, so the
-// caller can emit the one-line recovery bookend. lastEndpointResolvedSig is
-// intentionally left intact — it is value-keyed on the endpoint, not the
-// episode, and re-logs only when the endpoint actually changes. Caller must not
-// hold s.mu.
-func (s *Server) resetConnectVerdicts() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	was := s.lastGatewayUnreachable != "" || s.lastNoEndpointUsable != ""
-	s.lastGatewayUnreachable = ""
-	s.lastNoEndpointUsable = ""
-	return was
-}
-
 // postConnectSetup runs the best-effort initialization that follows a
 // successful handshake (market-data type + account-updates stream).
 // Failures here are non-fatal: snapshot data still flows; only the
@@ -1750,11 +1710,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// quiet period (same reasoning as the gamma resetRetryBackoff below).
 	s.reconnectFailStreak = 0
 	s.mu.Unlock()
-	// A successful handshake ends any unreachable episode: clear the verdict
-	if s.resetConnectVerdicts() {
-		s.logger.Infof("Gateway reachable again at %s:%d after retrying while it was down",
-			ep.Host, ep.Port)
-	}
+	s.logGatewayRecovered()
 	s.logger.Infof("Connected to IB Gateway %s:%d (clientID=%d, tls=%v)",
 		ep.Host, ep.Port, ep.ClientID, a.UsingTLS())
 
@@ -2022,7 +1978,7 @@ func (s *Server) handshakeWatchdog(ctx context.Context, isConnected func() bool,
 		s.lastConnectError = hint
 	}
 	s.mu.Unlock()
-	s.logger.Warnf("Handshake watchdog: %s", hint)
+	s.logGatewayUnavailable(hint)
 }
 
 // reconnectBackoffBase / reconnectBackoffMax bound the quiet period between
@@ -2162,14 +2118,6 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 	if derr != nil {
 		s.lastConnectError = derr.Error()
 	}
-	prevWarn := s.lastDiscoveryWarn
-	switch {
-	case derr != nil:
-		s.lastDiscoveryWarn = derr.Error()
-	default:
-		s.lastDiscoveryWarn = ""
-	}
-	curWarn := s.lastDiscoveryWarn
 	// Dedupe the "endpoint resolved" INFO: with a pinned port this resolves to
 	// so the log decision can't race a concurrent reconnect.
 	endpointChanged := false
@@ -2179,13 +2127,8 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 	}
 	s.mu.Unlock()
 	if derr != nil {
-		// Same verdict as the previous attempt → already logged; stay quiet.
-		// A changed verdict (or first failure) logs once. This keeps the
-		// reconnect-during-status-poll loop from emitting the same WARN line
-		// every 500ms while the user is waiting for the handshake.
-		if curWarn != prevWarn {
-			s.logger.Warnf("Reconnect: discovery: %v", derr)
-		}
+		// Failed discovery participates in the same episode as handshakes.
+		s.logGatewayUnavailable(derr.Error())
 		s.noteReconnectOutcome(ctx, false)
 		return
 	}

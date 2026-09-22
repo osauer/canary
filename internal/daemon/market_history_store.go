@@ -266,6 +266,9 @@ func (s *Server) logMarketHistoryFallback(p rpc.MarketHistoryParams, saved *stor
 	if s.logger == nil || saved == nil {
 		return
 	}
+	if errors.Is(cause, ibkrlib.ErrIBKRUnavailable) && s.logGatewayDependency("history refresh requires the broker; recorded history remains available") {
+		return
+	}
 	s.logger.Warnf("market history %s %s: IBKR refresh failed: %v; serving recorded history through %s", p.Contract.Symbol, p.Range, cause, saved.Result.End.UTC().Format("2006-01-02"))
 }
 

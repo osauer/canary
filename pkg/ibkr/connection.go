@@ -101,12 +101,15 @@ type ConnectionConfig struct {
 	MaxClientIDRetries int // Max attempts for transient startAPI failures (default 5)
 
 	// Reconnection settings (from hedge patterns)
-	AutoReconnect     bool
-	MaxRetries        int
-	InitialDelay      time.Duration // Initial reconnect delay (5s)
-	MaxDelay          time.Duration // Max reconnect delay (60s)
-	BackoffMultiplier float64       // Exponential backoff multiplier (2.0)
-	Jitter            bool          // Add random jitter to delays
+	// ManagedConnectionLogging delegates connection-attempt warnings to the owner.
+	// Returned errors and connection state are unchanged; standalone callers default to warnings.
+	ManagedConnectionLogging bool
+	AutoReconnect            bool
+	MaxRetries               int
+	InitialDelay             time.Duration // Initial reconnect delay (5s)
+	MaxDelay                 time.Duration // Max reconnect delay (60s)
+	BackoffMultiplier        float64       // Exponential backoff multiplier (2.0)
+	Jitter                   bool          // Add random jitter to delays
 
 	// Connection timeouts
 	ConnectTimeout    time.Duration
@@ -733,6 +736,15 @@ func (c *Connection) SetPacketLogger(logger PacketLogger) {
 	c.packetLoggerMu.Unlock()
 }
 
+// logConnectAttempt leaves the daemon responsible for bounded outage warnings.
+func (c *Connection) logConnectAttempt(format string, args ...any) {
+	if c.config.ManagedConnectionLogging {
+		connectLogger.Debugf(format, args...)
+		return
+	}
+	connectLogger.Warnf(format, args...)
+}
+
 func (c *Connection) ensurePacketLogger() {
 	if c.config == nil || c.config.PacketLogPath == "" {
 		return
@@ -819,7 +831,7 @@ func (c *Connection) connectWithClientID(ctx context.Context) error {
 			}
 		}
 		if idx > 0 {
-			connectLogger.Warnf("Client %d: retrying with tls=%v after error: %v", c.config.ClientID, useTLS, lastErr)
+			c.logConnectAttempt("Client %d: retrying with tls=%v after error: %v", c.config.ClientID, useTLS, lastErr)
 		}
 
 		outboundEpoch := c.beginOutboundSession()
@@ -836,7 +848,7 @@ func (c *Connection) connectWithClientID(ctx context.Context) error {
 				}
 			}
 			if errors.Is(err, errHandshakeNoData) && idx+1 < len(attempts) {
-				connectLogger.Warnf("Client %d: handshake returned no data (tls=%v); attempting fallback", c.config.ClientID, useTLS)
+				c.logConnectAttempt("Client %d: handshake returned no data (tls=%v); attempting fallback", c.config.ClientID, useTLS)
 				continue
 			}
 			return err
@@ -894,7 +906,11 @@ func (c *Connection) connectAttempt(ctx context.Context, useTLS bool, outboundEp
 
 	connectLogger.Infof("Client %d: Starting handshake...", c.config.ClientID)
 	if err := c.handshake(); err != nil {
-		connectLogger.Errorf("Client %d: Handshake failed: %v", c.config.ClientID, err)
+		if c.config.ManagedConnectionLogging {
+			connectLogger.Debugf("Client %d: Handshake failed: %v", c.config.ClientID, err)
+		} else {
+			connectLogger.Errorf("Client %d: Handshake failed: %v", c.config.ClientID, err)
+		}
 		c.setStatus(StatusDisconnected)
 		cancelOnce.Do(func() { _ = netConn.Close() })
 		return fmt.Errorf("handshake failed: %w", err)
@@ -1418,7 +1434,7 @@ func (c *Connection) handshake() error {
 		}
 		if errors.Is(err, errHandshakeNoData) {
 			sawNoData = true
-			handshakeLogger.Warnf("Client %d: no response to payload %q (attempt %d/%d)", c.config.ClientID, payload, idx+1, len(attemptPayloads))
+			c.logConnectAttempt("Client %d: no response to payload %q (attempt %d/%d)", c.config.ClientID, payload, idx+1, len(attemptPayloads))
 			continue
 		}
 		return err
@@ -1822,6 +1838,20 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 	// The two small typed receipt handlers below take their own leases around
 	switch msgID {
 	case msgErrMsg, msgSystemNotification, msgCurrentTimeMillis, msgMarketDataType:
+	case msgPnL, msgPnLSingle:
+		if c.publicationBarrier != nil {
+			c.publicationBarrier.RLock()
+			defer c.publicationBarrier.RUnlock()
+		}
+		c.inboundEpochMu.RLock()
+		defer c.inboundEpochMu.RUnlock()
+		if epoch != c.BrokerSessionEpoch() {
+			return
+		}
+		if c.evidenceBarrier != nil {
+			c.evidenceBarrier.RLock()
+			defer c.evidenceBarrier.RUnlock()
+		}
 	case msgManagedAccts, msgAccountSummary:
 		if c.publicationBarrier != nil {
 			c.publicationBarrier.Lock()
@@ -3065,6 +3095,12 @@ func (c *Connection) resetPortfolioStreamHealth(account string, requestedAt time
 	}
 	unlockEvidence := c.lockEvidenceChange()
 	defer unlockEvidence()
+	c.resetPortfolioStreamHealthUnderEvidence(account, requestedAt)
+}
+
+// resetPortfolioStreamHealthUnderEvidence is used by epoch-bound dispatch,
+// which already owns the evidence barrier after pacing.
+func (c *Connection) resetPortfolioStreamHealthUnderEvidence(account string, requestedAt time.Time) {
 	c.portfolioProjectionMu.Lock()
 	defer c.portfolioProjectionMu.Unlock()
 	c.portfolioHealthMu.Lock()

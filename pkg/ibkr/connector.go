@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/logepisode"
 	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
 )
 
@@ -165,9 +166,11 @@ type Connector struct {
 	acctUpdatesNow     func() time.Time
 
 	// pnlResubMu guards the daily-P&L resubscribe throttle.
+	pnlRepairMu    sync.Mutex
 	pnlResubMu     sync.Mutex
 	pnlResubLastAt time.Time
 	pnlResubNow    func() time.Time
+	pnlSilenceLog  logepisode.State
 
 	// backendConnMu guards backend-link health; a disconnected backend cannot
 	// carry a locally accepted broker operation. The counters make chronic
@@ -1586,10 +1589,10 @@ func (c *Connector) handleBackendConnectivityNotice(origin ConnectorSessionBindi
 		c.setBackendConnectivityDown(true, note.timestamp)
 		return nil
 	case 1102:
-		c.setBackendConnectivityDown(false, note.timestamp)
+		c.recordBackendConnectivity(false, note.timestamp, note.code)
 		return nil
 	case 1101:
-		c.setBackendConnectivityDown(false, note.timestamp)
+		c.recordBackendConnectivity(false, note.timestamp, note.code)
 		return func() { go c.recoverFromBackendDataLoss(origin) }
 	default:
 		return nil
@@ -1597,6 +1600,10 @@ func (c *Connector) handleBackendConnectivityNotice(origin ConnectorSessionBindi
 }
 
 func (c *Connector) setBackendConnectivityDown(down bool, at time.Time) {
+	c.recordBackendConnectivity(down, at, 0)
+}
+
+func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCode int) {
 	defer c.display.notify()
 	if at.IsZero() {
 		at = time.Now()
@@ -1682,13 +1689,13 @@ func (c *Connector) setBackendConnectivityDown(down bool, at time.Time) {
 	case outage > backendOutageAttention:
 		// A blip heals in seconds; anything past the threshold was a real
 		// hole in availability and stays loud regardless of episode state.
-		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session) — outage exceeded %s", outage.Round(time.Second), losses, backendOutageAttention)
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outage exceeded %s", outage.Round(time.Second), losses, restoreCode, backendOutageAttention)
 	case firstOfEpisode:
 		// WARN, not INFO: this pairs the episode's opening loss warning and
 		// must survive the warn default log level.
-		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session)", outage.Round(time.Second), losses)
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)", outage.Round(time.Second), losses, restoreCode)
 	default:
-		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session)", outage.Round(time.Second), losses)
+		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)", outage.Round(time.Second), losses, restoreCode)
 	}
 }
 
@@ -1735,6 +1742,9 @@ func (c *Connector) backendConnectivityDown() (bool, time.Time) {
 // retry themselves. Runs off the read loop; the in-flight guard makes a
 // duplicate 1101 a no-op instead of a double replay.
 func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
+	if !c.SessionCurrent(origin) {
+		return
+	}
 	if !c.mdReplayInFlight.CompareAndSwap(false, true) {
 		c.logDebug("1101 subscription replay already in flight; skipping duplicate")
 		return
@@ -1744,13 +1754,16 @@ func (c *Connector) recoverFromBackendDataLoss(origin ConnectorSessionBinding) {
 	if replayed > 0 || dropped > 0 {
 		c.logInfo("Replayed %d market-data subscriptions after 1101 data loss (%d dropped for demand re-subscribe)", replayed, dropped)
 	}
+	if !c.SessionCurrent(origin) {
+		return
+	}
 	c.acctUpdatesMu.Lock()
 	hadAcctStream := !c.acctUpdatesLastAt.IsZero()
 	c.acctUpdatesMu.Unlock()
 	if hadAcctStream {
-		_ = c.resubscribeAccountUpdates()
+		_ = c.resubscribeAccountUpdatesForSession(origin)
 	}
-	c.forceResubscribeDailyPnL()
+	c.forceResubscribeDailyPnLForSession(origin)
 }
 
 func (c *Connector) replayMarketDataSubscriptions(origin ConnectorSessionBinding) (replayed, dropped int) {
@@ -5521,11 +5534,11 @@ func (c *Connector) registerHandlers(conn *Connection) {
 	// Daily P&L streams: msgPnL (94) for account-level, msgPnLSingle (95)
 	// for per-conId. Subscriptions are owned by Connector.SubscribeAccountPnL
 	// pnl cache for non-blocking reads by AccountDailyPnL / PositionDailyPnL.
-	conn.RegisterHandler(msgPnL, func(fields []string) {
-		c.handlePnL(fields)
+	conn.RegisterHandlerAtEpoch(msgPnL, func(fields []string, epoch uint64) {
+		c.receivePnLForSession(ConnectorSessionBinding{connector: c, connection: conn, epoch: epoch}, func() { c.handlePnL(fields) })
 	})
-	conn.RegisterHandler(msgPnLSingle, func(fields []string) {
-		c.handlePnLSingle(fields)
+	conn.RegisterHandlerAtEpoch(msgPnLSingle, func(fields []string, epoch uint64) {
+		c.receivePnLForSession(ConnectorSessionBinding{connector: c, connection: conn, epoch: epoch}, func() { c.handlePnLSingle(fields) })
 	})
 }
 
