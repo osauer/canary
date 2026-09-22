@@ -120,8 +120,9 @@ const (
 	AlertPresentationRulebookExitDiscipline     AlertPresentationCode = "rulebook_exit_discipline"
 	AlertPresentationRulebookFXExposure         AlertPresentationCode = "rulebook_fx_exposure"
 	AlertPresentationProtectionOrphanedOrder    AlertPresentationCode = "protection_orphaned_order"
-	// Pre-authorised protection notices: one code per bucket, each with a
-	// variant for the latched brake placing the order without a window.
+	// AlertPresentationProtectionAutoTrailingStop and the codes that follow
+	// are the pre-authorised protection notices: one per bucket, each with a
+	// Now variant for the latched brake placing the order without a window.
 	AlertPresentationProtectionAutoTrailingStop         AlertPresentationCode = "protection_auto_trailing_stop"
 	AlertPresentationProtectionAutoTrailingStopNow      AlertPresentationCode = "protection_auto_trailing_stop_now"
 	AlertPresentationProtectionAutoOptionLossExit       AlertPresentationCode = "protection_auto_option_loss_exit"

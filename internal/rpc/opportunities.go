@@ -330,10 +330,11 @@ const (
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
 
-	// Automatic submission record states for pre-authorised buckets.
-	// pending waits for the veto window; submitting has persisted its intent
-	// and is at the broker; the remaining four are terminal for that key
-	// and revision.
+	// TradeProposalAutomaticPending and the states that follow belong to
+	// the automatic submission record of a pre-authorised bucket: pending
+	// waits for the veto window; submitting has persisted its intent and is
+	// at the broker; the remaining four are terminal for that key and
+	// revision.
 	TradeProposalAutomaticPending    = "pending"
 	TradeProposalAutomaticSubmitting = "submitting"
 	TradeProposalAutomaticVetoed     = "vetoed"

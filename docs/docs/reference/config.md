@@ -52,6 +52,8 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | *(top level)* | `schema_version` | `int` | SchemaVersion is the policy schema revision; only 1 is supported. |
 | `[authority]` | `auto_submit` | `bool` | AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path. |
 | `[authority]` | `close_reduce_only` | `bool` | CloseReduceOnly restricts proposals to reducing or closing existing positions; must be true in the MVP schema. |
+| `[authority]` | `pre_authorised` | `[]string` | PreAuthorised lists the reduce-only buckets whose unblocked proposals the daemon places itself after a phone notice and the veto window (owner decision D3, 2026-09-21). |
+| `[authority]` | `veto_window` | `string` | VetoWindow is how long a pre-authorised proposal waits between its notice and its submission; default 30m, minimum 5m. |
 | `[buckets.budget_reduction]` | `enabled` | `bool` | Enabled turns the premium budget governor on (default false; the table is absent from the embedded default). |
 | `[buckets.budget_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does; the remainder waits for the next cycle. |
 | `[buckets.budget_reduction]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals. |
