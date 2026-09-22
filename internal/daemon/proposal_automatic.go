@@ -353,7 +353,7 @@ func proposalUnblocked(snap rpc.TradeProposalSnapshot, prop rpc.TradeProposal) b
 	if len(snap.Blockers) > 0 || snap.LoadedFromState {
 		return false
 	}
-	if prop.State == rpc.TradeProposalStateBlocked || len(prop.Blockers) > 0 {
+	if prop.State == rpc.TradeProposalStateBlocked || !prop.AutomaticEligible() {
 		return false
 	}
 	return prop.Revision != "" && prop.Revision == snap.Revision
@@ -365,6 +365,9 @@ func proposalBlockedReason(snap rpc.TradeProposalSnapshot, prop rpc.TradeProposa
 	}
 	if len(prop.Blockers) > 0 {
 		return "proposal blocked: " + prop.Blockers[0].Code
+	}
+	if prop.Shadow {
+		return "proposal is a shadow row"
 	}
 	if prop.State == rpc.TradeProposalStateBlocked {
 		return "proposal blocked"
@@ -452,7 +455,10 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
 				VetoWindow: window.String(), CreatedAt: now, SubmitAt: now.Add(window),
 			}
-			if latched {
+			// A reduction to budget is a discretionary-scale action, not a
+			// stop: the governor marks its rows NeverSkipVeto and they wait the
+			// full window even under the latched brake.
+			if latched && !prop.NeverSkipVeto {
 				rec.LatchSkippedWindow = true
 				rec.SubmitAt = now
 			}

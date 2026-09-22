@@ -509,3 +509,36 @@ func TestAutomaticPolicyDriftSupersedesPending(t *testing.T) {
 		t.Fatalf("status advertises pre-authorised buckets under drift: %v", st.PreAuthorised)
 	}
 }
+
+// A governor row generated in shadow mode is observation, never an order:
+// the scheduler must not record it even when the bucket is pre-authorised
+// and the row carries no blocker of its own.
+func TestAutomaticShadowRowNeverGetsARecord(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticTrailingStopAuthority)
+	prop := rig.stopProposal()
+	prop.Shadow = true
+	revision := rig.install(prop)
+	rig.cycle()
+	rig.noRecord(prop.Key, revision)
+	if got := proposalBlockedReason(rig.engine.Snapshot(false), prop); got != "proposal is a shadow row" {
+		t.Fatalf("blocked reason = %q, want the shadow reason", got)
+	}
+}
+
+// A reduction to budget is a discretionary-scale action, not a stop: the
+// governor marks its rows NeverSkipVeto and they keep the full window even
+// while the drawdown brake is latched.
+func TestAutomaticNeverSkipVetoKeepsTheWindowWhenLatched(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticTrailingStopAuthority)
+	rig.latched = true
+	prop := rig.stopProposal()
+	prop.NeverSkipVeto = true
+	revision := rig.install(prop)
+	rig.cycle()
+	rec := rig.record(prop.Key, revision)
+	if rec.LatchSkippedWindow || !rec.SubmitAt.Equal(rig.now.Add(30*time.Minute)) {
+		t.Fatalf("never-skip record under the latch = %+v, want the full window", rec)
+	}
+}
