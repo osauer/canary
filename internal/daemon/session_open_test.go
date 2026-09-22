@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"testing"
 	"time"
 )
@@ -30,8 +31,12 @@ func TestAnySupportedMarketOpenUnionsCalendars(t *testing.T) {
 		{"weekend", time.Date(2026, 8, 15, 12, 0, 0, 0, berlin), false},
 	}
 	for _, tc := range cases {
-		if got := anySupportedMarketOpen(tc.at); got != tc.want {
+		if got := testLogMarketsOpen(tc.at); got != tc.want {
 			t.Errorf("%s (%s): open = %t, want %t", tc.name, tc.at, got, tc.want)
 		}
 	}
+}
+
+func testLogMarketsOpen(at time.Time) bool {
+	return compileGatewaySchedule(at, marketcal.AllMarkets(), 0, 0, at.Add(time.Hour), false).required(at, at)
 }

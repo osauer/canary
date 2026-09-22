@@ -65,6 +65,7 @@ func (s *Server) stopServerContextAndWait() {
 	if cancel != nil {
 		cancel()
 	}
+	s.gatewaySchedule.wg.Wait()
 	s.macroLoopWG.Wait()
 	s.marketData.loopWG.Wait()
 	s.dataHealth.loopWG.Wait()

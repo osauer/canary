@@ -169,6 +169,16 @@ func (c *Connector) SetBackendSessionOpen(open func(time.Time) bool) {
 	c.backendConnMu.Unlock()
 }
 
+// SetBackendLogRequired installs the daemon's cached duty predicate. The interval
+// includes both ends; unknown coverage must return true. Call only before Start.
+// Nil retains standalone logging behavior. The callback must do no I/O or acquire
+// connector locks: it also runs while backendConnMu is held.
+func (c *Connector) SetBackendLogRequired(required func(time.Time, time.Time) bool) {
+	c.backendConnMu.Lock()
+	c.backendLogRequired = required
+	c.backendConnMu.Unlock()
+}
+
 // finalizeBackendEpisode closes the running flap episode after
 // backendEpisodeGap of quiet and logs its one-line summary. Single-blip
 // episodes are skipped: their loss and restore lines already told the whole
@@ -182,6 +192,7 @@ func (c *Connector) finalizeBackendEpisode(gen int) {
 	}
 	losses, inWindow, longest := c.epLosses, c.epLossesInWindow, c.epLongest
 	span := c.epLastRestore.Sub(c.epStart)
+	required := c.backendEpisodeWarned || c.backendLogRequired == nil || c.backendLogRequired(c.epStart, c.epLastRestore)
 	c.epActive = false
 	c.epTimer = nil
 	c.backendConnMu.Unlock()
@@ -196,7 +207,11 @@ func (c *Connector) finalizeBackendEpisode(gen int) {
 	case inWindow > 0:
 		annotation = fmt.Sprintf(" (%d of %d inside IBKR maintenance window)", inWindow, losses)
 	}
-	c.logWarn("TWS backend link episode ended: %d losses over %s, longest outage %s%s",
+	log := c.logWarn
+	if !required {
+		log = c.logInfo
+	}
+	log("TWS backend link episode ended: %d losses over %s, longest outage %s%s",
 		losses, span.Round(time.Second), longest.Round(time.Second), annotation)
 }
 
@@ -207,4 +222,20 @@ func (c *Connector) stopBackendEpisodeTimer() {
 		c.epTimer = nil
 	}
 	c.backendConnMu.Unlock()
+}
+
+// CheckBackendLogRelevance promotes an ongoing quiet outage when duty begins,
+// without fabricating a new loss or altering readiness/recovery state.
+// The daemon calls this at its bounded schedule refresh cadence.
+func (c *Connector) CheckBackendLogRelevance(now time.Time) {
+	c.backendConnMu.Lock()
+	if !c.backendConnDown || c.backendLossWarned || c.backendLogRequired == nil || !c.backendLogRequired(c.backendConnAt, now) {
+		c.backendConnMu.Unlock()
+		return
+	}
+	c.backendLossWarned = true
+	c.backendEpisodeWarned = true
+	age := max(time.Duration(0), now.Sub(c.backendConnAt))
+	c.backendConnMu.Unlock()
+	c.logWarn("TWS backend remains disconnected after %s — gateway duty is required or uncertain", age.Round(time.Second))
 }

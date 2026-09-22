@@ -229,3 +229,73 @@ func TestBackendMaintenanceWindowAnnotationAndCounters(t *testing.T) {
 		t.Fatalf("annotated loss lines = %d, want 1", len(annotated))
 	}
 }
+
+func TestBackendQuietOutagePromotesWithoutAnotherNotice(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	c := &Connector{}
+	defer c.stopBackendEpisodeTimer()
+	start := time.Date(2026, 9, 14, 13, 29, 0, 0, time.UTC)
+	duty := start.Add(time.Minute)
+	c.SetBackendLogRequired(func(_, end time.Time) bool { return !end.Before(duty) })
+	c.setBackendConnectivityDown(true, start)
+	for i := range 2 {
+		c.CheckBackendLogRelevance(duty.Add(time.Duration(i) * time.Second))
+	}
+	if got := strings.Count(string(buf.Bytes()), "backend remains disconnected"); got != 1 {
+		t.Fatalf("promotions=%d", got)
+	}
+	state := c.BackendLink()
+	if !state.Down || state.Losses != 1 || !state.ChangedAt.Equal(start) {
+		t.Fatal("promotion changed broker state")
+	}
+	c.recordBackendConnectivity(false, duty.Add(time.Minute), 1102)
+	if !strings.Contains(string(buf.Bytes()), "level=WARN") {
+		t.Fatal("required outage hidden")
+	}
+}
+
+func TestBackendQuietScheduleRefreshRetainsWarningBookends(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	c := &Connector{}
+	defer c.stopBackendEpisodeTimer()
+	required := true
+	c.SetBackendLogRequired(func(time.Time, time.Time) bool { return required })
+	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	c.setBackendConnectivityDown(true, at)
+	required = false
+	c.recordBackendConnectivity(false, at.Add(time.Second), 1102)
+	if lines := logLines(buf, "restored connectivity"); len(lines) != 1 || !strings.Contains(lines[0], "level=WARN") {
+		t.Fatal("warning recovery lost after schedule refresh")
+	}
+	c.setBackendConnectivityDown(true, at.Add(2*time.Second))
+	c.recordBackendConnectivity(false, at.Add(3*time.Second), 1102)
+	c.backendConnMu.Lock()
+	gen := c.epGen
+	c.backendConnMu.Unlock()
+	c.finalizeBackendEpisode(gen)
+	if lines := logLines(buf, "backend link episode ended"); len(lines) != 1 || !strings.Contains(lines[0], "level=WARN") {
+		t.Fatal("episode warning history lost")
+	}
+}
+
+func TestBackendEntireQuietEpisodeUsesInfo(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	c := &Connector{}
+	defer c.stopBackendEpisodeTimer()
+	c.SetBackendLogRequired(func(time.Time, time.Time) bool { return false })
+	at := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		c.setBackendConnectivityDown(true, at.Add(time.Duration(i*2)*time.Second))
+		c.recordBackendConnectivity(false, at.Add(time.Duration(i*2+1)*time.Second), 1102)
+	}
+	c.backendConnMu.Lock()
+	gen := c.epGen
+	c.backendConnMu.Unlock()
+	c.finalizeBackendEpisode(gen)
+	if strings.Contains(string(buf.Bytes()), "level=WARN") {
+		t.Fatal("known quiet episode warned")
+	}
+	if c.BackendLink().Losses != 3 {
+		t.Fatal("quiet logging changed losses")
+	}
+}

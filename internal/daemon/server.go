@@ -28,7 +28,6 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/logepisode"
-	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -105,6 +104,7 @@ type Server struct {
 	streams          map[string]context.CancelFunc
 	lastConnectError string
 	gatewayLog       logepisode.State
+	gatewaySchedule  gatewaySchedule
 	// lastEndpointResolvedSig avoids repeating unchanged endpoint diagnostics.
 	lastEndpointResolvedSig string
 	// lastHandshakeFailedPort is the discovered port whose listener accepted
@@ -1225,6 +1225,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Registered after closeCoreStore's defer, so daemon cancellation and any
 	// in-flight Regime publication always drain before SQLite is closed.
 	defer s.stopServerContextAndWait()
+	s.startGatewaySchedule(serverCtx)
 	if err := s.attachRegimeSnapshotAuthority(ctx, serverCtx); err != nil {
 		s.lock.Release()
 		s.lock = nil
@@ -1442,21 +1443,11 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	}
 	connector := ibkrlib.NewConnector(cc)
 	connector.SetBackendMaintenanceWindows(s.maintenanceWindows)
-	connector.SetBackendSessionOpen(anySupportedMarketOpen)
-	return connector
-}
-
-// anySupportedMarketOpen retains the backend-loss warning scope of US equities,
-// US options and Xetra. Adding a queryable calendar does not enable a market
-// for this policy; Desk separately owns its scheduled market selection.
-func anySupportedMarketOpen(t time.Time) bool {
-	cal := marketcal.New()
-	for _, market := range []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions, marketcal.MarketDEXetra} {
-		if s, err := cal.SessionAt(market, t); err == nil && s.IsOpen {
-			return true
-		}
+	connector.SetBackendSessionOpen(func(at time.Time) bool { return s.gatewaySchedule.view.Load().required(at, at) })
+	if s.cfg != nil && s.cfg.Daemon.LogCalendarMode == "scheduled" {
+		connector.SetBackendLogRequired(s.gatewayLogRequired)
 	}
-	return false
+	return connector
 }
 
 // resolveMaintenanceWindows parses [gateway] maintenance_windows once for
@@ -1539,6 +1530,9 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 					s.endpoint = cand
 					s.lastConnectError = ""
 					s.connector = real
+					if s.cfg != nil && s.cfg.Daemon.LogCalendarMode == "scheduled" {
+						s.gatewaySchedule.view.Store(nil)
+					}
 					s.connectorEpoch++
 				}) {
 					break

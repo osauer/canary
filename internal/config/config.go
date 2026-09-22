@@ -95,6 +95,14 @@ type Daemon struct {
 	IdleTimeout duration `toml:"idle_timeout"`
 	// LogLevel is the daemon's log verbosity — one of "debug", "info", "warn" (default), or "error". The warn default keeps the log to actionable lines; set "info" to trace routine broker traffic.
 	LogLevel string `toml:"log_level"`
+	// LogCalendarMode controls gateway diagnostic quieting: "conservative" (default) retains warnings because cached positions/API orders cannot prove all manual or overnight duties. "scheduled" declares the configured markets and padding cover the operator's duties, allowing INFO outside them when observed scope is known. Logging only; restart after editing.
+	LogCalendarMode string `toml:"log_calendar_mode"`
+	// LogMarkets sets the gateway diagnostic operating baseline: us_equity, us_options, de_xetra, uk_lse, jp_tse, hk_hkex. Default includes all six, including Asia. Use ["always"] for continuous warning relevance. Positions and automatic US analytics may only widen the baseline; this never grants trading permission. Restart after editing.
+	LogMarkets []string `toml:"log_markets"`
+	// LogBeforeOpenMinutes includes preparation and extended-hours work before each opening (default 360, range 0..720). Unknown instrument/session coverage retains warnings.
+	LogBeforeOpenMinutes *int `toml:"log_before_open_minutes"`
+	// LogAfterCloseMinutes includes post-close and extended-hours work after each closing (default 240, range 0..720). Scheduled lunch breaks remain relevant.
+	LogAfterCloseMinutes *int `toml:"log_after_close_minutes"`
 }
 
 // Trading holds local order-entry gates for experimental trading builds.
@@ -447,6 +455,9 @@ var removedKeys = map[string]string{
 // Resolve applies daemon-level defaults and returns the Resolved view.
 func (c *Config) Resolve() (*Resolved, error) {
 	dae := c.Daemon
+	if err := dae.validateLogging(); err != nil {
+		return nil, err
+	}
 	if dae.IdleTimeout == 0 {
 		// 15 min default (was 5 min). Combined with the persistent option
 		dae.IdleTimeout = duration(15 * time.Minute)

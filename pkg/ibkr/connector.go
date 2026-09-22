@@ -187,6 +187,9 @@ type Connector struct {
 	backendConnLongestOutage  time.Duration
 	maintWindows              []MaintenanceWindow
 	backendSessionOpen        func(time.Time) bool
+	backendLogRequired        func(time.Time, time.Time) bool
+	backendLossWarned         bool
+	backendEpisodeWarned      bool
 	epActive                  bool
 	epStart                   time.Time
 	epLastRestore             time.Time
@@ -1635,6 +1638,7 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 		newEpisode := !c.epActive
 		if newEpisode {
 			c.epActive = true
+			c.backendEpisodeWarned = false
 			c.epStart = at
 			c.epLosses = 0
 			c.epLossesInWindow = 0
@@ -1645,6 +1649,12 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 			c.epLossesInWindow++
 		}
 		episodeLosses := c.epLosses
+		quiet := c.backendLogRequired != nil && !c.backendLogRequired(at, at)
+		if c.backendLogRequired != nil {
+			sessionOpen = !quiet
+		}
+		c.backendLossWarned = !quiet && (sessionOpen || newEpisode)
+		c.backendEpisodeWarned = c.backendEpisodeWarned || c.backendLossWarned
 		c.backendConnDown = true
 		c.backendConnAt = at
 		c.backendConnMu.Unlock()
@@ -1655,6 +1665,8 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 		}
 		msg := "TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice" + suffix
 		switch {
+		case quiet:
+			c.logInfo("%s — outside configured gateway duty windows", msg)
 		case sessionOpen:
 			// A loss with the session open is an order-transmission hole —
 			// always loud, even mid-episode.
@@ -1667,6 +1679,7 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 		return
 	}
 
+	outageStart := c.backendConnAt
 	var outage time.Duration
 	if !c.backendConnAt.IsZero() {
 		outage = max(at.Sub(c.backendConnAt), 0)
@@ -1676,6 +1689,11 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 	}
 	losses := c.backendConnLosses
 	firstOfEpisode := c.epActive && c.epLosses == 1
+	lossWarned := c.backendLossWarned
+	required := c.backendLogRequired == nil || c.backendLogRequired(outageStart, at)
+	if required {
+		c.backendEpisodeWarned = c.backendEpisodeWarned || outage > backendOutageAttention || firstOfEpisode
+	}
 	c.backendConnDown = false
 	c.backendConnAt = at
 	c.epLastRestore = at
@@ -1686,11 +1704,13 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 	c.backendConnMu.Unlock()
 
 	switch {
+	case !lossWarned && !required:
+		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outside configured gateway duty windows", outage.Round(time.Second), losses, restoreCode)
 	case outage > backendOutageAttention:
 		// A blip heals in seconds; anything past the threshold was a real
 		// hole in availability and stays loud regardless of episode state.
 		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outage exceeded %s", outage.Round(time.Second), losses, restoreCode, backendOutageAttention)
-	case firstOfEpisode:
+	case firstOfEpisode || lossWarned:
 		// WARN, not INFO: this pairs the episode's opening loss warning and
 		// must survive the warn default log level.
 		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)", outage.Round(time.Second), losses, restoreCode)

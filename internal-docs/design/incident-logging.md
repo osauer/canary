@@ -33,21 +33,60 @@ database queries, network requests or calendar lookups in this mechanism.
 Disabled debug messages are tested to avoid formatting. Benchmarks cover both
 the incident primitive and the complete suppressed daemon diagnostic path.
 
-## Calendar scope remains a separate decision
+## Configured gateway duty windows
 
-The existing US-equities, US-options and Xetra backend-warning scope is not a
-proof that no overnight duty exists. Do not use the quote-market helper's US
-fallback, a missing position snapshot, or unknown calendar coverage to silence
-an incident. This change coalesces failures at all hours; it does not introduce
-nighttime suppression or claim Asian-market awareness.
+Startup TOML `[daemon]` owns diagnostic scheduling; it is not a runtime platform
+preference and never changes broker-write gates, retry cadence, or data health.
 
-A future relevance policy needs an authoritative set of markets and duties,
-including positions, open orders, preparation and post-close work. Compute its
-session boundaries when that scope changes, then publish a small immutable
-in-memory view. Logging should compare timestamps against that view, never
-query a calendar database per event. Unknown or expired scope must remain
-visible. Introduce that policy only with fixtures for holidays, lunch breaks,
-DST, extended sessions, stale scope and outages crossing a duty boundary.
+- `log_calendar_mode = "conservative"` (default) retains first/ongoing incident
+  and recovery warnings. Cached calendar windows decide when repeated backend
+  losses deserve per-event warnings. No portfolio polling is added in this mode.
+- `log_calendar_mode = "scheduled"` explicitly declares that the configured
+  markets and padding cover the operator's intended duties, including manual
+  orders that Canary cannot enumerate. An entire known off-duty incident may
+  use INFO. Unknown scope always retains WARN.
+- `log_markets` defaults to `us_equity`, `us_options`, `de_xetra`, `uk_lse`,
+  `jp_tse`, and `hk_hkex`. A configured list replaces that baseline; automatic
+  US analytics still add US equities/options. `["always"]` disables quieting.
+- `log_before_open_minutes` defaults to 360; `log_after_close_minutes` defaults
+  to 240. Both accept 0..720, including explicit zero. These are diagnostic
+  duty envelopes, not claims about exchange product hours. Lunch stays relevant.
+
+Example opt-in (restart required):
+
+```toml
+[daemon]
+log_calendar_mode = "scheduled"
+log_markets = ["us_equity", "us_options", "de_xetra", "uk_lse", "jp_tse", "hk_hkex"]
+log_before_open_minutes = 360
+log_after_close_minutes = 240
+```
+
+There is no authoritative watchlist store in the current daemon. Scheduled mode
+samples passive, exact-session portfolio evidence once per minute and reuses
+already collected API-order snapshots; neither path sends broker requests.
+Recognized stock venues add markets. Ambiguous SMART routes, unsupported
+securities (including options with potentially global hours), outside-RTH orders,
+or invalid inventory keep warning relevance conservative. Inferred markets and
+unsupported evidence are retained until daemon restart; closing a position does
+not automatically narrow the logging scope. API snapshots do not cover every
+manual TWS order; the configured duty declaration is essential, not inferred
+from an empty portfolio.
+
+Completed inventory is required before quieting and retained for at most 24 hours
+from its receipt through a same-scope outage. New connector/session scope must
+provide its own completed inventory. Obsolete workers cannot publish over a
+successor connector. Missing, expired, future-dated, or invalid evidence warns.
+A minute-cadence refresh may take up to one minute to observe new portfolio/order
+scope; it does not participate in trading decisions.
+
+Embedded calendars are compiled at most hourly unless the inferred market scope
+changes. One atomic pointer publishes merged intervals; log events perform only
+bounded timestamp comparisons, with no database, network, timezone, or calendar
+query. Expired views, clock rollback, and missing calendar coverage warn. A
+quiet incident promotes on the next connection failure when duty begins; an
+ongoing backend outage promotes within the worker's minute cadence even without
+a new broker notice. Recovery considers the entire outage interval.
 
 ## P&L recovery integrity
 

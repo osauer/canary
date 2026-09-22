@@ -15,7 +15,11 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[auto_trade]` | `proposals_enabled` | `*bool` | ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false. |
 | `[auto_trade]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks policy-file changes; default 30s. |
 | `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`. |
+| `[daemon]` | `log_after_close_minutes` | `*int` | LogAfterCloseMinutes includes post-close and extended-hours work after each closing (default 240, range 0..720). |
+| `[daemon]` | `log_before_open_minutes` | `*int` | LogBeforeOpenMinutes includes preparation and extended-hours work before each opening (default 360, range 0..720). |
+| `[daemon]` | `log_calendar_mode` | `string` | LogCalendarMode controls gateway diagnostic quieting: "conservative" (default) retains warnings because cached positions/API orders cannot prove all manual or overnight duties. |
 | `[daemon]` | `log_level` | `string` | LogLevel is the daemon's log verbosity — one of "debug", "info", "warn" (default), or "error". |
+| `[daemon]` | `log_markets` | `[]string` | LogMarkets sets the gateway diagnostic operating baseline: us_equity, us_options, de_xetra, uk_lse, jp_tse, hk_hkex. |
 | `[flex]` | `enabled` | `bool` | Enabled turns the daily Flex statement fetch on; default false. |
 | `[flex]` | `query_id` | `string` | QueryID is the IBKR Activity Flex Query id to fetch. |
 | `[flex]` | `token_path` | `string` | TokenPath points to a file holding only the Flex Web Service token; default ~/.config/ibkr/flex-token (mode 0600). |
