@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.11.1 — 2026-09-23 22:18 CEST
+
+### What's new
+
+- **Choose when an oversized hedge needs action.** Rule 12 compares your index puts with a target range and flags them when they exceed it. Two further points were fixed at twice the top of that range: where the flag becomes a call to act, and where Canary stops treating the puts as protection and counts them as a bet on a falling market. `canary rules policy set overhedge_multiple=1.5` now moves both. The default is still 2, so nothing changes unless you set it.
+
+### Changed
+
+- **A setting that did nothing is gone.** `cash_sell_only_pct` was listed among the Rulebook limits, but no rule ever read it. Canary now refuses to set it and drops it the next time you change your limits. Policy files that still contain it, such as those written by `canary policy default rulebook`, keep working, and `canary rules policy` notes that the line is ignored.
+- **Sign-off pins keep matching.** The compiled Rulebook is still `rulebook-v3`. Rulebook fingerprints are now labelled `rulebook-fp-v5` and change once, because the list of settings changed; no limit changed its value.
+
 ## v3.11.0 — 2026-09-23 08:51 CEST
 
 ### What's new
