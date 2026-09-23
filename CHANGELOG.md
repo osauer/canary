@@ -17,7 +17,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
-- After a TWS restart, Canary could report positions as current while only part of the book had arrived. It now waits until the downloaded positions account for the account's gross position value.
+- After a TWS restart, Canary could report positions as current while only part of the book had arrived. It now waits until the downloaded positions account for the account's gross position value. (#47)
 - An option exit that could not read a quote now says why, with `option_quote_broker_unavailable` or `option_quote_request_failed`, instead of asking for a live quote while the options session is open.
 - `canary status` now names a Gateway or TWS that accepts the connection and drops it before the API handshake, instead of reporting a generic connection failure.
 - Daily P&L for positions in a currency other than the account's base currency appears again in portfolio feeds.
