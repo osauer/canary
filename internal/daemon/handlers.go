@@ -612,7 +612,7 @@ func positionsAccountDataReason(arm string) rpc.AccountDataReason {
 		return rpc.AccountDataReasonAccountUnbound
 	case "stream_account_mismatch":
 		return rpc.AccountDataReasonAccountMismatch
-	case "initial_download_incomplete":
+	case "initial_download_incomplete", "download_short_of_gross_position_value":
 		return rpc.AccountDataReasonUnprimed
 	case "evidence_time_in_future":
 		return rpc.AccountDataReasonClockInvalid

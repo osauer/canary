@@ -545,6 +545,8 @@ func classifyPortfolioStreamHealthArm(scope brokerStateScope, health ibkrlib.Por
 		return orderIntegrityHealthUnavailable, "stream_account_unbound"
 	case !strings.EqualFold(health.Account, scope.Account):
 		return orderIntegrityHealthUnavailable, "stream_account_mismatch"
+	case !health.DownloadShortAt.IsZero():
+		return orderIntegrityHealthUnavailable, "download_short_of_gross_position_value"
 	case health.InitialCompletedAt.IsZero():
 		return orderIntegrityHealthUnavailable, "initial_download_incomplete"
 	case evidenceAt.After(now.UTC()):

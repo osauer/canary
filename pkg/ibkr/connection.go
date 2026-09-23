@@ -362,7 +362,8 @@ type Connection struct {
 	positionsMu sync.RWMutex
 	// portfolioStaging is the current reqAccountUpdates initial generation.
 	// Published positions remain visible only with incomplete health until the
-	// matching accountDownloadEnd atomically replaces them.
+	// matching accountDownloadEnd atomically replaces them, and only once the
+	// generation accounts for the stream's gross position value.
 	portfolioStaging       map[string]*RawPosition
 	portfolioStagingActive bool
 	// positionsSnapshot is isolated reqPositions state. It must never mutate
@@ -430,6 +431,55 @@ type PortfolioStreamHealth struct {
 	ScopeConflictAt time.Time
 	// InvalidPayloadAt is set when a portfolio generation contains a malformed
 	InvalidPayloadAt time.Time
+	// DownloadShortAt is set when accountDownloadEnd closed a generation whose
+	// rows leave more than portfolioFootingTolerance of the stream's own
+	// GrossPositionValue unaccounted for. TWS answering a subscription shortly
+	// after its own login sends such a generation with a genuine end marker.
+	// The rows stay staged and unpublished and InitialCompletedAt stays zero
+	// until late rows make the generation foot or a resubscribe replaces it.
+	DownloadShortAt time.Time
+}
+
+// portfolioFootingTolerance is the share of the stream's GrossPositionValue a
+// completed download may leave unaccounted for. A complete book foots to
+// within rounding; a generation delivered while TWS was still loading the
+// account covered about a third of it.
+const portfolioFootingTolerance = 0.05
+
+// portfolioGrossCoverage returns the share of the account-updates stream's
+// GrossPositionValue that rows account for: the sum of absolute market values,
+// each converted to the account base with the stream's own ExchangeRate. ok is
+// false when the stream carries no positive gross position value or a row's
+// currency has no exchange rate; the end marker then stands alone.
+func portfolioGrossCoverage(rows map[string]*RawPosition, accountValues map[string]string) (coverage float64, ok bool) {
+	summary := parseAccountSummary(accountValues, "")
+	if summary.GrossPositionValue == nil || !finiteFloat(*summary.GrossPositionValue) || *summary.GrossPositionValue <= 0 {
+		return 0, false
+	}
+	base := strings.ToUpper(strings.TrimSpace(summary.BaseCurrency))
+	gross := 0.0
+	for _, row := range rows {
+		if row == nil || row.Position == 0 {
+			continue
+		}
+		rate := 1.0
+		if currency := strings.ToUpper(strings.TrimSpace(row.Contract.Currency)); currency != base {
+			ledger, known := summary.CurrencyLedger[currency]
+			if !known || !finiteFloat(ledger.ExchangeRate) || ledger.ExchangeRate <= 0 {
+				return 0, false
+			}
+			rate = ledger.ExchangeRate
+		}
+		gross += math.Abs(row.MarketValue) * rate
+	}
+	return gross / *summary.GrossPositionValue, true
+}
+
+// portfolioGenerationShort reports whether rows are provably short of the
+// stream's gross position value, with the coverage for the log line.
+func portfolioGenerationShort(rows map[string]*RawPosition, accountValues map[string]string) (float64, bool) {
+	coverage, ok := portfolioGrossCoverage(rows, accountValues)
+	return coverage, ok && coverage < 1-portfolioFootingTolerance
 }
 
 type reqAliasEntry struct {
@@ -2943,6 +2993,7 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 			next.Contract = mergeCachedPositionContract(existing.Contract, next.Contract)
 		}
 		target[key] = next
+		c.retryShortPortfolioDownloadLocked(next.ValuationAt)
 	} else {
 		c.positionsMu.Lock()
 		existing := target[key]
@@ -3061,6 +3112,7 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	defer c.portfolioProjectionMu.Unlock()
 	account = strings.TrimSpace(account)
 	sibling := c.managedAccountMember(account)
+	accountValues := c.GetAccountSummary()
 	c.portfolioHealthMu.Lock()
 	defer c.portfolioHealthMu.Unlock()
 	if !c.portfolioHealth.ScopeConflictAt.IsZero() || !c.portfolioHealth.InvalidPayloadAt.IsZero() {
@@ -3092,6 +3144,21 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	if !c.portfolioStagingActive {
 		return false
 	}
+	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+		if c.portfolioHealth.DownloadShortAt.IsZero() {
+			portfolioLogger.Warnf("Portfolio download ended with rows covering %.0f%% of gross position value; holding the book as not current until it is complete", coverage*100)
+		}
+		c.portfolioHealth.DownloadShortAt = completedAt.UTC()
+		return false
+	}
+	c.publishPortfolioStagingLocked(completedAt)
+	return true
+}
+
+// publishPortfolioStagingLocked atomically replaces the published rows with a
+// complete staged generation. It is called with portfolioProjectionMu and
+// portfolioHealthMu held.
+func (c *Connection) publishPortfolioStagingLocked(completedAt time.Time) {
 	next := make(map[string]*RawPosition, len(c.portfolioStaging))
 	maps.Copy(next, c.portfolioStaging)
 	c.positionsMu.Lock()
@@ -3100,8 +3167,28 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	c.portfolioStaging = nil
 	c.portfolioStagingActive = false
 	c.portfolioHealth.InitialCompletedAt = completedAt.UTC()
+	c.portfolioHealth.DownloadShortAt = time.Time{}
 	c.advancePortfolioProjectionGenerationLocked()
-	return true
+}
+
+// retryShortPortfolioDownloadLocked publishes a staged generation whose end
+// marker already arrived once late rows make it foot. It is called with
+// portfolioProjectionMu held and portfolioHealthMu released.
+func (c *Connection) retryShortPortfolioDownloadLocked(observedAt time.Time) {
+	c.portfolioHealthMu.RLock()
+	pending := c.portfolioStagingActive && !c.portfolioHealth.DownloadShortAt.IsZero()
+	c.portfolioHealthMu.RUnlock()
+	if !pending {
+		return
+	}
+	accountValues := c.GetAccountSummary()
+	c.portfolioHealthMu.Lock()
+	defer c.portfolioHealthMu.Unlock()
+	if _, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+		return
+	}
+	portfolioLogger.Warnf("Portfolio download now accounts for gross position value; the book is current")
+	c.publishPortfolioStagingLocked(observedAt)
 }
 
 // latchPortfolioScopeConflictLocked is called with portfolioHealthMu held.
@@ -3114,6 +3201,7 @@ func (c *Connection) latchPortfolioScopeConflictLocked(observedAt time.Time) {
 	c.portfolioHealth.RequestedAt = time.Time{}
 	c.portfolioHealth.InitialCompletedAt = time.Time{}
 	c.portfolioHealth.LastUpdateAt = time.Time{}
+	c.portfolioHealth.DownloadShortAt = time.Time{}
 	c.portfolioHealth.ScopeConflictAt = observedAt.UTC()
 	if changed {
 		c.advancePortfolioProjectionGenerationLocked()
@@ -3133,6 +3221,7 @@ func (c *Connection) invalidatePortfolioGeneration(observedAt time.Time) {
 	c.portfolioHealth.RequestedAt = time.Time{}
 	c.portfolioHealth.InitialCompletedAt = time.Time{}
 	c.portfolioHealth.LastUpdateAt = time.Time{}
+	c.portfolioHealth.DownloadShortAt = time.Time{}
 	c.portfolioHealth.InvalidPayloadAt = observedAt.UTC()
 	if changed {
 		c.advancePortfolioProjectionGenerationLocked()

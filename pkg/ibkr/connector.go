@@ -5313,28 +5313,37 @@ func (c *Connector) acctUpdatesClock() time.Time {
 	return time.Now()
 }
 
+// accountUpdatesRepair names why a positions read asks for a fresh
+// account-updates subscription.
+type accountUpdatesRepair uint8
+
+const (
+	// repairEmptyCache: the cache is empty although the account summary
+	// reports gross position value. The TWS account-updates stream
+	// occasionally fails to start after a rapid reconnect while quotes and
+	// the account summary flow normally; a flat account never triggers.
+	repairEmptyCache accountUpdatesRepair = iota
+	// repairScopeConflict: a rejected foreign-account frame latched the
+	// stream. Retained rows remain context only until a new, account-scoped
+	// subscription completes.
+	repairScopeConflict
+	// repairShortDownload: the end marker closed a generation that does not
+	// account for the stream's gross position value. A fresh download
+	// replaces the staged rows once TWS has loaded the whole account.
+	repairShortDownload
+)
+
 // maybeResubscribeAccountUpdates re-issues the account+portfolio stream
-// subscription when the position cache is empty even though the account
-// summary reports gross position value. The TWS account-updates stream
-// occasionally fails to start after a rapid reconnect (observed
-// quotes and account summary flowed normally — positions stayed empty
-// a genuinely flat account (no gross position value) never triggers.
+// subscription for an empty cache; see repairEmptyCache.
 func (c *Connector) maybeResubscribeAccountUpdates() {
-	c.maybeResubscribeAccountUpdatesForReason(false)
+	c.maybeResubscribeAccountUpdatesForReason(repairEmptyCache)
 }
 
-// maybeResubscribeAccountUpdatesForScopeConflict repairs a rejected foreign
-// account frame even when the retained cache is non-empty. The rows remain
-// context only until a new, account-scoped subscription completes.
-func (c *Connector) maybeResubscribeAccountUpdatesForScopeConflict() {
-	c.maybeResubscribeAccountUpdatesForReason(true)
-}
-
-func (c *Connector) maybeResubscribeAccountUpdatesForReason(scopeConflict bool) {
+func (c *Connector) maybeResubscribeAccountUpdatesForReason(reason accountUpdatesRepair) {
 	if !c.isConnected() {
 		return
 	}
-	if !scopeConflict && !accountSummaryShowsPositions(c.conn.GetAccountSummary()) {
+	if reason == repairEmptyCache && !accountSummaryShowsPositions(c.conn.GetAccountSummary()) {
 		return
 	}
 	now := c.acctUpdatesClock()
@@ -5344,9 +5353,12 @@ func (c *Connector) maybeResubscribeAccountUpdatesForReason(scopeConflict bool) 
 	if !stale {
 		return
 	}
-	if scopeConflict {
+	switch reason {
+	case repairScopeConflict:
 		ibkrLogger.Warnf("portfolio stream account scope conflicted; resubscribing account updates")
-	} else {
+	case repairShortDownload:
+		ibkrLogger.Warnf("portfolio download does not account for gross position value; resubscribing account updates")
+	default:
 		ibkrLogger.Warnf("positions cache empty while account summary shows gross position value; resubscribing account updates")
 	}
 	_ = c.resubscribeAccountUpdates()
@@ -5402,14 +5414,20 @@ func (c *Connector) CachedPositionsWithHealth() ([]*RawPosition, PortfolioStream
 	}
 	ibkrPositions, health := conn.GetPositionsWithPortfolioHealth()
 	result := c.filteredCachedPositions(ibkrPositions)
-	if !health.ScopeConflictAt.IsZero() || !health.InvalidPayloadAt.IsZero() {
-		c.maybeResubscribeAccountUpdatesForScopeConflict()
-		_, health = conn.GetPositionsWithPortfolioHealth()
-	} else if len(result) == 0 && accountSummaryShowsPositions(conn.GetAccountSummary()) {
+	switch {
+	case !health.ScopeConflictAt.IsZero() || !health.InvalidPayloadAt.IsZero():
+		c.maybeResubscribeAccountUpdatesForReason(repairScopeConflict)
+	case !health.DownloadShortAt.IsZero():
+		c.maybeResubscribeAccountUpdatesForReason(repairShortDownload)
+	case len(result) == 0 && accountSummaryShowsPositions(conn.GetAccountSummary()):
 		c.maybeResubscribeAccountUpdates()
-		_, health = conn.GetPositionsWithPortfolioHealth()
+	default:
+		return result, health, nil
 	}
-	return result, health, nil
+	// Rows and receipt must come from one capture: a download that completes
+	// between two reads would otherwise label the older rows current.
+	ibkrPositions, health = conn.GetPositionsWithPortfolioHealth()
+	return c.filteredCachedPositions(ibkrPositions), health, nil
 }
 
 func (c *Connector) filteredCachedPositions(ibkrPositions map[string]*RawPosition) []*RawPosition {

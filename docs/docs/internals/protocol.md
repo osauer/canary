@@ -177,6 +177,21 @@ paired with an existing reduce/cover proposal.
 | Financial Advisor (FA) | `reqFA` (18) | - | not implemented |
 | IV / option-price calculators | `reqCalcImpliedVolatility` (54), `reqCalcOptionPrice` (55) | - | not implemented |
 
+### Portfolio receipt
+
+`Connector.CachedPositionsWithHealth` pairs the cached `reqAccountUpdates` rows
+with a `PortfolioStreamHealth` receipt, and the daemon reports positions as
+current only for a completed, account-scoped receipt. A generation completes
+when `accountDownloadEnd` arrives and its rows account for the same stream's
+`GrossPositionValue`: the sum of absolute market values, converted with the
+stream's `ExchangeRate`, must reach 95% of it. TWS answering a subscription
+shortly after its own login can end a download before its book is loaded, so a
+short generation stays staged and unpublished, the receipt carries
+`DownloadShortAt` and reads as `unprimed`, and late rows or a throttled
+resubscribe complete it. Without a positive gross position value or an
+exchange rate for a held currency, the end marker alone completes the
+generation.
+
 Tests exercise handshake and parser behavior across IB Gateway server versions
 100 through 203. Runtime connections reject versions below 124 and negotiate
 the highest supported protocol version with newer gateways.

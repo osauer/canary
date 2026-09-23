@@ -384,7 +384,9 @@ source reason. A cold daemon renders a column of `unknown`, never 14 green
 rows. Positions health is bound to the completed portfolio-stream receipt for
 the current broker account, not the age of a locally assembled response: an
 unprimed, wrong-account, future-dated, or more-than-five-minute-silent stream is
-pending/unavailable/stale and cannot clear a Rulebook alert episode. This is
+pending/unavailable/stale and cannot clear a Rulebook alert episode. A download
+whose end marker arrived before its rows accounted for the stream's gross
+position value is still unprimed (see the protocol doc's portfolio receipt). This is
 the acceptance criterion for the property test below. Alert recovery also
 requires the exact 14 rule IDs with their canonical numbers and exactly those
 five health sources. Missing, extra, duplicate, or unknown rows stay
