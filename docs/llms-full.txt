@@ -1,12 +1,14 @@
 # Canary full context
 
-Updated: 2026-09-22
+Updated: 2026-09-23
 
-Version 3.10 adds opt-in protection scheduling with a veto window, shadow
-budget-reduction proposals, and risk-capital figures in the daily brief.
-Automation stays off until the owner explicitly enables policy buckets.
-Gateway diagnostics group repeated failures and support cached market schedules,
-including Tokyo and Hong Kong; P&L recovery rejects work from retired sessions.
+Version 3.11 puts every Rulebook limit in the owner's hands: `canary rules
+policy` shows the limits in force and whether they come from the compiled
+baseline or the owner's policy file, and `canary rules policy set` changes one;
+agents can read the limits but not edit them. A new rule measures net market
+exposure including index protection, and a losing option position counts at the
+price paid. Without a policy file the compiled baseline applies and nothing new
+alerts. Automation stays off until the owner explicitly enables policy buckets.
 Notification delivery belongs to consuming apps and is not proved by the daemon.
 
 Canary is a local Interactive Brokers risk desk built as a Go daemon, a
@@ -85,7 +87,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_reporting`: redacted broker-reporting setup and evidence status.
 - `canary_reporting_performance`: retained statement equity series with dated external flows and year-to-date income sums; computes no return.
 - `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
-- `canary_rules`: ranked rulebook findings and explicit unknown inputs.
+- `canary_rules`: ranked rulebook findings, explicit unknown inputs, and the limits in force with their source.
 - `canary_proposals`: read-only close/reduce protection candidates.
 - `canary_opportunities`: read-only held-option exercise candidates.
 
@@ -107,6 +109,7 @@ canary brief
 canary regime --explain
 canary stress --details
 canary rules
+canary rules policy
 canary policy show
 canary recon show
 canary strategies list
