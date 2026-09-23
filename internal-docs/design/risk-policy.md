@@ -27,8 +27,9 @@ must not duplicate numbers.
    Block targets risk-increasing orders only; reductions, closes, cancels,
    and rulebook-hedge-classified entries stay exempt. Block ships
    shadow-first.
-5. **Resumption (operator decision 2026-09-23):** the brake releases
-   automatically on a fresh, finite, same-account equity observation when
+5. **Resumption (operator decisions 2026-09-23):** with
+   `drawdown.release = "automatic"` the brake releases itself on a fresh,
+   finite, same-account equity observation when
    approved drawdown is strictly below the existing block threshold. The
    policy manager must be active, the base currency proven and matching, and
    equity and reconciliation clocks current. Missing, stale, future or
@@ -39,6 +40,11 @@ must not duplicate numbers.
    provisional latches. Statement replay may still dissolve an original
    breach explained by a withdrawal. `reset-drawdown` remains an optional
    human decision to accept losses and rebase the peak, never a routine chore.
+   Release is opt-in (amended 2026-09-23 22:45 CEST): `manual`, the default
+   when the key is absent, keeps the original rule that only a journaled human
+   reset clears a confirmed latch, so an upgrade never unlatches a brake by
+   itself. This follows v3.10.0, which shipped every automation inactive by
+   default. An unset key stays out of the constitution fingerprint.
 6. **Exceptions:** one-shot overrides (human-only, single control, reason,
    hard expiry, journaled with fingerprint) for time-bounded exceptions;
    fingerprinted revisions for durable change.
@@ -104,7 +110,7 @@ engagement equity in state; when statement coverage first reaches the latch
 day, `IncorporateStatementSnapshotForScope` journals exactly one
 `drawdown_latch_dissolved` or `drawdown_latch_promoted` with the replayed
 consumed share and the statement flows value-dated through the latch day.
-Pre-two-stage latches carry no provisional mark; current verified recovery can release them too. Promotion
+Pre-two-stage latches carry no provisional mark; with automatic release, current verified recovery can release them too. Promotion
 does not re-alert: the engagement alert copy already describes the
 unconfirmed state, and the brief, CLI, and report surfaces carry the stage.
 The post-latch Flex recheck is a bounded backoff (half-hourly for the first

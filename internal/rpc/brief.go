@@ -239,7 +239,11 @@ type BriefLatchRow struct {
 	// Provisional means the broker statement covering the latch day has not
 	// yet confirmed the latch or dissolved it.
 	Provisional bool `json:"provisional,omitempty"`
-	AgeDays     *int `json:"age_days,omitempty"`
+	// Release is how an engaged brake clears: manual (only canary policy
+	// reset-drawdown) or automatic (also fresh verified recovery below the
+	// block threshold). Empty when no risk policy is loaded.
+	Release string `json:"release,omitempty"`
+	AgeDays *int   `json:"age_days,omitempty"`
 	// ConsumedPctAtLatch is the consumed share recorded when the latch
 	ConsumedPctAtLatch *float64  `json:"consumed_pct_at_latch,omitempty"`
 	ReportCoverageTo   time.Time `json:"report_coverage_to,omitzero"`

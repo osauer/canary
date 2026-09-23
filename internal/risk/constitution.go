@@ -29,6 +29,13 @@ const (
 	EnforcementAdvisory = "advisory"
 )
 
+// DrawdownReleaseManual and DrawdownReleaseAutomatic are the values of
+// drawdown.release; empty means manual.
+const (
+	DrawdownReleaseManual    = "manual"
+	DrawdownReleaseAutomatic = "automatic"
+)
+
 // Constitution is the typed operator-authored capital policy. Material limits
 // are pointers: nil means unapproved, and validation never backfills them.
 type Constitution struct {
@@ -62,13 +69,21 @@ type ConstitutionCapital struct {
 // equity peak. Warn is advisory and self-clearing; block latches in daemon
 // state provisionally until the broker statement covering the latch day
 // decides it: a statement-confirmed external flow that explains the drop
-// dissolves the latch, anything else promotes it to durable, and a durable
-// brake clears on verified recovery; an explicit human reset can rebase the peak.
+// dissolves the latch and anything else promotes it to durable. A durable
+// brake clears through a human reset that rebases the peak or, with
+// Release set to automatic, on fresh verified recovery below the block
+// threshold.
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
 	// BlockEnforcement is shadow (default when empty) or advisory in v1.
 	BlockEnforcement string `toml:"block_enforcement" json:"block_enforcement"`
+	// Release is manual (default when empty): a latched brake clears only
+	// through canary policy reset-drawdown. automatic also clears it when
+	// fresh, verified drawdown falls below the block threshold, keeping the
+	// peak and loss history. Empty stays out of the fingerprint, so policies
+	// written before the key existed keep their identity.
+	Release string `toml:"release" json:"release,omitempty"`
 }
 
 // ConstitutionOverride caps the one-shot exception mechanism: human-only,
@@ -241,6 +256,9 @@ func (c Constitution) Validate() error {
 	default:
 		return fmt.Errorf("drawdown.block_enforcement %q is invalid; use shadow or advisory", c.Drawdown.BlockEnforcement)
 	}
+	if err := c.validateDrawdownRelease(); err != nil {
+		return err
+	}
 	if v := c.Override.MaxDurationHours; v != nil && *v <= 0 {
 		return fmt.Errorf("override.max_duration_hours must be positive")
 	}
@@ -350,6 +368,29 @@ func (c Constitution) EffectiveBlockEnforcement() string {
 		return EnforcementShadow
 	}
 	return c.Drawdown.BlockEnforcement
+}
+
+func (c Constitution) validateDrawdownRelease() error {
+	switch c.Drawdown.Release {
+	case "", DrawdownReleaseManual, DrawdownReleaseAutomatic:
+		return nil
+	default:
+		return fmt.Errorf("drawdown.release %q is invalid; use manual or automatic", c.Drawdown.Release)
+	}
+}
+
+// EffectiveDrawdownRelease returns drawdown.release with its manual default.
+func (c Constitution) EffectiveDrawdownRelease() string {
+	if c.Drawdown.Release == "" {
+		return DrawdownReleaseManual
+	}
+	return c.Drawdown.Release
+}
+
+// ReleasesAutomatically reports whether fresh, verified recovery below the
+// block threshold may clear a latched brake without a human reset.
+func (c *Constitution) ReleasesAutomatically() bool {
+	return c != nil && c.Drawdown.Release == DrawdownReleaseAutomatic
 }
 
 // SignoffRequired reports whether a sibling-policy version change needs an
@@ -552,9 +593,11 @@ type CapitalRuntime struct {
 	// Seeded is false until the first equity observation establishes the
 	// peak; an unseeded state evaluates unknown, never ok.
 	Seeded bool
-	// BlockLatched persists until the daemon journals verified recovery below
-	// the block threshold. Reads cannot clear it. Statement truth may also
-	// dissolve a provisional latch when an external flow explains the drop.
+	// BlockLatched persists across restarts until a journaled human reset or,
+	// with drawdown.release = automatic, until the daemon journals verified
+	// recovery below the block threshold. Reads cannot clear it. Statement
+	// truth may also dissolve a provisional latch when an external flow
+	// explains the drop.
 	BlockLatched bool
 	// LatchProvisional marks a latch the statement window covering its day
 	// has not yet confirmed or explained.
@@ -666,8 +709,10 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 		v.Tier = CapitalTierBlock
 		if rt.LatchProvisional {
 			v.Reasons = append(v.Reasons, "drawdown block is latched provisionally; the broker statement covering the latch day will dissolve it (external flow explains the drop) or promote it to durable")
-		} else {
+		} else if c.ReleasesAutomatically() {
 			v.Reasons = append(v.Reasons, "drawdown brake is engaged; fresh verified drawdown below the block threshold releases it automatically without rebasing the peak")
+		} else {
+			v.Reasons = append(v.Reasons, "drawdown block is latched; a journaled human reset (with re-based peak) is required to resume risk")
 		}
 		return v
 	}

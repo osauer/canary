@@ -54,8 +54,9 @@ wider industry uses a word differently, the entry says so.
   each a percent of declared risk capital consumed from the cash-flow-adjusted
   equity peak. Warn is advisory and self-clearing; block latches provisionally
   until the broker statement covering the latch day explains the drop (the
-  latch releases itself) or confirms it. Fresh verified recovery below the block
-  threshold also releases the brake automatically, preserving the peak.
+  latch releases itself) or confirms it. A confirmed brake stays on until a
+  human reset, or, with `drawdown.release = "automatic"`, until fresh verified
+  recovery below the block threshold releases it, preserving the peak.
   Schema version 1 rejects hard enforcement outright.
   See [Trading policy](policy.md).
 - **Effective risk capital:** the lesser of declared risk capital and equity

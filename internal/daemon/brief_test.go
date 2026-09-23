@@ -916,8 +916,8 @@ func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
 	if !rep.BlockLatched || rep.LatchProvisional {
 		t.Fatalf("unexplained latch did not promote: latched=%v provisional=%v", rep.BlockLatched, rep.LatchProvisional)
 	}
-	if !strings.Contains(strings.Join(rep.Reasons, " "), "releases it automatically") {
-		t.Fatalf("durable latch reasons = %v", rep.Reasons)
+	if !strings.Contains(strings.Join(rep.Reasons, " "), "human reset") {
+		t.Fatalf("durable latch reasons under the default manual release = %v", rep.Reasons)
 	}
 
 	// A later window with a fresh withdrawal cannot dissolve a durable latch.

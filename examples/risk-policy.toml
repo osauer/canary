@@ -45,6 +45,10 @@ base_currency = "EUR"
 # advisory: warn loudly on surfaces and previews, gate nothing.
 # "hard" is rejected by schema v1 — promotion is a later human revision.
 block_enforcement = "shadow"
+# How a latched brake clears. manual (default): only a journaled human reset.
+# automatic: also when fresh, verified drawdown falls below the block
+# threshold, keeping the peak and loss history.
+#release = "manual"
 
 [override]
 # Longest lifetime of a one-shot exception (`Canary policy override`).

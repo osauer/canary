@@ -116,8 +116,9 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "you just accepted and measures future drawdown from today's lower equity. It does not")
 		fmt.Fprintln(env.Stdout, "change policy thresholds, declared risk capital, trading.freeze, or any broker-write guardrail.")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Verified drawdown recovery below the block threshold clears the brake automatically without rebasing.")
-		fmt.Fprintln(env.Stdout, "A provisional latch can also clear when the broker")
+		fmt.Fprintln(env.Stdout, "By default a deposit, market recovery or tomorrow's reconciliation does not clear a confirmed")
+		fmt.Fprintln(env.Stdout, "latch. With release = \"automatic\" under [drawdown], fresh verified drawdown below the block")
+		fmt.Fprintln(env.Stdout, "threshold also clears it, without rebasing. A provisional latch can clear when the broker")
 		fmt.Fprintln(env.Stdout, "statement confirms a withdrawal explains the drop. Check the state first with `canary policy show`.")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "Example:")
@@ -226,10 +227,16 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		fmt.Fprintf(env.Stdout, "  loss from the mark  %14.2f %s  = %.1f%% of your declared risk capital%s\n", deref(c.DrawdownBase), cur, *c.ConsumedPct, drawdownLadderHint(res.Limits))
 	}
 	if c.BlockLatched {
-		if c.LatchProvisional {
+		automatic := limitValue(res.Limits, "drawdown.release") == risk.DrawdownReleaseAutomatic
+		switch {
+		case c.LatchProvisional && automatic:
 			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED (provisional) since %s — waiting for the broker statement that covers the latch day: a confirmed withdrawal releases it automatically; verified current recovery below the block threshold also releases it without resetting the peak\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
-		} else {
+		case c.LatchProvisional:
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED (provisional) since %s — waiting for the broker statement that covers the latch day: a confirmed withdrawal releases it automatically; a trading loss makes it permanent until you release it\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		case automatic:
 			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — fresh verified drawdown below the block threshold releases it automatically; the peak is preserved\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+		default:
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `canary policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
 		}
 	}
 	if c.LastReconciledAt.IsZero() {
@@ -376,6 +383,17 @@ func policyIdentity(id, version string) string {
 }
 
 // drawdownLadderHint appends the warn/block thresholds when both exist.
+// limitValue returns one constitution limit's rendered value, or "" when the
+// policy does not list it.
+func limitValue(limits []risk.ConstitutionLimit, key string) string {
+	for _, l := range limits {
+		if l.Key == key {
+			return l.Value
+		}
+	}
+	return ""
+}
+
 func drawdownLadderHint(limits []risk.ConstitutionLimit) string {
 	var warn, block string
 	for _, l := range limits {

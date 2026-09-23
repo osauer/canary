@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ func recoveryStore(t *testing.T) (*riskCapitalStore, *risk.Constitution, *time.T
 		t.Fatal(err)
 	}
 	c := testConstitutionV3()
+	c.Drawdown.Release = risk.DrawdownReleaseAutomatic
 	if _, err := st.ApplyCapitalEventForPolicyScope(rpc.CapitalEventParams{Type: "reconcile"}, rpc.OrderOriginHumanTTY, c, testLiveObserveScope); err != nil {
 		t.Fatal(err)
 	}
@@ -163,5 +165,42 @@ func TestDrawdownRecoveryCommitFailureKeepsBrake(t *testing.T) {
 	st.Observe(250000, *now, c, testLiveObserveScope, true)
 	if !st.state.BlockLatched || recoveryEvents(t, st) != 0 {
 		t.Fatal("failed persistence published or journaled a release")
+	}
+}
+
+// Automatic release is the policy's choice. Under the default, a recovery
+// below the block threshold leaves the brake on and says a human reset is
+// required, as before drawdown.release existed; switching the policy to
+// automatic lets the next fresh reading release it.
+func TestDrawdownRecoveryKeepsTheBrakeUnlessReleaseIsAutomatic(t *testing.T) {
+	st, c, now := recoveryStore(t)
+	c.Drawdown.Release = ""
+	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{Scope: testLiveObserveScope, CoverageTo: *now}, c); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(time.Minute)
+	st.Observe(250000, *now, c, testLiveObserveScope, true)
+	rep := st.Report(c, nil, testLiveObserveScope)
+	if !rep.BlockLatched || recoveryEvents(t, st) != 0 || !strings.Contains(strings.Join(rep.Reasons, " "), "human reset") {
+		t.Fatalf("the default released the brake on recovery: %+v", rep)
+	}
+	c.Drawdown.Release = risk.DrawdownReleaseAutomatic
+	*now = now.Add(time.Minute)
+	st.Observe(250000, *now, c, testLiveObserveScope, true)
+	if rep := st.Report(c, nil, testLiveObserveScope); rep.BlockLatched || recoveryEvents(t, st) != 1 {
+		t.Fatalf("automatic release did not release a recovered brake: %+v", rep)
+	}
+}
+
+// The brief tells a consumer how an engaged brake clears, so a surface never
+// promises an automatic release the policy does not allow.
+func TestBriefLatchRowSaysHowTheBrakeClears(t *testing.T) {
+	latch := rpc.BriefLatchRow{Latched: true, Release: risk.DrawdownReleaseManual}
+	if row := briefCapitalEvents(rpc.BriefCapitalRow{}, latch); !strings.Contains(row.Detail, "human reset") {
+		t.Fatalf("manual brake row = %+v", row.BriefRowState)
+	}
+	latch.Release = risk.DrawdownReleaseAutomatic
+	if row := briefCapitalEvents(rpc.BriefCapitalRow{}, latch); !strings.Contains(row.Detail, "releases it automatically") {
+		t.Fatalf("automatic brake row = %+v", row.BriefRowState)
 	}
 }

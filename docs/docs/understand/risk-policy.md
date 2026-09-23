@@ -46,7 +46,7 @@ on each revision.
 | Section | Keys | What the numbers govern |
 |---|---|---|
 | `[capital]` | `base_currency`, `protected_floor`, `declared_risk_capital`, `max_equity_age_minutes`, `max_unreconciled_days` | The currency every figure is stated in, equity that is never risk capital, the money you have authorized to be at risk, and how stale an equity reading or a reconciliation may get |
-| `[drawdown]` | `warn_consumed_pct`, `block_consumed_pct`, `block_enforcement` | Two tiers, each a percent of declared risk capital consumed from the cash-flow-adjusted equity peak, plus the enforcement class of the block tier |
+| `[drawdown]` | `warn_consumed_pct`, `block_consumed_pct`, `block_enforcement`, `release` | Two tiers, each a percent of declared risk capital consumed from the cash-flow-adjusted equity peak, the enforcement class of the block tier, and how a latched brake clears (`manual` by default, or `automatic`) |
 | `[override]` | `max_duration_hours` | The longest a one-shot exception may live |
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
@@ -178,13 +178,19 @@ recorded and displayed.
 
 A latched drawdown block is not an override case. It engages provisionally:
 the broker statement covering the latch day releases it automatically when a
-confirmed withdrawal explains the drop, and confirms it otherwise. A confirmed
-latch also clears automatically when fresh, verified drawdown is strictly below
-the existing block threshold, preserving the peak and loss history. Missing or
-stale equity, unresolved policy, and overdue reconciliation cannot clear it.
-The optional human `canary policy reset-drawdown --reason "..."` command
-re-bases the adjusted peak and measures future drawdown from that new baseline;
-it is not required for ordinary recovery.
+confirmed withdrawal explains the drop, and confirms it otherwise. How a
+confirmed latch clears is yours to choose with `release` under `[drawdown]`:
+
+- `manual` (the default): it stays on until you run
+  `canary policy reset-drawdown --reason "..."`, which re-bases the adjusted
+  peak and measures future drawdown from that new baseline.
+- `automatic`: it also clears when fresh, verified drawdown is strictly below
+  the block threshold, preserving the peak and loss history. Missing or stale
+  equity, unresolved policy, and overdue reconciliation never clear it, and
+  the reset command remains available when you want to re-base.
+
+An upgrade never changes this for you: a policy without the key keeps manual
+release.
 
 `canary policy` is a CLI surface with no MCP tool. That command and the other
 governance verbs (`capital-event`, `override`, `reset-drawdown`, `correct-peak`) are

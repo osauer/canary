@@ -712,7 +712,8 @@ func (st *riskCapitalStore) effectiveFlowsLocked(c *risk.Constitution) (effectiv
 
 // Observe incorporates one live, same-account equity reading and journals
 // peak and brake transitions. recoveryAllowed requires an active policy and
-// proven account currency at the caller. It returns whether this is the first
+// proven account currency at the caller; a latched brake clears on recovery
+// only when that policy also sets drawdown.release = automatic. It returns whether this is the first
 // reading for the day, so the caller can refresh reconciliation evidence.
 func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.Constitution, scope brokerStateScope, recoveryAllowed bool) bool {
 	if st == nil || equityBase <= 0 || math.IsNaN(equityBase) || math.IsInf(equityBase, 0) || asOf.IsZero() {
@@ -794,7 +795,7 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	runtime := st.runtimeLocked(c, now)
 	// Recovery is a fresh evaluation against the same peak and flows. Keep
 	// the persisted brake until usable evidence proves the breach has ended.
-	if recoveryAllowed && c != nil && c.Validate() == nil && st.state.BlockLatched && !asOf.Before(st.state.LatchedAt) {
+	if recoveryAllowed && c.ReleasesAutomatically() && c.Validate() == nil && st.state.BlockLatched && !asOf.Before(st.state.LatchedAt) {
 		current := runtime
 		current.BlockLatched, current.LatchProvisional = false, false
 		recovery := risk.EvaluateCapital(c, current, &obs, now)
@@ -1139,7 +1140,8 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 // explain dissolves the latch automatically; anything else — trading loss,
 // missing policy numbers, incomplete engagement evidence — promotes it to
 // confirmed. This historical replay freezes engagement equity; independently,
-// Observe releases either stage when verified current drawdown recovers.
+// With drawdown.release = automatic, Observe releases either stage when
+// verified current drawdown recovers.
 func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalSnapshot, c *risk.Constitution) {
 	if !st.state.BlockLatched || !st.state.LatchProvisional || st.state.LatchedAt.IsZero() {
 		return

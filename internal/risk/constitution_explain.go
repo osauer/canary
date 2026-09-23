@@ -43,6 +43,8 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		block    *float64
 		enfc     = EnforcementShadow
 		enfSrc   = "unapproved"
+		release  = DrawdownReleaseManual
+		relSrc   = "unapproved"
 		ovh      *int
 		rTolP    *float64
 		rTolM    *float64
@@ -63,6 +65,10 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 			enfSrc = "default"
 		} else {
 			enfSrc = "file"
+		}
+		release, relSrc = c.EffectiveDrawdownRelease(), "file"
+		if c.Drawdown.Release == "" {
+			relSrc = "default"
 		}
 		ovh = c.Override.MaxDurationHours
 		rTolP = c.Recon.AmountTolerancePct
@@ -109,7 +115,9 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("drawdown.warn_consumed_pct", warnVal, warnSrc,
 			"Advisory tier: when losses from the cash-flow-adjusted peak consume this share of declared risk capital, surfaces warn and risk-increasing previews carry an advisory cause. Self-clearing on recovery.", "advisory"),
 		get("drawdown.block_consumed_pct", blockVal, blockSrc,
-			"Block tier: at this consumed share the breach latches in daemon state. Risk-increasing orders are the target; reductions, closes, cancels, and policy-classified hedges stay exempt. Clears automatically when fresh, approved evidence falls below this threshold, preserving the peak. Missing or stale evidence keeps the brake engaged.", enfc),
+			"Block tier: at this consumed share the breach latches in daemon state. Risk-increasing orders are the target; reductions, closes, cancels, and policy-classified hedges stay exempt. How it clears follows drawdown.release.", enfc),
+		get("drawdown.release", release, relSrc,
+			"How a latched brake clears. manual (default): only canary policy reset-drawdown, which rebases the peak. automatic: also when fresh, verified drawdown falls below the block threshold, keeping the peak and loss history. Missing or stale evidence never releases it.", "advisory"),
 		get("drawdown.block_enforcement", enfc, enfSrc,
 			"Enforcement class of the block tier. v1 accepts shadow (journal what would block) or advisory (warn loudly); promotion to hard is a later human policy revision after the shadow period.", "structural"),
 		get("override.max_duration_hours", ovhVal, ovhSrc,

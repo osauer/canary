@@ -120,12 +120,14 @@ waits, additional Flex checks run on a widening schedule — half-hourly at
 first, then two-hourly, then six-hourly — until a report's coverage reaches
 the latch day. That report decides the latch by replaying the engagement
 equity against its confirmed flows: a withdrawal that explains the drop
-releases the latch automatically, and anything else confirms it, after which
-fresh verified drawdown below the block threshold releases it automatically. Flex does not provide intraday
+releases the latch automatically, and anything else confirms it. A confirmed
+latch stays on until you run `canary policy reset-drawdown`, unless your policy
+sets `release = "automatic"` under `[drawdown]`: then fresh verified drawdown
+below the block threshold releases it. Flex does not provide intraday
 cash-flow truth, so Brief always shows the report coverage date and last check
 time; a report that ends before the latch cannot explain a later deposit or
-withdrawal. Current recovery preserves the high-water mark and requires fresh
-equity, approved policy and current reconciliation evidence.
+withdrawal. An automatic release preserves the high-water mark and requires
+fresh equity, approved policy and current reconciliation evidence.
 
 Under risk-policy v3 a clean report extends the reconcile clock by itself. The
 conditions are checked rather than assumed: the policy active, the report free

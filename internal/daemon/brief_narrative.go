@@ -815,12 +815,17 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 			p.figure(briefPercent(*latch.ConsumedPctAtLatch, false))
 			p.text(" consumed.")
 		}
-		if latch.Provisional {
-			p.sentence()
-			p.text("A statement-confirmed withdrawal covering the latch day can explain the original breach.")
-		}
 		p.sentence()
-		p.text("Fresh verified drawdown below the block threshold releases the brake automatically, preserving the peak and loss history.")
+		switch {
+		case latch.Release == risk.DrawdownReleaseAutomatic && latch.Provisional:
+			p.text("A statement-confirmed withdrawal covering the latch day can explain the original breach, and fresh verified drawdown below the block threshold releases the brake automatically, preserving the peak and loss history.")
+		case latch.Release == risk.DrawdownReleaseAutomatic:
+			p.text("Fresh verified drawdown below the block threshold releases the brake automatically, preserving the peak and loss history.")
+		case latch.Provisional:
+			p.text("A statement-confirmed withdrawal covering the latch day releases it automatically; anything else keeps it on until you release it with canary policy reset-drawdown.")
+		default:
+			p.text("It stays on until you release it with canary policy reset-drawdown.")
+		}
 		if !latch.ReportCoverageTo.IsZero() && latch.ReportCoverageTo.Before(latch.At) {
 			p.sentence()
 			if !latch.ReportCheckedAt.IsZero() {
