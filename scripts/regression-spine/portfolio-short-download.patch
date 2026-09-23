@@ -1,0 +1,25 @@
+diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
+--- a/pkg/ibkr/connection.go
++++ b/pkg/ibkr/connection.go
+@@ -3112,7 +3112,6 @@
+ 	defer c.portfolioProjectionMu.Unlock()
+ 	account = strings.TrimSpace(account)
+ 	sibling := c.managedAccountMember(account)
+-	accountValues := c.GetAccountSummary()
+ 	c.portfolioHealthMu.Lock()
+ 	defer c.portfolioHealthMu.Unlock()
+ 	if !c.portfolioHealth.ScopeConflictAt.IsZero() || !c.portfolioHealth.InvalidPayloadAt.IsZero() {
+@@ -3142,13 +3141,6 @@
+ 		c.portfolioHealth.Account = account
+ 	}
+ 	if !c.portfolioStagingActive {
+-		return false
+-	}
+-	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+-		if c.portfolioHealth.DownloadShortAt.IsZero() {
+-			portfolioLogger.Warnf("Portfolio download ended with rows covering %.0f%% of gross position value; holding the book as not current until it is complete", coverage*100)
+-		}
+-		c.portfolioHealth.DownloadShortAt = completedAt.UTC()
+ 		return false
+ 	}
+ 	c.publishPortfolioStagingLocked(completedAt)
