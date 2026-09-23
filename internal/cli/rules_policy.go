@@ -83,7 +83,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleRedOnGreen:         fmt.Sprintf("holding %s while SPY is up %s", pct(p.RedOnGreenNameDropPct), pct(p.RedOnGreenSPYUpPct)),
 		risk.RuleWinnerTrim:         fmt.Sprintf("up %s today on at least %s of NLV", pct(p.WinnerTrimDayUpPct), pct(p.WinnerTrimMinExpoPct)),
 		risk.RuleGreenDayAction:     "a green day while an act-level rule is open",
-		risk.RuleHedgeIntegrity:     fmt.Sprintf("index protection band of long exposure: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, hMin, hMax), band(p.RegimeEarlyWarning, hMin, hMax), band(p.RegimeConfirmed, hMin, hMax)),
+		risk.RuleHedgeIntegrity:     fmt.Sprintf("index protection band of long exposure: calm %s, early warning %s, confirmed %s; act above %g× the band's top", band(p.RegimeCalm, hMin, hMax), band(p.RegimeEarlyWarning, hMin, hMax), band(p.RegimeConfirmed, hMin, hMax), p.OverhedgeMultiple),
 		risk.RuleExitDiscipline:     fmt.Sprintf("watch at −%s, act at −%s of premium paid", pct(p.ExitWatchLossPct), pct(p.ExitActLossPct)),
 		risk.RuleFXExposure:         fmt.Sprintf("watch at %s of NLV in other currencies", pct(p.FXExposureWatchPct)),
 		risk.RuleNetExposure:        fmt.Sprintf("watch %s, act above %s of NLV, whole book with hedges", pct(p.NetExposureWatchPct), pct(p.NetExposureActPct)),
