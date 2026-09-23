@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.11.0 — 2026-09-23 08:51 CEST
+
+### What's new
+
+- **Your Rulebook limits are yours to set.** `canary rules policy` shows every limit in force and whether it comes from the compiled baseline or your file. `canary rules policy set cash_reserve_min_pct=70` changes a limit, `modes.<rule>=off|track|alert` turns a rule off or up, and `canary rules policy reset` returns to the baseline. Your file, `~/.config/ibkr/policies/rulebook-policy.toml`, holds only what you changed, so every other limit keeps following the baseline. Without a file nothing changes. Agent sessions can read the limits but not edit them.
+- **Net market exposure.** Rule 15 measures how far the whole book moves with the market: every position's stock-equivalent exposure, index protection included, as a share of NLV. It watches at 100% and acts above 150%. It is tracked by default and raises no alert until you set it to `alert`.
+- **The premium budget can follow your Rulebook.** With `basis = "rulebook"` under `[buckets.budget_reduction]`, the governor proposes reductions whenever an option position exceeds the Rulebook's per-position limit or available funds fall below its cash reserve, without waiting for the drawdown brake. Rows start in shadow mode, as before.
+
+### Changed
+
+- Rule 2 counts a losing option position at the price paid rather than its lower value, so a fall in value no longer frees room to buy more of it. A gaining position still counts at its value.
+- The compiled Rulebook baseline is now `rulebook-v3`. If your risk policy pins it under `[inventory.rulebook]` with `require_signoff = true`, update the pin to `rulebook-v3`, version `3`.
+
+### Fixed
+
+- After a TWS restart, Canary could report positions as current while only part of the book had arrived. It now waits until the downloaded positions account for the account's gross position value.
+- An option exit that could not read a quote now says why, with `option_quote_broker_unavailable` or `option_quote_request_failed`, instead of asking for a live quote while the options session is open.
+- `canary status` now names a Gateway or TWS that accepts the connection and drops it before the API handshake, instead of reporting a generic connection failure.
+- Daily P&L for positions in a currency other than the account's base currency appears again in portfolio feeds.
+- The IBKR code 1100 log line now describes a lost link to IBKR, not an order refusal.
+
 ## v3.10.0 — 2026-09-22 09:15 CEST
 
 ### What's new
