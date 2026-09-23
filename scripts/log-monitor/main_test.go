@@ -147,7 +147,7 @@ func TestEscalatingLoopOutranksArrivalOrderAndSuppressionIsSummarized(t *testing
 		lines = append(lines, fmt.Sprintf(`time=2026-08-13T04:%02d:00Z level=WARN msg="one-off warning variant %d"`, i, i))
 	}
 	for range 85 {
-		lines = append(lines, `time=2026-08-13T05:00:00Z level=WARN msg="TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice"`)
+		lines = append(lines, `time=2026-08-13T05:00:00Z level=WARN msg="TWS lost connectivity to the IBKR backend (code 1100); any new order would be held until a 1101/1102 restore notice (link-state notice, not an order attempt)"`)
 	}
 	for range 3000 {
 		lines = append(lines, `time=2026-08-13T06:00:00Z level=WARN msg="System notice code=200: No security definition has been found for the request"`)

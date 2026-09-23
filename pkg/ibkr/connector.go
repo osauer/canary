@@ -1663,7 +1663,7 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 		if inWindow {
 			suffix += " (inside IBKR maintenance window)"
 		}
-		msg := "TWS lost connectivity to the IBKR backend (code 1100); refusing order transmission until a 1101/1102 restore notice" + suffix
+		msg := "TWS lost connectivity to the IBKR backend (code 1100); any new order would be held until a 1101/1102 restore notice (link-state notice, not an order attempt)" + suffix
 		switch {
 		case quiet:
 			c.logInfo("%s — outside configured gateway duty windows", msg)
