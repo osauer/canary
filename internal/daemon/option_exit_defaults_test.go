@@ -61,7 +61,7 @@ func TestOptionExitStandingPurposePreservesExceptions(t *testing.T) {
 			policy, pos := standingOptionExitPolicy(), &rpc.PositionsResult{Options: []rpc.PositionView{optionExitTestRow()}}
 			change(&policy, pos)
 			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
-			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != "unconfirmed" {
+			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, risk.DefaultRulebookPolicy(), optionExitTestTime()); got != "unconfirmed" {
 				t.Fatalf("exception became %q", got)
 			}
 		})
@@ -92,7 +92,7 @@ func TestOptionExitStandingCallHedgesOnlyAShortItCanCover(t *testing.T) {
 			row.Symbol = tc.symbol
 			pos := &rpc.PositionsResult{Stocks: tc.stocks, Options: append([]rpc.PositionView{row}, tc.others...)}
 			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
-			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != tc.want {
+			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, risk.DefaultRulebookPolicy(), optionExitTestTime()); got != tc.want {
 				t.Fatalf("purpose %q, want %q", got, tc.want)
 			}
 		})
@@ -128,7 +128,7 @@ func TestOptionExitStandingPutHedgesOnlyALongStockItCovers(t *testing.T) {
 			row.Symbol, row.Right = tc.symbol, "P"
 			pos := &rpc.PositionsResult{Stocks: tc.stocks, Options: []rpc.PositionView{row}}
 			legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), optionExitTestTime())
-			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, optionExitTestTime()); got != tc.want {
+			if got := optionExitPurpose(policy.Buckets.TrailingStop.Options, pos.Options[0], pos, legs, ambiguous, risk.DefaultRulebookPolicy(), optionExitTestTime()); got != tc.want {
 				t.Fatalf("purpose %q, want %q", got, tc.want)
 			}
 		})
@@ -222,7 +222,7 @@ func TestOptionExitStandingPolicyFingerprintAndExactOverride(t *testing.T) {
 	}
 	pos := &rpc.PositionsResult{Options: []rpc.PositionView{optionExitTestRow()}}
 	pos.Options[0].Symbol, pos.Options[0].Right = "SPY", "P"
-	if got := optionExitPurpose(p.Buckets.TrailingStop.Options, pos.Options[0], pos, nil, nil, optionExitTestTime()); got != "directional" {
+	if got := optionExitPurpose(p.Buckets.TrailingStop.Options, pos.Options[0], pos, nil, nil, risk.DefaultRulebookPolicy(), optionExitTestTime()); got != "directional" {
 		t.Fatal("standing hedge default replaced explicit current override")
 	}
 }

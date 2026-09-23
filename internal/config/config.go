@@ -121,9 +121,11 @@ type Trading struct {
 	AllowOptionSellToOpen bool `toml:"allow_option_sell_to_open"`
 }
 
-// Rulebook configures operator-owned evidence inputs for the advisory trading
-// live authority.
+// Rulebook configures the owner's Rulebook policy file and operator-owned
+// evidence inputs for the advisory trading live authority.
 type Rulebook struct {
+	// PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default ~/.config/ibkr/policies/rulebook-policy.toml. An absent file runs the compiled baseline.
+	PolicyFile string `toml:"policy_file"`
 	// TerminalEvidenceFile points to an optional JSON document of reviewed,
 	// exact-contract terminal/non-reporting issuer evidence for rules 6-8. An
 	// empty path leaves the retained daemon.db authority unchanged.
@@ -170,6 +172,19 @@ const (
 	TradingModePaper    = "paper"
 	TradingModeLive     = "live"
 )
+
+// PolicyFilePath returns the Rulebook policy path, defaulting beside the
+// other policy files.
+func (r Rulebook) PolicyFilePath() string {
+	if r.PolicyFile == "" {
+		return DefaultRulebookPolicyFile
+	}
+	return r.PolicyFile
+}
+
+// DefaultRulebookPolicyFile is where the owner's Rulebook policy lives unless
+// [rulebook] policy_file says otherwise.
+const DefaultRulebookPolicyFile = "~/.config/ibkr/policies/rulebook-policy.toml"
 
 // WithDefaults returns the protection-proposal configuration with missing
 // operational values resolved. It does not enable broker submission.

@@ -141,6 +141,30 @@ what is left. A stale mark blocks the row with `fresh_option_quote_required`;
 a leg of a multi-leg unit is measured but routes to the strategy workflow.
 Rows are close or reduce only, like every proposal.
 
+**Measured against the Rulebook instead.** `basis = "rulebook"` replaces the
+two caps with limits you already keep in the Rulebook policy, as shares of NLV:
+a line is cut to `option_line_act_pct` (its premium at risk being the higher of
+price paid and value), and when broker-reported available funds sit below
+`cash_reserve_min_pct`, lines are sold in the same loss-first order until
+their value covers the shortfall. This basis needs the account's NLV and
+available funds, not a risk constitution, and it waits for no drawdown brake:
+the rows appear whenever those limits are breached. Leave out the two
+percentages; the file fails validation with both a basis of `rulebook` and
+declared-capital caps.
+
+```toml
+[buckets.budget_reduction]
+enabled = true
+mode = "shadow"
+basis = "rulebook"
+max_order_notional = 10000
+```
+
+The state is `account_unavailable` when NLV or available funds are missing;
+the status then carries `per_line_pct_of_nlv`, `cash_reserve_min_pct`, the
+account values and `cash_shortfall_base`, and each row names the limit that
+selected it.
+
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
 the snapshot with `shadow: true`, and listed by `canary proposals list` under
 a *Shadow (budget reduction)* heading of their own, so you can read what the

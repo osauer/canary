@@ -119,6 +119,7 @@ const (
 	AlertPresentationRulebookHedgeIntegrity     AlertPresentationCode = "rulebook_hedge_integrity"
 	AlertPresentationRulebookExitDiscipline     AlertPresentationCode = "rulebook_exit_discipline"
 	AlertPresentationRulebookFXExposure         AlertPresentationCode = "rulebook_fx_exposure"
+	AlertPresentationRulebookNetExposure        AlertPresentationCode = "rulebook_net_exposure"
 	AlertPresentationProtectionOrphanedOrder    AlertPresentationCode = "protection_orphaned_order"
 	// AlertPresentationProtectionAutoTrailingStop and the codes that follow
 	// are the pre-authorised protection notices: one per bucket, each with a
@@ -828,7 +829,7 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 			AlertPresentationRulebookRedOnGreen, AlertPresentationRulebookWinnerTrim,
 			AlertPresentationRulebookGreenDayAction, AlertPresentationRulebookHedgeIntegrity,
 			AlertPresentationRulebookExitDiscipline, AlertPresentationRulebookFXExposure,
-			AlertPresentationRulebookLegacyCondition:
+			AlertPresentationRulebookNetExposure, AlertPresentationRulebookLegacyCondition:
 			return true
 		}
 	case AlertSourceRiskPolicy:

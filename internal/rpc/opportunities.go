@@ -326,6 +326,12 @@ const (
 	// governor modes. Shadow is the policy default.
 	BudgetReductionModeShadow = "shadow"
 	BudgetReductionModeActive = "active"
+	// BudgetBasisDeclaredRiskCapital and BudgetBasisRulebook name what the
+	// governor measures against: the owner's caps as shares of the risk
+	// constitution's declared risk capital, or the Rulebook's own limits as
+	// shares of NLV (the per-line premium act level and the cash reserve).
+	BudgetBasisDeclaredRiskCapital = "declared_risk_capital"
+	BudgetBasisRulebook            = "rulebook"
 
 	TradeProposalStateGenerated = "generated"
 	TradeProposalStateBlocked   = "blocked"
@@ -481,6 +487,7 @@ const (
 	BudgetStateUnmeasurable           = "unmeasurable"
 	BudgetStateWithinBudget           = "within_budget"
 	BudgetStateOverBudget             = "over_budget"
+	BudgetStateAccountUnavailable     = "account_unavailable"
 )
 
 // TradeProposalBudgetStatus is the premium budget governor's account of one
@@ -491,6 +498,15 @@ type TradeProposalBudgetStatus struct {
 	Shadow bool   `json:"shadow"`
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
+	// Basis says which limits were measured (BudgetBasis*).
+	Basis string `json:"basis"`
+	// Rulebook basis: the limits as shares of NLV, the account values they
+	// were measured against, and how much cash the reserve is short.
+	PerLinePctOfNLV    float64  `json:"per_line_pct_of_nlv,omitempty"`
+	CashReserveMinPct  float64  `json:"cash_reserve_min_pct,omitempty"`
+	NLVBase            *float64 `json:"nlv_base,omitempty"`
+	AvailableFundsBase *float64 `json:"available_funds_base,omitempty"`
+	CashShortfallBase  *float64 `json:"cash_shortfall_base,omitempty"`
 	// The caps as written in the protection policy.
 	PremiumAtRiskPctOfRiskCapital float64 `json:"premium_at_risk_pct_of_risk_capital"`
 	PerLinePctOfRiskCapital       float64 `json:"per_line_pct_of_risk_capital"`
@@ -512,7 +528,16 @@ type TradeProposalBudgetStatus struct {
 // line, what was measured, the excess, and the row's place in the reduction
 // order. Base currency throughout.
 type TradeProposalBudget struct {
-	Mode string `json:"mode"`
+	Mode  string `json:"mode"`
+	Basis string `json:"basis"`
+	// Rulebook basis: the line's premium at risk (the higher of price paid
+	// and value) as a share of NLV against the per-line limit, and the cash
+	// the reserve is short before this row.
+	LineAtRiskBase    float64  `json:"line_at_risk_base,omitempty"`
+	LinePctOfNLV      float64  `json:"line_pct_of_nlv,omitempty"`
+	PerLinePctOfNLV   float64  `json:"per_line_pct_of_nlv,omitempty"`
+	CashReserveMinPct float64  `json:"cash_reserve_min_pct,omitempty"`
+	CashShortfallBase *float64 `json:"cash_shortfall_base,omitempty"`
 	// Cap is per_line, total, or per_line+total when both passes trimmed the
 	// same line.
 	Cap                           string  `json:"cap"`

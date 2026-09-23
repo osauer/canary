@@ -71,7 +71,7 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "  override         Grant one named policy control a temporary, journaled exception.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Related read-only/local action:")
-	fmt.Fprintln(env.Stdout, "  default          Print the embedded protection or opportunity policy template; this is not the risk constitution.")
+	fmt.Fprintln(env.Stdout, "  default          Print the embedded protection, opportunity or Rulebook policy template; this is not the risk constitution.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Usually let retained broker statements account for deposits and withdrawals. A qualifying clean")
 	fmt.Fprintln(env.Stdout, "reconciliation report extends the policy clock automatically. Use a manual action only for the")
@@ -141,10 +141,11 @@ func printPolicyActionUsage(env *Env, action string) int {
 	case "default":
 		fmt.Fprintln(env.Stdout, "canary policy default — print an embedded non-constitution policy template")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Usage: canary policy default protection|opportunity")
+		fmt.Fprintln(env.Stdout, "Usage: canary policy default protection|opportunity|rulebook")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "This read-only local command prints the daemon's embedded protection or opportunity")
-		fmt.Fprintln(env.Stdout, "policy as TOML. It does not print, create or modify your risk constitution.")
+		fmt.Fprintln(env.Stdout, "This read-only local command prints the daemon's embedded protection, opportunity or")
+		fmt.Fprintln(env.Stdout, "Rulebook policy as TOML. It does not print, create or modify your risk constitution.")
+		fmt.Fprintln(env.Stdout, "Edit your Rulebook limits with `canary rules policy set KEY=VALUE`.")
 	default:
 		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, or default)", action)
 	}

@@ -330,7 +330,7 @@ func optionExitScopeFailure(scope optionExitBookScope, pos *rpc.PositionsResult,
 	return ""
 }
 
-func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource, pos *rpc.PositionsResult, now time.Time, clock func() time.Time) optionExitBookEvidence {
+func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource, pos *rpc.PositionsResult, pol risk.RulebookPolicy, now time.Time, clock func() time.Time) optionExitBookEvidence {
 	out := optionExitBookEvidence{Failure: "portfolio_scope_invalid"}
 	fail := func(reason string) optionExitBookEvidence {
 		return optionExitBookEvidence{Failure: reason, Scope: out.Scope, Generation: out.Generation}
@@ -431,7 +431,7 @@ func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource
 	fillBaseValues(measured.Stocks, scope.BaseCurrency)
 	fillBaseValues(measured.Options, scope.BaseCurrency)
 	measured.ByUnderlying = groupByUnderlying(measured.Stocks, measured.Options, scope.BaseCurrency, nil)
-	classified, ok := risk.ClassifyCompleteIndexPutRoles(risk.RuleInputs{BaseCurrency: scope.BaseCurrency, Positions: risk.SourceState{Healthy: true}, Names: mapRuleNames(measured, risk.DefaultRulebookPolicy(), scope.BaseCurrency)}, risk.DefaultRulebookPolicy())
+	classified, ok := risk.ClassifyCompleteIndexPutRoles(risk.RuleInputs{BaseCurrency: scope.BaseCurrency, Positions: risk.SourceState{Healthy: true}, Names: mapRuleNames(measured, pol, scope.BaseCurrency)}, pol)
 	if !ok {
 		return fail("portfolio_scope_invalid")
 	}
@@ -479,7 +479,7 @@ func (e *proposalEngine) optionExitEvidence(ctx context.Context, pos *rpc.Positi
 		}
 		src = optionExitBrokerSource{server: e.server, authority: a}
 	}
-	out := collectOptionExitEvidence(ctx, src, pos, now, e.clock)
+	out := collectOptionExitEvidence(ctx, src, pos, e.rulebookPolicy(), now, e.clock)
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	// Closing the exchange does not resolve a known data/permission failure
@@ -628,7 +628,7 @@ func explainOptionExitEconomicBlocker(p *rpc.TradeProposal, evidence optionExitB
 // The resulting signed token binds that scope through admission and the
 // existing structural portfolio wire guard; no token grants write authority.
 func (e *proposalEngine) revalidateOptionExitEconomics(ctx context.Context, prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
-	if prop.OptionExit == nil || !risk.DefaultRulebookPolicy().IsHedgeSymbol(prop.Symbol) || prop.Contract.Right != "P" {
+	if prop.OptionExit == nil || !e.rulebookPolicy().IsHedgeSymbol(prop.Symbol) || prop.Contract.Right != "P" {
 		return nil
 	}
 	blocked := func() []rpc.TradingBlocker {

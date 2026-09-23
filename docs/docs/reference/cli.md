@@ -30,7 +30,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary stress`](#canary-stress) | Desk | Portfolio stress with margin, exposure, concentration, options, protection, and source evidence | `read-only` | yes |
 | [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
 | [`canary edge`](#canary-edge) | Desk | Automatic decision review with coverage, matched horizons, repeatability, and option position cycles | `read-only` | yes |
-| [`canary rules`](#canary-rules) | Desk | Advisory 14-rule daily trading checklist, hardest breach first | `read-only` | yes |
+| [`canary rules`](#canary-rules) | Desk | Advisory daily trading rule checklist, hardest breach first, against limits you can set | `read-only` | yes |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
 | [`canary reporting`](#canary-reporting) | Desk | IBKR statement reporting status and performance series for Recon and Edge | `read-only` | yes |
@@ -339,16 +339,19 @@ canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--
 
 ## `canary rules`
 
-Advisory 14-rule daily trading checklist, hardest breach first.
+Advisory daily trading rule checklist, hardest breach first, against limits you can set.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary rules [--all] [--symbol SYM] [--json]
 canary rules history [--since YYYY-MM-DD|RFC3339] [--until YYYY-MM-DD|RFC3339] [--rule ID] [--limit N] [--json]
+canary rules policy [--json]
+canary rules policy set KEY=VALUE… [--file PATH]
+canary rules policy reset KEY…|--all [--file PATH]
 ```
 
-Subcommands: `history`.
+Subcommands: `history`, `policy`.
 
 **Flags**
 
@@ -360,6 +363,7 @@ Subcommands: `history`.
 | `--until` | yes | - |
 | `--rule` | yes | - |
 | `--limit` | yes | - |
+| `--file` | yes | - |
 | `--json` | no | - |
 
 ## `canary policy`
@@ -375,7 +379,7 @@ canary policy capital-event reconcile [--report ID]
 canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
 canary policy correct-peak (--from-statements|--peak F) --reason S
-canary policy default protection|opportunity
+canary policy default protection|opportunity|rulebook
 ```
 
 **Subcommands**

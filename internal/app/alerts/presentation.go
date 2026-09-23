@@ -34,6 +34,7 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationRulebookHedgeIntegrity:           {Title: "Index protection size", Body: "A position assigned to portfolio protection is outside its sizing range."},
 	rpc.AlertPresentationRulebookExitDiscipline:           {Title: "Long option loss limit", Body: "A long option has crossed its premium-loss level."},
 	rpc.AlertPresentationRulebookFXExposure:               {Title: "Foreign-currency exposure", Body: "Foreign-currency exposure is above its Rulebook level."},
+	rpc.AlertPresentationRulebookNetExposure:              {Title: "Net market exposure", Body: "The book's net market exposure is above its Rulebook level."},
 	rpc.AlertPresentationProtectionOrphanedOrder:          {Title: "Orphaned protection order", Body: "A protection order no longer matches a held position."},
 	rpc.AlertPresentationProtectionReconciliationRequired: {Title: "Protection check required", Body: "Protective orders require reconciliation."},
 	// Pre-authorised protection: the notice names the bucket and the timing;

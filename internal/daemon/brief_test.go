@@ -70,7 +70,7 @@ func TestBriefNilMoneyAndGreeksDegradeWithoutZeroFill(t *testing.T) {
 	if premium.Status != rpc.BriefStatusDegraded || premium.AmountBase != nil || premium.ExcludedLegs != 2 {
 		t.Fatalf("premium=%+v", premium)
 	}
-	hedge := briefHedgeCost(pos, "EUR")
+	hedge := briefHedgeCost(pos, "EUR", risk.DefaultRulebookPolicy())
 	if hedge.Status != rpc.BriefStatusDegraded || hedge.AmountBase != nil || hedge.ExcludedLegs != 1 {
 		t.Fatalf("hedge=%+v", hedge)
 	}

@@ -117,6 +117,8 @@ run_case compound-reduce-submit 2 "$live_ready" none 'canary proposals reduce BB
 # Canonical adversarial shapes retain their authority boundaries.
 run_cli_case cancel-frozen 0 "$live_frozen" status 'CLI order cancel 42'
 run_cli_case exercise-disabled 2 "$mode_disabled" status 'CLI opportunities exercise option_exercise:a sha256:rev --json'
+run_cli_case rules-policy-set 2 "$live_ready" none 'CLI rules policy set cash_reserve_min_pct=70'
+run_cli_case rules-policy-reset 2 "$live_ready" none 'CLI rules policy reset --all'
 run_cli_case settings-freeze 2 "$live_ready" none 'CLI settings set trading.freeze=true'
 run_cli_case settings-limit 2 "$live_ready" none 'CLI settings set trading.max_order_notional=1000'
 run_cli_case status 0 "$live_ready" none 'CLI order status 42 --json'

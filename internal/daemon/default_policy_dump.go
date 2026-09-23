@@ -19,8 +19,10 @@ func DefaultPolicyTOML(name string) ([]byte, error) {
 		policy = defaultProtectionPolicy()
 	case "opportunity":
 		policy = defaultOpportunityPolicy()
+	case "rulebook":
+		return DefaultRulebookPolicyTOML()
 	default:
-		return nil, fmt.Errorf("unknown policy %q (expected protection or opportunity)", name)
+		return nil, fmt.Errorf("unknown policy %q (expected protection, opportunity or rulebook)", name)
 	}
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(policy); err != nil {

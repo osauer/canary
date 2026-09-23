@@ -37,6 +37,20 @@ policy decisions; it creates none.
   `internal/rpc/opportunities.go`, `internal/rpc/brief.go`.
 - Status: implemented (shadow); activation is the owner's policy edit.
 
+## Basis (amendment 2026-09-23 08:37 CEST)
+
+`basis = "declared_risk_capital"` (the default, and the only basis before this
+amendment) keeps everything below. `basis = "rulebook"` measures against the
+Rulebook policy in force instead, as shares of NLV from the account summary: a
+line's premium at risk (the higher of price paid and value) is cut to
+`option_line_act_pct`, and a shortfall of broker-reported available funds under
+`cash_reserve_min_pct` is covered by selling lines in the loss-first order at
+their current value. It reads no risk constitution and waits for no brake,
+because the owner decided on 2026-09-23 that exposure is limited relative to
+cash at all times, not only after a drawdown. The two percentage keys must be
+absent under this basis. Shadow mode, protection legs, `never_skip_veto`,
+`max_order_notional` and every order gate are unchanged.
+
 ## Meaning
 
 - Capital or exposure base: the constitution's `capital.declared_risk_capital`

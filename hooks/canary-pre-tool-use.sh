@@ -377,6 +377,7 @@ broker_write_command() {
 
 state_write_command() {
   has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+settings[[:space:]]+set([[:space:]]|$)' ||
+    has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+rules[[:space:]]+policy[[:space:]]+(set|reset)([[:space:]]|$)' ||
     has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+daemon[[:space:]]+(purge|reset|wipe)([[:space:]]|$)'
 }
 
@@ -391,6 +392,10 @@ fi
 
 if shell_composition && { broker_write_command || state_write_command; }; then
   block "Run broker-adjacent Canary CLI write commands directly, without shell composition, pipes, redirection, command substitution, or chained commands."
+fi
+
+if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+rules[[:space:]]+policy[[:space:]]+(set|reset)([[:space:]]|$)'; then
+  block "Rulebook limits are the owner's policy: the user edits them with canary rules policy set from an interactive session; agents read them with canary rules policy."
 fi
 
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+settings[[:space:]]+set([[:space:]]|$)'; then

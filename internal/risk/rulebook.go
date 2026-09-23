@@ -66,7 +66,18 @@ const (
 	RuleHedgeIntegrity     = "hedge_integrity"
 	RuleExitDiscipline     = "exit_discipline"
 	RuleFXExposure         = "fx_exposure"
+	RuleNetExposure        = "net_exposure"
 )
+
+// RuleIDs lists every Rulebook rule in rulebook order.
+func RuleIDs() []string {
+	return []string{
+		RuleSingleNameExposure, RuleOptionLinePremium, RuleCashSellOnly, RuleExtrinsicBudget,
+		RuleExpiryRunway, RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze,
+		RuleRedOnGreen, RuleWinnerTrim, RuleGreenDayAction, RuleHedgeIntegrity,
+		RuleExitDiscipline, RuleFXExposure, RuleNetExposure,
+	}
+}
 
 // UnderlyingSourceGreeksTick and UnderlyingSourceStockLegMark identify how a
 // semantics for compatibility.
@@ -267,7 +278,7 @@ type ruleContext struct {
 	overHedged bool
 }
 
-// EvaluateRulebook computes all 14 rules. It never returns fewer than 14
+// EvaluateRulebook computes all 15 rules. It never returns fewer than 15
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	pol.Normalize()
 	in = classifyIndexPutRoles(in, pol)
@@ -294,6 +305,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		r12,
 		ctx.exitDiscipline(),
 		ctx.fxExposure(),
+		ctx.netExposure(),
 	}
 	rows[10] = ctx.greenDayAction(rows)
 	for i := range rows {
@@ -532,24 +544,40 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 }
 
 // nameExposureLowerBound computes a provable minimum |net delta-dollar|
-// exposure for a name whose material legs miss delta. Known legs are already
-// summed into ExposureBase; each delta-less leg contributes a signed
-// interval: a long call at least its intrinsic (delta·S ≥ C ≥ intrinsic) and
-// at most its notional; a long put between −notional and 0; shorts mirrored.
-// Put intrinsic is NOT a bound on |delta·S| (deep-ITM K−S can exceed S) and
-// is never used. Any delta-less leg missing underlying or FX makes the
-// interval unbounded — nothing is provable.
+// exposure for a name whose material legs miss delta, from the name's
+// exposure interval. An interval that straddles zero proves nothing.
 func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
-	if !n.ExposureBaseComplete {
-		return 0, false // partial known sum — nothing is provable from it
+	low, high, ok := nameExposureInterval(n)
+	switch {
+	case !ok:
+		return 0, false
+	case low > 0:
+		return low, true
+	case high < 0:
+		return -high, true
+	default:
+		return 0, false // interval straddles zero
 	}
-	low, high := n.ExposureBase, n.ExposureBase
+}
+
+// nameExposureInterval bounds a name's signed delta-dollar exposure. Known
+// legs are already summed into ExposureBase; each delta-less leg contributes a
+// signed interval: a long call at least its intrinsic (delta·S ≥ C ≥
+// intrinsic) and at most its notional; a long put between −notional and 0;
+// shorts mirrored. Put intrinsic is NOT a bound on |delta·S| (deep-ITM K−S can
+// exceed S) and is never used. Any delta-less leg missing underlying or FX
+// makes the interval unbounded — nothing is provable.
+func nameExposureInterval(n NameInput) (low, high float64, ok bool) {
+	if !n.ExposureBaseComplete {
+		return 0, 0, false // partial known sum — nothing is provable from it
+	}
+	low, high = n.ExposureBase, n.ExposureBase
 	for _, l := range n.Legs {
 		if l.Delta != nil || l.Quantity == 0 {
 			continue
 		}
 		if l.Underlying == nil || l.FXToBase == nil {
-			return 0, false
+			return 0, 0, false
 		}
 		qty := math.Abs(l.Quantity)
 		notional := qty * l.Multiplier * *l.Underlying * *l.FXToBase
@@ -569,17 +597,10 @@ func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
 		case l.Quantity < 0 && isPut(l.Right):
 			high += notional
 		default:
-			return 0, false // unrecognized right — nothing provable
+			return 0, 0, false // unrecognized right — nothing provable
 		}
 	}
-	switch {
-	case low > 0:
-		return low, true
-	case high < 0:
-		return -high, true
-	default:
-		return 0, false // interval straddles zero
-	}
+	return low, high, true
 }
 
 func (c *ruleContext) optionLinePremium() RuleRow {
@@ -608,14 +629,21 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 					Note: "premium not convertible to base — no FX rate for the leg's currency"})
 				continue
 			}
-			p := pct(math.Abs(l.MarketValueBase), c.nlv)
+			// A losing line counts at the price paid: its fall in value must
+			// not free room to buy more of it. A gaining line counts at its
+			// value, which is what it can still lose.
+			atRisk, note := math.Abs(l.MarketValueBase), ""
+			if l.CostBasisBase != nil && *l.CostBasisBase > atRisk {
+				atRisk, note = *l.CostBasisBase, "counted at the price paid, above today's value"
+			}
+			p := pct(atRisk, c.nlv)
 			// Hedge-classified legs measure against their own premium tier:
 			// rule 12 owns the hedge's sizing; this tier only bounds how much
 			if rule12HedgeLeg(l) {
 				hedgeWorst = math.Max(hedgeWorst, p)
 				if p >= hWatch {
 					hedgeOff = append(hedgeOff, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
-						Observed: round1(p), ImpactBase: math.Abs(l.MarketValueBase),
+						Observed: round1(p), ImpactBase: atRisk,
 						Note: fmt.Sprintf("hedge-premium tier (watch %.0f%%/act %.0f%%) — sized by rule 12", hWatch, hAct)})
 				}
 				continue
@@ -623,7 +651,7 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 			worst = math.Max(worst, p)
 			if p >= watch {
 				normalOff = append(normalOff, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
-					Observed: round1(p), ImpactBase: math.Abs(l.MarketValueBase)})
+					Observed: round1(p), ImpactBase: atRisk, Note: note})
 			}
 		}
 	}
@@ -661,11 +689,11 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 		// Must precede the tier cases: with every leg unconvertible both
 		row.Evidence = fmt.Sprintf("Canary could not measure premium for %d option position(s) because an FX rate is missing.", len(unmeasured))
 	case status == RuleStatusPass:
-		row.Evidence = fmt.Sprintf("The largest option position holds %.1f%% of NLV in premium, below %.0f%%.", round1(worst), watch)
+		row.Evidence = fmt.Sprintf("The largest option position puts %.1f%% of NLV at risk, below %.0f%%.", round1(worst), watch)
 	case hedgeWins:
 		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in protection premium; watch starts at %.0f%% and act at %.0f%%.", hedgeOff[0].Leg, hedgeOff[0].Observed, hWatch, hAct)
 	default:
-		row.Evidence = fmt.Sprintf("%s holds %.1f%% of NLV in premium; watch starts at %.0f%%.", normalOff[0].Leg, normalOff[0].Observed, watch)
+		row.Evidence = fmt.Sprintf("%s puts %.1f%% of NLV at risk; watch starts at %.0f%% and act above %.0f%%.", normalOff[0].Leg, normalOff[0].Observed, watch, act)
 	}
 	if hedgeWorst > 0 {
 		row.Notes = append(row.Notes, fmt.Sprintf("largest hedge line %.1f%% of NLV against the %.0f%%/%.0f%% hedge tier", round1(hedgeWorst), hWatch, hAct))
@@ -1695,6 +1723,107 @@ func (c *ruleContext) fxExposure() RuleRow {
 	} else {
 		row.Status = RuleStatusPass
 		row.Evidence = fmt.Sprintf("%.1f%% of NLV in non-base currencies, under the %.0f%% threshold.", round1(p), watch)
+	}
+	return row
+}
+
+// netExposure is rule 15: the signed stock-equivalent exposure of the whole
+// book, hedges included, as a share of NLV. It answers how far the book moves
+// with the market, which premium and cash figures do not. Names with missing
+// delta contribute an interval; partial data may indict, never acquit.
+func (c *ruleContext) netExposure() RuleRow {
+	row := RuleRow{ID: RuleNetExposure, Number: 15, Title: "Net market exposure", Unit: "% NLV"}
+	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
+		return *g
+	}
+	watch, act := c.pol.NetExposureWatchPct, c.pol.NetExposureActPct
+	row.Threshold = new(act)
+	low, high, grossLong, grossShort := 0.0, 0.0, 0.0, 0.0
+	var contributors, gaps []RuleOffender
+	exact, bounded := true, true
+	for _, n := range c.in.Names {
+		if n.ExposureBaseComplete && !c.greeksGapMaterial(n) {
+			low += n.ExposureBase
+			high += n.ExposureBase
+			if n.ExposureBase > 0 {
+				grossLong += n.ExposureBase
+			} else {
+				grossShort -= n.ExposureBase
+			}
+			if n.ExposureBase != 0 {
+				contributors = append(contributors, RuleOffender{Symbol: n.Symbol,
+					Observed: round1(pct(n.ExposureBase, c.nlv)), ImpactBase: math.Abs(n.ExposureBase)})
+			}
+			continue
+		}
+		exact = false
+		lo, hi, ok := nameExposureInterval(n)
+		if !ok {
+			bounded = false
+			gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Note: "exposure not measurable (delta, price or FX missing)"})
+			continue
+		}
+		low += lo
+		high += hi
+		gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Note: "delta missing on material legs; bounded, not measured"})
+	}
+	sortOffenders(contributors)
+	net := low
+	proven := 0.0
+	switch {
+	case exact:
+		proven = math.Abs(net)
+	case bounded && low > 0:
+		proven, net = low, low
+	case bounded && high < 0:
+		proven, net = -high, high
+	}
+	p := pct(proven, c.nlv)
+	status := tierStatus(p, watch, act)
+	if !exact && (!bounded || status == RuleStatusPass) {
+		row.Status = RuleStatusUnknown
+		row.Reason = "greeks_gap"
+		row.Offenders = gaps
+		row.Evidence = fmt.Sprintf("Canary could not measure net exposure: %d underlying(s) lack option delta, a price or an FX rate.", len(gaps))
+		c.offSessionGreeksNote(&row)
+		return row
+	}
+	direction := "long"
+	if net < 0 {
+		direction = "short"
+	}
+	if exact && net == 0 {
+		row.Status = RuleStatusPass
+		row.Observed = new(0.0)
+		row.Evidence = "The book carries no net market exposure."
+		return row
+	}
+	row.Status = status
+	row.Observed = new(round1(p))
+	row.ObservedIsLowerBound = !exact
+	row.ImpactBase = proven
+	bound := ""
+	if !exact {
+		bound = " at least"
+	}
+	switch status {
+	case RuleStatusAct:
+		row.Evidence = fmt.Sprintf("The book is net %s%s %.1f%% of NLV, above the %.0f%% limit.", direction, bound, round1(p), act)
+	case RuleStatusWatch:
+		row.Evidence = fmt.Sprintf("The book is net %s%s %.1f%% of NLV; watch starts at %.0f%% and act above %.0f%%.", direction, bound, round1(p), watch, act)
+	default:
+		row.Evidence = fmt.Sprintf("The book is net %s %.1f%% of NLV, under the %.0f%% watch level.", direction, round1(p), watch)
+	}
+	if status != RuleStatusPass {
+		for _, o := range contributors {
+			if (net > 0) == (o.Observed > 0) {
+				row.Offenders = append(row.Offenders, o)
+			}
+		}
+		row.Offenders = append(row.Offenders, gaps...)
+	}
+	if exact {
+		row.Notes = append(row.Notes, fmt.Sprintf("gross long %.1f%%, gross short %.1f%% of NLV, hedges included", round1(pct(grossLong, c.nlv)), round1(pct(grossShort, c.nlv))))
 	}
 	return row
 }

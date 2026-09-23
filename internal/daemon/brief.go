@@ -843,7 +843,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 	} else {
 		out.Movers = briefMovers(pos, sessionOpen)
 		out.PremiumAtRisk = briefPremiumAtRisk(pos, out.Account.BaseCurrency)
-		out.HedgeCost = briefHedgeCost(pos, out.Account.BaseCurrency)
+		out.HedgeCost = briefHedgeCost(pos, out.Account.BaseCurrency, s.rulebookPolicy())
 		// The premium-at-risk headline includes every long option leg. When a
 		// that premium is unknown, so the row's confidence must say so even
 		if out.HedgeCost.ExcludedLegs > 0 && out.PremiumAtRisk.Status == rpc.BriefStatusOK {
@@ -916,9 +916,8 @@ func briefPremiumAtRisk(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCov
 	return row
 }
 
-func briefHedgeCost(pos *rpc.PositionsResult, base string) rpc.BriefMoneyCoverageRow {
+func briefHedgeCost(pos *rpc.PositionsResult, base string, pol risk.RulebookPolicy) rpc.BriefMoneyCoverageRow {
 	row := rpc.BriefMoneyCoverageRow{BriefRowState: briefOK("daily theta of long index puts"), BaseCurrency: base}
-	pol := risk.DefaultRulebookPolicy()
 	var sum float64
 	for _, p := range pos.Options {
 		candidate := p.Quantity > 0 && strings.EqualFold(p.Right, "P") && pol.IsHedgeSymbol(p.Symbol)

@@ -82,6 +82,11 @@ func (s *Server) cachedRulebookResult(binding rulebookCacheBinding, maxAge time.
 	if cached == nil || at.IsZero() || at.After(now) || now.Sub(at.UTC()) > maxAge || !sameRulebookBinding(binding, cachedBinding) {
 		return nil, false
 	}
+	// A verdict computed under a superseded policy is not served: the owner's
+	// edit takes effect on the next read, not after the cache ages out.
+	if cached.PolicyFingerprint == nil || cached.PolicyFingerprint.Key != s.rulebookPolicy().FingerprintKey() {
+		return nil, false
+	}
 	return cloneRulesResult(cached), true
 }
 
@@ -247,6 +252,17 @@ func cloneRulesResult(in *rpc.RulesResult) *rpc.RulesResult {
 		value := *in.PolicyFingerprint
 		out.PolicyFingerprint = &value
 	}
+	if in.PolicyStatus != nil {
+		value := *in.PolicyStatus
+		value.Overrides = append([]string(nil), in.PolicyStatus.Overrides...)
+		out.PolicyStatus = &value
+	}
+	if in.Policy != nil {
+		value := *in.Policy
+		value.Modes = maps.Clone(in.Policy.Modes)
+		value.HedgeSymbols = append([]string(nil), in.Policy.HedgeSymbols...)
+		out.Policy = &value
+	}
 	return &out
 }
 
@@ -255,7 +271,7 @@ func (s *Server) rulebookUnavailableResult(reason string) *rpc.RulesResult {
 	if s != nil {
 		now = s.orderNow().UTC()
 	}
-	pol := risk.DefaultRulebookPolicy()
+	pol, status := s.activeRulebookPolicy()
 	fingerprint := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: pol.FingerprintKey()}
 	if strings.TrimSpace(reason) == "" {
 		reason = "canonical_cache_unavailable"
@@ -269,6 +285,7 @@ func (s *Server) rulebookUnavailableResult(reason string) *rpc.RulesResult {
 	return &rpc.RulesResult{
 		AsOf: now, Enabled: true, Status: "degraded", InputHealth: health,
 		PolicyID: pol.ID, PolicyVersion: pol.Version, PolicyFingerprint: &fingerprint,
+		PolicyStatus: &status, Policy: &pol,
 	}
 }
 
@@ -399,8 +416,9 @@ func (s *Server) evaluateRulesMode(ctx context.Context, includeTape, allowMainte
 func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allowMaintenance bool) *rpc.RulesResult {
 	now := time.Now()
 	brokerScope := s.currentBrokerStateScope()
-	pol := risk.DefaultRulebookPolicy()
+	pol, policyStatus := s.activeRulebookPolicy()
 	fp := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: pol.FingerprintKey()}
+	policyCopy := pol
 	res := &rpc.RulesResult{
 		AsOf:              now,
 		Enabled:           s.rulebookEnabled(),
@@ -408,6 +426,8 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		PolicyID:          pol.ID,
 		PolicyVersion:     pol.Version,
 		PolicyFingerprint: &fp,
+		PolicyStatus:      &policyStatus,
+		Policy:            &policyCopy,
 	}
 	if !res.Enabled {
 		res.Status = "disabled"

@@ -1,8 +1,8 @@
 # Trading Rulebook
 
 Updated: 2026-08-10 CEST
-Status: implemented, advisory, and active as compiled `rulebook-v2`. The
-initial 12-rule surface shipped in v1.15.0; the current 14-rule contract folds
+Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendment 11, 2026-09-23 08:37 CEST). The
+initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
 amendments described below.
@@ -17,7 +17,7 @@ fixes (rules 6/8 silent skips), regime-conditional thresholds for rules
 short-put coverage, rule 1 provable lower bounds, new rules 13
 (exit_discipline) and 14 (fx_exposure), stock-leg underlying join.
 
-A daily, mechanical 14-rule checklist evaluated daemon-side against the live
+A daily, mechanical 15-rule checklist evaluated daemon-side against the live
 book. It is surfaced through CLI, MCP, the Canary SPA, daily-brief deltas,
 history, source-neutral alerts, and non-blocking order-preview causes. The
 initial heuristic set came from a discretionary-trader review on 2026-07-06;
@@ -63,23 +63,23 @@ authorize or block a broker write.
   `canary_rules`, the SPA Rules card, daily-brief Rulebook deltas,
   source-neutral alert episodes/inbox delivery, and advisory `rule_*` warnings
   on `canary order preview`.
-- Owner layers: compiled `rulebook-v2` policy (`internal/risk`; an operator
-  Rulebook TOML loader remains planned, not shipped), earnings and regime
+- Owner layers: the compiled `rulebook-v3` baseline (`internal/risk`) under the
+  owner's `rulebook-policy.toml` (amendment 11), earnings and regime
   state (`daemon.db`), manual earnings overrides + feature toggle (runtime
   platform settings), canonical evaluation and alert lifecycle (daemon), and
   rendering (CLI/MCP/app/SPA adapters, no policy duplication).
 - Existing behavior: stress signals already cover margin cushion, gross/net
   exposure, and single-name exposure; proposals already run theta_hygiene
   and risk_reduction buckets. The rulebook does not replace these; it
-  presents a fixed 14-rule daily contract on top of the same aggregation.
+  presents a fixed 15-rule daily contract on top of the same aggregation.
 
 ## Which verdict wins when
 
 Three surfaces measure overlapping metrics with different bars, by design:
 the **stress read** is regime×portfolio alerting (compiled thresholds, push
 alerts), **proposals** are executable protection orders (protection-policy
-TOML), and the **rulebook** is a compiled advisory discipline model
-(`rulebook-v2`; an operator TOML loader is not shipped). Same
+TOML), and the **rulebook** is an advisory discipline model
+(compiled baseline `rulebook-v3` under the owner's `rulebook-policy.toml`). Same
 measurements, different questions. Containment so this never drifts into
 contradiction:
 
@@ -87,8 +87,9 @@ contradiction:
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
   read consumes; a Go test asserts observed values are identical across both
   consumers. Bars may differ; observations may not.
-- The compiled Rulebook policy and risk-constitution sibling pin identify
-  `rulebook-v2` version 2. The sibling pin currently compares ID/version, not the
+- The Rulebook policy in force (baseline `rulebook-v3` version 3, or the owner's
+  file by its `policy_id`/`policy_version`) is what the risk-constitution sibling
+  pin compares. The sibling pin currently compares ID/version, not the
   Rulebook fingerprint; it detects version drift but is not threshold-level
   approval provenance. The design cross-references the sibling thresholds
   (stress single-name watch 35 compiled; protection risk-reduction target 25)
@@ -152,11 +153,26 @@ contradiction:
     exposure follows ordinary concentration, premium, time-value, expiry, and
     loss rules; rule 12 does not size it as protection.
 
+11. Amendment (2026-09-23 08:37 CEST, operator decision): the owner adopted the compiled
+    values as the starting limits and asked for limits relative to cash that
+    they can change. The Rulebook policy loader ships: `rulebook-policy.toml`
+    (`[rulebook].policy_file`) overrides any subset of the compiled baseline,
+    now `rulebook-v3`; edits are version-gated, an unreadable or invalid file
+    keeps the policy in force, and every result carries `policy_status` and the
+    effective `policy`. `canary rules policy set|reset` writes only the keys
+    that differ from the baseline and is human-only in agent sessions. Rule 15
+    `net_exposure` (the book's signed stock-equivalent exposure with hedges,
+    watch 100%, act above 150% of NLV) defaults to track. Rule 2 now counts a
+    losing line at the price paid. The budget governor gains `basis =
+    "rulebook"`: rule 2's act level per line and rule 3's cash reserve, with no
+    brake gate.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
-threshold in the compiled model.
+threshold in the compiled model; a value in the owner's file is approved by
+being written there.
 
-## The 14 rules
+## The 15 rules
 
 Inputs available today unless marked otherwise. "Exposure" for a name =
 stock shares×spot + Σ(option delta×100×contracts×spot), from
@@ -181,6 +197,7 @@ regime-conditionality notes).
 | 12 | `hedge_integrity` | protection-classified short delta / gross long delta | 25–35 / 30–50 / 40–70% by regime | alert |
 | 13 | `exit_discipline` | each long option position's unrealized loss / premium paid; protection-classified legs exempt | watch ≥40%; act ≥60% | alert |
 | 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | track ≥60% | track |
+| 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100%; act > 150% | track |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
@@ -336,6 +353,19 @@ approval):
   Never-false-pass corroboration: an empty `CurrencyExposure` report only
   passes as "base-only" when the positions snapshot shows no non-base leg
   and no FX sensitivity; otherwise the row is `unknown` (`fx_unavailable`).
+- **Rule 15 net_exposure (amendment 11).** Rule 1 bounds one name and
+  premium rules bound what can be lost; neither says how far the book moves
+  with the market. The net is the signed sum of every name's exposure,
+  index protection included, so a large put offsets long single-name delta.
+  A fully invested, unlevered stock book sits exactly at the 100% watch
+  level; act starts above 150%. Names with missing delta contribute the
+  `nameExposureInterval` bounds rule 1 uses; a provable excess reports a
+  lower bound and an interval that straddles the levels is `unknown`. Track
+  by default, so no user receives a new alert from the release.
+- **Rule 2 at the price paid (amendment 11).** A losing long line counts at
+  the higher of its cost basis and its value: a fall in value must not free
+  room under the per-position limit to buy more of it. A gaining line counts
+  at its value, which is what it can still lose.
 - **Stock-leg underlying join.** An option leg whose greeks tick carried no
   underlying spot borrows the same-name stock leg's account mark
   (`UnderlyingSource: stock_leg_mark`; quality-gated `Mark > 0 && !Stale`),
@@ -524,7 +554,7 @@ web/app/*                         rules card + drill-in
   warns), it appends `DataWarning{Code: "rule_<id>", Severity: <the rule's
   own watch|act>, Scope: "rulebook"}`. No ninth severity word;
   `submit_eligible` is never affected.
-- Policy: embedded default `rulebook-v2` (Version 2; every threshold —
+- Policy: compiled baseline `rulebook-v3` (Version 3) or the owner's file (every threshold —
   including the three regime sets — is part of `FingerprintKey`, so a
   threshold outside the fingerprint is impossible without failing the
   fingerprint test). The optional operator TOML override
@@ -580,7 +610,7 @@ web/app/*                         rules card + drill-in
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback |
 |---|---|---|---|---|
-| Rule thresholds | compiled Rulebook model (operator TOML planned) × latched regime stage for rules 3/4/12 | `RulesResult.PolicyFingerprint` | all | embedded `rulebook-v2`; sibling ID/version pin is not fingerprint-level approval; stage carried/never-seen ⇒ worse-of/calm with disclosure |
+| Rule thresholds | Rulebook policy in force (baseline or owner file) × latched regime stage for rules 3/4/12 | `RulesResult.PolicyFingerprint` | all | baseline `rulebook-v3` or owner file (`policy_status`); sibling ID/version pin is not fingerprint-level approval; stage carried/never-seen ⇒ worse-of/calm with disclosure |
 | Rule verdicts | daemon canonical evaluation + `rules.snapshot` | `RulesResult.Rules []RuleRow` | CLI/MCP/SPA, brief delta, history | per-row `unknown`/`not_evaluated`, result-level InputHealth |
 | Earnings dates/applicability | daemon multi-provider earnings resolution ∪ authoritative override ∪ exact-contract SQLite terminal evidence ∪ exact broker identity observations | `RulesResult.Earnings[]` with provider outcomes and typed applicability authority | same | typed `unknown`; conflicts, expired, or mismatched evidence have no usable date or exemption; stale LKG flagged |
 | Preview causes | daemon preview handler (scope-bound canonical result ≤75s) | `Warnings[].Code = rule_*`, `Scope = rulebook`; as-of in `Impact` | order preview surfaces | explicit unavailable advisory when canonical read cannot complete |

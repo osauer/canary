@@ -487,7 +487,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	}
 	accountFP := rpc.BuildAccountFingerprint(acct)
 	positionsFP := rpc.BuildPositionsFingerprint(pos, acct.NetLiquidation)
-	rulebookPolicy := risk.DefaultRulebookPolicy()
+	rulebookPolicy := e.rulebookPolicy()
 	rulebookFP := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: rulebookPolicy.FingerprintKey()}
 	sources := rpc.TradeProposalSourceFingerprints{Account: &accountFP, Positions: &positionsFP, Rulebook: &rulebookFP}
 	if fp, ok := e.regimeFingerprint(ctx); ok {
@@ -660,7 +660,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 		if policy.Buckets.TrailingStop.Options.Enabled {
 			intents := directionalOptionIntents(policy.Buckets.TrailingStop.Options)
 			strategyLegs, ambiguousStrategies := optionExitStrategyScope(pos, intents, now)
-			rulebookPolicy := risk.DefaultRulebookPolicy()
+			rulebookPolicy := e.rulebookPolicy()
 			// Every current strategy and every ambiguous underlying is one unit,
 			// evaluated as one position; its legs never raise per-leg questions.
 			units := optionExitUnitsFromBook(pos, strategyLegs, ambiguousStrategies)
@@ -668,7 +668,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			var economicEvidence optionExitBookEvidence
 			needEvidence := len(units) > 0
 			for _, row := range pos.Options {
-				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
+				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, rulebookPolicy, now)
 				if purpose != "unconfirmed" && row.Quantity > 0 && !unitCovered[row.ConID] {
 					needEvidence = true
 					break
@@ -684,7 +684,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 					continue
 				}
 				intent := intents[row.ConID]
-				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, now)
+				purpose := optionExitPurpose(policy.Buckets.TrailingStop.Options, row, pos, strategyLegs, ambiguousStrategies, rulebookPolicy, now)
 				exactRow := optionExitWithoutQuote(row)
 				standalone := !strategyLegs[row.ConID] && !ambiguousStrategies[strings.ToUpper(strings.TrimSpace(row.Symbol))]
 				rowEvidence := optionExitEvidenceAt(economicEvidence, e.clock())
@@ -1504,7 +1504,7 @@ func directionalOptionIntents(cfg protectionTrailOptionPolicy) map[int]protectio
 // optionExitPurpose applies standing policy only to an ordinary, ungrouped
 // contract with no exact override. An expired override remains an exception;
 // defaults cannot silently renew it or dissolve a strategy.
-func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, pos *rpc.PositionsResult, legs map[int]bool, ambiguous map[string]bool, now time.Time) string {
+func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, pos *rpc.PositionsResult, legs map[int]bool, ambiguous map[string]bool, pol risk.RulebookPolicy, now time.Time) string {
 	for _, intent := range cfg.DirectionalIntents {
 		if intent.ConID == row.ConID && row.ConID > 0 {
 			return optionExitIntentState(cfg, row.ConID, now)
@@ -1514,7 +1514,7 @@ func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, po
 	if !valid || contract.SecType != "OPT" || row.Quantity <= 0 || row.Multiplier != 100 || legs[row.ConID] || ambiguous[normSym(row.Symbol)] || pos == nil {
 		return "unconfirmed"
 	}
-	if cfg.DefaultIndexPutsProtection && row.Right == "P" && risk.DefaultRulebookPolicy().IsHedgeSymbol(row.Symbol) {
+	if cfg.DefaultIndexPutsProtection && row.Right == "P" && pol.IsHedgeSymbol(row.Symbol) {
 		return "protection"
 	}
 	if cfg.DefaultLongCallsDirectional && (row.Right == "C" || row.Right == "P") {
@@ -1530,7 +1530,7 @@ func optionExitPurpose(cfg protectionTrailOptionPolicy, row rpc.PositionView, po
 		if !optionExitBookQuantitiesValid(pos) {
 			return "unconfirmed"
 		}
-		if optionExitCallHedge(row, pos, risk.DefaultRulebookPolicy()) || optionExitPutHedge(row, pos, risk.DefaultRulebookPolicy()) {
+		if optionExitCallHedge(row, pos, pol) || optionExitPutHedge(row, pos, pol) {
 			return "protection"
 		}
 		return "directional"

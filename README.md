@@ -85,6 +85,10 @@ that artifact.
 - **What needs attention now?** `canary brief`, the Rulebook, and the Action
   Queue combine current alerts, process exceptions, protection candidates,
   and exercise candidates without turning any row into submit authority.
+- **Am I within my limits?** `canary rules` checks the book against limits for
+  position size, cash reserve, time value, expiry, losses and net market
+  exposure. They start from a compiled baseline; `canary rules policy set`
+  makes them yours.
 - **How is the book exposed?** Account and position reads identify one selected
   account, group stock and option legs by underlying, and keep missing values
   separate from real zeros. Each position carries the listing venue IBKR

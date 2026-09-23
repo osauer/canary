@@ -328,6 +328,7 @@ type Server struct {
 	// this store only carries settings the operator may edit at runtime.
 	platformSettings    *platformSettingsStore
 	protectionPolicies  *protectionPolicyManager
+	rulebookPolicies    *rulebookPolicyManager
 	tradeProposals      *proposalEngine
 	opportunityPolicies *opportunityPolicyManager
 	opportunities       *opportunityEngine
@@ -542,6 +543,7 @@ func New(opts Options) *Server {
 	s.installProposalOutcomeStore()
 	s.installPlatformSettingsStore()
 	s.installProtectionPolicyManager()
+	s.installRulebookPolicyManager()
 	s.installRiskPolicyManager()
 	s.installRiskCapitalStore()
 	s.installNudgeStateStore()
@@ -1305,6 +1307,9 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	if s.protectionPolicies != nil {
 		go s.protectionPolicies.Run(serverCtx, s.logger.Infof)
+	}
+	if s.rulebookPolicies != nil {
+		go s.rulebookPolicies.Run(serverCtx, s.logger.Infof)
 	}
 	if s.opportunityPolicies != nil {
 		go s.opportunityPolicies.Run(serverCtx, s.logger.Infof)

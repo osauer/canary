@@ -1,7 +1,7 @@
 # The rulebook
 
-`canary rules` evaluates fourteen discipline checks against the book you are
-holding and reports which are breached. Nothing it produces reaches the
+`canary rules` evaluates fifteen discipline checks against the book you are
+holding, using limits you can set, and reports which are breached. Nothing it produces reaches the
 broker.
 
 The [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md)
@@ -9,12 +9,12 @@ design document is the semantic authority for every threshold and edge case,
 and stays in the repository. [Sensors](sensors.md#rulebook) covers the same
 component as a measurement: authority, freshness, and evidence reuse.
 
-## The fourteen rules
+## The fifteen rules
 
 | # | Rule | What it measures | Default mode |
 |---|---|---|---|
 | 1 | Exposure to one underlying | Share value plus option delta exposure for each underlying, as a share of NLV. A directional index short is an ordinary position here. | Alert |
-| 2 | Premium at risk in one option position | The market value of each long option position as a share of NLV. | Track |
+| 2 | Premium at risk in one option position | Each long option position at the higher of the price paid and its value, as a share of NLV. A losing position keeps counting at what you paid, so its fall frees no room to buy more. | Track |
 | 3 | Cash reserve | Broker-reported available funds as a share of NLV. The default reserve is 75%. | Alert |
 | 4 | Option time value at risk | Paid option time value as a share of NLV. Positions classified as portfolio protection use rules 2 and 12 instead. | Alert |
 | 5 | Options nearing expiry | Long options with fewer than 14 days remaining. Deep in-the-money positions and portfolio protection are listed separately. | Alert |
@@ -27,11 +27,40 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure. Large directional index shorts are not treated as protection. | Alert |
 | 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
 | 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
+| 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act above 150%. | Track |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
-creating alerts, and `off` rules are not evaluated. These modes and thresholds
-are compiled today. The planned operator policy will make them adjustable as a
-versioned Rulebook policy; generic app settings do not own them.
+creating alerts, and `off` rules are not evaluated.
+
+## Set your own limits
+
+Every threshold and mode in the table is yours to change. Without a policy
+file Canary runs the compiled baseline, `rulebook-v3`. See the limits in force:
+
+```sh
+canary rules policy
+```
+
+Change one, turn a rule off or up, or return to the baseline:
+
+```sh
+canary rules policy set cash_reserve_min_pct=70
+canary rules policy set modes.net_exposure=alert
+canary rules policy reset cash_reserve_min_pct
+canary rules policy reset --all
+```
+
+`set` writes only the keys you change to
+`~/.config/ibkr/policies/rulebook-policy.toml` (or `[rulebook].policy_file`),
+raises `policy_version`, and refuses an unknown key or an invalid value before
+writing anything. The daemon applies the file within 30 seconds. A hand-written
+file works as well: it may hold any subset of the keys `canary policy default
+rulebook` prints, and a hand edit applies only with a higher `policy_version`.
+A file the daemon cannot read or validate never replaces the limits in force,
+and `canary rules` names the problem. Removing the file takes effect at the
+next daemon restart. Every result says where its limits came from:
+`policy_status` names the baseline or your file, and `policy` carries every
+threshold. Agent sessions can read the limits; only you can change them.
 
 Rules 4 and 12 take their thresholds from the classified regime stage, so
 the same book can pass in a calm regime and breach in a confirmed one. A stale
@@ -39,10 +68,10 @@ or never-observed stage is evaluated against both its own threshold set and
 the calm set, keeping the worse verdict: old market state may tighten a rule,
 never relax it.
 
-Thresholds ship compiled as policy `rulebook-v2`, and every row carries its
+The baseline ships as policy `rulebook-v3`, and every row carries its
 `observed` value, `threshold`, and an evidence string, so you can check the
-arithmetic instead of trusting the verdict. A compiled model is not itself
-proof that a threshold has your approval.
+arithmetic instead of trusting the verdict. A baseline value is not itself
+proof that the threshold has your approval; set the ones you have decided.
 
 ## Advisory by construction
 
@@ -95,7 +124,7 @@ returns the ranking and input health alongside the rows.
 
 ## What a clean run means
 
-It means fourteen specific checks did not fire on the book as the daemon last
+It means fifteen specific checks did not fire on the book as the daemon last
 saw it. That is all.
 
 A clean rulebook run is not permission to trade and carries no submit

@@ -81,7 +81,7 @@ func newOptionEvidenceFixture() (*optionEvidenceFixture, *rpc.PositionsResult, t
 
 func TestOptionExitCompleteEvidenceClearsOnlyEconomicBlocker(t *testing.T) {
 	f, pos, now := newOptionEvidenceFixture()
-	evidence := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	evidence := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	row := pos.Options[0]
 	allowed, role := optionExitEconomicRole(row, risk.DefaultRulebookPolicy(), evidence)
 	if !allowed || role != risk.IndexPutRoleDirectional || evidence.Fingerprint == "" {
@@ -174,7 +174,7 @@ func TestOptionExitExactEvidenceRejectsIncompleteDriftingAndInvalidBook(t *testi
 		t.Run(name, func(t *testing.T) {
 			f, pos, now := newOptionEvidenceFixture()
 			mutate(f, pos, now)
-			ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+			ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 			if ev.Fingerprint != "" || ev.Closed || len(ev.Roles) != 0 {
 				t.Fatalf("invalid evidence classified or hidden as waiting: %+v", ev)
 			}
@@ -188,7 +188,7 @@ func TestOptionExitEconomicRoleCombinesIndependentPutsAndPreservesHedges(t *test
 	band := 2 * math.Max(pol.RegimeCalm.HedgeBandMaxPct, math.Max(pol.RegimeEarlyWarning.HedgeBandMaxPct, pol.RegimeConfirmed.HedgeBandMaxPct))
 	pos.Stocks[0].Quantity = 15000 / (band / 100) / 100
 	f.scope.Positions[0].Position = pos.Stocks[0].Quantity
-	ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	if ok, role := optionExitEconomicRole(pos.Options[0], pol, ev); ok || role != risk.IndexPutRoleProtection {
 		t.Fatal("actual hedge lost protection")
 	}
@@ -203,7 +203,7 @@ func TestOptionExitEconomicRoleCombinesIndependentPutsAndPreservesHedges(t *test
 	r.Contract = *previewIBKRContract(c)
 	r.RequestID++
 	f.models[43] = &r
-	ev = collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	ev = collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	for _, row := range pos.Options {
 		if ok, role := optionExitEconomicRole(row, pol, ev); !ok || role != risk.IndexPutRoleDirectional {
 			t.Fatal("combined short exposure ignored a separately managed put")
@@ -215,7 +215,7 @@ func TestOptionExitSlowCollectionDoesNotRenewEvidenceLifetime(t *testing.T) {
 	f, pos, started := newOptionEvidenceFixture()
 	now := started
 	f.onRead = func() { now = started.Add(19 * time.Second) }
-	ev := collectOptionExitEvidence(context.Background(), f, pos, started, func() time.Time { return now })
+	ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), started, func() time.Time { return now })
 	if ev.Fingerprint == "" {
 		t.Fatalf("slow collection failed before the send-age witness: %+v", ev)
 	}
@@ -238,7 +238,7 @@ func TestOptionExitWaitingRequiresPositiveClosedSessionDeferral(t *testing.T) {
 	f, pos, _ := newOptionEvidenceFixture()
 	now := time.Date(2026, 9, 12, 14, 0, 0, 0, time.UTC)
 	f.scope.Health.InitialCompletedAt, f.scope.Health.LastUpdateAt = now, now
-	ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	if !ev.Closed || f.reads != 0 || ev.Fingerprint != "" {
 		t.Fatal("closed session was not explicitly deferred")
 	}
@@ -297,7 +297,7 @@ func TestOptionExitTerminalStockRequiresCurrentExactAuthority(t *testing.T) {
 	f, pos, now := newOptionEvidenceFixture()
 	raw := &ibkr.RawPosition{Account: f.scope.Scope.Account, Contract: ibkr.Contract{ConID: 900003, Symbol: "SYNTHDEAD", SecType: "STK", Currency: "USD"}, Position: 1000}
 	f.scope.Positions = append(f.scope.Positions, raw)
-	if ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now }); ev.Fingerprint != "" {
+	if ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now }); ev.Fingerprint != "" {
 		t.Fatal("unexplained omitted stock became zero exposure")
 	}
 	record := earningsTerminalRecord{Contract: earningsTerminalContract{ConID: raw.Contract.ConID, Symbol: raw.Contract.Symbol, SecType: "STK"}, Classification: earningsTerminalClassEquityCancelled,
@@ -307,7 +307,7 @@ func TestOptionExitTerminalStockRequiresCurrentExactAuthority(t *testing.T) {
 	if len(f.scope.Terminal) != 1 {
 		t.Fatal("exact cancelled equity authority unavailable")
 	}
-	ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	if ev.Fingerprint == "" || ev.Roles[42] != risk.IndexPutRoleDirectional {
 		t.Fatal("verified terminal stock required impossible live quote")
 	}
@@ -484,7 +484,7 @@ func TestOptionExitScopeFailurePreservesCaptureBoundaryAndRedactsErrors(t *testi
 		t.Run(name, func(t *testing.T) {
 			f, pos, now := newOptionEvidenceFixture()
 			f.captureErr = captureErr
-			ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+			ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 			want := name
 			if name == "untrusted_broker_error" || name == "unrecognized_code" {
 				want = "portfolio_scope_invalid"
@@ -512,7 +512,7 @@ func TestOptionExitScopeFailureDistinguishesProjectionPrerequisites(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			f, pos, now := newOptionEvidenceFixture()
 			mutate(f, pos)
-			ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+			ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 			if ev.Failure != name || ev.Closed || ev.Fingerprint != "" || f.reads != 0 {
 				t.Fatalf("scope prerequisite lost: failure=%s reads=%d", ev.Failure, f.reads)
 			}
@@ -531,7 +531,7 @@ func TestOptionExitStockWirePlaceholdersMatchPositionProjection(t *testing.T) {
 	option := f.scope.Positions[1]
 	f.scope.Positions = []*ibkr.RawPosition{stock, option}
 	pos.Stocks = []rpc.PositionView{{ConID: 900002, Symbol: "SYNTH", SecType: rpc.SecTypeStock, Currency: "USD", LocalSymbol: "SYNTH", TradingClass: "SYNTH", Quantity: 10, AvgCost: 100, Multiplier: 1}}
-	ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+	ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 	if ev.Fingerprint == "" || ev.Roles[option.Contract.ConID] != risk.IndexPutRoleDirectional {
 		t.Fatalf("stock placeholders blocked complete live evidence: %s", ev.Failure)
 	}
@@ -541,7 +541,7 @@ func TestOptionExitStockWirePlaceholdersMatchPositionProjection(t *testing.T) {
 	}
 	f.scope.Health.InitialCompletedAt, f.scope.Health.LastUpdateAt = closedAt, closedAt
 	f.reads = 0
-	ev = collectOptionExitEvidence(context.Background(), f, pos, closedAt, func() time.Time { return closedAt })
+	ev = collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), closedAt, func() time.Time { return closedAt })
 	if !ev.Closed || ev.Failure != "session_closed" || f.reads != 0 || ev.Fingerprint != "" {
 		t.Fatalf("valid complete stock projection prevented intentional session deferral: %s", ev.Failure)
 	}
@@ -568,7 +568,7 @@ func TestOptionExitProjectionStillRequiresStockIdentityAndEveryOptionTerm(t *tes
 				i = 1
 			}
 			mutate(f.scope.Positions[i])
-			ev := collectOptionExitEvidence(context.Background(), f, pos, now, func() time.Time { return now })
+			ev := collectOptionExitEvidence(context.Background(), f, pos, risk.DefaultRulebookPolicy(), now, func() time.Time { return now })
 			if ev.Failure == "" || ev.Closed || ev.Fingerprint != "" || f.reads != 0 {
 				t.Fatal("stock placeholder normalization hid a real position mismatch")
 			}

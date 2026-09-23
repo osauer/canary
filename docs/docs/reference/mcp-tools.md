@@ -215,7 +215,7 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 
 ## `canary_rules`
 
-Read the daemon-evaluated desk rulebook, ranked findings, policy identity, and explicit unknown inputs. Advisory evidence never authorizes an order.
+Read the desk Rulebook: each rule's verdict against the owner's limits (position size per underlying and per option position, cash reserve, time value, expiry, earnings, loss per option, currency and net market exposure), ranked hardest first, with explicit unknown inputs. `policy_status` says whether the limits are the compiled baseline or the owner's rulebook-policy.toml and `policy` carries every threshold, so this answers 'am I within my limits' and 'how much room is left'. Use canary_proposals for protection orders and canary_brief for the capital and drawdown ladder. Read-only: the owner changes limits with `canary rules policy set`. Advisory evidence never authorizes an order.
 
 **Parameters:**
 
@@ -225,7 +225,7 @@ Read the daemon-evaluated desk rulebook, ranked findings, policy identity, and e
 
 ## `canary_proposals`
 
-Read-only protection candidates for existing positions. It can refresh discovery but cannot preview, submit, place, modify, cancel, or transmit an order.
+Read-only protection candidates for existing positions: stops, option loss exits and profit trails, and premium-budget reductions. Pre-authorised rows carry `automatic`, `shadow` and `never_skip_veto`; governor rows carry a `budget` block whose `basis` is declared_risk_capital or rulebook (the Rulebook's cash reserve and per-position limit). A blocked option exit names why: `option_quote_broker_unavailable` or `option_quote_request_failed` when no quote could be read, otherwise the unmet quote, session or evidence requirement. It can refresh discovery but cannot preview, submit, place, modify, cancel, or transmit an order. Not for option exercise: use canary_opportunities.
 
 **Parameters:**
 

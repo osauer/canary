@@ -14,6 +14,11 @@ import (
 // (internal-docs/design/trading-rulebook.md). Read-only; verdicts, ranking, and
 // thresholds all come from the daemon — this renderer adds no policy.
 func runRules(ctx context.Context, env *Env, args []string) int {
+	// The dispatcher hoists flags ahead of positionals, so the subcommand
+	// can follow its own flags.
+	if idx := firstPositionalIndex(args); idx >= 0 && args[idx] == "policy" {
+		return runRulesPolicy(ctx, env, append(append([]string{}, args[:idx]...), args[idx+1:]...))
+	}
 	if slicesContains(args, "history") {
 		return runRulesHistory(ctx, env, args)
 	}
@@ -37,8 +42,18 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 		fmt.Fprintln(env.Stdout, "Trading rulebook is disabled (features.rulebook.enabled=false).")
 		return 0
 	}
-	fmt.Fprintf(env.Stdout, "Trading rulebook — %s  policy %s v%d  status %s\n",
-		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, res.Status)
+	source := ""
+	if st := res.PolicyStatus; st != nil {
+		source = " (compiled baseline)"
+		if st.Source == "file" {
+			source = " (your policy file)"
+		}
+	}
+	fmt.Fprintf(env.Stdout, "Trading rulebook — %s  policy %s v%d%s  status %s\n",
+		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, source, res.Status)
+	if st := res.PolicyStatus; st != nil && st.Message != "" {
+		fmt.Fprintf(env.Stdout, "  policy    %s: %s\n", st.Status, st.Message)
+	}
 	for _, h := range res.InputHealth {
 		if h.Status != "ok" {
 			fmt.Fprintf(env.Stdout, "  input %-9s %s %s\n", h.Source, h.Status, strings.Join(h.Notes, "; "))

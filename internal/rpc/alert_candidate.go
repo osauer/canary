@@ -95,6 +95,7 @@ const (
 	AlertPresentationRulebookHedgeIntegrity             = risk.AlertPresentationRulebookHedgeIntegrity
 	AlertPresentationRulebookExitDiscipline             = risk.AlertPresentationRulebookExitDiscipline
 	AlertPresentationRulebookFXExposure                 = risk.AlertPresentationRulebookFXExposure
+	AlertPresentationRulebookNetExposure                = risk.AlertPresentationRulebookNetExposure
 	AlertPresentationProtectionOrphanedOrder            = risk.AlertPresentationProtectionOrphanedOrder
 	AlertPresentationProtectionAutoTrailingStop         = risk.AlertPresentationProtectionAutoTrailingStop
 	AlertPresentationProtectionAutoTrailingStopNow      = risk.AlertPresentationProtectionAutoTrailingStopNow

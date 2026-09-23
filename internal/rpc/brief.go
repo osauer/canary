@@ -1677,10 +1677,37 @@ type RiskPolicyWriteResult struct {
 const MethodRulesSnapshot = "rules.snapshot"
 
 // RulebookPolicyFingerprintVersion labels the advisory rulebook policy
-const RulebookPolicyFingerprintVersion = "rulebook-fp-v3"
+const RulebookPolicyFingerprintVersion = "rulebook-fp-v4"
+
+// RulebookPolicyStatusDefault and the related values say which Rulebook
+// policy produced a result: the compiled baseline, the owner's file in force,
+// an edited file held back for want of a higher policy_version, or an
+// unreadable file (the previous policy stays in force).
+const (
+	RulebookPolicyStatusDefault = "default"
+	RulebookPolicyStatusActive  = "active"
+	RulebookPolicyStatusDrift   = "drift"
+	RulebookPolicyStatusError   = "error"
+)
+
+// RulebookPolicyStatus reports the policy behind a Rulebook result and where
+// it came from. Overrides lists the keys the owner's file sets; every other
+// value is the compiled baseline.
+type RulebookPolicyStatus struct {
+	Status        string      `json:"status"`
+	Source        string      `json:"source"` // compiled-default | file
+	Path          string      `json:"path,omitempty"`
+	PolicyID      string      `json:"policy_id"`
+	PolicyVersion int         `json:"policy_version"`
+	Fingerprint   Fingerprint `json:"fingerprint"`
+	Overrides     []string    `json:"overrides,omitempty"`
+	LoadedAt      time.Time   `json:"loaded_at,omitzero"`
+	CheckedAt     time.Time   `json:"checked_at,omitzero"`
+	Message       string      `json:"message,omitempty"`
+}
 
 // RulesSnapshotParams selects optional evaluation scope. Zero value means the
-// full 14-rule checklist over all held names.
+// full Rulebook checklist over all held names.
 type RulesSnapshotParams struct {
 	// Symbol narrows per-name offender lists to one underlying; portfolio
 	Symbol string `json:"symbol,omitempty"`
@@ -1884,6 +1911,11 @@ type RulesResult struct {
 	PolicyID          string       `json:"policy_id"`
 	PolicyVersion     int          `json:"policy_version"`
 	PolicyFingerprint *Fingerprint `json:"policy_fingerprint,omitempty"`
+	// PolicyStatus says whether the thresholds came from the compiled
+	// baseline or the owner's file; Policy carries every effective threshold
+	// and mode so a reader can show the limits beside the verdicts.
+	PolicyStatus *RulebookPolicyStatus `json:"policy_status,omitempty"`
+	Policy       *risk.RulebookPolicy  `json:"policy,omitempty"`
 	// BaseCurrency scopes every *_base impact figure.
 	BaseCurrency string `json:"base_currency,omitempty"`
 }

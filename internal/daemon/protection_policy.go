@@ -130,6 +130,17 @@ type protectionBudgetPolicy struct {
 	PerLinePctOfRiskCapital float64 `toml:"per_line_pct_of_risk_capital" json:"per_line_pct_of_risk_capital"`
 	// MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does; the remainder waits for the next cycle.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
+	// Basis is declared_risk_capital (default; the two percentages above are required) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent.
+	Basis string `toml:"basis" json:"basis,omitempty"`
+}
+
+// basis resolves the governor basis; absent means the declared-risk-capital
+// caps the bucket was introduced with.
+func (p *protectionBudgetPolicy) basis() string {
+	if p != nil && strings.EqualFold(strings.TrimSpace(p.Basis), rpc.BudgetBasisRulebook) {
+		return rpc.BudgetBasisRulebook
+	}
+	return rpc.BudgetBasisDeclaredRiskCapital
 }
 
 // effectiveMode resolves the governor mode: active only when the file says so,
@@ -643,6 +654,19 @@ func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
 	case "", rpc.BudgetReductionModeShadow, rpc.BudgetReductionModeActive:
 	default:
 		return fmt.Errorf("%s.mode %q is invalid; use shadow or active", prefix, p.Mode)
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Basis)) {
+	case "", rpc.BudgetBasisDeclaredRiskCapital:
+	case rpc.BudgetBasisRulebook:
+		if p.PremiumAtRiskPctOfRiskCapital != 0 || p.PerLinePctOfRiskCapital != 0 {
+			return fmt.Errorf("%s.basis = rulebook takes its limits from the Rulebook policy; remove premium_at_risk_pct_of_risk_capital and per_line_pct_of_risk_capital", prefix)
+		}
+		if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 || (p.Enabled && p.MaxOrderNotional == 0) {
+			return fmt.Errorf("%s.max_order_notional must be positive", prefix)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s.basis %q is invalid; use declared_risk_capital or rulebook", prefix, p.Basis)
 	}
 	pct := func(name string, v float64) error {
 		if !finiteProtectionOptionPolicyValue(v) || v < 0 || v > 100 || (p.Enabled && v == 0) {

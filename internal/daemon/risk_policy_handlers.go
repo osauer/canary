@@ -75,7 +75,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 // live identities. Pins are identity references only; the siblings stay
 // authoritative for their own thresholds.
 func (s *Server) riskPolicyInventory(c *risk.Constitution) []rpc.PolicyPinStatus {
-	rb := risk.DefaultRulebookPolicy()
+	rb := s.rulebookPolicy()
 	stress := risk.DefaultPolicy()
 	rows := []rpc.PolicyPinStatus{
 		pinStatus("rulebook", pinOf(c, func(cc *risk.Constitution) *risk.ConstitutionPolicyPin { return cc.Inventory.Rulebook }), rb.ID, strconv.Itoa(rb.Version)),
@@ -458,7 +458,7 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 		return nil // unapproved constitution: policy show owns that disclosure, not preview noise
 	}
 	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") &&
-		strings.EqualFold(draft.Contract.Right, "P") && risk.DefaultRulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
+		strings.EqualFold(draft.Contract.Right, "P") && s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
 		return nil // hedge entry stays available under a drawdown breach
 	}
 	v := authority.capitalNudge.Report

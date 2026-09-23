@@ -56,6 +56,16 @@ var structSources = []structSource{
 			"This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.",
 	},
 	{
+		Path:    "internal/risk/rulebook_policy.go",
+		Root:    "RulebookPolicy",
+		Heading: "Rulebook policy file",
+		Intro: "Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). " +
+			"No file is required: when absent, the daemon runs the compiled baseline, which `canary policy default rulebook` prints. " +
+			"A file may hold any subset of these keys; every absent key keeps the baseline. `canary rules policy set KEY=VALUE` writes only the keys you change and raises `policy_version`; " +
+			"a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. " +
+			"`canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.",
+	},
+	{
 		Path:    "internal/daemon/opportunity_policy.go",
 		Root:    "opportunityPolicy",
 		Heading: "Opportunity policy file",

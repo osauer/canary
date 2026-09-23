@@ -433,6 +433,7 @@ const RULE_ALERT_TARGETS = {
   rulebook_hedge_integrity: "hedge_integrity",
   rulebook_exit_discipline: "exit_discipline",
   rulebook_fx_exposure: "fx_exposure",
+  rulebook_net_exposure: "net_exposure",
 };
 
 function alertEvidenceTarget(occurrence = {}) {

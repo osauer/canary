@@ -135,6 +135,7 @@ var alertShadowCanonicalRulebookRows = [...]struct {
 	{risk.RuleHedgeIntegrity, 12},
 	{risk.RuleExitDiscipline, 13},
 	{risk.RuleFXExposure, 14},
+	{risk.RuleNetExposure, 15},
 }
 
 var alertShadowCanonicalRulebookHealth = [...]string{
@@ -2585,6 +2586,7 @@ var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleHedgeIntegrity:     {"account", "positions", "regime_stage"},
 	risk.RuleExitDiscipline:     {"account", "positions"},
 	risk.RuleFXExposure:         {"account", "positions"},
+	risk.RuleNetExposure:        {"account", "positions"},
 }
 
 func alertShadowCanonicalRulebookRow(id string) (int, bool) {
@@ -2626,6 +2628,8 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 		return rpc.AlertPresentationRulebookExitDiscipline
 	case risk.RuleFXExposure:
 		return rpc.AlertPresentationRulebookFXExposure
+	case risk.RuleNetExposure:
+		return rpc.AlertPresentationRulebookNetExposure
 	default:
 		return ""
 	}

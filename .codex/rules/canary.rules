@@ -211,6 +211,16 @@ prefix_rule(
 )
 
 prefix_rule(
+    pattern = [["ibkr", "canary"], "rules", "policy", ["set", "reset"]],
+    decision = "forbidden",
+    justification = "Rulebook limits are the owner's policy; agents read them with canary rules policy and never edit them.",
+    match = [
+        "canary rules policy set cash_reserve_min_pct=70",
+        "canary rules policy reset --all",
+    ],
+)
+
+prefix_rule(
     pattern = [["ibkr", "canary"], "settings", "set"],
     decision = "forbidden",
     justification = "Runtime settings, freeze, and trading-limit changes are human-only in agent sessions.",
