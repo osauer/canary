@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.12.0 — 2026-09-23 22:48 CEST
+
+### What's new
+
+- **Choose how the drawdown brake lets go.** Once engaged, the brake stays on until you release it with `canary policy reset-drawdown`, and that remains the default. Add `release = "automatic"` under `[drawdown]` in your risk policy and it also lets go by itself once fresh, verified figures show your loss back below the block line. Your high-water mark and loss history stay as they were, and stale or unverified figures never release it.
+
+### Changed
+
+- **The limits screen shows the over-hedge multiple.** `canary rules policy` now ends rule 12's line with the multiple in force, for example "act above 2× the band's top".
+
+### Fixed
+
+- **Untrustworthy equity readings no longer move the drawdown ladder.** Readings that are not finite numbers, are dated in the future, are older than the last one, or no longer match the connected account are ignored, and a risk policy with a non-finite floor or limit is refused.
+
 ## v3.11.1 — 2026-09-23 22:18 CEST
 
 ### What's new
