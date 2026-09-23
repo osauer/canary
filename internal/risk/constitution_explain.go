@@ -109,7 +109,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("drawdown.warn_consumed_pct", warnVal, warnSrc,
 			"Advisory tier: when losses from the cash-flow-adjusted peak consume this share of declared risk capital, surfaces warn and risk-increasing previews carry an advisory cause. Self-clearing on recovery.", "advisory"),
 		get("drawdown.block_consumed_pct", blockVal, blockSrc,
-			"Block tier: at this consumed share the breach latches in daemon state. Risk-increasing orders are the target; reductions, closes, cancels, and policy-classified hedges stay exempt. Clears only by journaled human reset that re-bases the peak.", enfc),
+			"Block tier: at this consumed share the breach latches in daemon state. Risk-increasing orders are the target; reductions, closes, cancels, and policy-classified hedges stay exempt. Clears automatically when fresh, approved evidence falls below this threshold, preserving the peak. Missing or stale evidence keeps the brake engaged.", enfc),
 		get("drawdown.block_enforcement", enfc, enfSrc,
 			"Enforcement class of the block tier. v1 accepts shadow (journal what would block) or advisory (warn loudly); promotion to hard is a later human policy revision after the shadow period.", "structural"),
 		get("override.max_duration_hours", ovhVal, ovhSrc,

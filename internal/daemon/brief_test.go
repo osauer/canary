@@ -729,7 +729,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierOK {
 		t.Fatalf("tier = %s (%v), want ok", rep.Tier, rep.Reasons)
@@ -738,7 +738,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 		t.Fatalf("peak = %v, want 260000", rep.AdjustedPeakBase)
 	}
 
-	st.Observe(252000, now.Add(-time.Minute), c, testLiveObserveScope)
+	st.Observe(252000, now.Add(-time.Minute), c, testLiveObserveScope, true)
 	rep = st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierWarn {
 		t.Fatalf("tier = %s, want warn", rep.Tier)
@@ -747,7 +747,7 @@ func TestRiskCapitalObserveSeedsAndTracksPeak(t *testing.T) {
 		t.Fatal("warn tier must not latch")
 	}
 
-	st.Observe(258000, now, c, testLiveObserveScope)
+	st.Observe(258000, now, c, testLiveObserveScope, true)
 	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierOK {
 		t.Fatalf("tier after recovery = %s, want ok (warn is self-clearing)", rep.Tier)
 	}
@@ -759,22 +759,25 @@ func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	rep := st.Report(c, nil, testLiveObserveScope)
 	if rep.Tier != risk.CapitalTierBlock || !rep.BlockLatched {
 		t.Fatalf("tier = %s latched = %v, want block/true", rep.Tier, rep.BlockLatched)
 	}
 
-	st.Observe(262000, now.Add(-time.Minute), c, testLiveObserveScope)
+	st.Observe(242000, now.Add(-time.Minute), c, testLiveObserveScope, true)
 	if rep = st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierBlock {
-		t.Fatalf("tier after recovery = %s, want block (latched)", rep.Tier)
+		t.Fatalf("tier while still breached = %s, want block (latched)", rep.Tier)
 	}
 
 	st2 := &riskCapitalStore{now: time.Now}
 	if rep = st2.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
 		t.Fatal("latch must survive a restart via risk-capital-state.json")
 	}
+
+	// A manual reset uses the latest account reading, including after restart.
+	st2.Observe(242000, now, c, testLiveObserveScope, true)
 
 	if err := st2.ResetDrawdown("", c); err == nil {
 		t.Fatal("reset without a reason must fail")
@@ -786,8 +789,8 @@ func TestRiskCapitalBlockLatchPersistsAndResets(t *testing.T) {
 	if rep.BlockLatched || rep.Tier == risk.CapitalTierBlock {
 		t.Fatalf("after reset: tier = %s latched = %v, want unlatched", rep.Tier, rep.BlockLatched)
 	}
-	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 262000 {
-		t.Fatalf("peak after reset = %v, want re-based to last equity 262000", rep.AdjustedPeakBase)
+	if rep.AdjustedPeakBase == nil || *rep.AdjustedPeakBase != 242000 {
+		t.Fatalf("peak after reset = %v, want re-based to last equity 242000", rep.AdjustedPeakBase)
 	}
 }
 
@@ -804,8 +807,8 @@ func TestDrawdownLatchEngagesProvisionallyAndWithdrawalDissolvesIt(t *testing.T)
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	rep := st.Report(c, nil, testLiveObserveScope)
 	if !rep.BlockLatched || !rep.LatchProvisional {
 		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
@@ -848,8 +851,8 @@ func TestDrawdownLatchDepositNeverAssistsDissolution(t *testing.T) {
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || !rep.LatchProvisional {
 		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
 	}
@@ -875,8 +878,8 @@ func TestDrawdownLatchProvisionalSurvivesRestart(t *testing.T) {
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	if rep := st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched || !rep.LatchProvisional {
 		t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)
 	}
@@ -896,12 +899,12 @@ func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
 	reconcileNow(t, st)
 	now := time.Now()
 
-	st.Observe(260000, now.Add(-4*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	// Mark recovery keeps the latch: the engagement equity is frozen.
-	st.Observe(258000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-4*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	// Partial recovery that remains above the block threshold keeps the brake.
+	st.Observe(242000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	if rep := st.Report(c, nil, testLiveObserveScope); rep.Tier != risk.CapitalTierBlock {
-		t.Fatalf("tier after mark recovery = %s, want block (latched)", rep.Tier)
+		t.Fatalf("tier while still breached = %s, want block (latched)", rep.Tier)
 	}
 
 	if err := st.IncorporateStatementSnapshotForScope(statementCapitalSnapshot{
@@ -913,7 +916,7 @@ func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
 	if !rep.BlockLatched || rep.LatchProvisional {
 		t.Fatalf("unexplained latch did not promote: latched=%v provisional=%v", rep.BlockLatched, rep.LatchProvisional)
 	}
-	if !strings.Contains(strings.Join(rep.Reasons, " "), "human reset") {
+	if !strings.Contains(strings.Join(rep.Reasons, " "), "releases it automatically") {
 		t.Fatalf("durable latch reasons = %v", rep.Reasons)
 	}
 
@@ -926,7 +929,7 @@ func TestDrawdownLatchPromotesToDurableWithoutExplainingFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rep = st.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
-		t.Fatal("durable latch dissolved from statement flows; only a human reset may clear it")
+		t.Fatal("durable latch dissolved from statement flows; a fresh observation is needed to evaluate current recovery")
 	}
 
 	if err := st.ResetDrawdown("reviewed the confirmed trading loss; resuming at reduced size", c); err != nil {
@@ -942,8 +945,8 @@ func TestPreTwoStageLatchStaysDurableUnderStatements(t *testing.T) {
 	c := testConstitutionV3()
 	reconcileNow(t, st)
 	now := time.Now()
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	st.mu.Lock()
 	// A latch persisted before the two-stage semantics carries neither field.
 	st.state.LatchProvisional = false
@@ -969,8 +972,8 @@ func TestPreTwoStageLatchDissolvesFromStatementEquity(t *testing.T) {
 	c := testConstitutionV3()
 	reconcileNow(t, st)
 	now := time.Now()
-	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	st.mu.Lock()
 	st.state.LatchProvisional = false
 	st.state.LatchEquityBase = 0
@@ -999,8 +1002,8 @@ func TestPreTwoStageLatchDissolvesFromStatementEquity(t *testing.T) {
 	// equity evidence present.
 	st2 := newTestRiskCapitalStore(t)
 	reconcileNow(t, st2)
-	st2.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope)
-	st2.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope)
+	st2.Observe(260000, now.Add(-3*time.Minute), c, testLiveObserveScope, true)
+	st2.Observe(240000, now.Add(-2*time.Minute), c, testLiveObserveScope, true)
 	st2.mu.Lock()
 	st2.state.LatchProvisional = false
 	st2.state.LatchEquityBase = 0
@@ -1012,7 +1015,7 @@ func TestPreTwoStageLatchDissolvesFromStatementEquity(t *testing.T) {
 		t.Fatal(err)
 	}
 	if rep := st2.Report(c, nil, testLiveObserveScope); !rep.BlockLatched {
-		t.Fatal("unexplained legacy latch dissolved; only a human reset may clear it")
+		t.Fatal("unexplained legacy latch dissolved; a fresh observation is needed to evaluate current recovery")
 	}
 }
 
@@ -1032,8 +1035,8 @@ func TestDrawdownLatchStatementReplayDecidesProvisionalLatch(t *testing.T) {
 			scope := brokerStateScope{Account: "U1234567", Mode: rpc.AccountModeLive}
 			now := time.Now()
 			reconcileNow(t, s.riskCapital)
-			s.riskCapital.Observe(260000, now.Add(-90*time.Minute), pol, scope)
-			s.riskCapital.Observe(240000, now.Add(-60*time.Minute), pol, scope)
+			s.riskCapital.Observe(260000, now.Add(-90*time.Minute), pol, scope, true)
+			s.riskCapital.Observe(240000, now.Add(-60*time.Minute), pol, scope, true)
 			rep := s.riskCapital.Report(pol, nil, scope)
 			if !rep.BlockLatched || !rep.LatchProvisional {
 				t.Fatalf("latched=%v provisional=%v, want a provisional latch", rep.BlockLatched, rep.LatchProvisional)

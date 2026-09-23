@@ -116,8 +116,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "you just accepted and measures future drawdown from today's lower equity. It does not")
 		fmt.Fprintln(env.Stdout, "change policy thresholds, declared risk capital, trading.freeze, or any broker-write guardrail.")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "A deposit, market recovery or tomorrow's reconciliation does not clear a confirmed latch.")
-		fmt.Fprintln(env.Stdout, "Only a freshly engaged provisional latch can clear itself, and only when the broker")
+		fmt.Fprintln(env.Stdout, "Verified drawdown recovery below the block threshold clears the brake automatically without rebasing.")
+		fmt.Fprintln(env.Stdout, "A provisional latch can also clear when the broker")
 		fmt.Fprintln(env.Stdout, "statement confirms a withdrawal explains the drop. Check the state first with `canary policy show`.")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "Example:")
@@ -227,9 +227,9 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 	}
 	if c.BlockLatched {
 		if c.LatchProvisional {
-			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED (provisional) since %s — waiting for the broker statement that covers the latch day: a confirmed withdrawal releases it automatically; a trading loss makes it permanent until you release it\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED (provisional) since %s — waiting for the broker statement that covers the latch day: a confirmed withdrawal releases it automatically; verified current recovery below the block threshold also releases it without resetting the peak\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
 		} else {
-			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — it stays on until you release it: `canary policy reset-drawdown --reason \"...\"`\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
+			fmt.Fprintf(env.Stdout, "  RISK BRAKE ENGAGED since %s — fresh verified drawdown below the block threshold releases it automatically; the peak is preserved\n", c.LatchedAt.Local().Format("2006-01-02 15:04"))
 		}
 	}
 	if c.LastReconciledAt.IsZero() {

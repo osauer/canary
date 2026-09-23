@@ -512,7 +512,7 @@ func briefReviewDeskEvents(p *briefProse, review rpc.BriefReviewSection) {
 	case events.Status == rpc.BriefStatusUnavailable:
 		p.text("Capital events cannot be evaluated: the risk constitution is absent.")
 	case events.Latched:
-		p.tinted(rpc.BriefRunRoleAct, "The drawdown latch needs review.")
+		p.tinted(rpc.BriefRunRoleAct, "The drawdown brake is engaged.")
 		p.sentence()
 		briefAdjustedPeakSentence(p, events)
 	default:
@@ -800,7 +800,7 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 	case latch.Status == rpc.BriefStatusUnavailable:
 		p.text("The drawdown latch state is unavailable.")
 	case latch.Latched:
-		headline := "The drawdown latch needs review"
+		headline := "The drawdown brake is engaged"
 		if latch.Provisional {
 			headline = "The drawdown latch is engaged provisionally"
 		}
@@ -817,8 +817,10 @@ func briefReadyBook(p *briefProse, ready rpc.BriefReadySection) {
 		}
 		if latch.Provisional {
 			p.sentence()
-			p.text("A statement-confirmed withdrawal covering the latch day releases it automatically; anything else makes it permanent until you reset it.")
+			p.text("A statement-confirmed withdrawal covering the latch day can explain the original breach.")
 		}
+		p.sentence()
+		p.text("Fresh verified drawdown below the block threshold releases the brake automatically, preserving the peak and loss history.")
 		if !latch.ReportCoverageTo.IsZero() && latch.ReportCoverageTo.Before(latch.At) {
 			p.sentence()
 			if !latch.ReportCheckedAt.IsZero() {

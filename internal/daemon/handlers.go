@@ -208,13 +208,16 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	// Successful account reads feed the cash-flow-adjusted capital state.
 	if observe && s.riskCapital != nil && res.NetLiquidation > 0 {
 		var pol *risk.Constitution
+		recoveryAllowed := false
 		if s.riskPolicies != nil {
-			pol = s.riskPolicies.snapshot().policy
+			current := s.riskPolicies.snapshot()
+			pol = current.policy
+			recoveryAllowed = current.status == rpc.RiskPolicyStatusActive
 		}
-		if pol == nil || pol.Capital.BaseCurrency == "" || res.BaseCurrency == "" ||
-			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) {
-			capitalScope := s.currentBrokerStateScope()
-			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, capitalScope); firstDailyObservation {
+		if pol != nil && pol.Capital.BaseCurrency != "" && res.BaseCurrency != "" &&
+			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) && sameBrokerScope(scope, s.currentBrokerStateScope()) {
+			capitalScope := scope
+			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, capitalScope, recoveryAllowed); firstDailyObservation {
 				// Re-evaluate when today's first runtime account observation arrives.
 				s.evaluateRiskPolicyV3Reconciliation()
 			}

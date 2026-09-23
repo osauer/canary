@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -709,13 +710,12 @@ func (st *riskCapitalStore) effectiveFlowsLocked(c *risk.Constitution) (effectiv
 	return statement, statement, rpc.CapitalFlowSourceStatement
 }
 
-// Observe folds one equity reading into the state: seeds or raises the
-// Called from the account-summary success path — observation cadence is
-// the caller's connected broker identity: SQLite selects that account's own
-// document; an unresolved or non-live scope is refused. The legacy file helper
-// also refuses a different account after first adoption.
-func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.Constitution, scope brokerStateScope) bool {
-	if st == nil || equityBase <= 0 || asOf.IsZero() {
+// Observe incorporates one live, same-account equity reading and journals
+// peak and brake transitions. recoveryAllowed requires an active policy and
+// proven account currency at the caller. It returns whether this is the first
+// reading for the day, so the caller can refresh reconciliation evidence.
+func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.Constitution, scope brokerStateScope, recoveryAllowed bool) bool {
+	if st == nil || equityBase <= 0 || math.IsNaN(equityBase) || math.IsInf(equityBase, 0) || asOf.IsZero() {
 		return false
 	}
 	st.mu.Lock()
@@ -735,6 +735,9 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	}
 	if reason := st.observationScopeRejectionLocked(scope); reason != "" {
 		st.journalScopeRejectionLocked(scope, equityBase, asOf, reason, c, now)
+		return false
+	}
+	if asOf.After(now) || asOf.Before(st.state.LastEquityAsOf) {
 		return false
 	}
 	force := false
@@ -788,7 +791,32 @@ func (st *riskCapitalStore) Observe(equityBase float64, asOf time.Time, c *risk.
 	}
 
 	obs := risk.CapitalObservation{EquityBase: equityBase, AsOf: asOf}
-	v := risk.EvaluateCapital(c, st.runtimeLocked(c, now), &obs, now)
+	runtime := st.runtimeLocked(c, now)
+	// Recovery is a fresh evaluation against the same peak and flows. Keep
+	// the persisted brake until usable evidence proves the breach has ended.
+	if recoveryAllowed && c != nil && c.Validate() == nil && st.state.BlockLatched && !asOf.Before(st.state.LatchedAt) {
+		current := runtime
+		current.BlockLatched, current.LatchProvisional = false, false
+		recovery := risk.EvaluateCapital(c, current, &obs, now)
+		if (recovery.Tier == risk.CapitalTierOK || recovery.Tier == risk.CapitalTierWarn) &&
+			recovery.ConsumedPct != nil && !math.IsNaN(*recovery.ConsumedPct) && !math.IsInf(*recovery.ConsumedPct, 0) &&
+			c.Drawdown.BlockConsumedPct != nil && *recovery.ConsumedPct < *c.Drawdown.BlockConsumedPct {
+			st.appendRiskPolicyJournal(map[string]any{
+				"version": 1, "at": now.UTC(), "kind": "drawdown_latch_recovered",
+				"latched_at": st.state.LatchedAt, "episode_seq": st.state.LatchEpisodeSeq,
+				"was_provisional": st.state.LatchProvisional, "latch_consumed_pct": st.state.LatchConsumedPct,
+				"consumed_pct": recovery.ConsumedPct, "block_consumed_pct": c.Drawdown.BlockConsumedPct,
+				"equity_as_of": asOf.UTC(), "adjusted_peak_base": st.state.AdjustedPeakBase,
+				"policy_fingerprint": constitutionFingerprint(c),
+			})
+			st.state.BlockLatched, st.state.LatchProvisional = false, false
+			st.state.LatchedAt = time.Time{}
+			st.state.LatchConsumedPct, st.state.LatchEquityBase = 0, 0
+			runtime.BlockLatched, runtime.LatchProvisional = false, false
+			force = true
+		}
+	}
+	v := risk.EvaluateCapital(c, runtime, &obs, now)
 	if v.Tier == risk.CapitalTierBlock && !st.state.BlockLatched && v.ConsumedPct != nil {
 		st.state.LatchEpisodeSeq++
 		st.state.BlockLatched = true
@@ -1110,10 +1138,8 @@ func (st *riskCapitalStore) IncorporateStatementSnapshotForScope(snap statementC
 // statement-true flows value-dated through that day: a drop those flows
 // explain dissolves the latch automatically; anything else — trading loss,
 // missing policy numbers, incomplete engagement evidence — promotes it to
-// durable, which only a human reset clears. The equity term stays frozen at
-// engagement, so mark recovery can never dissolve a latch (decision 5), and
-// every ambiguity promotes: a wrong promotion returns to the human, a wrong
-// dissolution would release the brake.
+// confirmed. This historical replay freezes engagement equity; independently,
+// Observe releases either stage when verified current drawdown recovers.
 func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalSnapshot, c *risk.Constitution) {
 	if !st.state.BlockLatched || !st.state.LatchProvisional || st.state.LatchedAt.IsZero() {
 		return
@@ -1145,7 +1171,7 @@ func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalS
 		entry["statement_line_ids"] = lineIDs
 		dissolve = pct < *c.Drawdown.BlockConsumedPct
 	} else {
-		entry["reason"] = "policy numbers or engagement evidence incomplete; promoted for human review"
+		entry["reason"] = "policy numbers or engagement evidence incomplete; brake retained pending verified recovery"
 	}
 	if dissolve {
 		entry["kind"] = "drawdown_latch_dissolved"

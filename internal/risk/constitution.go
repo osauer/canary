@@ -63,7 +63,7 @@ type ConstitutionCapital struct {
 // state provisionally until the broker statement covering the latch day
 // decides it: a statement-confirmed external flow that explains the drop
 // dissolves the latch, anything else promotes it to durable, and a durable
-// latch clears only through a journaled human reset that re-bases the peak.
+// brake clears on verified recovery; an explicit human reset can rebase the peak.
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
@@ -212,10 +212,10 @@ func (c Constitution) Validate() error {
 	if cur := strings.TrimSpace(c.Capital.BaseCurrency); cur != "" && len(cur) != 3 {
 		return fmt.Errorf("capital.base_currency %q must be a 3-letter currency code", c.Capital.BaseCurrency)
 	}
-	if v := c.Capital.ProtectedFloor; v != nil && *v < 0 {
+	if v := c.Capital.ProtectedFloor; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0) {
 		return fmt.Errorf("capital.protected_floor must not be negative")
 	}
-	if v := c.Capital.DeclaredRiskCapital; v != nil && *v <= 0 {
+	if v := c.Capital.DeclaredRiskCapital; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v <= 0) {
 		return fmt.Errorf("capital.declared_risk_capital must be positive")
 	}
 	if v := c.Capital.MaxEquityAgeMinutes; v != nil && *v <= 0 {
@@ -225,10 +225,10 @@ func (c Constitution) Validate() error {
 		return fmt.Errorf("capital.max_unreconciled_days must be positive")
 	}
 	warn, block := c.Drawdown.WarnConsumedPct, c.Drawdown.BlockConsumedPct
-	if warn != nil && (*warn <= 0 || *warn > 100) {
+	if warn != nil && (math.IsNaN(*warn) || math.IsInf(*warn, 0) || *warn <= 0 || *warn > 100) {
 		return fmt.Errorf("drawdown.warn_consumed_pct must be in (0, 100]")
 	}
-	if block != nil && (*block <= 0 || *block > 100) {
+	if block != nil && (math.IsNaN(*block) || math.IsInf(*block, 0) || *block <= 0 || *block > 100) {
 		return fmt.Errorf("drawdown.block_consumed_pct must be in (0, 100]")
 	}
 	if warn != nil && block != nil && *warn >= *block {
@@ -552,9 +552,9 @@ type CapitalRuntime struct {
 	// Seeded is false until the first equity observation establishes the
 	// peak; an unseeded state evaluates unknown, never ok.
 	Seeded bool
-	// BlockLatched persists across restarts and mark recovery. A durable
-	// latch clears only through a journaled human reset; a provisional one
-	// may also dissolve when statement truth explains the drop.
+	// BlockLatched persists until the daemon journals verified recovery below
+	// the block threshold. Reads cannot clear it. Statement truth may also
+	// dissolve a provisional latch when an external flow explains the drop.
 	BlockLatched bool
 	// LatchProvisional marks a latch the statement window covering its day
 	// has not yet confirmed or explained.
@@ -637,7 +637,10 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 		}
 	}
 
-	usableObs := obs != nil && !obs.AsOf.IsZero() && obs.EquityBase > 0
+	usableObs := obs != nil && !obs.AsOf.IsZero() && !obs.AsOf.After(now) &&
+		obs.EquityBase > 0 && !math.IsNaN(obs.EquityBase) && !math.IsInf(obs.EquityBase, 0) &&
+		!math.IsNaN(rt.AdjustedPeakBase) && !math.IsInf(rt.AdjustedPeakBase, 0) &&
+		!math.IsNaN(rt.CumExternalFlowsBase) && !math.IsInf(rt.CumExternalFlowsBase, 0)
 	if usableObs && c.Capital.MaxEquityAgeMinutes != nil {
 		if now.Sub(obs.AsOf) > time.Duration(*c.Capital.MaxEquityAgeMinutes)*time.Minute {
 			v.EquityStale = true
@@ -658,14 +661,13 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 		v.ConsumedPct = &pct
 	}
 
-	// The latch dominates: a breached block stays block until it is decided
-	// by statement truth (provisional) or a human reset (durable).
+	// Only the daemon can commit a release; a read never bypasses the latch.
 	if rt.BlockLatched {
 		v.Tier = CapitalTierBlock
 		if rt.LatchProvisional {
 			v.Reasons = append(v.Reasons, "drawdown block is latched provisionally; the broker statement covering the latch day will dissolve it (external flow explains the drop) or promote it to durable")
 		} else {
-			v.Reasons = append(v.Reasons, "drawdown block is latched; a journaled human reset (with re-based peak) is required to resume risk")
+			v.Reasons = append(v.Reasons, "drawdown brake is engaged; fresh verified drawdown below the block threshold releases it automatically without rebasing the peak")
 		}
 		return v
 	}

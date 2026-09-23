@@ -291,7 +291,7 @@ func briefCapitalEvents(capital rpc.BriefCapitalRow, latch rpc.BriefLatchRow) rp
 	case latch.Latched && latch.Provisional:
 		row.BriefRowState = briefAttention("drawdown latch engaged provisionally; awaiting the broker statement that covers the latch day")
 	case latch.Latched:
-		row.BriefRowState = briefAttention("drawdown latch engaged this episode and remains open until a human reset")
+		row.BriefRowState = briefAttention("drawdown brake engaged this episode; verified recovery below the block threshold releases it automatically")
 	}
 	return row
 }
@@ -1008,7 +1008,7 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, constitution *risk.Constitut
 		if c.LatchProvisional {
 			out.Latch.BriefRowState = briefAttention("drawdown latch is engaged provisionally; the broker statement covering the latch day will confirm it or dissolve it")
 		} else {
-			out.Latch.BriefRowState = briefAttention("drawdown latch is engaged and remains so until a human reset")
+			out.Latch.BriefRowState = briefAttention("drawdown brake is engaged; verified recovery below the block threshold releases it automatically without resetting the peak")
 		}
 	}
 	out.Overrides.BriefRowState = briefOK("no active overrides")
