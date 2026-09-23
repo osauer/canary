@@ -27,8 +27,6 @@ const (
 // rules: rule 4 extrinsic budget (ex-protection), rule 12 protection band.
 // hedge band.
 type RegimeThresholds struct {
-	// CashSellOnlyPct is retained for policy compatibility and not evaluated by any rule.
-	CashSellOnlyPct float64 `toml:"cash_sell_only_pct" json:"cash_sell_only_pct"`
 	// ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV.
 	ExtrinsicWatchPct float64 `toml:"extrinsic_watch_pct" json:"extrinsic_watch_pct"`
 	// ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV.
@@ -108,6 +106,10 @@ type RulebookPolicy struct {
 	RegimeConfirmed RegimeThresholds `toml:"regime_confirmed" json:"regime_confirmed"`
 	// RegimeStageMaxAgeMinutes bounds trust in the latched regime stage; older stages evaluate as carried.
 	RegimeStageMaxAgeMinutes int `toml:"regime_stage_max_age_minutes" json:"regime_stage_max_age_minutes"`
+	// OverhedgeMultiple is the over-hedge boundary as a multiple of rule 12's band top: rule 12 acts above
+	// this multiple of the current regime's top, and index puts above this multiple of the widest regime's
+	// top count as directional exposure rather than protection.
+	OverhedgeMultiple float64 `toml:"overhedge_multiple" json:"overhedge_multiple"`
 
 	// ExitWatchLossPct is rule 13's watch level: percent of premium paid lost on a long option.
 	ExitWatchLossPct float64 `toml:"exit_watch_loss_pct" json:"exit_watch_loss_pct"`
@@ -172,27 +174,25 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		WinnerTrimDayUpPct:     4,
 		WinnerTrimMinExpoPct:   15,
 		RegimeCalm: RegimeThresholds{
-			CashSellOnlyPct:   -25,
 			ExtrinsicWatchPct: 10,
 			ExtrinsicActPct:   15,
 			HedgeBandMinPct:   25,
 			HedgeBandMaxPct:   35,
 		},
 		RegimeEarlyWarning: RegimeThresholds{
-			CashSellOnlyPct:   0,
 			ExtrinsicWatchPct: 7.5,
 			ExtrinsicActPct:   12,
 			HedgeBandMinPct:   30,
 			HedgeBandMaxPct:   50,
 		},
 		RegimeConfirmed: RegimeThresholds{
-			CashSellOnlyPct:   10,
 			ExtrinsicWatchPct: 5,
 			ExtrinsicActPct:   10,
 			HedgeBandMinPct:   40,
 			HedgeBandMaxPct:   70,
 		},
 		RegimeStageMaxAgeMinutes: 240,
+		OverhedgeMultiple:        2,
 		ExitWatchLossPct:         40,
 		ExitActLossPct:           60,
 		FXExposureWatchPct:       60,
@@ -274,6 +274,7 @@ func (p RulebookPolicy) FingerprintKey() string {
 		RegimeEarlyWarning       RegimeThresholds  `json:"regime_early_warning"`
 		RegimeConfirmed          RegimeThresholds  `json:"regime_confirmed"`
 		RegimeStageMaxAgeMinutes int               `json:"regime_stage_max_age_minutes"`
+		OverhedgeMultiple        float64           `json:"overhedge_multiple"`
 		ExitWatchLossPct         float64           `json:"exit_watch_loss_pct"`
 		ExitActLossPct           float64           `json:"exit_act_loss_pct"`
 		FXExposureWatchPct       float64           `json:"fx_exposure_watch_pct"`
@@ -307,6 +308,7 @@ func (p RulebookPolicy) FingerprintKey() string {
 		RegimeEarlyWarning:       q.RegimeEarlyWarning,
 		RegimeConfirmed:          q.RegimeConfirmed,
 		RegimeStageMaxAgeMinutes: q.RegimeStageMaxAgeMinutes,
+		OverhedgeMultiple:        q.OverhedgeMultiple,
 		ExitWatchLossPct:         q.ExitWatchLossPct,
 		ExitActLossPct:           q.ExitActLossPct,
 		FXExposureWatchPct:       q.FXExposureWatchPct,
@@ -379,6 +381,7 @@ func (p RulebookPolicy) Validate() error {
 		{"fx_exposure_watch_pct", p.FXExposureWatchPct, 0, 1000},
 		{"net_exposure_watch_pct", p.NetExposureWatchPct, 0, 10000},
 		{"net_exposure_act_pct", p.NetExposureActPct, 0, 10000},
+		{"overhedge_multiple", p.OverhedgeMultiple, 1, 10},
 		{"greeks_gap_floor_pct_nlv", p.GreeksGapFloorPctNLV, 0, 100},
 	}
 	for _, set := range []struct {
@@ -386,7 +389,6 @@ func (p RulebookPolicy) Validate() error {
 		t    RegimeThresholds
 	}{{"regime_calm", p.RegimeCalm}, {"regime_early_warning", p.RegimeEarlyWarning}, {"regime_confirmed", p.RegimeConfirmed}} {
 		checks = append(checks,
-			bounded{set.name + ".cash_sell_only_pct", set.t.CashSellOnlyPct, -100, 100},
 			bounded{set.name + ".extrinsic_watch_pct", set.t.ExtrinsicWatchPct, 0, 100},
 			bounded{set.name + ".extrinsic_act_pct", set.t.ExtrinsicActPct, 0, 100},
 			bounded{set.name + ".hedge_band_min_pct", set.t.HedgeBandMinPct, 0, 1000},

@@ -123,6 +123,7 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | *(top level)* | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct is rule 15's watch level: the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. |
 | *(top level)* | `option_line_act_pct` | `float64` | OptionLineActPct is rule 2's act level for one long option position; the budget governor's per-line limit under basis = rulebook. |
 | *(top level)* | `option_line_watch_pct` | `float64` | OptionLineWatchPct is rule 2's watch level: one long option position at risk (the higher of price paid and value) as a percent of NLV. |
+| *(top level)* | `overhedge_multiple` | `float64` | OverhedgeMultiple is the over-hedge boundary as a multiple of rule 12's band top: rule 12 acts above this multiple of the current regime's top, and index puts above this multiple of the widest regime's top count as directional exposure rather than protection. |
 | *(top level)* | `policy_id` | `string` | ID names the policy (baseline rulebook-v3; canary rules policy set writes rulebook-owner). |
 | *(top level)* | `policy_version` | `int` | Version must rise for an edit to take effect; the first file is adopted at any version. |
 | *(top level)* | `red_on_green_name_drop_pct` | `float64` | RedOnGreenNameDropPct is rule 9's holding day change (negative percent). |
@@ -138,17 +139,14 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | *(top level)* | `single_name_watch_pct` | `float64` | SingleNameWatchPct is rule 1's watch level: one underlying's stock-equivalent exposure as a percent of NLV. |
 | *(top level)* | `winner_trim_day_up_pct` | `float64` | WinnerTrimDayUpPct is rule 10's holding day gain (percent). |
 | *(top level)* | `winner_trim_min_exposure_pct` | `float64` | WinnerTrimMinExpoPct is rule 10's minimum position size as a percent of NLV. |
-| `[regime_calm]` | `cash_sell_only_pct` | `float64` | CashSellOnlyPct is retained for policy compatibility and not evaluated by any rule. |
 | `[regime_calm]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_calm]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_calm]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
 | `[regime_calm]` | `hedge_band_min_pct` | `float64` | HedgeBandMinPct is rule 12's lower bound: index protection as a percent of gross long exposure. |
-| `[regime_confirmed]` | `cash_sell_only_pct` | `float64` | CashSellOnlyPct is retained for policy compatibility and not evaluated by any rule. |
 | `[regime_confirmed]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_confirmed]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_confirmed]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
 | `[regime_confirmed]` | `hedge_band_min_pct` | `float64` | HedgeBandMinPct is rule 12's lower bound: index protection as a percent of gross long exposure. |
-| `[regime_early_warning]` | `cash_sell_only_pct` | `float64` | CashSellOnlyPct is retained for policy compatibility and not evaluated by any rule. |
 | `[regime_early_warning]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_early_warning]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_early_warning]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |

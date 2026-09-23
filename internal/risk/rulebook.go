@@ -327,7 +327,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 
 // classifyIndexPutRoles reserves hedge treatment for positions that can
 // plausibly protect the current long book. With no long book, or with short
-// delta above twice the widest configured protection band, the position is
+// delta above the over-hedge multiple of the widest configured protection band, the position is
 // ordinary directional short exposure. Borderline cases remain protection so
 // rule 12 can report their sizing without guessing intent.
 func classifyIndexPutRoles(in RuleInputs, pol RulebookPolicy) RuleInputs {
@@ -349,7 +349,7 @@ func classifyIndexPutRoles(in RuleInputs, pol RulebookPolicy) RuleInputs {
 	}
 	widestBand := math.Max(pol.RegimeCalm.HedgeBandMaxPct, math.Max(pol.RegimeEarlyWarning.HedgeBandMaxPct, pol.RegimeConfirmed.HedgeBandMaxPct))
 	for ni := range in.Names {
-		directional := grossLong <= 0 || pct(indexPutShort[ni], grossLong) > 2*widestBand
+		directional := grossLong <= 0 || pct(indexPutShort[ni], grossLong) > pol.OverhedgeMultiple*widestBand
 		for li := range in.Names[ni].Legs {
 			leg := &in.Names[ni].Legs[li]
 			switch {
@@ -1598,7 +1598,7 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 			c.overHedged = true
 		}
 		switch {
-		case ratio > 2*maxB:
+		case ratio > c.pol.OverhedgeMultiple*maxB:
 			r.Status = RuleStatusAct
 			r.Evidence = fmt.Sprintf("Protection short delta is %.1f%% of gross long exposure. The range is %.0f–%.0f%%.", round1(ratio), minB, maxB)
 		case ratio > maxB:

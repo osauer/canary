@@ -201,3 +201,80 @@ func TestRulebookCacheRefusesAVerdictFromASupersededPolicy(t *testing.T) {
 		t.Fatal("a verdict from a superseded policy was served")
 	}
 }
+
+// Until v3.11.1 canary policy default rulebook wrote cash_sell_only_pct, which
+// no rule reads. A file carrying it must not void the limits the owner set
+// beside it: it loads, the key is ignored, and the status says which and why.
+func TestRulebookPolicyFileWithARetiredKeyKeepsTheOwnersLimits(t *testing.T) {
+	m, path, _ := rulebookTestManager(t)
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pct = -25\n")
+	m.reload()
+	p, st := m.Active()
+	if st.Status != rpc.RulebookPolicyStatusActive || p.CashReserveMinPct != 70 || !slices.Equal(st.Overrides, []string{"cash_reserve_min_pct"}) ||
+		!strings.Contains(st.Message, "regime_calm.cash_sell_only_pct") || !strings.Contains(st.Message, "cash_reserve_min_pct") {
+		t.Fatalf("retired key: %+v (cash reserve %v)", st, p.CashReserveMinPct)
+	}
+	m.reload()
+	if _, st := m.Active(); !strings.Contains(st.Message, "cash_sell_only_pct") {
+		t.Fatalf("the note vanished on a steady reload: %+v", st)
+	}
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pcx = -25\n")
+	m.reload()
+	if _, st := m.Active(); st.Status != rpc.RulebookPolicyStatusError || !strings.Contains(st.Message, "cash_sell_only_pcx") {
+		t.Fatalf("a misspelt key was tolerated like a retired one: %+v", st)
+	}
+}
+
+// set refuses the retired key, reset removes it, and any other edit drops it,
+// so a key that changes nothing never reads as a limit in force.
+func TestEditRulebookPolicyRefusesAndRemovesTheRetiredKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rulebook-policy.toml")
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pct = -25\n\n[regime_confirmed]\ncash_sell_only_pct = 10\n")
+	before, _ := os.ReadFile(path)
+	_, err := EditRulebookPolicy(path, []string{"regime_confirmed.cash_sell_only_pct=5"}, nil, false)
+	if err == nil || !strings.Contains(err.Error(), "retired") || !strings.Contains(err.Error(), "cash_reserve_min_pct") {
+		t.Fatalf("set accepted the retired key: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("a refused set changed the file")
+	}
+	edit, err := EditRulebookPolicy(path, []string{"overhedge_multiple=1.5"}, []string{"regime_calm.cash_sell_only_pct"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, _ := os.ReadFile(path)
+	if strings.Contains(string(written), "cash_sell_only_pct") || !slices.Equal(edit.Overrides, []string{"cash_reserve_min_pct", "overhedge_multiple"}) {
+		t.Fatalf("edit kept a retired key or lost a limit: %+v\n%s", edit, written)
+	}
+	removed := 0
+	for _, c := range edit.Changes {
+		if strings.HasSuffix(c.Key, ".cash_sell_only_pct") && strings.HasPrefix(c.To, "removed") {
+			removed++
+		}
+	}
+	if removed != 2 {
+		t.Fatalf("changes do not report both retired keys removed: %+v", edit.Changes)
+	}
+	if _, err := EditRulebookPolicy(path, []string{"overhedge_multiple=0.5"}, nil, false); err == nil {
+		t.Fatal("an over-hedge multiple below 1 was accepted")
+	}
+	m := newRulebookPolicyManager(path, time.Minute, time.Now)
+	m.reload()
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.OverhedgeMultiple != 1.5 || st.Message != "" {
+		t.Fatalf("the daemon reads the cleaned file differently: %+v (multiple %v)", st, p.OverhedgeMultiple)
+	}
+}
+
+// The complete file canary policy default rulebook prints no longer carries
+// the retired key, and it loads as the baseline.
+func TestDefaultRulebookPolicyTOMLCarriesNoRetiredKey(t *testing.T) {
+	data, err := DefaultRulebookPolicyTOML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	read, err := parseRulebookPolicy(data)
+	if err != nil || strings.Contains(string(data), "cash_sell_only_pct") || len(read.retired) != 0 ||
+		read.policy.FingerprintKey() != risk.DefaultRulebookPolicy().FingerprintKey() || !strings.Contains(string(data), "overhedge_multiple = 2.0") {
+		t.Fatalf("default file: err %v retired %v\n%s", err, read.retired, data)
+	}
+}

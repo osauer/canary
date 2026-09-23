@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-08-10 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendment 11, 2026-09-23 08:37 CEST). The
+Updated: 2026-09-23 22:07 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -148,8 +148,9 @@ contradiction:
    Rules 9-11 default off and rule 14 defaults track.
 10. Amendment (2026-08-10): a structurally eligible index put receives
     protection treatment only when its short delta can plausibly protect the
-    current gross-long book. With no long book, or above twice the widest
-    configured protection band, it is directional short exposure. Directional
+    current gross-long book. With no long book, or above the over-hedge
+    multiple (default twice, amendment 12) of the widest configured
+    protection band, it is directional short exposure. Directional
     exposure follows ordinary concentration, premium, time-value, expiry, and
     loss rules; rule 12 does not size it as protection.
 
@@ -166,6 +167,19 @@ contradiction:
     losing line at the price paid. The budget governor gains `basis =
     "rulebook"`: rule 2's act level per line and rule 3's cash reserve, with no
     brake gate.
+
+12. Amendment (2026-09-23 22:07 CEST, operator decision): the last compiled
+    limit becomes a key. `overhedge_multiple` (default 2, between 1 and 10)
+    sets both uses of the former fixed 2x: rule 12 acts above that multiple of
+    the current regime's band top, and index puts above that multiple of the
+    widest band top classify as directional rather than protection. One key,
+    not two, keeps the two boundaries moving together. The per-regime
+    `cash_sell_only_pct`, which no rule read, is retired: `set` refuses it, a
+    file that still carries it loads with the key ignored and a
+    `policy_status` note, and any edit removes it. Refusing the whole file
+    instead would void every limit the owner set beside a key that changes
+    nothing. The baseline stays `rulebook-v3` because its behaviour is
+    unchanged; the fingerprint projection moves to `rulebook-fp-v5`.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
@@ -220,8 +234,9 @@ Semantics notes:
 - Index-put roles (rules 1, 2, 4, 5, 12, 13): eligible long puts use the
   policy-owned index list (`SPY, SPX, SPXW, QQQ, IWM`). They are protection
   only when the current book gives them plausible gross-long exposure to
-  protect. With no gross-long book, or when short delta exceeds twice the
-  widest configured protection band, they are directional short exposure.
+  protect. With no gross-long book, or when short delta exceeds the
+  over-hedge multiple (`overhedge_multiple`, default 2) of the widest
+  configured protection band, they are directional short exposure.
   Directional positions receive no protection exemptions. Missing delta,
   underlying price, or stock-leg mark provenance leaves the role unclassified.
 - Rule 1 exempts only the portion of net-short index exposure carried by

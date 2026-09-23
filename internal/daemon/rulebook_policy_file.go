@@ -79,6 +79,11 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		delete(current, key)
 	}
 	before := flattenTOMLMap(current)
+	for key := range before {
+		if retiredRulebookKey(key) {
+			deleteTOMLKey(current, key)
+		}
+	}
 
 	overrides := current
 	if resetAll {
@@ -87,7 +92,7 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 	known := flattenTOMLMap(baseline)
 	for _, key := range resets {
 		key = strings.TrimSpace(key)
-		if _, ok := known[key]; !ok {
+		if _, ok := known[key]; !ok && !retiredRulebookKey(key) {
 			return RulebookPolicyEdit{}, unknownRulebookKey(key, known)
 		}
 		deleteTOMLKey(overrides, key)
@@ -97,6 +102,9 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		key, raw = strings.TrimSpace(key), strings.TrimSpace(raw)
 		if !ok || key == "" || raw == "" {
 			return RulebookPolicyEdit{}, fmt.Errorf("%q is not KEY=VALUE", assignment)
+		}
+		if retiredRulebookKey(key) {
+			return RulebookPolicyEdit{}, fmt.Errorf("%s is retired: %s", key, retiredCashSellOnlyReason)
 		}
 		want, ok := known[key]
 		if !ok {
@@ -125,7 +133,7 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 	if err := toml.NewEncoder(&buf).Encode(overrides); err != nil {
 		return RulebookPolicyEdit{}, err
 	}
-	policy, keys, err := parseRulebookPolicy(buf.Bytes())
+	read, err := parseRulebookPolicy(buf.Bytes())
 	if err != nil {
 		return RulebookPolicyEdit{}, err
 	}
@@ -140,9 +148,13 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		if tomlValuesEqual(from, to) {
 			continue
 		}
-		changes = append(changes, RulebookPolicyChange{Key: key, From: tomlLiteral(from), To: tomlLiteral(to)})
+		change := RulebookPolicyChange{Key: key, From: tomlLiteral(from), To: tomlLiteral(to)}
+		if retiredRulebookKey(key) {
+			change.To = "removed (no rule reads it)"
+		}
+		changes = append(changes, change)
 	}
-	return RulebookPolicyEdit{Path: path, Version: policy.Version, Changes: changes, Overrides: keys}, nil
+	return RulebookPolicyEdit{Path: path, Version: read.policy.Version, Changes: changes, Overrides: read.overrides}, nil
 }
 
 // DefaultRulebookPolicyTOML renders the compiled baseline as a complete,

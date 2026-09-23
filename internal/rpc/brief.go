@@ -1677,7 +1677,7 @@ type RiskPolicyWriteResult struct {
 const MethodRulesSnapshot = "rules.snapshot"
 
 // RulebookPolicyFingerprintVersion labels the advisory rulebook policy
-const RulebookPolicyFingerprintVersion = "rulebook-fp-v4"
+const RulebookPolicyFingerprintVersion = "rulebook-fp-v5"
 
 // RulebookPolicyStatusDefault and the related values say which Rulebook
 // policy produced a result: the compiled baseline, the owner's file in force,

@@ -24,7 +24,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 9 | Holding falls while the market rises | A held stock falling while SPY rises during the regular session. | Off |
 | 10 | Large winner today | A large holding above its daily gain level. | Off |
 | 11 | Positive day with urgent risks open | A positive account day while an act-level Rulebook item remains open. | Off |
-| 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure. Large directional index shorts are not treated as protection. | Alert |
+| 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure, against a band that depends on the regime. It acts above twice the band's top (`overhedge_multiple`), and index puts above that multiple of the widest band count as directional shorts, not protection. | Alert |
 | 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
 | 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
 | 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act above 150%. | Track |
@@ -53,7 +53,9 @@ canary rules policy reset --all
 `set` writes only the keys you change to
 `~/.config/ibkr/policies/rulebook-policy.toml` (or `[rulebook].policy_file`),
 raises `policy_version`, and refuses an unknown key or an invalid value before
-writing anything. The daemon applies the file within 30 seconds. A hand-written
+writing anything. It also refuses `cash_sell_only_pct`, which no rule reads; a
+file that still carries it loads with the key ignored, a note in
+`policy_status` names it, and any `set` or `reset` removes it. The daemon applies the file within 30 seconds. A hand-written
 file works as well: it may hold any subset of the keys `canary policy default
 rulebook` prints, and a hand edit applies only with a higher `policy_version`.
 A file the daemon cannot read or validate never replaces the limits in force,

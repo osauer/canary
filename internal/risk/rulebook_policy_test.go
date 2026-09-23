@@ -111,6 +111,8 @@ func TestRulebookPolicyValidateRejectsUnusableLimits(t *testing.T) {
 		"no identity":         func(p *RulebookPolicy) { p.ID = "" },
 		"wrong kind":          func(p *RulebookPolicy) { p.Kind = "ibkr.protection_policy" },
 		"regime band min>max": func(p *RulebookPolicy) { p.RegimeCalm.HedgeBandMinPct = 50 },
+		"overhedge below 1":   func(p *RulebookPolicy) { p.OverhedgeMultiple = 0.5 },
+		"overhedge NaN":       func(p *RulebookPolicy) { p.OverhedgeMultiple = math.NaN() },
 	} {
 		p := DefaultRulebookPolicy()
 		mutate(&p)
@@ -126,5 +128,35 @@ func TestRulebookFingerprintCoversNetExposureLimits(t *testing.T) {
 	changed.NetExposureActPct = 175
 	if base.FingerprintKey() == changed.FingerprintKey() {
 		t.Fatal("a net exposure limit change left the fingerprint unchanged")
+	}
+	changed = DefaultRulebookPolicy()
+	changed.OverhedgeMultiple = 1.5
+	if base.FingerprintKey() == changed.FingerprintKey() {
+		t.Fatal("an over-hedge multiple change left the fingerprint unchanged")
+	}
+}
+
+// The over-hedge multiple is the owner's: it moves the level where rule 12
+// acts and the level where index puts stop counting as protection.
+func TestOverhedgeMultipleMovesRule12AndTheProtectionBoundary(t *testing.T) {
+	in := healthyInputs() // gross long 455,000; one SPY put line of 40 contracts on 752
+	in.RegimeStage, in.RegimeStageAsOf = RegimeBucketCalm, in.AsOf
+	in.Names[3].Legs[0].Delta = new(-0.10) // about 60–66% of gross long against the calm 25–35% band
+	pol := DefaultRulebookPolicy()
+	if row := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity); row.Status != RuleStatusWatch {
+		t.Fatalf("default multiple: %s (%s)", row.Status, row.Evidence)
+	}
+	pol.OverhedgeMultiple = 1.5
+	if row := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity); row.Status != RuleStatusAct {
+		t.Fatalf("multiple 1.5 left an over-hedge at %s (%s)", row.Status, row.Evidence)
+	}
+
+	in.Names[3].Legs[0].Delta = new(-0.15) // 99% of gross long
+	if role := classifyIndexPutRoles(in, DefaultRulebookPolicy()).Names[3].Legs[0].IndexPutRole; role != IndexPutRoleProtection {
+		t.Fatalf("default multiple: role %s", role)
+	}
+	pol.OverhedgeMultiple = 1.4 // boundary 98% of gross long
+	if role := classifyIndexPutRoles(in, pol).Names[3].Legs[0].IndexPutRole; role != IndexPutRoleDirectional {
+		t.Fatalf("multiple 1.4 still treats a put at 99%% of gross long as protection: %s", role)
 	}
 }

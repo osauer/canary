@@ -137,7 +137,7 @@ func (m *rulebookPolicyManager) reload() {
 	if m.now != nil {
 		now = m.now().UTC()
 	}
-	policy, source, overrides, err := loadRulebookPolicyFile(m.path)
+	read, err := loadRulebookPolicyFile(m.path)
 
 	m.mu.Lock()
 	prev := m.status
@@ -153,24 +153,25 @@ func (m *rulebookPolicyManager) reload() {
 			m.status.Source = rulebookPolicySourceDefault
 		}
 	case !m.loaded:
-		m.adopt(policy, source, overrides, now)
+		m.adopt(read, now)
 		prev = rpc.RulebookPolicyStatus{}
-	case source == rulebookPolicySourceDefault && m.status.Source == rulebookPolicySourceFile:
+	case read.source == rulebookPolicySourceDefault && m.status.Source == rulebookPolicySourceFile:
 		// A removed file does not silently loosen or tighten the limits in
 		// force: the owner restarts the daemon to return to the baseline.
 		m.status = rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusDrift, rulebookPolicySourceFile, m.path, m.status.Overrides, now)
 		m.status.Message = "the policy file was removed; restart the daemon to return to the compiled baseline"
-	case source == rulebookPolicySourceFile && m.status.Source == rulebookPolicySourceDefault,
-		policy.Version > m.active.Version:
+	case read.source == rulebookPolicySourceFile && m.status.Source == rulebookPolicySourceDefault,
+		read.policy.Version > m.active.Version:
 		// The first file replaces the baseline whatever its version; later
 		// edits need a higher policy_version.
-		m.adopt(policy, source, overrides, now)
-	case policy.FingerprintKey() == m.active.FingerprintKey():
-		st := rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusActive, source, m.path, m.status.Overrides, now)
-		if source == rulebookPolicySourceDefault {
+		m.adopt(read, now)
+	case read.policy.FingerprintKey() == m.active.FingerprintKey():
+		st := rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusActive, read.source, m.path, m.status.Overrides, now)
+		if read.source == rulebookPolicySourceDefault {
 			st.Status = rpc.RulebookPolicyStatusDefault
 		}
 		st.LoadedAt = m.status.LoadedAt
+		st.Message = retiredRulebookKeysNote(read.retired)
 		m.status = st
 	default:
 		m.status = rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusDrift, m.status.Source, m.path, m.status.Overrides, now)
@@ -186,56 +187,74 @@ func (m *rulebookPolicyManager) reload() {
 }
 
 // adopt puts a validated policy in force. The caller holds m.mu.
-func (m *rulebookPolicyManager) adopt(policy risk.RulebookPolicy, source string, overrides []string, now time.Time) {
-	m.active, m.loaded = policy, true
+func (m *rulebookPolicyManager) adopt(read rulebookPolicyRead, now time.Time) {
+	m.active, m.loaded = read.policy, true
 	status := rpc.RulebookPolicyStatusActive
-	if source == rulebookPolicySourceDefault {
+	if read.source == rulebookPolicySourceDefault {
 		status = rpc.RulebookPolicyStatusDefault
 	}
-	m.status = rulebookPolicyStatusFor(policy, status, source, m.path, overrides, now)
+	m.status = rulebookPolicyStatusFor(read.policy, status, read.source, m.path, read.overrides, now)
 	m.status.LoadedAt = now
+	m.status.Message = retiredRulebookKeysNote(read.retired)
+}
+
+// rulebookPolicyRead is one read of the owner's file over the compiled
+// baseline: the policy, where it came from, the keys the file sets, and the
+// retired keys it still carries, which no rule reads.
+type rulebookPolicyRead struct {
+	policy    risk.RulebookPolicy
+	source    string
+	overrides []string
+	retired   []string
 }
 
 // loadRulebookPolicyFile reads the owner's file over the compiled baseline.
 // An absent file is the baseline itself, not an error.
-func loadRulebookPolicyFile(path string) (risk.RulebookPolicy, string, []string, error) {
-	base := risk.DefaultRulebookPolicy()
+func loadRulebookPolicyFile(path string) (rulebookPolicyRead, error) {
+	base := rulebookPolicyRead{policy: risk.DefaultRulebookPolicy(), source: rulebookPolicySourceDefault}
 	if strings.TrimSpace(path) == "" {
-		return base, rulebookPolicySourceDefault, nil, nil
+		return base, nil
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return base, rulebookPolicySourceDefault, nil, nil
+		return base, nil
 	}
 	if err != nil {
-		return risk.RulebookPolicy{}, rulebookPolicySourceFile, nil, fmt.Errorf("read rulebook policy %s: %w", path, err)
+		return rulebookPolicyRead{}, fmt.Errorf("read rulebook policy %s: %w", path, err)
 	}
-	policy, overrides, err := parseRulebookPolicy(data)
+	read, err := parseRulebookPolicy(data)
 	if err != nil {
-		return risk.RulebookPolicy{}, rulebookPolicySourceFile, nil, fmt.Errorf("rulebook policy %s: %w", path, err)
+		return rulebookPolicyRead{}, fmt.Errorf("rulebook policy %s: %w", path, err)
 	}
-	return policy, rulebookPolicySourceFile, overrides, nil
+	read.source = rulebookPolicySourceFile
+	return read, nil
 }
 
 // parseRulebookPolicy decodes a policy file over the compiled baseline and
 // lists the threshold and mode keys it sets. Unknown keys are refused so a
-// misspelt limit cannot silently keep the baseline.
-func parseRulebookPolicy(data []byte) (risk.RulebookPolicy, []string, error) {
+// misspelt limit cannot silently keep the baseline. A retired key is listed
+// instead: refusing it would void every limit the file sets over a key that
+// changes nothing.
+func parseRulebookPolicy(data []byte) (rulebookPolicyRead, error) {
 	policy := risk.DefaultRulebookPolicy()
 	md, err := toml.Decode(string(data), &policy)
 	if err != nil {
-		return risk.RulebookPolicy{}, nil, fmt.Errorf("parse: %w", err)
+		return rulebookPolicyRead{}, fmt.Errorf("parse: %w", err)
 	}
-	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		keys := make([]string, len(undecoded))
-		for i, k := range undecoded {
-			keys[i] = k.String()
+	var unknown, retired []string
+	for _, k := range md.Undecoded() {
+		if name := k.String(); retiredRulebookKey(name) {
+			retired = append(retired, name)
+		} else {
+			unknown = append(unknown, name)
 		}
-		return risk.RulebookPolicy{}, nil, fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
+	}
+	if len(unknown) > 0 {
+		return rulebookPolicyRead{}, fmt.Errorf("unknown key(s): %s", strings.Join(unknown, ", "))
 	}
 	policy.Normalize()
 	if err := policy.Validate(); err != nil {
-		return risk.RulebookPolicy{}, nil, err
+		return rulebookPolicyRead{}, err
 	}
 	var overrides []string
 	for _, key := range md.Keys() {
@@ -244,13 +263,36 @@ func parseRulebookPolicy(data []byte) (risk.RulebookPolicy, []string, error) {
 		case "kind", "schema_version", "policy_id", "policy_version":
 			continue
 		}
-		if md.Type(key...) == "Hash" {
+		if md.Type(key...) == "Hash" || retiredRulebookKey(name) {
 			continue
 		}
 		overrides = append(overrides, name)
 	}
 	slices.Sort(overrides)
-	return policy, overrides, nil
+	slices.Sort(retired)
+	return rulebookPolicyRead{policy: policy, overrides: overrides, retired: retired}, nil
+}
+
+// retiredCashSellOnlyReason says why cash_sell_only_pct is retired.
+const retiredCashSellOnlyReason = "no rule reads cash_sell_only_pct (the cash reserve is cash_reserve_min_pct)"
+
+// retiredRulebookKey reports whether key is one an owner file may still carry
+// although no rule reads it: cash_sell_only_pct in a regime set, which
+// canary policy default rulebook wrote until v3.11.1. Loading ignores it and
+// says so, set refuses it, and any edit removes it.
+func retiredRulebookKey(key string) bool {
+	set, leaf, ok := strings.Cut(key, ".")
+	return ok && leaf == "cash_sell_only_pct" &&
+		(set == "regime_calm" || set == "regime_early_warning" || set == "regime_confirmed")
+}
+
+// retiredRulebookKeysNote is the status note for the retired keys a file
+// carries, or "" when it carries none.
+func retiredRulebookKeysNote(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("ignored %s: %s; canary rules policy reset KEY removes it", strings.Join(keys, ", "), retiredCashSellOnlyReason)
 }
 
 func rulebookPolicyStatusFor(p risk.RulebookPolicy, status, source, path string, overrides []string, now time.Time) rpc.RulebookPolicyStatus {
