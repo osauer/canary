@@ -108,4 +108,35 @@ if (cd "$ok" && "$script" 2.3.1 >/dev/null 2>&1); then
 	fail "a version without the v prefix should be rejected"
 fi
 
+# A non-patch release also needs the pushed site to describe it, the llms
+# files included: v3.11.0 shipped llms.txt still describing 3.10.
+seed_site() {
+	root="$1"
+	llms_minor="$2"
+	seed_docs "$root" 2.4.0 2.4.0 2.4.0 v2.4.0
+	mkdir -p "$root/docs/interactive-brokers-mcp-server"
+	for page in docs/index.html docs/interactive-brokers-mcp-server/index.html; do
+		printf '{"softwareVersion": "2.4.0"}\n' > "$root/$page"
+	done
+	for llms in docs/llms.txt docs/llms-full.txt; do
+		printf '# Canary\n\nUpdated: 2026-01-01\n\nVersion %s adds a thing.\n' "$llms_minor" > "$root/$llms"
+	done
+	git -C "$root" init -q
+	git -C "$root" add -A
+	git -C "$root" -c user.name=test -c user.email=test@example.invalid \
+		-c core.hooksPath=/dev/null -c commit.gpgsign=false commit -q -m site
+	git -C "$root" update-ref refs/remotes/origin/main HEAD
+}
+site="$test_root/site"
+seed_site "$site" 2.4
+(cd "$site" && "$script" v2.4.0 >/dev/null) \
+	|| fail "a minor release whose pushed site describes it should pass"
+stale_llms="$test_root/stale-llms"
+seed_site "$stale_llms" 2.3
+if (cd "$stale_llms" && "$script" v2.4.0 >/dev/null 2>"$test_root/hint-llms"); then
+	fail "a minor release passed with llms files describing the previous version"
+fi
+grep -q 'docs/llms.txt' "$test_root/hint-llms" \
+	|| fail "a stale llms hint does not name the file"
+
 echo "check-release-site-sync test: all cases passed"

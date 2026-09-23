@@ -124,4 +124,15 @@ if ! grep -q "\"softwareVersion\": \"$plain\"" docs/interactive-brokers-mcp-serv
   exit 1
 fi
 
+# The llms files open with a paragraph on what this minor version adds, under
+# their Updated: date. v3.11.0 shipped both still describing 3.10 because no
+# gate read them.
+for llms in docs/llms.txt docs/llms-full.txt; do
+  if ! grep -q "^Version $major\.$minor " "$llms"; then
+    echo "release-site-check: $llms does not describe version $major.$minor" >&2
+    echo "                    update its Updated: date and opening \"Version $major.$minor\" paragraph for this non-patch release" >&2
+    exit 1
+  fi
+done
+
 echo "release-site-check: $version requires and has a pushed osauer.dev/canary docs update"
