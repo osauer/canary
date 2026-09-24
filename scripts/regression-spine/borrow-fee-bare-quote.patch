@@ -1,0 +1,17 @@
+diff --git a/internal/daemon/market_events.go b/internal/daemon/market_events.go
+--- a/internal/daemon/market_events.go
++++ b/internal/daemon/market_events.go
+@@ -907,7 +907,12 @@ func parseIBKRBorrowFees(body string) (marketEventBorrowFeeEntry, error) {
+ 		if seenEOF {
+ 			return marketEventBorrowFeeEntry{}, invalid
+ 		}
+-		fields := strings.Split(line, "|")
++		reader := csv.NewReader(strings.NewReader(line))
++		reader.Comma = '|'
++		fields, err := reader.Read()
++		if err != nil {
++			return marketEventBorrowFeeEntry{}, invalid
++		}
+ 		switch tag := strings.TrimSpace(fields[0]); {
+ 		case tag == "#BOF":
+ 			if seenBOF || len(fields) < 3 {

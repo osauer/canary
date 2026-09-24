@@ -12,8 +12,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
-	"slices"
-	"strings"
 	"time"
 )
 
@@ -69,7 +67,7 @@ func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 func fetchStressMarketEvents(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }, pos rpc.PositionsResult) rpc.MarketEventsResult {
-	symbols := stressMarketEventSymbols(pos)
+	symbols, _ := rpc.MarketEventScope(&pos)
 	if len(symbols) == 0 {
 		return rpc.MarketEventsResult{}
 	}
@@ -101,33 +99,6 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 		}
 		out.Fingerprint = rpc.BuildMarketEventsFingerprint(&out)
 	}
-	return out
-}
-
-func stressMarketEventSymbols(pos rpc.PositionsResult) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	add := func(value string) {
-		sym := strings.ToUpper(strings.TrimSpace(value))
-		if sym == "" || seen[sym] {
-			return
-		}
-		seen[sym] = true
-		out = append(out, sym)
-	}
-	for _, stock := range pos.Stocks {
-		add(stock.Symbol)
-	}
-	for _, group := range pos.ByUnderlying {
-		add(group.Underlying)
-		if group.Stock != nil {
-			add(group.Stock.Symbol)
-		}
-		for _, opt := range group.Options {
-			add(opt.Symbol)
-		}
-	}
-	slices.Sort(out)
 	return out
 }
 

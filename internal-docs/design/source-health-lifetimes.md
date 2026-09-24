@@ -9,7 +9,7 @@ absence means an older or unsupported producer contract, not a healthy source.
 | `availability` | Acquisition/access observed by its producer: `available`, `limited`, `unavailable`, or `unknown`. A failed latest public-source fetch can coexist with retained prior data. This is not analytical usability or portfolio applicability. |
 | `data_type` | Existing delivery mode, including delayed, frozen, delayed-frozen or mixed. Receipt of delayed/frozen data alone is not a source outage. Instrument clocks and execution suitability remain in the instrument DTO. |
 | `cadence_state` | A producer's verified `not_due`, `pending`, or `overdue` schedule. Not-due does not clear a failed acquisition or a blocked analytical result. |
-| `applicability` | `not_relevant` only when the owner verified that the current scope needs no evidence. For example, no exact held short stocks cannot prove the borrow-fee provider recovered. `required` remains the compatibility field. |
+| `applicability` | `not_relevant` only when the owner verified that the current scope needs no evidence. For example, no exact held short stocks cannot prove the borrow-fee provider recovered. A not-relevant row keeps its availability, failure and real receipts but is not required and adds no concern. `required` remains the compatibility field. |
 | `usability` | The analytical owner's quality verdict: `usable`, `limited`, `blocked`, or `unknown`. Currently populated for gamma, with bounded owner-authored `usability_reason`. Retained rankability alone cannot establish current usability when its publication or source is stale. |
 
 The summary counts source concerns and unknown coverage. It does not count
@@ -21,7 +21,12 @@ remains a separate observation.
 History dates state observations with the daemon's observer clock, independently
 of provider last-attempt, receipt, publication or price clocks. `last_success`
 uses actual producer receipt evidence; passive reads, not-due scheduling and
-irrelevant scope never advance it. Retention is seven days and at most 128
+an irrelevant-scope verdict never advance it, and a producer that delivered
+nothing reports no source clock. Records are versioned. An unversioned record
+restores its `last_success`, except `events:borrow_fee`: an earlier recorder
+counted its not-applicable verdict as success, so it keeps at most the newest
+receipt the borrow-fee authorities prove, and none when they never recorded
+one. Retention is seven days and at most 128
 transitions per source, with a two MiB durable-document ceiling. Count/age pruning
 sets `history_truncated`. Legacy six-row history is marked truncated when its
 first-observed clock precedes its oldest retained transition. Restart adds an
@@ -48,11 +53,36 @@ silently removed to meet the wire budget.
   512 entries and 30 minutes. A fresh receipt supersedes a negative probe.
   Partial requested coverage remains partial; actual zero shares remains an
   observed zero. Restart restores no current receipt or negative authority.
-- Borrow-fee refreshes use the existing official FTP source, durable 15-minute
-  failure retry and existing exact held-short TWS historical fallback. Cancellation
-  while queued or during acquisition preserves prior failure/backoff evidence.
-  FTP cancellation closes sockets; the transfer has its existing time bound and
-  a 16 MiB body limit. Entitlement, scale validation and trading policy are unchanged.
+- Market-event source health describes the held book. The daemon loops, the
+  app and Stress derive one held-name scope (`rpc.MarketEventScope`). Only a
+  read of exactly the scope the daemon derived within the last two minutes
+  records `events:*` health, so an explicit-symbol read cannot overwrite it.
+  Reg SHO and halt checks cover every held name. Shortable-inventory coverage
+  does not expect a name no position expects market data for; the notes count
+  it as not expected rather than missing.
+- Borrow fee and shortable inventory take their applicability from the
+  portfolio on every read, whatever the provider's schedule or backoff:
+  `not_relevant` when a current, same-account portfolio stream holds no exact
+  short stock among the held names. While the stream is not current (reconnect,
+  resubscription, short download, quiet period) the last such verdict answers
+  for the same account and names for up to 15 minutes; after that, or without
+  one, the rows are required. A new name, another account or a held short stock
+  ends it at once, and a restart restores none.
+- Borrow-fee refreshes try IBKR's documented FTP host (ftp3) and IBKR's
+  mirror (ftp2) in order within one attempt, starting with the host that served
+  the retained file, and record the serving host as the source URL. Each control
+  command has a 10-second deadline and the transfer a separate 45-second budget;
+  a timeout at greeting or login reconnects once before failing over. When every
+  host fails, the failure that progressed furthest is recorded, with the durable
+  15-minute retry and the existing exact held-short TWS historical fallback.
+  Cancellation while queued or during acquisition preserves prior failure/backoff
+  evidence and closes sockets; the body limit is 16 MiB. Off-hours, `next_attempt`
+  is the next regular US open. The file has no quoting: a quote in a name is text,
+  a malformed row is skipped and counted in the source notes, and a published
+  `#EOF` count must match. `>N` availability is kept as a lower bound, never a
+  scarcity reading, and `NA` rates are kept as unpublished, never zero (state
+  version 3; version 2 loads unchanged). Entitlement, scale validation and
+  trading policy are unchanged.
 - The New York Fed calendar is an independent, dated partial backup for key
   releases. It cannot repair a failed BLS source or establish complete BLS/event-free
   coverage. Ordinary access rejection remains visible. No alternate credentials,

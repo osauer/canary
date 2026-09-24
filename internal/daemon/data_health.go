@@ -67,7 +67,8 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 	} // The fixed source catalogue still lists unobserved services as unknown.
 	row.FirstObserved = previous.row.FirstObserved
 	// Only actual producer clocks establish successful receipt. Not-due and
-	// not-relevant verdicts must not renew that history on every read.
+	// not-relevant verdicts must not renew that history on every read; their
+	// producers report no source clock unless something was delivered.
 	if previous.row.LastSuccess.After(row.LastSuccess) {
 		row.LastSuccess = previous.row.LastSuccess
 	}
@@ -76,7 +77,7 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 	if row.FirstObserved.IsZero() {
 		row.FirstObserved = observedAt
 	}
-	if row.ReceivedAt.After(row.LastSuccess) && !row.ReceivedAt.After(row.CheckedAt) && row.Applicability != "not_relevant" {
+	if row.ReceivedAt.After(row.LastSuccess) && !row.ReceivedAt.After(row.CheckedAt) {
 		row.LastSuccess = row.ReceivedAt
 	}
 	if row.LastSuccess != previous.row.LastSuccess {
@@ -254,11 +255,6 @@ func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealt
 	if !health.AsOf.IsZero() && (row.State == "current" || row.State == "limited") {
 		row.ReceivedAt = health.AsOf
 	}
-	if health.Applicability == "not_relevant" {
-		row.State, row.Receiving, row.Required = "not_relevant", "Not needed for the current scope", false
-		row.Availability, row.ReceivedAt = "unknown", time.Time{}
-		return row
-	}
 	if health.RefreshState == rpc.SourceRefreshNotDue && row.State == "current" && health.LastFailure == nil {
 		row.State, row.Receiving = "not_due", "As scheduled"
 	}
@@ -277,6 +273,12 @@ func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealt
 	}
 	if row.State == "limited" || row.State == "unavailable" {
 		row.ProblemIDs = []string{id}
+	}
+	if health.Applicability == "not_relevant" {
+		// The scope waives the need, not the provider facts: availability,
+		// failure and any real receipt stay as observed, but add no concern.
+		row.State, row.Receiving, row.Required = "not_relevant", "Not needed for the current scope", false
+		row.ProblemIDs = nil
 	}
 	return row
 }

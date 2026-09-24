@@ -415,15 +415,19 @@ recommendations.
 | Nasdaq Reg SHO | Latest available Nasdaq threshold-security file; emits `reg_sho_threshold` for covered symbols | Cached fetch for 12 hours; source age may extend to 96 hours. Fetch failure serves labeled stale last-good when present. Absence covers Nasdaq's feed only, not every listing exchange. |
 | Nasdaq halts | Nasdaq trade-halt feed; emits active/recent LULD or regulatory/news halt flags | One-minute freshness and one-minute retry. A failed refresh may serve labeled stale records; no current feed means halt absence is not conclusive. |
 | IBKR borrow inventory | Generic tick 236 shortable-share observation; emits tight/scarce inventory | Two-minute source window. Missing ticks are unknown; recently absent symbols are re-probed after 30 minutes rather than held false for the day. |
-| IBKR FTP borrow fee | Global short-stock availability file; emits extreme annualized fee only from current, policy-eligible evidence | Refreshes during the US equity regular session; 15-minute fresh window, 90-minute maximum age, 15-minute failure retry. Off-hours is typed `not_due` and may serve the latest completed-session last-good. |
+| IBKR FTP borrow fee | Global short-stock availability file from IBKR's documented host, with IBKR's mirror as failover; emits extreme annualized fee only from current, policy-eligible evidence. `>N` availability is a lower bound and an `NA` fee is unpublished, never zero. | Refreshes during the US equity regular session; 15-minute fresh window, 90-minute maximum age, 15-minute failure retry. Off-hours is typed `not_due`, may serve the latest completed-session last-good, and reports the next regular open as `next_attempt`. |
 | TWS `FEE_RATE` | Exact-contract historical context for currently held short stocks when due FTP evidence is unusable | Portfolio-only diagnostic fallback. Its numeric scale is uncommissioned, nullable, and policy-ineligible; it never creates or clears the global extreme-fee flag. |
 
 The result carries per-source `status`, `refresh_state`, `next_attempt`, a
 redacted typed `last_failure`, warnings, and a semantic fingerprint. Empty
 `flags` is conclusive only when source health establishes current, complete
 coverage. Unknown and null never mean inactive or zero. Borrow-inventory
-aggregate health can read `ok` after at least one requested symbol reports, so
-check the coverage note: other symbols may still lack a tick.
+health reads `ok` only when every requested symbol that expects market data
+reports a current tick; a held name that expects none, such as a terminal
+non-reporting stock, is counted as not expected in the notes. For a book with no
+short stock, borrow-fee and borrow-inventory health carry
+`applicability: not_relevant` at every hour while keeping the provider's own
+status and failure.
 
 ### Safe check
 

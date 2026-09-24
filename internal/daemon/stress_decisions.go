@@ -328,7 +328,7 @@ func (s *Server) stressEvaluationTick(ctx context.Context) bool {
 	pos = s.analysisPositions(pos, reader.now())
 	var events *rpc.MarketEventsResult
 	if pos != nil {
-		events, _ = reader.marketEvents(ctx, marketEventSymbolsFromPositions(pos))
+		events, _ = reader.marketEvents(ctx, s.canonicalMarketEventSymbols(pos))
 	}
 	in := rpc.StressInput{Now: reader.now()}
 	if acct != nil {

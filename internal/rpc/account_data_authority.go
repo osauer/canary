@@ -1,6 +1,9 @@
 package rpc
 
 import (
+	"maps"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -142,6 +145,50 @@ func ExpectsMarketDataGroup(g PositionGroup) bool {
 		return true
 	}
 	return ExpectsMarketData(*g.Stock)
+}
+
+// MarketEventScope returns the canonical market-event scope of one positions
+// read. The daemon and its clients share it so that every caller asks for the
+// same held names. symbols lists every held stock and option underlying,
+// upper-cased, de-duplicated and sorted; Reg SHO, halt and borrow checks cover
+// all of them. unquoted lists, in the same order, the held names that no
+// position expects market data for (see [ExpectsMarketData]): they deliver no
+// shortable-share tick, so inventory coverage does not expect them. A nil read
+// has an empty scope.
+func MarketEventScope(pos *PositionsResult) (symbols, unquoted []string) {
+	if pos == nil {
+		return nil, nil
+	}
+	expected := map[string]bool{}
+	hold := func(symbol string, expects bool) {
+		symbol = strings.ToUpper(strings.TrimSpace(symbol))
+		if symbol != "" {
+			expected[symbol] = expected[symbol] || expects
+		}
+	}
+	for _, stock := range pos.Stocks {
+		hold(stock.Symbol, ExpectsMarketData(stock))
+	}
+	for _, option := range pos.Options {
+		hold(option.Symbol, ExpectsMarketData(option))
+	}
+	for _, group := range pos.ByUnderlying {
+		expects := ExpectsMarketDataGroup(group)
+		hold(group.Underlying, expects)
+		if group.Stock != nil {
+			hold(group.Stock.Symbol, expects)
+		}
+		for _, option := range group.Options {
+			hold(option.Symbol, expects)
+		}
+	}
+	symbols = slices.Sorted(maps.Keys(expected))
+	for _, symbol := range symbols {
+		if !expected[symbol] {
+			unquoted = append(unquoted, symbol)
+		}
+	}
+	return symbols, unquoted
 }
 
 // Protection-coverage states distinguish reconciled coverage from partial,
