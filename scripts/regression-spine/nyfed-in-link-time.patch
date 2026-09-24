@@ -1,0 +1,14 @@
+diff --git a/internal/macrosource/nyfed.go b/internal/macrosource/nyfed.go
+index 9833086e..015eee6d 100644
+--- a/internal/macrosource/nyfed.go
++++ b/internal/macrosource/nyfed.go
+@@ -126,9 +126,6 @@ func parseNYFed(s Spec, raw string, now time.Time) (Batch, error) {
+ // matches neither entry shape.
+ func nyfedRelease(segment string) (title, label string, ok bool) {
+ 	m := nyfedTimeAfterLink.FindStringSubmatch(segment)
+-	if m == nil {
+-		m = nyfedTimeInLink.FindStringSubmatch(segment)
+-	}
+ 	// A title that spans a closing tag belongs to markup neither shape models.
+ 	if m == nil || nyfedAnchorEnd.MatchString(m[1]) || plain(m[1]) == "" {
+ 		return "", "", false

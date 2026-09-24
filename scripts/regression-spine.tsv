@@ -18,3 +18,4 @@ vetoed-refusal-before-delayed-price	4ec3bb9f561a6bc48870b0543aac3a27f7d80f30	scr
 feed-item-isolation	7c4906c7c9fa7cc7f685407114d7b622312edc64	scripts/regression-spine/feed-item-isolation.patch	./internal/macrosource	TestRSSSkipsInvalidItemsAndKeepsFeed	TestRSSSkipsInvalidItemsAndKeepsFeed
 borrow-fee-bare-quote	75369a6fd04295455cb511fd6968a82a198a461f	scripts/regression-spine/borrow-fee-bare-quote.patch	./internal/daemon	TestParseIBKRBorrowFeesProviderFormat2026	TestParseIBKRBorrowFeesProviderFormat2026
 borrow-fee-no-data-clock	9416743770b8601f00eb10772b7ffb04ebaf3c14	scripts/regression-spine/borrow-fee-no-data-clock.patch	./internal/daemon	TestBorrowFeeNotDueWithoutDataHasNoSourceClock	TestBorrowFeeNotDueWithoutDataHasNoSourceClock/not_due
+nyfed-in-link-time	46d1ea6bf4fb1c845030bc11b89e242809c8968d	scripts/regression-spine/nyfed-in-link-time.patch	./internal/macrosource	TestNYFedReadsTimeLabelInsideReleaseLink	TestNYFedReadsTimeLabelInsideReleaseLink
