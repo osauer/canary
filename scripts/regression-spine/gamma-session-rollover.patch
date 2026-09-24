@@ -1,0 +1,17 @@
+diff --git a/internal/daemon/gamma_zero_cache.go b/internal/daemon/gamma_zero_cache.go
+--- a/internal/daemon/gamma_zero_cache.go
++++ b/internal/daemon/gamma_zero_cache.go
+@@ -508,13 +508,6 @@
+ 	// This avoids turning a production signal into "computing" at the exact
+ 	if slot.current != nil && slot.current.sessionKey != key &&
+ 		slot.current.isDone() && slot.current.err == nil && slot.current.result != nil {
+-		// retryAllowed: without it, a failed refresh reaped above is
+-		// respawned by the very same call, at poll rate, for as long as
+-		// the gateway stays sick (observed June 9 post-restart: the
+-		// LoadStale-seeded prior-day result kept this path hot).
+-		if slot.refresh == nil && slot.retryAllowed(now) {
+-			slot.refresh = c.spawnJob(parent, scope, key, now, etaSeconds, compute)
+-		}
+ 		return slot.current, false
+ 	}
+ 

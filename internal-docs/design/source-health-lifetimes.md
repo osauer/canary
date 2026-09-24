@@ -67,3 +67,9 @@ warning remains blocked. Previously polluted persisted snapshots cannot have the
 unknown cause reconstructed safely: they remain blocked until a new valid
 producer computation replaces them. The fix prevents recurrence, not retroactive
 fabrication of successful evidence.
+
+Replacement is newest-evidence, not best-quality: the first successful compute
+of the next regular options session replaces the retained snapshot even when its
+own quality gates block it. A failed refresh keeps the retained snapshot, adds
+`refresh_failed:<token>` and retries under the escalating backoff that a broker
+reconnect resets.
