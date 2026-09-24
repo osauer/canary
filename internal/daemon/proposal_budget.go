@@ -51,10 +51,14 @@ func (e *proposalEngine) resolveBudgetInput(acct *rpc.AccountResult, now time.Ti
 // or a build that never installed it) reads as no constitution.
 func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.Time) budgetGovernorInput {
 	in := budgetGovernorInput{Rulebook: e.rulebookPolicy()}
-	if acct != nil {
-		in.AccountBaseCurrency = acct.BaseCurrency
-		if acct.NetLiquidation > 0 {
+	if acct != nil && currentPortfolioAuthority(acct.Authority) && acct.AccountID == acct.Authority.Scope.AccountID &&
+		acct.Authority.Fields != nil && acct.Authority.Fields.BaseCurrency && normCcy(acct.BaseCurrency) != "" {
+		in.AccountBaseCurrency = normCcy(acct.BaseCurrency)
+		if acct.Authority.Fields.NetLiquidation && positiveFinite(acct.NetLiquidation) {
 			in.NLVBase = new(acct.NetLiquidation)
+		}
+		// Legacy scalar zeros are not evidence that the broker observed zero.
+		if acct.Authority.Fields.AvailableFunds && !math.IsNaN(acct.AvailableFunds) && !math.IsInf(acct.AvailableFunds, 0) {
 			in.AvailableFundsBase = new(acct.AvailableFunds)
 		}
 	}

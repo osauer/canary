@@ -43,9 +43,10 @@ type reduceSweepCandidate struct {
 	blockers         []rpc.TradingBlocker
 }
 
-// netPortfolioDollarDelta sums every non-stale position's base-currency
+// netPortfolioDollarDelta measures the whole signed book in base currency.
+// Any unmeasured holding makes the net direction unusable for a sweep.
 func netPortfolioDollarDelta(pos *rpc.PositionsResult) (net float64, complete bool) {
-	if pos == nil {
+	if pos == nil || !currentPortfolioAuthority(pos.Authority) {
 		return 0, false
 	}
 	baseCcy := ""
@@ -55,6 +56,7 @@ func netPortfolioDollarDelta(pos *rpc.PositionsResult) (net float64, complete bo
 	complete = true
 	add := func(row rpc.PositionView, isOption bool) {
 		if row.Stale {
+			complete = false
 			return
 		}
 		dd, ok := positionDollarDelta(row, isOption)
@@ -67,7 +69,12 @@ func netPortfolioDollarDelta(pos *rpc.PositionsResult) (net float64, complete bo
 			complete = false
 			return
 		}
-		net += dd * rate
+		next := net + dd*rate
+		if math.IsNaN(next) || math.IsInf(next, 0) {
+			complete = false
+			return
+		}
+		net = next
 	}
 	for _, o := range pos.Options {
 		add(o, true)
@@ -93,6 +100,9 @@ func reduceSweepCandidates(pos *rpc.PositionsResult, percent int) (cands []reduc
 		return nil, 0, false, 0, []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "current positions are unavailable", Action: "Retry once the daemon has refreshed positions."}}
 	}
 	netDelta, netComplete = netPortfolioDollarDelta(pos)
+	if !netComplete {
+		return nil, netDelta, false, 0, []rpc.TradingBlocker{{Code: "net_delta_incomplete", Message: "the full portfolio's net delta is unavailable; a partial book cannot establish which holdings reduce risk", Action: "Refresh positions and wait for current prices, Greeks, and FX before reducing the portfolio."}}
+	}
 	if math.Abs(netDelta) < reduceSweepMaterialityFloor(pos) {
 		return nil, netDelta, netComplete, 0, []rpc.TradingBlocker{{Code: "net_delta_immaterial", Message: "longs and shorts roughly offset; there is no dominant net delta direction to trim", Action: "Trim individual holdings instead, or review hedges manually."}}
 	}

@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.12.1 — 2026-09-24 07:34 CEST
+
+### What's new
+
+- Portfolio reductions now wait for complete exposure data, the budget governor distinguishes missing cash data from an observed zero, and live app prices retain stream updates during refreshes. Trading limits, freeze settings, and broker-write authorization are unchanged.
+
+### Fixed
+
+- Portfolio risk reduction no longer chooses a direction from an incomplete book, which could increase net exposure when stale holdings or missing Greeks or FX concealed an offsetting position. (#48)
+- The Rulebook budget governor no longer proposes cash-reserve sales when available funds or other required account evidence are unavailable. (#49)
+- Live market prices and stream errors no longer revert to an older snapshot when an app poll completes. (#50)
+
+### Changed
+
+- Updated HyperServe to v2.1.6 for its WebSocket header and origin validation, request parsing, and server cleanup fixes.
+
 ## v3.12.0 — 2026-09-23 22:48 CEST
 
 ### What's new

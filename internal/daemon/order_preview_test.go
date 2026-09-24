@@ -771,6 +771,10 @@ func reduceTestPortfolio(stocks, options []rpc.PositionView) *rpc.PositionsResul
 		Stocks:    stocks,
 		Options:   options,
 		Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "USD"},
+		Authority: &rpc.AccountDataAuthority{
+			Scope:        rpc.AccountDataScope{AccountID: "DU1234567", AccountMode: rpc.AccountModePaper},
+			Availability: rpc.AccountDataAvailable, Freshness: rpc.AccountDataFreshnessCurrent,
+		},
 	}
 }
 

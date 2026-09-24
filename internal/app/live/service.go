@@ -45,6 +45,7 @@ type Service struct {
 	snapshot       Snapshot
 	hashes         map[string]string
 	lastEventAt    map[string]time.Time
+	quoteRevisions map[string]uint64
 	subs           map[chan Event]struct{}
 	nextStress     time.Time
 	nextNudges     time.Time
@@ -373,19 +374,7 @@ func (s *Service) pollStatus(ctx context.Context) Snapshot {
 		}
 	}
 
-	s.mu.Lock()
-	snap.UpdatedAt = now
-	snap.Errors = errors
-	snap.Version++
-	s.snapshot = snap
-	out := cloneSnapshot(s.snapshot)
-	s.mu.Unlock()
-
-	events = append(events, Event{Type: "snapshot", Data: out})
-	for _, ev := range events {
-		s.publish(ev)
-	}
-	return out
+	return s.publishSnapshot(now, snap, errors, events)
 }
 
 func (s *Service) startMarketQuoteStreams(ctx context.Context) {
@@ -497,17 +486,17 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 			}
 		}
 	}
-	if quotes, err := s.marketQuotes(ctx, now, snap.Positions, snap.Quotes); err != nil {
+	if quotes, err := s.marketQuotes(ctx, now, snap.Positions); err != nil {
 		errors = append(errors, sourceErr("market_quotes", err, now))
 		snap.Sources["market_quotes"] = sourceUnavailable(snap.Sources["market_quotes"], now)
 		if quotes != nil {
-			snap.Quotes = mergeMarketQuotes(snap.Quotes, quotes)
+			snap.Quotes = quotes
 			if s.changed("market_quotes", snap.Quotes) {
 				events = append(events, Event{Type: "market_quotes", Data: snap.Quotes})
 			}
 		}
 	} else {
-		snap.Quotes = mergeMarketQuotes(snap.Quotes, quotes)
+		snap.Quotes = quotes
 		snap.Sources["market_quotes"] = sourceCurrent(now)
 		if s.changed("market_quotes", snap.Quotes) {
 			events = append(events, Event{Type: "market_quotes", Data: snap.Quotes})
@@ -665,23 +654,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 		s.mu.Unlock()
 	}
 
-	s.mu.Lock()
-	snap.AlertCandidates = cloneAlertCandidateSnapshot(s.snapshot.AlertCandidates)
-	if source, ok := s.snapshot.Sources["alert_candidates"]; ok {
-		snap.Sources["alert_candidates"] = source
-	}
-	snap.UpdatedAt = now
-	snap.Errors = errors
-	snap.Version++
-	s.snapshot = snap
-	out := cloneSnapshot(s.snapshot)
-	s.mu.Unlock()
-
-	events = append(events, Event{Type: "snapshot", Data: out})
-	for _, ev := range events {
-		s.publish(ev)
-	}
-	return out
+	return s.publishSnapshot(now, snap, errors, events)
 }
 
 func (s *Service) pollAlertCandidates(ctx context.Context, client alertCandidateClient, now time.Time) (*rpc.AlertCandidateSnapshot, SourceMeta, error) {
@@ -902,16 +875,8 @@ func (s *Service) PollNudgesOnce(ctx context.Context) Snapshot {
 	}
 	s.mu.Lock()
 	s.nextNudges = now.Add(nudgesPollEvery)
-	snap.UpdatedAt = now
-	snap.Version++
-	s.snapshot = snap
-	out := cloneSnapshot(s.snapshot)
 	s.mu.Unlock()
-	events = append(events, Event{Type: "snapshot", Data: out})
-	for _, event := range events {
-		s.publish(event)
-	}
-	return out
+	return s.publishSnapshot(now, snap, snap.Errors, events)
 }
 
 func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
@@ -950,21 +915,34 @@ func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
 	return out
 }
 
-// publishSnapshot commits one mid-poll snapshot and returns a separate working
-// copy for the rest of the poll. The published value must not share map fields
+// publishSnapshot commits a poll while preserving independently updated quotes
+// and alerts. Commit and event fanout share the lock with stream updates, so a
+// queued poll event cannot roll a subscriber back after a newer stream event.
+// The returned working copy shares no mutable maps with the published value.
 func (s *Service) publishSnapshot(now time.Time, snap Snapshot, errors []SourceError, events []Event) Snapshot {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	snap.Quotes = cloneMarketQuotes(s.snapshot.Quotes)
+	snap.AlertCandidates = cloneAlertCandidateSnapshot(s.snapshot.AlertCandidates)
+	if source, ok := s.snapshot.Sources["alert_candidates"]; ok {
+		if snap.Sources == nil {
+			snap.Sources = map[string]SourceMeta{}
+		}
+		snap.Sources["alert_candidates"] = source
+	}
 	snap.UpdatedAt = now
 	snap.Errors = errors
-	snap.Version++
+	snap.Version = s.snapshot.Version + 1
 	s.snapshot = snap
 	published := cloneSnapshot(s.snapshot)
 	working := cloneSnapshot(s.snapshot)
-	s.mu.Unlock()
 
 	events = append(events, Event{Type: "snapshot", Data: published})
 	for _, ev := range events {
-		s.publish(ev)
+		if ev.Type == "market_quotes" {
+			ev.Data = cloneMarketQuotes(s.snapshot.Quotes)
+		}
+		s.publishLocked(ev)
 	}
 	return working
 }
@@ -1003,7 +981,11 @@ var marketQuoteContracts = []marketQuoteContract{
 
 const maxUnderlyingQuoteContracts = 24
 
-func (s *Service) marketQuotes(ctx context.Context, now time.Time, positions *rpc.PositionsResult, existing *MarketQuotes) (*MarketQuotes, error) {
+func (s *Service) marketQuotes(ctx context.Context, now time.Time, positions *rpc.PositionsResult) (*MarketQuotes, error) {
+	s.mu.Lock()
+	existing := cloneMarketQuotes(s.snapshot.Quotes)
+	revisions := maps.Clone(s.quoteRevisions)
+	s.mu.Unlock()
 	type result struct {
 		label string
 		quote *rpc.Quote
@@ -1022,17 +1004,27 @@ func (s *Service) marketQuotes(ctx context.Context, now time.Time, positions *rp
 	wg.Wait()
 	close(results)
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	out := &MarketQuotes{
 		AsOf:   now,
 		Quotes: map[string]rpc.Quote{},
 		Errors: map[string]string{},
 	}
 	for res := range results {
+		// A stream observation made after this request began owns the symbol,
+		// including errors and recovery at the same timestamp as a prior tick.
+		if s.quoteRevisions[res.label] != revisions[res.label] {
+			continue
+		}
 		if res.err != nil {
 			out.Errors[res.label] = res.err.Error()
 			continue
 		}
 		if res.quote != nil {
+			if s.snapshot.Quotes != nil && res.quote.AsOf.Before(s.snapshot.Quotes.Quotes[res.label].AsOf) {
+				continue
+			}
 			out.Quotes[res.label] = *res.quote
 		}
 	}
@@ -1042,10 +1034,12 @@ func (s *Service) marketQuotes(ctx context.Context, now time.Time, positions *rp
 	if len(out.Quotes) == 0 {
 		out.Quotes = nil
 	}
+	s.snapshot.Quotes = mergeMarketQuotes(s.snapshot.Quotes, out)
+	var err error
 	if len(out.Errors) > 0 {
-		return out, errors.New(marketQuoteError(out.Errors))
+		err = errors.New(marketQuoteError(out.Errors))
 	}
-	return out, nil
+	return cloneMarketQuotes(s.snapshot.Quotes), err
 }
 
 func marketQuoteContractsFor(positions *rpc.PositionsResult, existing *MarketQuotes, now time.Time, freshFor time.Duration) []marketQuoteContract {
@@ -1139,6 +1133,8 @@ func normalizeQuoteLabel(value string) string {
 func (s *Service) applyMarketQuoteFrame(label string, frame rpc.Frame) {
 	now := s.now().UTC()
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.advanceQuoteRevision(label)
 	if s.snapshot.Quotes == nil {
 		s.snapshot.Quotes = &MarketQuotes{}
 	}
@@ -1152,8 +1148,7 @@ func (s *Service) applyMarketQuoteFrame(label string, frame rpc.Frame) {
 		s.snapshot.Quotes.Errors[label] = frame.Error.Code + ": " + frame.Error.Message
 		s.snapshot.Quotes.AsOf = now
 		out := cloneMarketQuotes(s.snapshot.Quotes)
-		s.mu.Unlock()
-		s.publish(Event{Type: "market_quotes", Data: out})
+		s.publishLocked(Event{Type: "market_quotes", Data: out})
 		return
 	}
 
@@ -1208,13 +1203,14 @@ func (s *Service) applyMarketQuoteFrame(label string, frame rpc.Frame) {
 	s.snapshot.Quotes.Quotes[label] = quote
 	s.snapshot.Quotes.AsOf = now
 	out := cloneMarketQuotes(s.snapshot.Quotes)
-	s.mu.Unlock()
-	s.publish(Event{Type: "market_quotes", Data: out})
+	s.publishLocked(Event{Type: "market_quotes", Data: out})
 }
 
 func (s *Service) applyMarketQuoteError(label string, err error) {
 	now := s.now().UTC()
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.advanceQuoteRevision(label)
 	if s.snapshot.Quotes == nil {
 		s.snapshot.Quotes = &MarketQuotes{}
 	}
@@ -1224,8 +1220,16 @@ func (s *Service) applyMarketQuoteError(label string, err error) {
 	s.snapshot.Quotes.Errors[label] = err.Error()
 	s.snapshot.Quotes.AsOf = now
 	out := cloneMarketQuotes(s.snapshot.Quotes)
-	s.mu.Unlock()
-	s.publish(Event{Type: "market_quotes", Data: out})
+	s.publishLocked(Event{Type: "market_quotes", Data: out})
+}
+
+// advanceQuoteRevision requires s.mu and orders observations independently of
+// broker timestamps, which need not be unique and do not exist on errors.
+func (s *Service) advanceQuoteRevision(label string) {
+	if s.quoteRevisions == nil {
+		s.quoteRevisions = map[string]uint64{}
+	}
+	s.quoteRevisions[label]++
 }
 
 func marketQuoteFramePrice(frame rpc.Frame) *float64 {
@@ -1442,8 +1446,9 @@ func (s *Service) Subscribe() (<-chan Event, func()) {
 	return ch, release
 }
 
-func (s *Service) publish(ev Event) {
-	s.mu.Lock()
+// publishLocked requires s.mu so cache commits and subscriber events have the
+// same ordering. Fanout is non-blocking even for a slow subscriber.
+func (s *Service) publishLocked(ev Event) {
 	s.lastEventAt[ev.Type] = s.now().UTC()
 	for ch := range s.subs {
 		select {
@@ -1451,7 +1456,6 @@ func (s *Service) publish(ev Event) {
 		default:
 		}
 	}
-	s.mu.Unlock()
 }
 
 func (s *Service) closeSubscribers() {
@@ -1725,7 +1729,7 @@ func mergeMarketQuotes(existing, update *MarketQuotes) *MarketQuotes {
 	if out == nil {
 		out = &MarketQuotes{}
 	}
-	if !update.AsOf.IsZero() {
+	if update.AsOf.After(out.AsOf) {
 		out.AsOf = update.AsOf
 	}
 	if len(update.Quotes) > 0 {
