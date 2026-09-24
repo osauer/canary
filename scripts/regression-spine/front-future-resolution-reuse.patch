@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/front_future.go b/pkg/ibkr/front_future.go
+--- a/pkg/ibkr/front_future.go
++++ b/pkg/ibkr/front_future.go
+@@ -42,7 +42,7 @@
+ 			delete(c.frontFutures, k)
+ 		}
+ 	}
+-	entry := c.frontFutures[key]
++	entry := (*frontFutureResolution)(nil)
+ 	if entry == nil {
+ 		if len(c.frontFutures) >= frontFutureCacheLimit || c.frontFutureActive >= frontFutureCacheLimit {
+ 			c.frontFutureMu.Unlock()

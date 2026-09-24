@@ -1,0 +1,15 @@
+diff --git a/internal/daemon/gamma_handler.go b/internal/daemon/gamma_handler.go
+--- a/internal/daemon/gamma_handler.go
++++ b/internal/daemon/gamma_handler.go
+@@ -1260,11 +1260,6 @@
+ 		d.Severity = "data_quality"
+ 		d.Message = "The retained gamma snapshot failed validation."
+ 		d.Impact = "Gamma is unavailable until a new snapshot passes the existing quality gates."
+-	case strings.HasPrefix(code, "expiries_stale:"):
+-		d.Severity = "methodology"
+-		age := strings.TrimPrefix(code, "expiries_stale:")
+-		d.Message = "The expiry grid came from a cached contract definition (" + age + " old)."
+-		d.Impact = "The grid may omit newly listed expiries. Grid age and option-input freshness are assessed separately by the existing quality gates."
+ 	case code == "unclassified_data_warning":
+ 		d.Severity = "data_quality"
+ 		d.Message = "An unclassified gamma data warning was received."

@@ -1,0 +1,12 @@
+diff --git a/internal/daemon/market_events_inventory.go b/internal/daemon/market_events_inventory.go
+--- a/internal/daemon/market_events_inventory.go
++++ b/internal/daemon/market_events_inventory.go
+@@ -11,7 +11,7 @@
+ )
+ 
+ func marketEventInventoryReceiptCurrent(md *ibkr.MarketData, now time.Time) bool {
+-	return md != nil && md.ShortableObserved && md.ShortableShares >= 0 && !md.ShortableTickAt.IsZero() && !md.ShortableTickAt.After(now) && now.Sub(md.ShortableTickAt) < marketEventsInventoryMaxAge
++	return md != nil && md.ShortableObserved && md.ShortableShares >= 0
+ }
+ 
+ // readBorrowInventory owns receipt reuse and absence backoff. The transport
