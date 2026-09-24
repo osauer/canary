@@ -117,8 +117,8 @@ func TestPublicClientRejectsFailuresAndRedirectsWithoutCredentials(t *testing.T)
 		if r.Method != "GET" || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Fatal("public source request carried authority")
 		}
-		if !strings.Contains(r.UserAgent(), "Chrome/153.0.0.0") || strings.Contains(r.UserAgent(), "github.com") {
-			t.Fatal("BLS lost its witnessed anonymous request identity")
+		if r.UserAgent() != "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)" {
+			t.Fatal("BLS lost its owner-approved product identity")
 		}
 		// BEA's RSS server negotiates text/xml and otherwise returns HTTP 406.
 		if !strings.Contains(r.Header.Get("Accept"), "text/xml") {
@@ -126,18 +126,18 @@ func TestPublicClientRejectsFailuresAndRedirectsWithoutCredentials(t *testing.T)
 		}
 		return &http.Response{StatusCode: 403, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("blocked")), Request: r}, nil
 	})
-	_, err := client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now())
+	_, err := client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 403") || requests != 1 {
 		t.Fatal("source failure was hidden or retried without bounds")
 	}
 	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"http://127.0.0.1/private"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
 	})
-	if _, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now()); err == nil {
+	if _, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{}); err == nil {
 		t.Fatal("official feed redirected into a private endpoint")
 	}
 	client.HTTP.Transport = publicTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("private diagnostic") })
-	_, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now())
+	_, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{})
 	if err == nil || strings.Contains(err.Error(), "private diagnostic") {
 		t.Fatal("raw transport details escaped public source status")
 	}
@@ -174,7 +174,7 @@ func TestBLSAccessDenialNeedsResponseEvidence(t *testing.T) {
 				}
 				return &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: io.NopCloser(body), Request: r}, nil
 			})
-			batch, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), time.Now())
+			batch, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), time.Now(), Batch{})
 			if err == nil || err.Error() != tc.want || requests != 1 || len(batch.Events)+len(batch.Publications) != 0 {
 				t.Fatalf("unwitnessed diagnosis, response leak or fabricated recovery: %v", err)
 			}
@@ -200,12 +200,12 @@ func TestPublicClientRedirectReappliesDestinationIdentity(t *testing.T) {
 				if requests >= len(hosts) || req.URL.Hostname() != hosts[requests] {
 					t.Fatal("unexpected redirect request")
 				}
-				wantBrowser := req.URL.Hostname() == "www.bls.gov"
-				if strings.Contains(req.UserAgent(), "Chrome/153.0.0.0") != wantBrowser {
-					t.Fatal("redirect inherited the previous destination's identity")
+				want := "Go-http-client/1.1"
+				if req.URL.Hostname() == "www.bls.gov" {
+					want = "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)"
 				}
-				if !wantBrowser && req.UserAgent() != "Go-http-client/1.1" {
-					t.Fatal("generic destination leaked personal or browser identity")
+				if req.UserAgent() != want {
+					t.Fatal("redirect inherited the previous destination's identity")
 				}
 				requests++
 				if requests == 1 {
@@ -213,10 +213,47 @@ func TestPublicClientRedirectReappliesDestinationIdentity(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("public fixture")), Request: req}, nil
 			})
-			body, err := client.read(t.Context(), "https://"+hosts[0]+"/calendar")
-			if err != nil || string(body) != "public fixture" || requests != 2 {
+			res, err := client.read(t.Context(), "https://"+hosts[0]+"/calendar", Batch{})
+			if err != nil || string(res.body) != "public fixture" || requests != 2 {
 				t.Fatalf("permitted redirect failed: requests=%d err=%v", requests, err)
 			}
 		})
+	}
+}
+
+// TestConditionalReadRenewsOnlySolicitedNotModified keeps a 304 from renewing
+// evidence the client never asked about, drops malformed validators instead of
+// replaying them, and renews a copy rather than the caller's retained batch.
+func TestConditionalReadRenewsOnlySolicitedNotModified(t *testing.T) {
+	spec := sourceSpec(t, "bls-calendar")
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	status := http.StatusOK
+	header := http.Header{"Etag": {`"v1" X-Injected: 1`}, "Last-Modified": {"yesterday"}}
+	client := NewClient()
+	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+		body := "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	batch, err := client.Fetch(t.Context(), spec, now, Batch{})
+	if err != nil || batch.ETag != "" || batch.LastModified != "" {
+		t.Fatalf("malformed validators retained: %+v %v", batch, err)
+	}
+	status = http.StatusNotModified
+	if _, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), batch); err == nil {
+		t.Fatal("an unsolicited 304 renewed retained evidence")
+	}
+	batch.ETag = `W/"v1"`
+	renewed, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), batch)
+	if err != nil || !renewed.Events[0].RetrievedAt.Equal(now.Add(time.Hour)) || renewed.ETag != batch.ETag {
+		t.Fatalf("solicited 304 did not renew the batch: %v", err)
+	}
+	if !batch.Events[0].RetrievedAt.Equal(now) {
+		t.Fatal("renewal mutated the caller's retained batch")
+	}
+	for _, tampered := range []Batch{{ETag: "\"v1\"\r\nX-Injected: 1"}, {LastModified: "Wed, 10 Jun 2026 16:56:37 GMT\r\nX: 1"}} {
+		tampered.Events = batch.Events
+		if ValidateBatch(spec, tampered, now) == nil {
+			t.Fatal("a restored validator could inject request headers")
+		}
 	}
 }

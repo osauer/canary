@@ -1,5 +1,15 @@
-// Package publichttp supplies anonymous request identities for public data
-// sources. Callers retain their own transport, deadlines, formats and retry policy.
+// Package publichttp chooses the request identity Canary presents to public
+// data sources. Requests are anonymous by default: they never carry an
+// operator name, contact address or personal URL, and never claim to be a web
+// browser.
+//
+// The single exception is www.bls.gov. BLS publishes that it blocks robots
+// without information that can be used to contact the owner
+// (https://www.bls.gov/bls/pss.htm). On 2026-09-24 the owner approved
+// identifying Canary to BLS, and only to BLS, by its product URL. That
+// identity names the product, not an operator.
+//
+// Callers retain their own transport, deadlines, formats and retry policy.
 package publichttp
 
 import (
@@ -7,23 +17,28 @@ import (
 	"strings"
 )
 
-// SetUserAgent applies the destination's public-data compatibility policy.
-// It never includes an operator name, contact address or personal project URL.
-// Apply it again when an existing redirect policy permits a new destination.
+// blsUserAgent is the owner-approved product identity. BLS rejected github.com
+// URLs in its identity check, so it names the product site instead.
+const blsUserAgent = "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)"
+
+// userAgents lists the destinations whose compatible identity differs from Go's
+// default. An empty value suppresses the header.
+var userAgents = map[string]string{
+	"www.bls.gov":      blsUserAgent,
+	"en.wikipedia.org": "Canary-public-feeds/1.0",
+	// The earnings endpoint rejected named clients in the existing witness.
+	"api.nasdaq.com": "",
+}
+
+// SetUserAgent applies the destination's identity policy from the package
+// documentation. Apply it again when an existing redirect policy permits a new
+// destination.
 func SetUserAgent(req *http.Request) {
-	// FRED has rejected custom product identities while accepting Go's default.
-	userAgent := "Go-http-client/1.1"
-	switch strings.ToLower(req.URL.Hostname()) {
-	case "www.bls.gov":
-		// A repeated same-client comparison on 2026-09-12 returned 403 with
-		// Canary's generic identity and 200 with only this header changed.
-		userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
-	case "en.wikipedia.org":
-		userAgent = "Canary-public-feeds/1.0"
-	case "api.nasdaq.com":
-		// Explicitly empty suppresses Go's default User-Agent on the wire.
-		// The earnings endpoint rejected named clients in the existing witness.
-		userAgent = ""
+	userAgent, ok := userAgents[strings.ToLower(req.URL.Hostname())]
+	if !ok {
+		// FRED has rejected custom product identities while accepting Go's default.
+		userAgent = "Go-http-client/1.1"
 	}
+	// An explicitly empty value suppresses Go's default User-Agent on the wire.
 	req.Header.Set("User-Agent", userAgent)
 }

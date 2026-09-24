@@ -96,10 +96,11 @@ func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batc
 	// Read only consecutive next-month links published by the calendar. The
 	// landing page may still name last month at rollover; its published successor
 	// can establish the current month without guessing an archive URL.
-	raw, err := c.read(ctx, spec.URL)
+	res, err := c.read(ctx, spec.URL, Batch{})
 	if err != nil {
 		return Batch{}, err
 	}
+	raw := res.body
 	batch, err := Parse(spec, raw, now)
 	if err != nil {
 		return Batch{}, err
@@ -145,10 +146,11 @@ func (c *Client) fetchNYFedNext(ctx context.Context, spec Spec, prior Batch, raw
 	}
 	next := spec
 	next.URL = "https://www.newyorkfed.org" + links[0][1]
-	raw, err := c.read(ctx, next.URL)
+	res, err := c.read(ctx, next.URL, Batch{})
 	if err != nil {
 		return Batch{}, nil, err
 	}
+	raw = res.body
 	more, err := Parse(next, raw, now)
 	if err != nil {
 		return Batch{}, nil, err

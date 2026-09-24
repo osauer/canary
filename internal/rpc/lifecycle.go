@@ -164,6 +164,8 @@ const (
 	SourceFailureStageHistoricalFeeRequest = "historical_fee_request"
 	SourceFailureStageHistoricalFeeDecode  = "historical_fee_decode"
 	SourceFailureStageAuthorityPersist     = "authority_persist"
+	SourceFailureStagePublicSourceRequest  = "public_source_request"
+	SourceFailureStagePublicSourceParse    = "public_source_parse"
 )
 
 // ValidSourceFailure enforces the shared allowlist. Persistence and adapters
@@ -195,7 +197,8 @@ func ValidSourceFailure(f *SourceFailure) bool {
 		SourceFailureStageWSHContractResolve, SourceFailureStageWSHMetadata,
 		SourceFailureStageWSHEvent, SourceFailureStageWSHDecode,
 		SourceFailureStageHistoricalFeeRequest, SourceFailureStageHistoricalFeeDecode,
-		SourceFailureStageAuthorityPersist:
+		SourceFailureStageAuthorityPersist, SourceFailureStagePublicSourceRequest,
+		SourceFailureStagePublicSourceParse:
 		return true
 	default:
 		return false
