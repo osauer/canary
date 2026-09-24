@@ -96,6 +96,11 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 	s.dataHealth.mu.Unlock()
 	row := feedSource(id)
 	row.FirstObserved, row.LastSuccess, row.History = previous.FirstObserved, previous.LastSuccess, slices.Clone(previous.History)
+	row.HistoryTruncated = previous.HistoryTruncated
+	var truncated bool
+	row.History, truncated = retainDataHealthHistory(row.History, now)
+	row.HistoryTruncated = row.HistoryTruncated || truncated
+	row.Availability = "unknown"
 	var modes []string
 	success, failed := false, false
 	for _, observation := range observations {
@@ -132,10 +137,13 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 	}
 	row.Delivery = "producer_observation"
 	row.State, row.Receiving = "current", "Receiving data"
+	row.Availability = "available"
 	if failed {
 		row.State, row.Receiving = "unavailable", "Service request failed"
+		row.Availability = "unavailable"
 		if success {
 			row.State, row.Receiving = "limited", "Receiving data · service errors observed"
+			row.Availability = "limited"
 		}
 	}
 	if len(modes) > 0 {
@@ -153,7 +161,7 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 			labels = append(labels, label)
 			// A usable delayed quote is a feed mode, not a service failure.
 			// Instrument clocks and suitability remain in the quote evidence.
-			if mode == rpc.MarketDataDelayedFrozen || mode == rpc.MarketDataUnknown {
+			if mode == rpc.MarketDataUnknown {
 				row.State = "limited"
 			}
 		}

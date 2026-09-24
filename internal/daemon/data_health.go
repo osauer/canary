@@ -21,6 +21,9 @@ import (
 // producer freshness and source clocks remain separate and are never extended.
 const dataHealthObservationValidity = time.Minute
 const quoteHealthObservationValidity = 5 * time.Minute
+const dataHealthHistoryAge = 7 * 24 * time.Hour
+const dataHealthHistoryLimit = 128
+const dataHealthPageBytes = 30 * 1024
 
 type dataHealthObservation struct {
 	row       rpc.DataSourceHealth
@@ -52,6 +55,7 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 		return
 	}
 	state := &s.dataHealth
+	observedAt := s.orderNow()
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.observations == nil {
@@ -62,13 +66,18 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 		return
 	} // The fixed source catalogue still lists unobserved services as unknown.
 	row.FirstObserved = previous.row.FirstObserved
-	row.LastSuccess = previous.row.LastSuccess
-	row.History = slices.Clone(previous.row.History)
-	if row.FirstObserved.IsZero() {
-		row.FirstObserved = row.CheckedAt
+	// Only actual producer clocks establish successful receipt. Not-due and
+	// not-relevant verdicts must not renew that history on every read.
+	if previous.row.LastSuccess.After(row.LastSuccess) {
+		row.LastSuccess = previous.row.LastSuccess
 	}
-	if row.State == "current" || row.State == "not_due" || row.State == "limited" && row.DataType != "" && row.Failure == nil {
-		row.LastSuccess = row.CheckedAt
+	row.History = slices.Clone(previous.row.History)
+	row.HistoryTruncated = previous.row.HistoryTruncated
+	if row.FirstObserved.IsZero() {
+		row.FirstObserved = observedAt
+	}
+	if row.ReceivedAt.After(row.LastSuccess) && !row.ReceivedAt.After(row.CheckedAt) && row.Applicability != "not_relevant" {
+		row.LastSuccess = row.ReceivedAt
 	}
 	if row.LastSuccess != previous.row.LastSuccess {
 		state.diagnosticRevision++
@@ -79,12 +88,17 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 			reason = row.Failure.Code
 		} else if row.Access != nil {
 			reason = row.Access.Reason
+		} else if row.Usability == "blocked" || row.Usability == "limited" {
+			reason = "analytics_" + row.Usability
 		}
 		state.diagnosticRevision++
-		row.History = append(row.History, rpc.DataHealthTransition{At: row.CheckedAt, State: row.State, DataType: row.DataType, Reason: reason})
-		if len(row.History) > 6 {
-			row.History = row.History[len(row.History)-6:]
-		}
+		row.History = append(row.History, rpc.DataHealthTransition{At: observedAt, State: row.State, DataType: row.DataType, Reason: dataHealthHistoryReason(reason)})
+	}
+	var truncated bool
+	row.History, truncated = retainDataHealthHistory(row.History, observedAt)
+	row.HistoryTruncated = row.HistoryTruncated || truncated
+	if truncated {
+		state.diagnosticRevision++
 	}
 	state.observations[row.ID] = dataHealthObservation{row: row, connector: c, binding: binding, broker: broker}
 }
@@ -98,7 +112,29 @@ func dataHealthCondition(row rpc.DataSourceHealth) string {
 	if row.Access != nil {
 		access = fmt.Sprintf("%d:%s", row.Access.Code, row.Access.Reason)
 	}
-	return row.State + "|" + row.DataType + "|" + code + "|" + access
+	return row.State + "|" + row.DataType + "|" + code + "|" + access + "|" + row.Availability + "|" + row.CadenceState + "|" + row.Applicability + "|" + row.Usability
+}
+
+func dataHealthHistoryReason(reason string) string {
+	if len(reason) > 64 {
+		return "unclassified_source_failure"
+	}
+	for _, ch := range reason {
+		if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '_' || ch == ':' || ch == '-') {
+			return "unclassified_source_failure"
+		}
+	}
+	return reason
+}
+
+func retainDataHealthHistory(history []rpc.DataHealthTransition, now time.Time) ([]rpc.DataHealthTransition, bool) {
+	before := len(history)
+	cutoff := now.Add(-dataHealthHistoryAge)
+	history = slices.DeleteFunc(history, func(h rpc.DataHealthTransition) bool { return h.At.IsZero() || h.At.Before(cutoff) || h.At.After(now) })
+	if len(history) > dataHealthHistoryLimit {
+		history = history[len(history)-dataHealthHistoryLimit:]
+	}
+	return history, len(history) != before
 }
 
 func quoteHealthFailure(err error, now time.Time) *rpc.SourceFailure {
@@ -120,7 +156,7 @@ func quoteHealthFailure(err error, now time.Time) *rpc.SourceFailure {
 	case errors.Is(err, ibkr.ErrIBKRUnavailable):
 		code = rpc.SourceFailureGatewayUnavailable
 	case errors.Is(err, ibkr.ErrContractDetailsTimeout):
-		code = rpc.SourceFailureContractUnavailable
+		code = rpc.SourceFailureTimeout
 	case errors.Is(err, context.DeadlineExceeded):
 		code = rpc.SourceFailureTimeout
 	case errors.As(err, &historical):
@@ -186,6 +222,13 @@ func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealt
 		row.Action = "Producer retry scheduled"
 	}
 	row.DerivedFrom = slices.Clone(health.DerivedFrom)
+	row.Applicability = health.Applicability
+	if health.RefreshState == rpc.SourceRefreshNotDue {
+		row.CadenceState = "not_due"
+	}
+	if health.RefreshState == rpc.SourceRefreshPending {
+		row.CadenceState = "pending"
+	}
 	switch health.Status {
 	case "ok", "current", "available", "ready":
 		row.State, row.Receiving = "current", "Current"
@@ -198,6 +241,24 @@ func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealt
 	default:
 		row.State, row.Receiving = "unknown", "Health unverified"
 	}
+	switch row.State {
+	case "current":
+		row.Availability = "available"
+	case "unavailable":
+		row.Availability = "unavailable"
+	case "limited":
+		row.Availability = "limited"
+	default:
+		row.Availability = "unknown"
+	}
+	if !health.AsOf.IsZero() && (row.State == "current" || row.State == "limited") {
+		row.ReceivedAt = health.AsOf
+	}
+	if health.Applicability == "not_relevant" {
+		row.State, row.Receiving, row.Required = "not_relevant", "Not needed for the current scope", false
+		row.Availability, row.ReceivedAt = "unknown", time.Time{}
+		return row
+	}
 	if health.RefreshState == rpc.SourceRefreshNotDue && row.State == "current" && health.LastFailure == nil {
 		row.State, row.Receiving = "not_due", "As scheduled"
 	}
@@ -207,8 +268,12 @@ func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealt
 	if row.State == "current" && health.LastFailure != nil {
 		row.State, row.Receiving = "limited", "Prior data · latest refresh failed"
 	}
+	if health.LastFailure != nil {
+		row.Availability = "unavailable"
+	}
 	if row.State == "current" && health.MaxAgeSeconds > 0 && health.AgeSeconds > health.MaxAgeSeconds {
 		row.State, row.Receiving = "limited", "Stale producer observation"
+		row.Availability = "unknown"
 	}
 	if row.State == "limited" || row.State == "unavailable" {
 		row.ProblemIDs = []string{id}
@@ -283,7 +348,7 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 	if summary.Unavailable > 0 {
 		summary.State = "unavailable"
 	}
-	summary.Label = fmt.Sprintf("%d data problems · %d unverified", summary.Problems, summary.Unverified)
+	summary.Label = fmt.Sprintf("%d source concerns · %d unknown coverage", summary.Problems, summary.Unverified)
 	if summary.Problems == 0 && summary.Unverified == 0 {
 		summary.Label = "Required sources are available"
 	}
@@ -300,16 +365,6 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 		return rpc.DataHealthResult{}, errBadRequest("health offset exceeds report")
 	}
 	end := min(len(rows), p.Offset+limit)
-	// Keep a page below Desk's 32 KiB observation envelope, even with histories.
-	bytes := 0
-	for i := p.Offset; i < end; i++ {
-		raw, _ := json.Marshal(rows[i])
-		if bytes+len(raw) > 24*1024 && i > p.Offset {
-			end = i
-			break
-		}
-		bytes += len(raw)
-	}
 	result := rpc.DataHealthResult{SchemaVersion: rpc.DataHealthSchemaVersion, Revision: revision, AsOf: now, ValidUntil: now.Add(dataHealthObservationValidity), ScopeState: scope, Summary: summary, Sources: slices.Clone(rows[p.Offset:end]), Offset: p.Offset, Complete: end == len(rows)}
 	ranked := slices.Clone(rows)
 	slices.SortStableFunc(ranked, func(a, b rpc.DataSourceHealth) int {
@@ -339,7 +394,28 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 	if end < len(rows) {
 		result.NextOffset = &end
 	}
-	return result, nil
+	return fitDataHealthPage(result)
+}
+
+// Bound the actual JSON envelope, including concern labels and histories.
+// Shrinking a page advances by the rows emitted; a single oversize source is
+// an explicit error, never a silently incomplete source catalogue.
+func fitDataHealthPage(result rpc.DataHealthResult) (rpc.DataHealthResult, error) {
+	for {
+		raw, err := json.Marshal(result)
+		if err != nil {
+			return rpc.DataHealthResult{}, err
+		}
+		if len(raw) <= dataHealthPageBytes {
+			return result, nil
+		}
+		if len(result.Sources) <= 1 {
+			return rpc.DataHealthResult{}, errBadRequest("source health exceeds page budget")
+		}
+		result.Sources = result.Sources[:len(result.Sources)-1]
+		next := result.Offset + len(result.Sources)
+		result.NextOffset, result.Complete = &next, false
+	}
 }
 
 func dataHealthKindOrder(kind string) int {

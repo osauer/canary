@@ -1,9 +1,10 @@
 diff --git a/internal/breadth/spx/compute.go b/internal/breadth/spx/compute.go
 --- a/internal/breadth/spx/compute.go
 +++ b/internal/breadth/spx/compute.go
-@@ -127,33 +127,44 @@
+@@ -127,34 +127,45 @@
  func SlideWindow(w ConstituentWindow, close float64, barDate string) ConstituentWindow {
 -	out := ConstituentWindow{
+-		Bars:               w.Bars,
 -		Symbol:             w.Symbol,
 -		Closes:             append([]float64(nil), w.Closes...),
 -		LastBarAt:          barDate,
@@ -35,6 +36,7 @@ diff --git a/internal/breadth/spx/compute.go b/internal/breadth/spx/compute.go
 -	}
 -	return out
 +	out := ConstituentWindow{
++		Bars:               w.Bars,
 +		Symbol:             w.Symbol,
 +		Closes:             append([]float64(nil), w.Closes...),
 +		LastBarAt:          barDate,

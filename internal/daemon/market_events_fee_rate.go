@@ -751,11 +751,9 @@ func feeRateAggregateHealth(primary rpc.SourceHealth, rows []rpc.MarketEventBorr
 	health := primary
 	health.Source = "borrow_fee"
 	if len(rows) == 0 {
-		return rpc.SourceHealth{
-			Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now.UTC(),
-			Confidence: "high", RefreshState: rpc.SourceRefreshNotDue,
-			Notes: []string{"not_applicable: no exact currently held short-stock contracts require borrow-fee evidence"},
-		}
+		health.Applicability = "not_relevant"
+		health.Notes = append(slices.Clone(primary.Notes), "not_applicable: no exact currently held short-stock contracts require borrow-fee evidence")
+		return health
 	}
 	health.Status = rpc.SourceStatusUnknown
 	health.Confidence = "low"

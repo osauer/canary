@@ -103,8 +103,11 @@ type SourceHealth struct {
 	FingerprintStability string       `json:"fingerprint_stability,omitempty"`
 	// RefreshState separates source scheduling from evidence quality. A
 	// fetch failed and is waiting for its bounded retry.
-	RefreshState string     `json:"refresh_state,omitempty"`
-	NextAttempt  *time.Time `json:"next_attempt,omitempty"`
+	RefreshState string `json:"refresh_state,omitempty"`
+	// Applicability is set only by a producer that verified the requested scope.
+	// A not_relevant scope does not establish access or successful acquisition.
+	Applicability string     `json:"applicability,omitempty"`
+	NextAttempt   *time.Time `json:"next_attempt,omitempty"`
 	// LastFailure is a redacted, allowlisted machine-readable failure. Raw
 	// transport, provider, and parser text must never cross the RPC boundary.
 	LastFailure *SourceFailure `json:"last_failure,omitempty"`

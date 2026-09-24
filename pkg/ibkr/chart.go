@@ -75,25 +75,9 @@ func (c *Connector) MarketClassification(ctx context.Context, contract Contract,
 // FrontFuture identifies the nearest strictly future expiry from broker details.
 // It is a dated contract, not a continuous or back-adjusted futures series.
 func (c *Connector) FrontFuture(ctx context.Context, contract Contract, now time.Time) (Contract, error) {
-	if err := ctx.Err(); err != nil {
-		return Contract{}, err
-	}
-	binding, ok := c.CaptureSession()
-	if !ok {
-		return Contract{}, fmt.Errorf("broker session unavailable")
-	}
-	details, err := c.fetchContractDetailsForContract(contract, 3*time.Second)
-	if err != nil {
-		return Contract{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return Contract{}, err
-	}
-	if !c.SessionCurrent(binding) {
-		return Contract{}, fmt.Errorf("broker session changed")
-	}
-	return selectFrontFuture(contract, details, now)
+	return c.frontFuture(ctx, contract, now, 3*time.Second, nil)
 }
+
 func selectFrontFuture(want Contract, details []ContractDetailsLite, now time.Time) (Contract, error) {
 	candidates := []ContractDetailsLite{}
 	for _, d := range details {

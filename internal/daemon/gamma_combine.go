@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -383,13 +384,19 @@ func canonicalGammaWarningUnion(groups ...[]string) []string {
 	return dedupeStrings(out)
 }
 
+var gammaPlainWarningCodes = []string{
+	"no_crossing_in_window", "0dte_no_legs", "1to7_no_legs", "term_no_legs",
+	"throttled", "oi_missing", "strike_budget_capped", "all_iv_derived",
+	"cache_stale_off_hours", "closed_session_cache", "session_closed_no_cache",
+	"persisted_cache_rejected", "unclassified_data_warning", "spx_cache_fallback",
+}
+
+var gammaFailureWarningPrefixes = []string{"refresh_failed:", "spy_unavailable:", "spx_unavailable:", "spx_cache_fallback:"}
+var gammaFailureTokens = []string{"354", "200", "fetch_canceled", "timeout", "no_data", "throttled", "low_coverage", "zero_magnitude", "unavailable", "previous_success"}
+
 func canonicalGammaWarningCode(raw string) (string, bool) {
 	code := strings.ToLower(strings.TrimSpace(raw))
-	switch code {
-	case "no_crossing_in_window", "0dte_no_legs", "1to7_no_legs", "term_no_legs",
-		"throttled", "oi_missing", "strike_budget_capped", "all_iv_derived",
-		"cache_stale_off_hours", "closed_session_cache", "session_closed_no_cache",
-		"persisted_cache_rejected", "unclassified_data_warning":
+	if slices.Contains(gammaPlainWarningCodes, code) {
 		return code, true
 	}
 	if suffix, ok := strings.CutPrefix(code, "expiries_stale:"); ok && gammaDigitsWithSuffix(suffix, 'd', 1, 4) {
@@ -404,25 +411,16 @@ func canonicalGammaWarningCode(raw string) (string, bool) {
 			return code, true
 		}
 	}
-	for _, prefix := range []string{"refresh_failed:", "spy_unavailable:", "spx_unavailable:", "spx_cache_fallback:"} {
+	for _, prefix := range gammaFailureWarningPrefixes {
 		if suffix, ok := strings.CutPrefix(code, prefix); ok && canonicalGammaFailureToken(suffix) {
 			return code, true
 		}
-	}
-	if code == "spx_cache_fallback" {
-		return code, true
 	}
 	return "", false
 }
 
 func canonicalGammaFailureToken(token string) bool {
-	switch token {
-	case "354", "200", "fetch_canceled", "timeout", "no_data", "throttled",
-		"low_coverage", "zero_magnitude", "unavailable", "previous_success":
-		return true
-	default:
-		return false
-	}
+	return slices.Contains(gammaFailureTokens, token)
 }
 
 func gammaDigits(value string, exact int) bool {

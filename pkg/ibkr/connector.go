@@ -138,6 +138,11 @@ type Connector struct {
 	// budgets remain open see the same terminal result; exact identities stay separate.
 	contractDetailsFlightMu sync.Mutex
 	contractDetailsFlights  map[string]*contractDetailsFlight
+	// frontFutures retains completed identities only within a broker session.
+	// It also owns bounded acquisition when an individual caller stops waiting.
+	frontFutureMu     sync.Mutex
+	frontFutures      map[string]*frontFutureResolution
+	frontFutureActive int
 	// contractWarningState bounds repeated unresolved-contract warning lines.
 	contractWarningMu    sync.Mutex
 	contractWarningState map[string]contractWarningState

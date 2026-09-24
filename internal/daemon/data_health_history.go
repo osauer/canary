@@ -17,6 +17,7 @@ type dataHealthDiagnostic struct {
 	FirstObserved time.Time                  `json:"first_observed"`
 	LastSuccess   time.Time                  `json:"last_success,omitzero"`
 	Transitions   []rpc.DataHealthTransition `json:"transitions"`
+	Truncated     bool                       `json:"truncated,omitempty"`
 }
 
 // Restore diagnostic chronology only. No entitlement, current data mode,
@@ -41,15 +42,26 @@ func (s *Server) loadDataHealthHistory() {
 	}
 	now := s.orderNow()
 	for _, record := range records {
-		if record.ID == "" || instrumentHealthID(record.ID) || len(record.ID) > 128 || len(record.Transitions) > 6 || record.FirstObserved.After(now) || record.LastSuccess.After(now) {
+		if record.ID == "" || instrumentHealthID(record.ID) || len(record.ID) > 128 || len(record.Transitions) > dataHealthHistoryLimit || record.FirstObserved.After(now) || record.LastSuccess.After(now) {
 			continue
 		}
 		history := slices.Clone(record.Transitions)
-		history = append(history, rpc.DataHealthTransition{At: now, State: "unknown", Reason: "daemon_restart_observation_gap"})
-		if len(history) > 6 {
-			history = history[len(history)-6:]
+		if len(history) > 0 && record.FirstObserved.Before(history[0].At) {
+			record.Truncated = true
 		}
-		row := rpc.DataSourceHealth{ID: record.ID, State: "unknown", Receiving: "Awaiting producer observation", FirstObserved: record.FirstObserved, LastSuccess: record.LastSuccess, History: history}
+		valid := true
+		for _, h := range history {
+			if dataHealthHistoryReason(h.Reason) != h.Reason || len(h.State) > 32 || len(h.DataType) > 32 {
+				valid = false
+			}
+		}
+		if !valid {
+			s.dataHealth.historyUnavailable = true
+			continue
+		}
+		history = append(history, rpc.DataHealthTransition{At: now, State: "unknown", Reason: "daemon_restart_observation_gap"})
+		history, truncated := retainDataHealthHistory(history, now)
+		row := rpc.DataSourceHealth{ID: record.ID, State: "unknown", Receiving: "Awaiting producer observation", FirstObserved: record.FirstObserved, LastSuccess: record.LastSuccess, History: history, HistoryTruncated: record.Truncated || truncated}
 		s.dataHealth.observations[record.ID] = dataHealthObservation{row: row}
 	}
 	s.dataHealth.diagnosticRevision++
@@ -70,7 +82,8 @@ func (s *Server) persistDataHealthHistory(ctx context.Context) {
 		if instrumentHealthID(id) {
 			continue
 		}
-		records = append(records, dataHealthDiagnostic{ID: id, FirstObserved: o.row.FirstObserved, LastSuccess: o.row.LastSuccess, Transitions: slices.Clone(o.row.History)})
+		history, truncated := retainDataHealthHistory(slices.Clone(o.row.History), s.orderNow())
+		records = append(records, dataHealthDiagnostic{ID: id, FirstObserved: o.row.FirstObserved, LastSuccess: o.row.LastSuccess, Transitions: history, Truncated: o.row.HistoryTruncated || truncated})
 	}
 	s.dataHealth.mu.Unlock()
 	slices.SortFunc(records, func(a, b dataHealthDiagnostic) int { return a.FirstObserved.Compare(b.FirstObserved) })

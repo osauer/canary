@@ -91,7 +91,6 @@ func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
 		access *rpc.DataAccessObservation
 	}{
 		{name: "unknown mode", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataUnknown, ReceivedAt: now}},
-		{name: "delayed last session", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayedFrozen, ReceivedAt: now}},
 		{name: "request timeout", err: context.DeadlineExceeded},
 		{name: "denied without fallback", quote: &rpc.Quote{}, access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}},
 	} {
@@ -174,7 +173,7 @@ func TestDataHealthDiscardsLegacyInstrumentDiagnostics(t *testing.T) {
 func TestDataHealthCatalogueUsesProducerSourceIdentity(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
-	s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{{Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now, RefreshState: rpc.SourceRefreshNotDue}}})
+	s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{{Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now, RefreshState: rpc.SourceRefreshNotDue}}}, nil, ibkr.ConnectorSessionBinding{})
 	rows, _ := s.collectDataHealth(now)
 	matched := 0
 	for _, row := range rows {

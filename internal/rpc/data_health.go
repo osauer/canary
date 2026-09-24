@@ -53,32 +53,41 @@ type DataHealthSummary struct {
 // instruments. Instrument availability and chart coverage stay in their own DTOs.
 // It contains no symbols, prices, balances or broker free text.
 type DataSourceHealth struct {
-	ID             string                 `json:"id"`
-	Name           string                 `json:"name"`
-	Provider       string                 `json:"provider"`
-	Kind           string                 `json:"kind"`
-	Required       bool                   `json:"required"`
-	State          string                 `json:"state"`
-	Delivery       string                 `json:"delivery,omitempty"`
-	Receiving      string                 `json:"receiving"`
-	Detail         string                 `json:"detail,omitempty"`
-	Affects        []string               `json:"affects"`
-	DataType       string                 `json:"data_type,omitempty"`
-	SourceAt       time.Time              `json:"source_at,omitzero"`
-	SourceDate     string                 `json:"source_date,omitempty"`
-	SourceTimeKind string                 `json:"source_time_kind,omitempty"`
-	ReceivedAt     time.Time              `json:"received_at,omitzero"`
-	CheckedAt      time.Time              `json:"checked_at,omitzero"`
-	ValidUntil     time.Time              `json:"valid_until,omitzero"`
-	NextAttempt    time.Time              `json:"next_attempt,omitzero"`
-	Action         string                 `json:"action,omitempty"`
-	Access         *DataAccessObservation `json:"access,omitempty"`
-	Failure        *SourceFailure         `json:"failure,omitempty"`
-	ProblemIDs     []string               `json:"problem_ids,omitempty"`
-	DerivedFrom    []string               `json:"derived_from,omitempty"`
-	FirstObserved  time.Time              `json:"first_observed,omitzero"`
-	LastSuccess    time.Time              `json:"last_success,omitzero"`
-	History        []DataHealthTransition `json:"history,omitempty"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+	Kind     string `json:"kind"`
+	Required bool   `json:"required"`
+	State    string `json:"state"`
+	// Availability reports observed acquisition, independently of delivery mode,
+	// scheduled cadence, applicability and analytical usability. Absent optional
+	// dimensions mean unsupported; they must never be interpreted as healthy.
+	Availability     string                 `json:"availability,omitempty"`
+	CadenceState     string                 `json:"cadence_state,omitempty"`
+	Applicability    string                 `json:"applicability,omitempty"`
+	Usability        string                 `json:"usability,omitempty"`
+	UsabilityReason  string                 `json:"usability_reason,omitempty"`
+	Delivery         string                 `json:"delivery,omitempty"`
+	Receiving        string                 `json:"receiving"`
+	Detail           string                 `json:"detail,omitempty"`
+	Affects          []string               `json:"affects"`
+	DataType         string                 `json:"data_type,omitempty"`
+	SourceAt         time.Time              `json:"source_at,omitzero"`
+	SourceDate       string                 `json:"source_date,omitempty"`
+	SourceTimeKind   string                 `json:"source_time_kind,omitempty"`
+	ReceivedAt       time.Time              `json:"received_at,omitzero"`
+	CheckedAt        time.Time              `json:"checked_at,omitzero"`
+	ValidUntil       time.Time              `json:"valid_until,omitzero"`
+	NextAttempt      time.Time              `json:"next_attempt,omitzero"`
+	Action           string                 `json:"action,omitempty"`
+	Access           *DataAccessObservation `json:"access,omitempty"`
+	Failure          *SourceFailure         `json:"failure,omitempty"`
+	ProblemIDs       []string               `json:"problem_ids,omitempty"`
+	DerivedFrom      []string               `json:"derived_from,omitempty"`
+	FirstObserved    time.Time              `json:"first_observed,omitzero"`
+	LastSuccess      time.Time              `json:"last_success,omitzero"`
+	History          []DataHealthTransition `json:"history,omitempty"`
+	HistoryTruncated bool                   `json:"history_truncated,omitempty"`
 }
 
 // DataHealthTransition is historical diagnostic evidence, never restored access

@@ -33,6 +33,8 @@ const (
 	marketEventsRegSHOMaxAge        = 96 * time.Hour
 	marketEventsHaltsFreshFor       = time.Minute
 	marketEventsBorrowPollBudget    = 2500 * time.Millisecond
+	marketEventsInventoryMaxAge     = 2 * time.Minute
+	marketEventsInventoryCacheLimit = 512
 	marketEventsBorrowFeeFreshFor   = 15 * time.Minute
 	marketEventsBorrowFeeMaxAge     = 90 * time.Minute
 	marketEventsBorrowFeeExtremePct = 50.0
@@ -75,7 +77,8 @@ var fetchIBKRBorrowFees = fetchIBKRBorrowFeesFTP
 
 type marketEventCache struct {
 	mu                        sync.Mutex
-	borrowFeesRefreshMu       sync.Mutex
+	borrowFeesRefreshGate     chan struct{}
+	borrowInventoryGate       chan struct{}
 	borrowFeeFallbackMu       sync.Mutex
 	regSHO                    marketEventRegSHOEntry
 	halts                     marketEventHaltsEntry
@@ -97,7 +100,9 @@ type marketEventCache struct {
 	now                       func() time.Time
 
 	// shortableAbsent remembers symbols whose shortable tick (236) did
-	shortableAbsent map[string]time.Time // symbol → when observed absent
+	shortableAbsent   map[string]time.Time // symbol → when observed absent
+	shortableBinding  ibkrlib.ConnectorSessionBinding
+	shortableReceipts map[string]marketEventBorrowInventoryRecord
 
 	// *FailedAt remember the last failed fetch per external source so
 	// re-fetches. Zero value = no recent failure. Cleared on success.
@@ -116,15 +121,21 @@ func (c *marketEventCache) shortableAbsentRecently(sym string, now time.Time) bo
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	at, ok := c.shortableAbsent[sym]
-	return ok && now.Sub(at) < marketEventsShortableAbsentRetry
+	return ok && !at.After(now) && now.Sub(at) < marketEventsShortableAbsentRetry
 }
 
 // rememberShortableAbsent records that sym ran a full poll budget at now
-func (c *marketEventCache) rememberShortableAbsent(sym string, now time.Time) {
+func (c *marketEventCache) rememberShortableAbsent(sym string, now time.Time, binding ibkrlib.ConnectorSessionBinding) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.shortableBinding != binding {
+		return
+	}
 	if c.shortableAbsent == nil {
 		c.shortableAbsent = make(map[string]time.Time)
+	}
+	if len(c.shortableAbsent) >= marketEventsInventoryCacheLimit {
+		return
 	}
 	c.shortableAbsent[sym] = now
 }
@@ -134,6 +145,8 @@ func (c *marketEventCache) clearShortableAbsence() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.shortableAbsent = nil
+	c.shortableReceipts = nil
+	c.shortableBinding = ibkrlib.ConnectorSessionBinding{}
 }
 
 type marketEventRegSHOEntry struct {
@@ -223,8 +236,12 @@ func (s *Server) marketEventsForSymbols(ctx context.Context, symbols []string) r
 	if s.marketEvents == nil {
 		s.installMarketEventCache()
 	}
-	result := s.marketEvents.snapshot(ctx, symbols, s.subs, s.gatewayConnector(), s.currentBrokerStateScope)
-	s.observeEventHealth(result)
+	connector := s.gatewayConnector()
+	// Fence the whole acquisition. Capturing after it would attach a late
+	// old-session inventory result to a newly connected broker session.
+	binding, _ := connector.CaptureSession()
+	result := s.marketEvents.snapshot(ctx, symbols, s.subs, connector, s.currentBrokerStateScope)
+	s.observeEventHealth(result, connector, binding)
 	return result
 }
 
@@ -281,7 +298,7 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 
 	borrowHealth := c.borrowInventory(ctx, symbols, subs, connector, now, &res)
 	res.SourceHealth = append(res.SourceHealth, borrowHealth)
-	borrowFees, borrowFeeHealth, err := c.loadBorrowFees(ctx, now)
+	borrowFees, borrowFeeHealth, err := c.loadBorrowFees(ctx)
 	if err != nil {
 		res.WarningDetails = append(res.WarningDetails, marketEventSourceWarning("borrow_fee", err))
 	}
@@ -432,9 +449,23 @@ func haltsFallback(cached marketEventHaltsEntry, now time.Time, freshFor time.Du
 	return marketEventHaltsEntry{}, marketEventSourceHealth("trading_halts", rpc.SourceStatusUnknown, now, now, freshFor, "low", []string{cause.Error()}), cause
 }
 
-func (c *marketEventCache) loadBorrowFees(ctx context.Context, now time.Time) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
-	c.borrowFeesRefreshMu.Lock()
-	defer c.borrowFeesRefreshMu.Unlock()
+func (c *marketEventCache) loadBorrowFees(ctx context.Context) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
+	c.mu.Lock()
+	if c.borrowFeesRefreshGate == nil {
+		c.borrowFeesRefreshGate = make(chan struct{}, 1)
+	}
+	gate := c.borrowFeesRefreshGate
+	c.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+	case <-ctx.Done():
+		return c.canceledBorrowFeeRefresh(ctx.Err(), c.now().UTC())
+	}
+	defer func() { <-gate }()
+	now := c.now().UTC()
+	if err := ctx.Err(); err != nil {
+		return c.canceledBorrowFeeRefresh(err, now)
+	}
 
 	c.mu.Lock()
 	cached := cloneBorrowFeeEntry(c.borrowFees)
@@ -460,7 +491,14 @@ func (c *marketEventCache) loadBorrowFees(ctx context.Context, now time.Time) (m
 
 	attemptedAt := now.UTC()
 	entry, err := fetchIBKRBorrowFees(ctx)
-	completedAt := attemptedAt
+	if ctx.Err() != nil {
+		return c.canceledBorrowFeeRefresh(ctx.Err(), c.now().UTC())
+	}
+	completedAt := c.now().UTC()
+	if completedAt.Before(attemptedAt) {
+		completedAt = attemptedAt
+	}
+	now = completedAt
 	if err != nil {
 		failure := borrowFeeFailureFromError(err, completedAt)
 		next := completedAt.Add(marketEventsBorrowFeeRetryAfter).UTC()
@@ -495,6 +533,29 @@ func (c *marketEventCache) loadBorrowFees(ctx context.Context, now time.Time) (m
 	health := marketEventSourceHealth("borrow_fee", status, entry.AsOf, now, marketEventsBorrowFeeMaxAge, confidence, []string{"IBKR short-stock availability fee rate"})
 	health.RefreshState = rpc.SourceRefreshCurrent
 	return entry, health, nil
+}
+
+func (c *marketEventCache) canceledBorrowFeeRefresh(err error, now time.Time) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
+	c.mu.Lock()
+	cached, attempt := cloneBorrowFeeEntry(c.borrowFees), cloneBorrowFeeAttempt(c.borrowFeesLastAttempt)
+	c.mu.Unlock()
+	status := rpc.SourceStatusUnknown
+	if len(cached.Symbols) > 0 {
+		status = rpc.SourceStatusStale
+	}
+	if borrowFeeEntryFresh(cached, now) {
+		status = rpc.SourceStatusOK
+	}
+	health := marketEventSourceHealth("borrow_fee", status, cached.AsOf, now, marketEventsBorrowFeeMaxAge, "low", []string{"refresh canceled; prior source evidence is retained"})
+	applyBorrowFeeLastFailure(&health, attempt)
+	if attempt != nil && attempt.Outcome == marketEventBorrowFeeOutcomeFailure {
+		health.NextAttempt = cloneBorrowFeeTimePtr(attempt.NextAttempt)
+		health.RefreshState = rpc.SourceRefreshFetchFailed
+		if health.NextAttempt != nil && now.Before(*health.NextAttempt) {
+			health.RefreshState = rpc.SourceRefreshFetchFailedBackoff
+		}
+	}
+	return cached, health, err
 }
 
 func borrowFeeEntryFresh(entry marketEventBorrowFeeEntry, now time.Time) bool {
@@ -882,6 +943,8 @@ func fetchFTPFile(ctx context.Context, addr, user, pass, path string) (string, e
 		return "", borrowFeeTransportFetchError(rpc.SourceFailureStageFTPControlConnect, err)
 	}
 	defer control.Close()
+	stopControl := context.AfterFunc(ctx, func() { _ = control.Close() })
+	defer stopControl()
 	deadline := time.Now().Add(10 * time.Second)
 	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
 		deadline = dl
@@ -938,6 +1001,8 @@ func fetchFTPFile(ctx context.Context, addr, user, pass, path string) (string, e
 	if err != nil {
 		return "", borrowFeeTransportFetchError(rpc.SourceFailureStageFTPPassiveConnect, err)
 	}
+	stopData := context.AfterFunc(ctx, func() { _ = data.Close() })
+	defer stopData()
 	_ = data.SetDeadline(deadline)
 	if err := writeFTPCommand(control, "RETR "+path); err != nil {
 		data.Close()
@@ -952,10 +1017,14 @@ func fetchFTPFile(ctx context.Context, addr, user, pass, path string) (string, e
 		data.Close()
 		return "", newBorrowFeeFetchError(rpc.SourceFailureProtocolRejected, rpc.SourceFailureStageFTPRetrieve, true)
 	}
-	body, readErr := io.ReadAll(data)
+	const maxBorrowFeeBytes = 16 << 20
+	body, readErr := io.ReadAll(io.LimitReader(data, maxBorrowFeeBytes+1))
 	closeErr := data.Close()
 	if readErr != nil {
 		return "", borrowFeeTransportFetchError(rpc.SourceFailureStageFTPRetrieve, readErr)
+	}
+	if len(body) > maxBorrowFeeBytes {
+		return "", newBorrowFeeFetchError(rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageFTPRetrieve, true)
 	}
 	if closeErr != nil {
 		return "", borrowFeeTransportFetchError(rpc.SourceFailureStageFTPRetrieve, closeErr)
@@ -1223,97 +1292,28 @@ func marketEventLULDReason(reason string) bool {
 }
 
 func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string, subs *subManager, connector *ibkrlib.Connector, now time.Time, res *rpc.MarketEventsResult) rpc.SourceHealth {
-	if connector == nil || subs == nil {
-		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusUnknown, now, now, 2*time.Minute, "low", []string{"IBKR gateway is unavailable; shortable-share inventory is unknown"})
+	binding, ready := connector.CaptureSession()
+	if !ready || subs == nil || connector.BackendLink().Down {
+		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsInventoryMaxAge, "low", []string{"IBKR gateway is unavailable; shortable-share inventory is unknown"})
 	}
-	// Per-symbol probe results land in index-addressed slots so the
-	// bounded workers never share mutable state; flags are merged after
-	// the fan-out (res.Flags gets a global sort downstream anyway).
-	type borrowProbe struct {
-		observed bool
-		hasFlag  bool
-		flag     rpc.MarketEventFlag
-		record   *marketEventBorrowInventoryRecord
-	}
-	probes := make([]borrowProbe, len(symbols))
-	var jobs []int
-	skipped := 0
-	for i, sym := range symbols {
-		if c.shortableAbsentRecently(sym, now) {
-			skipped++
-			continue
-		}
-		jobs = append(jobs, i)
-	}
-	runBounded(jobs, marketEventsBorrowPollWorkers, func(i int) {
-		sym := symbols[i]
-		holdCtx, cancel := context.WithTimeout(ctx, marketEventsBorrowPollBudget)
-		defer cancel()
-		release, err := subs.Hold(holdCtx, sym)
+	current := func() bool { return connector.SessionCurrent(binding) && !connector.BackendLink().Down }
+	peek := func(sym string) *ibkrlib.MarketData { return connector.MarketDataSnapshot()[sym] }
+	probe := func(probeCtx context.Context, sym string) (*ibkrlib.MarketData, error) {
+		release, err := subs.Hold(probeCtx, sym)
 		if err != nil {
-			return
+			return nil, err
 		}
 		defer release()
-		pollErr := pollMarketData(holdCtx, connector, sym, time.Now().Add(marketEventsBorrowPollBudget), func(md *ibkrlib.MarketData) bool {
-			return md.ShortableObserved
+		err = pollMarketData(probeCtx, connector, sym, time.Now().Add(marketEventsBorrowPollBudget), func(md *ibkrlib.MarketData) bool {
+			return marketEventInventoryReceiptCurrent(md, c.now().UTC())
 		})
-		if md := connector.MarketDataSnapshot()[sym]; md != nil && md.ShortableObserved {
-			probes[i].observed = true
-			record := marketEventBorrowInventoryRecord{
-				Symbol: sym, ShortableShares: md.ShortableShares, AsOf: md.ShortableTickAt,
-				DataType: md.DataType, Delayed: md.IsDelayed,
-			}
-			probes[i].record = &record
-			if flag, ok := marketEventBorrowInventoryFlag(sym, *md, now); ok {
-				probes[i].hasFlag = true
-				probes[i].flag = flag
-			}
-			return
-		}
-		// Tick absent. Record the absence only when this probe genuinely
-		if ctx.Err() == nil && pollErr != nil {
-			c.rememberShortableAbsent(sym, now)
-		}
-	})
-
-	var observed, tight int
-	observations := make(map[string]marketEventBorrowInventoryRecord)
-	for i := range probes {
-		if probes[i].observed {
-			observed++
-		}
-		if probes[i].record != nil {
-			observations[probes[i].record.Symbol] = *probes[i].record
-		}
-		if probes[i].hasFlag {
-			tight++
-			res.Flags = append(res.Flags, probes[i].flag)
-		}
+		return peek(sym), err
 	}
-	status := rpc.SourceStatusUnknown
-	confidence := "low"
-	notes := []string{"shortable-share tick did not arrive for requested symbols"}
-	if observed > 0 {
-		status = rpc.SourceStatusOK
-		confidence = "medium"
-		notes = []string{fmt.Sprintf("observed shortable-share inventory for %d/%d symbols", observed, len(symbols))}
-		if tight == 0 {
-			notes = append(notes, "no tight borrow-inventory flags crossed V1 thresholds")
-		}
-	}
-	if skipped > 0 {
-		notes = append(notes, fmt.Sprintf("skipped %d symbols whose shortable tick was recently absent; re-probing every %s", skipped, marketEventsShortableAbsentRetry))
-	}
-	if err := c.persistBorrowInventory(ctx, now, observations); err != nil {
-		status = rpc.SourceStatusUnknown
-		confidence = "low"
-		notes = append(notes, "normalized shortable-share observations were not durably recorded: "+err.Error())
-	}
-	return marketEventSourceHealth("borrow_inventory", status, now, now, 2*time.Minute, confidence, notes)
+	return c.readBorrowInventory(ctx, symbols, binding, res, current, peek, probe)
 }
 
 func marketEventBorrowInventoryFlag(sym string, md ibkrlib.MarketData, now time.Time) (rpc.MarketEventFlag, bool) {
-	if !md.ShortableObserved || md.ShortableShares > marketEventsBorrowTightShares {
+	if !marketEventInventoryReceiptCurrent(&md, now) || md.ShortableShares > marketEventsBorrowTightShares {
 		return rpc.MarketEventFlag{}, false
 	}
 	severity := rpc.MarketEventSeverityWatch

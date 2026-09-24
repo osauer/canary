@@ -25,11 +25,18 @@ func (s *Server) observedDataHealth(id string, now time.Time) (rpc.DataSourceHea
 		row.Detail = "Current availability is unverified after a broker session change. Previous observations are diagnostic history."
 		row.ProblemIDs = nil
 		row.Action = "Awaiting current-session producer check"
+		row.Availability, row.Usability = "unknown", ""
+		row.UsabilityReason = ""
 	} else if !row.ValidUntil.IsZero() && !now.Before(row.ValidUntil) {
 		row.State, row.Receiving = "unknown", "Last observation expired"
 		row.Detail = "No current producer observation. Historical data mode and failure do not establish current availability."
 		row.ProblemIDs = nil
+		row.Availability, row.Usability = "unknown", ""
+		row.UsabilityReason = ""
 	}
+	var truncated bool
+	row.History, truncated = retainDataHealthHistory(slices.Clone(row.History), now)
+	row.HistoryTruncated = row.HistoryTruncated || truncated
 	return row, true
 }
 
@@ -47,8 +54,10 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 	connection.CheckedAt, connection.ValidUntil = now, now.Add(dataHealthObservationValidity)
 	if connected {
 		connection.State, connection.Receiving = "current", "Connected"
+		connection.Availability = "available"
 	} else {
 		connection.State, connection.Receiving = "unavailable", "Broker unavailable"
+		connection.Availability = "unavailable"
 		connection.ProblemIDs = []string{"broker_connection"}
 		connection.Action = "Canary reconnects automatically when the broker API is available"
 	}
@@ -79,6 +88,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		row := s.feedDataHealth(id, now)
 		if !connected {
 			row.State, row.Receiving = "unknown", "Broker connection unavailable"
+			row.Availability = "unknown"
 			row.ProblemIDs = nil
 			row.DerivedFrom = []string{"broker_connection"}
 		}
@@ -88,6 +98,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		row := unknownDataSource("macro:"+source.ID, source.Name, "Official public source", "public_source", "Macro calendar and publications")
 		row.CheckedAt, row.ReceivedAt, row.ValidUntil, row.NextAttempt = source.LastAttempt, source.LastSuccess, source.ValidUntil, source.NextAttempt
 		row.LastSuccess = source.LastSuccess
+		row.Availability = source.Availability
 		row.Action = "Canary refreshes this source automatically"
 		switch {
 		case source.LastAttempt.IsZero():
@@ -102,7 +113,13 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		default:
 			row.State, row.Receiving = "current", "Current retained source"
 		}
-		row.Detail = source.Coverage
+		// Both values are producer-authored public-source diagnostics. Bound
+		// display copy without promoting provider prose into a typed cause.
+		detail := source.Detail
+		if len(detail) > 512 {
+			detail = detail[:512]
+		}
+		row.Detail = strings.Join(compactNonEmptyStrings(detail, source.Coverage), " · ")
 		rows = append(rows, row)
 	}
 	rows = append(rows, s.calendarDataHealth(now)...)
@@ -143,6 +160,23 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		}
 		rows = append(rows, row)
 	}
+	// These owners expose retained snapshots rather than acquisition callbacks.
+	// Record only their diagnostic state here; a report never requests a fetch.
+	for i := range rows {
+		row := &rows[i]
+		if row.ID != "broker_connection" && row.ID != "reporting" && row.ID != "regime_publication" && !strings.HasPrefix(row.ID, "macro:") && !strings.HasPrefix(row.ID, "regime:") && !strings.HasPrefix(row.ID, "calendar:") {
+			continue
+		}
+		if row.CheckedAt.IsZero() {
+			row.CheckedAt = now
+		}
+		s.recordDataHealth(*row, nil, ibkr.ConnectorSessionBinding{}, false)
+		s.dataHealth.mu.Lock()
+		history := s.dataHealth.observations[row.ID].row
+		row.FirstObserved, row.LastSuccess = history.FirstObserved, history.LastSuccess
+		row.History, row.HistoryTruncated = slices.Clone(history.History), history.HistoryTruncated
+		s.dataHealth.mu.Unlock()
+	}
 	return rows, scope
 }
 
@@ -152,6 +186,7 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 		meta               rpc.RegimeIndicatorMeta
 		status             string
 		cadence            string
+		gammaQuality       *rpc.GammaSignalQuality
 	}
 	specs := []indicator{
 		{id: "vix_term", name: "Volatility term-structure data", provider: "IBKR"}, {id: "vvix", name: "Volatility-of-volatility daily series", provider: "Cboe"},
@@ -160,11 +195,13 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 		{id: "gamma", name: "Option prices, Greeks and open interest", provider: "IBKR · Canary gamma"}, {id: "breadth", name: "S&P 500 membership and breadth", provider: "Canary breadth"},
 	}
 	publication := unknownDataSource("regime_publication", "Regime publication", "Canary", "analytics_publication", "Regime assessment")
+	publicationCurrent := false
 	if s.regimeSnapshots != nil {
 		if view, err := s.regimeSnapshots.current(); err == nil && view.Snapshot != nil {
 			publication.CheckedAt = now
 			publication.ValidUntil = now.Add(dataHealthObservationValidity)
 			publication.State, publication.Receiving = "current", "Published"
+			publicationCurrent = view.Health.Status == rpc.RegimeAuthorityFresh && view.Health.FailureCode == rpc.RegimeAuthorityFailureNone
 			if view.Health.LastSuccessAt != nil {
 				publication.ReceivedAt, publication.LastSuccess = *view.Health.LastSuccessAt, *view.Health.LastSuccessAt
 			}
@@ -175,6 +212,9 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 			}
 			publication.Action = "Managed by Canary's regime publication owner"
 			r := view.Snapshot
+			if r.GammaZero.Envelope.Result != nil {
+				specs[6].gammaQuality = r.GammaZero.Envelope.Result.Quality
+			}
 			metas := []rpc.RegimeIndicatorMeta{r.VIXTermStructure.RegimeIndicatorMeta, r.VolOfVol.RegimeIndicatorMeta, r.HYGSPYDivergence.RegimeIndicatorMeta, r.CreditSpreads.RegimeIndicatorMeta, r.FundingStress.RegimeIndicatorMeta, r.USDJPY.RegimeIndicatorMeta, r.GammaZero.RegimeIndicatorMeta, r.Breadth.RegimeIndicatorMeta}
 			statuses := []string{r.VIXTermStructure.Status, r.VolOfVol.Status, r.HYGSPYDivergence.Status, r.CreditSpreads.Status, r.FundingStress.Status, r.USDJPY.Status, r.GammaZero.Status, r.Breadth.Status}
 			for i := range specs {
@@ -206,7 +246,7 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 			switch class {
 			case rpc.RegimeFreshnessFresh:
 				row.State = "current"
-				if row.SourceAt.IsZero() || m.Freshness.MaxAgeSeconds <= 0 {
+				if row.SourceAt.IsZero() || row.SourceAt.After(now) || m.Freshness.MaxAgeSeconds <= 0 {
 					row.State = "unknown"
 				} else if now.Sub(row.SourceAt) > time.Duration(m.Freshness.MaxAgeSeconds)*time.Second {
 					row.State = "limited"
@@ -214,15 +254,48 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 				}
 			case rpc.RegimeFreshnessNotDue:
 				row.State, row.Receiving = "not_due", "As scheduled"
+				row.CadenceState = "not_due"
 				if m.Freshness.NextDueAt != nil && now.Before(*m.Freshness.NextDueAt) {
 					row.NextAttempt = *m.Freshness.NextDueAt
 				}
 			case rpc.RegimeFreshnessStale, rpc.RegimeFreshnessOverdue, rpc.RegimeFreshnessPending:
 				row.State = "limited"
+				if class == rpc.RegimeFreshnessOverdue {
+					row.CadenceState = "overdue"
+				}
+				if class == rpc.RegimeFreshnessPending {
+					row.CadenceState = "pending"
+				}
 			}
 		}
 		if spec.status == "unavailable" || spec.status == "error" {
 			row.State, row.Receiving = "unavailable", "Unavailable"
+			row.Availability = "unavailable"
+		}
+		if spec.id == "gamma" {
+			row.Usability = "unknown"
+			if q := spec.gammaQuality; q != nil {
+				switch q.Rankability {
+				case rpc.GammaRankabilityRankable:
+					if publicationCurrent && row.State == "current" {
+						row.Usability = "usable"
+					}
+				case rpc.GammaRankabilityContextOnly:
+					row.Usability = "limited"
+				case rpc.GammaRankabilityBlocked, rpc.GammaRankabilityUnavailable:
+					row.Usability = "blocked"
+				}
+				if row.Usability == "blocked" || row.Usability == "limited" {
+					row.UsabilityReason = "Gamma quality gates permit context only"
+					if row.Usability == "blocked" {
+						row.UsabilityReason = "Gamma quality gates block analytical use"
+					}
+					if row.State != "unavailable" {
+						row.State = "limited"
+					}
+					row.Receiving = row.UsabilityReason
+				}
+			}
 		}
 		if row.State == "limited" || row.State == "unavailable" {
 			row.ProblemIDs = []string{row.ID}
@@ -288,11 +361,14 @@ func (s *Server) handleDataHealth(p rpc.DataHealthParams) (rpc.DataHealthResult,
 		state.mu.Unlock()
 	}
 	page, err := finalizeDataHealth(slices.Clone(full.Sources), full.ScopeState, full.AsOf, p)
+	if err != nil {
+		return page, err
+	}
 	page.Check = full.Check
-	return page, err
+	return fitDataHealthPage(page)
 }
 
-func (s *Server) observeEventHealth(result rpc.MarketEventsResult) {
+func (s *Server) observeEventHealth(result rpc.MarketEventsResult, connector *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
 	for _, health := range result.SourceHealth {
 		row := projectSourceHealth("events:"+health.Source, strings.ReplaceAll(health.Source, "_", " "), "Canary market events", "market_events", health, result.AsOf, "Market-event assessment")
 		for i := range row.DerivedFrom {
@@ -300,8 +376,19 @@ func (s *Server) observeEventHealth(result rpc.MarketEventsResult) {
 		}
 		if health.MaxAgeSeconds > 0 {
 			row.ValidUntil = result.AsOf.Add(time.Duration(health.MaxAgeSeconds) * time.Second)
+			if health.Source == "borrow_inventory" && !health.AsOf.IsZero() {
+				row.ValidUntil = health.AsOf.Add(time.Duration(health.MaxAgeSeconds) * time.Second)
+			}
 		}
-		s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
+		if health.Source == "borrow_inventory" {
+			if !connector.SessionCurrent(binding) || connector.BackendLink().Down {
+				row.State, row.Availability, row.Receiving = "unknown", "unknown", "Previous session observation"
+				row.ProblemIDs = nil
+			}
+			s.recordDataHealth(row, connector, binding, true)
+		} else {
+			s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
+		}
 	}
 }
 

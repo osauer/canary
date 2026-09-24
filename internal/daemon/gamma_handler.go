@@ -1249,6 +1249,22 @@ func gammaWarningDetail(c *rpc.GammaZeroComputed, code string) rpc.GammaWarningD
 		d.Severity = "data_quality"
 		d.Message = "The cached gamma result is older than 24 hours and markets are closed."
 		d.Impact = "The daemon served the last persisted snapshot rather than recomputing against a closed market."
+	case code == "closed_session_cache":
+		d.Message = "The option session is closed; showing the retained gamma snapshot."
+		d.Impact = "The snapshot keeps its original observation time; freshness and coverage gates still apply."
+	case code == "session_closed_no_cache":
+		d.Severity = "data_quality"
+		d.Message = "The option session is closed and no usable gamma snapshot is available."
+		d.Impact = "Gamma is unavailable until the producer obtains a usable snapshot."
+	case code == "persisted_cache_rejected":
+		d.Severity = "data_quality"
+		d.Message = "The retained gamma snapshot failed validation."
+		d.Impact = "Gamma is unavailable until a new snapshot passes the existing quality gates."
+	case strings.HasPrefix(code, "expiries_stale:"):
+		d.Severity = "methodology"
+		age := strings.TrimPrefix(code, "expiries_stale:")
+		d.Message = "The expiry grid came from a cached contract definition (" + age + " old)."
+		d.Impact = "The grid may omit newly listed expiries. Grid age and option-input freshness are assessed separately by the existing quality gates."
 	case code == "unclassified_data_warning":
 		d.Severity = "data_quality"
 		d.Message = "An unclassified gamma data warning was received."

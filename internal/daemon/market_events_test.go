@@ -52,7 +52,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 	}
 	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
 
-	_, health, err := cache.loadBorrowFees(context.Background(), failedAt)
+	_, health, err := cache.loadBorrowFees(context.Background())
 	if err == nil || fetchCalls != 1 || health.LastFailure == nil {
 		t.Fatalf("first failure calls=%d health=%+v err=%v", fetchCalls, health, err)
 	}
@@ -72,12 +72,13 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 	if err := restarted.UseCoreStore(authority); err != nil {
 		t.Fatalf("restart UseCoreStore: %v", err)
 	}
-	_, health, err = restarted.loadBorrowFees(context.Background(), within)
+	_, health, err = restarted.loadBorrowFees(context.Background())
 	if err == nil || fetchCalls != 1 || health.RefreshState != rpc.SourceRefreshFetchFailedBackoff || health.LastFailure == nil {
 		t.Fatalf("restart backoff calls=%d health=%+v err=%v", fetchCalls, health, err)
 	}
 
 	recoveredAt := failedAt.Add(marketEventsBorrowFeeRetryAfter + time.Minute)
+	restarted.now = func() time.Time { return recoveredAt }
 	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
 		fetchCalls++
 		return marketEventBorrowFeeEntry{
@@ -85,7 +86,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 			Symbols: map[string]marketEventBorrowFeeRecord{"CRWV": {Symbol: "CRWV", FeeRate: 65, Available: 1500}},
 		}, nil
 	}
-	entry, health, err := restarted.loadBorrowFees(context.Background(), recoveredAt)
+	entry, health, err := restarted.loadBorrowFees(context.Background())
 	if err != nil || fetchCalls != 2 || len(entry.Symbols) != 1 || health.LastFailure != nil || health.Status != rpc.SourceStatusOK {
 		t.Fatalf("recovery calls=%d entry=%+v health=%+v err=%v", fetchCalls, entry, health, err)
 	}
@@ -112,7 +113,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 	if err := afterRestart.UseCoreStore(authority); err != nil {
 		t.Fatalf("post-recovery restart UseCoreStore: %v", err)
 	}
-	_, health, err = afterRestart.loadBorrowFees(context.Background(), recoveredAt.Add(time.Minute))
+	_, health, err = afterRestart.loadBorrowFees(context.Background())
 	if err != nil || fetchCalls != 2 || health.LastFailure != nil || health.Status != rpc.SourceStatusOK {
 		t.Fatalf("post-recovery restart calls=%d health=%+v err=%v", fetchCalls, health, err)
 	}

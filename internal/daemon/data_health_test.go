@@ -157,7 +157,7 @@ func TestDataHealthBoundedPageAndDiagnosticExpiry(t *testing.T) {
 func TestDataHealthHistoryRestoresNoCurrentAccess(t *testing.T) {
 	s, _, _, now, _ := historyFixture(t)
 	s.now = func() time.Time { return now }
-	row := rpc.DataSourceHealth{ID: quoteSourceID, Name: "IBKR quote feed", State: "limited", DataType: "delayed-frozen", CheckedAt: now, ValidUntil: now.Add(time.Minute), Access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}}
+	row := rpc.DataSourceHealth{ID: quoteSourceID, Name: "IBKR quote feed", State: "limited", DataType: "delayed-frozen", CheckedAt: now, ReceivedAt: now, ValidUntil: now.Add(time.Minute), Access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}}
 	s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
 	s.recordDataHealth(rpc.DataSourceHealth{ID: "account", Name: "Account fields", Required: true, State: "current", CheckedAt: now}, nil, ibkr.ConnectorSessionBinding{}, false)
 	s.persistDataHealthHistory(t.Context())
