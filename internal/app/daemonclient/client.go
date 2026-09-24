@@ -76,6 +76,20 @@ type EdgeClient interface {
 	EdgeSnapshot(context.Context, rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error)
 }
 
+// MarketTapeClient is the optional read-only broad-market history capability.
+type MarketTapeClient interface {
+	MarketTape(context.Context, rpc.MarketTapeParams) (*rpc.MarketTapeResult, error)
+}
+
+// MarketTape composes a bounded retrospective tape in the daemon.
+func (c Real) MarketTape(ctx context.Context, params rpc.MarketTapeParams) (*rpc.MarketTapeResult, error) {
+	var out rpc.MarketTapeResult
+	if err := c.call(ctx, rpc.MethodMarketTape, params, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Real opens a short-lived daemon connection for each typed call and can
 // optionally autospawn the daemon when its socket is absent.
 type Real struct {

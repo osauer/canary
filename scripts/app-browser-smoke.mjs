@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { withRegimeInsights } from "../web/app/test/regime-insight-fixture.mjs";
 import { withEdgeLearning } from "../web/app/test/edge-learning-fixture.mjs";
+import { marketTapeFixture } from "../web/app/test/market-tape-fixture.mjs";
 
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
@@ -387,6 +388,7 @@ async function runRound4SyntheticSmoke() {
     }
     if (method === "GET" && requestPath === "/api/alerts/attention") return json(attention);
     if (method === "GET" && requestPath === "/api/alerts") return json(alerts);
+    if (method === "GET" && requestPath === "/api/market-tape") return json(marketTapeFixture());
     if (method === "GET" && requestPath === "/api/edge") {
       edgeReads += 1;
       const changeID = requestURL.searchParams.get("change");
@@ -548,6 +550,16 @@ async function runRound4SyntheticSmoke() {
     if (args["regime-screenshot"]) await page.locator("#regimeDetailPanel").screenshot({ path: args["regime-screenshot"] });
     await page.locator("#regimeDetailToggle").click();
     await page.waitForFunction(() => document.getElementById("updateAction")?.hidden === false, { timeout: 5000 });
+    await page.locator("#marketTapePanel > summary").click();
+    await page.waitForFunction(() => document.querySelectorAll("#marketTapePlots svg").length === 4);
+    const tapeView = await page.locator("#marketTapeContent").innerText();
+    if (!tapeView.includes("0.00%") || !tapeView.includes("QQQ reported volume")) throw new Error("Daily market tape lost observed values");
+    if (!tapeView.includes("Price held; trend participation narrowed")) throw new Error("Daily market tape lost Canary's interpretation");
+    await page.locator("#marketTapeSession").focus();
+    await page.locator("#marketTapeSession").press("Home");
+    if ((await page.locator("#marketTapeSelectedDate").innerText()).includes("23")) throw new Error("Tape session selector did not move");
+    if (await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) throw new Error("Market tape overflows mobile viewport");
+    await page.locator("#marketTapePanel > summary").click();
     const update = await page.evaluate(() => {
       const button = document.getElementById("updateAction");
       const rect = button?.getBoundingClientRect();

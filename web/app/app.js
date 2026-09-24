@@ -4,6 +4,7 @@ import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
 import { refreshEdge, renderEdge } from "./edge.js";
+import { setupMarketTape } from "./market-tape.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionSheetOpen, setPortfolioTrimSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
 import { bootstrap, bootstrapWithRetry, refreshBootstrapIfSSEUnavailable, showPairing } from "./lifecycle.js";
@@ -22,6 +23,7 @@ import { renderUpdateStatus, requestUpdate } from "./update.js";
 
 installRenderAll(renderAll);
 installSmokeHooks();
+setupMarketTape();
 
 function installSmokeHooks() {
   const smoke = globalThis.__canarySmoke;

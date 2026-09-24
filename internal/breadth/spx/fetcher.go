@@ -14,15 +14,13 @@ import (
 // change within one, and asking again on every retry pass only repeats it.
 var ErrNoDefinition = errors.New("no security definition (skipped until the next session)")
 
-// Bar is the engine's view of one daily price bar — just the date
-// and close, since 50-DMA breadth needs nothing else. Decoupling
-// from ibkr.HistoricalBar (which carries open/high/low/volume the
-// engine doesn't use) keeps the spx package free of any gateway
-// dependency, so tests can fake the fetcher without importing the
-// connector.
+// Bar is a dated daily close and optional reported share volume. ObservedAt
+// records acquisition here, never a historical publication time.
 type Bar struct {
-	Date  string // "YYYY-MM-DD"
-	Close float64
+	Date       string    `json:"date"`
+	Close      float64   `json:"close"`
+	Volume     *int64    `json:"volume,omitempty"`
+	ObservedAt time.Time `json:"observed_at,omitzero"`
 }
 
 // BarFetcher is the daily-bar source the engine pulls from. The

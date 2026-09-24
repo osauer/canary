@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { withEdgeLearning } from "./edge-learning-fixture.mjs";
+import { marketTapeFixture } from "./market-tape-fixture.mjs";
 
 import { FakeElement, createDOMHarness } from "./dom-harness.mjs";
 
@@ -27,7 +28,7 @@ Object.defineProperty(globalThis, "EventSource", { configurable: true, value: un
 const { normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
-  "alerts", "alert-inbox", "brief", "chrome", "edge", "lifecycle", "market-events", "opportunities", "orders",
+  "alerts", "alert-inbox", "brief", "chrome", "edge", "lifecycle", "market-events", "market-tape", "opportunities", "orders",
   "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "strategies", "stress", "underlyings",
   "update",
 ];
@@ -36,6 +37,7 @@ const { alerts, brief, chrome, edge, lifecycle, opportunities, orders, portfolio
 const alertInbox = modules["alert-inbox"];
 const coverage = modules["protection-coverage"];
 const marketEvents = modules["market-events"];
+const marketTape = modules["market-tape"];
 
 let renderCount = 0;
 installRenderAll(() => { renderCount += 1; });
@@ -62,6 +64,7 @@ function reset() {
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
     edgeResult: null, edgeBusy: false, edgeError: "", edgeRequestID: 0,
+    marketTapeResult: null, marketTapeBusy: false, marketTapeError: "", marketTapeRequestID: 0, marketTapeIndex: 0,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
     readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
     portfolioDetailOpen: false, protectionOpen: false, protectionQtyOverrides: {}, protectionQuoteTicks: {},
@@ -92,6 +95,75 @@ function descendants(node) {
 }
 
 const byClass = (node, className) => descendants(node).filter((item) => item.classList?.contains(className));
+
+test("market tape rejects malformed evidence and never joins gaps", () => {
+  reset();
+  const good = marketTapeFixture();
+  assert.equal(marketTape.validMarketTape(good), true);
+  for (const mutate of [
+    (r) => { r.not_predictive = false; },
+    (r) => { r.sessions[0].date = "2026-99-99"; },
+    (r) => { r.sessions[1].date = r.sessions[0].date; },
+    (r) => { r.sessions[0].qqq.volume = "0"; },
+    (r) => { r.sessions[0].spx.volume = 12; },
+    (r) => { r.sessions[0].breadth.coverage_50 = 0; },
+    (r) => { r.sources[0].key = "__proto__"; },
+    (r) => { r.sessions[0].reading.evidence = "untyped advice"; },
+  ]) {
+    const bad = structuredClone(good); mutate(bad);
+    assert.equal(marketTape.validMarketTape(bad), false);
+  }
+  assert.equal(marketTape.tapePath([1, 2, null, 0, 3], (i) => i, (v) => v), "M0.00,1.00 L1.00,2.00 M3.00,0.00 L4.00,3.00");
+});
+
+test("market tape retains zero, source clocks and safe text in the rendered session", async () => {
+  reset();
+  const result = marketTapeFixture();
+  result.notes.push("<img src=x onerror=alert(1)>");
+  result.sessions[3].reading.headline = "<img src=x onerror=alert(1)>";
+  const requests = [];
+  globalThis.fetch = async (path, options) => { requests.push({path, options}); return response(result); };
+  assert.equal(await marketTape.refreshMarketTape(), true);
+  assert.equal(requests[0].path, "/api/market-tape?sessions=20");
+  assert.equal(requests[0].options.method, undefined);
+  state.marketTapeIndex = 3;
+  marketTape.renderMarketTape();
+  assert.match(dom.element("marketTapeValues").textContent, /0\.00×/);
+  assert.match(dom.element("marketTapeValues").textContent, /0 reported shares/);
+  assert.equal(await marketTape.refreshMarketTape(), true);
+  assert.equal(state.marketTapeIndex, 3, "refresh lost the selected session");
+  assert.match(dom.element("marketTapeHeadline").textContent, /<img/);
+  assert.equal(descendants(dom.element("marketTapeHeadline")).some((n) => n.tagName === "IMG"), false);
+  state.marketTapeIndex = 4;
+  marketTape.renderMarketTape();
+  assert.match(dom.element("marketTapeValues").textContent, /Above 50-day—/);
+  assert.ok(dom.element("marketTapeSources").textContent.includes(shared.calendarDateTime(result.sources[0].as_of, { timeZoneName: "short" })));
+  assert.ok(dom.element("marketTapeReadAt").textContent.includes(shared.calendarDateTime(result.as_of, { timeZoneName: "short" })));
+  assert.match(dom.element("marketTapeNotes").textContent, /<img/);
+  assert.equal(descendants(dom.element("marketTapeNotes")).some((n) => n.tagName === "IMG"), false);
+  assert.equal(byClass(dom.element("marketTapePlots"), "market-tape__plot").length, 4);
+});
+
+test("market tape ignores late replies and labels retained data after refresh failure", async () => {
+  reset();
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
+  const older = marketTape.refreshMarketTape();
+  const newer = marketTape.refreshMarketTape();
+  const latest = marketTapeFixture(); latest.as_of = "2026-09-24T11:00:00Z";
+  pending[1](response(latest));
+  assert.equal(await newer, true);
+  pending[0](response(marketTapeFixture()));
+  assert.equal(await older, false);
+  assert.equal(state.marketTapeResult.as_of, latest.as_of);
+  globalThis.fetch = async () => response("PRIVATE BROKER ERROR", 503);
+  assert.equal(await marketTape.refreshMarketTape(), false);
+  assert.match(dom.element("marketTapeReadAt").textContent, /showing the previous read/);
+  assert.doesNotMatch(dom.element("marketTapeStatus").textContent, /PRIVATE/);
+  state.authenticated = false;
+  globalThis.fetch = () => assert.fail("unauthenticated tape acquisition");
+  assert.equal(await marketTape.refreshMarketTape(), false);
+});
 const accountScope = (accountId = "SYNTHETIC-AUTHORITY") => ({ account_id: accountId, account_mode: "paper" });
 const sourceAuthority = (overrides = {}) => ({
   scope: accountScope(), source: "portfolio_stream", availability: "available", freshness: "current", ...overrides,

@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**27 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**28 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -52,6 +52,16 @@ Read bounded observed underlying price bars for a chart. Intraday ranges include
 |------|------|----------|-------------|
 | `contract` | object | **yes** | Exact underlying identity; specify symbol, sec_type (STK, IND, CASH, FUT), exchange and currency; preserve con_id when known. |
 | `range` | string | **yes** | Requested date range; 1D uses 5-minute bars, 5D 30-minute bars, longer ranges daily bars. |
+
+## `canary_market_tape`
+
+Compare recent rallies and reversals with an aligned daily SPX/QQQ price, QQQ ETF volume and S&P 500 breadth tape, with daemon-owned descriptive readings and separately covered daily advancers and constituent share volume when collected. Completed US equity sessions only; gaps and acquisition clocks remain explicit. Original historical availability is unknown: this reconstructs observations and does not prove a timely warning or predictive skill. ETF volume is not total-market volume or signed flow. Put/call flow is not included. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `sessions` | integer | no | Number of completed US equity sessions to align; default 20, maximum 60. Missing observations remain null. |
 
 ## `canary_status`
 

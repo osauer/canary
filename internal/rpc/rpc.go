@@ -411,15 +411,16 @@ type BreadthSPXParams struct {
 
 // BreadthDailyValue is one trailing daily breadth reading. The two
 type BreadthDailyValue struct {
-	Date              string   `json:"date"` // YYYY-MM-DD
-	PctAbove50DMA     float64  `json:"pct_above_50dma"`
-	PctAbove200DMA    *float64 `json:"pct_above_200dma,omitempty"`
-	NewHighs          *int     `json:"new_highs"`
-	NewLows           *int     `json:"new_lows"`
-	MemberCount       int      `json:"member_count"`
-	Coverage50        int      `json:"coverage_50"`
-	Coverage200       int      `json:"coverage_200"`
-	CoverageHighsLows int      `json:"coverage_highs_lows"`
+	Participation     *BreadthParticipation `json:"participation,omitempty"`
+	Date              string                `json:"date"` // YYYY-MM-DD
+	PctAbove50DMA     float64               `json:"pct_above_50dma"`
+	PctAbove200DMA    *float64              `json:"pct_above_200dma,omitempty"`
+	NewHighs          *int                  `json:"new_highs"`
+	NewLows           *int                  `json:"new_lows"`
+	MemberCount       int                   `json:"member_count"`
+	Coverage50        int                   `json:"coverage_50"`
+	Coverage200       int                   `json:"coverage_200"`
+	CoverageHighsLows int                   `json:"coverage_highs_lows"`
 }
 
 // BreadthState classifies the engine's compute-pipeline state at the

@@ -514,6 +514,10 @@ dispatch:
 				return
 			}
 			base := windows[item.Symbol]
+			observedAt := e.clock()
+			for i := range bars {
+				bars[i].ObservedAt = observedAt
+			}
 			if item.Rebuild {
 				base = ConstituentWindow{}
 			}
@@ -555,7 +559,7 @@ func constituentWindowsEqual(a, b ConstituentWindow) bool {
 		a.HighRollingBarsHad == b.HighRollingBarsHad &&
 		a.LowRollingMin == b.LowRollingMin &&
 		a.LowRollingBarsHad == b.LowRollingBarsHad &&
-		slices.Equal(a.Closes, b.Closes)
+		slices.Equal(a.Closes, b.Closes) && equalParticipationBars(a.Bars, b.Bars)
 }
 
 // finalise computes a snapshot from the (possibly updated) windows
@@ -601,6 +605,7 @@ func (e *Engine) finalise(members []string, windows map[string]ConstituentWindow
 	}
 	e.mu.Lock()
 	history := appendHistory(e.history, HistoryPoint{
+		Participation:     snap.Participation,
 		Date:              sessionKey,
 		PctAbove50DMA:     snap.PctAbove50DMA,
 		PctAbove200DMA:    above200,
@@ -674,6 +679,7 @@ func mergeBars(w ConstituentWindow, bars []Bar, symbol string) ConstituentWindow
 	if w.Symbol == "" {
 		w.Symbol = symbol
 	}
+	dated := mergeParticipationBars(w.Bars, bars)
 	for _, b := range bars {
 		if w.LastBarAt != "" && b.Date <= w.LastBarAt && b.Date != w.LastBarAt {
 			// Older than the last cached bar — ignore. The cache is
@@ -683,6 +689,7 @@ func mergeBars(w ConstituentWindow, bars []Bar, symbol string) ConstituentWindow
 		}
 		w = SlideWindow(w, b.Close, b.Date)
 	}
+	w.Bars = dated
 	return w
 }
 

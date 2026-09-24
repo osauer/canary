@@ -80,7 +80,11 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 		if _, err := time.Parse("2006-01-02", date); err != nil {
 			return nil, fmt.Errorf("breadth fetcher: invalid daily bar date")
 		}
-		out = append(out, spx.Bar{Date: date, Close: b.Close})
+		var volume *int64
+		if b.Volume >= 0 {
+			volume = new(b.Volume)
+		}
+		out = append(out, spx.Bar{Date: date, Close: b.Close, Volume: volume})
 	}
 	return out, nil
 }

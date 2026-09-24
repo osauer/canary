@@ -22,7 +22,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary positions`](#canary-positions) | Desk | List open positions (stocks + options) | `read-only` | yes |
 | [`canary strategies`](#canary-strategies) | Desk | Group option legs and close or reduce them as one guaranteed combo | `confirm` | yes |
 | [`canary portfolio`](#canary-portfolio) | Desk | Signed allocation by asset class and GICS sector, with coverage | `read-only` | yes |
-| [`canary market`](#canary-market) | Markets | Observed benchmark and held-underlying quotes; bounded price history | `read-only` | yes |
+| [`canary market`](#canary-market) | Markets | Observed quotes, price history and a daily price/breadth/volume tape | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary calendar`](#canary-calendar) | Markets | Official exchange sessions, holidays, early closes, and coverage bounds | `read-only` | yes |
 | [`canary macro`](#canary-macro) | Markets | Public economic calendar, official publications and source coverage | `read-only` | yes |
@@ -177,13 +177,16 @@ canary portfolio [--json]
 
 ## `canary market`
 
-Observed benchmark and held-underlying quotes; bounded price history.
+Observed quotes, price history and a daily price/breadth/volume tape.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary market [--symbol SYMBOL --range 1D] [--json]
+canary market tape [--sessions 20] [--explain] [--json]
 ```
+
+Subcommands: `tape`.
 
 **Flags**
 
@@ -192,6 +195,8 @@ canary market [--symbol SYMBOL --range 1D] [--json]
 | `--watch` | no | - |
 | `--symbol` | yes | - |
 | `--range` | yes | `1D`, `5D`, `1M`, `6M`, `YTD`, `1Y`, `5Y` |
+| `--sessions` | yes | - |
+| `--explain` | no | - |
 | `--exchange` | yes | - |
 | `--type` | yes | `STK`, `IND`, `CASH` |
 | `--currency` | yes | - |

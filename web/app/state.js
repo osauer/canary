@@ -2,6 +2,11 @@
 
 const state = {
   snapshot: null,
+  marketTapeResult: null,
+  marketTapeBusy: false,
+  marketTapeError: "",
+  marketTapeRequestID: 0,
+  marketTapeIndex: 0,
   appVersion: "",
   updateStatus: null,
   updatePollTimer: null,

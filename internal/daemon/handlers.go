@@ -3775,6 +3775,7 @@ func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.Brea
 		res.History = make([]rpc.BreadthDailyValue, 0, len(history))
 		for _, h := range history {
 			res.History = append(res.History, rpc.BreadthDailyValue{
+				Participation:     tapeParticipation(h.Participation),
 				Date:              h.Date,
 				PctAbove50DMA:     h.PctAbove50DMA,
 				PctAbove200DMA:    h.PctAbove200DMA,

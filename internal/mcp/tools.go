@@ -97,6 +97,26 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name: "canary_market_tape", Title: "Canary Market Tape", RPCMethods: []string{rpc.MethodMarketTape}, ReadOnlyHint: new(true),
+		Description: "Compare recent rallies and reversals with an aligned daily SPX/QQQ price, QQQ ETF volume and S&P 500 breadth tape, with daemon-owned descriptive readings and separately covered daily advancers and constituent share volume when collected. Completed US equity sessions only; gaps and acquisition clocks remain explicit. Original historical availability is unknown: this reconstructs observations and does not prove a timely warning or predictive skill. ETF volume is not total-market volume or signed flow. Put/call flow is not included. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.",
+		JSONSchema:  schemaObject(map[string]json.RawMessage{"sessions": json.RawMessage(`{"type":"integer","minimum":5,"maximum":60,"description":"Number of completed US equity sessions to align; default 20, maximum 60. Missing observations remain null."}`)}, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var p rpc.MarketTapeParams
+			if err := unmarshalArgs(args, &p); err != nil {
+				return nil, err
+			}
+			p, err := rpc.NormalizeMarketTapeParams(p)
+			if err != nil {
+				return nil, err
+			}
+			var res rpc.MarketTapeResult
+			if err := conn.Call(ctx, rpc.MethodMarketTape, p, &res); err != nil {
+				return nil, err
+			}
+			return json.Marshal(res)
+		},
+	},
+	{
 		Name:               "canary_status",
 		RPCMethods:         []string{rpc.MethodStatusHealth},
 		Title:              "Canary Status",

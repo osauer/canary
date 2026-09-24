@@ -278,6 +278,30 @@
             </div>
             <p class="regime-governed-note" id="marketRegimeMix" hidden>Waiting for market evidence</p>
           </div>
+          <details class="market-tape" id="marketTapePanel">
+            <summary>Daily market tape <span>Price · participation · volume</span></summary>
+            <div class="market-tape__toolbar">
+              <label>Sessions <select id="marketTapeSessions"><option value="10">10</option><option value="20" selected>20</option><option value="60">60</option></select></label>
+              <button id="marketTapeRefresh" type="button">Refresh tape</button>
+            </div>
+            <p id="marketTapeStatus" role="status">Open to read completed US sessions.</p>
+            <div id="marketTapeContent" hidden>
+              <p class="market-tape__muted" id="marketTapeReadAt"></p>
+              <p class="market-tape__muted">Observed history · no forecast. QQQ volume is ETF activity, not total-market buying or selling.</p>
+              <label class="market-tape__session-label" for="marketTapeSession">Inspect session <strong id="marketTapeSelectedDate"></strong></label>
+              <input id="marketTapeSession" type="range" min="0" max="19" value="19" step="1">
+              <section class="market-tape__reading" aria-label="Selected session interpretation">
+                <h3 id="marketTapeHeadline"></h3><p id="marketTapeSummary"></p>
+                <details class="market-tape__evidence"><summary>What the measurements mean</summary><dl id="marketTapeMeaning"></dl></details>
+                <p id="marketTapeWatch"></p>
+                <details class="market-tape__evidence"><summary>Limits of this reading</summary><ul id="marketTapeLimits"></ul></details>
+              </section>
+              <div id="marketTapePlots"></div>
+              <div class="market-tape__dates"><span id="marketTapeStart"></span><span id="marketTapeEnd"></span></div>
+              <div class="market-tape__values" id="marketTapeValues"></div>
+              <details class="market-tape__evidence"><summary>Sources and coverage</summary><ul id="marketTapeSources"></ul><ul id="marketTapeNotes"></ul></details>
+            </div>
+          </details>
         </article>
 
         <article class="panel portfolio-panel" id="portfolioPanel" data-open="false">

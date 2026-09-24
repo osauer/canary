@@ -11,10 +11,11 @@ import (
 // from being relabelled and published as today's snapshot after a failed warm
 func Compute(members []string, windows map[string]ConstituentWindow, sessionKey string, asOf time.Time) Snapshot {
 	snap := Snapshot{
-		AsOf:        asOf,
-		SessionKey:  sessionKey,
-		Method:      methodConstituentFanout,
-		MemberCount: len(members),
+		AsOf:          asOf,
+		SessionKey:    sessionKey,
+		Method:        methodConstituentFanout,
+		MemberCount:   len(members),
+		Participation: computeParticipation(members, windows, sessionKey, asOf),
 	}
 
 	above50 := 0
@@ -126,6 +127,7 @@ func Compute(members []string, windows map[string]ConstituentWindow, sessionKey 
 // want persistence.
 func SlideWindow(w ConstituentWindow, close float64, barDate string) ConstituentWindow {
 	out := ConstituentWindow{
+		Bars:               w.Bars,
 		Symbol:             w.Symbol,
 		Closes:             append([]float64(nil), w.Closes...),
 		LastBarAt:          barDate,

@@ -78,6 +78,7 @@ const RollingMaxBars = 252
 
 // Snapshot is one breadth reading: the computed values, represented trading
 type Snapshot struct {
+	Participation *Participation `json:"participation,omitempty"`
 	// Value is the 50-DMA reading: percentage of constituents trading
 	Value float64 `json:"value"`
 	// PctAbove50DMA is the 50-day reading exposed under the canonical
@@ -124,6 +125,9 @@ type ExcludedMember struct {
 
 // ConstituentWindow holds the sliding window of daily closes for one
 type ConstituentWindow struct {
+	// Bars retains dated participation evidence alongside the legacy closes.
+	// Missing on older v3 windows; additive migration never discards closes.
+	Bars      []Bar     `json:"bars,omitempty"`
 	Symbol    string    `json:"symbol"`
 	Closes    []float64 `json:"closes"`
 	LastBarAt string    `json:"last_bar_at"`
@@ -148,15 +152,16 @@ const CurrentWindowSetVersion = 3
 
 // HistoryPoint is one session's breadth reading in rolling history. The
 type HistoryPoint struct {
-	Date              string   `json:"date"`
-	PctAbove50DMA     float64  `json:"pct_above_50dma"`
-	PctAbove200DMA    *float64 `json:"pct_above_200dma,omitempty"`
-	NewHighs          *int     `json:"new_highs"`
-	NewLows           *int     `json:"new_lows"`
-	MemberCount       int      `json:"member_count"`
-	Coverage50        int      `json:"coverage_50"`
-	Coverage200       int      `json:"coverage_200"`
-	CoverageHighsLows int      `json:"coverage_highs_lows"`
+	Participation     *Participation `json:"participation,omitempty"`
+	Date              string         `json:"date"`
+	PctAbove50DMA     float64        `json:"pct_above_50dma"`
+	PctAbove200DMA    *float64       `json:"pct_above_200dma,omitempty"`
+	NewHighs          *int           `json:"new_highs"`
+	NewLows           *int           `json:"new_lows"`
+	MemberCount       int            `json:"member_count"`
+	Coverage50        int            `json:"coverage_50"`
+	Coverage200       int            `json:"coverage_200"`
+	CoverageHighsLows int            `json:"coverage_highs_lows"`
 }
 
 // HistorySet is the versioned rolling-history persistence shape. Points are
