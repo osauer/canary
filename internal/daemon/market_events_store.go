@@ -143,6 +143,24 @@ func (c *marketEventCache) UseCoreStore(store *corestore.Store) error {
 	return nil
 }
 
+// borrowFeeReceiptAt returns the newest borrow-fee source clock the durable
+// authorities prove: the bulk file's last-good as-of or the newest retained
+// TWS fee-rate record. Zero means neither has ever recorded a success.
+func (c *marketEventCache) borrowFeeReceiptAt() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var latest time.Time
+	if len(c.borrowFees.Symbols) > 0 {
+		latest = c.borrowFees.AsOf
+	}
+	for _, record := range c.borrowFeeFallback.LastGood {
+		if record.AsOf.After(latest) {
+			latest = record.AsOf
+		}
+	}
+	return latest.UTC()
+}
+
 func loadMarketEventRegSHO(store *corestore.Store) (marketEventRegSHOEntry, error) {
 	raw, ok, err := loadMarketState(store, marketEventRegSHOScope, marketEventRegSHOStateKind)
 	if err != nil || !ok {

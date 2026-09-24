@@ -40,7 +40,7 @@ func TestBorrowInventoryReceiptLifetimeAndRecovery(t *testing.T) {
 	read := func() (rpc.SourceHealth, rpc.MarketEventsResult) {
 		t.Helper()
 		res := rpc.MarketEventsResult{}
-		health := c.readBorrowInventory(t.Context(), []string{"SYNTH_A", "SYNTH_B"}, ibkr.ConnectorSessionBinding{}, &res, func() bool { return true }, func(sym string) *ibkr.MarketData { return ticks[sym] }, probe)
+		health := c.readBorrowInventory(t.Context(), []string{"SYNTH_A", "SYNTH_B"}, nil, ibkr.ConnectorSessionBinding{}, &res, func() bool { return true }, func(sym string) *ibkr.MarketData { return ticks[sym] }, probe)
 		return health, res
 	}
 	health, res := read()
@@ -90,13 +90,13 @@ func TestBorrowInventoryCancellationAndSessionLoss(t *testing.T) {
 			done := make(chan rpc.SourceHealth, 1)
 			res := rpc.MarketEventsResult{}
 			go func() {
-				done <- c.readBorrowInventory(ctx, []string{"SYNTH"}, ibkr.ConnectorSessionBinding{}, &res, current.Load, func(string) *ibkr.MarketData { return nil }, probe)
+				done <- c.readBorrowInventory(ctx, []string{"SYNTH"}, nil, ibkr.ConnectorSessionBinding{}, &res, current.Load, func(string) *ibkr.MarketData { return nil }, probe)
 			}()
 			<-started
 			queuedCtx, queuedCancel := context.WithCancel(t.Context())
 			queued := make(chan rpc.SourceHealth, 1)
 			go func() {
-				queued <- c.readBorrowInventory(queuedCtx, []string{"SYNTH"}, ibkr.ConnectorSessionBinding{}, &rpc.MarketEventsResult{}, current.Load, func(string) *ibkr.MarketData { return nil }, probe)
+				queued <- c.readBorrowInventory(queuedCtx, []string{"SYNTH"}, nil, ibkr.ConnectorSessionBinding{}, &rpc.MarketEventsResult{}, current.Load, func(string) *ibkr.MarketData { return nil }, probe)
 			}()
 			queuedCancel()
 			select {
@@ -213,7 +213,7 @@ func TestBorrowInventoryRestartAndCacheBounds(t *testing.T) {
 		symbols = append(symbols, fmt.Sprintf("SYNTH_%d", i))
 	}
 	probe := func(context.Context, string) (*ibkr.MarketData, error) { return nil, context.DeadlineExceeded }
-	_ = c.readBorrowInventory(t.Context(), symbols, ibkr.ConnectorSessionBinding{}, &rpc.MarketEventsResult{}, func() bool { return true }, func(string) *ibkr.MarketData { return md }, probe)
+	_ = c.readBorrowInventory(t.Context(), symbols, nil, ibkr.ConnectorSessionBinding{}, &rpc.MarketEventsResult{}, func() bool { return true }, func(string) *ibkr.MarketData { return md }, probe)
 	if len(c.shortableReceipts) > marketEventsInventoryCacheLimit {
 		t.Fatal("unbounded receipt cache")
 	}
@@ -231,7 +231,7 @@ func TestBorrowInventoryRestartAndCacheBounds(t *testing.T) {
 		t.Fatal("restart restored current/negative inventory authority")
 	}
 	res := rpc.MarketEventsResult{}
-	health := restarted.readBorrowInventory(t.Context(), []string{symbols[0]}, ibkr.ConnectorSessionBinding{}, &res, func() bool { return true }, func(string) *ibkr.MarketData { return nil }, probe)
+	health := restarted.readBorrowInventory(t.Context(), []string{symbols[0]}, nil, ibkr.ConnectorSessionBinding{}, &res, func() bool { return true }, func(string) *ibkr.MarketData { return nil }, probe)
 	if health.Status != rpc.SourceStatusUnknown || len(res.Flags) != 0 {
 		t.Fatal("durable diagnostic receipt became current inventory")
 	}
@@ -255,12 +255,27 @@ func TestBorrowFeeCancellationDoesNotCreateProviderBackoff(t *testing.T) {
 	}
 }
 
+// A long-only book reaches the fee-rate fallback while the bulk file is in
+// backoff. The fallback finding no exact held short stock is no evidence about
+// the provider: its failure stays and no source clock is invented.
 func TestBorrowFeeIrrelevantScopePreservesProviderFailure(t *testing.T) {
-	now := time.Now().UTC()
-	failure := &rpc.SourceFailure{Code: rpc.SourceFailureTimeout, FailedAt: now}
-	primary := rpc.SourceHealth{Source: "borrow_fee", Status: rpc.SourceStatusUnknown, LastFailure: failure, RefreshState: rpc.SourceRefreshFetchFailedBackoff}
-	health := feeRateAggregateHealth(primary, nil, now)
+	now := time.Date(2026, 9, 23, 19, 50, 0, 0, time.UTC) // 15:50 ET, in backoff
+	c := offlineMarketEventCache(&now)
+	c.borrowFeesLastAttempt = retainedBorrowFeeDNSFailure()
+	c.readCachedPositions = syntheticPortfolioStream(syntheticLongOnlyBook(), now.Add(-time.Minute))
+	stubBorrowFeeFetch(t, failBorrowFeeFetch)
+	bulk, primary, _ := c.loadBorrowFees(t.Context())
+	if primary.RefreshState != rpc.SourceRefreshFetchFailedBackoff {
+		t.Fatalf("fixture did not reach the backoff fallback: %+v", primary)
+	}
+	rows, health := c.borrowFeeCoverage(t.Context(), syntheticBorrowSymbols, nil, func() brokerStateScope { return borrowHealthScope }, now, bulk, primary)
+	if len(rows) != 0 {
+		t.Fatalf("long-only book produced fee-rate targets: %+v", rows)
+	}
 	if health.Status == rpc.SourceStatusOK || health.LastFailure == nil || !health.AsOf.IsZero() {
 		t.Fatalf("empty portfolio scope fabricated provider recovery: %+v", health)
+	}
+	if row := projectSourceHealth("events:borrow_fee", "borrow fee", "Canary market events", "market_events", health, now); !row.SourceAt.IsZero() || row.Availability != "unavailable" {
+		t.Fatalf("irrelevant scope row: source_at=%s availability=%q", row.SourceAt, row.Availability)
 	}
 }

@@ -44,7 +44,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	var marketEvents *rpc.MarketEventsResult
 	var marketEventsErr error
 	if pos != nil {
-		symbols := marketEventSymbolsFromPositions(pos)
+		symbols := s.canonicalMarketEventSymbols(pos)
 		marketEvents, marketEventsErr = s.handleMarketEventsSnapshot(ctx, &rpc.Request{Params: briefJSON(rpc.MarketEventsParams{Symbols: symbols})})
 	} else {
 		marketEventsErr = posErr

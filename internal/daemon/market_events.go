@@ -55,6 +55,18 @@ const (
 	marketEventsRegSHORetryAfter    = 15 * time.Minute
 	marketEventsBorrowFeeRetryAfter = 15 * time.Minute
 
+	// marketEventsCanonicalScopeFor bounds how long the held-name scope the
+	// daemon last derived classifies explicit-symbol reads. The proposal
+	// refresh (30 s) and stress evaluation (1 min) re-derive it.
+	marketEventsCanonicalScopeFor = 2 * time.Minute
+
+	// marketEventsBorrowApplicabilityRetain bounds how long a "not_relevant"
+	// borrow verdict from a current portfolio stream outlives that stream's
+	// currency. It spans reconnects, resubscriptions and short-download
+	// repairs so they do not flip the rows to required and back. A longer
+	// outage returns them to required within one borrow-fee retry interval.
+	marketEventsBorrowApplicabilityRetain = 15 * time.Minute
+
 	// marketEventsShortableAbsentRetry bounds how long a "tick 236 never
 	// absence must be re-tested once the tape can plausibly have changed;
 	marketEventsShortableAbsentRetry = 30 * time.Minute
@@ -150,6 +162,54 @@ type marketEventCache struct {
 	// logger reports borrow-fee failure-class changes and recovery; nil is
 	// silent.
 	logger *Logger
+
+	// canonical is the held-name scope last derived from the daemon's own
+	// positions read. Memory only; see marketEventCanonicalScope.
+	canonical marketEventCanonicalScope
+
+	// borrowIrrelevant is the last not-relevant borrow verdict; see
+	// borrowApplicability.
+	borrowIrrelevant borrowIrrelevance
+}
+
+// marketEventCanonicalScope is the held-name market-event scope the daemon
+// derived from its own positions read (see rpc.MarketEventScope). Source
+// health describes the held book, so only a read of exactly these symbols
+// records events:* health; an ad-hoc read describes only its request. unquoted
+// names expect no market data and are not expected to report shortable shares.
+type marketEventCanonicalScope struct {
+	symbols, unquoted []string
+	broker            brokerStateScope
+	derivedAt         time.Time
+}
+
+// rememberCanonicalScope replaces the canonical scope. Symbols must already be
+// normalized.
+func (c *marketEventCache) rememberCanonicalScope(symbols, unquoted []string, broker brokerStateScope) {
+	now := c.now().UTC()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.canonical = marketEventCanonicalScope{symbols: slices.Clone(symbols), unquoted: slices.Clone(unquoted), broker: broker, derivedAt: now}
+}
+
+// scopeFor classifies a read of normalized symbols against the canonical
+// scope, which applies only while it is recent and names the same broker
+// scope. unquoted lists the requested names the scope knows expect no market
+// data; canonical reports that symbols is exactly the canonical scope.
+func (c *marketEventCache) scopeFor(symbols []string, broker brokerStateScope) (unquoted []string, canonical bool) {
+	now := c.now().UTC()
+	c.mu.Lock()
+	scope := c.canonical
+	c.mu.Unlock()
+	if scope.derivedAt.IsZero() || scope.derivedAt.After(now) || now.Sub(scope.derivedAt) > marketEventsCanonicalScopeFor || !sameBrokerScope(scope.broker, broker) {
+		return nil, false
+	}
+	for _, symbol := range scope.unquoted {
+		if _, found := slices.BinarySearch(symbols, symbol); found {
+			unquoted = append(unquoted, symbol)
+		}
+	}
+	return unquoted, slices.Equal(symbols, scope.symbols)
 }
 
 // shortableAbsentRecently reports whether sym's shortable tick was
@@ -273,23 +333,40 @@ func (s *Server) handleMarketEventsSnapshot(ctx context.Context, req *rpc.Reques
 		if err != nil {
 			return nil, err
 		}
-		pos = s.analysisPositions(pos, s.now())
-		symbols = marketEventSymbolsFromPositions(pos)
+		symbols = s.canonicalMarketEventSymbols(s.analysisPositions(pos, s.now()))
 	}
 	res := s.marketEventsForSymbols(ctx, symbols)
 	return &res, nil
+}
+
+// canonicalMarketEventSymbols derives the held-name market-event scope of pos
+// with rpc.MarketEventScope, remembers it as the scope whose reads record
+// source health and returns its symbols. Callers pass the daemon's analysis
+// positions.
+func (s *Server) canonicalMarketEventSymbols(pos *rpc.PositionsResult) []string {
+	if s.marketEvents == nil {
+		s.installMarketEventCache()
+	}
+	symbols, unquoted := rpc.MarketEventScope(pos)
+	symbols = normalizeMarketEventSymbols(symbols)
+	s.marketEvents.rememberCanonicalScope(symbols, normalizeMarketEventSymbols(unquoted), s.currentBrokerStateScope())
+	return symbols
 }
 
 func (s *Server) marketEventsForSymbols(ctx context.Context, symbols []string) rpc.MarketEventsResult {
 	if s.marketEvents == nil {
 		s.installMarketEventCache()
 	}
+	symbols = normalizeMarketEventSymbols(symbols)
+	_, canonical := s.marketEvents.scopeFor(symbols, s.currentBrokerStateScope())
 	connector := s.gatewayConnector()
 	// Fence the whole acquisition. Capturing after it would attach a late
 	// old-session inventory result to a newly connected broker session.
 	binding, _ := connector.CaptureSession()
 	result := s.marketEvents.snapshot(ctx, symbols, s.subs, connector, s.currentBrokerStateScope)
-	s.observeEventHealth(result, connector, binding)
+	if canonical {
+		s.observeEventHealth(result, connector, binding)
+	}
 	return result
 }
 
@@ -344,18 +421,26 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 		}
 	}
 
-	borrowHealth := c.borrowInventory(ctx, symbols, subs, connector, now, &res)
+	var scopeProvider func() brokerStateScope
+	var broker brokerStateScope
+	if len(scopeProviders) > 0 {
+		scopeProvider = scopeProviders[0]
+		broker = scopeProvider()
+	}
+	unquoted, _ := c.scopeFor(symbols, broker)
+	// Portfolio applicability is independent of provider cadence, so it is
+	// derived once here for both borrow sources rather than by the fallback.
+	borrowApplicability := c.borrowApplicability(symbols, connector, scopeProvider)
+	borrowHealth := c.borrowInventory(ctx, symbols, unquoted, subs, connector, now, &res)
+	borrowHealth.Applicability = borrowApplicability
 	res.SourceHealth = append(res.SourceHealth, borrowHealth)
 	borrowFees, borrowFeeHealth, err := c.loadBorrowFees(ctx)
 	if err != nil {
 		res.WarningDetails = append(res.WarningDetails, marketEventSourceWarning("borrow_fee", err))
 	}
-	var scopeProvider func() brokerStateScope
-	if len(scopeProviders) > 0 {
-		scopeProvider = scopeProviders[0]
-	}
 	bulkBorrowFeeUsable := borrowFeeFTPPolicyUsable(borrowFeeHealth)
 	res.BorrowFeeCoverage, borrowFeeHealth = c.borrowFeeCoverage(ctx, symbols, connector, scopeProvider, now, borrowFees, borrowFeeHealth)
+	borrowFeeHealth.Applicability = borrowApplicability
 	res.SourceHealth = append(res.SourceHealth, borrowFeeHealth)
 	if bulkBorrowFeeUsable {
 		for _, row := range res.BorrowFeeCoverage {
@@ -673,7 +758,8 @@ func borrowFeesNotDue(cached marketEventBorrowFeeEntry, lastAttempt *marketEvent
 		nextAttempt = new(lastAttempt.NextAttempt.UTC())
 	}
 	if len(cached.Symbols) == 0 {
-		health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, now, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee source is outside its official US-equity refresh window"})
+		// No source clock: nothing was ever delivered.
+		health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee source is outside its official US-equity refresh window"})
 		health.RefreshState = rpc.SourceRefreshNotDue
 		health.NextAttempt = nextAttempt
 		applyBorrowFeeLastFailure(&health, lastAttempt)
@@ -703,7 +789,7 @@ func borrowFeesFallback(cached marketEventBorrowFeeEntry, now time.Time, failure
 		health.LastFailure = cloneBorrowFeeSourceFailure(failure)
 		return cached, health, nil
 	}
-	health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, now, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee data is unavailable; latest refresh " + cause.Error()})
+	health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee data is unavailable; latest refresh " + cause.Error()})
 	health.LastFailure = cloneBorrowFeeSourceFailure(failure)
 	return marketEventBorrowFeeEntry{}, health, cause
 }
@@ -1484,7 +1570,7 @@ func marketEventLULDReason(reason string) bool {
 	}
 }
 
-func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string, subs *subManager, connector *ibkrlib.Connector, now time.Time, res *rpc.MarketEventsResult) rpc.SourceHealth {
+func (c *marketEventCache) borrowInventory(ctx context.Context, symbols, unquoted []string, subs *subManager, connector *ibkrlib.Connector, now time.Time, res *rpc.MarketEventsResult) rpc.SourceHealth {
 	binding, ready := connector.CaptureSession()
 	if !ready || subs == nil || connector.BackendLink().Down {
 		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsInventoryMaxAge, "low", []string{"IBKR gateway is unavailable; shortable-share inventory is unknown"})
@@ -1502,7 +1588,7 @@ func (c *marketEventCache) borrowInventory(ctx context.Context, symbols []string
 		})
 		return peek(sym), err
 	}
-	return c.readBorrowInventory(ctx, symbols, binding, res, current, peek, probe)
+	return c.readBorrowInventory(ctx, symbols, unquoted, binding, res, current, peek, probe)
 }
 
 func marketEventBorrowInventoryFlag(sym string, md ibkrlib.MarketData, now time.Time) (rpc.MarketEventFlag, bool) {
@@ -1610,20 +1696,6 @@ func normalizeMarketEventSymbols(raw []string) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func marketEventSymbolsFromPositions(pos *rpc.PositionsResult) []string {
-	if pos == nil {
-		return nil
-	}
-	var raw []string
-	for _, stock := range pos.Stocks {
-		raw = append(raw, stock.Symbol)
-	}
-	for _, group := range pos.ByUnderlying {
-		raw = append(raw, group.Underlying)
-	}
-	return normalizeMarketEventSymbols(raw)
 }
 
 func cloneRegSHOEntry(in marketEventRegSHOEntry) marketEventRegSHOEntry {

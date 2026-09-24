@@ -422,8 +422,12 @@ The result carries per-source `status`, `refresh_state`, `next_attempt`, a
 redacted typed `last_failure`, warnings, and a semantic fingerprint. Empty
 `flags` is conclusive only when source health establishes current, complete
 coverage. Unknown and null never mean inactive or zero. Borrow-inventory
-aggregate health can read `ok` after at least one requested symbol reports, so
-check the coverage note: other symbols may still lack a tick.
+health reads `ok` only when every requested symbol that expects market data
+reports a current tick; a held name that expects none, such as a terminal
+non-reporting stock, is counted as not expected in the notes. For a book with no
+short stock, borrow-fee and borrow-inventory health carry
+`applicability: not_relevant` at every hour while keeping the provider's own
+status and failure.
 
 ### Safe check
 

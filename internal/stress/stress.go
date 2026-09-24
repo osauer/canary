@@ -2296,7 +2296,7 @@ func stressRegimeAuthorityIssue(regime rpc.RegimeSnapshotResult) (stressSourceIs
 func stressMarketEventSourceIssues(pos rpc.PositionsResult, events rpc.MarketEventsResult, now time.Time) []stressSourceIssue {
 	// The daemon requests market-event context only for held underlyings. A
 	// must never turn a missing snapshot into an implicit "no flags" answer.
-	if len(stressMarketEventSymbols(pos)) == 0 {
+	if symbols, _ := rpc.MarketEventScope(&pos); len(symbols) == 0 {
 		return nil
 	}
 	if !stressHasMarketEventsInput(events) {
@@ -2860,7 +2860,7 @@ func stressSourceHealth(in StressInput, now time.Time, accountFP, positionsFP, r
 		stressTimedSourceHealth("positions", in.Positions.AsOf, now, positionsFP, stressPositionsSourceStatus(in.Positions, now), stressPositionsSourceConfidence(in.Positions)),
 		stressRegimeSourceHealth(in.Regime, now, regimeFP, stressInputHealthConfidence(inputHealth), m),
 	}
-	if stressHasMarketEventsInput(in.MarketEvents) || len(stressMarketEventSymbols(in.Positions)) > 0 {
+	if symbols, _ := rpc.MarketEventScope(&in.Positions); stressHasMarketEventsInput(in.MarketEvents) || len(symbols) > 0 {
 		out = append(out, stressMarketEventsSourceHealth(in.Positions, in.MarketEvents, now, marketEventsFP))
 	}
 	return out

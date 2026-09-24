@@ -156,10 +156,17 @@ func TestDataHealthFailureDoesNotClaimAvailable(t *testing.T) {
 	if row.State != "limited" || row.Availability != "unavailable" || row.CadenceState != "not_due" {
 		t.Fatalf("schedule hid failed acquisition: %+v", row)
 	}
+	// An irrelevant scope waives the need, not the provider facts: the failure
+	// and the prior delivery stay, and no concern is raised.
 	health.Applicability = "not_relevant"
 	row = projectSourceHealth("synthetic", "Synthetic", "test", "market_events", health, now)
-	if row.Required || row.State != "not_relevant" || row.Failure == nil || !row.ReceivedAt.IsZero() {
-		t.Fatal("irrelevant scope established provider recovery")
+	if row.Required || row.State != "not_relevant" || row.Failure == nil || row.Availability != "unavailable" || len(row.ProblemIDs) != 0 || !row.ReceivedAt.Equal(health.AsOf) {
+		t.Fatalf("irrelevant scope rewrote provider facts: %+v", row)
+	}
+	health.AsOf = time.Time{}
+	row = projectSourceHealth("synthetic", "Synthetic", "test", "market_events", health, now)
+	if !row.ReceivedAt.IsZero() || !row.SourceAt.IsZero() {
+		t.Fatal("irrelevant scope established provider receipt")
 	}
 }
 

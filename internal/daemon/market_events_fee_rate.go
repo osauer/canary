@@ -393,6 +393,85 @@ func newMarketEventFeeRateState() marketEventFeeRateState {
 	return marketEventFeeRateState{Version: marketEventFeeRateStateVersion, LastGood: map[string]marketEventFeeRateRecord{}, LastAttempts: map[string]marketEventFeeRateAttempt{}}
 }
 
+// exactHeldShortStock returns the normalized contract of a held short stock
+// position whose symbol is wanted. It is the one rule for borrow-fee targets,
+// their relevance fingerprint and borrow applicability.
+func exactHeldShortStock(position *ibkrlib.RawPosition, wanted map[string]bool) (ibkrlib.Contract, bool) {
+	if position == nil || position.Position >= 0 || !strings.EqualFold(position.Contract.SecType, "STK") {
+		return ibkrlib.Contract{}, false
+	}
+	contract := normalizeFeeRateContract(position.Contract)
+	return contract, wanted[contract.Symbol]
+}
+
+// borrowIrrelevance is the last "not_relevant" borrow verdict derived from a
+// current portfolio stream: the broker scope and normalized symbols it covered
+// and when. Memory only, so a restart restores no applicability.
+type borrowIrrelevance struct {
+	broker    brokerStateScope
+	symbols   []string
+	derivedAt time.Time
+}
+
+// borrowApplicability is the portfolio verdict for borrow evidence among
+// symbols. It is "not_relevant" when a current, scope-bound portfolio stream
+// holds no exact short stock there, and "" (required) when it holds one.
+// While the stream is not current, as during a reconnect, resubscription or
+// quiet period, the last verdict derived from a current stream still answers
+// for the same concrete broker scope and symbols for
+// marketEventsBorrowApplicabilityRetain. After that, or with no such verdict,
+// the answer is required: irrelevance is never assumed.
+func (c *marketEventCache) borrowApplicability(symbols []string, connector *ibkrlib.Connector, scopeProvider func() brokerStateScope) string {
+	readPositions := c.readCachedPositions
+	if readPositions == nil && connector != nil {
+		readPositions = connector.CachedPositionsWithHealth
+	}
+	if scopeProvider == nil || readPositions == nil {
+		return ""
+	}
+	scope := scopeProvider()
+	if !brokerScopeConcrete(scope) {
+		return ""
+	}
+	raw, receipt, err := readPositions()
+	// The snapshot's start time can precede a receipt that arrived during its
+	// earlier source reads; classify the stream as of this read.
+	now := c.now().UTC()
+	if !sameBrokerScope(scope, scopeProvider()) {
+		return ""
+	}
+	if err != nil || classifyPortfolioStreamHealth(scope, receipt, now) != orderIntegrityHealthCurrent || !cachedPositionsMatchBrokerScope(raw, scope) {
+		return c.retainedBorrowIrrelevance(symbols, scope, now)
+	}
+	wanted := make(map[string]bool, len(symbols))
+	for _, symbol := range symbols {
+		wanted[symbol] = true
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, position := range raw {
+		if _, short := exactHeldShortStock(position, wanted); short {
+			c.borrowIrrelevant = borrowIrrelevance{}
+			return ""
+		}
+	}
+	c.borrowIrrelevant = borrowIrrelevance{broker: scope, symbols: slices.Clone(symbols), derivedAt: now}
+	return "not_relevant"
+}
+
+// retainedBorrowIrrelevance answers for a portfolio stream that is not
+// current; see borrowApplicability.
+func (c *marketEventCache) retainedBorrowIrrelevance(symbols []string, scope brokerStateScope, now time.Time) string {
+	c.mu.Lock()
+	verdict := c.borrowIrrelevant
+	c.mu.Unlock()
+	if verdict.derivedAt.IsZero() || verdict.derivedAt.After(now) || now.Sub(verdict.derivedAt) > marketEventsBorrowApplicabilityRetain ||
+		!sameBrokerScope(verdict.broker, scope) || !slices.Equal(verdict.symbols, symbols) {
+		return ""
+	}
+	return "not_relevant"
+}
+
 func exactHeldShortFeeRateTargets(raw []*ibkrlib.RawPosition, symbols []string, scopeFingerprint string) ([]marketEventFeeRateTarget, []rpc.MarketEventBorrowFeeCoverage) {
 	wanted := make(map[string]bool, len(symbols))
 	for _, symbol := range symbols {
@@ -403,11 +482,8 @@ func exactHeldShortFeeRateTargets(raw []*ibkrlib.RawPosition, symbols []string, 
 	seenTarget := map[string]bool{}
 	seenGap := map[string]bool{}
 	for _, position := range raw {
-		if position == nil || position.Position >= 0 || !strings.EqualFold(position.Contract.SecType, "STK") {
-			continue
-		}
-		contract := normalizeFeeRateContract(position.Contract)
-		if !wanted[contract.Symbol] {
+		contract, short := exactHeldShortStock(position, wanted)
+		if !short {
 			continue
 		}
 		if contract.ConID <= 0 {
@@ -488,11 +564,8 @@ func marketEventFeeRateRelevanceFingerprint(raw []*ibkrlib.RawPosition, symbols 
 	}
 	entries := make([]string, 0)
 	for _, position := range raw {
-		if position == nil || position.Position >= 0 || !strings.EqualFold(position.Contract.SecType, "STK") {
-			continue
-		}
-		contract := normalizeFeeRateContract(position.Contract)
-		if !wanted[contract.Symbol] {
+		contract, short := exactHeldShortStock(position, wanted)
+		if !short {
 			continue
 		}
 		if contract.ConID > 0 {
@@ -756,7 +829,8 @@ func feeRateAggregateHealth(primary rpc.SourceHealth, rows []rpc.MarketEventBorr
 	health := primary
 	health.Source = "borrow_fee"
 	if len(rows) == 0 {
-		health.Applicability = "not_relevant"
+		// Applicability is the snapshot's portfolio verdict, not this
+		// fallback's; an empty fallback leaves the provider facts as they are.
 		health.Notes = append(slices.Clone(primary.Notes), "not_applicable: no exact currently held short-stock contracts require borrow-fee evidence")
 		return health
 	}
@@ -767,12 +841,10 @@ func feeRateAggregateHealth(primary rpc.SourceHealth, rows []rpc.MarketEventBorr
 	usable := 0
 	stale := 0
 	for _, row := range rows {
-		evidenceAt := row.AsOf
-		if evidenceAt.IsZero() {
-			evidenceAt = row.ObservedAt
-		}
-		if evidenceAt.After(latest) {
-			latest = evidenceAt
+		// Only delivered fee evidence dates the source. A failed or cooled
+		// down attempt's ObservedAt is when it was tried, not a source clock.
+		if row.AsOf.After(latest) {
+			latest = row.AsOf
 		}
 		switch row.Status {
 		case rpc.BorrowFeeCoverageObserved, rpc.BorrowFeeCoverageScaleUnknown:

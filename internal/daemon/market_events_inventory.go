@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -17,7 +18,17 @@ func marketEventInventoryReceiptCurrent(md *ibkr.MarketData, now time.Time) bool
 // readBorrowInventory owns receipt reuse and absence backoff. The transport
 // callbacks borrow a subscription only for the bounded probe; releasing it
 // does not erase a still-valid receipt. Nothing is restored as current on boot.
-func (c *marketEventCache) readBorrowInventory(ctx context.Context, symbols []string, binding ibkr.ConnectorSessionBinding, res *rpc.MarketEventsResult, current func() bool, peek func(string) *ibkr.MarketData, probe func(context.Context, string) (*ibkr.MarketData, error)) rpc.SourceHealth {
+// Names in unquoted expect no market data: they are neither probed nor counted
+// as missing, and the notes report them as not expected.
+func (c *marketEventCache) readBorrowInventory(ctx context.Context, symbols, unquoted []string, binding ibkr.ConnectorSessionBinding, res *rpc.MarketEventsResult, current func() bool, peek func(string) *ibkr.MarketData, probe func(context.Context, string) (*ibkr.MarketData, error)) rpc.SourceHealth {
+	notExpected := 0
+	symbols = slices.DeleteFunc(slices.Clone(symbols), func(symbol string) bool {
+		if slices.Contains(unquoted, symbol) {
+			notExpected++
+			return true
+		}
+		return false
+	})
 	unknown := func(note string) rpc.SourceHealth {
 		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusUnknown, time.Time{}, c.now().UTC(), marketEventsInventoryMaxAge, "low", []string{note})
 	}
@@ -146,7 +157,10 @@ func (c *marketEventCache) readBorrowInventory(ctx context.Context, symbols []st
 	if len(symbols) > 0 && len(observations) == len(symbols) {
 		status, confidence = rpc.SourceStatusOK, "medium"
 	}
-	notes := []string{fmt.Sprintf("current shortable-share receipts cover %d/%d requested symbols", len(observations), len(symbols))}
+	notes := []string{fmt.Sprintf("current shortable-share receipts cover %d/%d expected symbols", len(observations), len(symbols))}
+	if notExpected > 0 {
+		notes = append(notes, fmt.Sprintf("%d held symbols expect no market data and are not expected to report shortable shares", notExpected))
+	}
 	if skipped > 0 {
 		notes = append(notes, fmt.Sprintf("%d missing-tick probes are in bounded backoff", skipped))
 	}

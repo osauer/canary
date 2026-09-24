@@ -12,7 +12,15 @@ import (
 
 const dataHealthHistoryKind = "data_health.diagnostics.v1"
 
+// dataHealthDiagnosticVersion is written on every retained diagnostic record.
+// A version 2 last_success was set only from a producer's source clock. An
+// unversioned record may come from an earlier recorder that also advanced
+// last_success on not-due and not-applicable verdicts; see
+// legacyDiagnosticLastSuccess.
+const dataHealthDiagnosticVersion = 2
+
 type dataHealthDiagnostic struct {
+	Version       int                        `json:"version,omitempty"`
 	ID            string                     `json:"id"`
 	FirstObserved time.Time                  `json:"first_observed"`
 	LastSuccess   time.Time                  `json:"last_success,omitzero"`
@@ -22,9 +30,15 @@ type dataHealthDiagnostic struct {
 
 // Restore diagnostic chronology only. No entitlement, current data mode,
 // freshness, connector binding or check eligibility is restored from storage.
+// Startup attaches the market-event authorities first, so the borrow-fee
+// receipt they prove can corroborate a legacy record.
 func (s *Server) loadDataHealthHistory() {
 	if s.coreStore == nil {
 		return
+	}
+	var borrowFeeReceipt time.Time
+	if s.marketEvents != nil {
+		borrowFeeReceipt = s.marketEvents.borrowFeeReceiptAt()
 	}
 	raw, ok, err := loadMarketState(s.coreStore, "data-health-diagnostics", dataHealthHistoryKind)
 	var records []dataHealthDiagnostic
@@ -44,6 +58,9 @@ func (s *Server) loadDataHealthHistory() {
 	for _, record := range records {
 		if record.ID == "" || instrumentHealthID(record.ID) || len(record.ID) > 128 || len(record.Transitions) > dataHealthHistoryLimit || record.FirstObserved.After(now) || record.LastSuccess.After(now) {
 			continue
+		}
+		if record.Version != dataHealthDiagnosticVersion {
+			record.LastSuccess = legacyDiagnosticLastSuccess(record.ID, record.LastSuccess, borrowFeeReceipt)
 		}
 		history := slices.Clone(record.Transitions)
 		if len(history) > 0 && record.FirstObserved.Before(history[0].At) {
@@ -67,6 +84,23 @@ func (s *Server) loadDataHealthHistory() {
 	s.dataHealth.diagnosticRevision++
 }
 
+// legacyDiagnosticLastSuccess returns the last_success an unversioned record
+// keeps. Such a record comes either from the receipt-only recorder before
+// records were versioned or from an earlier recorder that set last_success to
+// the check time of any row reported current or not due. Of the sources that
+// recorder kept (account, positions, IBKR feeds and market-event rows), only
+// the borrow-fee fallback reported that without a delivery: it answered "no
+// exact held short stock" with status OK, as_of now and not due. Every other
+// clock dates a real delivery, if by its observer, and is kept.
+// events:borrow_fee keeps at most borrowFeeReceipt, the newest receipt its
+// durable authorities prove, and nothing when they have never recorded one.
+func legacyDiagnosticLastSuccess(id string, lastSuccess, borrowFeeReceipt time.Time) time.Time {
+	if id == "events:borrow_fee" && borrowFeeReceipt.Before(lastSuccess) {
+		return borrowFeeReceipt
+	}
+	return lastSuccess
+}
+
 func (s *Server) persistDataHealthHistory(ctx context.Context) {
 	if s.coreStore == nil {
 		return
@@ -83,7 +117,7 @@ func (s *Server) persistDataHealthHistory(ctx context.Context) {
 			continue
 		}
 		history, truncated := retainDataHealthHistory(slices.Clone(o.row.History), s.orderNow())
-		records = append(records, dataHealthDiagnostic{ID: id, FirstObserved: o.row.FirstObserved, LastSuccess: o.row.LastSuccess, Transitions: history, Truncated: o.row.HistoryTruncated || truncated})
+		records = append(records, dataHealthDiagnostic{Version: dataHealthDiagnosticVersion, ID: id, FirstObserved: o.row.FirstObserved, LastSuccess: o.row.LastSuccess, Transitions: history, Truncated: o.row.HistoryTruncated || truncated})
 	}
 	s.dataHealth.mu.Unlock()
 	slices.SortFunc(records, func(a, b dataHealthDiagnostic) int { return a.FirstObserved.Compare(b.FirstObserved) })

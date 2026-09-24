@@ -474,7 +474,7 @@ func (s *Service) PollOnce(ctx context.Context) Snapshot {
 		snap = s.publishSnapshot(now, snap, errors, events)
 		events = nil
 	}
-	if symbols := liveMarketEventSymbols(snap.Positions); len(symbols) > 0 {
+	if symbols, _ := rpc.MarketEventScope(snap.Positions); len(symbols) > 0 {
 		if marketEvents, err := s.client.MarketEvents(ctx, rpc.MarketEventsParams{Symbols: symbols}); err != nil {
 			errors = append(errors, sourceErr("market_events", err, now))
 			snap.Sources["market_events"] = sourceUnavailable(snap.Sources["market_events"], now)
@@ -877,42 +877,6 @@ func (s *Service) PollNudgesOnce(ctx context.Context) Snapshot {
 	s.nextNudges = now.Add(nudgesPollEvery)
 	s.mu.Unlock()
 	return s.publishSnapshot(now, snap, snap.Errors, events)
-}
-
-func liveMarketEventSymbols(positions *rpc.PositionsResult) []string {
-	if positions == nil {
-		return nil
-	}
-	seen := map[string]bool{}
-	out := []string{}
-	add := func(value string) {
-		sym := normalizeQuoteLabel(value)
-		if sym == "" || seen[sym] {
-			return
-		}
-		seen[sym] = true
-		out = append(out, sym)
-	}
-	for _, stock := range positions.Stocks {
-		if !rpc.ExpectsMarketData(stock) {
-			continue
-		}
-		add(stock.Symbol)
-	}
-	for _, group := range positions.ByUnderlying {
-		if !rpc.ExpectsMarketDataGroup(group) {
-			continue
-		}
-		add(group.Underlying)
-		if group.Stock != nil {
-			add(group.Stock.Symbol)
-		}
-		for _, opt := range group.Options {
-			add(opt.Symbol)
-		}
-	}
-	slices.Sort(out)
-	return out
 }
 
 // publishSnapshot commits a poll while preserving independently updated quotes

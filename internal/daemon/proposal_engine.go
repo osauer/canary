@@ -829,7 +829,7 @@ func (e *proposalEngine) marketEventsSnapshot(ctx context.Context, pos *rpc.Posi
 	if e == nil || e.server == nil {
 		return nil
 	}
-	symbols := marketEventSymbolsFromPositions(pos)
+	symbols := e.server.canonicalMarketEventSymbols(pos)
 	if len(symbols) == 0 {
 		return nil
 	}
