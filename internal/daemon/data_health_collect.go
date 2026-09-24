@@ -258,6 +258,15 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 				if m.Freshness.NextDueAt != nil && now.Before(*m.Freshness.NextDueAt) {
 					row.NextAttempt = *m.Freshness.NextDueAt
 				}
+				// Gamma recomputes only inside the regular options session, so a
+				// not-due snapshot becomes due at the next open. The time belongs
+				// on this row only: RegimeFreshness.NextDueAt is the daily-close
+				// boundary that lifecycle and history evaluate.
+				if spec.id == "gamma" {
+					if next, ok := optionSessionNextOpen(now); ok {
+						row.NextAttempt = next
+					}
+				}
 			case rpc.RegimeFreshnessStale, rpc.RegimeFreshnessOverdue, rpc.RegimeFreshnessPending:
 				row.State = "limited"
 				if class == rpc.RegimeFreshnessOverdue {
