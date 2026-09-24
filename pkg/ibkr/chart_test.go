@@ -1,6 +1,8 @@
 package ibkr
 
 import (
+	"errors"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -105,5 +107,68 @@ func TestChartAcquisitionSizeLimit(t *testing.T) {
 		if c.getHistoricalRequest(7109) != nil {
 			t.Fatal("failed request retained")
 		}
+	}
+}
+
+// TestIndexDailyHistoryAsksTradesFirst witnesses the index daily-bar read that
+// opened with MIDPOINT: an index quotes no bid/ask, so IBKR answered each such
+// request with 162 and every read spent a second paced request on TRADES.
+func TestIndexDailyHistoryAsksTradesFirst(t *testing.T) {
+	c, conn, out, _ := newMissTestConnector(t)
+	c.mu.Lock()
+	c.ready = true
+	c.mu.Unlock()
+	contract := Contract{ConID: 90123, Symbol: "SYNTH", SecType: "IND", Exchange: "NASDAQ", Currency: "USD"}
+	pending := func() int {
+		t.Helper()
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			c.historicalMu.Lock()
+			for id := range c.historicalReqs {
+				c.historicalMu.Unlock()
+				return id
+			}
+			c.historicalMu.Unlock()
+		}
+		t.Fatal("no historical request was issued")
+		return 0
+	}
+	// read refuses the first refusals requests of one daily read with code 162,
+	// answers the next with a bar, and returns the whatToShow of each request.
+	read := func(refusals int) []string {
+		t.Helper()
+		before := len(decodeOutboundFrames(t, conn, out.Bytes()))
+		done := make(chan error, 1)
+		go func() {
+			bars, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), contract, 10, 5*time.Second)
+			if err == nil && len(bars) != 1 {
+				err = errors.New("daily read lost its bar")
+			}
+			done <- err
+		}()
+		for range refusals {
+			c.failPendingHistorical(pending(), 162, "synthetic no historical data")
+		}
+		c.handleHistoricalData([]string{strconv.Itoa(msgHistoricalData), strconv.Itoa(pending()), "1", "20260923", "10", "12", "9", "11", "100", "10.5", "4"})
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+		var asked []string
+		for _, frame := range decodeOutboundFrames(t, conn, out.Bytes())[before:] {
+			if frame[0] != strconv.Itoa(reqHistoricalData) {
+				continue
+			}
+			for _, what := range []string{"TRADES", "MIDPOINT", "ADJUSTED_LAST"} {
+				if slices.Contains(frame, what) {
+					asked = append(asked, what)
+				}
+			}
+		}
+		return asked
+	}
+	if asked := read(0); !slices.Equal(asked, []string{"TRADES"}) {
+		t.Fatalf("index daily history asked for %v, want one TRADES request", asked)
+	}
+	if asked := read(1); !slices.Equal(asked, []string{"TRADES", "MIDPOINT"}) {
+		t.Fatalf("refused index TRADES history asked for %v, want the MIDPOINT alternate", asked)
 	}
 }

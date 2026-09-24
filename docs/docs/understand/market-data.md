@@ -90,6 +90,11 @@ why the same symbol can report differently in two sessions.
 | `delayed` | Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option. Dealer gamma can use it as a coarse daily regime input only when both spot and every option model tick are delayed together. |
 | `delayed-frozen` | Orientation only. It is yesterday's close. |
 
+A quote from either delayed mode is never `quote_quality: firm`. It reads
+`indicative`, or `stale`, `wide` or `prev_close` when those apply, and carries a
+`delayed_feed` warning. That holds for indices too, which have no session
+calendar to mark a value off-hours.
+
 Two more values appear on some surfaces. `prev_close` marks a price taken from
 a prior close rather than the current session, and `closed` replaces the data
 type on option chains outside option regular trading hours, with the real feed
@@ -112,8 +117,11 @@ There are two distinct causes and they need different fixes.
 "Requested market data is not subscribed". Shared ordinary quotes attempt the
 bounded delayed-aware recovery described above. If no usable fallback arrives,
 the restriction remains visible and retries are bounded; repeated reads do not
-hammer the rejected name. Other terminal request failures keep their backoff.
-A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
+hammer the rejected name. While a quote is served delayed after a 354,
+`status.market_data_access` keeps naming the refusal until the next live probe.
+A 354 that arrives during a data-farm outage still names it there, but does not
+hold back later live requests, because such a refusal may be transient. Other
+terminal request failures keep their backoff. A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
 requires clock-aligned delayed spot and option evidence. Options are a separate entitlement
 from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.
