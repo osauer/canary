@@ -1,0 +1,13 @@
+diff --git a/internal/daemon/market_events.go b/internal/daemon/market_events.go
+--- a/internal/daemon/market_events.go
++++ b/internal/daemon/market_events.go
+@@ -758,8 +758,7 @@ func borrowFeesNotDue(cached marketEventBorrowFeeEntry, lastAttempt *marketEvent
+ 		nextAttempt = new(lastAttempt.NextAttempt.UTC())
+ 	}
+ 	if len(cached.Symbols) == 0 {
+-		// No source clock: nothing was ever delivered.
+-		health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee source is outside its official US-equity refresh window"})
++		health := marketEventSourceHealth("borrow_fee", rpc.SourceStatusUnknown, now, now, marketEventsBorrowFeeMaxAge, "low", []string{"IBKR borrow-fee source is outside its official US-equity refresh window"})
+ 		health.RefreshState = rpc.SourceRefreshNotDue
+ 		health.NextAttempt = nextAttempt
+ 		applyBorrowFeeLastFailure(&health, lastAttempt)
