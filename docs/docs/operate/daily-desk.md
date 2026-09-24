@@ -73,7 +73,12 @@ Dates use each event's source timezone, with exact instants retained when suppli
 
 The [BLS calendar](https://www.bls.gov/help/hlpiCAL.htm) is public: its calendar
 subscription does not require a paid entitlement or the separate BLS time-series
-API registration. Failed primary reads remain visible. The independent
+API registration. BLS blocks automated clients that carry no owner contact, so
+Canary names itself to BLS, and only to BLS, with its product site URL. After a
+successful read it waits an hour before asking whether the calendar changed;
+each answer keeps the schedule current for three hours. A Canary release that
+parses calendars differently reads each one in full once instead of asking.
+Failed primary reads remain visible. The independent
 [New York Fed calendar](https://www.newyorkfed.org/research/calendars/nationalecon_cal.html)
 supplies key-release backup with its own source identity and published month
 bounds, including the next published month when the coming week crosses month end.
@@ -82,11 +87,16 @@ they do not become invented overnight instants. It does not establish complete
 BLS coverage. Missing, stale or out-of-window
 sources keep coverage partial, even when a useful event is available elsewhere.
 
-Failures preserve last-good event clocks and expire normally. Repeated failures
-back off from five minutes to at most an hour; `consecutive_failures`,
-`first_failure` and `next_attempt` survive restart. These fields describe the
-current observed failure streak; an older retained record without those fields
-cannot establish when a failure first began. A successful read clears the streak.
+Failures preserve last-good event clocks and expire normally. Repeated transient
+failures back off from the source's refresh interval (five minutes, or an hour
+for BLS) to at most an hour. A rejection that repeats until the publisher or
+Canary changes, such as a policy block or a changed format, waits the full hour.
+`consecutive_failures`, `first_failure` and `next_attempt` survive restart.
+These fields describe the current observed failure streak; an older retained
+record without those fields cannot establish when a failure first began.
+`canary data health` reports the typed cause of the latest failed read with its
+time, and the number of failed reads since the streak began. A successful read
+clears the streak.
 
 A stale Regime snapshot labels readings as recorded context; a retained green
 band is not a current rating. The default view keeps thresholds and long source

@@ -79,7 +79,7 @@ func TestNYFedMonthEndUsesOnlyPublishedNextMonthAndFailsClosed(t *testing.T) {
 		}
 		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(data)), Request: req}, nil
 	})
-	batch, err := client.Fetch(context.Background(), spec, now)
+	batch, err := client.Fetch(context.Background(), spec, now, Batch{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +87,12 @@ func TestNYFedMonthEndUsesOnlyPublishedNextMonthAndFailsClosed(t *testing.T) {
 		t.Fatal("month end lost an overnight release or its provenance")
 	}
 	failNext = true
-	if _, err := client.Fetch(context.Background(), spec, now); err == nil {
+	if _, err := client.Fetch(context.Background(), spec, now, Batch{}); err == nil {
 		t.Fatal("failed next-month fetch claimed covered overnight window")
 	}
 	first = strings.Replace(first, `/research/calendars/i-oct26.html`, `https://attacker.test/calendar`, 1)
 	failNext = false
-	if _, err := client.Fetch(context.Background(), spec, now); err == nil {
+	if _, err := client.Fetch(context.Background(), spec, now, Batch{}); err == nil {
 		t.Fatal("missing official next-month link accepted")
 	}
 }
@@ -146,22 +146,22 @@ func TestNYFedRolloverUsesPublishedCurrentMonthWithoutRenewingOldMonth(t *testin
 			})
 			// Last day needs both months. First day must discard the old landing month.
 			before := current.Add(-time.Hour)
-			batch, err := client.Fetch(t.Context(), spec, before)
+			batch, err := client.Fetch(t.Context(), spec, before, Batch{})
 			if err != nil || len(batch.Events) != 2 || batch.WindowStart != month.Format(time.DateOnly) || batch.WindowEnd != current.AddDate(0, 1, -1).Format(time.DateOnly) {
 				t.Fatalf("year/leap rollover lost dates: %v", err)
 			}
 			now := current.Add(12 * time.Hour)
-			batch, err = client.Fetch(t.Context(), spec, now)
+			batch, err = client.Fetch(t.Context(), spec, now, Batch{})
 			if err != nil || calls != 4 || len(batch.Events) != 1 || batch.WindowStart != current.Format(time.DateOnly) || batch.Events[0].SourceURL != nextURL {
 				t.Fatalf("published current month unavailable behind lagged landing page: %v", err)
 			}
 			calls = 0
-			if _, err = client.Fetch(t.Context(), spec, current.AddDate(0, 1, 0).Add(12*time.Hour)); err == nil || calls != 1 {
+			if _, err = client.Fetch(t.Context(), spec, current.AddDate(0, 1, 0).Add(12*time.Hour), Batch{}); err == nil || calls != 1 {
 				t.Fatal("two-month stale landing page accepted or chased")
 			}
 			first = strings.Replace(first, strings.TrimPrefix(nextURL, "https://www.newyorkfed.org"), "/research/calendars/i-jan99.html", 1)
 			calls = 0
-			if _, err = client.Fetch(t.Context(), spec, now); err == nil || calls != 1 {
+			if _, err = client.Fetch(t.Context(), spec, now, Batch{}); err == nil || calls != 1 {
 				t.Fatal("nonconsecutive published link was requested")
 			}
 		})
@@ -216,7 +216,7 @@ func TestNYFedLaggedLandingNearMonthEndBoundsThreePublishedReads(t *testing.T) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})
 	now := time.Date(2027, 1, 28, 12, 0, 0, 0, time.UTC)
-	batch, err := client.Fetch(t.Context(), spec, now)
+	batch, err := client.Fetch(t.Context(), spec, now, Batch{})
 	if err != nil || calls != 3 || batch.WindowStart != "2027-01-01" || batch.WindowEnd != "2027-02-28" || len(batch.Events) != 2 {
 		t.Fatalf("lagged end-of-month coverage incorrect: %v", err)
 	}

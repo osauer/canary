@@ -1,13 +1,17 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -104,10 +108,19 @@ func TestMacroHTTPRefreshRevisionOutageRecoveryAndRestart(t *testing.T) {
 	}
 }
 
-func (f *macroFixtureFetcher) Fetch(_ context.Context, s macrosource.Spec, at time.Time) (macrosource.Batch, error) {
+// macroTransientFailure is a synthetic outage carrying the typed, retryable
+// cause the production reader reports for a server error.
+type macroTransientFailure struct{}
+
+func (macroTransientFailure) Error() string { return "source returned HTTP 503" }
+func (macroTransientFailure) Unwrap() error {
+	return &macrosource.FetchError{Code: rpc.SourceFailureProtocolRejected, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: true}
+}
+
+func (f *macroFixtureFetcher) Fetch(_ context.Context, s macrosource.Spec, at time.Time, _ macrosource.Batch) (macrosource.Batch, error) {
 	f.calls++
 	if f.fail {
-		return macrosource.Batch{}, errors.New("source returned HTTP 403")
+		return macrosource.Batch{}, macroTransientFailure{}
 	}
 	return macrosource.Parse(s, []byte(`{"Synthetic release":{"release_dates":["2026-09-10T12:30:00Z"]}}`), at)
 }
@@ -140,7 +153,7 @@ func TestMacroFailureRetainsEvidenceAcrossRestartAndNeverExtendsFreshness(t *tes
 	fixture.fail = true
 	s.refreshMacroSource(t.Context(), c, spec)
 	failed := c.records[spec.ID]
-	if failed.Source.Availability != "unavailable" || !strings.Contains(failed.Source.Detail, "403") || !failed.Source.LastSuccess.Equal(first.Source.LastSuccess) || !failed.Source.ValidUntil.Equal(first.Source.ValidUntil) || failed.Batch.Events[0].ID != first.Batch.Events[0].ID {
+	if failed.Source.Availability != "unavailable" || !strings.Contains(failed.Source.Detail, "503") || !failed.Source.LastSuccess.Equal(first.Source.LastSuccess) || !failed.Source.ValidUntil.Equal(first.Source.ValidUntil) || failed.Batch.Events[0].ID != first.Batch.Events[0].ID {
 		t.Fatal("failed read replaced or refreshed last-good evidence")
 	}
 	restored := &Server{coreStore: store, now: func() time.Time { return now }}
@@ -171,18 +184,14 @@ func TestMacroRestoreRejectsCorruptProvenanceAndIsolatedStartsStayOffline(t *tes
 	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
 	s := &Server{coreStore: store, now: func() time.Time { return now }}
 	c := s.loadMacroSources()
-	c.client = &macroFixtureFetcher{}
+	fixture := &macroFixtureFetcher{}
+	c.client = fixture
 	spec := beaMacroSpec(t)
 	s.refreshMacroSource(t.Context(), c, spec)
 	valid := c.records[spec.ID]
-	for _, mutate := range []func(*macroRecord){
-		func(r *macroRecord) { r.Source.Kind = "rss" },
-		func(r *macroRecord) { r.Source.ValidUntil = now.AddDate(1, 0, 0) },
-		func(r *macroRecord) { r.Batch.Events[0].SourceURL = "https://attacker.test/" },
-		func(r *macroRecord) { r.Batch.Events[0].RetrievedAt = now.Add(-time.Hour) },
-		func(r *macroRecord) { r.Source.LastSuccess = time.Time{} },
-	} {
-		raw, _ := json.Marshal(valid)
+	rejects := func(label string, base macroRecord, mutate func(*macroRecord)) {
+		t.Helper()
+		raw, _ := json.Marshal(base)
 		var corrupt macroRecord
 		_ = json.Unmarshal(raw, &corrupt)
 		mutate(&corrupt)
@@ -191,10 +200,46 @@ func TestMacroRestoreRejectsCorruptProvenanceAndIsolatedStartsStayOffline(t *tes
 			t.Fatal(err)
 		}
 		restored := s.loadMacroSources().records[spec.ID]
-		if restored.Source.Availability != "unavailable" || len(restored.Batch.Events) != 0 || !strings.Contains(restored.Source.Detail, "invalid") {
-			t.Fatal("corrupt cached provenance became source authority")
+		if restored.Source.Availability != "unavailable" || len(restored.Batch.Events) != 0 || restored.Failure != nil || !strings.Contains(restored.Source.Detail, "invalid") {
+			t.Fatalf("corrupt cached record (%s) became source authority", label)
 		}
 	}
+	type corruption struct {
+		label  string
+		mutate func(*macroRecord)
+	}
+	for _, bad := range []corruption{
+		{"source kind", func(r *macroRecord) { r.Source.Kind = "rss" }},
+		{"freshness", func(r *macroRecord) { r.Source.ValidUntil = now.AddDate(1, 0, 0) }},
+		{"event source", func(r *macroRecord) { r.Batch.Events[0].SourceURL = "https://attacker.test/" }},
+		{"event receipt", func(r *macroRecord) { r.Batch.Events[0].RetrievedAt = now.Add(-time.Hour) }},
+		{"last success", func(r *macroRecord) { r.Source.LastSuccess = time.Time{} }},
+	} {
+		rejects(bad.label, valid, bad.mutate)
+	}
+
+	// A persisted cause becomes a typed health failure, so it must be
+	// allowlisted, belong to this collector, and date the latest attempt of a
+	// live failure streak.
+	fixture.fail = true
+	for range 2 {
+		now = c.records[spec.ID].Source.NextAttempt
+		s.refreshMacroSource(t.Context(), c, spec)
+	}
+	failing := c.records[spec.ID]
+	if got := s.loadMacroSources().records[spec.ID]; got.Failure == nil || *got.Failure != *failing.Failure || len(got.Batch.Events) == 0 || got.Source.ConsecutiveFailures != 2 {
+		t.Fatalf("a valid failure cause did not survive restart: %+v", got.Failure)
+	}
+	for _, bad := range []corruption{
+		{"unknown failure code", func(r *macroRecord) { r.Failure.Code = "publisher_says_retry_now" }},
+		{"foreign failure stage", func(r *macroRecord) { r.Failure.Stage = rpc.SourceFailureStageNasdaqRequest }},
+		{"cause dated at the onset", func(r *macroRecord) { r.Failure.FailedAt = r.Source.FirstFailure }},
+		{"cause dated after the attempt", func(r *macroRecord) { r.Failure.FailedAt = r.Source.LastAttempt.Add(time.Minute) }},
+		{"cause without a streak", func(r *macroRecord) { r.Source.ConsecutiveFailures, r.Source.FirstFailure = 0, time.Time{} }},
+	} {
+		rejects(bad.label, failing, bad.mutate)
+	}
+	rejects("cause on a current source", valid, func(r *macroRecord) { r.Failure = failing.Failure })
 	for _, productionPath := range []bool{false, true} {
 		// Both isolated stores and the linker-configured hermetic CLI must load
 		// retained records without starting a network worker.
@@ -251,7 +296,7 @@ func TestMacroRequestedWindowFiltersBeforeResponseLimits(t *testing.T) {
 	c := &macroCache{records: map[string]macroRecord{}}
 	row := coldMacroRecord(spec)
 	row.Source.LastSuccess = now
-	row.Source.ValidUntil = now.Add(macroFreshness)
+	row.Source.ValidUntil = now.Add(spec.Freshness)
 	row.Source.Availability = "available"
 	for i := range 60 {
 		row.Batch.Events = append(row.Batch.Events, rpc.MacroEvent{ID: fmt.Sprintf("old-%02d", i), Date: "2026-09-10"})
@@ -282,7 +327,7 @@ func TestMacroBackupDoesNotHealPrimaryFailureAndCoverageExpires(t *testing.T) {
 		row := coldMacroRecord(spec)
 		row.Source.Availability = "available"
 		row.Source.LastSuccess = now
-		row.Source.ValidUntil = now.Add(macroFreshness)
+		row.Source.ValidUntil = now.Add(spec.Freshness)
 		if spec.ID == "bls-calendar" {
 			row.Source.Availability = "unavailable"
 			row.Source.Detail = "source returned HTTP 403"
@@ -306,7 +351,7 @@ func TestMacroBackupDoesNotHealPrimaryFailureAndCoverageExpires(t *testing.T) {
 	if s.macroSnapshotWindow("2026-09-30", "2026-10-01").CoverageStatus != "partial" {
 		t.Fatal("calendar claimed an unobserved next month")
 	}
-	now = now.Add(macroFreshness)
+	now = s.macro.records["nyfed-calendar"].Source.ValidUntil
 	if s.macroSnapshotWindow("2026-09-11", "2026-09-11").CoverageStatus != "partial" {
 		t.Fatal("source coverage outlived evidence")
 	}
@@ -352,5 +397,309 @@ func TestMacroTruncationIdentifiesOmittedList(t *testing.T) {
 				t.Fatal("response exceeded bound or omitted authoritative false flags")
 			}
 		})
+	}
+}
+
+const syntheticMacroICS = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+
+func macroSpecByID(t *testing.T, id string) macrosource.Spec {
+	t.Helper()
+	for _, s := range macrosource.Specs() {
+		if s.ID == id {
+			return s
+		}
+	}
+	t.Fatal("fixture source absent")
+	return macrosource.Spec{}
+}
+
+func macroHealthRow(t *testing.T, s *Server, id string, now time.Time) rpc.DataSourceHealth {
+	t.Helper()
+	rows, _ := s.collectDataHealth(now)
+	for _, row := range rows {
+		if row.ID == "macro:"+id {
+			return row
+		}
+	}
+	t.Fatal("macro source missing from data health")
+	return rpc.DataSourceHealth{}
+}
+
+// TestMacroFailureSurfacesOnsetAndTypedCause drives the production reader
+// through a BLS policy rejection streak whose cause later changes to a timeout
+// and then a format change, a restart, recovery and a transient outage. Health
+// must carry the latest typed cause dated when it happened, count the streak
+// from its onset, and never poll BLS faster than its refresh interval; the log
+// records each streak transition once, without the body.
+func TestMacroFailureSurfacesOnsetAndTypedCause(t *testing.T) {
+	const denial = `<html><h1>Bureau of Labor Statistics</h1><h2>Access Denied</h2><p>bot activity that doesn&#39;t conform to BLS usage policy is prohibited.</p><p>response-only-marker</p></html>`
+	store := openMarketTestCoreStore(t)
+	now := time.Date(2026, 9, 22, 17, 23, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	s := &Server{coreStore: store, now: func() time.Time { return now }, logger: &Logger{l: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}}
+	spec := macroSpecByID(t, "bls-calendar")
+	status, body := http.StatusOK, syntheticMacroICS
+	var transportErr error
+	client := macrosource.NewClient()
+	client.HTTP.Transport = macroHTTPTransport(func(req *http.Request) (*http.Response, error) {
+		if transportErr != nil {
+			return nil, transportErr
+		}
+		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})
+	s.macro = s.loadMacroSources()
+	s.macro.client = client
+	s.refreshMacroSource(t.Context(), s.macro, spec)
+	attempt := func(want rpc.SourceFailure, streak string, action string) {
+		t.Helper()
+		now = s.macro.records[spec.ID].Source.NextAttempt
+		s.refreshMacroSource(t.Context(), s.macro, spec)
+		want.FailedAt = now
+		row := macroHealthRow(t, s, spec.ID, now)
+		if row.Failure == nil || *row.Failure != want || !rpc.ValidSourceFailure(row.Failure) {
+			t.Fatalf("health failure = %+v, want %+v", row.Failure, want)
+		}
+		if row.State != "limited" || !strings.Contains(row.Detail, streak) || row.Action != action {
+			t.Fatalf("failure reported without its streak or with the wrong recovery promise: %+v", row)
+		}
+		if next := row.NextAttempt.Sub(now); next < spec.Refresh {
+			t.Fatalf("failed read scheduled the next BLS read after %s, before its %s refresh interval", next, spec.Refresh)
+		}
+	}
+	const automatic, needsChange = "Canary refreshes this source automatically", "Canary keeps retrying, but this rejection needs a publisher or Canary change to clear"
+
+	status, body = http.StatusForbidden, denial
+	onset := s.macro.records[spec.ID].Source.NextAttempt
+	policy := rpc.SourceFailure{Code: rpc.SourceFailureProtocolRejected, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: false}
+	attempt(policy, "1 failed refresh", needsChange)
+	attempt(policy, "2 consecutive failed refreshes since "+onset.Format(time.RFC3339), needsChange)
+	attempt(policy, "3 consecutive failed refreshes since "+onset.Format(time.RFC3339), needsChange)
+	restarted := &Server{coreStore: store, now: func() time.Time { return now }}
+	restarted.macro = restarted.loadMacroSources()
+	persisted := policy
+	persisted.FailedAt = now
+	if got := macroHealthRow(t, restarted, spec.ID, now).Failure; got == nil || *got != persisted {
+		t.Fatalf("restart lost the typed cause or its time: %+v", got)
+	}
+
+	// The cause changes mid-streak: each is dated when it was observed, and
+	// the onset stays with the streak count.
+	transportErr = context.DeadlineExceeded
+	attempt(rpc.SourceFailure{Code: rpc.SourceFailureTimeout, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: true},
+		"4 consecutive failed refreshes since "+onset.Format(time.RFC3339), automatic)
+	transportErr, status, body = nil, http.StatusOK, strings.Replace(syntheticMacroICS, "END:VEVENT", "RRULE:FREQ=MONTHLY\r\nEND:VEVENT", 1)
+	attempt(rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: false},
+		"5 consecutive failed refreshes since "+onset.Format(time.RFC3339), needsChange)
+	if out := logs.String(); strings.Count(out, "level=WARN") != 1 || !strings.Contains(out, "macro source bls-calendar refresh failed (protocol_rejected at public_source_request, retryable=false)") || strings.Contains(out, "response-only-marker") {
+		t.Fatalf("failure onset was not logged exactly once without the response body:\n%s", out)
+	}
+
+	// Cause and snapshot are read under separate locks; a cause dated at
+	// another attempt than the row reports must not be shown as its failure.
+	current := s.macro.records[spec.ID]
+	older := *current.Failure
+	older.FailedAt = onset
+	s.macro.records[spec.ID] = macroRecord{Source: current.Source, Batch: current.Batch, Failure: &older}
+	if row := macroHealthRow(t, s, spec.ID, now); row.Failure != nil {
+		t.Fatalf("a cause from another attempt was reported as this row's failure: %+v", row.Failure)
+	}
+	s.macro.records[spec.ID] = current
+
+	status, body = http.StatusOK, syntheticMacroICS
+	now = s.macro.records[spec.ID].Source.NextAttempt
+	s.refreshMacroSource(t.Context(), s.macro, spec)
+	if row := macroHealthRow(t, s, spec.ID, now); row.Failure != nil || row.State != "current" || strings.Contains(row.Detail, "failed refresh") {
+		t.Fatalf("recovery kept a failure: %+v", row)
+	}
+	if out := logs.String(); strings.Count(out, "level=WARN") != 1 || strings.Count(out, "level=INFO") != 1 || !strings.Contains(out, "macro source bls-calendar recovered after 5 failed refreshes since "+onset.Format(time.RFC3339)) {
+		t.Fatalf("recovery was not logged exactly once:\n%s", out)
+	}
+
+	status, body = http.StatusServiceUnavailable, "maintenance"
+	attempt(rpc.SourceFailure{Code: rpc.SourceFailureProtocolRejected, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: true}, "1 failed refresh", automatic)
+	if strings.Count(logs.String(), "level=WARN") != 2 {
+		t.Fatal("a new failure streak was not logged")
+	}
+}
+
+// TestMacroFailureScheduleFollowsRefreshAndCause keeps failure retries from
+// polling faster than a source's success cadence and sends a rejection that
+// repeats until something changes straight to the longest interval.
+func TestMacroFailureScheduleFollowsRefreshAndCause(t *testing.T) {
+	for _, tc := range []struct {
+		source string
+		status int
+		want   time.Duration
+	}{
+		{"bea-calendar", http.StatusServiceUnavailable, 5 * time.Minute},
+		{"bea-calendar", http.StatusForbidden, time.Hour},
+		{"bls-calendar", http.StatusServiceUnavailable, time.Hour},
+		{"bls-calendar", http.StatusForbidden, time.Hour},
+	} {
+		t.Run(fmt.Sprintf("%s-%d", tc.source, tc.status), func(t *testing.T) {
+			now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+			s := &Server{coreStore: openMarketTestCoreStore(t), now: func() time.Time { return now }}
+			s.macro = s.loadMacroSources()
+			client := macrosource.NewClient()
+			client.HTTP.Transport = macroHTTPTransport(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("unavailable")), Request: req}, nil
+			})
+			s.macro.client = client
+			s.refreshMacroSource(t.Context(), s.macro, macroSpecByID(t, tc.source))
+			if got := s.macro.records[tc.source].Source.NextAttempt.Sub(now); got != tc.want {
+				t.Fatalf("next attempt after HTTP %d = +%s, want +%s", tc.status, got, tc.want)
+			}
+		})
+	}
+}
+
+type macroCountingFetcher struct{ calls map[string]int }
+
+func (f *macroCountingFetcher) Fetch(_ context.Context, s macrosource.Spec, at time.Time, _ macrosource.Batch) (macrosource.Batch, error) {
+	f.calls[s.ID]++
+	payload := `{"Synthetic release":{"release_dates":["2026-09-10T12:30:00Z"]}}`
+	if s.Kind == "ics" {
+		payload = syntheticMacroICS
+	}
+	return macrosource.Parse(s, []byte(payload), at)
+}
+
+// TestMacroBLSRefreshesHourlyWhileOtherSourcesKeepCadence witnesses the BLS
+// politeness interval: one read per hour rather than per five-minute tick, and
+// a freshness window that outlives one missed read. Other sources keep their
+// cadence, and a record kept under the former 30-minute window still restores.
+func TestMacroBLSRefreshesHourlyWhileOtherSourcesKeepCadence(t *testing.T) {
+	store := openMarketTestCoreStore(t)
+	start := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	now := start
+	s := &Server{coreStore: store, now: func() time.Time { return now }}
+	s.macro = s.loadMacroSources()
+	fetcher := &macroCountingFetcher{calls: map[string]int{}}
+	s.macro.client = fetcher
+	specs := []macrosource.Spec{macroSpecByID(t, "bls-calendar"), macroSpecByID(t, "bea-calendar")}
+	for tick := range 13 {
+		now = start.Add(time.Duration(tick) * 5 * time.Minute)
+		for _, spec := range specs {
+			s.refreshMacroSource(t.Context(), s.macro, spec)
+		}
+	}
+	if fetcher.calls["bls-calendar"] != 2 || fetcher.calls["bea-calendar"] != 13 {
+		t.Fatalf("reads over one hour of ticks = %v, want BLS 2 and BEA 13", fetcher.calls)
+	}
+	bls, bea := s.macro.records["bls-calendar"].Source, s.macro.records["bea-calendar"].Source
+	if bls.NextAttempt.Sub(bls.LastSuccess) != time.Hour || bls.ValidUntil.Sub(bls.LastSuccess) != 3*time.Hour {
+		t.Fatalf("BLS schedule next=%s valid=%s after success", bls.NextAttempt.Sub(bls.LastSuccess), bls.ValidUntil.Sub(bls.LastSuccess))
+	}
+	if bea.NextAttempt.Sub(bea.LastSuccess) != 5*time.Minute || bea.ValidUntil.Sub(bea.LastSuccess) != 30*time.Minute {
+		t.Fatal("another source's cadence or freshness changed")
+	}
+	if restored := s.loadMacroSources().records["bls-calendar"]; restored.Source.Availability != "available" || !restored.Source.NextAttempt.Equal(bls.NextAttempt) {
+		t.Fatal("restart rejected the hourly schedule or renewed acquisition")
+	}
+	legacy := s.macro.records["bls-calendar"]
+	legacy.Source.ValidUntil = legacy.Source.LastSuccess.Add(30 * time.Minute)
+	raw, _ := json.Marshal(legacy)
+	if err := saveMarketDocument(t.Context(), store, "public-macro:bls-calendar", macroStateKind, raw); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.loadMacroSources().records["bls-calendar"]; len(got.Batch.Events) == 0 || !got.Source.ValidUntil.Equal(legacy.Source.ValidUntil) {
+		t.Fatal("a record kept under the former window was discarded or gained freshness")
+	}
+}
+
+// TestMacroConditionalRefreshKeepsBatchAcrossRestart serves the BLS calendar
+// over TLS with cache validators. Unchanged content answers 304; the retained
+// batch must be renewed coherently with the persisted envelope, survive
+// restart with its validators, and yield to a revised calendar.
+func TestMacroConditionalRefreshKeepsBatchAcrossRestart(t *testing.T) {
+	const firstTag, modified = `"synthetic-v1"`, "Wed, 10 Jun 2026 16:56:37 GMT"
+	var mu sync.Mutex
+	var seen []http.Header
+	content, tag := syntheticMacroICS, firstTag
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, r.Header.Clone())
+		if r.Host != "www.bls.gov" || r.URL.Path != "/schedule/news_release/bls.ics" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("If-None-Match") == tag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Header().Set("ETag", tag)
+		w.Header().Set("Last-Modified", modified)
+		_, _ = io.WriteString(w, content)
+	}))
+	defer srv.Close()
+	transport := srv.Client().Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig.ServerName = "example.com"
+	transport.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return new(net.Dialer).DialContext(ctx, network, srv.Listener.Addr().String())
+	}
+	client := macrosource.NewClient()
+	client.HTTP.Transport = transport
+
+	store := openMarketTestCoreStore(t)
+	start := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	now := start
+	s := &Server{coreStore: store, now: func() time.Time { return now }}
+	s.macro = s.loadMacroSources()
+	s.macro.client = client
+	spec := macroSpecByID(t, "bls-calendar")
+	s.refreshMacroSource(t.Context(), s.macro, spec)
+	first := s.macro.records[spec.ID]
+	if first.Source.Availability != "available" || first.Batch.ETag != firstTag || first.Batch.LastModified != modified {
+		t.Fatalf("validators were not retained with the batch: %+v", first.Batch)
+	}
+
+	now = first.Source.NextAttempt
+	s.refreshMacroSource(t.Context(), s.macro, spec)
+	renewed := s.macro.records[spec.ID]
+	if !renewed.Source.LastSuccess.Equal(now) || !renewed.Source.ValidUntil.Equal(now.Add(spec.Freshness)) || renewed.Batch.ETag != firstTag || renewed.Batch.Events[0].ID != first.Batch.Events[0].ID || !renewed.Batch.Events[0].RetrievedAt.Equal(now) {
+		t.Fatalf("304 did not renew the retained batch coherently: %+v", renewed.Source)
+	}
+	if !first.Batch.Events[0].RetrievedAt.Equal(start) {
+		t.Fatal("revalidation mutated evidence shared with concurrent readers")
+	}
+
+	restarted := &Server{coreStore: store, now: func() time.Time { return now }}
+	restarted.macro = restarted.loadMacroSources()
+	restarted.macro.client = client
+	restored := restarted.macro.records[spec.ID]
+	if restored.Source.Availability != "available" || restored.Batch.ETag != firstTag || !restored.Source.LastSuccess.Equal(now) {
+		t.Fatalf("restart discarded the revalidated record or its validators: %+v", restored.Source)
+	}
+	now = restored.Source.NextAttempt
+	restarted.refreshMacroSource(t.Context(), restarted.macro, spec)
+	if got := restarted.macro.records[spec.ID]; !got.Source.LastSuccess.Equal(now) || got.Batch.Events[0].ID != first.Batch.Events[0].ID {
+		t.Fatal("restored validators did not renew the batch")
+	}
+
+	mu.Lock()
+	content, tag = strings.Replace(syntheticMacroICS, "20260101T010000Z", "20260102T150000Z", 1), `"synthetic-v2"`
+	mu.Unlock()
+	now = restarted.macro.records[spec.ID].Source.NextAttempt
+	restarted.refreshMacroSource(t.Context(), restarted.macro, spec)
+	revised := restarted.loadMacroSources().records[spec.ID]
+	if revised.Batch.ETag != `"synthetic-v2"` || len(revised.Batch.Events) != 1 || revised.Batch.Events[0].Date != "2026-01-02" || !revised.Source.LastSuccess.Equal(now) {
+		t.Fatalf("revised calendar did not replace the validated batch: %+v", revised.Batch)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 4 || seen[0].Get("If-None-Match") != "" || seen[0].Get("If-Modified-Since") != "" {
+		t.Fatalf("requests = %d; first read must be unconditional", len(seen))
+	}
+	for _, h := range seen[1:] {
+		if h.Get("If-None-Match") != firstTag || h.Get("If-Modified-Since") != modified {
+			t.Fatalf("conditional read sent validators %q / %q", h.Get("If-None-Match"), h.Get("If-Modified-Since"))
+		}
+	}
+	for _, h := range seen {
+		if h.Get("User-Agent") != "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)" || h.Get("Cookie") != "" || h.Get("Authorization") != "" {
+			t.Fatalf("BLS request identity on the wire = %q", h.Get("User-Agent"))
+		}
 	}
 }

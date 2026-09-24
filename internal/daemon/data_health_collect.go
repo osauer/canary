@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -94,12 +95,14 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		}
 		rows = append(rows, row)
 	}
+	macroFailures := s.macroSourceFailures()
 	for _, source := range s.handleMacroSnapshot().Sources {
 		row := unknownDataSource("macro:"+source.ID, source.Name, "Official public source", "public_source", "Macro calendar and publications")
 		row.CheckedAt, row.ReceivedAt, row.ValidUntil, row.NextAttempt = source.LastAttempt, source.LastSuccess, source.ValidUntil, source.NextAttempt
 		row.LastSuccess = source.LastSuccess
 		row.Availability = source.Availability
 		row.Action = "Canary refreshes this source automatically"
+		streak := ""
 		switch {
 		case source.LastAttempt.IsZero():
 		case source.Availability != "available":
@@ -108,6 +111,19 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 				row.State, row.Receiving = "limited", "Prior data · refresh failed"
 			}
 			row.ProblemIDs = []string{row.ID}
+			// The cause is read separately from the snapshot; it must date the
+			// attempt this row reports, or it belongs to another refresh.
+			if failure, ok := macroFailures[source.ID]; ok && failure.FailedAt.Equal(source.LastAttempt) {
+				row.Failure = &failure
+				if !failure.Retryable {
+					row.Action = "Canary keeps retrying, but this rejection needs a publisher or Canary change to clear"
+				}
+			}
+			if source.ConsecutiveFailures == 1 {
+				streak = "1 failed refresh"
+			} else if source.ConsecutiveFailures > 1 {
+				streak = fmt.Sprintf("%d consecutive failed refreshes since %s", source.ConsecutiveFailures, source.FirstFailure.UTC().Format(time.RFC3339))
+			}
 		case source.Stale || source.ValidUntil.IsZero() || !now.Before(source.ValidUntil):
 			row.State, row.Receiving, row.ProblemIDs = "limited", "Retained data · stale", []string{row.ID}
 		default:
@@ -119,7 +135,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		if len(detail) > 512 {
 			detail = detail[:512]
 		}
-		row.Detail = strings.Join(compactNonEmptyStrings(detail, source.Coverage), " · ")
+		row.Detail = strings.Join(compactNonEmptyStrings(detail, streak, source.Coverage), " · ")
 		rows = append(rows, row)
 	}
 	rows = append(rows, s.calendarDataHealth(now)...)

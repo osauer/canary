@@ -82,6 +82,11 @@ socket. The project makes these additional outbound connections:
   held symbols are matched locally and are not sent as query parameters.
 - Regime refreshes download public series from FRED, CBOE, the Federal Reserve,
   and the US Treasury. The requests contain no portfolio or account fields.
+- Macro refreshes download public economic calendars and official feeds from
+  BLS, the New York Fed, BEA, the Federal Reserve, and the ECB. The requests
+  contain no portfolio or account fields. Requests to BLS name Canary and its
+  product site, because BLS blocks automated clients without owner contact
+  information; they carry no user name or contact address.
 - The S&P 500 constituent refresher downloads Wikipedia's public constituent
   list, symbols and GICS sectors, on its schedule unless disabled in config.
   Holdings are matched locally. Index fund sector weights used for allocation

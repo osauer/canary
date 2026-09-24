@@ -3,6 +3,7 @@
 package macrosource
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,9 +11,12 @@ import (
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -21,30 +25,120 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// Spec identifies one fixed public source and its parser.
-type Spec struct{ ID, Name, URL, Kind, Timezone, Coverage string }
+// Spec identifies one fixed public source, its parser and its polling policy.
+// Refresh is the delay after a successful read before the next one. Freshness
+// bounds how long that read is served as current; it exceeds Refresh so one
+// late or failed read does not make the source stale.
+type Spec struct {
+	ID, Name, URL, Kind, Timezone, Coverage string
+	Refresh, Freshness                      time.Duration
+}
 
 // Specs returns the supported sources. Feed coverage is deliberately explicit.
 func Specs() []Spec {
+	const refresh, freshness = 5 * time.Minute, 30 * time.Minute
 	return []Spec{
-		{"bls-calendar", "BLS releases", "https://www.bls.gov/schedule/news_release/bls.ics", "ics", "America/New_York", "Scheduled releases in the supplied calendar; not general news"},
-		{"nyfed-calendar", "New York Fed key releases", "https://www.newyorkfed.org/research/calendars/nationalecon_cal.html", "nyfed", "America/New_York", "Published key economic releases in the stated months; independent backup, not full BLS coverage"},
-		{"bea-calendar", "BEA releases", "https://apps.bea.gov/API/signup/release_dates.json", "bea", "America/New_York", "Published BEA release dates; revisions replace earlier dates"},
-		{"fed-calendar", "Federal Reserve calendar", "https://www.federalreserve.gov/json/calendar.json", "fed", "America/New_York", "Published speeches, meetings and statistical releases"},
-		{"ecb-calendar", "ECB weekly calendar", "https://www.ecb.europa.eu/press/calendars/weekly/html/index.en.html", "ecb", "Europe/Berlin", "Current published week; literal source times retained when ambiguous"},
-		{"bea-news", "BEA publications", "https://apps.bea.gov/rss/rss.xml", "rss", "America/New_York", "Recent feed items; not exhaustive news coverage"},
-		{"fed-policy", "Fed monetary policy", "https://www.federalreserve.gov/feeds/press_monetary.xml", "rss", "America/New_York", "Recent monetary-policy releases"},
-		{"fed-speeches", "Fed speeches", "https://www.federalreserve.gov/feeds/speeches_and_testimony.xml", "rss", "America/New_York", "Recent speeches and testimony"},
-		{"ecb-news", "ECB publications", "https://www.ecb.europa.eu/rss/press.html", "rss", "Europe/Berlin", "Recent official ECB publications"},
+		// BLS revises this schedule a few times a year and blocks excessive
+		// robot traffic, so it is read hourly instead of on every refresh tick.
+		{"bls-calendar", "BLS releases", "https://www.bls.gov/schedule/news_release/bls.ics", "ics", "America/New_York", "Scheduled releases in the supplied calendar; not general news", time.Hour, 3 * time.Hour},
+		{"nyfed-calendar", "New York Fed key releases", "https://www.newyorkfed.org/research/calendars/nationalecon_cal.html", "nyfed", "America/New_York", "Published key economic releases in the stated months; independent backup, not full BLS coverage", refresh, freshness},
+		{"bea-calendar", "BEA releases", "https://apps.bea.gov/API/signup/release_dates.json", "bea", "America/New_York", "Published BEA release dates; revisions replace earlier dates", refresh, freshness},
+		{"fed-calendar", "Federal Reserve calendar", "https://www.federalreserve.gov/json/calendar.json", "fed", "America/New_York", "Published speeches, meetings and statistical releases", refresh, freshness},
+		{"ecb-calendar", "ECB weekly calendar", "https://www.ecb.europa.eu/press/calendars/weekly/html/index.en.html", "ecb", "Europe/Berlin", "Current published week; literal source times retained when ambiguous", refresh, freshness},
+		{"bea-news", "BEA publications", "https://apps.bea.gov/rss/rss.xml", "rss", "America/New_York", "Recent feed items; not exhaustive news coverage", refresh, freshness},
+		{"fed-policy", "Fed monetary policy", "https://www.federalreserve.gov/feeds/press_monetary.xml", "rss", "America/New_York", "Recent monetary-policy releases", refresh, freshness},
+		{"fed-speeches", "Fed speeches", "https://www.federalreserve.gov/feeds/speeches_and_testimony.xml", "rss", "America/New_York", "Recent speeches and testimony", refresh, freshness},
+		{"ecb-news", "ECB publications", "https://www.ecb.europa.eu/rss/press.html", "rss", "Europe/Berlin", "Recent official ECB publications", refresh, freshness},
 	}
 }
 
-// Batch is one successful source response, before daemon retention and filtering.
+// parserVersion identifies what Parse produces from given source bytes.
+// Increase it with any change that can alter parsed records, so batches parsed
+// earlier are read in full once instead of being renewed by a 304.
+const parserVersion = 1
+
+// Batch is one successful source response, before daemon retention and
+// filtering. ETag and LastModified are that response's cache validators, kept
+// verbatim so a later read can ask whether the representation changed. Parser
+// records the parser version that produced the records; the validators are
+// replayed only while it matches the running parser.
 type Batch struct {
 	Events       []rpc.MacroEvent       `json:"events"`
 	Publications []rpc.MacroPublication `json:"publications"`
 	WindowStart  string                 `json:"window_start,omitempty"`
 	WindowEnd    string                 `json:"window_end,omitempty"`
+	ETag         string                 `json:"etag,omitempty"`
+	LastModified string                 `json:"last_modified,omitempty"`
+	Parser       int                    `json:"parser,omitempty"`
+}
+
+// FetchError is a redacted source failure. Code and Stage use the
+// rpc.SourceFailure allowlist. Retryable reports whether repeating the same
+// request can succeed without a change by Canary or the publisher. Error
+// returns producer-authored text only, never response bodies or transport detail.
+type FetchError struct {
+	Code, Stage string
+	Retryable   bool
+	msg         string
+}
+
+// Error returns the redacted, producer-authored failure description.
+func (e *FetchError) Error() string { return e.msg }
+
+func requestFailure(code string, retryable bool, msg string) error {
+	return &FetchError{Code: code, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: retryable, msg: msg}
+}
+
+// transientPayload rejects a document that a later read of the same URL can
+// replace without a format change, such as one cut short in transfer.
+func transientPayload(msg string) error {
+	return &FetchError{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: true, msg: msg}
+}
+
+// typedFailure keeps a classified failure and treats any other error as a
+// structural payload rejection: the request path classifies every transport
+// and HTTP outcome, and parsers mark their transient rejections, so a plain
+// error is a format or validation failure that repeats until the parser or the
+// publisher changes.
+func typedFailure(err error) error {
+	if _, ok := errors.AsType[*FetchError](err); ok {
+		return err
+	}
+	return &FetchError{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: false, msg: err.Error()}
+}
+
+var errRedirectRefused = errors.New("public source redirect refused")
+
+func transportFailure(err error) error {
+	if errors.Is(err, errRedirectRefused) {
+		return requestFailure(rpc.SourceFailureProtocolRejected, false, errRedirectRefused.Error())
+	}
+	code := rpc.SourceFailureTransportFailed
+	netErr, isNet := errors.AsType[net.Error](err)
+	switch _, isDNS := errors.AsType[*net.DNSError](err); {
+	case isDNS:
+		code = rpc.SourceFailureDNSFailed
+	case errors.Is(err, context.DeadlineExceeded), isNet && netErr.Timeout():
+		code = rpc.SourceFailureTimeout
+	case errors.Is(err, syscall.ECONNREFUSED):
+		code = rpc.SourceFailureConnectionRefused
+	}
+	return requestFailure(code, true, "public source request failed")
+}
+
+func statusFailure(status int) error {
+	msg := fmt.Sprintf("source returned HTTP %d", status)
+	switch {
+	case status == http.StatusTooManyRequests:
+		return requestFailure(rpc.SourceFailurePacing, true, msg)
+	case status >= 500, status == http.StatusRequestTimeout:
+		return requestFailure(rpc.SourceFailureProtocolRejected, true, msg)
+	case status >= 400:
+		// Other client errors repeat until the request or the publisher changes.
+		return requestFailure(rpc.SourceFailureProtocolRejected, false, msg)
+	default:
+		return requestFailure(rpc.SourceFailureProtocolRejected, true, msg)
+	}
 }
 
 // Client sends no credentials or account information to its fixed public hosts.
@@ -54,7 +148,7 @@ type Client struct{ HTTP *http.Client }
 func NewClient() *Client {
 	return &Client{HTTP: &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 4 || !SafeURL(req.URL.String()) {
-			return errors.New("public source redirect refused")
+			return errRedirectRefused
 		}
 		publichttp.SetUserAgent(req)
 		return nil
@@ -74,35 +168,91 @@ func SafeURL(raw string) bool {
 	return false
 }
 
-// Fetch reads one feed without modifying daemon or broker state.
-func (c *Client) Fetch(ctx context.Context, s Spec, now time.Time) (Batch, error) {
+// Fetch reads one feed without modifying daemon or broker state. prior is the
+// caller's retained batch for s. When it carries cache validators from the
+// running parser version the read is conditional, and a 304 Not Modified answer
+// returns prior re-stamped as retrieved at now. Fetch never modifies prior.
+// Every error is a *FetchError.
+func (c *Client) Fetch(ctx context.Context, s Spec, now time.Time, prior Batch) (Batch, error) {
+	var batch Batch
+	var err error
 	if s.Kind == "nyfed" {
-		return c.fetchNYFed(ctx, s, now)
+		batch, err = c.fetchNYFed(ctx, s, now)
+	} else {
+		batch, err = c.fetch(ctx, s, now, prior)
 	}
-	return c.fetch(ctx, s, now)
+	if err != nil {
+		return Batch{}, typedFailure(err)
+	}
+	return batch, nil
 }
-func (c *Client) fetch(ctx context.Context, s Spec, now time.Time) (Batch, error) {
-	raw, err := c.read(ctx, s.URL)
+func (c *Client) fetch(ctx context.Context, s Spec, now time.Time, prior Batch) (Batch, error) {
+	res, err := c.read(ctx, s.URL, prior)
 	if err != nil {
 		return Batch{}, err
 	}
-	return Parse(s, raw, now)
+	if res.notModified {
+		return revalidated(s, prior, now)
+	}
+	batch, err := Parse(s, res.body, now)
+	if err != nil {
+		return Batch{}, err
+	}
+	batch.ETag, batch.LastModified = res.etag, res.lastModified
+	return batch, nil
 }
-func (c *Client) read(ctx context.Context, rawURL string) ([]byte, error) {
+
+// revalidated renews prior after the publisher confirmed it unchanged. Record
+// identities exclude the retrieval clock, so re-stamping keeps them stable.
+func revalidated(s Spec, prior Batch, now time.Time) (Batch, error) {
+	out := prior
+	out.Events = slices.Clone(prior.Events)
+	for i := range out.Events {
+		out.Events[i].RetrievedAt = now
+	}
+	out.Publications = slices.Clone(prior.Publications)
+	for i := range out.Publications {
+		out.Publications[i].RetrievedAt = now
+	}
+	if err := ValidateBatch(s, out, now); err != nil {
+		return Batch{}, err
+	}
+	return out, nil
+}
+
+type response struct {
+	body               []byte
+	etag, lastModified string
+	notModified        bool
+}
+
+func (c *Client) read(ctx context.Context, rawURL string, prior Batch) (response, error) {
 	if !SafeURL(rawURL) {
-		return nil, errors.New("public source host refused")
+		return response{}, requestFailure(rpc.SourceFailureProtocolRejected, false, "public source host refused")
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return response{}, requestFailure(rpc.SourceFailureProtocolRejected, false, "public source request invalid")
 	}
 	publichttp.SetUserAgent(req)
 	req.Header.Set("Accept", "text/calendar, application/rss+xml, application/json, application/xml, text/xml, text/html")
+	// A 304 renews parsed records, not source bytes, so records from another
+	// parser version must be re-read in full.
+	conditional := prior.Parser == parserVersion && (prior.ETag != "" || prior.LastModified != "")
+	if conditional && prior.ETag != "" {
+		req.Header.Set("If-None-Match", prior.ETag)
+	}
+	if conditional && prior.LastModified != "" {
+		req.Header.Set("If-Modified-Since", prior.LastModified)
+	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, errors.New("public source request failed")
+		return response{}, transportFailure(err)
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotModified && conditional {
+		return response{notModified: true}, nil
+	}
 	if res.StatusCode != 200 {
 		// A 403 alone does not identify its cause. Only the witnessed BLS
 		// policy page earns this actionable diagnosis; never expose its body.
@@ -110,19 +260,50 @@ func (c *Client) read(ctx context.Context, rawURL string) ([]byte, error) {
 			body, readErr := io.ReadAll(io.LimitReader(res.Body, (8<<10)+1))
 			text := html.UnescapeString(strings.Join(strings.Fields(string(body)), " "))
 			if readErr == nil && len(body) <= 8<<10 && strings.Contains(text, "Bureau of Labor Statistics") && strings.Contains(text, "Access Denied") && strings.Contains(text, "bot activity that doesn't conform to BLS usage policy is prohibited.") {
-				return nil, errors.New("source returned HTTP 403: BLS rejected this request under its automated-access policy")
+				return response{}, requestFailure(rpc.SourceFailureProtocolRejected, false, "source returned HTTP 403: BLS rejected this request under its automated-access policy")
 			}
 		}
-		return nil, fmt.Errorf("source returned HTTP %d", res.StatusCode)
+		return response{}, statusFailure(res.StatusCode)
 	}
 	b, err := io.ReadAll(io.LimitReader(res.Body, (2<<20)+1))
 	if err != nil {
-		return nil, errors.New("public source read failed")
+		return response{}, requestFailure(rpc.SourceFailureTransportFailed, true, "public source read failed")
 	}
 	if len(b) > 2<<20 {
-		return nil, errors.New("public source exceeds size limit")
+		return response{}, requestFailure(rpc.SourceFailureInvalidPayload, false, "public source exceeds size limit")
 	}
-	return b, nil
+	if len(bytes.TrimSpace(b)) == 0 {
+		return response{}, requestFailure(rpc.SourceFailureInvalidPayload, true, "source returned an empty response")
+	}
+	out := response{body: b, etag: res.Header.Get("ETag"), lastModified: res.Header.Get("Last-Modified")}
+	// A malformed validator only costs a full read later; it never fails the body.
+	if !validETag(out.etag) {
+		out.etag = ""
+	}
+	if !validLastModified(out.lastModified) {
+		out.lastModified = ""
+	}
+	return out, nil
+}
+
+// validETag accepts only an RFC 9110 entity tag, so a restored validator cannot
+// carry header syntax into a later request.
+func validETag(v string) bool {
+	v = strings.TrimPrefix(v, "W/")
+	if len(v) < 2 || len(v) > 256 || v[0] != '"' || v[len(v)-1] != '"' {
+		return false
+	}
+	for _, c := range []byte(v[1 : len(v)-1]) {
+		if c < 0x21 || c == '"' || c > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+func validLastModified(v string) bool {
+	_, err := http.ParseTime(v)
+	return err == nil && len(v) <= 64
 }
 func identity(values ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(values, "\x00")))
@@ -166,8 +347,11 @@ func publicationID(s Spec, p rpc.MacroPublication) string {
 // parsed or restored feed can replace retained public evidence.
 func ValidateBatch(s Spec, batch Batch, now time.Time) error {
 	loc, err := time.LoadLocation(s.Timezone)
-	if err != nil || !SafeURL(s.URL) || s.ID == "" || now.IsZero() {
+	if err != nil || !SafeURL(s.URL) || s.ID == "" || now.IsZero() || s.Refresh <= 0 || s.Freshness <= s.Refresh {
 		return errors.New("invalid public source specification")
+	}
+	if s.Kind == "nyfed" && (batch.ETag != "" || batch.LastModified != "") || batch.ETag != "" && !validETag(batch.ETag) || batch.LastModified != "" && !validLastModified(batch.LastModified) {
+		return errors.New("public source cache validator invalid")
 	}
 	if len(batch.Events)+len(batch.Publications) == 0 || len(batch.Events) > 10000 || len(batch.Publications) > 2000 {
 		return errors.New("public source record count invalid")
@@ -301,6 +485,7 @@ func Parse(s Spec, b []byte, now time.Time) (Batch, error) {
 		}
 	}
 	out.Events, out.Publications = events, publications
+	out.Parser = parserVersion
 	if err := ValidateBatch(s, out, now); err != nil {
 		return Batch{}, err
 	}

@@ -15,14 +15,18 @@ import (
 )
 
 const macroStateKind = "macro_public_sources_v1"
-const macroFreshness = 30 * time.Minute
 
+// macroRecord is one source's persisted evidence. Failure is the typed cause of
+// the latest failed attempt in the current streak and is dated at that attempt;
+// Source.FirstFailure keeps the streak's onset. Records written before causes
+// were kept may have a streak without one.
 type macroRecord struct {
-	Source rpc.MacroSource   `json:"source"`
-	Batch  macrosource.Batch `json:"batch"`
+	Source  rpc.MacroSource    `json:"source"`
+	Batch   macrosource.Batch  `json:"batch"`
+	Failure *rpc.SourceFailure `json:"failure,omitempty"`
 }
 type macroFetcher interface {
-	Fetch(context.Context, macrosource.Spec, time.Time) (macrosource.Batch, error)
+	Fetch(context.Context, macrosource.Spec, time.Time, macrosource.Batch) (macrosource.Batch, error)
 }
 type macroCache struct {
 	mu      sync.RWMutex
@@ -92,12 +96,12 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 	}
 	at := s.orderNow().UTC()
 	c.mu.RLock()
-	priorAttempt := c.records[spec.ID].Source.NextAttempt
+	retained := c.records[spec.ID]
 	c.mu.RUnlock()
-	if at.Before(priorAttempt) {
+	if at.Before(retained.Source.NextAttempt) {
 		return
 	}
-	batch, err := c.client.Fetch(ctx, spec, at)
+	batch, err := c.client.Fetch(ctx, spec, at, retained.Batch)
 	if ctx.Err() != nil {
 		return
 	}
@@ -110,6 +114,7 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 	if at.Before(row.Source.NextAttempt) {
 		return
 	}
+	failedBefore, failingSince := row.Source.ConsecutiveFailures, row.Source.FirstFailure
 	row.Source.LastAttempt = at
 	if err != nil {
 		row.Source.Availability = "unavailable"
@@ -118,19 +123,27 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 			row.Source.FirstFailure = at
 		}
 		row.Source.ConsecutiveFailures++
-		delay := 5 * time.Minute << min(row.Source.ConsecutiveFailures-1, 4)
-		row.Source.NextAttempt = at.Add(min(delay, time.Hour))
+		row.Failure = macroSourceFailure(err, at)
+		// Retrying never polls faster than the success cadence, and a rejection
+		// that repeats until something changes waits the longest interval.
+		limit := max(time.Hour, spec.Refresh)
+		delay := max(spec.Refresh, 5*time.Minute<<min(row.Source.ConsecutiveFailures-1, 4))
+		if !row.Failure.Retryable {
+			delay = limit
+		}
+		row.Source.NextAttempt = at.Add(min(delay, limit))
 	} else {
 		row.Batch = batch
 		row.Source.Availability = "available"
 		row.Source.Detail = ""
 		row.Source.LastSuccess = at
-		row.Source.ValidUntil = at.Add(macroFreshness)
+		row.Source.ValidUntil = at.Add(spec.Freshness)
 		row.Source.Stale = false
 		row.Source.FirstFailure = time.Time{}
 		row.Source.ConsecutiveFailures = 0
-		row.Source.NextAttempt = at.Add(5 * time.Minute)
+		row.Source.NextAttempt = at.Add(spec.Refresh)
 		row.Source.WindowStart, row.Source.WindowEnd = batch.WindowStart, batch.WindowEnd
+		row.Failure = nil
 	}
 	raw, encodeErr := json.Marshal(row)
 	if encodeErr == nil {
@@ -149,6 +162,44 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 	c.mu.Lock()
 	c.records[spec.ID] = row
 	c.mu.Unlock()
+	// Log streak transitions only; repeated attempts are visible in health.
+	switch {
+	case err != nil && failedBefore == 0:
+		s.warnf("macro source %s refresh failed (%s at %s, retryable=%t); next attempt %s: %s",
+			spec.ID, row.Failure.Code, row.Failure.Stage, row.Failure.Retryable, row.Source.NextAttempt.Format(time.RFC3339), row.Source.Detail)
+	case err == nil && failedBefore > 0:
+		s.infof("macro source %s recovered after %d failed refreshes since %s", spec.ID, failedBefore, failingSince.Format(time.RFC3339))
+	}
+}
+
+// macroSourceFailure classifies a refresh error that happened at failedAt. A
+// validation failure after a successful read is a structural payload
+// rejection, which repeats until the parser or the publisher changes.
+func macroSourceFailure(err error, failedAt time.Time) *rpc.SourceFailure {
+	failure := rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, FailedAt: failedAt, Retryable: false}
+	if typed, ok := errors.AsType[*macrosource.FetchError](err); ok {
+		failure.Code, failure.Stage, failure.Retryable = typed.Code, typed.Stage, typed.Retryable
+	}
+	return &failure
+}
+
+// macroSourceFailures copies each failing source's typed cause for health rows.
+func (s *Server) macroSourceFailures() map[string]rpc.SourceFailure {
+	s.mu.Lock()
+	cache := s.macro
+	s.mu.Unlock()
+	out := map[string]rpc.SourceFailure{}
+	if cache == nil {
+		return out
+	}
+	cache.mu.RLock()
+	defer cache.mu.RUnlock()
+	for id, record := range cache.records {
+		if record.Failure != nil {
+			out[id] = *record.Failure
+		}
+	}
+	return out
 }
 
 func (s *Server) handleMacroRequest(req rpc.Request) (rpc.MacroSnapshotResult, error) {
@@ -282,11 +333,14 @@ func validateMacroEnvelope(spec macrosource.Spec, record macroRecord, now time.T
 	if source.LastAttempt.After(now.Add(time.Minute)) || source.LastSuccess.After(source.LastAttempt) {
 		return errors.New("invalid public source attempt clock")
 	}
-	if source.ConsecutiveFailures < 0 || source.FirstFailure.After(source.LastAttempt) || source.NextAttempt.After(source.LastAttempt.Add(time.Hour)) || !source.NextAttempt.IsZero() && source.NextAttempt.Before(source.LastAttempt) {
+	if source.ConsecutiveFailures < 0 || source.FirstFailure.After(source.LastAttempt) || source.NextAttempt.After(source.LastAttempt.Add(max(time.Hour, spec.Refresh))) || !source.NextAttempt.IsZero() && source.NextAttempt.Before(source.LastAttempt) {
 		return errors.New("invalid public source failure interval")
 	}
 	if (source.ConsecutiveFailures == 0) != source.FirstFailure.IsZero() || source.Availability == "available" && source.ConsecutiveFailures != 0 {
 		return errors.New("invalid public source failure state")
+	}
+	if f := record.Failure; f != nil && (!rpc.ValidSourceFailure(f) || f.Stage != rpc.SourceFailureStagePublicSourceRequest && f.Stage != rpc.SourceFailureStagePublicSourceParse || source.ConsecutiveFailures == 0 || !f.FailedAt.Equal(source.LastAttempt)) {
+		return errors.New("invalid public source failure cause")
 	}
 	if source.WindowStart != record.Batch.WindowStart || source.WindowEnd != record.Batch.WindowEnd {
 		return errors.New("public source coverage mismatch")
@@ -297,7 +351,9 @@ func validateMacroEnvelope(spec macrosource.Spec, record macroRecord, now time.T
 		}
 		return nil
 	}
-	if !source.ValidUntil.Equal(source.LastSuccess.Add(macroFreshness)) || source.Availability == "available" && !source.LastAttempt.Equal(source.LastSuccess) {
+	// A record written under an earlier, shorter window stays valid but never
+	// gains freshness; only a new read can extend it.
+	if !source.ValidUntil.After(source.LastSuccess) || source.ValidUntil.After(source.LastSuccess.Add(spec.Freshness)) || source.Availability == "available" && !source.LastAttempt.Equal(source.LastSuccess) {
 		return errors.New("invalid public source freshness interval")
 	}
 	if err := macrosource.ValidateBatch(spec, record.Batch, now); err != nil {

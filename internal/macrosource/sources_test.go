@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func sourceSpec(t *testing.T, id string) Spec {
@@ -117,8 +119,8 @@ func TestPublicClientRejectsFailuresAndRedirectsWithoutCredentials(t *testing.T)
 		if r.Method != "GET" || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != "" {
 			t.Fatal("public source request carried authority")
 		}
-		if !strings.Contains(r.UserAgent(), "Chrome/153.0.0.0") || strings.Contains(r.UserAgent(), "github.com") {
-			t.Fatal("BLS lost its witnessed anonymous request identity")
+		if r.UserAgent() != "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)" {
+			t.Fatal("BLS lost its owner-approved product identity")
 		}
 		// BEA's RSS server negotiates text/xml and otherwise returns HTTP 406.
 		if !strings.Contains(r.Header.Get("Accept"), "text/xml") {
@@ -126,18 +128,18 @@ func TestPublicClientRejectsFailuresAndRedirectsWithoutCredentials(t *testing.T)
 		}
 		return &http.Response{StatusCode: 403, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("blocked")), Request: r}, nil
 	})
-	_, err := client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now())
+	_, err := client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{})
 	if err == nil || !strings.Contains(err.Error(), "HTTP 403") || requests != 1 {
 		t.Fatal("source failure was hidden or retried without bounds")
 	}
 	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 302, Header: http.Header{"Location": []string{"http://127.0.0.1/private"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
 	})
-	if _, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now()); err == nil {
+	if _, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{}); err == nil {
 		t.Fatal("official feed redirected into a private endpoint")
 	}
 	client.HTTP.Transport = publicTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("private diagnostic") })
-	_, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now())
+	_, err = client.Fetch(context.Background(), sourceSpec(t, "bls-calendar"), time.Now(), Batch{})
 	if err == nil || strings.Contains(err.Error(), "private diagnostic") {
 		t.Fatal("raw transport details escaped public source status")
 	}
@@ -174,7 +176,7 @@ func TestBLSAccessDenialNeedsResponseEvidence(t *testing.T) {
 				}
 				return &http.Response{StatusCode: tc.status, Header: make(http.Header), Body: io.NopCloser(body), Request: r}, nil
 			})
-			batch, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), time.Now())
+			batch, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), time.Now(), Batch{})
 			if err == nil || err.Error() != tc.want || requests != 1 || len(batch.Events)+len(batch.Publications) != 0 {
 				t.Fatalf("unwitnessed diagnosis, response leak or fabricated recovery: %v", err)
 			}
@@ -200,12 +202,12 @@ func TestPublicClientRedirectReappliesDestinationIdentity(t *testing.T) {
 				if requests >= len(hosts) || req.URL.Hostname() != hosts[requests] {
 					t.Fatal("unexpected redirect request")
 				}
-				wantBrowser := req.URL.Hostname() == "www.bls.gov"
-				if strings.Contains(req.UserAgent(), "Chrome/153.0.0.0") != wantBrowser {
-					t.Fatal("redirect inherited the previous destination's identity")
+				want := "Go-http-client/1.1"
+				if req.URL.Hostname() == "www.bls.gov" {
+					want = "Canary-public-feeds/1.0 (+https://osauer.dev/canary/)"
 				}
-				if !wantBrowser && req.UserAgent() != "Go-http-client/1.1" {
-					t.Fatal("generic destination leaked personal or browser identity")
+				if req.UserAgent() != want {
+					t.Fatal("redirect inherited the previous destination's identity")
 				}
 				requests++
 				if requests == 1 {
@@ -213,9 +215,144 @@ func TestPublicClientRedirectReappliesDestinationIdentity(t *testing.T) {
 				}
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("public fixture")), Request: req}, nil
 			})
-			body, err := client.read(t.Context(), "https://"+hosts[0]+"/calendar")
-			if err != nil || string(body) != "public fixture" || requests != 2 {
+			res, err := client.read(t.Context(), "https://"+hosts[0]+"/calendar", Batch{})
+			if err != nil || string(res.body) != "public fixture" || requests != 2 {
 				t.Fatalf("permitted redirect failed: requests=%d err=%v", requests, err)
+			}
+		})
+	}
+}
+
+// TestConditionalReadRenewsOnlySolicitedNotModified keeps a 304 from renewing
+// evidence the client never asked about, drops malformed validators instead of
+// replaying them, and renews a copy rather than the caller's retained batch.
+func TestConditionalReadRenewsOnlySolicitedNotModified(t *testing.T) {
+	spec := sourceSpec(t, "bls-calendar")
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	status := http.StatusOK
+	header := http.Header{"Etag": {`"v1" X-Injected: 1`}, "Last-Modified": {"yesterday"}}
+	client := NewClient()
+	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+		body := "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+		return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	batch, err := client.Fetch(t.Context(), spec, now, Batch{})
+	if err != nil || batch.ETag != "" || batch.LastModified != "" {
+		t.Fatalf("malformed validators retained: %+v %v", batch, err)
+	}
+	status = http.StatusNotModified
+	if _, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), batch); err == nil {
+		t.Fatal("an unsolicited 304 renewed retained evidence")
+	}
+	batch.ETag = `W/"v1"`
+	renewed, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), batch)
+	if err != nil || !renewed.Events[0].RetrievedAt.Equal(now.Add(time.Hour)) || renewed.ETag != batch.ETag {
+		t.Fatalf("solicited 304 did not renew the batch: %v", err)
+	}
+	if !batch.Events[0].RetrievedAt.Equal(now) {
+		t.Fatal("renewal mutated the caller's retained batch")
+	}
+	for _, tampered := range []Batch{{ETag: "\"v1\"\r\nX-Injected: 1"}, {LastModified: "Wed, 10 Jun 2026 16:56:37 GMT\r\nX: 1"}} {
+		tampered.Events = batch.Events
+		if ValidateBatch(spec, tampered, now) == nil {
+			t.Fatal("a restored validator could inject request headers")
+		}
+	}
+}
+
+// TestConditionalReadNeedsTheRunningParser keeps a 304 from renewing records an
+// earlier parser produced: the publisher confirms its bytes, not Canary's
+// reading of them, so such a batch is read in full once and re-parsed.
+func TestConditionalReadNeedsTheRunningParser(t *testing.T) {
+	spec := sourceSpec(t, "bls-calendar")
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	const body = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	var conditional []bool
+	client := NewClient()
+	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+		asked := r.Header.Get("If-None-Match") != "" || r.Header.Get("If-Modified-Since") != ""
+		conditional = append(conditional, asked)
+		if asked {
+			return &http.Response{StatusCode: http.StatusNotModified, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		}
+		header := http.Header{"Etag": {`"v1"`}, "Last-Modified": {"Wed, 10 Jun 2026 16:56:37 GMT"}}
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	current, err := client.Fetch(t.Context(), spec, now, Batch{})
+	if err != nil || current.ETag != `"v1"` {
+		t.Fatalf("initial read kept no validators: %+v %v", current, err)
+	}
+	if _, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), current); err != nil || len(conditional) != 2 || !conditional[1] {
+		t.Fatalf("a batch from the running parser was not revalidated: %v %v", conditional, err)
+	}
+
+	// A batch persisted without the running parser's stamp, holding a field
+	// an older parser extracted differently. Its validators still match.
+	raw, _ := json.Marshal(current)
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	delete(fields, "parser")
+	raw, _ = json.Marshal(fields)
+	var older Batch
+	if err := json.Unmarshal(raw, &older); err != nil {
+		t.Fatal(err)
+	}
+	older.Events[0].Category = "Output of an older parser"
+	if err := ValidateBatch(spec, older, now); err != nil || older.ETag != current.ETag {
+		t.Fatalf("older batch fixture must restore with its validators: %v", err)
+	}
+	reread, err := client.Fetch(t.Context(), spec, now.Add(2*time.Hour), older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conditional) != 3 || conditional[2] || reread.Events[0].Category != "Economic release" {
+		t.Fatalf("a 304 renewed an older parser's output: conditional=%v category=%q", conditional, reread.Events[0].Category)
+	}
+	if _, err := client.Fetch(t.Context(), spec, now.Add(3*time.Hour), reread); err != nil || len(conditional) != 4 || !conditional[3] {
+		t.Fatalf("the re-parsed batch did not resume conditional reads: %v %v", conditional, err)
+	}
+}
+
+// TestFetchFailureIsRetryableOnlyWhenRepeatingCanSucceed separates responses a
+// later identical read can fix from rejections that repeat until the parser or
+// the publisher changes, so health never promises self-healing for a format
+// change.
+func TestFetchFailureIsRetryableOnlyWhenRepeatingCanSucceed(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	const ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	rss := func(link, published string) string {
+		return `<rss version="2.0"><channel><item><title>Synthetic statement</title><link>` + link + `</link><pubDate>` + published + `</pubDate></item></channel></rss>`
+	}
+	const request, parse = rpc.SourceFailureStagePublicSourceRequest, rpc.SourceFailureStagePublicSourceParse
+	for _, tc := range []struct {
+		name, source, body string
+		stage              string
+		retryable          bool
+	}{
+		{"recurring calendar", "bls-calendar", strings.Replace(ics, "END:VEVENT", "RRULE:FREQ=MONTHLY\r\nEND:VEVENT", 1), parse, false},
+		{"calendar replaced by a page", "bls-calendar", "<html><body>Calendar moved</body></html>", parse, false},
+		{"calendar without events", "bls-calendar", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", parse, false},
+		{"BEA root changed", "bea-calendar", `["Synthetic release"]`, parse, false},
+		{"RSS root changed", "fed-policy", `<feed xmlns="http://www.w3.org/2005/Atom"></feed>`, parse, false},
+		{"publication provenance", "fed-policy", rss("https://attacker.test/statement.htm", "Thu, 24 Sep 2026 11:00:00 GMT"), parse, false},
+		{"size limit", "bls-calendar", strings.Repeat("x", 2<<20+1), request, false},
+		{"calendar cut short", "bls-calendar", strings.TrimSuffix(ics, "END:VCALENDAR\r\n"), parse, true},
+		{"empty body", "bls-calendar", " \r\n", request, true},
+		{"publication ahead of the clock", "fed-policy", rss("https://www.federalreserve.gov/newsevents/pressreleases/synthetic.htm", "Thu, 24 Sep 2026 13:00:00 GMT"), parse, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient()
+			client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.body)), Request: r}, nil
+			})
+			_, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), now, Batch{})
+			typed, ok := errors.AsType[*FetchError](err)
+			if !ok {
+				t.Fatalf("untyped failure %v", err)
+			}
+			got := rpc.SourceFailure{Code: typed.Code, Stage: typed.Stage, FailedAt: now, Retryable: typed.Retryable}
+			if want := (rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: tc.stage, FailedAt: now, Retryable: tc.retryable}); got != want || !rpc.ValidSourceFailure(&got) {
+				t.Fatalf("%q classified as %+v, want %+v", err, got, want)
 			}
 		})
 	}
