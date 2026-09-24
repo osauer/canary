@@ -299,7 +299,7 @@ func validateMacroEnvelope(spec macrosource.Spec, record macroRecord, now time.T
 		return errors.New("public source coverage mismatch")
 	}
 	if source.LastSuccess.IsZero() {
-		if source.Availability != "unavailable" || !source.ValidUntil.IsZero() || len(record.Batch.Events)+len(record.Batch.Publications) != 0 {
+		if source.Availability != "unavailable" || !source.ValidUntil.IsZero() || len(record.Batch.Events)+len(record.Batch.Publications) != 0 || record.Batch.SkippedItems != 0 {
 			return errors.New("public source evidence missing")
 		}
 		return nil

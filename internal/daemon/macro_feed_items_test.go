@@ -171,3 +171,46 @@ func TestMacroSnapshotCoverageDisclosesSkippedFeedItems(t *testing.T) {
 		t.Fatal("projection wrote the note into the retained success envelope")
 	}
 }
+
+// Batches are assigned only on success, so a never-successful record can carry
+// no skipped-item count. A stored one is forged or corrupt and must not reload
+// to announce omissions from a feed that was never read, for publication feeds
+// and calendars alike.
+func TestMacroRestoreRejectsSkippedCountWithoutSuccess(t *testing.T) {
+	store := openMarketTestCoreStore(t)
+	now := time.Date(2026, 9, 24, 13, 0, 0, 0, time.UTC)
+	s := &Server{coreStore: store, now: func() time.Time { return now }}
+	for _, spec := range macrosource.Specs() {
+		if spec.ID != "bea-news" && spec.ID != "bea-calendar" {
+			continue
+		}
+		for _, skipped := range []int{0, 7} {
+			row := coldMacroRecord(spec)
+			row.Source.Detail = "source returned HTTP 503"
+			row.Source.LastAttempt, row.Source.FirstFailure, row.Source.ConsecutiveFailures = now, now, 1
+			row.Source.NextAttempt = now.Add(5 * time.Minute)
+			row.Batch.SkippedItems = skipped
+			raw, err := json.Marshal(row)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := saveMarketDocument(t.Context(), store, "public-macro:"+spec.ID, macroStateKind, raw); err != nil {
+				t.Fatal(err)
+			}
+			s.macro = s.loadMacroSources()
+			restored := s.macro.records[spec.ID]
+			var view rpc.MacroSource
+			for _, source := range s.handleMacroSnapshot().Sources {
+				if source.ID == spec.ID {
+					view = source
+				}
+			}
+			switch {
+			case skipped == 0 && (restored.Source.Detail != row.Source.Detail || restored.Source.ConsecutiveFailures != 1):
+				t.Errorf("%s: valid failed record did not restore: %+v", spec.ID, restored.Source)
+			case skipped != 0 && (restored.Source.Detail != "Saved public source record is invalid" || restored.Batch.SkippedItems != 0 || strings.Contains(view.Detail, "skipped")):
+				t.Errorf("%s: forged skipped count restored without a batch: detail=%q", spec.ID, view.Detail)
+			}
+		}
+	}
+}
