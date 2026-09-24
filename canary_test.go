@@ -35,6 +35,54 @@ func TestCallRunsTheCatalogueHandlerOverTheSocket(t *testing.T) {
 	}
 }
 
+func TestDataHealthPreservesAdditiveProducerEvidence(t *testing.T) {
+	server := canarytest.Serve(t)
+	// These fields deliberately have no SDK DTO members. Their numeric and
+	// string lexemes also must not be normalized by an intermediate adapter.
+	want := json.RawMessage(`{"schema_version":1,"revision":"synthetic","complete":false,"next_offset":48,"future_report":{"count":9007199254740993,"ratio":1.2300,"absent":null},"sources":[{"id":"synthetic","state":"limited","future_source":{"reason":"\u0061","signed_zero":-0.0,"evidence":[true,null,{"observed":false}]}}]}`)
+	server.Handle("data.health", func(_ context.Context, params json.RawMessage) (json.RawMessage, error) {
+		var p struct {
+			Offset   int    `json:"offset"`
+			Limit    int    `json:"limit"`
+			Revision string `json:"revision"`
+		}
+		if err := json.Unmarshal(params, &p); err != nil || p.Offset != 24 || p.Limit != 24 || p.Revision != "synthetic" {
+			return nil, canarytest.Fail(canary.CodeBadRequest, "pagination parameters changed")
+		}
+		return want, nil
+	})
+	client := canary.New(canary.Options{SocketPath: server.SocketPath()})
+	out, err := client.Call(t.Context(), "canary_data_health", json.RawMessage(`{"offset":24,"limit":24,"revision":"synthetic"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != string(want) {
+		t.Fatalf("health adapter changed additive producer evidence:\nwant %s\n got %s", want, out)
+	}
+	if calls := server.Calls(); len(calls) != 1 || calls[0] != "data.health" {
+		t.Fatalf("passive health call dispatched unexpected methods: %v", calls)
+	}
+}
+
+func TestDataHealthPreservesArgumentAndDaemonErrors(t *testing.T) {
+	server := canarytest.Serve(t)
+	server.Handle("data.health", func(context.Context, json.RawMessage) (json.RawMessage, error) {
+		return nil, canarytest.Fail(canary.CodeBadRequest, "health revision expired; restart pagination")
+	})
+	client := canary.New(canary.Options{SocketPath: server.SocketPath()})
+	if _, err := client.Call(t.Context(), "canary_data_health", json.RawMessage(`{"offset":"invalid"}`)); err == nil {
+		t.Fatal("invalid pagination arguments were accepted")
+	}
+	if calls := server.Calls(); len(calls) != 0 {
+		t.Fatalf("invalid pagination dispatched a daemon call: %v", calls)
+	}
+	out, err := client.Call(t.Context(), "canary_data_health", json.RawMessage(`{"revision":"expired"}`))
+	var reported *canary.Error
+	if len(out) != 0 || !errors.As(err, &reported) || reported.Code != canary.CodeBadRequest || reported.Message != "health revision expired; restart pagination" {
+		t.Fatalf("health adapter changed daemon failure: out=%s err=%v", out, err)
+	}
+}
+
 func TestCallReportsDaemonFailuresByCode(t *testing.T) {
 	server := canarytest.Serve(t)
 	server.Handle("status.health", func(context.Context, json.RawMessage) (json.RawMessage, error) {

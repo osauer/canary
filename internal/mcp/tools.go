@@ -40,11 +40,13 @@ var Tools = []Tool{
 		if err := unmarshalArgs(args, &p); err != nil {
 			return nil, err
 		}
-		var r rpc.DataHealthResult
+		// The producer owns the bounded page. Preserve additive evidence even
+		// when this SDK predates its optional fields.
+		var r json.RawMessage
 		if err := conn.Call(ctx, rpc.MethodDataHealth, p, &r); err != nil {
 			return nil, err
 		}
-		return json.Marshal(r)
+		return r, nil
 	}},
 	{Name: "canary_data_check", Title: "Canary Required Data Check", RPCMethods: []string{rpc.MethodDataCheck}, ReadOnlyHint: new(true), Description: "Request or inspect a coalesced bounded check of required data sources using reference quote probes, not a holdings inventory. Counts describe sources, not instruments. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 		var r rpc.DataCheckResult
