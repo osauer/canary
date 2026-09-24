@@ -83,8 +83,10 @@ Failed primary reads remain visible. The independent
 supplies key-release backup with its own source identity and published month
 bounds, including the next published month when the coming week crosses month end.
 Its numeric 01–12 time labels omit a meridiem and remain `source_label`;
-they do not become invented overnight instants. It does not establish complete
-BLS coverage. Missing, stale or out-of-window
+they do not become invented overnight instants. A time label may follow a
+release link or close its text; an entry in neither layout is skipped and
+counted in the source detail instead of discarding the month. It does not
+establish complete BLS coverage. Missing, stale or out-of-window
 sources keep coverage partial, even when a useful event is available elsewhere.
 
 Failures preserve last-good event clocks and expire normally. Repeated transient

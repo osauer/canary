@@ -151,10 +151,12 @@ BEA, Federal Reserve and ECB publications. The fixed public sources refresh
 every five minutes while the production daemon runs; reads send no account
 information. A failed feed retains its dated last-good entries and reports the
 failure, including HTTP 403. A publication item without a title, an official
-source link or a readable date is skipped instead of failing its feed; the
-source detail counts the skipped items and the overview reports partial
-coverage. A feed with no usable item still fails. Thirty minutes without a
-successful read marks it stale. Restart validates source identity, timestamps
+source link or a readable date is skipped instead of failing its feed, as is a
+New York Fed calendar entry whose title or time label matches no known layout;
+the source detail counts the skipped items and the overview reports partial
+coverage. A feed or calendar page with no usable entry still fails, as does a
+calendar page whose month, timezone or weekdays are malformed. Thirty minutes
+without a successful read marks it stale. Restart validates source identity, timestamps
 and child provenance before restoring a cache. Isolated test/offline databases
 do not start public readers.
 

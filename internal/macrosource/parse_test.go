@@ -77,8 +77,8 @@ func TestRSSSkipsInvalidItemsAndKeepsFeed(t *testing.T) {
 	if strings.Join(urls, " ") != "https://www.bea.gov/news/2026/synthetic-trade https://bea.gov/news/2026/synthetic-transactions" {
 		t.Fatalf("kept publications = %v", urls)
 	}
-	if batch.SkippedItems != 3 || batch.SkippedDisclosure() != "3 feed items skipped: invalid title, link or publication date" {
-		t.Fatalf("omission hidden: skipped=%d disclosure=%q", batch.SkippedItems, batch.SkippedDisclosure())
+	if batch.SkippedItems != 3 || batch.SkippedDisclosure(spec) != "3 feed items skipped: invalid title, link or publication date" {
+		t.Fatalf("omission hidden: skipped=%d disclosure=%q", batch.SkippedItems, batch.SkippedDisclosure(spec))
 	}
 	if err := ValidateBatch(spec, batch, now); err != nil {
 		t.Fatalf("partial feed fails restore validation: %v", err)
@@ -87,8 +87,8 @@ func TestRSSSkipsInvalidItemsAndKeepsFeed(t *testing.T) {
 		rssItem{"Synthetic trade release", "https://www.bea.gov/news/2026/synthetic-trade", syntheticBEADate},
 		rssItem{"Synthetic mirror", "https://mirror.example/news/synthetic", syntheticBEADate},
 	), now)
-	if err != nil || one.SkippedDisclosure() != "1 feed item skipped: invalid title, link or publication date" {
-		t.Fatalf("single omission disclosure = %q, %v", one.SkippedDisclosure(), err)
+	if err != nil || one.SkippedDisclosure(spec) != "1 feed item skipped: invalid title, link or publication date" {
+		t.Fatalf("single omission disclosure = %q, %v", one.SkippedDisclosure(spec), err)
 	}
 }
 

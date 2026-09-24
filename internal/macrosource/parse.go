@@ -377,17 +377,22 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
 	return out, nil
 }
 
-// SkippedDisclosure describes the publication-feed items that parsing omitted
-// from b, or returns "" when it kept every item. Callers show it beside the
+// SkippedDisclosure describes the entries that parsing omitted from b, a batch
+// parsed for s, or returns "" when it kept every entry: calendar entries for
+// the New York Fed calendar, feed items otherwise. Callers show it beside the
 // retained batch; it is not a failure of that batch.
-func (b Batch) SkippedDisclosure() string {
+func (b Batch) SkippedDisclosure(s Spec) string {
+	one, many, reason := "feed item", "feed items", "invalid title, link or publication date"
+	if s.Kind == "nyfed" {
+		one, many, reason = "calendar entry", "calendar entries", "unrecognized release title or time label"
+	}
 	switch {
 	case b.SkippedItems <= 0:
 		return ""
 	case b.SkippedItems == 1:
-		return "1 feed item skipped: invalid title, link or publication date"
+		return "1 " + one + " skipped: " + reason
 	}
-	return fmt.Sprintf("%d feed items skipped: invalid title, link or publication date", b.SkippedItems)
+	return fmt.Sprintf("%d %s skipped: %s", b.SkippedItems, many, reason)
 }
 
 func publicationTime(s Spec, value string) (time.Time, error) {

@@ -254,7 +254,7 @@ func (s *Server) macroSnapshotWindow(start, end string) rpc.MacroSnapshotResult 
 		source.Stale = source.LastSuccess.IsZero() || now.Before(source.LastSuccess.Add(-time.Minute)) || !now.Before(source.ValidUntil)
 		// Skipped items belong to the retained batch, not to a failure, so the
 		// note is derived here; the persisted success envelope stays detail-free.
-		note := record.Batch.SkippedDisclosure()
+		note := record.Batch.SkippedDisclosure(spec)
 		if note != "" {
 			source.Detail = strings.Join(compactNonEmptyStrings(source.Detail, note), " · ")
 		}

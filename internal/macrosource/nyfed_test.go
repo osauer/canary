@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-func nyfedFixture(month time.Time, releaseDay int) string {
+// nyfedPage builds a synthetic monthly calendar shaped like the New York Fed
+// page: a month heading, the Eastern-time statement, a NEXT MONTH link and one
+// dated cell per weekday. releases maps a day to the entry markup in its cell.
+func nyfedPage(month time.Time, releases map[int]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `<p>All releases all Eastern Time.</p><td class="ts-data-table-head"><div>%s</div></td>`, month.Format("January 2006"))
 	fmt.Fprintf(&b, `<a href="/research/calendars/i-%s.html">NEXT MONTH</a>`, strings.ToLower(month.AddDate(0, 1, 0).Format("Jan06")))
@@ -20,13 +23,17 @@ func nyfedFixture(month time.Time, releaseDay int) string {
 			continue
 		}
 		fmt.Fprintf(&b, `<td><div>%02d<br/>`, day.Day())
-		if day.Day() == releaseDay {
-			b.WriteString(`<span><a href="https://www.bls.gov/news.release/cpi.toc.htm">Synthetic inflation release</a><br/>(08:30)<br/><br/></span>`)
+		if entries, ok := releases[day.Day()]; ok {
+			b.WriteString(`<span>` + entries + `</span>`)
 		}
 		b.WriteString(`</div></td>`)
 	}
 	b.WriteString(`</table>`)
 	return b.String()
+}
+
+func nyfedFixture(month time.Time, releaseDay int) string {
+	return nyfedPage(month, map[int]string{releaseDay: `<a href="https://www.bls.gov/news.release/cpi.toc.htm">Synthetic inflation release</a><br/>(08:30)<br/><br/>`})
 }
 
 func TestNYFedCalendarPreservesBackupProvenanceAndRejectsMissingDays(t *testing.T) {
@@ -224,5 +231,185 @@ func TestNYFedLaggedLandingNearMonthEndBoundsThreePublishedReads(t *testing.T) {
 		if e.SourceURL != urls[i+1] || !e.RetrievedAt.Equal(now) {
 			t.Fatal("successor source receipt was lost")
 		}
+	}
+}
+
+// Synthetic release entries in the shapes the live calendar prints, including
+// its line breaks. The October 2026 page began printing some time labels
+// inside the link text, which rejected the whole backup calendar.
+const (
+	nyfedAfterEntry   = `<a href="https://www.bls.gov/news.release/synthetic.htm" target="_NEW">Synthetic employment release</a><br/>(08:30)<br/><br/>` + "\n"
+	nyfedPDFEntry     = `<a href="https://www.census.gov/synthetic/release.pdf" target="_NEW">Synthetic construction release</a><img src="/medialibrary/media/images/v2/icons/pdf.gif" alt="PDF" border="0"><br/>(10:00)<br/><br/>` + "\n"
+	nyfedUnknownEntry = `<a href="https://www.newyorkfed.org/research/synthetic-auction" target="_NEW">Synthetic auction results</a><br/>(TBD)<br/><br/>` + "\n"
+)
+
+// nyfedInLinkEntry prints label inside the link text, after a line break.
+func nyfedInLinkEntry(title, label string) string {
+	return `<a href="https://www.newyorkfed.org/research/synthetic-indicators">` + title + "\n(" + label + `)</a><br/><br/>` + "\n"
+}
+
+// nyfedMonthSpec is the source identity fetchNYFedNext gives a chained page.
+func nyfedMonthSpec(t *testing.T, month time.Time) Spec {
+	spec := sourceSpec(t, "nyfed-calendar")
+	spec.URL = "https://www.newyorkfed.org/research/calendars/i-" + strings.ToLower(month.Format("Jan06")) + ".html"
+	return spec
+}
+
+func TestNYFedReadsTimeLabelInsideReleaseLink(t *testing.T) {
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 24, 15, 28, 0, 0, time.UTC)
+	spec := nyfedMonthSpec(t, oct)
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		label, precision string
+		at               time.Time
+	}{
+		{"10:00", "source_label", time.Time{}},
+		{"02:00", "source_label", time.Time{}},
+		{"12:45", "source_label", time.Time{}},
+		{"13:30", "instant", time.Date(2026, 10, 2, 13, 30, 0, 0, eastern)},
+		{"00:15", "instant", time.Date(2026, 10, 2, 0, 15, 0, 0, eastern)},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			page := nyfedPage(oct, map[int]string{2: nyfedInLinkEntry("Synthetic Distribution Indicators (SDIs)", tc.label)})
+			batch, err := Parse(spec, []byte(page), now)
+			if err != nil {
+				t.Fatalf("in-link time label rejected the backup calendar: %v", err)
+			}
+			if len(batch.Events) != 1 || batch.SkippedItems != 0 {
+				t.Fatalf("events=%d skipped=%d, want one kept release", len(batch.Events), batch.SkippedItems)
+			}
+			e := batch.Events[0]
+			if e.Title != "Synthetic Distribution Indicators (SDIs)" || e.TimeLabel != tc.label || e.Date != "2026-10-02" || e.TimePrecision != tc.precision || !e.ScheduledAt.Equal(tc.at) || e.SourceURL != spec.URL {
+				t.Fatalf("in-link release misread: %+v", e)
+			}
+		})
+	}
+	// The new shape widens entry recognition only; page-level checks still fail
+	// the whole page.
+	valid := nyfedPage(oct, map[int]string{2: nyfedInLinkEntry("Synthetic indicators", "10:00")})
+	for name, tc := range map[string]struct{ page, want string }{
+		"impossible clock":   {strings.Replace(valid, "(10:00)", "(25:30)", 1), "calendar source: New York Fed release time invalid"},
+		"undated release":    {strings.Replace(valid, "<td><div>02<br/>", "<td><div>", 1), "calendar source: New York Fed release omitted its date"},
+		"timezone removed":   {strings.Replace(valid, "all Eastern Time", "all local times", 1), "calendar source: New York Fed calendar format or timezone changed"},
+		"table truncated":    {strings.Replace(valid, "</table>", "", 1), "calendar source: New York Fed calendar format or timezone changed"},
+		"weekday missing":    {strings.Replace(valid, "<td><div>05<br/></div></td>", "", 1), "calendar source: New York Fed calendar weekdays incomplete"},
+		"duplicate day":      {strings.Replace(valid, "<td><div>05<br/>", "<td><div>02<br/>", 1), "calendar source: New York Fed calendar day invalid"},
+		"month and URL skew": {strings.Replace(valid, "October 2026", "November 2026", 1), "calendar source: New York Fed calendar URL and month disagree"},
+	} {
+		if _, err := Parse(spec, []byte(tc.page), now); err == nil || err.Error() != tc.want {
+			t.Errorf("%s: got %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
+func TestNYFedReadsBothReleaseShapesInOneDay(t *testing.T) {
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	spec := nyfedMonthSpec(t, oct)
+	cell := nyfedAfterEntry + nyfedInLinkEntry("Synthetic Distribution Indicators (SDIs)", "10:00") + nyfedPDFEntry + nyfedInLinkEntry("Synthetic staff nowcast", "12:45")
+	batch, err := Parse(spec, []byte(nyfedPage(oct, map[int]string{2: cell})), time.Date(2026, 9, 24, 15, 28, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("mixed release shapes rejected the backup calendar: %v", err)
+	}
+	want := []struct{ title, label string }{
+		{"Synthetic employment release", "08:30"},
+		{"Synthetic Distribution Indicators (SDIs)", "10:00"},
+		{"Synthetic construction release", "10:00"},
+		{"Synthetic staff nowcast", "12:45"},
+	}
+	if len(batch.Events) != len(want) || batch.SkippedItems != 0 {
+		t.Fatalf("events=%d skipped=%d, want %d kept releases", len(batch.Events), batch.SkippedItems, len(want))
+	}
+	for i, e := range batch.Events {
+		// A title that absorbed a neighboring entry would carry its text.
+		if e.Title != want[i].title || e.TimeLabel != want[i].label || e.Date != "2026-10-02" {
+			t.Fatalf("release %d misread: title=%q label=%q date=%s", i, e.Title, e.TimeLabel, e.Date)
+		}
+	}
+}
+
+func TestNYFedSkipsUnrecognizedReleaseEntryAndDisclosesIt(t *testing.T) {
+	sep, oct := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 24, 15, 28, 0, 0, time.UTC)
+	spec := nyfedMonthSpec(t, oct)
+	untitled := `<a href="https://www.newyorkfed.org/research/synthetic-untitled"><img src="/synthetic.gif" alt=""></a><br/>(08:30)<br/><br/>` + "\n"
+	untimed := `<a href="https://www.newyorkfed.org/research/synthetic-survey">Synthetic survey</a><br/><br/>` + "\n"
+	// The label sits after the link's own closing tag, so it is not in-link.
+	stray := `<a href="https://www.newyorkfed.org/research/synthetic-notice">Synthetic notice</a> revised (10:00)</a><br/><br/>` + "\n"
+	page := nyfedPage(oct, map[int]string{
+		2: nyfedAfterEntry + nyfedUnknownEntry + nyfedInLinkEntry("Synthetic Distribution Indicators (SDIs)", "10:00"),
+		5: untitled + nyfedPDFEntry + untimed + stray,
+	})
+	batch, err := Parse(spec, []byte(page), now)
+	if err != nil {
+		t.Fatalf("unrecognized entries discarded the backup calendar: %v", err)
+	}
+	var kept []string
+	for _, e := range batch.Events {
+		kept = append(kept, e.Date+" "+e.TimeLabel+" "+e.Title)
+	}
+	if strings.Join(kept, "|") != "2026-10-02 08:30 Synthetic employment release|2026-10-02 10:00 Synthetic Distribution Indicators (SDIs)|2026-10-05 10:00 Synthetic construction release" {
+		t.Fatalf("kept releases = %q", kept)
+	}
+	if batch.SkippedItems != 4 || batch.SkippedDisclosure(spec) != "4 calendar entries skipped: unrecognized release title or time label" {
+		t.Fatalf("omission hidden: skipped=%d disclosure=%q", batch.SkippedItems, batch.SkippedDisclosure(spec))
+	}
+	if err := ValidateBatch(spec, batch, now); err != nil {
+		t.Fatalf("partial calendar fails restore validation: %v", err)
+	}
+	batch.SkippedItems = -1
+	if ValidateBatch(spec, batch, now) == nil {
+		t.Fatal("negative skipped count restored as valid")
+	}
+	one, err := Parse(spec, []byte(nyfedPage(oct, map[int]string{2: nyfedAfterEntry + nyfedUnknownEntry})), now)
+	if err != nil || one.SkippedDisclosure(spec) != "1 calendar entry skipped: unrecognized release title or time label" {
+		t.Fatalf("single omission disclosure = %q, %v", one.SkippedDisclosure(spec), err)
+	}
+
+	// Month end chains the published next month; both months' omissions are
+	// disclosed with the combined batch.
+	landing := sourceSpec(t, "nyfed-calendar")
+	pages := map[string]string{
+		landing.URL: nyfedPage(sep, map[int]string{28: nyfedAfterEntry + nyfedUnknownEntry}),
+		spec.URL:    nyfedPage(oct, map[int]string{2: nyfedInLinkEntry("Synthetic Distribution Indicators (SDIs)", "10:00") + untimed}),
+	}
+	client := NewClient()
+	client.HTTP.Transport = publicTransport(func(req *http.Request) (*http.Response, error) {
+		body, ok := pages[req.URL.String()]
+		if !ok {
+			t.Fatalf("collector requested an unpublished URL: %s", req.URL)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})
+	combined, err := client.Fetch(t.Context(), landing, time.Date(2026, 9, 28, 15, 0, 0, 0, time.UTC), Batch{})
+	if err != nil {
+		t.Fatalf("month-end chain failed on an unrecognized entry: %v", err)
+	}
+	if len(combined.Events) != 2 || combined.WindowEnd != "2026-10-31" || combined.SkippedItems != 2 || combined.Events[1].SourceURL != spec.URL || combined.Events[1].TimeLabel != "10:00" {
+		t.Fatalf("month-end chain lost a release or an omission: events=%d end=%s skipped=%d", len(combined.Events), combined.WindowEnd, combined.SkippedItems)
+	}
+}
+
+func TestNYFedFailsWhenNoReleaseEntryIsRecognized(t *testing.T) {
+	oct := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 9, 24, 15, 28, 0, 0, time.UTC)
+	spec := nyfedMonthSpec(t, oct)
+	untimed := `<a href="https://www.newyorkfed.org/research/synthetic-survey">Synthetic survey</a><br/><br/>`
+	for name, tc := range map[string]struct {
+		page, want string
+	}{
+		"every entry unrecognized":  {nyfedPage(oct, map[int]string{2: nyfedUnknownEntry + untimed, 5: nyfedUnknownEntry}), "calendar source: New York Fed release time or format invalid"},
+		"page defect beside a skip": {strings.Replace(nyfedPage(oct, map[int]string{2: nyfedAfterEntry + nyfedUnknownEntry}), "<td><div>05<br/></div></td>", "", 1), "calendar source: New York Fed calendar weekdays incomplete"},
+		"no release at all":         {nyfedPage(oct, nil), "source supplied no usable records"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			batch, err := Parse(spec, []byte(tc.page), now)
+			if err == nil || err.Error() != tc.want || len(batch.Events) != 0 || batch.SkippedItems != 0 {
+				t.Fatalf("got events=%d skipped=%d err=%v, want %q", len(batch.Events), batch.SkippedItems, err, tc.want)
+			}
+		})
 	}
 }

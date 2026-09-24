@@ -15,8 +15,16 @@ import (
 var nyfedMonth = regexp.MustCompile(`(?is)<td\b[^>]*class="ts-data-table-head"[^>]*>\s*<div\b[^>]*>([A-Za-z]+ [0-9]{4})</div>\s*</td>`)
 var nyfedTable = regexp.MustCompile(`(?is)<table\b[^>]*class="research-table-1col greyborder"[^>]*>(.*?)</table>`)
 var nyfedCell = regexp.MustCompile(`(?is)<td\b[^>]*>(.*?)</td>`)
-var nyfedEntry = regexp.MustCompile(`(?is)<a\b[^>]*>(.*?)</a>\s*(?:<img\b[^>]*>\s*)?<br\s*/?>\s*\(([0-9]{2}:[0-9]{2})\)`)
+
+// nyfedTimeAfterLink and nyfedTimeInLink each match one release entry: a link
+// and its "(HH:MM)" Eastern time label. The calendar usually prints the label
+// after the link, sometimes behind a PDF icon; since October 2026 it also
+// prints some labels inside the link text. Both are anchored at the entry's
+// own link.
+var nyfedTimeAfterLink = regexp.MustCompile(`(?is)^<a\b[^>]*>(.*?)</a>\s*(?:<img\b[^>]*>\s*)?<br\s*/?>\s*\(([0-9]{2}:[0-9]{2})\)`)
+var nyfedTimeInLink = regexp.MustCompile(`(?is)^<a\b[^>]*>(.*?)\s*\(([0-9]{2}:[0-9]{2})\)\s*</a>`)
 var nyfedAnchor = regexp.MustCompile(`(?is)<a\b`)
+var nyfedAnchorEnd = regexp.MustCompile(`(?i)</a>`)
 var nyfedDay = regexp.MustCompile(`^([0-9]{2})(?:\s|$)`)
 var nyfedNext = regexp.MustCompile(`(?is)<a\b[^>]*href="(/research/calendars/i-[a-z]{3}[0-9]{2}\.html)"[^>]*>\s*NEXT MONTH`)
 var nyfedMonthPath = regexp.MustCompile(`^/research/calendars/i-[a-z]{3}[0-9]{2}\.html$`)
@@ -29,6 +37,11 @@ func calendarSourceURL(s Spec, raw string) bool {
 	return s.Kind == "nyfed" && err == nil && SafeURL(raw) && u.Hostname() == "www.newyorkfed.org" && u.RawQuery == "" && u.Fragment == "" && nyfedMonthPath.MatchString(u.Path)
 }
 
+// parseNYFed reads one monthly New York Fed calendar page. The page must name
+// one month that agrees with its URL, state Eastern time and list every
+// weekday; any such defect fails the page. A release link that matches neither
+// entry shape is skipped and counted in Batch.SkippedItems, and a page left
+// with no release fails.
 func parseNYFed(s Spec, raw string, now time.Time) (Batch, error) {
 	months := nyfedMonth.FindAllStringSubmatch(raw, -1)
 	tables := nyfedTable.FindAllStringSubmatch(raw, -1)
@@ -64,16 +77,28 @@ func parseNYFed(s Spec, raw string, now time.Time) (Batch, error) {
 			return Batch{}, errors.New("calendar source: New York Fed calendar day invalid")
 		}
 		seenDays[day] = true
-		entries := nyfedEntry.FindAllStringSubmatch(cell[1], -1)
-		if len(entries) != len(nyfedAnchor.FindAllStringIndex(cell[1], -1)) {
-			return Batch{}, errors.New("calendar source: New York Fed release time or format invalid")
-		}
-		for _, entry := range entries {
-			tm, err := time.Parse("15:04", entry[2])
+		anchors := nyfedAnchor.FindAllStringIndex(cell[1], -1)
+		for i, at := range anchors {
+			// Bound each entry by the next link so no title can absorb a
+			// neighboring release.
+			end := len(cell[1])
+			if i+1 < len(anchors) {
+				end = anchors[i+1][0]
+			}
+			title, label, ok := nyfedRelease(cell[1][at[0]:end])
+			if !ok {
+				// One entry in an unknown shape must not discard the month's
+				// other releases; the count is disclosed with the batch.
+				out.SkippedItems++
+				continue
+			}
+			// A recognized entry with an impossible clock is a data defect,
+			// not an unknown shape, and still fails the page.
+			tm, err := time.Parse("15:04", label)
 			if err != nil {
 				return Batch{}, errors.New("calendar source: New York Fed release time invalid")
 			}
-			event := rpc.MacroEvent{Title: entry[1], Category: "Economic release", Date: date.Format(time.DateOnly), TimePrecision: "source_label", TimeLabel: entry[2]}
+			event := rpc.MacroEvent{Title: title, Category: "Economic release", Date: date.Format(time.DateOnly), TimePrecision: "source_label", TimeLabel: label}
 			// This calendar mixes morning labels with afternoon labels such as
 			// R-Star's "02:00". Without a meridiem, 01-12 cannot become an instant.
 			if tm.Hour() == 0 || tm.Hour() > 12 {
@@ -89,7 +114,26 @@ func parseNYFed(s Spec, raw string, now time.Time) (Batch, error) {
 			return Batch{}, errors.New("calendar source: New York Fed calendar weekdays incomplete")
 		}
 	}
+	if len(out.Events) == 0 && out.SkippedItems > 0 {
+		return Batch{}, errors.New("calendar source: New York Fed release time or format invalid")
+	}
 	return out, nil
+}
+
+// nyfedRelease reads the release entry in segment, which starts at the entry's
+// link and ends before the next link in its day cell. It returns the raw title
+// markup and the "HH:MM" label, or ok false when the entry has no title or
+// matches neither entry shape.
+func nyfedRelease(segment string) (title, label string, ok bool) {
+	m := nyfedTimeAfterLink.FindStringSubmatch(segment)
+	if m == nil {
+		m = nyfedTimeInLink.FindStringSubmatch(segment)
+	}
+	// A title that spans a closing tag belongs to markup neither shape models.
+	if m == nil || nyfedAnchorEnd.MatchString(m[1]) || plain(m[1]) == "" {
+		return "", "", false
+	}
+	return m[1], m[2], true
 }
 
 func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batch, error) {
@@ -126,6 +170,7 @@ func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batc
 	}
 	batch.Events = append(batch.Events, more.Events...)
 	batch.WindowEnd = more.WindowEnd
+	batch.SkippedItems += more.SkippedItems
 	if err := ValidateBatch(spec, batch, now); err != nil {
 		return Batch{}, err
 	}

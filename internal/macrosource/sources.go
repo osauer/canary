@@ -64,8 +64,10 @@ const parserVersion = 1
 // replayed only while it matches the running parser.
 type Batch struct {
 	// SkippedItems counts publication-feed items omitted because their title,
-	// source link or publication date was invalid. Calendars never skip, and a
-	// feed with no valid item fails instead of producing a batch.
+	// source link or publication date was invalid, and New York Fed calendar
+	// entries omitted because their title or time label matched neither entry
+	// shape. Other calendars never skip, and a source with no usable entry
+	// fails instead of producing a batch.
 	SkippedItems int                    `json:"skipped_items,omitempty"`
 	Events       []rpc.MacroEvent       `json:"events"`
 	Publications []rpc.MacroPublication `json:"publications"`
@@ -381,7 +383,7 @@ func ValidateBatch(s Spec, batch Batch, now time.Time) error {
 	if s.Kind == "rss" && len(batch.Events) != 0 || s.Kind != "rss" && len(batch.Publications) != 0 {
 		return errors.New("public source record kind invalid")
 	}
-	if batch.SkippedItems < 0 || s.Kind != "rss" && batch.SkippedItems != 0 {
+	if batch.SkippedItems < 0 || s.Kind != "rss" && s.Kind != "nyfed" && batch.SkippedItems != 0 {
 		return errors.New("public source skipped-item count invalid")
 	}
 	if s.Kind == "nyfed" {
@@ -448,8 +450,11 @@ func ValidateBatch(s Spec, batch Batch, now time.Time) error {
 // Parse preserves source dates and rejects malformed feeds instead of clearing
 // previously retained records. A publication-feed item without a title, an
 // official source link or a readable publication date is skipped and counted
-// in Batch.SkippedItems; the feed fails when no valid item remains. Parse never
-// fetches links carried inside a feed.
+// in Batch.SkippedItems; the feed fails when no valid item remains. A New York
+// Fed release entry whose title or time label matches neither entry shape is
+// skipped and counted the same way, while any defect in the calendar's month,
+// timezone, table or weekdays still fails the page. Parse never fetches links
+// carried inside a feed or calendar.
 func Parse(s Spec, b []byte, now time.Time) (Batch, error) {
 	var out Batch
 	var err error
