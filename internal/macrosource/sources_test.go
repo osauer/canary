@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func sourceSpec(t *testing.T, id string) Spec {
@@ -255,5 +257,103 @@ func TestConditionalReadRenewsOnlySolicitedNotModified(t *testing.T) {
 		if ValidateBatch(spec, tampered, now) == nil {
 			t.Fatal("a restored validator could inject request headers")
 		}
+	}
+}
+
+// TestConditionalReadNeedsTheRunningParser keeps a 304 from renewing records an
+// earlier parser produced: the publisher confirms its bytes, not Canary's
+// reading of them, so such a batch is read in full once and re-parsed.
+func TestConditionalReadNeedsTheRunningParser(t *testing.T) {
+	spec := sourceSpec(t, "bls-calendar")
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	const body = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	var conditional []bool
+	client := NewClient()
+	client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+		asked := r.Header.Get("If-None-Match") != "" || r.Header.Get("If-Modified-Since") != ""
+		conditional = append(conditional, asked)
+		if asked {
+			return &http.Response{StatusCode: http.StatusNotModified, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		}
+		header := http.Header{"Etag": {`"v1"`}, "Last-Modified": {"Wed, 10 Jun 2026 16:56:37 GMT"}}
+		return &http.Response{StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+	})
+	current, err := client.Fetch(t.Context(), spec, now, Batch{})
+	if err != nil || current.ETag != `"v1"` {
+		t.Fatalf("initial read kept no validators: %+v %v", current, err)
+	}
+	if _, err := client.Fetch(t.Context(), spec, now.Add(time.Hour), current); err != nil || len(conditional) != 2 || !conditional[1] {
+		t.Fatalf("a batch from the running parser was not revalidated: %v %v", conditional, err)
+	}
+
+	// A batch persisted without the running parser's stamp, holding a field
+	// an older parser extracted differently. Its validators still match.
+	raw, _ := json.Marshal(current)
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &fields)
+	delete(fields, "parser")
+	raw, _ = json.Marshal(fields)
+	var older Batch
+	if err := json.Unmarshal(raw, &older); err != nil {
+		t.Fatal(err)
+	}
+	older.Events[0].Category = "Output of an older parser"
+	if err := ValidateBatch(spec, older, now); err != nil || older.ETag != current.ETag {
+		t.Fatalf("older batch fixture must restore with its validators: %v", err)
+	}
+	reread, err := client.Fetch(t.Context(), spec, now.Add(2*time.Hour), older)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conditional) != 3 || conditional[2] || reread.Events[0].Category != "Economic release" {
+		t.Fatalf("a 304 renewed an older parser's output: conditional=%v category=%q", conditional, reread.Events[0].Category)
+	}
+	if _, err := client.Fetch(t.Context(), spec, now.Add(3*time.Hour), reread); err != nil || len(conditional) != 4 || !conditional[3] {
+		t.Fatalf("the re-parsed batch did not resume conditional reads: %v %v", conditional, err)
+	}
+}
+
+// TestFetchFailureIsRetryableOnlyWhenRepeatingCanSucceed separates responses a
+// later identical read can fix from rejections that repeat until the parser or
+// the publisher changes, so health never promises self-healing for a format
+// change.
+func TestFetchFailureIsRetryableOnlyWhenRepeatingCanSucceed(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	const ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:Synthetic release\r\nDTSTART:20260101T010000Z\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"
+	rss := func(link, published string) string {
+		return `<rss version="2.0"><channel><item><title>Synthetic statement</title><link>` + link + `</link><pubDate>` + published + `</pubDate></item></channel></rss>`
+	}
+	const request, parse = rpc.SourceFailureStagePublicSourceRequest, rpc.SourceFailureStagePublicSourceParse
+	for _, tc := range []struct {
+		name, source, body string
+		stage              string
+		retryable          bool
+	}{
+		{"recurring calendar", "bls-calendar", strings.Replace(ics, "END:VEVENT", "RRULE:FREQ=MONTHLY\r\nEND:VEVENT", 1), parse, false},
+		{"calendar replaced by a page", "bls-calendar", "<html><body>Calendar moved</body></html>", parse, false},
+		{"calendar without events", "bls-calendar", "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", parse, false},
+		{"BEA root changed", "bea-calendar", `["Synthetic release"]`, parse, false},
+		{"RSS root changed", "fed-policy", `<feed xmlns="http://www.w3.org/2005/Atom"></feed>`, parse, false},
+		{"publication provenance", "fed-policy", rss("https://attacker.test/statement.htm", "Thu, 24 Sep 2026 11:00:00 GMT"), parse, false},
+		{"size limit", "bls-calendar", strings.Repeat("x", 2<<20+1), request, false},
+		{"calendar cut short", "bls-calendar", strings.TrimSuffix(ics, "END:VCALENDAR\r\n"), parse, true},
+		{"empty body", "bls-calendar", " \r\n", request, true},
+		{"publication ahead of the clock", "fed-policy", rss("https://www.federalreserve.gov/newsevents/pressreleases/synthetic.htm", "Thu, 24 Sep 2026 13:00:00 GMT"), parse, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient()
+			client.HTTP.Transport = publicTransport(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tc.body)), Request: r}, nil
+			})
+			_, err := client.Fetch(t.Context(), sourceSpec(t, tc.source), now, Batch{})
+			typed, ok := errors.AsType[*FetchError](err)
+			if !ok {
+				t.Fatalf("untyped failure %v", err)
+			}
+			got := rpc.SourceFailure{Code: typed.Code, Stage: typed.Stage, FailedAt: now, Retryable: typed.Retryable}
+			if want := (rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: tc.stage, FailedAt: now, Retryable: tc.retryable}); got != want || !rpc.ValidSourceFailure(&got) {
+				t.Fatalf("%q classified as %+v, want %+v", err, got, want)
+			}
+		})
 	}
 }

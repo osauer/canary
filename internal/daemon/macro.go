@@ -17,8 +17,9 @@ import (
 const macroStateKind = "macro_public_sources_v1"
 
 // macroRecord is one source's persisted evidence. Failure is the typed cause of
-// the current failure streak, dated at its first failure; records written
-// before causes were kept may have a streak without one.
+// the latest failed attempt in the current streak and is dated at that attempt;
+// Source.FirstFailure keeps the streak's onset. Records written before causes
+// were kept may have a streak without one.
 type macroRecord struct {
 	Source  rpc.MacroSource    `json:"source"`
 	Batch   macrosource.Batch  `json:"batch"`
@@ -122,9 +123,15 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 			row.Source.FirstFailure = at
 		}
 		row.Source.ConsecutiveFailures++
-		delay := 5 * time.Minute << min(row.Source.ConsecutiveFailures-1, 4)
-		row.Source.NextAttempt = at.Add(min(delay, time.Hour))
-		row.Failure = macroSourceFailure(err, row.Source.FirstFailure)
+		row.Failure = macroSourceFailure(err, at)
+		// Retrying never polls faster than the success cadence, and a rejection
+		// that repeats until something changes waits the longest interval.
+		limit := max(time.Hour, spec.Refresh)
+		delay := max(spec.Refresh, 5*time.Minute<<min(row.Source.ConsecutiveFailures-1, 4))
+		if !row.Failure.Retryable {
+			delay = limit
+		}
+		row.Source.NextAttempt = at.Add(min(delay, limit))
 	} else {
 		row.Batch = batch
 		row.Source.Availability = "available"
@@ -165,10 +172,11 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 	}
 }
 
-// macroSourceFailure classifies a refresh error for health reporting. A
-// validation failure after a successful read is a rejected payload.
-func macroSourceFailure(err error, firstFailure time.Time) *rpc.SourceFailure {
-	failure := rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, FailedAt: firstFailure, Retryable: true}
+// macroSourceFailure classifies a refresh error that happened at failedAt. A
+// validation failure after a successful read is a structural payload
+// rejection, which repeats until the parser or the publisher changes.
+func macroSourceFailure(err error, failedAt time.Time) *rpc.SourceFailure {
+	failure := rpc.SourceFailure{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, FailedAt: failedAt, Retryable: false}
 	if typed, ok := errors.AsType[*macrosource.FetchError](err); ok {
 		failure.Code, failure.Stage, failure.Retryable = typed.Code, typed.Stage, typed.Retryable
 	}
@@ -331,7 +339,7 @@ func validateMacroEnvelope(spec macrosource.Spec, record macroRecord, now time.T
 	if (source.ConsecutiveFailures == 0) != source.FirstFailure.IsZero() || source.Availability == "available" && source.ConsecutiveFailures != 0 {
 		return errors.New("invalid public source failure state")
 	}
-	if f := record.Failure; f != nil && (!rpc.ValidSourceFailure(f) || f.Stage != rpc.SourceFailureStagePublicSourceRequest && f.Stage != rpc.SourceFailureStagePublicSourceParse || source.ConsecutiveFailures == 0 || !f.FailedAt.Equal(source.FirstFailure)) {
+	if f := record.Failure; f != nil && (!rpc.ValidSourceFailure(f) || f.Stage != rpc.SourceFailureStagePublicSourceRequest && f.Stage != rpc.SourceFailureStagePublicSourceParse || source.ConsecutiveFailures == 0 || !f.FailedAt.Equal(source.LastAttempt)) {
 		return errors.New("invalid public source failure cause")
 	}
 	if source.WindowStart != record.Batch.WindowStart || source.WindowEnd != record.Batch.WindowEnd {

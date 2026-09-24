@@ -59,7 +59,12 @@ func parseICS(s Spec, raw string, now time.Time) (Batch, error) {
 	if !strings.HasPrefix(raw, "BEGIN:VCALENDAR\n") && !strings.HasPrefix(raw, "BEGIN:VCALENDAR\r\n") {
 		return Batch{}, errors.New("calendar format changed")
 	}
-	if !strings.HasSuffix(raw, "END:VCALENDAR") || strings.Count(raw, "BEGIN:VCALENDAR") != 1 || strings.Count(raw, "END:VCALENDAR") != 1 {
+	if !strings.HasSuffix(raw, "END:VCALENDAR") {
+		// A connection closed without length framing ends the body early
+		// without a read error; the next read can deliver the whole calendar.
+		return Batch{}, transientPayload("calendar response incomplete")
+	}
+	if strings.Count(raw, "BEGIN:VCALENDAR") != 1 || strings.Count(raw, "END:VCALENDAR") != 1 {
 		return Batch{}, errors.New("calendar response incomplete")
 	}
 	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
@@ -349,8 +354,9 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
 			}
 			p.PublishedAt = at
 		}
+		// An item dated ahead of this clock is accepted once that time passes.
 		if !p.PublishedAt.IsZero() && p.PublishedAt.After(now.Add(time.Minute)) {
-			return Batch{}, errors.New("publication time is in the future")
+			return Batch{}, transientPayload("publication time is in the future")
 		}
 		out.Publications = append(out.Publications, p)
 	}

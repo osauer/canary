@@ -111,9 +111,9 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 				row.State, row.Receiving = "limited", "Prior data · refresh failed"
 			}
 			row.ProblemIDs = []string{row.ID}
-			// The cause is read separately from the snapshot; its onset must
-			// match this streak or it belongs to a refresh that has since run.
-			if failure, ok := macroFailures[source.ID]; ok && failure.FailedAt.Equal(source.FirstFailure) {
+			// The cause is read separately from the snapshot; it must date the
+			// attempt this row reports, or it belongs to another refresh.
+			if failure, ok := macroFailures[source.ID]; ok && failure.FailedAt.Equal(source.LastAttempt) {
 				row.Failure = &failure
 				if !failure.Retryable {
 					row.Action = "Canary keeps retrying, but this rejection needs a publisher or Canary change to clear"
@@ -122,7 +122,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 			if source.ConsecutiveFailures == 1 {
 				streak = "1 failed refresh"
 			} else if source.ConsecutiveFailures > 1 {
-				streak = fmt.Sprintf("%d consecutive failed refreshes", source.ConsecutiveFailures)
+				streak = fmt.Sprintf("%d consecutive failed refreshes since %s", source.ConsecutiveFailures, source.FirstFailure.UTC().Format(time.RFC3339))
 			}
 		case source.Stale || source.ValidUntil.IsZero() || !now.Before(source.ValidUntil):
 			row.State, row.Receiving, row.ProblemIDs = "limited", "Retained data · stale", []string{row.ID}

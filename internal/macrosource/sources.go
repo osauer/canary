@@ -3,6 +3,7 @@
 package macrosource
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -51,9 +52,16 @@ func Specs() []Spec {
 	}
 }
 
+// parserVersion identifies what Parse produces from given source bytes.
+// Increase it with any change that can alter parsed records, so batches parsed
+// earlier are read in full once instead of being renewed by a 304.
+const parserVersion = 1
+
 // Batch is one successful source response, before daemon retention and
 // filtering. ETag and LastModified are that response's cache validators, kept
-// verbatim so a later read can ask whether the representation changed.
+// verbatim so a later read can ask whether the representation changed. Parser
+// records the parser version that produced the records; the validators are
+// replayed only while it matches the running parser.
 type Batch struct {
 	Events       []rpc.MacroEvent       `json:"events"`
 	Publications []rpc.MacroPublication `json:"publications"`
@@ -61,6 +69,7 @@ type Batch struct {
 	WindowEnd    string                 `json:"window_end,omitempty"`
 	ETag         string                 `json:"etag,omitempty"`
 	LastModified string                 `json:"last_modified,omitempty"`
+	Parser       int                    `json:"parser,omitempty"`
 }
 
 // FetchError is a redacted source failure. Code and Stage use the
@@ -80,14 +89,22 @@ func requestFailure(code string, retryable bool, msg string) error {
 	return &FetchError{Code: code, Stage: rpc.SourceFailureStagePublicSourceRequest, Retryable: retryable, msg: msg}
 }
 
+// transientPayload rejects a document that a later read of the same URL can
+// replace without a format change, such as one cut short in transfer.
+func transientPayload(msg string) error {
+	return &FetchError{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: true, msg: msg}
+}
+
 // typedFailure keeps a classified failure and treats any other error as a
-// rejected payload: the request path classifies every transport and HTTP
-// outcome, so only parsing and validation return plain errors.
+// structural payload rejection: the request path classifies every transport
+// and HTTP outcome, and parsers mark their transient rejections, so a plain
+// error is a format or validation failure that repeats until the parser or the
+// publisher changes.
 func typedFailure(err error) error {
 	if _, ok := errors.AsType[*FetchError](err); ok {
 		return err
 	}
-	return &FetchError{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: true, msg: err.Error()}
+	return &FetchError{Code: rpc.SourceFailureInvalidPayload, Stage: rpc.SourceFailureStagePublicSourceParse, Retryable: false, msg: err.Error()}
 }
 
 var errRedirectRefused = errors.New("public source redirect refused")
@@ -152,9 +169,10 @@ func SafeURL(raw string) bool {
 }
 
 // Fetch reads one feed without modifying daemon or broker state. prior is the
-// caller's retained batch for s. When it carries cache validators the read is
-// conditional, and a 304 Not Modified answer returns prior re-stamped as
-// retrieved at now. Fetch never modifies prior. Every error is a *FetchError.
+// caller's retained batch for s. When it carries cache validators from the
+// running parser version the read is conditional, and a 304 Not Modified answer
+// returns prior re-stamped as retrieved at now. Fetch never modifies prior.
+// Every error is a *FetchError.
 func (c *Client) Fetch(ctx context.Context, s Spec, now time.Time, prior Batch) (Batch, error) {
 	var batch Batch
 	var err error
@@ -218,10 +236,13 @@ func (c *Client) read(ctx context.Context, rawURL string, prior Batch) (response
 	}
 	publichttp.SetUserAgent(req)
 	req.Header.Set("Accept", "text/calendar, application/rss+xml, application/json, application/xml, text/xml, text/html")
-	if prior.ETag != "" {
+	// A 304 renews parsed records, not source bytes, so records from another
+	// parser version must be re-read in full.
+	conditional := prior.Parser == parserVersion && (prior.ETag != "" || prior.LastModified != "")
+	if conditional && prior.ETag != "" {
 		req.Header.Set("If-None-Match", prior.ETag)
 	}
-	if prior.LastModified != "" {
+	if conditional && prior.LastModified != "" {
 		req.Header.Set("If-Modified-Since", prior.LastModified)
 	}
 	res, err := c.HTTP.Do(req)
@@ -229,7 +250,7 @@ func (c *Client) read(ctx context.Context, rawURL string, prior Batch) (response
 		return response{}, transportFailure(err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotModified && (prior.ETag != "" || prior.LastModified != "") {
+	if res.StatusCode == http.StatusNotModified && conditional {
 		return response{notModified: true}, nil
 	}
 	if res.StatusCode != 200 {
@@ -249,7 +270,10 @@ func (c *Client) read(ctx context.Context, rawURL string, prior Batch) (response
 		return response{}, requestFailure(rpc.SourceFailureTransportFailed, true, "public source read failed")
 	}
 	if len(b) > 2<<20 {
-		return response{}, errors.New("public source exceeds size limit")
+		return response{}, requestFailure(rpc.SourceFailureInvalidPayload, false, "public source exceeds size limit")
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return response{}, requestFailure(rpc.SourceFailureInvalidPayload, true, "source returned an empty response")
 	}
 	out := response{body: b, etag: res.Header.Get("ETag"), lastModified: res.Header.Get("Last-Modified")}
 	// A malformed validator only costs a full read later; it never fails the body.
@@ -461,6 +485,7 @@ func Parse(s Spec, b []byte, now time.Time) (Batch, error) {
 		}
 	}
 	out.Events, out.Publications = events, publications
+	out.Parser = parserVersion
 	if err := ValidateBatch(s, out, now); err != nil {
 		return Batch{}, err
 	}
