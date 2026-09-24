@@ -138,7 +138,7 @@ func TestBorrowFeeCanceledRefreshRetainsPriorFailure(t *testing.T) {
 	orig := fetchIBKRBorrowFees
 	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
 	started := make(chan struct{})
-	fetchIBKRBorrowFees = func(ctx context.Context) (marketEventBorrowFeeEntry, error) {
+	fetchIBKRBorrowFees = func(ctx context.Context, _ string) (marketEventBorrowFeeEntry, error) {
 		close(started)
 		<-ctx.Done()
 		return marketEventBorrowFeeEntry{}, ctx.Err()
@@ -184,7 +184,7 @@ func TestBorrowFeeFTPCancellationClosesStalledGreeting(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := fetchFTPFile(ctx, listener.Addr().String(), "synthetic", "", "synthetic.txt")
+		_, err := ibkrBorrowFeeFTP.retrieve(ctx, listener.Addr().String())
 		done <- err
 	}()
 	conn := <-accepted
@@ -243,7 +243,7 @@ func TestBorrowFeeCancellationDoesNotCreateProviderBackoff(t *testing.T) {
 	orig := fetchIBKRBorrowFees
 	t.Cleanup(func() { fetchIBKRBorrowFees = orig })
 	calls := 0
-	fetchIBKRBorrowFees = func(ctx context.Context) (marketEventBorrowFeeEntry, error) {
+	fetchIBKRBorrowFees = func(ctx context.Context, _ string) (marketEventBorrowFeeEntry, error) {
 		calls++
 		return marketEventBorrowFeeEntry{}, ctx.Err()
 	}

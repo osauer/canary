@@ -80,7 +80,7 @@ func (s *Server) attachCoreMarketAuthority(store *corestore.Store) error {
 		return fmt.Errorf("attach earnings terminal authority: %w", err)
 	}
 	if s.marketEvents == nil {
-		s.marketEvents = newMarketEventCache(s.now)
+		s.installMarketEventCache()
 	}
 	if err := s.marketEvents.UseCoreStore(store); err != nil {
 		return fmt.Errorf("attach market-events authority: %w", err)

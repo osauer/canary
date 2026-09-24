@@ -46,7 +46,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 
 	var fetchCalls int
 	orig := fetchIBKRBorrowFees
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
+	fetchIBKRBorrowFees = func(context.Context, string) (marketEventBorrowFeeEntry, error) {
 		fetchCalls++
 		return marketEventBorrowFeeEntry{}, newBorrowFeeFetchError(rpc.SourceFailureTimeout, rpc.SourceFailureStageFTPControlConnect, true)
 	}
@@ -79,7 +79,7 @@ func TestMarketEventBorrowFeeFailurePersistsAcrossRestartAndSuccessSupersedes(t 
 
 	recoveredAt := failedAt.Add(marketEventsBorrowFeeRetryAfter + time.Minute)
 	restarted.now = func() time.Time { return recoveredAt }
-	fetchIBKRBorrowFees = func(context.Context) (marketEventBorrowFeeEntry, error) {
+	fetchIBKRBorrowFees = func(context.Context, string) (marketEventBorrowFeeEntry, error) {
 		fetchCalls++
 		return marketEventBorrowFeeEntry{
 			AsOf: recoveredAt, SourceURL: "ftp://ftp3.interactivebrokers.com/usa.txt",

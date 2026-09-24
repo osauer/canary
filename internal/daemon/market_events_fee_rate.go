@@ -77,7 +77,12 @@ func bulkBorrowFeeCoverage(symbols []string, bulk marketEventBorrowFeeEntry, hea
 			ScaleStatus:    rpc.BorrowFeeScalePercentAnnualized,
 			PolicyEligible: false,
 		}
-		if record, ok := bulk.Symbols[symbol]; ok {
+		if record, ok := bulk.Symbols[symbol]; ok && record.FeeRateUnpublished {
+			// The provider listed the symbol with "NA": observed, but no fee.
+			row.Status = rpc.BorrowFeeCoverageUnavailable
+			row.Reason = "bulk_fee_rate_unpublished"
+			row.Entitlement = rpc.BorrowFeeEntitlementObserved
+		} else if ok {
 			feeRate := record.FeeRate
 			row.Status = rpc.BorrowFeeCoverageObserved
 			row.Reason = "bulk_record_observed"

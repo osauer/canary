@@ -17,7 +17,14 @@ import (
 )
 
 const marketEventStateVersion = 1
-const marketEventBorrowFeesStateVersion = 2
+
+// marketEventBorrowFeesStateVersion 3 added the lower-bound, unpublished-rate
+// and skipped-row fields. Version 2 documents cannot carry them and load as-is;
+// version 1 documents are migrated.
+const (
+	marketEventBorrowFeesStateVersion   = 3
+	marketEventBorrowFeesStateVersionV2 = 2
+)
 
 const (
 	marketEventRegSHOScope                    = "market/events/reg-sho"
@@ -196,6 +203,9 @@ func loadMarketEventBorrowFees(store *corestore.Store) (marketEventBorrowFeesSta
 			if err := validateBorrowFeeEntry(legacy.Entry); err != nil {
 				return marketEventBorrowFeesState{}, 0, fmt.Errorf("validate borrow-fees v1 authority: %w", err)
 			}
+			if borrowFeeEntryUsesV3Fields(&legacy.Entry) {
+				return marketEventBorrowFeesState{}, 0, errors.New("validate borrow-fees v1 authority: carries version 3 fields")
+			}
 			entry := cloneBorrowFeeEntry(legacy.Entry)
 			state := marketEventBorrowFeesState{Version: marketEventBorrowFeesStateVersion, LastGood: &entry}
 			raw, err := json.Marshal(state)
@@ -213,13 +223,20 @@ func loadMarketEventBorrowFees(store *corestore.Store) (marketEventBorrowFeesSta
 				return marketEventBorrowFeesState{}, 0, fmt.Errorf("migrate borrow-fees authority: %w", err)
 			}
 			return cloneBorrowFeesState(state), saved.Revision, nil
-		case marketEventBorrowFeesStateVersion:
+		case marketEventBorrowFeesStateVersionV2, marketEventBorrowFeesStateVersion:
 			var state marketEventBorrowFeesState
 			if err := decodeStrictMarketEventJSON(doc.JSON, &state); err != nil {
-				return marketEventBorrowFeesState{}, 0, fmt.Errorf("decode borrow-fees v2 authority: %w", err)
+				return marketEventBorrowFeesState{}, 0, fmt.Errorf("decode borrow-fees v%d authority: %w", header.Version, err)
+			}
+			if state.Version == marketEventBorrowFeesStateVersionV2 {
+				if borrowFeeEntryUsesV3Fields(state.LastGood) {
+					return marketEventBorrowFeesState{}, 0, errors.New("validate borrow-fees v2 authority: carries version 3 fields")
+				}
+				// The next persist rewrites the document as version 3.
+				state.Version = marketEventBorrowFeesStateVersion
 			}
 			if err := validateBorrowFeesState(state); err != nil {
-				return marketEventBorrowFeesState{}, 0, fmt.Errorf("validate borrow-fees v2 authority: %w", err)
+				return marketEventBorrowFeesState{}, 0, fmt.Errorf("validate borrow-fees v%d authority: %w", header.Version, err)
 			}
 			return cloneBorrowFeesState(state), doc.Revision, nil
 		default:
@@ -385,15 +402,31 @@ func validateHaltsEntry(entry marketEventHaltsEntry) error {
 }
 
 func validateBorrowFeeEntry(entry marketEventBorrowFeeEntry) error {
-	if entry.FetchedAt.IsZero() || entry.AsOf.IsZero() || strings.TrimSpace(entry.SourceURL) == "" || len(entry.Symbols) == 0 {
+	if entry.FetchedAt.IsZero() || entry.AsOf.IsZero() || strings.TrimSpace(entry.SourceURL) == "" || len(entry.Symbols) == 0 || entry.SkippedRows < 0 {
 		return errors.New("invalid borrow-fees envelope")
 	}
 	for key, row := range entry.Symbols {
-		if key == "" || key != normSym(key) || row.Symbol != key || row.Available < 0 {
+		if key == "" || key != normSym(key) || row.Symbol != key || row.Available < 0 ||
+			(row.FeeRateUnpublished && row.FeeRate != 0) || (row.RebateRateUnpublished && row.RebateRate != 0) {
 			return fmt.Errorf("invalid borrow-fees row %q", key)
 		}
 	}
 	return nil
+}
+
+func borrowFeeEntryUsesV3Fields(entry *marketEventBorrowFeeEntry) bool {
+	if entry == nil {
+		return false
+	}
+	if entry.SkippedRows != 0 {
+		return true
+	}
+	for _, row := range entry.Symbols {
+		if row.AvailableLowerBound || row.FeeRateUnpublished || row.RebateRateUnpublished {
+			return true
+		}
+	}
+	return false
 }
 
 func validateBorrowFeesState(state marketEventBorrowFeesState) error {

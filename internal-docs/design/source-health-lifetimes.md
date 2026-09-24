@@ -48,11 +48,21 @@ silently removed to meet the wire budget.
   512 entries and 30 minutes. A fresh receipt supersedes a negative probe.
   Partial requested coverage remains partial; actual zero shares remains an
   observed zero. Restart restores no current receipt or negative authority.
-- Borrow-fee refreshes use the existing official FTP source, durable 15-minute
-  failure retry and existing exact held-short TWS historical fallback. Cancellation
-  while queued or during acquisition preserves prior failure/backoff evidence.
-  FTP cancellation closes sockets; the transfer has its existing time bound and
-  a 16 MiB body limit. Entitlement, scale validation and trading policy are unchanged.
+- Borrow-fee refreshes try IBKR's documented FTP host (ftp3) and IBKR's
+  mirror (ftp2) in order within one attempt, starting with the host that served
+  the retained file, and record the serving host as the source URL. Each control
+  command has a 10-second deadline and the transfer a separate 45-second budget;
+  a timeout at greeting or login reconnects once before failing over. When every
+  host fails, the failure that progressed furthest is recorded, with the durable
+  15-minute retry and the existing exact held-short TWS historical fallback.
+  Cancellation while queued or during acquisition preserves prior failure/backoff
+  evidence and closes sockets; the body limit is 16 MiB. Off-hours, `next_attempt`
+  is the next regular US open. The file has no quoting: a quote in a name is text,
+  a malformed row is skipped and counted in the source notes, and a published
+  `#EOF` count must match. `>N` availability is kept as a lower bound, never a
+  scarcity reading, and `NA` rates are kept as unpublished, never zero (state
+  version 3; version 2 loads unchanged). Entitlement, scale validation and
+  trading policy are unchanged.
 - The New York Fed calendar is an independent, dated partial backup for key
   releases. It cannot repair a failed BLS source or establish complete BLS/event-free
   coverage. Ordinary access rejection remains visible. No alternate credentials,
