@@ -55,13 +55,15 @@ Read bounded observed underlying price bars for a chart. Intraday ranges include
 
 ## `canary_market_tape`
 
-Compare recent rallies and reversals with an aligned daily SPX/QQQ price, QQQ ETF volume and S&P 500 breadth tape, with daemon-owned descriptive readings and separately covered daily advancers and constituent share volume when collected. Completed US equity sessions only; gaps and acquisition clocks remain explicit. Original historical availability is unknown: this reconstructs observations and does not prove a timely warning or predictive skill. ETF volume is not total-market volume or signed flow. Put/call flow is not included. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.
+Compare rallies and reversals with daily SPX/QQQ prices, QQQ ETF volume and S&P 500 stock participation. Set history=true to read permanent local records and one/three-session closing-price follow-ups without a broker request; original and latest versions retain capture times and reconstructed-history labels. Follow-ups are price comparisons, not achievable trading returns or validated forecasts. Normal mode uses completed sessions and also archives the measurements. Missing data stays explicit. ETF volume is not total-market volume or signed flow; put/call flow is absent. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `sessions` | integer | no | Number of completed US equity sessions to align; default 20, maximum 60. Missing observations remain null. |
+| `before` | string | no | Only with history=true: exclusive YYYY-MM-DD session date. Use history.next_before to read earlier pages beyond the rolling 60-day view. |
+| `history` | boolean | no | Default false. Read the durable archive with first/latest captures and one/three-session price changes. No score or trading rule. |
+| `sessions` | integer | no | Number of completed US equity sessions to align; default 20, maximum 60 per page. Missing observations remain null. |
 
 ## `canary_status`
 

@@ -183,7 +183,7 @@ Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary market [--symbol SYMBOL --range 1D] [--json]
-canary market tape [--sessions 5] [--explain] [--json]
+canary market tape [--history] [--before YYYY-MM-DD] [--sessions 5] [--explain] [--json]
 ```
 
 Subcommands: `tape`.
@@ -197,6 +197,8 @@ Subcommands: `tape`.
 | `--range` | yes | `1D`, `5D`, `1M`, `6M`, `YTD`, `1Y`, `5Y` |
 | `--sessions` | yes | - |
 | `--explain` | no | - |
+| `--history` | no | - |
+| `--before` | yes | - |
 | `--exchange` | yes | - |
 | `--type` | yes | `STK`, `IND`, `CASH` |
 | `--currency` | yes | - |

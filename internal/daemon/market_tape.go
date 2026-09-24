@@ -22,6 +22,24 @@ func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.M
 	if err != nil {
 		return nil, err
 	}
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	if p.History {
+		result, err := readMarketTapeHistory(ctx, s.coreStore, p, now)
+		if err == nil && s.marketTapeArchiveFailed.Load() {
+			result.Archive.Status = "collection_failed"
+		}
+		return result, err
+	}
+	return s.buildAndArchiveMarketTape(ctx, p, func(ctx context.Context, p rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		raw, _ := json.Marshal(p)
+		return s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
+	})
+}
+
+func (s *Server) buildAndArchiveMarketTape(ctx context.Context, p rpc.MarketTapeParams, read func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)) (*rpc.MarketTapeResult, error) {
 	contracts := []rpc.ContractParams{
 		{Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD"},
 		{Symbol: "QQQ", SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD"},
@@ -30,10 +48,9 @@ func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.M
 	var wg sync.WaitGroup
 	for i, contract := range contracts {
 		wg.Go(func() {
-			raw, _ := json.Marshal(rpc.MarketHistoryParams{Contract: contract, Range: "6M"})
 			// Reuse bounded/coalesced acquisition and the existing durable cache.
 			// A failed leg stays unavailable without disclosing raw broker errors.
-			history[i], _ = s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
+			history[i], _ = read(ctx, rpc.MarketHistoryParams{Contract: contract, Range: "6M"})
 		})
 	}
 	breadth, _ := s.buildBreadthSPX(&rpc.Request{Params: json.RawMessage(`{"history_days":90}`)}, false)
@@ -45,7 +62,17 @@ func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.M
 	if s.now != nil {
 		now = s.now()
 	}
-	return buildMarketTape(p, now, history[0], history[1], breadth)
+	result, err := buildMarketTape(p, now, history[0], history[1], breadth)
+	if err != nil {
+		return nil, err
+	}
+	result.Archive, err = archiveMarketTape(ctx, s.coreStore, result)
+	s.marketTapeArchiveFailed.Store(err != nil)
+	if err != nil {
+		result.Archive = &rpc.MarketTapeArchiveStatus{Status: "collection_failed"}
+		result.Notes = append(result.Notes, "Daily archive could not be saved; the displayed observations are not confirmed retained.")
+	}
+	return result, nil
 }
 
 func buildMarketTape(p rpc.MarketTapeParams, now time.Time, spx, qqq *rpc.MarketHistoryResult, breadth *rpc.BreadthSPXResult) (*rpc.MarketTapeResult, error) {

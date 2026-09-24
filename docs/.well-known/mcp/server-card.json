@@ -164,11 +164,19 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "before": {
+            "type": "string",
+            "description": "Only with history=true: exclusive YYYY-MM-DD session date. Use history.next_before to read earlier pages beyond the rolling 60-day view."
+          },
+          "history": {
+            "type": "boolean",
+            "description": "Default false. Read the durable archive with first/latest captures and one/three-session price changes. No score or trading rule."
+          },
           "sessions": {
             "type": "integer",
             "minimum": 5,
             "maximum": 60,
-            "description": "Number of completed US equity sessions to align; default 20, maximum 60. Missing observations remain null."
+            "description": "Number of completed US equity sessions to align; default 20, maximum 60 per page. Missing observations remain null."
           }
         }
       }

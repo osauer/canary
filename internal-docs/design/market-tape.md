@@ -229,11 +229,82 @@ before claiming it would have helped before the close. No broker action, policy
 change or recurring manual sign-off is part of this research.
 
 Historical forecasting needs a separate dataset decision. The current retained
-breadth history covers at most 60 sessions and older rows lack daily counts,
+breadth cache covers at most 60 sessions and older rows lack daily counts,
 volume and original availability. It cannot support a credible multi-regime
 forecast evaluation by itself. Prefer a sufficiently long dataset with dated
 membership, delisted names where relevant, and defensible availability clocks;
 otherwise restrict conclusions to the forward sample and postpone calibration.
+
+## Permanent archive and follow-ups
+
+The next useful build preserves evidence before designing a scorecard. The
+hypothesis remains that stock participation adds decision value beyond the
+price-only baseline. This build proves storage and measurement mechanics only;
+it does not test that hypothesis or choose a warning threshold, action, grade,
+evaluation cutoff or score. Those scorecard choices remain a joint design task.
+
+`canary market tape --history` shows saved observations and the S&P 500's closing
+price changes one and three **official trading sessions** later. `--explain`
+defines the view; `--json` also includes QQQ outcomes, exact price references,
+first/latest observations and capture times. `--before YYYY-MM-DD` is an
+exclusive cursor for older pages, including records outside the rolling
+60-session breadth view. Each page has 5–60 calendar-aligned rows; missing days
+are shown rather than skipped. The same typed request is available through
+`canary_market_tape` and authenticated GET `/api/market-tape`. History reads use
+only `daemon.db` and require no broker connection or model call. Desk's existing
+normal-tape view stays unchanged; its scorecard UI is deliberately deferred.
+
+The daemon catches up on startup and checks every ten minutes from the official
+close +15 minutes through close +3 hours. That overlaps the existing breadth
+sweep without launching another constituent sweep. Initial missing current
+measurements or failed collection passes are retried; existing broker pacing,
+coalescing and the background request lane remain binding. Normal tape reads
+also retain their measured rows. Collection works only while the daemon runs;
+the worker does not defeat idle shutdown between collection passes. It uses the
+existing fixed SPX/QQQ six-month history reads, with no new paid source.
+
+Each session has a bounded current projection and immutable changed versions
+in the daemon's existing SQLite observation store. Versions contain the exact
+typed measurements, descriptive reading, producer context and capture time.
+The first version is never overwritten. Corrections, including a correction
+later reverted, append versions. Atomic CAS couples the projection and its
+immutable observation; concurrent equal captures do not duplicate records.
+Identical measurements with refreshed computation clocks are unchanged, and
+the caller's window-relative chart base is omitted. The archive has no rolling
+expiry; it cannot recover days already removed from the old cache.
+
+Imported sessions preceding archive initialization are labelled reconstructed.
+Later sessions captured before the next official open are labelled
+`before_next_open`; late corrections are reconstructed and cannot backdate the
+original record. This is capture timing, not proof of a usable warning. All
+archive observations have `decision_eligible=false`; no trading or risk-policy
+consumer is connected. The original and latest versions are returned for
+inspection, while intermediate changed versions remain in the database.
+
+Follow-ups are calculated automatically from the durable closing prices when
+history is read. They compare the latest available archived anchor and target
+closes, naming each contributing revision and capture time. These derived
+comparisons can change following a correction; they are not frozen strategy
+results. Transient acquisition failures do not erase earlier saved closes.
+An unfinished target session is `pending`; a completed target with missing
+prices is `unavailable` (or `partial` if only one instrument is available).
+Zero remains a measured zero. No holiday, missing target or current intraday
+quote substitutes for the required official close.
+
+Closing-price comparisons exclude dividends, execution timing and costs. Since
+the anchor close precedes our observation, its subsequent change is **not** the
+return a trader could necessarily have captured. A future scorecard must select
+an actionable decision time and use only the versions available at that time;
+it must not evaluate the latest corrected features as if they were known then.
+
+Acceptance checks cover restart and retention beyond 60 sessions, atomic
+concurrent deduplication, correction/reversion history, honest backfill timing,
+holiday/early-close scheduling, pending versus missing versus zero outcomes,
+disconnected read-only history, nullable typed transport and compact CLI help.
+Operational success over the next trading days justifies collecting more
+evidence. Forecasting work continues only if a separately designed, held-out
+test shows useful improvement over price alone after false warnings, missed
+upside and costs are counted.
 
 ## Stage 2 local verification receipt
 

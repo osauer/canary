@@ -51,6 +51,14 @@ func TestMarketTapeReadRouteAuthorityBoundsAndErrorRedaction(t *testing.T) {
 	if res := request(http.MethodPost, "/api/market-tape", cookie); res.Code == http.StatusOK || client.calls != 1 {
 		t.Fatal("tape accepted mutation")
 	}
+	for _, query := range []string{"history=invalid", "before=2026-09-21", "history=true&before=2026-02-30"} {
+		if res := request(http.MethodGet, "/api/market-tape?"+query, cookie); res.Code != http.StatusBadRequest || client.calls != 1 {
+			t.Fatal("ambiguous archive request forwarded")
+		}
+	}
+	if res := request(http.MethodGet, "/api/market-tape?history=true&before=2026-09-21&sessions=5", cookie); res.Code != http.StatusOK || !client.params.History || client.params.Before != "2026-09-21" || client.params.Sessions != 5 {
+		t.Fatal("typed archive request lost")
+	}
 	client.err = errors.New("PRIVATE-BROKER-DIAGNOSTIC")
 	res := request(http.MethodGet, "/api/market-tape", cookie)
 	if res.Code != http.StatusServiceUnavailable || strings.Contains(res.Body.String(), "PRIVATE") || client.params.Sessions != 20 {

@@ -55,6 +55,9 @@ var perCandidateConnectBudget = 25 * time.Second
 
 // Server is the daemon process state.
 type Server struct {
+	marketTapeCollecting    atomic.Bool
+	marketTapeArchiveFailed atomic.Bool
+
 	dataHealth dataHealthState
 	marketData marketDataCache
 	cfg        *config.Resolved
@@ -1295,6 +1298,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startRulebookCanonicalRefreshLoop(serverCtx)
 	s.startAlertShadowObservationLoops(serverCtx)
 	s.startMarketHistoryRefresh(serverCtx)
+	s.startMarketTapeCollection(serverCtx)
 	s.startDataHealthChecks(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
 	go s.runAccountPnLAuthorityLoop(serverCtx)
@@ -2760,6 +2764,9 @@ func (s *Server) runIdleWatcher(ctx context.Context) {
 // IBKR's contract-details bucket refills, and gamma compute runs
 func (s *Server) backgroundTasks() []rpc.BackgroundTaskStatus {
 	tasks := []rpc.BackgroundTaskStatus{}
+	if s.marketTapeCollecting.Load() {
+		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "market-tape", Status: "archiving"})
+	}
 	if s.breadth != nil && s.breadth.IsBusy() {
 		tasks = append(tasks, rpc.BackgroundTaskStatus{Name: "breadth-spx", Status: "computing"})
 	}

@@ -214,7 +214,7 @@ func init() {
 		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
 		{"strategies", "Group option legs and close or reduce them as one guaranteed combo", "canary strategies list [--json] | canary strategies close ID REVISION [--limit PRICE] [--submit] | canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]", runStrategies},
 		{"portfolio", "Signed allocation by asset class and GICS sector, with coverage", "canary portfolio [--json]", runPortfolio},
-		{"market", "Observed quotes, price history and a daily price/breadth/volume tape", "canary market [--symbol SYMBOL --range 1D] [--json] | canary market tape [--sessions 5] [--explain] [--json]", runMarket},
+		{"market", "Observed quotes, price history and a daily price/breadth/volume tape", "canary market [--symbol SYMBOL --range 1D] [--json] | canary market tape [--history] [--before YYYY-MM-DD] [--sessions 5] [--explain] [--json]", runMarket},
 		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
 		{"calendar", "Official exchange sessions, holidays, early closes, and coverage bounds", "canary calendar [--market us|us-options|de|uk|jp|hk] [--date YYYY-MM-DD] [--at RFC3339] [--days N] [--json]", runCalendar},
 		{"macro", "Public economic calendar, official publications and source coverage", "canary macro [--window-start DATE --window-end DATE] [--json]", runMacro},

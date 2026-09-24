@@ -10,7 +10,9 @@ const MethodMarketTape = "market.tape"
 
 // MarketTapeParams bounds the completed US equity sessions shown.
 type MarketTapeParams struct {
-	Sessions int `json:"sessions,omitempty"`
+	Sessions int    `json:"sessions,omitempty"`
+	History  bool   `json:"history,omitempty"`
+	Before   string `json:"before,omitempty"`
 }
 
 // NormalizeMarketTapeParams applies the default and rejects unbounded reads.
@@ -20,6 +22,14 @@ func NormalizeMarketTapeParams(p MarketTapeParams) (MarketTapeParams, error) {
 	}
 	if p.Sessions < 5 || p.Sessions > 60 {
 		return p, errors.New("tape sessions must be between 5 and 60")
+	}
+	if p.Before != "" {
+		if !p.History {
+			return p, errors.New("tape before requires history")
+		}
+		if date, err := time.Parse("2006-01-02", p.Before); err != nil || date.Format("2006-01-02") != p.Before {
+			return p, errors.New("tape before must be YYYY-MM-DD")
+		}
 	}
 	return p, nil
 }
@@ -128,14 +138,73 @@ type MarketTapeSource struct {
 // HistoricalAvailability is unknown until first-availability is collected;
 // source AsOf fields must not be relabelled as historical publication times.
 type MarketTapeResult struct {
-	SchemaVersion          string              `json:"schema_version"`
-	AsOf                   time.Time           `json:"as_of"`
-	Timezone               string              `json:"timezone"`
-	LatestSession          string              `json:"latest_session"`
-	CoverageStatus         string              `json:"coverage_status"`
-	HistoricalAvailability string              `json:"historical_availability"`
-	NotPredictive          bool                `json:"not_predictive"`
-	Sessions               []MarketTapeSession `json:"sessions"`
-	Sources                []MarketTapeSource  `json:"sources"`
-	Notes                  []string            `json:"notes"`
+	SchemaVersion          string                   `json:"schema_version"`
+	AsOf                   time.Time                `json:"as_of"`
+	Timezone               string                   `json:"timezone"`
+	LatestSession          string                   `json:"latest_session"`
+	CoverageStatus         string                   `json:"coverage_status"`
+	HistoricalAvailability string                   `json:"historical_availability"`
+	NotPredictive          bool                     `json:"not_predictive"`
+	Sessions               []MarketTapeSession      `json:"sessions"`
+	Sources                []MarketTapeSource       `json:"sources"`
+	Notes                  []string                 `json:"notes"`
+	Archive                *MarketTapeArchiveStatus `json:"archive,omitempty"`
+	History                *MarketTapeHistory       `json:"history,omitempty"`
+}
+
+// MarketTapeArchiveStatus describes local collection, not signal reliability.
+// LastStoredAt means a collection pass was persisted, including partial data.
+type MarketTapeArchiveStatus struct {
+	StartedAt    time.Time `json:"started_at,omitzero"`
+	LastStoredAt time.Time `json:"last_stored_at,omitzero"`
+	Status       string    `json:"status"`
+}
+
+// MarketTapeCapture preserves one version exactly as captured. Reconstruction
+// includes sessions preceding collection and records arriving after next open.
+// Neither timing label proves that a trading strategy could have used it.
+type MarketTapeCapture struct {
+	Revision   int64              `json:"revision"`
+	CapturedAt time.Time          `json:"captured_at"`
+	Timing     string             `json:"timing"`
+	Session    MarketTapeSession  `json:"session"`
+	Sources    []MarketTapeSource `json:"sources"`
+}
+
+// MarketTapeArchivedClose points to the revision that supplied this close.
+// Transient source failures do not erase a previously archived closing price.
+type MarketTapeArchivedClose struct {
+	Value      float64   `json:"value"`
+	Revision   int64     `json:"revision"`
+	CapturedAt time.Time `json:"captured_at"`
+}
+
+// MarketTapeFollowUp compares archived closes, excluding dividends and costs.
+// These are descriptive price changes, not achievable strategy returns.
+type MarketTapeFollowUp struct {
+	Sessions     int                      `json:"sessions"`
+	Date         string                   `json:"date,omitempty"`
+	Status       string                   `json:"status"` // pending, available, partial, unavailable
+	SPXChangePct *float64                 `json:"spx_change_pct"`
+	QQQChangePct *float64                 `json:"qqq_change_pct"`
+	SPXAnchor    *MarketTapeArchivedClose `json:"spx_anchor,omitempty"`
+	SPXEnd       *MarketTapeArchivedClose `json:"spx_end,omitempty"`
+	QQQAnchor    *MarketTapeArchivedClose `json:"qqq_anchor,omitempty"`
+	QQQEnd       *MarketTapeArchivedClose `json:"qqq_end,omitempty"`
+}
+
+// MarketTapeHistoryRow keeps the first and latest captures beside price follow-ups.
+type MarketTapeHistoryRow struct {
+	Date      string               `json:"date"`
+	First     *MarketTapeCapture   `json:"first,omitempty"`
+	Latest    *MarketTapeCapture   `json:"latest,omitempty"`
+	FollowUps []MarketTapeFollowUp `json:"follow_ups"`
+}
+
+// MarketTapeHistory reads only daemon.db. Before is an exclusive session-date cursor;
+// absence is explicit and does not make the reader silently skip missing days.
+type MarketTapeHistory struct {
+	Before     string                 `json:"before,omitempty"`
+	NextBefore string                 `json:"next_before,omitempty"`
+	Rows       []MarketTapeHistoryRow `json:"rows"`
 }

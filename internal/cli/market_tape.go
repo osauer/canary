@@ -9,14 +9,16 @@ import (
 )
 
 func runMarketTape(ctx context.Context, env *Env, args []string) int {
-	fs := describedFlagSet(env, "market tape", "Daily prices, stocks above their recent average, and trading activity", "canary market tape [--sessions 5] [--explain] [--json]")
+	fs := describedFlagSet(env, "market tape", "Daily prices, stocks above their recent average, and trading activity", "canary market tape [--history] [--before YYYY-MM-DD] [--sessions 5] [--explain] [--json]")
 	jsonOut := fs.Bool("json", false, "all measurements, source times and data limitations as JSON")
 	explain := fs.Bool("explain", false, "briefly explain what this shows and when to trust it")
 	sessions := fs.Int("sessions", 5, "completed US trading days; default 5, range 5–60")
+	history := fs.Bool("history", false, "saved observations and price changes one and three trading days later")
+	before := fs.String("before", "", "with --history: show trading days strictly before this YYYY-MM-DD date")
 	usage := fs.Usage
 	fs.Usage = func() {
 		usage()
-		fmt.Fprint(env.Stdout, "\nExamples:\n  canary market tape\n  canary market tape --explain\n  canary market tape --sessions 20\n  canary market tape --json\n\nRead-only, after-close observations; no forecast. — means unavailable.\n")
+		fmt.Fprint(env.Stdout, "\nExamples:\n  canary market tape\n  canary market tape --explain\n  canary market tape --history\n  canary market tape --history --before 2026-09-21\n  canary market tape --sessions 20\n  canary market tape --json\n\nRead-only, after-close observations; no forecast. — means unavailable.\n")
 	}
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -24,7 +26,7 @@ func runMarketTape(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 0 {
 		return failUnexpectedArgs(env, fs)
 	}
-	p, err := rpc.NormalizeMarketTapeParams(rpc.MarketTapeParams{Sessions: *sessions})
+	p, err := rpc.NormalizeMarketTapeParams(rpc.MarketTapeParams{Sessions: *sessions, History: *history, Before: *before})
 	if err != nil {
 		return fail(env, "market tape: %v", err)
 	}
@@ -35,6 +37,10 @@ func runMarketTape(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, result)
 	}
+	if *history {
+		renderMarketTapeHistory(env, &result, *explain)
+		return 0
+	}
 	renderMarketTape(env, &result, *explain)
 	return 0
 }
@@ -44,6 +50,9 @@ func renderMarketTape(env *Env, result *rpc.MarketTapeResult, explain bool) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, env.bold("Market tape"))
 	riskReadLine(env, "  Completed closes through "+result.LatestSession+"; no forecast.")
+	if result.Archive != nil && result.Archive.Status == "collection_failed" {
+		riskReadLine(env, "  Archive save failed; these observations are not confirmed retained.")
+	}
 	var reading *rpc.MarketTapeReading
 	var latest *rpc.MarketTapeSession
 	if len(result.Sessions) > 0 {

@@ -15,6 +15,15 @@ func (h *handler) handleMarketTape(w nethttp.ResponseWriter, r *nethttp.Request)
 		return
 	}
 	var p rpc.MarketTapeParams
+	p.Before = r.URL.Query().Get("before")
+	if value := r.URL.Query().Get("history"); value != "" {
+		var err error
+		p.History, err = strconv.ParseBool(value)
+		if err != nil {
+			writeError(w, nethttp.StatusBadRequest, "Invalid tape history flag")
+			return
+		}
+	}
 	if value := r.URL.Query().Get("sessions"); value != "" {
 		var err error
 		p.Sessions, err = strconv.Atoi(value)

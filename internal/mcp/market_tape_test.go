@@ -18,6 +18,9 @@ func TestMarketTapeToolPreservesTypedEvidence(t *testing.T) {
 	if _, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"sessions":61}`)); err == nil {
 		t.Fatal("unbounded acquisition accepted")
 	}
+	if _, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"before":"2026-09-21"}`)); err == nil {
+		t.Fatal("before accepted without history")
+	}
 	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"sessions":5}`))
 	if err != nil {
 		t.Fatal(err)
