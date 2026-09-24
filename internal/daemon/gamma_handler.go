@@ -330,6 +330,19 @@ func optionSessionOpen(now time.Time) bool {
 	return gammaWeekdayOptionsRegular(now)
 }
 
+// optionSessionNextOpen returns the next official U.S. listed-options session
+// open after now from marketcal. It reports false while the session is open
+// and outside the calendar's embedded coverage: a clock-only guess would name
+// holidays as due times.
+func optionSessionNextOpen(now time.Time) (time.Time, bool) {
+	cal := marketcal.NewWithClock(func() time.Time { return now })
+	session, err := cal.SessionAt(marketcal.MarketUSOptions, now)
+	if err != nil || session.NextOpen == nil {
+		return time.Time{}, false
+	}
+	return *session.NextOpen, true
+}
+
 // gammaClassifySession classifies the option-data surface used by dealer
 // gamma, not the underlying ETF quote session. The compute needs option OI,
 // IV/model ticks, and classed SPX/SPXW contracts; outside the official regular

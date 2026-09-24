@@ -67,3 +67,12 @@ warning remains blocked. Previously polluted persisted snapshots cannot have the
 unknown cause reconstructed safely: they remain blocked until a new valid
 producer computation replaces them. The fix prevents recurrence, not retroactive
 fabrication of successful evidence.
+
+Replacement is newest-evidence, not best-quality: the first successful compute
+of the next regular options session replaces the retained snapshot even when its
+own quality gates block it. A failed refresh keeps the retained snapshot, adds
+`refresh_failed:<token>` and retries under the escalating backoff that a broker
+reconnect resets. While gamma is `not_due`, its health row's `next_attempt` is
+the next regular U.S. listed-options open from the embedded market calendar,
+the earliest time a scheduled refresh can run. It is absent outside calendar
+coverage and is not a regime `next_due_at`.

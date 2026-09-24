@@ -42,6 +42,47 @@ func TestDataHealthBlockedGammaRemainsConcernOutsideSession(t *testing.T) {
 	}
 }
 
+func TestGammaHealthNotDueCarriesNextOptionsOpen(t *testing.T) {
+	for _, tc := range []struct{ name, at, retainedAt, want string }{
+		{name: "before_open", at: "2026-09-24 07:00", retainedAt: "2026-09-23 16:05", want: "2026-09-24 09:30"},
+		{name: "weekend", at: "2026-09-25 17:00", retainedAt: "2026-09-25 16:05", want: "2026-09-28 09:30"},
+		{name: "thanksgiving", at: "2026-11-25 17:00", retainedAt: "2026-11-25 16:05", want: "2026-11-27 09:30"},
+		{name: "labor_day_weekend", at: "2026-09-05 12:00", retainedAt: "2026-09-04 16:05", want: "2026-09-08 09:30"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := gammaRolloverNY(t, tc.at)
+			r := &rpc.RegimeSnapshotResult{AsOf: now}
+			r.VIXTermStructure.Status, r.VolOfVol.Status = "unavailable", "unavailable"
+			r.HYGSPYDivergence.Status, r.CreditSpreads.Status, r.FundingStress.Status = "unavailable", "unavailable", "unavailable"
+			r.USDJPY.Status, r.Breadth.Status, r.GammaZero.Status = "unavailable", "unavailable", rpc.RegimeStatusStale
+			r.GammaZero.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
+			r.GammaZero.Envelope = rpc.GammaZeroSPXResult{Status: rpc.GammaZeroStatusReady, Result: &rpc.GammaZeroComputed{
+				AsOf: gammaRolloverNY(t, tc.retainedAt), Quality: &rpc.GammaSignalQuality{Rankability: rpc.GammaRankabilityBlocked},
+			}}
+			r.Fingerprint = rpc.BuildRegimeFingerprint(r)
+			raw, _ := json.Marshal(r)
+			s := &Server{regimeSnapshots: &regimeSnapshotCache{raw: raw, revision: 1, lastSuccessAt: now, freshFor: time.Minute, now: func() time.Time { return now }}}
+			if _, err := s.regimeSnapshots.current(); err != nil {
+				t.Fatalf("invalid fixture: %v", err)
+			}
+			want := gammaRolloverNY(t, tc.want)
+			for _, row := range s.regimeDataHealth(now) {
+				if row.ID != "regime:gamma" {
+					continue
+				}
+				if row.CadenceState != "not_due" || row.Usability != "blocked" {
+					t.Fatalf("fixture is not a blocked not-due gamma row: %+v", row)
+				}
+				if !row.NextAttempt.Equal(want) {
+					t.Fatalf("next attempt = %v, want the next options open %v", row.NextAttempt, want)
+				}
+				return
+			}
+			t.Fatal("regime:gamma row missing")
+		})
+	}
+}
+
 func TestDataHealthHistoryKeepsWeekAndActualSuccessClock(t *testing.T) {
 	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	observedAt := now
