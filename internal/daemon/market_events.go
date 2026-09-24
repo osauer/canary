@@ -170,6 +170,10 @@ type marketEventCache struct {
 	// borrowIrrelevant is the last not-relevant borrow verdict; see
 	// borrowApplicability.
 	borrowIrrelevant borrowIrrelevance
+
+	// openInventoryTransport, when set, replaces the connector-bound session
+	// and tick-236 transport of borrowInventory; tests inject it.
+	openInventoryTransport func() (borrowInventoryTransport, bool)
 }
 
 // marketEventCanonicalScope is the held-name market-event scope the daemon
@@ -427,10 +431,10 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 		scopeProvider = scopeProviders[0]
 		broker = scopeProvider()
 	}
-	unquoted, _ := c.scopeFor(symbols, broker)
+	unquoted, canonical := c.scopeFor(symbols, broker)
 	// Portfolio applicability is independent of provider cadence, so it is
 	// derived once here for both borrow sources rather than by the fallback.
-	borrowApplicability := c.borrowApplicability(symbols, connector, scopeProvider)
+	borrowApplicability := c.borrowApplicability(symbols, canonical, connector, scopeProvider)
 	borrowHealth := c.borrowInventory(ctx, symbols, unquoted, subs, connector, now, &res)
 	borrowHealth.Applicability = borrowApplicability
 	res.SourceHealth = append(res.SourceHealth, borrowHealth)
@@ -1571,24 +1575,50 @@ func marketEventLULDReason(reason string) bool {
 }
 
 func (c *marketEventCache) borrowInventory(ctx context.Context, symbols, unquoted []string, subs *subManager, connector *ibkrlib.Connector, now time.Time, res *rpc.MarketEventsResult) rpc.SourceHealth {
-	binding, ready := connector.CaptureSession()
-	if !ready || subs == nil || connector.BackendLink().Down {
+	open := c.openInventoryTransport
+	if open == nil {
+		open = func() (borrowInventoryTransport, bool) { return c.connectorInventoryTransport(subs, connector) }
+	}
+	transport, ok := open()
+	if !ok {
 		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusUnknown, time.Time{}, now, marketEventsInventoryMaxAge, "low", []string{"IBKR gateway is unavailable; shortable-share inventory is unknown"})
 	}
-	current := func() bool { return connector.SessionCurrent(binding) && !connector.BackendLink().Down }
-	peek := func(sym string) *ibkrlib.MarketData { return connector.MarketDataSnapshot()[sym] }
-	probe := func(probeCtx context.Context, sym string) (*ibkrlib.MarketData, error) {
-		release, err := subs.Hold(probeCtx, sym)
-		if err != nil {
-			return nil, err
-		}
-		defer release()
-		err = pollMarketData(probeCtx, connector, sym, time.Now().Add(marketEventsBorrowPollBudget), func(md *ibkrlib.MarketData) bool {
-			return marketEventInventoryReceiptCurrent(md, c.now().UTC())
-		})
-		return peek(sym), err
+	return c.readBorrowInventory(ctx, symbols, unquoted, transport.binding, res, transport.current, transport.peek, transport.probe)
+}
+
+// borrowInventoryTransport is the broker session a shortable-share read is
+// fenced to and the tick-236 reads it borrows; see readBorrowInventory.
+type borrowInventoryTransport struct {
+	binding ibkrlib.ConnectorSessionBinding
+	current func() bool
+	peek    func(string) *ibkrlib.MarketData
+	probe   func(context.Context, string) (*ibkrlib.MarketData, error)
+}
+
+// connectorInventoryTransport binds the shortable-share read to connector's
+// ready session; false means no usable session.
+func (c *marketEventCache) connectorInventoryTransport(subs *subManager, connector *ibkrlib.Connector) (borrowInventoryTransport, bool) {
+	binding, ready := connector.CaptureSession()
+	if !ready || subs == nil || connector.BackendLink().Down {
+		return borrowInventoryTransport{}, false
 	}
-	return c.readBorrowInventory(ctx, symbols, unquoted, binding, res, current, peek, probe)
+	peek := func(sym string) *ibkrlib.MarketData { return connector.MarketDataSnapshot()[sym] }
+	return borrowInventoryTransport{
+		binding: binding,
+		current: func() bool { return connector.SessionCurrent(binding) && !connector.BackendLink().Down },
+		peek:    peek,
+		probe: func(probeCtx context.Context, sym string) (*ibkrlib.MarketData, error) {
+			release, err := subs.Hold(probeCtx, sym)
+			if err != nil {
+				return nil, err
+			}
+			defer release()
+			err = pollMarketData(probeCtx, connector, sym, time.Now().Add(marketEventsBorrowPollBudget), func(md *ibkrlib.MarketData) bool {
+				return marketEventInventoryReceiptCurrent(md, c.now().UTC())
+			})
+			return peek(sym), err
+		},
+	}, true
 }
 
 func marketEventBorrowInventoryFlag(sym string, md ibkrlib.MarketData, now time.Time) (rpc.MarketEventFlag, bool) {
