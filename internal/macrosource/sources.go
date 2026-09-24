@@ -41,6 +41,10 @@ func Specs() []Spec {
 
 // Batch is one successful source response, before daemon retention and filtering.
 type Batch struct {
+	// SkippedItems counts publication-feed items omitted because their title,
+	// source link or publication date was invalid. Calendars never skip, and a
+	// feed with no valid item fails instead of producing a batch.
+	SkippedItems int                    `json:"skipped_items,omitempty"`
 	Events       []rpc.MacroEvent       `json:"events"`
 	Publications []rpc.MacroPublication `json:"publications"`
 	WindowStart  string                 `json:"window_start,omitempty"`
@@ -63,8 +67,8 @@ func NewClient() *Client {
 
 // SafeURL permits only HTTPS URLs on the explicit official source hosts.
 func SafeURL(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+	u, ok := httpsURL(raw)
+	if !ok {
 		return false
 	}
 	switch strings.ToLower(u.Hostname()) {
@@ -143,16 +147,34 @@ func tidy(v string) string {
 	return v
 }
 
+// httpsURL parses raw when it is HTTPS without user information or an explicit port.
+func httpsURL(raw string) (*url.URL, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Port() != "" {
+		return nil, false
+	}
+	return u, true
+}
+
+// sourceLink accepts an item link on its feed's own host or, for BEA feeds, on
+// any official BEA host. Canary records these links as published and never
+// fetches them, so BEA's apex host is accepted here without joining SafeURL's
+// fetch allowlist.
 func sourceLink(s Spec, raw string) bool {
-	if !SafeURL(raw) {
+	link, ok := httpsURL(raw)
+	feed, err := url.Parse(s.URL)
+	if !ok || err != nil {
 		return false
 	}
-	link, _ := url.Parse(raw)
-	feed, _ := url.Parse(s.URL)
 	if link.Hostname() == feed.Hostname() {
 		return true
 	}
-	return (feed.Hostname() == "apps.bea.gov" || feed.Hostname() == "www.bea.gov") && (link.Hostname() == "apps.bea.gov" || link.Hostname() == "www.bea.gov")
+	return beaHost(feed.Hostname()) && beaHost(link.Hostname())
+}
+
+// beaHost reports whether host is one of BEA's official publication hosts.
+func beaHost(host string) bool {
+	return host == "apps.bea.gov" || host == "www.bea.gov" || host == "bea.gov"
 }
 
 func eventID(s Spec, e rpc.MacroEvent) string {
@@ -174,6 +196,9 @@ func ValidateBatch(s Spec, batch Batch, now time.Time) error {
 	}
 	if s.Kind == "rss" && len(batch.Events) != 0 || s.Kind != "rss" && len(batch.Publications) != 0 {
 		return errors.New("public source record kind invalid")
+	}
+	if batch.SkippedItems < 0 || s.Kind != "rss" && batch.SkippedItems != 0 {
+		return errors.New("public source skipped-item count invalid")
 	}
 	if s.Kind == "nyfed" {
 		start, startErr := time.Parse(time.DateOnly, batch.WindowStart)
@@ -237,7 +262,10 @@ func ValidateBatch(s Spec, batch Batch, now time.Time) error {
 }
 
 // Parse preserves source dates and rejects malformed feeds instead of clearing
-// previously retained records. It never fetches links carried inside a feed.
+// previously retained records. A publication-feed item without a title, an
+// official source link or a readable publication date is skipped and counted
+// in Batch.SkippedItems; the feed fails when no valid item remains. Parse never
+// fetches links carried inside a feed.
 func Parse(s Spec, b []byte, now time.Time) (Batch, error) {
 	var out Batch
 	var err error

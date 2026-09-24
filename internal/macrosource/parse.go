@@ -2,9 +2,11 @@ package macrosource
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"html"
 	"io"
 	"regexp"
@@ -331,6 +333,11 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
 		return Batch{}, errors.New("publication feed format changed")
 	}
 	out := Batch{}
+	// One malformed item must not discard its valid neighbours: it is skipped
+	// and counted for disclosure, and the first cause fails a feed left with no
+	// valid item. A publication dated after receipt still fails the whole feed
+	// because it implicates the receipt clock, not only that item.
+	var skipped error
 	for _, r := range feed.Channel.Items {
 		link := strings.TrimSpace(r.Link)
 		// A retained BEA item omits the scheme on its own official host.
@@ -339,13 +346,17 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
 			link = "https://" + link
 		}
 		if !sourceLink(s, link) || plain(r.Title) == "" {
-			return Batch{}, errors.New("publication title or source link invalid")
+			out.SkippedItems++
+			skipped = cmp.Or(skipped, errors.New("publication title or source link invalid"))
+			continue
 		}
 		p := rpc.MacroPublication{Title: plain(r.Title), SourceURL: link}
 		if strings.TrimSpace(r.PubDate) != "" {
 			at, err := publicationTime(s, strings.TrimSpace(r.PubDate))
 			if err != nil {
-				return Batch{}, err
+				out.SkippedItems++
+				skipped = cmp.Or(skipped, err)
+				continue
 			}
 			p.PublishedAt = at
 		}
@@ -354,7 +365,23 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
 		}
 		out.Publications = append(out.Publications, p)
 	}
+	if len(out.Publications) == 0 && skipped != nil {
+		return Batch{}, skipped
+	}
 	return out, nil
+}
+
+// SkippedDisclosure describes the publication-feed items that parsing omitted
+// from b, or returns "" when it kept every item. Callers show it beside the
+// retained batch; it is not a failure of that batch.
+func (b Batch) SkippedDisclosure() string {
+	switch {
+	case b.SkippedItems <= 0:
+		return ""
+	case b.SkippedItems == 1:
+		return "1 feed item skipped: invalid title, link or publication date"
+	}
+	return fmt.Sprintf("%d feed items skipped: invalid title, link or publication date", b.SkippedItems)
 }
 
 func publicationTime(s Spec, value string) (time.Time, error) {

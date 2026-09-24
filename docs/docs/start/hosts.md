@@ -150,9 +150,13 @@ The bundled MCP surface has no order-entry or preview tools. A unit test enforce
 BEA, Federal Reserve and ECB publications. The fixed public sources refresh
 every five minutes while the production daemon runs; reads send no account
 information. A failed feed retains its dated last-good entries and reports the
-failure, including HTTP 403. Thirty minutes without a successful read marks it
-stale. Restart validates source identity, timestamps and child provenance before
-restoring a cache. Isolated test/offline databases do not start public readers.
+failure, including HTTP 403. A publication item without a title, an official
+source link or a readable date is skipped instead of failing its feed; the
+source detail counts the skipped items and the overview reports partial
+coverage. A feed with no usable item still fails. Thirty minutes without a
+successful read marks it stale. Restart validates source identity, timestamps
+and child provenance before restoring a cache. Isolated test/offline databases
+do not start public readers.
 
 The overview covers yesterday through the next seven calendar dates and recent
 publications, with explicit truncation. Events retain `source_id`, `source_url`,
