@@ -421,7 +421,12 @@ type borrowIrrelevance struct {
 // for the same concrete broker scope and symbols for
 // marketEventsBorrowApplicabilityRetain. After that, or with no such verdict,
 // the answer is required: irrelevance is never assumed.
-func (c *marketEventCache) borrowApplicability(symbols []string, connector *ibkrlib.Connector, scopeProvider func() brokerStateScope) string {
+//
+// Only a canonical read (see scopeFor) stores or replaces that verdict, because
+// it is the one the recorded source health describes; an ad-hoc read of other
+// names must not erase it. Any current read that shows an exact short stock
+// among the verdict's names ends it.
+func (c *marketEventCache) borrowApplicability(symbols []string, canonical bool, connector *ibkrlib.Connector, scopeProvider func() brokerStateScope) string {
 	readPositions := c.readCachedPositions
 	if readPositions == nil && connector != nil {
 		readPositions = connector.CachedPositionsWithHealth
@@ -443,20 +448,36 @@ func (c *marketEventCache) borrowApplicability(symbols []string, connector *ibkr
 	if err != nil || classifyPortfolioStreamHealth(scope, receipt, now) != orderIntegrityHealthCurrent || !cachedPositionsMatchBrokerScope(raw, scope) {
 		return c.retainedBorrowIrrelevance(symbols, scope, now)
 	}
+	short := holdsExactShortStock(raw, symbols)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	switch {
+	case canonical && short:
+		c.borrowIrrelevant = borrowIrrelevance{}
+	case canonical:
+		c.borrowIrrelevant = borrowIrrelevance{broker: scope, symbols: slices.Clone(symbols), derivedAt: now}
+	case holdsExactShortStock(raw, c.borrowIrrelevant.symbols):
+		c.borrowIrrelevant = borrowIrrelevance{}
+	}
+	if short {
+		return ""
+	}
+	return "not_relevant"
+}
+
+// holdsExactShortStock reports whether raw holds an exact short stock in any
+// of symbols.
+func holdsExactShortStock(raw []*ibkrlib.RawPosition, symbols []string) bool {
 	wanted := make(map[string]bool, len(symbols))
 	for _, symbol := range symbols {
 		wanted[symbol] = true
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	for _, position := range raw {
 		if _, short := exactHeldShortStock(position, wanted); short {
-			c.borrowIrrelevant = borrowIrrelevance{}
-			return ""
+			return true
 		}
 	}
-	c.borrowIrrelevant = borrowIrrelevance{broker: scope, symbols: slices.Clone(symbols), derivedAt: now}
-	return "not_relevant"
+	return false
 }
 
 // retainedBorrowIrrelevance answers for a portfolio stream that is not

@@ -43,26 +43,35 @@ func TestEventHealthStableAcrossCallerScopes(t *testing.T) {
 	legacyLive := []string{"SYNA", "SYNB", "SYNC"} // the app's former scope
 	adHoc := []string{"SYNX"}                      // an explicit --symbol read
 
-	// Source health: only the canonical read records.
-	for i := range 12 {
-		_ = s.marketEventsForSymbols(t.Context(), [][]string{full, legacyLive, adHoc}[i%3])
-	}
-	fee := eventHealthRow(t, s, "events:borrow_fee", now)
-	if len(fee.History) != 1 || fee.State != "current" {
-		t.Fatalf("borrow-fee health flapped across caller scopes: state=%s history=%+v", fee.State, fee.History)
-	}
-
-	// Inventory: the terminal name is not expected, so both scopes agree.
+	// Every held name that expects market data reports tick 236; the terminal
+	// name never does, and a probe for it would time out.
 	ticks := map[string]*ibkr.MarketData{}
 	for _, symbol := range legacyLive {
 		ticks[symbol] = &ibkr.MarketData{ShortableObserved: true, ShortableShares: 50000, ShortableTickAt: now.Add(-10 * time.Second), DataType: "live"}
 	}
-	probe := func(context.Context, string) (*ibkr.MarketData, error) { return nil, context.DeadlineExceeded }
+	s.marketEvents.openInventoryTransport = func() (borrowInventoryTransport, bool) {
+		return borrowInventoryTransport{
+			current: func() bool { return true },
+			peek:    func(sym string) *ibkr.MarketData { return ticks[sym] },
+			probe:   func(context.Context, string) (*ibkr.MarketData, error) { return nil, context.DeadlineExceeded },
+		}, true
+	}
+
+	// The production read path: scope classification, the inventory
+	// denominator and health recording.
 	conditions := map[string]bool{}
-	for i := range 6 {
-		symbols := [][]string{full, legacyLive}[i%2]
-		unquoted, _ := s.marketEvents.scopeFor(symbols, s.currentBrokerStateScope())
-		health := s.marketEvents.readBorrowInventory(t.Context(), symbols, unquoted, ibkr.ConnectorSessionBinding{}, &rpc.MarketEventsResult{}, func() bool { return true }, func(sym string) *ibkr.MarketData { return ticks[sym] }, probe)
+	for i := range 12 {
+		symbols := [][]string{full, legacyLive, adHoc}[i%3]
+		result := s.marketEventsForSymbols(t.Context(), symbols)
+		if slices.Equal(symbols, adHoc) {
+			continue
+		}
+		var health rpc.SourceHealth
+		for _, row := range result.SourceHealth {
+			if row.Source == "borrow_inventory" {
+				health = row
+			}
+		}
 		if health.Status != rpc.SourceStatusOK {
 			t.Fatalf("scope %v inventory %s: %v", symbols, health.Status, health.Notes)
 		}
@@ -73,5 +82,14 @@ func TestEventHealthStableAcrossCallerScopes(t *testing.T) {
 	}
 	if len(conditions) != 1 {
 		t.Fatalf("inventory condition depends on caller scope: %v", conditions)
+	}
+	// Source health: only the canonical read records. Without a live broker
+	// session the recorded inventory row is "Previous session observation",
+	// so the per-read checks above carry its coverage.
+	if fee := eventHealthRow(t, s, "events:borrow_fee", now); len(fee.History) != 1 || fee.State != "current" {
+		t.Fatalf("borrow-fee health flapped across caller scopes: state=%s history=%+v", fee.State, fee.History)
+	}
+	if inventory := eventHealthRow(t, s, "events:borrow_inventory", now); len(inventory.History) != 1 {
+		t.Fatalf("borrow-inventory health flapped across caller scopes: history=%+v", inventory.History)
 	}
 }

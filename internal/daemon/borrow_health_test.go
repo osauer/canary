@@ -155,7 +155,9 @@ func TestBorrowHealthApplicabilityIndependentOfCadence(t *testing.T) {
 
 // Reconnects, resubscriptions and quiet periods leave the portfolio stream
 // briefly not current. Borrow applicability must not flap to required and back
-// across them, nor outlive a real outage, a scope change or a restart.
+// across them, nor outlive a real outage, a scope change or a restart. Ad-hoc
+// reads of other names (an explicit --symbol read, the app's wider held-name
+// read) must neither erase the bridge nor extend it past a short stock they see.
 func TestBorrowApplicabilityBridgesPortfolioStreamGaps(t *testing.T) {
 	t0 := time.Date(2026, 9, 24, 15, 0, 0, 0, time.UTC) // 11:00 ET
 	stubBorrowFeeFetch(t, failBorrowFeeFetch)
@@ -169,9 +171,23 @@ func TestBorrowApplicabilityBridgesPortfolioStreamGaps(t *testing.T) {
 		return syntheticPortfolioStream(book, streamAt)()
 	}
 	s := &Server{now: func() time.Time { return now }}
+	// adHoc is a read that is not the daemon's canonical scope; like
+	// marketEventsForSymbols it records no source health.
+	adHoc := func(t *testing.T, at, received time.Time, symbols []string, want string) {
+		t.Helper()
+		now, streamAt = at, received
+		result := c.snapshot(t.Context(), symbols, nil, nil, func() brokerStateScope { return scope })
+		for _, health := range result.SourceHealth {
+			if (health.Source == "borrow_fee" || health.Source == "borrow_inventory") && health.Applicability != want {
+				t.Fatalf("ad-hoc %v at +%s: %s applicability=%q, want %q", symbols, at.Sub(t0), health.Source, health.Applicability, want)
+			}
+		}
+	}
+	// step is a canonical read: the daemon loops re-derive the scope, then read.
 	step := func(t *testing.T, cache *marketEventCache, at, received time.Time, symbols []string, wantRequired bool) {
 		t.Helper()
 		now, streamAt = at, received
+		cache.rememberCanonicalScope(symbols, nil, scope)
 		result := cache.snapshot(t.Context(), symbols, nil, nil, func() brokerStateScope { return scope })
 		s.observeEventHealth(result, nil, ibkr.ConnectorSessionBinding{})
 		for _, id := range []string{"events:borrow_fee", "events:borrow_inventory"} {
@@ -208,10 +224,30 @@ func TestBorrowApplicabilityBridgesPortfolioStreamGaps(t *testing.T) {
 		restarted.readCachedPositions = c.readCachedPositions
 		step(t, restarted, t0.Add(31*time.Minute), time.Time{}, syntheticBorrowSymbols, true)
 	})
-	t.Run("short_stock_opened", func(t *testing.T) {
+	t.Run("ad_hoc_reads_before_gap", func(t *testing.T) {
+		step(t, c, t0.Add(32*time.Minute), t0.Add(32*time.Minute), syntheticBorrowSymbols, false)
+		before := transitions()
+		at := t0.Add(32*time.Minute + 20*time.Second)
+		adHoc(t, at, at, []string{"SYNL"}, "not_relevant")
+		adHoc(t, at, at, []string{"SYNC", "SYNE", "SYNL", "SYNS"}, "not_relevant")
+		step(t, c, t0.Add(33*time.Minute), time.Time{}, syntheticBorrowSymbols, false)
+		if n := transitions(); n != before {
+			t.Fatalf("ad-hoc reads flapped borrow applicability: %d transitions, want %d", n, before)
+		}
+	})
+	t.Run("short_stock_seen_by_ad_hoc_read", func(t *testing.T) {
+		step(t, c, t0.Add(34*time.Minute), t0.Add(34*time.Minute), syntheticBorrowSymbols, false)
 		book = syntheticBookWithShortStock()
-		step(t, c, t0.Add(32*time.Minute), t0.Add(32*time.Minute), syntheticBorrowSymbols, true)
-		step(t, c, t0.Add(33*time.Minute), time.Time{}, syntheticBorrowSymbols, true)
+		t.Cleanup(func() { book = syntheticLongOnlyBook() })
+		at := t0.Add(34*time.Minute + 20*time.Second)
+		adHoc(t, at, at, []string{"SYNS"}, "")
+		step(t, c, t0.Add(35*time.Minute), time.Time{}, syntheticBorrowSymbols, true)
+	})
+	t.Run("short_stock_opened", func(t *testing.T) {
+		step(t, c, t0.Add(36*time.Minute), t0.Add(36*time.Minute), syntheticBorrowSymbols, false)
+		book = syntheticBookWithShortStock()
+		step(t, c, t0.Add(37*time.Minute), t0.Add(37*time.Minute), syntheticBorrowSymbols, true)
+		step(t, c, t0.Add(38*time.Minute), time.Time{}, syntheticBorrowSymbols, true)
 	})
 }
 

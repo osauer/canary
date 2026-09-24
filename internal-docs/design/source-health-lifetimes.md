@@ -66,8 +66,10 @@ silently removed to meet the wire budget.
   short stock among the held names. While the stream is not current (reconnect,
   resubscription, short download, quiet period) the last such verdict answers
   for the same account and names for up to 15 minutes; after that, or without
-  one, the rows are required. A new name, another account or a held short stock
-  ends it at once, and a restart restores none.
+  one, the rows are required. Only a read of the canonical scope stores or
+  replaces that verdict, so an explicit-symbol or app read of other names cannot
+  erase it. A new name, another account or a held short stock seen by any
+  current read ends it at once, and a restart restores none.
 - Borrow-fee refreshes try IBKR's documented FTP host (ftp3) and IBKR's
   mirror (ftp2) in order within one attempt, starting with the host that served
   the retained file, and record the serving host as the source URL. Each control
