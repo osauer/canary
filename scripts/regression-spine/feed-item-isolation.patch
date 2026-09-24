@@ -1,0 +1,14 @@
+diff --git a/internal/macrosource/parse.go b/internal/macrosource/parse.go
+--- a/internal/macrosource/parse.go
++++ b/internal/macrosource/parse.go
+@@ -346,9 +346,7 @@ func parseRSS(s Spec, b []byte, now time.Time) (Batch, error) {
+ 			link = "https://" + link
+ 		}
+ 		if !sourceLink(s, link) || plain(r.Title) == "" {
+-			out.SkippedItems++
+-			skipped = cmp.Or(skipped, errors.New("publication title or source link invalid"))
+-			continue
++			return Batch{}, errors.New("publication title or source link invalid")
+ 		}
+ 		p := rpc.MacroPublication{Title: plain(r.Title), SourceURL: link}
+ 		if strings.TrimSpace(r.PubDate) != "" {

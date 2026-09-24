@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -251,7 +252,13 @@ func (s *Server) macroSnapshotWindow(start, end string) rpc.MacroSnapshotResult 
 		}
 		source := record.Source
 		source.Stale = source.LastSuccess.IsZero() || now.Before(source.LastSuccess.Add(-time.Minute)) || !now.Before(source.ValidUntil)
-		if source.Availability != "available" || source.Stale || source.WindowStart != "" && (start < source.WindowStart || end > source.WindowEnd) {
+		// Skipped items belong to the retained batch, not to a failure, so the
+		// note is derived here; the persisted success envelope stays detail-free.
+		note := record.Batch.SkippedDisclosure()
+		if note != "" {
+			source.Detail = strings.Join(compactNonEmptyStrings(source.Detail, note), " · ")
+		}
+		if source.Availability != "available" || source.Stale || note != "" || source.WindowStart != "" && (start < source.WindowStart || end > source.WindowEnd) {
 			out.CoverageStatus = "partial"
 		}
 		out.Sources = append(out.Sources, source)
@@ -346,7 +353,7 @@ func validateMacroEnvelope(spec macrosource.Spec, record macroRecord, now time.T
 		return errors.New("public source coverage mismatch")
 	}
 	if source.LastSuccess.IsZero() {
-		if source.Availability != "unavailable" || !source.ValidUntil.IsZero() || len(record.Batch.Events)+len(record.Batch.Publications) != 0 {
+		if source.Availability != "unavailable" || !source.ValidUntil.IsZero() || len(record.Batch.Events)+len(record.Batch.Publications) != 0 || record.Batch.SkippedItems != 0 {
 			return errors.New("public source evidence missing")
 		}
 		return nil
