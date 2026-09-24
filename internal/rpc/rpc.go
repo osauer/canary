@@ -1633,8 +1633,9 @@ type Quote struct {
 	SpreadPct           *float64  `json:"spread_pct,omitempty"`
 	// QuoteQuality is a compact machine hint: "firm", "indicative",
 	// "wide", "prev_close", "stale", or "missing". It summarizes the
-	// selected price and spread/session context; WarningDetails carries
-	// the explainable reasons.
+	// selected price and its feed, spread, and session context; a price
+	// from IBKR's delayed feed is never "firm". WarningDetails carries the
+	// explainable reasons.
 	QuoteQuality string `json:"quote_quality,omitempty"`
 	Indicative   bool   `json:"indicative,omitempty"`
 	VolumePhase  string `json:"volume_phase,omitempty"`

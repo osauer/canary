@@ -367,6 +367,11 @@ type Subscription struct {
 	// exact reqID only draws error 300 "Can't find EId". Stored as the
 	// wireCancelNeeded.
 	rejectedReqID int
+	// fallbackRefusal is the 354 that moved this line to the delayed feed.
+	// MarketDataAbsences discloses it once the line serves a delayed price and
+	// no suppressing absence record names the key, as after a farm-impairment
+	// veto; it never gates a request.
+	fallbackRefusal *marketDataAbsence
 }
 
 // wireCancelNeeded reports whether sub still names a gateway-side
@@ -466,21 +471,20 @@ func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 		delete(c.mktDataAbsent, key)
 		return nil
 	}
-	return &MarketDataAbsenceError{
-		Key:        key,
-		Code:       entry.code,
-		Message:    entry.message,
-		ObservedAt: entry.at,
-		RetryAt:    entry.at.Add(marketDataAbsenceRetry),
-	}
+	report := marketDataAbsenceReport(key, entry)
+	return &report
 }
 
 // MarketDataAbsences snapshots every route key whose terminal entitlement
 // rejection is still inside its retry window, ordered by key. Expired records
 // are dropped on read exactly as marketDataAbsenceFor drops them, so an
 // observation surface can never name a key the subscribe paths would already
-// let through. Message stays untrusted broker text; callers that classify must
-// read Code.
+// let through. A shared quote line that a 354 moved to the delayed feed is
+// named for the same window even when a farm-impairment veto withheld the
+// suppressing record, but only once it serves a delayed price: the vetoed 354
+// is no entitlement verdict, so the entry discloses the served mode rather
+// than a refusal or a gate. Message stays untrusted broker text; callers that
+// classify must read Code.
 func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	if c == nil {
 		return nil
@@ -488,37 +492,63 @@ func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	now := c.absenceClock()
 	c.absenceMu.Lock()
 	out := make([]MarketDataAbsenceError, 0, len(c.mktDataAbsent))
+	recorded := make(map[string]bool, len(c.mktDataAbsent))
 	for key, entry := range c.mktDataAbsent {
 		if now.Sub(entry.at) >= marketDataAbsenceRetry {
 			delete(c.mktDataAbsent, key)
 			continue
 		}
-		out = append(out, MarketDataAbsenceError{
-			Key:        key,
-			Code:       entry.code,
-			Message:    entry.message,
-			ObservedAt: entry.at,
-			RetryAt:    entry.at.Add(marketDataAbsenceRetry),
-		})
+		recorded[key] = true
+		out = append(out, marketDataAbsenceReport(key, entry))
 	}
 	c.absenceMu.Unlock()
+	c.subMu.RLock()
 	for i := range out {
-		c.subMu.RLock()
-		sub := c.subscriptions[out[i].Key]
-		if sub != nil {
-			dt := c.subscriptionDataType(sub)
-			if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
-				dt = sub.previousDataType
-				sub = sub.previousQuote
-			}
-			if (dt == 3 || dt == 4) && !sub.LastPriceTickAt.IsZero() {
-				out[i].FallbackDataType, out[i].FallbackReceivedAt = dt, sub.LastPriceTickAt
-			}
-		}
-		c.subMu.RUnlock()
+		out[i].FallbackDataType, out[i].FallbackReceivedAt = c.servedDelayedQuote(c.subscriptions[out[i].Key])
 	}
+	for key, sub := range c.subscriptions {
+		if sub == nil || sub.fallbackRefusal == nil || recorded[key] || now.Sub(sub.fallbackRefusal.at) >= marketDataAbsenceRetry {
+			continue
+		}
+		report := marketDataAbsenceReport(key, *sub.fallbackRefusal)
+		report.FallbackDataType, report.FallbackReceivedAt = c.servedDelayedQuote(sub)
+		if report.FallbackDataType != 0 {
+			out = append(out, report)
+		}
+	}
+	c.subMu.RUnlock()
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
+}
+
+// servedDelayedQuote reports the delayed feed type and price clock of the
+// delayed price that sub, or the prior line it keeps showing during a live
+// re-probe, has actually served. Both are zero when no delayed price has been
+// served. The caller holds subMu.
+func (c *Connector) servedDelayedQuote(sub *Subscription) (int, time.Time) {
+	if sub == nil {
+		return 0, time.Time{}
+	}
+	dt := c.subscriptionDataType(sub)
+	if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
+		dt, sub = sub.previousDataType, sub.previousQuote
+	}
+	if (dt == 3 || dt == 4) && !sub.LastPriceTickAt.IsZero() {
+		return dt, sub.LastPriceTickAt
+	}
+	return 0, time.Time{}
+}
+
+// marketDataAbsenceReport projects one in-window refusal for key onto the
+// exported report shape; delayed-feed evidence is added by the caller.
+func marketDataAbsenceReport(key string, entry marketDataAbsence) MarketDataAbsenceError {
+	return MarketDataAbsenceError{
+		Key:        key,
+		Code:       entry.code,
+		Message:    entry.message,
+		ObservedAt: entry.at,
+		RetryAt:    entry.at.Add(marketDataAbsenceRetry),
+	}
 }
 
 // Definition-miss probe backoff: first miss earns the floor, each repeat
@@ -1251,7 +1281,7 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 
 	if code == 354 {
 		c.maybeRememberAbsenceForReqID(reqID, alias, code, note.message)
-		if recover := c.prepareDelayedQuoteRecovery(origin, reqID); recover != nil {
+		if recover := c.prepareDelayedQuoteRecovery(origin, reqID, note.message); recover != nil {
 			return recover
 		}
 		c.pushSubscriptionRejection(reqID, code, note.message)
@@ -5816,6 +5846,7 @@ func (c *Connector) handleTickPrice(fields []string) {
 		c.recordDelayedQuoteAvailable(symbol)
 	}
 	if quotePrice && !sub.delayedTicks && c.subscriptionDataType(sub) == 1 {
+		sub.fallbackRefusal = nil
 		c.absenceMu.Lock()
 		delete(c.mktDataAbsent, symbol)
 		c.absenceMu.Unlock()
@@ -7416,7 +7447,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 	} else {
 		baseWhat := defaultHistoricalWhat(baseContract.SecType)
 		altWhat := alternateHistoricalWhat(baseWhat)
-		seq = historicalWhatSequence(symbol, baseContract.SecType, baseWhat, altWhat)
+		seq = historicalWhatSequence(baseContract.SecType, baseWhat, altWhat)
 	}
 	attempts := make([]attempt, 0, len(seq)*2)
 	seen := make(map[string]struct{})
@@ -7485,10 +7516,13 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 
 func defaultHistoricalWhat(secType string) string {
 	switch strings.ToUpper(secType) {
-	case "IND", "CMDTY", "CASH":
+	case "CMDTY", "CASH":
 		// CASH has no consolidated trade tape on IBKR; reqHistoricalData
 		return "MIDPOINT"
 	default:
+		// Indices publish their values as TRADES and quote no bid/ask, so
+		// MIDPOINT is only their alternate: asking it first costs a paced
+		// request that IBKR answers with 162.
 		return "TRADES"
 	}
 }
@@ -7503,7 +7537,7 @@ func alternateHistoricalWhat(current string) string {
 	return current
 }
 
-func historicalWhatSequence(symbol, secType, baseWhat, altWhat string) []string {
+func historicalWhatSequence(secType, baseWhat, altWhat string) []string {
 	seq := make([]string, 0, 5)
 	appendWhat := func(value string) {
 		if value == "" {
@@ -7517,25 +7551,18 @@ func historicalWhatSequence(symbol, secType, baseWhat, altWhat string) []string 
 		seq = append(seq, value)
 	}
 
-	switch strings.ToUpper(strings.TrimSpace(symbol)) {
-	case "VIX":
-		appendWhat("TRADES")
-		appendWhat("MIDPOINT")
-	default:
-		appendWhat(baseWhat)
-		switch strings.ToUpper(strings.TrimSpace(secType)) {
-		case "STK":
-			appendWhat("ADJUSTED_LAST")
-		case "CASH":
-			// FX has no trade tape — don't bother probing TRADES;
-			// IBKR rejects with code 162 and the retry would just
-			return seq
-		}
-		if !strings.EqualFold(baseWhat, altWhat) {
-			appendWhat(altWhat)
-		}
+	appendWhat(baseWhat)
+	switch strings.ToUpper(strings.TrimSpace(secType)) {
+	case "STK":
+		appendWhat("ADJUSTED_LAST")
+	case "CASH":
+		// FX has no trade tape — don't bother probing TRADES;
+		// IBKR rejects with code 162 and the retry would just
+		return seq
 	}
-
+	if !strings.EqualFold(baseWhat, altWhat) {
+		appendWhat(altWhat)
+	}
 	return seq
 }
 

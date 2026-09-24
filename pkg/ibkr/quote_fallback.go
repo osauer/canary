@@ -122,7 +122,8 @@ func (c *Connector) removeSharedQuoteRequest(key string, sub *Subscription, id i
 // prepareDelayedQuoteRecovery runs under the incoming notice's session lease.
 // Claim the one attempt before returning outbound work to the post-barrier path.
 // Exact-session and derivative subscriptions retain their existing owners.
-func (c *Connector) prepareDelayedQuoteRecovery(origin ConnectorSessionBinding, id int) func() {
+// The line keeps the refusal message so the delayed service stays disclosed.
+func (c *Connector) prepareDelayedQuoteRecovery(origin ConnectorSessionBinding, id int, message string) func() {
 	c.subMu.Lock()
 	key := c.reqIDMap[id]
 	sub := c.subscriptions[key]
@@ -148,6 +149,7 @@ func (c *Connector) prepareDelayedQuoteRecovery(origin ConnectorSessionBinding, 
 		return nil
 	}
 	sub.delayedFallback = true
+	sub.fallbackRefusal = &marketDataAbsence{code: 354, message: message, at: c.absenceClock()}
 	c.subMu.Unlock()
 	c.recordDelayedQuoteAttempt(key)
 	return func() {

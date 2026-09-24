@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/connector.go b/pkg/ibkr/connector.go
+--- a/pkg/ibkr/connector.go
++++ b/pkg/ibkr/connector.go
+@@ -7504,7 +7504,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
+ 
+ func defaultHistoricalWhat(secType string) string {
+ 	switch strings.ToUpper(secType) {
+-	case "CMDTY", "CASH":
++	case "IND", "CMDTY", "CASH":
+ 		// CASH has no consolidated trade tape on IBKR; reqHistoricalData
+ 		return "MIDPOINT"
+ 	default:

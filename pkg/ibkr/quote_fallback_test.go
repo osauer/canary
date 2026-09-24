@@ -54,6 +54,9 @@ func TestSharedQuote354RecoversExactRouteAndRetainsDelayedEvidence(t *testing.T)
 	}
 	oldID := c.subscriptions[key].ReqID
 	rejectQuote(t, c, key, 354)
+	if abs := c.MarketDataAbsences(); len(abs) != 1 || abs[0].Code != 354 || abs[0].FallbackDataType != 0 {
+		t.Fatalf("recorded refusal hidden before any delayed price: %+v", abs)
+	}
 	sub := c.subscriptions[key]
 	if sub.ReqID == oldID {
 		t.Fatal("rejected request was not replaced")
@@ -93,6 +96,65 @@ func TestSharedQuote354RecoversExactRouteAndRetainsDelayedEvidence(t *testing.T)
 	}
 	if !c.subscriptions[key].delayedFallback {
 		t.Fatal("did not reuse successful delayed mode inside live retry window")
+	}
+}
+
+// TestShared354DuringFarmImpairmentDisclosesDelayedService witnesses the
+// entitlement refusal that vanished from status and data health while the
+// line kept serving delayed data, because an unrelated impaired farm vetoed
+// the absence record. The veto itself must still keep live requests open, and
+// the refusal must stay undisclosed until a delayed price is served: data
+// health turns an empty quote shell that carries a 354 into a not_entitled
+// ibkr:quotes problem, which a possibly transient farm-outage 354 is not.
+func TestShared354DuringFarmImpairmentDisclosesDelayedService(t *testing.T) {
+	c, _, _, contract := newQuoteFallbackFixture(t)
+	c.dataFarmMu.Lock()
+	c.dataFarms = map[string]DataFarmStatus{dataFarmKey("market", "usfuture"): {Name: "usfuture", Type: "market", Status: "broken"}}
+	c.dataFarmMu.Unlock()
+	key, err := c.SubscribeMarketDataWithContract(t.Context(), contract, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectQuote(t, c, key, 354)
+	if !c.subscriptions[key].delayedFallback {
+		t.Fatal("impaired-farm 354 did not fall back to delayed data")
+	}
+	if absent := c.marketDataAbsenceFor(key); absent != nil {
+		t.Fatalf("impaired-farm 354 became a suppressing absence record: %v", absent)
+	}
+	if mode, err := c.sharedQuoteMode(key); mode != 0 || err != nil {
+		t.Fatalf("disclosure gated a new live request: mode=%d err=%v", mode, err)
+	}
+	if abs := c.MarketDataAbsences(); len(abs) != 0 {
+		t.Fatalf("vetoed 354 disclosed before any delayed price was served: %+v", abs)
+	}
+	quoteType(c, key, 4)
+	if abs := c.MarketDataAbsences(); len(abs) != 0 {
+		t.Fatalf("delayed mode without a price disclosed the vetoed 354: %+v", abs)
+	}
+	quoteTick(c, key, 75, 100)
+	abs := c.MarketDataAbsences()
+	if len(abs) != 1 || abs[0].Key != key || abs[0].Code != 354 || abs[0].FallbackDataType != 4 || abs[0].ObservedAt.IsZero() || !abs[0].RetryAt.Equal(abs[0].ObservedAt.Add(marketDataAbsenceRetry)) {
+		t.Fatalf("delayed service lost its refusal evidence: %+v", abs)
+	}
+	c.absenceNow = func() time.Time { return abs[0].RetryAt }
+	if len(c.MarketDataAbsences()) != 0 {
+		t.Fatal("refusal evidence outlived its live re-probe window")
+	}
+	c.absenceNow = nil
+
+	sub := c.subscriptions[key]
+	origin, _ := c.CaptureSession()
+	if err := c.replaceSharedQuote(t.Context(), origin, key, sub, sub.ReqID, 2); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.MarketDataAbsences()) != 1 {
+		t.Fatal("pending live probe hid the delayed service it still shows")
+	}
+	quoteType(c, key, 1)
+	quoteTick(c, key, 1, 102)
+	if abs := c.MarketDataAbsences(); len(abs) != 0 {
+		t.Fatalf("confirmed live recovery kept disclosing the refusal: %+v", abs)
 	}
 }
 func TestSharedQuoteFailedDelayedAttemptBacksOff(t *testing.T) {

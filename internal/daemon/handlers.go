@@ -2885,7 +2885,7 @@ func quoteQuality(q *rpc.Quote, market marketcal.Market) string {
 	if quoteSpreadIsWide(q) {
 		return "wide"
 	}
-	if quoteOffHours(q, market) {
+	if quoteOffHours(q, market) || quoteHasDelayedFeed(q) {
 		return "indicative"
 	}
 	return "firm"
@@ -2895,7 +2895,8 @@ func quoteIndicative(q *rpc.Quote, market marketcal.Market) bool {
 	if q == nil {
 		return false
 	}
-	return quoteOffHours(q, market) || quoteSpreadIsWide(q) || q.DataType == rpc.MarketDataPrevClose
+	return quoteOffHours(q, market) || quoteSpreadIsWide(q) || q.DataType == rpc.MarketDataPrevClose ||
+		(q.Price != nil && quoteHasDelayedFeed(q))
 }
 
 func quoteSpreadIsWide(q *rpc.Quote) bool {
@@ -2961,6 +2962,18 @@ func quoteWarningDetails(q *rpc.Quote, market marketcal.Market) []rpc.DataWarnin
 				Impact:   "The value is suitable as stale context, not as an executable quote.",
 			})
 		}
+	}
+	// The feed is the disclosure: an index has no session calendar to call a
+	// delayed value off-hours, and an in-session delayed stock is not current.
+	if q.Price != nil && quoteHasDelayedFeed(q) {
+		out = append(out, rpc.DataWarning{
+			Code:     "delayed_feed",
+			Scope:    scope,
+			Severity: "data_quality",
+			Message:  "Selected price comes from IBKR's delayed market-data feed, not a real-time quote.",
+			Impact:   "Delayed values lag the market and delayed-frozen values repeat the last delayed observation; treat the price as context, not as executable.",
+			Action:   "Check status market_data_access for the broker's live-data refusal; data_type reads live once IBKR serves real-time data.",
+		})
 	}
 	if quoteSpreadIsWide(q) {
 		out = append(out, rpc.DataWarning{
