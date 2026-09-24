@@ -1,0 +1,11 @@
+diff --git a/internal/app/live/service.go b/internal/app/live/service.go
+--- a/internal/app/live/service.go
++++ b/internal/app/live/service.go
+@@ -922,7 +922,6 @@
+ func (s *Service) publishSnapshot(now time.Time, snap Snapshot, errors []SourceError, events []Event) Snapshot {
+ 	s.mu.Lock()
+ 	defer s.mu.Unlock()
+-	snap.Quotes = cloneMarketQuotes(s.snapshot.Quotes)
+ 	snap.AlertCandidates = cloneAlertCandidateSnapshot(s.snapshot.AlertCandidates)
+ 	if source, ok := s.snapshot.Sources["alert_candidates"]; ok {
+ 		if snap.Sources == nil {
