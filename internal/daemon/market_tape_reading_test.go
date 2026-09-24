@@ -15,7 +15,7 @@ func TestTapeReadingObservedRetracementAndMissingEvidence(t *testing.T) {
 		{Date: "2026-09-23", SPX: &rpc.MarketTapePrice{Close: 101, ChangePct: new(-100.0 / 102)}, Breadth: &rpc.MarketTapeBreadth{PctAbove50DMA: new(30.0), Change50PP: new(-1.0), Coverage50: 90, MemberCount: 100}},
 	}
 	r := describeMarketTape(rows)
-	if r.Headline != "Price fell; trend participation weakened" || r.Rally == nil || r.Rally.Session != "2026-09-21" || math.Abs(r.Rally.GivebackPct-50) > 1e-8 {
+	if r.Headline != "S&P 500 fell; fewer stocks above average" || r.Rally == nil || r.Rally.Session != "2026-09-21" || math.Abs(r.Rally.GivebackPct-50) > 1e-8 {
 		t.Fatalf("incorrect relationship: %+v", r)
 	}
 	for _, e := range r.Evidence {
@@ -28,7 +28,7 @@ func TestTapeReadingObservedRetracementAndMissingEvidence(t *testing.T) {
 		t.Fatal("retracement bridged an unknown close")
 	}
 	rows[2].Breadth = nil
-	if describeMarketTape(rows).Headline != "Price fell" {
+	if describeMarketTape(rows).Headline != "S&P 500 fell" {
 		t.Fatal("missing breadth fabricated confirmation")
 	}
 }

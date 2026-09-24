@@ -145,23 +145,40 @@ result stops the forecasting work while retaining the useful observed tape.
 
 Each session carries one daemon-generated `reading`: a short observed-relationship
 headline, plain-English explanation, measurement/value/meaning rows, next-session
-checks and explicit limitations. CLI text prints it before the aligned tape;
-JSON carries identical content. Text uses the shared terminal wrapping and
-aligned numeric tables; `--explain` reveals measurement meanings, limitations
-and source clocks. `canary market tape --help` works without a daemon and names
-the default, bounds and examples. Canary presents a date selector, the reading,
+checks and explicit limitations. CLI text prints the shared headline before the
+aligned tape; JSON retains the full reading and all measurements. The CLI shows
+five completed trading days by default (explicit `--sessions` accepts 5–60;
+the RPC default remains 20). Its three measures are the S&P 500 daily change,
+the share of measured stocks above their own 50-day average, and QQQ volume
+relative to its previous 20-day average. Definitions stay next to the table.
+An asterisk marks a stock measure without a comparable previous-day value.
+Latest stock coverage, absent rising/falling counts, source gaps and failed
+refreshes remain visible. Extra moving averages, daily QQQ returns, detailed
+source clocks and methodology remain in `--json`. `--explain` adds a brief guide
+to purpose and reliability instead of repeating the full evidence catalogue.
+Text uses the shared terminal wrapping and numeric table styles.
+`canary market tape --help` works without a daemon and names the default,
+bounds and examples. Canary presents a date selector, the reading,
 four aligned plots, measure-specific denominators and collapsed meaning/source
 sections. Desk's Market view renders the same reading on demand, preserves the
 selected session across snapshots/navigation, and labels a retained read after a
 failed refresh. Opening it makes no model call and does not change risk posture.
 
-Examples include "Price rose; trend participation narrowed" and "Price fell;
-trend participation weakened". Nearly unchanged means zero after rounding to
+Examples include "S&P 500 rose; fewer stocks above average" and "S&P 500 fell;
+fewer stocks above average". Nearly unchanged means zero after rounding to
 the displayed two decimals, not a fitted threshold. Trend participation is not
 daily advancer share. Daily share-volume groups stocks by their close direction;
 it is neither signed trades nor dollar turnover. Missing daily participation
 never becomes a bearish signal. Unchanged names/volume are excluded from the two
 directional shares; zero denominators stay unavailable.
+
+The readability hypothesis is that a five-day view with three defined measures
+answers what moved, how widespread strength was, and what remains unknown more
+clearly than the original 102-line five-day `--explain` output. Accept the smaller
+view only if missing-versus-zero, changing coverage, failed refreshes and raw JSON
+evidence survive. This is a presentation improvement, not evidence that the tape
+beats a price-only forecast. A few successful closes validate collection;
+predictive reliability still depends on the separate held-out comparison above.
 
 A non-rising session can show the fraction of the most recent up day's point
 gain given back, looking back at most five sessions. The reference date is always

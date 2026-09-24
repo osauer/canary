@@ -12,9 +12,9 @@ import (
 func describeMarketTape(rows []rpc.MarketTapeSession) *rpc.MarketTapeReading {
 	r := &rpc.MarketTapeReading{
 		Headline: "Price comparison unavailable",
-		Summary:  "A consecutive-session SPX close is needed to describe the day's move.",
+		Summary:  "We need this day's and the previous day's S&P 500 closing prices.",
 		Evidence: []rpc.MarketTapeEvidence{},
-		WatchFor: []string{"In the next completed session, compare price direction with the change in 50-day participation.", "Check daily advancers and directional volume separately; a higher index alone does not show how many stocks rose."},
+		WatchFor: []string{"Next close: if the S&P 500 rises, do more stocks finish above their own 50-day average?", "Check how many stocks rose and fell that day once those counts are available."},
 		Limits:   []string{"Descriptive daily closes, not a forecast. Historical first-availability is unknown; no same-day warning is demonstrated."},
 	}
 	if len(rows) == 0 {
@@ -26,28 +26,29 @@ func describeMarketTape(rows []rpc.MarketTapeSession) *rpc.MarketTapeReading {
 	}
 	if s.SPX != nil && s.SPX.ChangePct != nil {
 		price := tapeDirection(*s.SPX.ChangePct, 2)
-		r.Headline = map[int]string{-1: "Price fell", 0: "Price was nearly unchanged", 1: "Price rose"}[price]
-		r.Summary = "A price move alone does not establish the breadth or durability of the move."
+		r.Headline = map[int]string{-1: "S&P 500 fell", 0: "S&P 500 was nearly unchanged", 1: "S&P 500 rose"}[price]
+		r.Summary = "Price alone does not show how many stocks share the strength or whether it will last."
 		if s.Breadth != nil && s.Breadth.Change50PP != nil {
 			breadth := tapeDirection(*s.Breadth.Change50PP, 2)
 			switch {
 			case price > 0 && breadth > 0:
-				r.Headline, r.Summary = "Price rose; trend participation improved", "The index and the share of measured stocks above their 50-day average rose together. This supports the day's move; it does not establish follow-through."
+				r.Headline, r.Summary = "S&P 500 rose; more stocks above average", "The index rose, and a larger share of measured stocks finished above their own average price over 50 trading days. This does not predict tomorrow."
 			case price > 0 && breadth < 0:
-				r.Headline, r.Summary = "Price rose; trend participation narrowed", "The index rose while fewer measured stocks stayed above their 50-day average. The rally was not confirmed by this trend measure."
+				r.Headline, r.Summary = "S&P 500 rose; fewer stocks above average", "The index rose, but a smaller share of measured stocks finished above their own average price over 50 trading days. The price rise hides that weakness."
 			case price < 0 && breadth < 0:
-				r.Headline, r.Summary = "Price fell; trend participation weakened", "The index and 50-day participation fell together. Weakness extended beyond the index price, but this does not predict the next session."
+				r.Headline, r.Summary = "S&P 500 fell; fewer stocks above average", "The index fell, and a smaller share of measured stocks finished above their own average price over 50 trading days. This does not predict tomorrow."
 			case price < 0 && breadth > 0:
-				r.Headline, r.Summary = "Price fell; trend participation improved", "The index fell while a larger share of measured stocks stood above their 50-day average. The two measures diverged."
+				r.Headline, r.Summary = "S&P 500 fell; more stocks above average", "The index fell, but a larger share of measured stocks finished above their own average price over 50 trading days. The two measures moved in opposite directions."
 			case price == 0 && breadth < 0:
-				r.Headline, r.Summary = "Price held; trend participation narrowed", "The index was nearly unchanged at the displayed precision while 50-day participation fell. The flat index concealed deterioration in this measure."
+				r.Headline, r.Summary = "S&P 500 held; fewer stocks above average", "The index barely moved, but a smaller share of measured stocks finished above their own average price over 50 trading days."
 			case price == 0 && breadth > 0:
-				r.Headline, r.Summary = "Price held; trend participation improved", "The index was nearly unchanged at the displayed precision while 50-day participation improved."
+				r.Headline, r.Summary = "S&P 500 held; more stocks above average", "The index barely moved, but a larger share of measured stocks finished above their own average price over 50 trading days."
 			default:
-				r.Summary = "50-day participation was nearly unchanged at the displayed precision. Compare the daily advancers and volume before attributing the price move to broad participation."
+				r.Summary = "The share of stocks above their own 50-day average barely changed. This does not tell us how many stocks rose today."
 			}
 		} else {
-			r.Limits = append(r.Limits, "A comparable prior-session breadth measurement is missing; trend participation cannot confirm this price move.")
+			r.Summary += " A matching stock measurement from the previous day is missing."
+			r.Limits = append(r.Limits, "We cannot compare the share above average with the previous day because comparable data is missing.")
 		}
 		add("price", "SPX daily move", fmt.Sprintf("%+.2f%%", *s.SPX.ChangePct), "Close-to-close index change. This does not measure intraday persistence.")
 		if price <= 0 {
@@ -67,7 +68,7 @@ func describeMarketTape(rows []rpc.MarketTapeSession) *rpc.MarketTapeReading {
 			if b.Change50PP != nil {
 				value += fmt.Sprintf(" · %+.2f pp on prior session", *b.Change50PP)
 			}
-			add("breadth_50", "Above 50-day average", value, "Trend participation is a level, not the percentage of stocks that rose today. Percentage-point changes require equal coverage counts and, when recorded, equal membership.")
+			add("breadth_50", "Above 50-day average", value, "Each measured stock counts once. We count those at or above their own average closing price over 50 trading days. This is not the percentage that rose today; day-to-day comparisons require comparable stock coverage.")
 		}
 		if b.PctAbove200DMA != nil {
 			add("breadth_200", "Above 200-day average", fmt.Sprintf("%.1f%% · %d/%d names", *b.PctAbove200DMA, b.Coverage200, b.MemberCount), "Longer-term trend participation; it can remain weak even during a strong up day.")
@@ -84,9 +85,9 @@ func describeMarketTape(rows []rpc.MarketTapeSession) *rpc.MarketTapeReading {
 			if p.AdvancePct != nil {
 				value += fmt.Sprintf(" · %.1f%% advancers", *p.AdvancePct)
 			}
-			add("advance_decline", "Daily participation", value, "Direction versus each stock's previous official session close. The advancer share excludes unchanged stocks; 50% means equal advancing and declining counts.")
+			add("advance_decline", "Stocks rising / falling", value, "Each stock is compared with its previous closing price. The percentage rising leaves out unchanged stocks; 50% means equal rising and falling counts.")
 		} else {
-			add("advance_decline", "Daily participation", "Not collected for this session", "Older trend breadth does not reconstruct daily advancers. Dated close pairs will arrive through scheduled collection.")
+			add("advance_decline", "Stocks rising / falling", "Not collected for this session", "The above-average measure cannot tell us how many stocks rose that day. These counts need separate daily collection.")
 		}
 		if p != nil && p.CoverageVolume > 0 {
 			value := fmt.Sprintf("%d/%d names", p.CoverageVolume, b.MemberCount)

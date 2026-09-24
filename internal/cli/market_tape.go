@@ -9,14 +9,14 @@ import (
 )
 
 func runMarketTape(ctx context.Context, env *Env, args []string) int {
-	fs := describedFlagSet(env, "market tape", "Completed-session price, participation and volume with a descriptive reading", "canary market tape [--sessions 20] [--explain] [--json]")
-	jsonOut := fs.Bool("json", false, "emit the full typed tape; text formatting does not alter JSON")
-	explain := fs.Bool("explain", false, "include measurement meanings, limitations and source clocks")
-	sessions := fs.Int("sessions", 20, "completed US equity sessions; default 20, range 5–60")
+	fs := describedFlagSet(env, "market tape", "Daily prices, stocks above their recent average, and trading activity", "canary market tape [--sessions 5] [--explain] [--json]")
+	jsonOut := fs.Bool("json", false, "all measurements, source times and data limitations as JSON")
+	explain := fs.Bool("explain", false, "briefly explain what this shows and when to trust it")
+	sessions := fs.Int("sessions", 5, "completed US trading days; default 5, range 5–60")
 	usage := fs.Usage
 	fs.Usage = func() {
 		usage()
-		fmt.Fprint(env.Stdout, "\nExamples:\n  canary market tape --sessions 5\n  canary market tape --explain\n  canary market tape --sessions 20 --json\n\nRead-only observations; no forecast. Missing measurements remain unavailable.\n")
+		fmt.Fprint(env.Stdout, "\nExamples:\n  canary market tape\n  canary market tape --explain\n  canary market tape --sessions 20\n  canary market tape --json\n\nRead-only, after-close observations; no forecast. — means unavailable.\n")
 	}
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -43,112 +43,111 @@ func renderMarketTape(env *Env, result *rpc.MarketTapeResult, explain bool) {
 	out := env.Stdout
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, env.bold("Market tape"))
-	riskReadLine(env, "  Through", result.LatestSession, result.CoverageStatus+" coverage")
-	riskReadLine(env, "  Observed daily sessions; no forecast. Historical availability unknown.")
+	riskReadLine(env, "  Completed closes through "+result.LatestSession+"; no forecast.")
 	var reading *rpc.MarketTapeReading
+	var latest *rpc.MarketTapeSession
 	if len(result.Sessions) > 0 {
-		reading = result.Sessions[len(result.Sessions)-1].Reading
+		latest = &result.Sessions[len(result.Sessions)-1]
+		reading = latest.Reading
 	}
 	if reading != nil {
 		fmt.Fprintln(out)
 		for _, line := range wrapVisibleText(sanitizeRunText(reading.Headline), briefProseWidth(out)) {
 			fmt.Fprintln(out, env.bold(line))
 		}
-		riskReadLine(env, "  "+reading.Summary)
 		for _, e := range reading.Evidence {
 			if e.Key == "giveback" {
-				marketTapeEvidenceLine(env, e)
+				briefLabelLine(env, "Recent gain", sanitizeRunText(e.Value), briefProseWidth(out))
 			}
 		}
 	}
 	fmt.Fprintln(out)
 	rows := make([][]string, 0, len(result.Sessions))
+	missingComparison := false
 	for _, row := range result.Sessions {
-		var spx, qqq, breadth, change, volume *float64
+		var spx, breadth, volume *float64
 		if row.SPX != nil {
 			spx = row.SPX.ChangePct
 		}
 		if row.QQQ != nil {
-			qqq, volume = row.QQQ.ChangePct, row.QQQ.RelativeVolume20
+			volume = row.QQQ.RelativeVolume20
 		}
 		if row.Breadth != nil {
-			breadth, change = row.Breadth.PctAbove50DMA, row.Breadth.Change50PP
+			breadth = row.Breadth.PctAbove50DMA
 		}
-		rows = append(rows, []string{sanitizeRunText(row.Date), marketTapeNumber(env, spx, "%", true), marketTapeNumber(env, qqq, "%", true), marketTapeNumber(env, breadth, "%", false), marketTapeNumber(env, change, "", true), marketTapeNumber(env, volume, "×", false)})
+		share := marketTapeNumber(env, breadth, "%", false)
+		if breadth != nil && row.Breadth.Change50PP == nil {
+			share += "*"
+			missingComparison = true
+		}
+		rows = append(rows, []string{sanitizeRunText(row.Date), marketTapeNumber(env, spx, "%", true), share, marketTapeNumber(env, volume, "×", false)})
 	}
-	cols := []positionTableColumn{{"SESSION", positionAlignLeft}, {"SPX DAY", positionAlignRight}, {"QQQ DAY", positionAlignRight}, {"ABOVE50D", positionAlignRight}, {"Δ PP", positionAlignRight}, {"QQQ RVOL", positionAlignRight}}
+	cols := []positionTableColumn{{"DAY", positionAlignLeft}, {"S&P 500", positionAlignRight}, {"ABOVE 50-DAY AVG", positionAlignRight}, {"QQQ VOLUME", positionAlignRight}}
 	renderPositionTable(env, out, cols, rows)
 	fmt.Fprintln(out)
-	riskReadLine(env, "  — = unavailable; Δ pp = change in percentage points.")
-	riskReadLine(env, "  ABOVE50D = measured S&P 500 stocks above their 50-day average.")
-	riskReadLine(env, "  QQQ RVOL = ETF volume / prior 20-session mean; not signed market flow.")
-	if reading != nil {
-		fmt.Fprintln(out)
-		if explain {
-			fmt.Fprintln(out, env.bold("Measurements · latest session"))
-			for _, e := range reading.Evidence {
-				marketTapeEvidenceLine(env, e)
-				riskReadLine(env, "    "+e.Meaning)
-			}
-		} else {
-			fmt.Fprintln(out, env.bold("Participation · latest session"))
-			for _, e := range reading.Evidence {
-				switch e.Key {
-				case "breadth_20", "breadth_200", "highs_lows", "advance_decline", "constituent_volume":
-					marketTapeEvidenceLine(env, e)
-				}
-			}
-		}
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, env.bold("Next-session checks"))
-		for _, check := range reading.WatchFor {
-			riskReadLine(env, "  "+check)
-		}
-		if explain {
-			fmt.Fprintln(out)
-			fmt.Fprintln(out, env.bold("Reading limits"))
-			for _, limit := range reading.Limits {
-				riskReadLine(env, "  "+limit)
-			}
-		}
+	riskReadLine(env, "  S&P 500: price change since the previous close.")
+	riskReadLine(env, "  Above average: % of measured S&P 500 stocks at or above their own 50-day average closing price.")
+	riskReadLine(env, "  QQQ volume: trading in one Nasdaq-100 fund; 1× = its previous 20-day average.")
+	riskReadLine(env, "  Days here are trading days. — = unavailable.")
+	if missingComparison {
+		riskReadLine(env, "  * Stock measure cannot be compared with the previous day.")
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, env.bold("Source coverage"))
-	for _, source := range result.Sources {
-		label := map[string]string{"spx": "SPX price", "qqq": "QQQ price / volume", "breadth": "S&P 500 breadth"}[source.Key]
-		if label == "" {
-			label = "Unknown source"
-		}
-		riskReadLine(env, "  "+label, source.Status, fmt.Sprintf("%d missing sessions", source.MissingSessions))
-		if !explain {
-			continue
-		}
-		acquired := "unavailable"
-		if !source.AsOf.IsZero() {
-			acquired = source.AsOf.Local().Format("2 Jan 2006 15:04 MST")
-		}
-		riskReadLine(env, "    Acquired", acquired, source.Detail)
-		for _, metric := range []struct{ key, label string }{{"volume", "ETF volume"}, {"relative_volume_20", "Relative volume"}, {"pct_above_20dma", "20-day participation"}, {"pct_above_200dma", "200-day participation"}, {"highs_lows", "Closing highs / lows"}, {"advance_decline", "Daily participation"}, {"constituent_volume", "Directional share volume"}} {
-			if n := source.MissingMetrics[metric.key]; n > 0 {
-				riskReadLine(env, "    "+metric.label, fmt.Sprintf("unavailable for %d sessions", n))
-			}
+	if latest != nil && latest.Breadth != nil {
+		b := latest.Breadth
+		if b.PctAbove50DMA != nil {
+			riskReadLine(env, fmt.Sprintf("  Latest 50-day measure: %d of %d stocks covered.", b.Coverage50, b.MemberCount))
 		}
 	}
+	if latest != nil && latest.Breadth != nil && latest.Breadth.Participation != nil && latest.Breadth.Participation.CoverageAD > 0 {
+		p := latest.Breadth.Participation
+		riskReadLine(env, fmt.Sprintf("  Latest day: %d stocks rose / %d fell / %d unchanged (%d of %d covered).", p.Advancing, p.Declining, p.Unchanged, p.CoverageAD, latest.Breadth.MemberCount))
+	} else {
+		riskReadLine(env, "  Stocks rising/falling that day: unavailable.")
+	}
+	marketTapeSourceWarnings(env, result.Sources)
 	if explain {
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, env.bold("Method and timing"))
-		for _, note := range result.Notes {
-			riskReadLine(env, "  "+note)
-		}
+		fmt.Fprintln(out, env.bold("What this tells you"))
+		riskReadLine(env, "  Large stocks can lift the index while many others stay weak.")
+		riskReadLine(env, "  Above average shows how widespread strength is, not how many rose today.")
+		riskReadLine(env, "  More volume means more trading; it does not tell us what happens next.")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, env.bold("When to trust it"))
+		riskReadLine(env, "  This describes completed days using IBKR prices. Stock data can arrive later.")
+		riskReadLine(env, "  It has not proved it can predict reversals or warn before the close.")
+		riskReadLine(env, "  Next: check daily collection, then test against using price alone.")
 	} else {
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, env.dim("  Details: canary market tape --explain"))
+		fmt.Fprintln(out, env.dim("  Plain-language guide: canary market tape --explain"))
 	}
+	fmt.Fprintln(out, env.dim("  Full measurements and source times: canary market tape --json"))
 	fmt.Fprintln(out)
 }
 
-func marketTapeEvidenceLine(env *Env, e rpc.MarketTapeEvidence) {
-	briefLabelLine(env, sanitizeRunText(e.Label), sanitizeRunText(e.Value), briefProseWidth(env.Stdout))
+func marketTapeSourceWarnings(env *Env, sources []rpc.MarketTapeSource) {
+	for _, source := range sources {
+		label := map[string]string{"spx": "S&P 500 prices", "qqq": "QQQ prices/volume", "breadth": "Stock measures"}[source.Key]
+		if label == "" {
+			label = "Unknown source"
+		}
+		switch {
+		case source.Status == "unavailable":
+			riskReadLine(env, "  Data: "+label+" unavailable.")
+		case source.MissingSessions > 0:
+			riskReadLine(env, "  Data: "+label, fmt.Sprintf("missing days: %d", source.MissingSessions), "last available "+source.CoveredThrough)
+		case source.Status == "partial" && len(source.MissingMetrics) == 0 && source.Cache == nil:
+			riskReadLine(env, "  Data: "+label+" incomplete.")
+		}
+		if c := source.Cache; c != nil {
+			switch {
+			case c.RefreshFailed:
+				riskReadLine(env, "  Data: "+label+" refresh failed; showing saved history.")
+			case c.RefreshDue || c.PreviousWindow || c.Detail != "":
+				riskReadLine(env, "  Data: "+label+" uses saved history; refresh or date coverage incomplete.")
+			}
+		}
+	}
 }
 
 func marketTapeNumber(env *Env, v *float64, suffix string, signed bool) string {

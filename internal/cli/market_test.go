@@ -31,7 +31,7 @@ func (c *tapeCLIConn) Call(_ context.Context, method string, p, out any) error {
 }
 
 func TestMarketTapeCLIHoistsFlagsAndPreservesMissingVersusZero(t *testing.T) {
-	for _, args := range [][]string{{"tape", "--sessions", "5", "--json"}, {"--json", "tape", "--sessions=5"}, {"tape", "--sessions", "5"}} {
+	for _, args := range [][]string{{"tape", "--sessions", "5", "--json"}, {"--json", "tape", "--sessions=5"}, {"tape", "--sessions", "5"}, {"tape"}, {"tape", "--explain", "--json"}} {
 		var out bytes.Buffer
 		conn := &tapeCLIConn{}
 		if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", args); code != 0 || conn.method != rpc.MethodMarketTape || conn.params.Sessions != 5 {
@@ -42,7 +42,7 @@ func TestMarketTapeCLIHoistsFlagsAndPreservesMissingVersusZero(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &got); err != nil || got.Sessions[0].SPX != nil || *got.Sessions[0].QQQ.ChangePct != 0 {
 				t.Fatal("JSON evidence altered")
 			}
-		} else if !strings.Contains(out.String(), "—") || !strings.Contains(out.String(), "0.00%") || !strings.Contains(out.String(), "no forecast") || !strings.Contains(out.String(), "Shared descriptive reading") {
+		} else if !strings.Contains(out.String(), "—") || !strings.Contains(out.String(), "0.00×") || !strings.Contains(out.String(), "no forecast") || !strings.Contains(out.String(), "Shared descriptive reading") {
 			t.Fatal("missing and zero are not distinguished")
 		}
 	}
@@ -65,7 +65,7 @@ func TestMarketTapeHelpNeedsNoDaemonAndShowsDefaults(t *testing.T) {
 		if code := Run(t.Context(), &Env{Stdout: &out, Stderr: &diagnostic}, "market", args); code != 0 || diagnostic.Len() != 0 {
 			t.Fatalf("help requires a connection or failed: %d %s", code, &diagnostic)
 		}
-		for _, want := range []string{"canary market tape —", "Usage: canary market tape", "default 20, range 5–60", "--explain", "--json", "Examples:", "no forecast"} {
+		for _, want := range []string{"canary market tape —", "Usage: canary market tape", "default 5, range 5–60", "--explain", "--json", "Examples:", "no forecast"} {
 			if !strings.Contains(out.String(), want) {
 				t.Fatalf("help lost %q", want)
 			}
@@ -76,16 +76,16 @@ func TestMarketTapeHelpNeedsNoDaemonAndShowsDefaults(t *testing.T) {
 func TestMarketTapeTextPreservesEvidenceAndBoundsUntrustedProse(t *testing.T) {
 	result := rpc.MarketTapeResult{LatestSession: "2026-09-23", CoverageStatus: "partial", Sessions: []rpc.MarketTapeSession{{
 		Date: "2026-09-23", SPX: &rpc.MarketTapePrice{Close: 100, ChangePct: new(-0.0007)}, QQQ: &rpc.MarketTapePrice{Close: 100, ChangePct: new(0.0)},
-		Reading: &rpc.MarketTapeReading{Headline: "Price held", Summary: strings.Repeat("Observed evidence ", 15), Evidence: []rpc.MarketTapeEvidence{{Key: "advance_decline", Label: "Daily participation", Value: "Not collected", Meaning: "A missing measurement is not zero.\x1b[2J"}}, Limits: []string{"Unknown original availability"}},
+		Reading: &rpc.MarketTapeReading{Headline: strings.Repeat("Observed evidence ", 15) + "\x1b[2J", Evidence: []rpc.MarketTapeEvidence{{Key: "giveback", Label: "Recent gain", Value: "2026-09-21: +2%; 50% given back\x1b[2J", Meaning: "Detailed technical meaning"}}, Limits: []string{"Unknown original availability"}},
 	}}, Sources: []rpc.MarketTapeSource{{Key: "breadth", Status: "partial", Detail: "Source detail with control text \x1b[2J"}}}
 	for _, explain := range []bool{false, true} {
 		var out bytes.Buffer
 		renderMarketTape(&Env{Stdout: &out}, &result, explain)
 		text := out.String()
-		if strings.Contains(text, "-0.00") || strings.Contains(text, "\x1b") || !strings.Contains(text, "0.00%") || !strings.Contains(text, "—") || !strings.Contains(text, "Not collected") {
+		if strings.Contains(text, "-0.00") || strings.Contains(text, "\x1b") || !strings.Contains(text, "0.00%") || !strings.Contains(text, "—") || !strings.Contains(text, "Stocks rising/falling that day: unavailable") || !strings.Contains(text, "50% given back") {
 			t.Fatalf("zero, missing or safe text changed: %q", text)
 		}
-		if strings.Contains(text, "A missing measurement is not zero") != explain || strings.Contains(text, "Source detail") != explain {
+		if strings.Contains(text, "What this tells you") != explain || strings.Contains(text, "Detailed technical meaning") || strings.Contains(text, "Source detail") {
 			t.Fatal("explanation disclosure lost")
 		}
 		for line := range strings.SplitSeq(text, "\n") {
@@ -101,5 +101,28 @@ func TestMarketTapeTextPreservesEvidenceAndBoundsUntrustedProse(t *testing.T) {
 	}
 	if *result.Sessions[0].SPX.ChangePct != -0.0007 {
 		t.Fatal("text rounding mutated JSON evidence")
+	}
+}
+
+func TestMarketTapeCompactOutputKeepsCoverageAndFailedRefreshVisible(t *testing.T) {
+	result := rpc.MarketTapeResult{LatestSession: "2026-09-23", Sessions: []rpc.MarketTapeSession{{
+		Date: "2026-09-23", Breadth: &rpc.MarketTapeBreadth{PctAbove50DMA: new(0.0), Coverage50: 90, MemberCount: 100, Participation: &rpc.BreadthParticipation{}},
+	}}, Sources: []rpc.MarketTapeSource{
+		{Key: "spx", Status: "partial", MissingSessions: 1, CoveredThrough: "2026-09-22", Cache: &rpc.MarketHistoryCache{RefreshFailed: true}},
+		{Key: "qqq", Status: "unavailable"},
+	}}
+	var out bytes.Buffer
+	renderMarketTape(&Env{Stdout: &out}, &result, false)
+	for _, want := range []string{"0.00%*", "cannot be compared", "90 of 100 stocks", "Stocks rising/falling that day: unavailable", "missing days: 1", "last available 2026-09-22", "refresh failed; showing saved history", "QQQ prices/volume unavailable"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("compact view hid %q: %s", want, &out)
+		}
+	}
+	// A measured zero is different from a default zero with no covered stocks.
+	result.Sessions[0].Breadth.Participation = &rpc.BreadthParticipation{CoverageAD: 90, Declining: 89, Unchanged: 1}
+	out.Reset()
+	renderMarketTape(&Env{Stdout: &out}, &result, false)
+	if !strings.Contains(out.String(), "0 stocks rose / 89 fell / 1 unchanged (90 of 100 covered)") {
+		t.Fatalf("measured zero hidden: %s", &out)
 	}
 }
