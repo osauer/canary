@@ -119,9 +119,11 @@ bounded delayed-aware recovery described above. If no usable fallback arrives,
 the restriction remains visible and retries are bounded; repeated reads do not
 hammer the rejected name. While a quote is served delayed after a 354,
 `status.market_data_access` keeps naming the refusal until the next live probe.
-A 354 that arrives during a data-farm outage still names it there, but does not
-hold back later live requests, because such a refusal may be transient. Other
-terminal request failures keep their backoff. A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
+A 354 that arrives during a data-farm outage may be transient, so it does not
+hold back later live requests and is named there only once a delayed price is
+actually served; until then it is not reported as an entitlement problem.
+Other terminal request failures keep their backoff.
+A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
 requires clock-aligned delayed spot and option evidence. Options are a separate entitlement
 from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.

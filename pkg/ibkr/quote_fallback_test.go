@@ -54,6 +54,9 @@ func TestSharedQuote354RecoversExactRouteAndRetainsDelayedEvidence(t *testing.T)
 	}
 	oldID := c.subscriptions[key].ReqID
 	rejectQuote(t, c, key, 354)
+	if abs := c.MarketDataAbsences(); len(abs) != 1 || abs[0].Code != 354 || abs[0].FallbackDataType != 0 {
+		t.Fatalf("recorded refusal hidden before any delayed price: %+v", abs)
+	}
 	sub := c.subscriptions[key]
 	if sub.ReqID == oldID {
 		t.Fatal("rejected request was not replaced")
@@ -99,7 +102,10 @@ func TestSharedQuote354RecoversExactRouteAndRetainsDelayedEvidence(t *testing.T)
 // TestShared354DuringFarmImpairmentDisclosesDelayedService witnesses the
 // entitlement refusal that vanished from status and data health while the
 // line kept serving delayed data, because an unrelated impaired farm vetoed
-// the absence record. The veto itself must still keep live requests open.
+// the absence record. The veto itself must still keep live requests open, and
+// the refusal must stay undisclosed until a delayed price is served: data
+// health turns an empty quote shell that carries a 354 into a not_entitled
+// ibkr:quotes problem, which a possibly transient farm-outage 354 is not.
 func TestShared354DuringFarmImpairmentDisclosesDelayedService(t *testing.T) {
 	c, _, _, contract := newQuoteFallbackFixture(t)
 	c.dataFarmMu.Lock()
@@ -119,7 +125,13 @@ func TestShared354DuringFarmImpairmentDisclosesDelayedService(t *testing.T) {
 	if mode, err := c.sharedQuoteMode(key); mode != 0 || err != nil {
 		t.Fatalf("disclosure gated a new live request: mode=%d err=%v", mode, err)
 	}
+	if abs := c.MarketDataAbsences(); len(abs) != 0 {
+		t.Fatalf("vetoed 354 disclosed before any delayed price was served: %+v", abs)
+	}
 	quoteType(c, key, 4)
+	if abs := c.MarketDataAbsences(); len(abs) != 0 {
+		t.Fatalf("delayed mode without a price disclosed the vetoed 354: %+v", abs)
+	}
 	quoteTick(c, key, 75, 100)
 	abs := c.MarketDataAbsences()
 	if len(abs) != 1 || abs[0].Key != key || abs[0].Code != 354 || abs[0].FallbackDataType != 4 || abs[0].ObservedAt.IsZero() || !abs[0].RetryAt.Equal(abs[0].ObservedAt.Add(marketDataAbsenceRetry)) {

@@ -368,8 +368,9 @@ type Subscription struct {
 	// wireCancelNeeded.
 	rejectedReqID int
 	// fallbackRefusal is the 354 that moved this line to the delayed feed.
-	// MarketDataAbsences discloses it when no suppressing absence record names
-	// the key, as after a farm-impairment veto; it never gates a request.
+	// MarketDataAbsences discloses it once the line serves a delayed price and
+	// no suppressing absence record names the key, as after a farm-impairment
+	// veto; it never gates a request.
 	fallbackRefusal *marketDataAbsence
 }
 
@@ -480,10 +481,10 @@ func (c *Connector) marketDataAbsenceFor(key string) *MarketDataAbsenceError {
 // observation surface can never name a key the subscribe paths would already
 // let through. A shared quote line that a 354 moved to the delayed feed is
 // named for the same window even when a farm-impairment veto withheld the
-// suppressing record: the line itself stays on the delayed feed until its live
-// re-probe at RetryAt, so the entry discloses the served mode rather than a
-// gate. Message stays untrusted broker text; callers that classify must read
-// Code.
+// suppressing record, but only once it serves a delayed price: the vetoed 354
+// is no entitlement verdict, so the entry discloses the served mode rather
+// than a refusal or a gate. Message stays untrusted broker text; callers that
+// classify must read Code.
 func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	if c == nil {
 		return nil
@@ -502,29 +503,40 @@ func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
 	}
 	c.absenceMu.Unlock()
 	c.subMu.RLock()
+	for i := range out {
+		out[i].FallbackDataType, out[i].FallbackReceivedAt = c.servedDelayedQuote(c.subscriptions[out[i].Key])
+	}
 	for key, sub := range c.subscriptions {
-		if sub != nil && sub.fallbackRefusal != nil && !recorded[key] && now.Sub(sub.fallbackRefusal.at) < marketDataAbsenceRetry {
-			out = append(out, marketDataAbsenceReport(key, *sub.fallbackRefusal))
+		if sub == nil || sub.fallbackRefusal == nil || recorded[key] || now.Sub(sub.fallbackRefusal.at) >= marketDataAbsenceRetry {
+			continue
+		}
+		report := marketDataAbsenceReport(key, *sub.fallbackRefusal)
+		report.FallbackDataType, report.FallbackReceivedAt = c.servedDelayedQuote(sub)
+		if report.FallbackDataType != 0 {
+			out = append(out, report)
 		}
 	}
 	c.subMu.RUnlock()
-	for i := range out {
-		c.subMu.RLock()
-		sub := c.subscriptions[out[i].Key]
-		if sub != nil {
-			dt := c.subscriptionDataType(sub)
-			if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
-				dt = sub.previousDataType
-				sub = sub.previousQuote
-			}
-			if (dt == 3 || dt == 4) && !sub.LastPriceTickAt.IsZero() {
-				out[i].FallbackDataType, out[i].FallbackReceivedAt = dt, sub.LastPriceTickAt
-			}
-		}
-		c.subMu.RUnlock()
-	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
+}
+
+// servedDelayedQuote reports the delayed feed type and price clock of the
+// delayed price that sub, or the prior line it keeps showing during a live
+// re-probe, has actually served. Both are zero when no delayed price has been
+// served. The caller holds subMu.
+func (c *Connector) servedDelayedQuote(sub *Subscription) (int, time.Time) {
+	if sub == nil {
+		return 0, time.Time{}
+	}
+	dt := c.subscriptionDataType(sub)
+	if sub.previousQuote != nil && sub.LastPriceTickAt.IsZero() {
+		dt, sub = sub.previousDataType, sub.previousQuote
+	}
+	if (dt == 3 || dt == 4) && !sub.LastPriceTickAt.IsZero() {
+		return dt, sub.LastPriceTickAt
+	}
+	return 0, time.Time{}
 }
 
 // marketDataAbsenceReport projects one in-window refusal for key onto the
