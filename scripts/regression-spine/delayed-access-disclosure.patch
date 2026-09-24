@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/connector.go b/pkg/ibkr/connector.go
+--- a/pkg/ibkr/connector.go
++++ b/pkg/ibkr/connector.go
+@@ -504,7 +504,7 @@ func (c *Connector) MarketDataAbsences() []MarketDataAbsenceError {
+ 	c.subMu.RLock()
+ 	for key, sub := range c.subscriptions {
+ 		if sub != nil && sub.fallbackRefusal != nil && !recorded[key] && now.Sub(sub.fallbackRefusal.at) < marketDataAbsenceRetry {
+-			out = append(out, marketDataAbsenceReport(key, *sub.fallbackRefusal))
++			continue
+ 		}
+ 	}
+ 	c.subMu.RUnlock()
