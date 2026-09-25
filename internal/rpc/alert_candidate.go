@@ -105,6 +105,9 @@ const (
 	AlertPresentationProtectionAutoOptionProfitTrailNow = risk.AlertPresentationProtectionAutoOptionProfitTrailNow
 	AlertPresentationProtectionAutoBudgetReduction      = risk.AlertPresentationProtectionAutoBudgetReduction
 	AlertPresentationProtectionAutoBudgetReductionNow   = risk.AlertPresentationProtectionAutoBudgetReductionNow
+	AlertPresentationProtectionAutoDeferred             = risk.AlertPresentationProtectionAutoDeferred
+	AlertPresentationProtectionAutoHeld                 = risk.AlertPresentationProtectionAutoHeld
+	AlertPresentationProtectionAutoHeldUnverified       = risk.AlertPresentationProtectionAutoHeldUnverified
 	AlertPresentationProtectionReconciliationRequired   = risk.AlertPresentationProtectionReconciliationRequired
 	AlertPresentationOrderIntegrityMismatch             = risk.AlertPresentationOrderIntegrityMismatch
 	AlertPresentationDataHealthGateway                  = risk.AlertPresentationDataHealthGateway

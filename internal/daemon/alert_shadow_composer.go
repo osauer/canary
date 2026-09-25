@@ -1578,9 +1578,11 @@ func alertShadowAutomaticEpisodeKey(scope alertShadowBrokerScope, notice automat
 	return rpc.BuildAlertEpisodeKey(rpc.AlertSourceProtection, rpc.AlertKindProtectionAutomatic, scope.account, scope.mode, notice.Key, notice.Revision)
 }
 
-// alertShadowAutomaticObservation is the act-severity notice for one pending
+// alertShadowAutomaticObservation is the act-severity notice for one waiting
 // record. Its evidence fingerprint deliberately excludes the submission time:
-// the window moving by the notice latency is not new evidence.
+// the window moving by the notice latency is not new evidence. A deferral or
+// a settling hold is: the same episode stays open with new copy, so the
+// record never reads as recovered while it still waits.
 func alertShadowAutomaticObservation(scope alertShadowBrokerScope, notice automaticNoticeKey, policyFingerprint string, evidenceAsOf, observedAt time.Time) (alertEpisodeObservation, error) {
 	episodeKey, err := alertShadowAutomaticEpisodeKey(scope, notice)
 	if err != nil {
@@ -1592,7 +1594,9 @@ func alertShadowAutomaticObservation(scope alertShadowBrokerScope, notice automa
 		Revision string `json:"revision"`
 		Bucket   string `json:"bucket"`
 		Latched  bool   `json:"latched"`
-	}{policyFingerprint, notice.Key, notice.Revision, notice.Bucket, notice.Latched})
+		Deferred bool   `json:"deferred,omitempty"`
+		Hold     string `json:"hold,omitempty"`
+	}{policyFingerprint, notice.Key, notice.Revision, notice.Bucket, notice.Latched, notice.Deferred, notice.Hold})
 	if err != nil {
 		return alertEpisodeObservation{}, err
 	}
@@ -1607,8 +1611,18 @@ func alertShadowAutomaticObservation(scope alertShadowBrokerScope, notice automa
 
 // alertProtectionAutomaticPresentationCode picks the fixed app copy: one
 // code per pre-authorised bucket, with the "now" variant when the latched
-// drawdown brake skipped the veto window.
+// drawdown brake skipped the veto window. A record that still waits after
+// its window says what it waits for: the settling rule's hold first (it
+// applies only once the freeze is lifted), then the freeze deferral.
 func alertProtectionAutomaticPresentationCode(notice automaticNoticeKey) rpc.AlertPresentationCode {
+	switch {
+	case notice.Hold == automaticNoticeHoldUnverified:
+		return rpc.AlertPresentationProtectionAutoHeldUnverified
+	case notice.Hold != "":
+		return rpc.AlertPresentationProtectionAutoHeld
+	case notice.Deferred:
+		return rpc.AlertPresentationProtectionAutoDeferred
+	}
 	switch notice.Bucket {
 	case preAuthorisedBucketOptionLossExit:
 		if notice.Latched {
@@ -3367,10 +3381,12 @@ func alertShadowProtectionInputFingerprint(input alertShadowProtectionInput) (st
 		Revision string `json:"revision"`
 		Bucket   string `json:"bucket"`
 		Latched  bool   `json:"latched"`
+		Deferred bool   `json:"deferred,omitempty"`
+		Hold     string `json:"hold,omitempty"`
 	}
 	automatic := make([]automaticState, 0, len(input.Automatic))
 	for _, notice := range input.Automatic {
-		automatic = append(automatic, automaticState{Key: notice.Key, Revision: notice.Revision, Bucket: notice.Bucket, Latched: notice.Latched})
+		automatic = append(automatic, automaticState{Key: notice.Key, Revision: notice.Revision, Bucket: notice.Bucket, Latched: notice.Latched, Deferred: notice.Deferred, Hold: notice.Hold})
 	}
 	sort.Slice(automatic, func(i, j int) bool {
 		if automatic[i].Key != automatic[j].Key {

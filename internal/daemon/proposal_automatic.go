@@ -611,29 +611,51 @@ func (e *proposalEngine) markAutomaticNoticed(ctx context.Context, keys []automa
 	}
 }
 
-// automaticNoticeKey names one record for the alert producer.
+// automaticNoticeKey names one record for the alert producer. Deferred and
+// Hold say what a waiting record waits for: trading.freeze, or the settling
+// rule (automaticNoticeHoldHandOrder, automaticNoticeHoldUnverified). Either
+// keeps the notice open under the same episode; neither is a recovery.
 type automaticNoticeKey struct {
 	Key      string
 	Revision string
 	Bucket   string
 	SubmitAt time.Time
 	Latched  bool
+	Deferred bool
+	Hold     string
 }
 
-// automaticPendingNotices lists the pending records in scope for the
-// Protection alert producer. It carries no symbol, quantity or order data:
-// the notice names the bucket and the timing; the Protection row holds the
-// rest.
+// Settling-rule hold classes carried to the alert producer. They name the
+// wait, never an order, symbol or account.
+const (
+	automaticNoticeHoldHandOrder  = "hand_order"
+	automaticNoticeHoldUnverified = "unverified"
+)
+
+// automaticPendingNotices lists the waiting records in scope for the
+// Protection alert producer: pending in the veto window, deferred by
+// trading.freeze, or held by the settling rule. A waiting record may still
+// submit, so its notice stays open; only a submission, a veto or a
+// supersession ends it. It carries no symbol, quantity or order data: the
+// notice names the bucket, the timing and the wait; the Protection row holds
+// the rest.
 func (e *proposalEngine) automaticPendingNotices(scope brokerStateScope) []automaticNoticeKey {
 	if e == nil || !e.automatic.attached() {
 		return nil
 	}
 	var out []automaticNoticeKey
 	for _, rec := range e.automatic.list() {
-		if !rec.pending() || !sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if !rec.waiting() || !sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
 			continue
 		}
-		out = append(out, automaticNoticeKey{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, SubmitAt: rec.SubmitAt, Latched: rec.LatchSkippedWindow})
+		notice := automaticNoticeKey{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, SubmitAt: rec.SubmitAt, Latched: rec.LatchSkippedWindow, Deferred: rec.deferred()}
+		if !rec.HeldAt.IsZero() {
+			notice.Hold = automaticNoticeHoldHandOrder
+			if rec.HoldReason == automaticHoldUnavailable {
+				notice.Hold = automaticNoticeHoldUnverified
+			}
+		}
+		out = append(out, notice)
 	}
 	return out
 }

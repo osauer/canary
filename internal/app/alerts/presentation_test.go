@@ -3,6 +3,7 @@ package alerts
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -46,5 +47,43 @@ func TestEscalatedPresentationDescribesCurrentResult(t *testing.T) {
 	}
 	if strings.Contains(got.Body, "Escalated:") {
 		t.Fatalf("historical lifecycle leaked into current copy: %q", got.Body)
+	}
+}
+
+// A deferred or held pre-authorised submission is still waiting: its notice
+// copy names what it waits for and never reads as resolved.
+func TestWaitingProtectionPresentationsReadAsPending(t *testing.T) {
+	t.Parallel()
+	for code, want := range map[rpc.AlertPresentationCode]string{
+		rpc.AlertPresentationProtectionAutoDeferred:       "Deferred: trading frozen · resubmits when lifted",
+		rpc.AlertPresentationProtectionAutoHeld:           "Held: hand order working",
+		rpc.AlertPresentationProtectionAutoHeldUnverified: "Held: open orders unreadable",
+	} {
+		got, ok := PresentationFor(code, rpc.AlertEpisodeOpen)
+		if !ok || !strings.HasPrefix(got.Body, want) || !strings.Contains(got.Body, "Open Protection to veto it.") {
+			t.Fatalf("%s presentation = %+v ok=%v, want body starting %q", code, got, ok, want)
+		}
+		for _, resolved := range []string{"Resolved", "recovered", "placed the", "was placed"} {
+			if strings.Contains(got.Title+" "+got.Body, resolved) {
+				t.Fatalf("%s reads as resolved: %+v", code, got)
+			}
+		}
+		episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceProtection, rpc.AlertKindProtectionAutomatic, "waiting")
+		if err != nil {
+			t.Fatal(err)
+		}
+		occurrence, err := rpc.BuildAlertOccurrenceKey(episode, "sequence:1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		at := time.Date(2026, 9, 26, 7, 0, 0, 0, time.UTC)
+		if err := rpc.ValidateAlertCandidate(rpc.AlertCandidate{
+			EpisodeKey: episode, OccurrenceKey: occurrence, EvidenceFingerprint: "sha256:" + strings.Repeat("c", 64),
+			Source: rpc.AlertSourceProtection, Kind: rpc.AlertKindProtectionAutomatic, PresentationCode: code,
+			State: rpc.AlertEpisodeOpen, Severity: rpc.AlertSeverityAct, EvidenceHealth: rpc.AlertEvidenceCurrent,
+			Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: at, StateChangedAt: at, ObservedAt: at,
+		}); err != nil {
+			t.Fatalf("%s is not a valid Protection presentation code: %v", code, err)
+		}
 	}
 }

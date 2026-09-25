@@ -132,28 +132,36 @@ const (
 	AlertPresentationProtectionAutoOptionProfitTrailNow AlertPresentationCode = "protection_auto_option_profit_trail_now"
 	AlertPresentationProtectionAutoBudgetReduction      AlertPresentationCode = "protection_auto_budget_reduction"
 	AlertPresentationProtectionAutoBudgetReductionNow   AlertPresentationCode = "protection_auto_budget_reduction_now"
-	AlertPresentationProtectionReconciliationRequired   AlertPresentationCode = "protection_reconciliation_required"
-	AlertPresentationOrderIntegrityMismatch             AlertPresentationCode = "order_integrity_mismatch"
-	AlertPresentationDataHealthGateway                  AlertPresentationCode = "data_health_gateway"
-	AlertPresentationDataHealthStorage                  AlertPresentationCode = "data_health_storage"
-	AlertPresentationDataHealthProposals                AlertPresentationCode = "data_health_proposals"
-	AlertPresentationDataHealthOpportunities            AlertPresentationCode = "data_health_opportunities"
-	AlertPresentationDataHealthDataFarms                AlertPresentationCode = "data_health_data_farms"
-	AlertPresentationDataHealthRegime                   AlertPresentationCode = "data_health_regime"
-	AlertPresentationDataHealthGamma                    AlertPresentationCode = "data_health_gamma"
-	AlertPresentationDataHealthQuality                  AlertPresentationCode = "data_health_quality"
-	AlertPresentationRiskPolicyLimitWouldBlock          AlertPresentationCode = "risk_policy_limit_would_block"
-	AlertPresentationRiskPolicyDrawdownLatched          AlertPresentationCode = "risk_policy_drawdown_latched"
-	AlertPresentationRiskPolicyDrift                    AlertPresentationCode = "risk_policy_drift"
-	AlertPresentationReconciliationDue                  AlertPresentationCode = "reconciliation_due"
-	AlertPresentationReconciliationException            AlertPresentationCode = "reconciliation_exception"
-	AlertPresentationReconciliationConfirmedFlow        AlertPresentationCode = "reconciliation_confirmed_flow"
-	AlertPresentationGovernanceMonthlyPulse             AlertPresentationCode = "governance_monthly_pulse"
-	AlertPresentationDeliveryHealth                     AlertPresentationCode = "delivery_health"
-	AlertPresentationRulebookLegacyCondition            AlertPresentationCode = "rulebook_condition"
-	AlertPresentationRiskPolicyLegacyCondition          AlertPresentationCode = "risk_policy_condition"
-	AlertPresentationReconciliationLegacyCondition      AlertPresentationCode = "reconciliation_condition"
-	AlertPresentationGovernanceLegacyCondition          AlertPresentationCode = "governance_condition"
+	// AlertPresentationProtectionAutoDeferred and the two held codes keep a
+	// pre-authorised submission's notice open while it still waits: deferred
+	// by trading.freeze, or held by the settling rule behind a working hand
+	// order (or an open-order inventory that cannot rule one out). A waiting
+	// record is never presented as recovered.
+	AlertPresentationProtectionAutoDeferred           AlertPresentationCode = "protection_auto_deferred"
+	AlertPresentationProtectionAutoHeld               AlertPresentationCode = "protection_auto_held"
+	AlertPresentationProtectionAutoHeldUnverified     AlertPresentationCode = "protection_auto_held_unverified"
+	AlertPresentationProtectionReconciliationRequired AlertPresentationCode = "protection_reconciliation_required"
+	AlertPresentationOrderIntegrityMismatch           AlertPresentationCode = "order_integrity_mismatch"
+	AlertPresentationDataHealthGateway                AlertPresentationCode = "data_health_gateway"
+	AlertPresentationDataHealthStorage                AlertPresentationCode = "data_health_storage"
+	AlertPresentationDataHealthProposals              AlertPresentationCode = "data_health_proposals"
+	AlertPresentationDataHealthOpportunities          AlertPresentationCode = "data_health_opportunities"
+	AlertPresentationDataHealthDataFarms              AlertPresentationCode = "data_health_data_farms"
+	AlertPresentationDataHealthRegime                 AlertPresentationCode = "data_health_regime"
+	AlertPresentationDataHealthGamma                  AlertPresentationCode = "data_health_gamma"
+	AlertPresentationDataHealthQuality                AlertPresentationCode = "data_health_quality"
+	AlertPresentationRiskPolicyLimitWouldBlock        AlertPresentationCode = "risk_policy_limit_would_block"
+	AlertPresentationRiskPolicyDrawdownLatched        AlertPresentationCode = "risk_policy_drawdown_latched"
+	AlertPresentationRiskPolicyDrift                  AlertPresentationCode = "risk_policy_drift"
+	AlertPresentationReconciliationDue                AlertPresentationCode = "reconciliation_due"
+	AlertPresentationReconciliationException          AlertPresentationCode = "reconciliation_exception"
+	AlertPresentationReconciliationConfirmedFlow      AlertPresentationCode = "reconciliation_confirmed_flow"
+	AlertPresentationGovernanceMonthlyPulse           AlertPresentationCode = "governance_monthly_pulse"
+	AlertPresentationDeliveryHealth                   AlertPresentationCode = "delivery_health"
+	AlertPresentationRulebookLegacyCondition          AlertPresentationCode = "rulebook_condition"
+	AlertPresentationRiskPolicyLegacyCondition        AlertPresentationCode = "risk_policy_condition"
+	AlertPresentationReconciliationLegacyCondition    AlertPresentationCode = "reconciliation_condition"
+	AlertPresentationGovernanceLegacyCondition        AlertPresentationCode = "governance_condition"
 )
 
 // AlertEvidenceHealth describes whether a candidate's supporting observation
@@ -841,7 +849,8 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 			AlertPresentationProtectionAutoTrailingStop, AlertPresentationProtectionAutoTrailingStopNow,
 			AlertPresentationProtectionAutoOptionLossExit, AlertPresentationProtectionAutoOptionLossExitNow,
 			AlertPresentationProtectionAutoOptionProfitTrail, AlertPresentationProtectionAutoOptionProfitTrailNow,
-			AlertPresentationProtectionAutoBudgetReduction, AlertPresentationProtectionAutoBudgetReductionNow:
+			AlertPresentationProtectionAutoBudgetReduction, AlertPresentationProtectionAutoBudgetReductionNow,
+			AlertPresentationProtectionAutoDeferred, AlertPresentationProtectionAutoHeld, AlertPresentationProtectionAutoHeldUnverified:
 			return true
 		}
 	case AlertSourceOrderIntegrity:
