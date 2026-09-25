@@ -55,14 +55,14 @@ Read bounded observed underlying price bars for a chart. Intraday ranges include
 
 ## `canary_market_tape`
 
-Compare rallies and reversals with daily SPX/QQQ prices, QQQ ETF volume and S&P 500 stock participation. Set history=true to read permanent local records and one/three-session closing-price follow-ups without a broker request; original and latest versions retain capture times and reconstructed-history labels. Follow-ups are price comparisons, not achievable trading returns or validated forecasts. Normal mode uses completed sessions and also archives the measurements. Missing data stays explicit. ETF volume is not total-market volume or signed flow; put/call flow is absent. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.
+Compare rallies and reversals with daily SPX/SPY/QQQ prices, a fixed 11-share-line/10-company leader basket, company participation, relative volume and VIX. Daily open/high/low, when available, show range recovery but not the time of a turn. Set history=true to read permanent local records and one/three/five-session closing-price follow-ups without a broker request; original and latest versions retain capture times and reconstructed-history labels. Follow-ups are price comparisons, not achievable trading returns or validated forecasts. Normal mode uses completed sessions and also archives the measurements. Missing data stays explicit. ETF volume is not total-market volume or signed flow; put/call flow is absent. Use canary_market_history for a named instrument chart, canary_regime for current regime and canary_edge for past portfolio decisions. Read-only; no risk-policy or trading authority.
 
 **Parameters:**
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `before` | string | no | Only with history=true: exclusive YYYY-MM-DD session date. Use history.next_before to read earlier pages beyond the rolling 60-day view. |
-| `history` | boolean | no | Default false. Read the durable archive with first/latest captures and one/three-session price changes. No score or trading rule. |
+| `history` | boolean | no | Default false. Read the durable archive with first/latest captures and one/three/five-session price changes. No score or trading rule. |
 | `sessions` | integer | no | Number of completed US equity sessions to align; default 20, maximum 60 per page. Missing observations remain null. |
 
 ## `canary_status`

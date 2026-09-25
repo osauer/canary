@@ -34,6 +34,19 @@ func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.M
 		return result, err
 	}
 	return s.buildAndArchiveMarketTape(ctx, p, func(ctx context.Context, p rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		if p.Contract.Symbol != "SPX" && p.Contract.Symbol != "QQQ" {
+			// Research reads use the collector's retained data, never register
+			// thirteen additional all-day interactive chart subscriptions.
+			key, params, err := marketHistoryIdentity(p)
+			if err != nil {
+				return nil, err
+			}
+			saved, storedAt, err := s.loadMarketHistory(ctx, key)
+			if err != nil || saved == nil {
+				return nil, err
+			}
+			return selectStoredHistory(saved, storedAt, params, time.Now(), "cache", "", false), nil
+		}
 		raw, _ := json.Marshal(p)
 		return s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
 	})
@@ -44,6 +57,7 @@ func (s *Server) buildAndArchiveMarketTape(ctx context.Context, p rpc.MarketTape
 		{Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD"},
 		{Symbol: "QQQ", SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD"},
 	}
+	contracts = append(contracts, tapeResearchContracts()...)
 	history := make([]*rpc.MarketHistoryResult, len(contracts))
 	var wg sync.WaitGroup
 	for i, contract := range contracts {
@@ -64,6 +78,9 @@ func (s *Server) buildAndArchiveMarketTape(ctx context.Context, p rpc.MarketTape
 	}
 	result, err := buildMarketTape(p, now, history[0], history[1], breadth)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.enrichMarketTape(ctx, result, history[2:]); err != nil {
 		return nil, err
 	}
 	result.Archive, err = archiveMarketTape(ctx, s.coreStore, result)
@@ -247,8 +264,18 @@ func tapePriceRow(points map[string]rpc.MarketHistoryPoint, sessions []marketcal
 		return nil
 	}
 	row := &rpc.MarketTapePrice{Close: p.Value}
+	if p.Open != nil && p.High != nil && p.Low != nil && validHistoryRange(*p.Open, *p.High, *p.Low, p.Value) {
+		row.SessionMove = &rpc.MarketTapeSessionMove{Open: *p.Open, High: *p.High, Low: *p.Low, CloseFromLowPct: 100 * (p.Value / *p.Low - 1)}
+		if *p.High > *p.Low {
+			row.SessionMove.CloseInRangePct = tapeFinite(100 * (p.Value - *p.Low) / (*p.High - *p.Low))
+		}
+	}
 	if prev, ok := points[sessions[i-1].Date]; ok {
 		row.ChangePct = tapeFinite(100 * (p.Value/prev.Value - 1))
+		if row.SessionMove != nil {
+			row.SessionMove.OpenChangePct = tapeFinite(100 * (row.SessionMove.Open/prev.Value - 1))
+			row.SessionMove.LowChangePct = tapeFinite(100 * (row.SessionMove.Low/prev.Value - 1))
+		}
 	}
 	if base, ok := points[sessions[start].Date]; ok {
 		row.WindowChangePct = tapeFinite(100 * (p.Value/base.Value - 1))
@@ -335,7 +362,7 @@ func tapeParticipation(p *spx.Participation) *rpc.BreadthParticipation {
 	if p == nil {
 		return nil
 	}
-	return &rpc.BreadthParticipation{Method: p.Method, RecordedAt: p.RecordedAt, InputObservedAt: p.InputObservedAt, MembershipID: p.MembershipID, PctAbove20DMA: p.PctAbove20DMA, Coverage20: p.Coverage20, Advancing: p.Advancing, Declining: p.Declining, Unchanged: p.Unchanged, CoverageAD: p.CoverageAD, AdvancePct: p.AdvancePct, AdvancingVolume: p.AdvancingVolume, DecliningVolume: p.DecliningVolume, UnchangedVolume: p.UnchangedVolume, CoverageVolume: p.CoverageVolume, UpVolumePct: p.UpVolumePct}
+	return &rpc.BreadthParticipation{Companies: tapeCompanies(p.Companies), Method: p.Method, RecordedAt: p.RecordedAt, InputObservedAt: p.InputObservedAt, MembershipID: p.MembershipID, PctAbove20DMA: p.PctAbove20DMA, Coverage20: p.Coverage20, Advancing: p.Advancing, Declining: p.Declining, Unchanged: p.Unchanged, CoverageAD: p.CoverageAD, AdvancePct: p.AdvancePct, AdvancingVolume: p.AdvancingVolume, DecliningVolume: p.DecliningVolume, UnchangedVolume: p.UnchangedVolume, CoverageVolume: p.CoverageVolume, UpVolumePct: p.UpVolumePct}
 }
 
 func comparableTapeBreadth(a, b *rpc.MarketTapeBreadth) bool {

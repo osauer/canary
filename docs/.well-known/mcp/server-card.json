@@ -170,7 +170,7 @@
           },
           "history": {
             "type": "boolean",
-            "description": "Default false. Read the durable archive with first/latest captures and one/three-session price changes. No score or trading rule."
+            "description": "Default false. Read the durable archive with first/latest captures and one/three/five-session price changes. No score or trading rule."
           },
           "sessions": {
             "type": "integer",

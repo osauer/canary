@@ -126,3 +126,23 @@ func TestMarketTapeCompactOutputKeepsCoverageAndFailedRefreshVisible(t *testing.
 		t.Fatalf("measured zero hidden: %s", &out)
 	}
 }
+
+func TestMarketTapeLeaderTextFitsAndRetainsCoverage(t *testing.T) {
+	result := rpc.MarketTapeResult{Sessions: []rpc.MarketTapeSession{{Date: "2026-09-24\x1b[2J", Leaders: &rpc.MarketTapeLeaders{Companies: rpc.MarketTapeCompanies{CompanyCount: 10, Coverage50: 9, CoverageAD: 10, RisingPct: new(0.0)}, VolumeCoverage: 10}}}, Sources: []rpc.MarketTapeSource{{Key: "leader:SYN", Cache: &rpc.MarketHistoryCache{RefreshFailed: true}}}}
+	var out bytes.Buffer
+	renderMarketTapeLeaders(&Env{Stdout: &out}, &result)
+	text := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"10 companies", "Alphabet counts once", "9/10", "0.00%", "—", "refresh incomplete"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q: %s", want, &out)
+		}
+	}
+	if strings.Contains(out.String(), "\x1b") {
+		t.Fatal("untrusted controls rendered")
+	}
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		if visibleLen(line) > 80 {
+			t.Fatalf("leader output too wide: %s", line)
+		}
+	}
+}

@@ -39,6 +39,9 @@ type MarketHistoryPoint struct {
 	At     time.Time `json:"at"`
 	Value  float64   `json:"value"`
 	Volume *int64    `json:"volume,omitempty"`
+	Open   *float64  `json:"open,omitempty"`
+	High   *float64  `json:"high,omitempty"`
+	Low    *float64  `json:"low,omitempty"`
 }
 
 // MarketHistoryResult preserves actual acquisition, range and pricing basis.

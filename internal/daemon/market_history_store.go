@@ -90,11 +90,20 @@ func validStoredHistory(r rpc.MarketHistoryResult) error {
 		if p.At.IsZero() || !isFinitePrice(p.Value) || p.Volume != nil && (*p.Volume < 0 || r.PriceBasis != "TRADES") || i > 0 && !p.At.After(r.Points[i-1].At) {
 			return errors.New("invalid or unordered chart observations")
 		}
+		if p.Open != nil || p.High != nil || p.Low != nil {
+			if p.Open == nil || p.High == nil || p.Low == nil || !validHistoryRange(*p.Open, *p.High, *p.Low, p.Value) {
+				return errors.New("invalid chart range")
+			}
+		}
 	}
 	return nil
 }
 
 func isFinitePrice(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+func validHistoryRange(open, high, low, close float64) bool {
+	return isFinitePrice(open) && isFinitePrice(high) && isFinitePrice(low) && isFinitePrice(close) && low <= min(open, close) && high >= max(open, close)
+}
 
 func historyRequestStart(p rpc.MarketHistoryParams, now time.Time) time.Time {
 	if p.Range == "1D" && usChartCalendar(p.Contract) {

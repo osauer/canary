@@ -38,11 +38,62 @@ func NormalizeMarketTapeParams(p MarketTapeParams) (MarketTapeParams, error) {
 // Changes require consecutive official sessions. WindowChangePct uses the
 // first displayed session, never a different base for each instrument.
 type MarketTapePrice struct {
-	Close            float64  `json:"close"`
-	ChangePct        *float64 `json:"change_pct"`
-	WindowChangePct  *float64 `json:"window_change_pct"`
-	Volume           *int64   `json:"volume"`
-	RelativeVolume20 *float64 `json:"relative_volume_20"`
+	Close            float64                `json:"close"`
+	ChangePct        *float64               `json:"change_pct"`
+	WindowChangePct  *float64               `json:"window_change_pct"`
+	Volume           *int64                 `json:"volume"`
+	RelativeVolume20 *float64               `json:"relative_volume_20"`
+	SessionMove      *MarketTapeSessionMove `json:"session_move,omitempty"`
+}
+
+// MarketTapeSessionMove describes a completed daily range, not intraday timing.
+type MarketTapeSessionMove struct {
+	Open            float64  `json:"open"`
+	High            float64  `json:"high"`
+	Low             float64  `json:"low"`
+	OpenChangePct   *float64 `json:"open_change_pct"`
+	LowChangePct    *float64 `json:"low_change_pct"`
+	CloseFromLowPct float64  `json:"close_from_low_pct"`
+	CloseInRangePct *float64 `json:"close_in_range_pct"`
+}
+
+// MarketTapeCompanies counts one representative share class per company.
+// RisingPct includes unchanged companies in its denominator.
+type MarketTapeCompanies struct {
+	RetainedAt    time.Time `json:"retained_at,omitzero"`
+	Method        string    `json:"method"`
+	CompanyCount  int       `json:"company_count"`
+	Coverage50    int       `json:"coverage_50"`
+	PctAbove50DMA *float64  `json:"pct_above_50dma"`
+	CoverageAD    int       `json:"coverage_ad"`
+	Rising        int       `json:"rising"`
+	Falling       int       `json:"falling"`
+	Unchanged     int       `json:"unchanged"`
+	RisingPct     *float64  `json:"rising_pct"`
+}
+
+// MarketTapeLeader retains the constituent inputs of the fixed research basket.
+type MarketTapeLeader struct {
+	Symbol         string           `json:"symbol"`
+	Company        string           `json:"company"`
+	Representative bool             `json:"representative"`
+	WeightPct      float64          `json:"weight_pct"`
+	BaseClose      *float64         `json:"base_close"`
+	Average50      *float64         `json:"average_50"`
+	Price          *MarketTapePrice `json:"price"`
+}
+
+// MarketTapeLeaders freezes selection and initial weights for descriptive research.
+// Its index uses fixed quantities; company counts use equal votes.
+type MarketTapeLeaders struct {
+	Method         string              `json:"method"`
+	WeightsAsOf    string              `json:"weights_as_of"`
+	WeightsSource  string              `json:"weights_source"`
+	BaseDate       string              `json:"base_date"`
+	Price          *MarketTapePrice    `json:"price"`
+	Companies      MarketTapeCompanies `json:"companies"`
+	VolumeCoverage int                 `json:"volume_coverage"`
+	Members        []MarketTapeLeader  `json:"members"`
 }
 
 // MarketTapeBreadth preserves separate measurement denominators. Nil values
@@ -62,32 +113,37 @@ type MarketTapeBreadth struct {
 
 // MarketTapeSession is one official session, including explicit missing legs.
 type MarketTapeSession struct {
-	Date    string             `json:"date"`
-	SPX     *MarketTapePrice   `json:"spx"`
-	QQQ     *MarketTapePrice   `json:"qqq"`
-	Breadth *MarketTapeBreadth `json:"breadth"`
-	Reading *MarketTapeReading `json:"reading,omitempty"`
+	Date      string               `json:"date"`
+	SPX       *MarketTapePrice     `json:"spx"`
+	QQQ       *MarketTapePrice     `json:"qqq"`
+	Breadth   *MarketTapeBreadth   `json:"breadth"`
+	Reading   *MarketTapeReading   `json:"reading,omitempty"`
+	SPY       *MarketTapePrice     `json:"spy,omitempty"`
+	VIX       *MarketTapePrice     `json:"vix,omitempty"`
+	Leaders   *MarketTapeLeaders   `json:"leaders,omitempty"`
+	Companies *MarketTapeCompanies `json:"companies,omitempty"`
 }
 
 // BreadthParticipation carries separately covered constituent measurements.
 // RecordedAt is this revision's computation, not historical availability.
 type BreadthParticipation struct {
-	Method          string    `json:"method"`
-	RecordedAt      time.Time `json:"recorded_at"`
-	InputObservedAt time.Time `json:"input_observed_at,omitzero"`
-	MembershipID    string    `json:"membership_id"`
-	PctAbove20DMA   *float64  `json:"pct_above_20dma"`
-	Coverage20      int       `json:"coverage_20"`
-	Advancing       int       `json:"advancing"`
-	Declining       int       `json:"declining"`
-	Unchanged       int       `json:"unchanged"`
-	CoverageAD      int       `json:"coverage_ad"`
-	AdvancePct      *float64  `json:"advance_pct"`
-	AdvancingVolume float64   `json:"advancing_volume"`
-	DecliningVolume float64   `json:"declining_volume"`
-	UnchangedVolume float64   `json:"unchanged_volume"`
-	CoverageVolume  int       `json:"coverage_volume"`
-	UpVolumePct     *float64  `json:"up_volume_pct"`
+	Companies       *MarketTapeCompanies `json:"companies,omitempty"`
+	Method          string               `json:"method"`
+	RecordedAt      time.Time            `json:"recorded_at"`
+	InputObservedAt time.Time            `json:"input_observed_at,omitzero"`
+	MembershipID    string               `json:"membership_id"`
+	PctAbove20DMA   *float64             `json:"pct_above_20dma"`
+	Coverage20      int                  `json:"coverage_20"`
+	Advancing       int                  `json:"advancing"`
+	Declining       int                  `json:"declining"`
+	Unchanged       int                  `json:"unchanged"`
+	CoverageAD      int                  `json:"coverage_ad"`
+	AdvancePct      *float64             `json:"advance_pct"`
+	AdvancingVolume float64              `json:"advancing_volume"`
+	DecliningVolume float64              `json:"declining_volume"`
+	UnchangedVolume float64              `json:"unchanged_volume"`
+	CoverageVolume  int                  `json:"coverage_volume"`
+	UpVolumePct     *float64             `json:"up_volume_pct"`
 }
 
 // MarketTapeReading explains observed relationships. It carries no probability,

@@ -1,7 +1,8 @@
 # Market tape and rally quality
 
-Status: stages 1 and 2 implemented locally, 2026-09-24; new participation coverage
-awaits scheduled collection. Owner: Canary daemon; CLI, MCP, SPA and Desk adapt
+Status: stages 1 and 2 plus fixed leader collection implemented locally,
+2026-09-25. The first daily participation row was collected on September 24.
+Owner: Canary daemon; CLI, MCP, SPA and Desk adapt
 one result. This is market observation, with no order,
 portfolio, risk-policy, freeze or alert authority.
 
@@ -9,8 +10,9 @@ portfolio, risk-policy, freeze or alert authority.
 
 Can deteriorating participation and volume pressure distinguish a durable rally
 from a bounce likely to retrace over the next 1–3 sessions, soon enough to help?
-The strongest practical baseline is a price-only model using recent returns,
-trend, drawdown and realized volatility, alongside the unconditional event rate.
+The current practical baseline is recent SPY/QQQ prices plus broad-market
+participation. Also retain a price-only baseline using recent returns, trend,
+drawdown and realized volatility, alongside the unconditional event rate.
 An attractive chart or this week's retrospective explanation is not evidence of
 forecasting skill.
 
@@ -24,7 +26,7 @@ Otherwise keep the descriptive tape and retire the forecast.
 
 ## Stages
 
-1. **Observed tape (current scope).** Serve 5–60 completed US equity sessions
+1. **Observed tape (initial scope).** Serve 5–60 completed US equity sessions
    (default 20), aligned by the official exchange calendar. Show SPX and QQQ
    price changes, QQQ relative volume, and retained S&P 500 breadth (50/200-day
    participation and 252-session closing highs/lows). Use existing acquisition,
@@ -204,36 +206,20 @@ envelope, and sits behind the existing authenticated GET console boundary. This
 bridge can be replaced with the typed client after normal Canary publication;
 no local module replacement or premature release is needed.
 
-## Likely build and observation sequence
+## Automatic operating cadence
 
-These are planned acceptance stages, not scheduled agent jobs or promises about
-market direction. Official calendar checks on 2026-09-24 show regular US equity
-sessions on September 24, 25, 28 and 29. For these dates the close is 22:00 Berlin.
-The existing constituent collector starts at close +35 minutes and has a
-90-minute publication window; 22:35 is the earliest start, not a guaranteed
-availability time. Price rows may appear earlier after their 15-minute settle.
+There is no manual daily checklist, tagging or approval. Keep the daemon running;
+its existing after-close collection and startup catch-up retain the tape. Reads
+show measured coverage and acquisition failures. Follow-up changes fill as later
+sessions close. A failed collection retries automatically; a missing value stays
+missing. The UI is a read of saved evidence, not a trigger for a daily ritual.
 
-| Trading day / stage | Work and usable outcome | Continue / stop test |
-| --- | --- | --- |
-| Thu Sep 24, after close | Run the tested collection candidate; retain the first dated count/volume row. CLI and Canary already explain legacy price/trend breadth. Desk source and isolated rendering are checked. | New fields must have honest coverage, official-session pairs and acquisition clocks; absent coverage stays pending. Preserve the existing gateway pacing and no extra fanout. |
-| Fri Sep 25 / next morning | Compare two completed rows; inspect a rise, fall, flat day and missing-data case. Confirm the same selected-day values/text in CLI, Canary and Desk. | Coverage, latency and saved history must survive restart. Pause expansion if the collector misses its ordinary publication window or harms interactive reads. |
-| Mon Sep 28 and Tue Sep 29 | Use the tape prospectively in preparation and compare next-session outcomes with the saved earlier reading. Write down disagreements and false warnings without changing labels after the outcome. | Establish workflow usefulness and timing; four observations cannot establish forecasting skill. Finalize event/target definitions, source availability and an untouched evaluation split. |
-| Following 1–2 weeks | Build reproducible offline replay and the price-only baseline. Review same-clock volatility/credit inputs and separate equity/index/ETF put/call access, definitions and cost. Add only inputs whose timing and coverage can be defended. | Chronological held-out improvement, useful lead time and net decision outcomes must justify added complexity. Historical data with unknown availability cannot prove live warning lead time. |
-| Longer forward sample | Run any promising frozen candidate in shadow mode, with a complete failure/false-alarm log. Only then consider calibrated probability or alerts. | If improvement does not survive untouched periods and uncertainty/cost checks, keep the descriptive tape and stop forecasting work. |
-
-The next trading days validate acquisition, explanations and usability. They do
-not supply enough independent reversal events for probability calibration. A
-same-day pre-close warning is a separate later feature: official intraday clocks,
-VWAP/session persistence and a frozen decision cutoff must be captured and tested
-before claiming it would have helped before the close. No broker action, policy
-change or recurring manual sign-off is part of this research.
-
-Historical forecasting needs a separate dataset decision. The current retained
-breadth cache covers at most 60 sessions and older rows lack daily counts,
-volume and original availability. It cannot support a credible multi-regime
-forecast evaluation by itself. Prefer a sufficiently long dataset with dated
-membership, delisted names where relevant, and defensible availability clocks;
-otherwise restrict conclusions to the forward sample and postpone calibration.
+The next trading days establish acquisition reliability and usability. Predictive
+value needs a separate chronological test against SPY/QQQ prices plus broad
+participation, adding leaders, volume and VIX individually. Count false warnings
+and missed upside, preserve the untouched evaluation period, and stop adding
+complexity if it does not improve that baseline. A scorecard remains a joint
+design task; no alert threshold or trading rule is implied.
 
 ## Permanent archive and follow-ups
 
@@ -244,7 +230,7 @@ it does not test that hypothesis or choose a warning threshold, action, grade,
 evaluation cutoff or score. Those scorecard choices remain a joint design task.
 
 `canary market tape --history` shows saved observations and the S&P 500's closing
-price changes one and three **official trading sessions** later. `--explain`
+price changes one, three and five **official trading sessions** later. `--explain`
 defines the view; `--json` also includes QQQ outcomes, exact price references,
 first/latest observations and capture times. `--before YYYY-MM-DD` is an
 exclusive cursor for older pages, including records outside the rolling
@@ -261,7 +247,7 @@ measurements or failed collection passes are retried; existing broker pacing,
 coalescing and the background request lane remain binding. Normal tape reads
 also retain their measured rows. Collection works only while the daemon runs;
 the worker does not defeat idle shutdown between collection passes. It uses the
-existing fixed SPX/QQQ six-month history reads, with no new paid source.
+fixed SPX/QQQ/SPY/VIX and 11 leader six-month history reads, through existing bounded pacing, with no new paid source.
 
 Each session has a bounded current projection and immutable changed versions
 in the daemon's existing SQLite observation store. Versions contain the exact
@@ -342,3 +328,55 @@ has no ANSI escapes; explicit colour mode uses the existing terminal palette.
 The required stable supplier check found HyperServe v2.2.0 published after the
 initial implementation, so the final candidate pins that release and checksums.
 Canary's strict JSON and flush-error adapters remain in place.
+
+## Fixed leader research collection, 2026-09-25
+
+The selected basket stays at 11 share lines (10 companies), with initial SPY
+weights dated 23 September and fixed quantities from the 4 September close.
+`spy-leaders-2026-09-23-v1` identifies the frozen method. No automatic reranking,
+weight optimization or expansion is performed. Normal tape reads and the existing
+collector retain each constituent close, 50-session mean, daily change, volume,
+relative volume, normalized weight and anchor close in the versioned archive.
+The permanent anchor row supplies the base after it leaves the requested history
+window. Available history backfills up to 60 displayed sessions; history reads
+can page older retained observations without contacting the broker.
+
+Company participation uses one fixed representative: GOOGL for Alphabet, FOXA
+for Fox and NWSA for News Corp. No substitute is used if the representative is
+missing. The price index and volume continue to include both Alphabet classes.
+The small basket requires all ten companies for percentages and all eleven
+share lines for price/activity. Broad company measures disclose their own
+coverage. Rising-company percentage includes unchanged companies in the total.
+Existing share-line breadth and all risk semantics remain unchanged; company
+measurements are additive research fields. Old undated constituent closes are
+not assigned invented dates. Broad historical company averages stay unavailable
+where the retained source cannot establish them; future sweeps preserve them.
+
+SPY and VIX now accompany the existing SPX/QQQ series. Optional daily OHLC values
+are retained from the broker, independently of closes. Opening gap, low versus
+previous close, recovery from low and closing position in the day's range expose
+a recovery hidden by a flat close. They do not establish when a turn happened;
+a timed pre-close signal requires separately retained intraday observations.
+Legacy cached closes remain valid without OHLC; ordinary tail/full refreshes
+populate the new fields without a cache wipe or a new provider.
+
+Prices are not irrevocably frozen: vendor corrections and corporate-action
+adjustments can revise historical bars. The existing archive retains originals
+and changed versions, actual capture clocks and reconstructed-history labels.
+Current members and endpoint weights applied to past prices are retrospective
+research, not proof of an available historical signal. Later 1/3/5-session price
+comparisons remain automatic descriptive follow-ups, not trade returns.
+
+CLI presents a compact leader table and coverage; MCP/HTTP and the shared Go
+contract expose the same additive fields for Desk. The existing SPA and Desk
+charts have not yet been redesigned to plot the new basket fields. No new
+scheduled task, model call, paid source, broker action or operator sign-off is
+required. The collection still depends on a running daemon and connected data
+source, with startup catch-up and explicit gaps when unavailable.
+
+Live CLI verification also reproduced issue #51: a timed-out startup version
+probe could leave its response on the command socket and produce a false
+"History unavailable" display. The probe now owns a separate connection;
+a socket-level timeout test verifies that the actual command receives its own
+history. Carry #51 into the next versioned changelog and close it with the fix
+commit; the public changelog does not accept an unreleased section.

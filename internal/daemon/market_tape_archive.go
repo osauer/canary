@@ -102,6 +102,21 @@ func tapeArchiveCapture(row rpc.MarketTapeSession, sources []rpc.MarketTapeSourc
 	if capture.Session.QQQ != nil {
 		capture.Session.QQQ.WindowChangePct = nil
 	}
+	for _, p := range []*rpc.MarketTapePrice{capture.Session.SPY, capture.Session.VIX} {
+		if p != nil {
+			p.WindowChangePct = nil
+		}
+	}
+	if b := capture.Session.Leaders; b != nil {
+		if b.Price != nil {
+			b.Price.WindowChangePct = nil
+		}
+		for i := range b.Members {
+			if b.Members[i].Price != nil {
+				b.Members[i].Price.WindowChangePct = nil
+			}
+		}
+	}
 	canonical := capture.Session
 	if canonical.Breadth != nil && canonical.Breadth.Participation != nil {
 		breadth, participation := *canonical.Breadth, *canonical.Breadth.Participation
@@ -200,7 +215,7 @@ func archiveMarketTape(ctx context.Context, store *corestore.Store, result *rpc.
 		}
 		// Do not fill an outage with empty permanent records. Missing dates are
 		// still explicit in history; a partial measured row is retained.
-		if row.SPX == nil && row.QQQ == nil && row.Breadth == nil {
+		if row.SPX == nil && row.QQQ == nil && row.Breadth == nil && row.SPY == nil && row.VIX == nil && (row.Leaders == nil || row.Leaders.Price == nil && row.Leaders.Companies.Coverage50 == 0 && row.Leaders.Companies.CoverageAD == 0) {
 			continue
 		}
 		capture, fingerprint, err := tapeArchiveCapture(row, result.Sources, result.AsOf)
@@ -277,7 +292,7 @@ func readMarketTapeHistory(ctx context.Context, store *corestore.Store, p rpc.Ma
 	indices = indices[len(indices)-p.Sessions:]
 	history := &rpc.MarketTapeHistory{Before: p.Before, NextBefore: calendar[indices[0]].Date, Rows: make([]rpc.MarketTapeHistoryRow, 0, p.Sessions)}
 	loaded := make(map[string]tapeArchiveDay)
-	for i := indices[0]; i <= min(indices[len(indices)-1]+3, len(calendar)-1); i++ {
+	for i := indices[0]; i <= min(indices[len(indices)-1]+5, len(calendar)-1); i++ {
 		date := calendar[i].Date
 		day, _, exists, err := loadTapeDay(ctx, store, date)
 		if err != nil {
@@ -296,7 +311,7 @@ func readMarketTapeHistory(ctx context.Context, store *corestore.Store, p rpc.Ma
 			row.First, row.Latest = &anchor.First, &anchor.Latest
 			covered++
 		}
-		for _, horizon := range []int{1, 3} {
+		for _, horizon := range []int{1, 3, 5} {
 			follow := rpc.MarketTapeFollowUp{Sessions: horizon, Status: "unavailable"}
 			if i+horizon < len(calendar) {
 				target := calendar[i+horizon]
@@ -331,7 +346,7 @@ func readMarketTapeHistory(ctx context.Context, store *corestore.Store, p rpc.Ma
 		Notes: []string{
 			"Permanent local records; collection runs while the daemon is running. First and latest versions are shown; all changed versions are retained in daemon.db.",
 			"Reconstructed records describe sessions preceding collection or were captured after the next session opened; they are not evidence of a forecast made in advance.",
-			"Follow-ups compare the latest available archived closes after one and three official trading sessions. They exclude dividends and costs and are not achievable trading returns.",
+			"Follow-ups compare the latest available archived closes after one, three and five official trading sessions. They exclude dividends and costs and are not achievable trading returns.",
 			"Corrections may change follow-ups. Each closing price names its captured revision. Pending means the target close has not settled; unavailable means a required measurement is missing.",
 			fmt.Sprintf("%d of %d displayed sessions have an archived observation. No score, trading rule or predictive claim.", covered, len(indices)),
 		}}, nil

@@ -29,7 +29,7 @@ func renderMarketTapeHistory(env *Env, result *rpc.MarketTapeResult, explain boo
 				date += "*"
 			}
 		}
-		after := map[int]string{1: "—", 3: "—"}
+		after := map[int]string{1: "—", 3: "—", 5: "—"}
 		for _, follow := range day.FollowUps {
 			if follow.Status == "pending" {
 				after[follow.Sessions] = "waiting"
@@ -37,10 +37,10 @@ func renderMarketTapeHistory(env *Env, result *rpc.MarketTapeResult, explain boo
 				after[follow.Sessions] = marketTapeNumber(env, follow.SPXChangePct, "%", true)
 			}
 		}
-		rows = append(rows, []string{date, marketTapeNumber(env, change, "%", true), marketTapeNumber(env, share, "%", false), after[1], after[3]})
+		rows = append(rows, []string{date, marketTapeNumber(env, change, "%", true), marketTapeNumber(env, share, "%", false), after[1], after[3], after[5]})
 	}
 	fmt.Fprintln(env.Stdout)
-	renderPositionTable(env, env.Stdout, []positionTableColumn{{"DAY", positionAlignLeft}, {"S&P THAT DAY", positionAlignRight}, {"STOCKS ABOVE AVG", positionAlignRight}, {"1 DAY LATER", positionAlignRight}, {"3 DAYS LATER", positionAlignRight}}, rows)
+	renderPositionTable(env, env.Stdout, []positionTableColumn{{"DAY", positionAlignLeft}, {"S&P DAY", positionAlignRight}, {"ABOVE AVG", positionAlignRight}, {"AFTER 1D", positionAlignRight}, {"AFTER 3D", positionAlignRight}, {"AFTER 5D", positionAlignRight}}, rows)
 	fmt.Fprintln(env.Stdout)
 	riskReadLine(env, "  Stocks above avg: % at or above their own 50-day average closing price.")
 	riskReadLine(env, "  Later changes run from that day's close, using trading days only.")
