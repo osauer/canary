@@ -139,7 +139,7 @@ func main() {
 	// only output is a stderr warning if the daemon was built from a
 	// different revision than this CLI binary.
 	if cmd != "status" {
-		warnIfDaemonVersionMismatch(conn, runtimeVersion)
+		warnIfDaemonVersionMismatch(socketPath, runtimeVersion)
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -284,13 +284,17 @@ func parseDurationOr(raw string, fallback time.Duration) time.Duration {
 	return d
 }
 
-// warnIfDaemonVersionMismatch fires a tight-timeout status.health call
-// failure here must not interfere with the user's actual command.
-//   - exact version match
-func warnIfDaemonVersionMismatch(conn *dial.Conn, cliVersion string) {
+// warnIfDaemonVersionMismatch uses a separate connection so a response that
+// arrives after its timeout cannot be mistaken for the user's command result.
+func warnIfDaemonVersionMismatch(socketPath, cliVersion string) {
 	if cliVersion == "" || cliVersion == "dev" {
 		return
 	}
+	conn, err := dial.Connect(socketPath)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	daemonVersion, err := conn.DaemonVersion(ctx)
