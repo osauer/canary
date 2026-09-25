@@ -13,9 +13,18 @@ absence means an older or unsupported producer contract, not a healthy source.
 | `cause` | Why a row is not current, when its producer can establish it. `upstream_publication_pending`: Canary read the publisher's file, which has not yet released the observation the row's schedule requires. It is an expected delay at the publisher, not a Canary, broker or network fault; the row stays `limited`. Set for `regime:vix_term` (Cboe VIX3M closes more than one session behind) and `regime:vvix` (newest Cboe VVIX close past its four-day budget), only from a current regime publication and only when the gap alone holds the row out of schedule. `official_date` is the newest published close; `pending_since` is when the gap began to limit the row. |
 | `usability` | The analytical owner's quality verdict: `usable`, `limited`, `blocked`, or `unknown`. Currently populated for gamma, with bounded owner-authored `usability_reason`. Retained rankability alone cannot establish current usability when its publication or source is stale. |
 
-The summary counts source concerns and unknown coverage. It does not count
-independent incidents or individual missing instruments. Desk delivery health
-remains a separate observation.
+The summary counts source concerns (`problems`), expected delays
+(`expected_delays`) and unknown coverage (`unverified`), and its label reads,
+for example, "0 source concerns · 1 expected delay · 0 unknown coverage". A
+required row that is `limited` only for a cause in the expected set, currently
+`upstream_publication_pending`, is an expected delay: it keeps its state and
+stays in `limited`, but it is never a source concern and is not listed in
+`concerns`. A failure, any other cause, and an `unavailable` row remain
+concerns. A `not_due` row is on schedule and counts as current, neither a
+concern nor a delay. `current`, `limited`, `unavailable` and `unverified` still
+partition the required rows by their own state, and `state` still follows the
+worst of them. The summary does not count independent incidents or individual
+missing instruments. Desk delivery health remains a separate observation.
 
 ## Retained chronology
 

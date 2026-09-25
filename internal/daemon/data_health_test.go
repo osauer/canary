@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +132,72 @@ func TestDataHealthCauseDedupDoesNotHideIndependentFailure(t *testing.T) {
 	r, err := finalizeDataHealth(rows, "current", now, rpc.DataHealthParams{})
 	if err != nil || r.Summary.Problems != 3 {
 		t.Fatalf("dedup: %+v %v", r.Summary, err)
+	}
+}
+
+// A limited row whose cause is expected, such as Cboe's pending VIX3M close
+// on regime:vix_term, was counted as a source concern: the summary read "1
+// source concerns · 0 unknown coverage" and Desk mirrored it as a gap. The
+// row keeps its state and stays in the limited count; the summary counts it
+// as an expected delay and the ranked concerns leave it out. A failure, any
+// other cause, an unavailable row and unknown coverage still count, and a
+// not_due row is on schedule, neither a concern nor a delay.
+func TestDataHealthSummaryCountsExpectedDelaysApartFromConcerns(t *testing.T) {
+	now := time.Date(2026, 9, 25, 13, 0, 0, 0, time.UTC)
+	row := func(id, state, cause string) rpc.DataSourceHealth {
+		r := rpc.DataSourceHealth{ID: id, Name: id, Required: true, State: state, Receiving: state, Cause: cause}
+		if state == "limited" || state == "unavailable" {
+			r.ProblemIDs = []string{id}
+		}
+		return r
+	}
+	pending := rpc.DataHealthCauseUpstreamPublicationPending
+	failed := row("regime:credit", "limited", "")
+	failed.Failure = &rpc.SourceFailure{Code: rpc.SourceFailureTimeout}
+	for _, tc := range []struct {
+		name     string
+		rows     []rpc.DataSourceHealth
+		want     rpc.DataHealthSummary
+		concerns []string
+	}{
+		{"expected_delay_only", []rpc.DataSourceHealth{row("market_quotes", "current", ""), row("regime:fx", "not_due", ""), row("regime:vix_term", "limited", pending)},
+			rpc.DataHealthSummary{State: "limited", Label: "0 source concerns · 1 expected delay · 0 unknown coverage", Total: 3, Required: 3, Current: 2, Limited: 1, ExpectedDelays: 1}, nil},
+		{"on_schedule", []rpc.DataSourceHealth{row("market_quotes", "current", ""), row("regime:fx", "not_due", "")},
+			rpc.DataHealthSummary{State: "current", Label: "Required sources are available", Total: 2, Required: 2, Current: 2}, nil},
+		{"faults_stay_concerns", []rpc.DataSourceHealth{row("regime:vix_term", "limited", pending), row("regime:vvix", "limited", pending), failed, row("events:borrow_fee", "limited", "unclassified_publisher_delay"), row("gateway", "unavailable", pending), row("calendar", "unknown", "")},
+			rpc.DataHealthSummary{State: "unavailable", Label: "3 source concerns · 2 expected delays · 1 unknown coverage", Total: 6, Required: 6, Limited: 4, Unavailable: 1, Unverified: 1, Problems: 3, ExpectedDelays: 2}, []string{"calendar", "events:borrow_fee", "gateway", "regime:credit"}},
+		{"one_concern", []rpc.DataSourceHealth{row("market_quotes", "current", ""), failed},
+			rpc.DataHealthSummary{State: "limited", Label: "1 source concern · 0 expected delays · 0 unknown coverage", Total: 2, Required: 2, Current: 1, Limited: 1, Problems: 1}, []string{"regime:credit"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := finalizeDataHealth(slices.Clone(tc.rows), "current", now, rpc.DataHealthParams{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Summary != tc.want {
+				t.Fatalf("summary:\n got %+v\nwant %+v", r.Summary, tc.want)
+			}
+			if s := r.Summary; s.Required != s.Current+s.Limited+s.Unavailable+s.Unverified {
+				t.Fatalf("row states no longer partition the required rows: %+v", s)
+			}
+			var concerns []string
+			for _, c := range r.Concerns {
+				concerns = append(concerns, c.SourceID)
+			}
+			slices.Sort(concerns)
+			if !slices.Equal(concerns, tc.concerns) {
+				t.Fatalf("ranked concerns: got %v want %v", concerns, tc.concerns)
+			}
+			for _, in := range tc.rows {
+				i := slices.IndexFunc(r.Sources, func(out rpc.DataSourceHealth) bool { return out.ID == in.ID })
+				if i < 0 {
+					t.Fatalf("row %s missing from the report", in.ID)
+				}
+				if out := r.Sources[i]; out.State != in.State || out.Cause != in.Cause || !slices.Equal(out.ProblemIDs, in.ProblemIDs) {
+					t.Fatalf("row %s changed: %+v", in.ID, out)
+				}
+			}
+		})
 	}
 }
 

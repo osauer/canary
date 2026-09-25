@@ -36,16 +36,22 @@ type DataHealthResult struct {
 // DataHealthSummary counts producer services/data products and distinct observed causes.
 // Instruments and requested chart windows never create sources or source problems.
 // Unverified is separate from known failures; a complete page is not coverage.
+// Current, Limited, Unavailable and Unverified partition the required rows by
+// their own state. Problems counts the distinct causes of source concern;
+// ExpectedDelays counts the required rows held limited only by an expected
+// cause (DataHealthCauseExpected), which stay in Limited and never count as
+// a concern.
 type DataHealthSummary struct {
-	State       string `json:"state"`
-	Label       string `json:"label"`
-	Total       int    `json:"total"`
-	Required    int    `json:"required"`
-	Current     int    `json:"current"`
-	Limited     int    `json:"limited"`
-	Unavailable int    `json:"unavailable"`
-	Unverified  int    `json:"unverified"`
-	Problems    int    `json:"problems"`
+	State          string `json:"state"`
+	Label          string `json:"label"`
+	Total          int    `json:"total"`
+	Required       int    `json:"required"`
+	Current        int    `json:"current"`
+	Limited        int    `json:"limited"`
+	Unavailable    int    `json:"unavailable"`
+	Unverified     int    `json:"unverified"`
+	Problems       int    `json:"problems"`
+	ExpectedDelays int    `json:"expected_delays"`
 }
 
 // DataSourceHealth separates data actually received from the latest access
@@ -106,6 +112,15 @@ type DataSourceHealth struct {
 // row's schedule requires. The row stays limited until it does.
 const DataHealthCauseUpstreamPublicationPending = "upstream_publication_pending"
 
+// DataHealthCauseExpected reports whether a row's cause is an expected delay
+// rather than a fault. A limited row with such a cause keeps its state; the
+// summary counts it as an expected delay, never as a source concern. A
+// not_due row is on schedule, not delayed, and needs no cause. Any other
+// established cause is a fault.
+func DataHealthCauseExpected(cause string) bool {
+	return cause == DataHealthCauseUpstreamPublicationPending
+}
+
 // DataHealthTransition is historical diagnostic evidence, never restored access
 // authority. Observation gaps and session changes cannot establish continuity.
 type DataHealthTransition struct {
@@ -146,6 +161,7 @@ type DataAccessObservation struct {
 
 // DataHealthConcern is a bounded producer-ranked concern. Unknown coverage is
 // distinct from a confirmed problem and never increments the problem count.
+// An expected delay is not a concern and is not listed.
 type DataHealthConcern struct {
 	SourceID string `json:"source_id"`
 	State    string `json:"state"`

@@ -322,6 +322,10 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 		default:
 			summary.Unverified++
 		}
+		if dataHealthExpectedDelay(*r) {
+			summary.ExpectedDelays++
+			continue
+		}
 		// Inherited causes are supplied by the producer. Suppress a derived
 		// row only when those leaf observations really exist in this report.
 		inherited := len(r.DerivedFrom) > 0
@@ -350,10 +354,7 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 	if summary.Unavailable > 0 {
 		summary.State = "unavailable"
 	}
-	summary.Label = fmt.Sprintf("%d source concerns · %d unknown coverage", summary.Problems, summary.Unverified)
-	if summary.Problems == 0 && summary.Unverified == 0 {
-		summary.Label = "Required sources are available"
-	}
+	summary.Label = dataHealthSummaryLabel(summary)
 	raw, _ := json.Marshal(struct {
 		Scope string
 		Rows  []rpc.DataSourceHealth
@@ -374,7 +375,7 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 	})
 	seenConcerns := map[string]bool{}
 	for _, row := range ranked {
-		if !row.Required || row.State == "current" || row.State == "not_due" {
+		if !row.Required || row.State == "current" || row.State == "not_due" || dataHealthExpectedDelay(row) {
 			continue
 		}
 		cause := row.ID
@@ -397,6 +398,22 @@ func finalizeDataHealth(rows []rpc.DataSourceHealth, scope string, now time.Time
 		result.NextOffset = &end
 	}
 	return fitDataHealthPage(result)
+}
+
+// dataHealthExpectedDelay reports a limited row that its producer holds out
+// of current only for an expected cause. Its state stays limited; the summary
+// counts it as an expected delay, never as a source concern or a ranked
+// concern.
+func dataHealthExpectedDelay(row rpc.DataSourceHealth) bool {
+	return row.State == "limited" && rpc.DataHealthCauseExpected(row.Cause)
+}
+
+// dataHealthSummaryLabel keeps expected delays apart from source concerns.
+func dataHealthSummaryLabel(s rpc.DataHealthSummary) string {
+	if s.Problems == 0 && s.ExpectedDelays == 0 && s.Unverified == 0 {
+		return "Required sources are available"
+	}
+	return fmt.Sprintf("%d source %s · %d expected %s · %d unknown coverage", s.Problems, plural(s.Problems, "concern", "concerns"), s.ExpectedDelays, plural(s.ExpectedDelays, "delay", "delays"), s.Unverified)
 }
 
 // Bound the actual JSON envelope, including concern labels and histories.
