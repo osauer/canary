@@ -17,6 +17,7 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/v2"
 
+	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
 	"github.com/osauer/canary/v2/internal/app/daemonclient"
 	"github.com/osauer/canary/v2/internal/app/live"
@@ -55,7 +56,8 @@ type AlertDeliveryController interface {
 	PruneDevices(time.Time) (int, error)
 	AddPushSubscription(state.PushSubscription) error
 	RemovePushSubscription(string) error
-	SendSafeDiagnostic(context.Context, string) (state.GovernanceDiagnosticStatus, bool, error)
+	SendSafeDiagnostic(context.Context, string) (appalerts.DiagnosticResult, error)
+	SendDiagnostic(context.Context) (appalerts.DiagnosticResult, error)
 	RecordPushAck(noticeID, deviceID, event string, deviceAt time.Time) (state.PushAckOutcome, error)
 }
 
@@ -160,6 +162,7 @@ func Register(deps Dependencies) {
 	srv.DELETE("/api/push/{id}", h.requireAuth(h.handlePushDelete))
 	srv.POST("/api/push/test", h.requireAuth(h.handleSafePushTest))
 	srv.POST(PushAckPath, h.requireAuth(h.handlePushAck))
+	srv.POST(PushDiagnosticPath, h.handleLocalPushDiagnostic)
 }
 
 func (h *handler) serveIndex(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -740,10 +743,12 @@ func (h *handler) handlePushDelete(w nethttp.ResponseWriter, r *nethttp.Request)
 }
 
 // SafePushTestResult reports a redacted diagnostic transport class. A true
-// PushServiceAccepted is not proof of device display or human attention.
+// PushServiceAccepted is not proof of device display or human attention;
+// the device's displayed/opened receipt for NoticeID is.
 type SafePushTestResult struct {
 	State               string `json:"state"`
 	PushServiceAccepted bool   `json:"push_service_accepted"`
+	NoticeID            string `json:"notice_id,omitempty"`
 }
 
 func (h *handler) handleSafePushTest(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -763,12 +768,12 @@ func (h *handler) handleSafePushTest(w nethttp.ResponseWriter, r *nethttp.Reques
 		writeError(w, nethttp.StatusUnauthorized, "unauthorized")
 		return
 	}
-	status, accepted, err := h.deps.AlertController.SendSafeDiagnostic(r.Context(), sess.DeviceID)
+	result, err := h.deps.AlertController.SendSafeDiagnostic(r.Context(), sess.DeviceID)
 	if err != nil {
 		writeError(w, nethttp.StatusInternalServerError, "diagnostic dispatch failed")
 		return
 	}
-	writeJSON(w, SafePushTestResult{State: status.State, PushServiceAccepted: accepted})
+	writeJSON(w, SafePushTestResult{State: result.State, PushServiceAccepted: result.Accepted, NoticeID: result.NoticeID})
 }
 
 func (h *handler) requireAuth(next nethttp.HandlerFunc) nethttp.HandlerFunc {

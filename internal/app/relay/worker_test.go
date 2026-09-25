@@ -72,3 +72,21 @@ func TestConnectOnceUsesConfiguredHTTPClientForWebSocketUpgrade(t *testing.T) {
 	default:
 	}
 }
+
+func TestForwardableAppPathKeepsLocalControlOffTheRelay(t *testing.T) {
+	t.Parallel()
+	for path, want := range map[string]bool{
+		"/api/push/ack":          true,
+		"/api/push/test":         true,
+		"/api/alerts":            true,
+		"/api/push/diagnostic":   false,
+		"/api/push/diagnostic?x": false,
+		"/api/app-status":        false,
+		"/api/devices/prune":     false,
+		"/api/pairing/sessions":  false,
+	} {
+		if got := forwardableAppPath(path); got != want {
+			t.Errorf("forwardableAppPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

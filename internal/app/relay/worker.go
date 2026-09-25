@@ -626,7 +626,11 @@ func forwardableAppPath(raw string) bool {
 	}
 	p := u.Path
 	// Local-control surfaces must not be reachable through the relay:
-	if p == "/api/pairing/sessions" || p == "/api/devices" || strings.HasPrefix(p, "/api/devices/") || p == "/api/app-status" {
+	// forwarded requests arrive from loopback and would pass the local gate.
+	// The diagnostic push fans out to every subscription, so it stays a
+	// local operator act (`canary app push-test`); the phone's own receipt
+	// route /api/push/ack stays forwardable.
+	if p == "/api/pairing/sessions" || p == "/api/devices" || strings.HasPrefix(p, "/api/devices/") || p == "/api/app-status" || p == "/api/push/diagnostic" {
 		return false
 	}
 	if p == "/" || p == "/pair.html" || strings.HasPrefix(p, "/api/") {

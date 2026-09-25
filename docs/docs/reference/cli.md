@@ -679,6 +679,7 @@ canary app pair
 | `pair` | `local` |
 | `serve` | `local` |
 | `devices` | `read-only` |
+| `push-test` | `local` |
 | `restart` | `confirm` |
 
 **Flags**

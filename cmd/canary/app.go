@@ -19,6 +19,7 @@ import (
 	"github.com/skip2/go-qrcode"
 
 	mobileapp "github.com/osauer/canary/v2/internal/app"
+	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
 	"github.com/osauer/canary/v2/internal/app/auth"
 	apphttp "github.com/osauer/canary/v2/internal/app/http"
 	"github.com/osauer/canary/v2/internal/cli"
@@ -40,6 +41,8 @@ func runApp(args []string) int {
 			return runAppDevices(args[1:])
 		case "status":
 			return runAppStatus(args[1:])
+		case "push-test":
+			return runAppPushTest(args[1:])
 		case "restart":
 			return runAppRestart(args[1:])
 		case "serve":
@@ -166,6 +169,122 @@ func renderAppPushDelivery(w io.Writer, proof rpc.PushDeliveryProof, now time.Ti
 		}
 	}
 	fmt.Fprintf(w, "  Subscriptions     %d active, notification mode %s\n", proof.ActiveSubscriptions, proof.Mode)
+}
+
+// runAppPushTest sends one diagnostic push through the local app host to
+// every active subscription. It travels the alert transport, journal, and
+// receipt path, is marked diagnostic, and never counts as an alert.
+func runAppPushTest(args []string) int {
+	return runAppPushTestWithIO(args, os.Stdout, os.Stderr)
+}
+
+func runAppPushTestWithIO(args []string, stdout, stderr io.Writer) int {
+	opts := mobileapp.DefaultOptions(effectiveVersion())
+	fs := flag.NewFlagSet(productidentity.Executable+" app push-test", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	usage := func(w io.Writer) {
+		fmt.Fprintf(w, "%s app push-test - send one diagnostic push to every paired device with notifications on.\n", productidentity.Executable)
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Usage: %s app push-test [--addr HOST:PORT] [--json]\n", productidentity.Executable)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "The push is journaled and acknowledged like an alert but marked diagnostic;")
+		fmt.Fprintln(w, "it never counts as an alert. Push-service acceptance is not delivery: the phone")
+		fmt.Fprintf(w, "proves it by reporting the notification displayed or opened (see `%s status`).\n", productidentity.Executable)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "Flags:")
+		printFlagDefaults(w, fs)
+	}
+	fs.Usage = func() { usage(stdout) }
+	addr := fs.String("addr", opts.Addr, "local app host listen address")
+	asJSON := fs.Bool("json", false, "print the diagnostic result as JSON")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if fs.NArg() != 0 {
+		return rejectUnexpectedArgument(stderr, productidentity.Executable+" app push-test", fs, usage)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	result, err := postAppPushDiagnostic(ctx, strings.TrimSpace(*addr))
+	if err != nil {
+		fmt.Fprintf(stderr, "%s app push-test: %v\n", productidentity.Executable, err)
+		return 1
+	}
+	if *asJSON {
+		enc := json.NewEncoder(stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(result)
+	} else {
+		renderAppPushTest(stdout, result)
+	}
+	if !result.Accepted {
+		return 1
+	}
+	return 0
+}
+
+func postAppPushDiagnostic(ctx context.Context, addr string) (appalerts.DiagnosticResult, error) {
+	baseURL := "http://" + mobileapp.LoopbackAddrForLocalConnect(addr)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+apphttp.PushDiagnosticPath, strings.NewReader("{}"))
+	if err != nil {
+		return appalerts.DiagnosticResult{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return appalerts.DiagnosticResult{}, fmt.Errorf("connect to local app host at %s: %w (start it with `%s app`)", baseURL, err, productidentity.Executable)
+	}
+	defer res.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return appalerts.DiagnosticResult{}, err
+	}
+	if res.StatusCode != http.StatusOK {
+		var body struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal(raw, &body)
+		if body.Error == "" {
+			body.Error = res.Status
+		}
+		return appalerts.DiagnosticResult{}, errors.New(body.Error)
+	}
+	var result appalerts.DiagnosticResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return appalerts.DiagnosticResult{}, fmt.Errorf("decode diagnostic result: %w", err)
+	}
+	return result, nil
+}
+
+func renderAppPushTest(w io.Writer, result appalerts.DiagnosticResult) {
+	switch {
+	case result.State == "suppressed":
+		fmt.Fprintln(w, "Notifications are off (mode none); no diagnostic push was sent.")
+		return
+	case len(result.Targets) == 0:
+		fmt.Fprintln(w, "No active push subscription: no paired device has notifications enabled.")
+		fmt.Fprintln(w, "On the phone: open Canary, Settings, Enable notifications, then rerun.")
+		return
+	}
+	fmt.Fprintf(w, "Diagnostic push %s: %s\n", result.NoticeID, result.State)
+	for _, target := range result.Targets {
+		detail := target.Class
+		if target.HTTPStatus != 0 {
+			detail = fmt.Sprintf("%s %d", detail, target.HTTPStatus)
+		}
+		note := ""
+		if target.Class == "dead_subscription" {
+			note = " (subscription expired and removed; enable notifications on that device again)"
+		}
+		fmt.Fprintf(w, "  %-14s %s  %s%s\n", target.Device, target.DeviceRef, detail, note)
+	}
+	if result.Accepted {
+		fmt.Fprintln(w, "The push service accepted it; that is not delivery. Tap the \"Canary notification test\"")
+		fmt.Fprintf(w, "notification on the phone, then check `%s status` for the device receipt.\n", productidentity.Executable)
+	}
 }
 
 func nonEmptyAppStatus(value, fallback string) string {
@@ -544,6 +663,7 @@ func printAppUsage(w io.Writer) {
 	fmt.Fprintf(w, "  %s app pair [--addr HOST:PORT] [--public-url URL] [--json]\n", productidentity.Executable)
 	fmt.Fprintf(w, "  %s app devices [prune] [--keep-days N] [--addr HOST:PORT] [--json]\n", productidentity.Executable)
 	fmt.Fprintf(w, "  %s app status [--addr HOST:PORT] [--json]\n", productidentity.Executable)
+	fmt.Fprintf(w, "  %s app push-test [--addr HOST:PORT] [--json]\n", productidentity.Executable)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "The app serves a mobile-first PWA, live SSE snapshots,")
 	fmt.Fprintln(w, "and opt-in Canary Web Push subscriptions. Pairing URLs are short-lived.")

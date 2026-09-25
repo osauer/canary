@@ -1968,3 +1968,18 @@ test("a notification launch repeats only a well-formed opened receipt", async ()
     assert.equal(calls.length, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
+
+test("a safe test with no subscription on this device says what to do", async () => {
+  reset();
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => response({ state: "no_subscription", push_service_accepted: false });
+    assert.equal(await alerts.sendSafeNotificationTest(), false);
+    assert.match(state.safeNotificationTest.state, /not subscribed to push/);
+    assert.equal(state.safeNotificationTest.error, true);
+    globalThis.fetch = async () => response({ state: "push_service_accepted", push_service_accepted: true, notice_id: "diagnostic-0123456789abcdef" });
+    assert.equal(await alerts.sendSafeNotificationTest(), true);
+    assert.match(state.safeNotificationTest.state, /Tap the notification/);
+    assert.equal(state.safeNotificationTest.error, false);
+  } finally { globalThis.fetch = originalFetch; }
+});

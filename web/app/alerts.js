@@ -15,7 +15,11 @@ const evaluationReasons = new Set([
   "", "none", "report_pending", "account_value_pending", "exceptions_need_review", "account_value_mismatch",
   "evaluation_failed", "policy_unapproved",
 ]);
-const transportStates = new Set(["push_service_accepted", "partial_acceptance", "all_failed", "suppressed"]);
+const transportStates = new Set([
+  "push_service_accepted", "partial_acceptance", "all_failed", "suppressed", "no_subscription", "missing_keys",
+  "sender_unavailable", "dead_subscription", "http_rejected", "http_retry", "transport_retry", "deadline_retry",
+  "canceled_retry",
+]);
 const NOTICE_ID = /^[a-z][a-z0-9-]{2,95}$/;
 
 function exactKeys(value, expected) {
@@ -241,10 +245,23 @@ async function sendSafeNotificationTest() {
     const body = res.ok ? await res.json() : {};
     const transport = transportStates.has(body.state) ? body.state : "";
     if (!res.ok || !transport) throw new Error("notification unavailable");
-    if (body.push_service_accepted === true && transport === "push_service_accepted") outcome.state = "Push-service accepted.";
-    else if (body.push_service_accepted === true && transport === "partial_acceptance") outcome.state = "Partial push-service acceptance.";
-    else if (transport === "suppressed") outcome.state = "Safe notification test suppressed.";
-    else throw new Error("notification failed");
+    // Acceptance is transport only; the tap on this phone is the proof.
+    if (body.push_service_accepted === true && transport === "push_service_accepted") outcome.state = "Push service accepted the test. Tap the notification on this device to confirm it arrived.";
+    else if (body.push_service_accepted === true && transport === "partial_acceptance") outcome.state = "Push service accepted the test for some subscriptions. Tap the notification to confirm it arrived.";
+    else if (transport === "suppressed") outcome.state = "Safe notification test suppressed: phone alerts are Off.";
+    else if (transport === "no_subscription") {
+      outcome.state = "This device is not subscribed to push. Tap Enable, then send the test again.";
+      outcome.error = true;
+      return false;
+    } else if (transport === "dead_subscription") {
+      outcome.state = "This device's push subscription expired and was removed. Tap Enable, then send the test again.";
+      outcome.error = true;
+      return false;
+    } else {
+      outcome.state = `The push service did not accept the test (${transport}).`;
+      outcome.error = true;
+      return false;
+    }
     return true;
   } catch {
     outcome.state = "Safe notification test unavailable.";

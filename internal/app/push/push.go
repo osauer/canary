@@ -41,11 +41,12 @@ type Payload struct {
 }
 
 // SafeDiagnosticPayload returns a fixed notification test containing no
-// account, position, order, occurrence, or subscription data.
-func SafeDiagnosticPayload() Payload {
+// account, position, order, occurrence, or subscription data. noticeID is
+// the opaque journal identity the device acknowledges.
+func SafeDiagnosticPayload(noticeID string) Payload {
 	return Payload{
-		Title: "Canary notification test", Body: "Safe test notification. No account data is included.",
-		Destination: rpc.NudgeDestinationAlerts, DisplayID: "diagnostic-safe-test",
+		Title: "Canary notification test", Body: "Safe test notification. Tap it to confirm this phone receives Canary alerts. No account data is included.",
+		Destination: rpc.NudgeDestinationAlerts, DisplayID: "diagnostic-safe-test", NoticeID: noticeID,
 	}
 }
 
