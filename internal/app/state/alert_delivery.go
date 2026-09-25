@@ -48,6 +48,10 @@ const (
 	AlertDeliveryEndRecovered  = "recovered"
 	AlertDeliveryEndOmitted    = "authoritative_omission"
 	AlertDeliveryEndSuperseded = "qualified_escalation"
+	// AlertDeliveryEndUnobservedRecovery ends an occurrence whose recovery the
+	// producer emitted between two app samples; the producer's next occurrence
+	// key for the same episode is the proof that it ended.
+	AlertDeliveryEndUnobservedRecovery = "unobserved_recovery"
 	// AlertDeliveryEndAuthorityScopeChanged labels an immutable public boundary
 	// projection when the daemon moves to another opaque account/mode authority.
 	AlertDeliveryEndAuthorityScopeChanged = "authority_scope_changed"
@@ -664,7 +668,12 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 		episodeIndex, exists := episodes[episodeMapKey]
 		if !exists {
 			if candidate.State == rpc.AlertEpisodeRecovered {
-				return fmt.Errorf("%w: recovery for unknown episode", ErrAlertDeliveryInvalidTransition)
+				// The producer emits a recovery for exactly one registry
+				// evaluation, and this ledger samples it once per poll: an
+				// episode that opened and recovered between two samples is
+				// first seen already recovered. A recovery is never
+				// transport-due, so there is nothing to record or deliver.
+				continue
 			}
 			if _, reused := occurrences[occurrenceMapKey]; reused {
 				return fmt.Errorf("%w: occurrence key reused by another episode", ErrAlertDeliveryInvalidTransition)
@@ -715,14 +724,24 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 		if _, reused := occurrences[occurrenceMapKey]; reused {
 			return fmt.Errorf("%w: old occurrence replayed as current", ErrAlertDeliveryInvalidTransition)
 		}
-		if candidate.State == rpc.AlertEpisodeRecovered {
-			return fmt.Errorf("%w: recovery occurrence key did not match", ErrAlertDeliveryInvalidTransition)
-		}
 		if candidate.ObservedAt.Before(current.ObservedAt) || !candidate.StateChangedAt.After(current.StateChangedAt) {
 			return fmt.Errorf("%w: new occurrence regressed lifecycle time", ErrAlertDeliveryInvalidTransition)
 		}
+		heldOpen := current.State != rpc.AlertEpisodeRecovered && current.EndedAt.IsZero()
+		if candidate.State == rpc.AlertEpisodeRecovered {
+			// A recovery under an occurrence key this ledger never saw open:
+			// the producer opened and recovered it between two samples. Close
+			// the occurrence still held open here and skip the unseen one;
+			// a recovery is never transport-due.
+			if heldOpen {
+				endUnobservedAlertRecovery(current, candidate)
+				episode.State = rpc.AlertEpisodeRecovered
+				episode.LastSeenAt = candidate.ObservedAt
+			}
+			continue
+		}
 		switch {
-		case current.State == rpc.AlertEpisodeRecovered || !current.EndedAt.IsZero():
+		case !heldOpen:
 			// A new daemon occurrence after exact recovery is a reopen.
 		case candidate.State == rpc.AlertEpisodeEscalated:
 			// Rotating the occurrence key while active is allowed only for a
@@ -730,7 +749,15 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 			current.EndedAt = candidate.StateChangedAt
 			current.EndReason = AlertDeliveryEndSuperseded
 		default:
-			return fmt.Errorf("%w: active opening changed occurrence key without escalation", ErrAlertDeliveryInvalidTransition)
+			// The producer rotates an open occurrence's key only for an
+			// escalation or for a reopen after recovery. Without escalation
+			// this is a reopen whose recovery fell between two samples
+			// (the producer emits a recovery for one evaluation only). Record
+			// the unobserved recovery instead of refusing the snapshot: a
+			// refusal here was permanent, because the producer keeps
+			// presenting the reopened occurrence, and it blinded intake for
+			// every source (2026-08-15 onward).
+			endUnobservedAlertRecovery(current, candidate)
 		}
 		occurrence, err := s.newAlertDeliveryOccurrenceLocked(data, snapshot.AuthorityScope, candidate)
 		if err != nil {
@@ -834,6 +861,22 @@ func (s *Store) applyAlertCandidate(occurrence *alertDeliveryOccurrence, candida
 	occurrence.StateChangedAt = candidate.StateChangedAt
 	occurrence.ObservedAt = candidate.ObservedAt
 	occurrence.LastSeenAt = candidate.ObservedAt
+}
+
+// endUnobservedAlertRecovery closes an occurrence this ledger still holds open
+// after the producer proved it ended: next moved to another occurrence key
+// without escalation, which the producer's registry does only after a
+// recovery. The recovery itself was never sampled, so its clock is the
+// latest it can have been, and the end reason says so.
+func endUnobservedAlertRecovery(occurrence *alertDeliveryOccurrence, next rpc.AlertCandidate) {
+	occurrence.State = rpc.AlertEpisodeRecovered
+	occurrence.EvidenceHealth = rpc.AlertEvidenceCurrent
+	occurrence.EvidenceAsOf = next.ObservedAt
+	occurrence.StateChangedAt = next.StateChangedAt
+	occurrence.ObservedAt = next.ObservedAt
+	occurrence.LastSeenAt = next.ObservedAt
+	occurrence.EndedAt = next.StateChangedAt
+	occurrence.EndReason = AlertDeliveryEndUnobservedRecovery
 }
 
 func validateAlertCandidateAdvance(current alertDeliveryOccurrence, candidate rpc.AlertCandidate) error {
@@ -2293,7 +2336,7 @@ func (s *Store) validateAlertDeliveryState() error {
 			if occurrence.EndedAt.Before(occurrence.StateChangedAt) {
 				return fmt.Errorf("%w: invalid alert delivery occurrence end time", ErrInvalidPersistedState)
 			}
-			coherent := (occurrence.State == rpc.AlertEpisodeRecovered && (occurrence.EndReason == AlertDeliveryEndRecovered || occurrence.EndReason == AlertDeliveryEndOmitted)) ||
+			coherent := (occurrence.State == rpc.AlertEpisodeRecovered && (occurrence.EndReason == AlertDeliveryEndRecovered || occurrence.EndReason == AlertDeliveryEndOmitted || occurrence.EndReason == AlertDeliveryEndUnobservedRecovery)) ||
 				(occurrence.State != rpc.AlertEpisodeRecovered && occurrence.EndReason == AlertDeliveryEndSuperseded)
 			if !coherent {
 				return fmt.Errorf("%w: invalid alert delivery occurrence end reason", ErrInvalidPersistedState)
