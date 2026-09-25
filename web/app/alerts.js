@@ -16,6 +16,7 @@ const evaluationReasons = new Set([
   "evaluation_failed", "policy_unapproved",
 ]);
 const transportStates = new Set(["push_service_accepted", "partial_acceptance", "all_failed", "suppressed"]);
+const NOTICE_ID = /^[a-z][a-z0-9-]{2,95}$/;
 
 function exactKeys(value, expected) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
@@ -255,6 +256,24 @@ async function sendSafeNotificationTest() {
   }
 }
 
+// A notification tap that launches the app repeats the service worker's
+// "opened" receipt, in case the worker's own receipt was lost. The server
+// deduplicates, so the repeat is harmless.
+async function acknowledgeNoticeOpened(noticeID) {
+  if (typeof noticeID !== "string" || !NOTICE_ID.test(noticeID)) return false;
+  try {
+    const res = await fetch("/api/push/ack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ notice_id: noticeID, event: "opened", at: new Date().toISOString() }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function enablePush() {
   if (!canUseWebPush()) {
     state.pushInspection.state = "unsupported";
@@ -308,7 +327,7 @@ function hasNotifications() { return typeof globalThis.Notification === "functio
 function canUseWebPush() { return hasNotifications() && "PushManager" in globalThis && !!navigator.serviceWorker; }
 
 export {
-  applyReconciliationResponse, canUseWebPush, enablePush, hasNotifications, notificationStateLabel,
+  acknowledgeNoticeOpened, applyReconciliationResponse, canUseWebPush, enablePush, hasNotifications, notificationStateLabel,
   reconciliationIsTerminal, reconciliationView, refreshPushState, renderAlertMode, renderReconciliationCard,
   sendReconciliationCheck, sendSafeNotificationTest, setAlertMode, validateAlertSettings, validateReconciliation,
 };

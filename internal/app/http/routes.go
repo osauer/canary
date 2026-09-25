@@ -56,6 +56,7 @@ type AlertDeliveryController interface {
 	AddPushSubscription(state.PushSubscription) error
 	RemovePushSubscription(string) error
 	SendSafeDiagnostic(context.Context, string) (state.GovernanceDiagnosticStatus, bool, error)
+	RecordPushAck(noticeID, deviceID, event string, deviceAt time.Time) (state.PushAckOutcome, error)
 }
 
 type handler struct {
@@ -158,6 +159,7 @@ func Register(deps Dependencies) {
 	srv.POST("/api/push/subscribe", h.requireAuth(h.handlePushSubscribe))
 	srv.DELETE("/api/push/{id}", h.requireAuth(h.handlePushDelete))
 	srv.POST("/api/push/test", h.requireAuth(h.handleSafePushTest))
+	srv.POST(PushAckPath, h.requireAuth(h.handlePushAck))
 }
 
 func (h *handler) serveIndex(w nethttp.ResponseWriter, r *nethttp.Request) {

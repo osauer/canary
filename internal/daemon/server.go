@@ -98,6 +98,9 @@ type Server struct {
 	// dailyPnLCloseCaptures pins each scope's account Daily P&L at the
 	// official close, the only figure that may serve as the last completed
 	dailyPnLCloseCaptures dailyPnLCloseCaptureAuthority
+	// pushDeliveryProof retains the app host's latest Web Push delivery
+	// proof; the daemon itself never sends a push.
+	pushDeliveryProof pushDeliveryProofAuthority
 
 	listener net.Listener
 
@@ -2518,6 +2521,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleAlertCandidates(ctx, req) })
 	case rpc.MethodAlertStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleAlertStatus(ctx, req) })
+	case rpc.MethodAlertDeliveryProof:
+		s.unary(req, enc, func() (any, error) { return s.handleAlertDeliveryProof(ctx, req) })
 	case rpc.MethodRulesHistory:
 		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(ctx, req) })
 	case rpc.MethodReconEquity:

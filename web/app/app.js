@@ -1,5 +1,5 @@
 import { refreshDataHealth, updateDataHealthReceipt } from "./data-health.js";
-import { enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
+import { acknowledgeNoticeOpened, enablePush, renderAlertMode, renderReconciliationCard, sendReconciliationCheck, sendSafeNotificationTest, setAlertMode } from "./alerts.js";
 import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
@@ -113,7 +113,9 @@ async function main() {
     return;
   }
   if (launchTab) setActiveTab(launchTab, { persist: false });
-  if (params.has("tab")) history.replaceState({}, "", location.pathname || "/");
+  // A notification tap carries its notice id; repeat the opened receipt.
+  if (params.has("notice")) void acknowledgeNoticeOpened(params.get("notice"));
+  if (params.has("tab") || params.has("notice")) history.replaceState({}, "", location.pathname || "/");
   resetViewportScroll();
   setupMarketSelect();
   setupBottomTabs();

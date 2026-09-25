@@ -140,3 +140,69 @@ test("a failed attention fetch leaves the icon badge untouched and still shows t
   assert.equal(worker.notifications.length, 1);
   assert.deepEqual(badge.calls, []);
 });
+
+function receiptRecorder({ fail = false } = {}) {
+  const receipts = [];
+  return {
+    receipts,
+    fetch: async (url, init) => {
+      if (url === "/api/push/ack") {
+        receipts.push({ init, body: JSON.parse(init.body) });
+        if (fail) throw new Error("offline");
+        return { ok: true, async json() { return {}; } };
+      }
+      return { ok: false, async json() { return {}; } };
+    },
+  };
+}
+
+test("a displayed notification posts a displayed receipt for its notice id", async () => {
+  const recorder = receiptRecorder();
+  const worker = loadWorker({ fetch: recorder.fetch });
+  await push(worker, () => ({ title: "t", body: "b", destination: "alerts", display_id: "alert-0123456789abcdef", notice_id: "alert-0123456789abcdef" }));
+  assert.equal(worker.notifications.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(worker.notifications[0].options.data)), { destination: "alerts", notice_id: "alert-0123456789abcdef" });
+  assert.equal(recorder.receipts.length, 1);
+  assert.equal(recorder.receipts[0].init.method, "POST");
+  assert.equal(recorder.receipts[0].init.credentials, "include");
+  assert.equal(recorder.receipts[0].body.notice_id, "alert-0123456789abcdef");
+  assert.equal(recorder.receipts[0].body.event, "displayed");
+  assert.ok(Number.isFinite(Date.parse(recorder.receipts[0].body.at)));
+});
+
+test("a hostile notice id is dropped: no receipt and no routed id", async () => {
+  const recorder = receiptRecorder();
+  const worker = loadWorker({ fetch: recorder.fetch });
+  for (const noticeID of ["../api/devices", "https://evil.example", "UPPER-case", 42]) {
+    await push(worker, () => ({ title: "t", body: "b", destination: "alerts", notice_id: noticeID }));
+  }
+  assert.equal(recorder.receipts.length, 0);
+  for (const notification of worker.notifications) assert.deepEqual(Object.keys(notification.options.data), ["destination"]);
+  await dispatch(worker.listeners.get("notificationclick"), { notification: { data: { destination: "alerts", notice_id: "../x" }, close() {} } });
+  assert.equal(recorder.receipts.length, 0);
+  assert.deepEqual(worker.opened, ["/?tab=alerts"]);
+});
+
+test("a tap posts an opened receipt and carries the notice id on the fixed route", async () => {
+  const recorder = receiptRecorder();
+  const worker = loadWorker({ fetch: recorder.fetch });
+  await dispatch(worker.listeners.get("notificationclick"), {
+    notification: { data: { destination: "alerts", notice_id: "diagnostic-0123456789abcdef" }, close() {} },
+  });
+  assert.equal(recorder.receipts.length, 1);
+  assert.equal(recorder.receipts[0].body.event, "opened");
+  assert.equal(recorder.receipts[0].body.notice_id, "diagnostic-0123456789abcdef");
+  assert.deepEqual(worker.opened, ["/?tab=alerts&notice=diagnostic-0123456789abcdef"]);
+});
+
+test("a failed receipt never blocks the notification or the navigation", async () => {
+  const recorder = receiptRecorder({ fail: true });
+  const worker = loadWorker({ fetch: recorder.fetch });
+  await push(worker, () => ({ title: "t", body: "b", notice_id: "alert-0123456789abcdef" }));
+  await dispatch(worker.listeners.get("notificationclick"), {
+    notification: { data: { destination: "monitor", notice_id: "alert-0123456789abcdef" }, close() {} },
+  });
+  assert.equal(worker.notifications.length, 1);
+  assert.equal(recorder.receipts.length, 2);
+  assert.deepEqual(worker.opened, ["/?tab=monitor&notice=alert-0123456789abcdef"]);
+});

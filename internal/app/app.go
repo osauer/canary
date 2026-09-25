@@ -36,6 +36,10 @@ type App struct {
 	Relay   relay.Client
 	Server  *hyperserve.Server
 	lock    *xdgcache.Lock
+	// proofRelay reports the push delivery proof to the daemon. Nil for an
+	// isolated preview host, whose throwaway state must never overwrite the
+	// shared host's evidence.
+	proofRelay *alerts.ProofRelay
 }
 
 // New constructs an App and acquires the exclusive lock for opts.StateDir. If
@@ -81,8 +85,16 @@ func New(opts Options) (*App, error) {
 			opts.PublicURL = publicURL
 		}
 	}
+	if err := store.PushJournalDiscarded(); err != nil {
+		slog.Warn("canary app push journal discarded at open; receipts restart empty", "error", err)
+	}
 	pushSender := push.WebPushSender{Subscriber: push.Subscriber}
 	dispatcher := &alerts.Dispatcher{Store: store, Sender: pushSender, URL: opts.PublicURL}
+	var proofRelay *alerts.ProofRelay
+	if !opts.PreviewReadGrant {
+		proofRelay = alerts.NewProofRelay(store, daemonClient)
+		dispatcher.OnJournal = proofRelay.Notify
+	}
 	authMgr := auth.NewManager(store, dispatcher, opts.PairingTTL)
 	if err := liveSvc.SetAlertSnapshotAuthority(dispatcher); err != nil {
 		return nil, fmt.Errorf("prime alert delivery state: %w", err)
@@ -92,6 +104,7 @@ func New(opts Options) (*App, error) {
 		return nil, err
 	}
 	app.lock = lock
+	app.proofRelay = proofRelay
 	lock = nil
 	return app, nil
 }
@@ -221,6 +234,9 @@ func (a *App) Run(ctx context.Context) error {
 	go a.Live.Start(liveCtx)
 	go a.Relay.Run(liveCtx)
 	go a.Auth.StartReaper(liveCtx, time.Minute)
+	if a.proofRelay != nil {
+		go a.proofRelay.Run(liveCtx)
+	}
 	// The command owns signal policy; Run turns its cancellation into
 	// one graceful HyperServe shutdown instead of racing a separate Stop goroutine.
 	err := a.Server.Run(ctx)

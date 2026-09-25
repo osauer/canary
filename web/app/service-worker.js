@@ -10,6 +10,34 @@ function coerceDestination(value) {
   return value === "alerts" || value === "brief" ? value : "monitor";
 }
 
+// Notice ids are opaque journal identities minted by the app host. Anything
+// else is dropped, so a hostile payload cannot steer the receipt or route.
+const NOTICE_ID = /^[a-z][a-z0-9-]{2,95}$/;
+
+function coerceNoticeID(value) {
+  return typeof value === "string" && NOTICE_ID.test(value) ? value : "";
+}
+
+// A receipt is the only evidence that a push reached this device: the push
+// service accepting a request proves transport, never display. "displayed"
+// is posted after the notification is shown, "opened" when it is tapped.
+// Best-effort: a failed receipt never blocks the notification or navigation.
+async function acknowledgeNotice(noticeID, event) {
+  if (!noticeID || typeof self.fetch !== "function") return;
+  try {
+    const init = {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notice_id: noticeID, event, at: new Date().toISOString() }),
+    };
+    if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") init.signal = AbortSignal.timeout(10000);
+    await self.fetch("/api/push/ack", init);
+  } catch {
+    // Best-effort only; the page repeats the opened receipt on launch.
+  }
+}
+
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
 });
@@ -30,15 +58,19 @@ self.addEventListener("push", (event) => {
   const title = typeof payload.title === "string" && payload.title ? payload.title : "Canary";
   const body = typeof payload.body === "string" && payload.body ? payload.body : "Open Canary for details.";
   const tag = notificationTag(payload);
+  const noticeID = coerceNoticeID(payload.notice_id);
   event.waitUntil((async () => {
+    const data = { destination };
+    if (noticeID) data.notice_id = noticeID;
     const options = {
       body,
-      data: { destination },
+      data,
       badge: "/favicon-64.png",
       icon: "/icon-192.png",
     };
     if (tag) options.tag = tag;
     await self.registration.showNotification(title, options);
+    await acknowledgeNotice(noticeID, "displayed");
     await refreshAppIconBadge();
   })());
 });
@@ -67,8 +99,16 @@ async function refreshAppIconBadge() {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const destination = coerceDestination(event.notification.data?.destination);
-  const route = notificationRoutes[destination];
-  event.waitUntil(openNotificationRoute(route));
+  const noticeID = coerceNoticeID(event.notification.data?.notice_id);
+  // The notice id rides the fixed route so the page can repeat the opened
+  // receipt if this one is lost (the page strips it on launch).
+  const route = noticeID ? `${notificationRoutes[destination]}&notice=${noticeID}` : notificationRoutes[destination];
+  // Navigation starts first so the receipt can never outlive the tap's user
+  // activation; the receipt runs alongside it.
+  event.waitUntil(Promise.allSettled([
+    openNotificationRoute(route),
+    acknowledgeNotice(noticeID, "opened"),
+  ]));
 });
 
 function notificationTag(payload) {

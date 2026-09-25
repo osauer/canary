@@ -76,6 +76,23 @@ type EdgeClient interface {
 	EdgeSnapshot(context.Context, rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error)
 }
 
+// PushDeliveryProofClient is the optional capability that relays the app's
+// redacted Web Push delivery proof to the daemon. It records evidence only;
+// it grants no delivery, alert, or broker authority.
+type PushDeliveryProofClient interface {
+	ReportPushDeliveryProof(context.Context, rpc.PushDeliveryProof) (*rpc.AlertDeliveryProofResult, error)
+}
+
+// ReportPushDeliveryProof relays one proof. It never autospawns the daemon:
+// evidence reporting must not start a broker-connected process.
+func (c Real) ReportPushDeliveryProof(ctx context.Context, proof rpc.PushDeliveryProof) (*rpc.AlertDeliveryProofResult, error) {
+	var out rpc.AlertDeliveryProofResult
+	if err := (Real{SocketPath: c.SocketPath}).call(ctx, rpc.MethodAlertDeliveryProof, proof, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // MarketTapeClient is the optional read-only broad-market history capability.
 type MarketTapeClient interface {
 	MarketTape(context.Context, rpc.MarketTapeParams) (*rpc.MarketTapeResult, error)

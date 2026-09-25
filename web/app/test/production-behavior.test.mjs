@@ -1892,3 +1892,25 @@ test("delayed quotes retain origin and never use receipt time as quote time", ()
   assert.doesNotMatch(stress.marketQuoteSourceLine(quote, { as_of: quote.as_of }), /05:34/);
   assert.match(stress.marketAccessReasonLabel({ code: 354, reason: "not_subscribed", fallback_data_type: "delayed-frozen" }), /live access unavailable; delayed last-session data in use/);
 });
+
+test("a notification launch repeats only a well-formed opened receipt", async () => {
+  reset();
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url: String(url), init }); return response({ recorded: false }); };
+  try {
+    assert.equal(await alerts.acknowledgeNoticeOpened("diagnostic-0123456789abcdef"), true);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "/api/push/ack");
+    assert.equal(calls[0].init.method, "POST");
+    assert.equal(calls[0].init.credentials, "include");
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.notice_id, "diagnostic-0123456789abcdef");
+    assert.equal(body.event, "opened");
+    assert.ok(Number.isFinite(Date.parse(body.at)));
+    for (const hostile of ["../api/devices", "https://evil.example", "", null, "A-UPPER"]) {
+      assert.equal(await alerts.acknowledgeNoticeOpened(hostile), false);
+    }
+    assert.equal(calls.length, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
