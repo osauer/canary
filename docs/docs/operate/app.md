@@ -1,6 +1,6 @@
 # The paired app
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-09-25 19:25 CEST
 
 Run `canary app` on the Mac to get Canary on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
@@ -71,9 +71,49 @@ This local-Mac-only check proves the app HTTP host is reachable and reports the
 two alert authorities separately. `alert_producer` shows whether the app has a
 current, complete daemon-authored source snapshot. `alert_dispatcher` shows the
 app-owned delivery state and its fixed failure class, if any. A current active
-alert is not itself a health failure. Device grants, subscriptions, occurrence
-identities, account data, and raw transport errors are not returned, and the
-remote relay refuses this route.
+alert is not itself a health failure. `push_delivery` is the phone-push proof
+described below. Device grant ids, subscription endpoints and keys, occurrence
+identities, account data, and raw transport errors are not returned; devices
+appear only by their paired name and an opaque reference. The remote relay
+refuses this route.
+
+## Prove the phone receives pushes
+
+The push service accepting a notification proves transport, not delivery. A
+push is witnessed only when a paired device reports it back: the app's service
+worker sends a `displayed` receipt as it shows the notification and an `opened`
+receipt when you tap it, and the page repeats the `opened` receipt when the tap
+launches the app. Receipts go to `POST /api/push/ack`, bound to the session's
+own device grant. The app journals every push per notice with its transport
+class and HTTP status, and every receipt with its device, and relays the latest
+facts to the daemon.
+
+To prove the channel end to end, send a diagnostic push from the Mac:
+
+```sh
+canary app push-test
+```
+
+It goes to every device with notifications on and travels the alert transport,
+journal, and receipt path, but it is marked diagnostic: it never counts as an
+alert, never enters the inbox, and never counts toward the runaway fuse. Tap
+the "Canary notification test" notification on the phone, then run:
+
+```sh
+canary status
+```
+
+The `Phone push` row says how long alert pushes have been silent, which device
+last reported a push displayed or opened, and what blocks delivery: alert intake
+refused, no subscription, an expired subscription, or notifications off.
+`canary status --json` carries the full record under `push_delivery`, and
+`canary app status` adds the last push sent. `/api/push/diagnostic` is
+local-Mac only and the remote relay refuses it.
+
+A phone that was paired again gets a new device grant, and the browser can
+still report "browser subscribed" while that grant has no push subscription.
+The phone's own Safe test then says the device is not subscribed: tap Enable
+in Settings and send the test again.
 
 ## Remote access
 

@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-25 21:20 CEST
+Updated: 2026-09-25 21:39 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -289,8 +289,17 @@ and broker eligibility gates still apply to every submission.
 `veto_window` defaults to `"30m"` and cannot be less than five minutes. The
 window starts after the daemon records the Protection alert in its registry.
 The paired app or another consuming application owns notification delivery;
-registry acceptance does not prove that a phone received or displayed it.
-Do not treat the window as a guaranteed opportunity to receive a push.
+registry acceptance does not prove that a phone received or displayed it, and
+neither does push-service acceptance. A push is **witnessed** only when a
+paired device reports it back: the app's service worker sends a `displayed`
+receipt when it shows the notification and an `opened` receipt when you tap
+it, and the app host relays the latest receipts to the daemon. `canary status`
+shows the last push sent, the last receipt with its device, and how long alert
+pushes have been silent; `canary app push-test` proves the channel with a
+diagnostic push that never counts as an alert
+([the paired app](app.md#prove-the-phone-receives-pushes)). Do not treat the
+window as a guaranteed opportunity to receive a push, and do not list a bucket
+until `canary status` shows a push witnessed on the phone.
 
 A latched drawdown brake lets eligible non-budget protection records bypass
 both the notice prerequisite and the waiting window. Budget reductions always
@@ -324,6 +333,12 @@ the broker's open-order list cannot be read when the record is created, every
 working hand order counts as new for that record; if it cannot be read when the
 submission is due, the submission waits. With no bucket pre-authorised, nothing
 is ever held.
+
+While a record waits, deferred or held, its Protection notice stays open and
+says what it waits for: deferred because trading is frozen, held behind a hand
+order, or held because the broker's open orders cannot be read. It never reads
+as recovered while it waits; it recovers only when the record is submitted,
+vetoed, or superseded.
 
 The daemon persists submission intent before the broker call and reconciles
 it against its journal after restart. Installing or updating the binary does

@@ -40,11 +40,25 @@ degraded observation into a decision.
   inbox or delivery-health output.
 - A push-service acceptance is not proof that a physical device displayed or
   was read from the notification. The ledger reports that boundary plainly.
+  Only a device receipt witnesses a push (see "Delivery proof" below).
 
 SQLite failure, an invalid lifecycle transition, an older or equivocal
 snapshot, corrupt app state, or capacity exhaustion fails closed. Neither side
 falls back to a file or legacy delivery path that could produce a second
 authority.
+
+One lifecycle gap is not an invalid transition (2026-09-25 19:25 CEST). The
+registry emits a recovery for exactly one evaluation, and the app samples the
+snapshot once per poll, so a recovery can fall between two samples. The
+registry rotates an episode's occurrence key only for an escalation or for a
+reopen after recovery, so a new key without escalation proves the prior
+occurrence recovered: the app closes it as `unobserved_recovery` and records
+the new occurrence. A recovery under an occurrence the app never saw open is
+skipped, since a recovery is never transport-due. Refusing these snapshots as
+invalid transitions held intake shut for every source from 2026-08-15 until
+this change, because the registry kept presenting the reopened occurrences.
+Replayed occurrences, regressed lifecycle clocks, and identity changes still
+fail closed.
 
 ## End-to-end path
 
@@ -157,6 +171,26 @@ target's retry, rejection, or uncertain outcome.
 Prerequisite detail distinguishes no active subscription, unavailable signing
 keys, and an unavailable sender. `last_push_service_acceptance_at` records only
 transport acceptance; it does not claim device display or human attention.
+
+## Delivery proof
+
+The app's push journal (`push_journal` in `state.json`) records every Web Push
+request per notice id with its transport class and HTTP status, and every
+receipt a paired device returns for it. An alert's notice id is its display ID;
+a diagnostic push gets a fresh `diagnostic-` id and never enters the ledger,
+the inbox, or the runaway fuse count. The service worker posts a `displayed`
+receipt after showing a notification and an `opened` receipt on tap to
+`POST /api/push/ack`; the route binds the receipt to the session's own device
+grant and to a journaled notice. A push is witnessed only by such a receipt.
+
+The app relays a redacted proof (last push sent, last receipts with device
+name, silence since the last accepted alert push, intake refusal, subscription
+count, expired subscription) to the daemon over `alerts.delivery_proof` at start,
+after every journal change, and every five minutes. The daemon keeps the latest
+proof in `daemon.db` and serves it as `push_delivery` in `status.health`, so
+`canary status` and Desk read one record. The daemon stores evidence only; it
+never sends a push. `canary app push-test` sends the diagnostic push from the
+Mac through the same path.
 
 ## Fixed notification copy
 

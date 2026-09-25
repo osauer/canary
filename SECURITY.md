@@ -94,8 +94,19 @@ scheduler retains build, mode/account, freeze, evidence, preview and journal
 gates. See [pre-authorised buckets](docs/docs/operate/protection.md#pre-authorised-buckets)
 for veto timing and the latched-brake exception.
 
-A recorded daemon alert proves registry publication, not phone delivery. The
-consuming application's delivery channel is a separate operational boundary.
+A recorded daemon alert proves registry publication, not phone delivery, and a
+push service accepting a Web Push request proves transport only. A push counts
+as **witnessed** only when a paired device returns a receipt for that exact
+notice: the app's service worker posts `displayed` after it shows the
+notification and `opened` when it is tapped. Receipts reach the app host over
+the authenticated `POST /api/push/ack` route, are bound to the session's own
+device grant and to a journaled notice, and the host relays the latest receipts
+to the daemon, where `canary status` shows them as Phone push. Service
+acceptance is never a witness. Like origin, a receipt is evidence, not a
+security boundary: a paired session can post one without showing anything, and
+a same-uid process can report a proof to the daemon socket directly. The
+consuming application's delivery channel remains a separate operational
+boundary.
 
 ## Release integrity (v1.0.0+)
 
