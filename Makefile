@@ -593,12 +593,14 @@ fmt: ## Apply gofmt -w to every tracked / non-gitignored .go file
 test-pkg: ## Run pkg/ibkr/... tests under -race (TWS protocol library; cached when unchanged)
 	go test -race -timeout=180s ./pkg/ibkr/...
 
-# Command entrypoints and the hermetic registry metadata helper are shipped
+# Command entrypoints, the public Go client (the root package and its fake
+# daemon in canarytest) and the hermetic registry metadata helper are shipped
 # surfaces too. Keep them in one explicit race-enabled leg so both local
 # `make test` and CI exercise them without depending on package discovery
 # elsewhere in the matrix.
-test-support: ## Run command and CI/release support tests under -race
+test-support: ## Run command, Go client and CI/release support tests under -race
 	go test -race -timeout=180s ./cmd/...
+	go test -race -timeout=60s . ./canarytest
 	go test -race -timeout=60s ./scripts/release-registry-server
 	go test -race -timeout=60s ./scripts/release-ci-wait
 
