@@ -41,7 +41,7 @@ const DELIVERY_CLASSES = new Set([
 ]);
 const TOP_KEYS = [
   "schema_version", "version", "initialized", "generation", "as_of", "current_state",
-  "coverage", "sources", "occurrences", "attention", "delivery_health",
+  "coverage", "sources", "occurrences", "attention", "delivery_health", "push_delivery",
 ];
 const COVERAGE_KEYS = ["state", "freshness", "as_of", "expected_sources", "covered_sources"];
 const SOURCE_KEYS = [
@@ -56,6 +56,13 @@ const OCCURRENCE_KEYS = [
 const ATTENTION_KEYS = ["unread_count", "high_water_seq", "read_through_seq", "unread_refs"];
 const ATTENTION_REF_KEYS = ["display_id", "source", "kind"];
 const DELIVERY_KEYS = ["state", "class", "updated_at", "last_push_service_acceptance_at"];
+const PUSH_DELIVERY_KEYS = [
+  "last_sent", "last_alert_sent_at", "silent_since", "last_displayed", "last_opened", "witnessed",
+  "intake_rejected_since", "subscription_expired_at", "active_subscriptions",
+];
+const PUSH_SEND_KEYS = ["at", "kind", "class", "http_status", "accepted"];
+const PUSH_ACK_KEYS = ["at", "kind", "device"];
+const PUSH_KINDS = new Set(["alert", "diagnostic"]);
 const DISPLAY_ID = /^alert-(?:previous-)?[a-z0-9][a-z0-9-]{1,126}$/;
 const CODE = /^[a-z0-9][a-z0-9_]{0,127}$/;
 const RFC3339_UTC = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/;
@@ -228,6 +235,39 @@ function validateDeliveryHealth(value, initialized) {
   }
 }
 
+// push_delivery is transport evidence, not alert authority, so it is valid in
+// both initialized and unavailable feeds. Witnessed is true only for a
+// device receipt (displayed or opened), never for push-service acceptance.
+function validatePushDelivery(value) {
+  exactObject(value, PUSH_DELIVERY_KEYS, "push_delivery");
+  if (value.last_sent !== null) {
+    exactObject(value.last_sent, PUSH_SEND_KEYS, "push_delivery.last_sent");
+    timestamp(value.last_sent.at, "push_delivery.last_sent.at");
+    enumValue(value.last_sent.kind, PUSH_KINDS, "push_delivery.last_sent.kind");
+    codeValue(value.last_sent.class, "push_delivery.last_sent.class");
+    unsigned(value.last_sent.http_status, "push_delivery.last_sent.http_status");
+    if (value.last_sent.http_status !== 0 && (value.last_sent.http_status < 100 || value.last_sent.http_status > 599)) {
+      fail("push_delivery.last_sent.http_status", "is not an HTTP status");
+    }
+    if (typeof value.last_sent.accepted !== "boolean") fail("push_delivery.last_sent.accepted", "must be boolean");
+  }
+  for (const key of ["last_displayed", "last_opened"]) {
+    if (value[key] === null) continue;
+    exactObject(value[key], PUSH_ACK_KEYS, `push_delivery.${key}`);
+    timestamp(value[key].at, `push_delivery.${key}.at`);
+    enumValue(value[key].kind, PUSH_KINDS, `push_delivery.${key}.kind`);
+    textValue(value[key].device, `push_delivery.${key}.device`);
+  }
+  for (const key of ["last_alert_sent_at", "silent_since", "intake_rejected_since", "subscription_expired_at"]) {
+    timestamp(value[key], `push_delivery.${key}`, true);
+  }
+  if (typeof value.witnessed !== "boolean" || value.witnessed !== (value.last_displayed !== null || value.last_opened !== null)) {
+    fail("push_delivery.witnessed", "must reflect a device receipt");
+  }
+  unsigned(value.active_subscriptions, "push_delivery.active_subscriptions");
+  return value;
+}
+
 function validateAlerts(value) {
   exactObject(value, TOP_KEYS, "alerts");
   if (value.schema_version !== ALERT_SCHEMA) fail("schema_version", "is unsupported");
@@ -237,6 +277,7 @@ function validateAlerts(value) {
   arrayValue(value.sources, "sources");
   arrayValue(value.occurrences, "occurrences");
   validateDeliveryHealth(value.delivery_health, value.initialized);
+  validatePushDelivery(value.push_delivery);
   if (!value.initialized) {
     validateAttention(value.attention);
     if (value.as_of !== null || value.current_state !== null || value.coverage !== null || value.sources.length !== 0 || value.occurrences.length !== 0 ||
@@ -888,9 +929,34 @@ function renderDelivery(value) {
     }
   }
   setText("alertDeliveryHealth", health ? `${health.state}${health.class ? ` · ${health.class}` : ""}` : "unavailable");
-  setText("alertDeliveryAcceptance", health?.last_push_service_acceptance_at
+  const acceptance = health?.last_push_service_acceptance_at
     ? `Push service accepted at ${timeLabel(health.last_push_service_acceptance_at)}. This does not prove the phone displayed it or that it was read.`
-    : "No push-service acceptance is recorded. Phone display and reading are not known.");
+    : "No push-service acceptance is recorded. Phone display and reading are not known.";
+  const witness = pushDeliveryCopy(value?.push_delivery);
+  setText("alertDeliveryAcceptance", witness ? `${acceptance} ${witness}` : acceptance);
+}
+
+// The receipt is the proof: a device reports a notification displayed or
+// opened. Silence is named as a fact so a quiet phone is never mistaken for
+// a quiet market.
+function pushDeliveryCopy(push) {
+  if (!push || typeof push !== "object") return "";
+  const facts = [];
+  const receipts = [push.last_displayed, push.last_opened].filter(Boolean)
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  if (receipts.length > 0) {
+    const latest = receipts[0];
+    const event = latest === push.last_opened ? "opened" : "displayed";
+    facts.push(`Last device receipt: ${event} on ${latest.device} at ${timeLabel(latest.at)}${latest.kind === "diagnostic" ? " (test)" : ""}.`);
+  } else {
+    facts.push("No device has confirmed a push yet; send a safe test from Settings and tap it.");
+  }
+  if (push.silent_since && Date.now() - Date.parse(push.silent_since) >= 24 * 60 * 60 * 1000) {
+    facts.push(`No alert push since ${timeLabel(push.silent_since)}.`);
+  }
+  if (push.intake_rejected_since) facts.push(`Alert intake has been refused since ${timeLabel(push.intake_rejected_since)}.`);
+  if (push.active_subscriptions === 0) facts.push("No device is subscribed to push.");
+  return facts.join(" ");
 }
 
 function renderAlerts() {

@@ -110,6 +110,12 @@ async function runRound4SyntheticSmoke() {
     ],
     attention,
     delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: now },
+    push_delivery: {
+      last_sent: { at: now, kind: "alert", class: "push_service_accepted", http_status: 201, accepted: true },
+      last_alert_sent_at: now, silent_since: now,
+      last_displayed: { at: now, kind: "alert", device: "iPhone" }, last_opened: null, witnessed: true,
+      intake_rejected_since: null, subscription_expired_at: null, active_subscriptions: 1,
+    },
   };
   const readyInput = { status: "ok", as_of: now };
   const syntheticSettings = {

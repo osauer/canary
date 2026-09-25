@@ -1098,6 +1098,10 @@ test("leaving Alerts for alert evidence cancels acknowledgement without a false 
     sources: [{ source: "canary", status: "current", reason: "authoritative", evidence_health: "current", input_as_of: now, observed_at: now, evidence_as_of: now, fresh_until: freshUntil, covered: true }],
     occurrences: [], attention,
     delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: null },
+    push_delivery: {
+      last_sent: null, last_alert_sent_at: null, silent_since: null, last_displayed: null, last_opened: null,
+      witnessed: false, intake_rejected_since: null, subscription_expired_at: null, active_subscriptions: 0,
+    },
   };
   state.alerts = current;
   state.alertsFeedValid = true;
@@ -1891,6 +1895,56 @@ test("delayed quotes retain origin and never use receipt time as quote time", ()
   assert.match(stress.marketQuoteSourceLine(quote, { as_of: quote.as_of }), /Delayed · last session.*quote time unknown/);
   assert.doesNotMatch(stress.marketQuoteSourceLine(quote, { as_of: quote.as_of }), /05:34/);
   assert.match(stress.marketAccessReasonLabel({ code: 354, reason: "not_subscribed", fallback_data_type: "delayed-frozen" }), /live access unavailable; delayed last-session data in use/);
+});
+
+test("push delivery proof validates device receipts and names the silence", () => {
+  reset();
+  const now = "2026-09-26T07:00:00Z";
+  const freshUntil = "2099-09-26T07:10:00Z";
+  const silentSince = "2026-08-11T13:42:47Z";
+  const push = {
+    last_sent: { at: silentSince, kind: "alert", class: "push_service_accepted", http_status: 0, accepted: true },
+    last_alert_sent_at: silentSince, silent_since: silentSince, last_displayed: null, last_opened: null,
+    witnessed: false, intake_rejected_since: "2026-08-15T01:53:52Z", subscription_expired_at: null, active_subscriptions: 3,
+  };
+  const feed = {
+    schema_version: "alerts-v1", version: "alert-delivery-v4", initialized: true, generation: 1,
+    as_of: now, current_state: "clear",
+    coverage: { state: "complete", freshness: "current", as_of: now, expected_sources: ["canary"], covered_sources: ["canary"] },
+    sources: [{ source: "canary", status: "current", reason: "authoritative", evidence_health: "current", input_as_of: now, observed_at: now, evidence_as_of: now, fresh_until: freshUntil, covered: true }],
+    occurrences: [], attention: { unread_count: 0, high_water_seq: 0, read_through_seq: 0, unread_refs: [] },
+    delivery_health: { state: "healthy", class: "", updated_at: now, last_push_service_acceptance_at: silentSince },
+    push_delivery: push,
+  };
+  assert.equal(alertInbox.validateAlerts(feed), feed);
+  for (const [name, mutate] of [
+    ["acceptance counted as a witness", (value) => { value.push_delivery.witnessed = true; }],
+    ["unknown notice kind", (value) => { value.push_delivery.last_sent.kind = "reminder"; }],
+    ["impossible HTTP status", (value) => { value.push_delivery.last_sent.http_status = 42; }],
+    ["extra key", (value) => { value.push_delivery.endpoint = "https://web.push.apple.com/private"; }],
+    ["missing proof", (value) => { delete value.push_delivery; }],
+  ]) {
+    const value = JSON.parse(JSON.stringify(feed));
+    mutate(value);
+    assert.throws(() => alertInbox.validateAlerts(value), alertInbox.AlertContractError, name);
+  }
+
+  state.alerts = feed;
+  state.alertsFeedValid = true;
+  alertInbox.renderAlerts();
+  const unwitnessed = dom.element("alertDeliveryAcceptance").textContent;
+  assert.match(unwitnessed, /does not prove the phone displayed it/);
+  assert.match(unwitnessed, /No device has confirmed a push yet/);
+  assert.match(unwitnessed, /No alert push since/);
+  assert.match(unwitnessed, /Alert intake has been refused since/);
+
+  const opened = { at: now, kind: "diagnostic", device: "iPhone" };
+  state.alerts = { ...feed, push_delivery: { ...push, last_opened: opened, witnessed: true, intake_rejected_since: null } };
+  assert.equal(alertInbox.validateAlerts(state.alerts), state.alerts);
+  alertInbox.renderAlerts();
+  const witnessed = dom.element("alertDeliveryAcceptance").textContent;
+  assert.match(witnessed, /Last device receipt: opened on iPhone at .* \(test\)\./);
+  assert.doesNotMatch(witnessed, /No device has confirmed/);
 });
 
 test("a notification launch repeats only a well-formed opened receipt", async () => {

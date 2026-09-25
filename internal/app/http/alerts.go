@@ -37,6 +37,7 @@ type AlertDTO struct {
 	Occurrences    []AlertOccurrenceDTO    `json:"occurrences"`
 	Attention      AlertAttentionDTO       `json:"attention"`
 	DeliveryHealth AlertDeliveryHealthDTO  `json:"delivery_health"`
+	PushDelivery   AlertPushDeliveryDTO    `json:"push_delivery"`
 }
 
 // AlertCoverageDTO exposes only aggregate source coverage and freshness.
@@ -112,7 +113,11 @@ type AlertDeliveryHealthDTO struct {
 
 func (h *handler) alertDTO() AlertDTO {
 	now := time.Now().UTC()
-	return newAlertDTO(h.deps.Store.AlertDelivery(now), now)
+	dto := newAlertDTO(h.deps.Store.AlertDelivery(now), now)
+	// Delivery evidence is transport fact, not alert authority: it is served
+	// whether or not the ledger is initialized.
+	dto.PushDelivery = newAlertPushDeliveryDTO(h.deps.Store.PushDeliveryProof(now))
+	return dto
 }
 
 // alertDeliveryHealthDTO maps the ledger's delivery health for HTTP, with the

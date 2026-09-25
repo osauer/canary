@@ -41,6 +41,9 @@ type AppStatusDTO struct {
 	State           string                 `json:"state"`
 	AlertProducer   AlertProducerStatusDTO `json:"alert_producer"`
 	AlertDispatcher AlertDeliveryHealthDTO `json:"alert_dispatcher"`
+	// PushDelivery is the full redacted delivery proof this host relays to
+	// the daemon: last push sent, device receipts, and why it is silent.
+	PushDelivery rpc.PushDeliveryProof `json:"push_delivery"`
 }
 
 func (h *handler) handleAppStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
@@ -65,6 +68,7 @@ func (h *handler) appStatusDTO() AppStatusDTO {
 			Sources:      alerts.Sources,
 		},
 		AlertDispatcher: alerts.DeliveryHealth,
+		PushDelivery:    h.deps.Store.PushDeliveryProof(time.Now().UTC()),
 	}
 	if appStatusReady(dto) {
 		dto.State = AppStatusStateReady

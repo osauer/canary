@@ -105,6 +105,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 			statusRow(env, out, "Alerts", value)
 		}
 	}
+	if res.PushDelivery != nil {
+		statusRow(env, out, "Phone push", formatPushDeliveryValue(env, *res.PushDelivery, time.Now()))
+	}
 	if len(res.DataQuality) > 0 {
 		statusRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
 	}

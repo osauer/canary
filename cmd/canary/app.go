@@ -25,6 +25,7 @@ import (
 	"github.com/osauer/canary/v2/internal/loglevel"
 	"github.com/osauer/canary/v2/internal/logrotate"
 	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func runApp(args []string) int {
@@ -140,6 +141,31 @@ func renderAppStatus(w io.Writer, status apphttp.AppStatusDTO) {
 		dispatcher += " (" + status.AlertDispatcher.Class + ")"
 	}
 	fmt.Fprintf(w, "  Alert dispatcher  %s\n", nonEmptyAppStatus(dispatcher, "unknown"))
+	renderAppPushDelivery(w, status.PushDelivery, time.Now())
+}
+
+// renderAppPushDelivery prints the phone-push evidence behind the one-line
+// verdict: the last push sent and the last device receipts.
+func renderAppPushDelivery(w io.Writer, proof rpc.PushDeliveryProof, now time.Time) {
+	if proof.SchemaVersion == "" {
+		return
+	}
+	line, _ := cli.PushDeliveryLine(proof, now)
+	fmt.Fprintf(w, "  Phone push        %s\n", line)
+	stamp := func(at time.Time) string { return at.Local().Format("2006-01-02 15:04") }
+	if sent := proof.LastSent; sent != nil {
+		detail := sent.Class
+		if sent.HTTPStatus != 0 {
+			detail = fmt.Sprintf("%s %d", detail, sent.HTTPStatus)
+		}
+		fmt.Fprintf(w, "  Last push sent    %s %s %s (%s)\n", stamp(sent.At), sent.Kind, sent.NoticeID, detail)
+	}
+	for _, ack := range []*rpc.PushAckFact{proof.LastDisplayed, proof.LastOpened} {
+		if ack != nil {
+			fmt.Fprintf(w, "  Last %-12s %s %s on %s\n", ack.Event, stamp(ack.At), ack.NoticeID, ack.Device)
+		}
+	}
+	fmt.Fprintf(w, "  Subscriptions     %d active, notification mode %s\n", proof.ActiveSubscriptions, proof.Mode)
 }
 
 func nonEmptyAppStatus(value, fallback string) string {

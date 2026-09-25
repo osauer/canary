@@ -2370,6 +2370,10 @@ type HealthResult struct {
 	// know yet (engine construction failed); the CLI hides the row
 	Members MembersHealth `json:"members"`
 	Trading TradingStatus `json:"trading"`
+	// PushDelivery is the latest Web Push delivery proof the paired app host
+	// reported: last push sent, last device acknowledgement, and why it is
+	// silent. Absent when no app host has ever reported.
+	PushDelivery *PushDeliveryStatus `json:"push_delivery,omitempty"`
 }
 
 // Trading status values describe MCP exposure and live-override readiness;
