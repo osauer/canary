@@ -1,0 +1,20 @@
+diff --git a/internal/app/state/alert_delivery.go b/internal/app/state/alert_delivery.go
+--- a/internal/app/state/alert_delivery.go
++++ b/internal/app/state/alert_delivery.go
+@@ -749,15 +749,7 @@
+ 			current.EndedAt = candidate.StateChangedAt
+ 			current.EndReason = AlertDeliveryEndSuperseded
+ 		default:
+-			// The producer rotates an open occurrence's key only for an
+-			// escalation or for a reopen after recovery. Without escalation
+-			// this is a reopen whose recovery fell between two samples
+-			// (the producer emits a recovery for one evaluation only). Record
+-			// the unobserved recovery instead of refusing the snapshot: a
+-			// refusal here was permanent, because the producer keeps
+-			// presenting the reopened occurrence, and it blinded intake for
+-			// every source (2026-08-15 onward).
+-			endUnobservedAlertRecovery(current, candidate)
++			return fmt.Errorf("%w: active opening changed occurrence key without escalation", ErrAlertDeliveryInvalidTransition)
+ 		}
+ 		occurrence, err := s.newAlertDeliveryOccurrenceLocked(data, snapshot.AuthorityScope, candidate)
+ 		if err != nil {
