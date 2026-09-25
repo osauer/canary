@@ -309,6 +309,9 @@ type Server struct {
 	strategyLineage       map[string]rpc.StrategyOrderDraft
 	// orderSnapshotFn is the open-order snapshot seam for the reconcile
 	orderSnapshotFn func(context.Context) (ibkrlib.OpenOrderSnapshot, error)
+	// openOrderInventoryForTest replaces brokerOpenOrderInventory whole in
+	// hermetic tests that have no Connector; production leaves it nil.
+	openOrderInventoryForTest func(ctx context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error)
 	// Test-only final-boundary seams. Production leaves these nil. They run
 	orderReconcileBeforeCommit     func()
 	orderReconcileBeforeLatchClear func()

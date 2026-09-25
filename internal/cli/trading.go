@@ -68,6 +68,7 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 	statusRow(env, out, "Client ID", fmt.Sprintf("%d (%s)", st.ClientID, nonEmpty(st.ClientIDOrigin, "default")))
 	statusRow(env, out, "MCP trading", nonEmpty(st.MCPTrading, rpc.TradingMCPDisabled))
 	statusRow(env, out, "Capabilities", formatTradingCapabilities(*st))
+	statusRow(env, out, "Freeze", formatTradingFreeze(env, *st))
 	statusRow(env, out, "Open orders", fmt.Sprint(st.OpenOrders))
 	if st.LastOrderEvent != "" {
 		statusRow(env, out, "Last event", st.LastOrderEvent)
@@ -96,6 +97,15 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 		}
 	}
 	fmt.Fprintln(out)
+}
+
+// formatTradingFreeze renders trading.freeze with the control generation
+// that identifies the setting's current state.
+func formatTradingFreeze(env *Env, st rpc.TradingStatus) string {
+	if st.Freeze {
+		return env.yellow(fmt.Sprintf("on (generation %d)", st.TradingControlGeneration))
+	}
+	return fmt.Sprintf("off (generation %d)", st.TradingControlGeneration)
 }
 
 func formatTradingCapabilities(st rpc.TradingStatus) string {

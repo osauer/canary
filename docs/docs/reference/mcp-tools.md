@@ -85,7 +85,7 @@ Read platform settings and observed data quality. This tool cannot change settin
 
 ## `canary_orders_open`
 
-Read-only current-context local order lifecycle view. It does not place, modify, cancel, or transmit orders and is not a broker statement.
+Read-only current-context order lifecycle view: journaled open orders, each with the origin that placed it (agent, human-tty, human-paired-device or daemon-preauthorised), and under `untracked` the orders working at the broker that Canary never placed, such as hand orders in TWS, which carry no origin. Trust an empty `untracked` only when `untracked_status` is current. Use canary_orders_history for past orders. It does not place, modify, cancel, or transmit orders and is not a broker statement.
 
 *No parameters.*
 

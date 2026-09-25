@@ -78,6 +78,7 @@ func (s *Server) handleOrdersOpen(ctx context.Context, req *rpc.Request) (*rpc.O
 		NotBrokerStatement: orderHistoryNotBrokerStatement(),
 		Limitations:        orderHistoryLimitations(),
 	}
+	result.Untracked, result.UntrackedStatus, result.UntrackedAsOf = s.untrackedBrokerOrders(ctx, views, scope)
 	integrity.Orders = append([]rpc.OrderView(nil), out...)
 	s.observeOrderIntegrityAlertShadow(ctx, integrity)
 	return result, nil
@@ -1087,6 +1088,9 @@ func mergeOrderJournalEventIntoView(view *rpc.OrderView, ev orderJournalEvent) {
 	if ev.Source != "" {
 		view.Source = ev.Source
 	}
+	if view.Origin == "" && orderJournalEventPlacesWithOrigin(ev) {
+		view.Origin = orderOriginForRead(ev.Origin)
+	}
 	if ev.PurgeID != "" {
 		view.PurgeID = ev.PurgeID
 	}
@@ -1287,6 +1291,37 @@ func orderEventFromJournal(ev orderJournalEvent) rpc.OrderEvent {
 		ErrorCode:       ev.ErrorCode,
 		SendState:       ev.SendState,
 		Message:         ev.Message,
+		Origin:          orderOriginForRead(ev.Origin),
+	}
+}
+
+// orderJournalEventPlacesWithOrigin reports whether ev is the journaled
+// place request that fixes an order's origin: the send attempt of a place
+// or exercise (and the retired purge and restore actions) carrying the
+// request origin. Modify and cancel requests keep their origin on their own
+// events and never rewrite who placed the order.
+func orderJournalEventPlacesWithOrigin(ev orderJournalEvent) bool {
+	if ev.Type != orderJournalEventSendAttempted || ev.Origin == "" {
+		return false
+	}
+	switch ev.ActionKind {
+	case "", corestore.ActionPlace, corestore.ActionExercise, corestore.ActionPurge, corestore.ActionRestore:
+		return true
+	default:
+		return false
+	}
+}
+
+// orderOriginForRead passes a journaled request origin to read surfaces only
+// when it is one the write path journals (normalizedWriteOrigin). Anything
+// else reads as none instead of being guessed; read surfaces never infer an
+// origin a request did not record.
+func orderOriginForRead(origin string) string {
+	switch origin {
+	case rpc.OrderOriginAgent, rpc.OrderOriginHumanTTY, rpc.OrderOriginPairedDevice, rpc.OrderOriginDaemonPreAuthorised:
+		return origin
+	default:
+		return ""
 	}
 }
 

@@ -64,6 +64,70 @@ func TestDataHealthPreservesAdditiveProducerEvidence(t *testing.T) {
 	}
 }
 
+// The read tools Desk consumes carry the operating facts it audits: each
+// order's journaled origin, the broker orders Canary never placed, the
+// freeze and its control generation, and the risk constitution's version.
+// The catalogue decodes into typed results before re-encoding, so a field
+// the typed contract lacks would vanish here.
+func TestReadToolsCarryOriginFreezeAndPolicyVersion(t *testing.T) {
+	server := canarytest.Serve(t)
+	server.Handle("orders.open", canarytest.Result(map[string]any{
+		"orders":           []map[string]any{{"order_ref": "canary-a", "origin": "agent", "lifecycle_status": "submitted", "open": true}},
+		"untracked":        []map[string]any{{"perm_id": 7777, "lifecycle_status": "submitted", "open": true}},
+		"untracked_status": "current",
+		"as_of":            "2026-09-25T14:00:00Z", "not_broker_statement": "local", "limitations": []string{},
+	}))
+	server.Handle("trading.status", canarytest.Result(map[string]any{"mode": "paper", "freeze": true, "trading_control_generation": 3}))
+	server.Handle("brief.snapshot", canarytest.Result(map[string]any{
+		"ready": map[string]any{"policy_drift": map[string]any{"status": "ok", "rows": []any{}, "policy_id": "risk-constitution", "policy_version": 4}},
+	}))
+	client := canary.New(canary.Options{SocketPath: server.SocketPath()})
+	call := func(tool string, into any) {
+		t.Helper()
+		out, err := client.Call(t.Context(), tool, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", tool, err)
+		}
+		if err := json.Unmarshal(out, into); err != nil {
+			t.Fatalf("%s: %v in %s", tool, err, out)
+		}
+	}
+	var orders struct {
+		Orders []struct {
+			Origin string `json:"origin"`
+		} `json:"orders"`
+		Untracked []map[string]any `json:"untracked"`
+		Status    string           `json:"untracked_status"`
+	}
+	call("canary_orders_open", &orders)
+	if len(orders.Orders) != 1 || orders.Orders[0].Origin != "agent" || len(orders.Untracked) != 1 || orders.Status != "current" {
+		t.Fatalf("orders open = %+v", orders)
+	}
+	if _, ok := orders.Untracked[0]["origin"]; ok || orders.Untracked[0]["perm_id"] != float64(7777) {
+		t.Fatalf("untracked row = %v", orders.Untracked[0])
+	}
+	var trading struct {
+		Freeze     bool   `json:"freeze"`
+		Generation uint64 `json:"trading_control_generation"`
+	}
+	call("canary_trading_status", &trading)
+	if !trading.Freeze || trading.Generation != 3 {
+		t.Fatalf("trading status = %+v", trading)
+	}
+	var brief struct {
+		Ready struct {
+			PolicyDrift struct {
+				PolicyID      string `json:"policy_id"`
+				PolicyVersion int    `json:"policy_version"`
+			} `json:"policy_drift"`
+		} `json:"ready"`
+	}
+	call("canary_brief", &brief)
+	if brief.Ready.PolicyDrift.PolicyID != "risk-constitution" || brief.Ready.PolicyDrift.PolicyVersion != 4 {
+		t.Fatalf("brief drift row = %+v", brief.Ready.PolicyDrift)
+	}
+}
+
 func TestDataHealthPreservesArgumentAndDaemonErrors(t *testing.T) {
 	server := canarytest.Serve(t)
 	server.Handle("data.health", func(context.Context, json.RawMessage) (json.RawMessage, error) {

@@ -270,6 +270,12 @@ type BriefPolicyDriftRow struct {
 	// SignoffRequired mirrors inventory.require_signoff; when false the rows
 	// are informational disclosure, not blockers.
 	SignoffRequired bool `json:"signoff_required,omitempty"`
+	// PolicyID and PolicyVersion identify the risk constitution in force,
+	// the policy the sibling pins above hang from. A reader comparing two
+	// briefs sees a policy_version bump here; both are absent while no
+	// constitution is loaded.
+	PolicyID      string `json:"policy_id,omitempty"`
+	PolicyVersion int    `json:"policy_version,omitempty"`
 }
 
 // BriefProcessSection groups reconciliation and recurring process evidence.

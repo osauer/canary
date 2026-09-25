@@ -1033,6 +1033,7 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, constitution *risk.Constitut
 			len(out.Overrides.Rows), pluralNoun(len(out.Overrides.Rows), "override"), verb))
 	}
 	out.PolicyDrift.SignoffRequired = policy.SignoffRequired
+	out.PolicyDrift.PolicyID, out.PolicyDrift.PolicyVersion = policy.PolicyID, policy.PolicyVersion
 	out.PolicyDrift.BriefRowState = briefOK("all approval pins match")
 	unavailable := 0
 	for _, pin := range policy.Inventory {

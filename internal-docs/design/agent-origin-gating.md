@@ -1,8 +1,9 @@
 # Agent-origin gating for broker writes
 
-Updated: 2026-06-20 00:00 CEST (policy flip: live agent-origin broker writes
-are allowed through the same gated broker-write paths as human writes; origin
-remains audit metadata and an extension point. Earlier: 2026-06-11 08:15 CEST.)
+Updated: 2026-09-25 19:27 CEST (read surfaces serve the journaled origin. Earlier:
+2026-06-20 00:00 CEST, policy flip: live agent-origin broker writes are allowed
+through the same gated broker-write paths as human writes; origin remains audit
+metadata and an extension point. Earlier: 2026-06-11 08:15 CEST.)
 Status: implemented
 
 Contract per `.agents/docs/daemon-cli-trading-contract.md`.
@@ -29,7 +30,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback / unavailable |
 |---|---|---|---|---|
-| Request origin | invoking adapter at call time | `origin` field on broker-write params (`agent`, `human-tty`, `human-paired-device`) | journaled per order event; available to policy hooks | missing/unknown → treated as `agent` for audit |
+| Request origin | invoking adapter at call time | `origin` field on broker-write params (`agent`, `human-tty`, `human-paired-device`; `daemon-preauthorised` for the scheduler) | journaled per order event; served as `origin` on `orders open\|history` rows, `order status` and their events; available to policy hooks | missing/unknown → journaled as `agent`; a row with no journaled place request reads as none, never guessed |
 | Broker-write policy | daemon `brokerWriteAuthorization` | `can_write`, `write_blockers`, submit/place errors | `canary trading status`, write responses | connected gateway plus config/build/pins/freeze/journal/broker checks decide |
 | ~~Live human confirmation~~ | removed 2026-06-11 | was: typed `live/<account>` ack, compared verbatim | — | human origins write on live with preview token + pins only |
 | Agent detection (CLI) | process env + stdin | env markers `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `OPENAI_CODEX`, `CANARY_AGENT_CONTEXT=1`, retired restrict-only `IBKR_AGENT_CONTEXT=1`, or `!isatty(stdin)` | n/a | any marker or non-TTY → `agent` |
@@ -63,7 +64,10 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
    laundering path in both modes; agents place/modify through the gated CLI
    token path.
 5. **Journal**: every write attempt records `origin`, giving the audit trail
-   for "who placed this".
+   for "who placed this". Read surfaces serve the place request's origin on
+   each order row and each event's own origin on the event; `orders open`
+   also lists broker-working orders the journal does not track (hand orders in
+   TWS) under `untracked`, with no origin.
 6. **Hook layer (client-side, defense in depth, this repo's plugin):**
    `hooks/canary-pre-tool-use.sh` gates write verbs on `trading status --json`
    readiness for paper or live routes; it bans shell composition only for

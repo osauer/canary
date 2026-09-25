@@ -2409,6 +2409,16 @@ type TradingStatus struct {
 	LiveOverride   string           `json:"live_override,omitempty"`
 	Blocked        bool             `json:"blocked"`
 	Blockers       []TradingBlocker `json:"blockers,omitempty"`
+	// Freeze mirrors the runtime trading.freeze setting in every trading
+	// mode: true while new broker writes are frozen and only cancels pass.
+	// It reports the setting; WriteBlockers and CanWrite carry its effect.
+	Freeze bool `json:"freeze"`
+	// TradingControlGeneration is the platform-settings generation of the
+	// runtime trading controls (freeze, both size caps, stock shorting and
+	// option sell-to-open). It advances on every change to any of them, so a
+	// reader comparing two observations sees a freeze set and lifted in
+	// between even when Freeze reads the same.
+	TradingControlGeneration uint64 `json:"trading_control_generation"`
 }
 
 // Order constants are the allowlisted action, order-type, time-in-force,
@@ -2866,6 +2876,10 @@ type OrderEvent struct {
 	ErrorCode       int             `json:"error_code,omitempty"`
 	SendState       string          `json:"send_state,omitempty"`
 	Message         string          `json:"message,omitempty"`
+	// Origin is the request origin journaled with this event (OrderOrigin*)
+	// on a place, modify or cancel attempt. It is empty on broker callbacks
+	// and daemon bookkeeping rows, which no request asked for.
+	Origin string `json:"origin,omitempty"`
 }
 
 // OrderView is the daemon's read-only product state for one locally observed
@@ -2932,6 +2946,12 @@ type OrderView struct {
 	Open                   bool      `json:"open"`
 	ModifyEligible         bool      `json:"modify_eligible"`
 	CancelEligible         bool      `json:"cancel_eligible"`
+	// Origin is who asked Canary to place the order, as journaled with its
+	// place attempt (OrderOrigin*). Empty means none: the journal holds no
+	// place request for the row, as for a fill of an order placed outside
+	// Canary, an untracked broker order, or a row journaled before origins
+	// were recorded. Later modify and cancel origins stay on their events.
+	Origin string `json:"origin,omitempty"`
 }
 
 // OrdersOpenResult is the daemon's locally reduced view of currently open
@@ -2944,7 +2964,27 @@ type OrdersOpenResult struct {
 	LastLocalEventAt   time.Time   `json:"last_local_event_at,omitzero"`
 	NotBrokerStatement string      `json:"not_broker_statement"`
 	Limitations        []string    `json:"limitations"`
+	// Untracked lists orders working at the broker in this account and mode
+	// that the local journal does not track: placed by hand in TWS or by
+	// another API client. They come from the daemon's complete all-client
+	// open-order inventory, carry no origin, and are never modify- or
+	// cancel-eligible here. Only UntrackedStatus "current" makes an empty
+	// list conclusive; "unavailable" means the inventory could not be read.
+	Untracked       []OrderView `json:"untracked,omitempty"`
+	UntrackedStatus string      `json:"untracked_status,omitempty"`
+	// UntrackedAsOf is when the broker inventory behind Untracked completed.
+	UntrackedAsOf time.Time `json:"untracked_as_of,omitzero"`
 }
+
+// UntrackedStatus values for OrdersOpenResult.
+const (
+	// OrdersUntrackedCurrent means a complete, current broker open-order
+	// inventory was read, so Untracked is conclusive.
+	OrdersUntrackedCurrent = "current"
+	// OrdersUntrackedUnavailable means no complete, current inventory was
+	// available; Untracked is empty and proves nothing.
+	OrdersUntrackedUnavailable = "unavailable"
+)
 
 // OrderStatusResult returns local product state and bounded audit events for one
 type OrderStatusResult struct {

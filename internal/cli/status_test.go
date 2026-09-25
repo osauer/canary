@@ -269,3 +269,46 @@ func TestRenderTradingStatusTextWriteBlockers(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderTradingStatusTextShowsFreezeAndGeneration(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		status rpc.TradingStatus
+		want   string
+	}{
+		{rpc.TradingStatus{Mode: "disabled", Freeze: true, TradingControlGeneration: 7}, "Freeze         on (generation 7)"},
+		{rpc.TradingStatus{Mode: "paper", TradingControlGeneration: 8}, "Freeze         off (generation 8)"},
+	} {
+		var stdout bytes.Buffer
+		env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+		renderTradingStatusText(env, &tc.status)
+		if got := stdout.String(); !strings.Contains(got, tc.want) {
+			t.Fatalf("trading status missing %q:\n%s", tc.want, got)
+		}
+	}
+}
+
+func TestRenderOrdersOpenTextShowsOriginAndUntrackedOrders(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	renderOrdersOpenText(env, &rpc.OrdersOpenResult{
+		Orders: []rpc.OrderView{
+			{OrderRef: "canary-a", Action: "SELL", Quantity: 10, Symbol: "SYN", OrderType: "LMT", LimitPrice: 24, TIF: "GTC", LifecycleStatus: "submitted", Status: "Submitted", Origin: rpc.OrderOriginAgent},
+			{OrderRef: "canary-b", Action: "SELL", Quantity: 5, Symbol: "SYN", OrderType: "LMT", LimitPrice: 25, TIF: "GTC", LifecycleStatus: "submitted", Status: "Submitted"},
+		},
+		Untracked:       []rpc.OrderView{{PermID: 7777, Action: "BUY", Quantity: 5, Symbol: "HND", OrderType: "LMT", LimitPrice: 12.5, TIF: "DAY", LifecycleStatus: "submitted", Status: "Submitted", Open: true}},
+		UntrackedStatus: rpc.OrdersUntrackedCurrent,
+	})
+	got := stdout.String()
+	for _, want := range []string{"origin agent", "origin none", "Working at the broker, not placed by Canary", "perm 7777  BUY 5 HND LMT 12.5000 DAY"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("orders open missing %q:\n%s", want, got)
+		}
+	}
+	stdout.Reset()
+	renderOrdersOpenText(env, &rpc.OrdersOpenResult{UntrackedStatus: rpc.OrdersUntrackedUnavailable})
+	if got := stdout.String(); !strings.Contains(got, "No locally tracked open orders.") || !strings.Contains(got, "broker open-order inventory unavailable") {
+		t.Fatalf("empty orders open with unavailable inventory:\n%s", got)
+	}
+}

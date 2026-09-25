@@ -87,6 +87,14 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 			status.PortOrigin = string(discover.OriginDiscovered)
 		}
 	}
+	if s != nil {
+		// Freeze engages in every mode, so it is reported before the
+		// disabled-mode return; one snapshot keeps the flag and its
+		// generation consistent with each other.
+		controls := s.platformSettings.snapshot()
+		status.Freeze = controls.Trading.Freeze != nil && *controls.Trading.Freeze
+		status.TradingControlGeneration = controls.TradingControlGeneration
+	}
 	if tr.Mode == config.TradingModeDisabled {
 		return status
 	}

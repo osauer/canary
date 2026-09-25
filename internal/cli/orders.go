@@ -120,12 +120,13 @@ func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 	if len(res.Orders) == 0 {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "No locally tracked open orders.")
+		renderUntrackedOrdersText(env, res)
 		fmt.Fprintln(out)
 		return
 	}
 	for _, order := range res.Orders {
 		fmt.Fprintf(out, "  %s\n", formatOrderViewTitle(order))
-		fmt.Fprintf(out, "    %s  %s  updated %s\n", order.LifecycleStatus, nonEmpty(order.Status, order.LastEvent), formatOrderTime(order.UpdatedAt))
+		fmt.Fprintf(out, "    %s  %s  updated %s  origin %s\n", order.LifecycleStatus, nonEmpty(order.Status, order.LastEvent), formatOrderTime(order.UpdatedAt), nonEmpty(order.Origin, "none"))
 		if order.LastMessage != "" {
 			fmt.Fprintf(out, "    %s\n", order.LastMessage)
 		}
@@ -139,7 +140,27 @@ func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 			fmt.Fprintf(out, "    capped price: %.4f\n", order.MktCapPrice)
 		}
 	}
+	renderUntrackedOrdersText(env, res)
 	fmt.Fprintln(out)
+}
+
+// renderUntrackedOrdersText lists the orders working at the broker that
+// Canary never placed. An unavailable inventory is said out loud rather
+// than rendered as an empty list.
+func renderUntrackedOrdersText(env *Env, res *rpc.OrdersOpenResult) {
+	out := env.Stdout
+	switch {
+	case res.UntrackedStatus == rpc.OrdersUntrackedUnavailable:
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, env.dim("Orders placed outside Canary: broker open-order inventory unavailable."))
+	case len(res.Untracked) > 0:
+		fmt.Fprintln(out)
+		fmt.Fprintf(out, "Working at the broker, not placed by Canary (inventory %s):\n", formatOrderTime(res.UntrackedAsOf))
+		for _, order := range res.Untracked {
+			fmt.Fprintf(out, "  %s\n", formatOrderViewTitle(order))
+			fmt.Fprintf(out, "    %s  %s  origin none\n", order.LifecycleStatus, nonEmpty(order.Status, "unknown"))
+		}
+	}
 }
 
 func renderOrdersHistoryText(env *Env, res *rpc.OrdersHistoryResult) {
@@ -288,6 +309,9 @@ func formatOrderViewTitle(order rpc.OrderView) string {
 	id := order.OrderRef
 	if id == "" && order.ReservedOrderID != 0 {
 		id = strconv.Itoa(order.ReservedOrderID)
+	}
+	if id == "" && order.PermID != 0 {
+		id = "perm " + strconv.Itoa(order.PermID)
 	}
 	if id == "" {
 		id = "unknown-order"

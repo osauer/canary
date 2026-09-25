@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-09-17
+Updated: 2026-09-25 19:25 CEST
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 The separate opt-in trading binary exposes these actions:
@@ -35,7 +35,23 @@ evidence, not authority for a new transaction.
 Keep an inactive example at `~/.config/ibkr/config.toml.trading`; the daemon does
 not load it until the `.trading` suffix is removed. Before activating it, verify
 the pins and start with a paper session. `canary trading status` reports the
-current boundary but cannot authorize a trade.
+current boundary but cannot authorize a trade. Its `freeze` field mirrors
+`trading.freeze` in every mode, and `trading_control_generation` advances with
+every change to the freeze or a trading limit, so two readings show a freeze
+that was set and lifted in between.
+
+## Who placed an order
+
+Each row of `canary orders open --json`, `orders history` and `order status`
+carries the `origin` journaled with the request that placed it: `agent`,
+`human-tty`, `human-paired-device` or `daemon-preauthorised`. Modify and
+cancel requests keep their own origin on their events. A row without an origin
+was not placed through Canary. `canary orders open` also lists, under
+`untracked`, the orders working at the broker that Canary's journal does not
+track, such as orders entered by hand in TWS. They come from the broker's
+complete open-order list, carry no origin and cannot be modified or cancelled
+through Canary. An empty `untracked` list means none only when
+`untracked_status` is `current`.
 
 ## Protection and exercise context
 
