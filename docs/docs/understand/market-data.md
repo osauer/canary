@@ -93,7 +93,25 @@ why the same symbol can report differently in two sessions.
 A quote from either delayed mode is never `quote_quality: firm`. It reads
 `indicative`, or `stale`, `wide` or `prev_close` when those apply, and carries a
 `delayed_feed` warning. That holds for indices too, which have no session
-calendar to mark a value off-hours.
+calendar to mark a value off-hours. During market hours a price is `stale` once
+its timestamp is more than 15 minutes old; a delayed price is judged after
+allowing for the feed's 20-minute lag, so an ordinary delayed print is not.
+
+Indices are the gap in that rule. Their hours do not follow their listing
+venue's stock session (VIX trades extended hours, and a Cboe or Nasdaq listing
+says nothing about when an index is calculated), so an index quote carries no
+session calendar and is never called `stale` or off-hours. An index served only
+its previous close during the trading day therefore reads `prev_close`, not
+`stale`, and `canary market` counts it as covered. Its `price_source:
+prev_close`, `quote_quality: prev_close` and `delayed_feed` warning still say
+what it is; a consumer that needs an intraday index level must check those
+itself.
+
+`canary market` counts a delayed quote as covered, including a delayed-frozen
+row that carries only the previous close, and names it under `delayed`. Its
+`data_type`, `feed_type`, `price_source` and warning still say which delayed
+value it is. A row with no price, an error or a stale quote makes the snapshot
+`partial`.
 
 Two more values appear on some surfaces. `prev_close` marks a price taken from
 a prior close rather than the current session, and `closed` replaces the data

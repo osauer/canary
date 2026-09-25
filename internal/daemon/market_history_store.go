@@ -18,6 +18,8 @@ import (
 
 // Chart retention is independent of freshness. Failed acquisition never
 // overwrites a successful document or advances its observed clock.
+// FullReadAt is when a read last replaced everything the series can re-read;
+// see mergeMarketHistory. It schedules reconciliation, never freshness.
 type storedMarketHistory struct {
 	Version    int                     `json:"version"`
 	Identity   string                  `json:"identity"`
@@ -171,14 +173,44 @@ func globexWeekendSince(now time.Time) time.Time {
 	return time.Date(friday.Year(), friday.Month(), friday.Day(), 17, 0, 0, 0, loc)
 }
 
+// marketHistoryReconcileEvery spaces the full reads that replace a series'
+// re-readable range, catching corrections and corporate actions that an
+// overlapping tail read cannot remove.
+const marketHistoryReconcileEvery = 7 * 24 * time.Hour
+
+// historyReconcileDue reports whether the series' periodic full read is due.
+// It schedules a broker read but says nothing about the bars' freshness, so
+// it never sets the served refresh_due.
+func historyReconcileDue(saved *storedMarketHistory, now time.Time) bool {
+	return saved != nil && now.Sub(saved.FullReadAt) >= marketHistoryReconcileEvery
+}
+
+// historyRefreshDue reports whether the retained record is behind what the
+// broker would now supply: the view needs a prefix the record lacks, or its
+// bars are older than their refresh cadence while the venue may have traded
+// since. readRetainedHistory reads the broker when this or
+// historyReconcileDue holds.
 func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
+	return historyBehind(saved, p, now, 0)
+}
+
+// historyRefreshOverdue is the served refresh_due: the record is behind and
+// the refresh worker has had its full cycle to catch it up, so a consumer
+// can call the bars limited. A record inside its normal refresh cycle, or
+// awaiting only its weekly reconciliation, is current.
+func historyRefreshOverdue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
+	return historyBehind(saved, p, now, marketHistoryRefreshGrace)
+}
+
+// historyBehind is historyRefreshDue with the cadence extended by slack.
+func historyBehind(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time, slack time.Duration) bool {
 	if saved == nil {
 		return true
 	}
 	// Request keys may still say SMART; only the retained broker identity
 	// can choose the venue calendar and establish whether a prefix is missing.
 	p.Contract = saved.Result.Contract
-	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) {
 		return true
 	}
 	r := saved.Result
@@ -222,7 +254,7 @@ func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, no
 	} else if r.Interval == "1 day" {
 		interval = time.Hour
 	}
-	return now.Sub(r.AsOf) >= interval
+	return now.Sub(r.AsOf) >= interval+slack
 }
 
 func historyTailDays(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) int {
@@ -230,10 +262,10 @@ func historyTailDays(saved *storedMarketHistory, p rpc.MarketHistoryParams, now 
 		return 0
 	}
 	p.Contract = saved.Result.Contract
-	if saved.Result.Interval == "1 day" && now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if saved.Result.Interval == "1 day" && historyReconcileDue(saved, now) {
 		return -min(1830, max(1, int(math.Ceil(now.Sub(saved.Result.RequestedStart).Hours()/24))))
 	}
-	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || now.Sub(saved.FullReadAt) >= 7*24*time.Hour {
+	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || historyReconcileDue(saved, now) {
 		return 0 // Missing prefix or periodic corporate-action/correction reconciliation.
 	}
 	// IBKR durations are rounded days. Re-read the tail with an overlap rather
@@ -279,7 +311,7 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 	if err != nil {
 		return nil, fmt.Errorf("chart cache integrity: %w", err)
 	}
-	if saved != nil && !historyRefreshDue(saved, p, now) {
+	if saved != nil && !historyRefreshDue(saved, p, now) && !historyReconcileDue(saved, now) {
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "", false), nil
 	}
 	tail := historyTailDays(saved, p, now)
@@ -402,9 +434,6 @@ func mergeMarketHistory(key string, old *storedMarketHistory, fresh rpc.MarketHi
 			next.Result.RequestedStart = old.Result.RequestedStart
 		}
 	}
-	if full && (old == nil || !fresh.RequestedStart.After(old.Result.RequestedStart)) {
-		next.FullReadAt = now
-	}
 	for _, p := range fresh.Points {
 		points[p.At.Unix()] = p
 	}
@@ -455,6 +484,16 @@ func mergeMarketHistory(key string, old *storedMarketHistory, fresh rpc.MarketHi
 			next.Result.RequestedStart = prunedBefore
 		}
 	}
+	// A full read reconciles what it re-read. Daily reconciliation requests
+	// the retained depth, so it counts once it reaches the start still
+	// retained after pruning. Twenty retained venue dates outlast every
+	// intraday request window and no read returns to them, so a full
+	// intraday read of its window is the whole reconciliation that series
+	// can have. Requiring the retained range there never advanced the clock,
+	// and every refresh became a full read reported as refresh due.
+	if full && (old == nil || fresh.Interval != "1 day" || !fresh.RequestedStart.After(next.Result.RequestedStart)) {
+		next.FullReadAt = now
+	}
 	return next
 }
 
@@ -489,7 +528,7 @@ func selectStoredHistory(saved *storedMarketHistory, storedAt time.Time, p rpc.M
 		coverage = "previous_window"
 	}
 	r.Start, r.End = r.Points[0].At, r.Points[len(r.Points)-1].At
-	r.Cache = &rpc.MarketHistoryCache{Selected: selected, StoredAt: storedAt, FetchedAt: saved.Result.AsOf, CoveredThrough: r.End, Coverage: coverage, MissingSessions: missing, Detail: detail, RefreshFailed: failed, RefreshDue: historyRefreshDue(saved, p, now), PreviousWindow: previous}
+	r.Cache = &rpc.MarketHistoryCache{Selected: selected, StoredAt: storedAt, FetchedAt: saved.Result.AsOf, CoveredThrough: r.End, Coverage: coverage, MissingSessions: missing, Detail: detail, RefreshFailed: failed, RefreshDue: historyRefreshOverdue(saved, p, now), PreviousWindow: previous}
 	return &r
 }
 

@@ -85,13 +85,7 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 		go fetch(&result.Underlyings[i])
 	}
 	wg.Wait()
-	for _, list := range [][]rpc.MarketInstrument{result.Instruments, result.Underlyings} {
-		for _, r := range list {
-			if r.Error != "" || r.Quote == nil || r.Quote.Stale || (r.Quote.QuotePrice == nil && r.Quote.RegularClose == nil) {
-				result.CoverageStatus = "partial"
-			}
-		}
-	}
+	markMarketSnapshotCoverage(result)
 	// Never attach holdings-derived scope across a broker-session transition.
 	current, err := s.handlePositionsList(ctx, &rpc.Request{Params: json.RawMessage(`{}`)})
 	if err != nil || !connector.SessionCurrent(binding) || current.Authority == nil || current.Authority.Availability != rpc.AccountDataAvailable || current.Authority.Freshness != rpc.AccountDataFreshnessCurrent || current.Authority.Scope != result.Authority.Scope {
@@ -106,6 +100,38 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 		}
 	}
 	return result, nil
+}
+
+// markMarketSnapshotCoverage marks the snapshot partial when a row has no
+// price to display and names the rows served from IBKR's delayed feed.
+func markMarketSnapshotCoverage(result *rpc.MarketSnapshotResult) {
+	for _, list := range [][]rpc.MarketInstrument{result.Instruments, result.Underlyings} {
+		for _, r := range list {
+			if !marketInstrumentCovered(r) {
+				result.CoverageStatus = "partial"
+			} else if r.Quote.Price != nil && quoteHasDelayedFeed(r.Quote) {
+				result.Delayed = append(result.Delayed, r.Name)
+			}
+		}
+	}
+}
+
+// marketInstrumentCovered reports whether a row supplies a price to display.
+// A current price or a regular close covers it. So does a previous close
+// from IBKR's delayed feed, which off-session is all the delayed-frozen feed
+// of an unentitled index carries: delayed prices are accepted with their
+// labels, and the quote keeps data_type prev_close, its feed_type,
+// price_source and delayed_feed warning. An error, a stale quote, or a
+// live-feed row with nothing but a previous close is still missing.
+func marketInstrumentCovered(r rpc.MarketInstrument) bool {
+	q := r.Quote
+	if r.Error != "" || q == nil || q.Stale {
+		return false
+	}
+	if q.QuotePrice != nil || q.RegularClose != nil {
+		return true
+	}
+	return quoteHasDelayedFeed(q) && q.PriceSource == "prev_close" && q.Price != nil && q.PrevClose != nil
 }
 
 func marketHistoryWindow(r string, now time.Time) (int, string, error) {

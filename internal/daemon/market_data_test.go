@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
+	"slices"
 	"testing"
 	"time"
 )
@@ -135,5 +137,54 @@ func TestMarketHistoryClosedVenueServesItsLastTradedDay(t *testing.T) {
 	})
 	if err != nil || !got.RequestedStart.Equal(friday.Add(-24*time.Hour)) || len(got.Points) != 2 || !got.End.Equal(friday) {
 		t.Fatalf("a closed venue's last traded day was not served: %+v %v", got, err)
+	}
+}
+
+// TestMarketSnapshotCountsDelayedPreviousCloseAsCovered witnesses the
+// unentitled index served off-session from IBKR's delayed-frozen feed: it
+// carries only a previous close, with no current price and no regular close,
+// and made every market snapshot partial although delayed prices are
+// accepted with their labels. It is covered and named as delayed; rows with
+// nothing to display stay missing.
+func TestMarketSnapshotCountsDelayedPreviousCloseAsCovered(t *testing.T) {
+	offSession := time.Date(2026, 9, 25, 2, 0, 0, 0, time.UTC)
+	quote := func(dataType string) *rpc.Quote {
+		q := &rpc.Quote{Symbol: "SYNX", Contract: rpc.ContractParams{Symbol: "SYNX", SecType: "IND", Exchange: "NASDAQ", Currency: "USD"}, PrevClose: new(24000.5), DataType: dataType, AsOf: offSession}
+		new(Server).decorateQuote(q, marketcal.Market(""))
+		return q
+	}
+	delayed := quote(rpc.MarketDataDelayedFrozen)
+	if delayed.PriceSource != "prev_close" || delayed.DataType != rpc.MarketDataPrevClose || delayed.FeedType != rpc.MarketDataDelayedFrozen || delayed.QuotePrice != nil || delayed.RegularClose != nil || delayed.Price == nil {
+		t.Fatalf("fixture is not the delayed-frozen previous-close shape: %+v", delayed)
+	}
+	if delayed.QuoteQuality != "prev_close" || !slices.ContainsFunc(delayed.WarningDetails, func(w rpc.DataWarning) bool { return w.Code == "delayed_feed" }) {
+		t.Fatalf("delayed previous close lost its labels: quality=%q warnings=%+v", delayed.QuoteQuality, delayed.WarningDetails)
+	}
+	live := &rpc.Quote{Symbol: "SYNL", Contract: rpc.ContractParams{Symbol: "SYNL", SecType: "IND", Currency: "USD"}, Last: new(5000.0), PrevClose: new(4990.0), DataType: rpc.MarketDataFrozen, AsOf: offSession}
+	new(Server).decorateQuote(live, marketcal.Market(""))
+	snapshot := func(extra ...rpc.MarketInstrument) *rpc.MarketSnapshotResult {
+		result := &rpc.MarketSnapshotResult{CoverageStatus: "complete", Instruments: []rpc.MarketInstrument{
+			{Key: "nasdaq", Name: "Synthetic delayed index", Kind: "index", Quote: delayed},
+			{Key: "sp500", Name: "Synthetic live index", Kind: "index", Quote: live},
+		}}
+		result.Underlyings = extra
+		markMarketSnapshotCoverage(result)
+		return result
+	}
+	if got := snapshot(); got.CoverageStatus != "complete" || !slices.Equal(got.Delayed, []string{"Synthetic delayed index"}) {
+		t.Fatalf("delayed previous close counted as missing: coverage=%s delayed=%v", got.CoverageStatus, got.Delayed)
+	}
+	stale := *quote(rpc.MarketDataDelayedFrozen)
+	stale.Stale = true
+	for name, row := range map[string]rpc.MarketInstrument{
+		"error":                   {Name: "SYNE", Error: "no ticks"},
+		"no quote":                {Name: "SYNN"},
+		"live previous close":     {Name: "SYNP", Quote: quote(rpc.MarketDataLive)},
+		"stale delayed":           {Name: "SYNS", Quote: &stale},
+		"delayed without a close": {Name: "SYND", Quote: &rpc.Quote{Symbol: "SYND", DataType: rpc.MarketDataDelayedFrozen}},
+	} {
+		if got := snapshot(row); got.CoverageStatus != "partial" {
+			t.Fatalf("%s row counted as covered", name)
+		}
 	}
 }

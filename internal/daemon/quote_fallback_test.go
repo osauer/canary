@@ -98,3 +98,40 @@ func TestDelayedFeedQuoteIsNeverFirm(t *testing.T) {
 		}
 	}
 }
+
+// TestDelayedPrintIsHeldToStalenessBeyondItsFeedLag witnesses the in-session
+// staleness bound. A delayed print carries its trade time, which IBKR's
+// delayed feed serves 15 to 20 minutes late, so a bound written for live
+// prices called every ordinary delayed print stale. Live prices keep the
+// bound; a delayed price is held to it beyond the feed's lag.
+func TestDelayedPrintIsHeldToStalenessBeyondItsFeedLag(t *testing.T) {
+	open := time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC) // Wednesday 11:00 New York
+	for _, tc := range []struct {
+		feed  string
+		age   time.Duration
+		stale bool
+	}{
+		{rpc.MarketDataDelayed, 16 * time.Minute, false},
+		{rpc.MarketDataDelayed, 40 * time.Minute, true},
+		{rpc.MarketDataLive, 16 * time.Minute, true},
+		{rpc.MarketDataLive, 5 * time.Minute, false},
+	} {
+		q := &rpc.Quote{
+			Symbol:    "SYNTH",
+			Contract:  rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Currency: "USD"},
+			Last:      new(100.0),
+			PrevClose: new(99.0),
+			TradeAt:   open.Add(-tc.age),
+			PriceAt:   open.Add(-tc.age),
+			DataType:  tc.feed,
+			AsOf:      open,
+		}
+		new(Server).decorateQuote(q, marketcal.MarketUSEquity)
+		if q.Stale != tc.stale {
+			t.Fatalf("%s print %s old in session: stale=%t (%s), want %t", tc.feed, tc.age, q.Stale, q.StaleReason, tc.stale)
+		}
+		if tc.feed == rpc.MarketDataDelayed && !tc.stale && (q.QuoteQuality != "indicative" || q.DataType != rpc.MarketDataDelayed) {
+			t.Fatalf("current delayed print lost its delayed label: quality=%q data_type=%q", q.QuoteQuality, q.DataType)
+		}
+	}
+}

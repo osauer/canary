@@ -3193,6 +3193,15 @@ func quoteMarketLocation(q *rpc.Quote, market marketcal.Market) *time.Location {
 	return loc
 }
 
+// quoteStaleAfter bounds a price's age during market hours.
+const quoteStaleAfter = 15 * time.Minute
+
+// quoteDelayedFeedLag is how far IBKR's delayed feed trails the market: 15
+// to 20 minutes by venue (docs/docs/understand/market-data.md). A delayed
+// price carries its trade time, so it is held to quoteStaleAfter only beyond
+// that lag; otherwise every ordinary delayed print would read stale.
+const quoteDelayedFeedLag = 20 * time.Minute
+
 func quoteStaleness(q *rpc.Quote, market marketcal.Market) (bool, string) {
 	if q == nil || !quoteMarketIsOpen(q, market) {
 		return false, ""
@@ -3206,8 +3215,12 @@ func quoteStaleness(q *rpc.Quote, market marketcal.Market) (bool, string) {
 	if q.PriceAt.IsZero() || q.AsOf.IsZero() {
 		return false, ""
 	}
-	if age := q.AsOf.Sub(q.PriceAt); age > 15*time.Minute {
-		return true, fmt.Sprintf("price timestamp is %s old during market hours", formatQuoteAge(age))
+	limit, feed := quoteStaleAfter, ""
+	if quoteHasDelayedFeed(q) {
+		limit, feed = quoteStaleAfter+quoteDelayedFeedLag, "delayed "
+	}
+	if age := q.AsOf.Sub(q.PriceAt); age > limit {
+		return true, fmt.Sprintf("%sprice timestamp is %s old during market hours", feed, formatQuoteAge(age))
 	}
 	return false, ""
 }

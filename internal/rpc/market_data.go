@@ -26,6 +26,11 @@ type MarketSnapshotResult struct {
 	Underlyings    []MarketInstrument    `json:"underlyings"`
 	CoverageStatus string                `json:"coverage_status"`
 	Truncated      bool                  `json:"truncated,omitempty"`
+	// Delayed names, by row name, the covered rows whose selected price
+	// comes from IBKR's delayed feed, including a delayed-frozen previous
+	// close. Each quote's data_type, feed_type, price_source, quote_quality
+	// and delayed_feed warning say which delayed value it is.
+	Delayed []string `json:"delayed,omitempty"`
 }
 
 // MarketHistoryParams selects a bounded observed price series, not an analysis.

@@ -59,9 +59,17 @@ func (s *Server) rememberMarketHistory(p rpc.MarketHistoryParams) {
 // interactive request, so waiting here delays nobody.
 const marketHistoryRefreshWindow = 4 * time.Minute
 
+// marketHistoryRefreshTick is how often the worker looks for due series.
+const marketHistoryRefreshTick = 30 * time.Second
+
+// marketHistoryRefreshGrace is the worker's own cycle: the wait for its next
+// tick plus the longest refresh it allows. A record that falls due is read
+// within it, so only a record behind by more is served as refresh due.
+const marketHistoryRefreshGrace = marketHistoryRefreshTick + marketHistoryRefreshWindow
+
 func (s *Server) startMarketHistoryRefresh(ctx context.Context) {
 	s.marketData.loopWG.Go(func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(marketHistoryRefreshTick)
 		defer ticker.Stop()
 		for {
 			select {

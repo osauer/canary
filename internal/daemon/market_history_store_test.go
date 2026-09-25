@@ -354,3 +354,133 @@ func TestMarketHistoryGlobexWeekendNeedsNoRefresh(t *testing.T) {
 		t.Fatalf("the weekend closure begins at Friday's close: %v", since)
 	}
 }
+
+// TestMarketHistoryRollingIntradayWindowReconcilesWeekly witnesses intraday
+// series whose request window rolls forward. No intraday read covers the
+// twenty retained venue dates, so a full read that had to reach them never
+// advanced FullReadAt: a week after the first read every refresh became a
+// full read and every served record said refresh_due while its bars were
+// current. The weekly full read now happens once, later reads are tail reads
+// again, and refresh_due waits for the record to fall behind the worker.
+func TestMarketHistoryRollingIntradayWindowReconcilesWeekly(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		contract rpc.ContractParams
+		rng      string
+		step     time.Duration
+	}{
+		{"us_stock_1D", rpc.ContractParams{ConID: 123456, Symbol: "SYNTH", SecType: "STK", Exchange: "NYSE", Currency: "USD"}, "1D", 5 * time.Minute},
+		{"globex_future_1D", rpc.ContractParams{ConID: 654321, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}, "1D", 5 * time.Minute},
+		{"us_stock_5D", rpc.ContractParams{ConID: 123456, Symbol: "SYNTH", SecType: "STK", Exchange: "NYSE", Currency: "USD"}, "5D", 30 * time.Minute},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, _, _, _ := historyFixture(t)
+			key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: tc.contract, Range: tc.rng})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The synthetic venue prints one bar per read, so a full read
+			// returns every stable bar the record holds inside its window.
+			var bars []time.Time
+			var tails []int
+			fetch := func(_ context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
+				tails = append(tails, tail)
+				_, interval, _ := marketHistoryWindow(p.Range, now)
+				r := rpc.MarketHistoryResult{Contract: p.Contract, Range: p.Range, Interval: interval, Source: "IBKR historical bars · TRADES", PriceBasis: "TRADES", TimestampKind: "instant", AsOf: now, CoverageStatus: "available", RequestedStart: historyRequestStart(p, now)}
+				if tail > 0 && now.AddDate(0, 0, -tail).After(r.RequestedStart) {
+					r.RequestedStart = now.AddDate(0, 0, -tail)
+				}
+				for _, at := range bars {
+					if !at.Before(r.RequestedStart) && !at.After(now) {
+						r.Points = append(r.Points, rpc.MarketHistoryPoint{At: at, Value: 100})
+					}
+				}
+				r.Start, r.End = r.Points[0].At, r.Points[len(r.Points)-1].At
+				return &r, nil
+			}
+			read := func(now time.Time) (full bool) {
+				t.Helper()
+				bars = append(bars, now.Truncate(tc.step))
+				before := len(tails)
+				got, err := s.readRetainedHistory(t.Context(), key, p, now, fetch)
+				if err != nil || got.Cache.Selected != "ibkr" || len(tails) != before+1 {
+					t.Fatalf("%s: refresh did not read the broker: %+v %v", now, got, err)
+				}
+				return tails[before] <= 0
+			}
+			served := func(now time.Time) *rpc.MarketHistoryCache {
+				t.Helper()
+				s.now = func() time.Time { return now }
+				raw, _ := json.Marshal(p)
+				got, err := s.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return got.Cache
+			}
+
+			first := time.Date(2026, 9, 14, 15, 0, 0, 0, time.UTC) // Monday 11:00 New York
+			if !read(first) {
+				t.Fatal("first read was not a full read")
+			}
+			for day := 1; day <= 4; day++ {
+				if read(first.AddDate(0, 0, day)) {
+					t.Fatalf("day %d: weekday refresh inside the week ran a full read", day)
+				}
+			}
+			week := first.AddDate(0, 0, 7)
+			if !read(week) {
+				t.Fatal("weekly reconciliation did not run a full read")
+			}
+			stored, _, err := s.loadMarketHistory(t.Context(), key)
+			if err != nil || !stored.FullReadAt.Equal(week) {
+				t.Fatalf("full intraday read left FullReadAt behind: %v %v", stored.FullReadAt, err)
+			}
+			if c := served(week.Add(time.Minute)); c.RefreshDue || c.Selected != "cache" {
+				t.Fatalf("current bars after the weekly read served as refresh due: %+v", c)
+			}
+			for i := 1; i <= 3; i++ {
+				if read(week.Add(time.Duration(i) * tc.step)) {
+					t.Fatalf("refresh %d after the weekly read ran a full read again", i)
+				}
+			}
+			if read(week.AddDate(0, 0, 1)) {
+				t.Fatal("next day's refresh ran a full read")
+			}
+
+			// A record inside the worker's cycle is current; one it has had
+			// the whole cycle to refresh is due.
+			last := week.AddDate(0, 0, 1)
+			stored, _, _ = s.loadMarketHistory(t.Context(), key)
+			if !historyRefreshDue(stored, p, last.Add(tc.step)) {
+				t.Fatal("cadence no longer asks the worker to refresh")
+			}
+			if c := served(last.Add(tc.step + time.Minute)); c.RefreshDue {
+				t.Fatalf("record awaiting the worker's next tick served as refresh due: %+v", c)
+			}
+			if c := served(last.Add(tc.step + marketHistoryRefreshGrace)); !c.RefreshDue {
+				t.Fatalf("record the worker failed to refresh served as current: %+v", c)
+			}
+		})
+	}
+}
+
+// TestMarketHistoryFiveYearReconciliationCountsAfterPruning witnesses the
+// daily reconciliation at the retention limit: its read is capped at 1,830
+// days while the record still starts a few days earlier, until this very
+// merge prunes that prefix. The read covers everything retained afterwards,
+// so it is a full reconciliation and must not be repeated on the next tick.
+func TestMarketHistoryFiveYearReconciliationCountsAfterPruning(t *testing.T) {
+	_, _, key, now, r := historyFixture(t)
+	old := r
+	old.RequestedStart = now.AddDate(0, 0, -1834)
+	old.Points = []rpc.MarketHistoryPoint{{At: old.RequestedStart.Truncate(24 * time.Hour), Value: 90}, r.Points[1]}
+	old.Start, old.End = old.Points[0].At, old.Points[1].At
+	saved := storedMarketHistory{Version: 1, Identity: key, FullReadAt: now.AddDate(0, 0, -7), Result: old}
+	fresh := r
+	fresh.RequestedStart = now.AddDate(0, 0, -1830).Truncate(24 * time.Hour)
+	next := mergeMarketHistory(key, &saved, fresh, true, now)
+	if !next.FullReadAt.Equal(now) || historyReconcileDue(&next, now.Add(time.Minute)) {
+		t.Fatalf("capped reconciliation of the whole retained range not recorded: full_read_at=%s requested_start=%s", next.FullReadAt, next.Result.RequestedStart)
+	}
+}
