@@ -102,7 +102,16 @@ func (c *Connector) subscribeSharedQuote(ctx context.Context, key string, fields
 		return fmt.Errorf("quote subscription removed during request")
 	}
 	if mode == 4 {
-		c.scheduleQuoteLiveRetry(origin, key, sub)
+		// A line opened on the delayed feed because of a recorded refusal
+		// re-probes live when that refusal's window lifts. Status names the
+		// refusal for exactly that window, so a probe timed from the
+		// subscription instead would leave the line delayed and undisclosed
+		// for up to a whole window.
+		probeAt := time.Now().Add(marketDataAbsenceRetry)
+		if absent := c.marketDataAbsenceFor(key); absent != nil {
+			probeAt = absent.RetryAt
+		}
+		c.scheduleQuoteLiveRetryAt(origin, key, sub, probeAt)
 	}
 	return nil
 }
@@ -234,6 +243,11 @@ func (c *Connector) replaceSharedQuote(ctx context.Context, origin ConnectorSess
 }
 
 func (c *Connector) scheduleQuoteLiveRetry(origin ConnectorSessionBinding, key string, sub *Subscription) {
+	c.scheduleQuoteLiveRetryAt(origin, key, sub, time.Now().Add(marketDataAbsenceRetry))
+}
+
+// scheduleQuoteLiveRetryAt arms the line's next live probe for at.
+func (c *Connector) scheduleQuoteLiveRetryAt(origin ConnectorSessionBinding, key string, sub *Subscription, at time.Time) {
 	c.subMu.Lock()
 	defer c.subMu.Unlock()
 	if c.subscriptions[key] != sub {
@@ -245,7 +259,8 @@ func (c *Connector) scheduleQuoteLiveRetry(origin ConnectorSessionBinding, key s
 	if sub.liveRetryTimer != nil {
 		sub.liveRetryTimer.Stop()
 	}
-	sub.liveRetryTimer = time.AfterFunc(marketDataAbsenceRetry, func() { c.retrySharedQuoteLive(origin, key, sub) })
+	sub.liveRetryAt = at
+	sub.liveRetryTimer = time.AfterFunc(max(0, time.Until(at)), func() { c.retrySharedQuoteLive(origin, key, sub) })
 }
 
 func (c *Connector) retrySharedQuoteLive(origin ConnectorSessionBinding, key string, sub *Subscription) {

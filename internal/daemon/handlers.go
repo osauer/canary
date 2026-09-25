@@ -2972,7 +2972,7 @@ func quoteWarningDetails(q *rpc.Quote, market marketcal.Market) []rpc.DataWarnin
 			Severity: "data_quality",
 			Message:  "Selected price comes from IBKR's delayed market-data feed, not a real-time quote.",
 			Impact:   "Delayed values lag the market and delayed-frozen values repeat the last delayed observation; treat the price as context, not as executable.",
-			Action:   "Check status market_data_access for the broker's live-data refusal; data_type reads live once IBKR serves real-time data.",
+			Action:   "Label the price delayed. This warning clears once IBKR serves the instrument from its real-time feed.",
 		})
 	}
 	if quoteSpreadIsWide(q) {

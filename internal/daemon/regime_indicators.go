@@ -478,12 +478,16 @@ func (volOfVolStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 	return res.VolOfVol.Last
 }
 
+// volOfVolMaxAgeDays is VVIX's ordinary freshness budget, which includes a
+// weekend and Cboe's publication lag.
+const volOfVolMaxAgeDays = 4
+
 // VVIX's ordinary freshness budget includes weekend + publication lag.
 func (volOfVolStreaks) fresh(res *rpc.RegimeSnapshotResult, nowNY time.Time) bool {
 	if res.VolOfVol.Status != rpc.RegimeStatusOK {
 		return false
 	}
-	return officialDateWithinDays(res.VolOfVol.AsOfDate, nowNY, 4)
+	return officialDateWithinDays(res.VolOfVol.AsOfDate, nowNY, volOfVolMaxAgeDays)
 }
 
 // volOfVolCadenceClass preserves the ordinary age budget but recognizes the

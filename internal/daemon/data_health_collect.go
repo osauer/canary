@@ -203,6 +203,9 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 		status             string
 		cadence            string
 		gammaQuality       *rpc.GammaSignalQuality
+		// pending is set when the row is overdue only because its official
+		// publisher has not yet released the close its schedule requires.
+		pending *regimePublicationPending
 	}
 	specs := []indicator{
 		{id: "vix_term", name: "Volatility term-structure data", provider: "IBKR"}, {id: "vvix", name: "Volatility-of-volatility daily series", provider: "Cboe"},
@@ -244,6 +247,17 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 			specs[5].cadence = usdJpyCadenceClass(r, at)
 			specs[6].cadence = gammaCadenceClass(r, at)
 			specs[7].cadence = breadthCadenceClass(r, at)
+			// Name an upstream publication gap only from a current
+			// publication: an older one read the publisher's file too long
+			// ago to say what it holds now.
+			if publicationCurrent {
+				if pending, ok := vixTermPublicationPending(r, at); ok {
+					specs[0].pending = &pending
+				}
+				if pending, ok := volOfVolPublicationPending(r, at); ok {
+					specs[1].pending = &pending
+				}
+			}
 		}
 	}
 	rows := []rpc.DataSourceHealth{publication}
@@ -326,6 +340,11 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 			row.ProblemIDs = []string{row.ID}
 		}
 		row.Action = "Managed by the existing analytics producer"
+		if p := spec.pending; p != nil && row.State == "limited" {
+			row.Cause, row.OfficialDate, row.PendingSince = rpc.DataHealthCauseUpstreamPublicationPending, p.OfficialDate, p.Since
+			row.Receiving = p.receiving()
+			row.Action = "Nothing to fix locally: Canary re-reads " + p.Publisher + "'s file on every regime refresh and the row recovers once " + p.Publisher + " publishes"
+		}
 		rows = append(rows, row)
 	}
 	return rows

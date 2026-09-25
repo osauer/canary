@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -343,8 +344,19 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 			warnings = append(warnings, w)
 		}
 	}
-	if w, ok := warningForVIX3MCrossCheck(r.VIXTermStructure); ok {
+	now := nyTime(r.AsOf)
+	if w, ok := warningForVIX3MCrossCheck(r.VIXTermStructure, now); ok {
 		warnings = append(warnings, w)
+	}
+	if pending, ok := volOfVolPublicationPending(r, now); ok {
+		warnings = append(warnings, rpc.RegimeWarning{
+			Code:     "vvix_official_close_pending",
+			Scope:    "vol_of_vol",
+			Severity: "info",
+			Message:  fmt.Sprintf("Cboe has not published a VVIX close after %s; the row is overdue since %s", pending.OfficialDate, pending.Since.UTC().Format("2006-01-02 15:04Z")),
+			Impact:   "The newest VVIX close is older than its four-day budget, so the row cannot confirm stress and its band is prior-session context. The delay is Cboe's publication, not a Canary or broker fault.",
+			Action:   "Nothing to fix locally: Canary re-reads Cboe's VVIX file on every regime refresh and the row recovers once Cboe publishes.",
+		})
 	}
 	return warnings
 }
@@ -353,7 +365,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 // established. A stale row alone reads as ordinary off-hours context, so the
 // one case an operator must act on — a broker leg that has stopped tracking the
 // index — needs to say so in its own words.
-func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm) (rpc.RegimeWarning, bool) {
+func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm, now time.Time) (rpc.RegimeWarning, bool) {
 	switch row.VIX3MCrossCheck {
 	case rpc.VIX3MCrossCheckDisagree:
 		return rpc.RegimeWarning{
@@ -366,6 +378,18 @@ func warningForVIX3MCrossCheck(row rpc.RegimeVIXTerm) (rpc.RegimeWarning, bool) 
 			Action: "Check the VIX3M index market-data entitlement and the daemon's VIX3M contract id, then restart the daemon.",
 		}, true
 	case rpc.VIX3MCrossCheckUnverified:
+		// Read but not yet published is Cboe's delay; only a failed or
+		// unusable read is a reachability problem.
+		if pending, ok := vix3mPublicationPending(row, now); ok {
+			return rpc.RegimeWarning{
+				Code:     "vix3m_official_close_pending",
+				Scope:    "vix_term_structure",
+				Severity: "info",
+				Message:  fmt.Sprintf("Cboe has not published a VIX3M close after %s; the off-window gateway leg is unverified since %s", pending.OfficialDate, pending.Since.UTC().Format("2006-01-02 15:04Z")),
+				Impact:   "Nothing dates the off-window gateway leg, so the vol cluster is overdue rather than not_due. The delay is Cboe's publication, not a Canary or broker fault.",
+				Action:   "Nothing to fix locally: Canary re-reads Cboe's VIX3M file on every regime refresh and the row recovers once Cboe publishes.",
+			}, true
+		}
 		return rpc.RegimeWarning{
 			Code:     "vix3m_official_close_unavailable",
 			Scope:    "vix_term_structure",
@@ -474,6 +498,10 @@ func warningForRegimeRow(row regimeEvidenceRow) (rpc.RegimeWarning, bool) {
 		w.Action = "Retry during Cboe index calculation hours or check index market-data entitlement."
 	case "vol_of_vol":
 		w.Action = "Retry once Cboe's official VVIX daily file is reachable."
+		if row.status == rpc.RegimeStatusStale {
+			// A stale VVIX row was read; its file holds only old closes.
+			w.Action = "Nothing to fix locally: Canary re-reads Cboe's VVIX file on every regime refresh and the row recovers once Cboe publishes."
+		}
 	case "hyg_spy_divergence":
 		w.Action = "Retry when ETF quotes are live or check equity/ETF market-data entitlement."
 	case "credit_spreads":

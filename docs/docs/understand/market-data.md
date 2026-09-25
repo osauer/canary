@@ -136,7 +136,12 @@ There are two distinct causes and they need different fixes.
 bounded delayed-aware recovery described above. If no usable fallback arrives,
 the restriction remains visible and retries are bounded; repeated reads do not
 hammer the rejected name. While a quote is served delayed after a 354,
-`status.market_data_access` keeps naming the refusal until the next live probe.
+`status.market_data_access` keeps naming the refusal until the next live probe,
+30 minutes after the refusal. It is a log of recent refusals, not an
+entitlement register: a probe refused again renews the entry, a probe the
+gateway leaves unanswered does not, and a confirmed live price clears it. The
+quote's own `data_type`, `feed_type` and `delayed_feed` warning say that it is
+delayed for as long as it is.
 A 354 that arrives during a data-farm outage may be transient, so it does not
 hold back later live requests and is named there only once a delayed price is
 actually served; until then it is not reported as an entitlement problem.

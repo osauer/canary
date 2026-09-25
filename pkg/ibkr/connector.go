@@ -360,6 +360,7 @@ type Subscription struct {
 	delayedFallback    bool
 	delayedTicks       bool
 	liveRetryTimer     *time.Timer
+	liveRetryAt        time.Time // when liveRetryTimer re-probes the live feed
 	previousQuote      *Subscription
 	previousDataType   int
 	// rejectedReqID records the reqID the gateway reported dead via a

@@ -342,3 +342,43 @@ func TestQuoteFailedModeRestoreIsRepairedBeforeNextRequest(t *testing.T) {
 		t.Fatalf("mode repair missing: %v", frames)
 	}
 }
+
+// TestDelayedLineFromRecordedRefusalReprobesWhenRefusalLifts witnesses the
+// empty status.market_data_access beside an index still served delayed. A
+// line opened on the delayed feed because of a recorded 354 armed its live
+// probe a full window after it was opened, while status names the refusal
+// only for the window after the 354: for up to half an hour the line stayed
+// delayed with no refusal named. The probe now runs when the refusal lifts.
+func TestDelayedLineFromRecordedRefusalReprobesWhenRefusalLifts(t *testing.T) {
+	c, _, _, contract := newQuoteFallbackFixture(t)
+	key, err := c.SubscribeMarketDataWithContract(t.Context(), contract, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectQuote(t, c, key, 354)
+	quoteType(c, key, 4)
+	quoteTick(c, key, 75, 100)
+	if err := c.UnsubscribeMarketData(key); err != nil {
+		t.Fatal(err)
+	}
+	// The line is reopened twenty minutes into the refusal's window.
+	c.absenceMu.Lock()
+	refusal := c.mktDataAbsent[key]
+	refusal.at = time.Now().Add(-20 * time.Minute)
+	c.mktDataAbsent[key] = refusal
+	c.absenceMu.Unlock()
+	if _, err := c.SubscribeMarketDataWithContract(t.Context(), contract, nil); err != nil {
+		t.Fatal(err)
+	}
+	c.subMu.RLock()
+	sub := c.subscriptions[key]
+	delayed, probeAt := sub.delayedFallback, sub.liveRetryAt
+	c.subMu.RUnlock()
+	lifts := refusal.at.Add(marketDataAbsenceRetry)
+	if !delayed || !probeAt.Equal(lifts) {
+		t.Fatalf("delayed line re-probes live at %s; its refusal stops being named at %s", probeAt.Format(time.TimeOnly), lifts.Format(time.TimeOnly))
+	}
+	if abs := c.MarketDataAbsences(); len(abs) != 1 || !abs[0].RetryAt.Equal(probeAt) {
+		t.Fatalf("status does not name the refusal until the probe: %+v", abs)
+	}
+}

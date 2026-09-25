@@ -390,7 +390,13 @@ Only a vouched leg may read `not_due`, because `not_due` exempts a row from
 every age bound. The served row carries `vix3m_source`, `vix3m_official`,
 `vix3m_official_date`, and — on a disagreement — the broker's own
 `vix3m_gateway_last`, so the discrepancy is inspectable rather than asserted. A
-disagreement also raises `vix3m_source_disagreement`.
+disagreement also raises `vix3m_source_disagreement`. An `unverified` verdict
+raises `vix3m_official_close_pending` when Cboe's file was read but ends more
+than one session back, naming the last official close and when the leg became
+unverified; that is Cboe's publication delay and needs no local action. It
+raises `vix3m_official_close_unavailable` only when no usable file was read.
+VVIX past its four-day budget raises `vvix_official_close_pending` the same way,
+instead of staying silent until the row turns stale after seven days.
 
 The comparison tolerance is heuristic and operator-owned, like the band
 thresholds. In session the gateway remains the source and the check does not

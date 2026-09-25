@@ -88,7 +88,23 @@ type DataSourceHealth struct {
 	LastSuccess      time.Time              `json:"last_success,omitzero"`
 	History          []DataHealthTransition `json:"history,omitempty"`
 	HistoryTruncated bool                   `json:"history_truncated,omitempty"`
+	// Cause classifies why a row is not current when its producer can
+	// establish it; empty means none was established. See the DataHealthCause
+	// constants.
+	Cause string `json:"cause,omitempty"`
+	// OfficialDate is the newest observation date the publisher has
+	// released, set with DataHealthCauseUpstreamPublicationPending.
+	OfficialDate string `json:"official_date,omitempty"`
+	// PendingSince is when the publication gap began to hold the row out of
+	// its schedule, set with DataHealthCauseUpstreamPublicationPending.
+	PendingSince time.Time `json:"pending_since,omitzero"`
 }
+
+// DataHealthCauseUpstreamPublicationPending is an expected delay at the
+// data's publisher, not a fault in Canary, the broker or the network: Canary
+// read the publisher's file, which has not yet released the observation the
+// row's schedule requires. The row stays limited until it does.
+const DataHealthCauseUpstreamPublicationPending = "upstream_publication_pending"
 
 // DataHealthTransition is historical diagnostic evidence, never restored access
 // authority. Observation gaps and session changes cannot establish continuity.
