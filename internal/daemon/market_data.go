@@ -234,10 +234,18 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 	if tailDays > 0 && now.AddDate(0, 0, -days).After(result.RequestedStart) {
 		result.RequestedStart = now.AddDate(0, 0, -days)
 	}
-	if p.Range == "1D" && !usChartCalendar(echo) && len(bars) > 0 && bars[len(bars)-1].Time.Before(result.RequestedStart) {
+	if p.Range == "1D" && len(bars) > 0 && bars[len(bars)-1].Time.Before(result.RequestedStart) {
+		// The broker answered but holds no bar of the day being selected.
 		// No venue calendar names the last session of a closed venue; the
-		// newest bar does. Serve the day ending there, as selectStoredHistory
-		// does for recorded history, instead of refusing bars just supplied.
+		// newest bar does. A US day starts at the open (04:00 for a stock's
+		// premarket) before its first bar prints, and IBKR's delayed feed
+		// trails the market by up to twenty minutes, so an unentitled index
+		// has no bar of the new session for that long. Serve the day ending
+		// at the newest bar, as selectStoredHistory does for recorded
+		// history, instead of refusing bars just supplied: a refused read
+		// keeps the record's fetch clock and backs its refresh off, so the
+		// series was served refresh due past its first delayed bar.
+		// Selection still labels the result the previous window.
 		result.RequestedStart = historyRequestStart(p, bars[len(bars)-1].Time)
 	}
 	if interval == "1 day" {

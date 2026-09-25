@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -178,6 +179,102 @@ func TestMarketHistoryRefreshRemembersTheBrokersDefinitionVerdict(t *testing.T) 
 	s.refreshMarketHistoryInterest(t.Context(), intradayKey, request)
 	if reads != 4 {
 		t.Fatalf("with the verdict cleared the intraday series is read again: reads=%d", reads)
+	}
+}
+
+// An unentitled index on IBKR's delayed feed trails the market by fifteen
+// minutes, so for that long after the US open the broker has no bar inside
+// the new session's one-day window. Each such read was refused as "no
+// observations within requested range": the record kept its premarket fetch
+// clock and was served refresh due, and the worker backed the series off one,
+// two, four and eight minutes, past the moment its first bar arrived. The
+// broker answered, so the read is not a failure: the series serves the
+// previous session, labelled the previous window, fetched now, and is read
+// again on its normal cadence until the session's first delayed bar lands.
+func TestMarketHistoryRefreshCarriesADelayedIndexThroughTheOpen(t *testing.T) {
+	s, _, _, _, _ := historyFixture(t)
+	log := &bytes.Buffer{}
+	s.logger = NewLogger(log, "warn")
+	key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: rpc.ContractParams{ConID: 777001, Symbol: "SYNDX", SecType: "IND", Exchange: "NASDAQ", Currency: "USD"}, Range: "1D"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	open := time.Date(2026, 9, 15, 9, 30, 0, 0, ny) // Tuesday
+	monday := open.AddDate(0, 0, -1)
+	mondayLast := monday.Add(77 * 5 * time.Minute)
+	var bars []ibkrlib.HistoricalBar
+	for _, session := range []time.Time{monday, open} {
+		for i := range 78 {
+			bars = append(bars, ibkrlib.HistoricalBar{Time: session.Add(time.Duration(i) * 5 * time.Minute), Open: 100, High: 101, Low: 99, Close: 100.5})
+		}
+	}
+	const lag = 15 * time.Minute
+	clock := open.Add(-3*time.Hour - 31*time.Minute) // 05:59 New York
+	s.now = func() time.Time { return clock }
+	reads := 0
+	broker := func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+		reads++
+		series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+		for _, b := range bars {
+			if !b.Time.After(clock.Add(-lag)) {
+				series.Bars = append(series.Bars, b)
+			}
+		}
+		return series, nil
+	}
+	request := func(ctx context.Context, got rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		k, got, err := marketHistoryIdentity(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.readRetainedHistory(ctx, k, got, clock, func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
+			return fetchMarketHistory(ctx, p, tail, now, broker)
+		})
+	}
+	served := func() *rpc.MarketHistoryResult {
+		t.Helper()
+		raw, _ := json.Marshal(p)
+		got, err := s.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
+	s.rememberMarketHistory(p)
+	s.refreshMarketHistoryInterest(t.Context(), key, request)
+	if got := served(); reads != 1 || got.Cache.Coverage != "observed" || !got.End.Equal(mondayLast) || got.Cache.RefreshDue {
+		t.Fatalf("the premarket read must record Monday's session: reads=%d %+v", reads, got.Cache)
+	}
+	for _, after := range []time.Duration{19 * time.Second, 5*time.Minute + 19*time.Second, 10*time.Minute + 19*time.Second, 15*time.Minute + 19*time.Second, 20*time.Minute + 19*time.Second} {
+		clock = open.Add(after)
+		before := reads
+		s.refreshMarketHistoryInterest(t.Context(), key, request)
+		if item := s.marketData.interest[key]; reads != before+1 || item.Failures != 0 || !item.RetryAt.IsZero() {
+			t.Fatalf("%s after the open: an answered read must keep the normal cadence: reads=%d failures=%d retry_at=%s", after, reads-before, item.Failures, item.RetryAt)
+		}
+		got := served()
+		c := got.Cache
+		if c.RefreshDue || c.RefreshFailed || !c.FetchedAt.Equal(clock) {
+			t.Fatalf("%s after the open: the series must be current as of this read: %+v", after, c)
+		}
+		newest := clock.Add(-lag).Truncate(5 * time.Minute)
+		if newest.Before(open) {
+			if !c.PreviousWindow || c.Coverage != "previous_window" || !got.End.Equal(mondayLast) {
+				t.Fatalf("%s after the open: before its first delayed bar the session must serve Monday as the previous window: end=%s %+v", after, got.End, c)
+			}
+			continue
+		}
+		if c.PreviousWindow || c.Coverage != "observed" || !got.Start.Equal(open) || !got.End.Equal(newest) {
+			t.Fatalf("%s after the open: the session's delayed bars must be served once they land: %s..%s %+v", after, got.Start, got.End, c)
+		}
+	}
+	if strings.Contains(log.String(), "refresh failed") || strings.Contains(log.String(), "next attempt after") {
+		t.Fatalf("answered reads were logged as failures: %q", log.String())
 	}
 }
 
