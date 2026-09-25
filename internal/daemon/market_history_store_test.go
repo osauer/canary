@@ -358,6 +358,71 @@ func TestMarketHistoryGlobexWeekendNeedsNoRefresh(t *testing.T) {
 	}
 }
 
+// A closure holds a record current: a US stock's intraday series overnight
+// until its 04:00 premarket, a US daily series until fifteen minutes after
+// the open, a Globex series over the weekend until Sunday 18:00 New York.
+// When the closure ends the worker may read at once, but the served
+// refresh_due flipped the same instant, because the record's last read was
+// hours old. The flag now counts the worker's cycle from the later of the
+// closure's end and the bars' cadence after the last read: it means a read
+// was possible for a whole cycle and has not happened.
+func TestMarketHistoryRefreshDueCountsTheCycleFromAClosuresEnd(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(day, hour, minute int) time.Time { return time.Date(2026, 9, day, hour, minute, 0, 0, ny) }
+	stock := rpc.ContractParams{ConID: 123456, Symbol: "SYNTH", SecType: "STK", Exchange: "NYSE", Currency: "USD"}
+	future := rpc.ContractParams{ConID: 654321, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}
+	for _, tc := range []struct {
+		name          string
+		contract      rpc.ContractParams
+		rng, interval string
+		cadence       time.Duration
+		read, newest  time.Time // the last read, after the previous session
+		closureEnds   time.Time
+	}{
+		{"stock_premarket", stock, "1D", "5 mins", 5 * time.Minute, at(14, 20, 20), at(14, 19, 55), at(15, 4, 0)},
+		{"daily_after_the_open", stock, "1M", "1 day", time.Hour, at(14, 16, 20), time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), at(15, 9, 45)},
+		{"globex_sunday", future, "1D", "5 mins", 5 * time.Minute, at(18, 17, 10), at(18, 16, 55), at(20, 18, 0)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: tc.contract, Range: tc.rng})
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := rpc.MarketHistoryResult{Contract: p.Contract, Range: tc.rng, Interval: tc.interval, PriceBasis: "TRADES", AsOf: tc.read, RequestedStart: historyRequestStart(p, tc.read), Points: []rpc.MarketHistoryPoint{{At: tc.newest, Value: 100}}}
+			r.Start, r.End = tc.newest, tc.newest
+			saved := storedMarketHistory{Version: 1, Identity: key, FullReadAt: tc.read, Result: r}
+			served := func(now time.Time) bool {
+				return selectStoredHistory(&saved, tc.read, p, now, "cache", "", false).Cache.RefreshDue
+			}
+			before, after := tc.closureEnds.Add(-time.Second), tc.closureEnds.Add(time.Second)
+			if historyRefreshDue(&saved, p, before) || served(before) {
+				t.Fatal("the closure must hold the record current until it ends")
+			}
+			if !historyRefreshDue(&saved, p, after) {
+				t.Fatal("the worker must read as soon as the closure ends")
+			}
+			if served(after) || served(tc.closureEnds.Add(marketHistoryRefreshGrace-time.Second)) {
+				t.Fatal("refresh_due must give the worker its cycle after the closure ends")
+			}
+			if !served(tc.closureEnds.Add(marketHistoryRefreshGrace + time.Second)) {
+				t.Fatal("a read possible for a whole cycle that has not happened is refresh due")
+			}
+			// A read after the closure's end starts the cycle at its cadence.
+			saved.Result.AsOf = tc.closureEnds.Add(2 * time.Minute)
+			due := saved.Result.AsOf.Add(tc.cadence)
+			if historyRefreshDue(&saved, p, due.Add(-time.Second)) || !historyRefreshDue(&saved, p, due.Add(time.Second)) {
+				t.Fatal("the worker's cadence must run from the last read")
+			}
+			if served(due.Add(marketHistoryRefreshGrace-time.Second)) || !served(due.Add(marketHistoryRefreshGrace+time.Second)) {
+				t.Fatal("refresh_due must follow the cadence plus the worker's cycle once the record was read after the closure")
+			}
+		})
+	}
+}
+
 // TestMarketHistoryRollingIntradayWindowReconcilesWeekly witnesses intraday
 // series whose request window rolls forward. No intraday read covers the
 // twenty retained venue dates, so a full read that had to reach them never

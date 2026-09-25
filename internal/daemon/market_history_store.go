@@ -194,25 +194,29 @@ func historyReconcileDue(saved *storedMarketHistory, now time.Time) bool {
 	return saved != nil && now.Sub(saved.FullReadAt) >= marketHistoryReconcileEvery
 }
 
+// historyRefreshOverdue is the served refresh_due: the record is behind and
+// the refresh worker has had its full cycle to catch it up, so a consumer
+// can call the bars limited. The cycle starts where a read first became
+// possible: the bars' cadence after the last read, or the end of a closure
+// that held the record current (a US stock's 04:00 premarket or another
+// intraday venue's open, a US daily series' fifteen minutes after the open,
+// Globex's Sunday 18:00 reopen), whichever is later. So the record must
+// already have been behind a whole cycle ago; judging a closure's end alone
+// flipped the flag the instant it passed, before the worker could read. A
+// record read within the cycle is overdue only when its view needs a prefix
+// it lacks. A record inside its normal refresh cycle, or awaiting only its
+// weekly reconciliation, is current.
+func historyRefreshOverdue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
+	cycleStart := now.Add(-marketHistoryRefreshGrace)
+	return historyRefreshDue(saved, p, now) && (saved == nil || cycleStart.Before(saved.Result.AsOf) || historyRefreshDue(saved, p, cycleStart))
+}
+
 // historyRefreshDue reports whether the retained record is behind what the
 // broker would now supply: the view needs a prefix the record lacks, or its
 // bars are older than their refresh cadence while the venue may have traded
 // since. readRetainedHistory reads the broker when this or
 // historyReconcileDue holds.
 func historyRefreshDue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
-	return historyBehind(saved, p, now, 0)
-}
-
-// historyRefreshOverdue is the served refresh_due: the record is behind and
-// the refresh worker has had its full cycle to catch it up, so a consumer
-// can call the bars limited. A record inside its normal refresh cycle, or
-// awaiting only its weekly reconciliation, is current.
-func historyRefreshOverdue(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) bool {
-	return historyBehind(saved, p, now, marketHistoryRefreshGrace)
-}
-
-// historyBehind is historyRefreshDue with the cadence extended by slack.
-func historyBehind(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time, slack time.Duration) bool {
 	if saved == nil {
 		return true
 	}
@@ -263,7 +267,7 @@ func historyBehind(saved *storedMarketHistory, p rpc.MarketHistoryParams, now ti
 	} else if r.Interval == "1 day" {
 		interval = time.Hour
 	}
-	return now.Sub(r.AsOf) >= interval+slack
+	return now.Sub(r.AsOf) >= interval
 }
 
 func historyTailDays(saved *storedMarketHistory, p rpc.MarketHistoryParams, now time.Time) int {
