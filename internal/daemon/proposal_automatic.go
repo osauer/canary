@@ -2,10 +2,14 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +31,11 @@ import (
 // submits exactly once, and never retries on its own — with one exception:
 // a submission refused by trading.freeze alone, having sent nothing, is
 // deferred and resubmitted once the freeze lifts while its revision is
-// current. The broker write goes through the ordinary proposal submit path
-// with the daemon-preauthorised origin, so every existing gate still decides.
+// current. The settling rule holds a due submission, without restarting its
+// veto window, while an order placed outside Canary's gate after the record
+// was created, or modified since, is still working at the broker. The broker
+// write goes through the ordinary proposal submit path with the
+// daemon-preauthorised origin, so every existing gate still decides.
 
 const (
 	automaticStateKind       = "trade_proposals_automatic"
@@ -43,8 +50,9 @@ const (
 	automaticEventSuperseded = "superseded"
 	automaticEventFailed     = "failed"
 	// automaticEventDeferred journals a freeze refusal that keeps the record
-	// alive.
+	// alive; automaticEventHeld journals the settling rule holding it.
 	automaticEventDeferred = "deferred"
+	automaticEventHeld     = "held"
 
 	// automaticSubmitTimeout bounds the quote/WhatIf wait of one automatic
 	// submission, the same default the CLI uses.
@@ -54,6 +62,16 @@ const (
 	// after its freeze refusal; the scheduler also waits for the freeze to be
 	// lifted, so a long freeze costs no refused attempts.
 	automaticDeferRetry = time.Minute
+
+	// automaticSettlingReadTimeout bounds one settling-rule read of the
+	// broker's open-order inventory.
+	automaticSettlingReadTimeout = 10 * time.Second
+)
+
+// Settling-rule hold reasons. Neither names an order, symbol or account.
+const (
+	automaticHoldHandOrder   = "settling: an order placed outside Canary's gate after this proposal revision appeared, or modified since, is still working at the broker; this submits once it fills or is cancelled, without a new veto window"
+	automaticHoldUnavailable = "settling: the broker's open-order inventory is unavailable, so a new or modified hand order cannot be ruled out; this submits once it can, without a new veto window"
 )
 
 // automaticSubmissionRecord is one durable automatic-submission intent, keyed
@@ -92,6 +110,17 @@ type automaticSubmissionRecord struct {
 	// resubmission once the freeze is lifted.
 	DeferredAt time.Time `json:"deferred_at,omitzero"`
 	ResubmitAt time.Time `json:"resubmit_at,omitzero"`
+	// HeldAt and HoldReason record the settling rule holding a due record;
+	// the next submission attempt clears them.
+	HeldAt     time.Time `json:"held_at,omitzero"`
+	HoldReason string    `json:"hold_reason,omitempty"`
+	// SettlingBaseline marks the hand orders already working at the broker
+	// when the record was created (automaticOrderMark);
+	// SettlingBaselineKnown says whether that inventory could be read. A
+	// hand order still bearing a baseline mark stood unmodified before the
+	// record existed and never holds it.
+	SettlingBaseline      []string `json:"settling_baseline,omitempty"`
+	SettlingBaselineKnown bool     `json:"settling_baseline_known,omitempty"`
 }
 
 func (r automaticSubmissionRecord) pending() bool {
@@ -139,7 +168,10 @@ func (r automaticSubmissionRecord) view(preAuthorised bool, now time.Time) *rpc.
 		LatchSkippedWindow: r.LatchSkippedWindow, VetoWindow: r.VetoWindow,
 		DeferredAt: r.DeferredAt, ResubmitAt: r.ResubmitAt,
 	}
-	if r.pending() && r.NoticedAt.IsZero() && !r.LatchSkippedWindow && !now.Before(r.SubmitAt) {
+	switch {
+	case r.waiting() && !r.HeldAt.IsZero():
+		out.HeldAt, out.Reason = r.HeldAt, r.HoldReason
+	case r.pending() && r.NoticedAt.IsZero() && !r.LatchSkippedWindow && !now.Before(r.SubmitAt):
 		out.Reason = "waiting for the phone notice to be recorded before the window can close"
 	}
 	return out
@@ -445,6 +477,17 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	policy, policyOK := e.automaticPolicy()
 	latched := brokerScopeConcrete(scope) && e.automaticLatched(scope)
 	window := policy.Authority.vetoWindow()
+	// A record about to be created captures the hand orders already working:
+	// the settling rule never holds a record behind an order that stood,
+	// unmodified, before the record existed. The broker is read outside the
+	// record lock and only when a record will be created.
+	var baseline []string
+	baselineKnown := false
+	if policyOK && brokerScopeConcrete(scope) && e.automaticWillCreate(snap, policy) {
+		if book := e.automaticSettlingBook(ctx, scope, false); book.ok {
+			baseline, baselineKnown = book.marks(), true
+		}
+	}
 	present := make(map[string]rpc.TradeProposal, len(snap.Proposals))
 	for _, prop := range snap.Proposals {
 		present[prop.Key] = prop
@@ -495,6 +538,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				Symbol: prop.Symbol, SecType: prop.SecType, Action: prop.Action, Quantity: prop.Quantity,
 				AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
 				VetoWindow: window.String(), CreatedAt: now, SubmitAt: now.Add(window),
+				SettlingBaseline: slices.Clone(baseline), SettlingBaselineKnown: baselineKnown,
 			}
 			// A reduction to budget is a discretionary-scale action, not a
 			// stop: the governor marks its rows NeverSkipVeto and they wait the
@@ -511,6 +555,21 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	if err != nil && e.server != nil {
 		e.server.warnf("pre-authorised protection: reconcile records: %v", err)
 	}
+}
+
+// automaticWillCreate reports whether reconcileAutomatic is about to create a
+// record: an unblocked proposal in a pre-authorised bucket with no record for
+// its key and revision yet.
+func (e *proposalEngine) automaticWillCreate(snap rpc.TradeProposalSnapshot, policy protectionPolicy) bool {
+	for _, prop := range snap.Proposals {
+		if !policy.Authority.preAuthorised(automaticBucketFor(prop)) || !proposalUnblocked(snap, prop) {
+			continue
+		}
+		if _, exists := e.automatic.get(prop.Key, prop.Revision); !exists {
+			return true
+		}
+	}
+	return false
 }
 
 func automaticCreatedReason(rec *automaticSubmissionRecord) string {
@@ -581,10 +640,19 @@ func (e *proposalEngine) automaticPendingNotices(scope brokerStateScope) []autom
 
 // submitDueAutomatic submits every due record: a pending record whose window
 // has closed and whose notice was recorded (a latched record needs no
-// notice), and a deferred record once the freeze is lifted.
+// notice), and a deferred record once the freeze is lifted. The settling
+// rule holds a due record of the current scope while a hand order placed
+// after the record was created, or modified since, is still working at the
+// broker; the record fires as soon as that order fills or is cancelled, on
+// its original window.
 func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	now := e.clock()
 	frozen := e.server != nil && e.server.tradingFrozen()
+	scope := e.currentScope()
+	// The shared cached inventory decides a hold; a submission fires only
+	// after a fresh inventory confirms nothing holds it. Each is read at most
+	// once per cycle, and only when a record is due.
+	var cached, fresh *automaticSettlingBook
 	for _, rec := range e.automatic.list() {
 		if !rec.due(now, frozen) {
 			continue
@@ -592,7 +660,186 @@ func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// A record of another scope cannot fire here: revalidation against
+		// the current proposal set refuses it and the refusal supersedes it.
+		if brokerScopeConcrete(scope) && sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+			if cached == nil {
+				book := e.automaticSettlingBook(ctx, scope, false)
+				cached = &book
+			}
+			hold := cached.hold(rec)
+			if hold == "" {
+				if fresh == nil {
+					book := e.automaticSettlingBook(ctx, scope, true)
+					fresh = &book
+				}
+				hold = fresh.hold(rec)
+			}
+			if hold != "" {
+				e.holdAutomatic(ctx, rec, hold)
+				continue
+			}
+		}
 		e.submitAutomatic(ctx, rec)
+	}
+}
+
+// automaticHandOrder is one order working at the broker whose origin is not
+// the machine's own: placed by hand in TWS or by another API client (no
+// journal row, so no origin), or through a human-tty or paired-device
+// request, neither of which passed the gate.
+type automaticHandOrder struct {
+	// Mark names the order and its material terms (automaticOrderMark).
+	Mark string
+	// RequestedAt is the latest place or modify request the journal holds
+	// for the order; zero when the journal does not track it.
+	RequestedAt time.Time
+}
+
+// automaticSettlingBook is one classified reading of the broker's working
+// orders. ok is false when no complete, current inventory could be read.
+type automaticSettlingBook struct {
+	ok   bool
+	hand []automaticHandOrder
+}
+
+// marks lists the book's hand-order marks for a record's baseline.
+func (b automaticSettlingBook) marks() []string {
+	var out []string
+	for _, order := range b.hand {
+		if order.Mark != "" {
+			out = append(out, order.Mark)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hold applies the settling rule to rec and returns the hold reason, or ""
+// when rec may fire. A working hand order holds rec when it was placed or
+// last modified after rec was created: the journal saw a place or modify
+// request for it since then, or it bears no mark of rec's baseline — a new
+// order, a modified one, or any hand order at all when the baseline could
+// not be read. An unreadable inventory holds too: the rule proves an
+// absence, so doubt never reads as settled.
+func (b automaticSettlingBook) hold(rec automaticSubmissionRecord) string {
+	if !b.ok {
+		return automaticHoldUnavailable
+	}
+	for _, order := range b.hand {
+		if order.RequestedAt.After(rec.CreatedAt) || !rec.SettlingBaselineKnown ||
+			order.Mark == "" || !slices.Contains(rec.SettlingBaseline, order.Mark) {
+			return automaticHoldHandOrder
+		}
+	}
+	return ""
+}
+
+// automaticSettlingBook reads the broker's working orders in scope and keeps
+// the hand orders, each with its mark and its latest journaled request. A
+// slow broker read ends at automaticSettlingReadTimeout so it holds this
+// cycle's due records rather than stalling the proposal refresh loop.
+func (e *proposalEngine) automaticSettlingBook(ctx context.Context, scope brokerStateScope, fresh bool) automaticSettlingBook {
+	if e == nil || e.server == nil || ctx == nil {
+		return automaticSettlingBook{}
+	}
+	readCtx, cancel := context.WithTimeout(ctx, automaticSettlingReadTimeout)
+	defer cancel()
+	snapshot, inventoryScope, err := e.server.brokerOpenOrderInventory(readCtx, fresh)
+	if err != nil || !sameBrokerScope(inventoryScope, scope) {
+		return automaticSettlingBook{}
+	}
+	if len(brokerWorkingOrders(snapshot, nil, scope)) == 0 {
+		return automaticSettlingBook{ok: true}
+	}
+	views, eventsByKey, err := e.server.loadOrderViews()
+	if err != nil {
+		return automaticSettlingBook{}
+	}
+	book := automaticSettlingBook{ok: true}
+	for _, order := range brokerWorkingOrders(snapshot, views, scope) {
+		if automaticSettlingMachineOrigin(order.Origin()) {
+			continue
+		}
+		hand := automaticHandOrder{Mark: automaticOrderMark(order.Order)}
+		if order.Journal != nil {
+			hand.RequestedAt = latestOrderRequestAt(eventsByKey[orderViewKey(*order.Journal)])
+		}
+		book.hand = append(book.hand, hand)
+	}
+	return book
+}
+
+// automaticOrderMark names a working broker order and its material terms, so
+// the same mark means the same order, unmodified. What the broker moves by
+// itself — a trailing stop's trigger, a trailing limit's price — and fill
+// progress are left out: only a modify changes the mark. An order with no
+// identity has no mark and can never be proven standing.
+func automaticOrderMark(order ibkrlib.OrderLifecycleEvent) string {
+	identity := ""
+	switch {
+	case order.PermID != 0:
+		identity = "perm:" + strconv.Itoa(order.PermID)
+	case order.ClientIDPresent && order.OrderID != 0:
+		identity = "order:" + strconv.Itoa(order.ClientID) + ":" + strconv.Itoa(order.OrderID)
+	default:
+		return ""
+	}
+	orderType := strings.ToUpper(strings.TrimSpace(order.OrderType))
+	limit := order.LimitPrice
+	if orderType == rpc.OrderTypeTRAIL || orderType == rpc.OrderTypeTRAILLIMIT {
+		limit = 0
+	}
+	terms := fmt.Sprintf("%s|%d|%s|%s|%g|%g|%g|%g|%g|%s|%t|%d", identity, order.ConID,
+		strings.ToUpper(strings.TrimSpace(order.Action)), orderType, order.TotalQuantity, limit, order.AuxPrice,
+		order.TrailingPercent, order.LmtPriceOffset, strings.ToUpper(strings.TrimSpace(order.TIF)), order.OutsideRth, order.TriggerMethod)
+	sum := sha256.Sum256([]byte(terms))
+	return identity + "#" + hex.EncodeToString(sum[:8])
+}
+
+// latestOrderRequestAt is the latest place or modify request among one
+// order's journal events; zero when there is none.
+func latestOrderRequestAt(events []rpc.OrderEvent) time.Time {
+	var latest time.Time
+	for _, ev := range events {
+		if (ev.Type == orderJournalEventSendAttempted || ev.Type == orderJournalEventModifyRequested) && ev.At.After(latest) {
+			latest = ev.At
+		}
+	}
+	return latest
+}
+
+// automaticSettlingMachineOrigin reports the origins the settling rule
+// treats as the machine's own: the daemon's pre-authorised scheduler and the
+// agent-origin gated CLI through which Desk places what the owner authorised.
+// Canary cannot see Desk's receipts, so any agent-origin order counts as the
+// gate's.
+func automaticSettlingMachineOrigin(origin string) bool {
+	switch origin {
+	case rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginAgent:
+		return true
+	default:
+		return false
+	}
+}
+
+// holdAutomatic records that the settling rule holds a due record, once per
+// hold and again only when the reason changes. The window is not touched.
+func (e *proposalEngine) holdAutomatic(ctx context.Context, rec automaticSubmissionRecord, reason string) {
+	now := e.clock()
+	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+		r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
+		if !ok || !r.waiting() || (!r.HeldAt.IsZero() && r.HoldReason == reason) {
+			return nil
+		}
+		if r.HeldAt.IsZero() {
+			r.HeldAt = now
+		}
+		r.HoldReason = reason
+		return []automaticSubmissionEvent{{At: now, Type: automaticEventHeld, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, SubmitAt: r.SubmitAt, Reason: reason}}
+	})
+	if err != nil && e.server != nil {
+		e.server.warnf("pre-authorised protection: record settling hold for %s: %v", rec.Key, err)
 	}
 }
 
@@ -638,6 +885,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 			r.State = rpc.TradeProposalAutomaticSubmitting
 			r.SubmittingAt = e.clock()
 			r.PreviewTokenID = preview.PreviewTokenID
+			r.HeldAt, r.HoldReason = time.Time{}, ""
 			return []automaticSubmissionEvent{{At: r.SubmittingAt, Type: automaticEventSubmitting, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode}}
 		})
 		if stageErr != nil {
@@ -656,6 +904,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		if !ok || r.terminal() {
 			return nil
 		}
+		r.HeldAt, r.HoldReason = time.Time{}, ""
 		switch {
 		case err == nil && res.Accepted:
 			r.ResolvedAt = finish

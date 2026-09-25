@@ -307,6 +307,24 @@ proposal revision is still current; a changed revision supersedes it like a
 pending record, and a veto still applies while it waits. Any other refusal
 fails the record for that revision, as before.
 
+A due submission also does not fire while a hand order that is new to its
+proposal revision is still working at the broker. A hand order is one entered
+by hand in TWS or by another API client, or placed from a terminal or the
+paired app; orders the daemon placed itself and agent-origin gated orders never
+count. It is new when it was placed, or last modified, after the automatic
+record for the revision was created. When the record is created, the daemon
+notes the hand orders already working, so a standing order that stays
+unmodified, such as a stop you placed last week, never holds it, even while its
+trailing trigger moves. A new order holds it, and so does a standing order you
+modify, in TWS or through Canary. Any instrument counts, not only the
+proposal's. The record stays pending, says why it is held, and fires as soon as
+that order is filled or cancelled, on its original window: waiting never
+restarts the veto window. The hold applies under a latched brake as well. If
+the broker's open-order list cannot be read when the record is created, every
+working hand order counts as new for that record; if it cannot be read when the
+submission is due, the submission waits. With no bucket pre-authorised, nothing
+is ever held.
+
 The daemon persists submission intent before the broker call and reconciles
 it against its journal after restart. Installing or updating the binary does
 not edit policy, enable buckets, or clear freeze.

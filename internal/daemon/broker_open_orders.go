@@ -73,6 +73,15 @@ type brokerWorkingOrder struct {
 	Journal *rpc.OrderView
 }
 
+// Origin is the journaled request origin of the order, "" when the journal
+// does not track it or recorded none.
+func (w brokerWorkingOrder) Origin() string {
+	if w.Journal == nil {
+		return ""
+	}
+	return w.Journal.Origin
+}
+
 // brokerWorkingOrders lists the snapshot orders still working in scope,
 // each matched to its journal row by the PermID-first identity rule the
 // reconciliation sweep uses. What-if, terminal and fully filled orders are

@@ -30,6 +30,31 @@ type automaticTestRig struct {
 	// no write capability, so every attempt that reaches the write gate is
 	// refused there, and the count proves whether the scheduler tried.
 	revalidations int
+	// brokerOrders is the complete broker open-order inventory the settling
+	// rule reads (empty: nothing working); freshOrders appear only in a fresh
+	// read, as an order placed since the shared cached read would; and
+	// inventoryErr makes the inventory unreadable.
+	brokerOrders []ibkrlib.OrderLifecycleEvent
+	freshOrders  []ibkrlib.OrderLifecycleEvent
+	inventoryErr error
+	// inventoryReads counts settling-rule reads of that inventory.
+	inventoryReads int
+}
+
+// installInventory seams the broker open-order inventory to the rig's
+// synthetic book, read at the rig clock.
+func (r *automaticTestRig) installInventory(srv *Server) {
+	srv.openOrderInventoryForTest = func(_ context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+		r.inventoryReads++
+		if r.inventoryErr != nil {
+			return ibkrlib.OpenOrderSnapshot{}, r.scope, r.inventoryErr
+		}
+		orders := append([]ibkrlib.OrderLifecycleEvent(nil), r.brokerOrders...)
+		if fresh {
+			orders = append(orders, r.freshOrders...)
+		}
+		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: r.now, Orders: orders}, r.scope, nil
+	}
 }
 
 func newAutomaticTestRig(t *testing.T, authority string) *automaticTestRig {
@@ -46,6 +71,7 @@ func newAutomaticTestRig(t *testing.T, authority string) *automaticTestRig {
 	rig := &automaticTestRig{t: t, core: core, now: time.Date(2026, 9, 21, 14, 0, 0, 0, time.UTC), scope: brokerStateScope{Account: "DU1234567", Mode: "paper"}}
 	srv := newTestServer(t)
 	srv.now = func() time.Time { return rig.now }
+	rig.installInventory(srv)
 	srv.protectionPolicies = writePreAuthPolicy(t, preAuthPolicyTOML(authority, 1))
 	srv.protectionPolicies.reload()
 	if st := srv.protectionPolicies.Status(); st.Status != rpc.ProtectionPolicyStatusActive {
@@ -189,6 +215,77 @@ func (r *automaticTestRig) eventCount(key, revision, eventType string) int {
 		}
 	}
 	return n
+}
+
+// handOrder is an order working at the broker that the journal does not
+// track: placed by hand in TWS, so it has no origin.
+func handOrder(permID int) ibkrlib.OrderLifecycleEvent {
+	return ibkrlib.OrderLifecycleEvent{
+		Type: ibkrlib.OrderLifecycleEventOpenOrder, PermID: permID, ClientID: 0, ClientIDPresent: true, Account: "DU1234567",
+		Symbol: "HND", SecType: "STK", Action: rpc.OrderActionBuy, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay,
+		TotalQuantity: 5, LimitPrice: 12.5, Status: "Submitted",
+	}
+}
+
+// A working hand order never matters while no bucket is pre-authorised:
+// no record exists, so the settling rule never even reads the broker.
+func TestAutomaticSettlingRuleIsDormantWithoutPreAuthorisedBuckets(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, "")
+	rig.brokerOrders = []ibkrlib.OrderLifecycleEvent{handOrder(7777)}
+	prop := rig.stopProposal()
+	revision := rig.install(prop)
+	for range 3 {
+		rig.cycle()
+		rig.advance(time.Hour)
+	}
+	rig.noRecord(prop.Key, revision)
+	if rig.inventoryReads != 0 || rig.revalidations != 0 {
+		t.Fatalf("inventory reads = %d, attempts = %d with no pre-authorised bucket", rig.inventoryReads, rig.revalidations)
+	}
+}
+
+// In the build without write capability the settling rule is visible as
+// whether the scheduler attempts at all: a working hand order or an
+// unreadable inventory holds the due record, its settling clears the hold,
+// and the record is attempted on its original window.
+func TestAutomaticSettlingHoldDecidesWhetherTheSchedulerAttempts(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticTrailingStopAuthority)
+	// Classifying a working order needs the journal that knows its origin.
+	rig.server.orderJournal = newTestOrderJournalStore(t, filepath.Join(t.TempDir(), "order-journal.jsonl"))
+	prop := rig.stopProposal()
+	revision := rig.install(prop)
+	rig.cycle()
+	rig.notice(rig.record(prop.Key, revision))
+	window := rig.record(prop.Key, revision).SubmitAt
+	rig.inventoryErr = errors.New("gateway down")
+	rig.advance(31 * time.Minute)
+	rig.cycle()
+	held := rig.record(prop.Key, revision)
+	if rig.revalidations != 0 || held.State != rpc.TradeProposalAutomaticPending || held.HeldAt.IsZero() || held.HoldReason != automaticHoldUnavailable {
+		t.Fatalf("unreadable inventory: attempts = %d, record = %+v", rig.revalidations, held)
+	}
+	rig.inventoryErr = nil
+	rig.brokerOrders = []ibkrlib.OrderLifecycleEvent{handOrder(7777)}
+	rig.cycle()
+	if held = rig.record(prop.Key, revision); rig.revalidations != 0 || held.HoldReason != automaticHoldHandOrder {
+		t.Fatalf("working hand order: attempts = %d, record = %+v", rig.revalidations, held)
+	}
+	if a := rig.engine.Snapshot(false).Proposals[0].Automatic; a == nil || a.HeldAt.IsZero() || a.Reason != automaticHoldHandOrder {
+		t.Fatalf("served automatic while held = %+v", a)
+	}
+	if got := rig.eventCount(prop.Key, revision, automaticEventHeld); got != 2 {
+		t.Fatalf("held events = %d, want one per reason", got)
+	}
+	rig.brokerOrders = nil
+	rig.cycle()
+	if rig.revalidations != 1 {
+		t.Fatalf("attempts after the hand order settled = %d, want 1", rig.revalidations)
+	}
+	if after := rig.record(prop.Key, revision); !after.SubmitAt.Equal(window) || !after.HeldAt.IsZero() {
+		t.Fatalf("record after the hold = %+v, want the original window and no hold", after)
+	}
 }
 
 const automaticTrailingStopAuthority = `pre_authorised = ["trailing_stop"]`

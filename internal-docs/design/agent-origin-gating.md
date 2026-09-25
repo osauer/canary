@@ -1,9 +1,10 @@
 # Agent-origin gating for broker writes
 
-Updated: 2026-09-25 19:27 CEST (read surfaces serve the journaled origin. Earlier:
-2026-06-20 00:00 CEST, policy flip: live agent-origin broker writes are allowed
-through the same gated broker-write paths as human writes; origin remains audit
-metadata and an extension point. Earlier: 2026-06-11 08:15 CEST.)
+Updated: 2026-09-25 21:24 CEST (read surfaces serve the journaled origin; the
+pre-authorised scheduler's settling rule reads it. Earlier: 2026-06-20 00:00
+CEST, policy flip: live agent-origin broker writes are allowed through the same
+gated broker-write paths as human writes; origin remains audit metadata and an
+extension point. Earlier: 2026-06-11 08:15 CEST.)
 Status: implemented
 
 Contract per `.agents/docs/daemon-cli-trading-contract.md`.
@@ -67,7 +68,10 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
    for "who placed this". Read surfaces serve the place request's origin on
    each order row and each event's own origin on the event; `orders open`
    also lists broker-working orders the journal does not track (hand orders in
-   TWS) under `untracked`, with no origin.
+   TWS) under `untracked`, with no origin. The pre-authorised scheduler's
+   settling rule treats `daemon-preauthorised` and `agent` orders as the
+   machine's own and holds a due submission while any other order placed or
+   modified after the submission's record was created is still working.
 6. **Hook layer (client-side, defense in depth, this repo's plugin):**
    `hooks/canary-pre-tool-use.sh` gates write verbs on `trading status --json`
    readiness for paper or live routes; it bans shell composition only for

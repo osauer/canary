@@ -326,3 +326,11 @@ func TestProposalAutomaticColumnNamesTheFreezeDeferral(t *testing.T) {
 		t.Fatalf("proposal status:\n%s", got)
 	}
 }
+
+func TestProposalAutomaticColumnNamesTheSettlingHold(t *testing.T) {
+	t.Parallel()
+	held := formatProposalAutomaticColumn(&rpc.TradeProposalAutomatic{PreAuthorised: true, State: rpc.TradeProposalAutomaticPending, HeldAt: time.Date(2026, 9, 25, 14, 0, 0, 0, time.UTC)})
+	if !strings.Contains(held, "held while a hand order placed or modified since this proposal appeared works") {
+		t.Fatalf("held column = %q", held)
+	}
+}

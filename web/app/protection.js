@@ -1017,6 +1017,7 @@ function protectionAutomaticText(proposal = {}) {
   if (!automatic || !automatic.pre_authorised) return "";
   switch (automatic.state) {
     case "pending":
+      if (automatic.held_at) return "Held while an order placed or modified outside Canary since this proposal appeared is working; Canary places this once it fills or is cancelled unless you veto";
       if (automatic.latch_skipped_window) return "Canary is placing this now: the drawdown brake is latched";
       return `Canary places this itself at ${shortTimeWithZone(automatic.submit_at)} unless you veto`;
     case "deferred":

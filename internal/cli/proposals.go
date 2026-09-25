@@ -650,6 +650,9 @@ func formatProposalAutomaticColumn(a *rpc.TradeProposalAutomatic) string {
 	}
 	switch a.State {
 	case rpc.TradeProposalAutomaticPending:
+		if !a.HeldAt.IsZero() {
+			return "  auto: held while a hand order placed or modified since this proposal appeared works at the broker; places itself once it settles unless vetoed"
+		}
 		if a.LatchSkippedWindow {
 			return "  auto: placing now (brake latched)"
 		}

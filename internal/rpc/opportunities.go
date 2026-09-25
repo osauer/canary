@@ -379,6 +379,11 @@ type TradeProposalAutomatic struct {
 	// ResubmitAt is the earliest resubmission once the freeze is lifted.
 	DeferredAt time.Time `json:"deferred_at,omitzero"`
 	ResubmitAt time.Time `json:"resubmit_at,omitzero"`
+	// HeldAt is when the settling rule began holding a due submission behind
+	// a hand order placed or modified after the record was created that is
+	// still working at the broker; Reason says why. The veto window is not
+	// restarted by the hold.
+	HeldAt time.Time `json:"held_at,omitzero"`
 }
 
 // TradeProposalVetoParams stops the pending automatic submission for one

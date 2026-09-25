@@ -1364,6 +1364,12 @@ test("pre-authorised rows show the countdown and a veto that follows the daemon 
   proposal.automatic.latch_skipped_window = true;
   assert.match(protection.protectionAutomaticText(proposal), /placing this now.*brake is latched/);
 
+  // Held by the settling rule: still pending, the copy names the hand order,
+  // and the veto stays available.
+  proposal.automatic = { pre_authorised: true, state: "pending", submit_at: "2026-09-21T14:30:00Z", held_at: "2026-09-21T14:30:30Z" };
+  assert.match(protection.protectionAutomaticText(proposal), /^Held while an order placed or modified outside Canary since this proposal appeared/);
+  assert.equal(protection.protectionVetoAvailable(proposal), true);
+
   // Deferred by the freeze: not failed, resubmits once lifted, veto available.
   proposal.automatic = { pre_authorised: true, state: "deferred", deferred_at: "2026-09-21T14:30:00Z", resubmit_at: "2026-09-21T14:31:00Z" };
   assert.match(protection.protectionAutomaticText(proposal), /^Deferred by the trading freeze/);
