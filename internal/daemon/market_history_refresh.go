@@ -17,13 +17,18 @@ type marketHistoryInterest struct {
 	Failures int
 }
 
+// marketHistoryInterestLimit bounds the series the refresh worker follows.
+const marketHistoryInterestLimit = 64
+
+// marketHistoryInterestFor is how long one request keeps a series followed.
+const marketHistoryInterestFor = 24 * time.Hour
+
 func (s *Server) rememberMarketHistory(p rpc.MarketHistoryParams) {
 	key, normalized, err := marketHistoryIdentity(p)
 	if err != nil {
 		return
 	}
 	s.marketData.mu.Lock()
-	defer s.marketData.mu.Unlock()
 	if s.marketData.interest == nil {
 		s.marketData.interest = make(map[string]marketHistoryInterest)
 	}
@@ -34,8 +39,17 @@ func (s *Server) rememberMarketHistory(p rpc.MarketHistoryParams) {
 		}
 	}
 	item, exists := s.marketData.interest[key]
-	if !exists && len(s.marketData.interest) >= 64 {
-		return
+	var evicted string
+	var dropped marketHistoryInterest
+	if !exists && len(s.marketData.interest) >= marketHistoryInterestLimit {
+		// Follow the new series in place of the one asked for least
+		// recently. Refusing it left a shown chart unrefreshed in silence.
+		for other, candidate := range s.marketData.interest {
+			if evicted == "" || candidate.Until.Before(dropped.Until) || candidate.Until.Equal(dropped.Until) && other < evicted {
+				evicted, dropped = other, candidate
+			}
+		}
+		delete(s.marketData.interest, evicted)
 	}
 	if !exists {
 		item.Params = normalized
@@ -46,8 +60,12 @@ func (s *Server) rememberMarketHistory(p rpc.MarketHistoryParams) {
 	if newDays > oldDays {
 		item.Params = normalized
 	}
-	item.Until = now.Add(24 * time.Hour)
+	item.Until = now.Add(marketHistoryInterestFor)
 	s.marketData.interest[key] = item
+	s.marketData.mu.Unlock()
+	if evicted != "" && s.logger != nil {
+		s.logger.Warnf("market history interest at its %d-series limit: stopped refreshing %s %s (key %s, last asked %s) to follow %s %s (key %s)", marketHistoryInterestLimit, dropped.Params.Contract.Symbol, dropped.Params.Range, evicted, dropped.Until.Add(-marketHistoryInterestFor).Format(time.DateTime), normalized.Contract.Symbol, normalized.Range, key)
+	}
 }
 
 // marketHistoryRefreshWindow bounds one background refresh. IBKR paces
@@ -118,9 +136,11 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	cancel()
 	verdict := errors.Is(err, ibkrlib.ErrContractNoDefinition)
 	s.marketData.mu.Lock()
-	current := s.marketData.interest[key]
+	// The series may have expired or been evicted during the read; it then
+	// stays gone rather than returning as an entry no request made.
+	current, followed := s.marketData.interest[key]
 	failed := err != nil || result != nil && result.Cache != nil && result.Cache.RefreshFailed
-	recovered := !failed && current.Failures > 0
+	recovered := followed && !failed && current.Failures > 0
 	if failed {
 		current.Failures = min(current.Failures+1, 5)
 		current.RetryAt = now.Add(min(15*time.Minute, time.Duration(1<<current.Failures)*30*time.Second))
@@ -129,7 +149,9 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 		current.RetryAt = time.Time{}
 		delete(s.marketData.definitionMisses, item.Params.Contract)
 	}
-	s.marketData.interest[key] = current
+	if followed {
+		s.marketData.interest[key] = current
+	}
 	s.marketData.mu.Unlock()
 	if verdict {
 		s.rememberMarketHistoryDefinitionMiss(item.Params.Contract, now, err)
@@ -138,7 +160,11 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 		return
 	}
 	if err != nil && !verdict {
-		s.logger.Warnf("market history refresh %s %s: %v; next attempt after %s", item.Params.Contract.Symbol, item.Params.Range, err, current.RetryAt.Format(time.TimeOnly))
+		next := "no longer followed"
+		if followed {
+			next = "next attempt after " + current.RetryAt.Format(time.TimeOnly)
+		}
+		s.logger.Warnf("market history refresh %s %s: %v; %s", item.Params.Contract.Symbol, item.Params.Range, err, next)
 	} else if recovered {
 		s.logger.Infof("market history refresh %s %s: recovered", item.Params.Contract.Symbol, item.Params.Range)
 	}

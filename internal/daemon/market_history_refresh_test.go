@@ -298,3 +298,83 @@ func TestMarketHistoryFallbackNamesItsCause(t *testing.T) {
 		t.Fatalf("the fallback must name its cause and coverage: %q", log.String())
 	}
 }
+
+// At its sixty-four-series limit the worker refused a new series in silence,
+// so a chart first asked for past the limit kept its first read and never
+// refreshed. The series asked for least recently now makes room, and the log
+// names it and its key.
+func TestMarketHistoryInterestEvictsTheLeastRecentSeriesAtItsLimit(t *testing.T) {
+	log := &bytes.Buffer{}
+	s := &Server{logger: NewLogger(log, "warn")}
+	series := func(i int) (rpc.MarketHistoryParams, string) {
+		t.Helper()
+		p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: fmt.Sprintf("SYN%02d", i), SecType: "STK", Exchange: "NYSE", Currency: "USD"}, Range: "1D"}
+		key, _, err := marketHistoryIdentity(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p, key
+	}
+	now := time.Now()
+	for i := range marketHistoryInterestLimit {
+		p, key := series(i)
+		s.rememberMarketHistory(p)
+		item := s.marketData.interest[key]
+		item.Until = now.Add(12*time.Hour + time.Duration(i)*time.Minute)
+		if i == 7 {
+			item.Until = now.Add(time.Hour) // asked for least recently
+		}
+		s.marketData.interest[key] = item
+	}
+	again, _ := series(0)
+	s.rememberMarketHistory(again)
+	if len(s.marketData.interest) != marketHistoryInterestLimit || log.Len() != 0 {
+		t.Fatalf("asking again for a followed series must evict nothing: %d %q", len(s.marketData.interest), log.String())
+	}
+	_, least := series(7)
+	p, key := series(64)
+	s.rememberMarketHistory(p)
+	if _, kept := s.marketData.interest[least]; kept || len(s.marketData.interest) != marketHistoryInterestLimit {
+		t.Fatalf("the series asked for least recently must make room: kept=%t len=%d", kept, len(s.marketData.interest))
+	}
+	if _, followed := s.marketData.interest[key]; !followed {
+		t.Fatal("the new series must be followed")
+	}
+	for _, want := range []string{"market history interest at its 64-series limit: stopped refreshing SYN07 1D (key " + least + ", last asked ", ") to follow SYN64 1D (key " + key + ")"} {
+		if !strings.Contains(log.String(), want) {
+			t.Fatalf("the eviction must name the series and key: want %q in %q", want, log.String())
+		}
+	}
+}
+
+// A series can expire or be evicted while the worker reads it. Writing the
+// read's outcome back restored it as an entry no request made, with no
+// expiry, which the worker then skipped and which held a place under the
+// limit. A series dropped during its read now stays dropped.
+func TestMarketHistoryRefreshWritesNothingForASeriesDroppedMidRead(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		log := &bytes.Buffer{}
+		s := &Server{logger: NewLogger(log, "warn")}
+		p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
+		s.rememberMarketHistory(p)
+		key, _, err := marketHistoryIdentity(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.refreshMarketHistoryInterest(t.Context(), key, func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+			s.marketData.mu.Lock()
+			delete(s.marketData.interest, key)
+			s.marketData.mu.Unlock()
+			if fail {
+				return nil, errors.New("historical rate limit: context deadline exceeded")
+			}
+			return &rpc.MarketHistoryResult{Cache: &rpc.MarketHistoryCache{Selected: "ibkr"}}, nil
+		})
+		if len(s.marketData.interest) != 0 {
+			t.Fatalf("fail=%t: a series dropped during its read came back: %+v", fail, s.marketData.interest)
+		}
+		if fail && !strings.Contains(log.String(), "market history refresh SPY 1D: historical rate limit: context deadline exceeded; no longer followed") {
+			t.Fatalf("a failed read of a dropped series must not promise another attempt: %q", log.String())
+		}
+	}
+}
