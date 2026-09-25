@@ -16,23 +16,24 @@ import (
 // RecordedAt identifies this computed revision; InputObservedAt is the latest
 // acquisition in its dated input pairs. Neither claims exchange publication time.
 type Participation struct {
-	Method          string    `json:"method"`
-	RecordedAt      time.Time `json:"recorded_at"`
-	InputObservedAt time.Time `json:"input_observed_at,omitzero"`
-	MembershipID    string    `json:"membership_id"`
-	Members         []string  `json:"members"`
-	PctAbove20DMA   *float64  `json:"pct_above_20dma"`
-	Coverage20      int       `json:"coverage_20"`
-	Advancing       int       `json:"advancing"`
-	Declining       int       `json:"declining"`
-	Unchanged       int       `json:"unchanged"`
-	CoverageAD      int       `json:"coverage_ad"`
-	AdvancePct      *float64  `json:"advance_pct"`
-	AdvancingVolume float64   `json:"advancing_volume"`
-	DecliningVolume float64   `json:"declining_volume"`
-	UnchangedVolume float64   `json:"unchanged_volume"`
-	CoverageVolume  int       `json:"coverage_volume"`
-	UpVolumePct     *float64  `json:"up_volume_pct"`
+	Companies       *Companies `json:"companies,omitempty"`
+	Method          string     `json:"method"`
+	RecordedAt      time.Time  `json:"recorded_at"`
+	InputObservedAt time.Time  `json:"input_observed_at,omitzero"`
+	MembershipID    string     `json:"membership_id"`
+	Members         []string   `json:"members"`
+	PctAbove20DMA   *float64   `json:"pct_above_20dma"`
+	Coverage20      int        `json:"coverage_20"`
+	Advancing       int        `json:"advancing"`
+	Declining       int        `json:"declining"`
+	Unchanged       int        `json:"unchanged"`
+	CoverageAD      int        `json:"coverage_ad"`
+	AdvancePct      *float64   `json:"advance_pct"`
+	AdvancingVolume float64    `json:"advancing_volume"`
+	DecliningVolume float64    `json:"declining_volume"`
+	UnchangedVolume float64    `json:"unchanged_volume"`
+	CoverageVolume  int        `json:"coverage_volume"`
+	UpVolumePct     *float64   `json:"up_volume_pct"`
 }
 
 func computeParticipation(members []string, windows map[string]ConstituentWindow, session string, now time.Time) *Participation {
@@ -41,6 +42,7 @@ func computeParticipation(members []string, windows map[string]ConstituentWindow
 	universe = slices.Compact(universe)
 	hash := sha256.Sum256([]byte(strings.Join(universe, "\n")))
 	p := &Participation{Method: "constituent-participation-v1", RecordedAt: now, Members: universe, MembershipID: hex.EncodeToString(hash[:])}
+	p.Companies = computeCompanies(universe, windows, session, now)
 	previous := precedingSession(session)
 	above20 := 0
 	for _, symbol := range universe {

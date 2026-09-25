@@ -259,6 +259,9 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 			continue
 		}
 		point := rpc.MarketHistoryPoint{At: b.Time, Value: b.Close}
+		if validHistoryRange(b.Open, b.High, b.Low, b.Close) {
+			point.Open, point.High, point.Low = new(b.Open), new(b.High), new(b.Low)
+		}
 		if b.Volume >= 0 && series.WhatToShow == "TRADES" {
 			v := int64(b.Volume)
 			point.Volume = &v

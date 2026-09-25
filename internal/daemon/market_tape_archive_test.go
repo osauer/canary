@@ -160,6 +160,9 @@ func TestMarketTapeFollowUpsUseOfficialDaysAndSeparateWaitingMissingZero(t *test
 	if three.Date != "2026-09-10" || three.Status != "pending" || three.SPXChangePct != nil {
 		t.Fatalf("future data became an outcome: %+v", three)
 	}
+	if five := friday.FollowUps[2]; five.Sessions != 5 || five.Date != "2026-09-14" || five.Status != "pending" {
+		t.Fatalf("five-session follow-up skipped the holiday incorrectly: %+v", five)
+	}
 	got, err = readMarketTapeHistory(t.Context(), store, rpc.MarketTapeParams{Sessions: 5, History: true, Before: "2026-09-10"}, now.AddDate(0, 0, 2))
 	if err != nil {
 		t.Fatal(err)
@@ -274,13 +277,21 @@ func TestMarketTapeCollectorBoundsRequestsAndKeepsFailureVisible(t *testing.T) {
 		}
 		return qqq, nil
 	})
-	if err != nil || result.Archive == nil || len(requests) != 2 {
+	if err != nil || result.Archive == nil || len(requests) != 15 {
 		t.Fatalf("bounded collection: %d %v", len(requests), err)
 	}
+	allowed := map[string]bool{"SPX": true, "QQQ": true}
+	for _, c := range tapeResearchContracts() {
+		allowed[c.Symbol] = true
+	}
 	for _, p := range requests {
-		if p.Range != "6M" || (p.Contract.Symbol != "SPX" && p.Contract.Symbol != "QQQ") {
-			t.Fatal("archive expanded acquisition beyond the two fixed histories")
+		if p.Range != "6M" || !allowed[p.Contract.Symbol] {
+			t.Fatal("archive expanded acquisition beyond the fixed benchmark/basket histories")
 		}
+		delete(allowed, p.Contract.Symbol)
+	}
+	if len(allowed) != 0 {
+		t.Fatal("duplicate request or missing basket member")
 	}
 	if s.marketTapeArchiveFailed.Load() {
 		t.Fatal("successful storage failed to clear failure")

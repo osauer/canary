@@ -11,7 +11,8 @@ import (
 
 // Catch up on startup, then capture every ten minutes from close+15m through
 // close+3h, allowing the existing breadth sweep to finish. Collection does not
-// keep an otherwise idle daemon alive between passes or add a constituent fanout.
+// keep an otherwise idle daemon alive between passes. The fixed basket uses the
+// existing paced history lane; the broad constituent sweep is never duplicated.
 func (s *Server) startMarketTapeCollection(ctx context.Context) {
 	if s.coreStore == nil {
 		return
@@ -27,7 +28,7 @@ func (s *Server) startMarketTapeCollection(ctx context.Context) {
 			now := time.Now()
 			if tapeCollectionDue(lastAttempt, now) {
 				if s.collectMarketTape(ctx, func(ctx context.Context) (*rpc.MarketTapeResult, error) {
-					// Refresh the two fixed histories on the existing paced lane,
+					// Refresh the fixed benchmark/basket histories on the paced lane,
 					// without registering all-day interactive chart interest.
 					return s.buildAndArchiveMarketTape(ctx, rpc.MarketTapeParams{Sessions: 60}, s.marketHistoryRequest)
 				}) {
@@ -61,7 +62,10 @@ func (s *Server) collectMarketTape(ctx context.Context, read func(context.Contex
 		return false
 	}
 	latest := result.Sessions[len(result.Sessions)-1]
-	return latest.SPX != nil && latest.QQQ != nil && latest.Breadth != nil
+	return latest.SPX != nil && latest.QQQ != nil && latest.Breadth != nil &&
+		latest.SPY != nil && latest.VIX != nil && latest.Leaders != nil && latest.Leaders.Price != nil &&
+		latest.Leaders.Companies.Coverage50 == latest.Leaders.Companies.CompanyCount &&
+		latest.Leaders.VolumeCoverage == len(tapeLeaderWeights)
 }
 
 func tapeCollectionDue(lastAttempt, now time.Time) bool {

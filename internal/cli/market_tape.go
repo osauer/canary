@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -13,7 +14,7 @@ func runMarketTape(ctx context.Context, env *Env, args []string) int {
 	jsonOut := fs.Bool("json", false, "all measurements, source times and data limitations as JSON")
 	explain := fs.Bool("explain", false, "briefly explain what this shows and when to trust it")
 	sessions := fs.Int("sessions", 5, "completed US trading days; default 5, range 5–60")
-	history := fs.Bool("history", false, "saved observations and price changes one and three trading days later")
+	history := fs.Bool("history", false, "saved observations and price changes one, three and five trading days later")
 	before := fs.String("before", "", "with --history: show trading days strictly before this YYYY-MM-DD date")
 	usage := fs.Usage
 	fs.Usage = func() {
@@ -115,6 +116,7 @@ func renderMarketTape(env *Env, result *rpc.MarketTapeResult, explain bool) {
 		riskReadLine(env, "  Stocks rising/falling that day: unavailable.")
 	}
 	marketTapeSourceWarnings(env, result.Sources)
+	renderMarketTapeLeaders(env, result)
 	if explain {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, env.bold("What this tells you"))
@@ -134,9 +136,57 @@ func renderMarketTape(env *Env, result *rpc.MarketTapeResult, explain bool) {
 	fmt.Fprintln(out)
 }
 
+func renderMarketTapeLeaders(env *Env, result *rpc.MarketTapeResult) {
+	rows := make([][]string, 0, len(result.Sessions))
+	for _, r := range result.Sessions {
+		if r.Leaders == nil {
+			continue
+		}
+		b := r.Leaders
+		var change, volume *float64
+		if b.Price != nil {
+			change = b.Price.ChangePct
+			volume = b.Price.RelativeVolume20
+		}
+		rows = append(rows, []string{sanitizeRunText(r.Date), marketTapeNumber(env, change, "%", true), marketTapeNumber(env, b.Companies.PctAbove50DMA, "%", false), marketTapeNumber(env, b.Companies.RisingPct, "%", false), marketTapeNumber(env, volume, "×", false)})
+	}
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(env.Stdout, env.bold("Large-company leaders"))
+	renderPositionTable(env, env.Stdout, []positionTableColumn{{"DAY", positionAlignLeft}, {"PRICE", positionAlignRight}, {"ABOVE 50-DAY", positionAlignRight}, {"RISING", positionAlignRight}, {"ACTIVITY", positionAlignRight}}, rows)
+	riskReadLine(env, "  Fixed SPY-weighted basket: 11 share lines, 10 companies; Alphabet counts once.")
+	riskReadLine(env, "  Rising: % of companies up since the previous close, including unchanged in the total.")
+	riskReadLine(env, "  Activity: weighted trading volume versus each stock's preceding 20-day average.")
+	for _, source := range result.Sources {
+		if strings.HasPrefix(source.Key, "leader:") && source.Cache != nil && (source.Cache.RefreshFailed || source.Cache.RefreshDue || source.Cache.Detail != "") {
+			riskReadLine(env, "  Leader history refresh incomplete; showing retained observations.")
+			break
+		}
+	}
+	last := result.Sessions[len(result.Sessions)-1]
+	if b := last.Leaders; b != nil {
+		riskReadLine(env, fmt.Sprintf("  Latest coverage: average %d/10; daily direction %d/10; activity %d/11.", b.Companies.Coverage50, b.Companies.CoverageAD, b.VolumeCoverage))
+	}
+	if c := last.Companies; c != nil && c.PctAbove50DMA != nil {
+		riskReadLine(env, fmt.Sprintf("  Wider S&P companies: %.2f%% above average (%d/%d measured).", *c.PctAbove50DMA, c.Coverage50, c.CompanyCount))
+	}
+	if last.SPY != nil && last.SPY.SessionMove != nil {
+		m := last.SPY.SessionMove
+		riskReadLine(env, "  SPY session: opened "+marketTapeNumber(env, m.OpenChangePct, "%", true)+"; low "+marketTapeNumber(env, m.LowChangePct, "%", true)+" versus the previous close; finished "+marketTapeNumber(env, last.SPY.ChangePct, "%", true)+".")
+	}
+	if last.VIX != nil {
+		riskReadLine(env, fmt.Sprintf("  VIX close: %.2f; context only.", last.VIX.Close))
+	}
+}
+
 func marketTapeSourceWarnings(env *Env, sources []rpc.MarketTapeSource) {
 	for _, source := range sources {
-		label := map[string]string{"spx": "S&P 500 prices", "qqq": "QQQ prices/volume", "breadth": "Stock measures"}[source.Key]
+		label := map[string]string{"spx": "S&P 500 prices", "qqq": "QQQ prices/volume", "breadth": "Stock measures", "SPY": "SPY prices", "VIX": "VIX"}[source.Key]
+		if strings.HasPrefix(source.Key, "leader:") {
+			continue
+		} // Bounded basket coverage is shown together.
 		if label == "" {
 			label = "Unknown source"
 		}
