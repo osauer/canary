@@ -418,12 +418,28 @@ func historyLostStablePoints(old, fresh rpc.MarketHistoryResult, now time.Time) 
 	for _, p := range fresh.Points {
 		points[p.At.Unix()] = true
 	}
+	from := historyReplaceFrom(fresh)
 	for _, p := range old.Points {
-		if !p.At.Before(fresh.RequestedStart) && p.At.Before(now.Add(-48*time.Hour)) && !points[p.At.Unix()] {
+		if !p.At.Before(from) && p.At.Before(now.Add(-48*time.Hour)) && !points[p.At.Unix()] {
 			return true
 		}
 	}
 	return false
+}
+
+// historyReplaceFrom is where a full read starts to replace the sessions a
+// record holds: the span it requested. IBKR serves a dated futures
+// contract's bars only about a year back, a window that rolls forward with
+// the clock, while the record keeps the sessions it already holds. Recorded
+// sessions before the first bar served lie beyond that depth, not outside a
+// thin response, so they are retained unreconciled; a dated contract's
+// prices are never adjusted, so nothing is spliced. For every other type a
+// recorded session the response lacks still marks it incomplete.
+func historyReplaceFrom(fresh rpc.MarketHistoryResult) time.Time {
+	if fresh.Contract.SecType == "FUT" && fresh.Start.After(fresh.RequestedStart) {
+		return fresh.Start
+	}
+	return fresh.RequestedStart
 }
 
 func mergeMarketHistory(key string, old *storedMarketHistory, fresh rpc.MarketHistoryResult, full bool, now time.Time) storedMarketHistory {
@@ -432,10 +448,11 @@ func mergeMarketHistory(key string, old *storedMarketHistory, fresh rpc.MarketHi
 	points := make(map[int64]rpc.MarketHistoryPoint)
 	if old != nil {
 		next.FullReadAt = old.FullReadAt
+		from := historyReplaceFrom(fresh)
 		for _, p := range old.Result.Points {
 			// A full overlapping fetch replaces its own interval, including
 			// removed/corrected observations, while retaining older ranges.
-			if !full || p.At.Before(fresh.RequestedStart) {
+			if !full || p.At.Before(from) {
 				points[p.At.Unix()] = p
 			}
 		}

@@ -1,15 +1,18 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func historyFixture(t *testing.T) (*Server, rpc.MarketHistoryParams, string, time.Time, rpc.MarketHistoryResult) {
@@ -462,6 +465,101 @@ func TestMarketHistoryRollingIntradayWindowReconcilesWeekly(t *testing.T) {
 				t.Fatalf("record the worker failed to refresh served as current: %+v", c)
 			}
 		})
+	}
+}
+
+// IBKR serves a dated futures contract's daily bars about a year back, a
+// window that rolls forward with the clock. An equity-index contract becomes
+// the front at its quarterly roll a year after listing, so its 1Y record
+// begins at that window's edge. A week later the weekly reconciliation no
+// longer carried those first sessions, the lost-session check read them as
+// missing from a thin response, and while the reconciliation stayed due
+// every refresh was a full read it refused: the series stopped at its last
+// tail read. Recorded sessions older than the first bar served lie beyond
+// the depth the broker serves; they are retained and the rest is
+// reconciled. A session missing inside the served span still makes the
+// response incomplete.
+func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *testing.T) {
+	s, _, _, _, _ := historyFixture(t)
+	log := &bytes.Buffer{}
+	s.logger = NewLogger(log, "warn")
+	key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: rpc.ContractParams{ConID: 654321, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}, Range: "1Y"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const depth = 365 * 24 * time.Hour
+	listed := time.Date(2025, 3, 21, 0, 0, 0, 0, time.UTC)
+	session := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+	roll := time.Date(2026, 6, 19, 0, 2, 0, 0, time.UTC) // the new front's first read
+	clock := roll
+	s.now = func() time.Time { return clock }
+	var omit time.Time
+	var requested []int
+	broker := func(_ context.Context, c ibkrlib.Contract, days int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+		requested = append(requested, days)
+		series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+		for d := listed; !d.Add(20 * time.Hour).After(clock); d = d.AddDate(0, 0, 1) {
+			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday || d.Before(clock.Add(-depth)) || d.Equal(omit) {
+				continue
+			}
+			series.Bars = append(series.Bars, ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
+		}
+		return series, nil
+	}
+	request := func(ctx context.Context, got rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		k, got, err := marketHistoryIdentity(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.readRetainedHistory(ctx, k, got, clock, func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
+			return fetchMarketHistory(ctx, p, tail, now, broker)
+		})
+	}
+	refresh := func() (marketHistoryInterest, *storedMarketHistory) {
+		t.Helper()
+		s.refreshMarketHistoryInterest(t.Context(), key, request)
+		stored, _, err := s.loadMarketHistory(t.Context(), key)
+		if err != nil || stored == nil {
+			t.Fatalf("no recorded series: %v", err)
+		}
+		return s.marketData.interest[key], stored
+	}
+
+	s.rememberMarketHistory(p)
+	_, stored := refresh()
+	if first := stored.Result.Points[0].At; !first.Equal(session(2025, 6, 20)) || !stored.FullReadAt.Equal(roll) {
+		t.Fatalf("the roll's first read must record the served year: first=%s full_read_at=%s", first, stored.FullReadAt)
+	}
+
+	// A week on, the reconciliation is due and the served year has rolled
+	// past the record's first five sessions.
+	clock = roll.AddDate(0, 0, 7)
+	item, stored := refresh()
+	if item.Failures != 0 || !item.RetryAt.IsZero() || !stored.Result.AsOf.Equal(clock) || !stored.FullReadAt.Equal(clock) || requested[len(requested)-1] < 366 {
+		t.Fatalf("the reconciliation must succeed on what the broker still serves: failures=%d as_of=%s full_read_at=%s days=%v", item.Failures, stored.Result.AsOf, stored.FullReadAt, requested)
+	}
+	if first, last := stored.Result.Points[0].At, stored.Result.End; !first.Equal(session(2025, 6, 20)) || !last.Equal(session(2026, 6, 25)) {
+		t.Fatalf("sessions beyond the served depth must be retained: %s..%s", first, last)
+	}
+	raw, _ := json.Marshal(p)
+	got, err := s.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
+	if err != nil || got.Cache.RefreshDue || got.Cache.RefreshFailed || !got.Cache.FetchedAt.Equal(clock) || got.Cache.Coverage != "observed" {
+		t.Fatalf("the 1Y view must be current: %+v %v", got.Cache, err)
+	}
+	clock = clock.Add(time.Hour)
+	if item, stored = refresh(); item.Failures != 0 || !stored.Result.AsOf.Equal(clock) || requested[len(requested)-1] > 7 {
+		t.Fatalf("with the reconciliation done the series is back on hourly tail reads: failures=%d days=%v", item.Failures, requested)
+	}
+	if strings.Contains(log.String(), "lacks sessions") {
+		t.Fatalf("sessions beyond the served depth were reported missing: %q", log.String())
+	}
+
+	// A session the broker leaves out inside the span it serves is still a
+	// thin response, and the record is kept as it was.
+	clock, omit = roll.AddDate(0, 0, 14), session(2026, 3, 16)
+	before := stored.Result.AsOf
+	if item, stored = refresh(); item.Failures != 1 || !stored.Result.AsOf.Equal(before) || !strings.Contains(log.String(), "response lacks sessions the recorded history has") {
+		t.Fatalf("a session missing inside the served span must refuse the response: failures=%d as_of=%s %q", item.Failures, stored.Result.AsOf, log.String())
 	}
 }
 
