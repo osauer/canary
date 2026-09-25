@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -371,9 +372,11 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 	// The broker defined the contract and answered with bars, so a remembered
 	// definition verdict for it no longer holds.
 	s.clearMarketHistoryDefinitionMiss(p.Contract)
-	if saved != nil && tail <= 0 && historyLostStablePoints(saved.Result, *fresh, now) {
-		s.logMarketHistoryFallback(p, saved, errors.New("response lacks sessions the recorded history has"))
-		return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
+	if saved != nil && tail <= 0 {
+		if compared, absent := historyAbsentRecorded(saved.Result, *fresh, now); historyResponseThin(*fresh, compared, absent) {
+			s.logMarketHistoryFallback(p, saved, fmt.Errorf("response lacks sessions the recorded history has: %s", historySessionsLabel(*fresh, compared, absent)))
+			return selectStoredHistory(saved, storedAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -394,8 +397,27 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		// old listing/expiry/split conventions into the replacement.
 		latest = nil
 	}
-	if latest != nil && tail <= 0 && historyLostStablePoints(latest.Result, *fresh, now) {
-		return selectStoredHistory(latest, latestAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
+	if latest != nil && tail <= 0 {
+		compared, absent := historyAbsentRecorded(latest.Result, *fresh, now)
+		if historyResponseThin(*fresh, compared, absent) {
+			s.logMarketHistoryFallback(p, latest, fmt.Errorf("response lacks sessions the recorded history has: %s", historySessionsLabel(*fresh, compared, absent)))
+			return selectStoredHistory(latest, latestAt, p, now, "cache", "IBKR returned incomplete history; previous range retained", true), nil
+		}
+		if len(absent) > 0 {
+			// A futures read lacking a few older sessions: keep the recorded
+			// bars for those sessions and reconcile the rest.
+			kept := *fresh
+			kept.Points = append(slices.Clone(fresh.Points), absent...)
+			slices.SortFunc(kept.Points, func(a, b rpc.MarketHistoryPoint) int { return a.At.Compare(b.At) })
+			fresh = &kept
+			if s.logger != nil {
+				log := s.logger.Warnf
+				if len(historyCounted(*fresh, absent)) == 0 {
+					log = s.logger.Infof // sessions without trades only: the expected artefact
+				}
+				log("market history %s %s: IBKR response lacks sessions the recorded history has: %s; kept the recorded bars", p.Contract.Symbol, p.Range, historySessionsLabel(*fresh, compared, absent))
+			}
+		}
 	}
 	next := mergeMarketHistory(key, latest, *fresh, tail <= 0, now)
 	storedAt = time.Time{}
@@ -417,18 +439,102 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 	return selectStoredHistory(&next, storedAt, p, now, "ibkr", detail, false), nil
 }
 
-func historyLostStablePoints(old, fresh rpc.MarketHistoryResult, now time.Time) bool {
+// historyAbsentRecorded compares a full read with the record it replaces:
+// compared are the recorded sessions inside the span the read replaces (see
+// historyReplaceFrom) that have stood for two days, and absent are those the
+// read lacks, both oldest first.
+func historyAbsentRecorded(old, fresh rpc.MarketHistoryResult, now time.Time) (compared, absent []rpc.MarketHistoryPoint) {
 	points := make(map[int64]bool, len(fresh.Points))
 	for _, p := range fresh.Points {
 		points[p.At.Unix()] = true
 	}
 	from := historyReplaceFrom(fresh)
 	for _, p := range old.Points {
-		if !p.At.Before(from) && p.At.Before(now.Add(-48*time.Hour)) && !points[p.At.Unix()] {
-			return true
+		if p.At.Before(from) || !p.At.Before(now.Add(-48*time.Hour)) {
+			continue
+		}
+		compared = append(compared, p)
+		if !points[p.At.Unix()] {
+			absent = append(absent, p)
 		}
 	}
-	return false
+	return compared, absent
+}
+
+// A dated futures contract's daily history is patchy a year back. A
+// deferred contract month has many sessions without trades, which IBKR
+// serves as zero-volume bars with no open, high or low in one response and
+// omits in the next; NQ's December contract recorded 133 of them in 250
+// sessions. Those are kept whenever a read lacks them and never count. Of
+// the traded sessions a futures read may lack up to a tenth, as long as it
+// carries the latest five; beyond that it is thin.
+const (
+	historyPatchyAbsentPercent  = 10
+	historyPatchyRecentSessions = 5
+)
+
+// historyTradeless reports a recorded session without trades: zero volume
+// and no open, high or low.
+func historyTradeless(p rpc.MarketHistoryPoint) bool {
+	return p.Volume != nil && *p.Volume == 0 && p.Open == nil && p.High == nil && p.Low == nil
+}
+
+// historyCounted returns the sessions the patchy bound counts: for a dated
+// futures contract those with trades, for every other type all of them.
+func historyCounted(fresh rpc.MarketHistoryResult, points []rpc.MarketHistoryPoint) []rpc.MarketHistoryPoint {
+	if fresh.Contract.SecType != "FUT" {
+		return points
+	}
+	return slices.DeleteFunc(slices.Clone(points), historyTradeless)
+}
+
+// historyResponseThin reports whether a full read that lacks recorded
+// sessions is incomplete, so it must not replace the record. For stocks,
+// indices and FX any absent session is. For a dated futures contract only a
+// read beyond the patchy bound is; within it the record keeps its bars for
+// the absent sessions and the rest is reconciled.
+func historyResponseThin(fresh rpc.MarketHistoryResult, compared, absent []rpc.MarketHistoryPoint) bool {
+	if len(absent) == 0 {
+		return false
+	}
+	if fresh.Contract.SecType != "FUT" {
+		return true
+	}
+	compared, absent = historyCounted(fresh, compared), historyCounted(fresh, absent)
+	if len(absent) == 0 {
+		return false
+	}
+	if len(absent)*100 > len(compared)*historyPatchyAbsentPercent {
+		return true
+	}
+	recent := compared[max(0, len(compared)-historyPatchyRecentSessions):]
+	return !absent[len(absent)-1].At.Before(recent[0].At)
+}
+
+// historySessionsLabel names absent sessions in the log: how many of the
+// counted sessions are absent and the first three, as session dates for
+// daily bars, then how many sessions without trades are absent.
+func historySessionsLabel(r rpc.MarketHistoryResult, compared, absent []rpc.MarketHistoryPoint) string {
+	counted, missing := historyCounted(r, compared), historyCounted(r, absent)
+	layout := "2006-01-02 15:04Z"
+	if r.TimestampKind == "session_date" {
+		layout = "2006-01-02"
+	}
+	var parts []string
+	if len(missing) > 0 {
+		names := make([]string, 0, 4)
+		for _, p := range missing[:min(3, len(missing))] {
+			names = append(names, p.At.UTC().Format(layout))
+		}
+		if len(missing) > 3 {
+			names = append(names, "…")
+		}
+		parts = append(parts, fmt.Sprintf("%d of %d (%s)", len(missing), len(counted), strings.Join(names, ", ")))
+	}
+	if tradeless := len(absent) - len(missing); tradeless > 0 {
+		parts = append(parts, fmt.Sprintf("%d without trades", tradeless))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // historyReplaceFrom is where a full read starts to replace the sessions a

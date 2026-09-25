@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -542,8 +544,7 @@ func TestMarketHistoryRollingIntradayWindowReconcilesWeekly(t *testing.T) {
 // every refresh was a full read it refused: the series stopped at its last
 // tail read. Recorded sessions older than the first bar served lie beyond
 // the depth the broker serves; they are retained and the rest is
-// reconciled. A session missing inside the served span still makes the
-// response incomplete.
+// reconciled.
 func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *testing.T) {
 	s, _, _, _, _ := historyFixture(t)
 	log := &bytes.Buffer{}
@@ -558,13 +559,12 @@ func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *tes
 	roll := time.Date(2026, 6, 19, 0, 2, 0, 0, time.UTC) // the new front's first read
 	clock := roll
 	s.now = func() time.Time { return clock }
-	var omit time.Time
 	var requested []int
 	broker := func(_ context.Context, c ibkrlib.Contract, days int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
 		requested = append(requested, days)
 		series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
 		for d := listed; !d.Add(20 * time.Hour).After(clock); d = d.AddDate(0, 0, 1) {
-			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday || d.Before(clock.Add(-depth)) || d.Equal(omit) {
+			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday || d.Before(clock.Add(-depth)) {
 				continue
 			}
 			series.Bars = append(series.Bars, ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
@@ -618,13 +618,190 @@ func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *tes
 	if strings.Contains(log.String(), "lacks sessions") {
 		t.Fatalf("sessions beyond the served depth were reported missing: %q", log.String())
 	}
+}
 
-	// A session the broker leaves out inside the span it serves is still a
-	// thin response, and the record is kept as it was.
-	clock, omit = roll.AddDate(0, 0, 14), session(2026, 3, 16)
-	before := stored.Result.AsOf
-	if item, stored = refresh(); item.Failures != 1 || !stored.Result.AsOf.Equal(before) || !strings.Contains(log.String(), "response lacks sessions the recorded history has") {
-		t.Fatalf("a session missing inside the served span must refuse the response: failures=%d as_of=%s %q", item.Failures, stored.Result.AsOf, log.String())
+// Inside the span IBKR serves, a dated futures contract's daily history is
+// still patchy: a deferred month's sessions without trades come and go
+// between responses as zero-volume bars. NQ's December contract kept failing
+// its weekly reconciliation after the served-depth fix because its responses
+// lacked such sessions, and the refusal did not say which. A futures read
+// that lacks a few older recorded sessions now merges, keeping the recorded
+// bars and naming them in the log; one that lacks more than a tenth of the
+// compared sessions or any of the latest five is thin and refused, naming
+// them too. Stocks, indices and FX keep the strict rule.
+func TestMarketHistoryReconciliationMergesPatchyFuturesAndRefusesThinReads(t *testing.T) {
+	session := func(y int, m time.Month, d int) time.Time { return time.Date(y, m, d, 0, 0, 0, 0, time.UTC) }
+	future := rpc.ContractParams{ConID: 654321, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}
+	stock := rpc.ContractParams{ConID: 123456, Symbol: "SYNTH", SecType: "STK", Exchange: "NYSE", Currency: "USD"}
+	patchy := []time.Time{session(2025, 10, 13), session(2025, 11, 11), session(2025, 11, 28), session(2025, 12, 24)}
+	var broad []time.Time
+	for d := session(2025, 10, 1); len(broad) < 30; d = d.AddDate(0, 0, 2) {
+		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+			broad = append(broad, d)
+		}
+	}
+	for _, tc := range []struct {
+		name     string
+		contract rpc.ContractParams
+		omit     []time.Time
+		thin     bool
+		logged   string
+	}{
+		{"futures_patchy_merge", future, patchy, false, "SYNF 1Y: IBKR response lacks sessions the recorded history has: 4 of 261 (2025-10-13, 2025-11-11, 2025-11-28, …); kept the recorded bars"},
+		{"futures_thin_share", future, broad, true, "SYNF 1Y: IBKR refresh failed: response lacks sessions the recorded history has: 30 of 261 (2025-10-01, 2025-10-03, 2025-10-07, …)"},
+		{"futures_thin_recent", future, []time.Time{session(2026, 6, 17)}, true, "SYNF 1Y: IBKR refresh failed: response lacks sessions the recorded history has: 1 of 261 (2026-06-17)"},
+		{"stock_strict", stock, patchy[:1], true, "SYNTH 1Y: IBKR refresh failed: response lacks sessions the recorded history has: 1 of 261 (2025-10-13)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, _, _, _ := historyFixture(t)
+			log := &bytes.Buffer{}
+			s.logger = NewLogger(log, "warn")
+			key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: tc.contract, Range: "1Y"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			first := time.Date(2026, 6, 19, 0, 2, 0, 0, time.UTC)
+			var omit []time.Time
+			fetch := func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
+				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+					series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+					for d := session(2025, 3, 21); !d.Add(20 * time.Hour).After(now); d = d.AddDate(0, 0, 1) {
+						if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday && !slices.Contains(omit, d) {
+							series.Bars = append(series.Bars, ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
+						}
+					}
+					return series, nil
+				})
+			}
+			if _, err := s.readRetainedHistory(t.Context(), key, p, first, fetch); err != nil {
+				t.Fatal(err)
+			}
+			reconcile := first.AddDate(0, 0, 7)
+			omit = tc.omit
+			got, err := s.readRetainedHistory(t.Context(), key, p, reconcile, fetch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, _, err := s.loadMarketHistory(t.Context(), key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(log.String(), tc.logged) {
+				t.Fatalf("the log must name the absent sessions:\n got %q\nwant %q", log.String(), tc.logged)
+			}
+			if tc.thin {
+				if !got.Cache.RefreshFailed || !stored.Result.AsOf.Equal(first) || !stored.FullReadAt.Equal(first) {
+					t.Fatalf("a thin read must be refused and the record kept as it was: failed=%t as_of=%s", got.Cache.RefreshFailed, stored.Result.AsOf)
+				}
+				return
+			}
+			if got.Cache.RefreshFailed || !stored.Result.AsOf.Equal(reconcile) || !stored.FullReadAt.Equal(reconcile) {
+				t.Fatalf("a patchy futures read must reconcile: failed=%t as_of=%s full_read_at=%s", got.Cache.RefreshFailed, stored.Result.AsOf, stored.FullReadAt)
+			}
+			for _, d := range tc.omit {
+				if !slices.ContainsFunc(stored.Result.Points, func(p rpc.MarketHistoryPoint) bool { return p.At.Equal(d) }) {
+					t.Fatalf("the recorded bar for %s must be kept", d.Format("2006-01-02"))
+				}
+			}
+		})
+	}
+}
+
+// NQ's December contract recorded 250 daily sessions, 133 of them from its
+// deferred months as zero-volume bars with no open, high or low, which IBKR
+// serves in one response and omits in the next. Counted against the tenth a
+// futures read may lack, a response that dropped enough of them was thin and
+// the weekly reconciliation kept failing. Sessions without trades are kept
+// whenever a read lacks them and never count; the bound applies to traded
+// sessions only.
+func TestMarketHistoryFuturesTradelessSessionsNeverMakeAReadThin(t *testing.T) {
+	var sessions []time.Time
+	for d := time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC); len(sessions) < 250; d = d.AddDate(0, 0, -1) {
+		if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday {
+			sessions = append(sessions, d)
+		}
+	}
+	slices.Reverse(sessions)
+	// The deferred months interleave quiet sessions with the odd trade; the
+	// last fifty sessions all traded, as the front month.
+	tradeless := func(i int) bool { return i > 0 && i < 200 && i%3 != 0 }
+	var quiet, traded []time.Time
+	for i, d := range sessions {
+		if tradeless(i) {
+			quiet = append(quiet, d)
+		} else {
+			traded = append(traded, d)
+		}
+	}
+	if len(quiet) != 133 || len(traded) != 117 {
+		t.Fatalf("fixture shape: %d without trades, %d traded", len(quiet), len(traded))
+	}
+	day := func(d time.Time) string { return d.Format("2006-01-02") }
+	for _, tc := range []struct {
+		name   string
+		omit   []time.Time
+		thin   bool
+		logged string
+	}{
+		{"all_tradeless_absent", quiet, false, "level=INFO msg=\"market history SYNF 1Y: IBKR response lacks sessions the recorded history has: 133 without trades; kept the recorded bars\""},
+		{"tradeless_and_few_traded_absent", append(slices.Clone(quiet[:60]), traded[1], traded[2], traded[3]), false, fmt.Sprintf("level=WARN msg=\"market history SYNF 1Y: IBKR response lacks sessions the recorded history has: 3 of 117 (%s, %s, %s) and 60 without trades; kept the recorded bars\"", day(traded[1]), day(traded[2]), day(traded[3]))},
+		{"traded_thin", traded[1:13], true, fmt.Sprintf("market history SYNF 1Y: IBKR refresh failed: response lacks sessions the recorded history has: 12 of 117 (%s, %s, %s, …)", day(traded[1]), day(traded[2]), day(traded[3]))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, _, _, _ := historyFixture(t)
+			log := &bytes.Buffer{}
+			s.logger = NewLogger(log, "info")
+			key, p, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: rpc.ContractParams{ConID: 654321, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}, Range: "1Y"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var omit []time.Time
+			fetch := func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
+				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+					series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+					for i, d := range sessions {
+						if d.Add(20*time.Hour).After(now) || slices.Contains(omit, d) {
+							continue
+						}
+						bar := ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10}
+						if tradeless(i) {
+							bar = ibkrlib.HistoricalBar{Time: d, Close: 100.25} // a settlement, no trades
+						}
+						series.Bars = append(series.Bars, bar)
+					}
+					return series, nil
+				})
+			}
+			first := time.Date(2026, 6, 19, 0, 2, 0, 0, time.UTC)
+			if _, err := s.readRetainedHistory(t.Context(), key, p, first, fetch); err != nil {
+				t.Fatal(err)
+			}
+			stored, _, err := s.loadMarketHistory(t.Context(), key)
+			if err != nil || len(stored.Result.Points) != 250 || !historyTradeless(stored.Result.Points[1]) || historyTradeless(stored.Result.Points[0]) {
+				t.Fatalf("the record must hold NQ's shape: %v", err)
+			}
+			reconcile := first.AddDate(0, 0, 7)
+			omit = tc.omit
+			got, err := s.readRetainedHistory(t.Context(), key, p, reconcile, fetch)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored, _, err = s.loadMarketHistory(t.Context(), key); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(log.String(), tc.logged) {
+				t.Fatalf("the log must name the absent sessions:\n got %q\nwant %q", log.String(), tc.logged)
+			}
+			if tc.thin {
+				if !got.Cache.RefreshFailed || !stored.Result.AsOf.Equal(first) {
+					t.Fatalf("a read lacking more than a tenth of the traded sessions is thin: failed=%t as_of=%s", got.Cache.RefreshFailed, stored.Result.AsOf)
+				}
+				return
+			}
+			if got.Cache.RefreshFailed || !stored.Result.AsOf.Equal(reconcile) || !stored.FullReadAt.Equal(reconcile) || len(stored.Result.Points) != 250 {
+				t.Fatalf("the reconciliation must succeed and keep every recorded session: failed=%t as_of=%s points=%d", got.Cache.RefreshFailed, stored.Result.AsOf, len(stored.Result.Points))
+			}
+		})
 	}
 }
 
