@@ -48,7 +48,7 @@ func (s *Server) handleOrderCancel(ctx context.Context, req *rpc.Request) (*rpc.
 func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.OrderPlaceResult, error) {
 	auth, binding, bindingErr := s.authorizeBrokerWriteTransaction(p.Origin, false)
 	if !auth.Allowed {
-		return nil, fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(auth.Blockers))
+		return nil, tradingBlockersError(auth.Blockers)
 	}
 	status := auth.Status
 	payload, err := s.verifyPreviewTokenForPlace(p.PreviewToken)
@@ -355,7 +355,7 @@ func (s *Server) submitBoundConfiguredOrder(ctx context.Context, binding brokerW
 		}
 		auth := s.brokerWriteAuthorization(status)
 		if !auth.Allowed {
-			return ibkrlib.WithSendDisposition(fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(auth.Blockers)), ibkrlib.SendDispositionDefinitelyUnsent)
+			return ibkrlib.WithSendDisposition(tradingBlockersError(auth.Blockers), ibkrlib.SendDispositionDefinitelyUnsent)
 		}
 		wireGuard, releaseWireGuard := s.brokerWireGuard(binding, status, false)
 		defer releaseWireGuard()

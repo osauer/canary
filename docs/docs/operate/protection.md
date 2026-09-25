@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-22
+Updated: 2026-09-25 21:20 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -299,6 +299,13 @@ retain the notice prerequisite and full veto window; shadow rows never schedule.
 can veto from `canary proposals veto KEY` or the app before submission. Agent
 origins cannot veto. A veto applies to that proposal revision; changed evidence
 can create a new revision and window.
+
+A submission that `trading.freeze` refuses is deferred, not failed. The record
+reads `deferred` with a resubmit time and is not tried again while the freeze
+stays set. Once you lift the freeze, the daemon resubmits it once, provided the
+proposal revision is still current; a changed revision supersedes it like a
+pending record, and a veto still applies while it waits. Any other refusal
+fails the record for that revision, as before.
 
 The daemon persists submission intent before the broker call and reconciles
 it against its journal after restart. Installing or updating the binary does

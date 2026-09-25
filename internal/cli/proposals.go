@@ -487,7 +487,11 @@ func renderProposalStatusText(env *Env, st *rpc.AutoTradeStatus) {
 	statusRow(env, out, "Fast path", fmt.Sprint(st.FastPathEnabled))
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d %s", st.Policy.PolicyID, st.Policy.PolicyVersion, st.Policy.Fingerprint.Key))
 	if len(st.PreAuthorised) > 0 {
-		statusRow(env, out, "Pre-authorised", fmt.Sprintf("%s (veto window %s, %d pending)", strings.Join(st.PreAuthorised, ", "), nonEmpty(st.VetoWindow, "30m0s"), st.AutomaticPending))
+		deferred := ""
+		if st.AutomaticDeferred > 0 {
+			deferred = fmt.Sprintf(", %d deferred by the freeze", st.AutomaticDeferred)
+		}
+		statusRow(env, out, "Pre-authorised", fmt.Sprintf("%s (veto window %s, %d pending%s)", strings.Join(st.PreAuthorised, ", "), nonEmpty(st.VetoWindow, "30m0s"), st.AutomaticPending, deferred))
 	} else {
 		statusRow(env, out, "Pre-authorised", "none; every submission is a human instruction")
 	}
@@ -650,6 +654,8 @@ func formatProposalAutomaticColumn(a *rpc.TradeProposalAutomatic) string {
 			return "  auto: placing now (brake latched)"
 		}
 		return "  auto: places itself at " + a.SubmitAt.UTC().Format("15:04 MST") + " unless vetoed"
+	case rpc.TradeProposalAutomaticDeferred:
+		return "  auto: deferred by the trading freeze; places itself once the freeze is lifted unless vetoed"
 	case rpc.TradeProposalAutomaticSubmitting:
 		return "  auto: placing"
 	case rpc.TradeProposalAutomaticSubmitted:

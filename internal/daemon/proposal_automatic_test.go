@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // automaticTestRig is a hermetic proposal engine over a real daemon.db with
@@ -155,6 +158,37 @@ func (r *automaticTestRig) noRecord(key, revision string) {
 
 func (r *automaticTestRig) notice(rec automaticSubmissionRecord) {
 	r.engine.markAutomaticNoticed(context.Background(), []automaticNoticeKey{{Key: rec.Key, Revision: rec.Revision}}, r.now)
+}
+
+// events returns the journaled automatic-submission events of one record,
+// oldest first.
+func (r *automaticTestRig) events(key, revision string) []automaticSubmissionEvent {
+	r.t.Helper()
+	records, err := r.core.LoadEvents(context.Background(), corestore.EventQuery{Type: automaticCoreEventType})
+	if err != nil {
+		r.t.Fatalf("load automatic events: %v", err)
+	}
+	var out []automaticSubmissionEvent
+	for _, record := range records {
+		var ev automaticSubmissionEvent
+		if err := json.Unmarshal(record.PayloadJSON, &ev); err != nil {
+			r.t.Fatalf("decode automatic event: %v", err)
+		}
+		if ev.Key == key && ev.Revision == revision {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+func (r *automaticTestRig) eventCount(key, revision, eventType string) int {
+	n := 0
+	for _, ev := range r.events(key, revision) {
+		if ev.Type == eventType {
+			n++
+		}
+	}
+	return n
 }
 
 const automaticTrailingStopAuthority = `pre_authorised = ["trailing_stop"]`
@@ -540,5 +574,37 @@ func TestAutomaticNeverSkipVetoKeepsTheWindowWhenLatched(t *testing.T) {
 	rec := rig.record(prop.Key, revision)
 	if rec.LatchSkippedWindow || !rec.SubmitAt.Equal(rig.now.Add(30*time.Minute)) {
 		t.Fatalf("never-skip record under the latch = %+v, want the full window", rec)
+	}
+}
+
+// Only a refusal the freeze caused alone, with nothing sent, defers; every
+// other refusal keeps failing the record as before.
+func TestAutomaticFrozenRefusalDefersOnlyAnUnsentFreezeRefusal(t *testing.T) {
+	t.Parallel()
+	frozenBlocker := rpc.TradingBlocker{Code: tradingFrozenBlockerCode, Message: tradingFrozenBlockerMessage}
+	typed := tradingBlockersError([]rpc.TradingBlocker{frozenBlocker})
+	refused := rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{{Code: "submit_failed"}}}
+	for name, tc := range map[string]struct {
+		res      rpc.TradeProposalSubmitResult
+		err      error
+		placeErr error
+		want     bool
+	}{
+		"freeze alone at the write gate":            {res: rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{frozenBlocker}}, want: true},
+		"freeze committed during admission":         {res: rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{frozenBlocker, {Code: tradingControlsChangedBlockerCode}}}, want: true},
+		"freeze with another gate":                  {res: rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{{Code: "gateway_unavailable"}, frozenBlocker}}},
+		"build gate":                                {res: rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{{Code: "order_writes_unavailable"}}}},
+		"freeze at place admission":                 {res: refused, placeErr: typed, want: true},
+		"freeze before the frame, proven unsent":    {res: refused, placeErr: ibkrlib.WithSendDisposition(typed, ibkrlib.SendDispositionDefinitelyUnsent), want: true},
+		"freeze with an unknown send outcome":       {res: refused, placeErr: ibkrlib.WithSendDisposition(typed, ibkrlib.SendDispositionUnknown)},
+		"freeze with a may-have-written outcome":    {res: refused, placeErr: ibkrlib.WithSendDisposition(typed, ibkrlib.SendDispositionMayHaveWritten)},
+		"another place refusal":                     {res: refused, placeErr: ibkrlib.WithSendDisposition(errors.New("socket closed"), ibkrlib.SendDispositionDefinitelyUnsent)},
+		"the untyped freeze text is not the freeze": {res: refused, placeErr: errors.New("trading disabled: " + tradingFrozenBlockerMessage)},
+		"revalidation error":                        {res: rpc.TradeProposalSubmitResult{Blockers: []rpc.TradingBlocker{frozenBlocker}}, err: errors.New("positions unavailable")},
+		"accepted":                                  {res: rpc.TradeProposalSubmitResult{Accepted: true}},
+	} {
+		if got := automaticFrozenRefusal(tc.res, tc.err, tc.placeErr); got != tc.want {
+			t.Errorf("%s: deferred = %v, want %v", name, got, tc.want)
+		}
 	}
 }

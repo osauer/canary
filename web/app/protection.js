@@ -1001,10 +1001,12 @@ function protectionRow(proposal) {
   return row;
 }
 
-// protectionVetoAvailable is true only while the daemon holds a pending
-// pre-authorised record for this row: a veto is meaningful then and only then.
+// protectionVetoAvailable is true only while the daemon holds a pre-authorised
+// record for this row that may still submit — pending in its window or
+// deferred by the trading freeze: a veto is meaningful then and only then.
 function protectionVetoAvailable(proposal = {}) {
-  return proposal.automatic?.pre_authorised === true && proposal.automatic?.state === "pending";
+  const state = proposal.automatic?.state;
+  return proposal.automatic?.pre_authorised === true && (state === "pending" || state === "deferred");
 }
 
 // protectionAutomaticText renders the daemon's automatic-submission record
@@ -1017,6 +1019,8 @@ function protectionAutomaticText(proposal = {}) {
     case "pending":
       if (automatic.latch_skipped_window) return "Canary is placing this now: the drawdown brake is latched";
       return `Canary places this itself at ${shortTimeWithZone(automatic.submit_at)} unless you veto`;
+    case "deferred":
+      return "Deferred by the trading freeze; Canary places this once the freeze is lifted unless you veto";
     case "submitting":
       return "Canary is placing this order";
     case "submitted":

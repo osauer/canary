@@ -312,3 +312,17 @@ func TestRenderOrdersOpenTextShowsOriginAndUntrackedOrders(t *testing.T) {
 		t.Fatalf("empty orders open with unavailable inventory:\n%s", got)
 	}
 }
+
+func TestProposalAutomaticColumnNamesTheFreezeDeferral(t *testing.T) {
+	t.Parallel()
+	deferred := formatProposalAutomaticColumn(&rpc.TradeProposalAutomatic{PreAuthorised: true, State: rpc.TradeProposalAutomaticDeferred})
+	if !strings.Contains(deferred, "deferred by the trading freeze") {
+		t.Fatalf("deferred column = %q", deferred)
+	}
+	var stdout bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
+	renderProposalStatusText(env, &rpc.AutoTradeStatus{PreAuthorised: []string{"trailing_stop"}, VetoWindow: "30m0s", AutomaticPending: 1, AutomaticDeferred: 2})
+	if got := stdout.String(); !strings.Contains(got, "trailing_stop (veto window 30m0s, 1 pending, 2 deferred by the freeze)") {
+		t.Fatalf("proposal status:\n%s", got)
+	}
+}

@@ -71,10 +71,13 @@ type proposalEngine struct {
 // proposalSubmitOptions distinguishes the daemon's own pre-authorised
 // submission from a human or agent request. beforePlace runs after the
 // preview is minted and every pre-place gate has passed, immediately before
-// the broker call; an error refuses the write.
+// the broker call; an error refuses the write. placeRefused receives the
+// typed error of a refused place, which the result otherwise carries only
+// as blocker text.
 type proposalSubmitOptions struct {
-	automatic   bool
-	beforePlace func(preview *rpc.OrderPreviewResult) error
+	automatic    bool
+	beforePlace  func(preview *rpc.OrderPreviewResult) error
+	placeRefused func(err error)
 }
 
 type cachedStockTrailVolatility struct {
@@ -2203,6 +2206,9 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	}
 	place, err := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, TimeoutMs: p.TimeoutMs, Origin: p.Origin})
 	if err != nil {
+		if opts.placeRefused != nil {
+			opts.placeRefused(err)
+		}
 		blockers := []rpc.TradingBlocker{{Code: "submit_failed", Message: err.Error()}}
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
@@ -3459,7 +3465,9 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
 			out.PreAuthorised = append([]string(nil), active.Authority.PreAuthorised...)
 			out.VetoWindow = active.Authority.vetoWindow().String()
 		}
-		out.AutomaticPending = s.tradeProposals.automaticPendingCount(s.tradeProposals.currentScope())
+		scope := s.tradeProposals.currentScope()
+		out.AutomaticPending = s.tradeProposals.automaticPendingCount(scope)
+		out.AutomaticDeferred = s.tradeProposals.automaticDeferredCount(scope)
 	}
 	if !out.ProposalsEnabled {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "proposals_disabled", Message: "manual proposals are disabled by config"})

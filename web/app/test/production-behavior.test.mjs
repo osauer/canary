@@ -1364,6 +1364,11 @@ test("pre-authorised rows show the countdown and a veto that follows the daemon 
   proposal.automatic.latch_skipped_window = true;
   assert.match(protection.protectionAutomaticText(proposal), /placing this now.*brake is latched/);
 
+  // Deferred by the freeze: not failed, resubmits once lifted, veto available.
+  proposal.automatic = { pre_authorised: true, state: "deferred", deferred_at: "2026-09-21T14:30:00Z", resubmit_at: "2026-09-21T14:31:00Z" };
+  assert.match(protection.protectionAutomaticText(proposal), /^Deferred by the trading freeze/);
+  assert.equal(protection.protectionVetoAvailable(proposal), true);
+
   // Terminal states name the outcome and offer no veto.
   for (const [state_, pattern] of [["vetoed", /^Vetoed at/], ["submitted", /^Placed by Canary at/], ["failed", /did not place this: trading_frozen/], ["superseded", /superseded/]]) {
     proposal.automatic = { pre_authorised: true, state: state_, vetoed_at: "2026-09-21T14:10:00Z", submitted_at: "2026-09-21T14:30:00Z", reason: "trading_frozen: frozen" };

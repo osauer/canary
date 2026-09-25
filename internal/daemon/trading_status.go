@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -193,6 +194,47 @@ type brokerWriteAuthorization struct {
 // cancel path can recognise and strip it (see forCancel).
 const tradingFrozenBlockerCode = "trading_frozen"
 
+// tradingFrozenBlockerMessage is the freeze blocker's text and the message
+// of the typed freeze refusal.
+const tradingFrozenBlockerMessage = "trading writes are frozen by runtime platform settings"
+
+// tradingControlsChangedBlockerCode marks a control commit, such as a freeze
+// being set, that landed while a write was being admitted.
+const tradingControlsChangedBlockerCode = "trading_controls_changed"
+
+// errTradingFrozen is the typed cause of a broker-write refusal by the
+// runtime trading.freeze brake. Only gates that run before any broker frame
+// is written raise it, and it always travels wrapped with ErrTradingDisabled,
+// so the refusal text and error class are what they were without the type.
+var errTradingFrozen = errors.New(tradingFrozenBlockerMessage)
+
+// tradingBlockersFreezeOnly reports whether the freeze is the whole cause of
+// a refused write: a trading_frozen blocker, alongside at most the
+// controls-changed blocker a freeze commit itself raises during admission.
+func tradingBlockersFreezeOnly(blockers []rpc.TradingBlocker) bool {
+	frozen := false
+	for _, blocker := range blockers {
+		switch blocker.Code {
+		case tradingFrozenBlockerCode:
+			frozen = true
+		case tradingControlsChangedBlockerCode:
+		default:
+			return false
+		}
+	}
+	return frozen
+}
+
+// tradingBlockersError renders a refused write authorization as the error
+// its callers return, typed as errTradingFrozen when the freeze is the whole
+// cause.
+func tradingBlockersError(blockers []rpc.TradingBlocker) error {
+	if tradingBlockersFreezeOnly(blockers) {
+		return fmt.Errorf("%w: %w", ErrTradingDisabled, errTradingFrozen)
+	}
+	return fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(blockers))
+}
+
 // forCancel strips the runtime trading-freeze blocker from a write
 // authorization: a freeze stops new and modified orders but must never
 // strand an open order that needs cancelling.
@@ -253,7 +295,7 @@ func (s *Server) brokerWriteAuthorizationWithControls(status rpc.TradingStatus, 
 		add("order_journal_unavailable", "order writes require a writable local order journal", "Fix the daemon state directory before enabling trading.")
 	}
 	if includeControls && s.tradingFrozen() {
-		add(tradingFrozenBlockerCode, "trading writes are frozen by runtime platform settings", "Run `canary settings set trading.freeze=false` to resume broker writes; new orders, modifies, and reduce sweeps are all blocked while frozen — only cancels remain allowed.")
+		add(tradingFrozenBlockerCode, tradingFrozenBlockerMessage, "Run `canary settings set trading.freeze=false` to resume broker writes; new orders, modifies, and reduce sweeps are all blocked while frozen — only cancels remain allowed.")
 	}
 	auth.Blockers = blockers
 	auth.Allowed = len(blockers) == 0

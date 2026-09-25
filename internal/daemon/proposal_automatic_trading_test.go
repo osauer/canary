@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -166,31 +167,227 @@ func TestAutomaticLatchedBrakeSubmitsWithoutWaiting(t *testing.T) {
 	}
 }
 
-func TestAutomaticFreezeBlocksSubmissionAndTheRecordSaysSo(t *testing.T) {
-	t.Parallel()
-	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
-	broker := &brokerCallLog{}
-	broker.install(rig.server)
-	rig.server.platformSettings = &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Trading: platformTradingSettingsData{Freeze: new(true)}}}
+// frozenPlatformSettings is a runtime settings store with trading.freeze set.
+func frozenPlatformSettings() *platformSettingsStore {
+	return &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Trading: platformTradingSettingsData{Freeze: new(true)}}}
+}
+
+// deferUnderFreeze drives one pre-authorised record to its closed window on
+// a frozen desk and returns the proposal and revision.
+func deferUnderFreeze(t *testing.T, rig *automaticTestRig) (rpc.TradeProposal, string) {
+	t.Helper()
+	rig.server.platformSettings = frozenPlatformSettings()
 	prop := rig.stopProposal()
 	revision := rig.install(prop)
 	rig.cycle()
 	rig.notice(rig.record(prop.Key, revision))
 	rig.advance(31 * time.Minute)
 	rig.cycle()
+	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticDeferred {
+		t.Fatalf("record under freeze = %+v, want deferred", rec)
+	}
+	return prop, revision
+}
+
+// C1: a pre-authorised submission refused by the freeze is deferred, not
+// failed. It keeps its revision, names the freeze, journals the deferral and
+// is not attempted again while the desk stays frozen; once the freeze lifts
+// within the revision it is submitted exactly once.
+func TestAutomaticFreezeDefersAndSubmitsOnceAfterTheFreezeLifts(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	prop, revision := deferUnderFreeze(t, rig)
 	if broker.count() != 0 {
 		t.Fatalf("frozen desk placed %d order(s)", broker.count())
 	}
 	rec := rig.record(prop.Key, revision)
-	if rec.State != rpc.TradeProposalAutomaticFailed || !strings.Contains(rec.Reason, tradingFrozenBlockerCode) {
-		t.Fatalf("record under freeze = %+v, want failed naming %s", rec, tradingFrozenBlockerCode)
+	if rec.DeferredAt.IsZero() || !rec.ResubmitAt.Equal(rig.now.Add(automaticDeferRetry)) || !rec.ResolvedAt.IsZero() ||
+		!strings.Contains(rec.Reason, "trading.freeze") || rec.PreviewTokenID != "" {
+		t.Fatalf("deferred record = %+v", rec)
 	}
-	// Lifting the freeze does not retry: the key and revision are spent.
+	if got := rig.eventCount(prop.Key, revision, automaticEventDeferred); got != 1 {
+		t.Fatalf("deferred events = %d, want 1", got)
+	}
+	if a := rig.engine.Snapshot(false).Proposals[0].Automatic; a == nil || a.State != rpc.TradeProposalAutomaticDeferred || a.ResubmitAt.IsZero() || a.DeferredAt.IsZero() {
+		t.Fatalf("served automatic = %+v", a)
+	}
+	if st := rig.server.autoTradeStatus(); st.AutomaticDeferred != 1 || st.AutomaticPending != 0 {
+		t.Fatalf("status pending/deferred = %d/%d, want 0/1", st.AutomaticPending, st.AutomaticDeferred)
+	}
+	// Still frozen well past the resubmit time: no attempt, no new deferral.
+	attempts := rig.revalidations
+	rig.advance(2 * time.Hour)
+	rig.cycle()
+	rig.cycle()
+	if broker.count() != 0 || rig.revalidations != attempts || rig.eventCount(prop.Key, revision, automaticEventDeferred) != 1 {
+		t.Fatalf("frozen scheduler retried: calls=%d attempts=%d->%d", broker.count(), attempts, rig.revalidations)
+	}
+	// The freeze lifts while the revision is current: exactly one order.
+	rig.server.platformSettings = nil
+	rig.cycle()
+	if broker.count() != 1 {
+		t.Fatalf("broker calls after the freeze lifted = %d, want 1; record = %+v", broker.count(), rig.record(prop.Key, revision))
+	}
+	rec = rig.record(prop.Key, revision)
+	if rec.State != rpc.TradeProposalAutomaticSubmitted || rec.OrderRef == "" || rec.DeferredAt.IsZero() {
+		t.Fatalf("record after resubmission = %+v", rec)
+	}
+	for range 3 {
+		rig.advance(time.Hour)
+		rig.cycle()
+	}
+	rig.restart()
+	rig.install(prop)
+	rig.cycle()
+	if broker.count() != 1 {
+		t.Fatalf("broker calls after further cycles and a restart = %d, want still 1", broker.count())
+	}
+}
+
+// C1: a freeze that lands after the write gate admitted the submission is
+// refused before any broker frame, typed as the freeze, so it defers rather
+// than fails. The spent attempt stays in the order journal as definitely
+// unsent, and the resubmission after the freeze mints its own preview.
+func TestAutomaticFreezeAfterAdmissionDefersWithTheAttemptProvenUnsent(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	prop := rig.stopProposal()
+	revision := rig.install(prop)
+	rig.cycle()
+	rig.notice(rig.record(prop.Key, revision))
+	rig.advance(31 * time.Minute)
+	armed := true
+	rig.server.orderWriteBeforeBrokerSend = func() {
+		if armed {
+			armed = false
+			rig.server.platformSettings = frozenPlatformSettings()
+		}
+	}
+	rig.cycle()
+	if broker.count() != 0 {
+		t.Fatalf("broker calls after a late freeze = %d", broker.count())
+	}
+	rec := rig.record(prop.Key, revision)
+	if rec.State != rpc.TradeProposalAutomaticDeferred || rig.eventCount(prop.Key, revision, automaticEventSubmitting) != 1 {
+		t.Fatalf("record after a late freeze = %+v", rec)
+	}
+	events, err := rig.server.orderJournal.LoadEvents(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spent := ""
+	for _, ev := range events {
+		if ev.Type == orderJournalEventSendError {
+			if ev.SendDisposition != ibkrlib.SendDispositionDefinitelyUnsent || !strings.Contains(ev.Message, tradingFrozenBlockerMessage) {
+				t.Fatalf("late-freeze send error = %+v", ev)
+			}
+			spent = ev.PreviewTokenID
+		}
+	}
+	if spent == "" {
+		t.Fatal("the refused attempt left no journaled send error")
+	}
+	rig.server.platformSettings = nil
+	rig.advance(automaticDeferRetry)
+	rig.cycle()
+	if broker.count() != 1 {
+		t.Fatalf("broker calls after the freeze lifted = %d, want 1", broker.count())
+	}
+	if rec = rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticSubmitted || rec.PreviewTokenID == "" || rec.PreviewTokenID == spent {
+		t.Fatalf("resubmitted record = %+v, want a fresh preview token", rec)
+	}
+}
+
+// The freeze refusal is typed wherever the write path meets it before the
+// wire: admission, the operation's own gate and the wire guard all return
+// errTradingFrozen inside ErrTradingDisabled with the unchanged text, and a
+// refusal with any other cause is not typed as the freeze.
+func TestTradingFreezeRefusalIsTypedAtEveryPreSendGate(t *testing.T) {
+	t.Parallel()
+	frozen := tradingBlockersError([]rpc.TradingBlocker{{Code: tradingFrozenBlockerCode, Message: tradingFrozenBlockerMessage}})
+	if !errors.Is(frozen, errTradingFrozen) || !errors.Is(frozen, ErrTradingDisabled) || frozen.Error() != "trading disabled: "+tradingFrozenBlockerMessage {
+		t.Fatalf("freeze refusal = %v", frozen)
+	}
+	committing := tradingBlockersError([]rpc.TradingBlocker{{Code: tradingFrozenBlockerCode, Message: tradingFrozenBlockerMessage}, {Code: tradingControlsChangedBlockerCode, Message: "changed"}})
+	if !errors.Is(committing, errTradingFrozen) {
+		t.Fatalf("freeze committed during admission = %v, want typed", committing)
+	}
+	mixed := tradingBlockersError([]rpc.TradingBlocker{{Code: "gateway_unavailable", Message: "down"}, {Code: tradingFrozenBlockerCode, Message: tradingFrozenBlockerMessage}})
+	if errors.Is(mixed, errTradingFrozen) || !errors.Is(mixed, ErrTradingDisabled) {
+		t.Fatalf("multi-cause refusal = %v, must not read as the freeze alone", mixed)
+	}
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	_, binding, err := rig.server.authorizeBrokerWriteTransaction(rpc.OrderOriginHumanTTY, false)
+	if err != nil {
+		t.Fatalf("admission on a ready desk: %v", err)
+	}
+	rig.server.platformSettings = frozenPlatformSettings()
+	guard, release := rig.server.brokerWireGuard(binding, rig.server.currentTradingStatus(), false)
+	defer release()
+	if err := guard(); !errors.Is(err, errTradingFrozen) {
+		t.Fatalf("wire guard under freeze = %v, want the typed freeze", err)
+	}
+	if _, err := rig.server.placeOrder(context.Background(), rpc.OrderPlaceParams{Origin: rpc.OrderOriginHumanTTY}); !errors.Is(err, errTradingFrozen) {
+		t.Fatalf("place admission under freeze = %v, want the typed freeze", err)
+	}
+}
+
+// C1: a revision change while deferred supersedes the deferred record as a
+// pending one would be; lifting the freeze afterwards never submits it.
+func TestAutomaticRevisionChangeWhileDeferredSupersedes(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	prop, first := deferUnderFreeze(t, rig)
+	grown := prop
+	grown.Quantity = 60
+	second := rig.install(grown)
+	if second == first {
+		t.Fatal("test expects a new revision")
+	}
+	rig.cycle()
+	if rec := rig.record(prop.Key, first); rec.State != rpc.TradeProposalAutomaticSuperseded || !strings.Contains(rec.Reason, "revision changed") {
+		t.Fatalf("deferred record after a revision change = %+v", rec)
+	}
+	if fresh := rig.record(prop.Key, second); fresh.State != rpc.TradeProposalAutomaticPending || !fresh.SubmitAt.Equal(rig.now.Add(30*time.Minute)) {
+		t.Fatalf("new revision record = %+v, want a fresh window", fresh)
+	}
+	rig.server.platformSettings = nil
+	rig.advance(10 * time.Minute)
+	rig.cycle()
+	if broker.count() != 0 {
+		t.Fatalf("a superseded deferred record was submitted: %d call(s)", broker.count())
+	}
+}
+
+// C1: the veto still works while a record is deferred, and holds after the
+// freeze lifts.
+func TestAutomaticVetoWorksWhileDeferred(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	prop, revision := deferUnderFreeze(t, rig)
+	if _, err := rig.engine.Veto(context.Background(), rpc.TradeProposalVetoParams{Key: prop.Key, Origin: rpc.OrderOriginAgent}); err == nil {
+		t.Fatal("an agent vetoed a deferred record")
+	}
+	res, err := rig.engine.Veto(context.Background(), rpc.TradeProposalVetoParams{Key: prop.Key, Origin: rpc.OrderOriginPairedDevice, Reason: "not after the freeze"})
+	if err != nil || !res.Accepted || res.State != rpc.TradeProposalAutomaticVetoed || res.Revision != revision {
+		t.Fatalf("veto while deferred = %+v err = %v", res, err)
+	}
 	rig.server.platformSettings = nil
 	rig.advance(time.Hour)
 	rig.cycle()
 	if broker.count() != 0 {
-		t.Fatal("a failed record was retried after the freeze lifted")
+		t.Fatalf("a vetoed deferred record was submitted: %d call(s)", broker.count())
+	}
+	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticVetoed || rec.Origin != rpc.OrderOriginPairedDevice {
+		t.Fatalf("record after veto = %+v", rec)
 	}
 }
 

@@ -169,7 +169,7 @@ func (s *Server) authorizeBrokerWriteTransaction(origin string, cancel bool) (br
 	if !cancel && controlGenerationBefore != controlGenerationAfter {
 		auth.Allowed = false
 		auth.Blockers = appendTradingBlockerOnce(auth.Blockers, rpc.TradingBlocker{
-			Code: "trading_controls_changed", Message: "trading controls changed during broker-write admission",
+			Code: tradingControlsChangedBlockerCode, Message: "trading controls changed during broker-write admission",
 			Action: "Refresh the operation from current trading controls before retrying.",
 		})
 	}
@@ -315,7 +315,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			auth.Allowed = false
 		}
 		if !auth.Allowed {
-			return fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(auth.Blockers))
+			return tradingBlockersError(auth.Blockers)
 		}
 		if cancel {
 			return nil
@@ -330,7 +330,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		releaseLease = unlock
 		leaseMu.Unlock()
 		if frozen {
-			return fmt.Errorf("%w: trading writes are frozen by runtime platform settings", ErrTradingDisabled)
+			return fmt.Errorf("%w: %w", ErrTradingDisabled, errTradingFrozen)
 		}
 		if currentControlGeneration != binding.tradingControlGeneration {
 			return fmt.Errorf("%w: trading controls changed after admission; refresh and retry", ErrTradingDisabled)

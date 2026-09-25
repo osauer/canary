@@ -338,10 +338,12 @@ const (
 
 	// TradeProposalAutomaticPending and the states that follow belong to
 	// the automatic submission record of a pre-authorised bucket: pending
-	// waits for the veto window; submitting has persisted its intent and is
-	// at the broker; the remaining four are terminal for that key and
-	// revision.
+	// waits for the veto window; deferred was refused by trading.freeze
+	// alone and resubmits once the freeze lifts while its revision is
+	// current; submitting has persisted its intent and is at the broker; the
+	// remaining four are terminal for that key and revision.
 	TradeProposalAutomaticPending    = "pending"
+	TradeProposalAutomaticDeferred   = "deferred"
 	TradeProposalAutomaticSubmitting = "submitting"
 	TradeProposalAutomaticVetoed     = "vetoed"
 	TradeProposalAutomaticSubmitted  = "submitted"
@@ -373,6 +375,10 @@ type TradeProposalAutomatic struct {
 	Reason             string `json:"reason,omitempty"`
 	LatchSkippedWindow bool   `json:"latch_skipped_window,omitempty"`
 	VetoWindow         string `json:"veto_window,omitempty"`
+	// DeferredAt is when trading.freeze first deferred the submission;
+	// ResubmitAt is the earliest resubmission once the freeze is lifted.
+	DeferredAt time.Time `json:"deferred_at,omitzero"`
+	ResubmitAt time.Time `json:"resubmit_at,omitzero"`
 }
 
 // TradeProposalVetoParams stops the pending automatic submission for one
@@ -433,6 +439,9 @@ type AutoTradeStatus struct {
 	AutomaticPending int              `json:"automatic_pending"`
 	Blocked          bool             `json:"blocked"`
 	Blockers         []TradingBlocker `json:"blockers,omitempty"`
+	// AutomaticDeferred counts records trading.freeze deferred; each
+	// resubmits once the freeze lifts while its revision is current.
+	AutomaticDeferred int `json:"automatic_deferred,omitempty"`
 }
 
 // TradeProposalSourceFingerprints identifies the snapshots used to derive a

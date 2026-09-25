@@ -13,6 +13,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Pre-authorised protection submission (owner decision D3, 2026-09-21; see
@@ -23,9 +24,11 @@ import (
 // record per proposal key and revision carries the notice, the veto window
 // and the outcome. A record is created only for an unblocked proposal, is
 // superseded the moment that proposal blocks, disappears or changes revision,
-// submits exactly once, and never retries on its own. The broker write goes
-// through the ordinary proposal submit path with the daemon-preauthorised
-// origin, so every existing gate still decides.
+// submits exactly once, and never retries on its own — with one exception:
+// a submission refused by trading.freeze alone, having sent nothing, is
+// deferred and resubmitted once the freeze lifts while its revision is
+// current. The broker write goes through the ordinary proposal submit path
+// with the daemon-preauthorised origin, so every existing gate still decides.
 
 const (
 	automaticStateKind       = "trade_proposals_automatic"
@@ -39,10 +42,18 @@ const (
 	automaticEventSubmitted  = "submitted"
 	automaticEventSuperseded = "superseded"
 	automaticEventFailed     = "failed"
+	// automaticEventDeferred journals a freeze refusal that keeps the record
+	// alive.
+	automaticEventDeferred = "deferred"
 
 	// automaticSubmitTimeout bounds the quote/WhatIf wait of one automatic
 	// submission, the same default the CLI uses.
 	automaticSubmitTimeout = 5 * time.Second
+
+	// automaticDeferRetry is the earliest a deferred record is resubmitted
+	// after its freeze refusal; the scheduler also waits for the freeze to be
+	// lifted, so a long freeze costs no refused attempts.
+	automaticDeferRetry = time.Minute
 )
 
 // automaticSubmissionRecord is one durable automatic-submission intent, keyed
@@ -77,10 +88,38 @@ type automaticSubmissionRecord struct {
 	Reason         string `json:"reason,omitempty"`
 	// Origin records who vetoed (human-tty or human-paired-device).
 	Origin string `json:"origin,omitempty"`
+	// DeferredAt is the first freeze refusal; ResubmitAt the earliest
+	// resubmission once the freeze is lifted.
+	DeferredAt time.Time `json:"deferred_at,omitzero"`
+	ResubmitAt time.Time `json:"resubmit_at,omitzero"`
 }
 
 func (r automaticSubmissionRecord) pending() bool {
 	return r.State == rpc.TradeProposalAutomaticPending
+}
+
+func (r automaticSubmissionRecord) deferred() bool {
+	return r.State == rpc.TradeProposalAutomaticDeferred
+}
+
+// waiting reports a record that may still submit: pending in its window, or
+// deferred by the freeze. Both are superseded, vetoed and submitted alike.
+func (r automaticSubmissionRecord) waiting() bool {
+	return r.pending() || r.deferred()
+}
+
+// due reports whether the scheduler may attempt r now: a pending record once
+// its window has closed after the notice (a latched record needs none), a
+// deferred record once its resubmit time has passed and the freeze is lifted.
+func (r automaticSubmissionRecord) due(now time.Time, frozen bool) bool {
+	switch {
+	case r.pending():
+		return !now.Before(r.SubmitAt) && (!r.NoticedAt.IsZero() || r.LatchSkippedWindow)
+	case r.deferred():
+		return !frozen && !now.Before(r.ResubmitAt)
+	default:
+		return false
+	}
 }
 
 func (r automaticSubmissionRecord) terminal() bool {
@@ -98,6 +137,7 @@ func (r automaticSubmissionRecord) view(preAuthorised bool, now time.Time) *rpc.
 		CreatedAt: r.CreatedAt, SubmitAt: r.SubmitAt, NoticedAt: r.NoticedAt, VetoedAt: r.VetoedAt,
 		SubmittedAt: r.SubmittedAt, OrderReference: r.OrderRef, Reason: r.Reason,
 		LatchSkippedWindow: r.LatchSkippedWindow, VetoWindow: r.VetoWindow,
+		DeferredAt: r.DeferredAt, ResubmitAt: r.ResubmitAt,
 	}
 	if r.pending() && r.NoticedAt.IsZero() && !r.LatchSkippedWindow && !now.Before(r.SubmitAt) {
 		out.Reason = "waiting for the phone notice to be recorded before the window can close"
@@ -116,6 +156,7 @@ type automaticSubmissionEvent struct {
 	AccountID   string    `json:"account_id,omitempty"`
 	AccountMode string    `json:"account_mode,omitempty"`
 	SubmitAt    time.Time `json:"submit_at,omitzero"`
+	ResubmitAt  time.Time `json:"resubmit_at,omitzero"`
 	OrderRef    string    `json:"order_ref,omitempty"`
 	Origin      string    `json:"origin,omitempty"`
 	Reason      string    `json:"reason,omitempty"`
@@ -411,7 +452,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		var events []automaticSubmissionEvent
 		for _, rec := range records {
-			if !rec.pending() {
+			if !rec.waiting() {
 				continue
 			}
 			prop, ok := present[rec.Key]
@@ -538,15 +579,14 @@ func (e *proposalEngine) automaticPendingNotices(scope brokerStateScope) []autom
 	return out
 }
 
-// submitDueAutomatic submits every pending record whose window has closed
-// and whose notice was recorded (a latched record needs no notice).
+// submitDueAutomatic submits every due record: a pending record whose window
+// has closed and whose notice was recorded (a latched record needs no
+// notice), and a deferred record once the freeze is lifted.
 func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	now := e.clock()
+	frozen := e.server != nil && e.server.tradingFrozen()
 	for _, rec := range e.automatic.list() {
-		if !rec.pending() || now.Before(rec.SubmitAt) {
-			continue
-		}
-		if rec.NoticedAt.IsZero() && !rec.LatchSkippedWindow {
+		if !rec.due(now, frozen) {
 			continue
 		}
 		if ctx.Err() != nil {
@@ -578,7 +618,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
 	current, ok := e.automatic.get(rec.Key, rec.Revision)
-	if !ok || !current.pending() {
+	if !ok || !current.waiting() {
 		// A veto landed between the list and the lock.
 		return
 	}
@@ -588,10 +628,11 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	defer s.automaticGrant.Store(nil)
 	params := rpc.TradeProposalSubmitParams{Key: rec.Key, Revision: rec.Revision, Origin: rpc.OrderOriginDaemonPreAuthorised, TimeoutMs: int(automaticSubmitTimeout.Milliseconds())}
 	staged := false
-	res, err := e.submit(ctx, params, proposalSubmitOptions{automatic: true, beforePlace: func(preview *rpc.OrderPreviewResult) error {
+	var placeErr error
+	res, err := e.submit(ctx, params, proposalSubmitOptions{automatic: true, placeRefused: func(err error) { placeErr = err }, beforePlace: func(preview *rpc.OrderPreviewResult) error {
 		stageErr := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 			r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
-			if !ok || !r.pending() {
+			if !ok || !r.waiting() {
 				return nil
 			}
 			r.State = rpc.TradeProposalAutomaticSubmitting
@@ -609,24 +650,41 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		return nil
 	}})
 	finish := e.clock()
+	deferred := false
 	outcomeErr := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
 		if !ok || r.terminal() {
 			return nil
 		}
-		r.ResolvedAt = finish
 		switch {
 		case err == nil && res.Accepted:
+			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSubmitted
 			r.SubmittedAt = finish
 			r.OrderRef = res.OrderRef
 			r.Reason = "placed by the daemon under the pre-authorised protection policy"
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventSubmitted, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, OrderRef: r.OrderRef, Origin: rpc.OrderOriginDaemonPreAuthorised}}
 		case !staged && automaticBlockersSupersede(res.Blockers):
+			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSuperseded
 			r.Reason = automaticOutcomeReason(res, err)
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventSuperseded, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, Reason: r.Reason}}
+		case automaticFrozenRefusal(res, err, placeErr):
+			// The freeze refused the write before any broker frame, so the
+			// record stays alive for this revision: a spent preview token or
+			// staged attempt is proven unsent and the next attempt mints its
+			// own.
+			deferred = true
+			r.State = rpc.TradeProposalAutomaticDeferred
+			if r.DeferredAt.IsZero() {
+				r.DeferredAt = finish
+			}
+			r.ResubmitAt = finish.Add(automaticDeferRetry)
+			r.PreviewTokenID = ""
+			r.Reason = "trading.freeze refused the submission before anything was sent; it resubmits once the freeze is lifted while this proposal revision is current"
+			return []automaticSubmissionEvent{{At: finish, Type: automaticEventDeferred, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, ResubmitAt: r.ResubmitAt, Reason: r.Reason}}
 		default:
+			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticFailed
 			r.Reason = automaticOutcomeReason(res, err)
 			if staged && r.OrderRef == "" && res.OrderRef != "" {
@@ -641,9 +699,35 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	switch {
 	case err == nil && res.Accepted:
 		s.infof("pre-authorised protection: submitted %s bucket %s after %s", rec.Key, rec.Bucket, finish.Sub(now).Round(time.Millisecond))
+	case deferred:
+		s.infof("pre-authorised protection: %s bucket %s deferred by trading.freeze; resubmits once it is lifted", rec.Key, rec.Bucket)
 	default:
 		s.warnf("pre-authorised protection: %s bucket %s not submitted: %s", rec.Key, rec.Bucket, automaticOutcomeReason(res, err))
 	}
+}
+
+// automaticFrozenRefusal reports whether an automatic submission was refused
+// by trading.freeze alone and provably sent nothing: at the write gate ahead
+// of the preview, where the freeze is the only blocker, or at place time by
+// the typed freeze refusal. Place admission raises that before anything is
+// staged; the operation's gate and the wire guard raise it after staging but
+// before the first broker frame, and their send outcome must then say
+// definitely unsent. Only such a refusal is deferred; every other refusal
+// fails as before.
+func automaticFrozenRefusal(res rpc.TradeProposalSubmitResult, err, placeErr error) bool {
+	if res.Accepted {
+		return false
+	}
+	if placeErr == nil {
+		return err == nil && tradingBlockersFreezeOnly(res.Blockers)
+	}
+	if !errors.Is(placeErr, errTradingFrozen) {
+		return false
+	}
+	if _, staged := errors.AsType[*ibkrlib.SendDispositionError](placeErr); staged {
+		return ibkrlib.SendDispositionOf(placeErr) == ibkrlib.SendDispositionDefinitelyUnsent
+	}
+	return true
 }
 
 // automaticSubmitBlockers is the proposal-side half of the origin gate: the
@@ -814,8 +898,8 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 	var result rpc.TradeProposalVetoResult
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		// Find the record: the exact revision when given, otherwise the
-		// live one for the key (pending or submitting first, then the
-		// served revision).
+		// live one for the key (pending, deferred or submitting first, then
+		// the served revision).
 		var rec *automaticSubmissionRecord
 		if revision != "" {
 			rec = records[automaticRecordKey(key, revision)]
@@ -824,7 +908,7 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 				if candidate.Key != key {
 					continue
 				}
-				if candidate.State == rpc.TradeProposalAutomaticPending || candidate.State == rpc.TradeProposalAutomaticSubmitting {
+				if candidate.waiting() || candidate.State == rpc.TradeProposalAutomaticSubmitting {
 					rec = candidate
 					break
 				}
@@ -860,7 +944,7 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 		case rpc.TradeProposalAutomaticSubmitting:
 			result = rpc.TradeProposalVetoResult{Accepted: false, Key: key, Revision: rec.Revision, State: rec.State, Message: "the order is already being placed; cancel it through the orders surface once it is journaled", Automatic: rec.view(true, now), AsOf: now}
 			return nil
-		case rpc.TradeProposalAutomaticPending:
+		case rpc.TradeProposalAutomaticPending, rpc.TradeProposalAutomaticDeferred:
 		default:
 			result = rpc.TradeProposalVetoResult{Accepted: false, Key: key, Revision: rec.Revision, State: rec.State, Message: "this automatic submission is already " + rec.State + " and cannot be vetoed", Automatic: rec.view(true, now), AsOf: now}
 			return nil
@@ -909,12 +993,22 @@ func (e *proposalEngine) decorateAutomatic(snap *rpc.TradeProposalSnapshot) {
 // automaticPendingCount reports pending records in the given scope for the
 // status surface.
 func (e *proposalEngine) automaticPendingCount(scope brokerStateScope) int {
+	return e.automaticCount(scope, automaticSubmissionRecord.pending)
+}
+
+// automaticDeferredCount reports freeze-deferred records in the given scope
+// for the status surface.
+func (e *proposalEngine) automaticDeferredCount(scope brokerStateScope) int {
+	return e.automaticCount(scope, automaticSubmissionRecord.deferred)
+}
+
+func (e *proposalEngine) automaticCount(scope brokerStateScope, match func(automaticSubmissionRecord) bool) int {
 	if e == nil || !e.automatic.attached() {
 		return 0
 	}
 	n := 0
 	for _, rec := range e.automatic.list() {
-		if rec.pending() && sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if match(rec) && sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
 			n++
 		}
 	}
