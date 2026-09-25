@@ -98,6 +98,7 @@ type Store struct {
 	alertDeliveryQuarantine         *alertDeliveryQuarantine
 	loadedAlertDeliveryRaw          json.RawMessage
 	loadedAlertDeliveryDecodeErr    error
+	loadedPushJournalDiscarded      error
 }
 
 // Data is the persisted app-state envelope. AlertDelivery remains an internal
@@ -119,6 +120,9 @@ type Data struct {
 	AttentionHighWaterSeq       uint64                       `json:"attention_high_water_seq"`
 	AttentionReadThroughSeq     uint64                       `json:"attention_read_through_seq"`
 	AlertDelivery               *alertDeliveryData           `json:"alert_delivery,omitempty"`
+	// PushJournal is the per-notice Web Push journal: every request with its
+	// transport class and HTTP status, and every device acknowledgement.
+	PushJournal *pushJournal `json:"push_journal,omitempty"`
 }
 
 // legacyGovernanceOccurrence is the one-way decode shape for rows the retired
@@ -199,6 +203,7 @@ type PushAttempt struct {
 	AlertID        string    `json:"alert_id,omitempty"`
 	OK             bool      `json:"ok"`
 	Status         string    `json:"status,omitempty"`
+	StatusCode     int       `json:"status_code,omitempty"`
 	Error          string    `json:"error,omitempty"`
 	Class          string    `json:"class,omitempty"`
 }
@@ -308,12 +313,21 @@ func (s *Store) load() error {
 	// normal typed decoder and remains fatal on corruption.
 	rawAlertDelivery := append(json.RawMessage(nil), topLevel["alert_delivery"]...)
 	delete(topLevel, "alert_delivery")
+	// The push journal is evidence, never authority: decode it on its own so
+	// a damaged journal is discarded instead of failing the whole store.
+	rawPushJournal := append(json.RawMessage(nil), topLevel["push_journal"]...)
+	delete(topLevel, "push_journal")
 	legacyData, err := json.Marshal(topLevel)
 	if err != nil {
 		return fmt.Errorf("decode app state envelope: %w", err)
 	}
 	if err := json.Unmarshal(legacyData, &s.data); err != nil {
 		return fmt.Errorf("decode app state: %w", err)
+	}
+	if journal, err := decodePushJournal(rawPushJournal); err != nil {
+		s.loadedPushJournalDiscarded = err
+	} else {
+		s.data.PushJournal = journal
 	}
 	s.loadedAlertDeliveryRaw = rawAlertDelivery
 	if len(rawAlertDelivery) > 0 && string(rawAlertDelivery) != "null" {

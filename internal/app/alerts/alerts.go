@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,12 @@ type Dispatcher struct {
 	URL         string
 	Now         func() time.Time
 	SendTimeout time.Duration
+	// OnJournal, when set, is called after the push journal changes (a send
+	// or a device acknowledgement). It must not block; the proof relay uses
+	// it to report fresh evidence to the daemon.
+	OnJournal func()
+	// NewNoticeID mints diagnostic notice identities; nil uses crypto/rand.
+	NewNoticeID func() (string, error)
 
 	mu sync.Mutex
 }
@@ -119,13 +126,15 @@ func (d *Dispatcher) dispatchLocked(ctx context.Context) (state.AlertDeliveryVie
 			payload := push.Payload{
 				Title: presentation.Title, Body: presentation.Body,
 				Severity: string(confirmed.Candidate.Severity), Kind: string(confirmed.Candidate.Kind),
-				Destination: string(confirmed.Candidate.Destination), DisplayID: confirmed.DisplayID, URL: d.URL,
+				Destination: string(confirmed.Candidate.Destination), DisplayID: confirmed.DisplayID,
+				NoticeID: confirmed.DisplayID, URL: d.URL,
 			}
 			sendCtx, cancel := context.WithTimeout(ctx, d.sendTimeout())
 			result := d.Sender.Send(sendCtx, subscription, readiness.keys, payload)
 			cancel()
 			completion, dead := classifyAlertCompletion(result)
 			completedAt := d.now()
+			d.journal(rpc.PushNoticeKindAlert, confirmed.DisplayID, subscription, result, completedAt)
 			if _, err := d.Store.CompleteAlertDelivery(confirmed.AttemptID, completion, completedAt); err != nil {
 				return d.Store.AlertDelivery(completedAt), err
 			}
@@ -177,6 +186,26 @@ func (d *Dispatcher) refreshTransportReadinessLocked(now time.Time) (transportRe
 		}
 	}
 	return readiness, d.Store.SetAlertDeliveryPrerequisiteHealth(readiness.class, now)
+}
+
+// journal records one transport result in the push journal. Journaling is
+// evidence, never a transport gate: a failure to persist is logged and the
+// delivery ledger stays authoritative for dedupe and retry.
+func (d *Dispatcher) journal(kind, noticeID string, subscription state.PushSubscription, result state.PushAttempt, at time.Time) {
+	if result.At.IsZero() {
+		result.At = at
+	}
+	if err := d.Store.RecordPushAttempt(kind, noticeID, subscription, result); err != nil {
+		slog.Warn("canary app push journal: record attempt failed", "kind", kind, "error", err)
+		return
+	}
+	d.notifyJournal()
+}
+
+func (d *Dispatcher) notifyJournal() {
+	if d.OnJournal != nil {
+		d.OnJournal()
+	}
 }
 
 func (d *Dispatcher) now() time.Time {

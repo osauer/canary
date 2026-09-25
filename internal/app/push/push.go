@@ -31,9 +31,13 @@ type Payload struct {
 	Kind        string `json:"kind,omitempty"`
 	Destination string `json:"destination,omitempty"`
 	DisplayID   string `json:"display_id,omitempty"`
-	URL         string `json:"url,omitempty"`
-	AlertID     string `json:"alert_id,omitempty"`
-	Action      string `json:"action,omitempty"`
+	// NoticeID is the journal identity the device echoes back in its
+	// displayed/opened receipt. For an alert it equals DisplayID; a
+	// diagnostic gets a fresh one per test so each receipt binds to it.
+	NoticeID string `json:"notice_id,omitempty"`
+	URL      string `json:"url,omitempty"`
+	AlertID  string `json:"alert_id,omitempty"`
+	Action   string `json:"action,omitempty"`
 }
 
 // SafeDiagnosticPayload returns a fixed notification test containing no
@@ -101,6 +105,7 @@ func (s WebPushSender) Send(ctx context.Context, sub state.PushSubscription, key
 	}
 	defer resp.Body.Close()
 	attempt.Status = resp.Status
+	attempt.StatusCode = resp.StatusCode
 	attempt.OK = resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices
 	attempt.Class = classifyTransport(nil, resp.StatusCode)
 	if !attempt.OK {
