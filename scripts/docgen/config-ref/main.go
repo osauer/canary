@@ -7,14 +7,17 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -290,24 +293,63 @@ func firstSentence(s string) string {
 	return s
 }
 
+// buildOutputDirs are the repository-root directories .gitignore keeps for
+// build and scratch output. None holds hand-written source, and pages-build
+// deletes and rebuilds dist/ while make -j runs this generator in docs-check.
+var buildOutputDirs = map[string]bool{"bin": true, "build": true, "dist": true, "docs-html": true, "reports": true}
+
+// agentWorktreeDir matches the gitignored agent worktrees created at the
+// repository root, each a full copy of the tree.
+var agentWorktreeDir = regexp.MustCompile(`^[a-z]+-[a-z]+-[0-9a-f]{6}$`)
+
+// skipScanDir reports whether a walk from root must not descend into the
+// directory at path: dependency and VCS trees, hidden directories, tmp/ and
+// __pycache__/ anywhere, and the gitignored build output, integration-test
+// runs and agent worktrees at the repository root. Walking dist/ raced
+// pages-build.
+func skipScanDir(root, path string) bool {
+	if path == root {
+		return false
+	}
+	base := filepath.Base(path)
+	if base == "vendor" || base == "node_modules" || base == "tmp" || base == "__pycache__" || strings.HasPrefix(base, ".") {
+		return true
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	run, isRun := strings.CutPrefix(rel, "test/integration/run-")
+	return buildOutputDirs[rel] || isRun && !strings.Contains(run, "/") || agentWorktreeDir.MatchString(rel)
+}
+
+// scanWalk visits the files under root that skipScanDir leaves in scope. An
+// entry removed between its directory listing and its visit belongs to a
+// concurrent writer, not to the tracked source, so it is passed over.
+func scanWalk(root string, visit func(path string) error) error {
+	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if path != root && errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if info.IsDir() {
+			if skipScanDir(root, path) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return visit(path)
+	})
+}
+
 // scanEnvVars walks root for *.go files and collects every
 // `// docgen:env NAME | description` comment.
 func scanEnvVars(root string) ([]envVar, error) {
 	var out []envVar
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			// Skip vendor / hidden dirs / build artefacts.
-			base := info.Name()
-			if base == "vendor" || base == ".git" || base == "node_modules" || strings.HasPrefix(base, ".") {
-				if path != root {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
+	err := scanWalk(root, func(path string) error {
 		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
@@ -380,19 +422,7 @@ func validateDocumentedEnvReads(root string, documented []envVar) error {
 
 	consts := map[string]map[string]string{}
 	var files []sourceFile
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			base := info.Name()
-			if base == "vendor" || base == ".git" || base == "node_modules" || strings.HasPrefix(base, ".") {
-				if path != root {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
+	err := scanWalk(root, func(path string) error {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
