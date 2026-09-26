@@ -1,0 +1,13 @@
+diff --git a/internal/daemon/proposal_risk_reduction.go b/internal/daemon/proposal_risk_reduction.go
+index 32f94c17..f04e1f88 100644
+--- a/internal/daemon/proposal_risk_reduction.go
++++ b/internal/daemon/proposal_risk_reduction.go
+@@ -136,7 +136,7 @@ func riskReductionProposal(policy protectionPolicy, status rpc.ProtectionPolicyS
+ 	lossPct := math.Round(plan.LossBeforeBase/nlv*100*1e6) / 1e6
+ 	// The loss after is priced for the quantity this order proposes, which
+ 	// max_order_notional may cap below the plan's.
+-	afterBase := plan.LossAfter(float64(qty))
++	afterBase := plan.LossAfterBase
+ 	afterPct := math.Round(afterBase/nlv*100*1e6) / 1e6
+ 	var reason string
+ 	switch {

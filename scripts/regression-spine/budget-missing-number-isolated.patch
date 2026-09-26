@@ -1,0 +1,14 @@
+diff --git a/internal/daemon/protection_policy.go b/internal/daemon/protection_policy.go
+index f7dc49b8..6b81ccf7 100644
+--- a/internal/daemon/protection_policy.go
++++ b/internal/daemon/protection_policy.go
+@@ -727,6 +727,9 @@ func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
+ 	// A number the owner has not written yet (zero) is not an error: the
+ 	// governor switches itself off and says it needs that number (owner
+ 	// decision 2026-09-26). A written number must still be well formed.
++	if p.Enabled && (p.PremiumAtRiskPctOfRiskCapital == 0 || p.PerLinePctOfRiskCapital == 0 || p.MaxOrderNotional == 0) {
++		return fmt.Errorf("%s: an enabled governor needs its caps", prefix)
++	}
+ 	switch strings.ToLower(strings.TrimSpace(p.Basis)) {
+ 	case "", rpc.BudgetBasisDeclaredRiskCapital:
+ 	case rpc.BudgetBasisRulebook:

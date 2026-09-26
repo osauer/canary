@@ -1,0 +1,13 @@
+diff --git a/internal/daemon/protection_policy.go b/internal/daemon/protection_policy.go
+index f7dc49b8..8239ec6f 100644
+--- a/internal/daemon/protection_policy.go
++++ b/internal/daemon/protection_policy.go
+@@ -400,7 +400,7 @@ func (m *protectionPolicyManager) reload() {
+ 		m.lastFingerprint = fp
+ 		m.fileAdopted = source == "file"
+ 	}
+-	if m.active.PolicyID == "" || !m.fileAdopted {
++	if m.active.PolicyID == "" {
+ 		// First load, or nothing adopted from a file yet: a valid file is
+ 		// adopted whatever its version, and an absent file is the default.
+ 		statusKind := rpc.ProtectionPolicyStatusActive

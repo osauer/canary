@@ -1,0 +1,14 @@
+diff --git a/internal/daemon/proposal_engine.go b/internal/daemon/proposal_engine.go
+index b62cc3a6..23a97947 100644
+--- a/internal/daemon/proposal_engine.go
++++ b/internal/daemon/proposal_engine.go
+@@ -3395,6 +3395,9 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
+ 	// A drifted or unreadable protection file pauses pre-authorised
+ 	// submission (policy.AutomationPaused); it adds no blocker here, because
+ 	// these blockers also gate manual preview and submit of reduce-only work.
++	if policy.Status == rpc.ProtectionPolicyStatusDrift || policy.Status == rpc.ProtectionPolicyStatusError {
++		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "policy_" + policy.Status, Message: policy.Message})
++	}
+ 	out.Blocked = len(out.Blockers) > 0
+ 	return out
+ }

@@ -1,0 +1,13 @@
+diff --git a/internal/risk/rulebook.go b/internal/risk/rulebook.go
+index c90e4f18..15d13f9d 100644
+--- a/internal/risk/rulebook.go
++++ b/internal/risk/rulebook.go
+@@ -798,7 +798,7 @@ func (c *ruleContext) expiryRunway() RuleRow {
+ 	worstStatus := RuleStatusPass
+ 	for _, n := range c.in.Names {
+ 		for _, l := range n.Legs {
+-			if l.Quantity <= 0 || l.DTE > watchDTE {
++			if l.Quantity <= 0 || l.DTE >= watchDTE {
+ 				continue
+ 			}
+ 			if l.Delta != nil && math.Abs(*l.Delta) >= c.pol.RunwayITMDeltaFloor {
