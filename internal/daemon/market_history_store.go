@@ -292,10 +292,36 @@ func historyTailDays(saved *storedMarketHistory, p rpc.MarketHistoryParams, now 
 	if historyRequestStart(p, now).Before(saved.Result.RequestedStart) || historyReconcileDue(saved, now) {
 		return 0 // Missing prefix or periodic corporate-action/correction reconciliation.
 	}
+	return historyIncrementalDays(saved, now)
+}
+
+func historyIncrementalDays(saved *storedMarketHistory, now time.Time) int {
 	// IBKR durations are rounded days. Re-read the tail with an overlap rather
 	// than the whole multi-year request. A changed older overlap forces a full read.
 	days := int(math.Ceil(now.Sub(saved.Result.End).Hours()/24)) + 3
 	return max(1, days)
+}
+
+// reserveHistoryReconciliation paces full-range reads separately from routine
+// freshness. Reserve before dispatch, so concurrent range readers cannot each
+// launch a full retry. Failure leaves the last-good document and FullReadAt
+// untouched. Restart may try once again; no failure becomes a durable veto.
+func (s *Server) reserveHistoryReconciliation(key string, now time.Time) bool {
+	s.marketData.mu.Lock()
+	defer s.marketData.mu.Unlock()
+	if s.marketData.reconcileRetry == nil {
+		s.marketData.reconcileRetry = make(map[string]time.Time)
+	}
+	for key, retryAt := range s.marketData.reconcileRetry {
+		if !now.Before(retryAt) {
+			delete(s.marketData.reconcileRetry, key)
+		}
+	}
+	if _, reserved := s.marketData.reconcileRetry[key]; reserved || len(s.marketData.reconcileRetry) >= marketHistoryInterestLimit {
+		return false
+	}
+	s.marketData.reconcileRetry[key] = now.Add(15 * time.Minute)
+	return true
 }
 
 func historicalOverlapChanged(old, next rpc.MarketHistoryResult) bool {
@@ -339,6 +365,17 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		return selectStoredHistory(saved, storedAt, p, now, "cache", "", false), nil
 	}
 	tail := historyTailDays(saved, p, now)
+	if saved != nil && historyReconcileDue(saved, now) && !s.reserveHistoryReconciliation(key, now) {
+		// A retry of old history must not monopolise acquisition. Do not use
+		// a tail to satisfy a missing prefix; that request still needs a full
+		// response. The retained selection explicitly reports its coverage.
+		resolved := p
+		resolved.Contract = saved.Result.Contract
+		if !historyRefreshDue(saved, p, now) || historyRequestStart(resolved, now).Before(saved.Result.RequestedStart) {
+			return selectStoredHistory(saved, storedAt, p, now, "cache", "Full history reconciliation pending", false), nil
+		}
+		tail = historyIncrementalDays(saved, now)
+	}
 	fresh, fetchErr := fetch(ctx, p, tail, now)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -354,6 +391,10 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		fetchErr = errors.New("history response identity or clock changed")
 	}
 	if fetchErr == nil && tail > 0 && historicalOverlapChanged(saved.Result, *fresh) {
+		if !s.reserveHistoryReconciliation(key, now) {
+			// Never splice a changed price basis into an unreconciled prefix.
+			return selectStoredHistory(saved, storedAt, p, now, "cache", "Historical corrections await full reconciliation", true), nil
+		}
 		tail = -min(1830, max(1, int(math.Ceil(now.Sub(saved.Result.RequestedStart).Hours()/24))))
 		fresh, fetchErr = fetch(ctx, p, tail, now)
 		if fetchErr == nil && fresh != nil {
@@ -676,7 +717,11 @@ func selectStoredHistory(saved *storedMarketHistory, storedAt time.Time, p rpc.M
 		coverage = "previous_window"
 	}
 	r.Start, r.End = r.Points[0].At, r.Points[len(r.Points)-1].At
-	r.Cache = &rpc.MarketHistoryCache{Selected: selected, StoredAt: storedAt, FetchedAt: saved.Result.AsOf, CoveredThrough: r.End, Coverage: coverage, MissingSessions: missing, Detail: detail, RefreshFailed: failed, RefreshDue: historyRefreshOverdue(saved, p, now), PreviousWindow: previous}
+	reconcileDue := historyReconcileDue(saved, now)
+	if reconcileDue && detail == "" {
+		detail = "Full history reconciliation pending"
+	}
+	r.Cache = &rpc.MarketHistoryCache{Selected: selected, StoredAt: storedAt, FetchedAt: saved.Result.AsOf, CoveredThrough: r.End, Coverage: coverage, MissingSessions: missing, Detail: detail, RefreshFailed: failed, RefreshDue: historyRefreshOverdue(saved, p, now), ReconciliationDue: reconcileDue, PreviousWindow: previous}
 	return &r
 }
 

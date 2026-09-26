@@ -15,6 +15,8 @@ type marketDataCache struct {
 	storeMu  sync.Mutex
 	loopWG   sync.WaitGroup
 	interest map[string]marketHistoryInterest
+	// reconcileRetry bounds full-range attempts independently of tail updates.
+	reconcileRetry map[string]time.Time
 	// definitionMisses holds the broker's "no security definition" verdict
 	// by normalised history contract, so every remembered range of that
 	// contract pauses together; see rememberMarketHistoryDefinitionMiss.

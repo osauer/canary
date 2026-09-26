@@ -771,9 +771,17 @@ func (s *Server) breadthLaneHealth() error {
 		return fmt.Errorf("breadth bulk connector is not ready")
 	}
 	if farm, impaired := breadthLaneFarmImpaired(c); impaired {
-		return fmt.Errorf("historical data farm %s is %s; deferring fan-out until it recovers", farm.Name, farm.Status)
+		return breadthFarmGateError(farm)
 	}
 	return nil
+}
+
+func breadthFarmGateError(farm ibkrlib.DataFarmStatus) error {
+	err := fmt.Errorf("data farm %s is %s; fan-out deferred", farm.Name, farm.Status)
+	if strings.EqualFold(strings.TrimSpace(farm.Type), "historical") {
+		return &spx.RecoveryGateError{Cause: err}
+	}
+	return err
 }
 
 // breadthLaneFarmImpaired reports an explicit broken/disconnected notice on

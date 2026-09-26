@@ -41,9 +41,9 @@ const (
 const belowThresholdRetryDelay = 12 * time.Minute
 
 // transportRetryDelay paces attempts while Refresh reports the transport
-// path unusable (bulk lane down, historical farm broken). Each attempt is
-// refused by the health gate before any per-symbol fetch, so this is a
-// cheap in-memory poll, not gateway traffic — 60 s bounds how stale the
+// path unusable. A down connection refuses every request; a historical-farm
+// warning permits a serial recovery read after its separate failure backoff.
+// Other attempts are cheap in-memory polls — 60 s bounds how stale the
 // gate's answer can get when a farm recovers without a reconnect
 // handshake (IBKR sends farm-OK notices on existing connections). A
 // rebuild of the lane also Kicks the scheduler directly, so

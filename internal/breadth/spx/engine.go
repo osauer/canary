@@ -52,12 +52,9 @@ type Options struct {
 	// DeferStoreLoad constructs the engine cold without reading Store. The
 	// Engine.UseCoreStore to attach and load daemon.db before serving. Legacy
 	DeferStoreLoad bool
-	// HealthGate, when set, is consulted before and during a refresh
-	// fan-out. A non-nil return means the transport path is known-dead
-	// (lane down, historical farm broken) and the fan-out must not run:
-	// burning a full universe of per-symbol timeouts into a dead farm
-	// costs the whole publication window. The gate must be cheap — it is
-	// called once per planned symbol.
+	// HealthGate is consulted before and during refresh. Ordinary errors
+	// refuse every read; RecoveryGateError allows bounded serial recovery
+	// reads while preserving the warning. The gate must be cheap.
 	HealthGate func() error
 }
 
@@ -129,6 +126,12 @@ type Engine struct {
 	definitionMisses map[string]string
 
 	healthGate func() error
+	// Only Refresh holds these, under refreshMu. A failure admits one new
+	// trial after backoff; success permits the next serial request, never
+	// certifying all constituents or clearing the provider's warning.
+	recoveryRetryAt  time.Time
+	recoveryFailures int
+	recoveryAfter    string
 	// kick wakes a sleeping Run immediately (capacity 1, non-blocking send).
 	// The daemon fires it when the bulk lane finishes a rebuild, so recovery
 	// does not wait out whatever delay the scheduler was sleeping on.
@@ -337,11 +340,13 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	e.refreshMu.Lock()
 	defer e.refreshMu.Unlock()
 
+	var initialGate error
 	if e.healthGate != nil {
-		if err := e.healthGate(); err != nil {
+		initialGate = e.healthGate()
+		if initialGate != nil && (!recoverableGate(initialGate) || e.clock().Before(e.recoveryRetryAt)) {
 			e.beginRefreshProgress(0)
 			e.recordRefreshFailure(RefreshFailureTransport)
-			return err
+			return initialGate
 		}
 	}
 
@@ -360,6 +365,9 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	}()
 
 	plan := e.planFetches(members, cached)
+	if recoverableGate(initialGate) {
+		plan = e.rotateRecoveryPlan(plan)
+	}
 	e.beginRefreshProgress(len(plan))
 	if len(plan) == 0 {
 		// Nothing to fetch — recompute against cached windows so the
@@ -376,6 +384,14 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	e.logFetchErrors(fetchErrs)
 
 	if transportErr != nil {
+		if progress, _ := e.Progress(); recoverableGate(transportErr) && progress.Processed > progress.Failed {
+			// One constituent's failure cannot hide an otherwise converged
+			// observation. finalise still requires the ordinary current-session
+			// coverage threshold, and the transport warning remains active.
+			if err := e.finalise(members, cached); err != nil {
+				return err
+			}
+		}
 		// The gate turned red mid-fan-out. Progress so far is
 		// checkpointed; classify the attempt as transport, not coverage,
 		// so the scheduler retries on its short cadence.
@@ -472,22 +488,89 @@ func (e *Engine) execute(ctx context.Context, plan []fetchPlan, windows map[stri
 		e.mu.Unlock()
 		dirty = 0
 	}
+	readOne := func(readCtx context.Context, item fetchPlan, recovery bool) error {
+		bars, err := e.fetcher.FetchDaily(readCtx, item.Symbol, item.LookbackDays)
+		if err == nil {
+			err = validateBars(bars)
+		}
+		if err == nil && recovery && len(bars) == 0 {
+			err = errors.New("recovery read returned no observed bars")
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			errs[item.Symbol] = err
+			failure := RefreshFailureFetch
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				failure = RefreshFailureCancelled
+			}
+			if errors.Is(err, ErrNoDefinition) {
+				e.rememberDefinitionMiss(item.Symbol)
+			}
+			e.recordRefreshProcessed(failure)
+			return err
+		}
+		base := windows[item.Symbol]
+		observedAt := e.clock()
+		for i := range bars {
+			bars[i].ObservedAt = observedAt
+		}
+		if item.Rebuild {
+			base = ConstituentWindow{}
+		}
+		merged := mergeBars(base, bars, item.Symbol)
+		if constituentWindowsEqual(windows[item.Symbol], merged) {
+			e.recordRefreshProcessed("")
+			return nil
+		}
+		windows[item.Symbol] = merged
+		dirty++
+		if dirty >= windowCheckpointBatchSize {
+			checkpointLocked()
+		}
+		e.recordRefreshProcessed("")
+		return nil
+	}
 	sem := make(chan struct{}, e.workers)
 	var wg sync.WaitGroup
 
 dispatch:
 	for _, item := range plan {
-		// A gate that turns red mid-sweep means every remaining fetch
-		// would time out against a dead farm; stop dispatching and let
-		// the checkpointed progress carry into the next attempt.
-		if e.healthGate != nil {
-			if err := e.healthGate(); err != nil {
-				transportErr = err
-				break dispatch
-			}
+		if ctx.Err() != nil {
+			break
 		}
-		// Acquire one slot or bail if ctx fires first. Labelled break
-		// because plain `break` would only exit the select.
+		var gateErr error
+		if e.healthGate != nil {
+			gateErr = e.healthGate()
+		}
+		if gateErr != nil {
+			if !recoverableGate(gateErr) {
+				transportErr = gateErr
+				break
+			}
+			// Drain work admitted before the notice. While it remains, only
+			// one bounded request can run; a failure stops this pass.
+			wg.Wait()
+			if e.clock().Before(e.recoveryRetryAt) {
+				transportErr = gateErr
+				break
+			}
+			// The link can change while draining. A hard failure still vetoes.
+			if current := e.healthGate(); current != nil && !recoverableGate(current) {
+				transportErr = current
+				break
+			}
+			readCtx, cancel := context.WithTimeout(ctx, recoveryReadBudget)
+			err := readOne(readCtx, item, true)
+			cancel()
+			e.recordRecoveryResult(err)
+			if err != nil {
+				e.recoveryAfter = item.Symbol
+				transportErr = gateErr
+				break
+			}
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			break dispatch
@@ -495,43 +578,7 @@ dispatch:
 		}
 		wg.Go(func() {
 			defer func() { <-sem }()
-			bars, err := e.fetcher.FetchDaily(ctx, item.Symbol, item.LookbackDays)
-			if err == nil {
-				err = validateBars(bars)
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil {
-				errs[item.Symbol] = err
-				failure := RefreshFailureFetch
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					failure = RefreshFailureCancelled
-				}
-				if errors.Is(err, ErrNoDefinition) {
-					e.rememberDefinitionMiss(item.Symbol)
-				}
-				e.recordRefreshProcessed(failure)
-				return
-			}
-			base := windows[item.Symbol]
-			observedAt := e.clock()
-			for i := range bars {
-				bars[i].ObservedAt = observedAt
-			}
-			if item.Rebuild {
-				base = ConstituentWindow{}
-			}
-			merged := mergeBars(base, bars, item.Symbol)
-			if constituentWindowsEqual(windows[item.Symbol], merged) {
-				e.recordRefreshProcessed("")
-				return
-			}
-			windows[item.Symbol] = merged
-			dirty++
-			if dirty >= windowCheckpointBatchSize {
-				checkpointLocked()
-			}
-			e.recordRefreshProcessed("")
+			_ = readOne(ctx, item, false)
 		})
 	}
 	wg.Wait()

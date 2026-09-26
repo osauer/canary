@@ -63,7 +63,14 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	// connector's background pacing lane so interactive reads on the
 	// same client are not queued behind the 500-name history sweep.
 	ctx = ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground)
+	binding, ready := c.CaptureHistoricalSession()
+	if !ready {
+		return nil, fmt.Errorf("breadth fetcher: historical session unavailable")
+	}
 	raw, err := c.FetchHistoricalDailyBars(ctx, symbol, lookbackDays, f.defaultTimeout)
+	if !c.HistoricalSessionCurrent(binding) || f.getConn() != c {
+		return nil, fmt.Errorf("breadth fetcher: historical session changed during read")
+	}
 	if errors.Is(err, ibkrlib.ErrContractNoDefinition) {
 		return nil, spx.ErrNoDefinition
 	}

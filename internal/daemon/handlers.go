@@ -3559,7 +3559,10 @@ func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealt
 		s.mu.Unlock()
 		if farm, impaired := breadthLaneFarmImpaired(lane); impaired {
 			sub.Status = "degraded"
-			sub.Message = fmt.Sprintf("S&P 500 breadth is deferred: historical data farm %s is %s on the breadth connection", farm.Name, farm.Status)
+			sub.Message = fmt.Sprintf("S&P 500 breadth fan-out is deferred: farm %s is %s on the breadth connection", farm.Name, farm.Status)
+			if strings.EqualFold(strings.TrimSpace(farm.Type), "historical") {
+				sub.Message += "; recovery uses bounded serial reads"
+			}
 			sub.LastError = "breadth_hmds_farm_impaired"
 			sub.LastErrorAt = farm.AsOf
 			return sub

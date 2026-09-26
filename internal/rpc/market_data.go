@@ -82,5 +82,8 @@ type MarketHistoryCache struct {
 	Detail          string    `json:"detail,omitempty"`
 	RefreshFailed   bool      `json:"refresh_failed,omitempty"`
 	RefreshDue      bool      `json:"refresh_due,omitempty"`
-	PreviousWindow  bool      `json:"previous_window,omitempty"`
+	// ReconciliationDue is independent of recent-bar freshness: tail reads
+	// do not certify corrections to the older retained range.
+	ReconciliationDue bool `json:"reconciliation_due,omitempty"`
+	PreviousWindow    bool `json:"previous_window,omitempty"`
 }
