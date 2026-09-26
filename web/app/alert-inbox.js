@@ -549,7 +549,7 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
     const cushion = stress.portfolio?.cushion_pct;
     const trip = stress.portfolio?.cushion_trip_pct;
     return Number.isFinite(cushion)
-      ? `Margin cushion ${formatAlertPercent(cushion)}${Number.isFinite(trip) ? ` · Rulebook level ${formatAlertPercent(trip)}` : ""}`
+      ? `Margin cushion ${formatAlertPercent(cushion)}${Number.isFinite(trip) ? ` · stress watch floor ${formatAlertPercent(trip)}` : ""}`
       : "";
   }
   if (target.kind === "brief") return boundedFact(snapshot.brief?.ready?.capital?.reason || snapshot.brief?.ready?.latch?.reason);
