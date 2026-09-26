@@ -53,6 +53,12 @@ func TestRiskReductionTrimsIssuerBackToTheWatchLevel(t *testing.T) {
 	if len(props) != 1 || props[0].Quantity != 100 || !strings.Contains(strings.Join(props[0].Details, " "), "max_order_notional") {
 		t.Fatalf("capped trim = %+v", props)
 	}
+	// The capped order reports its own loss after (350 shares, 35%), never
+	// the full plan's 30%.
+	if p := props[0]; p.IssuerLossAfterPctNLV == nil || *p.IssuerLossAfterPctNLV != 35 ||
+		!strings.Contains(p.Reason, "this order lowers it to 35.0%") || !strings.Contains(p.Reason, "waits for the next cycle") {
+		t.Fatalf("capped trim after = %v, reason %q", p.IssuerLossAfterPctNLV, p.Reason)
+	}
 
 	acct, pos = issuerTestBook(350)
 	if props := engine.riskReductionProposals(context.Background(), policy, status, acct, pos, rpc.TradeProposalSourceFingerprints{}, now); len(props) != 0 {

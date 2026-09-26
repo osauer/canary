@@ -129,3 +129,72 @@ func TestRulebookRiskCapitalNamesTheMissingNumber(t *testing.T) {
 		t.Fatalf("complete input = %+v", got)
 	}
 }
+
+// `canary rules --symbol AAB` keeps the rule 1 offender of the issuer group
+// AAB belongs to: rule 1 names the issuer, not the line.
+func TestSymbolFilterKeepsTheIssuerGroupOfALine(t *testing.T) {
+	res := &rpc.RulesResult{Rules: []risk.RuleRow{{ID: risk.RuleSingleNameExposure, Offenders: []risk.RuleOffender{
+		{Symbol: "GroupA", Issuer: &risk.IssuerExposure{Issuer: "GroupA", Lines: []string{"AAA", "AAB"}}},
+		{Symbol: "BBB", Issuer: &risk.IssuerExposure{Issuer: "BBB", Lines: []string{"BBB"}}},
+	}}}}
+	filterRuleOffenders(res, "AAB")
+	if got := res.Rules[0].Offenders; len(got) != 1 || got[0].Symbol != "GroupA" {
+		t.Fatalf("filtered offenders = %+v", got)
+	}
+}
+
+// An opening order on an issuer at rule 1 warns with the issuer (a grouped
+// line names its group) and that issuer's own band, and only when the order
+// loses more at the issuer's worst price: a creditable protective put or a
+// covered-call premium lowers the worst-case loss and does not warn.
+func TestPreviewWarnsOnlyWhenTheOrderAddsToTheIssuersWorstCaseLoss(t *testing.T) {
+	fall := -100.0
+	asOf := time.Date(2026, 9, 26, 15, 0, 0, 0, time.UTC)
+	res := &rpc.RulesResult{Enabled: true, Status: "ok", AsOf: asOf, Rules: []risk.RuleRow{{
+		ID: risk.RuleSingleNameExposure, Number: 1, Status: risk.RuleStatusAct, Offenders: []risk.RuleOffender{
+			{Symbol: "GroupA", Status: risk.RuleStatusAct, Observed: 45, Issuer: &risk.IssuerExposure{Issuer: "GroupA", Lines: []string{"AAA", "AAB"}, WorstMovePct: &fall}},
+			{Symbol: "BBB", Status: risk.RuleStatusWatch, Observed: 35, Issuer: &risk.IssuerExposure{Issuer: "BBB", Lines: []string{"BBB"}, WorstMovePct: &fall}},
+		}}}}
+	open := rpc.OrderPositionImpact{Effect: "open"}
+	warning := func(d rpc.OrderDraft) *rpc.DataWarning {
+		for _, w := range rulebookPreviewWarnings(res, d, open) {
+			if w.Code == "rule_"+risk.RuleSingleNameExposure {
+				return &w
+			}
+		}
+		return nil
+	}
+	stock := func(sym string) rpc.OrderDraft {
+		return rpc.OrderDraft{Action: "BUY", Contract: rpc.ContractParams{Symbol: sym, SecType: "STK"}}
+	}
+	option := func(action, right string, days int) rpc.OrderDraft {
+		return rpc.OrderDraft{Action: action, Contract: rpc.ContractParams{Symbol: "AAA", SecType: "OPT", Right: right, Expiry: asOf.AddDate(0, 0, days).Format("20060102")}}
+	}
+	if w := warning(stock("AAB")); w == nil || w.Severity != risk.RuleStatusAct || !strings.Contains(w.Message, "AAB (part of GroupA) is already at or above its rule 1 cap") {
+		t.Fatalf("grouped line: %+v", w)
+	}
+	if w := warning(stock("BBB")); w == nil || w.Severity != risk.RuleStatusWatch || !strings.Contains(w.Message, "rule 1 watch level") {
+		t.Fatalf("second offender at watch: %+v", w)
+	}
+	if w := warning(option("BUY", "P", 60)); w != nil {
+		t.Fatalf("a creditable protective put warned: %+v", w)
+	}
+	if w := warning(option("BUY", "P", 5)); w == nil {
+		t.Fatal("a put too short to be credited adds premium at risk and must warn")
+	}
+	if w := warning(option("SELL", "C", 30)); w != nil {
+		t.Fatalf("a sold call keeps its premium at a fall and lowers the loss: %+v", w)
+	}
+	if w := warning(option("BUY", "C", 30)); w == nil {
+		t.Fatal("a bought call loses its premium at a fall and must warn")
+	}
+	if w := warning(stock("CCC")); w != nil {
+		t.Fatalf("an issuer under its levels warned: %+v", w)
+	}
+	unknown := *res
+	unknown.Rules = []risk.RuleRow{res.Rules[0]}
+	unknown.Rules[0].Offenders = []risk.RuleOffender{{Symbol: "AAA", Status: risk.RuleStatusAct, Issuer: &risk.IssuerExposure{Issuer: "AAA", Lines: []string{"AAA"}}}}
+	if ws := rulebookPreviewWarnings(&unknown, option("SELL", "C", 30), open); len(ws) == 0 {
+		t.Fatal("an unknown worst price must never exempt an order")
+	}
+}

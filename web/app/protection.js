@@ -746,10 +746,16 @@ function renderProtectionExposure() {
 function protectionReason(proposals = {}, autoTrade = {}) {
   const blocker = (proposals.blockers || autoTrade.blockers || [])[0];
   if (blocker) return blockerText(blocker);
-  if (autoTrade.policy?.status && autoTrade.policy.status !== "active" && autoTrade.policy.status !== "default") {
-    return `Policy ${autoTrade.policy.status}`;
+  // A drifted or unreadable policy file never blocks an exit or a trim: the
+  // policy in force keeps proposing and only automatic submission pauses.
+  const policy = proposals.policy_status || autoTrade.policy || {};
+  if (policy.status && policy.status !== "active" && policy.status !== "default") {
+    return policy.automation_paused
+      ? `Policy ${policy.status}: automatic submission paused; proposals continue`
+      : `Policy ${policy.status}`;
   }
-  return autoTrade.fast_path_enabled === false ? "Fast path disabled" : "";
+  if (autoTrade.fast_path_enabled === false) return "Fast path disabled";
+  return policy.review === "unreviewed" ? "Protection policy: Canary defaults, not yet reviewed" : "";
 }
 
 function protectionSnapshotRefreshReason() {
@@ -1245,12 +1251,22 @@ function protectionMetricText(proposal = {}) {
     return parts.join(" · ");
   }
   if (proposal.bucket === "risk_reduction") {
+    // The daemon measures the trim on Rulebook rule 1: the issuer's
+    // worst-case loss with every leg netted, before and after this order,
+    // and the watch level it trims back to. Render the served figures only.
     const parts = [];
-    if (typeof proposal.market_value_pct_nlv === "number") {
+    const loss = proposal.issuer_loss_pct_nlv;
+    const after = proposal.issuer_loss_after_pct_nlv;
+    const target = proposal.issuer_target_pct_nlv;
+    if (hasNumericValue(loss)) {
+      const who = proposal.issuer ? `${proposal.issuer} ` : "";
+      parts.push(`${who}worst-case loss ${pct(loss)} of NLV${hasNumericValue(after) ? ` → ${pct(after)} after` : ""}`);
+      if (hasNumericValue(target)) parts.push(`watch level ${pct(target)}`);
+    } else if (typeof proposal.market_value_pct_nlv === "number") {
       parts.push(`${pct(Math.abs(proposal.market_value_pct_nlv))} of NLV`);
     }
     if (hasNumericValue(proposal.risk_excess_notional) && proposal.risk_excess_notional > 0) {
-      parts.push(`${compactWholeMoney(proposal.risk_excess_notional, proposal.risk_excess_currency || "")} over target`);
+      parts.push(`${compactWholeMoney(proposal.risk_excess_notional, proposal.risk_excess_currency || "")} over ${hasNumericValue(loss) ? "the watch level" : "target"}`);
     }
     return parts.join(" · ");
   }

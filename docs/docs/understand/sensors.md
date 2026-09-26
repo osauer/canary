@@ -352,15 +352,18 @@ and source health alongside the risk evidence.
 
 ### What it answers
 
-Rulebook evaluates 14 advisory discipline checks over the current book: which
-pass, which need attention, and which cannot be evaluated. Inputs are account
-and positions evidence, per-name earnings evidence, the classified Regime stage,
-and current SPY tape where a rule needs it. The pure evaluator returns all 14
-rows in stable order plus a hardest-first ranking, breach counts, offenders,
-observed values, thresholds, and evidence. The detailed
+Rulebook evaluates 18 advisory checks over the current book, 15 discipline
+rules and 3 concentration watches that never act: which pass, which need
+attention, and which cannot be evaluated. Inputs are account and positions
+evidence, per-name earnings evidence, the classified Regime stage, 20-day
+average volume for days to exit, the constitution's effective risk capital for
+the loss budget, and current SPY tape where a rule needs it. The pure evaluator
+returns all 18 rows in stable order plus a hardest-first ranking, breach
+counts, offenders with their own status, observed values, thresholds, and
+evidence. The detailed
 [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md) is the semantic authority;
-compiled v2 is an advisory model, not proof that every threshold has operator
-approval.
+Canary's default limits (`rulebook-v4`) are an advisory model, not proof that
+every threshold has operator approval.
 
 Row outcomes are `pass`, `info`, `watch`, `act`, `unknown`, or `not_evaluated`.
 Missing or partial input cannot create a false pass. Provider disagreement or an

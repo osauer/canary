@@ -1,7 +1,7 @@
 import { stressProtectionCoverageFor, protectionCoverageBaseCurrency, protectionCoverageHasData, protectionCoverageHeadline, protectionCoverageLargestText, protectionCoverageStaleText } from "./protection-coverage.js";
 import { unknownEventRuleNote } from "./earnings-relevance.js";
 import { earningsApplicabilitySummary, earningsHealthNotes, ruleStatusLabel, wshEntitlementNotice } from "./rules-presentation.js";
-import { $, calendarDate, cleanDetail, firstNumber, labelize, normalizeSymbol, numberRead, parseDate, pct, quoteTimestamp, renderFreshnessTimestamp, shortTimeWithZone, signedClass, signedPct, wholePct } from "./shared.js";
+import { $, calendarDate, cleanDetail, firstNumber, labelize, normalizeSymbol, numberRead, parseDate, pct, quoteTimestamp, renderFreshnessTimestamp, sensitiveMoney, shortTimeWithZone, signedClass, signedPct, wholePct } from "./shared.js";
 import { state } from "./state.js";
 
 const RULE_TONES = { act: "risk", watch: "warn", pass: "ok", info: "neutral", unknown: "neutral", not_evaluated: "neutral" };
@@ -75,6 +75,8 @@ function renderRulesProvenance(rules = {}) {
     const name = /rulebook/i.test(id) ? id : `Rulebook ${id}`;
     parts.push(v && id.toLowerCase().endsWith(v.toLowerCase()) ? name : `${name}${v ? ` ${v}` : ""}`);
   }
+  // The limits are Canary's defaults until the owner reviews the file.
+  if (rules.policy_status?.review === "unreviewed") parts.push("Canary defaults, not yet reviewed");
   const at = parseDate(rules.as_of);
   const evaluated = $("rulesSheetEvaluated");
   if (evaluated) {
@@ -226,7 +228,7 @@ function renderRulesGrid(rules, order) {
     const list = document.createElement("div");
     list.className = "rules-group__list";
     for (const rule of rows) {
-      const row = ruleChecklistRow(rule);
+      const row = ruleChecklistRow(rule, rules.base_currency || "");
       row.open = rowOpen.get(String(rule.id || "")) ?? row.open;
       list.append(row);
     }
@@ -246,7 +248,7 @@ function renderRulesGrid(rules, order) {
   }
 }
 
-function ruleChecklistRow(r) {
+function ruleChecklistRow(r, baseCurrency = "") {
   const status = String(r.status || "").toLowerCase();
   const mode = r.mode || "alert";
   const row = document.createElement("details");
@@ -323,11 +325,23 @@ function ruleChecklistRow(r) {
       const identity = document.createElement("span");
       identity.textContent = item.leg || item.symbol || "Unspecified position";
       li.append(identity);
+      // Each offender of a two-band or watch-only rule carries its own band
+      // from the daemon: a second issuer between the levels reads watch while
+      // the row acts. Render the served band; never derive one here.
+      const band = ruleOffenderBand(item, r.unit);
+      if (band) {
+        const reading = document.createElement("span");
+        reading.className = `rules-row__offender-band rules-row__offender-band--${item.status}`;
+        reading.textContent = band;
+        li.append(reading);
+      }
       if (item.note) {
         const note = document.createElement("span");
         note.textContent = item.note;
         li.append(note);
       }
+      const legs = ruleIssuerDetail(item.issuer, baseCurrency);
+      if (legs) li.append(legs);
       list.append(li);
     }
     body.append(heading, list);
@@ -344,6 +358,56 @@ function ruleChecklistRow(r) {
   body.append(reference);
   row.append(body);
   return row;
+}
+
+// ruleOffenderBand renders an offender's own served band and reading.
+function ruleOffenderBand(item, unit = "") {
+  if (!["act", "watch"].includes(item?.status)) return "";
+  const amount = typeof item.observed === "number" && Number.isFinite(item.observed)
+    ? ` at ${new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }).format(item.observed)}${unit ? (unit.startsWith("%") ? "" : " ") + unit : ""}`
+    : "";
+  return `${labelize(item.status)}${amount}`;
+}
+
+// ruleIssuerDetail lists what rule 1 netted for one issuer: the lines of a
+// grouped issuer and the legs that move most at its worst price, with hedges
+// credited or not and legs sized at the takeover gap. The daemon computes
+// every figure; this only formats the served values.
+function ruleIssuerDetail(issuer, baseCurrency = "") {
+  if (!issuer || typeof issuer !== "object") return null;
+  const wrap = document.createElement("div");
+  wrap.className = "rules-row__issuer";
+  const lines = Array.isArray(issuer.lines) ? issuer.lines : [];
+  if (lines.length > 1 || (lines.length === 1 && String(lines[0]).toUpperCase() !== String(issuer.issuer || "").toUpperCase())) {
+    const joined = document.createElement("span");
+    joined.textContent = `Lines ${lines.join(", ")}`;
+    wrap.append(joined);
+  }
+  const legs = (Array.isArray(issuer.legs) ? issuer.legs : [])
+    .filter((leg) => typeof leg?.loss_base === "number" && Number.isFinite(leg.loss_base))
+    .sort((a, b) => Math.abs(b.loss_base) - Math.abs(a.loss_base));
+  if (legs.length) {
+    const list = document.createElement("ul");
+    list.className = "rules-row__legs";
+    for (const leg of legs.slice(0, 4)) {
+      const li = document.createElement("li");
+      const effect = leg.loss_base > 0 ? `loses ${sensitiveMoney(leg.loss_base, baseCurrency)}`
+        : leg.loss_base < 0 ? `gains ${sensitiveMoney(-leg.loss_base, baseCurrency)}` : "flat";
+      const flags = [
+        leg.hedge === "credited" ? "hedge credited" : leg.hedge === "uncredited" ? "hedge not credited" : "",
+        leg.unbounded ? "unbounded, sized at the takeover gap" : "",
+      ].filter(Boolean);
+      li.textContent = [leg.leg || leg.symbol || "Leg", effect].join(" · ") + (flags.length ? ` (${flags.join("; ")})` : "");
+      list.append(li);
+    }
+    if (legs.length > 4) {
+      const more = document.createElement("li");
+      more.textContent = `${legs.length - 4} more legs`;
+      list.append(more);
+    }
+    wrap.append(list);
+  }
+  return wrap.children.length ? wrap : null;
 }
 
 function renderStressDetail(stress, snap = state.snapshot || {}) {
@@ -478,12 +542,19 @@ function stressHeroFigure(stress = {}) {
 
 function stressLeadDriverFigure(stress = {}) {
   const p = stress.portfolio || {};
+  // The concentration drivers are the Rulebook's rule 1 worst-case loss and
+  // rule 16 dollar delta; an older payload keeps its market-value reading.
+  const c = p.concentration || {};
   const readings = {
     gross_delta_high: () => stressDriverReading("gross delta", p.gross_delta_pct_nlv),
     net_delta_high: () => stressDriverReading("net delta", p.net_delta_pct_nlv),
     gross_exposure_high: () => stressDriverReading("gross", p.gross_exposure_pct_nlv),
-    single_name_delta_high: () => stressDriverReading(`${normalizeSymbol(p.largest_delta_exposure) || "top name"} delta`, p.largest_delta_pct_nlv),
-    single_name_exposure_high: () => stressDriverReading(normalizeSymbol(p.largest_exposure) || "top name", p.largest_exposure_pct_nlv),
+    single_name_delta_high: () => typeof c.delta_pct_nlv === "number"
+      ? stressDriverReading(`${cleanDetail(c.delta_issuer) === "--" ? "top issuer" : cleanDetail(c.delta_issuer)} delta`, c.delta_pct_nlv)
+      : stressDriverReading(`${normalizeSymbol(p.largest_delta_exposure) || "top name"} delta`, p.largest_delta_pct_nlv),
+    single_name_exposure_high: () => typeof c.worst_case_loss_pct_nlv === "number"
+      ? stressDriverReading(`${cleanDetail(c.issuer) === "--" ? "top issuer" : cleanDetail(c.issuer)} worst-case loss${c.worst_case_loss_is_lower_bound ? " ≥" : ""}`, c.worst_case_loss_pct_nlv)
+      : stressDriverReading(normalizeSymbol(p.largest_exposure) || "top name", p.largest_exposure_pct_nlv),
     margin_cushion_low: () => stressCushionFigure(stress),
     lookahead_cushion_low: () => stressCushionFigure(stress),
   };
@@ -2182,4 +2253,4 @@ function heldStressFlagLabel(value) {
   return cleanDetail(value);
 }
 
-export { regimeGammaDetails, applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesProvenance, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, ruleGroupKey, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };
+export { regimeGammaDetails, applyTileSeverity, bandRank, CLUSTER_FAULT_LISTS, clusterCaption, clusterFault, clusterFigure, clusterIndicators, clusterInputLabel, clusterLeadIndicator, clusterNameListed, clusterSourceAsOf, clusterSourceFault, clusterSourceRows, clusterTrip, detailCard, earningsApplicabilitySummary, earningsHealthNotes, faultCaption, firstClause, gatewayDataStatus, heldStressEvidence, heldStressFlagLabel, heldStressItems, heldStressReasonLabel, heldStressReasonLabels, heldStressRow, heldStressSummary, heldStressTone, humanizeStalenessSeconds, humanList, indicatorAsOfLabel, indicatorBand, indicatorStatusClass, lampTestSources, latestRegimeRead, latestRegimeTimestamp, latestRegimeTimestampFallback, leadingClause, legacyRegimeTone, marketAccessBySymbol, marketAccessReasonLabel, marketExplanation, marketHasDataGaps, marketQuoteCell, marketQuoteChangeClass, marketQuoteErrorLabel, marketQuoteFallback, marketQuoteInterruptedLine, marketQuoteSessionClosed, marketQuoteSourceLine, marketRegimeLabel, marketRegimeStatusLine, marketSourceErrorLabel, marketSourceIssueLabels, masterSeverity, masterSubline, normalizeRegimePosture, offPanelRedClusters, portfolioExplanation, protectionCoverageStressLine, quoteBySymbol, quoteChange, quoteChangePct, quotePrevClose, quotePrice, quoteTime, reconcileSignalPanelTimes, REGIME_CLUSTERS, regimeAuthorityLabel, regimeAuthorityReasonLabel, regimeAuthorityStatusLine, regimeAuthorityView, regimeClusterBand, regimeClusterTile, regimeFallbackIndicators, regimeGovernedNote, regimeGovernorReasonLabel, regimePosture, regimePostureDetailTone, regimePresentationPosture, regimeStaleBudgetMinutes, regimeWeatherClass, renderHeldStress, renderLampTest, renderMarketContext, renderMarketWeather, renderRegimeAuthorityTimestamp, renderRegimeDetail, renderRegimeGrid, renderRegimePanel, renderRegimeQualityRemarks, renderRulesCard, renderRulesGrid, renderRulesProvenance, renderRulesTileState, renderSignedPercent, renderStressDetail, renderStressStatus, renderStressTimestamp, RULE_TONES, ruleChecklistRow, ruleGroupKey, ruleIssuerDetail, ruleOffenderBand, ruleStatusLabel, rulesTileFigure, ruleTone, severityRank, snapshotSourceName, sourceHealthMentions, sourceTransportFault, staleFigure, stressCushionFigure, stressDriverLabel, stressDriverPriority, stressDriverRow, stressDriverRows, stressDriverTone, stressEmptyDriverRow, stressExplanationCards, stressHasProvisionalOnlyMarketWarning, stressInputCheckBlocksAction, stressLeadDriverFigure, stressInputCheckSentence, stressInputIssueLabels, stressInputIssueSummary, stressNeedsInputCheck, stressRowNeedsAttention, stressStageLabel, stressSummaryText, unknownEventRuleNote, worstSeverity };

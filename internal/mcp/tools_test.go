@@ -372,3 +372,18 @@ func TestMCPToolsDeclareCataloguedMethodsAndHeadroom(t *testing.T) {
 		}
 	}
 }
+
+// canary_rules tells an agent what rule 1 now measures and where each
+// offender's own band and the issuer detail live (owner decision 2026-09-26).
+func TestRulesDescribesIssuerConcentrationContract(t *testing.T) {
+	tool, ok := lookupTool("canary_rules")
+	if !ok {
+		t.Fatal("missing canary_rules")
+	}
+	description := strings.ToLower(tool.Description)
+	for _, phrase := range []string{"worst-case loss on one issuer", "never act", "`review: unreviewed`", "each offender its own `status`", "`issuer`", "credited and uncredited hedges", "unbounded legs"} {
+		if !strings.Contains(description, phrase) {
+			t.Errorf("canary_rules description missing %q", phrase)
+		}
+	}
+}

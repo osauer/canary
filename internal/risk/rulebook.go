@@ -124,6 +124,13 @@ type RuleOffender struct {
 	Observed   float64 `json:"observed"`
 	ImpactBase float64 `json:"impact_base,omitempty"`
 	Note       string  `json:"note,omitempty"`
+	// Status is this offender's own band on a rule with watch and act levels
+	// (rules 1, 2 and 13): act or watch, measured against the offender's own
+	// limits (an illiquid issuer's bands, a protection line's tier), so a
+	// second offender between the levels reads watch while the row reads act.
+	// Offenders of the watch-only rules 16-18 read watch, and an offender
+	// that could not be measured reads unknown. Absent on other rules.
+	Status string `json:"status,omitempty"`
 	// Issuer carries the netted worst-case loss behind a rule 1 offender and
 	// the issuer rows of its watches: the lines and legs, which long options
 	// were credited as protection, and which legs are unbounded.
@@ -601,7 +608,7 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 			// so an unmeasurable leg is collected and forces the row to unknown
 			// below rather than being compared or silently skipped.
 			if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted {
-				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
+				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Status: RuleStatusUnknown,
 					Note: "premium not convertible to base — no FX rate for the leg's currency"})
 				continue
 			}
@@ -619,7 +626,7 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 				hedgeWorst = math.Max(hedgeWorst, p)
 				if p >= hWatch {
 					hedgeOff = append(hedgeOff, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
-						Observed: round1(p), ImpactBase: atRisk,
+						Observed: round1(p), ImpactBase: atRisk, Status: bandStatus(p, hWatch, hAct),
 						Note: fmt.Sprintf("hedge-premium tier (watch %s%%/act %s%%) — sized by rule 12", limitText(hWatch), limitText(hAct))})
 				}
 				continue
@@ -627,7 +634,7 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 			worst = math.Max(worst, p)
 			if p >= watch {
 				normalOff = append(normalOff, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
-					Observed: round1(p), ImpactBase: atRisk, Note: note})
+					Observed: round1(p), ImpactBase: atRisk, Note: note, Status: bandStatus(p, watch, act)})
 			}
 		}
 	}
@@ -1618,7 +1625,7 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 				// below the floor and hide an unassessable position.
 				if l.MarketValueBaseSource == MarketValueBaseSourceSubstituted ||
 					pct(math.Abs(l.MarketValueBase), c.nlv) >= c.pol.GreeksGapFloorPctNLV {
-					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc,
+					unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Status: RuleStatusUnknown,
 						Note: "cost basis unavailable — loss not assessable"})
 				}
 				continue
@@ -1630,8 +1637,8 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 			}
 			worst = math.Max(worst, loss)
 			o := RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Observed: round1(loss),
-				ImpactBase: math.Abs(l.MarketValueBase),
-				Note:       fmt.Sprintf("-%.0f%% of premium paid; %.1f%% of NLV still salvageable", round1(loss), round1(pct(math.Abs(l.MarketValueBase), c.nlv)))}
+				ImpactBase: math.Abs(l.MarketValueBase), Status: band,
+				Note: fmt.Sprintf("-%.0f%% of premium paid; %.1f%% of NLV still salvageable", round1(loss), round1(pct(math.Abs(l.MarketValueBase), c.nlv)))}
 			if band == RuleStatusAct {
 				actOff = append(actOff, o)
 			} else {

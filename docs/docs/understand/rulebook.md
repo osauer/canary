@@ -103,8 +103,15 @@ The baseline ships as policy `rulebook-v4`, and every row carries its
 arithmetic instead of trusting the verdict. `threshold` is the limit for the
 row's status: the act level on an `act` row, the watch level otherwise, and the
 evidence quotes that same number. Rules with a watch and an act level also
-carry both as `watch_threshold` and `act_threshold`. A reading exactly at a
-level is in that level. Two rules read differently: expiry runway counts
+carry both as `watch_threshold` and `act_threshold`, and each of their
+offenders carries its own `status`, `act` or `watch`, measured against that
+offender's own limits (an illiquid issuer's bands, a protection line's tier):
+a second issuer between the levels reads `watch` while the row reads `act`.
+Offenders of the watch-only rules 16 to 18 read `watch`, and an offender that
+could not be measured reads `unknown`. A rule 1 offender also carries
+`issuer`: the lines it joins, every leg with its loss at the worst price, the
+hedges credited or not, and the legs sized at the takeover gap. A reading
+exactly at a level is in that level. Two rules read differently: expiry runway counts
 down and triggers at its limits (watch at 14 days or fewer, act at 7 or
 fewer), and index protection is a range whose edges are inside it. A baseline value is not itself proof that the
 threshold has your approval; set the ones you have decided.

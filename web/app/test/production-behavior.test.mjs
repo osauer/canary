@@ -896,6 +896,12 @@ test("alert rows separate affected positions and expose the authoritative review
     market_indicators: [{ name: "Gamma", status: "n/a", comment: "Current options positioning is incomplete", as_of: "2026-08-10" }],
   };
   assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "SYN 47.2% of NLV");
+  state.snapshot.stress.portfolio.concentration = { issuer: "GroupA", worst_case_loss_pct_nlv: 44.5, watch_pct: 30, act_pct: 40 };
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "GroupA worst-case loss 44.5% of NLV",
+    "the concentration driver quotes rule 1's measure, not market value");
+  state.snapshot.stress.portfolio.concentration.worst_case_loss_is_lower_bound = true;
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "GroupA worst-case loss at least 44.5% of NLV");
+  delete state.snapshot.stress.portfolio.concentration;
   assert.equal(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), "Gamma: Current options positioning is incomplete · as of 2026-08-10");
   state.snapshot.status = { data_quality: [{ surface: "regime", status: "partial", partial_clusters: ["credit"], as_of: "2026-08-10T15:58:00Z" }] };
   assert.match(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), /^Credit inputs partial · as of /);
@@ -948,6 +954,78 @@ test("Rules keep configuration, applicability, and incomplete measurements disti
   assert.match(bandedFacts, /Watch level40% premium lost/, "a two-band row names its watch band");
   assert.match(bandedFacts, /Act level60% premium lost/, "a two-band row names its act band");
   assert.doesNotMatch(bandedFacts, /Reference threshold/, "the served bands replace the single reference limit");
+});
+
+test("a risk-reduction trim shows the issuer's worst-case loss before and after", () => {
+  const trim = { bucket: "risk_reduction", issuer: "GroupA", issuer_loss_pct_nlv: 45, issuer_loss_after_pct_nlv: 35, issuer_target_pct_nlv: 30,
+    market_value_pct_nlv: 52, risk_excess_notional: 15000, risk_excess_currency: "EUR" };
+  const text = protection.protectionMetricText(trim);
+  assert.match(text, /^GroupA worst-case loss 45\.0% of NLV → 35\.0% after · watch level 30\.0% · .* over the watch level$/);
+  assert.doesNotMatch(text, /52\.0%/, "the market-value share is not the trim's measure");
+  const legacy = { bucket: "risk_reduction", market_value_pct_nlv: 52, risk_excess_notional: 15000, risk_excess_currency: "EUR" };
+  assert.match(protection.protectionMetricText(legacy), /^52\.0% of NLV · .* over target$/, "an older daemon's row still reads");
+});
+
+test("a drifted protection policy says proposals continue and only automation pauses", () => {
+  assert.equal(protection.protectionReason({ policy_status: { status: "drift", automation_paused: true } }, {}),
+    "Policy drift: automatic submission paused; proposals continue");
+  assert.equal(protection.protectionReason({ policy_status: { status: "active", review: "unreviewed" } }, {}),
+    "Protection policy: Canary defaults, not yet reviewed");
+  assert.equal(protection.protectionReason({ policy_status: { status: "active" } }, { fast_path_enabled: false }), "Fast path disabled");
+  assert.equal(protection.protectionReason({ policy_status: { status: "active" } }, {}), "");
+});
+
+test("the rules sheet says when the limits are Canary's unreviewed defaults", () => {
+  reset();
+  stress.renderRulesProvenance({ policy_id: "rulebook-v4", policy_version: 4, policy_status: { status: "active", source: "file", review: "unreviewed" } });
+  assert.match(dom.element("rulesSheetProvenance").textContent, /^rulebook-v4 · Canary defaults, not yet reviewed$/);
+  stress.renderRulesProvenance({ policy_id: "rulebook-owner", policy_version: 5, policy_status: { status: "active", source: "file" } });
+  assert.doesNotMatch(dom.element("rulesSheetProvenance").textContent, /not yet reviewed/);
+});
+
+test("the stress figure quotes the Rulebook's concentration measures", () => {
+  const stressRead = { primary_drivers: ["single_name_exposure_high"], portfolio: { largest_exposure: "SYN", largest_exposure_pct_nlv: 52,
+    concentration: { issuer: "GroupA", worst_case_loss_pct_nlv: 44.5, delta_issuer: "BBB", delta_pct_nlv: 31 } } };
+  assert.equal(stress.stressLeadDriverFigure(stressRead), "GroupA worst-case loss 45% NLV");
+  stressRead.primary_drivers = ["single_name_delta_high"];
+  assert.equal(stress.stressLeadDriverFigure(stressRead), "BBB delta 31% NLV");
+  delete stressRead.portfolio.concentration;
+  stressRead.primary_drivers = ["single_name_exposure_high"];
+  assert.equal(stress.stressLeadDriverFigure(stressRead), "SYN 52% NLV", "an older payload keeps its reading");
+});
+
+test("rule offenders show their own served band and rule 1 issuer detail", () => {
+  reset();
+  state.accountValueVisible = true;
+  const row = stress.ruleChecklistRow({
+    id: "single_name_exposure", number: 1, title: "Worst-case loss on one issuer", mode: "alert", status: "act",
+    observed: 45, watch_threshold: 30, act_threshold: 40, threshold: 40, unit: "% NLV", evidence: "AAA can lose 45.0% of NLV.",
+    offenders: [
+      { symbol: "AAA", observed: 45, status: "act", note: "worst at a fall to zero", issuer: {
+        issuer: "GroupA", lines: ["AAA", "AAB"], legs: [
+          { leg: "AAA stock", loss_base: 45000 },
+          { leg: "AAA 20261120 P 90", loss_base: -8000, hedge: "credited" },
+          { leg: "AAB 20261016 C 120", loss_base: 12000, unbounded: true },
+          { leg: "AAB 20261016 P 80", loss_base: 300, hedge: "uncredited" },
+          { leg: "AAB stock", loss_base: 100 },
+        ] } },
+      { symbol: "BBB", observed: 35, status: "watch" },
+      { symbol: "DDD", status: "unknown", note: "not measured: DDD stock price unavailable" },
+    ],
+  }, "EUR");
+  const bands = byClass(row, "rules-row__offender-band").map((el) => el.textContent);
+  assert.deepEqual(bands, ["Act at 45% NLV", "Watch at 35% NLV"], "each offender shows its own served band; an unknown one shows none");
+  const detail = byClass(row, "rules-row__issuer")[0].textContent;
+  assert.match(detail, /Lines AAA, AAB/);
+  assert.match(detail, /AAA 20261120 P 90 · gains .*8,000.* \(hedge credited\)/);
+  assert.match(detail, /AAB 20261016 C 120 · loses .*12,000.* \(unbounded, sized at the takeover gap\)/);
+  assert.match(detail, /1 more legs/);
+  assert.doesNotMatch(detail, /AAB stock/, "only the four largest moves are listed");
+  state.accountValueVisible = false;
+  const masked = stress.ruleChecklistRow({ id: "single_name_exposure", status: "act", offenders: [{ symbol: "AAA", status: "act", observed: 45,
+    issuer: { issuer: "AAA", lines: ["AAA"], legs: [{ leg: "AAA stock", loss_base: 45000 }] } }] }, "EUR");
+  assert.doesNotMatch(byClass(masked, "rules-row__issuer")[0].textContent, /45,000/, "privacy mode masks leg amounts");
+  state.accountValueVisible = true;
 });
 
 test("unconfirmed red market clusters render as provisional amber", () => {

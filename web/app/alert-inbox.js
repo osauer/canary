@@ -525,12 +525,21 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
   if (occurrence.presentation_code === "portfolio_stress") {
     const driver = stress.primary_drivers?.[0];
     const portfolio = stress.portfolio || {};
+    // The stress read's concentration drivers are the Rulebook's: rule 1's
+    // worst-case loss on one issuer and rule 16's dollar delta. Quote those
+    // served figures; an older payload without them keeps the market-value
+    // reading it was built with.
+    const concentration = portfolio.concentration || {};
     const driverFacts = {
       gross_delta_high: ["Gross delta", portfolio.gross_delta_pct_nlv],
       net_delta_high: ["Net delta", portfolio.net_delta_pct_nlv],
       gross_exposure_high: ["Gross exposure", portfolio.gross_exposure_pct_nlv],
-      single_name_delta_high: [`${portfolio.largest_delta_exposure || "Largest underlying"} delta`, portfolio.largest_delta_pct_nlv],
-      single_name_exposure_high: [portfolio.largest_exposure || "Largest underlying", portfolio.largest_exposure_pct_nlv],
+      single_name_delta_high: Number.isFinite(concentration.delta_pct_nlv)
+        ? [`${concentration.delta_issuer || "Largest issuer"} dollar delta`, concentration.delta_pct_nlv]
+        : [`${portfolio.largest_delta_exposure || "Largest underlying"} delta`, portfolio.largest_delta_pct_nlv],
+      single_name_exposure_high: Number.isFinite(concentration.worst_case_loss_pct_nlv)
+        ? [`${concentration.issuer || "Largest issuer"} worst-case loss${concentration.worst_case_loss_is_lower_bound ? " at least" : ""}`, concentration.worst_case_loss_pct_nlv]
+        : [portfolio.largest_exposure || "Largest underlying", portfolio.largest_exposure_pct_nlv],
     }[driver];
     if (driverFacts && Number.isFinite(driverFacts[1])) return `${driverFacts[0]} ${formatAlertPercent(driverFacts[1])} of NLV`;
     const row = (stress.rows || []).find((candidate) => ["urgent", "act", "watch"].includes(String(candidate?.severity || "")) && candidate?.evidence);

@@ -26,7 +26,12 @@ names.
 2. If the brief points to account or holdings detail, run `canary account
    --json` or `canary positions --json`.
 3. If it points to policy adherence, run `canary rules --json` or `canary
-   policy show --json`.
+   policy show --json`. Rule 1 is the worst-case loss on one issuer with every
+   leg netted; read each offender's own `status` (a second offender may watch
+   while the row acts) and its `issuer` legs, hedges and unbounded flags.
+   Rules 16-18 are watches: they never act and never count as an act. While
+   `policy_status.review` is `unreviewed` the limits are Canary's defaults,
+   not the owner's approved numbers; say so when you cite one.
 4. If it names protection work, read `canary proposals list --json`.
 5. If it names an option-exercise opportunity, read `canary opportunities list
    --json`.

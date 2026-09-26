@@ -119,7 +119,7 @@ func (c *ruleContext) deltaSwing() RuleRow {
 		}
 	}
 	sortOffenders(offenders)
-	row.Offenders = offenders
+	row.Offenders = withStatus(offenders, RuleStatusWatch)
 	row.Exempt = hedges
 	switch {
 	case len(offenders) > 0:
@@ -151,7 +151,7 @@ func (c *ruleContext) deltaSwing() RuleRow {
 		}
 		row.Evidence = fmt.Sprintf("The largest dollar delta on one issuer is %.1f%% of NLV (%s), under the %s%% watch level.", round1(worst), name, limitText(watch))
 	}
-	row.Offenders = append(row.Offenders, unknowns...)
+	row.Offenders = append(row.Offenders, withStatus(unknowns, RuleStatusUnknown)...)
 	if row.Status == RuleStatusWatch && len(unknowns) > 0 {
 		row.Notes = append(row.Notes, fmt.Sprintf("%d issuer(s) additionally not measurable — the watch above stands regardless.", len(unknowns)))
 	}
@@ -255,7 +255,7 @@ func (c *ruleContext) clusterStress() RuleRow {
 		row.Observed = new(round1(worst))
 		row.Evidence = fmt.Sprintf("The worst declared cluster (%s) loses %.1f%% of NLV in a %s%% fall together, under the %s%% watch level.", worstName, round1(worst), limitText(drop), limitText(watch))
 	}
-	row.Offenders = append(offenders, unknowns...)
+	row.Offenders = append(withStatus(offenders, RuleStatusWatch), withStatus(unknowns, RuleStatusUnknown)...)
 	if row.Status == RuleStatusWatch && len(unknowns) > 0 {
 		row.Notes = append(row.Notes, fmt.Sprintf("%d cluster(s) additionally not measured — the watch above stands regardless.", len(unknowns)))
 	}
@@ -357,7 +357,7 @@ func (c *ruleContext) lossBudget() RuleRow {
 		}
 		row.Evidence = fmt.Sprintf("The largest worst-case loss on one issuer is %.1f%% of your effective risk capital (%s), under the %s%% watch level.", round1(worst), name, limitText(watch))
 	}
-	row.Offenders = append(offenders, unknowns...)
+	row.Offenders = append(withStatus(offenders, RuleStatusWatch), withStatus(unknowns, RuleStatusUnknown)...)
 	if row.Status == RuleStatusWatch && len(unknowns) > 0 {
 		row.Notes = append(row.Notes, fmt.Sprintf("%d issuer(s) additionally not measured — the watch above stands regardless.", len(unknowns)))
 	}
@@ -365,4 +365,16 @@ func (c *ruleContext) lossBudget() RuleRow {
 		row.ImpactBase += o.ImpactBase
 	}
 	return row
+}
+
+// withStatus marks every offender of a watch-only rule with status unless it
+// already carries one: a measured offender of rules 16-18 reads watch (they
+// never act), an unmeasured one unknown.
+func withStatus(list []RuleOffender, status string) []RuleOffender {
+	for i := range list {
+		if list[i].Status == "" {
+			list[i].Status = status
+		}
+	}
+	return list
 }

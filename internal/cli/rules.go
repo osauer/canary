@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
+	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -85,14 +88,10 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 				fmt.Fprintf(env.Stdout, "      … %d more\n", len(r.Offenders)-i)
 				break
 			}
-			line := o.Symbol
-			if o.Leg != "" {
-				line = o.Leg
+			fmt.Fprintf(env.Stdout, "      • %s\n", offenderLine(r, o))
+			for _, detail := range issuerDetailLines(o.Issuer, res.BaseCurrency) {
+				fmt.Fprintf(env.Stdout, "          %s\n", detail)
 			}
-			if o.Note != "" {
-				line += " — " + o.Note
-			}
-			fmt.Fprintf(env.Stdout, "      • %s\n", line)
 		}
 		for i, o := range r.Exempt {
 			if i >= 5 {
@@ -353,4 +352,84 @@ func ruleHeadline(r risk.RuleRow) string {
 // 40), matching how the daemon's evidence line quotes it.
 func ruleLimitText(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// offenderLine renders one offender. On rules with watch and act levels, and
+// on the watch-only rules 16-18, each offender carries its own band, so a
+// second offender between the levels reads watch although the row acts.
+func offenderLine(r risk.RuleRow, o risk.RuleOffender) string {
+	line := o.Symbol
+	if o.Leg != "" {
+		line = o.Leg
+	}
+	var parts []string
+	if o.Status == risk.RuleStatusAct || o.Status == risk.RuleStatusWatch {
+		parts = append(parts, fmt.Sprintf("%s at %s", o.Status, offenderObserved(r.Unit, o.Observed)))
+	}
+	if o.Note != "" {
+		parts = append(parts, o.Note)
+	}
+	if len(parts) > 0 {
+		line += " — " + strings.Join(parts, ": ")
+	}
+	return line
+}
+
+func offenderObserved(unit string, v float64) string {
+	if strings.HasPrefix(unit, "%") {
+		return fmt.Sprintf("%.1f%s", v, unit)
+	}
+	return strings.TrimSpace(fmt.Sprintf("%.1f %s", v, unit))
+}
+
+// issuerDetailLines lists what rule 1 netted for one issuer: the lines it
+// joined and the legs that move most at the worst price, losses and hedge
+// gains alike, with the hedges credited or not and the legs that keep losing
+// as the price rises.
+func issuerDetailLines(x *risk.IssuerExposure, ccy string) []string {
+	if x == nil {
+		return nil
+	}
+	var out []string
+	if len(x.Lines) > 1 || (len(x.Lines) == 1 && !strings.EqualFold(x.Lines[0], x.Issuer)) {
+		out = append(out, "lines "+strings.Join(x.Lines, ", "))
+	}
+	legs := slices.Clone(x.Legs)
+	slices.SortStableFunc(legs, func(a, b risk.IssuerLeg) int { return cmp.Compare(math.Abs(b.LossBase), math.Abs(a.LossBase)) })
+	for i, l := range legs {
+		if i >= 4 {
+			out = append(out, fmt.Sprintf("… %d more legs (--json has all)", len(legs)-i))
+			break
+		}
+		qty := fmt.Sprintf("%+g", l.Quantity)
+		if l.Kind == risk.IssuerLegStock {
+			qty = fmt.Sprintf("%g sh", l.Quantity)
+		}
+		effect := "flat"
+		switch {
+		case l.LossBase > 0:
+			effect = "loses " + strings.TrimSpace(formatMoneyCcy(l.LossBase, ccy))
+		case l.LossBase < 0:
+			effect = "gains " + strings.TrimSpace(formatMoneyCcy(-l.LossBase, ccy))
+		}
+		line := fmt.Sprintf("%s  %s  %s", l.Leg, qty, effect)
+		var flags []string
+		switch l.Hedge {
+		case risk.IssuerHedgeCredited:
+			flags = append(flags, "hedge credited")
+		case risk.IssuerHedgeUncredited:
+			flags = append(flags, "hedge not credited")
+		}
+		if l.Unbounded {
+			flags = append(flags, "unbounded, sized at the takeover gap")
+		}
+		if l.Note != "" {
+			flags = append(flags, l.Note)
+		}
+		if len(flags) > 0 {
+			line += "  (" + strings.Join(flags, "; ") + ")"
+		}
+		out = append(out, line)
+	}
+	return out
 }

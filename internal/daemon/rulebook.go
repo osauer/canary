@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1335,11 +1336,74 @@ func filterOffenders(list []risk.RuleOffender, sym string) []risk.RuleOffender {
 	}
 	out := list[:0:0]
 	for _, o := range list {
-		if strings.EqualFold(o.Symbol, sym) {
+		// An issuer group's offender stays when the symbol is one of its
+		// lines: rule 1 and its watches name the issuer, not the line.
+		if strings.EqualFold(o.Symbol, sym) || (o.Issuer != nil && slices.ContainsFunc(o.Issuer.Lines, func(line string) bool { return strings.EqualFold(line, sym) })) {
 			out = append(out, o)
 		}
 	}
 	return out
+}
+
+// issuerOffenderFor finds the rule 1 offender whose issuer holds sym: the
+// issuer itself or one of its grouped lines.
+func issuerOffenderFor(r risk.RuleRow, sym string) (risk.RuleOffender, bool) {
+	for _, o := range r.Offenders {
+		if o.Status != risk.RuleStatusAct && o.Status != risk.RuleStatusWatch {
+			continue
+		}
+		if strings.EqualFold(o.Symbol, sym) || (o.Issuer != nil && slices.ContainsFunc(o.Issuer.Lines, func(line string) bool { return strings.EqualFold(line, sym) })) {
+			return o, true
+		}
+	}
+	return risk.RuleOffender{}, false
+}
+
+// draftGainsAtWorstPrice reports whether an opening order gains at the
+// issuer's worst price, so it lowers rule 1's worst-case loss instead of
+// adding to it: a bought put or a sold call when the worst case is a fall, a
+// bought call, a sold put or bought stock when it is a rise. A bought put
+// counts only when it could be credited as protection (at least
+// hedge_min_days to expiry; earnings are checked by the Rulebook itself). An
+// unknown worst price never exempts an order.
+func draftGainsAtWorstPrice(res *rpc.RulesResult, draft rpc.OrderDraft, x *risk.IssuerExposure) bool {
+	if x == nil || x.WorstMovePct == nil || *x.WorstMovePct == 0 {
+		return false
+	}
+	fall := *x.WorstMovePct < 0
+	isBuy := strings.EqualFold(draft.Action, "BUY")
+	if !strings.EqualFold(draft.Contract.SecType, "OPT") {
+		return !fall && isBuy
+	}
+	switch strings.ToUpper(strings.TrimSpace(draft.Contract.Right)) {
+	case "P", "PUT":
+		if fall && isBuy {
+			return putOutlastsHedgeMinimum(res, draft)
+		}
+		return !fall && !isBuy
+	case "C", "CALL":
+		return fall != isBuy
+	}
+	return false
+}
+
+// putOutlastsHedgeMinimum reports whether a drafted put expires at least
+// hedge_min_days after the Rulebook's evaluation date.
+func putOutlastsHedgeMinimum(res *rpc.RulesResult, draft rpc.OrderDraft) bool {
+	minDays := risk.DefaultRulebookPolicy().HedgeMinDays
+	if res.Policy != nil {
+		minDays = res.Policy.HedgeMinDays
+	}
+	expiry, err := time.Parse("20060102", strings.ReplaceAll(draft.Contract.Expiry, "-", ""))
+	if err != nil {
+		return false
+	}
+	asOf := res.AsOf
+	if asOf.IsZero() {
+		return false
+	}
+	days := int(expiry.Sub(time.Date(asOf.Year(), asOf.Month(), asOf.Day(), 0, 0, 0, 0, time.UTC)).Hours() / 24)
+	return days >= minDays
 }
 
 // ruleTransitionTerminalAuthority is the minimum exact-contract linkage a
@@ -1687,8 +1751,21 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 			Action:   "Run `canary rules` for the full checklist.",
 		}
 	}
-	if r, ok := breached(risk.RuleSingleNameExposure); ok && offends(r) {
-		out = append(out, warn(r, fmt.Sprintf("%s already breaches the per-name exposure cap; this order increases it.", sym)))
+	if r, ok := breached(risk.RuleSingleNameExposure); ok {
+		if o, found := issuerOffenderFor(r, sym); found && !draftGainsAtWorstPrice(res, draft, o.Issuer) {
+			level, part := "watch level", ""
+			if o.Status == risk.RuleStatusAct {
+				level = "cap"
+			}
+			if !strings.EqualFold(o.Symbol, sym) {
+				part = " (part of " + o.Symbol + ")"
+			}
+			w := warn(r, fmt.Sprintf("%s%s is already at or above its rule 1 %s on worst-case loss; this order loses more at the issuer's worst price.", sym, part, level))
+			if o.Status != "" {
+				w.Severity = o.Status
+			}
+			out = append(out, w)
+		}
 	}
 	if r, ok := breached(risk.RuleOptionLinePremium); ok && isBuy && isOption && offends(r) {
 		out = append(out, warn(r, fmt.Sprintf("%s already holds an option line over the premium cap; this adds premium.", sym)))

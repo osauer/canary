@@ -609,10 +609,12 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 			if e.exposure.LowerBound {
 				note = joinNote("lower bound — at least this", note)
 			}
-			offenders = append(offenders, issuerOffender(e, e.exposure.WorstCaseLossPct, note))
+			o := issuerOffender(e, e.exposure.WorstCaseLossPct, note)
+			o.Status = e.status
+			offenders = append(offenders, o)
 		case RuleStatusUnknown:
 			o := issuerOffender(e, 0, "not measured: "+strings.Join(e.gaps, "; "))
-			o.ImpactBase = 0
+			o.ImpactBase, o.Status = 0, RuleStatusUnknown
 			unknowns = append(unknowns, o)
 			continue
 		}
@@ -627,7 +629,7 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 		}
 	}
 	sort.SliceStable(offenders, func(i, j int) bool {
-		wi, wj := statusWeight(offenderStatus(offenders[i])), statusWeight(offenderStatus(offenders[j]))
+		wi, wj := statusWeight(offenders[i].Status), statusWeight(offenders[j].Status)
 		if wi != wj {
 			return wi > wj
 		}
@@ -700,14 +702,6 @@ func (c *ruleContext) singleNameExposure() RuleRow {
 	return row
 }
 
-// offenderStatus recovers an issuer offender's rule 1 band from its detail.
-func offenderStatus(o RuleOffender) string {
-	if o.Issuer == nil {
-		return RuleStatusPass
-	}
-	return bandStatus(o.Issuer.WorstCaseLossPct, o.Issuer.WatchPct, o.Issuer.ActPct)
-}
-
 // IssuerConcentration is the per-issuer netting behind rule 1, exposed for
 // consumers that act on it (the risk-reduction bucket) so they read the same
 // measurement as the Rulebook rather than a second one.
@@ -762,6 +756,28 @@ type IssuerTrimPlan struct {
 	// Reachable is false when reducing this leg alone cannot bring the loss
 	// to the target; Quantity is then the reduction that lowers it most.
 	Reachable bool
+
+	// per and others are the leg's and the rest of the issuer's P&L at each
+	// price of the grid the plan was solved on, and unit the leg's size, so
+	// LossAfter can price any other reduction of the same leg.
+	per, others []float64
+	unit        float64
+}
+
+// LossAfter is the issuer's worst-case loss in base currency after reducing
+// the plan's leg by q shares or contracts (clamped to the held size), on the
+// same price grid the plan was solved on. An order capped below the planned
+// quantity reports its own loss after, never the plan's.
+func (p IssuerTrimPlan) LossAfter(q float64) float64 {
+	if p.unit <= 0 || len(p.per) == 0 {
+		return p.LossAfterBase
+	}
+	k := 1 - math.Min(math.Max(q, 0), p.unit)/p.unit
+	worst := 0.0
+	for j := range p.per {
+		worst = math.Max(worst, -(p.others[j] + k*p.per[j]))
+	}
+	return worst
 }
 
 // PlanIssuerTrim returns the smallest reduction of one leg of the issuer
@@ -829,7 +845,8 @@ func PlanIssuerTrim(in RuleInputs, pol RulebookPolicy, symbol string) (IssuerTri
 		unit = math.Abs(leg.out.Quantity)
 	}
 	plan := IssuerTrimPlan{Issuer: e.exposure.Issuer, Symbol: leg.out.Symbol, Stock: leg.stock, Held: leg.out.Quantity,
-		LossBeforeBase: loss, TargetBase: target, WatchPct: e.exposure.WatchPct, ActPct: e.exposure.ActPct}
+		LossBeforeBase: loss, TargetBase: target, WatchPct: e.exposure.WatchPct, ActPct: e.exposure.ActPct,
+		per: per, others: others, unit: unit}
 	if !leg.stock {
 		plan.Leg = leg.out.Leg
 	}

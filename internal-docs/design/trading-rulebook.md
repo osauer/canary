@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 08:00 CEST
+Updated: 2026-09-26 08:52 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14 and issuer-concentration amendment 15, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -438,6 +438,10 @@ Semantics notes:
   for its status; amendment 13), watch_threshold and act_threshold on
   two-band rules, evidence quoting the threshold, per-name offenders (worst
   first), exempted/unknown legs where relevant, and data-quality notes.
+  Offenders of rules 1, 2 and 13 carry their own `status` (act or watch via
+  bandStatus against the offender's own bands: an illiquid issuer's, a
+  protection line's tier), offenders of the watch-only rules 16-18 read
+  watch, and an unmeasured offender reads unknown (2026-09-26).
 
 Rulebook v2 implementation-review findings (2026-07-08, trading-semantics
 and Go-implementation lenses; engineering review, not operator policy

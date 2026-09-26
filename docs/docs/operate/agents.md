@@ -1,6 +1,6 @@
 # Working with agents
 
-Updated: 2026-08-09
+Updated: 2026-09-26 08:52 CEST
 
 `canary mcp` is a deliberately small, read-only adapter for local AI clients.
 It reads the same typed daemon authority as the CLI and paired app, but it has
@@ -44,7 +44,14 @@ Drill into narrower evidence only when needed:
 - `canary_account` and `canary_positions` provide account-scoped detail.
 - `canary_regime` returns the eight market indicators, cluster confirmation, and source health.
 - `canary_stress` returns full portfolio-risk evidence, including margin, exposure, concentration, options, and protection.
-- `canary_rules` explains policy adherence and unknown inputs.
+- `canary_rules` explains policy adherence and unknown inputs. Rule 1 is the
+  worst-case loss on one issuer with every leg netted: each offender carries
+  its own `status`, so a second issuer between the levels reads `watch` while
+  the row reads `act`, and `issuer` lists the legs, the hedges credited or
+  not, and the legs that keep losing as the price rises. Rules 16 to 18 watch
+  and never act; never count them as an act. When `policy_status.review` is
+  `unreviewed`, the limits are Canary's defaults that the owner has not yet
+  reviewed, not approved numbers.
 - `canary_technical` analyzes explicitly named stock or ETF symbols.
 - `canary_proposals` reads close/reduce-only protection candidates.
 - `canary_opportunities` reads option-exercise candidates.
@@ -73,6 +80,11 @@ otherwise the daemon refuses account-scoped authority.
 Protection and exercise candidates are discovery records. Actual submission
 requires the separate gated CLI or paired-app flow, a fresh exact preview or
 preflight, and an explicit transaction-specific instruction from the user.
+
+Policy files are the owner's. An agent reads limits and the policy-file list
+(`canary policy show --json` includes each file's review state and what waits
+for the owner's number) but never edits a policy file or runs
+`canary rules policy set` on the owner's behalf.
 
 ## Reference
 

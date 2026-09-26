@@ -21,7 +21,7 @@ Use it for:
 
 - account, position, daily P&L, exposure, technical, and order-lifecycle reads;
 - the Action Queue and daemon-composed daily brief;
-- the 15-rule desk rulebook, operator-authored risk policy, and Flex-backed
+- the 18-rule desk rulebook, operator-authored risk policy, and Flex-backed
   reconciliation;
 - current option-strategy grouping, read-only protection proposals, and
   option-exercise opportunity review;

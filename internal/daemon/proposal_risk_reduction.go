@@ -131,13 +131,24 @@ func riskReductionProposal(policy protectionPolicy, status rpc.ProtectionPolicyS
 	if qty == maxQty {
 		effect = rpc.OrderPositionEffectClose
 	}
-	lossPct := plan.LossBeforeBase / nlv * 100
-	afterPct := plan.LossAfterBase / nlv * 100
-	reason := fmt.Sprintf("%s can lose %.1f%% of NLV at worst, at or above the %s%% cap; this trim returns it to the %s%% watch level",
-		plan.Issuer, lossPct, rulebookLimitText(plan.ActPct), rulebookLimitText(plan.WatchPct))
-	if !plan.Reachable {
+	// Percentages are kept to 1e-6 so float noise in the scenario sums never
+	// reads as a different level (29.999999… is 30).
+	lossPct := math.Round(plan.LossBeforeBase/nlv*100*1e6) / 1e6
+	// The loss after is priced for the quantity this order proposes, which
+	// max_order_notional may cap below the plan's.
+	afterBase := plan.LossAfter(float64(qty))
+	afterPct := math.Round(afterBase/nlv*100*1e6) / 1e6
+	var reason string
+	switch {
+	case !plan.Reachable:
 		reason = fmt.Sprintf("%s can lose %.1f%% of NLV at worst, at or above the %s%% cap; trimming this leg alone lowers it to %.1f%%, still above the %s%% watch level",
 			plan.Issuer, lossPct, rulebookLimitText(plan.ActPct), afterPct, rulebookLimitText(plan.WatchPct))
+	case afterBase > plan.TargetBase+1e-6:
+		reason = fmt.Sprintf("%s can lose %.1f%% of NLV at worst, at or above the %s%% cap; this order lowers it to %.1f%%, and the rest of the trim to the %s%% watch level waits for the next cycle",
+			plan.Issuer, lossPct, rulebookLimitText(plan.ActPct), afterPct, rulebookLimitText(plan.WatchPct))
+	default:
+		reason = fmt.Sprintf("%s can lose %.1f%% of NLV at worst, at or above the %s%% cap; this trim returns it to the %s%% watch level",
+			plan.Issuer, lossPct, rulebookLimitText(plan.ActPct), rulebookLimitText(plan.WatchPct))
 	}
 	p := baseProposal(policy, status, sources, now, rpc.TradeProposalBucketRiskReduction, row, action, qty, effect, reason)
 	p.Details = append(p.Details, "worst-case loss nets every leg on the issuer from current marks (Rulebook rule 1)")

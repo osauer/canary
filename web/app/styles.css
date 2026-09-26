@@ -6822,6 +6822,9 @@ body:has(#alertsPanel[data-state="unknown"]) #alertAuthorityState {
 .rules-row__positions { display: grid; gap: 12px; padding: 0; margin: 0; list-style: none; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
 .rules-row__positions li > span { display: block; }
 .rules-row__positions li > span + span { color: var(--pd-caption); font-size: 13px; }
+.rules-row__positions li > .rules-row__offender-band { color: var(--pd-prose); font-weight: 600; }
+.rules-row__issuer { display: grid; gap: 4px; margin-top: 4px; color: var(--pd-caption); font-size: 13px; }
+.rules-row__legs { display: grid; gap: 2px; padding: 0 0 0 14px; margin: 0; list-style: disc; }
 #rulesSheet .rules-row__note { margin: 14px 0 0; color: var(--pd-subtext); font-size: 13px; line-height: 1.5; }
 #rulesSheet .rules-row__reference, #rulesSheet .rules-sheet__provenance { margin: 18px 0 0; color: var(--pd-caption); font-size: 12px; line-height: 1.45; letter-spacing: 0; }
 #rulesSheet .stress-rules__strip { margin-top: 24px; }
