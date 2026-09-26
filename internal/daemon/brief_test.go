@@ -40,6 +40,11 @@ func TestBriefSnapshotPurityAndDegradedRows(t *testing.T) {
 		if res.Ready.Capital.Status == "" || res.Review.Reconcile.Status == "" || res.BriefFingerprint == "" {
 			t.Fatalf("policy/process rows did not render: %+v", res)
 		}
+		// The served brief always carries Canary's ranking and attention
+		// order, so no consumer falls back to ordering rows itself.
+		if len(res.Ready.Ranked) < 12 || res.AttentionOrder == nil {
+			t.Fatalf("brief served no ranking: ranked=%v attention_order=%v", res.Ready.Ranked, res.AttentionOrder)
+		}
 	}
 	after := stateTree(t, root)
 	if !slices.Equal(before, after) {

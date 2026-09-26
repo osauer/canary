@@ -1626,6 +1626,9 @@ func cloneBriefResult(in *rpc.BriefResult) *rpc.BriefResult {
 		monthly := *in.Ready.MonthlyPulse
 		out.Ready.MonthlyPulse = &monthly
 	}
+	// slices.Clone keeps an empty order empty rather than null on the wire.
+	out.Ready.Ranked = slices.Clone(in.Ready.Ranked)
+	out.AttentionOrder = slices.Clone(in.AttentionOrder)
 	if in.Narrative != nil {
 		n := *in.Narrative
 		n.Lead = append([]rpc.BriefRun(nil), n.Lead...)

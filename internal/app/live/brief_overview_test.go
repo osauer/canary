@@ -18,3 +18,15 @@ func TestBriefOverviewSnapshotCloneDoesNotAliasServedRuns(t *testing.T) {
 		t.Fatal("client mutation changed shared evidence")
 	}
 }
+
+func TestBriefSnapshotCloneDoesNotAliasServedOrder(t *testing.T) {
+	in := &rpc.BriefResult{Ready: rpc.BriefReadySection{Ranked: []string{"capital", "latch"}}, AttentionOrder: []string{}}
+	out := cloneBriefResult(in)
+	out.Ready.Ranked[0] = "changed"
+	if in.Ready.Ranked[0] != "capital" {
+		t.Fatal("client mutation changed the served ranking")
+	}
+	if out.AttentionOrder == nil {
+		t.Fatal("an empty attention order must stay an empty list, not null")
+	}
+}

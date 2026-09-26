@@ -32,6 +32,13 @@ the CLI and paired app. It includes current market-risk posture, portfolio and
 PnL context, rulebook adherence, actions, and explicit missing or stale inputs.
 The MCP read never stamps or acknowledges the report.
 
+Canary owns the severity order, so an agent or app never sorts the brief itself.
+`attention_order` lists what needs attention across the pre-trade rows and the
+rulebook: the drawdown tier (`ready.capital`), then the drawdown latch
+(`ready.latch`), then each alert-mode rule at act (`rules.<id>`, in the
+rulebook's ranking), then any other pre-trade row at attention. `ready.ranked`
+orders every pre-trade row: attention first, then degraded, unavailable, and ok.
+
 Drill into narrower evidence only when needed:
 
 - `canary_account` and `canary_positions` provide account-scoped detail.

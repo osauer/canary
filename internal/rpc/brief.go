@@ -424,7 +424,41 @@ type BriefReadySection struct {
 	Proposals     BriefReadyProposalsRow `json:"proposals"`
 	PolicyDrift   BriefPolicyDriftRow    `json:"policy_drift"`
 	MonthlyPulse  *BriefMonthlyPulseRow  `json:"monthly_pulse,omitempty"`
+	// Ranked lists every row key present on this section (the BriefReadyRow*
+	// JSON names) in Canary's severity order, so a consumer that decodes the
+	// section as a map renders it in this order and never sorts it itself.
+	// Attention rows come first, then degraded, unavailable and ok rows
+	// (owner decision 2026-09-26); a status this build does not know ranks
+	// with degraded. Capital (the drawdown tier) and then the latch lead
+	// their status group; other ties keep section order. market_events ranks
+	// by its worst event row and monthly_pulse by its rollup state.
+	Ranked []string `json:"ranked"`
 }
+
+// Ready row keys are the JSON names of BriefReadySection's rows: the
+// vocabulary of BriefReadySection.Ranked, and, behind the "ready." prefix, of
+// BriefResult.AttentionOrder.
+const (
+	BriefReadyRowRegime        = "regime"
+	BriefReadyRowBreadth       = "breadth"
+	BriefReadyRowGamma         = "gamma"
+	BriefReadyRowStress        = "stress"
+	BriefReadyRowSession       = "session"
+	BriefReadyRowMarketEvents  = "market_events"
+	BriefReadyRowCapital       = "capital"
+	BriefReadyRowLatch         = "latch"
+	BriefReadyRowPremiumAtRisk = "premium_at_risk"
+	BriefReadyRowHedgeCost     = "hedge_cost"
+	BriefReadyRowProposals     = "proposals"
+	BriefReadyRowPolicyDrift   = "policy_drift"
+	BriefReadyRowMonthlyPulse  = "monthly_pulse"
+
+	// BriefAttentionReadyPrefix and BriefAttentionRulePrefix qualify
+	// AttentionOrder entries by family: "ready.<row key>" names a Ready row
+	// and "rules.<rule id>" names a Rulebook row in rules.snapshot.
+	BriefAttentionReadyPrefix = "ready."
+	BriefAttentionRulePrefix  = "rules."
+)
 
 // Brief narrative run roles. A run carries text plus at most one role, and a
 // first-class served number, watch and act may appear only on clauses whose
@@ -478,7 +512,16 @@ type BriefResult struct {
 	BriefFingerprint string             `json:"brief_fingerprint"`
 	Review           BriefReviewSection `json:"review"`
 	Ready            BriefReadySection  `json:"ready"`
-	Narrative        *BriefNarrative    `json:"narrative,omitempty"`
+	// AttentionOrder is Canary's one severity order across the Ready rows and
+	// the Rulebook (owner decision 2026-09-26), listing only what needs
+	// attention: "ready.capital" (the drawdown tier), then "ready.latch", then
+	// "rules.<id>" for each alert-mode rule at act in the Rulebook's ranked
+	// order, then every other Ready row at attention in Ready.Ranked order.
+	// Track-mode rules at act are left out, as they are from the brief's act
+	// count. Empty means nothing needs attention, not that inputs are clean.
+	// Like the narrative it is an ordering, not part of brief_fingerprint.
+	AttentionOrder []string        `json:"attention_order"`
+	Narrative      *BriefNarrative `json:"narrative,omitempty"`
 }
 
 const (

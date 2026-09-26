@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -83,6 +84,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// The five domain sections above are composition intermediates: the two
 	res.Review = s.composeBriefReview(portfolio, riskLimits, process, s.briefEdgeRow(ctx), now)
 	res.Ready = composeBriefReady(market, calendar, riskLimits, portfolio, process, s.briefReadyProposals())
+	res.AttentionOrder = briefAttentionOrder(res.Ready, rules)
 	res.BriefFingerprint = briefContentFingerprint(res)
 	// The narrative is a deterministic projection of the two movements above
 	// only, so revised prose can never invalidate the brief identity.
@@ -247,6 +249,136 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 	}
 	out.PremiumAtRisk.PctOfRiskCapital = briefPremiumPctOfRiskCapital(out.PremiumAtRisk, out.Capital)
 	out.BriefRowState = briefReadySectionState(out)
+	out.Ranked = briefReadyRanked(out)
+	return out
+}
+
+// briefReadyRow is one Ready row key with the status it ranks by.
+type briefReadyRow struct {
+	key    string
+	status string
+}
+
+// briefReadyRows lists every Ready row present, in the owner's tie order:
+// capital (the drawdown tier) and the latch lead, the rest keep section
+// order. market_events ranks by its worst event row; monthly_pulse, which has
+// its own vocabulary, by the rollup state the section header already uses.
+func briefReadyRows(ready rpc.BriefReadySection) []briefReadyRow {
+	events := rpc.BriefStatusOK
+	for _, ev := range ready.MarketEvents {
+		if briefRankWeight(ev.Status) < briefRankWeight(events) {
+			events = ev.Status
+		}
+	}
+	rows := []briefReadyRow{
+		{rpc.BriefReadyRowCapital, ready.Capital.Status},
+		{rpc.BriefReadyRowLatch, ready.Latch.Status},
+		{rpc.BriefReadyRowRegime, ready.Regime.Status},
+		{rpc.BriefReadyRowBreadth, ready.Breadth.Status},
+		{rpc.BriefReadyRowGamma, ready.Gamma.Status},
+		{rpc.BriefReadyRowStress, ready.Stress.Status},
+		{rpc.BriefReadyRowSession, ready.Session.Status},
+		{rpc.BriefReadyRowMarketEvents, events},
+		{rpc.BriefReadyRowPremiumAtRisk, ready.PremiumAtRisk.Status},
+		{rpc.BriefReadyRowHedgeCost, ready.HedgeCost.Status},
+		{rpc.BriefReadyRowProposals, ready.Proposals.Status},
+		{rpc.BriefReadyRowPolicyDrift, ready.PolicyDrift.Status},
+	}
+	if ready.MonthlyPulse != nil {
+		rows = append(rows, briefReadyRow{rpc.BriefReadyRowMonthlyPulse, briefMonthlyPulseRollupState(ready.MonthlyPulse.Status).Status})
+	}
+	return rows
+}
+
+// briefReadyRanked orders the Ready rows by severity (owner decision
+// 2026-09-26): attention, degraded, unavailable, ok. The sort is stable, so
+// capital and the latch lead whichever group they fall in.
+func briefReadyRanked(ready rpc.BriefReadySection) []string {
+	rows := briefReadyRows(ready)
+	slices.SortStableFunc(rows, func(a, b briefReadyRow) int {
+		return cmp.Compare(briefRankWeight(a.status), briefRankWeight(b.status))
+	})
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.key)
+	}
+	return out
+}
+
+// briefRankWeight places a row status in the severity order. A status this
+// build does not know ranks with degraded: it still needs eyes, and it never
+// outranks a row that describes a risk condition.
+func briefRankWeight(status string) int {
+	switch status {
+	case rpc.BriefStatusAttention:
+		return 0
+	case rpc.BriefStatusUnavailable:
+		return 2
+	case rpc.BriefStatusOK:
+		return 3
+	default:
+		return 1
+	}
+}
+
+// briefAttentionOrder is the one severity order across the Ready rows and the
+// Rulebook (owner decision 2026-09-26): the drawdown tier, the latch, alert
+// rules at act in the Rulebook's ranked order, then every other Ready row at
+// attention. Only rows needing attention appear, and the result is never nil
+// so the wire always carries a list.
+func briefAttentionOrder(ready rpc.BriefReadySection, rules *rpc.RulesResult) []string {
+	status := make(map[string]string)
+	for _, row := range briefReadyRows(ready) {
+		status[row.key] = row.status
+	}
+	ranked := ready.Ranked
+	if len(ranked) == 0 {
+		ranked = briefReadyRanked(ready)
+	}
+	lead, rest := []string{}, []string{}
+	for _, key := range ranked {
+		if status[key] != rpc.BriefStatusAttention {
+			continue
+		}
+		if key == rpc.BriefReadyRowCapital || key == rpc.BriefReadyRowLatch {
+			lead = append(lead, rpc.BriefAttentionReadyPrefix+key)
+		} else {
+			rest = append(rest, rpc.BriefAttentionReadyPrefix+key)
+		}
+	}
+	return append(append(lead, briefRulesAtAct(rules)...), rest...)
+}
+
+// briefRulesAtAct names the alert-mode rules at act in the Rulebook's ranked
+// order, the same rows the brief's act count holds. A ranking that does not
+// cover every row falls back to rulebook order, as the CLI does.
+func briefRulesAtAct(rules *rpc.RulesResult) []string {
+	if rules == nil {
+		return nil
+	}
+	order := rules.Ranked
+	if len(order) != len(rules.Rules) {
+		order = make([]int, len(rules.Rules))
+		for i := range order {
+			order[i] = i
+		}
+	}
+	var out []string
+	seen := make(map[int]bool, len(order))
+	for _, ix := range order {
+		if ix < 0 || ix >= len(rules.Rules) || seen[ix] {
+			continue
+		}
+		seen[ix] = true
+		r := rules.Rules[ix]
+		mode := r.Mode
+		if mode == "" {
+			mode = risk.RuleModeAlert
+		}
+		if mode == risk.RuleModeAlert && r.Status == risk.RuleStatusAct && r.ID != "" {
+			out = append(out, rpc.BriefAttentionRulePrefix+r.ID)
+		}
+	}
 	return out
 }
 
