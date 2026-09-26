@@ -239,3 +239,35 @@ func assertTestFile(t *testing.T, path, want string) {
 		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
 }
+
+// Reproduces 2026-09-25: 172 gamma prewarm failures, each carrying its own
+// expiry, elapsed time and progress counters, were 172 singletons and all
+// fell into the suppressed rollup behind an unrelated sample. Values that
+// vary per attempt collapse; codes that tell broker errors apart do not.
+func TestPerAttemptValuesCollapseButCodesStayDistinct(t *testing.T) {
+	var lines []string
+	for i := range 40 {
+		lines = append(lines, fmt.Sprintf(`time=2026-09-25T16:%02d:00Z level=WARN msg="gamma.prewarm class=SPY expiry=202609%02d cached=%d dropped=%d elapsed=%dm%d.%03ds err=prewarm SPY 202609%02d class=SPY route attempts SMART+ARCA,ARCA,CBOE: prewarm timeout after %ds (cached %d so far)"`, i, 26+i%3, i*7, i%4, 1+i%3, i, i*13, 26+i%3, 60+i, i*7))
+		lines = append(lines, fmt.Sprintf(`time=2026-09-25T16:%02d:00Z level=WARN msg="market history refresh SPX CBOE 1D: contract details request failed (IBKR 200); next attempt after 16:%02d:19"`, i, i+1))
+		lines = append(lines, fmt.Sprintf(`time=2026-09-25T16:%02d:00Z level=WARN msg="fx rate EUR/USD: live resolution failed; serving last-known-good 0.85%02d (age %dm0s)"`, i, i, i))
+	}
+	lines = append(lines,
+		`time=2026-09-25T17:00:00Z level=WARN msg="[IBKR cid=15] System notice code=200: The destination or exchange selected is Invalid"`,
+		`time=2026-09-25T17:00:01Z level=WARN msg="[IBKR cid=15] System notice code=162: Historical Market Data Service error message"`,
+	)
+	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
+	if len(got.Signals) != 5 || got.SuppressedSignals != 0 {
+		t.Fatalf("signals = %+v, suppressed = %d; want 5 signals", got.Signals, got.SuppressedSignals)
+	}
+	for i, want := range []string{"gamma.prewarm class=SPY expiry=[expiry] cached=N dropped=N elapsed=[duration]", "next attempt after [clock]", "last-known-good [rate] (age [duration])"} {
+		if s := got.Signals[i]; s.Count != 40 || !strings.Contains(s.Message, want) {
+			t.Fatalf("signal %d = %+v, want 40x %q", i, s, want)
+		}
+	}
+	if !strings.Contains(got.Signals[0].Message, "(cached N so far)") {
+		t.Fatalf("progress counter kept: %q", got.Signals[0].Message)
+	}
+	if !strings.Contains(got.Signals[3].Message, "code=200") || !strings.Contains(got.Signals[4].Message, "code=162") {
+		t.Fatalf("broker codes must stay distinct: %+v", got.Signals[3:])
+	}
+}

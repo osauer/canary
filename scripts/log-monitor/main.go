@@ -101,6 +101,16 @@ var (
 	// singletons. Normalize them so repeats collapse into one counted signal.
 	addrPattern     = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}\b`)
 	inlineTimestamp = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b`)
+	// Elapsed times, retry clocks, option expiries, rates, pids and progress
+	// counters vary per attempt too: 172 gamma prewarm failures in one day
+	// were 172 singletons, all cut into the suppressed summary. Codes and
+	// statuses are kept, so distinct broker errors stay distinct signals.
+	durationPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:h|m|s|ms|µs)(?:\d+(?:\.\d+)?(?:m|s|ms|µs))*\b`)
+	expiryPattern   = regexp.MustCompile(`\b20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\b`)
+	clockPattern    = regexp.MustCompile(`\b\d{2}:\d{2}:\d{2}\b`)
+	ratePattern     = regexp.MustCompile(`\b\d+\.\d{3,}\b`)
+	pidPattern      = regexp.MustCompile(`\bpid \d+\b`)
+	counterPattern  = regexp.MustCompile(`\b([a-z_]+)=\d+(?:[./]\d+)?\b|\(cached \d+ so far\)`)
 )
 
 func main() {
@@ -552,6 +562,21 @@ func safeMessage(line string) string {
 	message = symbolPhrase.ReplaceAllString(message, "for [symbol] via")
 	message = addrPattern.ReplaceAllString(message, "[addr]")
 	message = inlineTimestamp.ReplaceAllString(message, "[time]")
+	message = durationPattern.ReplaceAllString(message, "[duration]")
+	message = expiryPattern.ReplaceAllString(message, "[expiry]")
+	message = clockPattern.ReplaceAllString(message, "[clock]")
+	message = ratePattern.ReplaceAllString(message, "[rate]")
+	message = pidPattern.ReplaceAllString(message, "pid N")
+	message = counterPattern.ReplaceAllStringFunc(message, func(field string) string {
+		key, _, ok := strings.Cut(field, "=")
+		if !ok {
+			return "(cached N so far)"
+		}
+		if strings.HasSuffix(key, "code") || key == "status" {
+			return field
+		}
+		return key + "=N"
+	})
 	message = spacePattern.ReplaceAllString(strings.TrimSpace(message), " ")
 	if len(message) > 240 {
 		message = message[:240] + "…"
