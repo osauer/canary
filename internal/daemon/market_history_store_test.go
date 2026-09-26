@@ -620,6 +620,29 @@ func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *tes
 	}
 }
 
+// A caller asked for "SPX CBOE" and "NDX NASDAQ", the exchange typed into
+// the symbol. No contract matched, IBKR answered each attempt with code 200
+// and the refresh worker retried both for a day. A symbol with a space is
+// refused before any interest is registered, except IBKR's share-class form.
+func TestMarketHistoryRefusesAnExchangeInTheSymbol(t *testing.T) {
+	s, _, _, _, _ := historyFixture(t)
+	for _, symbol := range []string{"SPX CBOE", "NDX NASDAQ", "SPX\tCBOE", "SPX  CBOE"} {
+		raw, _ := json.Marshal(rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: symbol, SecType: "IND", Exchange: "CBOE", Currency: "USD"}, Range: "1D"})
+		_, err := s.handleMarketHistory(t.Context(), &rpc.Request{Params: raw})
+		if _, ok := errors.AsType[*badRequestError](err); !ok {
+			t.Fatalf("%q must be a bad request, got %v", symbol, err)
+		}
+	}
+	if n := len(s.marketData.interest); n != 0 {
+		t.Fatalf("a refused symbol must not be followed by the refresh worker: %d interests", n)
+	}
+	for _, symbol := range []string{"BRK B", "brk b", "SPX"} {
+		if _, _, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: symbol, Currency: "USD"}, Range: "1M"}); err != nil {
+			t.Fatalf("%q is a valid symbol: %v", symbol, err)
+		}
+	}
+}
+
 // Inside the span IBKR serves, a dated futures contract's daily history is
 // still patchy: a deferred month's sessions without trades come and go
 // between responses as zero-volume bars. NQ's December contract kept failing

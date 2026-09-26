@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -40,6 +42,9 @@ func marketHistoryIdentity(p rpc.MarketHistoryParams) (string, rpc.MarketHistory
 	if err != nil {
 		return "", p, err
 	}
+	if strings.ContainsFunc(contract.Symbol, unicode.IsSpace) && !historyShareClassSymbol.MatchString(contract.Symbol) {
+		return "", p, errBadRequest("contract.symbol must be one symbol; pass the exchange in contract.exchange")
+	}
 	switch contract.SecType {
 	case "STK", "IND", "CASH", "FUT":
 	default:
@@ -57,6 +62,11 @@ func marketHistoryIdentity(p rpc.MarketHistoryParams) (string, rpc.MarketHistory
 	hash := sha256.Sum256(b)
 	return hex.EncodeToString(hash[:]), p, nil
 }
+
+// historyShareClassSymbol is the one symbol form with a space IBKR defines:
+// a share class, as in "BRK B". "SPX CBOE" put an exchange in the symbol; no
+// contract matched it, and the refresh worker retried it for a day.
+var historyShareClassSymbol = regexp.MustCompile(`^\S+ [A-Z]$`)
 
 func (s *Server) loadMarketHistory(ctx context.Context, key string) (*storedMarketHistory, time.Time, error) {
 	if s.coreStore == nil {
