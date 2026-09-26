@@ -865,6 +865,16 @@ func BuildAccountFingerprint(a *AccountResult) Fingerprint {
 // keeps the retired stress value so positions fingerprints do not move.
 const positionsFingerprintConcentrationBucketPct = 35.0
 
+// The positions fingerprint's net-delta bucket edges set hashing
+// granularity, not a net-exposure limit (that is rule 15 in the Rulebook
+// policy, amendment 16). They keep the retired stress net-delta values, so
+// positions fingerprints do not move.
+const (
+	positionsFingerprintNetDeltaWatchPct  = 125.0
+	positionsFingerprintNetDeltaActPct    = 80.0
+	positionsFingerprintNetDeltaUrgentPct = 125.0
+)
+
 // BuildPositionsFingerprint hashes portfolio exposure buckets, not raw marks.
 func BuildPositionsFingerprint(p *PositionsResult, netLiquidation float64) Fingerprint {
 	if p == nil {
@@ -893,7 +903,7 @@ func BuildPositionsFingerprint(p *PositionsResult, netLiquidation float64) Finge
 	}
 	if p.Portfolio.DollarDeltaBase != nil && netLiquidation > 0 {
 		pct := absFloat(*p.Portfolio.DollarDeltaBase) / netLiquidation * 100
-		projection.NetDelta = riskBucket(pct, policy.NetDeltaStressUrgentPct, policy.NetDeltaStressActPct, policy.NetDeltaWatchPct, false)
+		projection.NetDelta = riskBucket(pct, positionsFingerprintNetDeltaUrgentPct, positionsFingerprintNetDeltaActPct, positionsFingerprintNetDeltaWatchPct, false)
 	}
 	var grossDelta float64
 	var largestExposure, largestDelta float64

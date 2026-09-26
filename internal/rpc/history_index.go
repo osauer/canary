@@ -1234,7 +1234,79 @@ type StressInput struct {
 	// (rule 1's worst-case loss cap and rule 16's delta swing). The stress
 	// read never measures concentration itself; nil reads as unavailable.
 	Concentration *StressConcentration
-	Now           time.Time
+	// NetExposure is the Rulebook's rule 15 reading of the whole book's net
+	// market exposure. The stress read keeps no net-exposure measure or level
+	// of its own (amendment 16); nil reads as unavailable.
+	NetExposure *StressNetExposure
+	Now         time.Time
+}
+
+// StressNetExposure projects Rulebook rule 15 (net_exposure) for the stress
+// read: the book's signed stock-equivalent exposure with hedges netted, as a
+// magnitude share of NLV, and rule 15's two bands from rulebook-policy.toml.
+type StressNetExposure struct {
+	// Status is rule 15's status: pass, watch, act, unknown, or
+	// not_evaluated when the rule is off. Empty when the reading is
+	// unavailable; Reason then says why.
+	Status string `json:"status,omitempty"`
+	// PctNLV is rule 15's observed magnitude, % of NLV. It is a proven lower
+	// bound when IsLowerBound is set, and absent when rule 15 could not
+	// measure the book.
+	PctNLV       *float64 `json:"pct_nlv,omitempty"`
+	IsLowerBound bool     `json:"is_lower_bound,omitempty"`
+	// Direction is "long" or "short" when rule 15 names the side it flags.
+	Direction string   `json:"direction,omitempty"`
+	WatchPct  *float64 `json:"watch_pct,omitempty"`
+	ActPct    *float64 `json:"act_pct,omitempty"`
+	// RuleReason is rule 15's own reason code when it is unknown or off
+	// (greeks_gap, rule_off, positions_pending and the like).
+	RuleReason string `json:"rule_reason,omitempty"`
+	// Reason names why the reading is unavailable, when it is.
+	Reason string `json:"reason,omitempty"`
+}
+
+// StressNetExposureFromRules projects rule 15 from a Rulebook result for the
+// stress read. A missing or disabled result, or one without a rule 15 row,
+// reads as unavailable with a reason.
+func StressNetExposureFromRules(res *RulesResult) *StressNetExposure {
+	out := &StressNetExposure{}
+	switch {
+	case res == nil:
+		out.Reason = "no current Rulebook result"
+		return out
+	case !res.Enabled:
+		out.Reason = "the Rulebook is turned off"
+		return out
+	}
+	for _, row := range res.Rules {
+		if row.ID != risk.RuleNetExposure {
+			continue
+		}
+		out.Status = row.Status
+		out.PctNLV = cloneFloatPtr(row.Observed)
+		out.IsLowerBound = row.ObservedIsLowerBound
+		out.WatchPct, out.ActPct = cloneFloatPtr(row.WatchThreshold), cloneFloatPtr(row.ActThreshold)
+		if row.Status == risk.RuleStatusUnknown || row.Status == risk.RuleStatusNotEvaluated {
+			out.RuleReason = row.Reason
+		}
+		// Rule 15 lists, at watch or act, the contributors on the side it
+		// flags; their signed share of NLV names that side.
+		if row.Status == risk.RuleStatusWatch || row.Status == risk.RuleStatusAct {
+			for _, o := range row.Offenders {
+				if o.Observed > 0 {
+					out.Direction = "long"
+					break
+				}
+				if o.Observed < 0 {
+					out.Direction = "short"
+					break
+				}
+			}
+		}
+		return out
+	}
+	out.Reason = "the Rulebook result has no rule 15 row"
+	return out
 }
 
 // StressConcentration projects the Rulebook's concentration rows for the
@@ -1565,8 +1637,13 @@ type StressPortfolioSummary struct {
 	CushionPct          *float64 `json:"cushion_pct,omitempty"`
 	LookAheadCushionPct *float64 `json:"look_ahead_cushion_pct,omitempty"`
 	// CushionTripPct is the stress policy's margin-cushion watch floor: the
-	CushionTripPct       *float64                   `json:"cushion_trip_pct,omitempty"`
-	GrossExposurePctNLV  *float64                   `json:"gross_exposure_pct_nlv,omitempty"`
+	CushionTripPct      *float64 `json:"cushion_trip_pct,omitempty"`
+	GrossExposurePctNLV *float64 `json:"gross_exposure_pct_nlv,omitempty"`
+	// NetDeltaPctNLV keeps its public name but carries Rulebook rule 15's
+	// measure (amendment 16): the book's net stock-equivalent exposure with
+	// hedges netted, as a magnitude % of NLV. It is a proven lower bound when
+	// NetExposure.IsLowerBound is set and absent whenever rule 15 did not
+	// measure the book.
 	NetDeltaPctNLV       *float64                   `json:"net_delta_pct_nlv,omitempty"`
 	GrossDeltaPctNLV     *float64                   `json:"gross_delta_pct_nlv,omitempty"`
 	LargestExposure      string                     `json:"largest_exposure,omitempty"`
@@ -1580,6 +1657,9 @@ type StressPortfolioSummary struct {
 	// Concentration is the Rulebook's concentration reading the stress read
 	// used for its concentration row and signals.
 	Concentration *StressConcentration `json:"concentration,omitempty"`
+	// NetExposure is the Rulebook's rule 15 reading the stress read used for
+	// its exposure row and net_delta_high signal, with rule 15's bands.
+	NetExposure *StressNetExposure `json:"net_exposure,omitempty"`
 
 	// ExposureUnmeasured names the held underlyings that contributed nothing to
 	// the book, so a threshold comparison against them can only prove a breach,

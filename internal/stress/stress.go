@@ -289,7 +289,9 @@ func stressEstablishedAlertFingerprint(result StressResult) rpc.Fingerprint {
 }
 
 // summarizeStressPortfolioWith summarizes the book and attaches the
-// Rulebook's concentration reading the concentration row and signals use.
+// Rulebook's readings the stress read uses: rule 1 and rule 16 for the
+// concentration row, and rule 15 for net exposure. The net figure is rule
+// 15's measure (amendment 16); the stress read computes none of its own.
 func summarizeStressPortfolioWith(in StressInput, now time.Time) StressPortfolioSummary {
 	out := summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now)
 	if in.Concentration != nil {
@@ -297,6 +299,16 @@ func summarizeStressPortfolioWith(in StressInput, now time.Time) StressPortfolio
 		out.Concentration = &c
 	} else {
 		out.Concentration = &rpc.StressConcentration{Reason: "no Rulebook reading was supplied"}
+	}
+	if in.NetExposure != nil {
+		n := *in.NetExposure
+		n.PctNLV, n.WatchPct, n.ActPct = cloneStressFloat(n.PctNLV), cloneStressFloat(n.WatchPct), cloneStressFloat(n.ActPct)
+		out.NetExposure = &n
+	} else {
+		out.NetExposure = &rpc.StressNetExposure{Reason: "no Rulebook reading was supplied"}
+	}
+	if stressNetExposureMeasured(out.NetExposure) {
+		out.NetDeltaPctNLV = cloneStressFloat(out.NetExposure.PctNLV)
 	}
 	return out
 }
@@ -323,10 +335,9 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 		}
 	}
 	if pos.Portfolio != nil {
-		if pos.Portfolio.DollarDeltaBase != nil && acct.NetLiquidation > 0 {
-			pct := math.Abs(*pos.Portfolio.DollarDeltaBase) / acct.NetLiquidation * 100
-			out.NetDeltaPctNLV = &pct
-		}
+		// Net exposure is Rulebook rule 15's reading, attached by
+		// summarizeStressPortfolioWith; the positions aggregate's net dollar
+		// delta is not a second definition of it.
 		if pos.Portfolio.GreeksTotal > 0 {
 			out.OptionGreeks = fmt.Sprintf("%d/%d legs", pos.Portfolio.GreeksCoverage, pos.Portfolio.GreeksTotal)
 		}
@@ -1254,29 +1265,106 @@ func stressTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressR
 
 func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
 	gross := derefPct(p.GrossExposurePctNLV)
-	delta := derefPct(p.NetDeltaPctNLV)
 	grossDelta := derefPct(p.GrossDeltaPctNLV)
-	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); net delta %.0f%% NLV (watch %.0f%%); gross delta %.0f%% NLV (watch %.0f%%)",
-		gross, stressPolicy.GrossExposureWatchPct, delta, stressPolicy.NetDeltaWatchPct, grossDelta, stressPolicy.GrossDeltaWatchPct)
+	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); %s; gross delta %.0f%% NLV (watch %.0f%%)",
+		gross, stressPolicy.GrossExposureWatchPct, stressNetExposureEvidence(p.NetExposure), grossDelta, stressPolicy.GrossDeltaWatchPct)
 	// Disclosure is unconditional; only the pass verdict below is conditional.
 	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
 	if gap != "" {
 		evidence += "; " + gap
 	}
 	stressed := stressClusterStressed(m)
+	net, _, netHit := stressNetExposureLevel(p.NetExposure, stressed)
 	switch {
-	case (gross >= stressPolicy.GrossExposureStressUrgentPct || delta >= stressPolicy.NetDeltaStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct) && stressed:
+	case stressed && (gross >= stressPolicy.GrossExposureStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct || (netHit && net == risk.SeverityUrgent)):
 		return stressRow("US equity/options exposure", risk.DirectionDefensive, risk.SeverityUrgent, "Go near-flat on broad equity beta; close or hedge option delta first.", evidence)
-	case (gross >= stressPolicy.GrossExposureStressActPct || delta >= stressPolicy.NetDeltaStressActPct || grossDelta >= stressPolicy.GrossDeltaStressActPct) && stressed:
+	case stressed && (gross >= stressPolicy.GrossExposureStressActPct || grossDelta >= stressPolicy.GrossDeltaStressActPct || netHit):
 		return stressRow("US equity/options exposure", risk.DirectionDefensive, risk.SeverityAct, "Cut 30-50% of net equity delta and avoid adding long gamma-dollar exposure.", evidence)
-	case gross >= stressPolicy.GrossExposureWatchPct || delta >= stressPolicy.NetDeltaWatchPct || grossDelta >= stressPolicy.GrossDeltaWatchPct:
+	case gross >= stressPolicy.GrossExposureWatchPct || grossDelta >= stressPolicy.GrossDeltaWatchPct || netHit:
 		return stressRow("US equity/options exposure", risk.DirectionRebalance, risk.SeverityWatch, "Exposure is high; rebalance toward risk limits without treating this as confirmed market stress.", evidence)
+	case stressNetExposureGap(p.NetExposure):
+		return stressRow("US equity/options exposure", risk.DirectionDataQuality, risk.SeverityWatch, "Net exposure is not measured: the Rulebook's rule 15 reading is unavailable or unknown, so this is not a clean exposure pass.", evidence)
+	case gap != "":
+		return stressRow("US equity/options exposure", risk.DirectionDataQuality, risk.SeverityWatch, "These readings are a subtotal over the names that could be measured; measure the rest before treating the book as within exposure limits.", evidence)
 	default:
-		if gap != "" {
-			return stressRow("US equity/options exposure", risk.DirectionDataQuality, risk.SeverityWatch, "These readings are a subtotal over the names that could be measured; measure the rest before treating the book as within exposure limits.", evidence)
-		}
 		return stressRow("US equity/options exposure", "", risk.SeverityObserve, "No exposure-based de-risking trigger.", evidence)
 	}
+}
+
+// stressNetExposureMeasured reports whether Rulebook rule 15 measured the
+// book: a pass, watch or act verdict carrying its observed share of NLV.
+func stressNetExposureMeasured(n *rpc.StressNetExposure) bool {
+	if n == nil || n.Reason != "" || n.PctNLV == nil {
+		return false
+	}
+	switch n.Status {
+	case risk.RuleStatusPass, risk.RuleStatusWatch, risk.RuleStatusAct:
+		return true
+	default:
+		return false
+	}
+}
+
+// stressNetExposureLevel maps rule 15's verdict onto the stress read's tiers
+// (amendment 16, owner decision 2026-09-26). The stress read keeps no net
+// level of its own; confirmed stress moves the reading one band up. In calm
+// markets only rule 15's act band is a stress watch, since a fully invested,
+// unlevered book already sits at rule 15's watch; under confirmed stress rule
+// 15's watch band acts and its act band is urgent. This keeps the retired
+// regime-conditional shape (calm watch 125, stress act 80, stress urgent 125)
+// on rule 15's two bands. threshold is the band the tier rests on.
+func stressNetExposureLevel(n *rpc.StressNetExposure, stressed bool) (severity risk.SignalSeverity, threshold *float64, hit bool) {
+	if !stressNetExposureMeasured(n) {
+		return "", nil, false
+	}
+	switch {
+	case n.Status == risk.RuleStatusAct && stressed:
+		return risk.SeverityUrgent, n.ActPct, true
+	case n.Status == risk.RuleStatusWatch && stressed:
+		return risk.SeverityAct, n.WatchPct, true
+	case n.Status == risk.RuleStatusAct:
+		return risk.SeverityWatch, n.ActPct, true
+	default:
+		return "", nil, false
+	}
+}
+
+// stressNetExposureGap reports a rule 15 reading that cannot support a clean
+// pass: unavailable, or unknown. A rule the owner turned off reads as not
+// assessed, not as a data gap.
+func stressNetExposureGap(n *rpc.StressNetExposure) bool {
+	if n == nil || n.Reason != "" {
+		return true
+	}
+	return n.Status != risk.RuleStatusNotEvaluated && !stressNetExposureMeasured(n)
+}
+
+// stressNetExposureEvidence quotes rule 15's reading beside its bands.
+func stressNetExposureEvidence(n *rpc.StressNetExposure) string {
+	switch {
+	case n == nil:
+		return "net exposure unavailable (no Rulebook reading)"
+	case n.Reason != "":
+		return "net exposure unavailable (" + n.Reason + ")"
+	case n.Status == risk.RuleStatusNotEvaluated:
+		return "net exposure not assessed (Rulebook rule 15 is off)"
+	case !stressNetExposureMeasured(n):
+		return "net exposure unknown (Rulebook rule 15: " + nonEmptyStressText(n.RuleReason, "not measured") + ")"
+	}
+	return fmt.Sprintf("%s (Rulebook watch %s%%, act %s%%)", stressNetExposureReading(n), stressLimitText(n.WatchPct), stressLimitText(n.ActPct))
+}
+
+// stressNetExposureReading renders a measured rule 15 reading: the side when
+// rule 15 names one, and "≥" on a proven lower bound.
+func stressNetExposureReading(n *rpc.StressNetExposure) string {
+	side, bound := "", ""
+	if n.Direction != "" {
+		side = n.Direction + " "
+	}
+	if n.IsLowerBound {
+		bound = "≥ "
+	}
+	return fmt.Sprintf("net exposure %s%s%.1f%% NLV", side, bound, *n.PctNLV)
 }
 
 // stressConcentrationHits reads the Rulebook's concentration verdicts: rule
@@ -2029,7 +2117,7 @@ func stressExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []ri
 	stressed := stressClusterStressed(m)
 	out := []risk.Signal{}
 	out = appendExposureSignal(out, risk.SignalGrossExposureHigh, "gross_exposure_pct_nlv", p.GrossExposurePctNLV, stressPolicy.GrossExposureWatchPct, stressPolicy.GrossExposureStressActPct, stressPolicy.GrossExposureStressUrgentPct, stressed)
-	out = appendExposureSignal(out, risk.SignalNetDeltaHigh, "net_delta_pct_nlv", p.NetDeltaPctNLV, stressPolicy.NetDeltaWatchPct, stressPolicy.NetDeltaStressActPct, stressPolicy.NetDeltaStressUrgentPct, stressed)
+	out = appendNetExposureSignal(out, p.NetExposure, stressed)
 	out = appendExposureSignal(out, risk.SignalGrossDeltaHigh, "gross_delta_pct_nlv", p.GrossDeltaPctNLV, stressPolicy.GrossDeltaWatchPct, stressPolicy.GrossDeltaStressActPct, stressPolicy.GrossDeltaStressUrgentPct, stressed)
 	// Every reading above is a subtotal when a held name went unmeasured, so the
 	// overall verdict must not read healthy off them alone.
@@ -2043,6 +2131,36 @@ func stressExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []ri
 		})
 	}
 	return out
+}
+
+// appendNetExposureSignal raises net_delta_high from Rulebook rule 15's
+// verdict and bands, one band up in confirmed stress (amendment 16). A rule
+// 15 reading that is unavailable, unknown or off raises nothing here; the
+// exposure row carries that gap and never reads it as a pass.
+func appendNetExposureSignal(out []risk.Signal, n *rpc.StressNetExposure, stressed bool) []risk.Signal {
+	severity, threshold, hit := stressNetExposureLevel(n, stressed)
+	if !hit {
+		return out
+	}
+	direction := risk.DirectionRebalance
+	if stressed {
+		direction = risk.DirectionDefensive
+	}
+	confidence := "high"
+	if n.IsLowerBound {
+		confidence = "medium"
+	}
+	return append(out, risk.Signal{
+		ID:         risk.SignalNetDeltaHigh,
+		Direction:  direction,
+		Severity:   severity,
+		Metric:     "net_delta_pct_nlv",
+		Observed:   cloneStressFloat(n.PctNLV),
+		Threshold:  cloneStressFloat(threshold),
+		Unit:       "pct_nlv",
+		Evidence:   stressNetExposureEvidence(n),
+		Confidence: confidence,
+	})
 }
 
 func appendExposureSignal(out []risk.Signal, id risk.SignalID, metric string, observed *float64, watchThreshold, stressActThreshold, stressUrgentThreshold float64, stressed bool) []risk.Signal {
@@ -3310,8 +3428,12 @@ func stressAmbiguityEvidence(m StressMarketSummary) string {
 }
 
 func stressPortfolioEvidence(p StressPortfolioSummary) string {
-	out := fmt.Sprintf("%s, gross %.0f%% NLV, net delta %.0f%% NLV, gross delta %.0f%% NLV",
-		stressCushionEvidence(p), derefPct(p.GrossExposurePctNLV), derefPct(p.NetDeltaPctNLV), derefPct(p.GrossDeltaPctNLV))
+	net := "net exposure unavailable"
+	if stressNetExposureMeasured(p.NetExposure) {
+		net = stressNetExposureReading(p.NetExposure)
+	}
+	out := fmt.Sprintf("%s, gross %.0f%% NLV, %s, gross delta %.0f%% NLV",
+		stressCushionEvidence(p), derefPct(p.GrossExposurePctNLV), net, derefPct(p.GrossDeltaPctNLV))
 	if p.ProtectionCoverage != nil {
 		out += ", protection " + formatProtectionCoverageEvidence(p.ProtectionCoverage)
 	}

@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 08:52 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14 and issuer-concentration amendment 15, 2026-09-26). The
+Updated: 2026-09-26 10:45 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -92,6 +92,12 @@ contradiction:
   its own; the retired stress single-name watches (35/35, target 25) and the
   protection `single_name_target_pct_nlv` (25) are gone. Without a Rulebook
   result the stress concentration row is a data-quality watch, never a pass.
+- One definition of net exposure (amendment 16): the stress read's exposure
+  row, its `net_delta_high` signal and its `net_delta_pct_nlv` figure read
+  rule 15's measure and bands from the Rulebook result. The retired stress
+  net-delta levels (watch 125, stress act 80, stress urgent 125) are gone;
+  confirmed stress moves rule 15's reading one band up instead. Without a
+  rule 15 measurement the exposure row is a data-quality watch, never a pass.
 - One aggregation: rule evaluation consumes the same
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
   read consumes. Bars may differ; observations may not. (An earlier revision
@@ -298,6 +304,35 @@ contradiction:
     rule 1's act level back to the watch level on this measure; protection's
     `single_name_target_pct_nlv` is retired and a file that still carries it
     loads with the key ignored and named.
+
+16. Amendment (2026-09-26, operator decision): one definition of net
+    exposure. The stress read defined it a second time, as the positions
+    aggregate's absolute net dollar delta against its own levels (watch 125%
+    in any market, act 80% and urgent 125% under confirmed stress), beside
+    rule 15's watch 100% and act 150%. Rule 15 becomes the only definition:
+    - The stress read keeps no net measure or level. Its `net_delta_pct_nlv`
+      figure is rule 15's observed magnitude (a proven lower bound when
+      `net_exposure.is_lower_bound` is set, absent when rule 15 did not
+      measure the book), and `portfolio.net_exposure` carries rule 15's
+      status, bands, side and reason.
+    - Regime conditioning keeps its shape on rule 15's two bands: in a calm
+      market only rule 15's act band is a stress watch (rebalance); under
+      confirmed stress rule 15's watch band acts and its act band is urgent
+      (defensive). The calm trigger is the act band because a fully
+      invested, unlevered book already sits at rule 15's watch, and rule 15
+      tracks by default. What moves: calm watch 125 → 150, stress act 80 →
+      100, stress urgent 125 → 150. The separate, lower stress act level is
+      dropped rather than kept as a new key; restoring one would be a
+      regime band on rule 15 in `rulebook-policy.toml`, an owner decision.
+    - Rule 15 unknown or unavailable raises no `net_delta_high` and turns
+      the exposure row into a data-quality watch; rule 15 turned off reads
+      "not assessed". Gross exposure and gross delta keep their stress
+      levels, which no Rulebook rule defines.
+    The stress levels never lived in a file, so there is nothing to migrate.
+    The stress fingerprint projection becomes `stress-policy-fp-v3`; the
+    positions fingerprint keeps the retired edges as hashing constants. The
+    Rulebook itself is unchanged: baseline `rulebook-v4`, projection
+    `rulebook-fp-v6`.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

@@ -52,6 +52,14 @@ credit. The risk-reduction trim starts at the act level and goes back to the
 watch level on this same measure, and the stress read uses rule 1 and rule 16
 for its concentration row rather than measuring concentration itself.
 
+Rule 15 is likewise the only definition of net exposure. The stress read's
+exposure row, its `net_delta_high` driver and its net figure are rule 15's
+reading and bands; confirmed market stress moves that reading one band up. In
+a calm market only rule 15's act level is a stress watch, since a fully
+invested book already sits at its watch level. Under confirmed stress the
+watch level acts and the act level is urgent. Without a rule 15 measurement
+the exposure row says so and never reads as a pass.
+
 ## Set your own limits
 
 Every threshold and mode in the table is yours to change. They live in

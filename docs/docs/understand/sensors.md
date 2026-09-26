@@ -295,7 +295,9 @@ Stress asks whether the current broad-market state is relevant to the portfolio
 actually held. It combines four daemon-owned inputs: account, positions, the
 exact published Regime result, and market events for held names. It does not
 fetch a second market view, and it never treats the portfolio's own losses as
-confirmation of a broad market event.
+confirmation of a broad market event. Concentration (rules 1 and 16) and net
+exposure (rule 15) come from the Rulebook's current result; Stress keeps no
+measure or level of its own for either.
 
 The output separates `market_confirmation`, `portfolio_fit`, and `input_health`,
 then derives an action such as `stand_down`, `watch`, `defend`, `rebalance`,

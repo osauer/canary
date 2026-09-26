@@ -902,6 +902,15 @@ test("alert rows separate affected positions and expose the authoritative review
   state.snapshot.stress.portfolio.concentration.worst_case_loss_is_lower_bound = true;
   assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "GroupA worst-case loss at least 44.5% of NLV");
   delete state.snapshot.stress.portfolio.concentration;
+  state.snapshot.stress.primary_drivers = ["net_delta_high"];
+  state.snapshot.stress.portfolio.net_delta_pct_nlv = 131.5;
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "Net delta 131.5% of NLV", "an older payload keeps its net-delta reading");
+  state.snapshot.stress.portfolio.net_exposure = { status: "watch", pct_nlv: 131.5, watch_pct: 100, act_pct: 150 };
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "Net exposure 131.5% of NLV",
+    "the net driver quotes rule 15's measure");
+  state.snapshot.stress.portfolio.net_exposure.is_lower_bound = true;
+  assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "Net exposure at least 131.5% of NLV");
+  delete state.snapshot.stress.portfolio.net_exposure;
   assert.equal(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), "Gamma: Current options positioning is incomplete · as of 2026-08-10");
   state.snapshot.status = { data_quality: [{ surface: "regime", status: "partial", partial_clusters: ["credit"], as_of: "2026-08-10T15:58:00Z" }] };
   assert.match(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), /^Credit inputs partial · as of /);
@@ -992,6 +1001,11 @@ test("the stress figure quotes the Rulebook's concentration measures", () => {
   delete stressRead.portfolio.concentration;
   stressRead.primary_drivers = ["single_name_exposure_high"];
   assert.equal(stress.stressLeadDriverFigure(stressRead), "SYN 52% NLV", "an older payload keeps its reading");
+  stressRead.primary_drivers = ["net_delta_high"];
+  stressRead.portfolio.net_delta_pct_nlv = 112;
+  assert.equal(stress.stressLeadDriverFigure(stressRead), "net delta 112% NLV", "an older payload keeps its net-delta reading");
+  stressRead.portfolio.net_exposure = { status: "watch", pct_nlv: 112, is_lower_bound: true, watch_pct: 100, act_pct: 150 };
+  assert.equal(stress.stressLeadDriverFigure(stressRead), "net exposure ≥ 112% NLV", "the net driver quotes rule 15's measure");
 });
 
 test("rule offenders show their own served band and rule 1 issuer detail", () => {

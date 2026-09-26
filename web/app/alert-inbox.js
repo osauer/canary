@@ -526,13 +526,16 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
     const driver = stress.primary_drivers?.[0];
     const portfolio = stress.portfolio || {};
     // The stress read's concentration drivers are the Rulebook's: rule 1's
-    // worst-case loss on one issuer and rule 16's dollar delta. Quote those
-    // served figures; an older payload without them keeps the market-value
-    // reading it was built with.
+    // worst-case loss on one issuer and rule 16's dollar delta; its net
+    // exposure is rule 15's measure. Quote those served figures; an older
+    // payload without them keeps the market-value or net-delta reading it was
+    // built with.
     const concentration = portfolio.concentration || {};
     const driverFacts = {
       gross_delta_high: ["Gross delta", portfolio.gross_delta_pct_nlv],
-      net_delta_high: ["Net delta", portfolio.net_delta_pct_nlv],
+      net_delta_high: portfolio.net_exposure
+        ? [`Net exposure${portfolio.net_exposure.is_lower_bound ? " at least" : ""}`, portfolio.net_delta_pct_nlv]
+        : ["Net delta", portfolio.net_delta_pct_nlv],
       gross_exposure_high: ["Gross exposure", portfolio.gross_exposure_pct_nlv],
       single_name_delta_high: Number.isFinite(concentration.delta_pct_nlv)
         ? [`${concentration.delta_issuer || "Largest issuer"} dollar delta`, concentration.delta_pct_nlv]

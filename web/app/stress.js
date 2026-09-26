@@ -543,11 +543,14 @@ function stressHeroFigure(stress = {}) {
 function stressLeadDriverFigure(stress = {}) {
   const p = stress.portfolio || {};
   // The concentration drivers are the Rulebook's rule 1 worst-case loss and
-  // rule 16 dollar delta; an older payload keeps its market-value reading.
+  // rule 16 dollar delta, and net exposure is its rule 15 measure; an older
+  // payload keeps its market-value and net-delta readings.
   const c = p.concentration || {};
   const readings = {
     gross_delta_high: () => stressDriverReading("gross delta", p.gross_delta_pct_nlv),
-    net_delta_high: () => stressDriverReading("net delta", p.net_delta_pct_nlv),
+    net_delta_high: () => p.net_exposure
+      ? stressDriverReading(`net exposure${p.net_exposure.is_lower_bound ? " ≥" : ""}`, p.net_delta_pct_nlv)
+      : stressDriverReading("net delta", p.net_delta_pct_nlv),
     gross_exposure_high: () => stressDriverReading("gross", p.gross_exposure_pct_nlv),
     single_name_delta_high: () => typeof c.delta_pct_nlv === "number"
       ? stressDriverReading(`${cleanDetail(c.delta_issuer) === "--" ? "top issuer" : cleanDetail(c.delta_issuer)} delta`, c.delta_pct_nlv)

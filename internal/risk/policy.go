@@ -9,8 +9,10 @@ import (
 // StressPolicyFingerprintVersion labels fingerprints of the stress threshold
 // policy and keeps that identity domain separate from the constitution. v2
 // (amendment 15): the three single-name thresholds left the projection; the
-// stress read takes concentration from the Rulebook.
-const StressPolicyFingerprintVersion = "stress-policy-fp-v2"
+// stress read takes concentration from the Rulebook. v3 (amendment 16): the
+// three net-delta thresholds left it too; the stress read takes net exposure
+// from Rulebook rule 15.
+const StressPolicyFingerprintVersion = "stress-policy-fp-v3"
 
 // Policy holds the shared stress thresholds used by live monitors and
 // protection proposal policy.
@@ -25,16 +27,19 @@ type Policy struct {
 	MarginTargetPct float64 `json:"margin_target_pct"`
 
 	GrossExposureWatchPct float64 `json:"gross_exposure_watch_pct"`
-	NetDeltaWatchPct      float64 `json:"net_delta_watch_pct"`
 	GrossDeltaWatchPct    float64 `json:"gross_delta_watch_pct"`
 
 	GrossExposureStressActPct float64 `json:"gross_exposure_stress_act_pct"`
-	NetDeltaStressActPct      float64 `json:"net_delta_stress_act_pct"`
 	GrossDeltaStressActPct    float64 `json:"gross_delta_stress_act_pct"`
 
 	GrossExposureStressUrgentPct float64 `json:"gross_exposure_stress_urgent_pct"`
-	NetDeltaStressUrgentPct      float64 `json:"net_delta_stress_urgent_pct"`
 	GrossDeltaStressUrgentPct    float64 `json:"gross_delta_stress_urgent_pct"`
+
+	// Net exposure is not a stress threshold: the stress read takes rule 15's
+	// measure and its watch and act bands from the Rulebook policy, and
+	// confirmed stress moves the reading one band up (amendment 16, owner
+	// decision 2026-09-26). The retired net-delta watch 125, stress act 80 and
+	// stress urgent 125 have no replacement here.
 
 	// Single-name concentration is not a stress threshold: the stress read
 	// takes rule 1's issuer cap and rule 16's delta-swing watch from the
@@ -95,15 +100,12 @@ func DefaultPolicy() Policy {
 		MarginTargetPct: 25,
 
 		GrossExposureWatchPct: 150,
-		NetDeltaWatchPct:      125,
 		GrossDeltaWatchPct:    150,
 
 		GrossExposureStressActPct: 100,
-		NetDeltaStressActPct:      80,
 		GrossDeltaStressActPct:    100,
 
 		GrossExposureStressUrgentPct: 150,
-		NetDeltaStressUrgentPct:      125,
 		GrossDeltaStressUrgentPct:    150,
 
 		OptionGreeksMinCoveragePct: 80,
@@ -175,13 +177,10 @@ func (p Policy) FingerprintKey() string {
 			MarginWatchPct:                    p.MarginWatchPct,
 			MarginTargetPct:                   p.MarginTargetPct,
 			GrossExposureWatchPct:             p.GrossExposureWatchPct,
-			NetDeltaWatchPct:                  p.NetDeltaWatchPct,
 			GrossDeltaWatchPct:                p.GrossDeltaWatchPct,
 			GrossExposureStressActPct:         p.GrossExposureStressActPct,
-			NetDeltaStressActPct:              p.NetDeltaStressActPct,
 			GrossDeltaStressActPct:            p.GrossDeltaStressActPct,
 			GrossExposureStressUrgentPct:      p.GrossExposureStressUrgentPct,
-			NetDeltaStressUrgentPct:           p.NetDeltaStressUrgentPct,
 			GrossDeltaStressUrgentPct:         p.GrossDeltaStressUrgentPct,
 			OptionGreeksMinCoveragePct:        p.OptionGreeksMinCoveragePct,
 			SPYDropPct:                        p.SPYDropPct,
@@ -217,13 +216,10 @@ type policyFields struct {
 	MarginWatchPct                    float64      `json:"margin_watch_pct"`
 	MarginTargetPct                   float64      `json:"margin_target_pct"`
 	GrossExposureWatchPct             float64      `json:"gross_exposure_watch_pct"`
-	NetDeltaWatchPct                  float64      `json:"net_delta_watch_pct"`
 	GrossDeltaWatchPct                float64      `json:"gross_delta_watch_pct"`
 	GrossExposureStressActPct         float64      `json:"gross_exposure_stress_act_pct"`
-	NetDeltaStressActPct              float64      `json:"net_delta_stress_act_pct"`
 	GrossDeltaStressActPct            float64      `json:"gross_delta_stress_act_pct"`
 	GrossExposureStressUrgentPct      float64      `json:"gross_exposure_stress_urgent_pct"`
-	NetDeltaStressUrgentPct           float64      `json:"net_delta_stress_urgent_pct"`
 	GrossDeltaStressUrgentPct         float64      `json:"gross_delta_stress_urgent_pct"`
 	OptionGreeksMinCoveragePct        float64      `json:"option_greeks_min_coverage_pct"`
 	SPYDropPct                        float64      `json:"spy_drop_pct"`
