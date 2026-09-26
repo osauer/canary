@@ -392,8 +392,9 @@ type Connection struct {
 	cancel      context.CancelFunc
 
 	// Tracks which reqIDs currently hold a market data slot. The error
-	marketDataSlotsMu sync.Mutex
-	marketDataSlots   map[int]uint64
+	marketDataSlotsMu  sync.Mutex
+	marketDataSlots    map[int]marketDataSlot
+	marketDataCensusAt time.Time
 
 	// Start API failure tracking for adaptive backoff
 	startAPIMu          sync.Mutex
@@ -685,7 +686,7 @@ func NewConnection(config *ConnectionConfig) *Connection {
 		ctx:                 ctx,
 		cancel:              cancel,
 		rateLimiter:         NewRateLimiter(ctx),
-		marketDataSlots:     make(map[int]uint64),
+		marketDataSlots:     make(map[int]marketDataSlot),
 		positionsEndChan:    make(chan struct{}, 1),
 		acctSummaryEndChan:  make(chan struct{}, 1),
 		serverVersion:       0,
@@ -2283,6 +2284,9 @@ func (c *Connection) handleErrorMessage(fields []string, epoch uint64) (postLeas
 
 	// Check the error code to determine if it's informational or an actual error
 	code, _ := strconv.Atoi(errorCode)
+	if code == 100 && epoch == c.BrokerSessionEpoch() && c.rateLimiter != nil {
+		c.rateLimiter.recordRateLimitError()
+	}
 
 	// Log important errors for debugging
 	if code >= 300 && code < 400 {
@@ -2411,16 +2415,48 @@ func (c *Connection) markCompetingLiveSession(reqID string) bool {
 	return true
 }
 
+type marketDataSlot struct {
+	epoch    uint64
+	acquired time.Time
+	owner    string
+}
+
+// logMarketDataSlotCensus reports bounded owner/age counts, never contracts or
+// request IDs. One record per minute is enough to diagnose persistent holders.
+func (c *Connection) logMarketDataSlotCensus() {
+	now := time.Now()
+	c.marketDataSlotsMu.Lock()
+	defer c.marketDataSlotsMu.Unlock()
+	if now.Sub(c.marketDataCensusAt) < time.Minute {
+		return
+	}
+	c.marketDataCensusAt = now
+	owners := map[string]int{}
+	var oldest time.Duration
+	for _, slot := range c.marketDataSlots {
+		owners[slot.owner]++
+		oldest = max(oldest, now.Sub(slot.acquired))
+	}
+	marketLogger.Warnf("market data pool saturated: holders=%d owners=%v oldest=%s", len(c.marketDataSlots), owners, oldest.Round(time.Second))
+}
+
 // acquireMarketDataSlot acquires a market data slot and records the holding
-func (c *Connection) acquireMarketDataSlot(ctx context.Context, reqID int) error {
+func (c *Connection) acquireMarketDataSlot(ctx context.Context, reqID int, owner ...string) error {
 	if c.rateLimiter == nil {
 		return nil
+	}
+	if c.rateLimiter.marketDataSubs.Count() == cap(c.rateLimiter.marketDataSubs.ch) {
+		c.logMarketDataSlotCensus()
 	}
 	if err := c.rateLimiter.AcquireMarketDataSlot(ctx); err != nil {
 		return err
 	}
 	c.marketDataSlotsMu.Lock()
-	c.marketDataSlots[reqID] = c.BrokerSessionEpoch()
+	label := "unknown"
+	if len(owner) != 0 {
+		label = owner[0]
+	}
+	c.marketDataSlots[reqID] = marketDataSlot{epoch: c.BrokerSessionEpoch(), acquired: time.Now(), owner: label}
 	c.marketDataSlotsMu.Unlock()
 	return nil
 }
@@ -2440,8 +2476,8 @@ func (c *Connection) releaseMarketDataSlotAtEpoch(reqID int, epoch uint64) {
 		return
 	}
 	c.marketDataSlotsMu.Lock()
-	heldEpoch, held := c.marketDataSlots[reqID]
-	if held && (epoch == 0 || heldEpoch == epoch) {
+	slot, held := c.marketDataSlots[reqID]
+	if held && (epoch == 0 || slot.epoch == epoch) {
 		delete(c.marketDataSlots, reqID)
 	} else {
 		held = false
@@ -3348,6 +3384,10 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	if err != nil {
 		ibkrLogger.Warnf("[IBKR cid=%d] System notice decode error: %v", c.config.ClientID, err)
 		return nil
+	}
+
+	if note.code == 100 && epoch == c.BrokerSessionEpoch() && c.rateLimiter != nil {
+		c.rateLimiter.recordRateLimitError()
 	}
 
 	scope := "global"
@@ -5263,7 +5303,11 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 	fields := c.buildReqMktDataFields(contractCopy, reqID, genericTicks, snapshot, regulatorySnap)
 	msg := c.encodeMsg(fields...)
 
-	if err := c.acquireMarketDataSlot(ctx, reqID); err != nil {
+	owner := "quote"
+	if contract.SecType == "OPT" {
+		owner = "option_quote"
+	}
+	if err := c.acquireMarketDataSlot(ctx, reqID, owner); err != nil {
 		return 0, fmt.Errorf("market data subscription limit reached: %w", err)
 	}
 	var cleanup func()
@@ -5328,7 +5372,7 @@ func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Conte
 	contractCopy := contract
 	c.registerReqAlias(reqID, contractCopy)
 	msg := c.encodeMsg(c.buildReqMktDataFields(contractCopy, reqID, genericTicks, snapshot, regulatorySnap)...)
-	if err := c.acquireMarketDataSlot(ctx, reqID); err != nil {
+	if err := c.acquireMarketDataSlot(ctx, reqID, "epoch_quote"); err != nil {
 		return 0, fmt.Errorf("market data subscription limit reached: %w", err)
 	}
 	var cleanup func()
@@ -5678,7 +5722,7 @@ func (c *Connection) RequestMarketDataWithPrimary(ctx context.Context, symbol st
 
 	msg := c.encodeMsg(c.buildReqMktDataFields(contract, reqID, "100,101,104,106,165,221,233,236", false, false)...)
 
-	if err := c.acquireMarketDataSlot(ctx, reqID); err != nil {
+	if err := c.acquireMarketDataSlot(ctx, reqID, "primary_quote"); err != nil {
 		return 0, fmt.Errorf("market data subscription limit reached: %w", err)
 	}
 	marketLogger.Debugf("Requesting market data for %s (ReqID: %d, SecType: %s, Exch: %s, Primary: %s)",
@@ -5741,7 +5785,7 @@ func (c *Connection) RequestOptionsMarketData(ctx context.Context, symbol string
 
 	msg := c.encodeMsg(c.buildReqMktDataFields(contract, reqID, "100,101,104,106,221,236", false, false)...)
 
-	if err := c.acquireMarketDataSlot(ctx, reqID); err != nil {
+	if err := c.acquireMarketDataSlot(ctx, reqID, "option_quote"); err != nil {
 		return 0, fmt.Errorf("market data subscription limit reached: %w", err)
 	}
 
@@ -6197,13 +6241,7 @@ func (c *Connection) CancelMarketData(reqID int) error {
 		return fmt.Errorf("not connected to IBKR")
 	}
 
-	msg := c.encodeMsg(cancelMktData, 1, reqID)
-	err := c.sendMessageWithType(msg, RequestTypeMarketData)
-
-	// Release market data slot when canceling subscription. Idempotent —
-	c.releaseMarketDataSlot(reqID)
-
-	return err
+	return c.cancelMarketDataForEpoch(context.Background(), reqID, c.BrokerSessionEpoch())
 }
 
 func (c *Connection) cancelMarketDataForEpoch(ctx context.Context, reqID int, epoch uint64) error {
@@ -6211,8 +6249,10 @@ func (c *Connection) cancelMarketDataForEpoch(ctx context.Context, reqID int, ep
 		return fmt.Errorf("market-data request ID must be a positive signed 32-bit integer")
 	}
 	msg := c.encodeMsg(cancelMktData, 1, reqID)
-	err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketData, epoch, true)
-	c.releaseMarketDataSlotAtEpoch(reqID, epoch)
+	err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketDataCancel, epoch, true)
+	if err == nil {
+		c.releaseMarketDataSlotAtEpoch(reqID, epoch)
+	}
 	return err
 }
 

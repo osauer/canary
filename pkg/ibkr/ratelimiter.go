@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -85,6 +84,9 @@ const (
 	RequestTypeHistorical
 	RequestTypeOrder
 	RequestTypeHeartbeat
+	// RequestTypeMarketDataCancel frees a read subscription even during a
+	// pacing cooldown. It still consumes the general message-rate token.
+	RequestTypeMarketDataCancel
 )
 
 // RequestPriority selects the pacing lane for a submitted request. The
@@ -459,7 +461,6 @@ func (rl *RateLimiter) SubmitWithRetriesContextFunc(ctx context.Context, reqType
 	default:
 		// Queue is full
 		rl.incrementRejected()
-		rl.recordRateLimitError()
 		return fmt.Errorf("request queue full (1000 pending)")
 	}
 }
@@ -555,9 +556,6 @@ func (rl *RateLimiter) executeRequest(req *RateLimitedRequest) error {
 	// Wait for general message rate limit (all requests)
 	if err := rl.messageRate.WaitForTokens(ctx, 1); err != nil {
 		rl.incrementThrottled()
-		if !isContextDone(err) {
-			rl.recordRateLimitError()
-		}
 		return fmt.Errorf("rate limit cancelled: %w", err)
 	}
 
@@ -567,53 +565,26 @@ func (rl *RateLimiter) executeRequest(req *RateLimitedRequest) error {
 		// Wait for historical rate limit
 		if err := rl.historicalRate.WaitForTokens(ctx, 1); err != nil {
 			rl.incrementThrottled()
-			if !isContextDone(err) {
-				rl.recordRateLimitError()
-			}
 			return fmt.Errorf("historical rate limit: %w", err)
 		}
 
 		// Acquire concurrent slot
 		if err := rl.historicalConcurrent.Acquire(ctx); err != nil {
 			rl.incrementThrottled()
-			if !isContextDone(err) {
-				rl.recordRateLimitError()
-			}
 			return fmt.Errorf("historical concurrent limit: %w", err)
 		}
 		defer rl.historicalConcurrent.Release()
 
-	case RequestTypeMarketData:
-		// Check market data subscription limit
-		if rl.marketDataSubs.Count() >= 100 {
-			rl.incrementThrottled()
-			rl.recordRateLimitError()
-			return fmt.Errorf("market data subscription limit reached (100)")
-		}
-		// Note: Caller must manage subscription lifecycle with AcquireMarketDataSlot/ReleaseMarketDataSlot
 	}
 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	// Execute the actual request
-	err := req.SendFunc(ctx)
-	if err != nil {
-		if isContextDone(err) {
-			return err
-		}
-		lower := strings.ToLower(err.Error())
-		if strings.Contains(lower, "error 100") || strings.Contains(lower, "rate limit") {
-			rl.recordRateLimitError()
-		} else {
-			rl.resetRateLimitErrors()
-		}
-	} else {
-		rl.resetRateLimitErrors()
-	}
-
-	return err
+	// Slot admission belongs to AcquireMarketDataSlot. A successful socket
+	// write is not a broker pacing acknowledgement; only inbound code 100
+	// updates the pacing incident counter.
+	return req.SendFunc(ctx)
 }
 
 func (rl *RateLimiter) executionContext(req *RateLimitedRequest) (context.Context, context.CancelFunc) {
@@ -721,6 +692,9 @@ func (rl *RateLimiter) incrementRejected() {
 func (rl *RateLimiter) recordRateLimitError() {
 	now := time.Now()
 	rl.metricsMu.Lock()
+	if now.Sub(rl.metrics.LastRateLimitError) >= rl.circuitCooldown {
+		rl.metrics.ConsecutiveErrors = 0
+	}
 	rl.metrics.LastRateLimitError = now
 	rl.metrics.ConsecutiveErrors++
 	count := rl.metrics.ConsecutiveErrors
@@ -731,12 +705,6 @@ func (rl *RateLimiter) recordRateLimitError() {
 	if rl.circuitThreshold > 0 && count >= rl.circuitThreshold {
 		rl.openCircuit(now.Add(rl.circuitCooldown))
 	}
-}
-
-func (rl *RateLimiter) resetRateLimitErrors() {
-	rl.metricsMu.Lock()
-	rl.metrics.ConsecutiveErrors = 0
-	rl.metricsMu.Unlock()
 }
 
 func (rl *RateLimiter) openCircuit(openUntil time.Time) {
@@ -762,7 +730,7 @@ func (rl *RateLimiter) checkCircuit(reqType RequestType) error {
 		return nil
 	}
 
-	if reqType == RequestTypeHeartbeat {
+	if reqType == RequestTypeHeartbeat || reqType == RequestTypeMarketDataCancel {
 		return nil
 	}
 
