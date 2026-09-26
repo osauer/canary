@@ -17,7 +17,7 @@ func etDate(y int, m time.Month, d int) time.Time {
 func healthyInputs() RuleInputs {
 	now := etDate(2026, 7, 7)
 	nowEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 22), TimeOfDay: "amc", SessionsUntil: new(11), Source: "fetched"}
-	synthEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 30), TimeOfDay: "amc", SessionsUntil: new(17), Source: "fetched"}
+	bbEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 30), TimeOfDay: "amc", SessionsUntil: new(17), Source: "fetched"}
 	msftEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 29), TimeOfDay: "amc", SessionsUntil: new(16), Source: "fetched"}
 	return RuleInputs{
 		AsOf:               now,
@@ -33,6 +33,7 @@ func healthyInputs() RuleInputs {
 		Names: []NameInput{
 			{
 				Symbol: "NOW", ExposureBase: 380000, MarketValueBase: 120000, HasStockLeg: true, ExposureBaseComplete: true,
+				StockQuantity: 850, StockMark: 108, StockFXToBase: new(0.9),
 				StockDayChangePct: new(1.6),
 				Legs: []LegInput{
 					{Desc: "NOW 20260717 C 130", Right: "C", Strike: 130, Expiry: etDate(2026, 7, 17), DTE: 10,
@@ -44,21 +45,23 @@ func healthyInputs() RuleInputs {
 				},
 			},
 			{
-				Symbol: "SYNTH", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
+				Symbol: "BB", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
+				StockQuantity: 1082, StockMark: 11.3, StockFXToBase: new(0.9),
 				StockDayChangePct: new(-1.7),
 				Legs: []LegInput{
-					{Desc: "SYNTH 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
+					{Desc: "BB 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: 300, Multiplier: 100, Mark: 1.28, Underlying: new(11.3), Delta: new(0.50),
 						MarketValueBase: 34000, ExtrinsicBase: new(34000.0), CostBasisBase: new(40000.0), FXToBase: new(0.9)},
 				},
 			},
 			{
 				Symbol: "MSFT", ExposureBase: 30000, MarketValueBase: 12000, HasStockLeg: true, ExposureBaseComplete: true,
+				StockQuantity: 39, StockMark: 386, StockFXToBase: new(0.9),
 				StockDayChangePct: new(0.3),
 				Legs: []LegInput{
 					{Desc: "MSFT 20260821 C 400", Right: "C", Strike: 400, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: -3, Multiplier: 100, Mark: 5, Underlying: new(386.0), Delta: new(-0.3),
-						MarketValueBase: -1400},
+						MarketValueBase: -1400, FXToBase: new(0.9)},
 				},
 			},
 			{
@@ -71,7 +74,7 @@ func healthyInputs() RuleInputs {
 				},
 			},
 		},
-		Earnings:          map[string]EarningsInput{"NOW": nowEarnings, "MSFT": msftEarnings, "SYNTH": synthEarnings},
+		Earnings:          map[string]EarningsInput{"NOW": nowEarnings, "MSFT": msftEarnings, "BB": bbEarnings},
 		NonBaseNLVBase:    new(230000.0),
 		NonBaseCurrencies: []string{"USD"},
 	}
@@ -273,15 +276,27 @@ func TestExtremeIndexPutPositionIsDirectional(t *testing.T) {
 	if hedge.Status != RuleStatusNotEvaluated || hedge.Reason != RuleReasonNoProtection || !strings.Contains(hedge.Evidence, "directional short") {
 		t.Fatalf("protection row = %s/%s (%s), want directional short", hedge.Status, hedge.Reason, hedge.Evidence)
 	}
-	exposure := rowByID(t, ev, RuleSingleNameExposure)
+	// A directional put is ordinary exposure: its dollar delta is a delta
+	// swing like any other (no protection exemption), and rule 1 counts
+	// what it can lose, its premium.
+	swing := rowByID(t, ev, RuleDeltaSwing)
 	found := false
-	for _, o := range exposure.Offenders {
-		if o.Symbol == "SPY" && strings.Contains(o.Note, "directional") {
+	for _, o := range swing.Offenders {
+		if o.Symbol == "SPY" {
 			found = true
 		}
 	}
+	for _, o := range swing.Exempt {
+		if o.Symbol == "SPY" {
+			t.Fatalf("a directional index put was exempted as protection: %+v", swing.Exempt)
+		}
+	}
 	if !found {
-		t.Fatalf("directional SPY exposure must follow the ordinary concentration rule: %+v", exposure)
+		t.Fatalf("directional SPY exposure must follow the ordinary delta swing: %+v", swing)
+	}
+	spyIssuer, ok := newRuleContext(in, DefaultRulebookPolicy()).issuerFor("SPY")
+	if !ok || spyIssuer.exposure.WorstCaseLossBase != 38000 {
+		t.Fatalf("directional SPY puts must count their premium as the worst case: %+v", spyIssuer.exposure)
 	}
 }
 
@@ -368,7 +383,8 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 	quiet := func() RuleInputs {
 		in := healthyInputs()
-		in.Names = []NameInput{{Symbol: "AAA", ExposureBase: 10000, ExposureBaseComplete: true, HasStockLeg: true}}
+		in.Names = []NameInput{{Symbol: "AAA", ExposureBase: 10000, ExposureBaseComplete: true, HasStockLeg: true,
+			StockQuantity: 100, StockMark: 100, StockFXToBase: new(1.0)}}
 		return in
 	}
 
@@ -377,7 +393,8 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 
 	in := quiet()
-	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBase: 0, ExposureBaseComplete: false, HasStockLeg: true})
+	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBase: 0, ExposureBaseComplete: false, HasStockLeg: true,
+		StockQuantity: 10, StockMark: 50})
 	r := rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
 	if r.Status != RuleStatusUnknown {
 		t.Fatalf("unmeasured name = %s, want unknown — 0.0%% is absence of data, not a measurement (evidence: %s)", r.Status, r.Evidence)
@@ -387,7 +404,7 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 	var named bool
 	for _, o := range r.Offenders {
-		if o.Symbol == "FXLESS" && strings.Contains(o.Note, "not fully measured") {
+		if o.Symbol == "FXLESS" && strings.Contains(o.Note, "not measured") && strings.Contains(o.Note, "no FX rate") {
 			named = true
 		}
 	}
@@ -396,8 +413,8 @@ func TestSingleNameExposureUnmeasuredNameBlocksPass(t *testing.T) {
 	}
 
 	in = quiet()
-	in.Names[0].ExposureBase = 120000
-	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true})
+	in.Names[0].StockQuantity = 1200
+	in.Names = append(in.Names, NameInput{Symbol: "FXLESS", ExposureBaseComplete: false, HasStockLeg: true, StockQuantity: 10, StockMark: 50})
 	r = rowByID(t, EvaluateRulebook(in, pol), RuleSingleNameExposure)
 	if r.Status != RuleStatusAct {
 		t.Errorf("measured breach beside an unmeasured name = %s, want act (breach not downgraded)", r.Status)

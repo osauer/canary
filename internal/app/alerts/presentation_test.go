@@ -17,7 +17,10 @@ func TestActionablePresentationsUseShortHumanCopy(t *testing.T) {
 	}{
 		{rpc.AlertPresentationPortfolioStress, "Portfolio risk", "watch or action level"},
 		{rpc.AlertPresentationRegimeMarketStress, "Market warning", "crossed a warning level"},
-		{rpc.AlertPresentationRulebookSingleNameExposure, "Exposure to one underlying", "Rulebook concentration limit"},
+		{rpc.AlertPresentationRulebookSingleNameExposure, "Worst-case loss on one issuer", "worst-case loss is above its Rulebook level"},
+		{rpc.AlertPresentationRulebookDeltaSwing, "Delta swing on one issuer", "at its Rulebook watch level"},
+		{rpc.AlertPresentationRulebookClusterStress, "Cluster falling together", "joint fall"},
+		{rpc.AlertPresentationRulebookLossBudget, "Issuer loss against risk capital", "against your risk capital"},
 		{rpc.AlertPresentationRulebookOptionLinePremium, "Premium at risk", "One option position"},
 		{rpc.AlertPresentationRulebookCatalystCoverage, "Earnings timing", "expires before the next earnings announcement"},
 		{rpc.AlertPresentationRulebookHedgeIntegrity, "Index protection size", "assigned to portfolio protection"},

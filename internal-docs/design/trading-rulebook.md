@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 07:43 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13 and expiry-runway amendment 14, 2026-09-26). The
+Updated: 2026-09-26 07:49 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14 and issuer-concentration amendment 15, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -224,30 +224,96 @@ contradiction:
     (amendment 12). The thresholds are unchanged, so the baseline stays
     `rulebook-v3` and the fingerprint projection stays `rulebook-fp-v5`.
 
+15. Amendment (2026-09-26, operator decisions): one definition of
+    concentration, one home. Single-name concentration was defined four
+    ways in three policies over two measures (rule 1 delta exposure 30/40;
+    stress market value and delta watches 35/35 with a 25 target; protection
+    `single_name_target_pct_nlv` 25 on group market value). Rule 1 becomes
+    the per-issuer concentration cap and the only definition:
+    - Issuer = the underlying, joined with the share classes and ADR or
+      ordinary lines the owner lists under `issuer_groups`; an ungrouped
+      symbol is its own issuer. Per-leg limits are not concentration and
+      stay where they are (rule 2's premium cap, rule 13's loss reviews).
+    - Measure: the worst-case loss on the issuer across all prices, as % of
+      NLV, netting every leg from current marks. Legs are valued on
+      intrinsic payoffs at a price grid (zero, every strike, spot, spot ×
+      (1 + `takeover_gap_pct`)); payoffs are linear between grid points, so
+      the grid finds the true worst price. Long stock loses its value, a
+      long option its premium, a short put its strike notional less its
+      current liability, a covered call keeps only its premium as credit,
+      and a protective put stops the loss at its strike. A book that keeps
+      losing as the price rises (short stock, uncovered short calls) is
+      sized at the takeover gap (default 100%) and the responsible legs are
+      flagged unbounded, with the uncovered share when part is covered. An
+      early assignment realizes exactly a short leg's intrinsic value, so the
+      netting holds under early assignment. Index or other-underlying options
+      sit on their own issuer and give no credit; a long index put's worst
+      case is its premium, so rule 1 no longer needs a hedge exemption.
+    - Hedge credit: a long option pays off in the grid only when it expires
+      after the issuer's next earnings and at least `hedge_min_days` (14)
+      out. With the date unknown only the day test applies and the issuer
+      notes it. A non-qualifying option contributes its full premium as loss
+      and no protective payoff. Offenders label protective long options
+      credited or uncredited with the reason.
+    - Bands 30/40 through `bandStatus` (at or above). Days to exit = the
+      line's shares (share-equivalents |delta| × contracts × multiplier for
+      an option-only line, the full contract when delta is missing) over
+      `exit_participation_pct` (20%) of the 20-day average volume, the
+      longest line of the issuer; above `illiquid_days_to_exit` (3) the
+      issuer uses `illiquid_watch_pct`/`illiquid_act_pct` (20/30). Volume
+      comes from the daemon's caches (the quote path's 20-day liquidity entry
+      or its daily bars without a session still in progress), never a
+      synchronous broker read; a miss starts one paced background read and
+      keeps the normal bands with a note. Partial data may indict, never
+      acquit: a missing price, share count or FX rate leaves the issuer
+      unknown, and an unbounded option-only line without a price is a
+      disclosed lower bound that may only indict.
+    - Rule 8's size test is rule 1's verdict on the name's issuer.
+    Three watches follow the Rulebook architecture as numbered rules, so
+    every surface, the alert authority and history treat them as rows: rule
+    16 `delta_swing` (one issuer's dollar delta ≥ 30% of NLV; evidence says
+    what a 10% move costs and names gamma when it moves that by at least
+    `greeks_gap_floor_pct_nlv`; this carries rule 1's former delta measure,
+    its lower bound and the protection exemption for index puts), rule 17
+    `cluster_stress` (owner-declared `clusters` fall `cluster_drop_pct` (30)
+    together, netted with rule 1's leg rules; watch at `cluster_watch_pct`
+    (15) of NLV; `not_evaluated/no_clusters` until a cluster is declared)
+    and rule 18 `loss_budget` (an issuer's worst-case loss ≥
+    `budget_watch_pct` (100) of the constitution's effective risk capital;
+    unknown naming the missing number, never pass, without it). They never
+    act, so they stay out of act counts and the trim and proposal paths.
+    Default modes: 16 and 17 track, 18 alert (owner decision the same day).
+    The baseline becomes `rulebook-v4` (Version 4) and the fingerprint
+    projection `rulebook-fp-v6`. The stress read and the risk-reduction
+    bucket follow in the next change.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
 being written there.
 
-## The 15 rules
+## The 18 rules
 
 Inputs available today unless marked otherwise. "Exposure" for a name =
 stock shares×spot + Σ(option delta×100×contracts×spot), from
-`UnderlyingExposure`/`PositionGroup` aggregation (base currency).
+`UnderlyingExposure`/`PositionGroup` aggregation (base currency); rules 10,
+15 and 16 read it. Rule 1 reads the worst-case loss per issuer instead
+(amendment 15), from each line's summed stock rows and each option leg's mark,
+strike and FX rate.
 Rules 4/12 thresholds are regime-conditional: calm / early_warning /
 confirmed sets selected by the latched regime lifecycle stage (see the
 regime-conditionality notes).
 
 | # | Rule id | Check | Default threshold | Default mode |
 |---|---|---|---|---|
-| 1 | `single_name_exposure` | exposure by underlying / NLV; only protection-classified short delta is exempt | watch ≥ 30%; act ≥ 40% | alert |
+| 1 | `single_name_exposure` | worst-case loss per issuer / NLV, every leg netted from current marks (amendment 15) | watch ≥ 30%; act ≥ 40%; illiquid 20% / 30% | alert |
 | 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act ≥ 10%; protection watch ≥ 15%, act ≥ 25% | track |
 | 3 | `cash_sell_only` | broker AvailableFunds / NLV; the stable id is retained for history compatibility | watch < 75% | alert |
 | 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act ≥ 15 / 12 / 10% by regime | alert |
 | 5 | `expiry_runway` | long option DTE ≤ 14 unless ≥70-delta ITM or protection-classified | watch ≤ 14 DTE; act ≤ 7 DTE | alert |
 | 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |
 | 7 | `overwrite_earnings` | short option spanning earnings; short-put assignment notional ≥10% NLV line or ≥20% name escalates | see ET semantics below | alert |
-| 8 | `earnings_size_freeze` | underlying ≤3 US sessions from earnings while rule 1 is breached | ≤3 sessions | track |
+| 8 | `earnings_size_freeze` | name ≤3 US sessions from earnings while its issuer is at or above rule 1's watch level | ≤3 sessions | track |
 | 9 | `red_on_green` | stock day change ≤−1.5% while SPY ≥+0.5% | intraday only | off |
 | 10 | `winner_trim` | stock day change ≥+4% with exposure ≥15% NLV | intraday only | off |
 | 11 | `green_day_action` | account daily P&L >0 while an act-level rule is open | informational | off |
@@ -255,13 +321,17 @@ regime-conditionality notes).
 | 13 | `exit_discipline` | each long option position's unrealized loss / premium paid; protection-classified legs exempt | watch ≥40%; act ≥60% | alert |
 | 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | track ≥60% | track |
 | 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100%; act ≥ 150% | track |
+| 16 | `delta_swing` | one issuer's dollar delta / NLV; protection-classified index short delta exempt; never acts | watch ≥ 30% | track |
+| 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
+| 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
 five non-pass states are load-bearing: **no input condition may ever
 produce `pass` by absence of data.**
 
-Rules 1–8 and 12–13 are portfolio-discipline checks in this advisory model.
+Rules 1–8, 12–13 and 15–18 are portfolio-discipline checks in this advisory
+model; 16–18 watch and never act.
 Rules 9–10 are optional tape heuristics, rule 11 is an optional behavioral
 nudge, and rule 14 is structural tracking. None is an enforced risk-policy
 limit.
@@ -282,11 +352,11 @@ Semantics notes:
   configured protection band, they are directional short exposure.
   Directional positions receive no protection exemptions. Missing delta,
   underlying price, or stock-leg mark provenance leaves the role unclassified.
-- Rule 1 exempts only the portion of net-short index exposure carried by
+- Rule 16 exempts only the portion of net-short index delta carried by
   protection-classified legs, capped at the name's net-short exposure and
   disclosed in `Exempt`. Any residual, unclassified, or directional short is
-  ordinary concentration. Long index exposure is always ordinary
-  concentration.
+  an ordinary delta swing. Rule 1 needs no exemption since amendment 15: a
+  long index put can lose only its premium.
 - Rules 9/10 evaluate only during the US equity session
   (`marketcal.SessionAt`) and only from existing stock-leg quote enrichment
   (`DayChangePct`) plus one dedicated best-effort SPY snapshot quote per
@@ -361,7 +431,8 @@ Rulebook v2 implementation-review findings (2026-07-08, trading-semantics
 and Go-implementation lenses; engineering review, not operator policy
 approval):
 
-- **Partial data may indict, never acquit.** Rule 1 computes a provable
+- **Partial data may indict, never acquit.** Rule 16 (rule 1 before
+  amendment 15) computes a provable
   per-name minimum when material legs miss delta: known legs are already in
   `ExposureBase`; each delta-less leg contributes a signed interval (long
   call: intrinsic…notional, since delta·S ≥ C ≥ intrinsic; long put:
@@ -460,6 +531,11 @@ rules 9-10 and no long book on rule 12 remain the other accepted reasons.
 
 ```
 internal/risk/rulebook.go         rule ids, typed inputs, Evaluate() (pure)
+internal/risk/concentration.go    rule 1 issuer netting, trim plan (pure)
+internal/risk/concentration_watches.go
+                                  rules 16-18 (pure)
+internal/daemon/rulebook_concentration.go
+                                  stock lines, 20-day volume, risk capital
 internal/risk/rulebook_policy.go  RulebookPolicy, regime sets, fingerprint
 internal/risk/option_math.go      intrinsic/extrinsic/spread helpers hoisted
                                   from proposal_engine (shared, one copy)

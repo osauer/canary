@@ -96,6 +96,9 @@ const (
 	AlertPresentationRulebookExitDiscipline             = risk.AlertPresentationRulebookExitDiscipline
 	AlertPresentationRulebookFXExposure                 = risk.AlertPresentationRulebookFXExposure
 	AlertPresentationRulebookNetExposure                = risk.AlertPresentationRulebookNetExposure
+	AlertPresentationRulebookDeltaSwing                 = risk.AlertPresentationRulebookDeltaSwing
+	AlertPresentationRulebookClusterStress              = risk.AlertPresentationRulebookClusterStress
+	AlertPresentationRulebookLossBudget                 = risk.AlertPresentationRulebookLossBudget
 	AlertPresentationProtectionOrphanedOrder            = risk.AlertPresentationProtectionOrphanedOrder
 	AlertPresentationProtectionAutoTrailingStop         = risk.AlertPresentationProtectionAutoTrailingStop
 	AlertPresentationProtectionAutoTrailingStopNow      = risk.AlertPresentationProtectionAutoTrailingStopNow

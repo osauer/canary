@@ -475,6 +475,9 @@ const RULE_ALERT_TARGETS = {
   rulebook_exit_discipline: "exit_discipline",
   rulebook_fx_exposure: "fx_exposure",
   rulebook_net_exposure: "net_exposure",
+  rulebook_delta_swing: "delta_swing",
+  rulebook_cluster_stress: "cluster_stress",
+  rulebook_loss_budget: "loss_budget",
 };
 
 function alertEvidenceTarget(occurrence = {}) {

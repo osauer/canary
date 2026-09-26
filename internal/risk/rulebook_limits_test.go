@@ -36,8 +36,11 @@ func limitsAllModes(mode string) RulebookPolicy {
 	return pol
 }
 
+// limitsStock is a plain long stock line at a mark of 100 in base currency,
+// so its worst-case loss, market value and dollar delta all equal exposure.
 func limitsStock(sym string, exposure float64) NameInput {
-	return NameInput{Symbol: sym, ExposureBase: exposure, MarketValueBase: exposure, HasStockLeg: true, ExposureBaseComplete: true}
+	return NameInput{Symbol: sym, ExposureBase: exposure, MarketValueBase: exposure, HasStockLeg: true, ExposureBaseComplete: true,
+		StockQuantity: exposure / 100, StockMark: 100, StockFXToBase: new(1.0)}
 }
 
 // limitsLongCall is a delta-known long call held on an otherwise empty name.
@@ -61,6 +64,8 @@ type limitCase struct {
 	name   string
 	rule   string
 	mutate func(*RuleInputs)
+	// policy adjusts the all-modes policy for one case (clusters, groups).
+	policy func(*RulebookPolicy)
 	status string
 	// watch and act are the two bands of a two-band rule; limit is the one
 	// limit of a single-limit rule. All nil means the row reports no limit.
@@ -94,8 +99,9 @@ func limitCases() []limitCase {
 		return EarningsInput{Known: true, Date: etDate(2026, 7, 7).AddDate(0, 0, sessions+1), TimeOfDay: "amc", SessionsUntil: new(sessions), Source: "fetched"}
 	}
 	positionsDown := func(in *RuleInputs) { in.Positions = SourceState{Healthy: false, Reason: "positions_pending"} }
+	cluster := func(p *RulebookPolicy) { p.Clusters = map[string][]string{"ClusterPair": {"AAA", "BBB"}} }
 	return []limitCase{
-		// 1 — exposure to one underlying: watch 30, act 40.
+		// 1 — worst-case loss on one issuer: watch 30, act 40 (illiquid 20/30).
 		{name: "pass", rule: RuleSingleNameExposure, mutate: name(limitsStock("AAA", 20000)), status: RuleStatusPass, watch: f(30), act: f(40)},
 		{name: "watch", rule: RuleSingleNameExposure, mutate: name(limitsStock("AAA", 35000)), status: RuleStatusWatch, watch: f(30), act: f(40)},
 		{name: "act", rule: RuleSingleNameExposure, mutate: name(limitsStock("AAA", 45000)), status: RuleStatusAct, watch: f(30), act: f(40)},
@@ -233,6 +239,47 @@ func limitCases() []limitCase {
 		{name: "watch", rule: RuleFXExposure, mutate: func(in *RuleInputs) { in.NonBaseNLVBase = new(70000.0) }, status: RuleStatusWatch, limit: f(60)},
 		{name: "unknown", rule: RuleFXExposure, mutate: func(in *RuleInputs) { in.NonBaseNLVBase = nil }, status: RuleStatusUnknown},
 
+		// 16 — delta swing on one issuer: one watch limit, 30; never acts.
+		{name: "pass", rule: RuleDeltaSwing, mutate: name(limitsStock("AAA", 20000)), status: RuleStatusPass, limit: f(30)},
+		{name: "watch", rule: RuleDeltaSwing, mutate: name(limitsStock("AAA", 35000)), status: RuleStatusWatch, limit: f(30)},
+		{name: "unknown", rule: RuleDeltaSwing, mutate: func(in *RuleInputs) {
+			leg := limitsLongCall("AAA", 60, 1000)
+			leg.Delta, leg.Underlying = nil, nil
+			n := optionName("AAA", leg)
+			n.GreeksGapNotionalBase = 9000
+			in.Names = append(in.Names, n)
+		}, status: RuleStatusUnknown, limit: f(30)},
+		{name: "gate", rule: RuleDeltaSwing, mutate: positionsDown, status: RuleStatusUnknown},
+
+		// 17 — cluster falling together: one watch limit, 15; never acts. No
+		// declared cluster asks nothing and reports no limit.
+		{name: "no clusters", rule: RuleClusterStress, mutate: name(limitsStock("AAA", 20000)), status: RuleStatusNotEvaluated},
+		{name: "pass", rule: RuleClusterStress, mutate: name(limitsStock("AAA", 20000)), policy: cluster, status: RuleStatusPass, limit: f(15)},
+		{name: "watch", rule: RuleClusterStress, mutate: name(limitsStock("AAA", 30000), limitsStock("BBB", 25000)), policy: cluster, status: RuleStatusWatch, limit: f(15)},
+		{name: "unknown", rule: RuleClusterStress, mutate: func(in *RuleInputs) {
+			n := limitsStock("AAA", 30000)
+			n.StockFXToBase = nil
+			in.Names = append(in.Names, n)
+		}, policy: cluster, status: RuleStatusUnknown, limit: f(15)},
+
+		// 18 — issuer loss against risk capital: one watch limit, 100; never
+		// acts. Without the constitution's number it names the gap.
+		{name: "no risk capital", rule: RuleLossBudget, mutate: name(limitsStock("AAA", 20000)), status: RuleStatusUnknown},
+		{name: "pass", rule: RuleLossBudget, mutate: func(in *RuleInputs) {
+			in.RiskCapital = &RiskCapitalInput{EffectiveBase: new(50000.0)}
+			in.Names = append(in.Names, limitsStock("AAA", 20000))
+		}, status: RuleStatusPass, limit: f(100)},
+		{name: "watch", rule: RuleLossBudget, mutate: func(in *RuleInputs) {
+			in.RiskCapital = &RiskCapitalInput{EffectiveBase: new(8000.0)}
+			in.Names = append(in.Names, limitsStock("AAA", 20000))
+		}, status: RuleStatusWatch, limit: f(100)},
+		{name: "unknown", rule: RuleLossBudget, mutate: func(in *RuleInputs) {
+			in.RiskCapital = &RiskCapitalInput{EffectiveBase: new(50000.0)}
+			n := limitsStock("AAA", 20000)
+			n.StockMark = 0
+			in.Names = append(in.Names, n)
+		}, status: RuleStatusUnknown, limit: f(100)},
+
 		// 15 — net market exposure: watch 100, act 150.
 		{name: "flat", rule: RuleNetExposure, status: RuleStatusPass, watch: f(100), act: f(150)},
 		{name: "pass", rule: RuleNetExposure, mutate: name(limitsStock("AAA", 50000)), status: RuleStatusPass, watch: f(100), act: f(150)},
@@ -260,13 +307,16 @@ func quotesLimit(evidence string, limit float64) bool {
 // its evidence line quotes that same number. Unknown and not-evaluated rows
 // name what is missing; they may omit the limit but never quote another band.
 func TestRuleRowReportsTheLimitOfItsStatus(t *testing.T) {
-	pol := limitsAllModes(RuleModeAlert)
 	covered := map[string]map[string]bool{}
 	for _, c := range limitCases() {
 		t.Run(c.rule+"/"+c.name, func(t *testing.T) {
 			in := limitsInputs()
 			if c.mutate != nil {
 				c.mutate(&in)
+			}
+			pol := limitsAllModes(RuleModeAlert)
+			if c.policy != nil {
+				c.policy(&pol)
 			}
 			r := rowByID(t, EvaluateRulebook(in, pol), c.rule)
 			if r.Status != c.status {
@@ -323,11 +373,14 @@ func TestRuleRowReportsTheLimitOfItsStatus(t *testing.T) {
 // TestRuleRowOffModeReportsNoLimit keeps the off-mode contract: a rule the
 // policy turned off was never compared, so it carries no limit of any kind.
 func TestRuleRowOffModeReportsNoLimit(t *testing.T) {
-	pol := limitsAllModes(RuleModeOff)
 	for _, c := range limitCases() {
 		in := limitsInputs()
 		if c.mutate != nil {
 			c.mutate(&in)
+		}
+		pol := limitsAllModes(RuleModeOff)
+		if c.policy != nil {
+			c.policy(&pol)
 		}
 		r := rowByID(t, EvaluateRulebook(in, pol), c.rule)
 		if r.Status != RuleStatusNotEvaluated || r.Threshold != nil || r.WatchThreshold != nil || r.ActThreshold != nil {

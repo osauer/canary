@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/daemon"
@@ -72,14 +73,15 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 	hMin := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMinPct }
 	hMax := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMaxPct }
 	limits := map[string]string{
-		risk.RuleSingleNameExposure: fmt.Sprintf("watch at %s, act at %s of NLV per underlying (stock-equivalent)", pct(p.SingleNameWatchPct), pct(p.SingleNameActPct)),
+		risk.RuleSingleNameExposure: fmt.Sprintf("worst-case loss per issuer: watch at %s, act at %s of NLV, trim back to %s; illiquid (over %s days to exit at %s of 20-day volume) %s/%s; hedges count from %d days out and past earnings; unbounded legs sized at a %s rise",
+			pct(p.SingleNameWatchPct), pct(p.SingleNameActPct), pct(p.SingleNameWatchPct), strings.TrimSuffix(pct(p.IlliquidDaysToExit), "%"), pct(p.ExitParticipationPct), pct(p.IlliquidWatchPct), pct(p.IlliquidActPct), p.HedgeMinDays, pct(p.TakeoverGapPct)),
 		risk.RuleOptionLinePremium:  fmt.Sprintf("watch at %s, act at %s of NLV per position (higher of price paid and value); protection %s/%s", pct(p.OptionLineWatchPct), pct(p.OptionLineActPct), pct(p.HedgeLineWatchPct), pct(p.HedgeLineActPct)),
 		risk.RuleCashSellOnly:       fmt.Sprintf("available funds at least %s of NLV", pct(p.CashReserveMinPct)),
 		risk.RuleExtrinsicBudget:    fmt.Sprintf("time value of NLV, watch/act at: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, extW, extA), band(p.RegimeEarlyWarning, extW, extA), band(p.RegimeConfirmed, extW, extA)),
 		risk.RuleExpiryRunway:       fmt.Sprintf("watch at %d days or fewer, act at %d days or fewer to expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
 		risk.RuleCatalystCoverage:   "earnings inside an option's life (no threshold)",
 		risk.RuleOverwriteEarnings:  fmt.Sprintf("short puts through earnings: act at %s per position, %s per name of NLV", pct(p.ShortPutActLinePctNLV), pct(p.ShortPutActNamePctNLV)),
-		risk.RuleEarningsSizeFreeze: fmt.Sprintf("%d sessions before earnings", p.EarningsFreezeSessions),
+		risk.RuleEarningsSizeFreeze: fmt.Sprintf("%d sessions before earnings, for an issuer at rule 1's watch level", p.EarningsFreezeSessions),
 		risk.RuleRedOnGreen:         fmt.Sprintf("holding %s while SPY is up %s", pct(p.RedOnGreenNameDropPct), pct(p.RedOnGreenSPYUpPct)),
 		risk.RuleWinnerTrim:         fmt.Sprintf("up %s today on at least %s of NLV", pct(p.WinnerTrimDayUpPct), pct(p.WinnerTrimMinExpoPct)),
 		risk.RuleGreenDayAction:     "a green day while an act-level rule is open",
@@ -87,15 +89,38 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleExitDiscipline:     fmt.Sprintf("watch at −%s, act at −%s of premium paid", pct(p.ExitWatchLossPct), pct(p.ExitActLossPct)),
 		risk.RuleFXExposure:         fmt.Sprintf("watch at %s of NLV in other currencies", pct(p.FXExposureWatchPct)),
 		risk.RuleNetExposure:        fmt.Sprintf("watch at %s, act at %s of NLV, whole book with hedges", pct(p.NetExposureWatchPct), pct(p.NetExposureActPct)),
+		risk.RuleDeltaSwing:         fmt.Sprintf("watch at %s of NLV in one issuer's dollar delta; never acts", pct(p.DeltaSwingWatchPct)),
+		risk.RuleClusterStress:      fmt.Sprintf("watch when a declared cluster falling %s together loses %s of NLV; never acts", pct(p.ClusterDropPct), pct(p.ClusterWatchPct)),
+		risk.RuleLossBudget:         fmt.Sprintf("watch when one issuer's worst-case loss reaches %s of effective risk capital; never acts", pct(p.BudgetWatchPct)),
 	}
 	for i, id := range risk.RuleIDs() {
 		fmt.Fprintf(out, "  %2d %-22s %-5s  %s\n", i+1, id, p.ModeFor(id), limits[id])
 	}
 	fmt.Fprintln(out)
+	fmt.Fprintf(out, "Issuer groups:    %s\n", symbolGroupsText(p.IssuerGroups, "none (every symbol is its own issuer)"))
+	fmt.Fprintf(out, "Clusters:         %s\n", symbolGroupsText(p.Clusters, "none (rule 17 is not evaluated)"))
+	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Change a limit:   canary rules policy set cash_reserve_min_pct=70")
 	fmt.Fprintln(out, "Set a rule's mode: canary rules policy set modes.winner_trim=off   (off | track | alert)")
 	fmt.Fprintln(out, "Back to baseline: canary rules policy reset KEY…  or  --all")
 	fmt.Fprintln(out, "Every key:        canary policy default rulebook")
+}
+
+// symbolGroupsText renders issuer groups or clusters as "NAME: A, B; …".
+func symbolGroupsText(groups map[string][]string, none string) string {
+	if len(groups) == 0 {
+		return none
+	}
+	names := make([]string, 0, len(groups))
+	for name := range groups {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, name+": "+strings.Join(groups[name], ", "))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func runRulesPolicyEdit(env *Env, verb string, args []string) int {

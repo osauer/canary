@@ -529,6 +529,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	earningsDegraded := false
 	if in.Positions.Healthy && pos != nil {
 		in.Names = mapRuleNames(pos, pol, in.BaseCurrency)
+		s.attachRulebookLiquidity(ctx, in.Names, pos, now, allowMaintenance)
 		earnings, infos := s.assembleEarnings(ctx, in.Names, pol, cal, now, allowMaintenance)
 		in.Earnings = earnings
 		in.Names = rulebookEconomicNames(in.Names, earnings)
@@ -547,6 +548,9 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	if includeTape && in.SessionOpen && in.Positions.Healthy {
 		in.SPYDayChangePct = s.spyDayChangePct(ctx)
 	}
+	// Rule 18 reads the constitution's effective risk capital; every gap is
+	// named on the row rather than passed.
+	in.RiskCapital = s.rulebookRiskCapital(acct, acctErr, in.BaseCurrency, now)
 	health = append(health, rulebookTapeSourceHealth(includeTape, in.SessionOpen, in.Positions.Healthy, in.SPYDayChangePct, now))
 
 	ev := risk.EvaluateRulebook(in, pol)
@@ -831,6 +835,7 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 	loc, _ := time.LoadLocation("America/New_York")
 	today := time.Now().In(loc)
 	exactStocks, stocksAuthoritative := rulebookExactStocksBySymbol(pos)
+	stockLines := rulebookStockLines(pos, baseCcy)
 	names := make([]risk.NameInput, 0, len(pos.ByUnderlying))
 	for _, g := range pos.ByUnderlying {
 		n := risk.NameInput{Symbol: g.Underlying}
@@ -862,6 +867,20 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 		if g.Stock != nil && g.Stock.Quantity != 0 {
 			n.HasStockLeg = true
 			n.StockDayChangePct = g.Stock.DayChangePct
+			// Rule 1 values every held share of the symbol at its mark. The
+			// flat stock rows are the share authority; a result built without
+			// them falls back to the group's one stock pointer.
+			if line, ok := stockLines[strings.ToUpper(strings.TrimSpace(g.Underlying))]; ok {
+				n.StockQuantity, n.StockMark, n.StockFXToBase = line.quantity, line.mark, line.fx
+			} else {
+				n.StockQuantity = g.Stock.Quantity
+				if g.Stock.Mark > 0 {
+					n.StockMark = g.Stock.Mark
+				}
+				if rate, ok := positionBaseRate(*g.Stock, baseCcy); ok {
+					n.StockFXToBase = new(rate)
+				}
+			}
 			// The account mark that values the book is good enough to assess
 			// enrichment layer, not the account mark, and pre-market — where
 			// every stock row is indicative — is exactly when this join
@@ -885,6 +904,7 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				Mark:        o.Mark,
 				Underlying:  o.Underlying,
 				Delta:       o.Delta,
+				Gamma:       o.Gamma,
 				HedgeListed: pol.IsHedgeSymbol(g.Underlying),
 			}
 			if o.Delta != nil && o.Underlying == nil {

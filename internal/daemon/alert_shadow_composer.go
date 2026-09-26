@@ -136,6 +136,9 @@ var alertShadowCanonicalRulebookRows = [...]struct {
 	{risk.RuleExitDiscipline, 13},
 	{risk.RuleFXExposure, 14},
 	{risk.RuleNetExposure, 15},
+	{risk.RuleDeltaSwing, 16},
+	{risk.RuleClusterStress, 17},
+	{risk.RuleLossBudget, 18},
 }
 
 var alertShadowCanonicalRulebookHealth = [...]string{
@@ -2601,6 +2604,9 @@ var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleExitDiscipline:     {"account", "positions"},
 	risk.RuleFXExposure:         {"account", "positions"},
 	risk.RuleNetExposure:        {"account", "positions"},
+	risk.RuleDeltaSwing:         {"account", "positions"},
+	risk.RuleClusterStress:      {"account", "positions"},
+	risk.RuleLossBudget:         {"account", "positions"},
 }
 
 func alertShadowCanonicalRulebookRow(id string) (int, bool) {
@@ -2644,6 +2650,12 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 		return rpc.AlertPresentationRulebookFXExposure
 	case risk.RuleNetExposure:
 		return rpc.AlertPresentationRulebookNetExposure
+	case risk.RuleDeltaSwing:
+		return rpc.AlertPresentationRulebookDeltaSwing
+	case risk.RuleClusterStress:
+		return rpc.AlertPresentationRulebookClusterStress
+	case risk.RuleLossBudget:
+		return rpc.AlertPresentationRulebookLossBudget
 	default:
 		return ""
 	}
@@ -2657,6 +2669,10 @@ func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResul
 		return row.Reason == risk.RuleReasonOffSession
 	case risk.RuleHedgeIntegrity:
 		return row.Reason == risk.RuleReasonNoLongBook || row.Reason == risk.RuleReasonNoProtection
+	case risk.RuleClusterStress:
+		// No declared cluster asks nothing: the policy is the authority, and
+		// the row carries no offender that a reason could hide.
+		return row.Reason == risk.RuleReasonNoClusters && len(row.Offenders) == 0
 	default:
 		// Rule 11 never reaches here: it is coverage-neutral and skipped
 		return false

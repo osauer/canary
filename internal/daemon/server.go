@@ -393,6 +393,9 @@ type Server struct {
 	lastRulesBroker         ibkrlib.BrokerEvidenceBinding
 	lastRulesBrokerCaptured bool
 	rulesRefreshWake        chan struct{}
+	// rulebookLiquidity paces the background 20-day volume reads rule 1
+	// needs for days to exit; guarded by rulesMu on first use.
+	rulebookLiquidity *rulebookLiquidityWarmer
 	// connectorEpoch changes whenever the daemon publishes or removes the
 	// evidence across reconnects even when account/mode text is unchanged.
 	connectorEpoch uint64

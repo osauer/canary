@@ -54,10 +54,34 @@ type RulebookPolicy struct {
 	// Modes sets each rule to off (not evaluated), track (shown, never alerts) or alert, keyed by rule id.
 	Modes map[string]string `toml:"modes" json:"modes"`
 
-	// SingleNameWatchPct is rule 1's watch level: one underlying's stock-equivalent exposure as a percent of NLV.
+	// SingleNameWatchPct is rule 1's watch level: the worst-case loss on one issuer, every leg netted, as a percent of NLV; the risk-reduction trim goes back to it.
 	SingleNameWatchPct float64 `toml:"single_name_watch_pct" json:"single_name_watch_pct"`
-	// SingleNameActPct is rule 1's act level for one underlying's stock-equivalent exposure.
+	// SingleNameActPct is rule 1's act level for one issuer's worst-case loss; the risk-reduction bucket proposes a trim from here.
 	SingleNameActPct float64 `toml:"single_name_act_pct" json:"single_name_act_pct"`
+	// TakeoverGapPct sizes legs that lose without limit as the price rises (short stock, uncovered short calls): they are measured at a rise of this percent.
+	TakeoverGapPct float64 `toml:"takeover_gap_pct" json:"takeover_gap_pct"`
+	// HedgeMinDays is the fewest days to expiry at which a long option counts as protection; it must also expire after the issuer's next earnings.
+	HedgeMinDays int `toml:"hedge_min_days" json:"hedge_min_days"`
+	// ExitParticipationPct is the share of 20-day average daily volume one exit may take when rule 1 measures days to exit.
+	ExitParticipationPct float64 `toml:"exit_participation_pct" json:"exit_participation_pct"`
+	// IlliquidDaysToExit: an issuer that needs more days than this to exit is measured against the illiquid bands.
+	IlliquidDaysToExit float64 `toml:"illiquid_days_to_exit" json:"illiquid_days_to_exit"`
+	// IlliquidWatchPct is rule 1's watch level for an illiquid issuer.
+	IlliquidWatchPct float64 `toml:"illiquid_watch_pct" json:"illiquid_watch_pct"`
+	// IlliquidActPct is rule 1's act level for an illiquid issuer.
+	IlliquidActPct float64 `toml:"illiquid_act_pct" json:"illiquid_act_pct"`
+	// DeltaSwingWatchPct is rule 16's watch level: one issuer's dollar delta as a percent of NLV. It never acts.
+	DeltaSwingWatchPct float64 `toml:"delta_swing_watch_pct" json:"delta_swing_watch_pct"`
+	// ClusterDropPct is rule 17's scenario: every issuer in a declared cluster falls this percent together.
+	ClusterDropPct float64 `toml:"cluster_drop_pct" json:"cluster_drop_pct"`
+	// ClusterWatchPct is rule 17's watch level: the cluster's loss in that fall as a percent of NLV. It never acts.
+	ClusterWatchPct float64 `toml:"cluster_watch_pct" json:"cluster_watch_pct"`
+	// BudgetWatchPct is rule 18's watch level: one issuer's worst-case loss as a percent of the constitution's effective risk capital. It never acts.
+	BudgetWatchPct float64 `toml:"budget_watch_pct" json:"budget_watch_pct"`
+	// IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. Canary has no issuer data: an ungrouped symbol is its own issuer.
+	IssuerGroups map[string][]string `toml:"issuer_groups" json:"issuer_groups"`
+	// Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names.
+	Clusters map[string][]string `toml:"clusters" json:"clusters"`
 
 	// CashReserveMinPct is rule 3's cash reserve: broker-reported available funds as a percent of NLV.
 	CashReserveMinPct float64 `toml:"cash_reserve_min_pct" json:"cash_reserve_min_pct"`
@@ -137,8 +161,8 @@ type RulebookPolicy struct {
 // DefaultRulebookPolicy returns the compiled baseline policy.
 func DefaultRulebookPolicy() RulebookPolicy {
 	return RulebookPolicy{
-		ID:      "rulebook-v3",
-		Version: 3,
+		ID:      "rulebook-v4",
+		Version: 4,
 		Modes: map[string]string{
 			RuleSingleNameExposure: RuleModeAlert,
 			RuleOptionLinePremium:  RuleModeTrack,
@@ -155,9 +179,24 @@ func DefaultRulebookPolicy() RulebookPolicy {
 			RuleExitDiscipline:     RuleModeAlert,
 			RuleFXExposure:         RuleModeTrack,
 			RuleNetExposure:        RuleModeTrack,
+			RuleDeltaSwing:         RuleModeTrack,
+			RuleClusterStress:      RuleModeTrack,
+			RuleLossBudget:         RuleModeAlert,
 		},
 		SingleNameWatchPct:     30,
 		SingleNameActPct:       40,
+		TakeoverGapPct:         100,
+		HedgeMinDays:           14,
+		ExitParticipationPct:   20,
+		IlliquidDaysToExit:     3,
+		IlliquidWatchPct:       20,
+		IlliquidActPct:         30,
+		DeltaSwingWatchPct:     30,
+		ClusterDropPct:         30,
+		ClusterWatchPct:        15,
+		BudgetWatchPct:         100,
+		IssuerGroups:           map[string][]string{},
+		Clusters:               map[string][]string{},
 		CashReserveMinPct:      75,
 		OptionLineWatchPct:     5,
 		OptionLineActPct:       10,
@@ -228,6 +267,39 @@ func (p *RulebookPolicy) Normalize() {
 	if p.Modes == nil {
 		p.Modes = map[string]string{}
 	}
+	p.IssuerGroups = normalizeSymbolGroups(p.IssuerGroups)
+	p.Clusters = normalizeSymbolGroups(p.Clusters)
+}
+
+// normalizeSymbolGroups trims group names, upper-cases and sorts members, and
+// drops blank members, so a group's identity never depends on TOML spelling.
+// It returns a new map; a nil input becomes an empty map.
+func normalizeSymbolGroups(in map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(in))
+	for name, members := range in {
+		name = strings.TrimSpace(name)
+		var clean []string
+		for _, m := range members {
+			if m = strings.ToUpper(strings.TrimSpace(m)); m != "" && !slices.Contains(clean, m) {
+				clean = append(clean, m)
+			}
+		}
+		sort.Strings(clean)
+		out[name] = append(out[name], clean...)
+	}
+	return out
+}
+
+// IssuerOf returns the issuer a held symbol belongs to: its issuer group's
+// name, or the symbol itself when no group lists it.
+func (p RulebookPolicy) IssuerOf(symbol string) string {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	for name, members := range p.IssuerGroups {
+		if slices.Contains(members, symbol) {
+			return name
+		}
+	}
+	return symbol
 }
 
 // ModeFor returns one rule's notification mode. Missing entries retain the
@@ -250,39 +322,51 @@ func (p RulebookPolicy) FingerprintKey() string {
 	q.HedgeSymbols = slices.Clone(p.HedgeSymbols)
 	q.Normalize()
 	projection := struct {
-		ID                       string            `json:"id"`
-		Version                  int               `json:"version"`
-		Modes                    map[string]string `json:"modes"`
-		SingleNameWatchPct       float64           `json:"single_name_watch_pct"`
-		SingleNameActPct         float64           `json:"single_name_act_pct"`
-		CashReserveMinPct        float64           `json:"cash_reserve_min_pct"`
-		OptionLineWatchPct       float64           `json:"option_line_watch_pct"`
-		OptionLineActPct         float64           `json:"option_line_act_pct"`
-		HedgeLineWatchPct        float64           `json:"hedge_line_watch_pct"`
-		HedgeLineActPct          float64           `json:"hedge_line_act_pct"`
-		RunwayWatchDTE           int               `json:"runway_watch_dte"`
-		RunwayActDTE             int               `json:"runway_act_dte"`
-		RunwayITMDeltaFloor      float64           `json:"runway_itm_delta_floor"`
-		ShortPutActLinePctNLV    float64           `json:"short_put_act_line_pct_nlv"`
-		ShortPutActNamePctNLV    float64           `json:"short_put_act_name_pct_nlv"`
-		EarningsFreezeSessions   int               `json:"earnings_freeze_sessions"`
-		RedOnGreenNameDropPct    float64           `json:"red_on_green_name_drop_pct"`
-		RedOnGreenSPYUpPct       float64           `json:"red_on_green_spy_up_pct"`
-		WinnerTrimDayUpPct       float64           `json:"winner_trim_day_up_pct"`
-		WinnerTrimMinExpoPct     float64           `json:"winner_trim_min_exposure_pct"`
-		RegimeCalm               RegimeThresholds  `json:"regime_calm"`
-		RegimeEarlyWarning       RegimeThresholds  `json:"regime_early_warning"`
-		RegimeConfirmed          RegimeThresholds  `json:"regime_confirmed"`
-		RegimeStageMaxAgeMinutes int               `json:"regime_stage_max_age_minutes"`
-		OverhedgeMultiple        float64           `json:"overhedge_multiple"`
-		ExitWatchLossPct         float64           `json:"exit_watch_loss_pct"`
-		ExitActLossPct           float64           `json:"exit_act_loss_pct"`
-		FXExposureWatchPct       float64           `json:"fx_exposure_watch_pct"`
-		NetExposureWatchPct      float64           `json:"net_exposure_watch_pct"`
-		NetExposureActPct        float64           `json:"net_exposure_act_pct"`
-		HedgeSymbols             []string          `json:"hedge_symbols"`
-		GreeksGapFloorPctNLV     float64           `json:"greeks_gap_floor_pct_nlv"`
-		EarningsStaleDays        int               `json:"earnings_stale_days"`
+		ID                       string              `json:"id"`
+		Version                  int                 `json:"version"`
+		Modes                    map[string]string   `json:"modes"`
+		SingleNameWatchPct       float64             `json:"single_name_watch_pct"`
+		SingleNameActPct         float64             `json:"single_name_act_pct"`
+		CashReserveMinPct        float64             `json:"cash_reserve_min_pct"`
+		OptionLineWatchPct       float64             `json:"option_line_watch_pct"`
+		OptionLineActPct         float64             `json:"option_line_act_pct"`
+		HedgeLineWatchPct        float64             `json:"hedge_line_watch_pct"`
+		HedgeLineActPct          float64             `json:"hedge_line_act_pct"`
+		RunwayWatchDTE           int                 `json:"runway_watch_dte"`
+		RunwayActDTE             int                 `json:"runway_act_dte"`
+		RunwayITMDeltaFloor      float64             `json:"runway_itm_delta_floor"`
+		ShortPutActLinePctNLV    float64             `json:"short_put_act_line_pct_nlv"`
+		ShortPutActNamePctNLV    float64             `json:"short_put_act_name_pct_nlv"`
+		EarningsFreezeSessions   int                 `json:"earnings_freeze_sessions"`
+		RedOnGreenNameDropPct    float64             `json:"red_on_green_name_drop_pct"`
+		RedOnGreenSPYUpPct       float64             `json:"red_on_green_spy_up_pct"`
+		WinnerTrimDayUpPct       float64             `json:"winner_trim_day_up_pct"`
+		WinnerTrimMinExpoPct     float64             `json:"winner_trim_min_exposure_pct"`
+		RegimeCalm               RegimeThresholds    `json:"regime_calm"`
+		RegimeEarlyWarning       RegimeThresholds    `json:"regime_early_warning"`
+		RegimeConfirmed          RegimeThresholds    `json:"regime_confirmed"`
+		RegimeStageMaxAgeMinutes int                 `json:"regime_stage_max_age_minutes"`
+		OverhedgeMultiple        float64             `json:"overhedge_multiple"`
+		ExitWatchLossPct         float64             `json:"exit_watch_loss_pct"`
+		ExitActLossPct           float64             `json:"exit_act_loss_pct"`
+		FXExposureWatchPct       float64             `json:"fx_exposure_watch_pct"`
+		NetExposureWatchPct      float64             `json:"net_exposure_watch_pct"`
+		NetExposureActPct        float64             `json:"net_exposure_act_pct"`
+		HedgeSymbols             []string            `json:"hedge_symbols"`
+		GreeksGapFloorPctNLV     float64             `json:"greeks_gap_floor_pct_nlv"`
+		EarningsStaleDays        int                 `json:"earnings_stale_days"`
+		TakeoverGapPct           float64             `json:"takeover_gap_pct"`
+		HedgeMinDays             int                 `json:"hedge_min_days"`
+		ExitParticipationPct     float64             `json:"exit_participation_pct"`
+		IlliquidDaysToExit       float64             `json:"illiquid_days_to_exit"`
+		IlliquidWatchPct         float64             `json:"illiquid_watch_pct"`
+		IlliquidActPct           float64             `json:"illiquid_act_pct"`
+		DeltaSwingWatchPct       float64             `json:"delta_swing_watch_pct"`
+		ClusterDropPct           float64             `json:"cluster_drop_pct"`
+		ClusterWatchPct          float64             `json:"cluster_watch_pct"`
+		BudgetWatchPct           float64             `json:"budget_watch_pct"`
+		IssuerGroups             map[string][]string `json:"issuer_groups"`
+		Clusters                 map[string][]string `json:"clusters"`
 	}{
 		ID:                       q.ID,
 		Version:                  q.Version,
@@ -317,6 +401,18 @@ func (p RulebookPolicy) FingerprintKey() string {
 		HedgeSymbols:             q.HedgeSymbols,
 		GreeksGapFloorPctNLV:     q.GreeksGapFloorPctNLV,
 		EarningsStaleDays:        q.EarningsStaleDays,
+		TakeoverGapPct:           q.TakeoverGapPct,
+		HedgeMinDays:             q.HedgeMinDays,
+		ExitParticipationPct:     q.ExitParticipationPct,
+		IlliquidDaysToExit:       q.IlliquidDaysToExit,
+		IlliquidWatchPct:         q.IlliquidWatchPct,
+		IlliquidActPct:           q.IlliquidActPct,
+		DeltaSwingWatchPct:       q.DeltaSwingWatchPct,
+		ClusterDropPct:           q.ClusterDropPct,
+		ClusterWatchPct:          q.ClusterWatchPct,
+		BudgetWatchPct:           q.BudgetWatchPct,
+		IssuerGroups:             q.IssuerGroups,
+		Clusters:                 q.Clusters,
 	}
 	raw, _ := json.Marshal(projection)
 	sum := sha256.Sum256(raw)
@@ -383,6 +479,11 @@ func (p RulebookPolicy) Validate() error {
 		{"net_exposure_act_pct", p.NetExposureActPct, 0, 10000},
 		{"overhedge_multiple", p.OverhedgeMultiple, 1, 10},
 		{"greeks_gap_floor_pct_nlv", p.GreeksGapFloorPctNLV, 0, 100},
+		{"illiquid_watch_pct", p.IlliquidWatchPct, 0, 1000},
+		{"illiquid_act_pct", p.IlliquidActPct, 0, 1000},
+		{"delta_swing_watch_pct", p.DeltaSwingWatchPct, 0, 1000},
+		{"cluster_watch_pct", p.ClusterWatchPct, 0, 1000},
+		{"budget_watch_pct", p.BudgetWatchPct, 0, 10000},
 	}
 	for _, set := range []struct {
 		name string
@@ -405,6 +506,7 @@ func (p RulebookPolicy) Validate() error {
 		w, a       float64
 	}{
 		{"single_name_watch_pct", "single_name_act_pct", p.SingleNameWatchPct, p.SingleNameActPct},
+		{"illiquid_watch_pct", "illiquid_act_pct", p.IlliquidWatchPct, p.IlliquidActPct},
 		{"option_line_watch_pct", "option_line_act_pct", p.OptionLineWatchPct, p.OptionLineActPct},
 		{"hedge_line_watch_pct", "hedge_line_act_pct", p.HedgeLineWatchPct, p.HedgeLineActPct},
 		{"exit_watch_loss_pct", "exit_act_loss_pct", p.ExitWatchLossPct, p.ExitActLossPct},
@@ -429,10 +531,56 @@ func (p RulebookPolicy) Validate() error {
 		return fmt.Errorf("regime_stage_max_age_minutes must be at least 1")
 	case p.EarningsStaleDays < 1:
 		return fmt.Errorf("earnings_stale_days must be at least 1")
+	case p.HedgeMinDays < 0 || p.HedgeMinDays > 3650:
+		return fmt.Errorf("hedge_min_days must be between 0 and 3650")
+	}
+	// Open-interval limits: zero would size an unbounded leg at no move, let an
+	// exit take no volume, or test a cluster that does not fall.
+	for _, c := range []bounded{
+		{"takeover_gap_pct", p.TakeoverGapPct, 0, 1000},
+		{"exit_participation_pct", p.ExitParticipationPct, 0, 100},
+		{"illiquid_days_to_exit", p.IlliquidDaysToExit, 0, 365},
+		{"cluster_drop_pct", p.ClusterDropPct, 0, 100},
+	} {
+		if math.IsNaN(c.value) || math.IsInf(c.value, 0) || c.value <= c.min || c.value > c.max {
+			return fmt.Errorf("%s must be above %g and at most %g", c.key, c.min, c.max)
+		}
 	}
 	for _, sym := range p.HedgeSymbols {
 		if strings.TrimSpace(sym) == "" {
 			return fmt.Errorf("hedge_symbols must not contain an empty symbol")
+		}
+	}
+	grouped := map[string]string{}
+	for name, members := range p.IssuerGroups {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("issuer_groups needs a name for every group")
+		}
+		if len(members) == 0 {
+			return fmt.Errorf("issuer_groups.%s lists no symbol", name)
+		}
+		for _, m := range members {
+			m = strings.ToUpper(strings.TrimSpace(m))
+			if m == "" {
+				return fmt.Errorf("issuer_groups.%s must not contain an empty symbol", name)
+			}
+			if other, dup := grouped[m]; dup && other != name {
+				return fmt.Errorf("%s is listed in issuer_groups.%s and issuer_groups.%s; a symbol belongs to one issuer", m, other, name)
+			}
+			grouped[m] = name
+		}
+	}
+	for name, members := range p.Clusters {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("clusters needs a name for every cluster")
+		}
+		if len(members) == 0 {
+			return fmt.Errorf("clusters.%s lists no member", name)
+		}
+		for _, m := range members {
+			if strings.TrimSpace(m) == "" {
+				return fmt.Errorf("clusters.%s must not contain an empty member", name)
+			}
 		}
 	}
 	return nil

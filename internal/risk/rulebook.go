@@ -41,6 +41,12 @@ const (
 	RuleReasonPnLUnavailable           = "pnl_unavailable"
 	RuleReasonRuleOff                  = "rule_off"
 	RuleReasonNoProtection             = "no_index_protection"
+	// RuleReasonNoClusters marks rule 17 with no cluster declared in the
+	// policy: nothing was asked, which is not a pass.
+	RuleReasonNoClusters = "no_clusters"
+	// RuleReasonRiskCapitalUnavailable marks rule 18 without the
+	// constitution's effective risk capital; the evidence names the number.
+	RuleReasonRiskCapitalUnavailable = "risk_capital_unavailable"
 )
 
 // IndexPutRoleProtection and the related values describe the economic role
@@ -68,6 +74,12 @@ const (
 	RuleExitDiscipline     = "exit_discipline"
 	RuleFXExposure         = "fx_exposure"
 	RuleNetExposure        = "net_exposure"
+	// RuleDeltaSwing, RuleClusterStress and RuleLossBudget are the three
+	// concentration watches beside rule 1 (amendment 15). They watch and
+	// never act, so they never enter act counts or drive a trim.
+	RuleDeltaSwing    = "delta_swing"
+	RuleClusterStress = "cluster_stress"
+	RuleLossBudget    = "loss_budget"
 )
 
 // RuleIDs lists every Rulebook rule in rulebook order.
@@ -77,6 +89,18 @@ func RuleIDs() []string {
 		RuleExpiryRunway, RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze,
 		RuleRedOnGreen, RuleWinnerTrim, RuleGreenDayAction, RuleHedgeIntegrity,
 		RuleExitDiscipline, RuleFXExposure, RuleNetExposure,
+		RuleDeltaSwing, RuleClusterStress, RuleLossBudget,
+	}
+}
+
+// WatchOnlyRule reports whether a rule can only watch: its status is never
+// act, so it stays out of act counts and never drives a trim or proposal.
+func WatchOnlyRule(id string) bool {
+	switch id {
+	case RuleDeltaSwing, RuleClusterStress, RuleLossBudget:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -100,6 +124,10 @@ type RuleOffender struct {
 	Observed   float64 `json:"observed"`
 	ImpactBase float64 `json:"impact_base,omitempty"`
 	Note       string  `json:"note,omitempty"`
+	// Issuer carries the netted worst-case loss behind a rule 1 offender and
+	// the issuer rows of its watches: the lines and legs, which long options
+	// were credited as protection, and which legs are unbounded.
+	Issuer *IssuerExposure `json:"issuer,omitempty"`
 }
 
 // RuleRow is one rule's verdict.
@@ -201,6 +229,9 @@ type LegInput struct {
 	// IndexPutRole distinguishes portfolio protection from directional short
 	// exposure. Product shape alone is not an economic intent.
 	IndexPutRole string
+	// Gamma is the broker's per-share gamma for the leg; nil when unavailable.
+	// Rule 16 uses it only to say how much a 10% move bends the delta swing.
+	Gamma *float64
 }
 
 // NameInput is the per-underlying aggregation the daemon maps from
@@ -224,6 +255,17 @@ type NameInput struct {
 	GreeksGapNotionalBase float64
 	MarketValueBase       float64
 	HasStockLeg           bool
+	// StockQuantity is the stock leg's signed share count; zero without one.
+	StockQuantity float64
+	// StockMark is the stock leg's current mark in its quote currency; zero
+	// when the account has no usable mark for it.
+	StockMark float64
+	// StockFXToBase converts the stock leg's quote currency into base; nil
+	// when no rate exists, which leaves the leg unmeasured, never valued at 1.
+	StockFXToBase *float64
+	// AvgDailyVolume is the stock's 20-day average daily share volume; nil
+	// when unavailable. Rule 1 uses it for days to exit only.
+	AvgDailyVolume *float64
 	// StockDayChangePct is the stock leg's quote-enriched day change; nil
 	// for option-only names or when enrichment failed.
 	StockDayChangePct *float64
@@ -273,6 +315,20 @@ type RuleInputs struct {
 	NonBaseNLVBase *float64
 	// NonBaseCurrencies names the currencies behind NonBaseNLVBase.
 	NonBaseCurrencies []string
+
+	// RiskCapital is the constitution's effective risk capital for rule 18;
+	// nil means the daemon supplied none, which reads unknown, never pass.
+	RiskCapital *RiskCapitalInput
+}
+
+// RiskCapitalInput is the constitution's effective risk capital in base
+// currency: min(declared risk capital, equity − protected floor).
+type RiskCapitalInput struct {
+	// EffectiveBase is nil when a number is missing; Missing then names it
+	// ("capital.declared_risk_capital in risk-policy.toml", "a current equity
+	// observation", …) so the row can say exactly what it needs.
+	EffectiveBase *float64
+	Missing       string
 }
 
 // Evaluation is the pure result: rows in rulebook order plus the
@@ -290,17 +346,16 @@ type ruleContext struct {
 	// overHedged suppresses rule 5's hedge exemption (a "hedge" bigger than
 	// the band protects nothing extra; it may be a directional bet).
 	overHedged bool
+	// issuerBooks memoizes the per-issuer netting that rules 1, 8, 16, 17
+	// and 18 share, so every one of them reads the same measurement.
+	issuerBooks []issuerEval
+	issuersDone bool
 }
 
-// EvaluateRulebook computes all 15 rules. It never returns fewer than 15
+// EvaluateRulebook computes all 18 rules. It never returns fewer than 18
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
-	pol.Normalize()
-	in = classifyIndexPutRoles(in, pol)
-	ctx := &ruleContext{in: in, pol: pol}
-	if in.NLVBase != nil && *in.NLVBase > 0 {
-		ctx.nlv = *in.NLVBase
-		ctx.hasNLV = true
-	}
+	ctx := newRuleContext(in, pol)
+	pol = ctx.pol
 
 	// Rule 12 runs first: its over-hedged verdict feeds rule 5's exemption
 	r12 := ctx.hedgeIntegrity()
@@ -320,6 +375,9 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		ctx.exitDiscipline(),
 		ctx.fxExposure(),
 		ctx.netExposure(),
+		ctx.deltaSwing(),
+		ctx.clusterStress(),
+		ctx.lossBudget(),
 	}
 	rows[10] = ctx.greenDayAction(rows)
 	for i := range rows {
@@ -476,150 +534,6 @@ func (c *ruleContext) portfolioGate(id string, num int, title string) *RuleRow {
 			Evidence: "Canary does not have a current account value."}
 	}
 	return nil
-}
-
-func (c *ruleContext) singleNameExposure() RuleRow {
-	row := RuleRow{ID: RuleSingleNameExposure, Number: 1, Title: "Exposure to one underlying", Unit: "% NLV"}
-	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
-		return *g
-	}
-	watch, act := c.pol.SingleNameWatchPct, c.pol.SingleNameActPct
-	row.setBands(watch, act)
-	var offenders, gaps, hedges, unmeasured []RuleOffender
-	worst, worstBound := 0.0, 0.0
-	for _, n := range c.in.Names {
-		if c.greeksGapMaterial(n) {
-			// Partial data may indict, never acquit: when the provable
-			if bound, ok := nameExposureLowerBound(n); ok {
-				if bp := pct(bound, c.nlv); bp >= watch {
-					worstBound = math.Max(worstBound, bp)
-					offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: round1(bp),
-						ImpactBase: bound, Note: "lower bound — delta missing on some legs; true exposure is at least this"})
-					continue
-				}
-			}
-			gaps = append(gaps, RuleOffender{Symbol: n.Symbol, Observed: pct(n.GreeksGapNotionalBase, c.nlv),
-				Note: "delta unavailable on material legs; exposure understated"})
-			continue
-		}
-		// A name whose base exposure could not be fully measured — missing FX
-		// over a book nobody measured. Disclosed unknown, never exposure 0.
-		if !n.ExposureBaseComplete {
-			unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol,
-				Note: "exposure not fully measured (FX or price missing) — not compared against the cap"})
-			continue
-		}
-		// A protection-classified index name carrying net-short delta is the hedge:
-		// the real concentration offenders. Exempt only what rule 12 can
-		// Disclosed via Exempt, never silently dropped.
-		if c.pol.IsHedgeSymbol(n.Symbol) && n.ExposureBase < 0 {
-			sized := 0.0
-			directional := false
-			for _, l := range n.Legs {
-				if rule12HedgeLeg(l) {
-					sized += math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
-				}
-				if l.IndexPutRole == IndexPutRoleDirectional {
-					directional = true
-				}
-			}
-			exempt := math.Min(sized, math.Abs(n.ExposureBase))
-			if exempt > 0 {
-				hedges = append(hedges, RuleOffender{Symbol: n.Symbol,
-					Observed: round1(pct(exempt, c.nlv)),
-					Note:     "hedge-classified short exposure — sized by rule 12, not concentration"})
-			}
-			resid := math.Abs(n.ExposureBase) - exempt
-			if resid <= 0 {
-				continue
-			}
-			p := pct(resid, c.nlv)
-			worst = math.Max(worst, p)
-			if p >= watch {
-				note := "short exposure outside the protection position"
-				if directional {
-					note = "directional index short"
-				}
-				offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: round1(p),
-					ImpactBase: resid, Note: note})
-			}
-			continue
-		}
-		p := pct(math.Abs(n.ExposureBase), c.nlv)
-		worst = math.Max(worst, p)
-		if p >= watch {
-			offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: round1(p),
-				ImpactBase: math.Abs(n.ExposureBase)})
-		}
-	}
-	sortOffenders(offenders)
-	effective := math.Max(worst, worstBound)
-	row.Observed = new(round1(effective))
-	row.ObservedIsLowerBound = worstBound > worst
-	row.Offenders = offenders
-	row.Exempt = hedges
-	bound := ""
-	if row.ObservedIsLowerBound {
-		bound = " (lower bound)"
-	}
-	band := bandStatus(effective, watch, act)
-	switch {
-	case band == RuleStatusAct:
-		row.Status = RuleStatusAct
-		row.Evidence = fmt.Sprintf("%s at %.1f%%%s of NLV is at or above the %s%% cap.", offenders[0].Symbol, offenders[0].Observed, bound, limitText(act))
-	case band == RuleStatusWatch:
-		row.Status = RuleStatusWatch
-		row.Evidence = fmt.Sprintf("%s at %.1f%%%s of NLV is at or above the %s%% watch level; the cap is %s%%.", offenders[0].Symbol, offenders[0].Observed, bound, limitText(watch), limitText(act))
-	case len(gaps) > 0 || len(unmeasured) > 0:
-		// No pass over an unmeasured book: a name that was never converted or
-		// never fully priced was never compared against the cap.
-		row.Status = RuleStatusUnknown
-		row.ObservedIsLowerBound = false
-		row.Offenders = append(append(offenders, gaps...), unmeasured...)
-		switch {
-		case len(gaps) == 0:
-			row.Reason = "exposure_incomplete"
-			row.Evidence = fmt.Sprintf("Canary could not measure %d underlying exposure(s) because a price or FX rate is missing.", len(unmeasured))
-		case len(unmeasured) == 0:
-			row.Reason = "greeks_gap"
-			row.Evidence = fmt.Sprintf("Canary could not measure %d underlying exposure(s) because option delta is missing.", len(gaps))
-		default:
-			row.Reason = "greeks_gap"
-			row.Evidence = fmt.Sprintf("Canary is missing option delta for %d underlying(s) and a price or FX rate for %d.", len(gaps), len(unmeasured))
-		}
-		if len(gaps) > 0 {
-			c.offSessionGreeksNote(&row)
-		}
-	default:
-		row.Status = RuleStatusPass
-		row.Evidence = fmt.Sprintf("Largest name %.1f%% of NLV, under the %s%% watch level.", round1(worst), limitText(watch))
-	}
-	// Disclosure is unconditional: a measured breach stands, and the names
-	if row.Status != RuleStatusUnknown && len(gaps)+len(unmeasured) > 0 {
-		row.Offenders = append(append(row.Offenders, gaps...), unmeasured...)
-		row.Notes = append(row.Notes, fmt.Sprintf("%d name(s) additionally not fully assessable (delta or FX missing) — the breach above is proven regardless.", len(gaps)+len(unmeasured)))
-	}
-	for _, o := range row.Offenders {
-		row.ImpactBase += o.ImpactBase
-	}
-	return row
-}
-
-// nameExposureLowerBound computes a provable minimum |net delta-dollar|
-// exposure for a name whose material legs miss delta, from the name's
-// exposure interval. An interval that straddles zero proves nothing.
-func nameExposureLowerBound(n NameInput) (bound float64, ok bool) {
-	low, high, ok := nameExposureInterval(n)
-	switch {
-	case !ok:
-		return 0, false
-	case low > 0:
-		return low, true
-	case high < 0:
-		return -high, true
-	default:
-		return 0, false // interval straddles zero
-	}
 }
 
 // nameExposureInterval bounds a name's signed delta-dollar exposure. Known
@@ -1345,32 +1259,24 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 			continue
 		}
 		assessed++
-		if c.greeksGapMaterial(n) {
-			// Exposure not assessable — the freeze cannot be ruled out
-			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
-				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
-				continue // earnings provably outside the freeze window
-			}
-			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol,
-				Note: "size not assessable (delta missing) with earnings unknown or near — freeze window can't be ruled out"})
-			continue
-		}
-		// Same escape and same duty for a name whose exposure was never fully
-		// floor by construction, so comparing it silently skips exactly the
-		// oversized-into-earnings name this rule exists to freeze. Earnings
-		if !n.ExposureBaseComplete {
+		// "While rule 1 is breached": the size test is rule 1's own verdict on
+		// the name's issuer, so the two rules cannot disagree about size.
+		issuer, found := c.issuerFor(n.Symbol)
+		if !found || issuer.status == RuleStatusUnknown {
+			// Size not assessable — the freeze cannot be ruled out unless the
+			// earnings date is provably outside the window.
 			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
 				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
 				continue
 			}
 			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol,
-				Note: "size not assessable (exposure not fully measured) with earnings unknown or near — freeze window can't be ruled out"})
+				Note: "size not assessable (worst-case loss not measured) with earnings unknown or near — freeze window can't be ruled out"})
 			continue
 		}
-		p := pct(math.Abs(n.ExposureBase), c.nlv)
-		if p < c.pol.SingleNameWatchPct {
+		if issuer.status != RuleStatusWatch && issuer.status != RuleStatusAct {
 			continue
 		}
+		p := issuer.exposure.WorstCaseLossPct
 		e, ok := c.earningsFor(n.Symbol)
 		if !ok {
 			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Observed: round1(p),
@@ -1383,8 +1289,9 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		}
 		if *e.SessionsUntil >= 0 && *e.SessionsUntil <= freeze {
 			offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: float64(*e.SessionsUntil),
-				ImpactBase: math.Abs(n.ExposureBase),
-				Note:       fmt.Sprintf("%.1f%% of NLV, earnings %s%s in %d session(s)", round1(p), e.Date.Format("Jan 2"), estNote(e), *e.SessionsUntil)})
+				ImpactBase: issuer.exposure.WorstCaseLossBase,
+				Note: fmt.Sprintf("issuer %s can lose %.1f%% of NLV at worst, earnings %s%s in %d session(s)",
+					issuer.exposure.Issuer, round1(p), e.Date.Format("Jan 2"), estNote(e), *e.SessionsUntil)})
 		}
 	}
 	sortOffenders(offenders)
@@ -1396,7 +1303,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 	switch {
 	case len(offenders) > 0:
 		row.Status = RuleStatusAct
-		row.Evidence = fmt.Sprintf("%d position(s) exceed the size level within %d trading sessions of earnings.", len(offenders), freeze)
+		row.Evidence = fmt.Sprintf("%d position(s) on an issuer at or above rule 1's watch level are within %d trading sessions of earnings.", len(offenders), freeze)
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
@@ -1411,7 +1318,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		row.Evidence = fmt.Sprintf("Issuer earnings do not apply to %d contract(s).", len(exempt))
 	default:
 		row.Status = RuleStatusPass
-		row.Evidence = fmt.Sprintf("No position above the size level is within %d trading sessions of earnings.", freeze)
+		row.Evidence = fmt.Sprintf("No position on an issuer at or above rule 1's watch level is within %d trading sessions of earnings.", freeze)
 	}
 	return row
 }

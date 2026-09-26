@@ -1,6 +1,6 @@
 # The rulebook
 
-`canary rules` evaluates fifteen discipline checks against the book you are
+`canary rules` evaluates eighteen discipline checks against the book you are
 holding, using limits you can set, and reports which are breached. Nothing it produces reaches the
 broker.
 
@@ -9,18 +9,18 @@ design document is the semantic authority for every threshold and edge case,
 and stays in the repository. [Sensors](sensors.md#rulebook) covers the same
 component as a measurement: authority, freshness, and evidence reuse.
 
-## The fifteen rules
+## The eighteen rules
 
 | # | Rule | What it measures | Default mode |
 |---|---|---|---|
-| 1 | Exposure to one underlying | Share value plus option delta exposure for each underlying, as a share of NLV. A directional index short is an ordinary position here. | Alert |
+| 1 | Worst-case loss on one issuer | The most one issuer can lose at any price, every leg on it netted from current marks, as a share of NLV. Watch at 30%, act (the cap) at 40%; an issuer that takes more than three days to exit at 20% of its 20-day volume uses 20/30. A long option counts as protection only if it expires after the issuer's next earnings and at least 14 days out; short stock and uncovered short calls are sized at a 100% rise and flagged unbounded. | Alert |
 | 2 | Premium at risk in one option position | Each long option position at the higher of the price paid and its value, as a share of NLV. A losing position keeps counting at what you paid, so its fall frees no room to buy more. | Track |
 | 3 | Cash reserve | Broker-reported available funds as a share of NLV. The default reserve is 75%. | Alert |
 | 4 | Option time value at risk | Paid option time value as a share of NLV. Positions classified as portfolio protection use rules 2 and 12 instead. | Alert |
 | 5 | Options nearing expiry | Long options with 14 days or fewer remaining (act at 7 or fewer). Deep in-the-money positions and portfolio protection are listed separately. | Alert |
 | 6 | Earnings timing | Whether an out-of-the-money long option expires before the next earnings announcement. This is a timing fact; it does not assume the position should span earnings. | Track |
 | 7 | Short options held through earnings | Short options that remain open through the next earnings announcement, including assignment exposure for short puts. | Alert |
-| 8 | Position size near earnings | Positions above the concentration level within three trading sessions of earnings. This remains a proxy until Canary calculates event loss. | Track |
+| 8 | Position size near earnings | Positions on an issuer at or above rule 1's watch level within three trading sessions of earnings. | Track |
 | 9 | Holding falls while the market rises | A held stock falling while SPY rises during the regular session. | Off |
 | 10 | Large winner today | A large holding above its daily gain level. | Off |
 | 11 | Positive day with urgent risks open | A positive account day while an act-level Rulebook item remains open. | Off |
@@ -28,14 +28,34 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
 | 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
 | 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act at 150%. | Track |
+| 16 | Delta swing on one issuer | One issuer's dollar delta as a share of NLV: what a 10% move costs, with gamma named when it bends that materially. Watch at 30%; it never acts. | Track |
+| 17 | Cluster falling together | Every issuer in a cluster you declare falls 30% together, each netted like rule 1. Watch when the cluster loses 15% of NLV; it never acts. Not evaluated until you declare a cluster. | Track |
+| 18 | Issuer loss against risk capital | One issuer's worst-case loss against the constitution's effective risk capital. Watch at 100% of it; it never acts. Unknown, never a pass, until the constitution carries the numbers. | Alert |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
-creating alerts, and `off` rules are not evaluated.
+creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
+they never act, never count toward act totals, and never drive a trim.
+
+## One issuer, one measure
+
+Rule 1 is Canary's single definition of concentration. An issuer is an
+underlying joined with the share classes and ADR or ordinary lines you list
+under `issuer_groups` (Canary has no issuer data, so an unlisted symbol is its
+own issuer). Its worst-case loss comes from valuing every leg on intrinsic
+payoffs at zero, every strike, today's price and a 100% rise
+(`takeover_gap_pct`), from current marks: long stock can lose its value, a long
+option its premium, a short put its strike notional less what it is worth
+now, and a covered call credits only its premium. An early assignment realizes
+exactly a short leg's intrinsic value, so the netting holds if any short leg is
+assigned. Index options and options on other underlyings give an issuer no
+credit. The risk-reduction trim starts at the act level and goes back to the
+watch level on this same measure, and the stress read uses rule 1 and rule 16
+for its concentration row rather than measuring concentration itself.
 
 ## Set your own limits
 
 Every threshold and mode in the table is yours to change. Without a policy
-file Canary runs the compiled baseline, `rulebook-v3`. See the limits in force:
+file Canary runs the compiled baseline, `rulebook-v4`. See the limits in force:
 
 ```sh
 canary rules policy
@@ -70,7 +90,7 @@ or never-observed stage is evaluated against both its own threshold set and
 the calm set, keeping the worse verdict: old market state may tighten a rule,
 never relax it.
 
-The baseline ships as policy `rulebook-v3`, and every row carries its
+The baseline ships as policy `rulebook-v4`, and every row carries its
 `observed` value, `threshold`, and an evidence string, so you can check the
 arithmetic instead of trusting the verdict. `threshold` is the limit for the
 row's status: the act level on an `act` row, the watch level otherwise, and the
@@ -132,7 +152,7 @@ returns the ranking and input health alongside the rows.
 
 ## What a clean run means
 
-It means fifteen specific checks did not fire on the book as the daemon last
+It means eighteen specific checks did not fire on the book as the daemon last
 saw it. That is all.
 
 A clean rulebook run is not permission to trade and carries no submit

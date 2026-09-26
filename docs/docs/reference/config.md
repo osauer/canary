@@ -107,16 +107,27 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
+| *(top level)* | `budget_watch_pct` | `float64` | BudgetWatchPct is rule 18's watch level: one issuer's worst-case loss as a percent of the constitution's effective risk capital. |
 | *(top level)* | `cash_reserve_min_pct` | `float64` | CashReserveMinPct is rule 3's cash reserve: broker-reported available funds as a percent of NLV. |
+| *(top level)* | `cluster_drop_pct` | `float64` | ClusterDropPct is rule 17's scenario: every issuer in a declared cluster falls this percent together. |
+| *(top level)* | `cluster_watch_pct` | `float64` | ClusterWatchPct is rule 17's watch level: the cluster's loss in that fall as a percent of NLV. |
+| *(top level)* | `clusters` | `map[string][]string` | Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names. |
+| *(top level)* | `delta_swing_watch_pct` | `float64` | DeltaSwingWatchPct is rule 16's watch level: one issuer's dollar delta as a percent of NLV. |
 | *(top level)* | `earnings_freeze_sessions` | `int` | EarningsFreezeSessions is rule 8's window: US sessions before earnings. |
 | *(top level)* | `earnings_stale_days` | `int` | EarningsStaleDays bounds trust in a fetched earnings date; older dates make rules 6-8 unknown. |
 | *(top level)* | `exit_act_loss_pct` | `float64` | ExitActLossPct is rule 13's act level; the option loss exit proposes a sale here. |
+| *(top level)* | `exit_participation_pct` | `float64` | ExitParticipationPct is the share of 20-day average daily volume one exit may take when rule 1 measures days to exit. |
 | *(top level)* | `exit_watch_loss_pct` | `float64` | ExitWatchLossPct is rule 13's watch level: percent of premium paid lost on a long option. |
 | *(top level)* | `fx_exposure_watch_pct` | `float64` | FXExposureWatchPct is rule 14's watch level: NLV held in other currencies as a percent of NLV. |
 | *(top level)* | `greeks_gap_floor_pct_nlv` | `float64` | GreeksGapFloorPctNLV is the materiality floor: a name whose legs missing delta exceed this share of NLV makes exposure rules unknown rather than understated. |
 | *(top level)* | `hedge_line_act_pct` | `float64` | HedgeLineActPct is rule 2's act level for a protection position. |
 | *(top level)* | `hedge_line_watch_pct` | `float64` | HedgeLineWatchPct is rule 2's watch level for a protection position, which rule 12 sizes. |
+| *(top level)* | `hedge_min_days` | `int` | HedgeMinDays is the fewest days to expiry at which a long option counts as protection; it must also expire after the issuer's next earnings. |
 | *(top level)* | `hedge_symbols` | `[]string` | HedgeSymbols lists the index underlyings whose long puts can classify as protection (rules 1, 2, 5, 12, 13). |
+| *(top level)* | `illiquid_act_pct` | `float64` | IlliquidActPct is rule 1's act level for an illiquid issuer. |
+| *(top level)* | `illiquid_days_to_exit` | `float64` | IlliquidDaysToExit: an issuer that needs more days than this to exit is measured against the illiquid bands. |
+| *(top level)* | `illiquid_watch_pct` | `float64` | IlliquidWatchPct is rule 1's watch level for an illiquid issuer. |
+| *(top level)* | `issuer_groups` | `map[string][]string` | IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. |
 | *(top level)* | `kind` | `string` | Kind identifies the file (ibkr.rulebook_policy); optional, never part of the fingerprint. |
 | *(top level)* | `modes` | `map[string]string` | Modes sets each rule to off (not evaluated), track (shown, never alerts) or alert, keyed by rule id. |
 | *(top level)* | `net_exposure_act_pct` | `float64` | NetExposureActPct is rule 15's act level for the whole book's net exposure. |
@@ -135,8 +146,9 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | *(top level)* | `schema_version` | `int` | SchemaVersion is the file schema (1); optional, never part of the fingerprint. |
 | *(top level)* | `short_put_act_line_pct_nlv` | `float64` | ShortPutActLinePctNLV is rule 7's act level: one short put's assignment notional through earnings as a percent of NLV. |
 | *(top level)* | `short_put_act_name_pct_nlv` | `float64` | ShortPutActNamePctNLV is rule 7's act level for one name's short puts together. |
-| *(top level)* | `single_name_act_pct` | `float64` | SingleNameActPct is rule 1's act level for one underlying's stock-equivalent exposure. |
-| *(top level)* | `single_name_watch_pct` | `float64` | SingleNameWatchPct is rule 1's watch level: one underlying's stock-equivalent exposure as a percent of NLV. |
+| *(top level)* | `single_name_act_pct` | `float64` | SingleNameActPct is rule 1's act level for one issuer's worst-case loss; the risk-reduction bucket proposes a trim from here. |
+| *(top level)* | `single_name_watch_pct` | `float64` | SingleNameWatchPct is rule 1's watch level: the worst-case loss on one issuer, every leg netted, as a percent of NLV; the risk-reduction trim goes back to it. |
+| *(top level)* | `takeover_gap_pct` | `float64` | TakeoverGapPct sizes legs that lose without limit as the price rises (short stock, uncovered short calls): they are measured at a rise of this percent. |
 | *(top level)* | `winner_trim_day_up_pct` | `float64` | WinnerTrimDayUpPct is rule 10's holding day gain (percent). |
 | *(top level)* | `winner_trim_min_exposure_pct` | `float64` | WinnerTrimMinExpoPct is rule 10's minimum position size as a percent of NLV. |
 | `[regime_calm]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
