@@ -2,6 +2,48 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.13.0 — 2026-09-26 21:34 CEST
+
+### What's new
+
+- **A daily market tape.** Review price moves, participation, volume pressure and fixed market leaders across completed sessions in the CLI, MCP and app. Retained daily observations show subsequent price changes; the tape is descriptive and has no forecasting or trading authority.
+- **Issuer loss across the whole position.** The Rulebook combines related positions into issuer-loss scenarios, with same-issuer hedge credit, liquidity bands and a takeover scenario. New delta-swing, cluster-stress and loss-budget checks share their evidence with the brief, stress view and protection proposals.
+- **Keep the exact action you reviewed.** Prepared proposals retain the reviewed order and preview through submission. Cosmetic policy edits preserve otherwise-valid preparations, while changed terms, revoked authority, stale evidence and consumed tokens still require the appropriate refusal or fresh review.
+
+### Added
+
+- Push status now distinguishes transport acceptance from device receipts, shows the latest delivery evidence and exposes a diagnostic push command. A receipt is evidence of the reported device stage, not proof that the owner read a banner.
+- Order status identifies Canary-origin and untracked broker orders alongside the trading freeze. Pre-authorised proposals wait behind new hand-entered orders and retain deferred or held notices for later review.
+
+### Changed
+
+- Rule 1 now measures modelled issuer loss rather than gross exposure: the default watch/act bands are 30%/40% of account equity, trimming toward 30%, with 20%/30% bands for illiquid issuers. Review these limits after upgrading; unknown evidence remains explicit.
+- Rules 16 and 17 start in tracking mode; rule 18 starts in alert mode. Cluster checks need owner-defined groups. Each offender shows its own limit and band, and the brief ranks attention across the Rulebook.
+- Policy templates explain effective settings and default provenance. New files use `canary.*` kinds; corresponding `ibkr.*` kinds remain readable. Supported constitution revisions above 4 keep current reminder semantics, and the new format separates those semantics from the document revision.
+- Startup creates missing policy templates without treating them as owner approval. Existing files remain untouched; `canary policy ensure --dry-run --json` previews an exact conversion, and `--apply-plan FILE` verifies the reviewed hashes, backs up originals and preserves effective settings.
+- Healthy alert sources establish delivery independently of missing or stale sibling sources. Existing conditions do not generate a backlog push, and stored receipts continue to prevent duplicate delivery.
+- HyperServe is updated to v2.2.0. Public Go clients retain additive source-health evidence, and socket timeouts at a caller's deadline report that deadline.
+
+### Deprecated
+
+- Opportunity `profile` selects no preset. The ineffective `exercise_reduce_only`, `allow_no_option_bid` and Rulebook `earnings_stale_days` controls are diagnosed as retired and omitted from new templates. Automatic opportunity exercise remains unsupported; `auto_submit = true` is rejected.
+
+### Fixed
+
+- A slow CLI startup version check can no longer supply the response to the following command. (#51)
+- Market-data subscription saturation no longer opens the broker pacing circuit for unrelated reads. (#52)
+- Completed or rejected gamma prewarms no longer remain stuck, and retained option-resolution evidence survives resets and partial restores. (#53)
+- Breadth and chart recovery make progress without one failing symbol starving other work; delayed index data, closed sessions and futures sessions without trades retain their proper coverage and freshness meaning.
+- Official macro and borrow-data reads preserve valid feed entries, provider clocks and failure evidence. Repeated broker failures and lost log-monitor coverage are reported without flooding each attempt into a separate incident.
+- A malformed protection policy no longer blocks an independently authorised exit or trim. A budget governor missing an owner-chosen number switches only itself off; a broken terminal-evidence import is reported without preventing startup.
+- A malformed configuration stops daemon startup only when broker connection pins cannot be read safely. Policy-file and optional-input failures stay visible on their own surfaces.
+- Reopened alerts remain actionable when recovery fell between polls. Existing automatic-proposal veto windows, notices and consumed submissions survive a proven policy-identity upgrade.
+
+### Upgrade notes
+
+- Install the new reader before converting policy files. An older prepared action whose identity cannot be proved needs fresh review; an unproven automatic revision follows the existing notice and veto rules. Keep daemon/app state and notification receipts intact.
+- This release does not enable automatic submission or grant broker-write permission. Standard binaries and MCP remain read-only; trading builds retain account binding, fresh evidence, confirmation or scoped pre-authorisation, journaling and freeze gates. New risk calculations can change verdicts and the proposals produced by already-enabled workflows.
+
 ## v3.12.1 — 2026-09-24 07:34 CEST
 
 ### What's new

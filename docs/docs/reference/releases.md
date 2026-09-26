@@ -1,10 +1,44 @@
 # Releases and support
 
-Updated: 2026-08-23
+Updated: 2026-09-26
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
+
+## Moving to 3.13
+
+Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md).
+Rule 1 now measures modelled loss across an issuer's positions, with hedge and
+liquidity treatment. Rules 16–18 add delta swings, cluster stress and loss
+budgets. Rules 16 and 17 start in tracking mode; rule 18 starts in alert mode.
+Check `canary rules policy` for the values and modes actually in force. Existing
+automatic permissions are retained; changed risk calculations can change the
+proposals produced by already-enabled workflows.
+
+Existing policy files remain readable and are not rewritten at startup. A v5
+constitution receives the reminder fix without conversion. New templates use
+`canary.*` kinds, and constitution/opportunity format 2 separates file semantics
+from owner revisions and makes working opportunity settings explicit. See
+[policy identity and permission](../understand/policy.md#identity-revisions-and-permission).
+
+Install the compatible reader first. To review an optional conversion, save
+`canary policy ensure --dry-run --json` locally, inspect its exact changes, then
+use `canary policy ensure --apply-plan FILE` for the files you approve. The plan
+can contain private policy values. Application checks the reviewed input/output
+hashes, backs up originals and preserves effective settings; changed files need
+a new preview. This process does not choose risk limits or trading grants.
+
+Proven existing actions retain their review, veto window and consumed state.
+An old action without enough evidence to prove identity continuity requires
+fresh review; an unproven automatic revision follows the existing notice and
+veto rules. Preserve daemon/app state and notification receipts. Each alert
+source establishes its own baseline without pushing a backlog of old conditions.
+
+After upgrading Canary, restart consuming clients such as Desk. A Go client
+also needs the matching published dependency when it consumes new fields.
+Service health, broker readiness and device notification receipts are separate
+checks; a successful installation does not prove a trade or a displayed banner.
 
 ## What a release publishes
 

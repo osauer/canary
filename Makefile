@@ -139,10 +139,9 @@ install: build ## Install only the canonical canary executable to $(PREFIX)/bin
 		echo "Installed canary to $(PREFIX)/bin"; \
 	fi
 	@rm -f "$(PREFIX)/bin/ibkr" "$(PREFIX)/bin/canary.bak" "$(PREFIX)/bin/ibkr.bak"
-	@# Canary runs from policy files, never a compiled baseline: write any
-	@# missing file from its defaults and migrate existing ones in place (with
-	@# a backup; owner values never change). Never fatal: the daemon repeats
-	@# the step at start, and a policy file never blocks an exit or a trim.
+	@# Write missing templates and report proposed conversions. Existing files
+	@# require an explicitly reviewed apply-plan; installation never converts
+	@# them. Never fatal: the daemon repeats the check at startup.
 	@"$(PREFIX)/bin/canary" policy ensure || echo "install: policy file check failed; the daemon retries at start" >&2
 	@echo "Restart the daemon and any running app with: $(PREFIX)/bin/canary restart"
 

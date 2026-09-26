@@ -1,14 +1,13 @@
 # Canary
 
-Updated: 2026-09-23
+Updated: 2026-09-26
 
-Version 3.12 lets the owner choose how the drawdown brake releases: by hand
-with `canary policy reset-drawdown`, the default, or automatically once fresh,
-verified drawdown falls back below the block threshold. Every Rulebook limit is
-the owner's to set with `canary rules policy set`; agents can read the limits
-but not edit them. Automation stays off until the owner explicitly enables
-policy buckets. Notification delivery belongs to consuming apps and is not
-proved by the daemon.
+Version 3.13 adds a descriptive daily market tape, issuer-loss concentration
+checks and exact reviewed proposals. Policy document revisions and labels do
+not grant trading permission. Existing files remain readable and unchanged;
+reviewed conversions preserve effective settings and keep backups. Alert sources
+commission independently, and push status distinguishes transport from device
+receipts. Installation does not enable automatic submission.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
 MCP server, paired app, and a public Go module with a daemon client and the TWS
@@ -43,7 +42,7 @@ full portfolio-risk evidence; the daily brief remains the summary.
 Standard downloads cannot place, modify, cancel, or exercise orders. A separate
 opt-in `canary-trading` binary exposes constrained CLI and app order actions with
 fresh confirmation/preflight, account and mode pins, journaling, daemon policy,
-and the runtime freeze gate. Canary is not an automated trading system.
+and the runtime freeze gate. Trading builds also support explicitly pre-authorised defensive proposals within the existing policy and execution gates.
 
 Product v3 releases ship as signed binaries, installer output, MCPB, and app
 assets. The public Go module deliberately remains `/v2`; its `@latest` resolves
