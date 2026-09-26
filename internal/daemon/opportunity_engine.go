@@ -256,19 +256,15 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		return snap, nil
 	}
 	policy, policyStatus := e.server.opportunityPolicies.Active()
-	if policyStatus.Status == rpc.OpportunityPolicyStatusDrift || policyStatus.Status == rpc.OpportunityPolicyStatusError {
-		snap := emptyOpportunitySnapshot(now)
-		snap.Status = status
-		snap.PolicyStatus = policyStatus
-		snap.Trading = status.Trading
-		snap.Blockers = append([]rpc.TradingBlocker(nil), policyStatus.Blockers...)
-		if err := e.installSnapshot(snap, show); err != nil {
-			return e.Snapshot(false), err
+	policyBroken := policyStatus.Status == rpc.OpportunityPolicyStatusDrift || policyStatus.Status == rpc.OpportunityPolicyStatusError
+	if policyBroken {
+		// A drifted or unreadable file never blocks reads (owner decision
+		// 2026-09-26): the list is still computed under the policy in force.
+		// Exercise is not an exit or a trim, so its preview and submit stay
+		// blocked by the policy blockers attached to the snapshot below.
+		if err := e.appendEvent(opportunityEvent{At: now, Type: "policy-" + policyStatus.Status, PolicyID: policyStatus.PolicyID, PolicyVersion: policyStatus.PolicyVersion, PolicyFingerprint: policyStatus.Fingerprint, Message: policyStatus.Message}); err != nil && e.server != nil && e.server.logger != nil {
+			e.server.logger.Warnf("opportunity policy %s event not journaled: %v", policyStatus.Status, err)
 		}
-		if err := e.appendEvent(opportunityEvent{At: now, Type: "policy-" + policyStatus.Status, PolicyID: policyStatus.PolicyID, PolicyVersion: policyStatus.PolicyVersion, PolicyFingerprint: policyStatus.Fingerprint, Message: policyStatus.Message}); err != nil {
-			return snap, err
-		}
-		return snap, nil
 	}
 	scope := e.currentScope()
 	if !brokerScopeConcrete(scope) {
@@ -376,6 +372,9 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		SourceFingerprints: sources,
 		Opportunities:      opportunities,
 		Counts:             opportunityCounts(opportunities),
+	}
+	if policyBroken {
+		snap.Blockers = append([]rpc.TradingBlocker(nil), policyStatus.Blockers...)
 	}
 	return e.installScoped(snap, scope, show)
 }

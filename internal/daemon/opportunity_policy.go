@@ -74,6 +74,10 @@ type opportunityPolicyManager struct {
 	active          opportunityPolicy
 	status          rpc.OpportunityPolicyStatus
 	lastFingerprint rpc.Fingerprint
+	// fileAdopted says the policy in force came from a valid read of the
+	// file; until then the next valid file is adopted whatever its version,
+	// so a file repaired after a broken start is not held back as drift.
+	fileAdopted bool
 }
 
 func (s *Server) installOpportunityPolicyManager() {
@@ -148,6 +152,7 @@ func (m *opportunityPolicyManager) reload() {
 		defer m.mu.Unlock()
 		if m.active.PolicyID == "" {
 			m.active = defaultOpportunityPolicy()
+			m.lastFingerprint = fingerprintOpportunityPolicy(m.active)
 		}
 		st := opportunityPolicyStatus(m.active, rpc.OpportunityPolicyStatusError, source, err.Error(), now)
 		st.Path = m.path
@@ -158,7 +163,7 @@ func (m *opportunityPolicyManager) reload() {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.active.PolicyID == "" {
+	if m.active.PolicyID == "" || !m.fileAdopted {
 		m.active = policy
 		statusKind := rpc.OpportunityPolicyStatusActive
 		if source == "embedded-default" {
@@ -168,6 +173,7 @@ func (m *opportunityPolicyManager) reload() {
 		st.Path = m.path
 		m.status = st
 		m.lastFingerprint = fp
+		m.fileAdopted = source == "file"
 		return
 	}
 

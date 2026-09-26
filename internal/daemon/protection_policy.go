@@ -277,6 +277,11 @@ type protectionPolicyManager struct {
 	active          protectionPolicy
 	status          rpc.ProtectionPolicyStatus
 	lastFingerprint rpc.Fingerprint
+	// fileAdopted says the policy in force came from a valid read of the
+	// owner's file. Until one lands (absent file, or a file broken since
+	// start) the next valid file is adopted whatever its policy_version, so a
+	// repaired file is never held back as drift behind the embedded default.
+	fileAdopted bool
 }
 
 func (s *Server) installProtectionPolicyManager() {
@@ -351,8 +356,12 @@ func (m *protectionPolicyManager) reload() {
 		defer m.mu.Unlock()
 		if m.active.PolicyID == "" {
 			m.active = defaultProtectionPolicy()
+			m.lastFingerprint = fingerprintProtectionPolicy(m.active)
 		}
-		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusError, source, err.Error(), now)
+		// The policy in force keeps generating reduce-only proposals: a broken
+		// file never blocks exits or trims. Only pre-authorised submission
+		// pauses until the file reads again.
+		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusError, source, err.Error()+protectionPolicyInForceNote(m.fileAdopted), now)
 		st.Path = m.path
 		m.status = st
 		return
@@ -361,26 +370,28 @@ func (m *protectionPolicyManager) reload() {
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.active.PolicyID == "" {
+	adopt := func(statusKind string) {
 		m.active = policy
-		statusKind := rpc.ProtectionPolicyStatusActive
-		if source == "embedded-default" {
-			statusKind = rpc.ProtectionPolicyStatusDefault
-		}
 		st := protectionPolicyStatus(policy, statusKind, source, "", now)
 		st.Path = m.path
 		m.status = st
 		m.lastFingerprint = fp
+		m.fileAdopted = source == "file"
+	}
+	if m.active.PolicyID == "" || !m.fileAdopted {
+		// First load, or nothing adopted from a file yet: a valid file is
+		// adopted whatever its version, and an absent file is the default.
+		statusKind := rpc.ProtectionPolicyStatusActive
+		if source == "embedded-default" {
+			statusKind = rpc.ProtectionPolicyStatusDefault
+		}
+		adopt(statusKind)
 		return
 	}
 
 	switch {
 	case policy.PolicyVersion > m.active.PolicyVersion:
-		m.active = policy
-		st := protectionPolicyStatus(policy, rpc.ProtectionPolicyStatusActive, source, "", now)
-		st.Path = m.path
-		m.status = st
-		m.lastFingerprint = fp
+		adopt(rpc.ProtectionPolicyStatusActive)
 	case policy.PolicyVersion == m.active.PolicyVersion && fp.Key == m.lastFingerprint.Key:
 		st := protectionPolicyStatus(m.active, m.status.Status, source, "", now)
 		if st.Status == "" || st.Status == rpc.ProtectionPolicyStatusDrift || st.Status == rpc.ProtectionPolicyStatusError {
@@ -388,11 +399,24 @@ func (m *protectionPolicyManager) reload() {
 		}
 		st.Path = m.path
 		m.status = st
+	case source == "embedded-default":
+		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "the policy file was removed; the last policy read from it stays in force for proposals, and pre-authorised submission pauses until the file returns or the daemon restarts", now)
+		st.Path = m.path
+		m.status = st
 	case policy.PolicyVersion <= m.active.PolicyVersion && fp.Key != m.lastFingerprint.Key:
-		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "policy file changed without a higher policy_version", now)
+		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "policy file changed without a higher policy_version; the policy in force keeps generating reduce-only proposals, and pre-authorised submission pauses until policy_version is raised", now)
 		st.Path = m.path
 		m.status = st
 	}
+}
+
+// protectionPolicyInForceNote says which policy keeps generating proposals
+// while the file cannot be read.
+func protectionPolicyInForceNote(fileAdopted bool) string {
+	if fileAdopted {
+		return "; the last good policy stays in force for reduce-only proposals, and pre-authorised submission pauses until the file reads again"
+	}
+	return "; Canary's defaults stay in force for reduce-only proposals, and pre-authorised submission pauses until the file reads again"
 }
 
 func (m *protectionPolicyManager) loadPolicy() (protectionPolicy, string, error) {
@@ -805,27 +829,23 @@ func supportedTrailOrderType(orderType string) bool {
 }
 
 func protectionPolicyStatus(p protectionPolicy, status, source, message string, at time.Time) rpc.ProtectionPolicyStatus {
-	fp := fingerprintProtectionPolicy(p)
-	st := rpc.ProtectionPolicyStatus{
-		Kind:          protectionPolicyKind,
-		Status:        status,
-		PolicyID:      p.PolicyID,
-		PolicyVersion: p.PolicyVersion,
-		Profile:       p.Profile,
-		Fingerprint:   fp,
-		Source:        source,
-		LoadedAt:      at,
-		LastCheckedAt: at,
-		Message:       message,
+	// A drifted or unreadable file pauses only what would act on its own:
+	// pre-authorised submission. Reduce-only proposals keep flowing from the
+	// policy in force and stay previewable and submittable by hand, so a broken
+	// file never blocks an exit or a trim (owner decision 2026-09-26).
+	return rpc.ProtectionPolicyStatus{
+		Kind:             protectionPolicyKind,
+		Status:           status,
+		PolicyID:         p.PolicyID,
+		PolicyVersion:    p.PolicyVersion,
+		Profile:          p.Profile,
+		Fingerprint:      fingerprintProtectionPolicy(p),
+		Source:           source,
+		LoadedAt:         at,
+		LastCheckedAt:    at,
+		Message:          message,
+		AutomationPaused: status == rpc.ProtectionPolicyStatusDrift || status == rpc.ProtectionPolicyStatusError,
 	}
-	if status == rpc.ProtectionPolicyStatusDrift || status == rpc.ProtectionPolicyStatusError {
-		st.Blockers = []rpc.TradingBlocker{{
-			Code:    "policy_" + status,
-			Message: nonEmptyString(message, "protection policy is not safe for writes"),
-			Action:  "Fix the protection policy file and bump policy_version before preview or submit.",
-		}}
-	}
-	return st
 }
 
 func fingerprintProtectionPolicy(p protectionPolicy) rpc.Fingerprint {

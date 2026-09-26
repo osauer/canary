@@ -32,34 +32,34 @@ func healthyInputs() RuleInputs {
 		SPYDayChangePct:    new(1.0),
 		Names: []NameInput{
 			{
-				Symbol: "NOW", ExposureBase: 380000, MarketValueBase: 120000, HasStockLeg: true, ExposureBaseComplete: true,
+				Symbol: "SYNTHA", ExposureBase: 380000, MarketValueBase: 120000, HasStockLeg: true, ExposureBaseComplete: true,
 				StockQuantity: 850, StockMark: 108, StockFXToBase: new(0.9),
 				StockDayChangePct: new(1.6),
 				Legs: []LegInput{
-					{Desc: "NOW 20260717 C 130", Right: "C", Strike: 130, Expiry: etDate(2026, 7, 17), DTE: 10,
+					{Desc: "SYNTHA 20260717 C 130", Right: "C", Strike: 130, Expiry: etDate(2026, 7, 17), DTE: 10,
 						Quantity: 35, Multiplier: 100, Mark: 0.44, Underlying: new(108.0), Delta: new(0.08),
 						MarketValueBase: 1400, ExtrinsicBase: new(1400.0), CostBasisBase: new(2000.0), FXToBase: new(0.9)},
-					{Desc: "NOW 20260821 C 115", Right: "C", Strike: 115, Expiry: etDate(2026, 8, 21), DTE: 45,
+					{Desc: "SYNTHA 20260821 C 115", Right: "C", Strike: 115, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: 50, Multiplier: 100, Mark: 7.86, Underlying: new(108.0), Delta: new(0.46),
 						MarketValueBase: 36000, ExtrinsicBase: new(36000.0), CostBasisBase: new(40000.0), FXToBase: new(0.9)},
 				},
 			},
 			{
-				Symbol: "BB", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
+				Symbol: "SYNTHB", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
 				StockQuantity: 1082, StockMark: 11.3, StockFXToBase: new(0.9),
 				StockDayChangePct: new(-1.7),
 				Legs: []LegInput{
-					{Desc: "BB 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
+					{Desc: "SYNTHB 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: 300, Multiplier: 100, Mark: 1.28, Underlying: new(11.3), Delta: new(0.50),
 						MarketValueBase: 34000, ExtrinsicBase: new(34000.0), CostBasisBase: new(40000.0), FXToBase: new(0.9)},
 				},
 			},
 			{
-				Symbol: "MSFT", ExposureBase: 30000, MarketValueBase: 12000, HasStockLeg: true, ExposureBaseComplete: true,
+				Symbol: "SYNTHC", ExposureBase: 30000, MarketValueBase: 12000, HasStockLeg: true, ExposureBaseComplete: true,
 				StockQuantity: 39, StockMark: 386, StockFXToBase: new(0.9),
 				StockDayChangePct: new(0.3),
 				Legs: []LegInput{
-					{Desc: "MSFT 20260821 C 400", Right: "C", Strike: 400, Expiry: etDate(2026, 8, 21), DTE: 45,
+					{Desc: "SYNTHC 20260821 C 400", Right: "C", Strike: 400, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: -3, Multiplier: 100, Mark: 5, Underlying: new(386.0), Delta: new(-0.3),
 						MarketValueBase: -1400, FXToBase: new(0.9)},
 				},
@@ -74,7 +74,7 @@ func healthyInputs() RuleInputs {
 				},
 			},
 		},
-		Earnings:          map[string]EarningsInput{"NOW": nowEarnings, "MSFT": msftEarnings, "BB": bbEarnings},
+		Earnings:          map[string]EarningsInput{"SYNTHA": nowEarnings, "SYNTHC": msftEarnings, "SYNTHB": bbEarnings},
 		NonBaseNLVBase:    new(230000.0),
 		NonBaseCurrencies: []string{"USD"},
 	}
@@ -193,9 +193,9 @@ func TestNeverFalsePass(t *testing.T) {
 		}
 
 		in.Names[2].StockDayChangePct = new(5.0)
-		e := in.Earnings["MSFT"]
+		e := in.Earnings["SYNTHC"]
 		e.SessionsUntil = new(2)
-		in.Earnings["MSFT"] = e
+		in.Earnings["SYNTHC"] = e
 		ev := EvaluateRulebook(in, pol)
 		assertNoPass(t, ev, RuleSingleNameExposure, RuleEarningsSizeFreeze, RuleWinnerTrim, RuleHedgeIntegrity)
 	})

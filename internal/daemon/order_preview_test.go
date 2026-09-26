@@ -724,17 +724,20 @@ func newPlatformSettingsTestServer(t *testing.T, tr config.Trading) *Server {
 	}
 }
 
-func TestProtectionPolicyInvalidHigherVersionBlocksWrites(t *testing.T) {
+// An unreadable policy file pauses only what would act on its own: the
+// defaults keep generating reduce-only proposals and no blocker gates manual
+// preview or submit (owner decision 2026-09-26: never block risk reduction).
+func TestProtectionPolicyInvalidFilePausesAutomationOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policy.toml")
 	writePolicy(t, path, 2, -1)
 	pm := newProtectionPolicyManager(path, true, time.Second, time.Now)
 	pm.reload()
-	_, st := pm.Active()
-	if st.Status != rpc.ProtectionPolicyStatusError {
-		t.Fatalf("invalid policy status=%q, want error", st.Status)
+	active, st := pm.Active()
+	if st.Status != rpc.ProtectionPolicyStatusError || !st.AutomationPaused || len(st.Blockers) != 0 {
+		t.Fatalf("invalid policy status = %+v, want error with automation paused and no blocker", st)
 	}
-	if len(st.Blockers) == 0 {
-		t.Fatal("invalid policy should expose blockers")
+	if fingerprintProtectionPolicy(active).Key != fingerprintProtectionPolicy(defaultProtectionPolicy()).Key {
+		t.Fatal("an unreadable file at start must leave Canary's defaults in force")
 	}
 }
 

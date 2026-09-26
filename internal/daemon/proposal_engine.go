@@ -408,17 +408,13 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	}
 	policy, policyStatus := e.server.protectionPolicies.Active()
 	if policyStatus.Status == rpc.ProtectionPolicyStatusDrift || policyStatus.Status == rpc.ProtectionPolicyStatusError {
-		snap := emptyProposalSnapshot(now)
-		snap.AutoTrade = autoStatus
-		snap.PolicyStatus = policyStatus
-		snap.Blockers = append([]rpc.TradingBlocker(nil), policyStatus.Blockers...)
-		if err := e.installSnapshot(snap, show); err != nil {
-			return e.Snapshot(false), err
+		// A drifted or unreadable file never blocks risk reduction (owner
+		// decision 2026-09-26): the policy in force keeps generating
+		// reduce-only proposals below, and only pre-authorised submission
+		// pauses. The event records the state on each refresh.
+		if err := e.appendEvent(proposalEvent{At: now, Type: "policy-" + policyStatus.Status, PolicyID: policyStatus.PolicyID, PolicyVersion: policyStatus.PolicyVersion, PolicyFingerprint: policyStatus.Fingerprint, Message: policyStatus.Message}); err != nil && e.server != nil && e.server.logger != nil {
+			e.server.logger.Warnf("protection policy %s event not journaled: %v", policyStatus.Status, err)
 		}
-		if err := e.appendEvent(proposalEvent{At: now, Type: "policy-" + policyStatus.Status, PolicyID: policyStatus.PolicyID, PolicyVersion: policyStatus.PolicyVersion, PolicyFingerprint: policyStatus.Fingerprint, Message: policyStatus.Message}); err != nil {
-			return snap, err
-		}
-		return snap, nil
 	}
 	// Bind the refresh to the connected session identity before touching
 	// any account data. The aggregate "All" (or an empty / multi-account
@@ -2108,9 +2104,6 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 	if len(snap.Blockers) > 0 && len(snap.Proposals) == 0 {
 		return rpc.TradeProposal{}, snap.Blockers, true
 	}
-	if snap.PolicyStatus.Status == rpc.ProtectionPolicyStatusDrift || snap.PolicyStatus.Status == rpc.ProtectionPolicyStatusError {
-		return rpc.TradeProposal{}, snap.PolicyStatus.Blockers, true
-	}
 	if len(snap.AutoTrade.Blockers) > 0 {
 		return rpc.TradeProposal{}, snap.AutoTrade.Blockers, true
 	}
@@ -2505,9 +2498,6 @@ func (e *proposalEngine) revalidatedProposal(ctx context.Context, key, revision 
 	}
 	if len(snap.Blockers) > 0 && len(snap.Proposals) == 0 {
 		return rpc.TradeProposal{}, snap.Blockers, nil
-	}
-	if snap.PolicyStatus.Status == rpc.ProtectionPolicyStatusDrift || snap.PolicyStatus.Status == rpc.ProtectionPolicyStatusError {
-		return rpc.TradeProposal{}, snap.PolicyStatus.Blockers, nil
 	}
 	if len(snap.AutoTrade.Blockers) > 0 {
 		return rpc.TradeProposal{}, snap.AutoTrade.Blockers, nil
@@ -3472,9 +3462,9 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
 	if !out.ProposalsEnabled {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "proposals_disabled", Message: "manual proposals are disabled by config"})
 	}
-	if policy.Status == rpc.ProtectionPolicyStatusDrift || policy.Status == rpc.ProtectionPolicyStatusError {
-		out.Blockers = append(out.Blockers, policy.Blockers...)
-	}
+	// A drifted or unreadable protection file pauses pre-authorised
+	// submission (policy.AutomationPaused); it adds no blocker here, because
+	// these blockers also gate manual preview and submit of reduce-only work.
 	out.Blocked = len(out.Blockers) > 0
 	return out
 }

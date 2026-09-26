@@ -410,18 +410,22 @@ type TradeProposalVetoResult struct {
 
 // ProtectionPolicyStatus reports the loaded policy identity and blockers.
 type ProtectionPolicyStatus struct {
-	Kind          string           `json:"kind,omitempty"`
-	Status        string           `json:"status"`
-	PolicyID      string           `json:"policy_id,omitempty"`
-	PolicyVersion int              `json:"policy_version,omitempty"`
-	Profile       string           `json:"profile,omitempty"`
-	Fingerprint   Fingerprint      `json:"fingerprint,omitzero"`
-	Source        string           `json:"source,omitempty"`
-	Path          string           `json:"path,omitempty"`
-	LoadedAt      time.Time        `json:"loaded_at,omitzero"`
-	LastCheckedAt time.Time        `json:"last_checked_at,omitzero"`
-	Message       string           `json:"message,omitempty"`
-	Blockers      []TradingBlocker `json:"blockers,omitempty"`
+	Kind          string      `json:"kind,omitempty"`
+	Status        string      `json:"status"`
+	PolicyID      string      `json:"policy_id,omitempty"`
+	PolicyVersion int         `json:"policy_version,omitempty"`
+	Profile       string      `json:"profile,omitempty"`
+	Fingerprint   Fingerprint `json:"fingerprint,omitzero"`
+	Source        string      `json:"source,omitempty"`
+	Path          string      `json:"path,omitempty"`
+	LoadedAt      time.Time   `json:"loaded_at,omitzero"`
+	LastCheckedAt time.Time   `json:"last_checked_at,omitzero"`
+	Message       string      `json:"message,omitempty"`
+	// AutomationPaused says pre-authorised submission is paused because the
+	// file drifted or cannot be read. Proposals keep coming from the policy
+	// in force and stay previewable and submittable by hand.
+	AutomationPaused bool             `json:"automation_paused,omitempty"`
+	Blockers         []TradingBlocker `json:"blockers,omitempty"`
 }
 
 // AutoTradeStatus combines proposal generation and trading readiness. It is

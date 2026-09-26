@@ -89,6 +89,16 @@ Within one running daemon, policy managers apply these rules:
    the last accepted in-memory version where one exists.
 5. Removing an active personal risk-policy file reports `absent`; deletion is
    not a retirement command.
+6. A protection or opportunity file that failed at startup is accepted at any
+   version once it reads again, so a repair is never held back as drift.
+
+A drifted or unreadable file never blocks an exit, a trim or a read. The
+protection policy in force keeps generating reduce-only proposals, which stay
+previewable and submittable by hand; only pre-authorised submission pauses
+(`automation_paused` in the policy status) until the file reads again. The
+opportunity list keeps being computed under the policy in force, while
+option-exercise preview and submit stay blocked until the file is fixed,
+because an exercise is not an exit or a trim.
 
 Restart is a boundary. Accepted policy heads and exact policy content are not
 currently persisted as durable policy artifacts. A new daemon starts with no

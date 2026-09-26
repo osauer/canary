@@ -30,7 +30,7 @@ func TestRuleIDsMatchEvaluationAndBaselineModes(t *testing.T) {
 // index put offsets long single-name exposure, which premium and cash do not
 // show.
 func TestNetExposureMeasuresTheWholeBookWithHedges(t *testing.T) {
-	in := healthyInputs() // NLV 245,000: NOW +380,000, BB +45,000, MSFT +30,000, SPY −80,000
+	in := healthyInputs() // NLV 245,000: SYNTHA +380,000, SYNTHB +45,000, SYNTHC +30,000, SPY −80,000
 	row := rowByID(t, EvaluateRulebook(in, DefaultRulebookPolicy()), RuleNetExposure)
 	if row.Status != RuleStatusAct || row.Observed == nil || math.Abs(*row.Observed-153.1) > 0.05 || row.ObservedIsLowerBound ||
 		!strings.Contains(row.Evidence, "net long") || row.Mode != RuleModeTrack || row.Number != 15 {
