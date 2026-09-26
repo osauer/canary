@@ -69,7 +69,7 @@ func TestQuoteHistoryKeepsAFailedReadBrieflyAndWorksWithoutACache(t *testing.T) 
 	reads := 0
 	refused := errors.New("historical rate limit: context deadline exceeded")
 	fetch := func() ([]ibkr.HistoricalBar, error) { reads++; return nil, refused }
-	key := quoteLiquidityKey{symbol: "HGENQ", exchange: "SMART", currency: "USD"}
+	key := quoteLiquidityKey{symbol: "SYNTHQ", exchange: "SMART", currency: "USD"}
 	if _, err := s.quoteHistoryBars(key, marketcal.MarketUSEquity, now, fetch); !errors.Is(err, refused) || reads != 1 {
 		t.Fatalf("first read: %v reads=%d", err, reads)
 	}
@@ -98,9 +98,9 @@ func TestQuoteHistoryKeepsTheBrokersDefinitionVerdictLonger(t *testing.T) {
 	s := &Server{quoteHistory: newQuoteHistoryCache()}
 	now := time.Date(2026, 9, 19, 14, 0, 0, 0, time.UTC)
 	reads := 0
-	verdict := fmt.Errorf("contract details unresolved for HGENQ: %w", ibkr.ErrContractNoDefinition)
+	verdict := fmt.Errorf("contract details unresolved for SYNTHQ: %w", ibkr.ErrContractNoDefinition)
 	fetch := func() ([]ibkr.HistoricalBar, error) { reads++; return nil, verdict }
-	key := quoteLiquidityKey{symbol: "HGENQ", exchange: "SMART", currency: "USD"}
+	key := quoteLiquidityKey{symbol: "SYNTHQ", exchange: "SMART", currency: "USD"}
 	if _, err := s.quoteHistoryBars(key, marketcal.MarketUSEquity, now, fetch); !errors.Is(err, ibkr.ErrContractNoDefinition) || reads != 1 {
 		t.Fatalf("first read: %v reads=%d", err, reads)
 	}

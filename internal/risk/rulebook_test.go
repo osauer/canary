@@ -17,7 +17,7 @@ func etDate(y int, m time.Month, d int) time.Time {
 func healthyInputs() RuleInputs {
 	now := etDate(2026, 7, 7)
 	nowEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 22), TimeOfDay: "amc", SessionsUntil: new(11), Source: "fetched"}
-	bbEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 30), TimeOfDay: "amc", SessionsUntil: new(17), Source: "fetched"}
+	synthEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 30), TimeOfDay: "amc", SessionsUntil: new(17), Source: "fetched"}
 	msftEarnings := EarningsInput{Known: true, Date: etDate(2026, 7, 29), TimeOfDay: "amc", SessionsUntil: new(16), Source: "fetched"}
 	return RuleInputs{
 		AsOf:               now,
@@ -44,10 +44,10 @@ func healthyInputs() RuleInputs {
 				},
 			},
 			{
-				Symbol: "BB", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
+				Symbol: "SYNTH", ExposureBase: 45000, MarketValueBase: 45000, HasStockLeg: true, ExposureBaseComplete: true,
 				StockDayChangePct: new(-1.7),
 				Legs: []LegInput{
-					{Desc: "BB 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
+					{Desc: "SYNTH 20260821 C 12", Right: "C", Strike: 12, Expiry: etDate(2026, 8, 21), DTE: 45,
 						Quantity: 300, Multiplier: 100, Mark: 1.28, Underlying: new(11.3), Delta: new(0.50),
 						MarketValueBase: 34000, ExtrinsicBase: new(34000.0), CostBasisBase: new(40000.0), FXToBase: new(0.9)},
 				},
@@ -71,7 +71,7 @@ func healthyInputs() RuleInputs {
 				},
 			},
 		},
-		Earnings:          map[string]EarningsInput{"NOW": nowEarnings, "MSFT": msftEarnings, "BB": bbEarnings},
+		Earnings:          map[string]EarningsInput{"NOW": nowEarnings, "MSFT": msftEarnings, "SYNTH": synthEarnings},
 		NonBaseNLVBase:    new(230000.0),
 		NonBaseCurrencies: []string{"USD"},
 	}

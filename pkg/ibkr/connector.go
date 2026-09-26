@@ -994,7 +994,7 @@ func (c *Connector) registerInactiveCandidatePostAction(symbol, reason string) (
 	// historical failures) converge here. While any tracked farm is
 	// impaired the gateway's definition errors are a session verdict, not
 	// a contract verdict — counting them is how a nightly-reset wedge
-	// marked held AMD/BB/IBM and VIX inactive (2026-07-08).
+	// marked held names and VIX inactive (2026-07-08).
 	if c.marketDataFarmImpaired() {
 		return false, nil
 	}

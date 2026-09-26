@@ -121,7 +121,7 @@ func TestRulesEarningsSourceHealthQuietsUnentitledProvider(t *testing.T) {
 		{Symbol: "SPY", Status: rpc.EarningsStatusNotApplicable, Providers: []rpc.EarningsProviderInfo{
 			{Provider: "ibkr_wsh", Status: rpc.EarningsStatusTransportFailure, LastFailure: unentitled},
 		}},
-		{Symbol: "HGENQ", Status: rpc.EarningsStatusTerminalNonReporting, Providers: []rpc.EarningsProviderInfo{
+		{Symbol: "SYNTHQ", Status: rpc.EarningsStatusTerminalNonReporting, Providers: []rpc.EarningsProviderInfo{
 			{Provider: "ibkr_wsh", Status: rpc.EarningsStatusTransportFailure, LastFailure: transport},
 		}},
 		{Symbol: "AAA", Status: rpc.EarningsStatusDate, Providers: []rpc.EarningsProviderInfo{

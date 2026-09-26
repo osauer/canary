@@ -66,7 +66,7 @@ func TestFetchContractDetailsDefinitionMissGatesWireRequests(t *testing.T) {
 	fetch := func() error {
 		errCh := make(chan error, 1)
 		go func() {
-			_, err := c.FetchContractDetails("HGENQ", 5*time.Second)
+			_, err := c.FetchContractDetails("SYNTHQ", 5*time.Second)
 			errCh <- err
 		}()
 		reqID := waitForPendingContractDetails(t, c)
@@ -92,7 +92,7 @@ func TestFetchContractDetailsDefinitionMissGatesWireRequests(t *testing.T) {
 
 	// Inside the backoff: no wire traffic, typed miss error that still
 	// classifies as ErrContractNoDefinition.
-	_, err := c.FetchContractDetails("HGENQ", time.Second)
+	_, err := c.FetchContractDetails("SYNTHQ", time.Second)
 	var miss *ContractResolutionMissError
 	if !errors.As(err, &miss) || !errors.Is(err, ErrContractNoDefinition) {
 		t.Fatalf("suppressed fetch error = %v, want ContractResolutionMissError", err)
@@ -102,14 +102,14 @@ func TestFetchContractDetailsDefinitionMissGatesWireRequests(t *testing.T) {
 	}
 
 	// The subscribe path must not fall through to a bare reqMktData either.
-	if err := c.SubscribeMarketData(context.Background(), "HGENQ", nil); !errors.Is(err, ErrContractNoDefinition) {
+	if err := c.SubscribeMarketData(context.Background(), "SYNTHQ", nil); !errors.Is(err, ErrContractNoDefinition) {
 		t.Fatalf("SubscribeMarketData error = %v, want definition-miss", err)
 	}
 	if got := len(decodeOutboundFrames(t, conn, out.Bytes())); got != framesAfterFirst {
 		t.Fatalf("suppressed subscribe wrote wire frames: %d -> %d", framesAfterFirst, got)
 	}
 	c.subMu.RLock()
-	_, subExists := c.subscriptions["HGENQ"]
+	_, subExists := c.subscriptions["SYNTHQ"]
 	c.subMu.RUnlock()
 	if subExists {
 		t.Fatal("suppressed subscribe still registered a local subscription")
@@ -125,7 +125,7 @@ func TestFetchContractDetailsDefinitionMissGatesWireRequests(t *testing.T) {
 		t.Fatal("post-expiry probe was suppressed, want one wire request")
 	}
 	c.contractMissMu.Lock()
-	backoff := c.contractMisses["HGENQ"].backoff
+	backoff := c.contractMisses["SYNTHQ"].backoff
 	c.contractMissMu.Unlock()
 	if backoff != 2*contractMissBackoffFloor {
 		t.Fatalf("escalated backoff = %s, want %s", backoff, 2*contractMissBackoffFloor)
@@ -138,11 +138,11 @@ func TestContractResolutionMissEscalatesToCapAndClearsOnSuccess(t *testing.T) {
 	clock := &missClock{now: time.Now()}
 	c.contractMissNow = clock.Now
 
-	c.recordContractResolutionMiss("HGENQ")
+	c.recordContractResolutionMiss("SYNTHQ")
 	// A second failure inside the same window is the same probe: no escalation.
-	c.recordContractResolutionMiss("HGENQ")
+	c.recordContractResolutionMiss("SYNTHQ")
 	c.contractMissMu.Lock()
-	backoff := c.contractMisses["HGENQ"].backoff
+	backoff := c.contractMisses["SYNTHQ"].backoff
 	c.contractMissMu.Unlock()
 	if backoff != contractMissBackoffFloor {
 		t.Fatalf("same-window re-record escalated to %s, want floor %s", backoff, contractMissBackoffFloor)
@@ -150,20 +150,20 @@ func TestContractResolutionMissEscalatesToCapAndClearsOnSuccess(t *testing.T) {
 
 	for range 10 {
 		clock.Advance(contractMissBackoffCap + time.Second)
-		c.recordContractResolutionMiss("HGENQ")
+		c.recordContractResolutionMiss("SYNTHQ")
 	}
 	c.contractMissMu.Lock()
-	backoff = c.contractMisses["HGENQ"].backoff
+	backoff = c.contractMisses["SYNTHQ"].backoff
 	c.contractMissMu.Unlock()
 	if backoff != contractMissBackoffCap {
 		t.Fatalf("backoff = %s, want cap %s", backoff, contractMissBackoffCap)
 	}
-	if c.contractResolutionMissFor("HGENQ") == nil {
+	if c.contractResolutionMissFor("SYNTHQ") == nil {
 		t.Fatal("miss inside capped window not reported")
 	}
 
-	c.clearContractResolutionMiss("HGENQ")
-	if c.contractResolutionMissFor("HGENQ") != nil {
+	c.clearContractResolutionMiss("SYNTHQ")
+	if c.contractResolutionMissFor("SYNTHQ") != nil {
 		t.Fatal("cleared miss still reported")
 	}
 }
@@ -191,7 +191,7 @@ func TestRoutedSubscribeGatedAfterDefinitionRejectionOnMarketDataReqID(t *testin
 		t.Fatal("capture session")
 	}
 
-	contract := Contract{Symbol: "HGENQ", SecType: "STK", ConID: 555, Exchange: "SMART", Currency: "USD"}
+	contract := Contract{Symbol: "SYNTHQ", SecType: "STK", ConID: 555, Exchange: "SMART", Currency: "USD"}
 	key := MarketDataKeyForContract(contract)
 	if key == "" {
 		t.Fatal("empty route key")
@@ -209,7 +209,7 @@ func TestRoutedSubscribeGatedAfterDefinitionRejectionOnMarketDataReqID(t *testin
 	}
 	c.dataFarmMu.Unlock()
 
-	post := c.recoverFromSystemNotice(binding, reqAliasEntry{symbol: "HGENQ", secType: "STK"}, &systemNotification{
+	post := c.recoverFromSystemNotice(binding, reqAliasEntry{symbol: "SYNTHQ", secType: "STK"}, &systemNotification{
 		tickerID: 77,
 		code:     200,
 		message:  "No security definition has been found for the request",
@@ -347,10 +347,10 @@ func TestHistoricalCode200IsTheDefinitionVerdict(t *testing.T) {
 func TestHistoricalReadInsideDefinitionMissIsQuiet(t *testing.T) {
 	c, conn, out, _ := newMissTestConnector(t)
 	buf := captureConnectorLogs(t)
-	c.recordContractResolutionMiss("HGENQ")
+	c.recordContractResolutionMiss("SYNTHQ")
 	before := len(decodeOutboundFrames(t, conn, out.Bytes()))
-	base := Contract{Symbol: "HGENQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}
-	_, err := c.fetchHistoricalDailyBarsWithBase(context.Background(), "HGENQ", base, "", 10, time.Second, true, "")
+	base := Contract{Symbol: "SYNTHQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	_, err := c.fetchHistoricalDailyBarsWithBase(context.Background(), "SYNTHQ", base, "", 10, time.Second, true, "")
 	if !errors.Is(err, ErrContractNoDefinition) {
 		t.Fatalf("error = %v, want the definition verdict", err)
 	}

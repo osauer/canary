@@ -693,7 +693,7 @@ func TestResolveOrderContractForSessionEndsOnDefinitionRejection(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := connector.ResolveOrderContractForSession(context.Background(), binding, Contract{Symbol: "HGENQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 5*time.Second)
+		_, err := connector.ResolveOrderContractForSession(context.Background(), binding, Contract{Symbol: "SYNTHQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 5*time.Second)
 		done <- err
 	}()
 	reqID := waitForHandlerReqID(t, conn, msgContractData)
