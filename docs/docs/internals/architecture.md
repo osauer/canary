@@ -160,6 +160,10 @@ Reviewed terminal/non-reporting earnings evidence is also daemon-owned typed
 state. An optional private `[rulebook].terminal_evidence_file` is read only at
 startup as a validated import/update; rule snapshots serve the committed
 exact-contract SQLite revision and never fall back to the file or ticker text.
+An import that cannot be read, is malformed, or would roll the authority back
+does not stop the daemon: the committed revision stays in force (an explicit
+empty one when none exists), and `canary status` and `canary rules policy`
+report the error until a restart imports a fixed file.
 Explicit removal retains a per-ConID revocation watermark in that SQLite
 document, and reactivation requires record verification strictly later than the
 watermark, so bumping only the import wrapper cannot resurrect old evidence.

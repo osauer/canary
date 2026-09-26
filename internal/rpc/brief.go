@@ -1792,6 +1792,37 @@ type RulebookPolicyStatus struct {
 	Message   string    `json:"message,omitempty"`
 }
 
+// Terminal-evidence status values: the authority in force and the configured
+// startup import agree (ok), the import was not applied (import_error), or
+// the authority is not attached (unavailable).
+const (
+	TerminalEvidenceStatusOK          = "ok"
+	TerminalEvidenceStatusImportError = "import_error"
+	TerminalEvidenceStatusUnavailable = "unavailable"
+)
+
+// TerminalEvidenceStatus reports the reviewed terminal/non-reporting issuer
+// evidence rules 6-8 use and the optional [rulebook].terminal_evidence_file
+// startup import. The committed daemon.db revision is what the rules read;
+// an import that cannot be read, is malformed or would roll the authority
+// back leaves that revision in force (an explicit empty one when none
+// existed) and is reported here instead of stopping the daemon.
+type TerminalEvidenceStatus struct {
+	Status           string `json:"status"`
+	ImportConfigured bool   `json:"import_configured"`
+	ImportPath       string `json:"import_path,omitempty"`
+	// AuthorityRevision, ReviewedAt and Contracts describe the committed
+	// revision in force.
+	AuthorityRevision int64     `json:"authority_revision"`
+	ReviewedAt        time.Time `json:"reviewed_at,omitzero"`
+	Contracts         int       `json:"contracts"`
+	// ImportError is why the startup import was not applied.
+	ImportError     string    `json:"import_error,omitempty"`
+	ImportCheckedAt time.Time `json:"import_checked_at,omitzero"`
+	// Message says what is in force and what to do while the import fails.
+	Message string `json:"message,omitempty"`
+}
+
 // RulesSnapshotParams selects optional evaluation scope. Zero value means the
 // full Rulebook checklist over all held names.
 type RulesSnapshotParams struct {
@@ -2002,6 +2033,9 @@ type RulesResult struct {
 	// and mode so a reader can show the limits beside the verdicts.
 	PolicyStatus *RulebookPolicyStatus `json:"policy_status,omitempty"`
 	Policy       *risk.RulebookPolicy  `json:"policy,omitempty"`
+	// TerminalEvidence reports the terminal-evidence authority rules 6-8
+	// read and whether its configured startup import was applied.
+	TerminalEvidence *TerminalEvidenceStatus `json:"terminal_evidence,omitempty"`
 	// BaseCurrency scopes every *_base impact figure.
 	BaseCurrency string `json:"base_currency,omitempty"`
 }

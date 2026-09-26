@@ -130,6 +130,11 @@ type earningsTerminalStore struct {
 	revision   int64
 	reviewedAt time.Time
 	byConID    map[int]earningsTerminalStored
+	// importErr says why the configured startup import was not applied; the
+	// committed revision above stays in force. Empty when the import applied
+	// or none is configured. importCheckedAt is when the import was read.
+	importErr       string
+	importCheckedAt time.Time
 }
 
 func newEarningsTerminalStore(importPath string) *earningsTerminalStore {
@@ -139,7 +144,13 @@ func newEarningsTerminalStore(importPath string) *earningsTerminalStore {
 // UseCoreStore imports a configured operator document transactionally, then
 // installs only the verified SQLite revision. With no import configured it
 // loads the retained SQLite authority (or creates an explicit empty v1
-// document). Malformed, future-version, or tampered authority fails startup.
+// document). A malformed, future-version or tampered retained authority fails
+// startup: that is daemon.db integrity. A configured import that cannot be
+// read, is malformed or would roll the authority back never does (owner
+// decision 2026-09-26): the retained committed revision stays in force, or an
+// explicit empty one when none exists, so rules 6-8 are assessed without any
+// terminal classification rather than passing on its absence, and the import
+// error is kept for the status and rules policy surfaces.
 func (s *earningsTerminalStore) UseCoreStore(ctx context.Context, store *corestore.Store, now time.Time) error {
 	if s == nil || store == nil {
 		return errors.New("earnings terminal authority is unavailable")
@@ -159,38 +170,27 @@ func (s *earningsTerminalStore) UseCoreStore(ctx context.Context, store *coresto
 	var dispositions []earningsTerminalContractDisposition
 	action := ""
 	shouldCommit := false
+	importErr := ""
 	if s.importPath != "" {
-		imported, err := readEarningsTerminalImport(expandUserPath(s.importPath), now)
+		var raw []byte
+		candidate, dispositions, raw, err = prepareEarningsTerminalImport(s.importPath, retained, ok, now)
 		if err != nil {
-			return err
-		}
-		if ok {
-			if err := rejectEarningsTerminalRollback(retained, imported); err != nil {
-				return fmt.Errorf("reject earnings terminal authority rollback: %w", err)
+			importErr = err.Error()
+		} else {
+			shouldCommit = !ok || !bytes.Equal(doc.JSON, raw)
+			if shouldCommit {
+				action = classifyEarningsTerminalChange(ok, retained, dispositions, true)
 			}
-		}
-		candidate, dispositions, err = reconcileEarningsTerminalImport(retained, imported, ok)
-		if err != nil {
-			return fmt.Errorf("reject earnings terminal authority rollback: %w", err)
-		}
-		raw, err := json.Marshal(candidate)
-		if err != nil {
-			return fmt.Errorf("encode earnings terminal import: %w", err)
-		}
-		shouldCommit = !ok || !bytes.Equal(doc.JSON, raw)
-		if shouldCommit {
-			action = classifyEarningsTerminalChange(ok, retained, dispositions, true)
 		}
 	}
-	if !ok {
-		if s.importPath == "" {
-			candidate = earningsTerminalDocument{
-				Version:   earningsTerminalDocumentVersion,
-				Contracts: []earningsTerminalRecord{}, Tombstones: []earningsTerminalTombstone{},
-			}
-			action = earningsTerminalChangeInitialize
-			shouldCommit = true
+	if !ok && (s.importPath == "" || importErr != "") {
+		candidate = earningsTerminalDocument{
+			Version:   earningsTerminalDocumentVersion,
+			Contracts: []earningsTerminalRecord{}, Tombstones: []earningsTerminalTombstone{},
 		}
+		dispositions = nil
+		action = earningsTerminalChangeInitialize
+		shouldCommit = true
 	}
 	if shouldCommit {
 		doc, err = commitEarningsTerminalAuthorityChange(ctx, store, doc, ok, retained, candidate, action, dispositions, now)
@@ -213,8 +213,65 @@ func (s *earningsTerminalStore) UseCoreStore(ctx context.Context, store *coresto
 	s.revision = doc.Revision
 	s.reviewedAt = parsed.ReviewedAt
 	s.byConID = byConID
+	s.importErr = importErr
+	s.importCheckedAt = time.Time{}
+	if s.importPath != "" {
+		s.importCheckedAt = now.UTC()
+	}
 	s.mu.Unlock()
 	return nil
+}
+
+// prepareEarningsTerminalImport reads, validates and reconciles the
+// configured import against the retained authority. Every error it returns is
+// the import's own and leaves the retained authority untouched.
+func prepareEarningsTerminalImport(path string, retained earningsTerminalDocument, hadRetained bool, now time.Time) (earningsTerminalDocument, []earningsTerminalContractDisposition, []byte, error) {
+	imported, err := readEarningsTerminalImport(expandUserPath(path), now)
+	if err != nil {
+		if !strings.Contains(err.Error(), "configured earnings terminal evidence") {
+			err = fmt.Errorf("configured earnings terminal evidence is invalid: %w", err)
+		}
+		return earningsTerminalDocument{}, nil, nil, err
+	}
+	if hadRetained {
+		if err := rejectEarningsTerminalRollback(retained, imported); err != nil {
+			return earningsTerminalDocument{}, nil, nil, fmt.Errorf("reject earnings terminal authority rollback: %w", err)
+		}
+	}
+	candidate, dispositions, err := reconcileEarningsTerminalImport(retained, imported, hadRetained)
+	if err != nil {
+		return earningsTerminalDocument{}, nil, nil, fmt.Errorf("reject earnings terminal authority rollback: %w", err)
+	}
+	raw, err := json.Marshal(candidate)
+	if err != nil {
+		return earningsTerminalDocument{}, nil, nil, fmt.Errorf("encode earnings terminal import: %w", err)
+	}
+	return candidate, dispositions, raw, nil
+}
+
+// importStatus reports the authority in force and the configured import's
+// outcome for the status and rules policy surfaces.
+func (s *earningsTerminalStore) importStatus() rpc.TerminalEvidenceStatus {
+	if s == nil {
+		return rpc.TerminalEvidenceStatus{Status: rpc.TerminalEvidenceStatusUnavailable, Message: "the terminal-evidence authority is not attached"}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := rpc.TerminalEvidenceStatus{
+		Status: rpc.TerminalEvidenceStatusOK, ImportConfigured: s.importPath != "", ImportPath: s.importPath,
+		AuthorityRevision: s.revision, ReviewedAt: s.reviewedAt, Contracts: len(s.byConID),
+		ImportError: s.importErr, ImportCheckedAt: s.importCheckedAt,
+	}
+	if s.importErr == "" {
+		return out
+	}
+	out.Status = rpc.TerminalEvidenceStatusImportError
+	if s.revision > 0 && (len(s.byConID) > 0 || !s.reviewedAt.IsZero()) {
+		out.Message = fmt.Sprintf("the startup import was not applied; committed revision %d (%d contract(s)) stays in force. Fix the file and restart the daemon to import it", s.revision, len(s.byConID))
+	} else {
+		out.Message = "the startup import was not applied and no terminal evidence was committed before, so none is in force: rules 6-8 assess every holding normally. Fix the file and restart the daemon to import it"
+	}
+	return out
 }
 
 func readEarningsTerminalImport(path string, now time.Time) (earningsTerminalDocument, error) {

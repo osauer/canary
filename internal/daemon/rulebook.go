@@ -272,7 +272,21 @@ func cloneRulesResult(in *rpc.RulesResult) *rpc.RulesResult {
 		value.HedgeSymbols = append([]string(nil), in.Policy.HedgeSymbols...)
 		out.Policy = &value
 	}
+	if in.TerminalEvidence != nil {
+		value := *in.TerminalEvidence
+		out.TerminalEvidence = &value
+	}
 	return &out
+}
+
+// terminalEvidenceStatus reports the terminal-evidence authority rules 6-8
+// read and its startup import's outcome; nil when no store is installed.
+func (s *Server) terminalEvidenceStatus() *rpc.TerminalEvidenceStatus {
+	if s == nil || s.earningsTerminal == nil {
+		return nil
+	}
+	status := s.earningsTerminal.importStatus()
+	return &status
 }
 
 func (s *Server) rulebookUnavailableResult(reason string) *rpc.RulesResult {
@@ -294,7 +308,7 @@ func (s *Server) rulebookUnavailableResult(reason string) *rpc.RulesResult {
 	return &rpc.RulesResult{
 		AsOf: now, Enabled: true, Status: "degraded", InputHealth: health,
 		PolicyID: pol.ID, PolicyVersion: pol.Version, PolicyFingerprint: &fingerprint,
-		PolicyStatus: &status, Policy: &pol,
+		PolicyStatus: &status, Policy: &pol, TerminalEvidence: s.terminalEvidenceStatus(),
 	}
 }
 
@@ -437,6 +451,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		PolicyFingerprint: &fp,
 		PolicyStatus:      &policyStatus,
 		Policy:            &policyCopy,
+		TerminalEvidence:  s.terminalEvidenceStatus(),
 	}
 	if !res.Enabled {
 		res.Status = "disabled"

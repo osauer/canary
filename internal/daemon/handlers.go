@@ -3509,7 +3509,30 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 	if sub, ok := s.opportunitySubsystemHealth(); ok {
 		out = append(out, sub)
 	}
+	if sub, ok := s.terminalEvidenceSubsystemHealth(); ok {
+		out = append(out, sub)
+	}
 	return out
+}
+
+// terminalEvidenceSubsystemHealth reports a configured
+// [rulebook].terminal_evidence_file: ready once its startup import applied,
+// degraded while it was not, naming the revision still in force. Absent when
+// no import is configured.
+func (s *Server) terminalEvidenceSubsystemHealth() (rpc.SubsystemHealth, bool) {
+	st := s.terminalEvidenceStatus()
+	if st == nil || !st.ImportConfigured {
+		return rpc.SubsystemHealth{}, false
+	}
+	sub := rpc.SubsystemHealth{Name: "terminal_evidence", Status: "ready",
+		Message: fmt.Sprintf("revision %d, %d contract(s) in force", st.AuthorityRevision, st.Contracts)}
+	if st.Status != rpc.TerminalEvidenceStatusOK {
+		sub.Status = "degraded"
+		sub.Message = st.Message
+		sub.LastError = st.ImportError
+		sub.LastErrorAt = st.ImportCheckedAt
+	}
+	return sub, true
 }
 
 // breadthSubsystemHealth reports the breadth lane against the connection

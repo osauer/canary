@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon"
 	"github.com/osauer/canary/v2/internal/risk"
@@ -36,15 +37,16 @@ func runRulesPolicy(ctx context.Context, env *Env, args []string) int {
 	}
 	if *jsonOut {
 		return printJSON(env, struct {
-			Status *rpc.RulebookPolicyStatus `json:"status"`
-			Policy *risk.RulebookPolicy      `json:"policy"`
-		}{res.PolicyStatus, res.Policy})
+			Status           *rpc.RulebookPolicyStatus   `json:"status"`
+			Policy           *risk.RulebookPolicy        `json:"policy"`
+			TerminalEvidence *rpc.TerminalEvidenceStatus `json:"terminal_evidence,omitempty"`
+		}{res.PolicyStatus, res.Policy, res.TerminalEvidence})
 	}
-	renderRulesPolicy(env, res.PolicyStatus, *res.Policy)
+	renderRulesPolicy(env, res.PolicyStatus, *res.Policy, res.TerminalEvidence)
 	return 0
 }
 
-func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPolicy) {
+func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPolicy, terminal *rpc.TerminalEvidenceStatus) {
 	out := env.Stdout
 	source := "compiled baseline"
 	if st.Source == "file" {
@@ -106,11 +108,38 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Issuer groups:    %s\n", symbolGroupsText(p.IssuerGroups, "none (every symbol is its own issuer)"))
 	fmt.Fprintf(out, "Clusters:         %s\n", symbolGroupsText(p.Clusters, "none (rule 17 is not evaluated)"))
+	for _, line := range terminalEvidenceLines(terminal) {
+		fmt.Fprintln(out, line)
+	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Change a limit:   canary rules policy set cash_reserve_min_pct=70")
 	fmt.Fprintln(out, "Set a rule's mode: canary rules policy set modes.winner_trim=off   (off | track | alert)")
 	fmt.Fprintln(out, "Back to baseline: canary rules policy reset KEY…  or  --all")
 	fmt.Fprintln(out, "Every key:        canary policy default rulebook")
+}
+
+// terminalEvidenceLines renders the terminal-evidence authority rules 6-8
+// read and, when the configured startup import was not applied, why and what
+// stays in force. A daemon that reports none renders nothing.
+func terminalEvidenceLines(te *rpc.TerminalEvidenceStatus) []string {
+	if te == nil {
+		return nil
+	}
+	inForce := "none committed"
+	if te.AuthorityRevision > 0 {
+		inForce = fmt.Sprintf("revision %d, %d contract(s)", te.AuthorityRevision, te.Contracts)
+		if !te.ReviewedAt.IsZero() {
+			inForce += ", reviewed " + te.ReviewedAt.UTC().Format(time.DateOnly)
+		}
+	}
+	if te.ImportConfigured {
+		inForce += "; import " + te.ImportPath
+	}
+	lines := []string{"Terminal evidence: " + inForce}
+	if te.Status == rpc.TerminalEvidenceStatusImportError {
+		lines = append(lines, "  import failed:  "+te.ImportError, "  in force:       "+te.Message)
+	}
+	return lines
 }
 
 // symbolGroupsText renders issuer groups or clusters as "NAME: A, B; …".

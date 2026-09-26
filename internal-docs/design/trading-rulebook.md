@@ -672,7 +672,16 @@ web/app/*                         rules card + drill-in
   SEC reference is otherwise mandatory. Unknown fields, unsafe URLs, future
   verification, duplicate ConIDs, an older catalog `reviewed_at`, changed catalog content at
   the same review time, or a changed/older record without a newer
-  `verified_at` fail daemon startup. `reviewed_at` and `verified_at` may not be
+  `verified_at` reject the import. Since 2026-09-26 (owner decision) a
+  rejected, unreadable or missing import no longer fails daemon startup: the
+  committed SQLite revision stays in force, or an explicit empty v1 document
+  when none exists, so rules 6-8 assess every holding normally rather than
+  passing on absent evidence. The error is reported on `canary status` (the
+  `terminal_evidence` subsystem, degraded) and on the rules policy surface
+  (`RulesResult.terminal_evidence`, `canary rules policy`) until a restart
+  imports a fixed file. A malformed, future-version or tampered retained
+  SQLite document still fails startup: that is daemon.db integrity.
+  `reviewed_at` and `verified_at` may not be
   later than the daemon's validation clock; there is no future-clock grace.
   Each removed ConID creates a daemon-owned tombstone at that import's
   `reviewed_at`. Operator files cannot author or erase tombstones. Reactivating

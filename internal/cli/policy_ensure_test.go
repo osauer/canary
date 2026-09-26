@@ -97,7 +97,7 @@ func TestPolicyScreensMarkUnreviewedFilesAndMissingNumbers(t *testing.T) {
 	var out bytes.Buffer
 	env := &Env{Stdout: &out, Stderr: &bytes.Buffer{}}
 	st := &rpc.RulebookPolicyStatus{Status: rpc.RulebookPolicyStatusActive, Source: "file", Review: rpc.PolicyReviewUnreviewed, Missing: []string{"takeover_gap_pct"}}
-	renderRulesPolicy(env, st, risk.DefaultRulebookPolicy())
+	renderRulesPolicy(env, st, risk.DefaultRulebookPolicy(), nil)
 	if s := out.String(); !strings.Contains(s, "(default, unreviewed)") || !strings.Contains(s, "not in file  takeover_gap_pct") {
 		t.Fatalf("rules policy screen:\n%s", s)
 	}
