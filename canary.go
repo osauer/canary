@@ -17,8 +17,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/mcp"
@@ -201,11 +203,18 @@ func daemonError(err error) error {
 
 // failure names the tool on a Call error. A socket deadline mirrors ctx, so
 // when ctx has ended the bound is reported rather than the transport error.
+// The socket timer and ctx's timer are separate: the read can time out a
+// moment before ctx reports it, so a socket timeout at or past ctx's deadline
+// is that deadline.
 func failure(ctx context.Context, name string, err error) error {
 	if reported, ok := errors.AsType[*rpc.Error](err); ok {
 		return fmt.Errorf("%s: %w", name, &Error{Code: reported.Code, Message: reported.Message})
 	}
-	if ctxErr := ctx.Err(); ctxErr != nil && !errors.Is(err, ctxErr) {
+	ctxErr := ctx.Err()
+	if deadline, ok := ctx.Deadline(); ctxErr == nil && ok && !time.Now().Before(deadline) && errors.Is(err, os.ErrDeadlineExceeded) {
+		ctxErr = context.DeadlineExceeded
+	}
+	if ctxErr != nil && !errors.Is(err, ctxErr) {
 		return fmt.Errorf("%s: %w: %v", name, ctxErr, err)
 	}
 	return fmt.Errorf("%s: %w", name, err)
