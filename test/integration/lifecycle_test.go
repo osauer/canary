@@ -41,6 +41,9 @@ func lifecycleEnv(t *testing.T) (env []string, socketPath, logPath string) {
 		"XDG_CACHE_HOME="+filepath.Join(dir, "cache"),
 		"XDG_CONFIG_HOME="+filepath.Join(dir, "config"),
 		"XDG_DATA_HOME="+filepath.Join(dir, "data"),
+		// The daemon writes missing policy files under ~/.config/ibkr at
+		// start; a hermetic run must never touch the real home directory.
+		"HOME="+filepath.Join(dir, "home"),
 	)
 	t.Cleanup(func() {
 		if pid := dial.LockHolderPID(dial.LockPath(socketPath)); pid > 0 {

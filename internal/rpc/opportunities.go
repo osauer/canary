@@ -56,14 +56,17 @@ const (
 // OpportunityPolicyStatus reports the loaded policy identity and blockers. A
 // status of active is required before absence of blockers is meaningful.
 type OpportunityPolicyStatus struct {
-	Kind          string           `json:"kind,omitempty"`
-	Status        string           `json:"status"`
-	PolicyID      string           `json:"policy_id,omitempty"`
-	PolicyVersion int              `json:"policy_version,omitempty"`
-	Profile       string           `json:"profile,omitempty"`
-	Fingerprint   Fingerprint      `json:"fingerprint,omitzero"`
-	Source        string           `json:"source,omitempty"`
-	Path          string           `json:"path,omitempty"`
+	Kind          string      `json:"kind,omitempty"`
+	Status        string      `json:"status"`
+	PolicyID      string      `json:"policy_id,omitempty"`
+	PolicyVersion int         `json:"policy_version,omitempty"`
+	Profile       string      `json:"profile,omitempty"`
+	Fingerprint   Fingerprint `json:"fingerprint,omitzero"`
+	Source        string      `json:"source,omitempty"`
+	Path          string      `json:"path,omitempty"`
+	// Review is PolicyReviewUnreviewed while the file is Canary's default
+	// template that nobody has reviewed yet.
+	Review        string           `json:"review,omitempty"`
 	LoadedAt      time.Time        `json:"loaded_at,omitzero"`
 	LastCheckedAt time.Time        `json:"last_checked_at,omitzero"`
 	Message       string           `json:"message,omitempty"`
@@ -418,15 +421,22 @@ type ProtectionPolicyStatus struct {
 	Fingerprint   Fingerprint `json:"fingerprint,omitzero"`
 	Source        string      `json:"source,omitempty"`
 	Path          string      `json:"path,omitempty"`
-	LoadedAt      time.Time   `json:"loaded_at,omitzero"`
-	LastCheckedAt time.Time   `json:"last_checked_at,omitzero"`
-	Message       string      `json:"message,omitempty"`
+	// Review is PolicyReviewUnreviewed while the file is Canary's default
+	// template that nobody has reviewed yet; empty once the owner has.
+	Review        string    `json:"review,omitempty"`
+	LoadedAt      time.Time `json:"loaded_at,omitzero"`
+	LastCheckedAt time.Time `json:"last_checked_at,omitzero"`
+	Message       string    `json:"message,omitempty"`
 	// AutomationPaused says pre-authorised submission is paused because the
 	// file drifted or cannot be read. Proposals keep coming from the policy
 	// in force and stay previewable and submittable by hand.
 	AutomationPaused bool             `json:"automation_paused,omitempty"`
 	Blockers         []TradingBlocker `json:"blockers,omitempty"`
 }
+
+// PolicyReviewUnreviewed marks a policy file that is still Canary's default
+// template: the values are Canary's, not yet the owner's.
+const PolicyReviewUnreviewed = "unreviewed"
 
 // AutoTradeStatus combines proposal generation and trading readiness. It is
 // observational and does not itself authorize a broker write.
@@ -506,6 +516,10 @@ const (
 	BudgetStateWithinBudget           = "within_budget"
 	BudgetStateOverBudget             = "over_budget"
 	BudgetStateAccountUnavailable     = "account_unavailable"
+	// BudgetStateNeedsYourNumber: the bucket is enabled but a number only the
+	// owner can choose (a cap or the order size) is not written yet, so the
+	// governor stays off and names what it needs.
+	BudgetStateNeedsYourNumber = "needs_your_number"
 )
 
 // TradeProposalBudgetStatus is the premium budget governor's account of one

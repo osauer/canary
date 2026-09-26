@@ -146,7 +146,7 @@ func (m *opportunityPolicyManager) reload() {
 	if m.now != nil {
 		now = m.now().UTC()
 	}
-	policy, source, err := m.loadPolicy()
+	policy, source, review, err := m.loadPolicy()
 	if err != nil {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -156,6 +156,7 @@ func (m *opportunityPolicyManager) reload() {
 		}
 		st := opportunityPolicyStatus(m.active, rpc.OpportunityPolicyStatusError, source, err.Error(), now)
 		st.Path = m.path
+		st.Review = m.status.Review
 		m.status = st
 		return
 	}
@@ -171,6 +172,7 @@ func (m *opportunityPolicyManager) reload() {
 		}
 		st := opportunityPolicyStatus(policy, statusKind, source, "", now)
 		st.Path = m.path
+		st.Review = review
 		m.status = st
 		m.lastFingerprint = fp
 		m.fileAdopted = source == "file"
@@ -182,6 +184,7 @@ func (m *opportunityPolicyManager) reload() {
 		m.active = policy
 		st := opportunityPolicyStatus(policy, rpc.OpportunityPolicyStatusActive, source, "", now)
 		st.Path = m.path
+		st.Review = review
 		m.status = st
 		m.lastFingerprint = fp
 	case policy.PolicyVersion == m.active.PolicyVersion && fp.Key == m.lastFingerprint.Key:
@@ -190,6 +193,7 @@ func (m *opportunityPolicyManager) reload() {
 			st.Status = rpc.OpportunityPolicyStatusActive
 		}
 		st.Path = m.path
+		st.Review = review
 		m.status = st
 	case policy.PolicyVersion <= m.active.PolicyVersion && fp.Key != m.lastFingerprint.Key:
 		st := opportunityPolicyStatus(m.active, rpc.OpportunityPolicyStatusDrift, source, "policy file changed without a higher policy_version", now)
@@ -198,36 +202,46 @@ func (m *opportunityPolicyManager) reload() {
 	}
 }
 
-func (m *opportunityPolicyManager) loadPolicy() (opportunityPolicy, string, error) {
+func (m *opportunityPolicyManager) loadPolicy() (opportunityPolicy, string, string, error) {
 	if m == nil || strings.TrimSpace(m.path) == "" {
 		p := defaultOpportunityPolicy()
-		return p, "embedded-default", validateOpportunityPolicy(p)
+		return p, "embedded-default", "", validateOpportunityPolicy(p)
 	}
 	data, err := os.ReadFile(m.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			p := defaultOpportunityPolicy()
-			return p, "embedded-default", validateOpportunityPolicy(p)
+			return p, "embedded-default", "", validateOpportunityPolicy(p)
 		}
-		return opportunityPolicy{}, "file", fmt.Errorf("read opportunity policy %s: %w", m.path, err)
+		return opportunityPolicy{}, "file", "", fmt.Errorf("read opportunity policy %s: %w", m.path, err)
 	}
+	p, err := parseOpportunityPolicy(data)
+	if err != nil {
+		return opportunityPolicy{}, "file", "", fmt.Errorf("opportunity policy %s: %w", m.path, err)
+	}
+	return p, "file", policyFileReview(data), nil
+}
+
+// parseOpportunityPolicy decodes and validates an opportunity policy file,
+// refusing unknown keys.
+func parseOpportunityPolicy(data []byte) (opportunityPolicy, error) {
 	var p opportunityPolicy
 	md, err := toml.Decode(string(data), &p)
 	if err != nil {
-		return opportunityPolicy{}, "file", fmt.Errorf("parse opportunity policy %s: %w", m.path, err)
+		return opportunityPolicy{}, fmt.Errorf("parse: %w", err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, k := range undecoded {
 			keys[i] = k.String()
 		}
-		return opportunityPolicy{}, "file", fmt.Errorf("unknown opportunity policy key(s): %s", strings.Join(keys, ", "))
+		return opportunityPolicy{}, fmt.Errorf("unknown opportunity policy key(s): %s", strings.Join(keys, ", "))
 	}
 	applyOpportunityPolicyDefaults(&p, &md)
 	if err := validateOpportunityPolicy(p); err != nil {
-		return opportunityPolicy{}, "file", err
+		return opportunityPolicy{}, err
 	}
-	return p, "file", nil
+	return p, nil
 }
 
 func defaultOpportunityPolicy() opportunityPolicy {

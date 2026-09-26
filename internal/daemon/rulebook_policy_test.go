@@ -96,13 +96,16 @@ func TestRulebookPolicyBadOrRemovedFileKeepsThePolicyInForce(t *testing.T) {
 
 // The CLI edit writes only the keys that differ from the baseline, raises the
 // version, keeps the file private and writes nothing when a value is invalid.
-func TestEditRulebookPolicyWritesOnlyOverridesAndRefusesInvalidValues(t *testing.T) {
+// A first edit starts from Canary's complete template (owner decision
+// 2026-09-26: the file, never a compiled baseline, is what runs), changes only
+// the keys it names, and refuses anything the daemon would refuse.
+func TestEditRulebookPolicyStartsFromTheTemplateAndRefusesInvalidValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policies", "rulebook-policy.toml")
 	edit, err := EditRulebookPolicy(path, []string{"cash_reserve_min_pct=70", "modes.winner_trim=track", "single_name_act_pct=40"}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edit.Version != risk.DefaultRulebookPolicy().Version+1 || !slices.Equal(edit.Overrides, []string{"cash_reserve_min_pct", "modes.winner_trim"}) || len(edit.Changes) != 2 {
+	if edit.Version != risk.DefaultRulebookPolicy().Version+1 || !slices.Equal(edit.Differs, []string{"cash_reserve_min_pct", "modes.winner_trim"}) || len(edit.Changes) != 2 {
 		t.Fatalf("edit = %+v", edit)
 	}
 	info, err := os.Stat(path)
@@ -110,6 +113,11 @@ func TestEditRulebookPolicyWritesOnlyOverridesAndRefusesInvalidValues(t *testing
 		t.Fatalf("file mode %v err %v", info.Mode().Perm(), err)
 	}
 	before, _ := os.ReadFile(path)
+	read, err := parseRulebookPolicy(before)
+	if err != nil || len(read.missing) != 0 || policyFileReview(before) != "unreviewed" ||
+		!strings.Contains(string(before), "# Rule 1 — worst-case loss on one issuer") || !strings.Contains(string(before), "cash_reserve_min_pct = 70") {
+		t.Fatalf("first edit did not start from the template: missing %v err %v\n%s", read.missing, err, before)
+	}
 	for _, bad := range [][]string{{"cash_reserve_min_pct=abc"}, {"no_such_key=1"}, {"option_line_act_pct=1"}, {"modes.fx_exposure=loud"}, {"runway_act_dte=2.5"}} {
 		if _, err := EditRulebookPolicy(path, bad, nil, false); err == nil {
 			t.Fatalf("%v accepted", bad)
@@ -124,8 +132,67 @@ func TestEditRulebookPolicyWritesOnlyOverridesAndRefusesInvalidValues(t *testing
 		t.Fatalf("the daemon reads the edit differently: %+v", st)
 	}
 	edit, err = EditRulebookPolicy(path, nil, nil, true)
-	if err != nil || len(edit.Overrides) != 0 || edit.Version != risk.DefaultRulebookPolicy().Version+2 {
+	if err != nil || len(edit.Differs) != 0 || edit.Version != risk.DefaultRulebookPolicy().Version+2 {
 		t.Fatalf("reset --all = %+v %v", edit, err)
+	}
+	backups, _ := filepath.Glob(path + ".bak-reset-*")
+	if len(backups) != 1 {
+		t.Fatalf("reset --all kept no backup: %v", backups)
+	}
+	if saved, _ := os.ReadFile(backups[0]); string(saved) != string(before) {
+		t.Fatal("the reset backup is not the file as it was")
+	}
+}
+
+// An edit changes only the lines it names: every comment, every other value
+// and a trailing note on the edited line stay byte for byte (owner decision
+// 2026-09-26: Canary edits the file the owner reads and annotates in place).
+func TestEditRulebookPolicyEditsInPlaceKeepingComments(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rulebook-policy.toml")
+	original := `# My limits, reviewed with my adviser.
+kind = "ibkr.rulebook_policy"
+schema_version = 1
+policy_id = "rulebook-owner"
+policy_version = 7
+
+# Concentration: I keep it tight.
+single_name_watch_pct = 25.0  # tighter than Canary's
+single_name_act_pct = 35.0
+cash_reserve_min_pct = 60.0
+
+[modes]
+winner_trim = "track"  # I like the reminder
+
+[issuer_groups]
+GroupA = ["AAA", "AAB"]
+`
+	writeRulebookTestFile(t, path, original)
+	edit, err := EditRulebookPolicy(path, []string{"single_name_watch_pct=28", "issuer_groups.GroupB=BBB,BBC"}, []string{"cash_reserve_min_pct"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, _ := os.ReadFile(path)
+	want := strings.NewReplacer(
+		"policy_version = 7", "policy_version = 8",
+		"single_name_watch_pct = 25.0  # tighter than Canary's", "single_name_watch_pct = 28.0  # tighter than Canary's",
+		"cash_reserve_min_pct = 60.0", "cash_reserve_min_pct = "+tomlFloat(risk.DefaultRulebookPolicy().CashReserveMinPct),
+		`GroupA = ["AAA", "AAB"]`, `GroupA = ["AAA", "AAB"]`+"\n"+`GroupB = ["BBB", "BBC"]`,
+	).Replace(original)
+	if string(written) != want {
+		t.Fatalf("edit touched more than its lines:\n--- got\n%s\n--- want\n%s", written, want)
+	}
+	if edit.Version != 8 || len(edit.Changes) != 3 {
+		t.Fatalf("edit = %+v", edit)
+	}
+	read, err := parseRulebookPolicy(written)
+	if err != nil || read.policy.SingleNameWatchPct != 28 || read.policy.IssuerOf("BBC") != "GroupB" || read.policy.IssuerOf("AAB") != "GroupA" {
+		t.Fatalf("the daemon reads the edit differently: %+v %v", read.policy, err)
+	}
+	if _, err := EditRulebookPolicy(path, nil, []string{"issuer_groups.GroupB"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := os.ReadFile(path); strings.Contains(string(again), "GroupB") || !strings.Contains(string(again), "# I like the reminder") {
+		t.Fatalf("reset of an issuer group:\n%s", again)
 	}
 }
 
@@ -243,7 +310,7 @@ func TestEditRulebookPolicyRefusesAndRemovesTheRetiredKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	written, _ := os.ReadFile(path)
-	if strings.Contains(string(written), "cash_sell_only_pct") || !slices.Equal(edit.Overrides, []string{"cash_reserve_min_pct", "overhedge_multiple"}) {
+	if strings.Contains(string(written), "cash_sell_only_pct") || !slices.Equal(edit.Differs, []string{"cash_reserve_min_pct", "overhedge_multiple"}) {
 		t.Fatalf("edit kept a retired key or lost a limit: %+v\n%s", edit, written)
 	}
 	removed := 0

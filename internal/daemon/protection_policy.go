@@ -120,17 +120,17 @@ type protectionPolicyBuckets struct {
 // caps have no embedded default: the owner writes them (decision D4,
 // 2026-09-21; internal-docs/design/budget-governor.md).
 type protectionBudgetPolicy struct {
-	// Enabled turns the premium budget governor on (default false; the table is absent from the embedded default).
+	// Enabled turns the premium budget governor on (default false; the table is only a commented placeholder in the file Canary writes).
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals.
 	Mode string `toml:"mode" json:"mode,omitempty"`
-	// PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default.
+	// PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default, and until it is written the governor reports needs_your_number.
 	PremiumAtRiskPctOfRiskCapital float64 `toml:"premium_at_risk_pct_of_risk_capital" json:"premium_at_risk_pct_of_risk_capital"`
-	// PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default.
+	// PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default, and until it is written the governor reports needs_your_number.
 	PerLinePctOfRiskCapital float64 `toml:"per_line_pct_of_risk_capital" json:"per_line_pct_of_risk_capital"`
-	// MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does; the remainder waits for the next cycle.
+	// MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does (the remainder waits for the next cycle); no default, and until it is written the governor reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// Basis is declared_risk_capital (default; the two percentages above are required) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent.
+	// Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent.
 	Basis string `toml:"basis" json:"basis,omitempty"`
 }
 
@@ -382,6 +382,7 @@ func (m *protectionPolicyManager) reload() {
 		// pauses until the file reads again.
 		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusError, read.source, err.Error()+protectionPolicyInForceNote(m.fileAdopted), now)
 		st.Path = m.path
+		st.Review = m.status.Review
 		m.status = st
 		return
 	}
@@ -394,6 +395,7 @@ func (m *protectionPolicyManager) reload() {
 		m.active = policy
 		st := protectionPolicyStatus(policy, statusKind, source, retiredProtectionKeysNote(read.retired), now)
 		st.Path = m.path
+		st.Review = read.review
 		m.status = st
 		m.lastFingerprint = fp
 		m.fileAdopted = source == "file"
@@ -418,6 +420,7 @@ func (m *protectionPolicyManager) reload() {
 			st.Status = rpc.ProtectionPolicyStatusActive
 		}
 		st.Path = m.path
+		st.Review = read.review
 		m.status = st
 	case source == "embedded-default":
 		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "the policy file was removed; the last policy read from it stays in force for proposals, and pre-authorised submission pauses until the file returns or the daemon restarts", now)
@@ -426,6 +429,7 @@ func (m *protectionPolicyManager) reload() {
 	case policy.PolicyVersion <= m.active.PolicyVersion && fp.Key != m.lastFingerprint.Key:
 		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "policy file changed without a higher policy_version; the policy in force keeps generating reduce-only proposals, and pre-authorised submission pauses until policy_version is raised", now)
 		st.Path = m.path
+		st.Review = m.status.Review
 		m.status = st
 	}
 }
@@ -445,6 +449,7 @@ type protectionPolicyRead struct {
 	policy  protectionPolicy
 	source  string
 	retired []string
+	review  string
 }
 
 func (m *protectionPolicyManager) loadPolicy() (protectionPolicyRead, error) {
@@ -464,7 +469,7 @@ func (m *protectionPolicyManager) loadPolicy() (protectionPolicyRead, error) {
 	if err != nil {
 		return protectionPolicyRead{source: "file"}, fmt.Errorf("protection policy %s: %w", m.path, err)
 	}
-	return protectionPolicyRead{policy: p, source: "file", retired: retired}, nil
+	return protectionPolicyRead{policy: p, source: "file", retired: retired, review: policyFileReview(data)}, nil
 }
 
 // parseProtectionPolicy decodes and validates a protection policy file.
@@ -719,13 +724,16 @@ func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
 	default:
 		return fmt.Errorf("%s.mode %q is invalid; use shadow or active", prefix, p.Mode)
 	}
+	// A number the owner has not written yet (zero) is not an error: the
+	// governor switches itself off and says it needs that number (owner
+	// decision 2026-09-26). A written number must still be well formed.
 	switch strings.ToLower(strings.TrimSpace(p.Basis)) {
 	case "", rpc.BudgetBasisDeclaredRiskCapital:
 	case rpc.BudgetBasisRulebook:
 		if p.PremiumAtRiskPctOfRiskCapital != 0 || p.PerLinePctOfRiskCapital != 0 {
 			return fmt.Errorf("%s.basis = rulebook takes its limits from the Rulebook policy; remove premium_at_risk_pct_of_risk_capital and per_line_pct_of_risk_capital", prefix)
 		}
-		if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 || (p.Enabled && p.MaxOrderNotional == 0) {
+		if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 {
 			return fmt.Errorf("%s.max_order_notional must be positive", prefix)
 		}
 		return nil
@@ -733,7 +741,7 @@ func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
 		return fmt.Errorf("%s.basis %q is invalid; use declared_risk_capital or rulebook", prefix, p.Basis)
 	}
 	pct := func(name string, v float64) error {
-		if !finiteProtectionOptionPolicyValue(v) || v < 0 || v > 100 || (p.Enabled && v == 0) {
+		if !finiteProtectionOptionPolicyValue(v) || v < 0 || v > 100 {
 			return fmt.Errorf("%s.%s must be in (0, 100]", prefix, name)
 		}
 		return nil
@@ -744,13 +752,34 @@ func validateBudgetPolicy(prefix string, p *protectionBudgetPolicy) error {
 	if err := pct("per_line_pct_of_risk_capital", p.PerLinePctOfRiskCapital); err != nil {
 		return err
 	}
-	if p.PerLinePctOfRiskCapital > p.PremiumAtRiskPctOfRiskCapital {
+	if p.PerLinePctOfRiskCapital > 0 && p.PremiumAtRiskPctOfRiskCapital > 0 && p.PerLinePctOfRiskCapital > p.PremiumAtRiskPctOfRiskCapital {
 		return fmt.Errorf("%s.per_line_pct_of_risk_capital must not exceed premium_at_risk_pct_of_risk_capital", prefix)
 	}
-	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 || (p.Enabled && p.MaxOrderNotional == 0) {
+	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 {
 		return fmt.Errorf("%s.max_order_notional must be positive", prefix)
 	}
 	return nil
+}
+
+// missingNumbers lists the numbers an enabled governor still needs from the
+// owner; the governor stays off until every one is written.
+func (p *protectionBudgetPolicy) missingNumbers() []string {
+	if p == nil || !p.Enabled {
+		return nil
+	}
+	var out []string
+	if p.basis() == rpc.BudgetBasisDeclaredRiskCapital {
+		if p.PremiumAtRiskPctOfRiskCapital == 0 {
+			out = append(out, "premium_at_risk_pct_of_risk_capital")
+		}
+		if p.PerLinePctOfRiskCapital == 0 {
+			out = append(out, "per_line_pct_of_risk_capital")
+		}
+	}
+	if p.MaxOrderNotional == 0 {
+		out = append(out, "max_order_notional")
+	}
+	return out
 }
 
 func validateTrailAssetPolicy(prefix string, p protectionTrailAssetPolicy) error {

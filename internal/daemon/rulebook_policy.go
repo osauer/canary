@@ -126,6 +126,7 @@ func (m *rulebookPolicyManager) Active() (risk.RulebookPolicy, rpc.RulebookPolic
 	p.HedgeSymbols = slices.Clone(m.active.HedgeSymbols)
 	st := m.status
 	st.Overrides = slices.Clone(m.status.Overrides)
+	st.Missing = slices.Clone(m.status.Missing)
 	return p, st
 }
 
@@ -172,6 +173,7 @@ func (m *rulebookPolicyManager) reload() {
 		}
 		st.LoadedAt = m.status.LoadedAt
 		st.Message = retiredRulebookKeysNote(read.retired)
+		st.Missing, st.Review = slices.Clone(read.missing), read.review
 		m.status = st
 	default:
 		m.status = rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusDrift, m.status.Source, m.path, m.status.Overrides, now)
@@ -196,6 +198,7 @@ func (m *rulebookPolicyManager) adopt(read rulebookPolicyRead, now time.Time) {
 	m.status = rulebookPolicyStatusFor(read.policy, status, read.source, m.path, read.overrides, now)
 	m.status.LoadedAt = now
 	m.status.Message = retiredRulebookKeysNote(read.retired)
+	m.status.Missing, m.status.Review = slices.Clone(read.missing), read.review
 }
 
 // rulebookPolicyRead is one read of the owner's file over the compiled
@@ -206,6 +209,11 @@ type rulebookPolicyRead struct {
 	source    string
 	overrides []string
 	retired   []string
+	// missing lists the keys Canary's template writes that the file lacks;
+	// they follow Canary's defaults until the file carries them.
+	missing []string
+	// review is PolicyReviewUnreviewed while the file is Canary's template.
+	review string
 }
 
 // loadRulebookPolicyFile reads the owner's file over the compiled baseline.
@@ -227,6 +235,7 @@ func loadRulebookPolicyFile(path string) (rulebookPolicyRead, error) {
 		return rulebookPolicyRead{}, fmt.Errorf("rulebook policy %s: %w", path, err)
 	}
 	read.source = rulebookPolicySourceFile
+	read.review = policyFileReview(data)
 	return read, nil
 }
 
@@ -257,8 +266,10 @@ func parseRulebookPolicy(data []byte) (rulebookPolicyRead, error) {
 		return rulebookPolicyRead{}, err
 	}
 	var overrides []string
+	defined := map[string]bool{}
 	for _, key := range md.Keys() {
 		name := key.String()
+		defined[name] = true
 		switch name {
 		case "kind", "schema_version", "policy_id", "policy_version":
 			continue
@@ -268,9 +279,15 @@ func parseRulebookPolicy(data []byte) (rulebookPolicyRead, error) {
 		}
 		overrides = append(overrides, name)
 	}
+	var missing []string
+	for _, key := range rulebookTemplateKeySet() {
+		if !defined[key] {
+			missing = append(missing, key)
+		}
+	}
 	slices.Sort(overrides)
 	slices.Sort(retired)
-	return rulebookPolicyRead{policy: policy, overrides: overrides, retired: retired}, nil
+	return rulebookPolicyRead{policy: policy, overrides: overrides, retired: retired, missing: missing}, nil
 }
 
 // retiredCashSellOnlyReason says why cash_sell_only_pct is retired.

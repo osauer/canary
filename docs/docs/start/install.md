@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-09-26 08:33 CEST
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -93,7 +93,7 @@ No config file is needed for this. The daemon probes `4001` (Gateway live), `400
 | --- | --- |
 | `~/.local/bin/canary` | The binary, unless you set `CANARY_INSTALL_DIR` |
 | `~/.config/ibkr/config.toml` | Optional pinned config. Absent by default |
-| `~/.config/ibkr/policies/risk-policy.toml` | Your risk policy, if you write one |
+| `~/.config/ibkr/policies/` | Policy files the installer writes from Canary's defaults, each headed `Canary defaults, not yet reviewed`: `rulebook-policy.toml`, `protection-policy.toml`, `opportunity-policy.toml`, and `risk-policy.toml`, whose numbers are placeholders for you to write. Never overwritten; see [Trading policy](../understand/policy.md#policy-files-canary-writes-for-you) |
 | `~/.local/state/ibkr/daemon.db` | Daemon-owned state: settings, journals, membership, evidence |
 | `~/.local/state/ibkr/ibkr-daemon.log` | Daemon log. First place to look when something will not start |
 | `~/.cache/ibkr/ibkr.sock` | The daemon socket, under `$XDG_RUNTIME_DIR/ibkr/` when that is set |

@@ -44,6 +44,8 @@ func runPolicy(ctx context.Context, env *Env, args []string) int {
 		return runPolicyShow(ctx, env, args)
 	case "default":
 		return runPolicyDefault(ctx, env, args)
+	case "ensure":
+		return runPolicyEnsure(ctx, env, args)
 	case "capital-event":
 		return runPolicyCapitalEvent(ctx, env, args)
 	case "override":
@@ -70,8 +72,9 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "  correct-peak     Repair a high-water mark that the retained statement history proves is wrong.")
 	fmt.Fprintln(env.Stdout, "  override         Grant one named policy control a temporary, journaled exception.")
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Related read-only/local action:")
-	fmt.Fprintln(env.Stdout, "  default          Print the embedded protection, opportunity or Rulebook policy template; this is not the risk constitution.")
+	fmt.Fprintln(env.Stdout, "Local actions (no daemon needed):")
+	fmt.Fprintln(env.Stdout, "  default          Print Canary's default file for rulebook, protection, opportunity or constitution (placeholders only).")
+	fmt.Fprintln(env.Stdout, "  ensure           Write missing policy files from Canary's defaults and migrate existing ones in place (--dry-run to preview).")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Usually let retained broker statements account for deposits and withdrawals. A qualifying clean")
 	fmt.Fprintln(env.Stdout, "reconciliation report extends the policy clock automatically. Use a manual action only for the")
@@ -88,7 +91,27 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Usage: canary policy show [--explain] [--json]")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "This is read-only. Use --explain to see every limit's plain-English meaning,")
-		fmt.Fprintln(env.Stdout, "source and enforcement class.")
+		fmt.Fprintln(env.Stdout, "source and enforcement class, and every policy file's notes: keys it lacks,")
+		fmt.Fprintln(env.Stdout, "retired keys, pending migrations, and what Canary now recommends.")
+	case "ensure":
+		fmt.Fprintln(env.Stdout, "canary policy ensure — write missing policy files and migrate existing ones in place")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy ensure [--dry-run] [--json] [--config PATH]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Writes rulebook-policy.toml, protection-policy.toml, opportunity-policy.toml and")
+		fmt.Fprintln(env.Stdout, "risk-policy.toml from Canary's defaults when missing, headed \"Canary defaults, not")
+		fmt.Fprintln(env.Stdout, "yet reviewed\". Personal numbers and automation switches are placeholders only.")
+		fmt.Fprintln(env.Stdout, "An existing file is never overwritten: a migration backs it up, adds new keys at")
+		fmt.Fprintln(env.Stdout, "their defaults, comments out retired ones and never changes a value you set;")
+		fmt.Fprintln(env.Stdout, "recommendations are reported, not applied. The daemon runs the same step at start.")
+		fmt.Fprintln(env.Stdout, "No daemon is needed.")
+	case "default":
+		fmt.Fprintln(env.Stdout, "canary policy default — print Canary's default file for one policy")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy default rulebook|protection|opportunity|constitution")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Prints the same commented template Canary writes when the file is missing.")
+		fmt.Fprintln(env.Stdout, "The constitution template carries placeholders only. No daemon is needed.")
 	case "capital-event":
 		fmt.Fprintln(env.Stdout, "canary policy capital-event — record exceptional capital or reconciliation evidence")
 		fmt.Fprintln(env.Stdout)
@@ -139,16 +162,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Find the exact control key with `canary policy show --explain`. The exception is")
 		fmt.Fprintln(env.Stdout, "journaled, expires automatically, and is capped by the policy's maximum duration.")
 		fmt.Fprintln(env.Stdout, "It cannot change account pins, preview requirements, trading.freeze or broker-write guardrails.")
-	case "default":
-		fmt.Fprintln(env.Stdout, "canary policy default — print an embedded non-constitution policy template")
-		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Usage: canary policy default protection|opportunity|rulebook")
-		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "This read-only local command prints the daemon's embedded protection, opportunity or")
-		fmt.Fprintln(env.Stdout, "Rulebook policy as TOML. It does not print, create or modify your risk constitution.")
-		fmt.Fprintln(env.Stdout, "Edit your Rulebook limits with `canary rules policy set KEY=VALUE`.")
 	default:
-		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, or default)", action)
+		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, default or ensure)", action)
 	}
 	return 0
 }
@@ -255,6 +270,7 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 			fmt.Fprintf(env.Stdout, "  • %s\n", k)
 		}
 	}
+	renderPolicyFiles(env, res.Files, *explain)
 
 	if *explain {
 		activeOverride := map[string]rpc.OverrideRecord{}
@@ -319,6 +335,47 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		}
 	}
 	return 0
+}
+
+// renderPolicyFiles lists every policy file Canary reads with its status. A
+// file still carrying Canary's defaults reads "default, unreviewed"; what
+// stays off for want of your number is listed beneath it. --explain adds the
+// notes: keys the file lacks, retired keys, pending migrations and the
+// recommendations Canary reports but never applies.
+func renderPolicyFiles(env *Env, files []rpc.PolicyFileStatus, explain bool) {
+	if len(files) == 0 {
+		return
+	}
+	fmt.Fprintln(env.Stdout, "\nPolicy files:")
+	for _, f := range files {
+		identity := ""
+		if f.PolicyID != "" {
+			identity = "  " + policyIdentity(f.PolicyID, f.PolicyVersion)
+		}
+		fmt.Fprintf(env.Stdout, "  %-12s %-22s%s  (%s)\n", f.Policy, policyFileStatusText(f), identity, f.Path)
+		for _, n := range f.NeedsYourNumber {
+			fmt.Fprintf(env.Stdout, "      needs your number: %s\n", n)
+		}
+		if explain {
+			for _, n := range f.Notes {
+				fmt.Fprintf(env.Stdout, "      %s\n", n)
+			}
+		}
+	}
+}
+
+// policyFileStatusText renders a policy file's status: "default, unreviewed"
+// for Canary's untouched template, with a drift or error kept in front.
+func policyFileStatusText(f rpc.PolicyFileStatus) string {
+	if f.Review != rpc.PolicyReviewUnreviewed {
+		return f.Status
+	}
+	switch f.Status {
+	case "error", "drift":
+		return f.Status + " (default, unreviewed)"
+	default:
+		return "default, unreviewed"
+	}
 }
 
 func capitalFlowComparison(c rpc.CapitalStateReport, currency string) string {

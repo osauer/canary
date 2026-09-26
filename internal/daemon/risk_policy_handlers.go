@@ -68,6 +68,8 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 	res.Inventory = s.riskPolicyInventory(mgr.policy)
 	res.SignoffRequired = mgr.policy != nil && mgr.policy.SignoffRequired()
 	res.InputHealth = health
+	res.Review = mgr.review
+	res.Files = s.policyFileStatuses(mgr)
 	return res, nil
 }
 

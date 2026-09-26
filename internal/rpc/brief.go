@@ -1715,6 +1715,32 @@ type RiskPolicyResult struct {
 	SignoffRequired bool `json:"signoff_required,omitempty"`
 
 	InputHealth []SourceHealth `json:"input_health,omitempty"`
+
+	// Review is PolicyReviewUnreviewed while risk-policy.toml is Canary's
+	// placeholder template.
+	Review string `json:"review,omitempty"`
+	// Files reports every policy file Canary reads: the constitution,
+	// rulebook-policy.toml, protection-policy.toml and opportunity-policy.toml.
+	Files []PolicyFileStatus `json:"files,omitempty"`
+}
+
+// PolicyFileStatus is one policy file as Canary reads it: where it is, its
+// manager's status, whether it is still Canary's unreviewed template, what
+// it lacks or carries that Canary leaves to you, and which features stay off
+// until you write a number or a decision into it.
+type PolicyFileStatus struct {
+	Policy        string `json:"policy"`
+	Path          string `json:"path,omitempty"`
+	Status        string `json:"status"`
+	Review        string `json:"review,omitempty"`
+	PolicyID      string `json:"policy_id,omitempty"`
+	PolicyVersion string `json:"policy_version,omitempty"`
+	// Notes: retired keys ignored, keys the file lacks, a pending migration,
+	// and recommendations Canary reports but never applies.
+	Notes []string `json:"notes,omitempty"`
+	// NeedsYourNumber names each feature that stays off until the owner
+	// writes a number or a decision into this file.
+	NeedsYourNumber []string `json:"needs_your_number,omitempty"`
 }
 
 // RiskPolicyWriteResult acknowledges one governance write.
@@ -1753,10 +1779,17 @@ type RulebookPolicyStatus struct {
 	PolicyID      string      `json:"policy_id"`
 	PolicyVersion int         `json:"policy_version"`
 	Fingerprint   Fingerprint `json:"fingerprint"`
-	Overrides     []string    `json:"overrides,omitempty"`
-	LoadedAt      time.Time   `json:"loaded_at,omitzero"`
-	CheckedAt     time.Time   `json:"checked_at,omitzero"`
-	Message       string      `json:"message,omitempty"`
+	// Overrides lists the keys the file sets. Canary writes every key into
+	// the file it materializes, so Missing (keys absent from the file, which
+	// follow Canary's defaults) is the list worth reading.
+	Overrides []string `json:"overrides,omitempty"`
+	Missing   []string `json:"missing,omitempty"`
+	// Review is PolicyReviewUnreviewed while the file is Canary's default
+	// template that nobody has reviewed yet.
+	Review    string    `json:"review,omitempty"`
+	LoadedAt  time.Time `json:"loaded_at,omitzero"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	Message   string    `json:"message,omitempty"`
 }
 
 // RulesSnapshotParams selects optional evaluation scope. Zero value means the

@@ -1,32 +1,25 @@
 package daemon
 
 import (
-	"bytes"
 	"fmt"
-
-	"github.com/BurntSushi/toml"
 )
 
-// DefaultPolicyTOML renders the embedded default for a policy name
-// ("protection" or "opportunity") as activation-ready TOML. It backs
-// `canary policy default <name>`: no template file ships for these policies,
-// so the printable embedded default is the single source and cannot drift
-// from the code the daemon actually runs.
+// DefaultPolicyTOML renders Canary's default file for a policy name
+// ("rulebook", "protection", "opportunity" or "constitution"): the same
+// commented template Canary writes when the file is missing. It backs
+// `canary policy default <name>`, so the printed file cannot drift from the
+// code the daemon runs. The constitution template carries placeholders only.
 func DefaultPolicyTOML(name string) ([]byte, error) {
-	var policy any
 	switch name {
 	case "protection":
-		policy = defaultProtectionPolicy()
+		return ProtectionPolicyTemplate(rulebookEditRelease), nil
 	case "opportunity":
-		policy = defaultOpportunityPolicy()
+		return OpportunityPolicyTemplate(rulebookEditRelease), nil
 	case "rulebook":
-		return DefaultRulebookPolicyTOML()
+		return RulebookPolicyTemplate(rulebookEditRelease), nil
+	case "constitution", "risk":
+		return ConstitutionPolicyTemplate(rulebookEditRelease), nil
 	default:
-		return nil, fmt.Errorf("unknown policy %q (expected protection, opportunity or rulebook)", name)
+		return nil, fmt.Errorf("unknown policy %q (expected rulebook, protection, opportunity or constitution)", name)
 	}
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(policy); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
 }

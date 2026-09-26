@@ -20,8 +20,19 @@ func TestBudgetReductionAbsentFromDefaultAndDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "budget_reduction") {
-		t.Fatalf("canary policy default protection prints the governor:\n%s", raw)
+	// The template shows the governor only as a commented placeholder: its
+	// caps are the owner's numbers, so the file Canary writes leaves it off.
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		if strings.Contains(line, "budget_reduction") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			t.Fatalf("canary policy default protection writes the governor live: %q\n%s", line, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "# [buckets.budget_reduction]") {
+		t.Fatalf("the template does not show the governor's placeholder:\n%s", raw)
+	}
+	parsed, _, err := parseProtectionPolicy(raw)
+	if err != nil || parsed.Buckets.BudgetReduction != nil {
+		t.Fatalf("template parses to governor %+v, err %v", parsed.Buckets.BudgetReduction, err)
 	}
 	// Adding a nil pointer field must not move an existing policy fingerprint.
 	before := fingerprintProtectionPolicy(defaultProtectionPolicy())
@@ -75,12 +86,10 @@ func TestBudgetReductionValidation(t *testing.T) {
 		want   string
 	}{
 		"mode":              {func(b *protectionBudgetPolicy) { b.Mode = "hard" }, "mode"},
-		"total zero":        {func(b *protectionBudgetPolicy) { b.PremiumAtRiskPctOfRiskCapital = 0 }, "premium_at_risk_pct_of_risk_capital"},
 		"total above 100":   {func(b *protectionBudgetPolicy) { b.PremiumAtRiskPctOfRiskCapital = 100.5 }, "premium_at_risk_pct_of_risk_capital"},
-		"per line zero":     {func(b *protectionBudgetPolicy) { b.PerLinePctOfRiskCapital = 0 }, "per_line_pct_of_risk_capital"},
 		"per line negative": {func(b *protectionBudgetPolicy) { b.PerLinePctOfRiskCapital = -1 }, "per_line_pct_of_risk_capital"},
 		"per line > total":  {func(b *protectionBudgetPolicy) { b.PerLinePctOfRiskCapital = 41 }, "must not exceed"},
-		"notional":          {func(b *protectionBudgetPolicy) { b.MaxOrderNotional = 0 }, "max_order_notional"},
+		"notional negative": {func(b *protectionBudgetPolicy) { b.MaxOrderNotional = -1 }, "max_order_notional"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := base()
@@ -110,5 +119,27 @@ func TestBudgetReductionValidation(t *testing.T) {
 	var nilBucket *protectionBudgetPolicy
 	if nilBucket.enabled() || nilBucket.effectiveMode() != rpc.BudgetReductionModeShadow {
 		t.Fatal("nil bucket must read disabled and shadow")
+	}
+}
+
+// Owner decision 2026-09-26: a number only the owner can choose that is not
+// written yet switches the governor off with "needs your number"; it no longer
+// fails the whole protection file (which would freeze every other bucket).
+func TestBudgetReductionWithoutTheOwnersNumbersSwitchesItselfOff(t *testing.T) {
+	p := defaultProtectionPolicy()
+	p.Buckets.BudgetReduction = &protectionBudgetPolicy{Enabled: true}
+	if err := validateProtectionPolicy(p); err != nil {
+		t.Fatalf("an enabled governor without its caps failed the whole file: %v", err)
+	}
+	plan := budgetReductionPlan(p, budgetLatchedInput(), budgetTestBook(), optionExitTestTime())
+	st := plan.status
+	if st.State != rpc.BudgetStateNeedsYourNumber || !strings.Contains(st.Reason, "premium_at_risk_pct_of_risk_capital") ||
+		!strings.Contains(st.Reason, "per_line_pct_of_risk_capital") || !strings.Contains(st.Reason, "max_order_notional") || len(plan.lines) != 0 {
+		t.Fatalf("governor without caps = %+v", st)
+	}
+	p.Buckets.BudgetReduction = &protectionBudgetPolicy{Enabled: true, Basis: rpc.BudgetBasisRulebook}
+	if plan := budgetReductionPlan(p, budgetLatchedInput(), budgetTestBook(), optionExitTestTime()); plan.status.State != rpc.BudgetStateNeedsYourNumber ||
+		!strings.Contains(plan.status.Reason, "max_order_notional") || strings.Contains(plan.status.Reason, "premium_at_risk") {
+		t.Fatalf("rulebook basis without an order size = %+v", plan.status)
 	}
 }

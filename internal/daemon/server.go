@@ -396,6 +396,8 @@ type Server struct {
 	// rulebookLiquidity paces the background 20-day volume reads rule 1
 	// needs for days to exit; guarded by rulesMu on first use.
 	rulebookLiquidity *rulebookLiquidityWarmer
+	// ensurePolicyFiles runs the policy-file ensure step at Start.
+	ensurePolicyFiles bool
 	// connectorEpoch changes whenever the daemon publishes or removes the
 	// evidence across reconnects even when account/mode text is unchanged.
 	connectorEpoch uint64
@@ -513,6 +515,11 @@ type Options struct {
 	// DisableMacroSources keeps offline embeddings and hermetic CLI test binaries
 	// from starting public network readers, while retained records remain readable.
 	DisableMacroSources bool
+	// EnsurePolicyFiles writes missing policy files from Canary's templates and
+	// migrates existing ones in place once the instance lock is held (owner
+	// decision 2026-09-26). Only the real daemon entry point sets it, so a test
+	// server never touches a home directory.
+	EnsurePolicyFiles bool
 }
 
 // New constructs a Server with the supplied options.
@@ -521,6 +528,7 @@ func New(opts Options) *Server {
 		opts.Logger = NewLogger(os.Stderr, opts.Config.Daemon.LogLevel)
 	}
 	s := &Server{
+		ensurePolicyFiles:   opts.EnsurePolicyFiles,
 		disableMacroSources: opts.DisableMacroSources,
 		cfg:                 opts.Config,
 		socketPath:          opts.SocketPath,
@@ -1229,6 +1237,11 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	s.logger.Infof("daemon authority: verified in %s", time.Since(authorityStartedAt).Round(time.Millisecond))
+	// One daemon per socket holds the lock, so exactly one writer materializes
+	// and migrates the policy files. It runs only once the SQLite authority is
+	// bound: the managers' rereads journal status transitions, and a journal
+	// write before binding would land in the sealed pre-SQLite files.
+	s.ensurePolicyFilesOnStart()
 	defer func() {
 		if err := s.closeCoreStore(); err != nil {
 			s.warnf("close daemon authority: %v", err)

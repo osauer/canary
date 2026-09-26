@@ -20,6 +20,7 @@ make_fixture_release() {
 	mkdir -p "$release_dir/$base"
 	cat > "$release_dir/$base/$product" <<EOF
 #!/bin/sh
+[ -n "\${HOME:-}" ] && printf '%s\n' "\$*" >> "\$HOME/.fixture-calls"
 case "\${1:-}" in
 	version) printf '%s\n' '$reported_name $version fixture' ;;
 	*) printf '%s\n' '$product fixture' ;;
@@ -181,9 +182,19 @@ assert_no_old_name() {
 
 # A fresh canonical release installs exactly one public executable.
 fresh="$test_root/fresh/bin"
+mkdir -p "$test_root/home"
+: > "$test_root/home/.fixture-calls"
 run_installer v9.9.9 env CANARY_INSTALL_DIR="$fresh"
 [ -x "$fresh/canary" ] || {
 	echo "install test: fresh install missing canonical executable" >&2
+	exit 1
+}
+# The installer probes for the policy-file step with --help (which never
+# starts a daemon) and then writes missing policy files from the defaults.
+grep -qx 'policy ensure --help' "$test_root/home/.fixture-calls" &&
+	grep -qx 'policy ensure' "$test_root/home/.fixture-calls" || {
+	echo "install test: installer did not run the policy-file step" >&2
+	cat "$test_root/home/.fixture-calls" >&2
 	exit 1
 }
 assert_no_old_name "$fresh"

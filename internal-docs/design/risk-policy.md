@@ -1,6 +1,6 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-09-26 08:00 CEST
+Updated: 2026-09-26 08:39 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
 statement-authoritative flows and the clean-report auto-extend. Interview
@@ -145,7 +145,8 @@ internal/daemon/risk_capital_state.go  peak/latch/events/overrides + journals
 internal/daemon/risk_policy_handlers.go RPC handlers + preview cause
 internal/daemon/recon_auto_extend.go   v3 clean-report auto-extend (startup + post-ingest only)
 internal/cli/policy.go                 canary policy show/capital-event/override/reset-drawdown/correct-peak
-examples/risk-policy.toml              operator template (all material keys commented out)
+internal/daemon/policy_files.go        operator template (all material keys commented out),
+                                       written when the file is missing; `canary policy default constitution`
 ```
 
 Runtime state and governance evidence live in

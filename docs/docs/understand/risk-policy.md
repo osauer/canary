@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-09-21 15:38 CEST
+Updated: 2026-09-26 08:33 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -21,12 +21,12 @@ that governs risk numbers cannot be relocated:
 ~/.config/ibkr/policies/risk-policy.toml
 ```
 
-Start from the template at
-[`examples/risk-policy.toml`](../../../examples/risk-policy.toml). Every
-material key arrives commented out. The few values that are filled in are
-either structural, where the schema accepts only one or two values anyway, or
-copied from the author's own setup, like the base currency and the
-`[inventory]` pins. Nothing in that file is a recommendation.
+When no file exists, the installer and each daemon start write a skeleton
+there, and `canary policy default constitution` prints the same file. Every
+material key arrives commented out, the base currency and the `[inventory]`
+pins included; the only values filled in are the structural envelope below.
+Nothing in that file is a recommendation, and it opens with
+`# Canary defaults, not yet reviewed.` until you delete that line.
 
 Only the envelope is fixed:
 
@@ -115,7 +115,8 @@ rejected.
    - `error` means bad syntax, an unknown key, or failed validation. The last
      good policy stays active and the message names the problem.
    - `absent` means the file is missing. A previously loaded policy stays
-     active; deleting the file is not how you retire one.
+     active; deleting the file is not how you retire one, and the next daemon
+     start writes the placeholder skeleton again.
 4. Read the "Waiting on your decisions" list. Any material key missing there
    makes the whole capital tier `unapproved`, not only the control that needs
    it.

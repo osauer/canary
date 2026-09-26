@@ -78,6 +78,7 @@ func runDaemon(args []string) {
 		SocketPath:          socketPath,
 		Version:             effectiveVersion(),
 		Logger:              logger,
+		EnsurePolicyFiles:   true,
 	})
 	defer srv.Stop()
 

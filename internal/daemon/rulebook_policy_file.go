@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -32,9 +34,14 @@ type RulebookPolicyEdit struct {
 	Path    string
 	Version int
 	Changes []RulebookPolicyChange
-	// Overrides are the keys the file now sets; everything else follows the
-	// compiled baseline, including values later releases change.
-	Overrides []string
+	// Differs lists the keys whose value in the file is not Canary's current
+	// default: the file carries every key, and these are the ones moved from
+	// Canary's recommendation (issuer groups and clusters always count).
+	Differs []string
+	// Review is rpc.PolicyReviewUnreviewed while the file still opens with
+	// Canary's "not yet reviewed" header: an edit reviews the keys it names,
+	// never the rest of the file, so the header stays until the owner removes it.
+	Review string
 }
 
 // DefaultRulebookPolicyPath resolves the owner's Rulebook policy path from
@@ -48,12 +55,17 @@ func DefaultRulebookPolicyPath() string {
 }
 
 // EditRulebookPolicy applies key=value assignments and key resets to the
-// owner's Rulebook policy file. The file keeps only the keys that differ from
-// the compiled baseline, so a later release's baseline still reaches every key
-// the owner never set. The result is validated exactly as the daemon will read
-// it, policy_version is raised so the running daemon adopts it, and the file is
-// replaced atomically with owner-only permissions. Nothing is written when any
-// assignment is unknown or invalid.
+// owner's Rulebook policy file in place. The file is the source of truth
+// (owner decision 2026-09-26), so an edit changes only the lines it names
+// and keeps every other value and comment: a missing file starts from
+// Canary's template, a reset writes Canary's current default for the key,
+// and reset --all rewrites the file from the template after a backup. An
+// issuer group or cluster is set as issuer_groups.NAME=A,B and removed with
+// reset. The result is validated exactly as the daemon will read it,
+// policy_version is raised so the running daemon adopts it, and the file is
+// replaced atomically with owner-only permissions. Nothing is written when
+// any assignment is unknown or invalid. Retired keys are refused by set and
+// removed by any edit.
 func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool) (RulebookPolicyEdit, error) {
 	path = expandUserPath(strings.TrimSpace(path))
 	if path == "" {
@@ -63,39 +75,55 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 	if err != nil {
 		return RulebookPolicyEdit{}, err
 	}
-	current := map[string]any{}
-	currentVersion := 0
-	if data, err := os.ReadFile(path); err == nil {
-		if _, err := toml.Decode(string(data), &current); err != nil {
-			return RulebookPolicyEdit{}, fmt.Errorf("read %s: %w", path, err)
-		}
-		if v, ok := current["policy_version"].(int64); ok {
-			currentVersion = int(v)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	known := flattenTOMLMap(baseline)
+	template := RulebookPolicyTemplate(rulebookEditRelease)
+	data, err := os.ReadFile(path)
+	existed := err == nil
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		data = template
+	case err != nil:
 		return RulebookPolicyEdit{}, fmt.Errorf("read %s: %w", path, err)
 	}
+	current := map[string]any{}
+	if _, err := toml.Decode(string(data), &current); err != nil {
+		return RulebookPolicyEdit{}, fmt.Errorf("read %s: %w", path, err)
+	}
+	currentVersion := 0
+	if v, ok := current["policy_version"].(int64); ok {
+		currentVersion = int(v)
+	}
+	currentID, _ := current["policy_id"].(string)
 	for _, key := range []string{"kind", "schema_version", "policy_id", "policy_version"} {
 		delete(current, key)
 	}
 	before := flattenTOMLMap(current)
+
+	doc := parseTOMLDoc(data)
+	if resetAll {
+		doc = parseTOMLDoc(template)
+	}
 	for key := range before {
 		if retiredRulebookKey(key) {
-			deleteTOMLKey(current, key)
+			table, leaf, _ := strings.Cut(key, ".")
+			doc.remove(table, leaf)
 		}
 	}
-
-	overrides := current
-	if resetAll {
-		overrides = map[string]any{}
-	}
-	known := flattenTOMLMap(baseline)
 	for _, key := range resets {
 		key = strings.TrimSpace(key)
-		if _, ok := known[key]; !ok && !retiredRulebookKey(key) {
-			return RulebookPolicyEdit{}, unknownRulebookKey(key, known)
+		table, leaf := splitRulebookKey(key)
+		switch {
+		case retiredRulebookKey(key):
+			doc.remove(table, leaf)
+		case table == "issuer_groups" || table == "clusters":
+			doc.remove(table, leaf)
+		default:
+			want, ok := known[key]
+			if !ok {
+				return RulebookPolicyEdit{}, unknownRulebookKey(key, known)
+			}
+			doc.set(table, leaf, tomlLiteral(want), nil)
 		}
-		deleteTOMLKey(overrides, key)
 	}
 	for _, assignment := range assignments {
 		key, raw, ok := strings.Cut(assignment, "=")
@@ -106,6 +134,15 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		if retiredRulebookKey(key) {
 			return RulebookPolicyEdit{}, fmt.Errorf("%s is retired: %s", key, retiredCashSellOnlyReason)
 		}
+		table, leaf := splitRulebookKey(key)
+		if (table == "issuer_groups" || table == "clusters") && leaf != "" {
+			value, err := parseRulebookValue(raw, []any{})
+			if err != nil {
+				return RulebookPolicyEdit{}, fmt.Errorf("%s: %w", key, err)
+			}
+			doc.set(table, leaf, tomlLiteral(value), nil)
+			continue
+		}
 		want, ok := known[key]
 		if !ok {
 			return RulebookPolicyEdit{}, unknownRulebookKey(key, known)
@@ -114,37 +151,42 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		if err != nil {
 			return RulebookPolicyEdit{}, fmt.Errorf("%s: %w", key, err)
 		}
-		setTOMLKey(overrides, key, value)
+		doc.set(table, leaf, tomlLiteral(value), nil)
 	}
-	// A value equal to the baseline is not an override: dropping it lets a
-	// later baseline change reach the key.
-	for key, value := range flattenTOMLMap(overrides) {
-		if tomlValuesEqual(value, known[key]) {
-			deleteTOMLKey(overrides, key)
-		}
-	}
-
 	version := max(currentVersion, risk.DefaultRulebookPolicy().Version) + 1
-	var buf bytes.Buffer
-	buf.WriteString("# Owner Rulebook policy, written by `canary rules policy set`.\n")
-	buf.WriteString("# Keys here override the compiled baseline; every other key follows it.\n")
-	buf.WriteString("# Baseline and every key: canary policy default rulebook\n")
-	fmt.Fprintf(&buf, "kind = %q\nschema_version = 1\npolicy_id = %q\npolicy_version = %d\n\n", risk.RulebookPolicyKind, RulebookPolicyOwnerID, version)
-	if err := toml.NewEncoder(&buf).Encode(overrides); err != nil {
-		return RulebookPolicyEdit{}, err
+	doc.set("", "policy_version", strconv.Itoa(version), nil)
+	if currentID == "" || currentID == risk.DefaultRulebookPolicy().ID {
+		doc.set("", "policy_id", strconv.Quote(RulebookPolicyOwnerID), nil)
 	}
-	read, err := parseRulebookPolicy(buf.Bytes())
+	out := doc.bytes()
+	read, err := parseRulebookPolicy(out)
 	if err != nil {
 		return RulebookPolicyEdit{}, err
 	}
-	if err := writePrivateFile(path, buf.Bytes()); err != nil {
+	if resetAll && existed {
+		backup := fmt.Sprintf("%s.bak-reset-%s", path, time.Now().UTC().Format("20060102T150405Z"))
+		if err := writePrivateFileExclusive(backup, data); err != nil {
+			return RulebookPolicyEdit{}, fmt.Errorf("backup before reset: %w", err)
+		}
+	}
+	if err := writePrivateFile(path, out); err != nil {
 		return RulebookPolicyEdit{}, err
 	}
 
-	after := flattenTOMLMap(overrides)
+	after := map[string]any{}
+	if _, err := toml.Decode(string(out), &after); err != nil {
+		return RulebookPolicyEdit{}, err
+	}
+	for _, key := range []string{"kind", "schema_version", "policy_id", "policy_version"} {
+		delete(after, key)
+	}
+	afterFlat := flattenTOMLMap(after)
 	var changes []RulebookPolicyChange
-	for _, key := range unionKeys(before, after) {
-		from, to := before[key], after[key]
+	for _, key := range unionKeys(before, afterFlat) {
+		from, to := before[key], afterFlat[key]
+		if !existed {
+			from = known[key]
+		}
 		if tomlValuesEqual(from, to) {
 			continue
 		}
@@ -154,19 +196,37 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 		}
 		changes = append(changes, change)
 	}
-	return RulebookPolicyEdit{Path: path, Version: read.policy.Version, Changes: changes, Overrides: read.overrides}, nil
+	var differs []string
+	for key, v := range afterFlat {
+		if want, ok := known[key]; !ok || !tomlValuesEqual(want, v) {
+			differs = append(differs, key)
+		}
+	}
+	slices.Sort(differs)
+	return RulebookPolicyEdit{Path: path, Version: read.policy.Version, Changes: changes, Differs: differs, Review: policyFileReview(out)}, nil
 }
 
-// DefaultRulebookPolicyTOML renders the compiled baseline as a complete,
-// valid owner file.
-func DefaultRulebookPolicyTOML() ([]byte, error) {
-	p := risk.DefaultRulebookPolicy()
-	p.Kind, p.SchemaVersion = risk.RulebookPolicyKind, 1
-	var buf bytes.Buffer
-	if err := toml.NewEncoder(&buf).Encode(p); err != nil {
-		return nil, err
+// rulebookEditRelease labels a template the edit command writes; the CLI
+// sets it to its own version.
+var rulebookEditRelease = ""
+
+// SetRulebookEditRelease names the release in templates the edit command
+// writes.
+func SetRulebookEditRelease(release string) { rulebookEditRelease = release }
+
+// splitRulebookKey splits a dotted key into its table and leaf; a top-level
+// key has no table.
+func splitRulebookKey(key string) (table, leaf string) {
+	if before, after, ok := strings.Cut(key, "."); ok {
+		return before, after
 	}
-	return buf.Bytes(), nil
+	return "", key
+}
+
+// DefaultRulebookPolicyTOML renders Canary's Rulebook defaults as the
+// complete, commented file Canary materializes.
+func DefaultRulebookPolicyTOML() ([]byte, error) {
+	return RulebookPolicyTemplate(rulebookEditRelease), nil
 }
 
 func rulebookPolicyTOMLMap(p risk.RulebookPolicy) (map[string]any, error) {
@@ -248,38 +308,6 @@ func flattenTOMLMap(in map[string]any) map[string]any {
 	}
 	walk("", in)
 	return out
-}
-
-func setTOMLKey(m map[string]any, key string, value any) {
-	parts := strings.Split(key, ".")
-	for _, p := range parts[:len(parts)-1] {
-		next, ok := m[p].(map[string]any)
-		if !ok {
-			next = map[string]any{}
-			m[p] = next
-		}
-		m = next
-	}
-	m[parts[len(parts)-1]] = value
-}
-
-func deleteTOMLKey(m map[string]any, key string) {
-	parts := strings.Split(key, ".")
-	parents := []map[string]any{m}
-	for _, p := range parts[:len(parts)-1] {
-		next, ok := m[p].(map[string]any)
-		if !ok {
-			return
-		}
-		m = next
-		parents = append(parents, m)
-	}
-	delete(m, parts[len(parts)-1])
-	for i := len(parents) - 1; i > 0; i-- {
-		if len(parents[i]) == 0 {
-			delete(parents[i-1], parts[i-1])
-		}
-	}
 }
 
 func tomlValuesEqual(a, b any) bool {

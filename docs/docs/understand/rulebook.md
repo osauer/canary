@@ -54,14 +54,18 @@ for its concentration row rather than measuring concentration itself.
 
 ## Set your own limits
 
-Every threshold and mode in the table is yours to change. Without a policy
-file Canary runs the compiled baseline, `rulebook-v4`. See the limits in force:
+Every threshold and mode in the table is yours to change. They live in
+`~/.config/ibkr/policies/rulebook-policy.toml` (or `[rulebook].policy_file`),
+which the installer and each daemon start write from Canary's defaults, policy
+`rulebook-v4`, when it is missing. Until you delete its
+`# Canary defaults, not yet reviewed.` line it reads `default, unreviewed`.
+See the limits in force:
 
 ```sh
 canary rules policy
 ```
 
-Change one, turn a rule off or up, or return to the baseline:
+Change one, turn a rule off or up, or return to Canary's defaults:
 
 ```sh
 canary rules policy set cash_reserve_min_pct=70
@@ -70,17 +74,21 @@ canary rules policy reset cash_reserve_min_pct
 canary rules policy reset --all
 ```
 
-`set` writes only the keys you change to
-`~/.config/ibkr/policies/rulebook-policy.toml` (or `[rulebook].policy_file`),
-raises `policy_version`, and refuses an unknown key or an invalid value before
-writing anything. It also refuses `cash_sell_only_pct`, which no rule reads; a
-file that still carries it loads with the key ignored, a note in
-`policy_status` names it, and any `set` or `reset` removes it. The daemon applies the file within 30 seconds. A hand-written
-file works as well: it may hold any subset of the keys `canary policy default
-rulebook` prints, and a hand edit applies only with a higher `policy_version`.
-A file the daemon cannot read or validate never replaces the limits in force,
-and `canary rules` names the problem. Removing the file takes effect at the
-next daemon restart. Every result says where its limits came from:
+`set` edits the file in place: it changes only the lines of the keys you
+name, keeps every other value and comment, raises `policy_version`, and refuses
+an unknown key or an invalid value before writing anything. `reset KEY` writes
+Canary's current default for that key, and `reset --all` rewrites the file
+from Canary's template after keeping the old one as a backup. Declare an
+issuer group or a cluster with `set issuer_groups.NAME=AAA,AAB` and remove it
+with `reset issuer_groups.NAME`. `set` refuses `cash_sell_only_pct`, which no
+rule reads; a file that still carries it loads with the key ignored, a note in
+`policy_status` names it, and any `set` or `reset` removes it. The daemon
+applies the file within 30 seconds. Hand edits work as well and apply only
+with a higher `policy_version`. A key missing from the file follows Canary's
+default, `canary rules policy` lists it under `not in file`, and the next
+upgrade adds it at that default. A file the daemon cannot read or validate
+never replaces the limits in force, and `canary rules` names the problem. A
+deleted file comes back as Canary's template at the next daemon start. Every result says where its limits came from:
 `policy_status` names the baseline or your file, and `policy` carries every
 threshold. Agent sessions can read the limits; only you can change them.
 

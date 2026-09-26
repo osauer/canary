@@ -48,15 +48,22 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 	out := env.Stdout
 	source := "compiled baseline"
 	if st.Source == "file" {
-		source = "owner file"
+		source = "policy file"
 	}
-	fmt.Fprintf(out, "Rulebook policy — %s %s v%d (%s)\n", source, p.ID, p.Version, st.Status)
+	status := st.Status
+	if st.Review == rpc.PolicyReviewUnreviewed {
+		status = "default, unreviewed"
+	}
+	fmt.Fprintf(out, "Rulebook policy — %s %s v%d (%s)\n", source, p.ID, p.Version, status)
 	if st.Path != "" {
 		fmt.Fprintf(out, "  file         %s\n", st.Path)
 	}
-	if len(st.Overrides) > 0 {
-		fmt.Fprintf(out, "  you set      %s\n", strings.Join(st.Overrides, ", "))
-		fmt.Fprintln(out, "               every other value follows the compiled baseline")
+	if st.Review == rpc.PolicyReviewUnreviewed {
+		fmt.Fprintln(out, "  review       Canary's defaults, not yet reviewed: read the file, then delete its \"# Canary defaults, not yet reviewed.\" line")
+	}
+	if len(st.Missing) > 0 {
+		fmt.Fprintf(out, "  not in file  %s\n", strings.Join(st.Missing, ", "))
+		fmt.Fprintln(out, "               these follow Canary's defaults until written")
 	}
 	if st.Message != "" {
 		fmt.Fprintf(out, "  note         %s\n", st.Message)
@@ -126,7 +133,7 @@ func symbolGroupsText(groups map[string][]string, none string) string {
 func runRulesPolicyEdit(env *Env, verb string, args []string) int {
 	fs := flagSet(env, "rules policy "+verb)
 	file := fs.String("file", "", "policy file (default: [rulebook] policy_file, else ~/.config/ibkr/policies/rulebook-policy.toml)")
-	all := fs.Bool("all", false, "reset: remove every override and return to the compiled baseline")
+	all := fs.Bool("all", false, "reset: rewrite the file from Canary's current template (the old file is kept as a backup)")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
@@ -139,6 +146,7 @@ func runRulesPolicyEdit(env *Env, verb string, args []string) int {
 	default:
 		return fail(env, "rules policy: usage is `canary rules policy set KEY=VALUE…` or `canary rules policy reset KEY…|--all`")
 	}
+	daemon.SetRulebookEditRelease(env.Version)
 	edit, err := daemon.EditRulebookPolicy(*file, assignments, resets, *all)
 	if err != nil {
 		return fail(env, "rules policy %s: %v; nothing was written", verb, err)
@@ -151,6 +159,9 @@ func runRulesPolicyEdit(env *Env, verb string, args []string) int {
 		for _, c := range edit.Changes {
 			fmt.Fprintf(out, "  %-40s %s → %s\n", c.Key, orBaseline(c.From), orBaseline(c.To))
 		}
+	}
+	if edit.Review == rpc.PolicyReviewUnreviewed {
+		fmt.Fprintln(out, "The file still opens with \"# Canary defaults, not yet reviewed.\"; delete that line once you have reviewed the rest.")
 	}
 	fmt.Fprintln(out, "The daemon applies it within 30 seconds; `canary rules policy` shows what is in force.")
 	return 0

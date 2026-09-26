@@ -107,6 +107,13 @@ func main() {
 
 	color := cli.ShouldColor(os.Stdout)
 
+	// `canary policy default|ensure` work on local files only. ensure runs
+	// from the installer before any daemon exists, so neither may autospawn.
+	if cmd == "policy" && cli.PolicyLocalSubcommand(rest) {
+		env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color, Version: runtimeVersion}
+		os.Exit(cli.RunPolicyLocal(context.Background(), env, rest))
+	}
+
 	// `canary <cmd> --help` should not spawn the daemon — render help and exit.
 	for _, a := range rest {
 		if a == "--help" || a == "-h" || a == "-help" {

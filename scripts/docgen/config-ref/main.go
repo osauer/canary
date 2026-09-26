@@ -54,7 +54,7 @@ var structSources = []structSource{
 		Root:    "protectionPolicy",
 		Heading: "Protection policy file",
 		Intro: "Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). " +
-			"No file is required or shipped: when absent, the daemon runs the embedded default — print it with `canary policy default protection`. " +
+			"The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. An existing file is never overwritten: an upgrade migrates it in place after a backup. " +
 			"Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. " +
 			"This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.",
 	},
@@ -63,8 +63,8 @@ var structSources = []structSource{
 		Root:    "RulebookPolicy",
 		Heading: "Rulebook policy file",
 		Intro: "Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). " +
-			"No file is required: when absent, the daemon runs the compiled baseline, which `canary policy default rulebook` prints. " +
-			"A file may hold any subset of these keys; every absent key keeps the baseline. `canary rules policy set KEY=VALUE` writes only the keys you change and raises `policy_version`; " +
+			"The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default rulebook` prints the same file); until then the compiled defaults run. " +
+			"A key absent from the file follows Canary's default and the next upgrade adds it. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; " +
 			"a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. " +
 			"`canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.",
 	},
@@ -73,7 +73,7 @@ var structSources = []structSource{
 		Root:    "opportunityPolicy",
 		Heading: "Opportunity policy file",
 		Intro: "Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). " +
-			"Same envelope and reload discipline as the protection policy; print the embedded default with `canary policy default opportunity`. " +
+			"Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. " +
 			"Governs advisory option-exercise opportunity detection only.",
 	},
 }

@@ -386,7 +386,8 @@ canary policy capital-event reconcile [--report ID]
 canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
 canary policy correct-peak (--from-statements|--peak F) --reason S
-canary policy default protection|opportunity|rulebook
+canary policy default rulebook|protection|opportunity|constitution
+canary policy ensure [--dry-run] [--json]
 ```
 
 **Subcommands**
@@ -399,6 +400,7 @@ canary policy default protection|opportunity|rulebook
 | `reset-drawdown` | `confirm` |
 | `correct-peak` | `confirm` |
 | `default` | `local` |
+| `ensure` | `local` |
 
 **Flags**
 
@@ -414,6 +416,8 @@ canary policy default protection|opportunity|rulebook
 | `--report` | yes | - |
 | `--peak` | yes | - |
 | `--from-statements` | no | - |
+| `--dry-run` | no | - |
+| `--config` | yes | - |
 | `--json` | no | - |
 
 ## `canary recon`

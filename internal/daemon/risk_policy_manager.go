@@ -40,7 +40,10 @@ type riskPolicyManager struct {
 	loadedAt        time.Time
 	lastCheckedAt   time.Time
 	lastFingerprint string
-	onTransition    func(prev, next string, c *risk.Constitution)
+	// review is PolicyReviewUnreviewed while the file is Canary's
+	// placeholder template.
+	review       string
+	onTransition func(prev, next string, c *risk.Constitution)
 }
 
 func (s *Server) installRiskPolicyManager() {
@@ -97,6 +100,7 @@ type riskPolicySnapshot struct {
 	source        string
 	path          string
 	message       string
+	review        string
 	loadedAt      time.Time
 	lastCheckedAt time.Time
 }
@@ -111,7 +115,7 @@ func (m *riskPolicyManager) snapshot() riskPolicySnapshot {
 	defer m.mu.Unlock()
 	return riskPolicySnapshot{
 		policy: m.active, status: m.status, source: m.source, path: m.path,
-		message: m.message, loadedAt: m.loadedAt, lastCheckedAt: m.lastCheckedAt,
+		message: m.message, review: m.review, loadedAt: m.loadedAt, lastCheckedAt: m.lastCheckedAt,
 	}
 }
 
@@ -120,7 +124,7 @@ func (m *riskPolicyManager) reload() {
 		return
 	}
 	now := m.now().UTC()
-	policy, err := m.loadPolicy()
+	policy, review, err := m.loadPolicy()
 
 	m.mu.Lock()
 	prevStatus := m.status
@@ -145,6 +149,7 @@ func (m *riskPolicyManager) reload() {
 			m.message += " (last good policy stays active)"
 		}
 	default:
+		m.review = review
 		fp := policy.FingerprintKey()
 		switch {
 		case m.active == nil, policy.PolicyVersion > m.active.PolicyVersion:
@@ -173,28 +178,28 @@ func (m *riskPolicyManager) reload() {
 	}
 }
 
-func (m *riskPolicyManager) loadPolicy() (*risk.Constitution, error) {
+func (m *riskPolicyManager) loadPolicy() (*risk.Constitution, string, error) {
 	if strings.TrimSpace(m.path) == "" {
-		return nil, os.ErrNotExist
+		return nil, "", os.ErrNotExist
 	}
 	data, err := os.ReadFile(m.path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var c risk.Constitution
 	md, err := toml.Decode(string(data), &c)
 	if err != nil {
-		return nil, fmt.Errorf("parse risk policy %s: %w", m.path, err)
+		return nil, "", fmt.Errorf("parse risk policy %s: %w", m.path, err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		keys := make([]string, len(undecoded))
 		for i, k := range undecoded {
 			keys[i] = k.String()
 		}
-		return nil, fmt.Errorf("unknown risk policy key(s): %s", strings.Join(keys, ", "))
+		return nil, "", fmt.Errorf("unknown risk policy key(s): %s", strings.Join(keys, ", "))
 	}
 	if err := c.Validate(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &c, nil
+	return &c, policyFileReview(data), nil
 }

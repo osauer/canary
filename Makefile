@@ -139,6 +139,11 @@ install: build ## Install only the canonical canary executable to $(PREFIX)/bin
 		echo "Installed canary to $(PREFIX)/bin"; \
 	fi
 	@rm -f "$(PREFIX)/bin/ibkr" "$(PREFIX)/bin/canary.bak" "$(PREFIX)/bin/ibkr.bak"
+	@# Canary runs from policy files, never a compiled baseline: write any
+	@# missing file from its defaults and migrate existing ones in place (with
+	@# a backup; owner values never change). Never fatal: the daemon repeats
+	@# the step at start, and a policy file never blocks an exit or a trim.
+	@"$(PREFIX)/bin/canary" policy ensure || echo "install: policy file check failed; the daemon retries at start" >&2
 	@echo "Restart the daemon and any running app with: $(PREFIX)/bin/canary restart"
 
 # Skip the bounce when the freshly-built binary is byte-identical to the
@@ -659,10 +664,8 @@ test-daemon: trading-package-scope-check ## Run internal/... and hermetic integr
 install-skill: build ## Install SKILL.md to global Claude/Codex skill dirs (dogfood path)
 	install -d $(SKILL_DIR)
 	install -m 0644 $(SKILL_SRC)/SKILL.md $(SKILL_DIR)/SKILL.md
-	install -m 0644 $(SKILL_SRC)/schemas.md $(SKILL_DIR)/schemas.md
 	install -d $(CODEX_SKILL_DIR)
 	install -m 0644 $(SKILL_SRC)/SKILL.md $(CODEX_SKILL_DIR)/SKILL.md
-	install -m 0644 $(SKILL_SRC)/schemas.md $(CODEX_SKILL_DIR)/schemas.md
 	@echo "Installed skill to $(SKILL_DIR)"
 	@echo "Installed skill to $(CODEX_SKILL_DIR)"
 	@echo

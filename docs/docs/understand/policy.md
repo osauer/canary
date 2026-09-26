@@ -66,8 +66,9 @@ decision.
 
 | Source of control | Decision owner and source of record | If absent | Effect today | How it changes |
 |---|---|---|---|---|
-| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Edit approved values and raise `policy_version` |
-| Protection and opportunity policy | Human-customizable TOML, otherwise a system-provided embedded default | The embedded default is usable, but it is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Print the default, review it, save a custom file, and raise `policy_version` |
+| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose every number is a commented placeholder | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Write the numbers you approve and raise `policy_version` |
+| Rulebook policy | `~/.config/ibkr/policies/rulebook-policy.toml`, written from Canary's defaults and then yours | Canary writes it again at the next start; the compiled defaults run until then | Every limit and mode behind `canary rules` | `canary rules policy set KEY=VALUE`, or edit the file and raise `policy_version` |
+| Protection and opportunity policy | `protection-policy.toml` and `opportunity-policy.toml`, written from Canary's defaults and then yours | Canary writes them again at the next start; the embedded defaults run until then, which is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Review the file, edit it, and raise `policy_version` |
 | Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `canary settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
 | Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
@@ -103,8 +104,9 @@ because an exercise is not an exit or a trim.
 Restart is a boundary. Accepted policy heads and exact policy content are not
 currently persisted as durable policy artifacts. A new daemon starts with no
 in-memory accepted version. A valid same-version file changed while the daemon
-was stopped can therefore be accepted on startup. If a custom protection or
-opportunity file is absent at startup, its engine can use the embedded default.
+was stopped can therefore be accepted on startup. A policy file that is absent
+at startup is written from Canary's template before the engines read it; only
+a file that cannot be written leaves the embedded default in force.
 
 Drift detection is consequently runtime-local today. Always raise the version
 for a material edit and retain the exact applied TOML outside `canary`. The
@@ -118,13 +120,58 @@ events retain policy identity, version, and fingerprint, not the complete
 normalized policy body. Historical replay therefore also requires the exact
 archived policy content.
 
+## Policy files Canary writes for you
+
+Canary keeps a complete file for every policy it reads, so the limits that run
+are always ones you can open and read, never values compiled into the binary.
+The installer runs `canary policy ensure`, and the daemon runs the same step
+each time it starts:
+
+- **A missing file is written** from Canary's defaults: `rulebook-policy.toml`,
+  `protection-policy.toml`, `opportunity-policy.toml` and `risk-policy.toml`
+  under `~/.config/ibkr/policies/` (or the paths `[rulebook]`, `[auto_trade]`
+  and `[opportunities]` name), owner-only. Each opens with the line
+  `# Canary defaults, not yet reviewed.` and every surface reports it as
+  `default, unreviewed` until you delete that line. `canary policy default
+  NAME` prints the same file.
+- **Your numbers stay yours.** Canary writes no value for anything only you can
+  decide: the constitution's capital numbers, the premium budget governor's
+  caps as a share of risk capital, the buckets that may submit automatically
+  (`pre_authorised`), and automatic release of a latched drawdown brake. Each
+  appears as a commented placeholder, and its feature stays off and says it
+  needs your number, one feature at a time; nothing else waits on it.
+- **An existing file is never overwritten.** An upgrade migrates it in place:
+  it keeps a backup (`<file>.bak-<release>-<time>`), adds each new key at
+  Canary's default with a comment naming the release, comments out each
+  retired key with where its concept went, and never changes a value you set.
+  The policy in force does not change, so no `policy_version` bump is needed
+  and no drift is reported. When Canary's recommendation for a key you set
+  has changed, the step says `Canary now recommends X; yours is Y` and leaves
+  your value alone.
+- **A broken file is left alone.** A file that does not parse is neither
+  replaced nor migrated; the policy in force stays and the problem is named. An
+  absent or broken file never blocks an exit, a trim or a read.
+
+Preview what the step would do, or run it without a daemon:
+
+```sh
+canary policy ensure --dry-run
+canary policy ensure
+canary policy show --explain
+```
+
+`canary policy show` lists every policy file with its status and what waits for
+your number; `--explain` adds each file's notes: keys it lacks, retired keys,
+pending migrations and recommendations.
+
 ## Configure the available controls
 
 ### Personal risk policy
 
-The personal risk policy has no embedded default and no path override. Start
-from [the checked-in template](../../../examples/risk-policy.toml); material numerical
-choices are intentionally commented out so software cannot invent them.
+The personal risk policy has no embedded default and no path override. The
+skeleton Canary writes (`canary policy default constitution` prints it) carries
+every material numerical choice commented out, so software cannot invent
+them.
 
 Its main sections cover capital and the protected floor, drawdown response,
 bounded human exceptions, statement reconciliation, operating cadence, and
@@ -147,13 +194,13 @@ the current content fingerprint. Mutating governance commands under
 
 ### Protection and opportunity policies
 
-These advisory engines ship with conservative embedded defaults. To customize
-one, print the exact current schema, review it, and save a higher-version file:
+Canary writes both files from its conservative defaults. Review each one,
+delete its `not yet reviewed` line, and raise `policy_version` with every edit.
+To compare yours with Canary's current recommendation:
 
 ```sh
-mkdir -p ~/.config/ibkr/policies
-canary policy default protection > ~/.config/ibkr/policies/protection-policy.toml
-canary policy default opportunity > ~/.config/ibkr/policies/opportunity-policy.toml
+canary policy default protection
+canary policy default opportunity
 ```
 
 The default paths and every editable key are in the

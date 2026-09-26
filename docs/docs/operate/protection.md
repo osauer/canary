@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-25 21:39 CEST
+Updated: 2026-09-26 08:33 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -98,8 +98,9 @@ standing default or exact intent, an exit stays blocked.
   still carries it.
 - **Budget reduction** brings long option premium back inside a declared share
   of the risk constitution's declared risk capital while the constitution's
-  drawdown brake is engaged. It is absent from the embedded default and
-  disabled until you write it; the section below says how.
+  drawdown brake is engaged. Its caps are your numbers: the file Canary
+  writes shows the table only as a commented placeholder, and the governor
+  stays off until you write it; the section below says how.
 
 ### Budget reduction
 
@@ -119,16 +120,19 @@ max_order_notional = 10000                 # one order, as risk_reduction
 ```
 
 Bump `policy_version` when you add it. Neither cap has a default in code: a
-value you did not write is a value the bucket does not have, and the file
-fails validation if `enabled = true` without both. The numbers above are the
-2026-09-21 mandate the product manager set for the desk owner to confirm by
-writing them; they are not a recommendation from the software.
+value you did not write is a value the bucket does not have. An enabled table
+missing a cap or `max_order_notional` stays valid, and the governor switches
+itself off with the state `needs_your_number`, naming the keys it waits for;
+every other bucket keeps working. The numbers above are the 2026-09-21 mandate
+the product manager set for the desk owner to confirm by writing them; they
+are not a recommendation from the software.
 
 It generates rows only when all of the following hold, and the snapshot's
 `budget_reduction` status names the first one that does not:
 
 | State | Meaning |
 |---|---|
+| `needs_your_number` | the table is enabled but a cap or `max_order_notional` is not written; the reason names the keys |
 | `constitution_unapproved` | no risk constitution is active, or a material key is unapproved |
 | `enforcement_shadow` | `drawdown.block_enforcement` is `shadow`; the bucket acts only under `advisory` or stronger |
 | `not_latched` | the drawdown block tier is neither latched nor breached |

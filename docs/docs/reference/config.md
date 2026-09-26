@@ -46,7 +46,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 
 ## Protection policy file
 
-Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). No file is required or shipped: when absent, the daemon runs the embedded default — print it with `canary policy default protection`. Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.
+Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. An existing file is never overwritten: an upgrade migrates it in place after a backup. Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -59,12 +59,12 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[authority]` | `close_reduce_only` | `bool` | CloseReduceOnly restricts proposals to reducing or closing existing positions; must be true in the MVP schema. |
 | `[authority]` | `pre_authorised` | `[]string` | PreAuthorised lists the reduce-only buckets whose unblocked proposals the daemon places itself after recording an alert and the veto window (owner decision D3, 2026-09-21). |
 | `[authority]` | `veto_window` | `string` | VetoWindow is how long a pre-authorised proposal waits between its notice and its submission; default 30m, minimum 5m. |
-| `[buckets.budget_reduction]` | `basis` | `string` | Basis is declared_risk_capital (default; the two percentages above are required) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent. |
-| `[buckets.budget_reduction]` | `enabled` | `bool` | Enabled turns the premium budget governor on (default false; the table is absent from the embedded default). |
-| `[buckets.budget_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does; the remainder waits for the next cycle. |
+| `[buckets.budget_reduction]` | `basis` | `string` | Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent. |
+| `[buckets.budget_reduction]` | `enabled` | `bool` | Enabled turns the premium budget governor on (default false; the table is only a commented placeholder in the file Canary writes). |
+| `[buckets.budget_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does (the remainder waits for the next cycle); no default, and until it is written the governor reports needs_your_number. |
 | `[buckets.budget_reduction]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals. |
-| `[buckets.budget_reduction]` | `per_line_pct_of_risk_capital` | `float64` | PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default. |
-| `[buckets.budget_reduction]` | `premium_at_risk_pct_of_risk_capital` | `float64` | PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default. |
+| `[buckets.budget_reduction]` | `per_line_pct_of_risk_capital` | `float64` | PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default, and until it is written the governor reports needs_your_number. |
+| `[buckets.budget_reduction]` | `premium_at_risk_pct_of_risk_capital` | `float64` | PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default, and until it is written the governor reports needs_your_number. |
 | `[buckets.risk_reduction]` | `enabled` | `bool` | Enabled turns the issuer concentration-reduction bucket on (default true). |
 | `[buckets.risk_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of a single generated reduction order (default 10000). |
 | `[buckets.theta_hygiene]` | `enabled` | `bool` | Enabled turns the near-dated time-decay hygiene bucket on (default true). |
@@ -102,7 +102,7 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 
 ## Rulebook policy file
 
-Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). No file is required: when absent, the daemon runs the compiled baseline, which `canary policy default rulebook` prints. A file may hold any subset of these keys; every absent key keeps the baseline. `canary rules policy set KEY=VALUE` writes only the keys you change and raises `policy_version`; a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. `canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.
+Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default rulebook` prints the same file); until then the compiled defaults run. A key absent from the file follows Canary's default and the next upgrade adds it. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. `canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
@@ -165,7 +165,7 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 
 ## Opportunity policy file
 
-Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope and reload discipline as the protection policy; print the embedded default with `canary policy default opportunity`. Governs advisory option-exercise opportunity detection only.
+Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. Governs advisory option-exercise opportunity detection only.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|

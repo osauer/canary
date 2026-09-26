@@ -122,6 +122,15 @@ func budgetReductionPlan(policy protectionPolicy, input budgetGovernorInput, pos
 		// sellable lines.
 		input.Rulebook = risk.DefaultRulebookPolicy()
 	}
+	if missing := bucket.missingNumbers(); len(missing) > 0 {
+		mode := bucket.effectiveMode()
+		return budgetPlan{status: rpc.TradeProposalBudgetStatus{
+			Mode: mode, Shadow: mode == rpc.BudgetReductionModeShadow, Basis: bucket.basis(),
+			BaseCurrency: protectionCoverageBaseCurrency(pos),
+			State:        rpc.BudgetStateNeedsYourNumber,
+			Reason:       "needs your number: " + strings.Join(missing, ", ") + " in [buckets.budget_reduction]; the governor stays off until you write them",
+		}}
+	}
 	if bucket.basis() == rpc.BudgetBasisRulebook {
 		return budgetRulebookPlan(policy, input, pos, now)
 	}
