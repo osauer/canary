@@ -42,14 +42,15 @@ if [ -n "$scratch" ]; then
   status=1
 fi
 
-# 3) Account IDs anywhere in the index. git grep scans staged blob
+# 3) Account IDs anywhere in the index. Keep both grep stages in text mode:
+# binary match boundaries can include NUL bytes, which GNU grep otherwise hides.
 id_re='(^|[^[:alnum:]_])D?U[0-9]{6,9}([^[:alnum:]]|$)'
 # Repdigit IDs join the sequence dummies: a real account never reads as
 # several distinct accounts at once.
 allow_re='D?U1234567|D?U7654321|DU123456|DU0000000|D?U1111111|D?U2222222|D?U6666666|D?U9999999'
 candidates=$(git grep --cached -laEi "$id_re" -- ":!$self" || true)
 for f in $candidates; do
-	ids=$(git grep --cached -haoiE "$id_re" -- "$f" | grep -oiE 'D?U[0-9]{6,9}' |
+	ids=$(git grep --cached -haoiE "$id_re" -- "$f" | grep -aoiE 'D?U[0-9]{6,9}' |
 		tr '[:lower:]' '[:upper:]' | grep -vxE "$allow_re" || true)
 	if [ -n "$ids" ]; then
 		count=$(printf '%s\n' "$ids" | wc -l | tr -d ' ')

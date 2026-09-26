@@ -52,10 +52,9 @@ probe_upper="$(printf '%s' "$probe_lower" | tr '[:lower:]' '[:upper:]')"
 printf 'fixture\000%s\000data\n' "$probe_upper" > "$repo/fixture.bin"
 git -C "$repo" add fixture.bin
 stage fixture.txt 'safe fixture DU1234567'
-if (cd "$repo" && ./scripts/check-no-account-data.sh >/dev/null 2>&1); then
-	echo "check-no-account-data test: binary non-placeholder ID was accepted" >&2
-	exit 1
-fi
+! gate || fail "binary non-placeholder ID was accepted"
+expect "fixture.bin contains 1 non-placeholder IBKR account ID occurrence(s)"
+withheld "$probe_upper"
 git -C "$repo" rm --quiet --cached fixture.bin
 
 # Holdings. No store and no cache is a contributor machine: skip, loudly.
