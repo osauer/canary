@@ -6049,9 +6049,23 @@ func optionDetailMatchesRequest(candidate ContractDetailsLite, contract Contract
 	return true
 }
 
+// ContractDetailsRequestError preserves a terminal broker code from an option
+// prewarm route without exposing broker-provided free text.
+type ContractDetailsRequestError struct {
+	Code int
+}
+
+// Error describes the failed contract-details request and its broker code.
+func (e *ContractDetailsRequestError) Error() string {
+	return fmt.Sprintf("contract details request failed (IBKR %d)", e.Code)
+}
+
 // PrewarmOptionChainResult reports per-expiry outcome of a bulk prewarm:
 type PrewarmOptionChainResult struct {
-	Expiry  string
+	Expiry string
+	// Listed counts distinct validated contracts returned, including warm entries.
+	Listed int
+	// Cached counts new inserts only.
 	Cached  int
 	Dropped int
 	Elapsed time.Duration
@@ -6083,15 +6097,21 @@ func (c *Connection) PrewarmOptionChain(
 	var wg sync.WaitGroup
 	for i, exp := range expiries {
 		wg.Go(func() {
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = PrewarmOptionChainResult{Expiry: exp, Err: ctx.Err()}
+				return
+			}
 			defer func() { <-sem }()
 
 			start := time.Now()
-			cached, dropped, err := c.prewarmOneExpiry(ctx, symbol, exp, tradingClass, timeout)
+			counts, err := c.prewarmOneExpiry(ctx, symbol, exp, tradingClass, timeout)
 			results[i] = PrewarmOptionChainResult{
 				Expiry:  exp,
-				Cached:  cached,
-				Dropped: dropped,
+				Listed:  counts.listed,
+				Cached:  counts.cached,
+				Dropped: counts.dropped,
 				Elapsed: time.Since(start),
 				Err:     err,
 			}
@@ -6101,59 +6121,63 @@ func (c *Connection) PrewarmOptionChain(
 	return results
 }
 
-// prewarmOneExpiry issues one partial-Contract reqContractDetails for
-// Wire shape leaves strike and right empty so IBKR returns the whole expiry.
-func (c *Connection) prewarmOneExpiry(
-	ctx context.Context,
-	symbol, expiry, tradingClass string,
-	timeout time.Duration,
-) (int, int, error) {
-	contract := Contract{
-		Symbol:       symbol,
-		SecType:      "OPT",
-		Expiry:       expiry,
-		Exchange:     "SMART",
-		PrimaryExch:  optionUnderlyingPrimaryExchangeHint(symbol),
-		Currency:     "USD",
-		Multiplier:   100,
-		TradingClass: tradingClass,
-	}
+type prewarmCounts struct{ listed, cached, dropped int }
 
+// prewarmOneExpiry leaves strike and right empty so IBKR returns the whole expiry.
+func (c *Connection) prewarmOneExpiry(ctx context.Context, symbol, expiry, tradingClass string, timeout time.Duration) (prewarmCounts, error) {
+	contract := Contract{Symbol: symbol, SecType: "OPT", Expiry: expiry, Exchange: "SMART", PrimaryExch: optionUnderlyingPrimaryExchangeHint(symbol), Currency: "USD", Multiplier: 100, TradingClass: tradingClass}
 	attempts := optionContractResolutionAttempts(contract)
 	labels := make([]string, 0, len(attempts))
 	var lastErr error
 	for _, att := range attempts {
 		if err := ctx.Err(); err != nil {
-			return 0, 0, err
+			return prewarmCounts{}, err
 		}
-		labels = append(labels, att.Label)
-		cached, dropped, err := c.prewarmOneExpiryAttempt(ctx, att.Contract, timeout)
-		if cached > 0 || dropped > 0 {
-			return cached, dropped, err
+		start := time.Now()
+		counts, err := c.prewarmOneExpiryAttempt(ctx, att.Contract, timeout)
+		outcome := "empty"
+		if err != nil {
+			outcome = err.Error()
+		} else if counts.listed > 0 {
+			outcome = "complete"
+		}
+		labels = append(labels, fmt.Sprintf("%s[%s: %s]", att.Label, time.Since(start).Round(time.Millisecond), outcome))
+		// Partial results remain explicitly incomplete. Never claim a complete
+		// expiry merely because some entries were inserted before a timeout.
+		if counts.listed > 0 || counts.dropped > 0 {
+			return counts, err
 		}
 		if err != nil {
 			lastErr = err
 		}
 	}
 	if lastErr != nil {
-		return 0, 0, fmt.Errorf("prewarm %s %s class=%s route attempts %s: %w",
-			symbol, expiry, tradingClass, strings.Join(labels, ","), lastErr)
+		return prewarmCounts{}, fmt.Errorf("prewarm %s %s class=%s route attempts %s: %w", symbol, expiry, tradingClass, strings.Join(labels, ","), lastErr)
 	}
-	return 0, 0, fmt.Errorf("prewarm %s %s class=%s returned zero contract details across route attempts %s",
-		symbol, expiry, tradingClass, strings.Join(labels, ","))
+	return prewarmCounts{}, fmt.Errorf("prewarm %s %s class=%s returned zero contract details across route attempts %s", symbol, expiry, tradingClass, strings.Join(labels, ","))
 }
 
-func (c *Connection) prewarmOneExpiryAttempt(ctx context.Context, contract Contract, timeout time.Duration) (int, int, error) {
+func (c *Connection) prewarmOneExpiryAttempt(ctx context.Context, contract Contract, timeout time.Duration) (prewarmCounts, error) {
 	detailsCh := make(chan ContractDetailsLite, 16_384)
-	doneCh := make(chan struct{})
+	// One terminal outcome, retained even when it arrives during the send or
+	// while the consumer is flushing data. Duplicate ends cannot block input.
+	terminal := make(chan error, 1)
+	finish := func(err error) {
+		select {
+		case terminal <- err:
+		default:
+		}
+	}
 	var dropped atomic.Int32
 	serverVersion := c.serverVersion
-	reqID, err := c.nextRequestID()
+	reqID, epoch, err := c.reserveNextRequestIDForEpoch(c.BrokerSessionEpoch())
 	if err != nil {
-		return 0, 0, err
+		return prewarmCounts{}, err
 	}
-
-	dataHandlerID := c.RegisterHandler(msgContractData, func(fields []string) {
+	dataHandlerID := c.RegisterHandlerAtEpoch(msgContractData, func(fields []string, received uint64) {
+		if received != epoch {
+			return
+		}
 		if lite, ok := parseContractDetailsLite(fields, reqID, serverVersion); ok {
 			select {
 			case detailsCh <- *lite:
@@ -6162,72 +6186,108 @@ func (c *Connection) prewarmOneExpiryAttempt(ctx context.Context, contract Contr
 			}
 		}
 	})
-	endHandlerID := c.RegisterHandler(msgContractDataEnd, func(fields []string) {
-		if len(fields) < 3 {
+	endHandlerID := c.RegisterHandlerAtEpoch(msgContractDataEnd, func(fields []string, received uint64) {
+		if received != epoch || len(fields) < 3 {
 			return
 		}
 		if id, err := strconv.Atoi(fields[2]); err == nil && id == reqID {
-			select {
-			case doneCh <- struct{}{}:
-			default:
-			}
+			finish(nil)
+		}
+	})
+	reject := func(id, code int) {
+		if id != reqID {
+			return
+		}
+		switch code {
+		case 200, 320, 321, 322, 354, 502, 503, 504:
+			finish(&ContractDetailsRequestError{Code: code})
+		}
+	}
+	errorHandlerID := c.RegisterHandlerAtEpoch(msgErrMsg, func(fields []string, received uint64) {
+		if received != epoch || len(fields) < 4 {
+			return
+		}
+		id, idErr := strconv.Atoi(fields[2])
+		code, codeErr := strconv.Atoi(fields[3])
+		if idErr == nil && codeErr == nil {
+			reject(id, code)
+		}
+	})
+	noticeHandlerID := c.RegisterHandlerAtEpoch(msgSystemNotification, func(fields []string, received uint64) {
+		if received != epoch || len(fields) < 2 {
+			return
+		}
+		if note, err := parseSystemNotificationPayload([]byte(fields[1])); err == nil {
+			reject(int(note.tickerID), note.code)
 		}
 	})
 	defer c.UnregisterHandler(msgContractData, dataHandlerID)
 	defer c.UnregisterHandler(msgContractDataEnd, endHandlerID)
-
-	if err := c.sendContractDetailsRequestContext(ctx, contract, reqID); err != nil {
-		return 0, int(dropped.Load()), fmt.Errorf("send reqContractDetails: %w", err)
+	defer c.UnregisterHandler(msgErrMsg, errorHandlerID)
+	defer c.UnregisterHandler(msgSystemNotification, noticeHandlerID)
+	if err := c.sendContractDetailsRequestForEpoch(ctx, contract, reqID, epoch); err != nil {
+		return prewarmCounts{}, fmt.Errorf("send reqContractDetails: %w", err)
 	}
-
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
-
-	cached := 0
+	var counts prewarmCounts
+	seen := map[string]bool{}
 	flush := func(d ContractDetailsLite) {
-		// Only OPT frames with a real ConID and a usable (strike, right)
-		if d.ConID == 0 || d.Strike <= 0 || d.Right == "" {
+		if !optionDetailMatchesRequest(d, contract) {
 			return
 		}
-		if d.SecType != "" && d.SecType != "OPT" {
-			return
-		}
-		// Preserve the gateway-returned listing venue: option ConIDs are
-		// venue-specific, and a later reqMktData must pair the cached ConID
 		key := optionContractKey(contract.Symbol, d.TradingClass, contract.Expiry, d.Strike, d.Right)
+		d, err := normalizeCurrentOptionDetail(key, d)
+		if err != nil || seen[key] {
+			return
+		}
+		// A retired response cannot repopulate a successor's resolution cache.
+		c.inboundEpochMu.RLock()
+		defer c.inboundEpochMu.RUnlock()
+		if c.BrokerSessionEpoch() != epoch {
+			return
+		}
+		seen[key] = true
+		counts.listed++
 		c.optionContractMu.Lock()
+		defer c.optionContractMu.Unlock()
 		if existing, ok := c.optionContractCache[key]; ok && existing.ConID != 0 {
-			// Don't overwrite a previously-resolved entry — keeps any
-			// exchange-routing already determined.
-			c.optionContractMu.Unlock()
 			return
 		}
 		c.optionContractCache[key] = d
-		c.optionContractMu.Unlock()
-		cached++
+		counts.cached++
 	}
-
+	drain := func() {
+		for {
+			select {
+			case d := <-detailsCh:
+				flush(d)
+			default:
+				return
+			}
+		}
+	}
+	result := func(err error) (prewarmCounts, error) {
+		drain()
+		counts.dropped = int(dropped.Load())
+		if c.BrokerSessionEpoch() != epoch {
+			err = fmt.Errorf("broker socket generation changed during prewarm")
+		}
+		if err == nil && counts.dropped > 0 {
+			err = fmt.Errorf("prewarm truncated after dropping %d contractData frames", counts.dropped)
+		}
+		return counts, err
+	}
 	for {
 		select {
 		case d := <-detailsCh:
 			flush(d)
-		case <-doneCh:
-			// Drain any late frames that arrived just before contractDataEnd
-			for {
-				select {
-				case d := <-detailsCh:
-					flush(d)
-				default:
-					if n := dropped.Load(); n > 0 {
-						return cached, int(n), fmt.Errorf("prewarm truncated after dropping %d contractData frames (cached %d)", n, cached)
-					}
-					return cached, 0, nil
-				}
-			}
+		case err := <-terminal:
+			return result(err)
 		case <-timer.C:
-			return cached, int(dropped.Load()), fmt.Errorf("prewarm timeout after %s (cached %d so far)", timeout, cached)
+			return result(fmt.Errorf("prewarm timeout after %s", timeout))
 		case <-ctx.Done():
-			return cached, int(dropped.Load()), ctx.Err()
+			return result(ctx.Err())
 		}
 	}
 }

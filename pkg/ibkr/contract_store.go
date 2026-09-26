@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -272,6 +273,29 @@ func (s *ContractStore) Save(contracts map[string]ContractDetailsLite, options m
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.saveLocked(contracts, options, membersHash)
+}
+
+// SaveRetainingOptions replaces the underlying snapshot and merges option
+// resolution hints into the last durable snapshot. A cleared or partially
+// restored connection cannot erase nonexpired hints. Incoming tuples win;
+// expired options are pruned. The load, merge and save are serialized together.
+func (s *ContractStore) SaveRetainingOptions(contracts map[string]ContractDetailsLite, options map[string]ContractDetailsLite, membersHash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previous, ok, err := s.loadEnvelopeLocked()
+	if err != nil {
+		return fmt.Errorf("load retained option contracts: %w", err)
+	}
+	merged := make(map[string]ContractDetailsLite, len(previous.Options)+len(options))
+	if ok && previous.Version == contractStoreVersion {
+		maps.Copy(merged, previous.Options)
+	}
+	maps.Copy(merged, options)
+	return s.saveLocked(contracts, merged, membersHash)
+}
+
+func (s *ContractStore) saveLocked(contracts map[string]ContractDetailsLite, options map[string]ContractDetailsLite, membersHash string) error {
 	filtered := make(map[string]ContractDetailsLite, len(contracts))
 	for sym, detail := range contracts {
 		if shouldPersistContract(detail) {

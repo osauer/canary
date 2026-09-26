@@ -1169,7 +1169,7 @@ func (s *Server) saveContractCache() {
 	}
 	members, _ := spx.MemberList()
 	hash := ibkrlib.MembersHash(members)
-	if err := s.contractStore.Save(merged, options, hash); err != nil {
+	if err := s.contractStore.SaveRetainingOptions(merged, options, hash); err != nil {
 		s.logger.Warnf("contract cache: save: %v", err)
 	}
 }

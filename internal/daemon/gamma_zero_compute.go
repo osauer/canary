@@ -342,6 +342,9 @@ func classifyGammaLegFailure(err error) string {
 	if rej, ok := errors.AsType[*SubscriptionRejectedError](err); ok {
 		return classifyGammaRejectionCode(rej.Rejection.Code, rej.Rejection.Message)
 	}
+	if rejection, ok := errors.AsType[*ibkrlib.ContractDetailsRequestError](err); ok {
+		return classifyGammaRejectionCode(rejection.Code, "")
+	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "contract details unavailable"), strings.Contains(msg, "no security definition"):
@@ -904,23 +907,23 @@ func prewarmGammaContracts(
 			key := gammaPrewarmKey(class, r.Expiry)
 			prewarmComplete[key] = r.Err == nil && r.Dropped == 0
 			prewarmBlocksFallback[key] = r.Dropped > 0 || gammaPrewarmFailureBlocksFallback(r.Err)
-			collection.notePrewarm(class, r.Expiry, r.Cached, r.Dropped, r.Err)
+			collection.notePrewarm(class, r.Expiry, r.Listed, r.Dropped, r.Err)
 			if r.Err != nil {
-				log.Warnf("gamma.prewarm class=%s expiry=%s cached=%d dropped=%d elapsed=%s err=%v",
-					class, r.Expiry, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond), r.Err)
+				log.Warnf("gamma.prewarm class=%s expiry=%s listed=%d cached=%d dropped=%d elapsed=%s err=%v",
+					class, r.Expiry, r.Listed, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond), r.Err)
 				continue
 			}
 			if r.Dropped > 0 {
-				log.Warnf("gamma.prewarm class=%s expiry=%s cached=%d dropped=%d elapsed=%s err=contract details truncated",
-					class, r.Expiry, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond))
+				log.Warnf("gamma.prewarm class=%s expiry=%s listed=%d cached=%d dropped=%d elapsed=%s err=contract details truncated",
+					class, r.Expiry, r.Listed, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond))
 				continue
 			}
-			log.Infof("gamma.prewarm class=%s expiry=%s cached=%d dropped=%d elapsed=%s",
-				class, r.Expiry, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond))
-			prewarmTotal += r.Cached
+			log.Infof("gamma.prewarm class=%s expiry=%s listed=%d cached=%d dropped=%d elapsed=%s",
+				class, r.Expiry, r.Listed, r.Cached, r.Dropped, r.Elapsed.Round(time.Millisecond))
+			prewarmTotal += r.Listed
 		}
 	}
-	log.Infof("gamma.prewarm.done total_cached=%d wall_clock=%s",
+	log.Infof("gamma.prewarm.done total_listed=%d wall_clock=%s",
 		prewarmTotal, time.Since(prewarmStart).Round(time.Millisecond))
 
 	// Filter jobs to only those whose (symbol, expiry, strike, right)
@@ -1622,7 +1625,7 @@ func (d *gammaCollectionDiagnostics) noteStrikeSelection(p pickedExpiration, str
 	row.StrikeCapTruncated = capped
 }
 
-func (d *gammaCollectionDiagnostics) notePrewarm(tradingClass, expiryYMD string, cached, dropped int, err error) {
+func (d *gammaCollectionDiagnostics) notePrewarm(tradingClass, expiryYMD string, listed, dropped int, err error) {
 	if d == nil {
 		return
 	}
@@ -1632,7 +1635,7 @@ func (d *gammaCollectionDiagnostics) notePrewarm(tradingClass, expiryYMD string,
 	if row == nil {
 		return
 	}
-	row.QualifiedContracts = cached
+	row.QualifiedContracts = listed
 	if dropped > 0 {
 		row.ContractMissingLegs += dropped
 	}
