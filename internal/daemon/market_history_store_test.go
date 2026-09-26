@@ -708,12 +708,15 @@ func TestMarketHistoryReconciliationMergesPatchyFuturesAndRefusesThinReads(t *te
 }
 
 // NQ's December contract recorded 250 daily sessions, 133 of them from its
-// deferred months as zero-volume bars with no open, high or low, which IBKR
-// serves in one response and omits in the next. Counted against the tenth a
-// futures read may lack, a response that dropped enough of them was thin and
-// the weekly reconciliation kept failing. Sessions without trades are kept
-// whenever a read lacks them and never count; the bound applies to traded
-// sessions only.
+// deferred months as zero-volume bars, which IBKR serves in one response and
+// omits in the next. Counted against the tenth a futures read may lack, a
+// response that dropped enough of them was thin and the weekly
+// reconciliation kept failing. Sessions without trades are kept whenever a
+// read lacks them and never count; the bound applies to traded sessions
+// only. IBKR serves them as flat bars at the settlement, so the volume marks
+// them, not a missing open, high or low: the December series recorded after
+// open, high and low were kept hold 92 to 139 such flat bars each, beside a
+// few older ones without.
 func TestMarketHistoryFuturesTradelessSessionsNeverMakeAReadThin(t *testing.T) {
 	var sessions []time.Time
 	for d := time.Date(2026, 6, 18, 0, 0, 0, 0, time.UTC); len(sessions) < 250; d = d.AddDate(0, 0, -1) {
@@ -765,7 +768,10 @@ func TestMarketHistoryFuturesTradelessSessionsNeverMakeAReadThin(t *testing.T) {
 						}
 						bar := ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10}
 						if tradeless(i) {
-							bar = ibkrlib.HistoricalBar{Time: d, Close: 100.25} // a settlement, no trades
+							bar = ibkrlib.HistoricalBar{Time: d, Open: 100.25, High: 100.25, Low: 100.25, Close: 100.25} // a settlement, no trades
+							if i < 20 {
+								bar = ibkrlib.HistoricalBar{Time: d, Close: 100.25} // as recorded before open, high and low were kept
+							}
 						}
 						series.Bars = append(series.Bars, bar)
 					}

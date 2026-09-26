@@ -463,9 +463,9 @@ func historyAbsentRecorded(old, fresh rpc.MarketHistoryResult, now time.Time) (c
 
 // A dated futures contract's daily history is patchy a year back. A
 // deferred contract month has many sessions without trades, which IBKR
-// serves as zero-volume bars with no open, high or low in one response and
-// omits in the next; NQ's December contract recorded 133 of them in 250
-// sessions. Those are kept whenever a read lacks them and never count. Of
+// serves as zero-volume bars in one response and omits in the next; NQ's
+// December contract recorded 133 of them in 250 sessions. Those are kept
+// whenever a read lacks them and never count. Of
 // the traded sessions a futures read may lack up to a tenth, as long as it
 // carries the latest five; beyond that it is thin.
 const (
@@ -473,10 +473,12 @@ const (
 	historyPatchyRecentSessions = 5
 )
 
-// historyTradeless reports a recorded session without trades: zero volume
-// and no open, high or low.
+// historyTradeless reports a recorded session without trades: zero volume.
+// IBKR serves it as a flat bar at the settlement, which records carry with
+// open, high and low; bars recorded before those were kept have none. Either
+// way the volume says it.
 func historyTradeless(p rpc.MarketHistoryPoint) bool {
-	return p.Volume != nil && *p.Volume == 0 && p.Open == nil && p.High == nil && p.Low == nil
+	return p.Volume != nil && *p.Volume == 0
 }
 
 // historyCounted returns the sessions the patchy bound counts: for a dated
