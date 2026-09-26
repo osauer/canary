@@ -37,9 +37,12 @@ func runDaemon(args []string) {
 		return
 	}
 
-	cfg, err := config.Load(*cfgPath)
+	// Only unreadable account-identity pins stop the daemon (owner decision
+	// 2026-09-26); every other unreadable part runs on Canary's default and is
+	// reported on status, the brief and the alert inbox.
+	cfg, configIssues, err := config.LoadForDaemon(*cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)
 	}
 	resolved, err := cfg.Resolve()
@@ -71,6 +74,9 @@ func runDaemon(args []string) {
 	defer cancel()
 
 	logger := daemon.NewLogger(logWriter, resolved.Daemon.LogLevel)
+	for _, issue := range configIssues {
+		logger.Warnf("config: %s", issue)
+	}
 
 	srv := daemon.New(daemon.Options{
 		DisableMacroSources: daemonMacroSources == "disabled",
@@ -79,6 +85,7 @@ func runDaemon(args []string) {
 		Version:             effectiveVersion(),
 		Logger:              logger,
 		EnsurePolicyFiles:   true,
+		ConfigIssues:        configIssues,
 	})
 	defer srv.Stop()
 

@@ -72,6 +72,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
 	portfolio := s.composeBriefPortfolio(acct, pos, acctErr, posErr, sessionOpen)
 	riskLimits := composeBriefRisk(policy, constitution, now)
+	riskLimits.Config = s.briefConfigRow()
 	if recon != nil {
 		riskLimits.Latch.ReportCoverageTo = recon.CoverageTo
 		riskLimits.Latch.ReportCheckedAt = recon.Fetch.LastAttempt
@@ -246,6 +247,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		Proposals:     proposals,
 		PolicyDrift:   riskLimits.PolicyDrift,
 		MonthlyPulse:  process.MonthlyPulse,
+		Config:        riskLimits.Config,
 	}
 	out.PremiumAtRisk.PctOfRiskCapital = briefPremiumPctOfRiskCapital(out.PremiumAtRisk, out.Capital)
 	out.BriefRowState = briefReadySectionState(out)
@@ -286,6 +288,9 @@ func briefReadyRows(ready rpc.BriefReadySection) []briefReadyRow {
 	}
 	if ready.MonthlyPulse != nil {
 		rows = append(rows, briefReadyRow{rpc.BriefReadyRowMonthlyPulse, briefMonthlyPulseRollupState(ready.MonthlyPulse.Status).Status})
+	}
+	if ready.Config != nil {
+		rows = append(rows, briefReadyRow{rpc.BriefReadyRowConfig, ready.Config.Status})
 	}
 	return rows
 }
@@ -396,6 +401,9 @@ func briefReadySectionState(ready rpc.BriefReadySection) rpc.BriefRowState {
 		ready.Proposals.BriefRowState, ready.PolicyDrift.BriefRowState)
 	if ready.MonthlyPulse != nil {
 		rows = append(rows, briefMonthlyPulseRollupState(ready.MonthlyPulse.Status))
+	}
+	if ready.Config != nil {
+		rows = append(rows, ready.Config.BriefRowState)
 	}
 	return briefSectionState("ready", rows...)
 }

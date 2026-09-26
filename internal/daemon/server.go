@@ -495,6 +495,12 @@ type Server struct {
 
 	lock *instanceLock
 
+	// configIssues are the parts of config.toml that could not be read and
+	// run on Canary's defaults; configIssuesAt is when they were read.
+	configIssuesMu sync.Mutex
+	configIssues   []config.Issue
+	configIssuesAt time.Time
+
 	logger *Logger
 
 	// attempterFactory builds a connectAttempter for a candidate endpoint
@@ -515,6 +521,9 @@ type Options struct {
 	// DisableMacroSources keeps offline embeddings and hermetic CLI test binaries
 	// from starting public network readers, while retained records remain readable.
 	DisableMacroSources bool
+	// ConfigIssues names the parts of config.toml the daemon could not read;
+	// each runs on Canary's default and is reported, never fatal.
+	ConfigIssues []config.Issue
 	// EnsurePolicyFiles writes missing policy files from Canary's templates and
 	// migrates existing ones in place once the instance lock is held (owner
 	// decision 2026-09-26). Only the real daemon entry point sets it, so a test
@@ -528,6 +537,8 @@ func New(opts Options) *Server {
 		opts.Logger = NewLogger(os.Stderr, opts.Config.Daemon.LogLevel)
 	}
 	s := &Server{
+		configIssues:        append([]config.Issue(nil), opts.ConfigIssues...),
+		configIssuesAt:      time.Now().UTC(),
 		ensurePolicyFiles:   opts.EnsurePolicyFiles,
 		disableMacroSources: opts.DisableMacroSources,
 		cfg:                 opts.Config,
@@ -1214,9 +1225,9 @@ func (s *Server) installSubs() {
 // the first fatal error encountered. Returns ErrAlreadyRunning (without
 // touching the gateway) if another Canary daemon holds the instance lock.
 func (s *Server) Start(ctx context.Context) error {
-	// Fail on a malformed [gateway] maintenance_windows before anything else
-	// starts: a schedule typo silently ignored would misclassify every
-	// backend-link loss for the whole session.
+	// Resolve [gateway] maintenance_windows before anything else starts: a
+	// schedule typo is reported as a config issue, never silently ignored,
+	// and the documented IBKR schedule classifies backend-link losses.
 	if err := s.resolveMaintenanceWindows(); err != nil {
 		return err
 	}
@@ -1514,7 +1525,12 @@ func (s *Server) resolveMaintenanceWindows() error {
 	}
 	windows, err := ibkrlib.ParseMaintenanceWindows(s.cfg.Gateway.MaintenanceWindows)
 	if err != nil {
-		return fmt.Errorf("[gateway] maintenance_windows: %w", err)
+		// A schedule typo is reported and the documented IBKR schedule runs:
+		// it only annotates backend-link losses, so it never stops the daemon.
+		s.addConfigIssue(config.Issue{Key: "gateway.maintenance_windows", Problem: err.Error() + "; IBKR's documented schedule is in force"})
+		if windows, err = ibkrlib.DefaultIBKRMaintenanceWindows(); err != nil {
+			return fmt.Errorf("default broker maintenance windows: %w", err)
+		}
 	}
 	s.maintenanceWindows = windows
 	return nil

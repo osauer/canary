@@ -87,6 +87,25 @@ If the daemon log ends with a `start:` line about `daemon authority`,
 daemon stays stopped on purpose; follow
 [Recover from a failed startup check](../internals/storage.md#recover-from-a-failed-startup-check).
 
+## The daemon stops at start with a config error
+
+The daemon log or the `canary daemon` output reads `config ...: ... The
+[gateway] pins and [trading].mode decide which broker account Canary acts on`.
+Canary could not read the settings that pick the broker account: the file
+itself, a `[gateway]` pin (`host`, `port`, `account`, `client_id`, `tls`) or
+`[trading].mode`. It also stops when `[gateway]` or `[trading]` carries a key it
+does not know, since that may be a misspelled pin, or when a pin name sits in
+another section. The message names the key and the line. Fix it in
+`~/.config/ibkr/config.toml` and run `canary restart`.
+
+Any other part of the file that cannot be read never stops the daemon. It runs
+on Canary's default for that part and says so: `canary status` shows
+`config:degraded` with the keys, the brief carries a `config` row, and the
+alert inbox a "Config file needs attention" notice. While `[trading]`,
+`[auto_trade]` or `[rulebook]` runs on defaults, pre-authorised protection
+submission pauses; manual exits, trims and reads continue. Fix the file and
+run `canary restart` to clear it.
+
 ## A second daemon will not start
 
 It is not supposed to. The daemon takes a non-blocking exclusive `flock` on `ibkr.lock` beside the socket before it touches the gateway. A second one finds the lock contended, logs `Another daemon is already running for socket PATH; exiting cleanly`, and exits 0.

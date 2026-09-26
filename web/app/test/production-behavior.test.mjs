@@ -911,6 +911,10 @@ test("alert rows separate affected positions and expose the authoritative review
   state.snapshot.stress.portfolio.net_exposure.is_lower_bound = true;
   assert.equal(alertInbox.alertFactText({ presentation_code: "portfolio_stress" }), "Net exposure at least 131.5% of NLV");
   delete state.snapshot.stress.portfolio.net_exposure;
+  state.snapshot.status = { subsystems: [{ name: "config", status: "degraded", message: "1 part(s) of config.toml could not be read and run on Canary's defaults: flex.enabled" }] };
+  assert.equal(alertInbox.alertFactText({ presentation_code: "data_health_config" }), "1 part(s) of config.toml could not be read and run on Canary's defaults: flex.enabled",
+    "the config notice quotes the served config subsystem, never an unrelated data-quality row");
+  delete state.snapshot.status;
   assert.equal(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), "Gamma: Current options positioning is incomplete · as of 2026-08-10");
   state.snapshot.status = { data_quality: [{ surface: "regime", status: "partial", partial_clusters: ["credit"], as_of: "2026-08-10T15:58:00Z" }] };
   assert.match(alertInbox.alertFactText({ presentation_code: "data_health_regime" }), /^Credit inputs partial · as of /);

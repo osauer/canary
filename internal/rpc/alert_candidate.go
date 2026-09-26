@@ -121,6 +121,7 @@ const (
 	AlertPresentationDataHealthRegime                   = risk.AlertPresentationDataHealthRegime
 	AlertPresentationDataHealthGamma                    = risk.AlertPresentationDataHealthGamma
 	AlertPresentationDataHealthQuality                  = risk.AlertPresentationDataHealthQuality
+	AlertPresentationDataHealthConfig                   = risk.AlertPresentationDataHealthConfig
 	AlertPresentationRiskPolicyLimitWouldBlock          = risk.AlertPresentationRiskPolicyLimitWouldBlock
 	AlertPresentationRiskPolicyDrawdownLatched          = risk.AlertPresentationRiskPolicyDrawdownLatched
 	AlertPresentationRiskPolicyDrift                    = risk.AlertPresentationRiskPolicyDrift

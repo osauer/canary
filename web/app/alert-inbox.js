@@ -488,7 +488,7 @@ function alertEvidenceTarget(occurrence = {}) {
   if (code === "risk_policy_drawdown_latched" || code === "risk_policy_limit_would_block") return { kind: "brief" };
   if (code.startsWith("protection_") || code === "data_health_proposals" || code === "data_health_opportunities") return { kind: "protection" };
   if (code === "order_integrity_mismatch") return { kind: "orders" };
-  if (code.startsWith("reconciliation_") || code.startsWith("governance_")) return { kind: "settings" };
+  if (code.startsWith("reconciliation_") || code.startsWith("governance_") || code === "data_health_config") return { kind: "settings" };
   return { kind: occurrence.destination === "brief" ? "brief" : "monitor" };
 }
 
@@ -560,6 +560,10 @@ function alertFactText(occurrence = {}, snapshot = state.snapshot || {}) {
     const counts = snapshot.proposals?.counts || {};
     const total = Object.values(counts).filter(Number.isFinite).reduce((sum, value) => sum + value, 0);
     if (total > 0) return `${total} current ${total === 1 ? "suggestion" : "suggestions"}`;
+  }
+  if (occurrence.presentation_code === "data_health_config") {
+    const config = (snapshot.status?.subsystems || []).find((item) => String(item?.name || "") === "config");
+    return boundedFact(config?.message);
   }
   if (target.kind === "settings") {
     const reconcile = snapshot.brief?.review?.reconcile || {};

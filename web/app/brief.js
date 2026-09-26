@@ -156,6 +156,7 @@ function openBriefTopic(topic) {
       return;
     case "policy_drift":
     case "monthly_pulse":
+    case "config":
       setActiveTab("settings");
       return;
     default:
@@ -323,6 +324,10 @@ function renderReadySection(section, sources = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(section, "monthly_pulse") && section.monthly_pulse) {
     rows.push(renderMonthlyPulseRow(section.monthly_pulse));
+  }
+  // Present only while part of config.toml runs on Canary's defaults.
+  if (section.config) {
+    rows.push(briefRow("Config file", section.config, (section.config.issues || []).join(" · ")));
   }
   return briefSection(READY_ICON, "Ready", section, rows, "brief-section--ready");
 }

@@ -1925,7 +1925,7 @@ func alertShadowDataHealthFacts(input alertShadowDataHealthInput) ([]alertShadow
 			storageSeen = true
 		}
 		// v1 keeps only independent root capabilities here. Gateway-derived
-		if name != "storage" && name != "proposals" && name != "opportunities" {
+		if name != "storage" && name != "proposals" && name != "opportunities" && name != "config" {
 			continue
 		}
 		switch status {
@@ -2089,6 +2089,8 @@ func alertDataHealthPresentationCode(root string) rpc.AlertPresentationCode {
 		return rpc.AlertPresentationDataHealthProposals
 	case "subsystem:opportunities":
 		return rpc.AlertPresentationDataHealthOpportunities
+	case "subsystem:config":
+		return rpc.AlertPresentationDataHealthConfig
 	case "data_farms":
 		return rpc.AlertPresentationDataHealthDataFarms
 	case "quality:regime":

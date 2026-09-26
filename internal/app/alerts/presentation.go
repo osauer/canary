@@ -64,6 +64,7 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationDataHealthRegime:              {Title: "Market stress inputs need attention", Body: "One or more market stress inputs are incomplete or too old."},
 	rpc.AlertPresentationDataHealthGamma:               {Title: "Options positioning needs attention", Body: "The options positioning calculation is incomplete or too old."},
 	rpc.AlertPresentationDataHealthQuality:             {Title: "Current result not ready", Body: "One or more inputs needed for a current result are incomplete or too old."},
+	rpc.AlertPresentationDataHealthConfig:              {Title: "Config file needs attention", Body: "Part of config.toml could not be read and runs on Canary's defaults. Fix the file and restart the daemon."},
 	rpc.AlertPresentationRiskPolicyLimitWouldBlock:     {Title: "Risk limit would block", Body: "A current position would be blocked by the active risk policy."},
 	rpc.AlertPresentationRiskPolicyDrawdownLatched:     {Title: "Drawdown latch open", Body: "Account value crossed the limit. Canary has not confirmed whether the move came from trading or an external cash flow."},
 	rpc.AlertPresentationRiskPolicyDrift:               {Title: "Risk policy drift", Body: "The active risk policy differs from its required state."},

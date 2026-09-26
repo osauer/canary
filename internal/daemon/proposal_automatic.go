@@ -385,6 +385,12 @@ func (e *proposalEngine) automaticPolicy() (protectionPolicy, bool) {
 	if e == nil || e.server == nil || e.server.protectionPolicies == nil {
 		return protectionPolicy{}, false
 	}
+	// Pre-authorised submission pauses while a config.toml section that
+	// shapes it ([trading], [auto_trade], [rulebook]) runs on Canary's
+	// defaults; manual exits and trims continue (owner decision 2026-09-26).
+	if paused, _ := e.server.configPausesAutomation(); paused {
+		return protectionPolicy{}, false
+	}
 	policy, status := e.server.protectionPolicies.Active()
 	switch status.Status {
 	case rpc.ProtectionPolicyStatusActive, rpc.ProtectionPolicyStatusDefault:
@@ -1012,6 +1018,9 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 	bucket := automaticBucketFor(prop)
 	if grant == nil || grant.Key != prop.Key || grant.Revision != prop.Revision || grant.Bucket != bucket {
 		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "automatic submission grant does not name this proposal key, revision and bucket", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
+	}
+	if paused, sections := e.server.configPausesAutomation(); paused {
+		return []rpc.TradingBlocker{{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}}
 	}
 	policy, ok := e.automaticPolicy()
 	if !ok || !policy.Authority.preAuthorised(bucket) {

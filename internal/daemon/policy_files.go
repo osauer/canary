@@ -95,10 +95,12 @@ func PolicyFileSetFor(cfg *config.Resolved) PolicyFileSet {
 }
 
 // PolicyFileSetFromConfigFile loads the config the daemon would load and
-// resolves the policy paths from it. A broken config falls back to the
-// default paths, so the ensure step never blocks on it.
+// resolves the policy paths from it, reading them the way the daemon does: a
+// part that cannot be read keeps its default path. Config whose account pins
+// cannot be read falls back to the default paths, so the ensure step never
+// blocks on it.
 func PolicyFileSetFromConfigFile(path string) (PolicyFileSet, error) {
-	cfg, err := config.Load(path)
+	cfg, _, err := config.LoadForDaemon(path)
 	if err != nil {
 		return PolicyFileSetFor(nil), err
 	}

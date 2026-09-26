@@ -153,18 +153,21 @@ const (
 	AlertPresentationDataHealthRegime                 AlertPresentationCode = "data_health_regime"
 	AlertPresentationDataHealthGamma                  AlertPresentationCode = "data_health_gamma"
 	AlertPresentationDataHealthQuality                AlertPresentationCode = "data_health_quality"
-	AlertPresentationRiskPolicyLimitWouldBlock        AlertPresentationCode = "risk_policy_limit_would_block"
-	AlertPresentationRiskPolicyDrawdownLatched        AlertPresentationCode = "risk_policy_drawdown_latched"
-	AlertPresentationRiskPolicyDrift                  AlertPresentationCode = "risk_policy_drift"
-	AlertPresentationReconciliationDue                AlertPresentationCode = "reconciliation_due"
-	AlertPresentationReconciliationException          AlertPresentationCode = "reconciliation_exception"
-	AlertPresentationReconciliationConfirmedFlow      AlertPresentationCode = "reconciliation_confirmed_flow"
-	AlertPresentationGovernanceMonthlyPulse           AlertPresentationCode = "governance_monthly_pulse"
-	AlertPresentationDeliveryHealth                   AlertPresentationCode = "delivery_health"
-	AlertPresentationRulebookLegacyCondition          AlertPresentationCode = "rulebook_condition"
-	AlertPresentationRiskPolicyLegacyCondition        AlertPresentationCode = "risk_policy_condition"
-	AlertPresentationReconciliationLegacyCondition    AlertPresentationCode = "reconciliation_condition"
-	AlertPresentationGovernanceLegacyCondition        AlertPresentationCode = "governance_condition"
+	// AlertPresentationDataHealthConfig is part of config.toml running on
+	// Canary's defaults because it could not be read.
+	AlertPresentationDataHealthConfig              AlertPresentationCode = "data_health_config"
+	AlertPresentationRiskPolicyLimitWouldBlock     AlertPresentationCode = "risk_policy_limit_would_block"
+	AlertPresentationRiskPolicyDrawdownLatched     AlertPresentationCode = "risk_policy_drawdown_latched"
+	AlertPresentationRiskPolicyDrift               AlertPresentationCode = "risk_policy_drift"
+	AlertPresentationReconciliationDue             AlertPresentationCode = "reconciliation_due"
+	AlertPresentationReconciliationException       AlertPresentationCode = "reconciliation_exception"
+	AlertPresentationReconciliationConfirmedFlow   AlertPresentationCode = "reconciliation_confirmed_flow"
+	AlertPresentationGovernanceMonthlyPulse        AlertPresentationCode = "governance_monthly_pulse"
+	AlertPresentationDeliveryHealth                AlertPresentationCode = "delivery_health"
+	AlertPresentationRulebookLegacyCondition       AlertPresentationCode = "rulebook_condition"
+	AlertPresentationRiskPolicyLegacyCondition     AlertPresentationCode = "risk_policy_condition"
+	AlertPresentationReconciliationLegacyCondition AlertPresentationCode = "reconciliation_condition"
+	AlertPresentationGovernanceLegacyCondition     AlertPresentationCode = "governance_condition"
 )
 
 // AlertEvidenceHealth describes whether a candidate's supporting observation
@@ -870,7 +873,8 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 		case AlertPresentationDataHealthGateway, AlertPresentationDataHealthStorage,
 			AlertPresentationDataHealthProposals, AlertPresentationDataHealthOpportunities,
 			AlertPresentationDataHealthDataFarms, AlertPresentationDataHealthRegime,
-			AlertPresentationDataHealthGamma, AlertPresentationDataHealthQuality:
+			AlertPresentationDataHealthGamma, AlertPresentationDataHealthQuality,
+			AlertPresentationDataHealthConfig:
 			return true
 		}
 	case AlertSourceDelivery:

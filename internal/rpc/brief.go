@@ -202,6 +202,22 @@ type BriefRiskSection struct {
 	Latch       BriefLatchRow       `json:"latch"`
 	Overrides   BriefOverridesRow   `json:"overrides"`
 	PolicyDrift BriefPolicyDriftRow `json:"policy_drift"`
+	// Config is present only while part of config.toml runs on defaults.
+	Config *BriefConfigRow `json:"config,omitempty"`
+}
+
+// BriefConfigRow reports the parts of config.toml the daemon could not read.
+// Each runs on Canary's default; only unreadable account-identity pins stop
+// the daemon (owner decision 2026-09-26). The row is absent while every part
+// reads.
+type BriefConfigRow struct {
+	BriefRowState
+	// Issues names each unreadable part and what is wrong with it.
+	Issues []string `json:"issues,omitempty"`
+	// AutomationPaused is set while [trading], [auto_trade] or [rulebook]
+	// runs on defaults: pre-authorised submission pauses; manual exits,
+	// trims and reads continue.
+	AutomationPaused bool `json:"automation_paused,omitempty"`
 }
 
 // BriefCapitalRow reports drawdown capacity and peak provenance. Pointer
@@ -424,6 +440,9 @@ type BriefReadySection struct {
 	Proposals     BriefReadyProposalsRow `json:"proposals"`
 	PolicyDrift   BriefPolicyDriftRow    `json:"policy_drift"`
 	MonthlyPulse  *BriefMonthlyPulseRow  `json:"monthly_pulse,omitempty"`
+	// Config is present, at attention, only while part of config.toml runs
+	// on Canary's defaults.
+	Config *BriefConfigRow `json:"config,omitempty"`
 	// Ranked lists every row key present on this section (the BriefReadyRow*
 	// JSON names) in Canary's severity order, so a consumer that decodes the
 	// section as a map renders it in this order and never sorts it itself.
@@ -452,6 +471,7 @@ const (
 	BriefReadyRowProposals     = "proposals"
 	BriefReadyRowPolicyDrift   = "policy_drift"
 	BriefReadyRowMonthlyPulse  = "monthly_pulse"
+	BriefReadyRowConfig        = "config"
 
 	// BriefAttentionReadyPrefix and BriefAttentionRulePrefix qualify
 	// AttentionOrder entries by family: "ready.<row key>" names a Ready row
