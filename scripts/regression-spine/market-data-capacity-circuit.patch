@@ -1,0 +1,14 @@
+diff --git a/pkg/ibkr/ratelimiter.go b/pkg/ibkr/ratelimiter.go
+--- a/pkg/ibkr/ratelimiter.go
++++ b/pkg/ibkr/ratelimiter.go
+@@ -581,6 +581,10 @@
+ 		return err
+ 	}
+ 
++	if req.Type == RequestTypeMarketData && rl.marketDataSubs.Count() >= 100 {
++		rl.recordRateLimitError()
++		return fmt.Errorf("market data subscription limit reached (100)")
++	}
+ 	// Slot admission belongs to AcquireMarketDataSlot. A successful socket
+ 	// write is not a broker pacing acknowledgement; only inbound code 100
+ 	// updates the pacing incident counter.

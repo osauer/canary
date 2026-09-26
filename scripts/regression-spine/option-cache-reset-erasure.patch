@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/contract_store.go b/pkg/ibkr/contract_store.go
+--- a/pkg/ibkr/contract_store.go
++++ b/pkg/ibkr/contract_store.go
+@@ -289,7 +289,7 @@
+ 	}
+ 	merged := make(map[string]ContractDetailsLite, len(previous.Options)+len(options))
+ 	if ok && previous.Version == contractStoreVersion {
+-		maps.Copy(merged, previous.Options)
++		// Drop the durable options when the connection snapshot is empty.
+ 	}
+ 	maps.Copy(merged, options)
+ 	return s.saveLocked(contracts, merged, membersHash)

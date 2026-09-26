@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
+--- a/pkg/ibkr/connection.go
++++ b/pkg/ibkr/connection.go
+@@ -6161,7 +6161,7 @@
+ 	detailsCh := make(chan ContractDetailsLite, 16_384)
+ 	// One terminal outcome, retained even when it arrives during the send or
+ 	// while the consumer is flushing data. Duplicate ends cannot block input.
+-	terminal := make(chan error, 1)
++	terminal := make(chan error)
+ 	finish := func(err error) {
+ 		select {
+ 		case terminal <- err:

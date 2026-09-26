@@ -1,0 +1,18 @@
+diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
+--- a/pkg/ibkr/connection.go
++++ b/pkg/ibkr/connection.go
+@@ -6248,13 +6248,13 @@
+ 			return
+ 		}
+ 		seen[key] = true
+-		counts.listed++
+ 		c.optionContractMu.Lock()
+ 		defer c.optionContractMu.Unlock()
+ 		if existing, ok := c.optionContractCache[key]; ok && existing.ConID != 0 {
+ 			return
+ 		}
+ 		c.optionContractCache[key] = d
++		counts.listed++
+ 		counts.cached++
+ 	}
+ 	drain := func() {

@@ -1,0 +1,12 @@
+diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
+--- a/pkg/ibkr/connection.go
++++ b/pkg/ibkr/connection.go
+@@ -6200,7 +6200,7 @@
+ 		}
+ 		switch code {
+ 		case 200, 320, 321, 322, 354, 502, 503, 504:
+-			finish(&ContractDetailsRequestError{Code: code})
++			return
+ 		}
+ 	}
+ 	errorHandlerID := c.RegisterHandlerAtEpoch(msgErrMsg, func(fields []string, received uint64) {
