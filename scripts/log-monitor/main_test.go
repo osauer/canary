@@ -39,7 +39,7 @@ func TestRunClassifiesAndCommitsBoundedReports(t *testing.T) {
 	if !got.NeedsAttention {
 		t.Fatal("report should require attention")
 	}
-	if got.Daemon.NewLines != 4 || got.Daemon.KnownBenign != 2 || len(got.Daemon.Signals) != 1 {
+	if got.Daemon.NewLines != 4 || got.Daemon.KnownBenign != 1 || len(got.Daemon.Signals) != 2 {
 		t.Fatalf("daemon report = %+v", got.Daemon)
 	}
 	if strings.Contains(got.Daemon.Signals[0].Message, "DU1234567") || strings.Contains(got.Daemon.Signals[0].Message, "IWM") {
@@ -48,8 +48,12 @@ func TestRunClassifiesAndCommitsBoundedReports(t *testing.T) {
 	if got.App.NewLines != 4 || got.App.KnownBenign != 1 || len(got.App.Signals) != 2 || got.App.SuppressedSignals != 1 {
 		t.Fatalf("app report = %+v", got.App)
 	}
-	assertTestFile(t, dOffset, "4\n")
-	assertTestFile(t, aOffset, "4\n")
+	for _, path := range []string{dOffset, aOffset} {
+		c, err := readCursor(path)
+		if err != nil || c.Version != 2 || c.Lines != 4 {
+			t.Fatalf("cursor: %+v %v", c, err)
+		}
+	}
 
 	again, err := run(options{
 		daemonLog: daemonLog, appLog: appLog,
@@ -88,7 +92,7 @@ func TestRunResetsOffsetAfterRotation(t *testing.T) {
 	}
 }
 
-func TestMissingLogsAreNeutralAndDoNotCreateOffsets(t *testing.T) {
+func TestMissingLogsReportLostCoverageAndDoNotCreateOffsets(t *testing.T) {
 	dir := t.TempDir()
 	dOffset := filepath.Join(dir, "daemon.offset")
 	aOffset := filepath.Join(dir, "app.offset")
@@ -101,7 +105,7 @@ func TestMissingLogsAreNeutralAndDoNotCreateOffsets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.NeedsAttention || got.Daemon.State != "missing" || got.App.State != "missing" {
+	if !got.NeedsAttention || got.Daemon.State != "missing" || got.App.State != "missing" {
 		t.Fatalf("missing report = %+v", got)
 	}
 	for _, path := range []string{dOffset, aOffset} {
@@ -130,7 +134,7 @@ func TestKnownNoiseExplosionBecomesOneSignal(t *testing.T) {
 		lines[i] = `time=2026-08-08T06:00:00Z level=ERROR msg="No security definition has been found" code=200`
 	}
 	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
-	if len(got.Signals) != 1 || got.Signals[0].Kind != "noise_loop" || got.Signals[0].Count != 151 {
+	if len(got.Signals) != 1 || got.Signals[0].Kind != "broker_read_notice" || got.Signals[0].Count != 151 {
 		t.Fatalf("noise report = %+v", got)
 	}
 }
@@ -158,7 +162,7 @@ func TestEscalatingLoopOutranksArrivalOrderAndSuppressionIsSummarized(t *testing
 		t.Fatalf("signal count = %d, want %d", len(got.Signals), defaultMaxSignals)
 	}
 	top := got.Signals[0]
-	if top.Kind != "noise_loop" || top.Count != 3000 || !strings.Contains(top.Message, "broker_code_200_no_definition") {
+	if top.Kind != "broker_read_notice" || top.Count != 3000 || !strings.Contains(top.Message, "broker_code_200_no_definition") {
 		t.Fatalf("top signal = %+v, want the 3000-line code-200 noise loop", top)
 	}
 	second := got.Signals[1]
@@ -226,17 +230,6 @@ func writeTestFile(t *testing.T, path, contents string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertTestFile(t *testing.T, path, want string) {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(raw); got != want {
-		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
 }
 

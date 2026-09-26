@@ -3,14 +3,13 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +17,7 @@ import (
 )
 
 const (
-	reportVersion      = 1
+	reportVersion      = 2
 	defaultMaxSignals  = 10
 	maxScannerCapacity = 1024 * 1024
 
@@ -36,6 +35,7 @@ type options struct {
 	appOffset    string
 	maxSignals   int
 	commit       bool
+	staleAfter   time.Duration
 }
 
 type report struct {
@@ -47,6 +47,9 @@ type report struct {
 }
 
 type logReport struct {
+	Path          string         `json:"path"`
+	ModifiedAt    time.Time      `json:"modified_at,omitzero"`
+	Recurring     []familyTrend  `json:"recurring,omitempty"`
 	State         string         `json:"state"`
 	NewLines      int            `json:"new_lines"`
 	KnownBenign   int            `json:"known_benign"`
@@ -86,6 +89,10 @@ type scannedLog struct {
 	total       int
 	state       string
 	offsetReset bool
+	path        string
+	modified    time.Time
+	coverage    string
+	cursor      logCursor
 }
 
 var (
@@ -121,11 +128,12 @@ func main() {
 	}
 	opts := options{}
 	flag.StringVar(&opts.daemonLog, "daemon-log", filepath.Join(home, ".local", "state", "ibkr", "ibkr-daemon.log"), "daemon log path")
-	flag.StringVar(&opts.appLog, "app-log", filepath.Join(home, ".local", "state", "ibkr", "ibkr-app.log"), "app log path")
-	flag.StringVar(&opts.daemonOffset, "daemon-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.offset"), "daemon line-offset path")
-	flag.StringVar(&opts.appOffset, "app-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.app.offset"), "app line-offset path")
+	flag.StringVar(&opts.appLog, "app-log", defaultAppLog(home, runtime.GOOS), "app log path (macOS launchd stderr by default)")
+	flag.StringVar(&opts.daemonOffset, "daemon-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.offset"), "daemon private cursor path (legacy line offsets are migrated)")
+	flag.StringVar(&opts.appOffset, "app-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.app.offset"), "app private cursor path (legacy line offsets are migrated)")
 	flag.IntVar(&opts.maxSignals, "max-signals", defaultMaxSignals, "maximum signal samples per log")
 	flag.BoolVar(&opts.commit, "commit", true, "persist offsets after a successful scan")
+	flag.DurationVar(&opts.staleAfter, "stale-after", 24*time.Hour, "flag log coverage unverified after this inactivity; zero disables")
 	flag.Parse()
 
 	result, err := run(opts, time.Now().UTC())
@@ -157,112 +165,31 @@ func run(opts options, now time.Time) (report, error) {
 	result := report{
 		Version:     reportVersion,
 		GeneratedAt: now,
-		Daemon:      classifyDaemon(daemon, opts.maxSignals),
-		App:         classifyApp(app, opts.maxSignals),
+		Daemon:      classifyDaemon(daemon, int(^uint(0)>>1)),
+		App:         classifyApp(app, int(^uint(0)>>1)),
 	}
+	applyCoverage(&result.Daemon, daemon, now, opts.staleAfter)
+	applyCoverage(&result.App, app, now, opts.staleAfter)
+	trackFamilies(&result.Daemon, &daemon, now)
+	trackFamilies(&result.App, &app, now)
+	finalizeSignals(&result.Daemon, opts.maxSignals)
+	finalizeSignals(&result.App, opts.maxSignals)
 	result.NeedsAttention = len(result.Daemon.Signals) != 0 || len(result.App.Signals) != 0 ||
 		result.Daemon.SuppressedSignals != 0 || result.App.SuppressedSignals != 0
 
 	if opts.commit {
 		if daemon.state != "missing" {
-			if err := writeOffset(opts.daemonOffset, daemon.total); err != nil {
+			if err := writeCursor(opts.daemonOffset, daemon.cursor); err != nil {
 				return report{}, fmt.Errorf("write daemon offset: %w", err)
 			}
 		}
 		if app.state != "missing" {
-			if err := writeOffset(opts.appOffset, app.total); err != nil {
+			if err := writeCursor(opts.appOffset, app.cursor); err != nil {
 				return report{}, fmt.Errorf("write app offset: %w", err)
 			}
 		}
 	}
 	return result, nil
-}
-
-func scanIncremental(logPath, offsetPath string) (scannedLog, error) {
-	offset, err := readOffset(offsetPath)
-	if err != nil {
-		return scannedLog{}, err
-	}
-	f, err := os.Open(logPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return scannedLog{state: "missing"}, nil
-	}
-	if err != nil {
-		return scannedLog{}, err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), maxScannerCapacity)
-	var all []string
-	for scanner.Scan() {
-		all = append(all, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
-		return scannedLog{}, err
-	}
-	reset := offset > len(all)
-	if reset {
-		offset = 0
-	}
-	state := "unchanged"
-	if len(all) > offset {
-		state = "scanned"
-	}
-	return scannedLog{
-		lines:       append([]string(nil), all[offset:]...),
-		total:       len(all),
-		state:       state,
-		offsetReset: reset,
-	}, nil
-}
-
-func readOffset(path string) (int, error) {
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	value := strings.TrimSpace(string(raw))
-	if value == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(value)
-	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("invalid offset %q", value)
-	}
-	return offset, nil
-}
-
-func writeOffset(path string, value int) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err := fmt.Fprintf(tmp, "%d\n", value); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
 }
 
 func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
@@ -278,15 +205,25 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 			result.Informational++
 		case isPanicLine(trimmed):
 			addSignal(&result, "ERROR", "panic", "daemon panic detected", 0)
+		case severity(trimmed) == "FATAL":
+			addSignal(&result, "FATAL", "log_level", safeMessage(trimmed), 0)
 		case isStackContinuation(line):
 			result.Informational++
 		case isDaemonLifecycle(trimmed):
 			result.Families["lifecycle"]++
 			result.Informational++
-		case daemonBenignFamily(trimmed) != "":
-			family := daemonBenignFamily(trimmed)
+		case daemonNoticeFamily(trimmed) != "":
+			family := daemonNoticeFamily(trimmed)
 			result.Families[family]++
-			result.KnownBenign++
+			if family == "broker_code_2129_indicative" && severity(trimmed) != "ERROR" {
+				result.KnownBenign++
+			} else {
+				level := "WARN"
+				if severity(trimmed) == "ERROR" {
+					level = "ERROR"
+				}
+				addSignal(&result, level, "broker_read_notice", "broker read notice requires outcome assessment: "+family, 0)
+			}
 		case strings.Contains(trimmed, "code=2108"):
 			result.Families["market_data_farm_disconnect"]++
 			result.KnownBenign++
@@ -304,11 +241,6 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 	}
 	if count := restartLoopCount(lifecycleTimes(scanned.lines, isDaemonStart)); count > restartLoopStarts {
 		addSignal(&result, "WARN", "restart_loop", "daemon connected repeatedly within "+restartLoopWindow.String(), count)
-	}
-	for family, count := range result.Families {
-		if family != "lifecycle" && family != "market_data_farm_disconnect" && count > 150 {
-			addSignal(&result, "WARN", "noise_loop", "known-benign log family exceeded its daily volume limit: "+family, count)
-		}
 	}
 	finalizeSignals(&result, maxSignals)
 	return result
@@ -335,6 +267,10 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 		panicActive = false
 
 		level := severity(trimmed)
+		if level == "FATAL" {
+			addSignal(&result, level, "log_level", safeMessage(trimmed), 0)
+			continue
+		}
 		if isRequestCompleted(trimmed) {
 			status := httpStatus(trimmed)
 			if status >= 500 {
@@ -371,6 +307,8 @@ func classifyApp(scanned scannedLog, maxSignals int) logReport {
 func newLogReport(scanned scannedLog) logReport {
 	return logReport{
 		State:       scanned.state,
+		Path:        scanned.path,
+		ModifiedAt:  scanned.modified,
 		NewLines:    len(scanned.lines),
 		OffsetReset: scanned.offsetReset,
 		Families:    map[string]int{},
@@ -447,7 +385,7 @@ func finalizeSignals(result *logReport, max int) {
 	}
 }
 
-func daemonBenignFamily(line string) string {
+func daemonNoticeFamily(line string) string {
 	switch {
 	case strings.Contains(line, "code=354"):
 		return "broker_code_354"
@@ -644,7 +582,8 @@ func isAppStart(line string) bool {
 }
 
 func isRateLimiterWarning(line string) bool {
-	return strings.Contains(line, "RateLimiter") && severity(line) == "WARN"
+	return strings.Contains(line, "RateLimiter") && severity(line) == "WARN" &&
+		(strings.Contains(line, "rate limiter stopped") || strings.Contains(line, "RateLimiter draining"))
 }
 
 func isPanicLine(line string) bool {
