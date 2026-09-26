@@ -1081,8 +1081,10 @@ changelog-check: ## Verify CHANGELOG.md has no template or maintainer-process le
 # margin/net-liq figures shipped in the v1.9.0 tag and needed a history
 # rewrite. Fails on root HTML, *lab*.html / *scratch* names, and IBKR
 # account IDs (U/DU + 6-9 digits) in every tracked file, including tests
-# and binary blobs.
-account-data-check: ## No IBKR account data or scratch pages in tracked files
+# and binary blobs, and on current holdings named in tracked text; that
+# denylist is derived at run time from the private daemon store, so CI and
+# contributor machines skip it with a notice.
+account-data-check: ## No IBKR account data, holdings, or scratch pages in tracked files
 	@./scripts/check-no-account-data.sh
 	@./scripts/check-no-account-data_test.sh
 
