@@ -2938,7 +2938,7 @@ func alertShadowMapNudges(input alertShadowNudgeInput, observedAt time.Time) (ma
 	if _, err := json.Marshal(result); err != nil {
 		validSnapshot = false
 	}
-	policyValid := policyFingerprint.Version == rpc.RiskConstitutionFingerprintVersion && validAlertRegistryFingerprint(policyFingerprint.Key)
+	policyValid := (policyFingerprint.Version == rpc.RiskConstitutionFingerprintVersion || policyFingerprint.Version == rpc.EffectivePolicyFingerprintVersion) && validAlertRegistryFingerprint(policyFingerprint.Key)
 	storeValid, storeReason := alertShadowNudgeStoreHealthValid(input.StoreHealth, result.AsOf)
 	for _, source := range alertShadowNudgeSources {
 		covered, evidenceHealth, reason, evidenceAsOf := alertShadowNudgeHealth(source, result.AsOf, health, input.StoreHealth)

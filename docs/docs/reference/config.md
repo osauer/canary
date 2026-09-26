@@ -46,13 +46,13 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 
 ## Protection policy file
 
-Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. An existing file is never overwritten: an upgrade migrates it in place after a backup. Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.
+Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. Existing files stay untouched on startup; reviewed conversions require `canary policy ensure --apply-plan FILE` and keep exact backups. Material edits require a higher `policy_version`; cosmetic edits keep operational identity, and unknown keys fail the load. This policy shapes protection proposals. Automatic submission requires an explicit supported pre-authorised bucket and all existing execution gates; the default grants none.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
-| *(top level)* | `kind` | `string` | Kind must be "ibkr.protection_policy"; any other value fails the load. |
+| *(top level)* | `kind` | `string` | Kind checks the file type: canary.protection_policy or the legacy ibkr.protection_policy alias. |
 | *(top level)* | `policy_id` | `string` | PolicyID is the required identity string for this policy (embedded default "protection-mvp"). |
-| *(top level)* | `policy_version` | `int` | PolicyVersion is the monotonic policy revision; bump it to make the daemon adopt file edits — an edited file at an unchanged version reports drift instead. |
+| *(top level)* | `policy_version` | `int` | PolicyVersion is the owner revision. |
 | *(top level)* | `profile` | `string` | Profile is a human-readable label for the parameter set (embedded default "theta-priority-mvp"); falls back to policy_id when empty. |
 | *(top level)* | `schema_version` | `int` | SchemaVersion is the policy schema revision; only 1 is supported. |
 | `[authority]` | `auto_submit` | `bool` | AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path. |
@@ -102,54 +102,54 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 
 ## Rulebook policy file
 
-Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default rulebook` prints the same file); until then the compiled defaults run. A key absent from the file follows Canary's default and the next upgrade adds it. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. `canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.
+Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default rulebook` prints the same file); until then the compiled defaults run. A key absent from the file follows Canary's default; a reviewed conversion can materialise that effective value. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; a material hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. `canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
-| *(top level)* | `budget_watch_pct` | `float64` | BudgetWatchPct is rule 18's watch level: one issuer's worst-case loss as a percent of the constitution's effective risk capital. |
-| *(top level)* | `cash_reserve_min_pct` | `float64` | CashReserveMinPct is rule 3's cash reserve: broker-reported available funds as a percent of NLV. |
-| *(top level)* | `cluster_drop_pct` | `float64` | ClusterDropPct is rule 17's scenario: every issuer in a declared cluster falls this percent together. |
-| *(top level)* | `cluster_watch_pct` | `float64` | ClusterWatchPct is rule 17's watch level: the cluster's loss in that fall as a percent of NLV. |
+| *(top level)* | `budget_watch_pct` | `float64` | BudgetWatchPct watches at or above this issuer loss as a percent of effective risk capital: the lesser of declared risk capital and equity above the protected floor. Missing capital inputs remain unknown. Rule 18 never acts or trims. |
+| *(top level)* | `cash_reserve_min_pct` | `float64` | CashReserveMinPct watches strictly below this broker-reported available-funds percentage of NLV; equality passes. It is not settled cash. Missing current funds are unknown; this row never blocks a buy. |
+| *(top level)* | `cluster_drop_pct` | `float64` | ClusterDropPct is the downward price scenario, in percent, for every issuer in a declared cluster. Empty clusters leave rule 17 unevaluated. |
+| *(top level)* | `cluster_watch_pct` | `float64` | ClusterWatchPct watches at or above this cluster scenario loss as a percent of NLV. Rule 17 never acts or trims. |
 | *(top level)* | `clusters` | `map[string][]string` | Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names. |
-| *(top level)* | `delta_swing_watch_pct` | `float64` | DeltaSwingWatchPct is rule 16's watch level: one issuer's dollar delta as a percent of NLV. |
-| *(top level)* | `earnings_freeze_sessions` | `int` | EarningsFreezeSessions is rule 8's window: US sessions before earnings. |
-| *(top level)* | `earnings_stale_days` | `int` | EarningsStaleDays bounds trust in a fetched earnings date; older dates make rules 6-8 unknown. |
-| *(top level)* | `exit_act_loss_pct` | `float64` | ExitActLossPct is rule 13's act level; the option loss exit proposes a sale here. |
-| *(top level)* | `exit_participation_pct` | `float64` | ExitParticipationPct is the share of 20-day average daily volume one exit may take when rule 1 measures days to exit. |
-| *(top level)* | `exit_watch_loss_pct` | `float64` | ExitWatchLossPct is rule 13's watch level: percent of premium paid lost on a long option. |
-| *(top level)* | `fx_exposure_watch_pct` | `float64` | FXExposureWatchPct is rule 14's watch level: NLV held in other currencies as a percent of NLV. |
+| *(top level)* | `delta_swing_watch_pct` | `float64` | DeltaSwingWatchPct watches at or above this magnitude of issuer dollar delta as a percent of NLV. Protection-classified index short delta is exempt. Rule 16 never acts or trims. |
+| *(top level)* | `earnings_freeze_sessions` | `int` | EarningsFreezeSessions acts on an issuer already at rule 1's watch/act level when earnings are zero through this many US sessions away, inclusive. Missing applicable earnings or size evidence is unknown. Freeze is a finding, not an order prohibition. |
+| *(top level)* | `earnings_stale_days` | `int` | EarningsStaleDays is retired compatibility metadata; no rule reads it. Earnings provider evidence older than 24 hours is stale; this key cannot change that. |
+| *(top level)* | `exit_act_loss_pct` | `float64` | ExitActLossPct acts at or above this percentage of premium paid lost on a non-protection long option. The loss-exit bucket may propose a sale; a separate permission check governs submission. |
+| *(top level)* | `exit_participation_pct` | `float64` | ExitParticipationPct is the percentage of 20-day average daily share volume available per exit day. Missing volume leaves the normal concentration bands in use, with liquidity unmeasured. |
+| *(top level)* | `exit_watch_loss_pct` | `float64` | ExitWatchLossPct watches at or above this percentage of premium paid lost on a long option. Protection-classified hedges are exempt. |
+| *(top level)* | `fx_exposure_watch_pct` | `float64` | FXExposureWatchPct watches at or above this magnitude of combined non-base-currency exposure as a percent of NLV. No act tier; missing account or currency evidence remains unknown. |
 | *(top level)* | `greeks_gap_floor_pct_nlv` | `float64` | GreeksGapFloorPctNLV is the materiality floor: a name whose legs missing delta exceed this share of NLV makes exposure rules unknown rather than understated. |
-| *(top level)* | `hedge_line_act_pct` | `float64` | HedgeLineActPct is rule 2's act level for a protection position. |
-| *(top level)* | `hedge_line_watch_pct` | `float64` | HedgeLineWatchPct is rule 2's watch level for a protection position, which rule 12 sizes. |
-| *(top level)* | `hedge_min_days` | `int` | HedgeMinDays is the fewest days to expiry at which a long option counts as protection; it must also expire after the issuer's next earnings. |
+| *(top level)* | `hedge_line_act_pct` | `float64` | HedgeLineActPct acts at or above this protection option's premium at risk as a percent of NLV. |
+| *(top level)* | `hedge_line_watch_pct` | `float64` | HedgeLineWatchPct watches at or above this protection option's premium at risk as a percent of NLV. Rule 12 separately measures total hedge size. |
+| *(top level)* | `hedge_min_days` | `int` | HedgeMinDays is the minimum calendar days to expiry for same-issuer option hedge credit; expiry must also follow known earnings. Unknown earnings falls back to this minimum alone. Cross-issuer index hedges give no issuer credit. |
 | *(top level)* | `hedge_symbols` | `[]string` | HedgeSymbols lists the index underlyings whose long puts can classify as protection (rules 1, 2, 5, 12, 13). |
-| *(top level)* | `illiquid_act_pct` | `float64` | IlliquidActPct is rule 1's act level for an illiquid issuer. |
-| *(top level)* | `illiquid_days_to_exit` | `float64` | IlliquidDaysToExit: an issuer that needs more days than this to exit is measured against the illiquid bands. |
-| *(top level)* | `illiquid_watch_pct` | `float64` | IlliquidWatchPct is rule 1's watch level for an illiquid issuer. |
-| *(top level)* | `issuer_groups` | `map[string][]string` | IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. |
-| *(top level)* | `kind` | `string` | Kind identifies the file (ibkr.rulebook_policy); optional, never part of the fingerprint. |
-| *(top level)* | `modes` | `map[string]string` | Modes sets each rule to off (not evaluated), track (shown, never alerts) or alert, keyed by rule id. |
-| *(top level)* | `net_exposure_act_pct` | `float64` | NetExposureActPct is rule 15's act level for the whole book's net exposure. |
-| *(top level)* | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct is rule 15's watch level: the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. |
-| *(top level)* | `option_line_act_pct` | `float64` | OptionLineActPct is rule 2's act level for one long option position; the budget governor's per-line limit under basis = rulebook. |
-| *(top level)* | `option_line_watch_pct` | `float64` | OptionLineWatchPct is rule 2's watch level: one long option position at risk (the higher of price paid and value) as a percent of NLV. |
+| *(top level)* | `illiquid_act_pct` | `float64` | IlliquidActPct acts at or above this illiquid issuer loss as a percent of NLV. |
+| *(top level)* | `illiquid_days_to_exit` | `float64` | IlliquidDaysToExit switches to the illiquid bands only when estimated exit days strictly exceed this value. |
+| *(top level)* | `illiquid_watch_pct` | `float64` | IlliquidWatchPct watches at or above this illiquid issuer loss as a percent of NLV. |
+| *(top level)* | `issuer_groups` | `map[string][]string` | IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. Canary has no issuer data: an ungrouped symbol is its own issuer. |
+| *(top level)* | `kind` | `string` | Kind identifies the file type (canary.rulebook_policy); ibkr.rulebook_policy remains a supported alias. It grants no authority. |
+| *(top level)* | `modes` | `map[string]string` | Modes controls presentation and alerts: off hides the row, track shows it without alerts, alert enables alert production. Shared measurements still run; independent proposal buckets retain their own enablement. |
+| *(top level)* | `net_exposure_act_pct` | `float64` | NetExposureActPct acts at or above this magnitude of net exposure as a percent of NLV. |
+| *(top level)* | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct watches at or above this magnitude of the whole book's signed stock-equivalent exposure, including hedges, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. |
+| *(top level)* | `option_line_act_pct` | `float64` | OptionLineActPct acts at or above this long-option premium at risk as a percent of NLV. It also supplies the budget governor's per-line limit under basis = rulebook. |
+| *(top level)* | `option_line_watch_pct` | `float64` | OptionLineWatchPct watches at or above this long-option premium at risk (the higher of cost and current value) as a percent of NLV. Missing cost falls back to current value; protection uses the separate hedge bands. |
 | *(top level)* | `overhedge_multiple` | `float64` | OverhedgeMultiple is the over-hedge boundary as a multiple of rule 12's band top: rule 12 acts above this multiple of the current regime's top, and index puts above this multiple of the widest regime's top count as directional exposure rather than protection. |
-| *(top level)* | `policy_id` | `string` | ID names the policy (baseline rulebook-v3; canary rules policy set writes rulebook-owner). |
-| *(top level)* | `policy_version` | `int` | Version must rise for an edit to take effect; the first file is adopted at any version. |
-| *(top level)* | `red_on_green_name_drop_pct` | `float64` | RedOnGreenNameDropPct is rule 9's holding day change (negative percent). |
-| *(top level)* | `red_on_green_spy_up_pct` | `float64` | RedOnGreenSPYUpPct is rule 9's SPY day change (percent). |
-| *(top level)* | `regime_stage_max_age_minutes` | `int` | RegimeStageMaxAgeMinutes bounds trust in the latched regime stage; older stages evaluate as carried. |
-| *(top level)* | `runway_act_dte` | `int` | RunwayActDTE is rule 5's act horizon: at this many calendar days to expiry or fewer the option acts. |
-| *(top level)* | `runway_itm_delta_floor` | `float64` | RunwayITMDeltaFloor is the delta from which rule 5 treats an option as in the money. |
-| *(top level)* | `runway_watch_dte` | `int` | RunwayWatchDTE is rule 5's watch horizon: a long option at this many calendar days to expiry or fewer watches. |
-| *(top level)* | `schema_version` | `int` | SchemaVersion is the file schema (1); optional, never part of the fingerprint. |
-| *(top level)* | `short_put_act_line_pct_nlv` | `float64` | ShortPutActLinePctNLV is rule 7's act level: one short put's assignment notional through earnings as a percent of NLV. |
-| *(top level)* | `short_put_act_name_pct_nlv` | `float64` | ShortPutActNamePctNLV is rule 7's act level for one name's short puts together. |
-| *(top level)* | `single_name_act_pct` | `float64` | SingleNameActPct is rule 1's act level for one issuer's worst-case loss; the risk-reduction bucket proposes a trim from here. |
-| *(top level)* | `single_name_watch_pct` | `float64` | SingleNameWatchPct is rule 1's watch level: the worst-case loss on one issuer, every leg netted, as a percent of NLV; the risk-reduction trim goes back to it. |
-| *(top level)* | `takeover_gap_pct` | `float64` | TakeoverGapPct sizes legs that lose without limit as the price rises (short stock, uncovered short calls): they are measured at a rise of this percent. |
-| *(top level)* | `winner_trim_day_up_pct` | `float64` | WinnerTrimDayUpPct is rule 10's holding day gain (percent). |
-| *(top level)* | `winner_trim_min_exposure_pct` | `float64` | WinnerTrimMinExpoPct is rule 10's minimum position size as a percent of NLV. |
+| *(top level)* | `policy_id` | `string` | ID names the policy (baseline rulebook-v4; canary rules policy set writes rulebook-owner). |
+| *(top level)* | `policy_version` | `int` | Version records the owner revision; raise it for material edits. Cosmetic edits do not change operational identity. The first valid file is adopted at any positive revision. |
+| *(top level)* | `red_on_green_name_drop_pct` | `float64` | RedOnGreenNameDropPct watches a stock-leg day change at or below this negative percent when SPY meets red_on_green_spy_up_pct. Missing stock-leg tape is not screened; absent SPY makes the row unknown. US session only. |
+| *(top level)* | `red_on_green_spy_up_pct` | `float64` | RedOnGreenSPYUpPct activates rule 9 when SPY's day gain is at or above this percent; the holding must also meet its drop threshold. |
+| *(top level)* | `regime_stage_max_age_minutes` | `int` | RegimeStageMaxAgeMinutes bounds trust in the latched regime stage, in minutes. Carried or missing stages evaluate both the carried set and calm set, keeping the worse verdict; stale evidence cannot relax a band. |
+| *(top level)* | `runway_act_dte` | `int` | RunwayActDTE acts on the same long-option scope at this many calendar days to expiry or fewer. |
+| *(top level)* | `runway_itm_delta_floor` | `float64` | RunwayITMDeltaFloor exempts a long option when absolute delta is at least this fraction (0.70 means 70 delta). Missing delta gives no ITM exemption. |
+| *(top level)* | `runway_watch_dte` | `int` | RunwayWatchDTE watches long options at this many calendar days to expiry or fewer. ITM and eligible hedge legs are exempt; excessive hedging removes the hedge exemption. |
+| *(top level)* | `schema_version` | `int` | SchemaVersion selects the file format (1), independently of the owner revision. |
+| *(top level)* | `short_put_act_line_pct_nlv` | `float64` | ShortPutActLinePctNLV acts when one short put spanning earnings has assignment notional at or above this percent of NLV. Short calls spanning earnings always act. |
+| *(top level)* | `short_put_act_name_pct_nlv` | `float64` | ShortPutActNamePctNLV acts when a name's short puts spanning earnings together reach this assignment notional as a percent of NLV. |
+| *(top level)* | `single_name_act_pct` | `float64` | SingleNameActPct acts at or above this issuer loss as a percent of NLV. This can generate a trim proposal; it never authorises an order. |
+| *(top level)* | `single_name_watch_pct` | `float64` | SingleNameWatchPct watches at or above this modelled worst-case issuer loss as a percent of NLV (account equity). All issuer legs are netted from current marks; an authorised risk-reduction proposal trims toward this level. |
+| *(top level)* | `takeover_gap_pct` | `float64` | TakeoverGapPct is the upward price scenario, in percent, for short stock and uncovered short calls. It is a finite scenario for an unbounded loss, not a maximum possible loss. |
+| *(top level)* | `winner_trim_day_up_pct` | `float64` | WinnerTrimDayUpPct watches a holding whose stock-leg day gain is at or above this percent and whose absolute stock-equivalent exposure meets winner_trim_min_exposure_pct. Missing tape is not screened. US session only; no automatic trim is authorised here. |
+| *(top level)* | `winner_trim_min_exposure_pct` | `float64` | WinnerTrimMinExpoPct is rule 10's inclusive minimum absolute stock-equivalent exposure as a percent of NLV. A qualifying gain with unmeasured size remains unknown. |
 | `[regime_calm]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_calm]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_calm]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
@@ -165,24 +165,24 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 
 ## Opportunity policy file
 
-Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. Governs advisory option-exercise opportunity detection only.
+Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. Controls option-exercise detection and eligibility; no automatic exercise is supported. Schema 2 requires all effective fields of an enabled detector. Schema 1 preserves historical zero/false omissions with diagnostics. Legacy profile and retired authority switches select no preset and grant no permission.
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
-| *(top level)* | `kind` | `string` | Kind must be "ibkr.opportunity_policy"; any other value fails the load. |
+| *(top level)* | `kind` | `string` | Kind checks the file type: canary.opportunity_policy or the legacy ibkr.opportunity_policy alias. It grants no trading permission. |
 | *(top level)* | `policy_id` | `string` | PolicyID is the required identity string for this policy (embedded default "opportunity-option-exercise-mvp"). |
-| *(top level)* | `policy_version` | `int` | PolicyVersion is the monotonic policy revision; bump it to make the daemon adopt file edits — an edited file at an unchanged version reports drift instead. |
-| *(top level)* | `profile` | `string` | Profile is a human-readable label for the parameter set (embedded default "conservative-exercise-mvp"); falls back to policy_id when empty. |
-| *(top level)* | `schema_version` | `int` | SchemaVersion is the policy schema revision; only 1 is supported. |
-| `[authority]` | `auto_submit` | `bool` | AutoSubmit would let exercise opportunities submit themselves; must be false — opportunities are advisory and every broker write stays behind the gated order path. |
-| `[authority]` | `exercise_reduce_only` | `bool` | ExerciseReduceOnly is retained for schema compatibility. |
-| `[buckets.option_exercise]` | `allow_no_option_bid` | `bool` | AllowNoOptionBid is retained for schema compatibility. |
-| `[buckets.option_exercise]` | `enabled` | `bool` | Enabled turns the early-exercise opportunity detector on (default true). |
-| `[buckets.option_exercise]` | `max_quote_age` | `string` | MaxQuoteAge is the oldest quote still considered fresh, as a Go duration string (default "30s"). |
-| `[buckets.option_exercise]` | `min_gain_pct_intrinsic` | `float64` | MinGainPctIntrinsic is the minimum gain as a percent of intrinsic value (default 0.5). |
-| `[buckets.option_exercise]` | `min_total_gain` | `float64` | MinTotalGain is the minimum total dollar gain required to flag an exercise opportunity (default 25). |
-| `[buckets.option_exercise]` | `require_american_style` | `bool` | RequireAmericanStyle limits detection to American-style options, the only style that can be exercised early (default true). |
-| `[buckets.option_exercise]` | `require_rth` | `bool` | RequireRTH only flags opportunities during regular trading hours (default true). |
+| *(top level)* | `policy_version` | `int` | PolicyVersion records the owner revision; raise it for material edits. Names, comments and revision-only bumps do not change live action identity. |
+| *(top level)* | `profile` | `string` | Profile is a legacy display label only; it selects no preset and has no operational effect. New files omit it. |
+| *(top level)* | `schema_version` | `int` | SchemaVersion selects the file format. Schema 1 preserves historical omission defaults; schema 2 requires every real setting of an enabled detector. |
+| `[authority]` | `auto_submit` | `bool` | AutoSubmit is unsupported and must be false. Every exercise requires explicit confirmation through the existing gated order path. New files omit this key. |
+| `[authority]` | `exercise_reduce_only` | `bool` | ExerciseReduceOnly is retired and ignored. Code always requires exercise to close or reduce the underlying position; this field cannot widen that scope. |
+| `[buckets.option_exercise]` | `allow_no_option_bid` | `bool` | AllowNoOptionBid is retired and ignored. An absent or negative option bid prevents a candidate; a zero bid is accepted. New files omit this key. |
+| `[buckets.option_exercise]` | `enabled` | `bool` | Enabled runs the option-exercise detector (Canary default true). Detection produces candidates, never automatic submission. Set false to disable this detector. |
+| `[buckets.option_exercise]` | `max_quote_age` | `string` | MaxQuoteAge is the maximum age of option quote evidence and a dated underlying quote, written as a positive duration (Canary default 30s). Missing or stale option evidence blocks eligibility; an undated underlying quote has no age check. This key does not prove executable liquidity. |
+| `[buckets.option_exercise]` | `min_gain_pct_intrinsic` | `float64` | MinGainPctIntrinsic is the minimum gross gain as a percentage of intrinsic value (Canary default 0.5). It must be met together with min_total_gain. |
+| `[buckets.option_exercise]` | `min_total_gain` | `float64` | MinTotalGain is the minimum gross gain for the full candidate quantity in the contract currency (Canary default 25). Gain is intrinsic value minus option bid value, before fees, slippage and funding. Both gain thresholds must be met, including equality. |
+| `[buckets.option_exercise]` | `require_american_style` | `bool` | RequireAmericanStyle requires the current USD stock/ETF heuristic when true (Canary default true). This is not verified contract-style evidence; failing the heuristic blocks eligibility. |
+| `[buckets.option_exercise]` | `require_rth` | `bool` | RequireRTH blocks exercise eligibility outside the US regular trading session when true (Canary default true). A blocked candidate may remain visible. |
 
 ## Runtime platform settings
 

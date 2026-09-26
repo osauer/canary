@@ -145,15 +145,18 @@ func (r *automaticTestRig) thetaProposal() rpc.TradeProposal {
 func (r *automaticTestRig) install(props ...rpc.TradeProposal) string {
 	r.t.Helper()
 	policy, status := r.server.protectionPolicies.Active()
-	revision := proposalRevision(status.Fingerprint, rpc.TradeProposalSourceFingerprints{}, r.scope, props)
+	r.engine.mu.Lock()
+	previous := r.engine.snapshot
+	r.engine.mu.Unlock()
+	revision, effectiveRevision := proposalPolicyRevision(previous, status, rpc.TradeProposalSourceFingerprints{}, r.scope, props)
 	for i := range props {
 		props[i].Revision = revision
 		props[i].Rank = i + 1
 	}
 	snap := rpc.TradeProposalSnapshot{
-		Kind: rpc.TradeProposalSnapshotKind, SchemaVersion: rpc.TradeProposalSnapshotSchemaVersion, AsOf: r.now, Revision: revision,
+		Kind: rpc.TradeProposalSnapshotKind, SchemaVersion: rpc.TradeProposalSnapshotSchemaVersion, AsOf: r.now, Revision: revision, EffectiveRevision: effectiveRevision,
 		AccountID: r.scope.Account, AccountMode: r.scope.Mode, PolicyID: policy.PolicyID, PolicyVersion: policy.PolicyVersion,
-		PolicyFingerprint: status.Fingerprint, PolicyStatus: status, Proposals: props, Counts: proposalCounts(props, "USD"),
+		PolicyFingerprint: status.Fingerprint, EffectivePolicyFingerprint: status.EffectiveFingerprint, PolicyStatus: status, Proposals: props, Counts: proposalCounts(props, "USD"),
 	}
 	if len(props) == 0 {
 		snap.Proposals = []rpc.TradeProposal{}

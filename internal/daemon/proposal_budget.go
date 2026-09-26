@@ -65,8 +65,8 @@ func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.T
 	if e == nil || e.server == nil || e.server.riskPolicies == nil || e.server.riskCapital == nil {
 		return in
 	}
-	authority := e.server.currentNudgeAuthority(now)
-	res := e.server.briefPolicyResultForAuthority(acct, nil, authority, now)
+	authority := e.server.acceptedRiskPolicy(now)
+	res := e.server.policyResultForEvaluation(acct, nil, authority, now)
 	in.Constitution, in.Capital, in.Unapproved = authority.policy, res.Capital, res.Unapproved
 	return in
 }

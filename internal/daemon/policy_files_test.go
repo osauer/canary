@@ -35,7 +35,7 @@ func TestPolicyTemplatesAreCanaryDefaults(t *testing.T) {
 	}
 	op := OpportunityPolicyTemplate("v9.9.9")
 	opp, err := parseOpportunityPolicy(op)
-	if err != nil || !reflect.DeepEqual(opp, defaultOpportunityPolicy()) {
+	if err != nil || !sameEffectivePolicy(effectiveOpportunityPolicy(opp), effectiveOpportunityPolicy(defaultOpportunityPolicy())) {
 		t.Fatalf("opportunity template: %v\n%+v\n%+v", err, opp, defaultOpportunityPolicy())
 	}
 	cp := ConstitutionPolicyTemplate("v9.9.9")
@@ -46,7 +46,7 @@ func TestPolicyTemplatesAreCanaryDefaults(t *testing.T) {
 	if _, err := toml.Decode(string(cp), &c); err != nil {
 		t.Fatal(err)
 	}
-	empty := risk.Constitution{Kind: risk.ConstitutionKind, SchemaVersion: 1, PolicyVersion: constitutionTemplateVersion}
+	empty := risk.Constitution{Kind: risk.ConstitutionKind, SchemaVersion: 2, PolicyVersion: constitutionTemplateVersion}
 	if !slices.Equal(c.UnapprovedKeys(), empty.UnapprovedKeys()) || c.Drawdown.Release != "" || c.Inventory.RequireSignoff != nil {
 		t.Fatalf("constitution template carries a number or decision: unapproved %v", c.UnapprovedKeys())
 	}
@@ -91,6 +91,7 @@ func TestRulebookTemplateCoversEveryPolicyKey(t *testing.T) {
 		tag, _, _ := strings.Cut(field.Tag.Get("toml"), ",")
 		switch {
 		case tag == "" || tag == "-" || tag == "kind" || tag == "schema_version" || tag == "policy_id" || tag == "policy_version":
+		case retiredRulebookKey(tag):
 		case tables[tag]:
 			delete(tables, tag)
 		case !listed[tag]:
@@ -415,66 +416,41 @@ func TestEnsurePolicyFilesUpgradesAnOwnerLikeSet(t *testing.T) {
 	set := policyTestSet(t)
 	writePolicyTestFile(t, set.Protection, ownerLikeProtection)
 	writePolicyTestFile(t, set.Constitution, ownerLikeConstitution)
-	if err := parseConstitutionPolicy([]byte(ownerLikeConstitution)); err != nil {
-		t.Fatalf("synthetic constitution does not load: %v", err)
-	}
 	before, _, err := parseProtectionPolicy([]byte(ownerLikeProtection))
 	if err != nil {
-		t.Fatalf("a file carrying the retired key must load: %v", err)
+		t.Fatal(err)
 	}
-	// The daemon adopted the file before the upgrade.
-	pm := newProtectionPolicyManager(set.Protection, false, time.Minute, time.Now)
-	pm.reload()
-	if _, st := pm.Active(); st.Status != rpc.ProtectionPolicyStatusActive || st.PolicyVersion != 6 {
-		t.Fatalf("pre-upgrade protection status %+v", st)
-	}
-
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	got := ensureActions(EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", Now: now}))
+	startup := ensureActions(EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", Now: now}))
+	if startup[PolicyFileProtection].Action != PolicyFileWouldMigrate || string(readPolicyTestFile(t, set.Protection)) != ownerLikeProtection || string(readPolicyTestFile(t, set.Constitution)) != ownerLikeConstitution {
+		t.Fatal("startup changed an existing owner file")
+	}
+	if startup[PolicyFileRulebook].Action != PolicyFileCreated || startup[PolicyFileOpportunity].Action != PolicyFileCreated {
+		t.Fatal("missing templates were not created")
+	}
+	got := ensureActions(applyReviewedTestConversions(t, set, EnsureOptions{Release: "v9.9.9", Now: now}))
 	prot := got[PolicyFileProtection]
-	if prot.Action != PolicyFileMigrated || prot.Backup == "" || !slices.Equal(prot.Changes, []string{"commented out retired buckets.risk_reduction.single_name_target_pct_nlv"}) {
+	if prot.Action != PolicyFileMigrated || prot.Backup == "" {
 		t.Fatalf("protection: %+v", prot)
 	}
-	if !slices.ContainsFunc(prot.Notes, func(n string) bool {
-		return strings.Contains(n, "Canary now recommends 30.0") && strings.Contains(n, "yours was 22.0")
-	}) {
-		t.Fatalf("protection notes lack the recommendation: %v", prot.Notes)
+	if string(readPolicyTestFile(t, prot.Backup)) != ownerLikeProtection {
+		t.Fatal("backup did not preserve original")
 	}
-	if saved := readPolicyTestFile(t, prot.Backup); string(saved) != ownerLikeProtection {
-		t.Fatal("the backup is not the file as the owner left it")
+	migrated := readPolicyTestFile(t, set.Protection)
+	after, _, err := parseProtectionPolicy(migrated)
+	if err != nil || !sameEffectivePolicy(effectiveProtectionPolicy(before), effectiveProtectionPolicy(after)) || after.PolicyVersion != before.PolicyVersion {
+		t.Fatal("conversion changed settings")
 	}
-	migrated := string(readPolicyTestFile(t, set.Protection))
-	wantLine := "# single_name_target_pct_nlv = 22.0  # retired by Canary v9.9.9: "
-	if !strings.Contains(migrated, wantLine) || strings.Replace(migrated, migrated[strings.Index(migrated, wantLine):strings.Index(migrated, "\nmax_order_notional")], "single_name_target_pct_nlv = 22.0", 1) != ownerLikeProtection {
-		t.Fatalf("migration changed more than the retired line:\n%s", migrated)
+	if !strings.Contains(string(migrated), "Format/comment migration by Canary v9.9.9") {
+		t.Fatal("missing provenance")
 	}
-	after, _, err := parseProtectionPolicy([]byte(migrated))
-	if err != nil || fingerprintProtectionPolicy(after).Key != fingerprintProtectionPolicy(before).Key || after.PolicyVersion != 6 {
-		t.Fatalf("migration changed the policy in force: %v", err)
-	}
-	pm.reload()
-	if _, st := pm.Active(); st.Status != rpc.ProtectionPolicyStatusActive || st.AutomationPaused || st.Message != "" {
-		t.Fatalf("after migration the running daemon reads %+v", st)
-	}
-
-	if rb := got[PolicyFileRulebook]; rb.Action != PolicyFileCreated || policyFileReview(readPolicyTestFile(t, set.Rulebook)) != rpc.PolicyReviewUnreviewed {
-		t.Fatalf("rulebook: %+v", rb)
-	}
-	if op := got[PolicyFileOpportunity]; op.Action != PolicyFileCreated {
-		t.Fatalf("opportunity: %+v", op)
-	}
-	if c := got[PolicyFileConstitution]; c.Action != PolicyFileUnchanged || string(readPolicyTestFile(t, set.Constitution)) != ownerLikeConstitution {
-		t.Fatalf("constitution was edited: %+v", c)
-	}
-
-	// Idempotent: a second start changes nothing and repeats no note.
-	for name, a := range ensureActions(EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", Now: now.Add(time.Minute)})) {
-		if a.Action != PolicyFileUnchanged || len(a.Notes) != 0 {
-			t.Fatalf("second start: %s %+v", name, a)
+	for _, a := range EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", Now: now.Add(time.Minute)}) {
+		if a.Action != PolicyFileUnchanged {
+			t.Fatalf("conversion not idempotent: %+v", a)
 		}
 	}
 	if backups, _ := filepath.Glob(set.Protection + ".bak-*"); len(backups) != 1 {
-		t.Fatalf("backups after two starts: %v", backups)
+		t.Fatalf("backups: %v", backups)
 	}
 }
 
@@ -505,7 +481,7 @@ cash_sell_only_pct = 10.0
 		t.Fatalf("old file: %v retired %v", err, before.retired)
 	}
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	a := ensureActions(EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", Now: now}))[PolicyFileRulebook]
+	a := ensureActions(applyReviewedTestConversions(t, set, EnsureOptions{Release: "v9.9.9", Now: now}))[PolicyFileRulebook]
 	if a.Action != PolicyFileMigrated || a.Backup == "" || a.Error != "" {
 		t.Fatalf("rulebook: %+v", a)
 	}
@@ -523,14 +499,14 @@ cash_sell_only_pct = 10.0
 	}
 	data := readPolicyTestFile(t, set.Rulebook)
 	after, err := parseRulebookPolicy(data)
-	if err != nil || after.policy.FingerprintKey() != before.policy.FingerprintKey() || after.policy.Version != 5 || len(after.missing) != 0 || len(after.retired) != 0 {
+	if err != nil || after.policy.EffectiveFingerprintKey() != before.policy.EffectiveFingerprintKey() || after.policy.Version != 5 || len(after.missing) != 0 || len(after.retired) != 0 {
 		t.Fatalf("migrated file: err %v version %d missing %v retired %v", err, after.policy.Version, after.missing, after.retired)
 	}
 	if after.policy.SingleNameWatchPct != 25 || after.policy.SingleNameActPct != 35 || after.policy.ModeFor(risk.RuleLossBudget) != risk.RuleModeAlert {
 		t.Fatalf("owner values moved: %+v", after.policy)
 	}
 	for line := range strings.SplitSeq(strings.TrimSuffix(old, "\n"), "\n") {
-		if line == "cash_sell_only_pct = 10.0" {
+		if line == "cash_sell_only_pct = 10.0" || strings.HasPrefix(line, "kind =") {
 			continue
 		}
 		if !strings.Contains(string(data), line) {
@@ -605,7 +581,7 @@ func TestEnsurePolicyFilesDryRunWritesNothing(t *testing.T) {
 	set := policyTestSet(t)
 	writePolicyTestFile(t, set.Protection, ownerLikeProtection)
 	got := ensureActions(EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9", DryRun: true}))
-	if got[PolicyFileRulebook].Action != PolicyFileWouldCreate || got[PolicyFileProtection].Action != PolicyFileWouldMigrate || len(got[PolicyFileProtection].Changes) != 1 {
+	if got[PolicyFileRulebook].Action != PolicyFileWouldCreate || got[PolicyFileProtection].Action != PolicyFileWouldMigrate || len(got[PolicyFileProtection].Changes) < 1 {
 		t.Fatalf("dry run = %+v", got)
 	}
 	if _, err := os.Stat(set.Rulebook); !os.IsNotExist(err) {

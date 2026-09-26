@@ -118,11 +118,11 @@ func (s *Server) buildReconBacktest() *rpc.ReconBacktestResult {
 		res.InputHealth = append(health, rpc.SourceHealth{Source: "capital_events", Status: "unavailable", Notes: []string{rpc.ReconReportReasonAuthorityUnavailable}})
 		return res
 	}
-	if pol.PolicyVersion >= 3 {
+	if pol.Semantics().StatementReconciliation {
 		events, _, _ = splitV3ReconEvents(events, ctx, res.CoverageTo)
 	}
 	matchedExceptions, matched := matchReconFlows(matchableFlows, events, rc)
-	if pol.PolicyVersion >= 3 {
+	if pol.Semantics().StatementReconciliation {
 		for i := range matchedExceptions {
 			if matchedExceptions[i].Category == rpc.ReconMissingFromLedger {
 				matchedExceptions[i].Category = rpc.ReconConfirmed

@@ -351,27 +351,32 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		}
 		return strings.Compare(a.Key, b.Key)
 	})
-	revision := opportunityRevision(policyStatus.Fingerprint, sources, scope, opportunities)
+	e.mu.Lock()
+	previous := e.snapshot
+	e.mu.Unlock()
+	revision, effectiveRevision := opportunityPolicyRevision(previous, policyStatus, sources, scope, opportunities)
 	for i := range opportunities {
 		opportunities[i].Rank = i + 1
 		opportunities[i].Revision = revision
 	}
 	snap := rpc.OpportunitySnapshot{
-		Kind:               rpc.OpportunitySnapshotKind,
-		SchemaVersion:      rpc.OpportunitySnapshotSchemaVersion,
-		AsOf:               now,
-		Revision:           revision,
-		AccountID:          scope.Account,
-		AccountMode:        scope.Mode,
-		PolicyID:           policy.PolicyID,
-		PolicyVersion:      policy.PolicyVersion,
-		PolicyFingerprint:  policyStatus.Fingerprint,
-		PolicyStatus:       policyStatus,
-		Status:             status,
-		Trading:            status.Trading,
-		SourceFingerprints: sources,
-		Opportunities:      opportunities,
-		Counts:             opportunityCounts(opportunities),
+		Kind:                       rpc.OpportunitySnapshotKind,
+		SchemaVersion:              rpc.OpportunitySnapshotSchemaVersion,
+		AsOf:                       now,
+		Revision:                   revision,
+		EffectiveRevision:          effectiveRevision,
+		AccountID:                  scope.Account,
+		AccountMode:                scope.Mode,
+		PolicyID:                   policy.PolicyID,
+		PolicyVersion:              policy.PolicyVersion,
+		PolicyFingerprint:          policyStatus.Fingerprint,
+		EffectivePolicyFingerprint: policyStatus.EffectiveFingerprint,
+		PolicyStatus:               policyStatus,
+		Status:                     status,
+		Trading:                    status.Trading,
+		SourceFingerprints:         sources,
+		Opportunities:              opportunities,
+		Counts:                     opportunityCounts(opportunities),
 	}
 	if policyBroken {
 		snap.Blockers = append([]rpc.TradingBlocker(nil), policyStatus.Blockers...)
@@ -995,6 +1000,14 @@ func opportunitySnapshotUsable(snap rpc.OpportunitySnapshot) bool {
 }
 
 func sameOpportunityPolicy(snap rpc.OpportunitySnapshot, status rpc.OpportunityPolicyStatus) bool {
+	if snap.EffectivePolicyFingerprint.Key != "" || status.EffectiveFingerprint.Key != "" {
+		if snap.EffectivePolicyFingerprint.Key != "" {
+			return snap.PolicyID == status.PolicyID && sameEffectivePolicy(snap.EffectivePolicyFingerprint, status.EffectiveFingerprint)
+		}
+		// A legacy snapshot may be reused only against its exact validated provenance.
+		return snap.PolicyID == status.PolicyID && snap.PolicyVersion == status.PolicyVersion && snap.PolicyFingerprint.Key != "" && snap.PolicyFingerprint == status.Fingerprint
+	}
+
 	if snap.PolicyID != "" && status.PolicyID != "" && snap.PolicyID != status.PolicyID {
 		return false
 	}

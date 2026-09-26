@@ -11,7 +11,7 @@ import (
 )
 
 // ConstitutionKind identifies the operator-authored risk constitution schema.
-const ConstitutionKind = "ibkr.risk_policy"
+const ConstitutionKind = "canary.risk_policy"
 
 // CapitalTierOK and the related constants are capital-evaluation outcomes.
 const (
@@ -76,7 +76,7 @@ type ConstitutionCapital struct {
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
-	// BlockEnforcement is shadow (default when empty) or advisory in v1.
+	// BlockEnforcement is shadow (default when empty) or advisory in supported schemas.
 	BlockEnforcement string `toml:"block_enforcement" json:"block_enforcement"`
 	// Release is manual (default when empty): a latched brake clears only
 	// through canary policy reset-drawdown. automatic also clears it when
@@ -111,15 +111,15 @@ type ConstitutionRecon struct {
 	MaxEquityDivergencePct *float64 `toml:"max_equity_divergence_pct" json:"max_equity_divergence_pct"`
 }
 
-// ConstitutionCadence retains the v2 daily declaration shape for policy-file
-// parsing while v3 uses only the automated nudge and monthly clocks below.
+// ConstitutionCadence retains historical daily declaration fields for parsing;
+// current process reminders use the automated nudge and monthly clocks below.
 type ConstitutionCadence struct {
 	Morning ConstitutionArtefact `toml:"morning" json:"morning"`
 	EOD     ConstitutionArtefact `toml:"eod" json:"eod"`
 	Weekly  ConstitutionArtefact `toml:"weekly" json:"weekly"`
-	// Nudges and Monthly are policy-version-4-only. Pointers preserve the
-	// distinction between an absent table and an explicitly authored one, so
-	// old policies can reject the new keys and v4 can report missing material.
+	// Nudges and Monthly require current process-reminder semantics (schema 2
+	// or schema 1 revision 4 or later). Pointers preserve authored presence;
+	// omitted cadence fields use the documented clock defaults.
 	Nudges  *ConstitutionNudgeCadence   `toml:"nudges" json:"nudges,omitempty"`
 	Monthly *ConstitutionMonthlyCadence `toml:"monthly" json:"monthly,omitempty"`
 }
@@ -212,10 +212,10 @@ type ConstitutionPolicyPin struct {
 
 // Validate rejects a structurally unusable constitution. It never backfills
 func (c Constitution) Validate() error {
-	if c.Kind != ConstitutionKind {
+	if c.Kind != ConstitutionKind && c.Kind != "ibkr.risk_policy" {
 		return fmt.Errorf("risk policy kind %q is invalid (want %s)", c.Kind, ConstitutionKind)
 	}
-	if c.SchemaVersion != 1 {
+	if c.SchemaVersion != 1 && c.SchemaVersion != 2 {
 		return fmt.Errorf("risk policy schema_version %d is unsupported", c.SchemaVersion)
 	}
 	if strings.TrimSpace(c.PolicyID) == "" {
@@ -262,10 +262,10 @@ func (c Constitution) Validate() error {
 	if v := c.Override.MaxDurationHours; v != nil && *v <= 0 {
 		return fmt.Errorf("override.max_duration_hours must be positive")
 	}
-	if v := c.Recon.AmountTolerancePct; v != nil && (*v < 0 || *v > 100) {
+	if v := c.Recon.AmountTolerancePct; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0 || *v > 100) {
 		return fmt.Errorf("recon.amount_tolerance_pct must be in [0, 100]")
 	}
-	if v := c.Recon.AmountToleranceMin; v != nil && *v < 0 {
+	if v := c.Recon.AmountToleranceMin; v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v < 0) {
 		return fmt.Errorf("recon.amount_tolerance_min must not be negative")
 	}
 	if v := c.Recon.DateWindowBusinessDays; v != nil && *v <= 0 {
@@ -275,8 +275,8 @@ func (c Constitution) Validate() error {
 		return fmt.Errorf("recon.max_report_age_days must be positive")
 	}
 	if v := c.Recon.MaxEquityDivergencePct; v != nil {
-		if c.PolicyVersion < 3 {
-			return fmt.Errorf("recon.max_equity_divergence_pct requires policy_version >= 3")
+		if !c.Semantics().StatementReconciliation {
+			return fmt.Errorf("recon.max_equity_divergence_pct requires statement reconciliation (schema 2 or legacy policy_version >= 3)")
 		}
 		if math.IsNaN(*v) || math.IsInf(*v, 0) || *v <= 0 {
 			return fmt.Errorf("recon.max_equity_divergence_pct must be positive and finite")
@@ -294,9 +294,9 @@ func (c Constitution) Validate() error {
 			return fmt.Errorf("%s.class %q is invalid; only advisory is accepted in v1", a.key, a.class)
 		}
 	}
-	if c.PolicyVersion < 4 {
+	if !c.Semantics().ProcessReminders {
 		if c.Cadence.Nudges != nil || c.Cadence.Monthly != nil {
-			return fmt.Errorf("cadence v4 key set requires policy_version >= 4")
+			return fmt.Errorf("cadence reminders require schema 2 or legacy policy_version >= 4")
 		}
 	} else {
 		if cadence := c.Cadence.Nudges; cadence != nil {
@@ -336,8 +336,8 @@ func (c Constitution) Validate() error {
 			return fmt.Errorf("%s pin needs both id and version", p.key)
 		}
 	}
-	if c.Inventory.RequireSignoff != nil && c.PolicyVersion < 4 {
-		return fmt.Errorf("inventory.require_signoff requires policy_version >= 4")
+	if c.Inventory.RequireSignoff != nil && !c.Semantics().ProcessReminders {
+		return fmt.Errorf("inventory.require_signoff requires schema 2 or legacy policy_version >= 4")
 	}
 	return nil
 }
@@ -442,7 +442,7 @@ func (c Constitution) UnapprovedKeys() []string {
 	if c.Recon.MaxReportAgeDays == nil {
 		out = append(out, "recon.max_report_age_days")
 	}
-	if (c.PolicyVersion == 0 || c.PolicyVersion >= 3) && c.Recon.MaxEquityDivergencePct == nil {
+	if (c.PolicyVersion == 0 || c.Semantics().StatementReconciliation) && c.Recon.MaxEquityDivergencePct == nil {
 		out = append(out, "recon.max_equity_divergence_pct")
 	}
 	// cadence.* keys are deliberately not approval material: the timezone
@@ -501,7 +501,7 @@ func (c Constitution) FingerprintKey() string {
 		}
 	}
 	var raw []byte
-	if c.PolicyVersion < 3 {
+	if c.SchemaVersion != 2 && c.PolicyVersion < 3 {
 		// Preserve the pre-v3 projection byte-for-byte: adding a nil v3-only
 		// field must not change an existing policy fingerprint.
 		recon := struct {
@@ -527,7 +527,7 @@ func (c Constitution) FingerprintKey() string {
 			Cadence: legacyCadence, Inventory: base.Inventory,
 		}
 		raw, _ = json.Marshal(normalized)
-	} else if c.PolicyVersion < 4 {
+	} else if c.SchemaVersion != 2 && c.PolicyVersion < 4 {
 		normalized := struct {
 			Kind          string                `json:"kind"`
 			SchemaVersion int                   `json:"schema_version"`
@@ -673,7 +673,7 @@ func EvaluateCapital(c *Constitution, rt CapitalRuntime, obs *CapitalObservation
 		if clock.Stale {
 			v.ReconcileStale = true
 			reason := "capital ledger is past its reconcile horizon; declared events are unattested"
-			if c.PolicyVersion >= 3 {
+			if c.Semantics().StatementReconciliation {
 				reason = "reconcile evidence is past capital.max_unreconciled_days; no current automatic clean-report extension or human sign-off"
 			}
 			v.Reasons = append(v.Reasons, reason)

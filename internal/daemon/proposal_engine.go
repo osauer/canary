@@ -488,7 +488,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	positionsFP := rpc.BuildPositionsFingerprint(pos, acct.NetLiquidation)
 	rulebookPolicy := e.rulebookPolicy()
 	rulebookFP := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: rulebookPolicy.FingerprintKey()}
-	sources := rpc.TradeProposalSourceFingerprints{Account: &accountFP, Positions: &positionsFP, Rulebook: &rulebookFP}
+	rulebookEffective := rpc.Fingerprint{Version: rpc.EffectivePolicyFingerprintVersion, Key: rulebookPolicy.EffectiveFingerprintKey()}
+	sources := rpc.TradeProposalSourceFingerprints{Account: &accountFP, Positions: &positionsFP, Rulebook: &rulebookFP, EffectiveRulebook: rulebookEffective}
 	if fp, ok := e.regimeFingerprint(ctx); ok {
 		sources.Regime = &fp
 	}
@@ -510,30 +511,35 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		}
 		return strings.Compare(a.Key, b.Key)
 	})
-	revision := proposalRevision(policyStatus.Fingerprint, sources, scope, proposals)
+	e.mu.Lock()
+	previous := e.snapshot
+	e.mu.Unlock()
+	revision, effectiveRevision := proposalPolicyRevision(previous, policyStatus, sources, scope, proposals)
 	for i := range proposals {
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
 	}
 	snap := rpc.TradeProposalSnapshot{
-		Kind:               rpc.TradeProposalSnapshotKind,
-		SchemaVersion:      rpc.TradeProposalSnapshotSchemaVersion,
-		AsOf:               now,
-		Revision:           revision,
-		AccountID:          scope.Account,
-		AccountMode:        scope.Mode,
-		PolicyID:           policy.PolicyID,
-		PolicyVersion:      policy.PolicyVersion,
-		PolicyFingerprint:  policyStatus.Fingerprint,
-		PolicyStatus:       policyStatus,
-		AutoTrade:          autoStatus,
-		Trading:            autoStatus.Trading,
-		SourceFingerprints: sources,
-		MarketEvents:       marketEvents,
-		Proposals:          proposals,
-		OptionHedges:       hedges,
-		BudgetReduction:    budget,
-		Counts:             proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
+		Kind:                       rpc.TradeProposalSnapshotKind,
+		SchemaVersion:              rpc.TradeProposalSnapshotSchemaVersion,
+		AsOf:                       now,
+		Revision:                   revision,
+		EffectiveRevision:          effectiveRevision,
+		AccountID:                  scope.Account,
+		AccountMode:                scope.Mode,
+		PolicyID:                   policy.PolicyID,
+		PolicyVersion:              policy.PolicyVersion,
+		PolicyFingerprint:          policyStatus.Fingerprint,
+		EffectivePolicyFingerprint: policyStatus.EffectiveFingerprint,
+		PolicyStatus:               policyStatus,
+		AutoTrade:                  autoStatus,
+		Trading:                    autoStatus.Trading,
+		SourceFingerprints:         sources,
+		MarketEvents:               marketEvents,
+		Proposals:                  proposals,
+		OptionHedges:               hedges,
+		BudgetReduction:            budget,
+		Counts:                     proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
 	}
 	snap.Counts.OptionHedges = len(hedges)
 	return e.installScoped(snap, scope, show, thetaSuppressions)
@@ -2979,6 +2985,14 @@ func proposalSnapshotPersistable(snap rpc.TradeProposalSnapshot) bool {
 }
 
 func sameProposalPolicy(snap rpc.TradeProposalSnapshot, status rpc.ProtectionPolicyStatus) bool {
+	if snap.EffectivePolicyFingerprint.Key != "" || status.EffectiveFingerprint.Key != "" {
+		if snap.EffectivePolicyFingerprint.Key != "" {
+			return snap.PolicyID == status.PolicyID && sameEffectivePolicy(snap.EffectivePolicyFingerprint, status.EffectiveFingerprint)
+		}
+		// A legacy snapshot may be reused only against its exact validated provenance.
+		return snap.PolicyID == status.PolicyID && snap.PolicyVersion == status.PolicyVersion && snap.PolicyFingerprint.Key != "" && snap.PolicyFingerprint == status.Fingerprint
+	}
+
 	if snap.PolicyID != "" && status.PolicyID != "" && snap.PolicyID != status.PolicyID {
 		return false
 	}
@@ -3170,6 +3184,10 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 
 func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, proposals []rpc.TradeProposal) string {
 	stableSources := sources
+	if sources.EffectiveRulebook.Key != "" {
+		stableSources.Rulebook = &sources.EffectiveRulebook
+	}
+	stableSources.EffectiveRulebook = rpc.Fingerprint{}
 	// Regime and market-event evidence are informative for ranking and blockers,
 	// but their source-health fields can advance between list and preview. Keep
 	// revision anchored to policy/account/positions so the one-confirm path does

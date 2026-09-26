@@ -22,9 +22,9 @@ import (
 // install, and an upgrade that finds a file missing, write each one from the
 // code template with a "Canary defaults, not yet reviewed" header. From then
 // on the file is the source of truth and code defaults only generate the
-// template. An existing file is never overwritten: an upgrade migrates it in
-// place after a backup, adding new keys at their defaults and commenting out
-// retired ones, and never changes a value the owner set. Personal numbers
+// template. An existing file is left intact until the operator applies a
+// reviewed, hash-bound migration plan. Conversion keeps effective settings,
+// backs up the original and records provenance. Personal numbers
 // and automation switches (constitution capital numbers, premium caps as a
 // share of risk capital, pre-authorised buckets, automatic brake release) are
 // written only as commented placeholders.
@@ -50,9 +50,12 @@ const (
 
 // PolicyFileAction is what one ensure step did, or would do, to one file.
 type PolicyFileAction struct {
-	Policy string `json:"policy"`
-	Path   string `json:"path"`
-	Action string `json:"action"`
+	BeforeSHA256 string `json:"before_sha256,omitempty"`
+	AfterSHA256  string `json:"after_sha256,omitempty"`
+	Diff         string `json:"diff,omitempty"`
+	Policy       string `json:"policy"`
+	Path         string `json:"path"`
+	Action       string `json:"action"`
 	// Backup is the copy taken before an in-place migration.
 	Backup string `json:"backup,omitempty"`
 	// Changes lists each line-level change a migration made.
@@ -118,6 +121,8 @@ type EnsureOptions struct {
 	Now     time.Time
 	// DryRun reports what would change without writing anything.
 	DryRun bool
+	// Approved contains exact file digests from a reviewed dry-run plan.
+	Approved map[string]PolicyMigrationApproval
 }
 
 // policyFileKind binds one policy file to its template, parser and migration.
@@ -130,8 +135,8 @@ type policyFileKind struct {
 }
 
 // EnsurePolicyFiles writes every missing policy file from its template and
-// migrates every existing one in place. It never overwrites a file, never
-// changes an owner-set value, and never touches a file it cannot read: an
+// previews conversions of existing files; applying one requires exact reviewed
+// hashes. It never replaces owner settings or touches a file it cannot read: an
 // unreadable file keeps the policy in force and is reported, not replaced.
 func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction {
 	if opts.Now.IsZero() {
@@ -144,8 +149,30 @@ func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction
 	kinds := []policyFileKind{
 		{PolicyFileRulebook, set.Rulebook, RulebookPolicyTemplate, func(b []byte) error { _, err := parseRulebookPolicy(b); return err }, migrateRulebookPolicyFile},
 		{PolicyFileProtection, set.Protection, ProtectionPolicyTemplate, func(b []byte) error { _, _, err := parseProtectionPolicy(b); return err }, migrateProtectionPolicyFile},
-		{PolicyFileOpportunity, set.Opportunity, OpportunityPolicyTemplate, func(b []byte) error { _, err := parseOpportunityPolicy(b); return err }, nil},
-		{PolicyFileConstitution, set.Constitution, ConstitutionPolicyTemplate, parseConstitutionPolicy, nil},
+		{PolicyFileOpportunity, set.Opportunity, OpportunityPolicyTemplate, func(b []byte) error { _, err := parseOpportunityPolicy(b); return err }, migrateOpportunityPolicyFile},
+		{PolicyFileConstitution, set.Constitution, ConstitutionPolicyTemplate, parseConstitutionPolicy, migrateConstitutionPolicyFile},
+	}
+	// Validate the whole reviewed set before any write. Applying a plan never
+	// creates unrelated missing files, and an unknown/stale entry cannot cause
+	// another entry to be applied first. Each file is checked again at write time.
+	if len(opts.Approved) > 0 {
+		selected := make([]policyFileKind, 0, len(opts.Approved))
+		for name, approval := range opts.Approved {
+			i := slices.IndexFunc(kinds, func(k policyFileKind) bool { return k.name == name })
+			if i < 0 || kinds[i].path == "" || approval.Path != kinds[i].path {
+				return []PolicyFileAction{{Policy: name, Path: approval.Path, Action: PolicyFileFailed, Error: "reviewed plan does not match the configured policy paths"}}
+			}
+			preview := ensurePolicyFile(kinds[i], release, EnsureOptions{DryRun: true})
+			if preview.Action != PolicyFileWouldMigrate || approval.BeforeSHA256 != preview.BeforeSHA256 || approval.AfterSHA256 != preview.AfterSHA256 {
+				return []PolicyFileAction{{Policy: name, Path: approval.Path, Action: PolicyFileFailed, Error: "file or proposed conversion changed since review; regenerate the plan"}}
+			}
+		}
+		for _, k := range kinds {
+			if _, ok := opts.Approved[k.name]; ok {
+				selected = append(selected, k)
+			}
+		}
+		kinds = selected
 	}
 	var out []PolicyFileAction
 	for _, k := range kinds {
@@ -160,6 +187,11 @@ func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction
 func ensurePolicyFile(k policyFileKind, release string, opts EnsureOptions) PolicyFileAction {
 	act := PolicyFileAction{Policy: k.name, Path: k.path}
 	data, err := os.ReadFile(k.path)
+	approval, approved := opts.Approved[k.name]
+	if approved && (err != nil || approval.Path != k.path || approval.BeforeSHA256 != policyFileDigest(data)) {
+		act.Action, act.Error = PolicyFileFailed, "file changed since review; nothing written"
+		return act
+	}
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		if opts.DryRun {
@@ -191,7 +223,7 @@ func ensurePolicyFile(k policyFileKind, release string, opts EnsureOptions) Poli
 		act.Action = PolicyFileUnchanged
 		return act
 	}
-	migrated, changes, notes, err := k.migrate(data, release)
+	migrated, changes, notes, err := previewPolicyFileMigration(k, data, release)
 	act.Notes = append(act.Notes, notes...)
 	if err != nil {
 		act.Action, act.Error = PolicyFileFailed, err.Error()
@@ -203,8 +235,21 @@ func ensurePolicyFile(k policyFileKind, release string, opts EnsureOptions) Poli
 		return act
 	}
 	act.Changes = changes
-	if opts.DryRun {
+	act.BeforeSHA256, act.AfterSHA256 = policyFileDigest(data), policyFileDigest(migrated)
+	act.Diff = policyFileDiff(k.path, data, migrated)
+	if opts.DryRun || !approved {
 		act.Action = PolicyFileWouldMigrate
+		act.Notes = append(act.Notes, "review a JSON dry-run plan, then use policy ensure --apply-plan FILE; startup leaves this file untouched")
+		return act
+	}
+
+	if approval.Path != k.path || approval.BeforeSHA256 != act.BeforeSHA256 || approval.AfterSHA256 != act.AfterSHA256 {
+		act.Action, act.Error = PolicyFileFailed, "file or proposed conversion changed since review; regenerate the plan"
+		return act
+	}
+	current, err := os.ReadFile(k.path)
+	if err != nil || !bytes.Equal(current, data) {
+		act.Action, act.Error = PolicyFileFailed, "file changed during conversion; nothing written"
 		return act
 	}
 	backup := fmt.Sprintf("%s.bak-%s-%s", k.path, sanitizeReleaseLabel(release), opts.Now.UTC().Format("20060102T150405Z"))
@@ -291,7 +336,8 @@ func policyTemplateHeader(b *strings.Builder, title, release string, holdsValues
 		}
 		b.WriteString("# " + line + "\n")
 	}
-	b.WriteString("\n")
+	b.WriteString("# kind checks file type; schema_version selects format; policy_version records edits.\n")
+	b.WriteString("# policy_id is stable identity. The review marker is a label, never trading approval.\n\n")
 }
 
 // tomlFloat renders a float as TOML keeps it a float: 30 is written 30.0.
@@ -328,7 +374,6 @@ func tomlValueText(v any) string {
 // order the file lists them.
 type rulebookTemplateKey struct {
 	key     string
-	comment string
 	heading string
 }
 
@@ -336,43 +381,42 @@ type rulebookTemplateKey struct {
 // test fails when a policy field has no entry here, so the template can
 // never silently leave a limit to a compiled value.
 var rulebookTemplateKeys = []rulebookTemplateKey{
-	{"single_name_watch_pct", "Watch level: the worst-case loss on one issuer, every leg netted, % of NLV. The risk-reduction trim goes back to it.", "Rule 1 — worst-case loss on one issuer"},
-	{"single_name_act_pct", "Act level (the cap); the risk-reduction bucket proposes a trim from here.", ""},
-	{"takeover_gap_pct", "Rise that sizes legs losing without limit as the price rises (short stock, uncovered short calls).", ""},
-	{"hedge_min_days", "Fewest days to expiry at which a long option counts as protection; it must also expire after the issuer's next earnings.", ""},
-	{"exit_participation_pct", "Share of 20-day average daily volume one exit may take when measuring days to exit.", ""},
-	{"illiquid_days_to_exit", "An issuer needing more days than this to exit uses the illiquid bands.", ""},
-	{"illiquid_watch_pct", "Watch level for an illiquid issuer.", ""},
-	{"illiquid_act_pct", "Act level for an illiquid issuer.", ""},
-	{"delta_swing_watch_pct", "Rule 16: one issuer's dollar delta, % of NLV. Watches, never acts.", "Rules 16–18 — concentration watches (never act, never trim)"},
-	{"cluster_drop_pct", "Rule 17: every issuer in a declared cluster falls this much together...", ""},
-	{"cluster_watch_pct", "...and the cluster watches when that loss reaches this % of NLV.", ""},
-	{"budget_watch_pct", "Rule 18: an issuer's worst-case loss as % of the constitution's effective risk capital.", ""},
-	{"option_line_watch_pct", "Watch level: one long option position at risk (higher of price paid and value), % of NLV.", "Rule 2 — premium at risk in one option position"},
-	{"option_line_act_pct", "Act level; the budget governor's per-line limit under basis = rulebook.", ""},
-	{"hedge_line_watch_pct", "Watch level for a protection position (rule 12 sizes it).", ""},
-	{"hedge_line_act_pct", "Act level for a protection position.", ""},
-	{"cash_reserve_min_pct", "Broker available funds, % of NLV.", "Rule 3 — cash reserve"},
-	{"runway_watch_dte", "Watch at this many calendar days to expiry or fewer.", "Rule 5 — options nearing expiry"},
-	{"runway_act_dte", "Act at this many days or fewer.", ""},
-	{"runway_itm_delta_floor", "From this delta an option counts as in the money and is exempt.", ""},
-	{"short_put_act_line_pct_nlv", "Act when one short put's assignment notional through earnings reaches this % of NLV...", "Rule 7 — short options through earnings"},
-	{"short_put_act_name_pct_nlv", "...or one name's short puts together reach this.", ""},
-	{"earnings_freeze_sessions", "US sessions before earnings in which an issuer at rule 1's watch level is flagged.", "Rule 8 — position size near earnings"},
-	{"red_on_green_name_drop_pct", "Rule 9: a holding's day change at or below this...", "Rules 9–10 — intraday tape (off by default)"},
-	{"red_on_green_spy_up_pct", "...while SPY is up at least this.", ""},
-	{"winner_trim_day_up_pct", "Rule 10: a holding up at least this today...", ""},
-	{"winner_trim_min_exposure_pct", "...on at least this % of NLV.", ""},
-	{"regime_stage_max_age_minutes", "A latched regime stage older than this evaluates as carried (worse of carried and calm).", "Rules 4 and 12 — regime"},
-	{"overhedge_multiple", "Rule 12 acts above this multiple of the band top; index puts above it of the widest top are directional.", ""},
-	{"exit_watch_loss_pct", "Watch level: % of premium paid lost on a long option.", "Rule 13 — long option loss limit"},
-	{"exit_act_loss_pct", "Act level; the option loss exit proposes a sale here.", ""},
-	{"fx_exposure_watch_pct", "NLV held in other currencies, % of NLV.", "Rule 14 — foreign-currency exposure"},
-	{"net_exposure_watch_pct", "Watch level: the whole book's signed exposure with hedges, % of NLV.", "Rule 15 — net market exposure"},
-	{"net_exposure_act_pct", "Act level.", ""},
-	{"hedge_symbols", "Index underlyings whose long puts can classify as protection.", "Shared inputs"},
-	{"greeks_gap_floor_pct_nlv", "Materiality floor: legs missing delta above this % of NLV make exposure rules unknown; gamma above it is mentioned by rule 16.", ""},
-	{"earnings_stale_days", "An earnings date older than this makes rules 6-8 unknown.", ""},
+	{"single_name_watch_pct", "Rule 1 — worst-case loss on one issuer"},
+	{"single_name_act_pct", ""},
+	{"takeover_gap_pct", ""},
+	{"hedge_min_days", ""},
+	{"exit_participation_pct", ""},
+	{"illiquid_days_to_exit", ""},
+	{"illiquid_watch_pct", ""},
+	{"illiquid_act_pct", ""},
+	{"delta_swing_watch_pct", "Rules 16–18 — concentration watches (never act, never trim)"},
+	{"cluster_drop_pct", ""},
+	{"cluster_watch_pct", ""},
+	{"budget_watch_pct", ""},
+	{"option_line_watch_pct", "Rule 2 — premium at risk in one option position"},
+	{"option_line_act_pct", ""},
+	{"hedge_line_watch_pct", ""},
+	{"hedge_line_act_pct", ""},
+	{"cash_reserve_min_pct", "Rule 3 — cash reserve"},
+	{"runway_watch_dte", "Rule 5 — options nearing expiry"},
+	{"runway_act_dte", ""},
+	{"runway_itm_delta_floor", ""},
+	{"short_put_act_line_pct_nlv", "Rule 7 — short options through earnings"},
+	{"short_put_act_name_pct_nlv", ""},
+	{"earnings_freeze_sessions", "Rule 8 — position size near earnings"},
+	{"red_on_green_name_drop_pct", "Rules 9–10 — intraday tape (off by default)"},
+	{"red_on_green_spy_up_pct", ""},
+	{"winner_trim_day_up_pct", ""},
+	{"winner_trim_min_exposure_pct", ""},
+	{"regime_stage_max_age_minutes", "Rules 4 and 12 — regime"},
+	{"overhedge_multiple", ""},
+	{"exit_watch_loss_pct", "Rule 13 — long option loss limit"},
+	{"exit_act_loss_pct", ""},
+	{"fx_exposure_watch_pct", "Rule 14 — foreign-currency exposure"},
+	{"net_exposure_watch_pct", "Rule 15 — net market exposure"},
+	{"net_exposure_act_pct", ""},
+	{"hedge_symbols", "Shared inputs"},
+	{"greeks_gap_floor_pct_nlv", ""},
 }
 
 // rulebookPolicyValues maps each toml key of the policy to its value.
@@ -418,17 +462,26 @@ func RulebookPolicyTemplate(release string) []byte {
 	policyTemplateHeader(&b, "Rulebook policy: the limits behind every `canary rules` verdict.", release, true,
 		"",
 		"Edits take effect with a higher policy_version (the daemon rereads the file",
-		"every 30 seconds); `canary rules policy set KEY=VALUE` edits one key and",
+		"every 30 seconds by default); `canary rules policy set KEY=VALUE` edits one key and",
 		"raises it for you. An unreadable file never replaces the limits in force.",
-		"Canary's current defaults: canary policy default rulebook")
+		"Canary's current defaults: canary policy default rulebook",
+		"NLV means account equity. Watch/act/freeze/trim describe findings or",
+		"proposals, never permission to trade. Off hides a rule; it does not disable",
+		"a separately enabled proposal bucket using that rule's thresholds.",
+		"Rules 6 and 11 have no numerical knob here. Rules 9-10 use the US session.",
+		"Regime extrinsic bands use % of NLV; hedge bands use % of gross long exposure.",
+		"Upper watch/act edges are inclusive; cash watches below its floor. Rule 12:",
+		"inside edges passes, above the top watches, above its overhedge multiple acts.")
 	fmt.Fprintf(&b, "kind = %q\nschema_version = 1\npolicy_id = %q\npolicy_version = %d\n", risk.RulebookPolicyKind, p.ID, p.Version)
 	for _, k := range rulebookTemplateKeys {
 		if k.heading != "" {
 			fmt.Fprintf(&b, "\n# %s\n", k.heading)
 		}
-		fmt.Fprintf(&b, "# %s\n%s = %s\n", k.comment, k.key, tomlValueText(values[k.key]))
+		writePolicyComment(&b, rulebookPolicyHelp[k.key])
+		fmt.Fprintf(&b, "%s = %s\n", k.key, tomlValueText(values[k.key]))
 	}
-	b.WriteString("\n# Each rule's mode: off (not evaluated), track (shown, never alerts) or alert.\n[modes]\n")
+	writePolicyComment(&b, rulebookPolicyHelp["modes"])
+	b.WriteString("[modes]\n")
 	for _, id := range risk.RuleIDs() {
 		fmt.Fprintf(&b, "%s = %q\n", id, p.ModeFor(id))
 	}
@@ -442,8 +495,16 @@ func RulebookPolicyTemplate(release string) []byte {
 		{"regime_confirmed", p.RegimeConfirmed, "The same in confirmed stress."},
 	} {
 		fmt.Fprintf(&b, "\n# %s\n[%s]\n", set.note, set.name)
-		fmt.Fprintf(&b, "extrinsic_watch_pct = %s\nextrinsic_act_pct = %s\nhedge_band_min_pct = %s\nhedge_band_max_pct = %s\n",
-			tomlFloat(set.t.ExtrinsicWatchPct), tomlFloat(set.t.ExtrinsicActPct), tomlFloat(set.t.HedgeBandMinPct), tomlFloat(set.t.HedgeBandMaxPct))
+		for _, field := range []struct {
+			key   string
+			value float64
+		}{
+			{"extrinsic_watch_pct", set.t.ExtrinsicWatchPct}, {"extrinsic_act_pct", set.t.ExtrinsicActPct},
+			{"hedge_band_min_pct", set.t.HedgeBandMinPct}, {"hedge_band_max_pct", set.t.HedgeBandMaxPct},
+		} {
+			writePolicyComment(&b, rulebookPolicyHelp[set.name+"."+field.key])
+			fmt.Fprintf(&b, "%s = %s\n", field.key, tomlFloat(field.value))
+		}
 	}
 	b.WriteString(rulebookGroupsTemplate)
 	return []byte(b.String())
@@ -461,6 +522,7 @@ const rulebookGroupsTemplate = `
 # Clusters for rule 17: related issuers tested falling together. Members are
 # symbols or issuer group names. Example:
 #   ClusterA = ["AAA", "BBB", "CCC"]
+# Empty means rule 17 has no cluster to evaluate.
 [clusters]
 `
 
@@ -510,7 +572,7 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 		if defined[k.key] {
 			continue
 		}
-		doc.insert("", []string{fmt.Sprintf("# Added by Canary %s at its default: %s", release, k.comment), k.key + " = " + tomlValueText(values[k.key])})
+		doc.insert("", []string{fmt.Sprintf("# Added by Canary %s at its default: %s", release, rulebookPolicyHelp[k.key]), k.key + " = " + tomlValueText(values[k.key])})
 		added(k.key)
 	}
 	for _, id := range risk.RuleIDs() {
@@ -563,8 +625,8 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 		if !retiredRulebookKey(key) {
 			continue
 		}
-		table, leaf, _ := strings.Cut(key, ".")
-		if doc.commentOut(table, leaf, fmt.Sprintf("retired by Canary %s: %s", release, retiredCashSellOnlyReason)) {
+		table, leaf := splitRulebookKey(key)
+		if doc.commentOut(table, leaf, fmt.Sprintf("retired by Canary %s: no operational consumer; see the current policy reference", release)) {
 			changes = append(changes, "commented out retired "+key)
 		}
 	}
@@ -583,7 +645,7 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 	if err != nil {
 		return data, nil, notes, fmt.Errorf("migrated file does not parse: %w", err)
 	}
-	if before.policy.FingerprintKey() != after.policy.FingerprintKey() {
+	if before.policy.EffectiveFingerprintKey() != after.policy.EffectiveFingerprintKey() {
 		return data, nil, notes, fmt.Errorf("migration would change the policy in force; nothing written")
 	}
 	slices.Sort(changes)
@@ -750,25 +812,37 @@ func OpportunityPolicyTemplate(release string) []byte {
 	p := defaultOpportunityPolicy()
 	e := p.Buckets.OptionExercise
 	var b strings.Builder
-	policyTemplateHeader(&b, "Opportunity policy: early option-exercise opportunities Canary detects.", release, true,
-		"",
-		"Edits take effect with a higher policy_version. Canary's current",
-		"defaults: canary policy default opportunity")
-	fmt.Fprintf(&b, "kind = %q\nschema_version = 1\npolicy_id = %q\npolicy_version = %d\nprofile = %q\n\n", opportunityPolicyKind, p.PolicyID, p.PolicyVersion, p.Profile)
-	fmt.Fprintf(&b, `[authority]
-exercise_reduce_only = %t
-auto_submit = %t
-
-[buckets.option_exercise]
-enabled = %t
-min_total_gain = %s
-min_gain_pct_intrinsic = %s
-require_rth = %t
-max_quote_age = %q
-allow_no_option_bid = %t
-require_american_style = %t
-`, p.Authority.ExerciseReduceOnly, p.Authority.AutoSubmit, e.Enabled, tomlFloat(e.MinTotalGain), tomlFloat(e.MinGainPctIntrinsic), e.RequireRTH, e.MaxQuoteAge, e.AllowNoOptionBid, e.RequireAmericanStyle)
+	policyTemplateHeader(&b, "Opportunity policy: early option-exercise candidates.", release, true,
+		"Material edits need a higher policy_version; reload is every 30 seconds by default.",
+		"Candidates require a close/reduce effect and an option bid. No key here enables",
+		"automatic exercise. Every submission still needs permission and broker checks.",
+		"An invalid file retains the last good policy but pauses dependent exercise.",
+		"Schema 2 requires each real setting when enabled. Values below are Canary defaults.")
+	fmt.Fprintf(&b, "kind = %q\nschema_version = 2\npolicy_id = %q\npolicy_version = %d\n\n[buckets.option_exercise]\n", opportunityPolicyKind, p.PolicyID, p.PolicyVersion)
+	for _, row := range []struct {
+		key   string
+		value any
+	}{
+		{"enabled", e.Enabled}, {"min_total_gain", e.MinTotalGain}, {"min_gain_pct_intrinsic", e.MinGainPctIntrinsic},
+		{"require_rth", e.RequireRTH}, {"max_quote_age", e.MaxQuoteAge}, {"require_american_style", e.RequireAmericanStyle},
+	} {
+		writePolicyComment(&b, opportunityPolicyHelp["buckets.option_exercise."+row.key])
+		fmt.Fprintf(&b, "%s = %s\n", row.key, tomlValueText(row.value))
+	}
 	return []byte(b.String())
+}
+
+// writePolicyComment wraps the same field explanation used by the reference.
+func writePolicyComment(b *strings.Builder, text string) {
+	line := "#"
+	for word := range strings.FieldsSeq(text) {
+		if len(line)+1+len(word) > 82 {
+			b.WriteString(line + "\n")
+			line = "#"
+		}
+		line += " " + word
+	}
+	b.WriteString(line + "\n")
 }
 
 // ConstitutionPolicyTemplate renders the risk constitution skeleton. It keeps
@@ -788,7 +862,7 @@ func ConstitutionPolicyTemplate(release string) []byte {
 		"keys reject 0, so a key uncommented without your number fails the load and",
 		"names itself; protected_floor and the two amount tolerances accept 0 as a",
 		"real choice.")
-	fmt.Fprintf(&b, "kind = %q\nschema_version = 1\npolicy_id = \"risk-constitution\"\npolicy_version = %d\n", risk.ConstitutionKind, constitutionTemplateVersion)
+	fmt.Fprintf(&b, "kind = %q\nschema_version = 2\npolicy_id = \"risk-constitution\"\npolicy_version = %d\n", risk.ConstitutionKind, constitutionTemplateVersion)
 	b.WriteString(`
 [capital]
 # Must match the account's base currency; observations in any other currency
@@ -810,7 +884,7 @@ func ConstitutionPolicyTemplate(release string) []byte {
 # warn_consumed_pct = 0.0
 # block_consumed_pct = 0.0
 # shadow (default): journal what would block, gate nothing. advisory: warn
-# loudly on surfaces and previews, gate nothing. Schema 1 rejects "hard".
+# loudly on surfaces and previews, gate nothing. Both formats reject "hard".
 # block_enforcement = "shadow"
 # How a latched brake clears: manual (default) only by a journaled human reset
 # (canary policy reset-drawdown); automatic also when fresh, verified drawdown
@@ -851,9 +925,8 @@ func ConstitutionPolicyTemplate(release string) []byte {
 	return []byte(b.String())
 }
 
-// constitutionTemplateVersion is the constitution schema revision the
-// template is written at: the lowest that accepts every key it lists.
-const constitutionTemplateVersion = 4
+// constitutionTemplateVersion is the initial document revision; format 2 defines its semantics.
+const constitutionTemplateVersion = 1
 
 // parseConstitutionPolicy validates a constitution file the way the risk
 // policy manager does.

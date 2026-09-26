@@ -81,11 +81,17 @@ authority from log lines or an old candidate list.
 
 ## Cutover baseline: no backlog page
 
-The first complete, current snapshot in each opaque account-and-mode scope
-establishes a delivery baseline. Conditions already active in that snapshot
+The first current observation of each source in each opaque account-and-mode
+scope establishes that source's delivery baseline. A missing or stale sibling
+source does not prevent commissioning or delivery. Conditions already active in that snapshot
 remain visible in the inbox as `cutover_existing`, but they are never pushed.
 Only a new occurrence or qualifying escalation created after the baseline can
 become transport-eligible.
+
+Existing global baselines remain in the same ledger. They seed a source baseline
+only when its stored current-source watermark proves coverage at or after the
+old baseline. Unproven sources establish their own baseline; receipts and prior
+dispositions remain intact.
 
 Changing scope archives active rows as bounded previous context. A scope
 change is not evidence of recovery and does not create unread or delivery
@@ -97,7 +103,7 @@ fabricates a current account scope for them.
 
 A durable occurrence is sent only when every applicable check passes:
 
-- its scope has a complete, current cutover baseline;
+- its source has an established cutover baseline in the current scope;
 - its state is open or a daemon-qualified escalation;
 - its severity is allowed by the app's current notification mode;
 - the candidate evidence is current;

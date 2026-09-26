@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -17,18 +18,19 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-const opportunityPolicyKind = "ibkr.opportunity_policy"
+const opportunityPolicyKind = "canary.opportunity_policy"
 
 type opportunityPolicy struct {
-	// Kind must be "ibkr.opportunity_policy"; any other value fails the load.
+	diagnostics []rpc.PolicyDiagnostic
+	// Kind checks the file type: canary.opportunity_policy or the legacy ibkr.opportunity_policy alias. It grants no trading permission.
 	Kind string `toml:"kind" json:"kind"`
-	// SchemaVersion is the policy schema revision; only 1 is supported.
+	// SchemaVersion selects the file format. Schema 1 preserves historical omission defaults; schema 2 requires every real setting of an enabled detector.
 	SchemaVersion int `toml:"schema_version" json:"schema_version"`
 	// PolicyID is the required identity string for this policy (embedded default "opportunity-option-exercise-mvp").
 	PolicyID string `toml:"policy_id" json:"policy_id"`
-	// PolicyVersion is the monotonic policy revision; bump it to make the daemon adopt file edits — an edited file at an unchanged version reports drift instead.
+	// PolicyVersion records the owner revision; raise it for material edits. Names, comments and revision-only bumps do not change live action identity.
 	PolicyVersion int `toml:"policy_version" json:"policy_version"`
-	// Profile is a human-readable label for the parameter set (embedded default "conservative-exercise-mvp"); falls back to policy_id when empty.
+	// Profile is a legacy display label only; it selects no preset and has no operational effect. New files omit it.
 	Profile string `toml:"profile" json:"profile"`
 
 	Authority opportunityPolicyAuthority `toml:"authority" json:"authority"`
@@ -36,10 +38,9 @@ type opportunityPolicy struct {
 }
 
 type opportunityPolicyAuthority struct {
-	// ExerciseReduceOnly is retained for schema compatibility. Option exercise
-	// exposure effects are informational; broker writes are centrally gated.
+	// ExerciseReduceOnly is retired and ignored. Code always requires exercise to close or reduce the underlying position; this field cannot widen that scope.
 	ExerciseReduceOnly bool `toml:"exercise_reduce_only" json:"exercise_reduce_only"`
-	// AutoSubmit would let exercise opportunities submit themselves; must be false — opportunities are advisory and every broker write stays behind the gated order path.
+	// AutoSubmit is unsupported and must be false. Every exercise requires explicit confirmation through the existing gated order path. New files omit this key.
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
 }
 
@@ -48,20 +49,19 @@ type opportunityPolicyBuckets struct {
 }
 
 type opportunityOptionExercisePolicy struct {
-	// Enabled turns the early-exercise opportunity detector on (default true).
+	// Enabled runs the option-exercise detector (Canary default true). Detection produces candidates, never automatic submission. Set false to disable this detector.
 	Enabled bool `toml:"enabled" json:"enabled"`
-	// MinTotalGain is the minimum total dollar gain required to flag an exercise opportunity (default 25).
+	// MinTotalGain is the minimum gross gain for the full candidate quantity in the contract currency (Canary default 25). Gain is intrinsic value minus option bid value, before fees, slippage and funding. Both gain thresholds must be met, including equality.
 	MinTotalGain float64 `toml:"min_total_gain" json:"min_total_gain"`
-	// MinGainPctIntrinsic is the minimum gain as a percent of intrinsic value (default 0.5).
+	// MinGainPctIntrinsic is the minimum gross gain as a percentage of intrinsic value (Canary default 0.5). It must be met together with min_total_gain.
 	MinGainPctIntrinsic float64 `toml:"min_gain_pct_intrinsic" json:"min_gain_pct_intrinsic"`
-	// RequireRTH only flags opportunities during regular trading hours (default true).
+	// RequireRTH blocks exercise eligibility outside the US regular trading session when true (Canary default true). A blocked candidate may remain visible.
 	RequireRTH bool `toml:"require_rth" json:"require_rth"`
-	// MaxQuoteAge is the oldest quote still considered fresh, as a Go duration string (default "30s").
+	// MaxQuoteAge is the maximum age of option quote evidence and a dated underlying quote, written as a positive duration (Canary default 30s). Missing or stale option evidence blocks eligibility; an undated underlying quote has no age check. This key does not prove executable liquidity.
 	MaxQuoteAge string `toml:"max_quote_age" json:"max_quote_age"`
-	// AllowNoOptionBid is retained for schema compatibility. Exercise
-	// opportunities require an executable option bid in the MVP detector.
+	// AllowNoOptionBid is retired and ignored. An absent or negative option bid prevents a candidate; a zero bid is accepted. New files omit this key.
 	AllowNoOptionBid bool `toml:"allow_no_option_bid" json:"allow_no_option_bid"`
-	// RequireAmericanStyle limits detection to American-style options, the only style that can be exercised early (default true).
+	// RequireAmericanStyle requires the current USD stock/ETF heuristic when true (Canary default true). This is not verified contract-style evidence; failing the heuristic blocks eligibility.
 	RequireAmericanStyle bool `toml:"require_american_style" json:"require_american_style"`
 }
 
@@ -180,6 +180,10 @@ func (m *opportunityPolicyManager) reload() {
 	}
 
 	switch {
+	case source != "file":
+		st := opportunityPolicyStatus(m.active, rpc.OpportunityPolicyStatusDrift, "file", "policy file removed; last loaded settings stay in force", now)
+		st.Path, st.Review = m.path, m.status.Review
+		m.status = st
 	case policy.PolicyVersion > m.active.PolicyVersion:
 		m.active = policy
 		st := opportunityPolicyStatus(policy, rpc.OpportunityPolicyStatusActive, source, "", now)
@@ -187,7 +191,8 @@ func (m *opportunityPolicyManager) reload() {
 		st.Review = review
 		m.status = st
 		m.lastFingerprint = fp
-	case policy.PolicyVersion == m.active.PolicyVersion && fp.Key == m.lastFingerprint.Key:
+	case policy.PolicyVersion == m.active.PolicyVersion && sameEffectivePolicy(effectiveOpportunityPolicy(policy), effectiveOpportunityPolicy(m.active)):
+		m.active, m.lastFingerprint = policy, fp
 		st := opportunityPolicyStatus(m.active, m.status.Status, source, "", now)
 		if st.Status == "" || st.Status == rpc.OpportunityPolicyStatusDrift || st.Status == rpc.OpportunityPolicyStatusError {
 			st.Status = rpc.OpportunityPolicyStatusActive
@@ -237,6 +242,9 @@ func parseOpportunityPolicy(data []byte) (opportunityPolicy, error) {
 		}
 		return opportunityPolicy{}, fmt.Errorf("unknown opportunity policy key(s): %s", strings.Join(keys, ", "))
 	}
+	if err := opportunityPolicyPresence(&p, md); err != nil {
+		return opportunityPolicy{}, err
+	}
 	applyOpportunityPolicyDefaults(&p, &md)
 	if err := validateOpportunityPolicy(p); err != nil {
 		return opportunityPolicy{}, err
@@ -247,7 +255,7 @@ func parseOpportunityPolicy(data []byte) (opportunityPolicy, error) {
 func defaultOpportunityPolicy() opportunityPolicy {
 	return opportunityPolicy{
 		Kind:          opportunityPolicyKind,
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 		PolicyID:      "opportunity-option-exercise-mvp",
 		PolicyVersion: 1,
 		Profile:       "conservative-exercise-mvp",
@@ -282,6 +290,9 @@ func applyOpportunityPolicyDefaults(p *opportunityPolicy, md *toml.MetaData) {
 	if p.Profile == "" {
 		p.Profile = p.PolicyID
 	}
+	if p.SchemaVersion == 2 {
+		return
+	}
 	defaults := defaultOpportunityPolicy()
 	if md != nil && !md.IsDefined("buckets", "option_exercise") {
 		p.Buckets.OptionExercise = defaults.Buckets.OptionExercise
@@ -292,10 +303,10 @@ func applyOpportunityPolicyDefaults(p *opportunityPolicy, md *toml.MetaData) {
 }
 
 func validateOpportunityPolicy(p opportunityPolicy) error {
-	if p.Kind != opportunityPolicyKind {
+	if p.Kind != opportunityPolicyKind && p.Kind != "ibkr.opportunity_policy" {
 		return fmt.Errorf("opportunity policy kind %q is invalid", p.Kind)
 	}
-	if p.SchemaVersion != 1 {
+	if p.SchemaVersion != 1 && p.SchemaVersion != 2 {
 		return fmt.Errorf("opportunity policy schema_version %d is unsupported", p.SchemaVersion)
 	}
 	if strings.TrimSpace(p.PolicyID) == "" {
@@ -305,7 +316,10 @@ func validateOpportunityPolicy(p opportunityPolicy) error {
 		return fmt.Errorf("opportunity policy policy_version must be positive")
 	}
 	if p.Authority.AutoSubmit {
-		return fmt.Errorf("opportunity policy authority.auto_submit must be false in MVP")
+		return fmt.Errorf("opportunity policy authority.auto_submit is unsupported; every exercise needs explicit confirmation")
+	}
+	if math.IsNaN(p.Buckets.OptionExercise.MinTotalGain) || math.IsInf(p.Buckets.OptionExercise.MinTotalGain, 0) || math.IsNaN(p.Buckets.OptionExercise.MinGainPctIntrinsic) || math.IsInf(p.Buckets.OptionExercise.MinGainPctIntrinsic, 0) {
+		return fmt.Errorf("buckets.option_exercise gain thresholds must be finite")
 	}
 	if p.Buckets.OptionExercise.Enabled {
 		if p.Buckets.OptionExercise.MinTotalGain < 0 {
@@ -339,16 +353,18 @@ func (p opportunityOptionExercisePolicy) maxQuoteAgeDuration() (time.Duration, e
 func opportunityPolicyStatus(p opportunityPolicy, status, source, message string, at time.Time) rpc.OpportunityPolicyStatus {
 	fp := fingerprintOpportunityPolicy(p)
 	st := rpc.OpportunityPolicyStatus{
-		Kind:          opportunityPolicyKind,
-		Status:        status,
-		PolicyID:      p.PolicyID,
-		PolicyVersion: p.PolicyVersion,
-		Profile:       p.Profile,
-		Fingerprint:   fp,
-		Source:        source,
-		LoadedAt:      at,
-		LastCheckedAt: at,
-		Message:       message,
+		Kind:                 opportunityPolicyKind,
+		Status:               status,
+		PolicyID:             p.PolicyID,
+		PolicyVersion:        p.PolicyVersion,
+		Profile:              p.Profile,
+		Fingerprint:          fp,
+		EffectiveFingerprint: effectiveOpportunityPolicy(p),
+		Diagnostics:          p.diagnostics,
+		Source:               source,
+		LoadedAt:             at,
+		LastCheckedAt:        at,
+		Message:              message,
 	}
 	if status == rpc.OpportunityPolicyStatusDrift || status == rpc.OpportunityPolicyStatusError {
 		st.Blockers = []rpc.TradingBlocker{{
@@ -356,6 +372,9 @@ func opportunityPolicyStatus(p opportunityPolicy, status, source, message string
 			Message: nonEmptyString(message, "opportunity policy is not safe for exercise preview or submit"),
 			Action:  "Fix the opportunity policy file and bump policy_version before preview or submit.",
 		}}
+	}
+	if st.Message == "" {
+		st.Message = policyDiagnosticsMessage(p.diagnostics)
 	}
 	return st
 }

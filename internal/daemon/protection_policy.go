@@ -21,16 +21,16 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-const protectionPolicyKind = "ibkr.protection_policy"
+const protectionPolicyKind = "canary.protection_policy"
 
 type protectionPolicy struct {
-	// Kind must be "ibkr.protection_policy"; any other value fails the load.
+	// Kind checks the file type: canary.protection_policy or the legacy ibkr.protection_policy alias.
 	Kind string `toml:"kind" json:"kind"`
 	// SchemaVersion is the policy schema revision; only 1 is supported.
 	SchemaVersion int `toml:"schema_version" json:"schema_version"`
 	// PolicyID is the required identity string for this policy (embedded default "protection-mvp").
 	PolicyID string `toml:"policy_id" json:"policy_id"`
-	// PolicyVersion is the monotonic policy revision; bump it to make the daemon adopt file edits — an edited file at an unchanged version reports drift instead.
+	// PolicyVersion is the owner revision. Material edits require a higher value; cosmetic edits keep operational identity.
 	PolicyVersion int `toml:"policy_version" json:"policy_version"`
 	// Profile is a human-readable label for the parameter set (embedded default "theta-priority-mvp"); falls back to policy_id when empty.
 	Profile string `toml:"profile" json:"profile"`
@@ -412,19 +412,20 @@ func (m *protectionPolicyManager) reload() {
 	}
 
 	switch {
+	case source == "embedded-default":
+		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "the policy file was removed; the last policy read from it stays in force for proposals, and pre-authorised submission pauses until the file returns or the daemon restarts", now)
+		st.Path = m.path
+		m.status = st
 	case policy.PolicyVersion > m.active.PolicyVersion:
 		adopt(rpc.ProtectionPolicyStatusActive)
-	case policy.PolicyVersion == m.active.PolicyVersion && fp.Key == m.lastFingerprint.Key:
+	case source == "file" && policy.PolicyVersion == m.active.PolicyVersion && sameEffectivePolicy(effectiveProtectionPolicy(policy), effectiveProtectionPolicy(m.active)):
+		m.active, m.lastFingerprint = policy, fp
 		st := protectionPolicyStatus(m.active, m.status.Status, source, retiredProtectionKeysNote(read.retired), now)
 		if st.Status == "" || st.Status == rpc.ProtectionPolicyStatusDrift || st.Status == rpc.ProtectionPolicyStatusError {
 			st.Status = rpc.ProtectionPolicyStatusActive
 		}
 		st.Path = m.path
 		st.Review = read.review
-		m.status = st
-	case source == "embedded-default":
-		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "the policy file was removed; the last policy read from it stays in force for proposals, and pre-authorised submission pauses until the file returns or the daemon restarts", now)
-		st.Path = m.path
 		m.status = st
 	case policy.PolicyVersion <= m.active.PolicyVersion && fp.Key != m.lastFingerprint.Key:
 		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusDrift, source, "policy file changed without a higher policy_version; the policy in force keeps generating reduce-only proposals, and pre-authorised submission pauses until policy_version is raised", now)
@@ -634,7 +635,7 @@ func applyProtectionPolicyDefaults(p *protectionPolicy, md *toml.MetaData) {
 }
 
 func validateProtectionPolicy(p protectionPolicy) error {
-	if p.Kind != protectionPolicyKind {
+	if p.Kind != protectionPolicyKind && p.Kind != "ibkr.protection_policy" {
 		return fmt.Errorf("protection policy kind %q is invalid", p.Kind)
 	}
 	if p.SchemaVersion != 1 {
@@ -903,17 +904,18 @@ func protectionPolicyStatus(p protectionPolicy, status, source, message string, 
 	// policy in force and stay previewable and submittable by hand, so a broken
 	// file never blocks an exit or a trim (owner decision 2026-09-26).
 	return rpc.ProtectionPolicyStatus{
-		Kind:             protectionPolicyKind,
-		Status:           status,
-		PolicyID:         p.PolicyID,
-		PolicyVersion:    p.PolicyVersion,
-		Profile:          p.Profile,
-		Fingerprint:      fingerprintProtectionPolicy(p),
-		Source:           source,
-		LoadedAt:         at,
-		LastCheckedAt:    at,
-		Message:          message,
-		AutomationPaused: status == rpc.ProtectionPolicyStatusDrift || status == rpc.ProtectionPolicyStatusError,
+		Kind:                 protectionPolicyKind,
+		Status:               status,
+		PolicyID:             p.PolicyID,
+		PolicyVersion:        p.PolicyVersion,
+		Profile:              p.Profile,
+		Fingerprint:          fingerprintProtectionPolicy(p),
+		EffectiveFingerprint: effectiveProtectionPolicy(p),
+		Source:               source,
+		LoadedAt:             at,
+		LastCheckedAt:        at,
+		Message:              message,
+		AutomationPaused:     status == rpc.ProtectionPolicyStatusDrift || status == rpc.ProtectionPolicyStatusError,
 	}
 }
 

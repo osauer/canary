@@ -92,20 +92,21 @@ var (
 // alertDeliveryData is an optional, independently versioned section of the
 // health, and Web Push authority.
 type alertDeliveryData struct {
-	Version                  string                                   `json:"version"`
-	Generation               uint64                                   `json:"generation"`
-	Snapshot                 rpc.AlertCandidateSnapshot               `json:"snapshot"`
-	SourceWatermarks         map[rpc.AlertSource]time.Time            `json:"source_watermarks"`
-	SourceWatermarksByScope  map[string]map[rpc.AlertSource]time.Time `json:"source_watermarks_by_scope"`
-	Episodes                 []alertDeliveryEpisode                   `json:"episodes,omitempty"`
-	Occurrences              []alertDeliveryOccurrence                `json:"occurrences,omitempty"`
-	PreviousContexts         []alertDeliveryPreviousContext           `json:"previous_contexts,omitempty"`
-	PreviousContextHighWater uint64                                   `json:"previous_context_high_water_seq"`
-	Attempts                 []alertDeliveryAttempt                   `json:"attempts,omitempty"`
-	Receipts                 []alertDeliveryReceipt                   `json:"receipts,omitempty"`
-	RetiredTargets           map[string]time.Time                     `json:"retired_targets"`
-	Baselines                map[string]alertDeliveryBaseline         `json:"baselines"`
-	Health                   AlertDeliveryHealth                      `json:"delivery_health"`
+	SourceBaselines          map[string]map[rpc.AlertSource]alertDeliveryBaseline `json:"source_baselines"`
+	Version                  string                                               `json:"version"`
+	Generation               uint64                                               `json:"generation"`
+	Snapshot                 rpc.AlertCandidateSnapshot                           `json:"snapshot"`
+	SourceWatermarks         map[rpc.AlertSource]time.Time                        `json:"source_watermarks"`
+	SourceWatermarksByScope  map[string]map[rpc.AlertSource]time.Time             `json:"source_watermarks_by_scope"`
+	Episodes                 []alertDeliveryEpisode                               `json:"episodes,omitempty"`
+	Occurrences              []alertDeliveryOccurrence                            `json:"occurrences,omitempty"`
+	PreviousContexts         []alertDeliveryPreviousContext                       `json:"previous_contexts,omitempty"`
+	PreviousContextHighWater uint64                                               `json:"previous_context_high_water_seq"`
+	Attempts                 []alertDeliveryAttempt                               `json:"attempts,omitempty"`
+	Receipts                 []alertDeliveryReceipt                               `json:"receipts,omitempty"`
+	RetiredTargets           map[string]time.Time                                 `json:"retired_targets"`
+	Baselines                map[string]alertDeliveryBaseline                     `json:"baselines"`
+	Health                   AlertDeliveryHealth                                  `json:"delivery_health"`
 	// ObservationRejectedAt stamps the first producer snapshot refused since the
 	// last accepted one. Transport health cannot express this: nothing is ever
 	// attempted while intake is refused, so an empty attempt ledger would
@@ -461,6 +462,7 @@ func (s *Store) ObserveAlertSnapshot(snapshot rpc.AlertCandidateSnapshot) (Alert
 	if next == nil {
 		next = newAlertDeliveryData()
 	}
+	migrateAlertSourceBaselines(next)
 	if scopeChanged {
 		if err := s.archiveAlertDeliveryAuthorityScopeLocked(next, snapshot); err != nil {
 			if errors.Is(err, ErrAlertDeliveryOverflow) {
@@ -505,6 +507,9 @@ func (s *Store) ObserveAlertSnapshot(snapshot rpc.AlertCandidateSnapshot) (Alert
 		next.Baselines[snapshot.AuthorityScope] = alertDeliveryBaseline{
 			EstablishedAt: snapshot.AsOf.UTC(), SnapshotAsOf: snapshot.AsOf.UTC(),
 		}
+	}
+	if err := s.establishAlertSourceBaselines(next, snapshot); err != nil {
+		return AlertDeliveryView{}, s.setAlertDeliveryOverflowLocked(prior, snapshot.AsOf)
 	}
 	s.recomputeAlertDeliveryHealthLocked(next, snapshot.AsOf)
 	if err := s.bumpAlertDeliveryGenerationLocked(next); err != nil {
@@ -610,11 +615,12 @@ func rejectAlertSourceWatermarks(data *alertDeliveryData, snapshot rpc.AlertCand
 			return fmt.Errorf("%w: source %s observed_at %s precedes %s", ErrAlertDeliveryOldSnapshot, candidate.Source, candidate.ObservedAt.UTC().Format(time.RFC3339Nano), watermark.UTC().Format(time.RFC3339Nano))
 		}
 	}
-	if snapshot.Coverage.Freshness == rpc.AlertCoverageCurrent {
-		for _, source := range snapshot.Coverage.CoveredSources {
-			if watermark := data.SourceWatermarks[source]; !watermark.IsZero() && snapshot.Coverage.AsOf.Before(watermark) {
-				return fmt.Errorf("%w: source %s coverage %s precedes %s", ErrAlertDeliveryOldSnapshot, source, snapshot.Coverage.AsOf.UTC().Format(time.RFC3339Nano), watermark.UTC().Format(time.RFC3339Nano))
-			}
+	for _, row := range snapshot.Sources {
+		if !alertSourceCurrent(row, snapshot.AsOf) {
+			continue
+		}
+		if watermark := data.SourceWatermarks[row.Source]; !watermark.IsZero() && snapshot.Coverage.AsOf.Before(watermark) {
+			return fmt.Errorf("%w: source %s coverage %s precedes %s", ErrAlertDeliveryOldSnapshot, row.Source, snapshot.Coverage.AsOf.UTC().Format(time.RFC3339Nano), watermark.UTC().Format(time.RFC3339Nano))
 		}
 	}
 	return nil
@@ -771,9 +777,9 @@ func (s *Store) applyAlertSnapshotLocked(data *alertDeliveryData, snapshot rpc.A
 	}
 
 	authoritative := make(map[rpc.AlertSource]struct{})
-	if snapshot.Coverage.Freshness == rpc.AlertCoverageCurrent {
+	if snapshot.Coverage.State != rpc.AlertCoverageUnavailable {
 		for _, row := range snapshot.Sources {
-			if !row.Covered || row.EvidenceHealth != rpc.AlertEvidenceCurrent || snapshot.AsOf.After(row.FreshUntil) {
+			if !alertSourceCurrent(row, snapshot.AsOf) {
 				continue
 			}
 			authoritative[row.Source] = struct{}{}
@@ -911,7 +917,7 @@ func validateAlertCandidateAdvance(current alertDeliveryOccurrence, candidate rp
 }
 
 func (s *Store) newAlertDeliveryDispositionLocked(data *alertDeliveryData, authorityScope string, candidate rpc.AlertCandidate) string {
-	if !alertDeliveryBaselineEstablished(data, authorityScope) {
+	if !alertSourceBaselineEstablished(data, authorityScope, candidate.Source) {
 		return AlertDispositionCutoverExisting
 	}
 	if candidate.State == rpc.AlertEpisodeRecovered || candidate.Severity == rpc.AlertSeverityObserve {
@@ -947,14 +953,14 @@ func alertModeAllowsSeverity(mode string, severity rpc.AlertSeverity) bool {
 }
 
 func alertCandidateSourceCurrent(snapshot rpc.AlertCandidateSnapshot, candidate rpc.AlertCandidate, now time.Time) bool {
-	if candidate.EvidenceHealth != rpc.AlertEvidenceCurrent || snapshot.Coverage.Freshness != rpc.AlertCoverageCurrent {
+	if candidate.EvidenceHealth != rpc.AlertEvidenceCurrent {
 		return false
 	}
 	for _, row := range snapshot.Sources {
 		if row.Source != candidate.Source {
 			continue
 		}
-		return row.Covered && row.EvidenceHealth == rpc.AlertEvidenceCurrent && !row.FreshUntil.IsZero() && !now.After(row.FreshUntil)
+		return alertSourceCurrent(row, now)
 	}
 	return false
 }
@@ -1912,6 +1918,18 @@ func (s *Store) CompactAlertDelivery(now time.Time) error {
 		delete(next.Baselines, scope)
 		removedBaselines++
 	}
+
+	for scope, sources := range next.SourceBaselines {
+		for source, baseline := range sources {
+			if !retainedScopes[scope] && baseline.EstablishedAt.Before(cutoff) {
+				delete(sources, source)
+				removedBaselines++
+			}
+		}
+		if len(sources) == 0 {
+			delete(next.SourceBaselines, scope)
+		}
+	}
 	recoveredCapacity := prior.Health.State == AlertDeliveryHealthOverflow && alertDeliveryBelowCapacity(next, s.alertDeliveryMaxItems)
 	if len(removedOccurrences) == 0 && previousBefore == len(next.PreviousContexts) && len(next.Episodes) == len(prior.Episodes) && removedTargets == 0 && removedScopes == 0 && removedBaselines == 0 && !recoveredCapacity {
 		return nil
@@ -1952,7 +1970,7 @@ func (s *Store) activeAlertDeliveryTargetsLocked() map[string]bool {
 }
 
 func alertDeliveryBelowCapacity(data *alertDeliveryData, maximum int) bool {
-	return data != nil && maximum > 0 && data.Snapshot.Coverage.State != rpc.AlertCoverageUnavailable && len(data.Episodes) < maximum && len(data.Occurrences) < maximum && len(data.PreviousContexts) < maximum && len(data.Attempts) < maximum && len(data.Receipts) < maximum && len(data.RetiredTargets) < maximum && len(data.Baselines) <= maximum
+	return data != nil && maximum > 0 && data.Snapshot.Coverage.State != rpc.AlertCoverageUnavailable && len(data.Episodes) < maximum && len(data.Occurrences) < maximum && len(data.PreviousContexts) < maximum && len(data.Attempts) < maximum && len(data.Receipts) < maximum && len(data.RetiredTargets) < maximum && len(data.Baselines) <= maximum && alertSourceBaselineCount(data) <= maximum
 }
 
 func alertDeliveryAttemptTotals(data *alertDeliveryData, now time.Time) AlertDeliveryAttemptTotals {
@@ -2184,6 +2202,7 @@ func cloneAlertDeliveryData(in *alertDeliveryData) *alertDeliveryData {
 		return nil
 	}
 	out := *in
+	out.SourceBaselines = cloneAlertSourceBaselines(in.SourceBaselines)
 	out.Snapshot = cloneAlertSnapshot(in.Snapshot)
 	out.SourceWatermarks = cloneAlertSourceWatermarks(in.SourceWatermarks)
 	out.SourceWatermarksByScope = cloneAlertSourceWatermarksByScope(in.SourceWatermarksByScope)
@@ -2498,6 +2517,9 @@ func (s *Store) validateAlertDeliveryState() error {
 		if !validAlertHash(target) || retiredAt.IsZero() {
 			return fmt.Errorf("%w: invalid alert delivery retired target", ErrInvalidPersistedState)
 		}
+	}
+	if err := validateAlertSourceBaselines(data, s.alertDeliveryMaxItems); err != nil {
+		return err
 	}
 	for scope, baseline := range data.Baselines {
 		if err := rpc.ValidateAlertAuthorityScope(scope); err != nil || baseline.EstablishedAt.IsZero() || baseline.SnapshotAsOf.IsZero() || baseline.SnapshotAsOf.After(baseline.EstablishedAt) {

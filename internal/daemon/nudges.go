@@ -74,7 +74,8 @@ type nudgeStateStore struct {
 }
 
 type nudgeConfirmedFlowSnapshot struct {
-	PolicyVersion     int
+	PolicyVersion     int // provenance only
+	ProcessReminders  bool
 	PolicyIdentity    string
 	ReportStatus      string
 	ReportIdentity    string
@@ -299,11 +300,11 @@ func (st *nudgeStateStore) shadowObservation(policyIdentity, latchEpisode string
 }
 
 // observeConfirmedFlows is called only from the successful retained-statement
-// incorporation path. The first v4 observation creates a coverage watermark
+// incorporation path. The first process-reminder observation creates a coverage watermark
 // and baselines existing rows without creating a historical notification
 // flood. Later content identities become durable one-shot facts.
 func (st *nudgeStateStore) observeConfirmedFlows(snapshot nudgeConfirmedFlowSnapshot) error {
-	if st == nil || snapshot.PolicyVersion < 4 || strings.TrimSpace(snapshot.ReportIdentity) == "" {
+	if st == nil || !snapshot.ProcessReminders || strings.TrimSpace(snapshot.ReportIdentity) == "" {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -458,30 +459,46 @@ func nudgePolicyIdentity(c *risk.Constitution) string {
 	if c == nil {
 		return ""
 	}
-	return opaqueIdentity("risk-policy", c.FingerprintKey())
+	return opaqueIdentity("risk-policy", c.EffectiveFingerprintKey())
+}
+
+// migratePolicyIdentity preserves an existing shadow counter only when the
+// accepted document proves its exact old provenance. It changes no receipts or
+// permissions. Unmatched historical identities are never treated as aliases.
+func (st *nudgeStateStore) migratePolicyIdentity(c *risk.Constitution) error {
+	if st == nil || c == nil {
+		return nil
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.loadLocked()
+	if st.loadErr {
+		return fmt.Errorf("governance nudge persistence is unavailable")
+	}
+	if st.state.Shadow.PolicyIdentity != opaqueIdentity("risk-policy", c.FingerprintKey()) {
+		return nil
+	}
+	st.state.Shadow.PolicyIdentity = nudgePolicyIdentity(c)
+	return st.persistLocked()
 }
 
 type nudgeAuthorityState struct {
-	policy         *risk.Constitution
-	scope          brokerStateScope
-	report         rpc.RiskPolicyResult
+	riskPolicyEvaluation
 	policyIdentity string
 	policyHealth   rpc.NudgeInputHealth
-	loadedAt       time.Time
 	pinsReadable   bool
 	// eligible is the current, validated base policy authority used by
 	// version-independent facts (policy drift, capital latch/shadow, and
 	// reconciliation exceptions). Cadence and confirmed-flow features have
-	// narrower gates so a missing v4 reminder field cannot suppress an
+	// narrower gates so a missing process-reminder field cannot suppress an
 	// unrelated risk fact.
 	eligible              bool
 	cadenceEligible       bool
 	confirmedFlowEligible bool
-	capitalNudge          riskCapitalNudgeSnapshot
 }
 
 func (s *Server) governanceMonthlyPulseForAuthority(authority nudgeAuthorityState, constitution *risk.Constitution, _ *rpc.ReconResult, now time.Time) risk.MonthlyPulseEvaluation {
-	if constitution == nil || constitution.PolicyVersion < 4 {
+	if constitution == nil || !constitution.Semantics().ProcessReminders {
 		return risk.MonthlyPulseEvaluation{}
 	}
 	identity := nudgePolicyIdentity(constitution)
@@ -499,40 +516,16 @@ func (s *Server) governanceMonthlyPulseForAuthority(authority nudgeAuthorityStat
 // authority when the file is absent, errored, drifted, stale, or internally
 // inconsistent.
 func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
+	return s.nudgeAuthorityForPolicy(s.acceptedRiskPolicy(now), now)
+}
+
+func (s *Server) nudgeAuthorityForPolicy(evaluation riskPolicyEvaluation, now time.Time) nudgeAuthorityState {
 	now = now.UTC()
 	unavailable := rpc.NudgeInputHealth{Status: rpc.NudgeInputStatusUnavailable, Reason: rpc.NudgeHealthReasonSourceUnavailable, AsOf: now}
-	state := nudgeAuthorityState{policyHealth: unavailable}
-	if s == nil || s.riskPolicies == nil {
-		return state
-	}
-	state.scope = s.currentBrokerStateScope()
-
-	m := s.riskPolicies
-	m.mu.Lock()
-	mgr := riskPolicySnapshot{
-		policy: m.active, status: m.status, source: m.source, path: m.path,
-		message: m.message, loadedAt: m.loadedAt, lastCheckedAt: m.lastCheckedAt,
-	}
-	lastFingerprint := m.lastFingerprint
-	reloadInterval := m.reloadInterval
-	m.mu.Unlock()
-
-	state.policy = mgr.policy
-	state.loadedAt = mgr.loadedAt.UTC()
-	state.report = rpc.RiskPolicyResult{
-		AsOf: now, Status: mgr.status, Source: mgr.source, Path: mgr.path, Message: mgr.message,
-	}
+	state := nudgeAuthorityState{riskPolicyEvaluation: evaluation, policyHealth: unavailable}
+	mgr := evaluation.manager
+	lastFingerprint, reloadInterval := mgr.fingerprint, mgr.reloadInterval
 	if mgr.policy != nil {
-		state.report.PolicyID = mgr.policy.PolicyID
-		state.report.PolicyVersion = mgr.policy.PolicyVersion
-		state.report.Unapproved = mgr.policy.UnapprovedKeys()
-		state.report.Inventory = s.riskPolicyInventory(mgr.policy)
-		state.report.SignoffRequired = mgr.policy.SignoffRequired()
-		if s.riskCapital != nil {
-			state.capitalNudge = s.riskCapital.NudgeSnapshotForScope(mgr.policy, nil, state.scope)
-			state.report.Capital = state.capitalNudge.Report
-		}
-		state.report.PolicyFingerprint = &rpc.Fingerprint{Version: rpc.RiskConstitutionFingerprintVersion, Key: mgr.policy.FingerprintKey()}
 		state.policyIdentity = nudgePolicyIdentity(mgr.policy)
 	}
 
@@ -587,15 +580,15 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 		return state
 	}
 	state.pinsReadable = policyPinsReadable(state.report.Inventory, false)
-	if mgr.policy.PolicyVersion < 3 || mgr.policy.PolicyVersion > 4 {
+	if !mgr.policy.Semantics().StatementReconciliation {
 		setHealth(rpc.NudgeInputStatusUnapproved, rpc.NudgeHealthReasonPolicyUnapproved)
 		return state
 	}
 	setHealth(rpc.NudgeInputStatusOK, rpc.NudgeHealthReasonNone)
 	state.eligible = true
-	state.confirmedFlowEligible = mgr.policy.PolicyVersion == 4
+	state.confirmedFlowEligible = mgr.policy.Semantics().ProcessReminders
 	// Cadence keys all default in code (machine timezone, code schedule);
-	// authored overrides are validated at load, so a healthy v4 policy is
+	// authored overrides are validated at load, so a healthy current-format policy is
 	// always cadence-eligible.
 	state.cadenceEligible = state.confirmedFlowEligible && len(state.report.Unapproved) == 0
 	return state
@@ -603,7 +596,7 @@ func (s *Server) currentNudgeAuthority(now time.Time) nudgeAuthorityState {
 
 // observeConfirmedFlows is the governance-only adapter around successful
 // capital incorporation. Capital truth remains installed regardless of this
-// advisory check; coverage advances only under current healthy v4 authority
+// advisory check; coverage advances only under current healthy process-reminder evidence
 // and fresh, fully healthy broker-backed statement evidence.
 func (s *Server) observeConfirmedFlows(snapshot nudgeConfirmedFlowSnapshot) {
 	if s == nil || s.nudges == nil {
@@ -614,7 +607,7 @@ func (s *Server) observeConfirmedFlows(snapshot nudgeConfirmedFlowSnapshot) {
 		now = s.now().UTC()
 	}
 	authority := s.currentNudgeAuthority(now)
-	if !authority.confirmedFlowEligible || authority.report.PolicyVersion != 4 || snapshot.PolicyVersion != 4 ||
+	if !authority.confirmedFlowEligible || !snapshot.ProcessReminders ||
 		snapshot.PolicyIdentity != authority.policyIdentity || snapshot.ReportStatus != rpc.ReconStatusActive ||
 		!snapshot.StatementsHealthy || strings.TrimSpace(snapshot.ReportIdentity) == "" || snapshot.StatementAsOf.IsZero() ||
 		snapshot.StatementAsOf.After(now) || reconReportStale(authority.policy, &rpc.ReconResult{StatementAsOf: snapshot.StatementAsOf}, now) {
@@ -694,7 +687,7 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 		}
 		scope, _ := newAlertShadowBrokerScope(s.currentBrokerStateScope())
 		*shadowInput = alertShadowNudgeInput{
-			PolicyFingerprint: rpc.Fingerprint{Version: rpc.RiskConstitutionFingerprintVersion, Key: authority.policyIdentity},
+			PolicyFingerprint: rpc.Fingerprint{Version: rpc.EffectivePolicyFingerprintVersion, Key: authority.policyIdentity},
 			StoreHealth:       storeHealth,
 			Scope:             scope,
 		}
@@ -770,7 +763,7 @@ func (s *Server) composeNudgesSnapshotContextWithAuthority(ctx context.Context, 
 
 	policyIdentity := authority.policyIdentity
 	switch {
-	case policy.PolicyVersion < 4:
+	case !policy.Semantics().ProcessReminders:
 		result.SourceHealth.Cadence = setHealth(rpc.NudgeInputStatusInactive, rpc.NudgeHealthReasonProcessRemindersNotEnabled)
 	case !authority.cadenceEligible:
 		result.SourceHealth.Cadence = setHealth(rpc.NudgeInputStatusUnapproved, rpc.NudgeHealthReasonCadenceUnapproved)

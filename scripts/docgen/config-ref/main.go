@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -54,9 +55,9 @@ var structSources = []structSource{
 		Root:    "protectionPolicy",
 		Heading: "Protection policy file",
 		Intro: "Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/policies/protection-policy.toml`). " +
-			"The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. An existing file is never overwritten: an upgrade migrates it in place after a backup. " +
-			"Edits apply only when `policy_version` is bumped (an edited file at an unchanged version reports drift), and unknown keys fail the load. " +
-			"This policy shapes advisory protection proposals only; proposals never place broker orders by themselves.",
+			"The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default protection` prints the same file), headed `Canary defaults, not yet reviewed`; automatic submission and the budget governor's caps are commented placeholders for your decision. Existing files stay untouched on startup; reviewed conversions require `canary policy ensure --apply-plan FILE` and keep exact backups. " +
+			"Material edits require a higher `policy_version`; cosmetic edits keep operational identity, and unknown keys fail the load. " +
+			"This policy shapes protection proposals. Automatic submission requires an explicit supported pre-authorised bucket and all existing execution gates; the default grants none.",
 	},
 	{
 		Path:    "internal/risk/rulebook_policy.go",
@@ -64,8 +65,8 @@ var structSources = []structSource{
 		Heading: "Rulebook policy file",
 		Intro: "Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/policies/rulebook-policy.toml`). " +
 			"The installer and each daemon start write it from Canary's defaults when it is missing (`canary policy default rulebook` prints the same file); until then the compiled defaults run. " +
-			"A key absent from the file follows Canary's default and the next upgrade adds it. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; " +
-			"a hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. " +
+			"A key absent from the file follows Canary's default; a reviewed conversion can materialise that effective value. `canary rules policy set KEY=VALUE` edits only the keys you name, in place, and raises `policy_version`; " +
+			"a material hand edit applies only with a higher `policy_version`, unknown keys and invalid values fail the load, and the policy in force stays until a valid file replaces it. " +
 			"`canary rules policy` shows the limits in force. The Rulebook is advisory; these limits never block or place an order by themselves.",
 	},
 	{
@@ -74,7 +75,7 @@ var structSources = []structSource{
 		Heading: "Opportunity policy file",
 		Intro: "Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). " +
 			"Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. " +
-			"Governs advisory option-exercise opportunity detection only.",
+			"Controls option-exercise detection and eligibility; no automatic exercise is supported. Schema 2 requires all effective fields of an enabled detector. Schema 1 preserves historical zero/false omissions with diagnostics. Legacy profile and retired authority switches select no preset and grant no permission.",
 	},
 }
 
@@ -82,7 +83,8 @@ var structSources = []structSource{
 type tomlField struct {
 	Path   string // dotted TOML path, e.g. "buckets.theta_hygiene.max_dte"
 	GoType string // Go type as written, e.g. "*bool"
-	Doc    string // first sentence of the Go doc comment
+	Doc    string // field explanation
+	Help   string // complete operator explanation shared with file templates
 }
 
 // Section is everything before the last path segment ("" for a
@@ -110,6 +112,7 @@ type envVar struct {
 
 func main() {
 	output := flag.String("o", defaultOutput, "output path (- for stdout)")
+	policyHelp := flag.Bool("policy-help", false, "generate policy template field explanations instead of the reference")
 	root := flag.String("root", ".", "repo root to scan for // docgen:env comments")
 	flag.Parse()
 
@@ -120,6 +123,21 @@ func main() {
 			fatal("parse %s: %v", src.Path, err)
 		}
 		tables[i] = rows
+	}
+
+	if *policyHelp {
+		body := renderPolicyHelp(tables)
+		if *output == defaultOutput {
+			*output = filepath.Join(*root, "internal/daemon/policy_help_generated.go")
+		}
+		if *output == "-" {
+			fmt.Print(body)
+			return
+		}
+		if err := os.WriteFile(*output, []byte(body), 0o644); err != nil {
+			fatal("write policy help: %v", err)
+		}
+		return
 	}
 	envs, err := scanEnvVars(*root)
 	if err != nil {
@@ -196,10 +214,17 @@ func parseStructRows(path, root string) ([]tomlField, error) {
 					continue
 				}
 			}
+
+			full := commentText(f.Doc)
+			help := strings.TrimPrefix(full, f.Names[0].Name+" ")
+			doc := firstSentence(full)
+			if root == "RulebookPolicy" || root == "opportunityPolicy" {
+				doc = full
+			}
 			rows = append(rows, tomlField{
 				Path:   fieldPath,
 				GoType: goTypeName(f.Type),
-				Doc:    firstSentence(commentText(f.Doc)),
+				Doc:    doc, Help: help,
 			})
 		}
 	}
@@ -591,4 +616,32 @@ func escapeTable(s string) string {
 	s = strings.ReplaceAll(s, "|", "\\|")
 	s = strings.ReplaceAll(s, "\n", " ")
 	return s
+}
+
+// renderPolicyHelp shares the typed fields' complete descriptions with the
+// operator's generated TOML. No source parsing runs in the daemon.
+func renderPolicyHelp(tables [][]tomlField) string {
+	var b strings.Builder
+	b.WriteString("// Code generated by config-ref -policy-help; DO NOT EDIT.\npackage daemon\n\n")
+	for i, source := range structSources {
+		name := ""
+		switch source.Root {
+		case "RulebookPolicy":
+			name = "rulebookPolicyHelp"
+		case "opportunityPolicy":
+			name = "opportunityPolicyHelp"
+		default:
+			continue
+		}
+		fmt.Fprintf(&b, "var %s = map[string]string{\n", name)
+		for _, row := range tables[i] {
+			fmt.Fprintf(&b, "%q: %q,\n", row.Path, row.Help)
+		}
+		b.WriteString("}\n")
+	}
+	out, err := format.Source([]byte(b.String()))
+	if err != nil {
+		fatal("format policy help: %v", err)
+	}
+	return string(out)
 }

@@ -1175,7 +1175,7 @@ func TestRiskPolicyManagerLoadsV3AndRejectsV3KeyUnderV2(t *testing.T) {
 	v2WithKey := strings.Replace(validRiskPolicyTOML, "max_report_age_days = 4", "max_report_age_days = 4\nmax_equity_divergence_pct = 1.0", 1)
 	m, _ = newTestRiskPolicyManager(t, v2WithKey)
 	snap = m.snapshot()
-	if snap.status != rpc.RiskPolicyStatusError || !strings.Contains(snap.message, "requires policy_version >= 3") {
+	if snap.status != rpc.RiskPolicyStatusError || !strings.Contains(snap.message, "schema 2 or legacy policy_version >= 3") {
 		t.Fatalf("v2 key snapshot status=%s message=%q", snap.status, snap.message)
 	}
 }

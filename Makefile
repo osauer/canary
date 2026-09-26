@@ -513,6 +513,7 @@ modernize: ## Apply go fix + modernize rewrites in place
 # no drift.
 docs-regen: ## Regenerate checked-in documentation sources
 	go run ./scripts/docgen/config-ref
+	go run ./scripts/docgen/config-ref -policy-help
 	go run ./scripts/docgen/mcp-tools
 	go run ./scripts/docgen/cli-ref
 	go run ./scripts/docgen/edge-flex
@@ -548,6 +549,8 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 			fail=1; \
 		fi; \
 	done; \
+	go run ./scripts/docgen/config-ref -policy-help -o "$$tmp/policy-help.go" || exit 1; \
+	if ! diff -u internal/daemon/policy_help_generated.go "$$tmp/policy-help.go"; then fail=1; fi; \
 	exit $$fail
 
 # Markdown is the only prose authority for the generator-declared pages. The

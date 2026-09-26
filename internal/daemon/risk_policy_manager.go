@@ -51,7 +51,14 @@ func (s *Server) installRiskPolicyManager() {
 		return
 	}
 	m := newRiskPolicyManager(riskPolicyDefaultPath, 30*time.Second, s.now)
-	m.onTransition = s.journalRiskPolicyTransition
+	m.onTransition = func(prev, next string, c *risk.Constitution) {
+		s.journalRiskPolicyTransition(prev, next, c)
+		if next == rpc.RiskPolicyStatusActive {
+			if err := s.nudges.migratePolicyIdentity(c); err != nil {
+				s.warnf("governance nudge identity migration: %v", err)
+			}
+		}
+	}
 	// First reload is deferred until Start has bound SQLite authority. This
 	// prevents construction-time policy transitions from leaking into the
 	// sealed legacy JSONL journal before the daemon owns its state lock.
@@ -95,14 +102,16 @@ func (m *riskPolicyManager) Run(ctx context.Context, logf func(string, ...any)) 
 }
 
 type riskPolicySnapshot struct {
-	policy        *risk.Constitution
-	status        string
-	source        string
-	path          string
-	message       string
-	review        string
-	loadedAt      time.Time
-	lastCheckedAt time.Time
+	fingerprint    string
+	reloadInterval time.Duration
+	policy         *risk.Constitution
+	status         string
+	source         string
+	path           string
+	message        string
+	review         string
+	loadedAt       time.Time
+	lastCheckedAt  time.Time
 }
 
 // snapshot returns the active constitution (nil when absent) plus manager
@@ -115,6 +124,7 @@ func (m *riskPolicyManager) snapshot() riskPolicySnapshot {
 	defer m.mu.Unlock()
 	return riskPolicySnapshot{
 		policy: m.active, status: m.status, source: m.source, path: m.path,
+		fingerprint: m.lastFingerprint, reloadInterval: m.reloadInterval,
 		message: m.message, review: m.review, loadedAt: m.loadedAt, lastCheckedAt: m.lastCheckedAt,
 	}
 }
@@ -152,19 +162,16 @@ func (m *riskPolicyManager) reload() {
 		m.review = review
 		fp := policy.FingerprintKey()
 		switch {
-		case m.active == nil, policy.PolicyVersion > m.active.PolicyVersion:
+		case m.active == nil, policy.PolicyVersion > m.active.PolicyVersion,
+			policy.PolicyVersion == m.active.PolicyVersion && policy.EffectiveFingerprintKey() == m.active.EffectiveFingerprintKey():
+			if m.active == nil || fp != m.lastFingerprint {
+				m.loadedAt = now
+			}
 			m.active = policy
 			m.status = rpc.RiskPolicyStatusActive
 			m.source = "file"
 			m.message = ""
-			m.loadedAt = now
 			m.lastFingerprint = fp
-		case policy.PolicyVersion == m.active.PolicyVersion && fp == m.lastFingerprint:
-			if m.status == rpc.RiskPolicyStatusDrift || m.status == rpc.RiskPolicyStatusError || m.status == rpc.RiskPolicyStatusAbsent {
-				m.status = rpc.RiskPolicyStatusActive
-				m.message = ""
-			}
-			m.source = "file"
 		default:
 			m.status = rpc.RiskPolicyStatusDrift
 			m.message = "risk policy file changed without a higher policy_version; bump policy_version to adopt the change"

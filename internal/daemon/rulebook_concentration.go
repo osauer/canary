@@ -299,9 +299,9 @@ func (s *Server) rulebookRiskCapital(acct *rpc.AccountResult, acctErr error, bas
 	if s == nil || s.riskPolicies == nil || s.riskCapital == nil {
 		return &risk.RiskCapitalInput{Missing: "the risk constitution in risk-policy.toml (none is loaded)"}
 	}
-	authority := s.currentNudgeAuthority(now)
+	authority := s.acceptedRiskPolicy(now)
 	return rulebookRiskCapitalFrom(authority.policy, baseCcy, func() *rpc.CapitalStateReport {
-		res := s.briefPolicyResultForAuthority(acct, acctErr, authority, now)
+		res := s.policyResultForEvaluation(acct, acctErr, authority, now)
 		if res == nil {
 			return nil
 		}

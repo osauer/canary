@@ -699,7 +699,7 @@ nudge_at_local = "09:00"
 	}
 
 	v3 := decode(t, 3, fullCadence)
-	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "requires policy_version >= 4") {
+	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "schema 2 or legacy policy_version >= 4") {
 		t.Fatalf("v3 parsed v4 cadence without targeted rejection: %v", err)
 	}
 
@@ -743,7 +743,7 @@ version = "2"
 	}
 
 	v3 := decode(t, 3, body)
-	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "requires policy_version >= 4") {
+	if err := v3.Validate(); err == nil || !strings.Contains(err.Error(), "schema 2 or legacy policy_version >= 4") {
 		t.Fatalf("v3 parsed inventory.require_signoff without targeted rejection: %v", err)
 	}
 

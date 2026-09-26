@@ -31,7 +31,7 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		case PolicyFileWouldCreate:
 			row.Notes = append(row.Notes, "no file yet: the next daemon start writes Canary's defaults (or run `canary policy ensure`)")
 		case PolicyFileWouldMigrate:
-			row.Notes = append(row.Notes, "migration pending at the next daemon start: "+strings.Join(a.Changes, "; "))
+			row.Notes = append(row.Notes, "reviewable migration available (not applied on startup): "+strings.Join(a.Changes, "; "))
 		case PolicyFileUnreadable, PolicyFileFailed:
 			row.Notes = append(row.Notes, "cannot be read: "+a.Error+"; the policy in force stays")
 		}

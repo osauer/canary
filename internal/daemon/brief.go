@@ -57,8 +57,9 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	now := s.briefNow()
 	res := &rpc.BriefResult{AsOf: now}
 	cal, calErr := s.handleMarketCalendar(&rpc.Request{Params: briefJSON(rpc.MarketCalendarParams{Market: "us", At: now, Days: 1})})
-	renderAuthority := s.currentNudgeAuthority(now)
-	policy := s.briefPolicyResultForAuthority(acct, acctErr, renderAuthority, now)
+	evaluation := s.acceptedRiskPolicy(now)
+	renderAuthority := s.nudgeAuthorityForPolicy(evaluation, now)
+	policy := s.policyResultForEvaluation(acct, acctErr, evaluation, now)
 	constitution := renderAuthority.policy
 	recon := s.buildReconReport()
 
@@ -91,7 +92,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// only, so revised prose can never invalidate the brief identity.
 	res.Narrative = composeBriefNarrative(res)
 	// Bind v4 brief identity to the current constitution even when a policy-only
-	if constitution != nil && constitution.PolicyVersion >= 4 {
+	if constitution != nil && constitution.Semantics().ProcessReminders {
 		res.BriefFingerprint = opaqueIdentity("v4-brief", res.BriefFingerprint, renderAuthority.policyIdentity)
 	}
 	return res, rules
@@ -124,7 +125,7 @@ func (s *Server) briefRegimeSnapshotContext(ctx context.Context) (*rpc.RegimeSna
 	return s.currentDecisionReadyRegimeSnapshot(ctx)
 }
 
-func (s *Server) briefPolicyResultForAuthority(acct *rpc.AccountResult, acctErr error, authority nudgeAuthorityState, now time.Time) *rpc.RiskPolicyResult {
+func (s *Server) policyResultForEvaluation(acct *rpc.AccountResult, acctErr error, authority riskPolicyEvaluation, now time.Time) *rpc.RiskPolicyResult {
 	value := authority.report
 	res := &value
 	res.AsOf = now
@@ -1259,7 +1260,7 @@ func (s *Server) composeBriefProcessForAuthority(policy *rpc.RiskPolicyResult, c
 		}
 	}
 	out.Rules = briefRulesStatus(rules)
-	if constitution != nil && constitution.PolicyVersion >= 4 {
+	if constitution != nil && constitution.Semantics().ProcessReminders {
 		evaluation := s.governanceMonthlyPulseForAuthority(authority, constitution, recon, now)
 		out.MonthlyPulse = &rpc.BriefMonthlyPulseRow{
 			Status: evaluation.Status, Month: evaluation.Month, DueAt: evaluation.DueAt,

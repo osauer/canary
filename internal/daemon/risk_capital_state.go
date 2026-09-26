@@ -686,7 +686,7 @@ func (st *riskCapitalStore) runtimeLocked(c *risk.Constitution, now time.Time) r
 }
 
 func (st *riskCapitalStore) effectiveFlowsLocked(c *risk.Constitution) (effective, statement float64, source string) {
-	if c == nil || c.PolicyVersion < 3 {
+	if c == nil || !c.Semantics().StatementReconciliation {
 		return st.cumFlowsBase, 0, rpc.CapitalFlowSourceDeclared
 	}
 	statement = st.state.StatementFlowsBase
@@ -985,7 +985,7 @@ func (st *riskCapitalStore) ApplyCapitalEventForPolicyScope(p rpc.CapitalEventPa
 	case "deposit":
 		st.cumFlowsBase += ev.AmountBase
 		st.declaredEvents = append(st.declaredEvents, ev)
-		if (c == nil || c.PolicyVersion < 3) && st.state.Seeded && !st.state.PeakAsOf.IsZero() && !st.state.PeakAsOf.Before(ev.EffectiveAt) {
+		if (c == nil || !c.Semantics().StatementReconciliation) && st.state.Seeded && !st.state.PeakAsOf.IsZero() && !st.state.PeakAsOf.Before(ev.EffectiveAt) {
 			st.state.AdjustedPeakBase -= ev.AmountBase
 		}
 	case "withdrawal":
@@ -1508,7 +1508,7 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 	declared := st.cumFlowsBase
 	rep.DeclaredCumFlowsBase = &declared
 	rep.FlowSource = flowSource
-	if c != nil && c.PolicyVersion >= 3 {
+	if c != nil && c.Semantics().StatementReconciliation {
 		rep.StatementCumFlowsBase = &statementFlows
 	}
 	if c != nil {

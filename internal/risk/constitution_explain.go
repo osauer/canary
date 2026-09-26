@@ -98,7 +98,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 	ovhVal, ovhSrc := num(ovh, "hours")
 
 	reconcileMeaning := "How long the declared capital-event ledger may go without a human reconcile attestation before the state counts as unreconciled. Same posture as equity staleness."
-	if c != nil && c.PolicyVersion >= 3 {
+	if c != nil && c.Semantics().StatementReconciliation {
 		reconcileMeaning = "How many days may pass without reconcile evidence — either an automatic clean-report extension or a human sign-off — before the state counts as unreconciled. Same posture as equity staleness."
 	}
 	rows := []ConstitutionLimit{
@@ -137,7 +137,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("recon.max_report_age_days", rAgeVal, rAgeSrc,
 			"How old the newest ingested statement may be for a recon report to back a reconcile sign-off. Older data means the sign-off would attest to a week nobody has seen.", "advisory"),
 	)
-	if c == nil || c.PolicyVersion >= 3 {
+	if c == nil || c.Semantics().StatementReconciliation {
 		rEqDivVal, rEqDivSrc := pct(rEqDiv)
 		rows = append(rows, get("recon.max_equity_divergence_pct", rEqDivVal, rEqDivSrc,
 			"Largest absolute same-day difference allowed between broker statement equity and the runtime observation before a clean report may extend the reconcile clock automatically.", "advisory"))
@@ -157,7 +157,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		rows = append(rows, get(a.key+".class", val, src,
 			"Legacy v2 cadence declaration retained for policy-file compatibility. Canary v3 has no manual completion or acknowledgement surface.", "advisory"))
 	}
-	if c == nil || c.PolicyVersion >= 4 {
+	if c == nil || c.Semantics().ProcessReminders {
 		var timezone, monthlyClass, monthlyTime *string
 		var warningDays, monthlyDay *int
 		if c != nil {

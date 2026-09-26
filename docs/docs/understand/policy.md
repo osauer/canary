@@ -67,8 +67,8 @@ decision.
 | Source of control | Decision owner and source of record | If absent | Effect today | How it changes |
 |---|---|---|---|---|
 | Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose every number is a commented placeholder | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Write the numbers you approve and raise `policy_version` |
-| Rulebook policy | `~/.config/ibkr/policies/rulebook-policy.toml`, written from Canary's defaults and then yours | Canary writes it again at the next start; the compiled defaults run until then | Every limit and mode behind `canary rules` | `canary rules policy set KEY=VALUE`, or edit the file and raise `policy_version` |
-| Protection and opportunity policy | `protection-policy.toml` and `opportunity-policy.toml`, written from Canary's defaults and then yours | Canary writes them again at the next start; the embedded defaults run until then, which is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Review the file, edit it, and raise `policy_version` |
+| Rulebook policy | `~/.config/ibkr/policies/rulebook-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift. With no accepted file at startup, compiled defaults apply and the missing template is written | Every limit and mode behind `canary rules` | `canary rules policy set KEY=VALUE`, or edit the file and raise `policy_version` |
+| Protection and opportunity policy | `protection-policy.toml` and `opportunity-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift; protection pre-authorised submission pauses. Startup writes missing templates from embedded defaults, which is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Review the file, edit it, and raise `policy_version` |
 | Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `canary settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
 | Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
@@ -122,8 +122,8 @@ archived policy content.
 
 ## Policy files Canary writes for you
 
-Canary keeps a complete file for every policy it reads, so the limits that run
-are always ones you can open and read, never values compiled into the binary.
+Canary creates a documented file for each missing policy. Legacy partial files
+remain readable; omitted rulebook settings still use the documented defaults.
 The installer runs `canary policy ensure`, and the daemon runs the same step
 each time it starts:
 
@@ -140,25 +140,29 @@ each time it starts:
   (`pre_authorised`), and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
   needs your number, one feature at a time; nothing else waits on it.
-- **An existing file is never overwritten.** An upgrade migrates it in place:
-  it keeps a backup (`<file>.bak-<release>-<time>`), adds each new key at
-  Canary's default with a comment naming the release, comments out each
-  retired key with where its concept went, and never changes a value you set.
-  The policy in force does not change, so no `policy_version` bump is needed
-  and no drift is reported. When Canary's recommendation for a key you set
-  has changed, the step says `Canary now recommends X; yours is Y` and leaves
-  your value alone.
-- **A broken file is left alone.** A file that does not parse is neither
-  replaced nor migrated; the policy in force stays and the problem is named. An
-  absent or broken file never blocks an exit, a trim or a read.
+- **Existing files stay untouched on startup.** A proposed format conversion
+  shows exact before/after hashes and a local diff. Applying that reviewed plan
+  checks every listed file before writing, preserves its original bytes in an
+  owner-only backup (`<file>.bak-<release>-<time>`), and records provenance.
+  It refuses any conversion that changes effective settings. Recommendations
+  remain separate owner decisions.
+- **A broken file is left alone.** The running manager retains its last good
+  settings and reports the file failure. Protection automation pauses when its
+  own authority file is uncertain; manual proposals still pass their existing
+  execution gates. File review labels and reminder health grant no permission.
 
-Preview what the step would do, or run it without a daemon:
+Preview locally, review the diff, then apply only the listed conversions:
 
 ```sh
-canary policy ensure --dry-run
-canary policy ensure
+canary policy ensure --dry-run --json > /private/path/policy-plan.json
+canary policy ensure --apply-plan /private/path/policy-plan.json
 canary policy show --explain
 ```
+
+The plan can contain private settings; keep it local with owner-only permissions.
+A changed file, configured path or converter output requires a fresh preview.
+Plain `canary policy ensure` creates missing templates and previews existing
+files; it does not apply conversions.
 
 `canary policy show` lists every policy file with its status and what waits for
 your number; `--explain` adds each file's notes: keys it lacks, retired keys,
@@ -175,8 +179,7 @@ them.
 
 Its main sections cover capital and the protected floor, drawdown response,
 bounded human exceptions, statement reconciliation, operating cadence, and
-approved sibling model identities. Schema version 1 accepts `advisory` and
-`shadow`; it rejects hard drawdown enforcement. Effective risk capital is the
+approved sibling model identities. Supported schemas accept `advisory` and `shadow`; they reject hard drawdown enforcement. Effective risk capital is the
 lesser of declared risk capital and equity above the protected floor.
 
 Inspect the current result with:
@@ -283,3 +286,40 @@ Detailed references:
   dependent decisions fail closed.
 - [Storage](../internals/storage.md): how applied policy state and local events are stored
   without making SQLite the policy-authoring surface.
+
+## Identity, revisions and permission
+
+`kind` identifies the file type. Both `canary.*` and the corresponding legacy
+`ibkr.*` names are readable; paths and stable policy IDs do not move.
+`schema_version` selects supported semantics. `policy_version` records the
+owner's revision and orders material changes within a running daemon.
+
+The constitution's schema 1 preserves historical revisions: 1–2 use declared
+flows, 3 enables statement-backed reconciliation, and 4 or later enables the
+current process reminders. Schema 2 defines those current semantics regardless
+of revision. Converting revisions below 4 would change behaviour, so the
+converter leaves them alone. A schema-1 revision 5 needs no conversion to work.
+
+Operational comparison uses effective settings, including stable policy ID and
+all real limits, scope and grants. Kind spelling, descriptive profile labels,
+revision-only bumps and retired controls do not change that comparison. Original
+fingerprints remain in evidence. When the exact old policy and current scoped
+inputs reproduce a previous proposal revision, the snapshot retains that public
+revision and records its effective counterpart. Existing vetoes, notice windows,
+consumed submissions and preparations then remain bound to the same decision,
+including after restart. No arbitrary fingerprint aliases are accepted.
+
+An old prepared action without provable identity continuity requires a fresh
+preview. An unproven automatic revision follows the existing new-revision notice
+and veto-window rules. Deploy the compatible reader before converting files so
+unchanged old provenance can establish continuity. No confirmation is reconstructed.
+
+The accepted policy is held in memory. A restart cannot reconstruct the previous
+accepted body or enforce the previous process's revision head; backups preserve
+converted files, not a durable approval ledger.
+
+Each alert source establishes its own baseline within its account/mode scope.
+The first current observation does not push old conditions. Subsequent eligible
+occurrences retain receipt deduplication, even when another source is missing or
+stale. Overall coverage is diagnostic, not trading permission or proof of phone
+delivery. Source ordering, fresh evidence and notification preferences still apply.

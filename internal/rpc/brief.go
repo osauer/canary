@@ -1793,12 +1793,14 @@ const (
 // it came from. Overrides lists the keys the owner's file sets; every other
 // value is the compiled baseline.
 type RulebookPolicyStatus struct {
-	Status        string      `json:"status"`
-	Source        string      `json:"source"` // compiled-default | file
-	Path          string      `json:"path,omitempty"`
-	PolicyID      string      `json:"policy_id"`
-	PolicyVersion int         `json:"policy_version"`
-	Fingerprint   Fingerprint `json:"fingerprint"`
+	Status               string             `json:"status"`
+	Source               string             `json:"source"` // compiled-default | file
+	Path                 string             `json:"path,omitempty"`
+	PolicyID             string             `json:"policy_id"`
+	PolicyVersion        int                `json:"policy_version"`
+	Fingerprint          Fingerprint        `json:"fingerprint"`
+	EffectiveFingerprint Fingerprint        `json:"effective_fingerprint,omitzero"`
+	Diagnostics          []PolicyDiagnostic `json:"diagnostics,omitempty"`
 	// Overrides lists the keys the file sets. Canary writes every key into
 	// the file it materializes, so Missing (keys absent from the file, which
 	// follow Canary's defaults) is the list worth reading.

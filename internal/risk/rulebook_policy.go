@@ -12,7 +12,7 @@ import (
 )
 
 // RulebookPolicyKind identifies an owner Rulebook policy file.
-const RulebookPolicyKind = "ibkr.rulebook_policy"
+const RulebookPolicyKind = "canary.rulebook_policy"
 
 // RegimeBucketCalm and the related constants are normalized regime buckets
 // consumed by regime-conditional rules. The evaluator does not accept raw
@@ -25,7 +25,6 @@ const (
 
 // RegimeThresholds is one stage's threshold set for the regime-conditional
 // rules: rule 4 extrinsic budget (ex-protection), rule 12 protection band.
-// hedge band.
 type RegimeThresholds struct {
 	// ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV.
 	ExtrinsicWatchPct float64 `toml:"extrinsic_watch_pct" json:"extrinsic_watch_pct"`
@@ -43,80 +42,80 @@ type RegimeThresholds struct {
 // baseline. It owns rulebook verdict thresholds, not the source observations
 // that callers map into RuleInputs.
 type RulebookPolicy struct {
-	// Kind identifies the file (ibkr.rulebook_policy); optional, never part of the fingerprint.
+	// Kind identifies the file type (canary.rulebook_policy); ibkr.rulebook_policy remains a supported alias. It grants no authority.
 	Kind string `toml:"kind" json:"-"`
-	// SchemaVersion is the file schema (1); optional, never part of the fingerprint.
+	// SchemaVersion selects the file format (1), independently of the owner revision.
 	SchemaVersion int `toml:"schema_version" json:"-"`
-	// ID names the policy (baseline rulebook-v3; canary rules policy set writes rulebook-owner).
+	// ID names the policy (baseline rulebook-v4; canary rules policy set writes rulebook-owner).
 	ID string `toml:"policy_id" json:"id"`
-	// Version must rise for an edit to take effect; the first file is adopted at any version.
+	// Version records the owner revision; raise it for material edits. Cosmetic edits do not change operational identity. The first valid file is adopted at any positive revision.
 	Version int `toml:"policy_version" json:"version"`
-	// Modes sets each rule to off (not evaluated), track (shown, never alerts) or alert, keyed by rule id.
+	// Modes controls presentation and alerts: off hides the row, track shows it without alerts, alert enables alert production. Shared measurements still run; independent proposal buckets retain their own enablement.
 	Modes map[string]string `toml:"modes" json:"modes"`
 
-	// SingleNameWatchPct is rule 1's watch level: the worst-case loss on one issuer, every leg netted, as a percent of NLV; the risk-reduction trim goes back to it.
+	// SingleNameWatchPct watches at or above this modelled worst-case issuer loss as a percent of NLV (account equity). All issuer legs are netted from current marks; an authorised risk-reduction proposal trims toward this level.
 	SingleNameWatchPct float64 `toml:"single_name_watch_pct" json:"single_name_watch_pct"`
-	// SingleNameActPct is rule 1's act level for one issuer's worst-case loss; the risk-reduction bucket proposes a trim from here.
+	// SingleNameActPct acts at or above this issuer loss as a percent of NLV. This can generate a trim proposal; it never authorises an order.
 	SingleNameActPct float64 `toml:"single_name_act_pct" json:"single_name_act_pct"`
-	// TakeoverGapPct sizes legs that lose without limit as the price rises (short stock, uncovered short calls): they are measured at a rise of this percent.
+	// TakeoverGapPct is the upward price scenario, in percent, for short stock and uncovered short calls. It is a finite scenario for an unbounded loss, not a maximum possible loss.
 	TakeoverGapPct float64 `toml:"takeover_gap_pct" json:"takeover_gap_pct"`
-	// HedgeMinDays is the fewest days to expiry at which a long option counts as protection; it must also expire after the issuer's next earnings.
+	// HedgeMinDays is the minimum calendar days to expiry for same-issuer option hedge credit; expiry must also follow known earnings. Unknown earnings falls back to this minimum alone. Cross-issuer index hedges give no issuer credit.
 	HedgeMinDays int `toml:"hedge_min_days" json:"hedge_min_days"`
-	// ExitParticipationPct is the share of 20-day average daily volume one exit may take when rule 1 measures days to exit.
+	// ExitParticipationPct is the percentage of 20-day average daily share volume available per exit day. Missing volume leaves the normal concentration bands in use, with liquidity unmeasured.
 	ExitParticipationPct float64 `toml:"exit_participation_pct" json:"exit_participation_pct"`
-	// IlliquidDaysToExit: an issuer that needs more days than this to exit is measured against the illiquid bands.
+	// IlliquidDaysToExit switches to the illiquid bands only when estimated exit days strictly exceed this value.
 	IlliquidDaysToExit float64 `toml:"illiquid_days_to_exit" json:"illiquid_days_to_exit"`
-	// IlliquidWatchPct is rule 1's watch level for an illiquid issuer.
+	// IlliquidWatchPct watches at or above this illiquid issuer loss as a percent of NLV.
 	IlliquidWatchPct float64 `toml:"illiquid_watch_pct" json:"illiquid_watch_pct"`
-	// IlliquidActPct is rule 1's act level for an illiquid issuer.
+	// IlliquidActPct acts at or above this illiquid issuer loss as a percent of NLV.
 	IlliquidActPct float64 `toml:"illiquid_act_pct" json:"illiquid_act_pct"`
-	// DeltaSwingWatchPct is rule 16's watch level: one issuer's dollar delta as a percent of NLV. It never acts.
+	// DeltaSwingWatchPct watches at or above this magnitude of issuer dollar delta as a percent of NLV. Protection-classified index short delta is exempt. Rule 16 never acts or trims.
 	DeltaSwingWatchPct float64 `toml:"delta_swing_watch_pct" json:"delta_swing_watch_pct"`
-	// ClusterDropPct is rule 17's scenario: every issuer in a declared cluster falls this percent together.
+	// ClusterDropPct is the downward price scenario, in percent, for every issuer in a declared cluster. Empty clusters leave rule 17 unevaluated.
 	ClusterDropPct float64 `toml:"cluster_drop_pct" json:"cluster_drop_pct"`
-	// ClusterWatchPct is rule 17's watch level: the cluster's loss in that fall as a percent of NLV. It never acts.
+	// ClusterWatchPct watches at or above this cluster scenario loss as a percent of NLV. Rule 17 never acts or trims.
 	ClusterWatchPct float64 `toml:"cluster_watch_pct" json:"cluster_watch_pct"`
-	// BudgetWatchPct is rule 18's watch level: one issuer's worst-case loss as a percent of the constitution's effective risk capital. It never acts.
+	// BudgetWatchPct watches at or above this issuer loss as a percent of effective risk capital: the lesser of declared risk capital and equity above the protected floor. Missing capital inputs remain unknown. Rule 18 never acts or trims.
 	BudgetWatchPct float64 `toml:"budget_watch_pct" json:"budget_watch_pct"`
 	// IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. Canary has no issuer data: an ungrouped symbol is its own issuer.
 	IssuerGroups map[string][]string `toml:"issuer_groups" json:"issuer_groups"`
 	// Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names.
 	Clusters map[string][]string `toml:"clusters" json:"clusters"`
 
-	// CashReserveMinPct is rule 3's cash reserve: broker-reported available funds as a percent of NLV.
+	// CashReserveMinPct watches strictly below this broker-reported available-funds percentage of NLV; equality passes. It is not settled cash. Missing current funds are unknown; this row never blocks a buy.
 	CashReserveMinPct float64 `toml:"cash_reserve_min_pct" json:"cash_reserve_min_pct"`
 
-	// OptionLineWatchPct is rule 2's watch level: one long option position at risk (the higher of price paid and value) as a percent of NLV.
+	// OptionLineWatchPct watches at or above this long-option premium at risk (the higher of cost and current value) as a percent of NLV. Missing cost falls back to current value; protection uses the separate hedge bands.
 	OptionLineWatchPct float64 `toml:"option_line_watch_pct" json:"option_line_watch_pct"`
-	// OptionLineActPct is rule 2's act level for one long option position; the budget governor's per-line limit under basis = rulebook.
+	// OptionLineActPct acts at or above this long-option premium at risk as a percent of NLV. It also supplies the budget governor's per-line limit under basis = rulebook.
 	OptionLineActPct float64 `toml:"option_line_act_pct" json:"option_line_act_pct"`
-	// HedgeLineWatchPct is rule 2's watch level for a protection position, which rule 12 sizes.
+	// HedgeLineWatchPct watches at or above this protection option's premium at risk as a percent of NLV. Rule 12 separately measures total hedge size.
 	HedgeLineWatchPct float64 `toml:"hedge_line_watch_pct" json:"hedge_line_watch_pct"`
-	// HedgeLineActPct is rule 2's act level for a protection position.
+	// HedgeLineActPct acts at or above this protection option's premium at risk as a percent of NLV.
 	HedgeLineActPct float64 `toml:"hedge_line_act_pct" json:"hedge_line_act_pct"`
 
-	// RunwayWatchDTE is rule 5's watch horizon: a long option at this many calendar days to expiry or fewer watches.
+	// RunwayWatchDTE watches long options at this many calendar days to expiry or fewer. ITM and eligible hedge legs are exempt; excessive hedging removes the hedge exemption.
 	RunwayWatchDTE int `toml:"runway_watch_dte" json:"runway_watch_dte"`
-	// RunwayActDTE is rule 5's act horizon: at this many calendar days to expiry or fewer the option acts.
+	// RunwayActDTE acts on the same long-option scope at this many calendar days to expiry or fewer.
 	RunwayActDTE int `toml:"runway_act_dte" json:"runway_act_dte"`
-	// RunwayITMDeltaFloor is the delta from which rule 5 treats an option as in the money.
+	// RunwayITMDeltaFloor exempts a long option when absolute delta is at least this fraction (0.70 means 70 delta). Missing delta gives no ITM exemption.
 	RunwayITMDeltaFloor float64 `toml:"runway_itm_delta_floor" json:"runway_itm_delta_floor"`
 
-	// ShortPutActLinePctNLV is rule 7's act level: one short put's assignment notional through earnings as a percent of NLV.
+	// ShortPutActLinePctNLV acts when one short put spanning earnings has assignment notional at or above this percent of NLV. Short calls spanning earnings always act.
 	ShortPutActLinePctNLV float64 `toml:"short_put_act_line_pct_nlv" json:"short_put_act_line_pct_nlv"`
-	// ShortPutActNamePctNLV is rule 7's act level for one name's short puts together.
+	// ShortPutActNamePctNLV acts when a name's short puts spanning earnings together reach this assignment notional as a percent of NLV.
 	ShortPutActNamePctNLV float64 `toml:"short_put_act_name_pct_nlv" json:"short_put_act_name_pct_nlv"`
 
-	// EarningsFreezeSessions is rule 8's window: US sessions before earnings.
+	// EarningsFreezeSessions acts on an issuer already at rule 1's watch/act level when earnings are zero through this many US sessions away, inclusive. Missing applicable earnings or size evidence is unknown. Freeze is a finding, not an order prohibition.
 	EarningsFreezeSessions int `toml:"earnings_freeze_sessions" json:"earnings_freeze_sessions"`
 
-	// RedOnGreenNameDropPct is rule 9's holding day change (negative percent).
+	// RedOnGreenNameDropPct watches a stock-leg day change at or below this negative percent when SPY meets red_on_green_spy_up_pct. Missing stock-leg tape is not screened; absent SPY makes the row unknown. US session only.
 	RedOnGreenNameDropPct float64 `toml:"red_on_green_name_drop_pct" json:"red_on_green_name_drop_pct"`
-	// RedOnGreenSPYUpPct is rule 9's SPY day change (percent).
+	// RedOnGreenSPYUpPct activates rule 9 when SPY's day gain is at or above this percent; the holding must also meet its drop threshold.
 	RedOnGreenSPYUpPct float64 `toml:"red_on_green_spy_up_pct" json:"red_on_green_spy_up_pct"`
-	// WinnerTrimDayUpPct is rule 10's holding day gain (percent).
+	// WinnerTrimDayUpPct watches a holding whose stock-leg day gain is at or above this percent and whose absolute stock-equivalent exposure meets winner_trim_min_exposure_pct. Missing tape is not screened. US session only; no automatic trim is authorised here.
 	WinnerTrimDayUpPct float64 `toml:"winner_trim_day_up_pct" json:"winner_trim_day_up_pct"`
-	// WinnerTrimMinExpoPct is rule 10's minimum position size as a percent of NLV.
+	// WinnerTrimMinExpoPct is rule 10's inclusive minimum absolute stock-equivalent exposure as a percent of NLV. A qualifying gain with unmeasured size remains unknown.
 	WinnerTrimMinExpoPct float64 `toml:"winner_trim_min_exposure_pct" json:"winner_trim_min_exposure_pct"`
 
 	// RegimeCalm holds rules 4 and 12 levels in a calm regime. A carried or
@@ -128,24 +127,24 @@ type RulebookPolicy struct {
 	RegimeEarlyWarning RegimeThresholds `toml:"regime_early_warning" json:"regime_early_warning"`
 	// RegimeConfirmed holds rules 4 and 12 levels in a confirmed-stress regime.
 	RegimeConfirmed RegimeThresholds `toml:"regime_confirmed" json:"regime_confirmed"`
-	// RegimeStageMaxAgeMinutes bounds trust in the latched regime stage; older stages evaluate as carried.
+	// RegimeStageMaxAgeMinutes bounds trust in the latched regime stage, in minutes. Carried or missing stages evaluate both the carried set and calm set, keeping the worse verdict; stale evidence cannot relax a band.
 	RegimeStageMaxAgeMinutes int `toml:"regime_stage_max_age_minutes" json:"regime_stage_max_age_minutes"`
 	// OverhedgeMultiple is the over-hedge boundary as a multiple of rule 12's band top: rule 12 acts above
 	// this multiple of the current regime's top, and index puts above this multiple of the widest regime's
 	// top count as directional exposure rather than protection.
 	OverhedgeMultiple float64 `toml:"overhedge_multiple" json:"overhedge_multiple"`
 
-	// ExitWatchLossPct is rule 13's watch level: percent of premium paid lost on a long option.
+	// ExitWatchLossPct watches at or above this percentage of premium paid lost on a long option. Protection-classified hedges are exempt.
 	ExitWatchLossPct float64 `toml:"exit_watch_loss_pct" json:"exit_watch_loss_pct"`
-	// ExitActLossPct is rule 13's act level; the option loss exit proposes a sale here.
+	// ExitActLossPct acts at or above this percentage of premium paid lost on a non-protection long option. The loss-exit bucket may propose a sale; a separate permission check governs submission.
 	ExitActLossPct float64 `toml:"exit_act_loss_pct" json:"exit_act_loss_pct"`
 
-	// FXExposureWatchPct is rule 14's watch level: NLV held in other currencies as a percent of NLV.
+	// FXExposureWatchPct watches at or above this magnitude of combined non-base-currency exposure as a percent of NLV. No act tier; missing account or currency evidence remains unknown.
 	FXExposureWatchPct float64 `toml:"fx_exposure_watch_pct" json:"fx_exposure_watch_pct"`
 
-	// NetExposureWatchPct is rule 15's watch level: the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV.
+	// NetExposureWatchPct watches at or above this magnitude of the whole book's signed stock-equivalent exposure, including hedges, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass.
 	NetExposureWatchPct float64 `toml:"net_exposure_watch_pct" json:"net_exposure_watch_pct"`
-	// NetExposureActPct is rule 15's act level for the whole book's net exposure.
+	// NetExposureActPct acts at or above this magnitude of net exposure as a percent of NLV.
 	NetExposureActPct float64 `toml:"net_exposure_act_pct" json:"net_exposure_act_pct"`
 
 	// HedgeSymbols lists the index underlyings whose long puts can classify as protection (rules 1, 2, 5, 12, 13).
@@ -154,7 +153,7 @@ type RulebookPolicy struct {
 	// GreeksGapFloorPctNLV is the materiality floor: a name whose legs missing delta exceed this share of NLV makes exposure rules unknown rather than understated.
 	GreeksGapFloorPctNLV float64 `toml:"greeks_gap_floor_pct_nlv" json:"greeks_gap_floor_pct_nlv"`
 
-	// EarningsStaleDays bounds trust in a fetched earnings date; older dates make rules 6-8 unknown.
+	// EarningsStaleDays is retired compatibility metadata; no rule reads it. Earnings provider evidence older than 24 hours is stale; this key cannot change that.
 	EarningsStaleDays int `toml:"earnings_stale_days" json:"earnings_stale_days"`
 }
 
@@ -430,7 +429,7 @@ func (p RulebookPolicy) IsHedgeSymbol(sym string) bool {
 // above its act level, or a mode outside the closed set. It never repairs a
 // value; the caller keeps the policy it already had.
 func (p RulebookPolicy) Validate() error {
-	if p.Kind != "" && p.Kind != RulebookPolicyKind {
+	if p.Kind != "" && p.Kind != RulebookPolicyKind && p.Kind != "ibkr.rulebook_policy" {
 		return fmt.Errorf("kind must be %q", RulebookPolicyKind)
 	}
 	if p.SchemaVersion != 0 && p.SchemaVersion != 1 {
@@ -529,8 +528,6 @@ func (p RulebookPolicy) Validate() error {
 		return fmt.Errorf("earnings_freeze_sessions must be at least 0")
 	case p.RegimeStageMaxAgeMinutes < 1:
 		return fmt.Errorf("regime_stage_max_age_minutes must be at least 1")
-	case p.EarningsStaleDays < 1:
-		return fmt.Errorf("earnings_stale_days must be at least 1")
 	case p.HedgeMinDays < 0 || p.HedgeMinDays > 3650:
 		return fmt.Errorf("hedge_min_days must be between 0 and 3650")
 	}
@@ -584,4 +581,11 @@ func (p RulebookPolicy) Validate() error {
 		}
 	}
 	return nil
+}
+
+// EffectiveFingerprintKey excludes the document revision and the retired
+// earnings knob, while retaining every live rule and stable policy identity.
+func (p RulebookPolicy) EffectiveFingerprintKey() string {
+	p.Version, p.EarningsStaleDays = 0, 0
+	return p.FingerprintKey()
 }

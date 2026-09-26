@@ -430,6 +430,12 @@ func enableTestAlertDelivery(t *testing.T, store *Store) {
 		store.data.AlertDelivery.Baselines = make(map[string]alertDeliveryBaseline)
 	}
 	baselineAt := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	migrateAlertSourceBaselines(store.data.AlertDelivery)
+	sources := make(map[rpc.AlertSource]alertDeliveryBaseline)
+	for _, source := range []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime, rpc.AlertSourceRulebook, rpc.AlertSourceRiskPolicy, rpc.AlertSourceProtection, rpc.AlertSourceOrderIntegrity, rpc.AlertSourceReconciliation, rpc.AlertSourceGovernance, rpc.AlertSourceDataHealth, rpc.AlertSourceDelivery} {
+		sources[source] = alertDeliveryBaseline{EstablishedAt: baselineAt, SnapshotAsOf: baselineAt}
+	}
+	store.data.AlertDelivery.SourceBaselines[defaultTestAlertAuthorityScope] = sources
 	store.data.AlertDelivery.Baselines[defaultTestAlertAuthorityScope] = alertDeliveryBaseline{
 		EstablishedAt: baselineAt,
 		SnapshotAsOf:  baselineAt,

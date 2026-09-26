@@ -127,6 +127,7 @@ func (m *rulebookPolicyManager) Active() (risk.RulebookPolicy, rpc.RulebookPolic
 	st := m.status
 	st.Overrides = slices.Clone(m.status.Overrides)
 	st.Missing = slices.Clone(m.status.Missing)
+	st.Diagnostics = slices.Clone(m.status.Diagnostics)
 	return p, st
 }
 
@@ -166,13 +167,15 @@ func (m *rulebookPolicyManager) reload() {
 		// The first file replaces the baseline whatever its version; later
 		// edits need a higher policy_version.
 		m.adopt(read, now)
-	case read.policy.FingerprintKey() == m.active.FingerprintKey():
-		st := rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusActive, read.source, m.path, m.status.Overrides, now)
+	case read.policy.Version == m.active.Version && read.policy.EffectiveFingerprintKey() == m.active.EffectiveFingerprintKey():
+		m.active = read.policy
+		st := rulebookPolicyStatusFor(m.active, rpc.RulebookPolicyStatusActive, read.source, m.path, read.overrides, now)
 		if read.source == rulebookPolicySourceDefault {
 			st.Status = rpc.RulebookPolicyStatusDefault
 		}
 		st.LoadedAt = m.status.LoadedAt
 		st.Message = retiredRulebookKeysNote(read.retired)
+		st.Diagnostics = retiredRulebookDiagnostics(read.retired)
 		st.Missing, st.Review = slices.Clone(read.missing), read.review
 		m.status = st
 	default:
@@ -198,6 +201,7 @@ func (m *rulebookPolicyManager) adopt(read rulebookPolicyRead, now time.Time) {
 	m.status = rulebookPolicyStatusFor(read.policy, status, read.source, m.path, read.overrides, now)
 	m.status.LoadedAt = now
 	m.status.Message = retiredRulebookKeysNote(read.retired)
+	m.status.Diagnostics = retiredRulebookDiagnostics(read.retired)
 	m.status.Missing, m.status.Review = slices.Clone(read.missing), read.review
 }
 
@@ -251,6 +255,9 @@ func parseRulebookPolicy(data []byte) (rulebookPolicyRead, error) {
 		return rulebookPolicyRead{}, fmt.Errorf("parse: %w", err)
 	}
 	var unknown, retired []string
+	if md.IsDefined("earnings_stale_days") {
+		retired = append(retired, "earnings_stale_days")
+	}
 	for _, k := range md.Undecoded() {
 		if name := k.String(); retiredRulebookKey(name) {
 			retired = append(retired, name)
@@ -298,6 +305,9 @@ const retiredCashSellOnlyReason = "no rule reads cash_sell_only_pct (the cash re
 // canary policy default rulebook wrote until v3.11.1. Loading ignores it and
 // says so, set refuses it, and any edit removes it.
 func retiredRulebookKey(key string) bool {
+	if key == "earnings_stale_days" {
+		return true
+	}
 	set, leaf, ok := strings.Cut(key, ".")
 	return ok && leaf == "cash_sell_only_pct" &&
 		(set == "regime_calm" || set == "regime_early_warning" || set == "regime_confirmed")
@@ -306,18 +316,35 @@ func retiredRulebookKey(key string) bool {
 // retiredRulebookKeysNote is the status note for the retired keys a file
 // carries, or "" when it carries none.
 func retiredRulebookKeysNote(keys []string) string {
-	if len(keys) == 0 {
-		return ""
+	return policyDiagnosticsMessage(retiredRulebookDiagnostics(keys))
+}
+
+func retiredRulebookKeyReason(key string) string {
+	if key == "earnings_stale_days" {
+		return "no rule reads earnings_stale_days; earnings freshness follows the provider's 24-hour check"
 	}
-	return fmt.Sprintf("ignored %s: %s; canary rules policy reset KEY removes it", strings.Join(keys, ", "), retiredCashSellOnlyReason)
+	return retiredCashSellOnlyReason
+}
+
+func retiredRulebookDiagnostics(keys []string) []rpc.PolicyDiagnostic {
+	var diagnostics []rpc.PolicyDiagnostic
+	for _, key := range keys {
+		feature := "cash_reserve"
+		if key == "earnings_stale_days" {
+			feature = "earnings"
+		}
+		diagnostics = append(diagnostics, rpc.PolicyDiagnostic{Key: key, Feature: feature, Message: "ignored retired key: " + retiredRulebookKeyReason(key) + "; canary rules policy reset KEY removes it"})
+	}
+	return diagnostics
 }
 
 func rulebookPolicyStatusFor(p risk.RulebookPolicy, status, source, path string, overrides []string, now time.Time) rpc.RulebookPolicyStatus {
 	return rpc.RulebookPolicyStatus{
 		Status: status, Source: source, Path: path,
 		PolicyID: p.ID, PolicyVersion: p.Version,
-		Fingerprint: rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: p.FingerprintKey()},
-		Overrides:   slices.Clone(overrides), CheckedAt: now,
+		Fingerprint:          rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: p.FingerprintKey()},
+		EffectiveFingerprint: rpc.Fingerprint{Version: rpc.EffectivePolicyFingerprintVersion, Key: p.EffectiveFingerprintKey()},
+		Overrides:            slices.Clone(overrides), CheckedAt: now,
 	}
 }
 

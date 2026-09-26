@@ -170,12 +170,12 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	}
 	bridgeFlows := 0.0
 	var bridgeEvents []capitalEventV1
-	if pol.PolicyVersion >= 3 {
+	if pol.Semantics().StatementReconciliation {
 		events, bridgeEvents, bridgeFlows = splitV3ReconEvents(events, replayCtx, res.CoverageTo)
 	}
 	matchedExceptions, matched := matchReconFlows(matchableFlows, events, rc)
 	var confirmed []rpc.ReconException
-	if pol.PolicyVersion >= 3 {
+	if pol.Semantics().StatementReconciliation {
 		kept := matchedExceptions[:0]
 		for _, ex := range matchedExceptions {
 			if ex.Category == rpc.ReconMissingFromLedger {
@@ -212,7 +212,7 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 	for _, flow := range matchableFlows {
 		statementFlows += flow.amountBase
 	}
-	if pol.PolicyVersion >= 3 {
+	if pol.Semantics().StatementReconciliation {
 		res.StatementCumFlowsBase = &statementFlows
 	}
 	res.Equity = s.reconEquityCheck(merged.equityByDay, scope)
@@ -225,6 +225,7 @@ func (s *Server) buildReconReportWithSnapshotContext(ctx context.Context) (*rpc.
 		EquityDayTotals: equityDayTotals(merged.equityByDay),
 		NudgeConfirmedFlows: nudgeConfirmedFlowSnapshot{
 			PolicyVersion:     pol.PolicyVersion,
+			ProcessReminders:  pol.Semantics().ProcessReminders,
 			PolicyIdentity:    nudgePolicyIdentity(pol),
 			ReportStatus:      res.Status,
 			ReportIdentity:    opaqueIdentity("recon-report", res.ReportID),
@@ -707,7 +708,7 @@ func reconReportID(exceptions, baseline, confirmed []rpc.ReconException, stateme
 	if pol != nil {
 		fmt.Fprintf(h, "%s|", pol.FingerprintKey())
 	}
-	if pol == nil || pol.PolicyVersion < 3 {
+	if pol == nil || !pol.Semantics().StatementReconciliation {
 		for _, ex := range exceptions {
 			fmt.Fprintf(h, "%s|%s|%t\n", ex.LineID, ex.Category, ex.Dismissed)
 		}

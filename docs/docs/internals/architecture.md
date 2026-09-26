@@ -197,7 +197,7 @@ durability and upgrade mechanics, and current recovery limits.
 
 | Class | Default location | Owner and representative contents |
 |---|---|---|
-| Operator configuration | `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`; policy defaults under `~/.config/ibkr/policies/` | Gateway/account/client pins, daemon/trading settings, protection/opportunity policy, the operator-authored `risk-policy.toml`, the optional private terminal-evidence import path, and the separate `flex-token` secret. The installer and each daemon start write any missing policy file from Canary's template and migrate existing ones in place, never overwriting one. The risk policy has no embedded default: its template holds placeholders only, and missing approval stays unapproved. |
+| Operator configuration | `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`; policy defaults under `~/.config/ibkr/policies/` | Gateway/account/client pins, daemon/trading settings, protection/opportunity policy, the operator-authored `risk-policy.toml`, the optional private terminal-evidence import path, and the separate `flex-token` secret. The installer and each daemon start write any missing policy file from Canary's template and leave existing ones untouched; an explicitly reviewed conversion keeps a backup and preserves effective settings. The risk policy has no embedded default: its template holds placeholders only, and missing approval stays unapproved. |
 | Daemon durable authority | `$XDG_STATE_HOME/ibkr/daemon.db` (SQLite, WAL), falling back to `~/.local/state/ibkr/daemon.db` | Sole live daemon authority for platform settings, risk-capital and governance state, the last-good Regime publication and projection receipt, source-neutral alert episodes, trading readiness, orders and token tombstones, proposals and opportunities, decision/event history, retained observations, and statement projections. It is not delete-safe and never falls back to legacy files. |
 | Original broker evidence | `$XDG_STATE_HOME/ibkr/statements/flex-*.xml` | Immutable retained Flex statements. New filenames carry only an opaque query fingerprint; pre-fingerprint XML is preserved but cannot certify a configured query until refetched. SQLite scopes the current inventory and immutable file/equity/typed-record/coverage versions by query generation, and stores explicit per-period position snapshots; it does not replace the XML evidence claim. |
 | Recovery artifacts | `$XDG_STATE_HOME/ibkr/backups/`, `$XDG_STATE_HOME/ibkr/legacy-sealed/<cutover-id>/`, and `$XDG_STATE_HOME/ibkr/daemon.db.head` | Verified database backups, hashed pre-cutover artifacts, and the external monotonic-head watermark. They are recovery and anti-rollback material only, never normal read fallbacks or dual-write targets. |
@@ -276,8 +276,9 @@ typed source coverage. The app keeps the separate private delivery authority of
 one inbox, unread cursor, per-target attempt and receipt ledger, delivery health
 projection, and serialized dispatcher for every alert source.
 
-The first complete, current snapshot in each authority scope sets a cutover
-baseline. Conditions already active at that boundary remain visible but cannot
+The first current observation of each source in each authority scope sets that
+source's cutover baseline. A missing sibling source does not hold it back.
+Conditions already active at that boundary remain visible but cannot
 create a backlog push. Later delivery requires a current candidate, current and
 covered evidence from that exact source, an allowed app notification mode, an
 active target, and no prior accepted receipt. The dispatcher durably reserves

@@ -105,7 +105,7 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 	}
 	for key := range before {
 		if retiredRulebookKey(key) {
-			table, leaf, _ := strings.Cut(key, ".")
+			table, leaf := splitRulebookKey(key)
 			doc.remove(table, leaf)
 		}
 	}
@@ -132,7 +132,7 @@ func EditRulebookPolicy(path string, assignments, resets []string, resetAll bool
 			return RulebookPolicyEdit{}, fmt.Errorf("%q is not KEY=VALUE", assignment)
 		}
 		if retiredRulebookKey(key) {
-			return RulebookPolicyEdit{}, fmt.Errorf("%s is retired: %s", key, retiredCashSellOnlyReason)
+			return RulebookPolicyEdit{}, fmt.Errorf("%s is retired: %s", key, retiredRulebookKeyReason(key))
 		}
 		table, leaf := splitRulebookKey(key)
 		if (table == "issuer_groups" || table == "clusters") && leaf != "" {

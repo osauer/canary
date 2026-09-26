@@ -56,14 +56,16 @@ const (
 // OpportunityPolicyStatus reports the loaded policy identity and blockers. A
 // status of active is required before absence of blockers is meaningful.
 type OpportunityPolicyStatus struct {
-	Kind          string      `json:"kind,omitempty"`
-	Status        string      `json:"status"`
-	PolicyID      string      `json:"policy_id,omitempty"`
-	PolicyVersion int         `json:"policy_version,omitempty"`
-	Profile       string      `json:"profile,omitempty"`
-	Fingerprint   Fingerprint `json:"fingerprint,omitzero"`
-	Source        string      `json:"source,omitempty"`
-	Path          string      `json:"path,omitempty"`
+	Kind                 string             `json:"kind,omitempty"`
+	Status               string             `json:"status"`
+	PolicyID             string             `json:"policy_id,omitempty"`
+	PolicyVersion        int                `json:"policy_version,omitempty"`
+	Profile              string             `json:"profile,omitempty"`
+	Fingerprint          Fingerprint        `json:"fingerprint,omitzero"`
+	EffectiveFingerprint Fingerprint        `json:"effective_fingerprint,omitzero"`
+	Diagnostics          []PolicyDiagnostic `json:"diagnostics,omitempty"`
+	Source               string             `json:"source,omitempty"`
+	Path                 string             `json:"path,omitempty"`
 	// Review is PolicyReviewUnreviewed while the file is Canary's default
 	// template that nobody has reviewed yet.
 	Review        string           `json:"review,omitempty"`
@@ -99,23 +101,26 @@ type OpportunitySourceFingerprints struct {
 // LoadedFromState identifies retained output; callers must still honor status
 // and blockers rather than treating persistence as freshness.
 type OpportunitySnapshot struct {
-	Kind               string                        `json:"kind"`
-	SchemaVersion      string                        `json:"schema_version"`
-	AsOf               time.Time                     `json:"as_of"`
-	Revision           string                        `json:"revision"`
-	AccountID          string                        `json:"account_id,omitempty"`
-	AccountMode        string                        `json:"account_mode,omitempty"`
-	PolicyID           string                        `json:"policy_id,omitempty"`
-	PolicyVersion      int                           `json:"policy_version,omitempty"`
-	PolicyFingerprint  Fingerprint                   `json:"policy_fingerprint,omitzero"`
-	PolicyStatus       OpportunityPolicyStatus       `json:"policy_status"`
-	Status             OpportunityStatus             `json:"status"`
-	Trading            TradingStatus                 `json:"trading"`
-	SourceFingerprints OpportunitySourceFingerprints `json:"source_fingerprints,omitzero"`
-	Opportunities      []Opportunity                 `json:"opportunities"`
-	Counts             OpportunityCounts             `json:"counts"`
-	Blockers           []TradingBlocker              `json:"blockers,omitempty"`
-	LoadedFromState    bool                          `json:"loaded_from_state,omitempty"`
+	Kind          string    `json:"kind"`
+	SchemaVersion string    `json:"schema_version"`
+	AsOf          time.Time `json:"as_of"`
+	Revision      string    `json:"revision"`
+	// EffectiveRevision proves equivalence when an existing public revision is retained across a fingerprint-format upgrade.
+	EffectiveRevision          string                        `json:"effective_revision,omitempty"`
+	AccountID                  string                        `json:"account_id,omitempty"`
+	AccountMode                string                        `json:"account_mode,omitempty"`
+	PolicyID                   string                        `json:"policy_id,omitempty"`
+	PolicyVersion              int                           `json:"policy_version,omitempty"`
+	PolicyFingerprint          Fingerprint                   `json:"policy_fingerprint,omitzero"`
+	EffectivePolicyFingerprint Fingerprint                   `json:"effective_policy_fingerprint,omitzero"`
+	PolicyStatus               OpportunityPolicyStatus       `json:"policy_status"`
+	Status                     OpportunityStatus             `json:"status"`
+	Trading                    TradingStatus                 `json:"trading"`
+	SourceFingerprints         OpportunitySourceFingerprints `json:"source_fingerprints,omitzero"`
+	Opportunities              []Opportunity                 `json:"opportunities"`
+	Counts                     OpportunityCounts             `json:"counts"`
+	Blockers                   []TradingBlocker              `json:"blockers,omitempty"`
+	LoadedFromState            bool                          `json:"loaded_from_state,omitempty"`
 }
 
 // OpportunityCounts summarizes the opportunities in the enclosing revision.
@@ -413,14 +418,15 @@ type TradeProposalVetoResult struct {
 
 // ProtectionPolicyStatus reports the loaded policy identity and blockers.
 type ProtectionPolicyStatus struct {
-	Kind          string      `json:"kind,omitempty"`
-	Status        string      `json:"status"`
-	PolicyID      string      `json:"policy_id,omitempty"`
-	PolicyVersion int         `json:"policy_version,omitempty"`
-	Profile       string      `json:"profile,omitempty"`
-	Fingerprint   Fingerprint `json:"fingerprint,omitzero"`
-	Source        string      `json:"source,omitempty"`
-	Path          string      `json:"path,omitempty"`
+	Kind                 string      `json:"kind,omitempty"`
+	Status               string      `json:"status"`
+	PolicyID             string      `json:"policy_id,omitempty"`
+	PolicyVersion        int         `json:"policy_version,omitempty"`
+	Profile              string      `json:"profile,omitempty"`
+	Fingerprint          Fingerprint `json:"fingerprint,omitzero"`
+	EffectiveFingerprint Fingerprint `json:"effective_fingerprint,omitzero"`
+	Source               string      `json:"source,omitempty"`
+	Path                 string      `json:"path,omitempty"`
 	// Review is PolicyReviewUnreviewed while the file is Canary's default
 	// template that nobody has reviewed yet; empty once the owner has.
 	Review        string    `json:"review,omitempty"`
@@ -466,30 +472,34 @@ type AutoTradeStatus struct {
 // TradeProposalSourceFingerprints identifies the snapshots used to derive a
 // proposal revision. Nil members mean that source supplied no identity.
 type TradeProposalSourceFingerprints struct {
-	Account      *Fingerprint `json:"account,omitempty"`
-	Positions    *Fingerprint `json:"positions,omitempty"`
-	Rulebook     *Fingerprint `json:"rulebook,omitempty"`
-	Regime       *Fingerprint `json:"regime,omitempty"`
-	MarketEvents *Fingerprint `json:"market_events,omitempty"`
+	Account           *Fingerprint `json:"account,omitempty"`
+	Positions         *Fingerprint `json:"positions,omitempty"`
+	Rulebook          *Fingerprint `json:"rulebook,omitempty"`
+	EffectiveRulebook Fingerprint  `json:"effective_rulebook,omitzero"`
+	Regime            *Fingerprint `json:"regime,omitempty"`
+	MarketEvents      *Fingerprint `json:"market_events,omitempty"`
 }
 
 // TradeProposalSnapshot is one daemon-authored, account-and-mode-scoped
 type TradeProposalSnapshot struct {
-	Kind               string                          `json:"kind"`
-	SchemaVersion      string                          `json:"schema_version"`
-	AsOf               time.Time                       `json:"as_of"`
-	Revision           string                          `json:"revision"`
-	AccountID          string                          `json:"account_id,omitempty"`
-	AccountMode        string                          `json:"account_mode,omitempty"`
-	PolicyID           string                          `json:"policy_id,omitempty"`
-	PolicyVersion      int                             `json:"policy_version,omitempty"`
-	PolicyFingerprint  Fingerprint                     `json:"policy_fingerprint,omitzero"`
-	PolicyStatus       ProtectionPolicyStatus          `json:"policy_status"`
-	AutoTrade          AutoTradeStatus                 `json:"auto_trade"`
-	Trading            TradingStatus                   `json:"trading"`
-	SourceFingerprints TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
-	MarketEvents       *MarketEventsResult             `json:"market_events,omitempty"`
-	Proposals          []TradeProposal                 `json:"proposals"`
+	Kind          string    `json:"kind"`
+	SchemaVersion string    `json:"schema_version"`
+	AsOf          time.Time `json:"as_of"`
+	Revision      string    `json:"revision"`
+	// EffectiveRevision proves equivalence when an existing public revision is retained across a fingerprint-format upgrade.
+	EffectiveRevision          string                          `json:"effective_revision,omitempty"`
+	AccountID                  string                          `json:"account_id,omitempty"`
+	AccountMode                string                          `json:"account_mode,omitempty"`
+	PolicyID                   string                          `json:"policy_id,omitempty"`
+	PolicyVersion              int                             `json:"policy_version,omitempty"`
+	PolicyFingerprint          Fingerprint                     `json:"policy_fingerprint,omitzero"`
+	EffectivePolicyFingerprint Fingerprint                     `json:"effective_policy_fingerprint,omitzero"`
+	PolicyStatus               ProtectionPolicyStatus          `json:"policy_status"`
+	AutoTrade                  AutoTradeStatus                 `json:"auto_trade"`
+	Trading                    TradingStatus                   `json:"trading"`
+	SourceFingerprints         TradeProposalSourceFingerprints `json:"source_fingerprints,omitzero"`
+	MarketEvents               *MarketEventsResult             `json:"market_events,omitempty"`
+	Proposals                  []TradeProposal                 `json:"proposals"`
 	// OptionHedges lists the held long options the exit engine holds as
 	// portfolio protection. They are standing facts, not work: no exit rule
 	// applies to them and no order follows from them. A hedge the whole-book

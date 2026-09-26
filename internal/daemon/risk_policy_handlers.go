@@ -455,15 +455,15 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 	if s.now != nil {
 		now = s.now().UTC()
 	}
-	authority := s.currentNudgeAuthority(now)
-	if authority.policy == nil {
+	evaluation := s.acceptedRiskPolicy(now)
+	if evaluation.policy == nil {
 		return nil // unapproved constitution: policy show owns that disclosure, not preview noise
 	}
 	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") &&
 		strings.EqualFold(draft.Contract.Right, "P") && s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
 		return nil // hedge entry stays available under a drawdown breach
 	}
-	v := authority.capitalNudge.Report
+	v := evaluation.capitalNudge.Report
 	var severity, tier string
 	switch v.Tier {
 	case risk.CapitalTierWarn:
@@ -477,6 +477,7 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 			if s.shadowBookkeepingHook != nil {
 				s.shadowBookkeepingHook()
 			}
+			authority := s.nudgeAuthorityForPolicy(evaluation, now)
 			if authority.eligible && authority.capitalNudge.LatchOpen {
 				_ = s.nudges.recordShadow(authority.policyIdentity, authority.capitalNudge.Episode, true, false, true)
 			}
@@ -493,7 +494,7 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 		Scope:    "risk_policy",
 		Severity: severity,
 		Message:  fmt.Sprintf("Drawdown %s tier: %s of declared risk capital consumed from the adjusted peak; this order increases risk.", tier, consumed),
-		Impact:   fmt.Sprintf("Advisory constitution cause (enforcement %s); submit eligibility is unaffected.", authority.policy.EffectiveBlockEnforcement()),
+		Impact:   fmt.Sprintf("Advisory constitution cause (enforcement %s); submit eligibility is unaffected.", evaluation.policy.EffectiveBlockEnforcement()),
 		Action:   "Run `canary policy show --explain` for the capital state and ladder.",
 	}}
 }

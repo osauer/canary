@@ -387,7 +387,8 @@ canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
 canary policy correct-peak (--from-statements|--peak F) --reason S
 canary policy default rulebook|protection|opportunity|constitution
-canary policy ensure [--dry-run] [--json]
+canary policy ensure [--dry-run
+--apply-plan FILE] [--json]
 ```
 
 **Subcommands**
@@ -417,6 +418,7 @@ canary policy ensure [--dry-run] [--json]
 | `--peak` | yes | - |
 | `--from-statements` | no | - |
 | `--dry-run` | no | - |
+| `--apply-plan` | yes | - |
 | `--config` | yes | - |
 | `--json` | no | - |
 

@@ -106,6 +106,8 @@ while IFS=$'\t' read -r id fix mutation_patch package test_name expected_failure
 	fi
 	echo "regression-spine: KILLED $id via $expected_failure"
 	killed=$((killed + 1))
+	# Keep one disposable checkout at a time; successful cases need no source copy.
+	rm -rf "$case_root"
 done <"$manifest"
 
 echo "regression-spine: OK ($killed/$cases historical regressions killed)"

@@ -32,7 +32,7 @@ func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 	s.riskCapital.EnsureLoaded()
 	mgr := s.riskPolicies.snapshot()
 	pol := mgr.policy
-	if pol == nil || pol.PolicyVersion < 3 {
+	if pol == nil || !pol.Semantics().StatementReconciliation {
 		return false
 	}
 
@@ -84,7 +84,7 @@ func (s *Server) evaluateRiskPolicyV3Reconciliation() (extended bool) {
 }
 
 func autoExtendEligible(policyStatus string, pol *risk.Constitution, rep *rpc.ReconResult, now time.Time) bool {
-	if policyStatus != rpc.RiskPolicyStatusActive || pol == nil || pol.PolicyVersion < 3 || pol.Recon.MaxEquityDivergencePct == nil || rep == nil {
+	if policyStatus != rpc.RiskPolicyStatusActive || pol == nil || !pol.Semantics().StatementReconciliation || pol.Recon.MaxEquityDivergencePct == nil || rep == nil {
 		return false
 	}
 	if rep.Status != rpc.ReconStatusActive || !statementsHealthOK(rep.InputHealth) || rep.Unresolved != 0 || rep.ReportID == "" {
