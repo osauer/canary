@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 06:21 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, 2026-09-26). The
+Updated: 2026-09-26 07:43 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13 and expiry-runway amendment 14, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -212,6 +212,18 @@ contradiction:
     thresholds themselves are unchanged, so the baseline stays `rulebook-v3`
     and the fingerprint projection stays `rulebook-fp-v5`.
 
+14. Amendment (2026-09-26, operator decision): rule 5 triggers when it
+    reaches its limits. The runway counts down, so "at or above" from
+    amendment 13 becomes "at or within": a long option watches at 14 days
+    to expiry or fewer (was fewer than 14) and acts at 7 days or fewer (was
+    fewer than 7). Evidence reads "14 days or fewer" and "7 days or fewer",
+    quoting the row's threshold, which stays as amendment 13 set it: 7 on an
+    act row, 14 otherwise. An option at exactly 14 or exactly 7 days moves
+    up one band; nothing else changes. Rule 12 stays as it is: its upper
+    edge is also the protection-versus-directional classification boundary
+    (amendment 12). The thresholds are unchanged, so the baseline stays
+    `rulebook-v3` and the fingerprint projection stays `rulebook-fp-v5`.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
@@ -232,7 +244,7 @@ regime-conditionality notes).
 | 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act ≥ 10%; protection watch ≥ 15%, act ≥ 25% | track |
 | 3 | `cash_sell_only` | broker AvailableFunds / NLV; the stable id is retained for history compatibility | watch < 75% | alert |
 | 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act ≥ 15 / 12 / 10% by regime | alert |
-| 5 | `expiry_runway` | long option DTE < 14 unless ≥70-delta ITM or protection-classified | watch < 14 DTE; act < 7 DTE | alert |
+| 5 | `expiry_runway` | long option DTE ≤ 14 unless ≥70-delta ITM or protection-classified | watch ≤ 14 DTE; act ≤ 7 DTE | alert |
 | 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |
 | 7 | `overwrite_earnings` | short option spanning earnings; short-put assignment notional ≥10% NLV line or ≥20% name escalates | see ET semantics below | alert |
 | 8 | `earnings_size_freeze` | underlying ≤3 US sessions from earnings while rule 1 is breached | ≤3 sessions | track |

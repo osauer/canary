@@ -129,9 +129,9 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | *(top level)* | `red_on_green_name_drop_pct` | `float64` | RedOnGreenNameDropPct is rule 9's holding day change (negative percent). |
 | *(top level)* | `red_on_green_spy_up_pct` | `float64` | RedOnGreenSPYUpPct is rule 9's SPY day change (percent). |
 | *(top level)* | `regime_stage_max_age_minutes` | `int` | RegimeStageMaxAgeMinutes bounds trust in the latched regime stage; older stages evaluate as carried. |
-| *(top level)* | `runway_act_dte` | `int` | RunwayActDTE is rule 5's act horizon in calendar days to expiry. |
+| *(top level)* | `runway_act_dte` | `int` | RunwayActDTE is rule 5's act horizon: at this many calendar days to expiry or fewer the option acts. |
 | *(top level)* | `runway_itm_delta_floor` | `float64` | RunwayITMDeltaFloor is the delta from which rule 5 treats an option as in the money. |
-| *(top level)* | `runway_watch_dte` | `int` | RunwayWatchDTE is rule 5's watch horizon in calendar days to expiry for long options. |
+| *(top level)* | `runway_watch_dte` | `int` | RunwayWatchDTE is rule 5's watch horizon: a long option at this many calendar days to expiry or fewer watches. |
 | *(top level)* | `schema_version` | `int` | SchemaVersion is the file schema (1); optional, never part of the fingerprint. |
 | *(top level)* | `short_put_act_line_pct_nlv` | `float64` | ShortPutActLinePctNLV is rule 7's act level: one short put's assignment notional through earnings as a percent of NLV. |
 | *(top level)* | `short_put_act_name_pct_nlv` | `float64` | ShortPutActNamePctNLV is rule 7's act level for one name's short puts together. |

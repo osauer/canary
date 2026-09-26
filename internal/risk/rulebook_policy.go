@@ -71,9 +71,9 @@ type RulebookPolicy struct {
 	// HedgeLineActPct is rule 2's act level for a protection position.
 	HedgeLineActPct float64 `toml:"hedge_line_act_pct" json:"hedge_line_act_pct"`
 
-	// RunwayWatchDTE is rule 5's watch horizon in calendar days to expiry for long options.
+	// RunwayWatchDTE is rule 5's watch horizon: a long option at this many calendar days to expiry or fewer watches.
 	RunwayWatchDTE int `toml:"runway_watch_dte" json:"runway_watch_dte"`
-	// RunwayActDTE is rule 5's act horizon in calendar days to expiry.
+	// RunwayActDTE is rule 5's act horizon: at this many calendar days to expiry or fewer the option acts.
 	RunwayActDTE int `toml:"runway_act_dte" json:"runway_act_dte"`
 	// RunwayITMDeltaFloor is the delta from which rule 5 treats an option as in the money.
 	RunwayITMDeltaFloor float64 `toml:"runway_itm_delta_floor" json:"runway_itm_delta_floor"`

@@ -136,7 +136,8 @@ func limitCases() []limitCase {
 			in.Names = append(in.Names, optionName("AAA", leg))
 		}, status: RuleStatusUnknown},
 
-		// 5 — options nearing expiry: watch inside 14 DTE, act inside 7.
+		// 5 — options nearing expiry: watch at 14 DTE or fewer, act at 7 or
+		// fewer (owner decision 2026-09-26, at or within).
 		{name: "pass", rule: RuleExpiryRunway, status: RuleStatusPass, watch: f(14), act: f(7)},
 		{name: "watch", rule: RuleExpiryRunway, mutate: name(optionName("AAA", limitsLongCall("AAA", 10, 1000))), status: RuleStatusWatch, watch: f(14), act: f(7)},
 		{name: "act", rule: RuleExpiryRunway, mutate: name(optionName("AAA", limitsLongCall("AAA", 10, 1000), limitsLongCall("AAA", 3, 500))), status: RuleStatusAct, watch: f(14), act: f(7)},

@@ -808,3 +808,25 @@ func TestEvaluateMonthlyPulseAutomatesRoutineEvidence(t *testing.T) {
 		t.Fatalf("missing evidence must return only an act-grade exception: %+v", blocked)
 	}
 }
+
+// Rule 5 counts down and triggers when it reaches a limit (owner decision
+// 2026-09-26, amendment 14): 14 days or fewer watches and 7 days or fewer
+// acts. Each case sat on the other side of a strict comparison before.
+func TestExpiryRunwayTriggersAtOrWithinItsLimits(t *testing.T) {
+	pol := limitsAllModes(RuleModeAlert)
+	for _, c := range []struct {
+		dte    int
+		status string
+		limit  float64
+	}{{15, RuleStatusPass, 14}, {14, RuleStatusWatch, 14}, {8, RuleStatusWatch, 14}, {7, RuleStatusAct, 7}} {
+		in := limitsInputs()
+		in.Names = []NameInput{{Symbol: "AAA", ExposureBaseComplete: true, Legs: []LegInput{limitsLongCall("AAA", c.dte, 1000)}}}
+		row := rowByID(t, EvaluateRulebook(in, pol), RuleExpiryRunway)
+		if row.Status != c.status || row.Threshold == nil || *row.Threshold != c.limit {
+			t.Errorf("%d DTE = %s at %v, want %s at %v (%s)", c.dte, row.Status, row.Threshold, c.status, c.limit, row.Evidence)
+		}
+		if c.status != RuleStatusPass && !strings.Contains(row.Evidence, strconv.Itoa(int(c.limit))+" days or fewer") {
+			t.Errorf("%d DTE evidence must read %v days or fewer: %s", c.dte, c.limit, row.Evidence)
+		}
+	}
+}

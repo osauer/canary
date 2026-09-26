@@ -17,7 +17,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 2 | Premium at risk in one option position | Each long option position at the higher of the price paid and its value, as a share of NLV. A losing position keeps counting at what you paid, so its fall frees no room to buy more. | Track |
 | 3 | Cash reserve | Broker-reported available funds as a share of NLV. The default reserve is 75%. | Alert |
 | 4 | Option time value at risk | Paid option time value as a share of NLV. Positions classified as portfolio protection use rules 2 and 12 instead. | Alert |
-| 5 | Options nearing expiry | Long options with fewer than 14 days remaining. Deep in-the-money positions and portfolio protection are listed separately. | Alert |
+| 5 | Options nearing expiry | Long options with 14 days or fewer remaining (act at 7 or fewer). Deep in-the-money positions and portfolio protection are listed separately. | Alert |
 | 6 | Earnings timing | Whether an out-of-the-money long option expires before the next earnings announcement. This is a timing fact; it does not assume the position should span earnings. | Track |
 | 7 | Short options held through earnings | Short options that remain open through the next earnings announcement, including assignment exposure for short puts. | Alert |
 | 8 | Position size near earnings | Positions above the concentration level within three trading sessions of earnings. This remains a proxy until Canary calculates event loss. | Track |
@@ -77,8 +77,8 @@ row's status: the act level on an `act` row, the watch level otherwise, and the
 evidence quotes that same number. Rules with a watch and an act level also
 carry both as `watch_threshold` and `act_threshold`. A reading exactly at a
 level is in that level. Two rules read differently: expiry runway counts
-down (watch inside 14 days, act inside 7), and index protection is a range
-whose edges are inside it. A baseline value is not itself proof that the
+down and triggers at its limits (watch at 14 days or fewer, act at 7 or
+fewer), and index protection is a range whose edges are inside it. A baseline value is not itself proof that the
 threshold has your approval; set the ones you have decided.
 
 ## Advisory by construction

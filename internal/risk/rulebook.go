@@ -869,16 +869,15 @@ func (c *ruleContext) expiryRunway() RuleRow {
 		return *g
 	}
 	watchDTE, actDTE := c.pol.RunwayWatchDTE, c.pol.RunwayActDTE
-	// The runway counts down: fewer days is worse, and both limits are
-	// strict (watch inside watchDTE, act inside actDTE). The owner's
-	// at-or-above decision (2026-09-26) names rising readings; how a
-	// countdown's edge day classifies stays as written until decided.
+	// The runway counts down: fewer days is worse. It triggers when it
+	// reaches a limit (owner decision 2026-09-26, amendment 14): watch at
+	// watchDTE days or fewer, act at actDTE days or fewer.
 	row.setBands(float64(watchDTE), float64(actDTE))
 	var offenders, exempt []RuleOffender
 	worstStatus := RuleStatusPass
 	for _, n := range c.in.Names {
 		for _, l := range n.Legs {
-			if l.Quantity <= 0 || l.DTE >= watchDTE {
+			if l.Quantity <= 0 || l.DTE > watchDTE {
 				continue
 			}
 			if l.Delta != nil && math.Abs(*l.Delta) >= c.pol.RunwayITMDeltaFloor {
@@ -913,7 +912,7 @@ func (c *ruleContext) expiryRunway() RuleRow {
 	}
 	if len(offenders) == 0 {
 		row.Status = RuleStatusPass
-		row.Evidence = fmt.Sprintf("No long option inside %d DTE without an exemption.", watchDTE)
+		row.Evidence = fmt.Sprintf("No long option expires in %d days or fewer without an exemption.", watchDTE)
 		return row
 	}
 	// Observed is the nearest offending expiry; an exempt leg's shorter
@@ -923,14 +922,14 @@ func (c *ruleContext) expiryRunway() RuleRow {
 	if worstStatus == RuleStatusAct {
 		inside := 0
 		for _, o := range offenders {
-			if o.Observed < float64(actDTE) {
+			if o.Observed <= float64(actDTE) {
 				inside++
 			}
 		}
-		row.Evidence = fmt.Sprintf("%d long option position(s) expire in fewer than %d days, the act level; %d in fewer than %d.", inside, actDTE, len(offenders), watchDTE)
+		row.Evidence = fmt.Sprintf("%d long option position(s) expire in %d days or fewer, the act level; %d in %d days or fewer.", inside, actDTE, len(offenders), watchDTE)
 		return row
 	}
-	row.Evidence = fmt.Sprintf("%d long option position(s) expire in fewer than %d days.", len(offenders), watchDTE)
+	row.Evidence = fmt.Sprintf("%d long option position(s) expire in %d days or fewer.", len(offenders), watchDTE)
 	return row
 }
 
@@ -2003,8 +2002,10 @@ func ruleModeWeight(mode string) int {
 	}
 }
 
+// worseRunway folds one offending leg into the row's status: a leg at the
+// act horizon or inside it acts (owner decision 2026-09-26, at or within).
 func worseRunway(current string, dte, actDTE int) string {
-	if dte < actDTE {
+	if dte <= actDTE {
 		return RuleStatusAct
 	}
 	if current != RuleStatusAct {

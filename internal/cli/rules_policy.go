@@ -76,7 +76,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleOptionLinePremium:  fmt.Sprintf("watch at %s, act at %s of NLV per position (higher of price paid and value); protection %s/%s", pct(p.OptionLineWatchPct), pct(p.OptionLineActPct), pct(p.HedgeLineWatchPct), pct(p.HedgeLineActPct)),
 		risk.RuleCashSellOnly:       fmt.Sprintf("available funds at least %s of NLV", pct(p.CashReserveMinPct)),
 		risk.RuleExtrinsicBudget:    fmt.Sprintf("time value of NLV, watch/act at: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, extW, extA), band(p.RegimeEarlyWarning, extW, extA), band(p.RegimeConfirmed, extW, extA)),
-		risk.RuleExpiryRunway:       fmt.Sprintf("watch inside %d days, act inside %d days of expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
+		risk.RuleExpiryRunway:       fmt.Sprintf("watch at %d days or fewer, act at %d days or fewer to expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
 		risk.RuleCatalystCoverage:   "earnings inside an option's life (no threshold)",
 		risk.RuleOverwriteEarnings:  fmt.Sprintf("short puts through earnings: act at %s per position, %s per name of NLV", pct(p.ShortPutActLinePctNLV), pct(p.ShortPutActNamePctNLV)),
 		risk.RuleEarningsSizeFreeze: fmt.Sprintf("%d sessions before earnings", p.EarningsFreezeSessions),
