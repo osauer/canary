@@ -1931,6 +1931,10 @@ func marketEventBlockProposal(prop *rpc.TradeProposal, flag rpc.MarketEventFlag,
 }
 
 func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreviewParams) (rpc.TradeProposalPreviewResult, error) {
+	return e.preview(ctx, p, nil)
+}
+
+func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreviewParams, retain func(rpc.TradeProposal, *rpc.OrderPreviewResult) error) (rpc.TradeProposalPreviewResult, error) {
 	prop, blockers, err := e.previewProposal(ctx, p)
 	now := e.clock()
 	if len(blockers) > 0 || err != nil {
@@ -1970,6 +1974,11 @@ func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreview
 	if blockers := e.revalidateOptionExitEconomics(ctx, prop, preview); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: e.clock()}, nil
+	}
+	if retain != nil {
+		if err := retain(prop, preview); err != nil {
+			return rpc.TradeProposalPreviewResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), Blockers: []rpc.TradingBlocker{{Code: "preparation_not_persisted", Message: "The exact preview could not be retained; nothing can be submitted from this preparation."}}, AsOf: e.clock()}, err
+		}
 	}
 	return rpc.TradeProposalPreviewResult{Accepted: true, Proposal: prop, PreviewTokenID: preview.PreviewTokenID, PreviewTokenExpiresAt: preview.PreviewTokenExpiresAt, SubmitEligible: preview.SubmitEligible, Preview: sanitizeProposalPreviewForProposal(preview, prop), AsOf: now}, nil
 }
@@ -2069,6 +2078,9 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 }
 
 func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitParams) (rpc.TradeProposalSubmitResult, error) {
+	if p.PreparedRef != "" {
+		return e.submitPrepared(ctx, p)
+	}
 	return e.submit(ctx, p, proposalSubmitOptions{})
 }
 

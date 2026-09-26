@@ -99,6 +99,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTradeProposalsSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsRefresh, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	{Method: MethodTradeProposalsPrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	{Method: MethodTradeProposalsPreparedStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsSubmit, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsVeto, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},

@@ -981,16 +981,20 @@ type TradeProposalOrderPreview struct {
 // TradeProposalSubmitParams requests gated submission of an exact revision.
 // Origin and any earlier preview are evidence, not submit authority by themselves.
 type TradeProposalSubmitParams struct {
-	Key       string `json:"key"`
-	Revision  string `json:"revision"`
-	Quantity  int    `json:"quantity,omitempty"`
-	FastPath  bool   `json:"fast_path,omitempty"`
-	TimeoutMs int    `json:"timeout_ms,omitempty"`
-	Origin    string `json:"origin,omitempty"`
+	// PreparedRef selects the exact persisted preview; quantity overrides are forbidden.
+	PreparedRef string `json:"prepared_ref,omitempty"`
+	Key         string `json:"key"`
+	Revision    string `json:"revision"`
+	Quantity    int    `json:"quantity,omitempty"`
+	FastPath    bool   `json:"fast_path,omitempty"`
+	TimeoutMs   int    `json:"timeout_ms,omitempty"`
+	Origin      string `json:"origin,omitempty"`
 }
 
 // TradeProposalSubmitResult reports the outcome of a gated submission request.
 type TradeProposalSubmitResult struct {
+	Preparation    *TradeProposalPreparation  `json:"preparation,omitempty"`
+	Order          *OrderStatusResult         `json:"order,omitempty"`
 	Accepted       bool                       `json:"accepted"`
 	Proposal       TradeProposal              `json:"proposal"`
 	Preview        *TradeProposalOrderPreview `json:"preview,omitempty"`

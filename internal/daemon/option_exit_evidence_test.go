@@ -575,3 +575,38 @@ func TestOptionExitProjectionStillRequiresStockIdentityAndEveryOptionTerm(t *tes
 		})
 	}
 }
+
+func TestPreparedOptionExitEvidenceCannotRenewItsOriginalLifetime(t *testing.T) {
+	now := optionExitTestTime()
+	original := rpc.OptionExitEconomicEvidence{Scope: "same-session", Fingerprint: "original-receipt", AsOf: now, PortfolioGeneration: 7, TerminalFingerprint: "same-terminal"}
+	current := optionExitBookEvidence{Scope: original.Scope, Fingerprint: "new-receipt", AsOf: now.Add(19 * time.Second), Generation: 7, TerminalFingerprint: "same-terminal"}
+	if err := validatePreparedOptionExitEvidence(&original, current, now.Add(19*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if !original.AsOf.Equal(now) || original.Fingerprint != "original-receipt" {
+		t.Fatal("fresh check replaced the original proof")
+	}
+	if err := validatePreparedOptionExitEvidence(&original, current, now.Add(21*time.Second)); err == nil {
+		t.Fatal("fresh evidence renewed the original capability lifetime")
+	}
+	for _, kind := range []string{"missing", "scope", "generation", "terminal"} {
+		t.Run(kind, func(t *testing.T) {
+			proof := original
+			changed := current
+			p := &proof
+			switch kind {
+			case "missing":
+				p = nil
+			case "scope":
+				changed.Scope = "changed"
+			case "generation":
+				changed.Generation++
+			case "terminal":
+				changed.TerminalFingerprint = "changed"
+			}
+			if err := validatePreparedOptionExitEvidence(p, changed, now.Add(time.Second)); err == nil {
+				t.Fatal("changed economic authority accepted")
+			}
+		})
+	}
+}

@@ -61,6 +61,22 @@ VALUES('authority','orders',?,'complete','0',?,?,?)`, freshOrderAuthorityFingerp
 	return err
 }
 
+// PreviewTokenConsumed reads the durable single-use tombstone. An unavailable
+// authority is an error, never evidence that a token remains unused.
+func (s *Store) PreviewTokenConsumed(ctx context.Context, digest PreviewTokenDigest) (bool, error) {
+	if s == nil || !s.Health().Ready {
+		return false, ErrBlocked
+	}
+	if zeroDigest(digest) {
+		return false, errorsf("preview token digest is required")
+	}
+	var consumed bool
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM consumed_preview_tokens WHERE token_digest=?)`, digest[:]).Scan(&consumed); err != nil {
+		return false, fmt.Errorf("read preview token tombstone: %w", err)
+	}
+	return consumed, nil
+}
+
 // StagePreTransmit atomically binds the broker scope, validates and consumes an
 // optional preview-token digest, advances conservative order-ID floors, appends
 // pre-transmit evidence, and advances the authority head. Success is durable

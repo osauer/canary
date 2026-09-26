@@ -482,7 +482,7 @@ Protection proposals are advisory. The daemon can propose a close or a reduce, a
 Guard `confirm`. Also available as an MCP tool.
 
 ```text
-canary proposals status|refresh|list|preview|submit|reduce|request-stop|ignore|veto [--json]
+canary proposals status|refresh|list|preview|prepare|prepared-status|submit|reduce|request-stop|ignore|veto [--json]
 ```
 
 **Subcommands**
@@ -493,6 +493,8 @@ canary proposals status|refresh|list|preview|submit|reduce|request-stop|ignore|v
 | `refresh` | `read-only` |
 | `list` | `read-only` |
 | `preview` | `read-only` |
+| `prepare` | `read-only` |
+| `prepared-status` | `read-only` |
 | `submit` | `confirm` |
 | `reduce` | `confirm` |
 | `request-stop` | `local` |
@@ -506,6 +508,7 @@ canary proposals status|refresh|list|preview|submit|reduce|request-stop|ignore|v
 | `--quantity` | yes | - |
 | `--timeout` | yes | - |
 | `--fast-path` | no | - |
+| `--prepared-ref-stdin` | no | - |
 | `--reason` | yes | - |
 | `--percent` | yes | `25`, `50`, `75`, `100` |
 | `--con-id` | yes | - |

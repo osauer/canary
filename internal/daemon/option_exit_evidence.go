@@ -628,6 +628,12 @@ func explainOptionExitEconomicBlocker(p *rpc.TradeProposal, evidence optionExitB
 // The resulting signed token binds that scope through admission and the
 // existing structural portfolio wire guard; no token grants write authority.
 func (e *proposalEngine) revalidateOptionExitEconomics(ctx context.Context, prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
+	return e.checkOptionExitEconomics(ctx, prop, preview, true)
+}
+
+// checkOptionExitEconomics only binds a fresh proof while creating a preview.
+// A prepared submission must keep its original token, evidence and expiry.
+func (e *proposalEngine) checkOptionExitEconomics(ctx context.Context, prop rpc.TradeProposal, preview *rpc.OrderPreviewResult, bindPreview bool) []rpc.TradingBlocker {
 	if prop.OptionExit == nil || !e.rulebookPolicy().IsHedgeSymbol(prop.Symbol) || prop.Contract.Right != "P" {
 		return nil
 	}
@@ -658,6 +664,12 @@ func (e *proposalEngine) revalidateOptionExitEconomics(ctx context.Context, prop
 	if err != nil || payload.PortfolioGeneration != evidence.Generation || payload.Draft.Contract != preview.Draft.Contract {
 		return blocked()
 	}
+	if !bindPreview {
+		if err := validatePreparedOptionExitEvidence(payload.OptionExitEconomics, evidence, e.clock()); err != nil {
+			return blocked()
+		}
+		return nil
+	}
 	proof := &rpc.OptionExitEconomicEvidence{Scope: evidence.Scope, Fingerprint: evidence.Fingerprint, AsOf: evidence.AsOf, PortfolioGeneration: evidence.Generation}
 	proof.TerminalFingerprint = evidence.TerminalFingerprint
 	if validateOptionExitTokenEvidence(proof, evidence.Scope, payload.PortfolioGeneration, e.clock()) != nil {
@@ -679,6 +691,17 @@ func validateOptionExitTokenEvidence(proof *rpc.OptionExitEconomicEvidence, scop
 	if proof == nil || proof.Scope == "" || proof.Fingerprint == "" || proof.Scope != scope || proof.PortfolioGeneration == 0 || proof.PortfolioGeneration != generation ||
 		proof.AsOf.IsZero() || proof.AsOf.After(now) || !now.Before(proof.AsOf.Add(optionExitEvidenceBudget)) {
 		return fmt.Errorf("%w: option economic-role scope or freshness changed; refresh and preview again", ErrTradingDisabled)
+	}
+	return nil
+}
+
+// A new market read may confirm the original evidence, but cannot renew it.
+func validatePreparedOptionExitEvidence(proof *rpc.OptionExitEconomicEvidence, current optionExitBookEvidence, now time.Time) error {
+	if err := validateOptionExitTokenEvidence(proof, current.Scope, current.Generation, now); err != nil {
+		return err
+	}
+	if proof.TerminalFingerprint != current.TerminalFingerprint {
+		return fmt.Errorf("%w: terminal exposure authority changed", ErrTradingDisabled)
 	}
 	return nil
 }

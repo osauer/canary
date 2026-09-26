@@ -34,6 +34,10 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 		return runProposalsList(ctx, env, args)
 	case "preview":
 		return runProposalsPreview(ctx, env, args)
+	case "prepare":
+		return runProposalsPrepare(ctx, env, args)
+	case "prepared-status":
+		return runProposalsPreparedStatus(ctx, env, args)
 	case "submit":
 		return runProposalsSubmit(ctx, env, args)
 	case "reduce":
@@ -52,7 +56,7 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 func proposalsSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "refresh", "list", "preview", "submit", "reduce", "request-stop", "ignore", "veto":
+		case "status", "refresh", "list", "preview", "prepare", "prepared-status", "submit", "reduce", "request-stop", "ignore", "veto":
 			return i
 		}
 	}
@@ -137,6 +141,7 @@ func runProposalsPreview(ctx context.Context, env *Env, args []string) int {
 func runProposalsSubmit(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "proposals submit")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
+	preparedStdin := fs.Bool("prepared-ref-stdin", false, "read the private prepared proposal reference from standard input")
 	qty := fs.Int("quantity", 0, "selected quantity; defaults to proposal quantity")
 	fastPath := fs.Bool("fast-path", true, "perform one-confirm preview+submit")
 	timeout := fs.Duration("timeout", 5*time.Second, "quote/WhatIf timeout")
@@ -146,8 +151,19 @@ func runProposalsSubmit(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 2 {
 		return fail(env, "proposals submit: usage is `canary proposals submit KEY REVISION`")
 	}
+	var reference string
+	if *preparedStdin {
+		if *qty != 0 {
+			return fail(env, "prepared proposal submit does not accept a quantity override")
+		}
+		var err error
+		reference, err = readPreparedProposalReference(env)
+		if err != nil {
+			return fail(env, "%v", err)
+		}
+	}
 	var res rpc.TradeProposalSubmitResult
-	params := rpc.TradeProposalSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, FastPath: *fastPath, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
+	params := rpc.TradeProposalSubmitParams{PreparedRef: reference, Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, FastPath: *fastPath, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
 	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsSubmit, params, &res); err != nil {
 		return fail(env, "proposals submit: %v", err)
 	}
