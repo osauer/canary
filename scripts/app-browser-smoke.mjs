@@ -298,11 +298,11 @@ async function runRound4SyntheticSmoke() {
   bootstrap.snapshot.rules = {
     enabled: true, status: "degraded", as_of: now, policy_id: "synthetic-rulebook", policy_version: "2",
     rules: [
-      { id: "long_option_loss", number: 13, title: "Long option loss limit", mode: "alert", status: "watch", observed: 48, threshold: 40, unit: "% premium lost", evidence: "A long option has lost 48% of its premium; watch starts at 40%.", offenders: [{ symbol: "SYN", leg: "SYN synthetic option", note: "48% of premium lost." }] },
+      { id: "long_option_loss", number: 13, title: "Long option loss limit", mode: "alert", status: "watch", observed: 48, threshold: 40, watch_threshold: 40, act_threshold: 60, unit: "% premium lost", evidence: "A long option has lost 48% of its premium; watch starts at 40%.", offenders: [{ symbol: "SYN", leg: "SYN synthetic option", note: "48% of premium lost." }] },
       { id: "concentration", number: 1, title: "Exposure to one underlying", mode: "alert", status: "unknown", observed: 17.3, threshold: 40, unit: "% NLV", evidence: "Exposure is incomplete because option delta is missing." },
       { id: "extrinsic_budget", number: 4, title: "Option time value at risk", mode: "alert", status: "unknown", evidence: "The underlying price needed to measure time value is missing." },
       { id: "hedge_integrity", number: 12, title: "Index protection size", mode: "alert", status: "unknown", evidence: "Protection size cannot be measured without option delta." },
-      { id: "premium_position", number: 2, title: "Premium at risk in one option position", mode: "track", status: "act", observed: 12, observed_is_lower_bound: true, threshold: 5, unit: "% NLV", evidence: "At least 12% of NLV is paid premium; some inputs are incomplete." },
+      { id: "premium_position", number: 2, title: "Premium at risk in one option position", mode: "track", status: "act", observed: 12, observed_is_lower_bound: true, threshold: 10, watch_threshold: 5, act_threshold: 10, unit: "% NLV", evidence: "At least 12% of NLV is paid premium; some inputs are incomplete." },
       { id: "fx", number: 14, title: "Foreign-currency exposure", mode: "track", status: "info", evidence: "Foreign-currency exposure is above its tracking level." },
       { id: "cash", number: 3, title: "Cash reserve", mode: "alert", status: "pass", observed: 80, threshold: 75, unit: "% NLV", evidence: "Cash reserve exceeds the configured minimum." },
       { id: "expiry", number: 5, title: "Options nearing expiry", mode: "alert", status: "watch", observed: 2, threshold: 5, unit: "DTE", evidence: "An option has fewer days remaining than the reference threshold." },

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/risk"
@@ -331,12 +332,25 @@ func ruleGlyph(status string) string {
 	}
 }
 
+// ruleHeadline sets the observed value beside the limit the daemon reported
+// for the row's status. A two-band rule also names both bands, so a watch row
+// shows how far the act level is; the renderer never picks a band itself.
 func ruleHeadline(r risk.RuleRow) string {
 	if r.Observed != nil && r.Threshold != nil {
+		if r.WatchThreshold != nil && r.ActThreshold != nil {
+			return fmt.Sprintf("%s (observed %.1f vs %s %s; watch %s, act %s)", r.Title, *r.Observed,
+				ruleLimitText(*r.Threshold), r.Unit, ruleLimitText(*r.WatchThreshold), ruleLimitText(*r.ActThreshold))
+		}
 		return fmt.Sprintf("%s (observed %.1f vs %.1f %s)", r.Title, *r.Observed, *r.Threshold, r.Unit)
 	}
 	if r.Reason != "" {
 		return fmt.Sprintf("%s (%s)", r.Title, r.Reason)
 	}
 	return r.Title
+}
+
+// ruleLimitText prints a policy limit as configured (7.5 stays 7.5, 40 stays
+// 40), matching how the daemon's evidence line quotes it.
+func ruleLimitText(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }

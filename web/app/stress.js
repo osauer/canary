@@ -287,14 +287,19 @@ function ruleChecklistRow(r) {
     .replace(/\b(\d+) ((?:long option |material option |underlying )?)(position|exposure|contract)\(s\)/g,
       (_, count, qualifier, noun) => `${count} ${qualifier}${noun}${Number(count) === 1 ? "" : "s"}`);
   body.append(evidence);
-  // The contract has no comparator or complete band endpoints. Report the
-  // served values with their units and lower-bound qualifier, without a meter
-  // or an inferred direction of breach.
+  // The daemon serves the limit for the row's status and, for a two-band
+  // rule, both bands; it serves no comparator. Report the served values with
+  // their units and lower-bound qualifier, without a meter or an inferred
+  // direction of breach, and never choose a band here.
   const facts = document.createElement("dl");
   facts.className = "rules-row__facts";
+  const twoBand = [r.watch_threshold, r.act_threshold].every((value) => typeof value === "number" && Number.isFinite(value));
+  const limits = twoBand
+    ? [["Watch level", r.watch_threshold], ["Act level", r.act_threshold]]
+    : [["Reference threshold", r.threshold]];
   for (const [label, value] of [
     [r.observed_is_lower_bound ? "Observed minimum" : "Observed", r.observed],
-    ["Reference threshold", r.threshold],
+    ...limits,
   ]) {
     if (typeof value !== "number" || !Number.isFinite(value)) continue;
     const term = document.createElement("dt");

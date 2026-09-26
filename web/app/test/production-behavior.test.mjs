@@ -939,6 +939,15 @@ test("Rules keep configuration, applicability, and incomplete measurements disti
   assert.match(minimum.textContent, /FOUR/);
   assert.match(minimum.textContent, /Exact-contract exemption/);
   assert.match(minimum.textContent, /Partial inputs remain incomplete/);
+  const banded = stress.ruleChecklistRow({
+    id: "banded", title: "Long option loss limit", mode: "alert", status: "act", observed: 70,
+    threshold: 60, watch_threshold: 40, act_threshold: 60, unit: "% premium lost",
+    evidence: "1 long option position(s) have lost at least 60% of premium paid.",
+  });
+  const bandedFacts = byClass(banded, "rules-row__facts")[0].textContent;
+  assert.match(bandedFacts, /Watch level40% premium lost/, "a two-band row names its watch band");
+  assert.match(bandedFacts, /Act level60% premium lost/, "a two-band row names its act band");
+  assert.doesNotMatch(bandedFacts, /Reference threshold/, "the served bands replace the single reference limit");
 });
 
 test("unconfirmed red market clusters render as provisional amber", () => {

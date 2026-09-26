@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-23 22:07 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23). The
+Updated: 2026-09-26 06:21 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v3` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -181,6 +181,37 @@ contradiction:
     nothing. The baseline stays `rulebook-v3` because its behaviour is
     unchanged; the fingerprint projection moves to `rulebook-fp-v5`.
 
+13. Amendment (2026-09-26, operator decisions): one reported limit per
+    verdict. Every two-band rule carries both bands on its row
+    (`watch_threshold`, `act_threshold`) from the policy set that produced
+    the verdict: the regime set for rules 4 and 12, and the protection tier
+    when it drives rule 2. `threshold` is chosen in one place after
+    evaluation, never by a rule: an act row reports the act band, and every
+    other status (watch, pass, unknown) reports the watch band. Single-limit
+    rules (3, 8, 9, 10, 14) keep their one limit in `threshold`; rules 6, 7
+    and 11 report none. Every evidence line quotes the row's `threshold`
+    exactly as configured (7.5 stays 7.5); unknown rows name the missing
+    input and never quote a different band. A contract test drives every
+    reachable status of every rule and checks both. This fixed rule 13 at
+    act, which reported the 40% watch band while its evidence quoted 60%,
+    and the same mismatch on rules 1, 2, 4, 5, 12 and 15.
+    Rising two-band rules (1, 2 including the protection tier, 4, 13, 15)
+    share one comparison: watch when the reading is at or above the watch
+    band, act when it is at or above the act band. Rules 1, 2, 4 and 15
+    used `> act` before, so a reading exactly at the act band moves from
+    watch to act; nothing else changes. Two rules keep their comparisons
+    pending an owner decision, because at-or-above does not name them: rule
+    5 counts down (watch inside 14 days, act inside 7, both strict), and
+    rule 12 is a range whose edges belong to the range, with act above the
+    over-hedge multiple that also bounds protection classification
+    (amendment 12). Rule 12's `watch_threshold` is the edge on the observed
+    ratio's side: the top when above the range, otherwise the bottom. Rows
+    that stop at an input gate before a comparison (positions or account
+    unavailable, rule 4's uncomputable time value, rule 12's unmeasured
+    exposure) carry no limit, and an off rule clears all three fields. The
+    thresholds themselves are unchanged, so the baseline stays `rulebook-v3`
+    and the fingerprint projection stays `rulebook-fp-v5`.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
@@ -197,10 +228,10 @@ regime-conditionality notes).
 
 | # | Rule id | Check | Default threshold | Default mode |
 |---|---|---|---|---|
-| 1 | `single_name_exposure` | exposure by underlying / NLV; only protection-classified short delta is exempt | watch ≥ 30%; act > 40% | alert |
-| 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act > 10%; protection 15% / 25% | track |
+| 1 | `single_name_exposure` | exposure by underlying / NLV; only protection-classified short delta is exempt | watch ≥ 30%; act ≥ 40% | alert |
+| 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act ≥ 10%; protection watch ≥ 15%, act ≥ 25% | track |
 | 3 | `cash_sell_only` | broker AvailableFunds / NLV; the stable id is retained for history compatibility | watch < 75% | alert |
-| 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act > 15 / 12 / 10% by regime | alert |
+| 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act ≥ 15 / 12 / 10% by regime | alert |
 | 5 | `expiry_runway` | long option DTE < 14 unless ≥70-delta ITM or protection-classified | watch < 14 DTE; act < 7 DTE | alert |
 | 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |
 | 7 | `overwrite_earnings` | short option spanning earnings; short-put assignment notional ≥10% NLV line or ≥20% name escalates | see ET semantics below | alert |
@@ -208,10 +239,10 @@ regime-conditionality notes).
 | 9 | `red_on_green` | stock day change ≤−1.5% while SPY ≥+0.5% | intraday only | off |
 | 10 | `winner_trim` | stock day change ≥+4% with exposure ≥15% NLV | intraday only | off |
 | 11 | `green_day_action` | account daily P&L >0 while an act-level rule is open | informational | off |
-| 12 | `hedge_integrity` | protection-classified short delta / gross long delta | 25–35 / 30–50 / 40–70% by regime | alert |
+| 12 | `hedge_integrity` | protection-classified short delta / gross long delta | 25–35 / 30–50 / 40–70% by regime (edges inside); act > 2× the top | alert |
 | 13 | `exit_discipline` | each long option position's unrealized loss / premium paid; protection-classified legs exempt | watch ≥40%; act ≥60% | alert |
 | 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | track ≥60% | track |
-| 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100%; act > 150% | track |
+| 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100%; act ≥ 150% | track |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
@@ -309,9 +340,10 @@ Semantics notes:
   `unknown` naming the leg; rule 4 goes `unknown` when uncomputable
   extrinsic exceeds the same floor. Mirrors the proposal engine's
   `extrinsic_uncomputable` rigor — never a silent skip.
-- Every rule row carries: id, title, status, observed, threshold, evidence,
-  per-name offenders (worst first), exempted/unknown legs where relevant,
-  and data-quality notes.
+- Every rule row carries: id, title, status, observed, threshold (the limit
+  for its status; amendment 13), watch_threshold and act_threshold on
+  two-band rules, evidence quoting the threshold, per-name offenders (worst
+  first), exempted/unknown legs where relevant, and data-quality notes.
 
 Rulebook v2 implementation-review findings (2026-07-08, trading-semantics
 and Go-implementation lenses; engineering review, not operator policy
@@ -644,7 +676,8 @@ Card: `#canaryRulesCard` beside the stress hero (worst 2–3 breaches as
 severity pills, ranked hardest-first) + `#canaryRulesToggle` expanding
 `#canaryRulesDetailPanel` with the full 14-row `.detail-grid` (tone classes
 `risk|warn|ok|neutral`; `info` and `unknown` render neutral). Each breach
-card shows observed vs threshold. Money strings arrive daemon-rendered with
+card shows observed against the served limits: watch and act levels on a
+two-band rule, the reference threshold otherwise. Money strings arrive daemon-rendered with
 real currency (the compat test bans a `"USD"` literal in app.js). Read-only.
 
 The earnings/applicability/entitlement/InputHealth notices are five

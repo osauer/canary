@@ -72,11 +72,11 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 	hMin := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMinPct }
 	hMax := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMaxPct }
 	limits := map[string]string{
-		risk.RuleSingleNameExposure: fmt.Sprintf("watch %s, act above %s of NLV per underlying (stock-equivalent)", pct(p.SingleNameWatchPct), pct(p.SingleNameActPct)),
-		risk.RuleOptionLinePremium:  fmt.Sprintf("watch %s, act above %s of NLV per position (higher of price paid and value)", pct(p.OptionLineWatchPct), pct(p.OptionLineActPct)),
+		risk.RuleSingleNameExposure: fmt.Sprintf("watch at %s, act at %s of NLV per underlying (stock-equivalent)", pct(p.SingleNameWatchPct), pct(p.SingleNameActPct)),
+		risk.RuleOptionLinePremium:  fmt.Sprintf("watch at %s, act at %s of NLV per position (higher of price paid and value); protection %s/%s", pct(p.OptionLineWatchPct), pct(p.OptionLineActPct), pct(p.HedgeLineWatchPct), pct(p.HedgeLineActPct)),
 		risk.RuleCashSellOnly:       fmt.Sprintf("available funds at least %s of NLV", pct(p.CashReserveMinPct)),
-		risk.RuleExtrinsicBudget:    fmt.Sprintf("time value, watch/act of NLV: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, extW, extA), band(p.RegimeEarlyWarning, extW, extA), band(p.RegimeConfirmed, extW, extA)),
-		risk.RuleExpiryRunway:       fmt.Sprintf("watch %d days, act %d days before expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
+		risk.RuleExtrinsicBudget:    fmt.Sprintf("time value of NLV, watch/act at: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, extW, extA), band(p.RegimeEarlyWarning, extW, extA), band(p.RegimeConfirmed, extW, extA)),
+		risk.RuleExpiryRunway:       fmt.Sprintf("watch inside %d days, act inside %d days of expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
 		risk.RuleCatalystCoverage:   "earnings inside an option's life (no threshold)",
 		risk.RuleOverwriteEarnings:  fmt.Sprintf("short puts through earnings: act at %s per position, %s per name of NLV", pct(p.ShortPutActLinePctNLV), pct(p.ShortPutActNamePctNLV)),
 		risk.RuleEarningsSizeFreeze: fmt.Sprintf("%d sessions before earnings", p.EarningsFreezeSessions),
@@ -86,7 +86,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleHedgeIntegrity:     fmt.Sprintf("index protection band of long exposure: calm %s, early warning %s, confirmed %s; act above %g× the band's top", band(p.RegimeCalm, hMin, hMax), band(p.RegimeEarlyWarning, hMin, hMax), band(p.RegimeConfirmed, hMin, hMax), p.OverhedgeMultiple),
 		risk.RuleExitDiscipline:     fmt.Sprintf("watch at −%s, act at −%s of premium paid", pct(p.ExitWatchLossPct), pct(p.ExitActLossPct)),
 		risk.RuleFXExposure:         fmt.Sprintf("watch at %s of NLV in other currencies", pct(p.FXExposureWatchPct)),
-		risk.RuleNetExposure:        fmt.Sprintf("watch %s, act above %s of NLV, whole book with hedges", pct(p.NetExposureWatchPct), pct(p.NetExposureActPct)),
+		risk.RuleNetExposure:        fmt.Sprintf("watch at %s, act at %s of NLV, whole book with hedges", pct(p.NetExposureWatchPct), pct(p.NetExposureActPct)),
 	}
 	for i, id := range risk.RuleIDs() {
 		fmt.Fprintf(out, "  %2d %-22s %-5s  %s\n", i+1, id, p.ModeFor(id), limits[id])

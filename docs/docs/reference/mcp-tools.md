@@ -227,7 +227,7 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 
 ## `canary_rules`
 
-Read the desk Rulebook: each rule's verdict against the owner's limits (position size per underlying and per option position, cash reserve, time value, expiry, earnings, loss per option, currency and net market exposure), ranked hardest first, with explicit unknown inputs. `policy_status` says whether the limits are the compiled baseline or the owner's rulebook-policy.toml and `policy` carries every threshold, so this answers 'am I within my limits' and 'how much room is left'. Use canary_proposals for protection orders and canary_brief for the capital and drawdown ladder. Read-only: the owner changes limits with `canary rules policy set`. Advisory evidence never authorizes an order.
+Read the desk Rulebook: each rule's verdict against the owner's limits (position size per underlying and per option position, cash reserve, time value, expiry, earnings, loss per option, currency and net market exposure), ranked hardest first, with explicit unknown inputs. `policy_status` says whether the limits are the compiled baseline or the owner's rulebook-policy.toml and `policy` carries every threshold, so this answers 'am I within my limits' and 'how much room is left'. Each row's `threshold` is the limit for its status (the act band at act, otherwise the watch band) and its evidence quotes that number; two-band rules also carry `watch_threshold` and `act_threshold`. Use canary_proposals for protection orders and canary_brief for the capital and drawdown ladder. Read-only: the owner changes limits with `canary rules policy set`. Advisory evidence never authorizes an order.
 
 **Parameters:**
 

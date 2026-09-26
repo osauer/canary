@@ -27,7 +27,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure, against a band that depends on the regime. It acts above twice the band's top (`overhedge_multiple`), and index puts above that multiple of the widest band count as directional shorts, not protection. | Alert |
 | 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
 | 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
-| 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act above 150%. | Track |
+| 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act at 150%. | Track |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
 creating alerts, and `off` rules are not evaluated.
@@ -72,8 +72,14 @@ never relax it.
 
 The baseline ships as policy `rulebook-v3`, and every row carries its
 `observed` value, `threshold`, and an evidence string, so you can check the
-arithmetic instead of trusting the verdict. A baseline value is not itself
-proof that the threshold has your approval; set the ones you have decided.
+arithmetic instead of trusting the verdict. `threshold` is the limit for the
+row's status: the act level on an `act` row, the watch level otherwise, and the
+evidence quotes that same number. Rules with a watch and an act level also
+carry both as `watch_threshold` and `act_threshold`. A reading exactly at a
+level is in that level. Two rules read differently: expiry runway counts
+down (watch inside 14 days, act inside 7), and index protection is a range
+whose edges are inside it. A baseline value is not itself proof that the
+threshold has your approval; set the ones you have decided.
 
 ## Advisory by construction
 

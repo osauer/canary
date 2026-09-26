@@ -194,6 +194,14 @@ func cloneRulesResult(in *rpc.RulesResult) *rpc.RulesResult {
 			value := *in.Rules[i].Threshold
 			out.Rules[i].Threshold = &value
 		}
+		if in.Rules[i].WatchThreshold != nil {
+			value := *in.Rules[i].WatchThreshold
+			out.Rules[i].WatchThreshold = &value
+		}
+		if in.Rules[i].ActThreshold != nil {
+			value := *in.Rules[i].ActThreshold
+			out.Rules[i].ActThreshold = &value
+		}
 	}
 	out.Ranked = append([]int(nil), in.Ranked...)
 	if in.BreachCounts != nil {
