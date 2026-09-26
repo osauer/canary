@@ -195,3 +195,22 @@ func TestDaemonStartsWithAMalformedTerminalEvidenceImport(t *testing.T) {
 	}
 	srv.Stop()
 }
+
+// A damaged daemon.db still stops startup, and the error names the recovery
+// steps in the storage doc.
+func TestDaemonStartIntegrityFailureNamesTheRecoveryDoc(t *testing.T) {
+	dir := shortTempDir(t)
+	t.Setenv("XDG_STATE_HOME", dir)
+	db := filepath.Join(dir, "daemon.db")
+	if err := os.WriteFile(db, []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Resolved{Gateway: config.Gateway{Host: "127.0.0.1", Port: new(4002), ClientID: new(99)}}
+	srv := New(Options{Config: cfg, SocketPath: filepath.Join(dir, "ibkrd.sock"), Version: "test",
+		Logger: NewLogger(&bytes.Buffer{}, "error"), StateDatabasePath: db})
+	err := srv.Start(context.Background())
+	if err == nil || !strings.Contains(err.Error(), storageRecoveryDoc) {
+		t.Fatalf("Start = %v, want a stop that names %s", err, storageRecoveryDoc)
+	}
+	srv.Stop()
+}

@@ -82,6 +82,11 @@ The CLI autospawns `canary daemon` when the socket is missing and gives it a 5 s
 
 The error carries what the CLI could find out. When a lock holder is alive it adds `daemon PID N holds PATH but never opened the socket` and `if it's stuck, run: kill N`. When the last daemon log line is readable it appends `last daemon log: ...`. Read the full log at `~/.local/state/ibkr/ibkr-daemon.log` before killing anything.
 
+If the daemon log ends with a `start:` line about `daemon authority`,
+`daemon.db` or the preview key, a startup integrity check failed and the
+daemon stays stopped on purpose; follow
+[Recover from a failed startup check](../internals/storage.md#recover-from-a-failed-startup-check).
+
 ## A second daemon will not start
 
 It is not supposed to. The daemon takes a non-blocking exclusive `flock` on `ibkr.lock` beside the socket before it touches the gateway. A second one finds the lock contended, logs `Another daemon is already running for socket PATH; exiting cleanly`, and exits 0.

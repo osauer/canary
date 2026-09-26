@@ -1234,7 +1234,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.openCoreStore(ctx); err != nil {
 		s.lock.Release()
 		s.lock = nil
-		return err
+		return fmt.Errorf("%w; the daemon stays stopped so order safety state cannot roll back; recovery steps: %s", err, storageRecoveryDoc)
 	}
 	s.logger.Infof("daemon authority: verified in %s", time.Since(authorityStartedAt).Round(time.Millisecond))
 	// One daemon per socket holds the lock, so exactly one writer materializes
@@ -1367,6 +1367,10 @@ func (s *Server) Start(ctx context.Context) error {
 	s.closeListener()
 	return nil
 }
+
+// storageRecoveryDoc names the operator steps for a daemon.db or preview-key
+// integrity failure at startup; the start error quotes it.
+const storageRecoveryDoc = "docs/docs/internals/storage.md#recover-from-a-failed-startup-check"
 
 // partialFromConfig translates a config.Gateway (pointer-fielded user
 func partialFromConfig(g config.Gateway) discover.PartialGateway {

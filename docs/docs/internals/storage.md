@@ -267,6 +267,44 @@ a rehearsed restore runbook. Recovery is an offline procedure because the
 database head, preview signer generation, broker-open orders, and conservative
 order-ID floors must agree before writes resume.
 
+### Recover from a failed startup check
+
+A damaged or rolled-back `daemon.db`, a missing `daemon.db.head` watermark, or
+a preview signer key that does not match the database's authority generation
+stops the daemon before it serves its socket. Nothing is repaired or restored
+automatically: order-safety state (consumed preview tokens, order-ID floors,
+open order chains) must never roll back.
+
+What you see: CLI commands report `daemon socket did not appear within 5s`,
+and the daemon log (`~/.local/state/ibkr/ibkr-daemon.log`, or under
+`$XDG_STATE_HOME/ibkr/`) ends with a `start:` line naming the failed check and
+this section.
+
+Where things are, under `$XDG_STATE_HOME/ibkr/` (default `~/.local/state/ibkr/`):
+`daemon.db` and its WAL files, the `daemon.db.head` watermark, the
+`order-preview-key-v2` signer key, verified backups in `backups/` (each
+`<label>.db` with `.target.db` and `.maintenance.json` from a schema upgrade),
+and sealed pre-cutover artifacts in `legacy-sealed/<cutover-id>/`.
+
+Steps:
+
+1. Leave the daemon stopped. For an urgent cancel or exit, use TWS or IB
+   Gateway directly.
+2. Read the failed check:
+   `grep 'start:' ~/.local/state/ibkr/ibkr-daemon.log | tail -n 3`
+3. Preserve the evidence before touching anything:
+   `cp -Rp ~/.local/state/ibkr ~/.local/state/ibkr.failed-$(date +%Y%m%d-%H%M)`
+4. List the recovery material:
+   `ls -la ~/.local/state/ibkr ~/.local/state/ibkr/backups ~/.local/state/ibkr/legacy-sealed`
+5. If the check names a transient cause (a full disk, wrong file permissions,
+   another process holding the lock), fix that cause and run `canary restart`.
+6. Otherwise restoring is a deliberate offline decision, not a routine step: a
+   backup is older than the watermark, which refuses it by design, and the
+   preview signer, broker open orders and order-ID floors must agree with the
+   restored head before writes resume. There is no restore command yet; keep
+   the preserved copy and reconcile against the broker before replacing
+   anything.
+
 ## Current limits and evolution
 
 | Area | Current state | Next decision |
