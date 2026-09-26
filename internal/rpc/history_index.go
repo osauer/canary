@@ -1230,7 +1230,84 @@ type StressInput struct {
 	Positions    PositionsResult
 	Regime       RegimeSnapshotResult
 	MarketEvents MarketEventsResult
-	Now          time.Time
+	// Concentration is the Rulebook's reading of single-issuer concentration
+	// (rule 1's worst-case loss cap and rule 16's delta swing). The stress
+	// read never measures concentration itself; nil reads as unavailable.
+	Concentration *StressConcentration
+	Now           time.Time
+}
+
+// StressConcentration projects the Rulebook's concentration rows for the
+// stress read: rule 1's driving issuer with its worst-case loss and bands,
+// and rule 16's largest delta swing with its watch level.
+type StressConcentration struct {
+	// Status is rule 1's status (pass, watch, act or unknown); empty when the
+	// Rulebook result carried no rule 1 row.
+	Status string `json:"status,omitempty"`
+	// Issuer is the issuer rule 1's verdict rests on.
+	Issuer           string   `json:"issuer,omitempty"`
+	LossPctNLV       *float64 `json:"worst_case_loss_pct_nlv,omitempty"`
+	LossIsLowerBound bool     `json:"worst_case_loss_is_lower_bound,omitempty"`
+	WatchPct         *float64 `json:"watch_pct,omitempty"`
+	ActPct           *float64 `json:"act_pct,omitempty"`
+	// DeltaStatus, DeltaIssuer, DeltaPctNLV and DeltaWatchPct are rule 16's.
+	DeltaStatus   string   `json:"delta_status,omitempty"`
+	DeltaIssuer   string   `json:"delta_issuer,omitempty"`
+	DeltaPctNLV   *float64 `json:"delta_pct_nlv,omitempty"`
+	DeltaWatchPct *float64 `json:"delta_watch_pct,omitempty"`
+	// Reason names why the reading is unavailable, when it is.
+	Reason string `json:"reason,omitempty"`
+}
+
+// StressConcentrationFromRules projects a Rulebook result for the stress
+// read. A missing or disabled result reads as unavailable with a reason.
+func StressConcentrationFromRules(res *RulesResult) *StressConcentration {
+	out := &StressConcentration{}
+	switch {
+	case res == nil:
+		out.Reason = "no current Rulebook result"
+		return out
+	case !res.Enabled:
+		out.Reason = "the Rulebook is turned off"
+		return out
+	}
+	for _, row := range res.Rules {
+		switch row.ID {
+		case risk.RuleSingleNameExposure:
+			out.Status = row.Status
+			out.LossPctNLV = cloneFloatPtr(row.Observed)
+			out.LossIsLowerBound = row.ObservedIsLowerBound
+			out.WatchPct, out.ActPct = cloneFloatPtr(row.WatchThreshold), cloneFloatPtr(row.ActThreshold)
+			for _, o := range row.Offenders {
+				if o.Issuer != nil && o.Issuer.WorstCaseLossBase > 0 {
+					out.Issuer = o.Symbol
+					break
+				}
+			}
+			if out.Issuer == "" && len(row.Offenders) > 0 && row.Status != risk.RuleStatusUnknown {
+				out.Issuer = row.Offenders[0].Symbol
+			}
+		case risk.RuleDeltaSwing:
+			out.DeltaStatus = row.Status
+			out.DeltaPctNLV = cloneFloatPtr(row.Observed)
+			out.DeltaWatchPct = cloneFloatPtr(row.Threshold)
+			if len(row.Offenders) > 0 && row.Status == risk.RuleStatusWatch {
+				out.DeltaIssuer = row.Offenders[0].Symbol
+			}
+		}
+	}
+	if out.Status == "" {
+		out.Reason = "the Rulebook result has no rule 1 row"
+	}
+	return out
+}
+
+func cloneFloatPtr(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
 }
 
 // StressResult is the compact scheduled-monitor payload. The stress read is
@@ -1500,6 +1577,9 @@ type StressPortfolioSummary struct {
 	OptionGreeks         string                     `json:"option_greeks,omitempty"`
 	ProtectionCoverage   *ProtectionCoverageSummary `json:"protection_coverage,omitempty"`
 	HeldStress           []HeldStress               `json:"held_stress,omitempty"`
+	// Concentration is the Rulebook's concentration reading the stress read
+	// used for its concentration row and signals.
+	Concentration *StressConcentration `json:"concentration,omitempty"`
 
 	// ExposureUnmeasured names the held underlyings that contributed nothing to
 	// the book, so a threshold comparison against them can only prove a breach,

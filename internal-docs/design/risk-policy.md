@@ -1,6 +1,6 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-07-18 17:31 CEST
+Updated: 2026-09-26 08:00 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
 statement-authoritative flows and the clean-report auto-extend. Interview
@@ -68,6 +68,7 @@ must not duplicate numbers.
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback or unavailable state |
 |---|---|---|---|---|
 | Capital numbers, ladder, override cap, process cadence, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `canary policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
+| Single-issuer concentration: the issuer cap and trim level, illiquid bands, hedge credit, takeover gap, issuer groups, clusters, delta-swing and loss-budget watches | `rulebook-policy.toml` (Rulebook rule 1 and rules 16-18, amendment 15 of the Rulebook design) | `risk.RulebookPolicy`, `RulesResult` rows 1 and 16-18 | `canary rules`, `canary rules policy`, stress concentration row, risk-reduction bucket | the stress read and the protection policy define no concentration threshold of their own; rule 18 needs the effective risk capital above and reads unknown without it |
 | Schema, validation, evaluation, explain text | code | `internal/risk/constitution*.go` | all | n/a |
 | Policy identity | manager | `rpc.RiskPolicyResult.PolicyFingerprint` (`risk-constitution-fp-v1`) | policy show, journals | absent |
 | Adjusted peak, drawdown tier, latch, flows, overrides | daemon runtime state | daemon.db `risk_capital` state document plus `capital_events` | policy show | unseeded ⇒ tier `unknown`; storage failure ⇒ unavailable |

@@ -696,6 +696,14 @@ type TradeProposal struct {
 	ThetaPerDayBase        *float64 `json:"theta_per_day_base,omitempty"`
 	RiskExcessNotionalBase *float64 `json:"risk_excess_notional_base,omitempty"`
 	MarketValuePctNLV      *float64 `json:"market_value_pct_nlv,omitempty"`
+	// Issuer, IssuerLossPctNLV, IssuerLossAfterPctNLV and IssuerTargetPctNLV
+	// describe a risk_reduction trim on the Rulebook's measure: the issuer's
+	// worst-case loss (every leg netted) before and after the trim, and the
+	// rule 1 watch level it trims back to, all as percent of NLV.
+	Issuer                string   `json:"issuer,omitempty"`
+	IssuerLossPctNLV      *float64 `json:"issuer_loss_pct_nlv,omitempty"`
+	IssuerLossAfterPctNLV *float64 `json:"issuer_loss_after_pct_nlv,omitempty"`
+	IssuerTargetPctNLV    *float64 `json:"issuer_target_pct_nlv,omitempty"`
 	// Holding-level decision context: the full exposure being acted on, not
 	PositionMarketValue       float64                         `json:"position_market_value,omitempty"`
 	PositionDayChangeMoney    *float64                        `json:"position_day_change_money,omitempty"`

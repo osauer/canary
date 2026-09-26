@@ -7,8 +7,10 @@ import (
 )
 
 // StressPolicyFingerprintVersion labels fingerprints of the stress threshold
-// policy and keeps that identity domain separate from the constitution.
-const StressPolicyFingerprintVersion = "stress-policy-fp-v1"
+// policy and keeps that identity domain separate from the constitution. v2
+// (amendment 15): the three single-name thresholds left the projection; the
+// stress read takes concentration from the Rulebook.
+const StressPolicyFingerprintVersion = "stress-policy-fp-v2"
 
 // Policy holds the shared stress thresholds used by live monitors and
 // protection proposal policy.
@@ -34,9 +36,9 @@ type Policy struct {
 	NetDeltaStressUrgentPct      float64 `json:"net_delta_stress_urgent_pct"`
 	GrossDeltaStressUrgentPct    float64 `json:"gross_delta_stress_urgent_pct"`
 
-	SingleNameExposureWatchPct float64 `json:"single_name_exposure_watch_pct"`
-	SingleNameDeltaWatchPct    float64 `json:"single_name_delta_watch_pct"`
-	SingleNameTargetPct        float64 `json:"single_name_target_pct"`
+	// Single-name concentration is not a stress threshold: the stress read
+	// takes rule 1's issuer cap and rule 16's delta-swing watch from the
+	// Rulebook policy (amendment 15, owner decision 2026-09-26).
 
 	OptionGreeksMinCoveragePct float64 `json:"option_greeks_min_coverage_pct"`
 
@@ -103,10 +105,6 @@ func DefaultPolicy() Policy {
 		GrossExposureStressUrgentPct: 150,
 		NetDeltaStressUrgentPct:      125,
 		GrossDeltaStressUrgentPct:    150,
-
-		SingleNameExposureWatchPct: 35,
-		SingleNameDeltaWatchPct:    35,
-		SingleNameTargetPct:        25,
 
 		OptionGreeksMinCoveragePct: 80,
 
@@ -185,9 +183,6 @@ func (p Policy) FingerprintKey() string {
 			GrossExposureStressUrgentPct:      p.GrossExposureStressUrgentPct,
 			NetDeltaStressUrgentPct:           p.NetDeltaStressUrgentPct,
 			GrossDeltaStressUrgentPct:         p.GrossDeltaStressUrgentPct,
-			SingleNameExposureWatchPct:        p.SingleNameExposureWatchPct,
-			SingleNameDeltaWatchPct:           p.SingleNameDeltaWatchPct,
-			SingleNameTargetPct:               p.SingleNameTargetPct,
 			OptionGreeksMinCoveragePct:        p.OptionGreeksMinCoveragePct,
 			SPYDropPct:                        p.SPYDropPct,
 			SPYHardDropPct:                    p.SPYHardDropPct,
@@ -230,9 +225,6 @@ type policyFields struct {
 	GrossExposureStressUrgentPct      float64      `json:"gross_exposure_stress_urgent_pct"`
 	NetDeltaStressUrgentPct           float64      `json:"net_delta_stress_urgent_pct"`
 	GrossDeltaStressUrgentPct         float64      `json:"gross_delta_stress_urgent_pct"`
-	SingleNameExposureWatchPct        float64      `json:"single_name_exposure_watch_pct"`
-	SingleNameDeltaWatchPct           float64      `json:"single_name_delta_watch_pct"`
-	SingleNameTargetPct               float64      `json:"single_name_target_pct"`
 	OptionGreeksMinCoveragePct        float64      `json:"option_greeks_min_coverage_pct"`
 	SPYDropPct                        float64      `json:"spy_drop_pct"`
 	SPYHardDropPct                    float64      `json:"spy_hard_drop_pct"`

@@ -53,15 +53,29 @@ func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
 	marketEvents := fetchStressMarketEvents(ctx, conn, pos)
+	concentration := fetchStressConcentration(ctx, conn)
 	if acct.DailyPnL == nil {
 		var refreshed rpc.AccountResult
 		if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &refreshed); err == nil && refreshed.DailyPnL != nil {
 			acct = refreshed
 		}
 	}
-	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents})
+	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents, Concentration: concentration})
 	rpc.CompactRegimeSnapshot(&regime)
 	return res, pos, regime, nil
+}
+
+// fetchStressConcentration reads the Rulebook's concentration verdicts; the
+// stress read never measures concentration itself. A failed read leaves the
+// reading unavailable, which the concentration row reports, never a pass.
+func fetchStressConcentration(ctx context.Context, conn interface {
+	Call(context.Context, string, any, any) error
+}) *rpc.StressConcentration {
+	var rules rpc.RulesResult
+	if err := conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{}, &rules); err != nil {
+		return &rpc.StressConcentration{Reason: "the Rulebook read failed: " + err.Error()}
+	}
+	return rpc.StressConcentrationFromRules(&rules)
 }
 
 func fetchStressMarketEvents(ctx context.Context, conn interface {
@@ -105,7 +119,7 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 // FetchMethods lists the sequential daemon reads, including the optional P&L
 // retry, so adapter deadlines cover the complete shared assessment.
 func FetchMethods() []string {
-	return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodAccountSummary}
+	return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodRulesSnapshot, rpc.MethodAccountSummary}
 }
 
 // FetchTimeout budgets every sequential read with positive transport headroom.

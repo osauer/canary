@@ -65,9 +65,8 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.budget_reduction]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals. |
 | `[buckets.budget_reduction]` | `per_line_pct_of_risk_capital` | `float64` | PerLinePctOfRiskCapital caps one long option line's market value as a percent of declared risk capital, in (0, 100] and at most the total cap; no default. |
 | `[buckets.budget_reduction]` | `premium_at_risk_pct_of_risk_capital` | `float64` | PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default. |
-| `[buckets.risk_reduction]` | `enabled` | `bool` | Enabled turns the single-name concentration-reduction bucket on (default true). |
+| `[buckets.risk_reduction]` | `enabled` | `bool` | Enabled turns the issuer concentration-reduction bucket on (default true). |
 | `[buckets.risk_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of a single generated reduction order (default 10000). |
-| `[buckets.risk_reduction]` | `single_name_target_pct_nlv` | `float64` | SingleNameTargetPctNLV is the target ceiling for one name's exposure as a percent of net liquidation value (default 25). |
 | `[buckets.theta_hygiene]` | `enabled` | `bool` | Enabled turns the near-dated time-decay hygiene bucket on (default true). |
 | `[buckets.theta_hygiene]` | `max_dte` | `int` | MaxDTE only considers options expiring within this many days (default 21). |
 | `[buckets.theta_hygiene]` | `max_spread_pct_of_mid` | `float64` | MaxSpreadPctOfMid skips quotes whose bid/ask spread exceeds this percent of mid — too wide to act on (default 25). |

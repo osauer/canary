@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 07:49 CEST
+Updated: 2026-09-26 08:00 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14 and issuer-concentration amendment 15, 2026-09-26). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -79,22 +79,29 @@ Three surfaces measure overlapping metrics with different bars, by design:
 the **stress read** is regime×portfolio alerting (compiled thresholds, push
 alerts), **proposals** are executable protection orders (protection-policy
 TOML), and the **rulebook** is an advisory discipline model
-(compiled baseline `rulebook-v3` under the owner's `rulebook-policy.toml`). Same
+(compiled baseline `rulebook-v4` under the owner's `rulebook-policy.toml`). Same
 measurements, different questions. Containment so this never drifts into
 contradiction:
 
+- One definition of concentration (amendment 15): the stress read's
+  concentration row and signals read rule 1's issuer verdict and bands and
+  rule 16's delta-swing watch from the Rulebook result, quoting the Rulebook
+  watch level in their trim text, and the protection risk-reduction bucket
+  trims at rule 1's act level back to its watch level through the same issuer
+  netting (`risk.PlanIssuerTrim`). Neither keeps a concentration threshold of
+  its own; the retired stress single-name watches (35/35, target 25) and the
+  protection `single_name_target_pct_nlv` (25) are gone. Without a Rulebook
+  result the stress concentration row is a data-quality watch, never a pass.
 - One aggregation: rule evaluation consumes the same
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
-  read consumes; a Go test asserts observed values are identical across both
-  consumers. Bars may differ; observations may not.
-- The Rulebook policy in force (baseline `rulebook-v3` version 3, or the owner's
+  read consumes. Bars may differ; observations may not. (An earlier revision
+  claimed a Go test asserting identical observations; none existed, and
+  concentration now has a single reader instead.)
+- The Rulebook policy in force (baseline `rulebook-v4` version 4, or the owner's
   file by its `policy_id`/`policy_version`) is what the risk-constitution sibling
   pin compares. The sibling pin currently compares ID/version, not the
   Rulebook fingerprint; it detects version drift but is not threshold-level
-  approval provenance. The design cross-references the sibling thresholds
-  (stress single-name watch 35 compiled; protection risk-reduction target 25)
-  and which surface owns which question. A future operator TOML must preserve
-  those disclosures and version/fingerprint semantics.
+  approval provenance.
 - Every rendered breach shows observed value next to threshold, so two
   surfaces disagreeing on severity still visibly agree on the number.
 
@@ -284,8 +291,13 @@ contradiction:
     act, so they stay out of act counts and the trim and proposal paths.
     Default modes: 16 and 17 track, 18 alert (owner decision the same day).
     The baseline becomes `rulebook-v4` (Version 4) and the fingerprint
-    projection `rulebook-fp-v6`. The stress read and the risk-reduction
-    bucket follow in the next change.
+    projection `rulebook-fp-v6`. The stress read's concentration row and
+    signals read rule 1 and rule 16 (its three single-name thresholds are
+    deleted and the stress fingerprint projection becomes
+    `stress-policy-fp-v2`), and the protection risk-reduction bucket trims at
+    rule 1's act level back to the watch level on this measure; protection's
+    `single_name_target_pct_nlv` is retired and a file that still carries it
+    loads with the key ignored and named.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

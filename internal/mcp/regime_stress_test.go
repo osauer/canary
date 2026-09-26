@@ -101,7 +101,7 @@ func TestStressToolReturnsFullSharedAssessment(t *testing.T) {
 	if len(got.Rows) != 11 || len(got.MarketIndicators) != 8 || got.InputHealth == "ok" || got.NotExecution == "" {
 		t.Fatalf("incomplete or falsely healthy assessment: rows=%d indicators=%d health=%q", len(got.Rows), len(got.MarketIndicators), got.InputHealth)
 	}
-	if !reflect.DeepEqual(<-calls, []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodAccountSummary}) {
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodRulesSnapshot, rpc.MethodAccountSummary}) {
 		t.Fatal("unexpected stress read sequence")
 	}
 	if mcpToolCallTimeout("canary_stress", nil) < stress.FetchTimeout(5*time.Second) {

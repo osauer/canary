@@ -65,7 +65,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// A closed official session downgrades expected coldness (paused event
 	sessionOpen := calErr != nil || cal == nil || cal.Session.IsOpen
 
-	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents,
+	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents, rpc.StressConcentrationFromRules(rules),
 		acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
 	// Brief-hook stress evidence: the same computed result the brief row
 	s.journalStressDecision(&can)
@@ -473,7 +473,7 @@ func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
 // composeBriefMarket stays pure: it also returns the computed stress
 func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.PositionsResult,
 	regime *rpc.RegimeSnapshotResult, breadth *rpc.BreadthSPXResult, gamma *rpc.GammaZeroSPXResult,
-	events *rpc.MarketEventsResult, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
+	events *rpc.MarketEventsResult, concentration *rpc.StressConcentration, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
 	out := rpc.BriefMarketSection{}
 	if regimeErr != nil || regime == nil {
 		out.Regime.BriefRowState = briefUnavailable("regime snapshot unavailable: " + errText(regimeErr))
@@ -543,6 +543,7 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 	if events != nil {
 		stressInput.MarketEvents = *events
 	}
+	stressInput.Concentration = concentration
 	can := stress.ComputeStress(stressInput)
 	out.Stress = rpc.BriefStressRow{
 		BriefRowState: briefOK("pure stress composition over daemon snapshots"),

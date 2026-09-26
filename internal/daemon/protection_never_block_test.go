@@ -10,6 +10,33 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+// A protection file written before the risk-reduction target moved to the
+// Rulebook still loads: the retired key is ignored and named, and every other
+// limit in the file stays the owner's.
+func TestProtectionPolicyWithRetiredTargetKeyStillLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "protection-policy.toml")
+	writePolicy(t, path, 3, 5)
+	pm := newProtectionPolicyManager(path, true, time.Second, time.Now)
+	pm.reload()
+	active, st := pm.Active()
+	if st.Status != rpc.ProtectionPolicyStatusActive || active.PolicyVersion != 3 {
+		t.Fatalf("file with the retired key = %+v, want active v3", st)
+	}
+	if !strings.Contains(st.Message, "ignored buckets.risk_reduction.single_name_target_pct_nlv") || !strings.Contains(st.Message, "single_name_watch_pct") {
+		t.Fatalf("the retired key must be named with where it went: %q", st.Message)
+	}
+	if active.Buckets.ThetaHygiene.MinAbsThetaPerDay != 5 || !active.Buckets.RiskReduction.Enabled {
+		t.Fatalf("the owner's other limits must stand: %+v", active.Buckets)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := parseProtectionPolicy(append(body, []byte("misspelt_key = 1\n")...)); err == nil || !strings.Contains(err.Error(), "misspelt_key") {
+		t.Fatalf("an unknown key must still be refused: %v", err)
+	}
+}
+
 // A file broken since start and then repaired, even at version 1, is adopted;
 // before, the embedded default held it back as drift until a restart. A file
 // removed after a broken start returns to the defaults, not drift.

@@ -620,13 +620,10 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 		}
 	}
 	if policy.Buckets.RiskReduction.Enabled {
-		for _, group := range pos.ByUnderlying {
-			if p, ok := riskReductionProposal(policy, status, group, sources, now); ok {
-				enrichRiskReductionContext(&p, group, acct)
-				applyMarketEventFlagsToProposal(&p, marketEvents)
-				if !e.isIgnored(scope, p.Key) {
-					out = append(out, p)
-				}
+		for _, p := range e.riskReductionProposals(ctx, policy, status, acct, pos, sources, now) {
+			applyMarketEventFlagsToProposal(&p, marketEvents)
+			if !e.isIgnored(scope, p.Key) {
+				out = append(out, p)
 			}
 		}
 	}
@@ -1129,63 +1126,6 @@ func optionSpreadPct(row rpc.PositionView) (float64, bool) {
 		return 0, false
 	}
 	return (ask - bid) / mid * 100, true
-}
-
-func riskReductionProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, group rpc.PositionGroup, sources rpc.TradeProposalSourceFingerprints, now time.Time) (rpc.TradeProposal, bool) {
-	if group.GroupMarketValuePctNLV == nil || math.Abs(*group.GroupMarketValuePctNLV) <= policy.Buckets.RiskReduction.SingleNameTargetPctNLV {
-		return rpc.TradeProposal{}, false
-	}
-	var row rpc.PositionView
-	if group.Stock != nil && group.Stock.Quantity != 0 {
-		row = *group.Stock
-	} else {
-		for _, opt := range group.Options {
-			if opt.Quantity != 0 {
-				row = opt
-				break
-			}
-		}
-	}
-	if row.Symbol == "" || row.Quantity == 0 {
-		return rpc.TradeProposal{}, false
-	}
-	if !proposalSupportedSecType(row.SecType) {
-		return rpc.TradeProposal{}, false
-	}
-	pct := math.Abs(*group.GroupMarketValuePctNLV)
-	excessPct := pct - policy.Buckets.RiskReduction.SingleNameTargetPctNLV
-	excessNotional := math.Abs(groupMarketValueOrderValue(group)) * (excessPct / pct)
-	action := rpc.OrderActionSell
-	if row.Quantity < 0 {
-		action = rpc.OrderActionBuy
-	}
-	maxQty := int(math.Ceil(math.Abs(row.Quantity)))
-	qty := maxQty
-	mark := math.Abs(row.Mark)
-	if mark <= 0 {
-		mark = math.Abs(row.ValuationMark)
-	}
-	if mark > 0 {
-		mult := float64(max(row.Multiplier, 1))
-		qty = int(math.Ceil(excessNotional / (mark * mult)))
-		maxByNotional := int(math.Max(1, math.Floor(policy.Buckets.RiskReduction.MaxOrderNotional/(mark*mult))))
-		qty = min(qty, maxByNotional)
-	}
-	qty = max(1, min(qty, maxQty))
-	effect := rpc.OrderPositionEffectReduce
-	if qty == maxQty {
-		effect = rpc.OrderPositionEffectClose
-	}
-	p := baseProposal(policy, status, sources, now, rpc.TradeProposalBucketRiskReduction, row, action, qty, effect, fmt.Sprintf("%s is %.1f%% of NLV, above %.1f%% target", group.Underlying, pct, policy.Buckets.RiskReduction.SingleNameTargetPctNLV))
-	p.MarketValuePctNLV = cloneFloat64Ptr(group.GroupMarketValuePctNLV)
-	p.RiskExcessNotional = excessNotional
-	p.RiskExcessCurrency = p.Contract.Currency
-	if group.GroupMarketValueBase != nil {
-		base := math.Abs(*group.GroupMarketValueBase) * (excessPct / pct)
-		p.RiskExcessNotionalBase = &base
-	}
-	p.Score = pct
-	return p, true
 }
 
 func trailingStopStockProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, row rpc.PositionView, sources rpc.TradeProposalSourceFingerprints, now time.Time, stockProtectionEnabled bool, minTick float64, sizingInput ...*rpc.TradeProposalTrailSizing) (rpc.TradeProposal, bool) {
@@ -3277,16 +3217,6 @@ func optionDTE(expiry string, now time.Time) (int, bool) {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	expiryDay := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 	return int(expiryDay.Sub(today) / (24 * time.Hour)), true
-}
-
-func groupMarketValueOrderValue(g rpc.PositionGroup) float64 {
-	if g.GroupMarketValue != 0 {
-		return g.GroupMarketValue
-	}
-	if g.GroupMarketValueBase != nil {
-		return *g.GroupMarketValueBase
-	}
-	return 0
 }
 
 func mergedCurrency(existing, next string) string {

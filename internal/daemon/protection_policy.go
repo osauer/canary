@@ -174,12 +174,31 @@ type protectionThetaPolicy struct {
 }
 
 type protectionRiskPolicy struct {
-	// Enabled turns the single-name concentration-reduction bucket on (default true).
+	// Enabled turns the issuer concentration-reduction bucket on (default true). It trims an issuer whose worst-case loss is at the Rulebook's act level (single_name_act_pct) back to its watch level (single_name_watch_pct); the levels live in rulebook-policy.toml.
 	Enabled bool `toml:"enabled" json:"enabled"`
-	// SingleNameTargetPctNLV is the target ceiling for one name's exposure as a percent of net liquidation value (default 25).
-	SingleNameTargetPctNLV float64 `toml:"single_name_target_pct_nlv" json:"single_name_target_pct_nlv"`
 	// MaxOrderNotional caps the notional of a single generated reduction order (default 10000).
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
+}
+
+// retiredProtectionKeys are keys an owner file may still carry although no
+// bucket reads them any more. Loading ignores each with a status note, so an
+// upgrade never voids every other limit in the file over a key that changes
+// nothing; the upgrade migration comments it out after a backup.
+var retiredProtectionKeys = map[string]string{
+	"buckets.risk_reduction.single_name_target_pct_nlv": "the risk-reduction trim now goes back to the Rulebook's issuer watch level, single_name_watch_pct in rulebook-policy.toml",
+}
+
+// retiredProtectionKeysNote is the status note for the retired keys a file
+// carries, or "" when it carries none.
+func retiredProtectionKeysNote(keys []string) string {
+	if len(keys) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("ignored %s: %s", k, retiredProtectionKeys[k]))
+	}
+	return strings.Join(parts, "; ")
 }
 
 type protectionTrailPolicy struct {
@@ -350,7 +369,7 @@ func (m *protectionPolicyManager) reload() {
 	if m.now != nil {
 		now = m.now().UTC()
 	}
-	policy, source, err := m.loadPolicy()
+	read, err := m.loadPolicy()
 	if err != nil {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -361,18 +380,19 @@ func (m *protectionPolicyManager) reload() {
 		// The policy in force keeps generating reduce-only proposals: a broken
 		// file never blocks exits or trims. Only pre-authorised submission
 		// pauses until the file reads again.
-		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusError, source, err.Error()+protectionPolicyInForceNote(m.fileAdopted), now)
+		st := protectionPolicyStatus(m.active, rpc.ProtectionPolicyStatusError, read.source, err.Error()+protectionPolicyInForceNote(m.fileAdopted), now)
 		st.Path = m.path
 		m.status = st
 		return
 	}
+	policy, source := read.policy, read.source
 	fp := fingerprintProtectionPolicy(policy)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	adopt := func(statusKind string) {
 		m.active = policy
-		st := protectionPolicyStatus(policy, statusKind, source, "", now)
+		st := protectionPolicyStatus(policy, statusKind, source, retiredProtectionKeysNote(read.retired), now)
 		st.Path = m.path
 		m.status = st
 		m.lastFingerprint = fp
@@ -393,7 +413,7 @@ func (m *protectionPolicyManager) reload() {
 	case policy.PolicyVersion > m.active.PolicyVersion:
 		adopt(rpc.ProtectionPolicyStatusActive)
 	case policy.PolicyVersion == m.active.PolicyVersion && fp.Key == m.lastFingerprint.Key:
-		st := protectionPolicyStatus(m.active, m.status.Status, source, "", now)
+		st := protectionPolicyStatus(m.active, m.status.Status, source, retiredProtectionKeysNote(read.retired), now)
 		if st.Status == "" || st.Status == rpc.ProtectionPolicyStatusDrift || st.Status == rpc.ProtectionPolicyStatusError {
 			st.Status = rpc.ProtectionPolicyStatusActive
 		}
@@ -419,36 +439,60 @@ func protectionPolicyInForceNote(fileAdopted bool) string {
 	return "; Canary's defaults stay in force for reduce-only proposals, and pre-authorised submission pauses until the file reads again"
 }
 
-func (m *protectionPolicyManager) loadPolicy() (protectionPolicy, string, error) {
+// protectionPolicyRead is one read of the owner's file: the policy, where it
+// came from, and the retired keys it still carries.
+type protectionPolicyRead struct {
+	policy  protectionPolicy
+	source  string
+	retired []string
+}
+
+func (m *protectionPolicyManager) loadPolicy() (protectionPolicyRead, error) {
 	if m == nil || strings.TrimSpace(m.path) == "" {
 		p := defaultProtectionPolicy()
-		return p, "embedded-default", validateProtectionPolicy(p)
+		return protectionPolicyRead{policy: p, source: "embedded-default"}, validateProtectionPolicy(p)
 	}
 	data, err := os.ReadFile(m.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			p := defaultProtectionPolicy()
-			return p, "embedded-default", validateProtectionPolicy(p)
+			return protectionPolicyRead{policy: p, source: "embedded-default"}, validateProtectionPolicy(p)
 		}
-		return protectionPolicy{}, "file", fmt.Errorf("read protection policy %s: %w", m.path, err)
+		return protectionPolicyRead{source: "file"}, fmt.Errorf("read protection policy %s: %w", m.path, err)
 	}
+	p, retired, err := parseProtectionPolicy(data)
+	if err != nil {
+		return protectionPolicyRead{source: "file"}, fmt.Errorf("protection policy %s: %w", m.path, err)
+	}
+	return protectionPolicyRead{policy: p, source: "file", retired: retired}, nil
+}
+
+// parseProtectionPolicy decodes and validates a protection policy file.
+// Unknown keys are refused so a misspelt limit cannot silently keep a
+// default; a retired key is listed instead and ignored.
+func parseProtectionPolicy(data []byte) (protectionPolicy, []string, error) {
 	var p protectionPolicy
 	md, err := toml.Decode(string(data), &p)
 	if err != nil {
-		return protectionPolicy{}, "file", fmt.Errorf("parse protection policy %s: %w", m.path, err)
+		return protectionPolicy{}, nil, fmt.Errorf("parse: %w", err)
 	}
-	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		keys := make([]string, len(undecoded))
-		for i, k := range undecoded {
-			keys[i] = k.String()
+	var unknown, retired []string
+	for _, k := range md.Undecoded() {
+		if _, ok := retiredProtectionKeys[k.String()]; ok {
+			retired = append(retired, k.String())
+			continue
 		}
-		return protectionPolicy{}, "file", fmt.Errorf("unknown protection policy key(s): %s", strings.Join(keys, ", "))
+		unknown = append(unknown, k.String())
+	}
+	if len(unknown) > 0 {
+		return protectionPolicy{}, nil, fmt.Errorf("unknown protection policy key(s): %s", strings.Join(unknown, ", "))
 	}
 	applyProtectionPolicyDefaults(&p, &md)
 	if err := validateProtectionPolicy(p); err != nil {
-		return protectionPolicy{}, "file", err
+		return protectionPolicy{}, nil, err
 	}
-	return p, "file", nil
+	slices.Sort(retired)
+	return p, retired, nil
 }
 
 func defaultProtectionPolicy() protectionPolicy {
@@ -471,9 +515,8 @@ func defaultProtectionPolicy() protectionPolicy {
 				MaxSpreadPctOfMid:     25.0,
 			},
 			RiskReduction: protectionRiskPolicy{
-				Enabled:                true,
-				SingleNameTargetPctNLV: 25.0,
-				MaxOrderNotional:       10000.0,
+				Enabled:          true,
+				MaxOrderNotional: 10000.0,
 			},
 			TrailingStop: protectionTrailPolicy{
 				Enabled: true,
@@ -636,9 +679,6 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		}
 	}
 	if p.Buckets.RiskReduction.Enabled {
-		if p.Buckets.RiskReduction.SingleNameTargetPctNLV <= 0 {
-			return fmt.Errorf("risk_reduction.single_name_target_pct_nlv must be positive")
-		}
 		if p.Buckets.RiskReduction.MaxOrderNotional <= 0 {
 			return fmt.Errorf("risk_reduction.max_order_notional must be positive")
 		}

@@ -341,6 +341,10 @@ func (s *Server) stressEvaluationTick(ctx context.Context) bool {
 	if events != nil {
 		in.MarketEvents = *events
 	}
+	// Concentration comes from the Rulebook's canonical result for this broker
+	// scope; the stress read never measures it itself.
+	cached, _ := s.cachedRulebookResult(s.currentRulebookBinding(), rulesPreviewTTL, s.orderNow().UTC())
+	in.Concentration = rpc.StressConcentrationFromRules(cached)
 	can := stress.ComputeStress(in)
 	s.journalStressDecision(&can)
 	return true

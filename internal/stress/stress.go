@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,7 +96,7 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		PolicyProfile:      stressPolicy.PolicyProfile(),
 		PolicyVersion:      stressPolicy.PolicyVersion(),
 		PolicyFingerprint:  rpc.Fingerprint{Version: risk.StressPolicyFingerprintVersion, Key: stressPolicy.FingerprintKey()},
-		Portfolio:          summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now),
+		Portfolio:          summarizeStressPortfolioWith(in, now),
 		Market:             summarizeStressMarket(in.Regime, now),
 		MarketIndicators:   stressMarketIndicators(in.Regime, now),
 		NotExecution:       "Read-only stress snapshot; no orders are placed by Canary.",
@@ -285,6 +286,19 @@ func stressEstablishedAlertFingerprint(result StressResult) rpc.Fingerprint {
 		Version: rpc.EstablishedStressFingerprintVersion,
 		Key:     fingerprint.Key,
 	}
+}
+
+// summarizeStressPortfolioWith summarizes the book and attaches the
+// Rulebook's concentration reading the concentration row and signals use.
+func summarizeStressPortfolioWith(in StressInput, now time.Time) StressPortfolioSummary {
+	out := summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now)
+	if in.Concentration != nil {
+		c := *in.Concentration
+		out.Concentration = &c
+	} else {
+		out.Concentration = &rpc.StressConcentration{Reason: "no Rulebook reading was supplied"}
+	}
+	return out
 }
 
 func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, marketEvents rpc.MarketEventsResult, now time.Time) StressPortfolioSummary {
@@ -1265,30 +1279,55 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	}
 }
 
-func stressConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
-	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
-	if (p.LargestExposurePct == nil || p.LargestExposure == "") && (p.LargestDeltaPctNLV == nil || p.LargestDeltaExposure == "") {
-		if gap != "" {
-			return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "No concentration verdict is possible: no held name could be measured in the base currency.", gap)
-		}
-		return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration action from available base-currency exposure map.", "no dominant exposure")
+// stressConcentrationHits reads the Rulebook's concentration verdicts: rule
+// 1's issuer cap (watch or act) and rule 16's delta-swing watch. The stress
+// read measures neither; it only escalates them when stress is confirmed.
+func stressConcentrationHits(c *rpc.StressConcentration) (capHit, deltaHit, unknown bool) {
+	if c == nil || c.Reason != "" {
+		return false, false, true
 	}
-	pct := math.Abs(derefPct(p.LargestExposurePct))
-	deltaPct := derefPct(p.LargestDeltaPctNLV)
+	capHit = c.Status == risk.RuleStatusWatch || c.Status == risk.RuleStatusAct
+	deltaHit = c.DeltaStatus == risk.RuleStatusWatch
+	unknown = c.Status == risk.RuleStatusUnknown || c.DeltaStatus == risk.RuleStatusUnknown
+	return capHit, deltaHit, unknown
+}
+
+// stressLimitText renders a Rulebook limit exactly as configured.
+func stressLimitText(v *float64) string {
+	if v == nil {
+		return "?"
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
+}
+
+func stressConcentrationRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {
+	c := p.Concentration
+	if c == nil || c.Reason != "" {
+		reason := "no Rulebook reading"
+		if c != nil {
+			reason = c.Reason
+		}
+		evidence := "Rulebook concentration unavailable"
+		if gap := stressUnmeasuredNames(p.ExposureUnmeasured); gap != "" {
+			evidence += "; " + gap
+		}
+		return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "The Rulebook's concentration reading is unavailable ("+reason+"); this is not a clean concentration pass.", evidence)
+	}
 	evidence := stressConcentrationEvidence(p)
-	if gap != "" {
+	if gap := stressUnmeasuredNames(p.ExposureUnmeasured); gap != "" {
 		evidence += "; " + gap
 	}
-	if (pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct) && stressClusterStressed(m) {
-		return stressRow("Largest concentration", risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Trim this concentration before smaller positions; cap it below %.0f%% NLV in stress.", stressPolicy.SingleNameTargetPct), evidence)
+	capHit, deltaHit, unknown := stressConcentrationHits(c)
+	if (capHit || deltaHit) && stressClusterStressed(m) {
+		return stressRow("Largest concentration", risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Trim this concentration before smaller positions; cap it below %s%% NLV in stress.", stressLimitText(c.WatchPct)), evidence)
 	}
-	if pct >= stressPolicy.SingleNameExposureWatchPct || deltaPct >= stressPolicy.SingleNameDeltaWatchPct {
-		return stressRow("Largest concentration", risk.DirectionRebalance, risk.SeverityWatch, "Concentration is above risk limits; rebalance this position without treating it as confirmed market stress.", evidence)
+	if capHit || deltaHit {
+		return stressRow("Largest concentration", risk.DirectionRebalance, risk.SeverityWatch, "Concentration is at or above the Rulebook's levels; rebalance this position without treating it as confirmed market stress.", evidence)
 	}
-	if gap != "" {
-		return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "The largest position may be one of the names that could not be measured; this is not a clean concentration pass.", evidence)
+	if unknown {
+		return stressRow("Largest concentration", risk.DirectionDataQuality, risk.SeverityWatch, "The Rulebook could not measure every issuer; this is not a clean concentration pass.", evidence)
 	}
-	return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the stress policy.", evidence)
+	return stressRow("Largest concentration", "", risk.SeverityObserve, "No concentration trim required by the Rulebook's levels.", evidence)
 }
 
 func stressProtectionCoverageRow(p StressPortfolioSummary) StressRow {
@@ -2044,6 +2083,11 @@ func appendExposureSignal(out []risk.Signal, id risk.SignalID, metric string, ob
 }
 
 func stressConcentrationSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.Signal {
+	c := p.Concentration
+	capHit, deltaHit, _ := stressConcentrationHits(c)
+	if !capHit && !deltaHit {
+		return []risk.Signal{}
+	}
 	stressed := stressClusterStressed(m)
 	severity := risk.SeverityWatch
 	direction := risk.DirectionRebalance
@@ -2052,14 +2096,31 @@ func stressConcentrationSignals(p StressPortfolioSummary, m StressMarketSummary)
 		direction = risk.DirectionDefensive
 	}
 	out := []risk.Signal{}
-	if p.LargestExposurePct != nil && math.Abs(*p.LargestExposurePct) >= stressPolicy.SingleNameExposureWatchPct {
-		observed := math.Abs(*p.LargestExposurePct)
-		out = append(out, risk.Signal{ID: risk.SignalSingleNameExposureHigh, Direction: direction, Severity: severity, Subject: p.LargestExposure, Metric: "market_value_pct_nlv", Observed: &observed, Threshold: new(stressPolicy.SingleNameExposureWatchPct), Target: new(stressPolicy.SingleNameTargetPct), Unit: "pct_nlv", Evidence: fmt.Sprintf("%s market %.0f%% NLV", p.LargestExposure, observed), Confidence: "high"})
+	if capHit && c.LossPctNLV != nil {
+		confidence := "high"
+		if c.LossIsLowerBound {
+			confidence = "medium"
+		}
+		out = append(out, risk.Signal{ID: risk.SignalSingleNameExposureHigh, Direction: direction, Severity: severity, Subject: c.Issuer, Metric: "worst_case_loss_pct_nlv", Observed: new(*c.LossPctNLV), Threshold: cloneStressFloat(c.WatchPct), Target: cloneStressFloat(c.WatchPct), Unit: "pct_nlv", Evidence: fmt.Sprintf("%s worst-case loss %.0f%% NLV", nonEmptyStressText(c.Issuer, "largest issuer"), *c.LossPctNLV), Confidence: confidence})
 	}
-	if p.LargestDeltaPctNLV != nil && *p.LargestDeltaPctNLV >= stressPolicy.SingleNameDeltaWatchPct {
-		out = append(out, risk.Signal{ID: risk.SignalSingleNameDeltaHigh, Direction: direction, Severity: severity, Subject: p.LargestDeltaExposure, Metric: "delta_pct_nlv", Observed: p.LargestDeltaPctNLV, Threshold: new(stressPolicy.SingleNameDeltaWatchPct), Target: new(stressPolicy.SingleNameTargetPct), Unit: "pct_nlv", Evidence: fmt.Sprintf("%s delta %.0f%% NLV", p.LargestDeltaExposure, *p.LargestDeltaPctNLV), Confidence: "high"})
+	if deltaHit && c.DeltaPctNLV != nil {
+		out = append(out, risk.Signal{ID: risk.SignalSingleNameDeltaHigh, Direction: direction, Severity: severity, Subject: c.DeltaIssuer, Metric: "delta_pct_nlv", Observed: new(*c.DeltaPctNLV), Threshold: cloneStressFloat(c.DeltaWatchPct), Target: cloneStressFloat(c.DeltaWatchPct), Unit: "pct_nlv", Evidence: fmt.Sprintf("%s delta %.0f%% NLV", nonEmptyStressText(c.DeltaIssuer, "largest issuer"), *c.DeltaPctNLV), Confidence: "high"})
 	}
 	return out
+}
+
+func cloneStressFloat(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	return new(*v)
+}
+
+func nonEmptyStressText(v, fallback string) string {
+	if strings.TrimSpace(v) == "" {
+		return fallback
+	}
+	return v
 }
 
 func heldStressSignals(stresses []rpc.HeldStress, m StressMarketSummary) []risk.Signal {
@@ -3381,12 +3442,23 @@ func stressCushionEvidence(p StressPortfolioSummary) string {
 }
 
 func stressConcentrationEvidence(p StressPortfolioSummary) string {
-	parts := []string{}
-	if p.LargestExposurePct != nil && p.LargestExposure != "" {
-		parts = append(parts, fmt.Sprintf("%s market %.0f%% NLV (watch %.0f%%)", p.LargestExposure, math.Abs(*p.LargestExposurePct), stressPolicy.SingleNameExposureWatchPct))
+	c := p.Concentration
+	if c == nil {
+		return "Rulebook concentration unavailable"
 	}
-	if p.LargestDeltaPctNLV != nil && p.LargestDeltaExposure != "" {
-		parts = append(parts, fmt.Sprintf("%s delta %.0f%% NLV (watch %.0f%%)", p.LargestDeltaExposure, *p.LargestDeltaPctNLV, stressPolicy.SingleNameDeltaWatchPct))
+	parts := []string{}
+	if c.LossPctNLV != nil {
+		bound := ""
+		if c.LossIsLowerBound {
+			bound = "≥ "
+		}
+		parts = append(parts, fmt.Sprintf("%s worst-case loss %s%.1f%% NLV (Rulebook watch %s%%, cap %s%%)", nonEmptyStressText(c.Issuer, "largest issuer"), bound, *c.LossPctNLV, stressLimitText(c.WatchPct), stressLimitText(c.ActPct)))
+	}
+	if c.DeltaPctNLV != nil {
+		parts = append(parts, fmt.Sprintf("%s delta %.1f%% NLV (Rulebook delta-swing watch %s%%)", nonEmptyStressText(c.DeltaIssuer, "largest issuer"), *c.DeltaPctNLV, stressLimitText(c.DeltaWatchPct)))
+	}
+	if len(parts) == 0 {
+		return "Rulebook concentration: " + nonEmptyStressText(c.Status, "unknown")
 	}
 	return strings.Join(parts, "; ")
 }

@@ -85,9 +85,17 @@ standing default or exact intent, an exit stays blocked.
   is missing or stale, the row still appears, blocked with
   `extrinsic_uncomputable`, because the daemon then cannot separate intrinsic
   from time value and cannot assert the close is non-destructive.
-- **Risk reduction** proposes trimming a single-name group that exceeds
-  `single_name_target_pct_nlv`. It becomes a full close only when the computed
-  quantity equals the whole position.
+- **Risk reduction** trims an issuer whose worst-case loss reaches the
+  Rulebook's act level (rule 1, `single_name_act_pct`, 40% by default) back to
+  its watch level (`single_name_watch_pct`, 30%; 20/30 for an illiquid
+  issuer), on the same measure: the most the issuer can lose at any price,
+  every leg netted. It reduces the leg that loses most at that price, capped
+  by `max_order_notional`, and becomes a full close only when the computed
+  quantity equals the whole position. When that leg alone cannot reach the
+  watch level the proposal says so; ranking rolls, collars and trims across
+  legs by cost is a later step. The levels live in `rulebook-policy.toml`: the
+  retired `single_name_target_pct_nlv` key is ignored with a note if a file
+  still carries it.
 - **Budget reduction** brings long option premium back inside a declared share
   of the risk constitution's declared risk capital while the constitution's
   drawdown brake is engaged. It is absent from the embedded default and

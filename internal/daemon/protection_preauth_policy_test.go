@@ -38,13 +38,14 @@ func writePreAuthPolicy(t *testing.T, body string) *protectionPolicyManager {
 func TestPreAuthorisedPolicyParsesListAndWindow(t *testing.T) {
 	t.Parallel()
 	m := writePreAuthPolicy(t, preAuthPolicyTOML("pre_authorised = [\"trailing_stop\", \"option_loss_exit\", \"option_profit_trail\", \"budget_reduction\"]\nveto_window = \"45m\"", 1))
-	policy, source, err := m.loadPolicy()
+	read, err := m.loadPolicy()
 	if err != nil {
 		t.Fatalf("loadPolicy: %v", err)
 	}
-	if source != "file" {
-		t.Fatalf("source = %q, want file", source)
+	if read.source != "file" {
+		t.Fatalf("source = %q, want file", read.source)
 	}
+	policy := read.policy
 	for _, bucket := range []string{"trailing_stop", "option_loss_exit", "option_profit_trail", "budget_reduction"} {
 		if !policy.Authority.preAuthorised(bucket) {
 			t.Fatalf("bucket %s not pre-authorised after parse", bucket)
@@ -68,10 +69,11 @@ func TestPreAuthorisedPolicyDefaultsToNothingAndThirtyMinutes(t *testing.T) {
 		t.Fatalf("default veto window = %s, want 30m", got)
 	}
 	m := writePreAuthPolicy(t, preAuthPolicyTOML("", 1))
-	parsed, _, err := m.loadPolicy()
+	read, err := m.loadPolicy()
 	if err != nil {
 		t.Fatalf("loadPolicy: %v", err)
 	}
+	parsed := read.policy
 	if len(parsed.Authority.PreAuthorised) != 0 || parsed.Authority.vetoWindow() != 30*time.Minute {
 		t.Fatalf("file without the keys parsed as %+v", parsed.Authority)
 	}
@@ -107,7 +109,7 @@ func TestPreAuthorisedPolicyRejectsUnknownDuplicateAndShortWindow(t *testing.T) 
 				body = strings.Replace(body, "close_reduce_only = true\n", "", 1)
 			}
 			m := writePreAuthPolicy(t, body)
-			_, _, err := m.loadPolicy()
+			_, err := m.loadPolicy()
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want containing %q", err, tc.want)
 			}

@@ -859,6 +859,12 @@ func BuildAccountFingerprint(a *AccountResult) Fingerprint {
 	return semanticFingerprint(AccountFingerprintVersion, projection)
 }
 
+// positionsFingerprintConcentrationBucketPct is the bucket edge the positions
+// fingerprint uses for its largest-name readings. It sets hashing granularity,
+// not a concentration limit (the limit is rule 1 in the Rulebook policy), and
+// keeps the retired stress value so positions fingerprints do not move.
+const positionsFingerprintConcentrationBucketPct = 35.0
+
 // BuildPositionsFingerprint hashes portfolio exposure buckets, not raw marks.
 func BuildPositionsFingerprint(p *PositionsResult, netLiquidation float64) Fingerprint {
 	if p == nil {
@@ -909,10 +915,10 @@ func BuildPositionsFingerprint(p *PositionsResult, netLiquidation float64) Finge
 		projection.GrossDelta = riskBucket(grossDelta, policy.GrossDeltaStressUrgentPct, policy.GrossDeltaStressActPct, policy.GrossDeltaWatchPct, false)
 	}
 	if largestExposure > 0 {
-		projection.LargestExposure = riskBucket(largestExposure, policy.SingleNameExposureWatchPct*2, policy.SingleNameExposureWatchPct, policy.SingleNameExposureWatchPct, false)
+		projection.LargestExposure = riskBucket(largestExposure, positionsFingerprintConcentrationBucketPct*2, positionsFingerprintConcentrationBucketPct, positionsFingerprintConcentrationBucketPct, false)
 	}
 	if largestDelta > 0 {
-		projection.LargestDelta = riskBucket(largestDelta, policy.SingleNameDeltaWatchPct*2, policy.SingleNameDeltaWatchPct, policy.SingleNameDeltaWatchPct, false)
+		projection.LargestDelta = riskBucket(largestDelta, positionsFingerprintConcentrationBucketPct*2, positionsFingerprintConcentrationBucketPct, positionsFingerprintConcentrationBucketPct, false)
 	}
 	if p.Portfolio.Gamma != nil {
 		switch {
