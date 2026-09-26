@@ -84,16 +84,18 @@ expected_trading="$(printf '%s\n' \
 	printf '%s\n' "$trading_list" >&2
 	exit 1
 }
-if printf '%s\n' "$readonly_list" | grep -q 'TRADING-WARNING.md'; then
+if grep -q 'TRADING-WARNING.md' <<< "$readonly_list"; then
 	echo "build-release-target test: read-only archive contains the trading warning" >&2
 	exit 1
 fi
 warning="$(tar -xOzf "$test_root/dist/canary-trading-v1.2.3-darwin-arm64.tar.gz" 'canary-trading-v1.2.3-darwin-arm64/TRADING-WARNING.md')"
-printf '%s\n' "$warning" | grep -Fq 'blob/v1.2.3/SECURITY.md'
-printf '%s\n' "$warning" | grep -Fq 'blob/v1.2.3/docs/docs/operate/orders.md'
-printf '%s\n' "$warning" | grep -Fq 'github.com/osauer/canary/blob/v1.2.3/'
+# Feed the buffered text directly: grep -q can close a printf pipe early,
+# producing a false SIGPIPE failure under pipefail on Linux.
+grep -Fq 'blob/v1.2.3/SECURITY.md' <<< "$warning"
+grep -Fq 'blob/v1.2.3/docs/docs/operate/orders.md' <<< "$warning"
+grep -Fq 'github.com/osauer/canary/blob/v1.2.3/' <<< "$warning"
 
-if find "$test_root/dist" -maxdepth 1 -type f -name 'ibkr-*.tar.gz' | grep -q .; then
+if find "$test_root/dist" -maxdepth 1 -type f -name 'ibkr-*.tar.gz' | grep . >/dev/null; then
 	echo "build-release-target test: retired ibkr release archive was produced" >&2
 	exit 1
 fi
