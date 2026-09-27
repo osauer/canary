@@ -37,6 +37,12 @@ type Gateway struct {
 	TLS *bool `toml:"tls"`
 	// MaintenanceWindows lists the broker's scheduled reset windows as "DAY[-DAY] HH:MM-HH:MM TZ" specs, e.g. "Sat-Thu 23:45-00:45 America/New_York". Backend-link losses inside a window are annotated as expected maintenance rather than incident evidence. Absent (nil) uses IBKR's documented North America schedule; an explicit empty list disables the annotation.
 	MaintenanceWindows []string `toml:"maintenance_windows"`
+	// RestartTime declares the owner-configured daily Gateway restart in 24-hour HH:MM. It only annotates observed local API outages; it never pauses reconnects or changes trading gates.
+	RestartTime string `toml:"restart_time"`
+	// RestartTimezone is the owner-confirmed Gateway IANA timezone (for example America/New_York). Empty or "local" remains unknown; Canary never substitutes the daemon host timezone.
+	RestartTimezone string `toml:"restart_timezone"`
+	// RestartGrace bounds the expected local restart observation window, as a Go duration (default 5m, maximum 1h). An outage that exceeds it remains visible as an overrun.
+	RestartGrace string `toml:"restart_grace"`
 }
 
 // PortPinned reports whether the user pinned a port. Discovery skips the

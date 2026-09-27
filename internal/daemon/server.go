@@ -231,6 +231,7 @@ type Server struct {
 	// maintenanceWindows is the parsed broker reset schedule applied to
 	// every connector this server constructs; see resolveMaintenanceWindows.
 	maintenanceWindows []ibkrlib.MaintenanceWindow
+	gatewayRestart     gatewayRestartMonitor
 	// breadthConnectInFlight / breadthConnectFailStreak /
 	// connectInFlight / reconnectFailStreak / lastReconnectAttemptAt,
 	// connector a once-per-PROCESS resource: the 2026-08-03 23:45 TWS
@@ -1239,6 +1240,7 @@ func (s *Server) Start(ctx context.Context) error {
 	if err := s.resolveMaintenanceWindows(); err != nil {
 		return err
 	}
+	s.configureGatewayRestart()
 	lock, err := acquireInstanceLock(s.socketPath)
 	if err != nil {
 		return err

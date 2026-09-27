@@ -2276,6 +2276,26 @@ const (
 	GatewayPhaseReady           = "ready"
 )
 
+// GatewayRestartHealth annotates local API availability against an operator
+// schedule. It is diagnostic only: no field grants readiness, suppresses alerts,
+// changes broker configuration, or proves the cause of a disconnection.
+type GatewayRestartHealth struct {
+	State            string    `json:"state"`
+	Reason           string    `json:"reason"`
+	Source           string    `json:"source"`
+	Freshness        string    `json:"freshness"`
+	APIDiscovery     string    `json:"api_discovery"`
+	Time             string    `json:"time,omitempty"`
+	Timezone         string    `json:"timezone,omitempty"`
+	TimezoneSource   string    `json:"timezone_source"`
+	AsOf             time.Time `json:"as_of"`
+	ConfigLoadedAt   time.Time `json:"config_loaded_at,omitzero"`
+	ScheduledAt      time.Time `json:"scheduled_at,omitzero"`
+	Deadline         time.Time `json:"deadline,omitzero"`
+	OutageObservedAt time.Time `json:"outage_observed_at,omitzero"`
+	RecoveredAt      time.Time `json:"recovered_at,omitzero"`
+}
+
 // PortRejectionHealth is the evidence behind GatewayPhasePortRejecting: the
 // local API listener that accepted the TCP connection and ended it before
 // the API handshake. App and PID name the IBKR process found on the host;
@@ -2353,10 +2373,12 @@ type HealthResult struct {
 	// connected: loss count plus last/longest outage. Present once at least
 	// one loss was observed or the link is currently down, so chronic
 	// flapping is one counted observation instead of scattered warnings.
-	BackendLink   *BackendLinkHealth `json:"backend_link,omitempty"`
-	DataType      string             `json:"data_type,omitempty"`
-	ServerVersion int                `json:"server_version,omitempty"`
-	LastError     string             `json:"last_error,omitempty"`
+	BackendLink *BackendLinkHealth `json:"backend_link,omitempty"`
+	// GatewayRestart is diagnostic context, independent of connectivity and data health.
+	GatewayRestart *GatewayRestartHealth `json:"gateway_restart,omitempty"`
+	DataType       string                `json:"data_type,omitempty"`
+	ServerVersion  int                   `json:"server_version,omitempty"`
+	LastError      string                `json:"last_error,omitempty"`
 	// BackgroundTasks lists daemon-internal long-running computes that
 	// is active. Always present on the wire (never omitted) so
 	BackgroundTasks []BackgroundTaskStatus `json:"background_tasks"`

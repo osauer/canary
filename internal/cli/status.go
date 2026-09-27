@@ -91,6 +91,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		}
 		statusRow(env, out, "Backend link", value)
 	}
+	if restart := res.GatewayRestart; restart != nil && restart.Source == "operator" {
+		statusRow(env, out, "GW restart", restart.Time+" "+restart.Timezone+" · "+restart.State+" · "+restart.Reason)
+	}
 	if len(res.BackgroundTasks) > 0 {
 		statusRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
 	}

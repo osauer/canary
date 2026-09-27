@@ -3450,6 +3450,7 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		report.Complete = false
 		res.DataHealth = &report
 	}
+	res.GatewayRestart = s.gatewayRestart.snapshot(observedAt, res)
 	res.Verdict = authoritativeHealthVerdict(res)
 	return res
 }

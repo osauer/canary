@@ -346,6 +346,34 @@ is no external metrics stack and no tracing.
   longest outage), and the daemon's log coalesces flap bursts into
   episode-level lines instead of one warning per blip. It ends in
   one verdict: ready, attention, offline, or starting.
+- `status.health.gateway_restart` adds diagnostic context for an operator-declared
+  local Gateway restart. Configure `[gateway] restart_time = "23:45"`,
+  `restart_timezone` with the Gateway's confirmed IANA zone, and optionally
+  `restart_grace = "5m"` (1 second through 1 hour). The time is a daily 24-hour
+  wall-clock time in that zone. Empty or `"local"` timezone stays unknown;
+  Canary never substitutes its own host zone. Skipped or repeated DST times
+  do not establish an expected window.
+- The restart annotation separates `expected_restart`, `unexpected_outage`,
+  `recovering`, `overrun`, and `recovered`. First observation in the declared
+  window establishes a possible restart, not its cause or exact start time.
+  An outage already observed before the window is never relabeled. API
+  recovery alone is insufficient: the existing health verdict must become
+  ready before recovery is reported. No annotation pauses reconnection,
+  changes the health verdict, hides warnings, or grants trading permission.
+  An overrun remains explicit after the window ends. State lasts for the
+  daemon lifetime; it is not a durable incident history or a new push alert.
+- Schedule provenance remains `source = "operator"`, `freshness = "unverified"`.
+  `config_loaded_at` means Canary loaded its declaration, not that Gateway
+  settings were observed. `as_of` is the diagnostic sampling time. There is
+  no verified API observation timestamp or automatic agreement check yet.
+  This clean-room client negotiates protocol 203; API discovery reports
+  `unsupported_client_protocol` rather than sending an unsupported request.
+  [IBKR's newer read-only configuration request](https://www.interactivebrokers.com/docs/tws-api/doc/setting-management/request-configuration)
+  returns a [LockAndExitConfig](https://ibkrcampus.com/docs/tws-api/protobuf/lock-and-exit-config)
+  containing restart/logoff type, time and AM/PM, but no timezone. Supporting
+  it requires a separately tested protocol upgrade. Canary never writes
+  Gateway settings. Local restart declarations do not replace or extend
+  `maintenance_windows`, which only annotates the upstream IBKR reset schedule.
 - `canary app status` calls the local-Mac-only app diagnostic and keeps alert
   producer coverage separate from app-owned dispatcher delivery health.
 - Typed read surfaces carry their own source health. Regime clusters, gamma,

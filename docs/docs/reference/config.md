@@ -29,6 +29,9 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[gateway]` | `host` | `string` | Host pins the IB Gateway / TWS host; empty (the default) defers to auto-discovery on loopback (127.0.0.1), any non-empty value skips probing. |
 | `[gateway]` | `maintenance_windows` | `[]string` | MaintenanceWindows lists the broker's scheduled reset windows as "DAY[-DAY] HH:MM-HH:MM TZ" specs, e.g. |
 | `[gateway]` | `port` | `*int` | Port pins the IB Gateway / TWS API port (typically 4001/4002 for IB Gateway live/paper, 7496/7497 for TWS live/paper); absent (nil) defers to port-probing during discovery. |
+| `[gateway]` | `restart_grace` | `string` | RestartGrace bounds the expected local restart observation window, as a Go duration (default 5m, maximum 1h). |
+| `[gateway]` | `restart_time` | `string` | RestartTime declares the owner-configured daily Gateway restart in 24-hour HH:MM. |
+| `[gateway]` | `restart_timezone` | `string` | RestartTimezone is the owner-confirmed Gateway IANA timezone (for example America/New_York). |
 | `[gateway]` | `tls` | `*bool` | TLS pins TLS mode for the API socket: absent (nil) auto-tries plain first then TLS, `true` forces TLS-only with no plain fallback, `false` forces plain — setting the field disables fallback in either direction. |
 | `[opportunities]` | `enabled` | `*bool` | Enabled controls whether the daemon may produce advisory opportunities; default true, and opportunities are not broker writes unless separately submitted by an explicitly enabled trading path. |
 | `[opportunities]` | `hot_reload` | `*bool` | HotReload controls whether opportunity policy changes are reloaded while the daemon runs; default true. |
