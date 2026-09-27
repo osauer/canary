@@ -1077,18 +1077,12 @@ func findAppProcessForExecutables(ctx context.Context, executablePaths map[strin
 }
 
 func appCommandMatch(cmdline string, exactPaths map[string]struct{}) ([]string, bool, bool) {
-	fields := strings.Fields(cmdline)
-	if len(fields) < 2 ||
-		!productidentity.IsManagedProcessExecutableBase(filepath.Base(fields[0])) ||
-		fields[1] != "app" {
-		return nil, false, false
-	}
-	args := append([]string(nil), fields[1:]...)
-	if !isAppServerArgs(args) {
+	executable, args, ok := update.SplitManagedCommand(cmdline, "app")
+	if !ok || !isAppServerArgs(args) {
 		return nil, false, false
 	}
 	exact := false
-	for candidate := range executablePathVariants(fields[0]) {
+	for candidate := range executablePathVariants(executable) {
 		if _, ok := exactPaths[candidate]; ok {
 			exact = true
 			break

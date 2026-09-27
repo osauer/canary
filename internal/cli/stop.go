@@ -458,11 +458,11 @@ func findMCPProcesses(ctx context.Context) []mcpProcess {
 	var pids []int
 	sc := bufio.NewScanner(strings.NewReader(string(out)))
 	for sc.Scan() {
-		pid, ppid, args, ok := parseMCPPSLine(sc.Text())
-		if !ok || len(args) < 2 {
+		pid, ppid, command, ok := parseMCPPSLine(sc.Text())
+		if !ok {
 			continue
 		}
-		if productidentity.IsManagedProcessExecutableBase(filepath.Base(args[0])) && args[1] == "mcp" {
+		if _, _, managed := update.SplitManagedCommand(command, "mcp"); managed {
 			parents[pid] = ppid
 			pids = append(pids, pid)
 		}
@@ -479,20 +479,24 @@ func findMCPProcesses(ctx context.Context) []mcpProcess {
 	return procs
 }
 
-func parseMCPPSLine(line string) (pid, ppid int, args []string, ok bool) {
-	fields := strings.Fields(line)
-	if len(fields) < 3 {
-		return 0, 0, nil, false
-	}
-	pid, err := strconv.Atoi(fields[0])
+// parseMCPPSLine splits a `ps -axo pid=,ppid=,args=` row. The command stays
+// whole because the executable path in it may itself contain spaces.
+func parseMCPPSLine(line string) (pid, ppid int, command string, ok bool) {
+	pidText, rest, _ := strings.Cut(strings.TrimSpace(line), " ")
+	ppidText, command, _ := strings.Cut(strings.TrimSpace(rest), " ")
+	pid, err := strconv.Atoi(pidText)
 	if err != nil {
-		return 0, 0, nil, false
+		return 0, 0, "", false
 	}
-	ppid, err = strconv.Atoi(fields[1])
+	ppid, err = strconv.Atoi(ppidText)
 	if err != nil {
-		return 0, 0, nil, false
+		return 0, 0, "", false
 	}
-	return pid, ppid, fields[2:], true
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return 0, 0, "", false
+	}
+	return pid, ppid, command, true
 }
 
 // processCommandNames maps each parent pid to its executable name. It reads

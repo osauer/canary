@@ -93,10 +93,47 @@ func processCommandLine(ctx context.Context, pid int) (string, error) {
 }
 
 func looksLikeProductDaemon(cmdline string) bool {
+	_, _, ok := SplitManagedCommand(cmdline, "daemon")
+	return ok
+}
+
+// SplitManagedCommand splits a command line printed by `ps -o args=` into a
+// managed Canary executable and its arguments, which start with subcommand.
+// ok is false unless subcommand directly follows an executable whose base
+// name is a managed product executable.
+//
+// ps joins argv with spaces, so an install path containing a space (macOS
+// "Application Support") spans several fields and reads exactly like a
+// wrapper whose arguments end in a managed path, such as
+// "/bin/sh -c /opt/bin/canary daemon". A single-field executable is matched
+// lexically, which keeps a bare "canary daemon" and a pre-upgrade binary
+// already removed from disk recognisable. An executable spanning fields must
+// also be an absolute path to an existing regular file: that check, not the
+// text, tells an install path from a wrapper. Fields are rejoined with single
+// spaces, so a path with consecutive spaces is refused rather than guessed.
+func SplitManagedCommand(cmdline, subcommand string) (executable string, args []string, ok bool) {
+	return splitManagedCommand(cmdline, subcommand, func(path string) bool {
+		info, err := os.Stat(path)
+		return err == nil && info.Mode().IsRegular()
+	})
+}
+
+func splitManagedCommand(cmdline, subcommand string, isFile func(string) bool) (string, []string, bool) {
 	fields := strings.Fields(cmdline)
-	return len(fields) >= 2 &&
-		productidentity.IsManagedProcessExecutableBase(filepath.Base(fields[0])) &&
-		fields[1] == "daemon"
+	for i := 1; i < len(fields); i++ {
+		if fields[i] != subcommand {
+			continue
+		}
+		executable := strings.Join(fields[:i], " ")
+		if !productidentity.IsManagedProcessExecutableBase(filepath.Base(executable)) {
+			continue
+		}
+		if i > 1 && (!filepath.IsAbs(executable) || !isFile(executable)) {
+			continue
+		}
+		return executable, fields[i:], true
+	}
+	return "", nil, false
 }
 
 func commandHasFlag(cmdline, name string) bool {
