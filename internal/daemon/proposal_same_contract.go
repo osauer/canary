@@ -3,6 +3,7 @@ package daemon
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -28,13 +29,15 @@ import (
 //   - An immediate sale goes before a trailing stop, whatever the sizes. The
 //     stop is conditional and would hide the trim; it re-proposes for what
 //     is left once the sale fills or is cancelled.
-//   - A pre-authorised row is never covered by a row that needs approval.
-//     Canary still places the smaller automatic order, and whichever order
-//     works first blocks the other.
+//   - A pre-authorised row Canary will still place is never covered by a
+//     row that needs approval. Unless it already meets the larger
+//     requirement, Canary places it beside the row the owner approves, and
+//     whichever order works first blocks the other.
 //
 // Working-order netting finishes the job. Once an order works at the broker
-// for the contract and side, every other row for it blocks until that order
-// fills or is cancelled, and the rows then recompute from the new position.
+// for the contract and side, the exits, trims, budget and theta rows for it
+// block until that order fills or is cancelled, and then recompute from the
+// new position. A stock trailing stop waits only for a sale Canary proposed.
 
 // Blocker codes of the merge and of the reduction netting. Option exits and
 // stock trails keep their own netting codes.
@@ -46,12 +49,23 @@ const (
 	reductionIntentExistingCode   = "existing_reduction_intent"
 )
 
-// Why a broker open-order inventory read failed; each caller maps these to
-// its own blocker codes.
+// sameContractChannel is how the merge treats a row.
+type sameContractChannel int
+
 const (
-	openOrderInventoryUnbound     = "unbound"
-	openOrderInventoryUnavailable = "unavailable"
-	openOrderInventoryChanged     = "changed"
+	// sameContractManual rows wait for the owner's approval.
+	sameContractManual sameContractChannel = iota
+	// sameContractAutomatic rows Canary will still place itself: the bucket
+	// is pre-authorised, the automatic store runs, and the row's record for
+	// its revision is absent (the next cycle creates it), waiting or
+	// submitting.
+	sameContractAutomatic
+	// sameContractExcluded rows are pre-authorised but will not be placed:
+	// their record for this revision has ended (vetoed, failed, superseded or
+	// submitted) or no automatic store runs. The owner's surfaces hide every
+	// pre-authorised row from approval, so such a row neither covers another
+	// row, which would strand it, nor is covered; it stays as generated.
+	sameContractExcluded
 )
 
 // sameContractSide names one exact contract and order side: the merge groups
@@ -168,14 +182,20 @@ func sameContractBest(proposals []rpc.TradeProposal, rows []int) int {
 	return slices.MinFunc(rows, func(a, b int) int { return compareSameContract(proposals[a], proposals[b]) })
 }
 
-// mergeSameContractProposals merges the rows in place. automatic reports the
-// rows Canary places itself (pre-authorised under the active policy); nil
-// means none.
-func mergeSameContractProposals(proposals []rpc.TradeProposal, automatic func(rpc.TradeProposal) bool) {
+// mergeSameContractProposals merges the rows in place. channel says which
+// rows Canary places itself; nil treats every row as waiting for approval.
+func mergeSameContractProposals(proposals []rpc.TradeProposal, channel func(rpc.TradeProposal) sameContractChannel) {
+	if channel == nil {
+		channel = func(rpc.TradeProposal) sameContractChannel { return sameContractManual }
+	}
+	channels := make([]sameContractChannel, len(proposals))
 	groups := map[string][]int{}
 	var order []string
 	for i, p := range proposals {
 		if !sameContractMergeable(p) {
+			continue
+		}
+		if channels[i] = channel(p); channels[i] == sameContractExcluded {
 			continue
 		}
 		key := sameContractSide(p)
@@ -191,7 +211,7 @@ func mergeSameContractProposals(proposals []rpc.TradeProposal, automatic func(rp
 		}
 		var auto, manual []int
 		for _, i := range rows {
-			if automatic != nil && automatic(proposals[i]) {
+			if channels[i] == sameContractAutomatic {
 				auto = append(auto, i)
 			} else {
 				manual = append(manual, i)
@@ -278,15 +298,66 @@ func sameContractRule(p rpc.TradeProposal) string {
 	}
 }
 
-// preAuthorisedRow is the merge's test for rows Canary places itself: the
-// one decorateAutomatic serves. It is nil while no active policy
-// pre-authorises anything.
-func (e *proposalEngine) preAuthorisedRow() func(rpc.TradeProposal) bool {
+// sameContractChannels classifies rows for the merge with the same policy
+// test decorateAutomatic serves, plus each row's automatic record for its
+// revision, so the merge never relies on an automatic submission that has
+// already ended.
+func (e *proposalEngine) sameContractChannels() func(rpc.TradeProposal) sameContractChannel {
 	policy, ok := e.automaticPolicy()
 	if !ok || len(policy.Authority.PreAuthorised) == 0 {
-		return nil
+		return func(rpc.TradeProposal) sameContractChannel { return sameContractManual }
 	}
-	return func(p rpc.TradeProposal) bool { return policy.Authority.preAuthorised(automaticBucketFor(p)) }
+	attached := e.automatic.attached()
+	return func(p rpc.TradeProposal) sameContractChannel {
+		if !policy.Authority.preAuthorised(automaticBucketFor(p)) {
+			return sameContractManual
+		}
+		if !attached {
+			return sameContractExcluded
+		}
+		if rec, found := e.automatic.get(p.Key, p.Revision); found && !rec.waiting() && rec.State != rpc.TradeProposalAutomaticSubmitting {
+			return sameContractExcluded
+		}
+		return sameContractAutomatic
+	}
+}
+
+// mergeSameContract merges a generated set whose revision is assigned, so
+// each pre-authorised row is judged by its own automatic record, and
+// remembers which rows it treated as automatic.
+func (e *proposalEngine) mergeSameContract(proposals []rpc.TradeProposal) {
+	channel := e.sameContractChannels()
+	automatic := map[string]bool{}
+	for _, p := range proposals {
+		if channel(p) == sameContractAutomatic {
+			automatic[p.Key] = true
+		}
+	}
+	mergeSameContractProposals(proposals, channel)
+	e.mu.Lock()
+	e.mergedAutomatic = automatic
+	e.mu.Unlock()
+}
+
+// kickIfCoverageStale asks for an immediate refresh when a served row's
+// automatic standing differs from the one the last merge used: the policy
+// changed, or a record ended (vetoed, failed) or began since. Until then a
+// row covered by an automatic row that will no longer be placed would stay
+// covered for a whole cadence.
+func (e *proposalEngine) kickIfCoverageStale(proposals []rpc.TradeProposal) {
+	if e == nil || len(proposals) == 0 {
+		return
+	}
+	channel := e.sameContractChannels()
+	e.mu.Lock()
+	merged := e.mergedAutomatic
+	e.mu.Unlock()
+	for _, p := range proposals {
+		if (channel(p) == sameContractAutomatic) != merged[p.Key] {
+			e.Kick()
+			return
+		}
+	}
 }
 
 // proposalIsReduction reports the rows that sell now without an exit's own
@@ -302,12 +373,12 @@ func proposalIsReduction(p rpc.TradeProposal) bool {
 
 // reductionOrderBlockers nets a reduction row against the broker's working
 // orders the way option exits are netted: any same-side order still working
-// for the exact contract, from any client and of any type, blocks the row
-// until that order fills or is cancelled; the row then recomputes from the
-// new position. A trailing stop counts: selling beside it would leave the
-// stop larger than the position. Missing or stale inventory fails closed.
-// forceCurrent reads the broker afresh (preview and submit); generation
-// reuses the protection heartbeat's receipt.
+// for the exact contract (sameContractWorkingOrder), from any client and of
+// any type, blocks the row until that order fills or is cancelled; the row
+// then recomputes from the new position. A trailing stop counts: selling
+// beside it would leave the stop larger than the position. Missing or stale
+// inventory fails closed. forceCurrent reads the broker afresh (preview and
+// submit); generation reuses the protection heartbeat's receipt.
 func (e *proposalEngine) reductionOrderBlockers(ctx context.Context, p rpc.TradeProposal, forceCurrent bool) []rpc.TradingBlocker {
 	block := func(code, message string) []rpc.TradingBlocker {
 		return []rpc.TradingBlocker{{Code: code, Message: message, Action: "Refresh and retry once complete, current broker open-order evidence is available."}}
@@ -315,30 +386,65 @@ func (e *proposalEngine) reductionOrderBlockers(ctx context.Context, p rpc.Trade
 	if p.Contract.ConID <= 0 {
 		return block(reductionOrderUnavailableCode, "the row has no exact contract id, so an order already working for this contract cannot be ruled out")
 	}
-	snapshot, failure := e.brokerOpenOrderInventory(ctx, forceCurrent)
-	if failure != "" {
+	snapshot, scope, err := e.server.brokerOpenOrderInventory(ctx, forceCurrent)
+	if err != nil {
 		return block(reductionOrderUnavailableCode, "complete, current open-order inventory from every client is unavailable, so an order already working for this contract cannot be ruled out")
 	}
-	family := sameContractSecFamily(nonEmptyString(p.Contract.SecType, p.SecType))
-	for _, order := range snapshot.Orders {
-		remaining := optionExitSnapshotRemaining(order)
-		if order.Type != ibkrlib.OrderLifecycleEventOpenOrder || order.WhatIf || !strings.EqualFold(order.Action, p.Action) ||
-			sameContractSecFamily(order.SecType) != family || remaining <= 0 {
-			continue
-		}
-		if order.ConID == p.Contract.ConID {
-			return []rpc.TradingBlocker{{
-				Code: reductionOrderExistingCode,
-				Message: fmt.Sprintf("an order to %s %s of this contract is already working (%s); this row waits until it fills or is cancelled, then recomputes from the new position",
-					strings.ToLower(p.Action), strconv.FormatFloat(remaining, 'f', -1, 64), nonEmptyString(strings.ToUpper(strings.TrimSpace(order.OrderType)), "order")),
-				Action: "Keep the working order, or cancel it at the broker first; this row then recomputes.",
-			}}
-		}
-		if order.ConID <= 0 && optionExitSnapshotContractCouldMatch(order, p.Contract) {
-			return block(reductionOrderUnknownCode, "a working order may be for this contract but carries no exact contract id")
-		}
+	order, found, unknown := sameContractWorkingOrder(snapshot, scope, p)
+	switch {
+	case found:
+		return []rpc.TradingBlocker{{
+			Code: reductionOrderExistingCode,
+			Message: fmt.Sprintf("an order to %s %s of this contract is already working (%s); this row waits until it fills or is cancelled, then recomputes from the new position",
+				strings.ToLower(p.Action), strconv.FormatFloat(optionExitSnapshotRemaining(order), 'f', -1, 64), nonEmptyString(strings.ToUpper(strings.TrimSpace(order.OrderType)), "order")),
+			Action: "Keep the working order, or cancel it at the broker first; this row then recomputes.",
+		}}
+	case unknown:
+		return block(reductionOrderUnknownCode, "a working order may be for this contract but carries no exact contract id")
 	}
 	return nil
+}
+
+// sameContractWorkingOrder finds an order a complete broker inventory shows
+// working for p's exact contract and side: from any client and of any type,
+// in the inventory's account (brokerOrderWorking: what-if, terminal and
+// filled orders are not working). The contract id is compared before the
+// security type, so an order listed without one still counts. unknown
+// reports a working order without a contract id that could be p's contract.
+func sameContractWorkingOrder(snapshot ibkrlib.OpenOrderSnapshot, scope brokerStateScope, p rpc.TradeProposal) (match ibkrlib.OrderLifecycleEvent, found, unknown bool) {
+	family := sameContractSecFamily(nonEmptyString(p.Contract.SecType, p.SecType))
+	for _, order := range snapshot.Orders {
+		if !brokerOrderWorking(order) || !strings.EqualFold(order.Action, p.Action) {
+			continue
+		}
+		if account := strings.TrimSpace(order.Account); account != "" && strings.TrimSpace(scope.Account) != "" && !strings.EqualFold(account, strings.TrimSpace(scope.Account)) {
+			continue
+		}
+		if order.ConID > 0 {
+			if order.ConID == p.Contract.ConID {
+				return order, true, false
+			}
+			continue
+		}
+		if (strings.TrimSpace(order.SecType) == "" || sameContractSecFamily(order.SecType) == family) && optionExitSnapshotContractCouldMatch(order, p.Contract) {
+			unknown = true
+		}
+	}
+	return ibkrlib.OrderLifecycleEvent{}, false, unknown
+}
+
+// openOrderInventoryFailure names why brokerOpenOrderInventory failed:
+// unbound (no concrete account session), changed (the session changed
+// during the read) or unavailable.
+func openOrderInventoryFailure(err error) string {
+	switch {
+	case errors.Is(err, errBrokerOpenOrderInventoryUnbound):
+		return "unbound"
+	case errors.Is(err, errBrokerOpenOrderInventoryChanged):
+		return "changed"
+	default:
+		return "unavailable"
+	}
 }
 
 // liveIntentFor reports an authorised intent that has not reached the broker
@@ -366,51 +472,6 @@ func (e *proposalEngine) liveIntentBlockers(p rpc.TradeProposal) []rpc.TradingBl
 		Message: fmt.Sprintf("an authorised order for this contract (%s) waits to be placed; this row waits until it is placed and has filled or been cancelled", key),
 		Action:  "Keep the authorised order, or withdraw it first; this row then recomputes.",
 	}}
-}
-
-// brokerOpenOrderInventory reads the complete all-client open-order
-// inventory bound to the current broker session: a fresh read when
-// forceCurrent (preview and submit), else the protection heartbeat's
-// short-lived receipt. A failure names why; the caller maps it to its own
-// blocker.
-func (e *proposalEngine) brokerOpenOrderInventory(ctx context.Context, forceCurrent bool) (ibkrlib.OpenOrderSnapshot, string) {
-	// The clock is read after the inventory, so a receipt taken during the
-	// read is not mistaken for one from the future.
-	usable := func(snapshot ibkrlib.OpenOrderSnapshot, err error) bool {
-		now := e.clock().UTC()
-		return err == nil && snapshot.Complete && !snapshot.AsOf.IsZero() && !snapshot.AsOf.After(now) && now.Sub(snapshot.AsOf.UTC()) <= protectionOrderSnapshotMaxAge
-	}
-	if e.openOrdersForTest != nil {
-		snapshot, err := e.openOrdersForTest(ctx)
-		if !usable(snapshot, err) {
-			return ibkrlib.OpenOrderSnapshot{}, openOrderInventoryUnavailable
-		}
-		return snapshot, ""
-	}
-	binding := e.server.currentProtectionOrderSnapshotBinding()
-	if binding.connector == nil || !brokerScopeConcrete(binding.scope) {
-		return ibkrlib.OpenOrderSnapshot{}, openOrderInventoryUnbound
-	}
-	var snapshot ibkrlib.OpenOrderSnapshot
-	var err error
-	if forceCurrent {
-		snapshot, err = e.server.snapshotOpenOrdersFrom(ctx, binding.connector)
-	} else {
-		snapshot, err = e.server.protectionSnapshotOpenOrders(ctx, binding)
-	}
-	if !usable(snapshot, err) {
-		return ibkrlib.OpenOrderSnapshot{}, openOrderInventoryUnavailable
-	}
-	receipt := binding
-	receipt.session = snapshot.Session
-	receipt.generation = snapshot.Generation
-	if e.server.orderSnapshotFn != nil && receipt.session == (ibkrlib.ConnectorSessionBinding{}) {
-		receipt.session = binding.session
-	}
-	if !e.server.protectionOrderSnapshotBindingCurrent(receipt) {
-		return ibkrlib.OpenOrderSnapshot{}, openOrderInventoryChanged
-	}
-	return snapshot, ""
 }
 
 // proposalDuplicateOrderIsCanaryReduction reports a working immediate sale

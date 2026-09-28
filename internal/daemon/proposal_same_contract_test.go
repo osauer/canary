@@ -18,12 +18,19 @@ import (
 // the reduction netting in proposal_same_contract.go. Every book is
 // synthetic.
 
-// sameContractInventory is a complete, current broker open-order inventory
-// holding orders.
-func sameContractInventory(now time.Time, orders ...ibkrlib.OrderLifecycleEvent) func(context.Context) (ibkrlib.OpenOrderSnapshot, error) {
-	return func(context.Context) (ibkrlib.OpenOrderSnapshot, error) {
-		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: now, Orders: orders}, nil
+// sameContractInventory seams the broker's complete, current open-order
+// inventory (Server.brokerOpenOrderInventory) to orders in the synthetic
+// account.
+func sameContractInventory(orders ...ibkrlib.OrderLifecycleEvent) func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+	return func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: optionExitTestTime(), Orders: orders}, brokerStateScope{Account: "DU1234567", Mode: rpc.AccountModeLive}, nil
 	}
+}
+
+// unavailableInventory is an inventory the broker could not supply complete
+// and current.
+func unavailableInventory(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+	return ibkrlib.OpenOrderSnapshot{}, brokerStateScope{}, errBrokerOpenOrderInventoryUnavailable
 }
 
 // workingOrder is an order still working at the broker for qty of conID.
@@ -77,7 +84,7 @@ func lossExitThetaFixture(t *testing.T) (*proposalEngine, protectionPolicy, *rpc
 	row.OptionBid, row.OptionAsk = new(0.28), new(0.30)
 	policy := standingOptionExitPolicy()
 	policy.Buckets.ThetaHygiene.Enabled = true
-	engine.openOrdersForTest = sameContractInventory(now)
+	engine.server.openOrderInventoryForTest = sameContractInventory()
 	return engine, policy, pos, now
 }
 
@@ -95,9 +102,8 @@ func budgetThetaFixture() (*proposalEngine, protectionPolicy, *rpc.PositionsResu
 	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"}, Options: []rpc.PositionView{leg}}
 	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 40, 15)
 	policy.Buckets.ThetaHygiene.Enabled = true
-	engine := &proposalEngine{server: &Server{}, now: func() time.Time { return now },
-		budgetInput:       func(*rpc.AccountResult, time.Time) budgetGovernorInput { return budgetLatchedInput() },
-		openOrdersForTest: sameContractInventory(now)}
+	engine := &proposalEngine{server: &Server{openOrderInventoryForTest: sameContractInventory()}, now: func() time.Time { return now },
+		budgetInput: func(*rpc.AccountResult, time.Time) budgetGovernorInput { return budgetLatchedInput() }}
 	return engine, policy, pos, now
 }
 
@@ -203,7 +209,7 @@ func TestSameContractAuthorisingTheCandidateLeavesNoSecondApprovableRow(t *testi
 		before := rowsByBucket(t, generateSameContract(t, engine, policy, pos, now), rpc.TradeProposalBucketOptionLossExit, rpc.TradeProposalBucketThetaHygiene)
 		// The owner authorises the one candidate; its order now works at the
 		// broker and the position is unchanged until it fills.
-		engine.openOrdersForTest = sameContractInventory(now, workingOrder(42, "OPT", rpc.OrderActionSell, 2, rpc.OrderTypeLMT))
+		engine.server.openOrderInventoryForTest = sameContractInventory(workingOrder(42, "OPT", rpc.OrderActionSell, 2, rpc.OrderTypeLMT))
 		rows := generateSameContract(t, engine, policy, pos, now)
 		if got := approvableFor(rows, 42); len(got) != 0 {
 			t.Fatalf("after authorising the loss exit, %d rows are still approvable: %+v", len(got), got)
@@ -221,7 +227,7 @@ func TestSameContractAuthorisingTheCandidateLeavesNoSecondApprovableRow(t *testi
 	t.Run("theta and the budget governor", func(t *testing.T) {
 		engine, policy, pos, now := budgetThetaFixture()
 		before := rowsByBucket(t, generateSameContract(t, engine, policy, pos, now), rpc.TradeProposalBucketBudgetReduction, rpc.TradeProposalBucketThetaHygiene)
-		engine.openOrdersForTest = sameContractInventory(now, workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT))
+		engine.server.openOrderInventoryForTest = sameContractInventory(workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT))
 		rows := generateSameContract(t, engine, policy, pos, now)
 		if got := approvableFor(rows, 601); len(got) != 0 {
 			t.Fatalf("after authorising theta's close, %d rows are still approvable: %+v", len(got), got)
@@ -244,24 +250,35 @@ func TestSameContractWorkingOrderBlocksReductionRows(t *testing.T) {
 	unknown.Symbol = "AAA"
 	filled := workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT)
 	filled.Remaining, filled.Filled = 0, 5
+	withStatus := func(status string) ibkrlib.OrderLifecycleEvent {
+		o := workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT)
+		o.Status = status
+		return o
+	}
+	elsewhere := workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT)
+	elsewhere.Account = "DU7654321"
+	untyped := workingOrder(601, "", rpc.OrderActionSell, 5, rpc.OrderTypeLMT)
 	for name, tc := range map[string]struct {
-		inventory func(context.Context) (ibkrlib.OpenOrderSnapshot, error)
+		inventory func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error)
 		want      string
 	}{
-		"hand-placed partial sale":  {sameContractInventory(now, workingOrder(601, "OPT", rpc.OrderActionSell, 1, rpc.OrderTypeLMT)), "existing_reduction_order"},
-		"standing trailing stop":    {sameContractInventory(now, workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeTRAILLIMIT)), "existing_reduction_order"},
-		"order without contract id": {sameContractInventory(now, unknown), "reduction_order_identity_unknown"},
-		"incomplete inventory": {func(context.Context) (ibkrlib.OpenOrderSnapshot, error) {
-			return ibkrlib.OpenOrderSnapshot{Complete: false, AsOf: now}, nil
-		}, "reduction_order_evidence_unavailable"},
-		"stale inventory":             {sameContractInventoryAt(now.Add(-2*protectionOrderSnapshotMaxAge), workingOrder(999, "OPT", rpc.OrderActionSell, 1, rpc.OrderTypeLMT)), "reduction_order_evidence_unavailable"},
-		"buying the contract":         {sameContractInventory(now, workingOrder(601, "OPT", rpc.OrderActionBuy, 1, rpc.OrderTypeLMT)), ""},
-		"another contract":            {sameContractInventory(now, other), ""},
-		"filled order":                {sameContractInventory(now, filled), ""},
-		"what-if preview is no order": {sameContractInventory(now, whatIf(workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT))), ""},
+		"hand-placed partial sale":    {sameContractInventory(workingOrder(601, "OPT", rpc.OrderActionSell, 1, rpc.OrderTypeLMT)), "existing_reduction_order"},
+		"standing trailing stop":      {sameContractInventory(workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeTRAILLIMIT)), "existing_reduction_order"},
+		"submitted at the broker":     {sameContractInventory(withStatus("Submitted")), "existing_reduction_order"},
+		"listed without a sec type":   {sameContractInventory(untyped), "existing_reduction_order"},
+		"order without contract id":   {sameContractInventory(unknown), "reduction_order_identity_unknown"},
+		"inventory unavailable":       {unavailableInventory, "reduction_order_evidence_unavailable"},
+		"buying the contract":         {sameContractInventory(workingOrder(601, "OPT", rpc.OrderActionBuy, 1, rpc.OrderTypeLMT)), ""},
+		"another contract":            {sameContractInventory(other), ""},
+		"another account":             {sameContractInventory(elsewhere), ""},
+		"filled order":                {sameContractInventory(filled), ""},
+		"cancelled order":             {sameContractInventory(withStatus("Cancelled")), ""},
+		"inactive order":              {sameContractInventory(withStatus("Inactive")), ""},
+		"rejected order":              {sameContractInventory(withStatus("Rejected")), ""},
+		"what-if preview is no order": {sameContractInventory(whatIf(workingOrder(601, "OPT", rpc.OrderActionSell, 5, rpc.OrderTypeLMT))), ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			engine.openOrdersForTest = tc.inventory
+			engine.server.openOrderInventoryForTest = tc.inventory
 			rows := generateSameContract(t, engine, policy, pos, now)
 			by := rowsByBucket(t, rows, rpc.TradeProposalBucketBudgetReduction, rpc.TradeProposalBucketThetaHygiene)
 			for _, p := range by {
@@ -280,11 +297,12 @@ func TestSameContractWorkingOrderBlocksReductionRows(t *testing.T) {
 			}
 		})
 	}
-}
-
-func sameContractInventoryAt(asOf time.Time, orders ...ibkrlib.OrderLifecycleEvent) func(context.Context) (ibkrlib.OpenOrderSnapshot, error) {
-	return func(context.Context) (ibkrlib.OpenOrderSnapshot, error) {
-		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: asOf, Orders: orders}, nil
+	// Option exits share the matching: an order listed without a security
+	// type but with the exact contract id is a working close.
+	exit, exitPolicy, exitPos, exitNow := lossExitThetaFixture(t)
+	exit.server.openOrderInventoryForTest = sameContractInventory(workingOrder(42, "", rpc.OrderActionSell, 2, rpc.OrderTypeLMT))
+	if by := rowsByBucket(t, generateSameContract(t, exit, exitPolicy, exitPos, exitNow), rpc.TradeProposalBucketOptionLossExit); !hasTradingBlocker(by[rpc.TradeProposalBucketOptionLossExit].Blockers, "existing_option_exit_order") {
+		t.Fatalf("the loss exit missed a working close listed without a security type: %v", blockerCodes(by[rpc.TradeProposalBucketOptionLossExit]))
 	}
 }
 
@@ -344,7 +362,12 @@ func TestSameContractImmediateSaleGoesBeforeTrailingStop(t *testing.T) {
 // Owner decision 2026-09-28 ("Keep the automatic one"): a pre-authorised row
 // is never covered by a row that needs approval.
 func TestSameContractPreAuthorisedRowIsNeverCoveredByOneNeedingApproval(t *testing.T) {
-	automatic := func(p rpc.TradeProposal) bool { return p.Bucket == rpc.TradeProposalBucketBudgetReduction }
+	automatic := func(p rpc.TradeProposal) sameContractChannel {
+		if p.Bucket == rpc.TradeProposalBucketBudgetReduction {
+			return sameContractAutomatic
+		}
+		return sameContractManual
+	}
 
 	rows := []rpc.TradeProposal{
 		sameContractRow(rpc.TradeProposalBucketBudgetReduction, 7, 2, rpc.OrderTypeLMT),
@@ -375,5 +398,108 @@ func TestSameContractPreAuthorisedRowIsNeverCoveredByOneNeedingApproval(t *testi
 	}
 	if rows[1].CoveredBy != rows[0].Key || rows[1].OptionExit.Readiness != "blocked" {
 		t.Fatalf("covered exit = %+v", rows[1])
+	}
+}
+
+// Review of b3ce0cfe: a pre-authorised row counts as Canary's own order only
+// while Canary will still place it. Once its automatic submission has ended,
+// it may not cover the rows the owner can approve, because every owner
+// surface hides a pre-authorised row from approval; the served snapshot asks
+// for a refresh as soon as the record ends.
+func TestSameContractEndedAutomaticRowNeverStrandsTheOthers(t *testing.T) {
+	rig := newAutomaticTestRig(t, `pre_authorised = ["option_loss_exit"]`)
+	e := rig.engine
+	rows := func() []rpc.TradeProposal {
+		exit := sameContractRow(rpc.TradeProposalBucketOptionLossExit, 7, 2, rpc.OrderTypeLMT)
+		exit.OptionExit = &rpc.TradeProposalOptionExit{Kind: risk.OptionExitActionLoss, Readiness: "ready"}
+		theta := sameContractRow(rpc.TradeProposalBucketThetaHygiene, 7, 2, rpc.OrderTypeLMT)
+		exit.Revision, theta.Revision = "r1", "r1"
+		return []rpc.TradeProposal{exit, theta}
+	}
+	exitKey := rows()[0].Key
+	record := func(state string) {
+		e.automatic.mu.Lock()
+		defer e.automatic.mu.Unlock()
+		if e.automatic.records == nil {
+			e.automatic.records = map[string]*automaticSubmissionRecord{}
+		}
+		e.automatic.records[automaticRecordKey(exitKey, "r1")] = &automaticSubmissionRecord{Version: automaticDocumentVersion, Key: exitKey, Revision: "r1",
+			Bucket: preAuthorisedBucketOptionLossExit, State: state, AccountID: rig.scope.Account, AccountMode: rig.scope.Mode}
+	}
+	kicked := func() bool {
+		select {
+		case <-e.kickCh():
+			return true
+		default:
+			return false
+		}
+	}
+
+	// No record yet: the next automatic cycle creates one, so Canary places
+	// the loss exit and it covers theta.
+	got := rows()
+	e.mergeSameContract(got)
+	if got[1].CoveredBy != exitKey || len(approvableFor(got, 7)) != 1 {
+		t.Fatalf("a live automatic exit did not stand for theta: %+v", got)
+	}
+	for _, state := range []string{rpc.TradeProposalAutomaticPending, rpc.TradeProposalAutomaticDeferred, rpc.TradeProposalAutomaticSubmitting} {
+		record(state)
+		got := rows()
+		e.mergeSameContract(got)
+		if got[1].CoveredBy != exitKey {
+			t.Fatalf("%s: an automatic exit Canary will still place stopped covering theta: %+v", state, got[1])
+		}
+		if e.kickIfCoverageStale(got); kicked() {
+			t.Fatalf("%s: a consistent snapshot asked for a refresh", state)
+		}
+	}
+	for _, state := range []string{rpc.TradeProposalAutomaticVetoed, rpc.TradeProposalAutomaticFailed, rpc.TradeProposalAutomaticSuperseded, rpc.TradeProposalAutomaticSubmitted} {
+		// The record ends after the merge: the served snapshot asks for a
+		// fresh one at once.
+		record(rpc.TradeProposalAutomaticPending)
+		stale := rows()
+		e.mergeSameContract(stale)
+		record(state)
+		if e.kickIfCoverageStale(stale); !kicked() {
+			t.Fatalf("%s: an ended automatic record left theta covered until the next cadence", state)
+		}
+		got := rows()
+		e.mergeSameContract(got)
+		if got[1].CoveredBy != "" || len(got[1].Blockers) != 0 || got[0].CoveredBy != "" || len(got[0].Covers) != 0 {
+			t.Fatalf("%s: an exit Canary will no longer place still merged: %+v", state, got)
+		}
+		if a := approvableFor(got, 7); len(a) != 2 || a[1].Bucket != rpc.TradeProposalBucketThetaHygiene {
+			t.Fatalf("%s: theta is no longer approvable: %+v", state, got)
+		}
+	}
+	// Without an automatic store nothing is placed automatically either.
+	e.automatic = &automaticSubmissionStore{}
+	got = rows()
+	e.mergeSameContract(got)
+	if got[1].CoveredBy != "" || len(got[0].Covers) != 0 {
+		t.Fatalf("a pre-authorised row with no automatic store covered theta: %+v", got)
+	}
+}
+
+// Review of b3ce0cfe: the brief counted a covered row as blocked. It is
+// another rule's reason on a proposal the brief already counts.
+func TestSameContractBriefCountsCoveredRowsApart(t *testing.T) {
+	rows := []rpc.TradeProposal{
+		sameContractRow(rpc.TradeProposalBucketOptionLossExit, 7, 2, rpc.OrderTypeLMT),
+		sameContractRow(rpc.TradeProposalBucketThetaHygiene, 7, 2, rpc.OrderTypeLMT),
+		sameContractRow(rpc.TradeProposalBucketRiskReduction, 8, 1, rpc.OrderTypeLMT),
+	}
+	rows[2].State, rows[2].Blockers = rpc.TradeProposalStateBlocked, []rpc.TradingBlocker{{Code: "wide_spread"}}
+	mergeSameContractProposals(rows, nil)
+	counts := proposalCounts(rows, "")
+	if counts.Total != 3 || counts.Actionable != 1 || counts.Covered != 1 {
+		t.Fatalf("counts = %+v", counts)
+	}
+	e := &proposalEngine{snapshot: rpc.TradeProposalSnapshot{Kind: rpc.TradeProposalSnapshotKind, Revision: "r1", Counts: counts}}
+	srv := &Server{tradeProposals: e}
+	row := srv.briefReadyProposals()
+	if row.Actionable != 1 || row.Blocked != 1 || row.Covered != 1 || row.Total != 3 ||
+		row.Detail != "1 protection proposal(s) ready to act, 1 blocked; 1 more rule(s) covered by them" {
+		t.Fatalf("brief row = %+v", row)
 	}
 }

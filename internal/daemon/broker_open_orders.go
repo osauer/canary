@@ -19,7 +19,14 @@ import (
 // shared cache for the next read.
 const ordersOpenInventoryWait = 1500 * time.Millisecond
 
-var errBrokerOpenOrderInventoryUnavailable = errors.New("complete current broker open-order inventory is unavailable")
+var (
+	errBrokerOpenOrderInventoryUnavailable = errors.New("complete current broker open-order inventory is unavailable")
+	// errBrokerOpenOrderInventoryUnbound and errBrokerOpenOrderInventoryChanged
+	// narrow an unavailable inventory for callers with a code for each: no
+	// concrete connected account session, or a session change during the read.
+	errBrokerOpenOrderInventoryUnbound = errors.New("no concrete connected account session")
+	errBrokerOpenOrderInventoryChanged = errors.New("the broker order session changed during the read")
+)
 
 // brokerOpenOrderInventory returns a complete, current all-client broker
 // open-order snapshot for the connected session and the broker scope it
@@ -35,7 +42,7 @@ func (s *Server) brokerOpenOrderInventory(ctx context.Context, fresh bool) (ibkr
 	}
 	binding := s.currentProtectionOrderSnapshotBinding()
 	if binding.connector == nil || !brokerScopeConcrete(binding.scope) {
-		return ibkrlib.OpenOrderSnapshot{}, binding.scope, fmt.Errorf("%w: no concrete connected account session", errBrokerOpenOrderInventoryUnavailable)
+		return ibkrlib.OpenOrderSnapshot{}, binding.scope, fmt.Errorf("%w: %w", errBrokerOpenOrderInventoryUnavailable, errBrokerOpenOrderInventoryUnbound)
 	}
 	var snapshot ibkrlib.OpenOrderSnapshot
 	var err error
@@ -59,7 +66,7 @@ func (s *Server) brokerOpenOrderInventory(ctx context.Context, fresh bool) (ibkr
 		receipt.session = binding.session
 	}
 	if !s.protectionOrderSnapshotBindingCurrent(receipt) {
-		return ibkrlib.OpenOrderSnapshot{}, binding.scope, fmt.Errorf("%w: the broker order session changed during the read", errBrokerOpenOrderInventoryUnavailable)
+		return ibkrlib.OpenOrderSnapshot{}, binding.scope, fmt.Errorf("%w: %w", errBrokerOpenOrderInventoryUnavailable, errBrokerOpenOrderInventoryChanged)
 	}
 	return snapshot, binding.scope, nil
 }

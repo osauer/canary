@@ -354,11 +354,13 @@ type BriefProposalsRow struct {
 // Stating that work is staged is not authority to place it — every submit
 type BriefReadyProposalsRow struct {
 	BriefRowState
-	// Actionable is the served count of proposals with no blockers; Blocked
-	// is the remainder of Total. Zero is a measured zero only when the
-	// embedded row state is OK.
+	// Actionable is the served count of proposals with no blockers; Covered
+	// counts those another proposal for the same contract and side stands
+	// for; Blocked is the remainder of Total. Zero is a measured zero only
+	// when the embedded row state is OK.
 	Actionable int `json:"actionable"`
 	Blocked    int `json:"blocked"`
+	Covered    int `json:"covered,omitempty"`
 	Total      int `json:"total"`
 }
 

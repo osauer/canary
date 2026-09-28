@@ -656,8 +656,12 @@ type OptionHedge struct {
 
 // TradeProposalCounts summarizes proposals and their currency-qualified money
 type TradeProposalCounts struct {
-	Total            int `json:"total"`
-	Actionable       int `json:"actionable"`
+	Total      int `json:"total"`
+	Actionable int `json:"actionable"`
+	// Covered counts rows blocked only because another row for the same exact
+	// contract and side stands for them (covered_by_proposal). They are in
+	// Total, never in Actionable.
+	Covered          int `json:"covered,omitempty"`
 	ThetaHygiene     int `json:"theta_hygiene"`
 	RiskReduction    int `json:"risk_reduction"`
 	TrailingStop     int `json:"trailing_stop"`
@@ -769,9 +773,9 @@ type TradeProposal struct {
 	// that this row stands for, each with its own reason, so one proposal
 	// carries every reason. A covered row is served blocked with
 	// covered_by_proposal and names this row in CoveredBy. An entry with
-	// Automatic set is not covered: it is a smaller pre-authorised row that
-	// Canary places itself beside this one, and whichever order works first
-	// blocks the other until it fills.
+	// Automatic set is not covered: it is a pre-authorised row Canary will
+	// still place itself beside this one, and whichever order works first
+	// blocks the other until it fills or is cancelled.
 	Covers []TradeProposalCoverage `json:"covers,omitempty"`
 	// CoveredBy is the key of the row that covers this one; set only while
 	// this row is blocked with covered_by_proposal.

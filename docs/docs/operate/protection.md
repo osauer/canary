@@ -255,23 +255,27 @@ and name the covering row in `covered_by`.
 Two rules settle the cases where the largest would be wrong (owner decisions,
 2026-09-28):
 
-- An immediate sale goes before a trailing stop, whatever the sizes. The stop
-  is conditional and would hide the sale. It is covered until the sale fills
-  or is cancelled, then re-proposes for what is left.
-- A pre-authorised row is never covered by a row that needs your approval.
-  When it is the smaller one, Canary still places it after its veto window,
-  and the larger row is the one you approve. That row's `covers` lists the
-  automatic row with `automatic: true`.
+- An immediate sale goes before a trailing stop, whatever the sizes, unless
+  the stop is pre-authorised (below). The stop is conditional and would hide
+  the sale. It is covered until the sale fills or is cancelled, then
+  re-proposes for what is left.
+- A pre-authorised row that Canary will still place is never covered by a row
+  that needs your approval. Unless it already meets the larger requirement,
+  Canary places it after its veto window, and the row you approve lists it
+  under `covers` with `automatic: true`. Once its automatic submission has
+  ended (vetoed, failed, superseded, or placed and no longer working), the
+  row is left out of the merge, so the rows you can approve stay available.
 
-Once an order works at the broker for the contract and side, every other row
-for it blocks until that order fills or is cancelled, and the rows then
-recompute from the new position:
+Once an order works at the broker for the contract and side, the exits,
+trims, budget and theta rows for it block until that order fills or is
+cancelled, and they then recompute from the new position:
 
 - Theta hygiene, issuer trims and budget reductions block with
   `existing_reduction_order` on any same-side order that the broker's complete
-  open-order inventory shows for the exact contract. It does not matter which
-  client placed the order or what type it is. A trailing stop counts too:
-  selling beside a stop would leave the stop larger than the position.
+  open-order inventory shows working (not cancelled, inactive or rejected) for
+  the exact contract in the account. It does not matter which client placed
+  the order or what type it is. A trailing stop counts too: selling beside a
+  stop would leave the stop larger than the position.
 - They block with `reduction_order_evidence_unavailable` when that inventory
   is missing or stale, and with `reduction_order_identity_unknown` when a
   working order may match but carries no contract id.
@@ -279,7 +283,8 @@ recompute from the new position:
 - A stock trailing stop also waits, with `existing_reduction_order`, while a
   sale Canary proposed works for its position.
 
-Preview and submit repeat the check against a fresh broker read.
+Preview and submit repeat the check against a fresh broker read. The brief
+counts covered rows apart from blocked ones.
 
 ## A blocked row is the system working
 

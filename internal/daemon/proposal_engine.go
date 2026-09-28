@@ -66,9 +66,10 @@ type proposalEngine struct {
 	// revalidateForTest replaces the live account/position revalidation
 	// (which needs a gateway) in hermetic tests of the submit path.
 	revalidateForTest func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error)
-	// openOrdersForTest replaces the session-bound broker open-order
-	// inventory read (brokerOpenOrderInventory) in hermetic netting tests.
-	openOrdersForTest func(ctx context.Context) (ibkrlib.OpenOrderSnapshot, error)
+	// mergedAutomatic holds the keys the last merge treated as rows Canary
+	// places itself; a served snapshot that disagrees asks for a refresh
+	// (kickIfCoverageStale).
+	mergedAutomatic map[string]bool
 }
 
 // proposalSubmitOptions distinguishes the daemon's own pre-authorised
@@ -302,6 +303,7 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	}
 	e.decorateAutomatic(&snap)
 	e.decorateReadiness(&snap)
+	e.kickIfCoverageStale(snap.Proposals)
 	return snap
 }
 
@@ -524,6 +526,11 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
 	}
+	// One actionable row per exact contract and side, carrying every reason
+	// (proposal_same_contract.go). It runs once the revision is known, so each
+	// pre-authorised row is judged by its own automatic record; coverage
+	// changes no key, quantity or effect, so the revision stands.
+	e.mergeSameContract(proposals)
 	snap := rpc.TradeProposalSnapshot{
 		Kind:                       rpc.TradeProposalSnapshotKind,
 		SchemaVersion:              rpc.TradeProposalSnapshotSchemaVersion,
@@ -598,6 +605,7 @@ func (e *proposalEngine) thetaSuppressionEvents(snap rpc.TradeProposalSnapshot, 
 
 func (e *proposalEngine) generate(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, marketEvents *rpc.MarketEventsResult, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, []thetaSuppression) {
 	proposals, suppressions, _, _ := e.generateBook(ctx, policy, status, acct, pos, sources, marketEvents, scope, now)
+	e.mergeSameContract(proposals)
 	return proposals, suppressions
 }
 
@@ -786,10 +794,6 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			proposalBlockWith(&out[i], e.duplicateProtectiveBlockers(ctx, out[i], pos))
 		}
 	}
-	// One actionable row per exact contract and side, carrying every reason
-	// (proposal_same_contract.go). Coverage changes no key, quantity or
-	// effect, so it never moves the snapshot revision.
-	mergeSameContractProposals(out, e.preAuthorisedRow())
 	return out, suppressions, hedges, budget
 }
 
@@ -2459,26 +2463,21 @@ func (e *proposalEngine) optionExitBrokerOrderBlockers(ctx context.Context, p rp
 	if e == nil || e.server == nil || p.Contract.ConID <= 0 {
 		return block("option_exit_order_evidence_unavailable", "exact-contract broker open-order evidence is unavailable")
 	}
-	snapshot, failure := e.brokerOpenOrderInventory(ctx, forceCurrent)
-	switch failure {
-	case openOrderInventoryUnbound:
-		return block("option_exit_order_evidence_unavailable", "broker open-order authority is not bound to a concrete account session")
-	case openOrderInventoryUnavailable:
-		return block("option_exit_order_snapshot_unavailable", "complete current all-client API open-order inventory is unavailable")
-	case openOrderInventoryChanged:
-		return block("option_exit_order_snapshot_changed", "broker order session changed during the open-order inventory read")
+	snapshot, scope, err := e.server.brokerOpenOrderInventory(ctx, forceCurrent)
+	if err != nil {
+		switch openOrderInventoryFailure(err) {
+		case "unbound":
+			return block("option_exit_order_evidence_unavailable", "broker open-order authority is not bound to a concrete account session")
+		case "changed":
+			return block("option_exit_order_snapshot_changed", "broker order session changed during the open-order inventory read")
+		default:
+			return block("option_exit_order_snapshot_unavailable", "complete current all-client API open-order inventory is unavailable")
+		}
 	}
-	for _, order := range snapshot.Orders {
-		if order.Type != ibkrlib.OrderLifecycleEventOpenOrder || order.WhatIf || !strings.EqualFold(order.Action, p.Action) ||
-			!strings.EqualFold(order.SecType, "OPT") || optionExitSnapshotRemaining(order) <= 0 {
-			continue
-		}
-		if order.ConID == p.Contract.ConID {
-			return block("existing_option_exit_order", "a broker-working close order already exists for this exact option contract")
-		}
-		if order.ConID <= 0 && optionExitSnapshotContractCouldMatch(order, p.Contract) {
-			return block("option_exit_order_identity_unknown", "a broker-working option close may match this contract but lacks exact positive contract identity")
-		}
+	if _, found, unknown := sameContractWorkingOrder(snapshot, scope, p); found {
+		return block("existing_option_exit_order", "a broker-working close order already exists for this exact option contract")
+	} else if unknown {
+		return block("option_exit_order_identity_unknown", "a broker-working option close may match this contract but lacks exact positive contract identity")
 	}
 	return nil
 }
@@ -3315,6 +3314,9 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 	for _, p := range proposals {
 		if p.AutomaticEligible() {
 			out.Actionable++
+		}
+		if p.CoveredBy != "" {
+			out.Covered++
 		}
 		out.MarketFlags += len(p.MarketFlags)
 		switch p.Bucket {
