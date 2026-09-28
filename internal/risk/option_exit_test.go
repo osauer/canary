@@ -179,3 +179,162 @@ func TestEvaluateOptionExitSkippedQuoteReportsNoQuoteBlocker(t *testing.T) {
 		}
 	}
 }
+
+// expiryWindowPolicy is the approved policy with the Rulebook's standard
+// expiry act level (runway_act_dte = 7).
+func expiryWindowPolicy() OptionExitPolicy {
+	pol := approvedOptionExitPolicy()
+	pol.ExpiryCloseDTE = 7
+	return pol
+}
+
+// Owner decision 2026-09-28: the loss exit keeps working until expiry. Below
+// the 14-day floor a long option at or below the loss line still gets its
+// loss exit, up to and including expiry day, and it needs no underlying price.
+// Only an expired contract has no exit left.
+func TestEvaluateOptionExitLossExitRunsUntilExpiry(t *testing.T) {
+	for _, dte := range []int{13, 3, 0} {
+		in := eligibleOptionExitInput()
+		in.Bid, in.Ask, in.DTE = 0.35, 0.36, dte
+		got := EvaluateOptionExit(in, expiryWindowPolicy())
+		if got.Action != OptionExitActionLoss || len(got.Blockers) != 0 || !got.Measured {
+			t.Fatalf("DTE %d: loss decision = %+v", dte, got)
+		}
+	}
+	expired := eligibleOptionExitInput()
+	expired.Bid, expired.Ask, expired.DTE = 0.35, 0.36, -1
+	got := EvaluateOptionExit(expired, expiryWindowPolicy())
+	if got.Action != "" || !slices.Equal(got.Blockers, []string{"option_exit_min_dte"}) || got.Measured {
+		t.Fatalf("expired contract decision = %+v", got)
+	}
+}
+
+// The profit trail keeps its 14-day floor, and the floor applies only where the
+// trail would: a measured gain at the arming line, or a carried high water. A
+// mid-range option below 14 DTE has no row at all.
+func TestEvaluateOptionExitProfitTrailKeepsItsMinimumDTE(t *testing.T) {
+	armed := eligibleOptionExitInput()
+	armed.DTE = 13
+	got := EvaluateOptionExit(armed, expiryWindowPolicy())
+	if got.Action != "" || !slices.Equal(got.Blockers, []string{"option_exit_min_dte"}) || !got.Measured ||
+		math.Abs(got.ReturnPct-50) > 1e-9 || got.HighWater != 0 {
+		t.Fatalf("armed trail below the floor = %+v", got)
+	}
+	carried := eligibleOptionExitInput()
+	carried.DTE, carried.Bid, carried.Ask = 13, 1.30, 1.35
+	carried.CarriedHighWater = OptionExitHighWater{PerShare: 1.60, CostPremium: 1, Quantity: 1}
+	got = EvaluateOptionExit(carried, expiryWindowPolicy())
+	if got.Action != "" || !slices.Equal(got.Blockers, []string{"option_exit_min_dte"}) {
+		t.Fatalf("carried trail below the floor = %+v", got)
+	}
+	carried.Bid, carried.Ask = 1.10, 1.15 // below the carried stop: no take below the floor either
+	got = EvaluateOptionExit(carried, expiryWindowPolicy())
+	if got.Action != "" || !slices.Equal(got.Blockers, []string{"option_exit_min_dte"}) {
+		t.Fatalf("carried stop hit below the floor = %+v", got)
+	}
+	quiet := eligibleOptionExitInput()
+	quiet.DTE, quiet.Bid, quiet.Ask = 13, 1.20, 1.25
+	got = EvaluateOptionExit(quiet, expiryWindowPolicy())
+	if got.Action != "" || len(got.Blockers) != 0 {
+		t.Fatalf("mid-range option below the floor = %+v", got)
+	}
+}
+
+// Owner decision 2026-09-28: a new proposal closes in-the-money long options
+// before expiry, so nothing is exercised by accident. It reads moneyness from
+// the fresh underlying price inside the Rulebook's expiry window; the loss exit
+// wins where both apply.
+func TestEvaluateOptionExitExpiryClose(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		right              string
+		dte                int
+		underlying, bid    float64
+		action             string
+		blockers           []string
+		recordedUnderlying float64
+	}{
+		{"ITM call at the act level", "C", 7, 105, 1.20, OptionExitActionExpiryClose, nil, 105},
+		{"ITM put on expiry day", "P", 0, 95, 1.20, OptionExitActionExpiryClose, nil, 95},
+		{"ITM call with a large gain", "C", 5, 105, 1.60, OptionExitActionExpiryClose, nil, 105},
+		{"OTM call at the act level", "C", 7, 95, 1.20, "", nil, 95},
+		{"at the money is not in the money", "C", 7, 100, 1.20, "", nil, 100},
+		{"ITM call outside the window", "C", 8, 105, 1.20, "", nil, 0},
+		{"underlying unavailable", "C", 7, 0, 1.20, "", []string{"option_expiry_underlying_unavailable"}, 0},
+		{"unknown right", "X", 7, 105, 1.20, "", []string{"option_expiry_underlying_unavailable"}, 0},
+		{"loss exit wins", "C", 3, 105, 0.35, OptionExitActionLoss, nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := eligibleOptionExitInput()
+			in.Right, in.Strike, in.Underlying, in.DTE = tc.right, 100, tc.underlying, tc.dte
+			in.Bid, in.Ask = tc.bid, tc.bid+0.05
+			got := EvaluateOptionExit(in, expiryWindowPolicy())
+			if got.Action != tc.action || !slices.Equal(got.Blockers, tc.blockers) || got.Underlying != tc.recordedUnderlying || !got.Measured {
+				t.Fatalf("decision = %+v", got)
+			}
+		})
+	}
+}
+
+// Owner decision 2026-09-28: the single-option profit trail stays armed from
+// its peak, carrying a high-water mark the way units do. The trail and its
+// stop are measured from the high water; a bid already through the stop is a
+// close now; a changed cost basis or quantity starts the trail again.
+func TestEvaluateOptionExitCarriedHighWater(t *testing.T) {
+	carried := OptionExitHighWater{PerShare: 1.60, CostPremium: 1, Quantity: 1}
+	for _, tc := range []struct {
+		name      string
+		bid       float64
+		carried   OptionExitHighWater
+		action    string
+		blockers  []string
+		highWater float64
+		stop      float64
+	}{
+		// +30% is below the arming line; the carried 1.60 keeps the trail armed.
+		{"armed below the arming line", 1.30, carried, OptionExitActionProfitTrail, nil, 1.60, 1.12},
+		{"fresh peak above the carried mark", 1.70, carried, OptionExitActionProfitTrail, nil, 1.70, 1.19},
+		{"stop hit", 1.10, carried, OptionExitActionProfitTake, nil, 1.60, 1.12},
+		{"stop exactly reached", 1.12, carried, OptionExitActionProfitTake, nil, 1.60, 1.12},
+		// A stop that cannot keep the minimum gain is no take, as for units.
+		{"stop below the locked gain", 0.95, OptionExitHighWater{PerShare: 1.40, CostPremium: 1, Quantity: 1}, OptionExitActionProfitTrail, []string{"option_trail_locked_gain_not_met"}, 1.40, 0.98},
+		{"reset by a changed cost basis", 1.30, OptionExitHighWater{PerShare: 1.60, CostPremium: 0.90, Quantity: 1}, "", nil, 0, 0},
+		{"reset by a changed quantity", 1.30, OptionExitHighWater{PerShare: 1.60, CostPremium: 1, Quantity: 2}, "", nil, 0, 0},
+		{"non-finite mark is no mark", 1.30, OptionExitHighWater{PerShare: math.NaN(), CostPremium: 1, Quantity: 1}, "", nil, 0, 0},
+		{"no mark: disarmed below the arming line", 1.30, OptionExitHighWater{}, "", nil, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := eligibleOptionExitInput()
+			in.Bid, in.Ask, in.CarriedHighWater = tc.bid, tc.bid+0.05, tc.carried
+			got := EvaluateOptionExit(in, expiryWindowPolicy())
+			if got.Action != tc.action || !slices.Equal(got.Blockers, tc.blockers) || math.Abs(got.HighWater-tc.highWater) > 1e-9 ||
+				math.Abs(got.InitialStop-tc.stop) > 1e-9 {
+				t.Fatalf("decision = %+v", got)
+			}
+			if tc.action == OptionExitActionProfitTrail && math.Abs(got.TrailPct-30) > 1e-9 {
+				t.Fatalf("trail distance not measured from the high water: %+v", got)
+			}
+		})
+	}
+}
+
+func TestOptionInTheMoney(t *testing.T) {
+	for _, tc := range []struct {
+		right             string
+		underlying        float64
+		itm, known        bool
+		strikeUnavailable bool
+	}{
+		{"C", 101, true, true, false}, {"CALL", 99, false, true, false}, {"P", 99, true, true, false},
+		{"put", 101, false, true, false}, {"P", 100, false, true, false}, {"C", 0, false, false, false},
+		{"C", math.Inf(1), false, false, false}, {"", 101, false, false, false}, {"C", 101, false, false, true},
+	} {
+		strike := 100.0
+		if tc.strikeUnavailable {
+			strike = math.NaN()
+		}
+		if itm, known := OptionInTheMoney(tc.right, tc.underlying, strike); itm != tc.itm || known != tc.known {
+			t.Fatalf("OptionInTheMoney(%q, %v, %v) = %t, %t", tc.right, tc.underlying, strike, itm, known)
+		}
+	}
+}

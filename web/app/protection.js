@@ -1063,6 +1063,8 @@ function protectionExecutionReviewText(proposal = {}) {
   if (guarantee === "stop_price_is_not_execution_price") warning = "Triggers a market order. The fill price can differ from the stop; loss estimates are not a guarantee.";
   if (guarantee === "stop_limit_can_leave_position_unfilled") warning = "Triggers a limit order. The position can remain unfilled; loss estimates are not a guarantee.";
   if (proposal.bucket === "option_loss_exit") warning = "Day limit close. The order can remain unfilled while the loss worsens.";
+  if (proposal.bucket === "option_expiry_close") warning = "Day limit close before expiry. Unfilled, the in-the-money option can be exercised at expiry.";
+  if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") warning = "Day limit close at the profit trail's stop. The order can remain unfilled while the premium falls further.";
   return [trigger ? `Trigger: ${trigger}.` : "", warning].filter(Boolean).join(" ");
 }
 
@@ -1077,7 +1079,8 @@ function protectionProposalTitle(proposal = {}) {
 
 function protectionSubmitLabel(proposal = {}) {
 	if (proposal.bucket === "option_exit_review") return "Review evidence";
-	if (proposal.bucket === "option_loss_exit") return "Preview exit";
+	if (proposal.bucket === "option_loss_exit" || proposal.bucket === "option_expiry_close") return "Preview exit";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") return "Preview close";
 	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Preview trail";
   if (proposal.bucket === "trailing_stop") return "Preview stop";
   return "Preview";
@@ -1089,7 +1092,8 @@ function protectionUsesPreviewFlow(proposal = {}) {
 
 function protectionFinalSubmitLabel(proposal = {}) {
 	if (proposal.bucket === "option_exit_review") return "Review evidence";
-	if (proposal.bucket === "option_loss_exit") return "Submit exit";
+	if (proposal.bucket === "option_loss_exit" || proposal.bucket === "option_expiry_close") return "Submit exit";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") return "Submit close";
 	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Submit trail";
   if (proposal.bucket === "trailing_stop") return "Submit stop";
   return "Submit order";
@@ -1105,7 +1109,8 @@ function protectionButtonTitle(proposal = {}, gate = {}) {
 
 function protectionSideLabel(proposal = {}) {
 	if (proposal.bucket === "option_exit_review") return "Option exit blocked";
-	if (proposal.bucket === "option_loss_exit") return "Sell to close";
+	if (proposal.bucket === "option_loss_exit" || proposal.bucket === "option_expiry_close") return "Sell to close";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") return "Sell to take profit";
 	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Sell profit trail";
   if (proposal.bucket !== "trailing_stop") return protectionActionLabel(proposal);
   if (proposalIsBuyToCover(proposal)) return "Buy to cover stop";
@@ -1115,6 +1120,8 @@ function protectionSideLabel(proposal = {}) {
 function protectionBucketLabel(proposal = {}) {
 	if (proposal.bucket === "option_exit_review") return "Option exit review";
 	if (proposal.bucket === "option_loss_exit") return "Option loss exit";
+	if (proposal.bucket === "option_expiry_close") return "Option expiry close";
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") return "Option profit take";
 	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_trail") return "Option profit trail";
   if (proposal.bucket === "trailing_stop") return "Broker stop";
   return labelize(proposal.bucket || "--");
@@ -1133,6 +1140,18 @@ function protectionActionTitle(proposal = {}, fallback = "") {
 	if (proposal.bucket === "option_loss_exit") {
 		return [
 			"Preview a DAY patient midpoint limit close for the full exact-contract position. It may remain unfilled while the loss worsens. This is an event-driven exit, not a resting loss stop.",
+			protectionMarketStateHint(proposal),
+		].filter(Boolean).join(" ");
+	}
+	if (proposal.bucket === "option_expiry_close") {
+		return [
+			"Preview a DAY patient midpoint limit close for the full in-the-money exact-contract position before expiry, so nothing is exercised by accident. It may remain unfilled.",
+			protectionMarketStateHint(proposal),
+		].filter(Boolean).join(" ");
+	}
+	if (proposal.bucket === "trailing_stop" && proposal.option_exit?.kind === "profit_take") {
+		return [
+			"Preview a DAY patient midpoint limit close for the full exact-contract position: the premium fell through the profit trail's stop measured from its high water. It may remain unfilled.",
 			protectionMarketStateHint(proposal),
 		].filter(Boolean).join(" ");
 	}
@@ -1189,9 +1208,26 @@ function protectionReasonText(proposal = {}, { metricShown = false } = {}) {
 function protectionMetricText(proposal = {}) {
 	const optionExit = proposal.option_exit || null;
 	if (proposal.bucket === "option_exit_review" && optionExit) {
-		const parts = ["exact-contract evidence unavailable"];
+		const held = hasNumericValue(optionExit.return_pct);
+		const parts = [held ? `premium ${optionExit.return_pct < 0 ? "−" : optionExit.return_pct > 0 ? "+" : ""}${pct(Math.abs(optionExit.return_pct))} · held` : "exact-contract evidence unavailable"];
 		if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
 		parts.push("blocked");
+		return parts.join(" · ");
+	}
+	if (proposal.bucket === "option_expiry_close" && optionExit) {
+		const parts = ["in the money"];
+		if (hasNumericValue(optionExit.underlying_price)) parts.push(`underlying ${numberRead(optionExit.underlying_price)}`);
+		if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
+		parts.push("DAY limit close before expiry");
+		return parts.join(" · ");
+	}
+	if (proposal.bucket === "trailing_stop" && optionExit?.kind === "profit_take") {
+		const parts = [];
+		if (hasNumericValue(optionExit.return_pct)) parts.push(`premium ${optionExit.return_pct < 0 ? "−" : "+"}${pct(Math.abs(optionExit.return_pct))}`);
+		if (hasNumericValue(optionExit.high_water_per_share)) parts.push(`high water ${numberRead(optionExit.high_water_per_share)}`);
+		if (hasNumericValue(proposal.trail?.initial_stop_price)) parts.push(`stop ${numberRead(proposal.trail.initial_stop_price)} hit`);
+		if (hasNumericValue(optionExit.dte) && optionExit.dte >= 0) parts.push(`${optionExit.dte} DTE`);
+		parts.push("DAY limit close");
 		return parts.join(" · ");
 	}
 	if (proposal.bucket === "option_loss_exit" && optionExit) {
@@ -1918,7 +1954,7 @@ function protectionPreviewSubmitGate(proposal = {}, previewResult = null) {
   }
   const writeGate = protectionSubmitGate(proposal);
   if (!writeGate.ready) return writeGate;
-	const noun = proposal.bucket === "option_loss_exit" ? "exit" : proposal.option_exit?.kind === "profit_trail" ? "trail" : "stop";
+	const noun = proposal.bucket === "option_loss_exit" || proposal.bucket === "option_expiry_close" ? "exit" : proposal.option_exit?.kind === "profit_take" ? "close" : proposal.option_exit?.kind === "profit_trail" ? "trail" : "stop";
 	return { ready: true, reason: `Submit the ${noun} after confirmation; the daemon runs a fresh broker WhatIf before placing it` };
 }
 
@@ -1929,7 +1965,7 @@ function protectionPreviewStateKey(proposal = {}) {
 function protectionPreviewText(result = null, proposal = {}) {
   if (!result) return "";
   if (result.local && result.pending) {
-		const draft = proposal.bucket === "trailing_stop" || proposal.bucket === "option_loss_exit" ? protectionStopDraftSummary(proposal) : protectionProposalTitle(proposal);
+		const draft = proposal.bucket === "trailing_stop" || proposal.bucket === "option_loss_exit" || proposal.bucket === "option_expiry_close" ? protectionStopDraftSummary(proposal) : protectionProposalTitle(proposal);
     return `Order draft ready; broker WhatIf running · ${draft}`;
   }
   if (result.pending) return "Previewing broker WhatIf; no order is placed";

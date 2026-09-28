@@ -1,18 +1,31 @@
 package risk
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 const (
 	// OptionExitActionLoss selects the event-driven full-close loss proposal.
 	OptionExitActionLoss = "loss_exit"
 	// OptionExitActionProfitTrail selects the broker-managed profit trail.
 	OptionExitActionProfitTrail = "profit_trail"
+	// OptionExitActionProfitTake selects a full close now: the fresh bid has
+	// already fallen to the stop of the profit trail measured from its carried
+	// high water, so a broker trail placed now would trigger on arrival.
+	OptionExitActionProfitTake = "profit_take"
+	// OptionExitActionExpiryClose selects a full close of an in-the-money long
+	// option inside the Rulebook's expiry window, so nothing is exercised by
+	// accident (owner decision 2026-09-28).
+	OptionExitActionExpiryClose = "expiry_close"
 )
 
 // OptionExitPolicy is the approved, unit-explicit policy for one directional
 // long option. It governs advisory exit candidates only; it grants no broker
 // write authority.
 type OptionExitPolicy struct {
+	// MinDTE is the profit trail's floor in calendar days to expiry. The loss
+	// exit and the expiry close apply below it, until expiry.
 	MinDTE            int
 	LossExitPct       float64
 	ProfitArmGainPct  float64
@@ -23,6 +36,57 @@ type OptionExitPolicy struct {
 	MaxSpreadPctOfMid float64
 	MinTrailAbs       float64
 	SpreadMultiple    float64
+	// ExpiryCloseDTE is the Rulebook's expiry act level (runway_act_dte): at
+	// this many calendar days to expiry or fewer an in-the-money long option
+	// is closed. A negative value matches no expiry.
+	ExpiryCloseDTE int
+}
+
+// OptionExitHighWater is a profit trail's high-water mark carried from the
+// last published row of the same position: the highest per-share value since
+// the trail armed, with the per-share cost basis and the quantity it was
+// recorded against.
+type OptionExitHighWater struct {
+	PerShare    float64
+	CostPremium float64
+	Quantity    float64
+}
+
+// Current returns the carried high water that still applies to a position
+// with this per-share cost basis and quantity. It is zero when no mark was
+// carried, or when the cost basis or quantity changed since the mark was
+// recorded: the trail then starts again from the fresh price.
+func (h OptionExitHighWater) Current(costPremium, quantity float64) float64 {
+	values := []float64{h.PerShare, h.CostPremium, h.Quantity, costPremium, quantity}
+	for _, value := range values {
+		if !optionExitFinite(value) {
+			return 0
+		}
+	}
+	if h.PerShare <= 0 || math.Abs(h.CostPremium-costPremium) > 1e-9*math.Max(1, math.Abs(costPremium)) ||
+		math.Abs(h.Quantity-quantity) > 1e-9 {
+		return 0
+	}
+	return h.PerShare
+}
+
+// OptionInTheMoney reports whether a long option is in the money at this
+// underlying price: a call with the underlying above its strike, a put with
+// the underlying below it. known is false when the right, the strike or the
+// underlying price cannot decide it.
+func OptionInTheMoney(right string, underlying, strike float64) (itm, known bool) {
+	if !optionExitFinite(underlying) || !optionExitFinite(strike) || underlying <= 0 || strike <= 0 {
+		return false, false
+	}
+	right = strings.ToUpper(strings.TrimSpace(right))
+	switch {
+	case isCall(right):
+		return underlying > strike, true
+	case isPut(right):
+		return underlying < strike, true
+	default:
+		return false, false
+	}
 }
 
 // OptionExitInput contains only decision inputs for a single exact contract.
@@ -48,6 +112,16 @@ type OptionExitInput struct {
 	// is then the caller's decision, not a quote failure, and no quote blocker
 	// is reported for it.
 	QuoteSkipped bool
+	// Right, Strike and Underlying decide moneyness for the expiry close.
+	// Underlying is the fresh underlying price from the refresh's
+	// exact-contract evidence; zero means unavailable.
+	Right      string
+	Strike     float64
+	Underlying float64
+	// CarriedHighWater is the profit trail's high-water mark carried from the
+	// leg's last published row. It keeps the trail armed after the gain dips
+	// below the arming line; a changed cost basis or quantity resets it.
+	CarriedHighWater OptionExitHighWater
 }
 
 // OptionExitDecision is a pure candidate decision. TrailAmount is the
@@ -59,8 +133,19 @@ type OptionExitDecision struct {
 	CostPremium    float64
 	ReferencePrice float64
 	ReturnPct      float64
+	// Measured is true when every eligibility, data and session gate passed:
+	// ReturnPct is then a measurement, also where a later rule holds the
+	// action back.
+	Measured       bool
 	SpreadAbs      float64
 	SpreadPctOfMid float64
+	// Underlying is the fresh underlying price the expiry window judged
+	// moneyness on; zero outside that window.
+	Underlying float64
+	// HighWater is the measured profit trail's high-water mark: the fresh bid,
+	// or the higher carried mark. TrailAmount, TrailPct, InitialStop and
+	// InitialLockPct are measured from it. Zero when no trail was measured.
+	HighWater      float64
 	TrailAmount    float64
 	TrailPct       float64
 	InitialStop    float64
@@ -68,8 +153,12 @@ type OptionExitDecision struct {
 	Blockers       []string
 }
 
-// EvaluateOptionExit applies the approved loss-exit/profit-trail split. An
-// empty Action with no blockers means the exact contract is eligible but no
+// EvaluateOptionExit applies the approved exits to one long option, in this
+// order: the loss exit at the Rulebook loss line, from expiry day (DTE 0)
+// onwards; the expiry close of an in-the-money option inside the Rulebook's
+// expiry window; and the profit trail from the minimum DTE only, armed at the
+// arming gain or by a carried high water and measured from that high water.
+// An empty Action with no blockers means the exact contract is eligible but no
 // action threshold has been reached.
 func EvaluateOptionExit(in OptionExitInput, pol OptionExitPolicy) OptionExitDecision {
 	var out OptionExitDecision
@@ -101,7 +190,10 @@ func EvaluateOptionExit(in OptionExitInput, pol OptionExitPolicy) OptionExitDeci
 	} else if math.Abs(in.Quantity-math.Round(in.Quantity)) > 1e-9 {
 		add("whole_contract_quantity_required")
 	}
-	if in.DTE < pol.MinDTE {
+	// The loss exit and the expiry close apply from expiry day (DTE 0)
+	// onwards; the profit trail's floor is checked below, where it would
+	// otherwise apply. An unknown or passed expiry supports no exit.
+	if in.DTE < 0 {
 		add("option_exit_min_dte")
 	}
 	if in.Multiplier <= 0 || in.AvgCost <= 0 {
@@ -146,25 +238,55 @@ func EvaluateOptionExit(in OptionExitInput, pol OptionExitPolicy) OptionExitDeci
 		return out
 	}
 
+	out.Measured = true
 	out.ReturnPct = (out.ReferencePrice/out.CostPremium - 1) * 100
 	if out.ReturnPct <= -pol.LossExitPct {
 		out.Action = OptionExitActionLoss
 		return out
 	}
-	if out.ReturnPct < pol.ProfitArmGainPct {
+	if in.DTE <= pol.ExpiryCloseDTE {
+		itm, known := OptionInTheMoney(in.Right, in.Underlying, in.Strike)
+		if !known {
+			// Moneyness decides between closing and holding into expiry; an
+			// unknown underlying price supports neither.
+			add("option_expiry_underlying_unavailable")
+			return out
+		}
+		out.Underlying = in.Underlying
+		if itm {
+			out.Action = OptionExitActionExpiryClose
+			return out
+		}
+	}
+	carried := in.CarriedHighWater.Current(out.CostPremium, in.Quantity)
+	if out.ReturnPct < pol.ProfitArmGainPct && carried <= 0 {
+		return out
+	}
+	if in.DTE < pol.MinDTE {
+		// The profit trail keeps its floor; the loss exit still applies.
+		add("option_exit_min_dte")
 		return out
 	}
 
-	out.Action = OptionExitActionProfitTrail
-	out.TrailAmount = math.Max(out.ReferencePrice*pol.ProfitTrailPct/100,
+	// An armed trail stays armed from its peak: the high water carried from
+	// the last published row keeps it live after the bid retraces below the
+	// arming line, and the trail distance and stop are measured from it.
+	out.HighWater = math.Max(out.ReferencePrice, carried)
+	out.TrailAmount = math.Max(out.HighWater*pol.ProfitTrailPct/100,
 		math.Max(pol.MinTrailAbs, pol.SpreadMultiple*out.SpreadAbs))
-	out.TrailPct = out.TrailAmount / out.ReferencePrice * 100
+	out.TrailPct = out.TrailAmount / out.HighWater * 100
+	out.InitialStop = out.HighWater - out.TrailAmount
+	out.InitialLockPct = (out.InitialStop/out.CostPremium - 1) * 100
+	lockedGainMet := out.InitialLockPct+1e-9 >= pol.LockedGainPct
+	if out.ReferencePrice <= out.InitialStop+1e-9 && lockedGainMet {
+		out.Action = OptionExitActionProfitTake
+		return out
+	}
+	out.Action = OptionExitActionProfitTrail
 	if out.TrailPct < pol.MinTrailPct || out.TrailPct > pol.MaxTrailPct {
 		out.Blockers = append(out.Blockers, "option_trail_outside_policy_bounds")
 	}
-	out.InitialStop = out.ReferencePrice - out.TrailAmount
-	out.InitialLockPct = (out.InitialStop/out.CostPremium - 1) * 100
-	if out.InitialLockPct+1e-9 < pol.LockedGainPct {
+	if !lockedGainMet {
 		out.Blockers = append(out.Blockers, "option_trail_locked_gain_not_met")
 	}
 	return out

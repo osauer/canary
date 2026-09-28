@@ -47,7 +47,7 @@ func TestOptionExitProposalApprovedProfitTrail(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok {
 		t.Fatal("expected profit-trail proposal")
 	}
@@ -75,7 +75,7 @@ func TestOptionExitFloorAdjustedNativeTrailSurvivesPreviewAndWireMapping(t *test
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok || proposal.Trail == nil || proposal.Trail.TrailingPercent == nil {
 		t.Fatalf("expected floor-adjusted native option trail: %+v", proposal)
 	}
@@ -109,7 +109,7 @@ func TestOptionExitPreviewBlocksNativeTrailFieldDrift(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok {
 		t.Fatal("expected floor-adjusted option trail")
 	}
@@ -147,7 +147,7 @@ func TestOptionExitProposalApprovedLossIsPatientLimit(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.01, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.01, risk.DefaultRulebookPolicy())
 	if !ok {
 		t.Fatal("expected loss-exit proposal")
 	}
@@ -219,7 +219,7 @@ func TestOptionExitPreviewRequiresFullExactContractQuantity(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok {
 		t.Fatal("expected option-exit proposal")
 	}
@@ -246,7 +246,7 @@ func TestOptionExitPreviewBlocksFreshPositionGrowth(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok {
 		t.Fatal("expected option-exit proposal")
 	}
@@ -258,19 +258,26 @@ func TestOptionExitPreviewBlocksFreshPositionGrowth(t *testing.T) {
 	}
 }
 
+// The preview re-evaluates the newer quote from the proposal's high water: a
+// retrace that stays above the trail's stop keeps the armed trail (owner
+// decision 2026-09-28), and a bid at or below the stop selects another exit.
 func TestOptionExitPreviewReevaluatesFreshThreshold(t *testing.T) {
 	pol := enabledOptionExitPolicy()
 	row := optionExitTestRow()
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, lossExitPct)
-	if !ok {
-		t.Fatal("expected option-exit proposal")
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
+	if !ok || proposal.OptionExit.HighWaterPerShare == nil || *proposal.OptionExit.HighWaterPerShare != 1.50 {
+		t.Fatalf("expected an option profit trail from the 1.50 high water: %+v", proposal.OptionExit)
 	}
 	preview := approvedOptionExitPreview(proposal, now)
-	bid, ask := 1.20, 1.25
+	bid, ask := 1.20, 1.25 // +20%: below the arming line, above the 1.05 stop
 	preview.Quote.Bid, preview.Quote.Ask = &bid, &ask
+	if blockers := proposalPreviewSafetyBlockers(proposal, preview); len(blockers) != 0 {
+		t.Fatalf("a retrace above the stop disarmed the trail at preview: %+v", blockers)
+	}
+	bid, ask = 1.00, 1.05 // at or below the stop: a close, not this trail
 	if !hasTradingBlocker(proposalPreviewSafetyBlockers(proposal, preview), "option_exit_threshold_changed") {
 		t.Fatalf("missing fresh threshold blocker: %+v", proposalPreviewSafetyBlockers(proposal, preview))
 	}
@@ -285,7 +292,7 @@ func TestOptionExitMissingQuoteEmitsBlockedReviewProposal(t *testing.T) {
 	now := optionExitTestTime()
 	lossExitPct := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, lossExitPct)
-	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0, lossExitPct)
+	proposal, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0, risk.DefaultRulebookPolicy())
 	if !ok || proposal.Bucket != rpc.TradeProposalBucketOptionExitReview || proposal.State != rpc.TradeProposalStateBlocked {
 		t.Fatalf("review proposal = %+v, ok=%t", proposal, ok)
 	}

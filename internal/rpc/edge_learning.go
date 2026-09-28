@@ -246,7 +246,7 @@ func validateEdgeProtectionContext(c EdgeProtectionContext) error {
 			return fmt.Errorf("incomplete linked Edge protection")
 		}
 		switch c.Bucket {
-		case TradeProposalBucketThetaHygiene, TradeProposalBucketRiskReduction, TradeProposalBucketTrailingStop, TradeProposalBucketOptionLossExit, TradeProposalBucketOptionExitReview:
+		case TradeProposalBucketThetaHygiene, TradeProposalBucketRiskReduction, TradeProposalBucketTrailingStop, TradeProposalBucketOptionLossExit, TradeProposalBucketOptionExpiryClose, TradeProposalBucketOptionExitReview:
 		default:
 			return fmt.Errorf("unknown Edge protection bucket")
 		}

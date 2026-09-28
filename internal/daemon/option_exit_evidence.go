@@ -49,6 +49,10 @@ type optionExitBookEvidence struct {
 	AsOf                time.Time
 	Generation          uint64
 	Roles               map[int]string
+	// Underlyings holds each option's underlying price from its exact-contract
+	// model receipt in this complete collection, keyed by ConID. It is empty
+	// for failed, deferred or closed-session evidence.
+	Underlyings map[int]float64
 	// Closed is true only for an intentional session deferral after complete
 	// structural/account checks. It never describes a failed market-data read.
 	Closed bool
@@ -379,6 +383,7 @@ func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource
 	measured := &rpc.PositionsResult{}
 	var receipts []*ibkr.OptionRiskMeasurement
 	var quotes []rpc.OrderQuoteSnapshot
+	underlyings := make(map[int]float64)
 	fxs := make(map[string]orderNotionalAuthority)
 	started := clock()
 	for _, original := range append(slices.Clone(pos.Stocks), pos.Options...) {
@@ -412,6 +417,7 @@ func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource
 				return fail("exact_model_unavailable")
 			}
 			row.Delta, row.Underlying = cloneFloat64Ptr(r.Delta), cloneFloat64Ptr(r.Underlying)
+			underlyings[row.ConID] = *r.Underlying
 			receipts = append(receipts, r)
 			measured.Options = append(measured.Options, row)
 		} else {
@@ -446,6 +452,7 @@ func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource
 	// collection must not grant its oldest observation another full lifetime.
 	out.AsOf = started
 	out.Failure = ""
+	out.Underlyings = underlyings
 	out.Fingerprint = optionExitEvidenceHash(struct {
 		Scope  string
 		Models []*ibkr.OptionRiskMeasurement
@@ -500,6 +507,22 @@ func optionExitEvidenceAt(evidence optionExitBookEvidence, now time.Time) option
 		return optionExitBookEvidence{Failure: "portfolio_scope_invalid"}
 	}
 	return evidence
+}
+
+// optionExitUnderlying is a held option's underlying price for the expiry
+// window: the exact-contract model receipt of this refresh's complete book
+// evidence, which the collector already required fresh and live for every
+// option. Pass evidence through optionExitEvidenceAt first. Failed, deferred
+// or expired evidence has none, and zero means unavailable: a stale row, a
+// position mark or a shared-cache Greek never stands in.
+func optionExitUnderlying(evidence optionExitBookEvidence, conID int) float64 {
+	if evidence.Fingerprint == "" || conID <= 0 {
+		return 0
+	}
+	if price := evidence.Underlyings[conID]; positiveFinite(price) {
+		return price
+	}
+	return 0
 }
 
 func sameOptionExitContract(a, b rpc.ContractParams) bool {

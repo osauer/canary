@@ -231,7 +231,7 @@ type protectionTrailAssetPolicy struct {
 }
 
 type protectionTrailOptionPolicy struct {
-	// Enabled turns approved directional-option loss exits and profit trails on (default false).
+	// Enabled turns approved directional-option loss exits, in-the-money expiry closes and profit trails on (default false).
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// DefaultLongCallsDirectional assigns purpose to ungrouped standard long
 	// calls and non-hedge-listed long puts without a conflicting holding or
@@ -243,7 +243,7 @@ type protectionTrailOptionPolicy struct {
 	// DirectionalIntents are time-bounded exact-contract overrides. Any listed
 	// contract, including an expired declaration, takes precedence over defaults.
 	DirectionalIntents []protectionOptionDirectionalIntent `toml:"directional_intents" json:"directional_intents,omitempty"`
-	// MinDTE excludes options with fewer calendar days to expiry (default 14).
+	// MinDTE is the profit trail's minimum calendar days to expiry (default 14); the loss exit and the in-the-money expiry close still apply below it, until expiry.
 	MinDTE int `toml:"min_dte" json:"min_dte"`
 	// ProfitArmGainPct arms a premium trail when the fresh executable bid is this percent above cost (default 50).
 	ProfitArmGainPct float64 `toml:"profit_arm_gain_pct" json:"profit_arm_gain_pct"`

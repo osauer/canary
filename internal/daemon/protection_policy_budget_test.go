@@ -122,6 +122,39 @@ func TestBudgetReductionValidation(t *testing.T) {
 	}
 }
 
+// The owner's governor fragment, appended verbatim to the protection policy
+// Canary writes, loads through the file loader without a validation error and
+// resolves to an enabled, active, Rulebook-basis governor sized at 10000 per
+// order, with no number still missing.
+func TestBudgetReductionOwnerRulebookFragmentLoadsActive(t *testing.T) {
+	const fragment = `
+[buckets.budget_reduction]
+enabled = true
+mode = "active"
+basis = "rulebook"
+max_order_notional = 10000.0
+`
+	template, err := DefaultPolicyTOML("protection")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := writePreAuthPolicy(t, string(template)+fragment)
+	read, err := m.loadPolicy()
+	if err != nil {
+		t.Fatalf("owner fragment failed to load: %v", err)
+	}
+	m.reload()
+	policy, status := m.Active()
+	if status.Status != rpc.ProtectionPolicyStatusActive || read.source != "file" {
+		t.Fatalf("policy status %q from %q, want active from file: %+v", status.Status, read.source, status)
+	}
+	bucket := policy.Buckets.BudgetReduction
+	if bucket == nil || !bucket.enabled() || bucket.effectiveMode() != rpc.BudgetReductionModeActive || bucket.basis() != rpc.BudgetBasisRulebook ||
+		bucket.MaxOrderNotional != 10000 || len(bucket.missingNumbers()) != 0 {
+		t.Fatalf("governor = %+v (mode %q, basis %q, missing %v)", bucket, bucket.effectiveMode(), bucket.basis(), bucket.missingNumbers())
+	}
+}
+
 // Owner decision 2026-09-26: a number only the owner can choose that is not
 // written yet switches the governor off with "needs your number"; it no longer
 // fails the whole protection file (which would freeze every other bucket).

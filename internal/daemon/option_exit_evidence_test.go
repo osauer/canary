@@ -94,10 +94,12 @@ func TestOptionExitCompleteEvidenceClearsOnlyEconomicBlocker(t *testing.T) {
 		t.Fatalf("fresh complete directional evidence did not qualify: %+v", decision)
 	}
 	for name, mutate := range map[string]func(*rpc.PositionView, *bool, *bool){
-		"intent":        func(_ *rpc.PositionView, intent, _ *bool) { *intent = false },
-		"group":         func(_ *rpc.PositionView, _, standalone *bool) { *standalone = false },
-		"quantity":      func(r *rpc.PositionView, _, _ *bool) { r.Quantity = 1.5 },
-		"DTE":           func(r *rpc.PositionView, _, _ *bool) { r.Expiry = now.Format("20060102") },
+		"intent":   func(_ *rpc.PositionView, intent, _ *bool) { *intent = false },
+		"group":    func(_ *rpc.PositionView, _, standalone *bool) { *standalone = false },
+		"quantity": func(r *rpc.PositionView, _, _ *bool) { r.Quantity = 1.5 },
+		// The loss exit runs up to and including expiry day (owner decision
+		// 2026-09-28); only an expired contract has no exit left.
+		"expired":       func(r *rpc.PositionView, _, _ *bool) { r.Expiry = now.AddDate(0, 0, -1).Format("20060102") },
 		"delayed_price": func(r *rpc.PositionView, _, _ *bool) { r.DataType = rpc.MarketDataDelayed },
 		"wide_spread":   func(r *rpc.PositionView, _, _ *bool) { r.OptionAsk = new(1.0) },
 	} {
@@ -247,7 +249,7 @@ func TestOptionExitWaitingRequiresPositiveClosedSessionDeferral(t *testing.T) {
 	row := optionExitWithoutQuote(pos.Options[0])
 	row.Expiry = "20261016"
 	d := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, false, risk.DefaultRulebookPolicy().ExitActLossPct)
-	p, _ := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, d, risk.IndexPutRoleUnclassified, 0, risk.DefaultRulebookPolicy().ExitActLossPct)
+	p, _ := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, d, risk.IndexPutRoleUnclassified, 0, risk.DefaultRulebookPolicy())
 	setOptionExitReadiness(&p, ev.Closed)
 	if p.OptionExit.Readiness != "waiting" || p.OptionExit.ReferencePrice != nil || p.OptionExit.ReturnPct != nil || p.State != rpc.TradeProposalStateBlocked {
 		t.Fatalf("wrong waiting semantics: %+v", p)

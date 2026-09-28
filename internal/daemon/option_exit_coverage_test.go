@@ -80,7 +80,7 @@ func TestOptionExitReviewDoesNotInventFlatReturnOrDirectionalIntent(t *testing.T
 	row, now := optionExitTestRow(), optionExitTestTime()
 	loss := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, false, true, true, loss)
-	p, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0, loss)
+	p, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0, risk.DefaultRulebookPolicy())
 	if !ok || p.OptionExit == nil || p.OptionExit.ReferencePrice == nil {
 		t.Fatalf("expected blocked review retaining its measured price: %+v", p)
 	}

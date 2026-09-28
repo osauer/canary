@@ -1,6 +1,7 @@
 # Directional option exit policy
 
-Updated: 2026-09-17
+Updated: 2026-09-28 11:20 CEST (amendment: exits in the last 14 days and the
+single-option high water; see [Amendment 2026-09-28](#amendment-2026-09-28-exits-until-expiry-and-the-single-option-high-water))
 Status: implemented locally; execution parameters approved
 
 ## Decision
@@ -71,9 +72,12 @@ Status: implemented locally; execution parameters approved
   fresh positive-ConID model receipts for the complete book; absent or invalid
   exact evidence keeps the role unclassified.
 - **Session and quality:** proposals require the regular listed-options session,
-  live fresh timestamped two-sided bid/ask, positive cost basis, at least 14
-  calendar DTE, and spread no wider than 25% of mid. Missing or stale evidence
-  is unknown and blocked, never treated as zero or a pass.
+  live fresh timestamped two-sided bid/ask, positive cost basis, a known
+  expiry that has not passed, and spread no wider than 25% of mid. The profit
+  trail also requires at least 14 calendar DTE; the loss exit and the
+  in-the-money expiry close apply up to and including expiry day (amended
+  2026-09-28). Missing or stale evidence is unknown and blocked, never treated
+  as zero or a pass.
 - **Loss discipline:** Rulebook watch remains at a 40% premium loss. At a 60%
   premium loss, the proposal engine stages a full exact-contract DAY patient
   limit close. It does not place a resting loss stop and does not promise an
@@ -84,7 +88,9 @@ Status: implemented locally; execution parameters approved
   at least $0.10 at activation, and at
   least twice the current spread. After spread and exact tick floors, the
   rounded initial stop must still retain at least 5% over cost or the proposal
-  is blocked.
+  is blocked. Since 2026-09-28 the trail stays armed from its peak: distance
+  and stop are measured from a carried high water, and a bid already through
+  that stop is closed at once (see the amendment below).
 - **Regime:** regime and volatility remain decision context. V1 has no VIX or
   regime multiplier because that would add calibration without replay evidence.
 - **Enforcement class:** advisory generation plus pre-trade hard validation.
@@ -318,10 +324,12 @@ validation belong to the parent task.
   still needs to approve the precise standing execution mandate, including
   the residual risk that a triggered limit trail can remain unfilled. Broker
   writes continue to require the current transaction-specific authority path.
-- The long-option policy requires **14 DTE** and spread at most **25% of mid**.
-  Shorts, near-expiry options and grouped strategies remain visible exceptions
-  for their own workflows; this work does not extend the long-option policy
-  to them or claim automatic protection for every option position.
+- The long-option profit trail requires **14 DTE**; the loss exit and the
+  in-the-money expiry close apply until expiry (amended 2026-09-28). Every
+  exit requires a spread of at most **25% of mid**. Shorts and grouped
+  strategies remain visible exceptions for their own workflows; this work does
+  not extend the long-option policy to them or claim automatic protection for
+  every option position.
 
 
 ## Desk execution handoff boundary
@@ -367,3 +375,138 @@ rejected as drift and cannot expand the active authority. To activate for an
 owner-approved pair, add `independent_exit = true` to both existing private
 exact-contract records and increment the current policy version, retaining the
 other approved fields. This implementation does not edit the live policy.
+
+
+## Amendment 2026-09-28: exits until expiry and the single-option high water
+
+Recorded: 2026-09-28 11:20 CEST. Status: implemented locally with synthetic
+proof; no daemon restart, live preview or order.
+
+### Decision
+
+The owner decided on 2026-09-28:
+
+> "Option exits in the last 14 days: the loss exit keeps working until expiry,
+> and a new proposal closes in-the-money long options before expiry, so nothing
+> is exercised by accident. The profit trail keeps its 14-day floor."
+
+> "Profit trail on single options: keep it armed from the peak, carrying a
+> high-water mark the way units do."
+
+Enforcement class, capital base, loss line, arming gain, trail bounds, locked
+gain, order shapes and every eligibility gate are unchanged. No new bucket or
+kind becomes pre-authorisable.
+
+### Meaning
+
+- **Loss exit until expiry.** `risk.EvaluateOptionExit` and the unit
+  evaluation give a long option or unit at or below the Rulebook loss line
+  its loss exit at any DTE from expiry day (DTE 0) onwards. The
+  `option_exit_min_dte` blocker applies only where the outcome would otherwise
+  be a profit trail: below `min_dte` with a gain at or above
+  `profit_arm_gain_pct`, or with a carried high water. Such a row is a blocked
+  review that is measured (it carries `return_pct`), says the profit trail
+  needs the minimum DTE while the loss exit still applies, and does not claim
+  incomplete evidence (`option_exit_measurement_unavailable`). An eligible
+  option below `min_dte` with neither has no row. An unknown or passed expiry
+  keeps `option_exit_min_dte` and supports no exit. Session, live fresh
+  two-sided quote, spread, whole quantity, cost basis, intent and role,
+  standalone leg and working-order gates still apply to the loss exit.
+- **Expiry close (`option_expiry_close`).** A new single-leg bucket
+  (`rpc.TradeProposalBucketOptionExpiryClose`). A standalone long option whose
+  calendar DTE is at or below the Rulebook's `runway_act_dte` (read from the
+  Rulebook policy in force, default 7) and which is in the money (call:
+  underlying above strike; put: below; at the money is not in the money) gets
+  a full-quantity DAY patient-limit close with the loss exit's order shape and
+  gates. Reason: "in-the-money long option, N days to expiry; closing avoids
+  exercise at expiry". Kind `expiry_close`; `option_exit.underlying_price`
+  and `option_exit.expiry_close_dte` record the evidence and the act level.
+  A protection-classified leg (measured Rulebook protection, or
+  `default_index_puts_protection` while the role is unmeasured) stays a hedge
+  and is never proposed; a measured directional role or the standing long-call
+  default qualifies as for the loss exit. Multi-leg units stay on the strategy
+  workflow and get no expiry close. The bucket is not pre-authorisable
+  (`validPreAuthorisedBucket` is unchanged, and the automatic scheduler maps
+  it to no pre-authorised bucket).
+- **Precedence, one proposal per leg:** loss exit, then expiry close, then the
+  profit trail. Below `min_dte` the trail and its close are held, so a leg
+  there gets the loss exit or the expiry close only.
+- **Underlying price.** The expiry window reads moneyness only from this
+  refresh's complete book evidence: the exact-contract model receipt the
+  collector already requires fresh, live and tied to the session for every
+  option (`optionExitBookEvidence.Underlyings`, read through
+  `optionExitEvidenceAt` and its 20-second lifetime). A successful collection
+  always carries it for every option, so no stock-leg stand-in is needed; a
+  stale row, a position mark or a shared-cache Greek never stands in. Without
+  it the row is a blocked review with the typed blocker
+  `option_expiry_underlying_unavailable` and a plain next step.
+- **Single-option high water.** The published row carries
+  `option_exit.high_water_per_share`; `legHighWater(key)` reads it back from
+  the last published row with the trail's key, exactly as `unitHighWater`
+  does, and passes it to `risk.EvaluateOptionExit` as
+  `CarriedHighWater` (`risk.OptionExitHighWater`: the per-share mark with the
+  cost basis and quantity it was recorded against). The trail is armed when
+  the gain reaches `profit_arm_gain_pct` or a carried mark exists; the trail
+  amount, native percentage and initial stop are measured from
+  `max(fresh bid, carried)`. When the fresh bid is already at or below that
+  stop and the stop keeps the locked gain, the row is kind `profit_take` in
+  the trailing-stop bucket: a full DAY patient-limit close with reason
+  "profit trail from the high water of X was hit", because a broker trail
+  placed then would trigger on arrival. A stop that cannot keep the locked
+  gain is no take, as for units; the trail keeps its `locked_gain` and
+  trail-bound blockers. The mark resets when the cost basis or quantity
+  changes; units now apply the same reset (net premium paid per share or unit
+  count). A take is not pre-authorisable, and its revision differs from the
+  trail's although both share one key, so a review of one never resolves to
+  the other. Preview re-evaluates the newer quote against the recorded
+  underlying and high water.
+
+### Authority and evidence
+
+| Concept | Authoritative source | Typed field or contract | Freshness or finality | Fallback or blocker |
+|---|---|---|---|---|
+| Expiry act level | Rulebook policy in force (`runway_act_dte`) | `option_exit.expiry_close_dte`, `risk.OptionExitPolicy.ExpiryCloseDTE` | current policy per refresh | the loaded policy's value (never negative) |
+| Underlying price for moneyness | exact-contract model receipt of the complete book evidence | `option_exit.underlying_price`, `risk.OptionExitInput.Underlying` | same collection and 20-second lifetime as the economic role | `option_expiry_underlying_unavailable` blocked review |
+| Profit-trail high water | last published row of the same leg or unit | `option_exit.high_water_per_share`, `unit.high_water_per_share`, `risk.OptionExitInput.CarriedHighWater` | carried refresh to refresh; reset by a cost-basis or quantity change | none: the trail starts again from the fresh bid |
+
+### Limits and residual risk
+
+- The high water lives in the published snapshot, as the unit's does. A
+  refresh that cannot measure the leg (closed session, failed or stale quote,
+  missing evidence) publishes a review row without it, a loss exit or an
+  expiry close replaces it, and a daemon restart starts it again. It holds
+  across the measured refreshes of a session, not across the overnight close;
+  carrying it through closed sessions would need an owner decision for units
+  and legs alike.
+- An unfilled DAY expiry close can still leave an in-the-money option to be
+  exercised at expiry; moneyness is judged at refresh time and the underlying
+  can cross the strike afterwards. A book-evidence failure anywhere in the
+  book blocks every expiry close of that refresh.
+- A pre-authorised `option_loss_exit` now also covers loss exits below 14 DTE,
+  and a pre-authorised `option_profit_trail` a trail measured from a carried
+  high water. The expiry close and the profit take are never placed
+  automatically.
+- The SPA labels the new bucket generically and renders the trailing-stop
+  profit take with the broker-stop wording; the Edge protection link does not
+  yet name `option_expiry_close`; the public protection guide still says
+  contracts under 14 DTE stay blocked. These are follow-ups outside this
+  change.
+
+### Verification
+
+- `internal/risk` table tests: loss exit at DTE 13, 3 and 0; expired contract;
+  profit trail held at DTE 13 and held with a carried mark; mid-range option
+  below 14 DTE has no row; expiry close for calls, puts, at the money, outside
+  the window, unknown underlying or right, and the loss exit winning; carried
+  high water arming below the arming line, a fresh peak, the stop hit, a stop
+  that cannot keep the locked gain, and resets on cost basis, quantity and a
+  non-finite mark.
+- `internal/daemon` fixtures: an in-the-money call at 7 DTE proposes the
+  expiry close (and survives its own preview), out of the money at 7 DTE and
+  in the money at 8 DTE do not, a measured or default protection put never
+  does while a measured directional put does, an unavailable underlying blocks
+  with the typed code, the loss exit wins; the single-leg high water carried
+  across refreshes into a trail and then a take, with a distinct revision and
+  a reset on a changed cost basis; units keep their loss exit below 14 DTE,
+  hold an armed trail there, and reset their high water on a changed net
+  premium.

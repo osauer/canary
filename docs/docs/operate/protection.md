@@ -60,8 +60,12 @@ Six buckets generate rows, enabled through the protection policy:
   normally 30%. Spread, minimum-premium-distance and tick floors can widen the
   effective percentage within the approved 20-50% range. The initial
   rounded stop must retain at least 5% over cost after spread and tick floors.
-  Possible hedges, multi-leg strategies, stale/delayed quotes, wide spreads and
-  contracts under 14 DTE remain blocked. A hedge-listed index put needs both
+  Possible hedges, multi-leg strategies, stale/delayed quotes and wide spreads
+  remain blocked. The profit trail needs at least 14 DTE; the loss exit keeps
+  working to expiry, and an in-the-money long option is proposed for a DAY
+  limit close from the Rulebook's expiry act level (7 DTE) as
+  `option_expiry_close`, so nothing is exercised by accident (owner decision,
+  2026-09-28). A hedge-listed index put needs both
   exact operator intent, a current directional Rulebook role, and exact-ConID
   Greeks evidence; symbol, option shape, and shared-cache Greeks never prove
   intent. Missing or invalid exact-ConID evidence keeps the role unclassified.

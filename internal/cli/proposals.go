@@ -747,9 +747,18 @@ func formatProposalOptionExit(exit *rpc.TradeProposalOptionExit) string {
 			parts = append(parts, fmt.Sprintf("full-close line -%.1f%%", exit.LossExitPct))
 		}
 		parts = append(parts, "event-driven DAY patient midpoint limit; may remain unfilled; no resting loss stop")
+	case "expiry_close":
+		if exit.UnderlyingPrice != nil {
+			parts = append(parts, fmt.Sprintf("in the money at underlying %.2f", *exit.UnderlyingPrice))
+		}
+		parts = append(parts, fmt.Sprintf("expiry window %d DTE", exit.ExpiryCloseDTE),
+			"DAY patient midpoint limit close avoids exercise at expiry; may remain unfilled")
 	case "profit_trail":
 		if exit.ProfitArmGainPct > 0 {
 			parts = append(parts, fmt.Sprintf("armed at +%.1f%%", exit.ProfitArmGainPct))
+		}
+		if exit.HighWaterPerShare != nil {
+			parts = append(parts, fmt.Sprintf("trails from high water %.2f", *exit.HighWaterPerShare))
 		}
 		if exit.InitialLockedGainPct != nil {
 			parts = append(parts, fmt.Sprintf("initial lock %+.1f%%", *exit.InitialLockedGainPct))
@@ -757,8 +766,19 @@ func formatProposalOptionExit(exit *rpc.TradeProposalOptionExit) string {
 			parts = append(parts, fmt.Sprintf("minimum initial lock +%.1f%%", exit.LockedGainPct))
 		}
 		parts = append(parts, "DAY TRAIL LIMIT")
+	case "profit_take":
+		if exit.HighWaterPerShare != nil {
+			parts = append(parts, fmt.Sprintf("trail from high water %.2f hit", *exit.HighWaterPerShare))
+		}
+		parts = append(parts, "DAY patient midpoint limit close; may remain unfilled")
 	case "review":
-		parts = append(parts, "exact-contract exit evidence unavailable; blocked")
+		// A measured row is held back by a rule its blocker names; only an
+		// unmeasured one lacks evidence.
+		if exit.ReturnPct != nil {
+			parts = append(parts, "held; blocked")
+		} else {
+			parts = append(parts, "exact-contract exit evidence unavailable; blocked")
+		}
 	}
 	if exit.DTE >= 0 {
 		parts = append(parts, fmt.Sprintf("%d DTE", exit.DTE))

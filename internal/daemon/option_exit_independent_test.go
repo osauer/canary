@@ -179,7 +179,7 @@ func TestOptionExitIndependentManagementCannotUseCachedFastPath(t *testing.T) {
 	row := optionExitTestRow()
 	loss := risk.DefaultRulebookPolicy().ExitActLossPct
 	decision := evaluateOptionExit(pol.Buckets.TrailingStop.Options, row, now, true, true, true, loss)
-	p, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, loss)
+	p, ok := optionExitProposal(pol, rpc.ProtectionPolicyStatus{}, row, rpc.TradeProposalSourceFingerprints{}, now, decision, risk.IndexPutRoleDirectional, 0.05, risk.DefaultRulebookPolicy())
 	if !ok || p.State != rpc.TradeProposalStateGenerated {
 		t.Fatal("expected generated fixture")
 	}

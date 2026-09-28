@@ -82,12 +82,12 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.trailing_stop.options]` | `default_long_calls_directional` | `bool` | DefaultLongCallsDirectional assigns purpose to ungrouped standard long calls and non-hedge-listed long puts without a conflicting holding or exact-contract declaration. |
 | `[buckets.trailing_stop.options]` | `default_pct` | `float64` | DefaultPct is the native broker percentage-trail distance before spread, minimum-amount, and tick floors (default 30). |
 | `[buckets.trailing_stop.options]` | `directional_intents` | `[]protectionOptionDirectionalIntent` | DirectionalIntents are time-bounded exact-contract overrides. |
-| `[buckets.trailing_stop.options]` | `enabled` | `bool` | Enabled turns approved directional-option loss exits and profit trails on (default false). |
+| `[buckets.trailing_stop.options]` | `enabled` | `bool` | Enabled turns approved directional-option loss exits, in-the-money expiry closes and profit trails on (default false). |
 | `[buckets.trailing_stop.options]` | `limit_offset_abs` | `float64` | LimitOffsetAbs is the explicitly configured absolute limit offset for the stop; required positive when order_type is TRAIL LIMIT (default 0.05). |
 | `[buckets.trailing_stop.options]` | `locked_gain_pct` | `float64` | LockedGainPct is the minimum gain over cost the rounded initial trail stop must retain (default 5). |
 | `[buckets.trailing_stop.options]` | `max_pct` | `float64` | MaxPct is the upper bound on the trailing distance (default 50). |
 | `[buckets.trailing_stop.options]` | `max_spread_pct_of_mid` | `float64` | MaxSpreadPctOfMid skips option quotes wider than this percent of mid (default 25). |
-| `[buckets.trailing_stop.options]` | `min_dte` | `int` | MinDTE excludes options with fewer calendar days to expiry (default 14). |
+| `[buckets.trailing_stop.options]` | `min_dte` | `int` | MinDTE is the profit trail's minimum calendar days to expiry (default 14); the loss exit and the in-the-money expiry close still apply below it, until expiry. |
 | `[buckets.trailing_stop.options]` | `min_pct` | `float64` | MinPct is the lower bound on the trailing distance (default 20). |
 | `[buckets.trailing_stop.options]` | `min_trail_abs` | `float64` | MinTrailAbs is the minimum absolute trailing amount in dollars (default 0.10). |
 | `[buckets.trailing_stop.options]` | `order_type` | `string` | OrderType is TRAIL LIMIT in V1; a plain TRAIL market trigger is not approved (default TRAIL LIMIT). |

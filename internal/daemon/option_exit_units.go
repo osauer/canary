@@ -24,7 +24,7 @@ import (
 
 const (
 	optionExitUnitExitManagement = "unit"
-	optionExitUnitProfitTake     = "profit_take"
+	optionExitUnitProfitTake     = risk.OptionExitActionProfitTake
 	optionExitUnitMethod         = "unit_net_close_value_vs_net_debit"
 )
 
@@ -199,20 +199,21 @@ func (e *proposalEngine) optionExitUnitHedge(unit optionExitUnit, pos *rpc.Posit
 }
 
 // unitHighWater carries the profit trail's high-water mark across refreshes
-// from the last published row of the same unit. A daemon restart starts it
-// again from the current value; the record says so through its details.
-func (e *proposalEngine) unitHighWater(key string) float64 {
+// from the last published row of the same unit, with the net premium paid per
+// share and the unit count it was recorded against, so a change in either
+// resets it. A daemon restart starts it again from the current value.
+func (e *proposalEngine) unitHighWater(key string) risk.OptionExitHighWater {
 	if e == nil {
-		return 0
+		return risk.OptionExitHighWater{}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	for _, p := range e.snapshot.Proposals {
 		if p.Key == key && p.Unit != nil && p.Unit.HighWaterPerShare != nil {
-			return *p.Unit.HighWaterPerShare
+			return risk.OptionExitHighWater{PerShare: *p.Unit.HighWaterPerShare, CostPremium: p.Unit.CostPerShare, Quantity: float64(p.Unit.Units)}
 		}
 	}
-	return 0
+	return risk.OptionExitHighWater{}
 }
 
 func optionExitUnitRoute(unit optionExitUnit) string {
@@ -310,7 +311,10 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 			if !twoSided {
 				blockers = append(blockers, blocker{"two_sided_option_quote_required", optionExitBlockerMessage("two_sided_option_quote_required", cfg)})
 			}
-			if minDTE < cfg.MinDTE {
+			// The loss exit applies up to and including expiry day; the profit
+			// trail's floor is checked where it would otherwise apply. An
+			// unknown or passed expiry supports no exit.
+			if minDTE < 0 {
 				blockers = append(blockers, blocker{"option_exit_min_dte", optionExitBlockerMessage("option_exit_min_dte", cfg)})
 			}
 		}
@@ -325,16 +329,24 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 		action, returnPct := "", 0.0
 		var highWater, trailStop *float64
 		var armedDetail string
+		held := false
 		if len(blockers) == 0 {
 			returnPct = (closeValue/costPerShare - 1) * 100
 			// An armed trail stays armed: the high water carried from the last
 			// published row keeps it live after the value retraces below the
-			// arming line, exactly as a broker-held trail would.
-			carried := e.unitHighWater(key)
+			// arming line, exactly as a broker-held trail would. A changed net
+			// premium or unit count resets it.
+			carried := e.unitHighWater(key).Current(costPerShare, float64(unit.units))
 			switch {
 			case returnPct <= -lossExitPct:
 				action = risk.OptionExitActionLoss
-			case returnPct >= cfg.ProfitArmGainPct || carried > 0:
+			case returnPct < cfg.ProfitArmGainPct && carried <= 0:
+				// Eligible, no threshold reached.
+			case minDTE < cfg.MinDTE:
+				// The profit trail keeps its floor; the loss exit still applies.
+				held = true
+				blockers = append(blockers, blocker{"option_exit_min_dte", optionExitBlockerMessage("option_exit_min_dte", cfg)})
+			default:
 				hwm := math.Max(closeValue, carried)
 				trail := math.Max(hwm*cfg.DefaultPct/100, math.Max(cfg.MinTrailAbs, cfg.SpreadMultiple*spread))
 				stop := hwm - trail
@@ -354,7 +366,10 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 		case optionExitUnitProfitTake:
 			reason = fmt.Sprintf("unit gained %.1f%% versus net premium paid and retraced from its high-water close value; profit trail closes the whole unit", returnPct)
 		default:
-			if armedDetail != "" {
+			switch {
+			case held:
+				reason = fmt.Sprintf("unit is %+.1f%% versus net premium paid; its profit trail needs at least %d DTE (%d left) while the loss exit still applies until expiry", returnPct, cfg.MinDTE, minDTE)
+			case armedDetail != "":
 				reason = "unit profit trail armed; no exit threshold reached"
 			}
 		}
@@ -384,7 +399,7 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 		if twoSided {
 			p.OptionExit.ReferencePrice = cloneFloat64Ptr(&closeValue)
 			p.Unit.CloseValuePerShare = cloneFloat64Ptr(&closeValue)
-			if action != "" {
+			if action != "" || held {
 				p.OptionExit.ReturnPct = cloneFloat64Ptr(&returnPct)
 			}
 		}
@@ -407,12 +422,16 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 			optionExitBlock(&p, b.code, b.message)
 		}
 		if action == "" {
-			if armedDetail != "" {
+			switch {
+			case armedDetail != "":
 				optionExitBlock(&p, "unit_profit_trail_armed", armedDetail)
-			} else if len(blockers) == 0 {
+			case held:
+				// Measured and held back by the trail's floor, which the row
+				// names; the evidence is complete.
+			case len(blockers) == 0:
 				// Eligible, no threshold reached: no row, like a standalone leg.
 				continue
-			} else {
+			default:
 				optionExitBlock(&p, "option_exit_measurement_unavailable", "unit exit evidence is incomplete; no threshold or order may be inferred")
 			}
 		}

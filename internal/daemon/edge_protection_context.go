@@ -130,7 +130,7 @@ func matchEdgeProtectionRecords(scope brokerStateScope, statements []flexstmt.St
 
 func edgeProtectionBucket(bucket string) bool {
 	switch bucket {
-	case rpc.TradeProposalBucketThetaHygiene, rpc.TradeProposalBucketRiskReduction, rpc.TradeProposalBucketTrailingStop, rpc.TradeProposalBucketOptionLossExit, rpc.TradeProposalBucketOptionExitReview:
+	case rpc.TradeProposalBucketThetaHygiene, rpc.TradeProposalBucketRiskReduction, rpc.TradeProposalBucketTrailingStop, rpc.TradeProposalBucketOptionLossExit, rpc.TradeProposalBucketOptionExpiryClose, rpc.TradeProposalBucketOptionExitReview:
 		return true
 	default:
 		return false

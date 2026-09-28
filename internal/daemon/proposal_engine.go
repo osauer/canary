@@ -720,7 +720,14 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 				if quoteRequested {
 					exactRow, quoteFailure = e.optionExitExactQuote(ctx, row)
 				}
-				decision := evaluateOptionExitRow(policy.Buckets.TrailingStop.Options, exactRow, now, intentCurrent, standalone, roleAllowed, !quoteRequested, rulebookPolicy.ExitActLossPct)
+				// The expiry window reads moneyness from this refresh's exact
+				// book evidence only, and the profit trail resumes from the high
+				// water its last published row carried.
+				decision := evaluateOptionExitRow(policy.Buckets.TrailingStop.Options, exactRow, now, optionExitRowContext{
+					directionalIntent: intentCurrent, standalone: standalone, roleAllowed: roleAllowed, quoteSkipped: !quoteRequested,
+					lossExitPct: rulebookPolicy.ExitActLossPct, expiryCloseDTE: rulebookPolicy.RunwayActDTE,
+					underlying: optionExitUnderlying(rowEvidence, row.ConID), highWater: e.legHighWater(optionExitTrailKey(row)),
+				})
 				if decision.Action == "" && len(decision.Blockers) == 0 {
 					continue
 				}
@@ -728,7 +735,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 				if decision.Action == risk.OptionExitActionProfitTrail {
 					minTick = e.resolveRowMinTick(exactRow)
 				}
-				if p, ok := optionExitProposal(policy, status, exactRow, sources, now, decision, economicRole, minTick, rulebookPolicy.ExitActLossPct); ok {
+				if p, ok := optionExitProposal(policy, status, exactRow, sources, now, decision, economicRole, minTick, rulebookPolicy); ok {
 					p.OptionExit.Intent = purpose
 					if measuredDirectional {
 						p.Details = append(p.Details, "Standing policy treats this index put as protection; current complete portfolio evidence classifies it as directional, which applies. Exact-contract quote, risk, and broker-write checks still apply.")
@@ -1196,11 +1203,18 @@ func firstStockTrailSizing(in []*rpc.TradeProposalTrailSizing) *rpc.TradeProposa
 	return cloneTrailSizing(in[0])
 }
 
-func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, row rpc.PositionView, sources rpc.TradeProposalSourceFingerprints, now time.Time, decision risk.OptionExitDecision, economicRole string, minTick, lossExitPct float64) (rpc.TradeProposal, bool) {
+// optionExitProposal turns one exact-contract decision into its row. The loss
+// exit, the expiry close and the profit take are full DAY patient limit
+// closes; the profit trail is a DAY TRAIL LIMIT measured from its high water;
+// anything unmeasured or held back is a blocked review row. The Rulebook
+// supplies the loss line and the expiry act level.
+func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatus, row rpc.PositionView, sources rpc.TradeProposalSourceFingerprints, now time.Time, decision risk.OptionExitDecision, economicRole string, minTick float64, rulebook risk.RulebookPolicy) (rpc.TradeProposal, bool) {
 	if !strings.EqualFold(row.SecType, "OPTION") && !strings.EqualFold(row.SecType, "OPT") || row.Quantity == 0 {
 		return rpc.TradeProposal{}, false
 	}
 	cfg := policy.Buckets.TrailingStop.Options
+	lossExitPct := rulebook.ExitActLossPct
+	dte := optionExitDTE(row, now)
 	qty, remainder := 0, 0.0
 	if !math.IsNaN(row.Quantity) && !math.IsInf(row.Quantity, 0) {
 		qty, remainder = closeReduceQuantity(row.Quantity)
@@ -1211,9 +1225,24 @@ func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStat
 	case risk.OptionExitActionLoss:
 		bucket = rpc.TradeProposalBucketOptionLossExit
 		reason = fmt.Sprintf("fresh executable bid is %.1f%% below cost; Rulebook exits the full directional option at %.1f%% loss", math.Abs(decision.ReturnPct), lossExitPct)
+	case risk.OptionExitActionExpiryClose:
+		bucket = rpc.TradeProposalBucketOptionExpiryClose
+		reason = fmt.Sprintf("in-the-money long option, %d days to expiry; closing avoids exercise at expiry", dte)
 	case risk.OptionExitActionProfitTrail:
 		bucket = rpc.TradeProposalBucketTrailingStop
 		reason = fmt.Sprintf("directional option gained %.1f%% versus cost; profit trail armed at %.1f%%", decision.ReturnPct, cfg.ProfitArmGainPct)
+		if decision.HighWater > decision.ReferencePrice {
+			reason += fmt.Sprintf(" trails from its high water of %.2f", decision.HighWater)
+		}
+	case risk.OptionExitActionProfitTake:
+		// The take shares the trail's bucket and key, so the next refresh
+		// carries the same high water whichever of the two was published.
+		bucket = rpc.TradeProposalBucketTrailingStop
+		reason = fmt.Sprintf("profit trail from the high water of %.2f was hit", decision.HighWater)
+	default:
+		if decision.Measured {
+			reason = optionExitHeldReason(decision, cfg, dte)
+		}
 	}
 	action := rpc.OrderActionSell
 	if row.Quantity < 0 {
@@ -1226,19 +1255,26 @@ func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStat
 	p.Score = math.Abs(row.MarketValue)
 	p.OptionExit = &rpc.TradeProposalOptionExit{
 		Kind: nonEmptyString(decision.Action, "review"), Intent: optionExitIntentState(cfg, row.ConID, now), EconomicRole: economicRole,
-		DTE: optionExitDTE(row, now), MinDTE: cfg.MinDTE, LossExitPct: lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
+		DTE: dte, MinDTE: cfg.MinDTE, ExpiryCloseDTE: rulebook.RunwayActDTE, LossExitPct: lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
 		LockedGainPct: cfg.LockedGainPct, ProfitTrailPct: cfg.DefaultPct, MinTrailPct: cfg.MinPct,
 		MaxTrailPct: cfg.MaxPct, MaxSpreadPctOfMid: cfg.MaxSpreadPctOfMid, MinTrailAbs: cfg.MinTrailAbs,
 		SpreadMultiple: cfg.SpreadMultiple, Method: "fresh_bid_vs_multiplier_adjusted_cost",
 	}
-	if decision.CostPremium > 0 && !math.IsNaN(decision.CostPremium) && !math.IsInf(decision.CostPremium, 0) {
+	if positiveFinite(decision.CostPremium) {
 		p.OptionExit.CostBasisPremium = cloneFloat64Ptr(&decision.CostPremium)
 	}
-	if decision.ReferencePrice > 0 && !math.IsNaN(decision.ReferencePrice) && !math.IsInf(decision.ReferencePrice, 0) {
+	if positiveFinite(decision.ReferencePrice) {
 		p.OptionExit.ReferencePrice = cloneFloat64Ptr(&decision.ReferencePrice)
-		if decision.Action != "" {
+		// A held row was measured; only an unmeasured one has no return.
+		if decision.Action != "" || decision.Measured {
 			p.OptionExit.ReturnPct = cloneFloat64Ptr(&decision.ReturnPct)
 		}
+	}
+	if positiveFinite(decision.Underlying) {
+		p.OptionExit.UnderlyingPrice = cloneFloat64Ptr(&decision.Underlying)
+	}
+	if positiveFinite(decision.HighWater) {
+		p.OptionExit.HighWaterPerShare = cloneFloat64Ptr(&decision.HighWater)
 	}
 	if remainder > 0 || qty <= 0 {
 		optionExitBlock(&p, "whole_contract_quantity_required", "option exits require a positive whole-contract position quantity")
@@ -1247,23 +1283,48 @@ func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStat
 		optionExitBlock(&p, code, optionExitBlockerMessage(code, cfg))
 	}
 	if decision.Action == "" {
-		optionExitBlock(&p, "option_exit_measurement_unavailable", "exact-contract option exit evidence is incomplete; no threshold or order may be inferred")
+		// A measured row held back by a later rule names that rule; only an
+		// unmeasured row reports incomplete evidence.
+		if !decision.Measured {
+			optionExitBlock(&p, "option_exit_measurement_unavailable", "exact-contract option exit evidence is incomplete; no threshold or order may be inferred")
+		}
 		p.LimitPrice = nil
 		return p, true
 	}
-	if decision.Action == risk.OptionExitActionLoss {
+	switch decision.Action {
+	case risk.OptionExitActionLoss:
 		p.Details = append(p.Details,
 			fmt.Sprintf("rulebook_loss_exit=%.1f%% from multiplier-adjusted cost on fresh bid", lossExitPct),
 			"order=DAY patient midpoint limit; may remain unfilled; no resting loss stop and no overnight loss guarantee")
 		return p, true
+	case risk.OptionExitActionExpiryClose:
+		right := "call"
+		if strings.EqualFold(strings.TrimSpace(row.Right), "P") {
+			right = "put"
+		}
+		p.Details = append(p.Details,
+			fmt.Sprintf("expiry_close: %s strike %g, underlying %.2f from the exact-contract risk receipt; %d DTE, at or below the Rulebook expiry act level of %d", right, row.Strike, decision.Underlying, dte, rulebook.RunwayActDTE),
+			"order=DAY patient midpoint limit; may remain unfilled, and an unfilled in-the-money option can still be exercised at expiry")
+		return p, true
+	case risk.OptionExitActionProfitTake:
+		p.Details = append(p.Details,
+			fmt.Sprintf("profit_trail: high_water=%.2f trail=%.2f (%.1f%%) stop=%.2f locks %+.1f%% over cost; the fresh bid %.2f is at or below the stop", decision.HighWater, decision.TrailAmount, decision.TrailPct, decision.InitialStop, decision.InitialLockPct, decision.ReferencePrice),
+			"order=DAY patient midpoint limit close, because a broker trail placed now would trigger on arrival; may remain unfilled")
+		return p, true
 	}
 
-	trailAmount := ceilPriceToTick(decision.TrailAmount, trailMinimumTick(p.Contract, decision.ReferencePrice))
-	chosenPct := 0.0
-	if decision.ReferencePrice > 0 {
-		chosenPct = trailAmount / decision.ReferencePrice * 100
+	// The trail's distance, native percentage and initial stop are measured
+	// from its high water, the fresh bid unless a higher mark was carried.
+	trailRef := decision.HighWater
+	if !positiveFinite(trailRef) {
+		trailRef = decision.ReferencePrice
 	}
-	applyNativeTrailPercentToProposal(&p, cfg.OrderType, chosenPct, trailAmount, decision.ReferencePrice, rpc.OrderActionSell, cfg.LimitOffsetAbs)
+	trailAmount := ceilPriceToTick(decision.TrailAmount, trailMinimumTick(p.Contract, trailRef))
+	chosenPct := 0.0
+	if trailRef > 0 {
+		chosenPct = trailAmount / trailRef * 100
+	}
+	applyNativeTrailPercentToProposal(&p, cfg.OrderType, chosenPct, trailAmount, trailRef, rpc.OrderActionSell, cfg.LimitOffsetAbs)
 	initialLockPct := 0.0
 	if decision.CostPremium > 0 && p.Trail != nil {
 		initialLockPct = (p.Trail.InitialStopPrice/decision.CostPremium - 1) * 100
@@ -1272,12 +1333,16 @@ func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStat
 	if p.Trail == nil || !risk.OptionExitLockedGainMet(decision.CostPremium, p.Trail.InitialStopPrice, cfg.LockedGainPct) {
 		optionExitBlock(&p, "option_trail_locked_gain_not_met", fmt.Sprintf("rounded initial stop must retain at least %.1f%% over cost; wider spread/tick floors cannot weaken that invariant", cfg.LockedGainPct))
 	}
-	if !risk.OptionExitTrailPctWithinBounds(decision.ReferencePrice, trailAmount, cfg.MinPct, cfg.MaxPct) {
+	if !risk.OptionExitTrailPctWithinBounds(trailRef, trailAmount, cfg.MinPct, cfg.MaxPct) {
 		optionExitBlock(&p, "option_trail_outside_policy_bounds", fmt.Sprintf("rounded premium trail must stay within the %.1f%% to %.1f%% approved range", cfg.MinPct, cfg.MaxPct))
+	}
+	referenceSource := "bid"
+	if trailRef > decision.ReferencePrice {
+		referenceSource = "high_water"
 	}
 	p.TrailSizing = &rpc.TradeProposalTrailSizing{
 		Method: "option-profit-lock-v1", Version: "option-profit-lock-v1", SelectedBy: optionTrailSelectedBy(cfg, decision),
-		ReferencePrice: cloneFloat64Ptr(&decision.ReferencePrice), ReferenceSource: "bid", ReferenceAsOf: row.PriceAt,
+		ReferencePrice: cloneFloat64Ptr(&trailRef), ReferenceSource: referenceSource, ReferenceAsOf: row.PriceAt,
 		PolicyMinPct: cfg.MinPct, PolicyDefaultPct: cfg.DefaultPct, PolicyMaxPct: cfg.MaxPct,
 		ChosenPct: chosenPct, ChosenAmount: cloneFloat64Ptr(&trailAmount), InitialStopPrice: cloneFloat64Ptr(&p.Trail.InitialStopPrice),
 		SpreadPct: cloneFloat64Ptr(&decision.SpreadPctOfMid), SpreadMultiplier: cloneFloat64Ptr(&cfg.SpreadMultiple), AsOf: now,
@@ -1286,7 +1351,24 @@ func optionExitProposal(policy protectionPolicy, status rpc.ProtectionPolicyStat
 		trailingStopPremiumTrailDetail(chosenPct, p.Trail, p.Contract.Currency),
 		fmt.Sprintf("profit_arm=+%.1f%% locked_gain>=+%.1f%% initial=+%.1f%%", cfg.ProfitArmGainPct, cfg.LockedGainPct, initialLockPct),
 		trailingStopTIFDetail(p.TIF, true))
+	if referenceSource == "high_water" {
+		p.Details = append(p.Details, fmt.Sprintf("high_water=%.2f carried from the last published row (fresh bid %.2f); it resets when the cost basis or quantity changes, when a refresh cannot measure this option, and on a daemon restart", trailRef, decision.ReferencePrice))
+	}
 	return p, true
+}
+
+// optionExitHeldReason explains a measured row that a later rule holds back:
+// the profit trail below its DTE floor, or an expiry window whose moneyness
+// cannot be read.
+func optionExitHeldReason(decision risk.OptionExitDecision, cfg protectionTrailOptionPolicy, dte int) string {
+	switch {
+	case slices.Contains(decision.Blockers, "option_expiry_underlying_unavailable"):
+		return fmt.Sprintf("option is %d days from expiry and its underlying price is unavailable; Canary cannot tell whether it is in the money", dte)
+	case slices.Contains(decision.Blockers, "option_exit_min_dte"):
+		return fmt.Sprintf("directional option is %+.1f%% versus cost; the profit trail needs at least %d DTE (%d left) while the loss exit still applies until expiry", decision.ReturnPct, cfg.MinDTE, dte)
+	default:
+		return "option exit needs review; current intent or exact-contract evidence is incomplete"
+	}
 }
 
 // applyNativeTrailPercentToProposal sends the option profit-lock distance as
@@ -1647,13 +1729,33 @@ func optionExitWithoutQuote(row rpc.PositionView) rpc.PositionView {
 	return row
 }
 
-func evaluateOptionExit(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed bool, lossExitPct float64) risk.OptionExitDecision {
-	return evaluateOptionExitRow(cfg, row, now, directionalIntent, standalone, roleAllowed, false, lossExitPct)
+// optionExitRowContext is what one row's evaluation needs beyond the position:
+// its resolved purpose, grouping and role, whether a quote was requested, the
+// Rulebook's loss line and expiry act level, the fresh underlying price from
+// this refresh's exact evidence and the profit trail's carried high water.
+type optionExitRowContext struct {
+	directionalIntent bool
+	standalone        bool
+	roleAllowed       bool
+	// quoteSkipped means the engine requested no broker quote for this row.
+	quoteSkipped   bool
+	lossExitPct    float64
+	expiryCloseDTE int
+	underlying     float64
+	highWater      risk.OptionExitHighWater
 }
 
-// evaluateOptionExitRow is evaluateOptionExit with the quote decision stated:
-// quoteSkipped means the engine requested no broker quote for this row.
-func evaluateOptionExitRow(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed, quoteSkipped bool, lossExitPct float64) risk.OptionExitDecision {
+// evaluateOptionExit evaluates a row whose quote was requested, under the
+// standard Rulebook expiry act level, with no underlying price or carried
+// high water.
+func evaluateOptionExit(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, directionalIntent, standalone, roleAllowed bool, lossExitPct float64) risk.OptionExitDecision {
+	return evaluateOptionExitRow(cfg, row, now, optionExitRowContext{
+		directionalIntent: directionalIntent, standalone: standalone, roleAllowed: roleAllowed,
+		lossExitPct: lossExitPct, expiryCloseDTE: risk.DefaultRulebookPolicy().RunwayActDTE,
+	})
+}
+
+func evaluateOptionExitRow(cfg protectionTrailOptionPolicy, row rpc.PositionView, now time.Time, rc optionExitRowContext) risk.OptionExitDecision {
 	dte := optionExitDTE(row, now)
 	sessionOpen := optionSessionOpen(now)
 	if row.SessionContext != nil {
@@ -1661,9 +1763,10 @@ func evaluateOptionExitRow(cfg protectionTrailOptionPolicy, row rpc.PositionView
 	}
 	in := risk.OptionExitInput{
 		ConID: row.ConID, Quantity: row.Quantity, Multiplier: row.Multiplier, AvgCost: row.AvgCost,
-		DTE: dte, DirectionalIntent: directionalIntent, Standalone: standalone, EconomicRoleAllowed: roleAllowed,
+		DTE: dte, DirectionalIntent: rc.directionalIntent, Standalone: rc.standalone, EconomicRoleAllowed: rc.roleAllowed,
 		QuoteLive: rpc.IsLiveDataType(row.DataType), QuoteFresh: !row.Stale && !row.PriceAt.IsZero(),
-		SessionOpen: sessionOpen, QuoteSkipped: quoteSkipped,
+		SessionOpen: sessionOpen, QuoteSkipped: rc.quoteSkipped,
+		Right: row.Right, Strike: row.Strike, Underlying: rc.underlying, CarriedHighWater: rc.highWater,
 	}
 	if row.OptionBid != nil {
 		in.Bid = *row.OptionBid
@@ -1672,11 +1775,40 @@ func evaluateOptionExitRow(cfg protectionTrailOptionPolicy, row rpc.PositionView
 		in.Ask = *row.OptionAsk
 	}
 	return risk.EvaluateOptionExit(in, risk.OptionExitPolicy{
-		MinDTE: cfg.MinDTE, LossExitPct: lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
+		MinDTE: cfg.MinDTE, LossExitPct: rc.lossExitPct, ProfitArmGainPct: cfg.ProfitArmGainPct,
 		ProfitTrailPct: cfg.DefaultPct, LockedGainPct: cfg.LockedGainPct, MinTrailPct: cfg.MinPct,
 		MaxTrailPct: cfg.MaxPct, MaxSpreadPctOfMid: cfg.MaxSpreadPctOfMid,
-		MinTrailAbs: cfg.MinTrailAbs, SpreadMultiple: cfg.SpreadMultiple,
+		MinTrailAbs: cfg.MinTrailAbs, SpreadMultiple: cfg.SpreadMultiple, ExpiryCloseDTE: rc.expiryCloseDTE,
 	})
+}
+
+// optionExitTrailKey is the key a long leg's profit trail and profit take
+// publish under: the trailing-stop bucket's sell close of the exact contract.
+func optionExitTrailKey(row rpc.PositionView) string {
+	return proposalKey(rpc.TradeProposalBucketTrailingStop, proposalContractFromPosition(row, positionWireSecType(row.SecType)), rpc.OrderActionSell)
+}
+
+// legHighWater carries a single option's profit-trail high-water mark across
+// refreshes from the last published row of the same leg, with the cost basis
+// and quantity it was recorded against, exactly as unitHighWater does for a
+// unit. The evaluator drops it when either changed. A daemon restart starts it
+// again from the current bid.
+func (e *proposalEngine) legHighWater(key string) risk.OptionExitHighWater {
+	if e == nil {
+		return risk.OptionExitHighWater{}
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, p := range e.snapshot.Proposals {
+		if p.Key == key && p.OptionExit != nil && p.OptionExit.HighWaterPerShare != nil {
+			out := risk.OptionExitHighWater{PerShare: *p.OptionExit.HighWaterPerShare, Quantity: p.PositionQuantity}
+			if p.OptionExit.CostBasisPremium != nil {
+				out.CostPremium = *p.OptionExit.CostBasisPremium
+			}
+			return out
+		}
+	}
+	return risk.OptionExitHighWater{}
 }
 
 func optionExitDTE(row rpc.PositionView, now time.Time) int {
@@ -1725,7 +1857,9 @@ func optionExitBlockerAction(code string) string {
 	case "option_rth_closed":
 		return "Re-evaluate when the regular listed-options session opens; a closed-market review does not establish an executable exit."
 	case "option_exit_min_dte":
-		return "Review expiry and the existing near-expiry workflow; do not apply the longer-dated option trail below its approved minimum DTE."
+		return "Nothing to fix: the profit trail needs its approved minimum DTE, and the loss exit still applies until expiry. Close the position yourself if you want to keep the gain now."
+	case "option_expiry_underlying_unavailable":
+		return "Canary reads the underlying price from the exact-contract risk data it collects for the whole book during the options session; refresh once that data is complete. Until then, check yourself whether the option is in the money before it expires."
 	case "option_trail_outside_policy_bounds", "option_trail_locked_gain_not_met":
 		return "Review an alternative exit. Current spread and tick constraints cannot produce the approved profit trail; do not widen its limits automatically."
 	case "option_exit_policy_invalid":
@@ -1750,7 +1884,9 @@ func optionExitBlockerMessage(code string, cfg protectionTrailOptionPolicy) stri
 	case "whole_contract_quantity_required":
 		return "option exits require a positive whole-contract position quantity"
 	case "option_exit_min_dte":
-		return fmt.Sprintf("option exit requires at least %d calendar DTE", cfg.MinDTE)
+		return fmt.Sprintf("the profit trail requires at least %d calendar DTE; the loss exit still applies up to and including expiry day", cfg.MinDTE)
+	case "option_expiry_underlying_unavailable":
+		return "the option is inside the Rulebook expiry window, but no fresh underlying price from this refresh's exact-contract evidence shows whether it is in the money"
 	case "option_cost_basis_unavailable":
 		return "option exit requires positive multiplier-adjusted broker cost basis"
 	case optionQuoteBrokerUnavailable:
@@ -1782,7 +1918,11 @@ func optionExitBlockerMessage(code string, cfg protectionTrailOptionPolicy) stri
 
 func optionTrailSelectedBy(cfg protectionTrailOptionPolicy, decision risk.OptionExitDecision) string {
 	const eps = 1e-9
-	defaultAmount := decision.ReferencePrice * cfg.DefaultPct / 100
+	reference := decision.HighWater
+	if !positiveFinite(reference) {
+		reference = decision.ReferencePrice
+	}
+	defaultAmount := reference * cfg.DefaultPct / 100
 	spreadFloor := cfg.SpreadMultiple * decision.SpreadAbs
 	if spreadFloor > defaultAmount+eps && spreadFloor >= cfg.MinTrailAbs-eps {
 		return "spread_floor"
@@ -2333,7 +2473,8 @@ func optionExitSnapshotRemaining(order ibkrlib.OrderLifecycleEvent) float64 {
 func proposalIsOptionExit(p rpc.TradeProposal) bool {
 	option := strings.EqualFold(p.SecType, "OPT") || strings.EqualFold(p.SecType, "OPTION") ||
 		strings.EqualFold(p.Contract.SecType, "OPT") || strings.EqualFold(p.Contract.SecType, "OPTION")
-	return option && (p.Bucket == rpc.TradeProposalBucketOptionLossExit || p.Bucket == rpc.TradeProposalBucketOptionExitReview || p.Bucket == rpc.TradeProposalBucketTrailingStop && p.OptionExit != nil)
+	return option && (p.Bucket == rpc.TradeProposalBucketOptionLossExit || p.Bucket == rpc.TradeProposalBucketOptionExpiryClose ||
+		p.Bucket == rpc.TradeProposalBucketOptionExitReview || p.Bucket == rpc.TradeProposalBucketTrailingStop && p.OptionExit != nil)
 }
 
 func proposalDuplicateOrderIsOptionExit(v rpc.OrderView, p rpc.TradeProposal) bool {
@@ -2633,12 +2774,15 @@ func optionExitPreviewDecisionBlockers(prop rpc.TradeProposal, preview *rpc.Orde
 		costPremium = preview.Position.AverageCost / float64(multiplier)
 	}
 	sessionOpen := quote.SessionContext != nil && quote.SessionContext.IsOpen
+	// The newer quote and position are re-evaluated against the moneyness
+	// evidence and the high water the proposal was generated with; a changed
+	// cost basis or quantity drops that high water, as at generation.
 	in := risk.OptionExitInput{
 		ConID: preview.Draft.Contract.ConID, Quantity: quantity, Multiplier: multiplier,
 		AvgCost: preview.Position.AverageCost, DTE: exit.DTE,
 		DirectionalIntent: true, Standalone: true, EconomicRoleAllowed: true,
 		QuoteLive: rpc.IsLiveDataType(quote.DataType), QuoteFresh: !quote.Stale && !quote.PriceAt.IsZero(),
-		SessionOpen: sessionOpen,
+		SessionOpen: sessionOpen, Right: preview.Draft.Contract.Right, Strike: preview.Draft.Contract.Strike,
 	}
 	if quote.Bid != nil {
 		in.Bid = *quote.Bid
@@ -2646,12 +2790,18 @@ func optionExitPreviewDecisionBlockers(prop rpc.TradeProposal, preview *rpc.Orde
 	if quote.Ask != nil {
 		in.Ask = *quote.Ask
 	}
+	if exit.UnderlyingPrice != nil {
+		in.Underlying = *exit.UnderlyingPrice
+	}
+	if exit.HighWaterPerShare != nil && exit.CostBasisPremium != nil {
+		in.CarriedHighWater = risk.OptionExitHighWater{PerShare: *exit.HighWaterPerShare, CostPremium: *exit.CostBasisPremium, Quantity: prop.PositionQuantity}
+	}
 	decision := risk.EvaluateOptionExit(in, risk.OptionExitPolicy{
 		MinDTE: exit.MinDTE, LossExitPct: exit.LossExitPct, ProfitArmGainPct: exit.ProfitArmGainPct,
 		ProfitTrailPct: exit.ProfitTrailPct, LockedGainPct: exit.LockedGainPct,
 		MinTrailPct: exit.MinTrailPct, MaxTrailPct: exit.MaxTrailPct,
 		MaxSpreadPctOfMid: exit.MaxSpreadPctOfMid, MinTrailAbs: exit.MinTrailAbs,
-		SpreadMultiple: exit.SpreadMultiple,
+		SpreadMultiple: exit.SpreadMultiple, ExpiryCloseDTE: exit.ExpiryCloseDTE,
 	})
 	if exit.CostBasisPremium == nil || !floatEqual(*exit.CostBasisPremium, costPremium) {
 		add("option_exit_cost_basis_changed", "fresh exact-contract average cost no longer matches the proposal")
@@ -2672,11 +2822,13 @@ func optionExitPreviewDecisionBlockers(prop rpc.TradeProposal, preview *rpc.Orde
 		add("option_exit_preview_trail_missing", "fresh preview is missing the approved native percentage premium trail")
 		return blockers
 	}
-	tick := trailMinimumTick(preview.Draft.Contract, decision.ReferencePrice)
+	// The trail is measured from its high water, as at generation.
+	trailRef := decision.HighWater
+	tick := trailMinimumTick(preview.Draft.Contract, trailRef)
 	expectedAmount := ceilPriceToTick(decision.TrailAmount, tick)
-	expectedPct := expectedAmount / decision.ReferencePrice * 100
-	expectedStop := trailingStopInitialPriceForContract(prop.Action, decision.ReferencePrice, expectedAmount, preview.Draft.Contract)
-	if !risk.OptionExitTrailPctWithinBounds(decision.ReferencePrice, expectedAmount, exit.MinTrailPct, exit.MaxTrailPct) {
+	expectedPct := expectedAmount / trailRef * 100
+	expectedStop := trailingStopInitialPriceForContract(prop.Action, trailRef, expectedAmount, preview.Draft.Contract)
+	if !risk.OptionExitTrailPctWithinBounds(trailRef, expectedAmount, exit.MinTrailPct, exit.MaxTrailPct) {
 		add("option_trail_outside_policy_bounds", "fresh rounded broker trail is outside the approved percentage range")
 	}
 	if !risk.OptionExitLockedGainMet(decision.CostPremium, expectedStop, exit.LockedGainPct) {
@@ -2791,6 +2943,8 @@ func cloneOptionExit(in *rpc.TradeProposalOptionExit) *rpc.TradeProposalOptionEx
 	out.ReferencePrice = cloneFloat64Ptr(in.ReferencePrice)
 	out.ReturnPct = cloneFloat64Ptr(in.ReturnPct)
 	out.InitialLockedGainPct = cloneFloat64Ptr(in.InitialLockedGainPct)
+	out.UnderlyingPrice = cloneFloat64Ptr(in.UnderlyingPrice)
+	out.HighWaterPerShare = cloneFloat64Ptr(in.HighWaterPerShare)
 	return &out
 }
 
@@ -3147,6 +3301,8 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 			out.OptionLossExit++
 		case rpc.TradeProposalBucketOptionExitReview:
 			out.OptionExitReview++
+		case rpc.TradeProposalBucketOptionExpiryClose:
+			out.OptionExpiryClose++
 		case rpc.TradeProposalBucketStrategyExit:
 			out.StrategyExit++
 		case rpc.TradeProposalBucketBudgetReduction:
@@ -3210,6 +3366,12 @@ func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFin
 			binding := p.OptionExit.EconomicRole
 			if p.OptionExit.EconomicEvidence != nil {
 				binding += ":" + p.OptionExit.EconomicEvidence.Scope
+			}
+			// A take shares its trail's key but is another order: a close
+			// now, not a broker trail. Bind the difference, so a review of
+			// one never resolves to the other.
+			if p.OptionExit.Kind == risk.OptionExitActionProfitTake {
+				binding = p.OptionExit.Kind + ":" + binding
 			}
 			projection.Proposal = append(projection.Proposal, binding)
 		}

@@ -321,6 +321,11 @@ const (
 	TradeProposalBucketTrailingStop     = "trailing_stop"
 	TradeProposalBucketOptionLossExit   = "option_loss_exit"
 	TradeProposalBucketOptionExitReview = "option_exit_review"
+	// TradeProposalBucketOptionExpiryClose closes an in-the-money standalone
+	// long option inside the Rulebook's expiry window (runway_act_dte) as a
+	// full DAY patient limit, so nothing is exercised by accident. It is not
+	// pre-authorisable.
+	TradeProposalBucketOptionExpiryClose = "option_expiry_close"
 	// TradeProposalBucketStrategyExit evaluates a multi-leg unit as one virtual
 	// position: net premium paid against net close value at fresh quotes.
 	TradeProposalBucketStrategyExit = "strategy_exit"
@@ -658,7 +663,9 @@ type TradeProposalCounts struct {
 	TrailingStop     int `json:"trailing_stop"`
 	OptionLossExit   int `json:"option_loss_exit"`
 	OptionExitReview int `json:"option_exit_review"`
-	StrategyExit     int `json:"strategy_exit,omitempty"`
+	// OptionExpiryClose counts the in-the-money expiry closes.
+	OptionExpiryClose int `json:"option_expiry_close,omitempty"`
+	StrategyExit      int `json:"strategy_exit,omitempty"`
 	// OptionHedges counts the standing protection records beside the
 	// proposals; they are not included in Total or Actionable.
 	OptionHedges int `json:"option_hedges,omitempty"`
@@ -782,9 +789,22 @@ type TradeProposalOptionExit struct {
 	EconomicRole     string                      `json:"economic_role,omitempty"`
 	// ExitManagement is standalone, independent (operator-declared), or
 	// grouped_or_unresolved. It never grants economic-role or order authority.
-	ExitManagement       string   `json:"exit_management,omitempty"`
-	DTE                  int      `json:"dte"`
-	MinDTE               int      `json:"min_dte,omitempty"`
+	ExitManagement string `json:"exit_management,omitempty"`
+	DTE            int    `json:"dte"`
+	// MinDTE is the profit trail's floor; the loss exit and the expiry close
+	// apply below it, until expiry.
+	MinDTE int `json:"min_dte,omitempty"`
+	// ExpiryCloseDTE is the Rulebook expiry act level (runway_act_dte) the
+	// row was evaluated against: at this many calendar days to expiry or
+	// fewer an in-the-money long option is closed.
+	ExpiryCloseDTE int `json:"expiry_close_dte,omitempty"`
+	// UnderlyingPrice is the fresh underlying price the expiry window judged
+	// moneyness on, from the refresh's exact-contract risk evidence.
+	UnderlyingPrice *float64 `json:"underlying_price,omitempty"`
+	// HighWaterPerShare is the profit trail's high-water bid: the trail and
+	// its stop are measured from it, and the next refresh carries it while
+	// the leg's cost basis and quantity are unchanged.
+	HighWaterPerShare    *float64 `json:"high_water_per_share,omitempty"`
 	CostBasisPremium     *float64 `json:"cost_basis_premium,omitempty"`
 	ReferencePrice       *float64 `json:"reference_price,omitempty"`
 	ReturnPct            *float64 `json:"return_pct,omitempty"`
