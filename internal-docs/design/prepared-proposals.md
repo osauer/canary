@@ -61,7 +61,7 @@ receipts in both build variants.
 
 ## Refusals, readiness and the decision log
 
-Added 2026-09-28 17:30 CEST. A refused preview, prepare or submit result
+Added 2026-09-28 16:25 CEST. A refused preview, prepare or submit result
 carries `readiness`, and so does every served proposal row. Rows are classified
 at read time: readiness is never stored in daemon.db or in a preparation, and it
 is not a revision input. Fields: `code`, `market` and `market_label` (the
