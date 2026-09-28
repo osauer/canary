@@ -522,6 +522,7 @@ canary proposals status|refresh|list|preview|prepare|prepared-status|submit|redu
 | `--all` | no | - |
 | `--live` | no | - |
 | `--stdin` | no | - |
+| `--prepared-only` | no | - |
 
 ## `canary opportunities`
 

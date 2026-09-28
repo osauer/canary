@@ -1054,6 +1054,9 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 				copied := *r
 				single = &copied
 			}
+			if p.PreparedOnly && r.State != rpc.QueuedAuthPrepared {
+				continue
+			}
 			switch r.State {
 			case rpc.QueuedAuthSending:
 				// The order is being placed now. The request is kept: an
@@ -1118,6 +1121,8 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 	switch {
 	case len(cancelled) == 1:
 		out.Accepted, out.Message = true, "cancelled; nothing will be sent"
+	case p.PreparedOnly && !single.final():
+		out.Blockers = preparedBlocker("queued_not_prepared", "It was confirmed meanwhile, so it stays queued; cancel it from the queued list to withdraw it.")
 	case single.State == rpc.QueuedAuthSending:
 		out.Blockers = preparedBlocker("queued_sending", "The order is being placed now. The cancel is kept: if the attempt did not reach the broker, the record ends cancelled and is never retried; if it did, cancel the order at the broker once it is journaled.")
 	case single.State == rpc.QueuedAuthSent:
@@ -1178,6 +1183,9 @@ func (e *proposalEngine) decorateQueued(snap *rpc.TradeProposalSnapshot) {
 // QueueList lists the retained records, newest first, without references.
 func (e *proposalEngine) QueueList(p rpc.TradeProposalQueueListParams) rpc.TradeProposalQueueListResult {
 	out := rpc.TradeProposalQueueListResult{Queues: []rpc.QueuedAuth{}, AsOf: e.clock()}
+	if scope := e.currentScope(); brokerScopeConcrete(scope) {
+		out.AccountID, out.AccountMode = scope.Account, scope.Mode
+	}
 	records := e.queued.list()
 	slices.Reverse(records)
 	for _, r := range records {

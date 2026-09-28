@@ -196,6 +196,10 @@ type TradeProposalQueueCancelParams struct {
 	All     bool   `json:"all,omitempty"`
 	Reason  string `json:"reason,omitempty"`
 	Origin  string `json:"origin,omitempty"`
+	// PreparedOnly cancels a record only while it is still prepared: the
+	// owner closing an unconfirmed review never withdraws a queue confirmed
+	// meanwhile.
+	PreparedOnly bool `json:"prepared_only,omitempty"`
 }
 
 // TradeProposalQueueStatusParams names one record.
@@ -224,7 +228,12 @@ type TradeProposalQueueResult struct {
 }
 
 // TradeProposalQueueListResult lists records without their references.
+// AccountID and AccountMode name the broker session Canary serves now, empty
+// while it has no concrete scope, so a reader can keep the records of that
+// account and mode.
 type TradeProposalQueueListResult struct {
-	Queues []QueuedAuth `json:"queues"`
-	AsOf   time.Time    `json:"as_of"`
+	Queues      []QueuedAuth `json:"queues"`
+	AccountID   string       `json:"account_id,omitempty"`
+	AccountMode string       `json:"account_mode,omitempty"`
+	AsOf        time.Time    `json:"as_of"`
 }

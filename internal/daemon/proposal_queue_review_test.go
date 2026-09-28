@@ -384,3 +384,47 @@ func TestQueuedOrderReconciledAwayIsNotCalledUnfilled(t *testing.T) {
 		t.Error("a working order was resolved")
 	}
 }
+
+// The list names the account and mode Canary serves now, so Desk keeps the
+// records of that scope only.
+func TestQueuedListNamesTheCurrentScope(t *testing.T) {
+	t.Parallel()
+	rig := newQueueTestRig(t)
+	trim := rig.trimProposal(10)
+	rig.queueAndArm(trim, rig.install(trim))
+	list := rig.engine.QueueList(rpc.TradeProposalQueueListParams{})
+	if list.AccountID != "DU1234567" || list.AccountMode != "paper" || len(list.Queues) != 1 {
+		t.Fatalf("list = %+v", list)
+	}
+	rig.scope = brokerStateScope{}
+	if list := rig.engine.QueueList(rpc.TradeProposalQueueListParams{}); list.AccountID != "" || list.AccountMode != "" {
+		t.Fatalf("an unscoped session named a scope: %+v", list)
+	}
+}
+
+// A prepared-only cancel (the owner closing an unconfirmed review) withdraws
+// a prepared record and never one confirmed meanwhile.
+func TestQueuedPreparedOnlyCancelKeepsAConfirmedQueue(t *testing.T) {
+	t.Parallel()
+	rig := newQueueTestRig(t)
+	trim := rig.trimProposal(10)
+	revision := rig.install(trim)
+	prepared := rig.queuePrepare(trim, revision)
+	id := prepared.Queue.Terms.QueueID
+	rig.queueArm(prepared)
+	res, err := rig.engine.QueueCancel(context.Background(), rpc.TradeProposalQueueCancelParams{QueueID: id, PreparedOnly: true, Reason: "not now"})
+	if err != nil || res.Accepted || len(res.Blockers) == 0 || res.Blockers[0].Code != "queued_not_prepared" {
+		t.Fatalf("prepared-only cancel of an armed queue = %+v err %v", res, err)
+	}
+	if rec := rig.queued(id); rec.State != rpc.QueuedAuthArmed {
+		t.Fatalf("an armed queue was withdrawn: %+v", rec)
+	}
+	if _, err := rig.engine.QueueCancel(context.Background(), rpc.TradeProposalQueueCancelParams{QueueID: id}); err != nil {
+		t.Fatal(err)
+	}
+	other := rig.queuePrepare(trim, revision)
+	res, err = rig.engine.QueueCancel(context.Background(), rpc.TradeProposalQueueCancelParams{QueueID: other.Queue.Terms.QueueID, PreparedOnly: true, Reason: "not now"})
+	if err != nil || !res.Accepted || rig.queued(other.Queue.Terms.QueueID).State != rpc.QueuedAuthCancelled {
+		t.Fatalf("prepared-only cancel of a prepared queue = %+v err %v", res, err)
+	}
+}

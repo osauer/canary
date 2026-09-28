@@ -128,6 +128,7 @@ func runProposalsQueueCancel(ctx context.Context, env *Env, args []string) int {
 	jsonOut := fs.Bool("json", false, "emit the cancel result as JSON")
 	all := fs.Bool("all", false, "cancel every queued authorisation not yet sent")
 	reason := fs.String("reason", "", "cancel reason")
+	preparedOnly := fs.Bool("prepared-only", false, "cancel only while the record is still prepared (an unconfirmed review)")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
@@ -135,7 +136,7 @@ func runProposalsQueueCancel(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "proposals queue cancel: usage is `canary proposals queue cancel QUEUE_ID` or `canary proposals queue cancel --all`")
 	}
 	var res rpc.TradeProposalQueueResult
-	p := rpc.TradeProposalQueueCancelParams{QueueID: fs.Arg(0), All: *all, Reason: strings.TrimSpace(*reason), Origin: env.Origin}
+	p := rpc.TradeProposalQueueCancelParams{QueueID: fs.Arg(0), All: *all, Reason: strings.TrimSpace(*reason), Origin: env.Origin, PreparedOnly: *preparedOnly}
 	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueueCancel, p, &res); err != nil {
 		return fail(env, "proposals queue cancel: %v", err)
 	}

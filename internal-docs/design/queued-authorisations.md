@@ -11,7 +11,7 @@ down, nothing sends.
 | --- | --- | --- |
 | Prepare | `canary proposals queue prepare KEY REVISION --json [--quantity N]` | `trade.proposals.queue_prepare` |
 | Arm | `canary proposals queue arm --stdin [--json]` | `trade.proposals.queue_arm` |
-| Cancel | `canary proposals queue cancel QUEUE_ID` or `--all` | `trade.proposals.queue_cancel` |
+| Cancel | `canary proposals queue cancel QUEUE_ID [--prepared-only]` or `--all` | `trade.proposals.queue_cancel` |
 | List | `canary proposals queue list [--live] [--json]` | `trade.proposals.queue_list` |
 | Status | `canary proposals queue status QUEUE_ID [--json]` | `trade.proposals.queue_status` |
 
@@ -144,7 +144,13 @@ also wakes at the next send-window start, arm deadline or window end.
    ask, and the origin is recorded. A cancel that arrives while the order is
    being placed is kept (`cancel_requested`): an attempt that proves unsent
    ends cancelled and is never retried. Cancel-all lists such records, and
-   sent orders still working, under `in_flight`.
+   sent orders still working, under `in_flight`. With `--prepared-only`
+(`prepared_only`, added 2026-09-28 22:19 CEST) a cancel withdraws a record only while it is
+still prepared: the owner closing an unconfirmed review ("Not now", owner
+decision #43) never withdraws a queue confirmed meanwhile
+(`queued_not_prepared`). The list names the account and mode Canary serves now
+(`account_id`, `account_mode`, empty while unscoped), so a reader keeps that
+scope's records.
 5. **Send.** The executor sends through the ordinary proposal submit path,
    under `brokerWriteMu` and a grant for the one record, with origin
    `daemon-owner-queued`:
