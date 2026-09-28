@@ -225,6 +225,33 @@ func historicalDataFarmReadiness(connected bool, farms []ibkrlib.DataFarmStatus)
 	return readiness
 }
 
+// historyReadiness is the history farm readiness plus the primary
+// connector's stall verdict. It reads the connector without the reconnect
+// that gatewayConnector triggers; a status read must not cause one.
+func (s *Server) historyReadiness(connected bool, farms []ibkrlib.DataFarmStatus) farmReadiness {
+	readiness := historicalDataFarmReadiness(connected, farms)
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	since, stalled := c.HistoricalServiceStalled()
+	return historyStallReadiness(readiness, since, stalled)
+}
+
+// historyStallReadiness adds what no farm notice reports: a Gateway that
+// accepts history requests and answers none. On 2026-09-28 the farms read
+// healthy while the Mini's Gateway held every history query for hours.
+func historyStallReadiness(readiness farmReadiness, since time.Time, stalled bool) farmReadiness {
+	if !stalled || readiness.status == "unavailable" {
+		return readiness
+	}
+	return farmReadiness{
+		status:      "degraded",
+		message:     "the Gateway has answered no historical data request since " + since.Format(time.TimeOnly) + "; recorded history is served and Canary probes every few minutes; restarting the Gateway has cleared this before",
+		lastError:   "gateway_history_stalled",
+		lastErrorAt: since,
+	}
+}
+
 func farmTypeReadiness(connected bool, farms []ibkrlib.DataFarmStatus, farmType, label string, directWitness bool, impact string) farmReadiness {
 	if !connected {
 		return farmReadiness{status: "unavailable"}

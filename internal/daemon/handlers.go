@@ -3494,7 +3494,7 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 		s.configSubsystemHealth(),
 		{Name: "watchlist", Status: "ready", Message: "list-only path is local; quote enrichment requires gateway"},
 		statusSubsystemFromReadiness("quote", marketDataFarmReadiness(connected, farms, quoteWitnessCurrent, "quotes may time out")),
-		statusSubsystemFromReadiness("history", historicalDataFarmReadiness(connected, farms)),
+		statusSubsystemFromReadiness("history", s.historyReadiness(connected, farms)),
 		s.edgeSubsystemHealth(),
 		chainSubsystemHealth(connected, farms, quoteWitnessCurrent),
 	}

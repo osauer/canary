@@ -156,7 +156,7 @@ func quoteHealthFailure(err error, now time.Time) *rpc.SourceFailure {
 		code = rpc.SourceFailureContractUnavailable
 	case errors.Is(err, ibkr.ErrIBKRUnavailable):
 		code = rpc.SourceFailureGatewayUnavailable
-	case errors.Is(err, ibkr.ErrContractDetailsTimeout):
+	case errors.Is(err, ibkr.ErrContractDetailsTimeout), errors.Is(err, ibkr.ErrHistoricalServiceStalled):
 		code = rpc.SourceFailureTimeout
 	case errors.Is(err, context.DeadlineExceeded):
 		code = rpc.SourceFailureTimeout

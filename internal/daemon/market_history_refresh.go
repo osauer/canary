@@ -159,7 +159,9 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	if s.logger == nil {
 		return
 	}
-	if err != nil && !verdict {
+	// The connector announces a stalled Gateway once; a line per series would
+	// repeat it on every refresh until the Gateway answers again.
+	if err != nil && !verdict && !errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) {
 		next := "no longer followed"
 		if followed {
 			next = "next attempt after " + current.RetryAt.Format(time.TimeOnly)

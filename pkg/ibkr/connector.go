@@ -240,6 +240,9 @@ type Connector struct {
 	dataFarms      map[string]DataFarmStatus
 	farmRecoveryAt time.Time
 
+	// historicalStall notices a Gateway that holds history requests unanswered.
+	historicalStall historicalStall
+
 	// pnl owns account and per-contract P&L subscriptions and is never nil.
 	pnl *pnlCache
 }
@@ -7728,6 +7731,13 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		c.logDebug("Skipping historical data request for %s: unresolved contract ID (exchange=%s primary=%s)", symbol, contract.Exchange, contract.PrimaryExch)
 		return nil, fmt.Errorf("contract ID unresolved for %s", symbol)
 	}
+	stallEpoch := options.session.epoch
+	if !options.requireEpoch {
+		stallEpoch = c.conn.BrokerSessionEpoch()
+	}
+	if err := c.admitHistoricalRequest(stallEpoch, time.Now()); err != nil {
+		return nil, err
+	}
 	var req *historicalRequest
 	var registeredReqID int
 	duration := formatHistoricalDuration(lookbackDays)
@@ -7769,6 +7779,9 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 
 	select {
 	case res := <-req.result:
+		if historicalAnswered(res.err) {
+			c.noteHistoricalAnswer(stallEpoch, time.Now())
+		}
 		if res.err != nil {
 			return nil, res.err
 		}
@@ -7779,6 +7792,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		return nil, ctx.Err()
 	case <-timer.C:
 		c.cancelHistoricalDataBestEffortWithOptions(reqID, options)
+		c.noteHistoricalTimeout(stallEpoch, timeout, time.Now())
 		timeoutErr := fmt.Errorf("historical data timeout for %s after %s: %w", symbol, timeout, context.DeadlineExceeded)
 		c.failHistoricalRequest(reqID, timeoutErr)
 		return nil, timeoutErr

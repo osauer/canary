@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -105,7 +106,8 @@ func (c *regimeHistoryCache) fetch(ctx context.Context, sym string, days int, fe
 // timed-out HMDS call surfaced as the closed-date pin reporting missing
 // official closes, which points at the wrong code.
 func (c *regimeHistoryCache) warnFallback(sym string, days int, live []ibkrlib.HistoricalBar, err error) {
-	if c.logWarnf == nil {
+	// A stalled Gateway is announced once by the connector, not per series.
+	if c.logWarnf == nil || errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) {
 		return
 	}
 	entry, ok := c.get(sym, days)
