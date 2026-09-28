@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -70,5 +71,23 @@ func TestGammaPrewarmRetainsTypedRejectionClassification(t *testing.T) {
 		if got := classifyGammaLegFailure(err); got != tc.want {
 			t.Fatalf("code %d: %s, want %s", tc.code, got, tc.want)
 		}
+	}
+}
+
+// Per-leg resolution asks the same routes without observing rejections, so an
+// uncached leg of a rejected expiry would wait out every route timeout and count
+// towards the throttle abort of the whole compute.
+func TestGammaPrewarmRejectionBlocksPerLegFallback(t *testing.T) {
+	for _, code := range []int{200, 354} {
+		rejection := &ibkrlib.ContractDetailsRequestError{Code: code}
+		// The shape prewarmOneExpiry returns once every route is rejected.
+		err := fmt.Errorf("prewarm SYNTH 20991016 class=SYNTH route attempts SMART[0s: %v],CBOE[0s: %v]: %w", rejection, rejection, rejection)
+		blocked := gammaPrewarmFailureBlocksFallback(err)
+		if !blocked || keepGammaJobAfterPrewarm(false, false, blocked) || !keepGammaJobAfterPrewarm(false, true, blocked) {
+			t.Fatalf("code %d: blocked=%v; uncached legs must drop, cached legs stay", code, blocked)
+		}
+	}
+	if gammaPrewarmFailureBlocksFallback(errors.New("prewarm SYNTH 20991016 class=SYNTH: pacing violation")) {
+		t.Fatal("an untyped pacing failure blocked per-leg fallback")
 	}
 }

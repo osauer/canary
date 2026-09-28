@@ -97,6 +97,23 @@ func TestPrewarmRejectedRouteCompletesWithoutTimeout(t *testing.T) {
 	}
 }
 
+// The daemon keeps per-leg fallback closed for a rejected expiry, so the typed
+// code must survive the route wrapper and must not read as a timeout.
+func TestPrewarmRejectedOnEveryRouteKeepsTypedCode(t *testing.T) {
+	c, _ := newReadyWireTestConnection(t)
+	sends := 0
+	c.writer = bufio.NewWriter(prewarmReplyWriter{func() {
+		sends++
+		id, _ := prewarmTestReply(c)
+		c.dispatchHandlers(msgSystemNotification, syntheticSystemNotice(id, 200), c.BrokerSessionEpoch())
+	}})
+	result := c.PrewarmOptionChain(t.Context(), "SYNTH", []string{"20991016"}, "SYNTH", time.Second)[0]
+	rejection, ok := errors.AsType[*ContractDetailsRequestError](result.Err)
+	if !ok || rejection.Code != 200 || result.Listed != 0 || sends != 2 || strings.Contains(result.Err.Error(), "timeout") {
+		t.Fatalf("every route rejected, %d sends: %+v", sends, result)
+	}
+}
+
 func TestPrewarmWrongScopeAndPartialResultsNeverClaimCompletion(t *testing.T) {
 	c, _ := newReadyWireTestConnection(t)
 	c.writer = bufio.NewWriter(prewarmReplyWriter{func() {

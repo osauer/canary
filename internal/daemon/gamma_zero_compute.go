@@ -1572,6 +1572,12 @@ func gammaPrewarmFailureBlocksFallback(err error) bool {
 	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline") {
 		return true
 	}
+	// A broker rejection closes fallback like the timeout it now replaces: the
+	// per-leg resolver retries the same routes without observing rejections,
+	// so each uncached leg would wait out every route timeout.
+	if _, ok := errors.AsType[*ibkrlib.ContractDetailsRequestError](err); ok {
+		return true
+	}
 	if classifyGammaLegFailure(err) != gammaLegFailureContractMissing {
 		return false
 	}
