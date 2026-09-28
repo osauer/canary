@@ -76,6 +76,10 @@ const (
 const (
 	automaticHoldHandOrder   = "settling: an order placed outside Canary's gate after this proposal revision appeared, or modified since, is still working at the broker; this submits once it fills or is cancelled, without a new veto window"
 	automaticHoldUnavailable = "settling: the broker's open-order inventory is unavailable, so a new or modified hand order cannot be ruled out; this submits once it can, without a new veto window"
+	// automaticQueuedReason supersedes a record whose contract and side carry
+	// a live queued authorisation: the owner armed that order, and Canary
+	// sends it instead.
+	automaticQueuedReason = "a queued authorisation the owner armed is live for this contract and side; Canary sends that order instead"
 )
 
 // automaticSubmissionRecord is one durable automatic-submission intent, keyed
@@ -502,6 +506,11 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	for _, prop := range snap.Proposals {
 		present[prop.Key] = prop
 	}
+	// Rows whose contract and side carry a live queued authorisation: it is
+	// the one order Canary sends for them, so none gets a record, the queued
+	// row's own key included, and a waiting one is superseded. Read before the
+	// record lock, since the queue's arm check reads records under its own.
+	queued := e.queuedLiveKeys(snap.Proposals)
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		var events []automaticSubmissionEvent
 		for _, rec := range records {
@@ -517,6 +526,8 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				reason = "proposal revision changed; a new window starts for the new revision"
 			case !proposalUnblocked(snap, prop):
 				reason = proposalBlockedReason(snap, prop)
+			case queued[rec.Key]:
+				reason = automaticQueuedReason
 			case policyOK && !policy.Authority.preAuthorised(rec.Bucket):
 				reason = "bucket is no longer pre-authorised by the active policy"
 			case !policyOK:
@@ -535,7 +546,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 		}
 		for _, prop := range snap.Proposals {
 			bucket := automaticBucketFor(prop)
-			if !policy.Authority.preAuthorised(bucket) || !proposalUnblocked(snap, prop) {
+			if !policy.Authority.preAuthorised(bucket) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 				continue
 			}
 			if _, exists := records[automaticRecordKey(prop.Key, prop.Revision)]; exists {
@@ -575,8 +586,9 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 // record: an unblocked proposal in a pre-authorised bucket with no record for
 // its key and revision yet.
 func (e *proposalEngine) automaticWillCreate(snap rpc.TradeProposalSnapshot, policy protectionPolicy) bool {
+	queued := e.queuedLiveKeys(snap.Proposals)
 	for _, prop := range snap.Proposals {
-		if !policy.Authority.preAuthorised(automaticBucketFor(prop)) || !proposalUnblocked(snap, prop) {
+		if !policy.Authority.preAuthorised(automaticBucketFor(prop)) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 			continue
 		}
 		if _, exists := e.automatic.get(prop.Key, prop.Revision); !exists {

@@ -402,7 +402,61 @@ func (e *proposalEngine) reductionOrderBlockers(ctx context.Context, p rpc.Trade
 	case unknown:
 		return block(reductionOrderUnknownCode, "a working order may be for this contract but carries no exact contract id")
 	}
+	staged, ok, err := e.sameContractUnacknowledgedOrder(p, scope)
+	switch {
+	case err != nil:
+		return block(reductionOrderUnavailableCode, "Canary's own order journal is unreadable, so an order it sent a moment ago for this contract cannot be ruled out")
+	case ok:
+		return []rpc.TradingBlocker{{
+			Code: reductionOrderExistingCode,
+			Message: fmt.Sprintf("Canary sent an order to %s %s of this contract that the broker has not confirmed yet; this row waits until it fills or is cancelled, then recomputes from the new position",
+				strings.ToLower(p.Action), strconv.FormatFloat(orderViewRemainingQuantity(staged), 'f', -1, 64)),
+			Action: "Wait for the broker's answer on that order; this row then recomputes.",
+		}}
+	}
 	return nil
+}
+
+// sameContractUnacknowledgedOrder finds an order Canary's own journal holds
+// for p's exact contract and side that the broker may not list yet: a send
+// attempted before its first acknowledgement, or one whose outcome is
+// unclear. placeOrder returns before the broker acknowledges, so the next
+// writer's fresh inventory can miss an order sent a moment earlier; the
+// journal cannot. An acknowledged order is the broker inventory's to show.
+// Without an order journal (a build without trading) nothing is sent, so
+// that reads as none.
+func (e *proposalEngine) sameContractUnacknowledgedOrder(p rpc.TradeProposal, scope brokerStateScope) (rpc.OrderView, bool, error) {
+	views, _, err := e.server.loadOrderViews()
+	if errors.Is(err, ErrTradingDisabled) {
+		return rpc.OrderView{}, false, nil
+	}
+	if err != nil {
+		return rpc.OrderView{}, false, err
+	}
+	for _, v := range views {
+		if !v.Open || v.SendState != orderSendStateSendAttempted && v.SendState != orderSendStateUncertainSend {
+			continue
+		}
+		if !strings.EqualFold(v.Action, p.Action) || orderViewRemainingQuantity(v) <= 0 || !orderViewMatchesBrokerScope(v, scope) {
+			continue
+		}
+		if orderViewMatchesProposalContract(v, p) {
+			return v, true, nil
+		}
+	}
+	return rpc.OrderView{}, false, nil
+}
+
+// queuedLiveKeys reports the rows whose contract and side carry a live queued
+// authorisation (queuedLiveIntentFor), the queued row itself included.
+func (e *proposalEngine) queuedLiveKeys(proposals []rpc.TradeProposal) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range proposals {
+		if _, ok := e.queuedLiveIntentFor(sameContractSide(p)); ok {
+			out[p.Key] = true
+		}
+	}
+	return out
 }
 
 // sameContractWorkingOrder finds an order a complete broker inventory shows

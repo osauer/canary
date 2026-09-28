@@ -2519,6 +2519,11 @@ func (e *proposalEngine) optionExitBrokerOrderBlockers(ctx context.Context, p rp
 	} else if unknown {
 		return block("option_exit_order_identity_unknown", "a broker-working option close may match this contract but lacks exact positive contract identity")
 	}
+	if _, staged, err := e.sameContractUnacknowledgedOrder(p, scope); err != nil {
+		return block("option_exit_order_evidence_unavailable", "Canary's own order journal is unreadable, so a close it sent a moment ago cannot be ruled out")
+	} else if staged {
+		return block("existing_option_exit_order", "Canary sent a close for this exact option contract that the broker has not confirmed yet")
+	}
 	return nil
 }
 
