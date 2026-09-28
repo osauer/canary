@@ -57,6 +57,13 @@ bytes. The prepare result adds a private `queued_ref`
 browser payloads, URLs, logs and argv. A newer preparation for the same
 contract and side replaces an unarmed one, which never carried authority.
 
+Desk and the companion refuse terms that name a field they do not know, at
+every level: the terms, the contract and the fingerprints (added 2026-09-28 20:30 CEST).
+The owner signs every byte, so a field the review does not show is never
+signed. Adding a field to `QueuedAuthTerms` is therefore a contract change:
+Desk and the companion learn it first, or Desk refuses the preparation with
+`queue_terms_unknown` and nothing is queued.
+
 ## Arm
 
 Desk arms a record once the owner has signed the digest (Desk phase 3: the
@@ -73,8 +80,17 @@ any of these:
 - proposal submit disabled;
 - another live intent for the contract and side.
 
-The envelope is kept for audit only. Arm also records the hand orders working
-at that moment as the settling baseline. Once armed, the terms are immutable.
+The envelope is kept for audit only: Canary does not verify the owner's
+signature. Desk verifies it (the companion's P-256 signature or the passkey)
+before it arms, and the private `queued_ref`, which only Desk holds, is the
+capability that arms. Desk is therefore a trusted relay. A process that can
+read Desk's private store could arm a prepared record inside its ten-minute
+window without the owner's signature, though only the terms Canary itself
+prepared and stored. This is the same-user residual risk as a direct call to
+Canary today; Canary verifying the signature is listed under Not in v1.
+
+Arm also records the hand orders working at that moment as the settling
+baseline. Once armed, the terms are immutable.
 
 ## Execution
 
