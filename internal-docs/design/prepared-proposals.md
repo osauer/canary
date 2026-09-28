@@ -58,3 +58,47 @@ This addition does not activate policy, automation, a trading build or live
 execution. Synthetic tests cover exact draft identity, refusal gates, one-time
 redemption, restart, lost/uncertain outcomes, persistence failure and passive
 receipts in both build variants.
+
+## Refusals, readiness and the decision log
+
+Added 2026-09-28 17:30 CEST. A refused preview, prepare or submit result
+carries `readiness`, and so does every served proposal row. Rows are classified
+at read time: readiness is never stored in daemon.db or in a preparation, and it
+is not a revision input. Fields: `code`, `market` and `market_label` (the
+contract's official calendar), `session_state` (`open`, `pre_open`, `break`,
+`after_close`, `closed`, `holiday`, `unknown`), `opens_at` (UTC; the next open
+while closed, today's open while open), `default_send_at`, `queueable`,
+`canary_codes` (every blocker code read), `message` and `as_of`.
+
+The first matching class decides the code: `not_executable` for any blocker that
+waiting cannot clear (with Canary's message), then `trading_frozen`,
+`broker_unavailable`, `halted`, `market_closed`, `spread_too_wide`,
+`quote_unusable`, `opening_window`, and `ready`. A closed session decides only
+for orders priced off the live session: a patient limit, or a broker trail
+without an initial stop. For those, order preview refuses before any broker
+request whenever the calendar says the regular session is closed (blocker
+`market_closed`, text "requires an open market session"). An explicit limit or a
+seeded trail is unaffected, and a date outside calendar coverage keeps the quote
+path's judgement. `default_send_at` is the open plus the opening offset (15
+minutes for options, 5 for stocks; the queued-authorisation design's
+recommended defaults). `queueable` marks governor, theta and issuer-trim rows in
+`market_closed` or `opening_window`. No queue exists yet.
+
+Typed preview failures replace the generic `preview_failed` where the cause is
+known: `market_closed`, `quote_stale`, `quote_not_live`, `quote_not_two_sided`,
+`quote_unavailable`, `gateway_unavailable` and the other trading-status
+blockers, `broker_session_changed`, `contract_unresolved`,
+`position_unavailable`, `notional_unavailable`, `order_risk_limit`,
+`what_if_failed`, `preview_token_unavailable`, `order_journal_unavailable`,
+`trading_controls_changed` and `trading_disabled`. The RPC error class of a
+plain `order preview` is unchanged.
+
+Each preview, prepare and submit (manual, prepared and pre-authorised) appends
+one JSON line to `events.jsonl` beside daemon.db, at every log level. The fields
+are `ts`, `svc`, `event`, `outcome` (`previewed`, `prepared`, `submitted`,
+`blocked`, `refused`), `code` (the readiness code), `codes`, `reason`, `ids`
+(`key`, `rev`, `preparation`, `token_id`, `order_ref`), `bucket`, `mode`,
+`market`, `session_state`, `opens_at` and `ms`. A line never carries a preview
+token, a prepared reference or an account number. The file is capped at 32 MiB,
+with one previous generation. It is diagnostic evidence only: daemon.db remains
+the record of authority, and no decision reads the log.

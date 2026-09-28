@@ -28,6 +28,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/logepisode"
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -416,6 +417,12 @@ type Server struct {
 	// orderTokens signs preview tokens. Tokens are local intent artifacts;
 	// they are not broker orders and cannot submit anything until a separate
 	orderTokens *orderTokenSigner
+	// decisions appends proposal preview, prepare and submit decisions to
+	// events.jsonl beside daemon.db; nil records nothing.
+	decisions *decisionLog
+	// previewSessionAt replaces the official calendar behind the preview
+	// session gate and proposal readiness; nil reads marketcal.
+	previewSessionAt func(marketcal.Market, time.Time) (marketcal.Session, error)
 	// orderPreview* hooks let tests exercise the full preview gate/token path
 	orderPreviewQuote            func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
 	orderPreviewPositionImpact   func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
@@ -563,6 +570,9 @@ func New(opts Options) *Server {
 	} else {
 		s.coreStorePath, s.coreStorePathErr = defaultDaemonDatabasePath()
 		s.productionStateDatabase = true
+	}
+	if s.coreStorePathErr == nil {
+		s.decisions = newDecisionLog(s.coreStorePath)
 	}
 	s.attempterFactory = s.buildAttempter
 	s.installSubs()

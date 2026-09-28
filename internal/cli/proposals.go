@@ -597,7 +597,32 @@ func renderProposalRow(env *Env, out io.Writer, p *rpc.TradeProposal) {
 	for _, d := range p.Details {
 		fmt.Fprintf(out, "      %s\n", d)
 	}
+	if readiness := formatProposalReadiness(p.Readiness); readiness != "" {
+		fmt.Fprintf(out, "      Readiness:   %s\n", readiness)
+	}
 	printTradingBlockers(out, "      ", p.Blockers)
+}
+
+// formatProposalReadiness is the one-line readiness of a row or refusal in
+// local time; empty when the row is ready or carries no readiness.
+func formatProposalReadiness(r *rpc.TradeProposalReadiness) string {
+	if r == nil || r.Code == "" || r.Code == rpc.ReadinessReady {
+		return ""
+	}
+	parts := []string{strings.ReplaceAll(r.Code, "_", " ")}
+	if r.MarketLabel != "" && r.SessionState != "" && r.SessionState != rpc.ReadinessSessionUnknown {
+		parts = append(parts, r.MarketLabel+" "+strings.ReplaceAll(r.SessionState, "_", " "))
+	}
+	if r.OpensAt != nil && r.SessionState != rpc.ReadinessSessionOpen {
+		parts = append(parts, "opens "+r.OpensAt.Local().Format("Mon 2 Jan 15:04 MST"))
+	}
+	if r.DefaultSendAt != nil {
+		parts = append(parts, "default send "+r.DefaultSendAt.Local().Format("15:04 MST"))
+	}
+	if r.Message != "" && r.Code == rpc.ReadinessNotExecutable {
+		parts = append(parts, r.Message)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // formatProposalBudgetStatus is the one-line account of the premium budget
@@ -793,6 +818,9 @@ func renderProposalPreviewText(env *Env, res *rpc.TradeProposalPreviewResult) {
 	statusRow(env, out, "Proposal", res.Proposal.Key)
 	statusRow(env, out, "Token ID", res.PreviewTokenID)
 	renderProposalOrderPreview(env, out, res.Preview)
+	if readiness := formatProposalReadiness(res.Readiness); readiness != "" {
+		statusRow(env, out, "Readiness", readiness)
+	}
 	printTradingBlockers(out, "  ", res.Blockers)
 	fmt.Fprintln(out)
 }
@@ -1102,6 +1130,9 @@ func renderProposalSubmitText(env *Env, res *rpc.TradeProposalSubmitResult) {
 	}
 	if res.Message != "" {
 		statusRow(env, out, "Message", res.Message)
+	}
+	if readiness := formatProposalReadiness(res.Readiness); readiness != "" {
+		statusRow(env, out, "Readiness", readiness)
 	}
 	printTradingBlockers(out, "  ", res.Blockers)
 	fmt.Fprintln(out)

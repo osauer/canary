@@ -762,6 +762,9 @@ type TradeProposal struct {
 	// Automatic is served, never persisted: the daemon decorates each row
 	// with its pre-authorisation and automatic-submission record at read time.
 	Automatic *TradeProposalAutomatic `json:"automatic,omitempty"`
+	// Readiness is served, never persisted: the daemon classifies each row
+	// against its market's session at read time.
+	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
 }
 
 // AutomaticEligible is the predicate the pre-authorisation scheduler calls
@@ -982,7 +985,9 @@ type TradeProposalPreviewResult struct {
 	SubmitEligible        bool                       `json:"submit_eligible"`
 	Preview               *TradeProposalOrderPreview `json:"preview,omitempty"`
 	Blockers              []TradingBlocker           `json:"blockers,omitempty"`
-	AsOf                  time.Time                  `json:"as_of"`
+	// Readiness classifies a refusal; it is nil when the preview was accepted.
+	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
+	AsOf      time.Time               `json:"as_of"`
 }
 
 // TradeProposalOrderPreview is the sanitized broker WhatIf and order preview.
@@ -1032,8 +1037,10 @@ type TradeProposalSubmitResult struct {
 	PreviewTokenID string                     `json:"preview_token_id,omitempty"`
 	OrderRef       string                     `json:"order_ref,omitempty"`
 	Blockers       []TradingBlocker           `json:"blockers,omitempty"`
-	Message        string                     `json:"message,omitempty"`
-	AsOf           time.Time                  `json:"as_of"`
+	// Readiness classifies a refusal; it is nil when nothing blocked.
+	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
+	Message   string                  `json:"message,omitempty"`
+	AsOf      time.Time               `json:"as_of"`
 }
 
 // TradeProposalIgnoreParams dismisses an advisory revision without touching

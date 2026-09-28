@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -28,6 +29,7 @@ type preparedProposalRecord struct {
 
 // Prepare retains the successful existing preview; it never places an order.
 func (e *proposalEngine) Prepare(ctx context.Context, p rpc.TradeProposalPreviewParams) (rpc.TradeProposalPrepareResult, error) {
+	started := time.Now()
 	p.FastPath = false // A backend preparation always resolves current evidence.
 	var out rpc.TradeProposalPrepareResult
 	preview, err := e.preview(ctx, p, func(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) error {
@@ -39,6 +41,17 @@ func (e *proposalEngine) Prepare(ctx context.Context, p rpc.TradeProposalPreview
 		return nil
 	})
 	out.TradeProposalPreviewResult = preview
+	// The decision names the preparation by its ID; the private reference
+	// never leaves this result.
+	d := proposalDecision{event: "prepare", prop: out.Proposal, key: p.Key, rev: p.Revision, accepted: out.Accepted && out.PreparedRef != "", accept: decisionPrepared,
+		blockers: out.Blockers, err: err, readiness: out.Readiness, tokenID: out.PreviewTokenID, mode: e.decisionMode(out.Preview), started: started}
+	if out.Preparation != nil {
+		d.preparation = out.Preparation.ID
+	}
+	if out.Preview != nil {
+		d.orderRef = out.Preview.Draft.OrderRef
+	}
+	e.recordDecision(d)
 	return out, err
 }
 
@@ -86,6 +99,8 @@ func (e *proposalEngine) retainPreparation(ctx context.Context, prop rpc.TradePr
 		return "", nil, err
 	}
 	reference := preparedProposalPrefix + "." + id + "." + secret
+	// Readiness is served, never persisted; it describes the moment of reading.
+	prop.Readiness = nil
 	meta := rpc.TradeProposalPreparation{ID: id, Key: prop.Key, Revision: prop.Revision, DraftFingerprint: fingerprint, ExpiresAt: preview.PreviewTokenExpiresAt, State: "prepared", Consumed: new(false)}
 	record := preparedProposalRecord{Version: 1, ReferenceHash: sha256.Sum256([]byte(reference)), Preparation: meta, Proposal: prop, Preview: *preview}
 	raw, err := json.Marshal(record)
@@ -213,8 +228,10 @@ func (e *proposalEngine) preparedStatus(ctx context.Context, record preparedProp
 // submitPrepared runs inside the same brokerWriteMu as ordinary proposal
 // submit. The order journal is the durable single-winner boundary; no second
 // execution ledger or fresh preview can replace the reviewed draft.
-func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposalSubmitParams) (rpc.TradeProposalSubmitResult, error) {
-	out := rpc.TradeProposalSubmitResult{AsOf: e.clock()}
+func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposalSubmitParams) (out rpc.TradeProposalSubmitResult, err error) {
+	started := time.Now()
+	defer func() { e.finishSubmit("submit_prepared", p, &out, err, started) }()
+	out = rpc.TradeProposalSubmitResult{AsOf: e.clock()}
 	record, err := e.loadPreparation(ctx, p.PreparedRef)
 	if err != nil {
 		out.Blockers = preparedBlocker("prepared_reference_unavailable", "The prepared proposal reference cannot be resolved safely.")

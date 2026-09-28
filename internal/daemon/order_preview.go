@@ -296,13 +296,13 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	s.mu.Unlock()
 	status := s.tradingStatus(ep)
 	if status.Mode == config.TradingModeDisabled {
-		return nil, fmt.Errorf("%w: set [trading].mode to paper or live before order preview", ErrTradingDisabled)
+		return nil, refusePreviewCode("trading_disabled", fmt.Errorf("%w: set [trading].mode to paper or live before order preview", ErrTradingDisabled))
 	}
 	if status.Blocked {
-		return nil, fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(status.Blockers))
+		return nil, refusePreview(fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(status.Blockers)), status.Blockers...)
 	}
 	if s.orderTokens == nil {
-		return nil, fmt.Errorf("%w: order preview token signer is unavailable", ErrTradingDisabled)
+		return nil, refusePreviewCode(previewTokenUnavailableCode, fmt.Errorf("%w: order preview token signer is unavailable", ErrTradingDisabled))
 	}
 	scope := rpc.OrderTokenScopePlace
 	var replaceView rpc.OrderView
@@ -340,14 +340,17 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if scope == rpc.OrderTokenScopeModify {
 		contract = modifyContractForView(replaceView, contract)
 	}
+	if err := s.previewMarketClosedRefusal(contract, p.OrderType, p.Strategy, p.LimitPrice, p.Trail, s.orderNow()); err != nil {
+		return nil, err
+	}
 	timeout := orderPreviewTimeout(p.TimeoutMs)
 	previewAuthority, err := s.captureOrderPreviewBrokerAuthority()
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal("gateway_unavailable", err)
 	}
 	contract, err = s.resolvePreviewOrderContract(ctx, previewAuthority, contract, min(timeout, previewMinTickTimeout))
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal(previewContractUnresolvedCode, err)
 	}
 	if contract.MinTick <= 0 && previewAuthority == nil {
 		// Socket-free unit seams retain the historical helper. Production uses
@@ -364,7 +367,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		positionAuthority, err = s.capturePreviewOrderPositionAuthority(ctx, status, contract, action, p.Quantity)
 	}
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal(previewPositionUnavailableCode, err)
 	}
 	position := positionAuthority.Impact
 	orderType := strings.ToUpper(strings.TrimSpace(p.OrderType))
@@ -395,7 +398,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 
 	quote, err := s.fetchPreviewQuoteBound(ctx, contract, timeout, previewAuthority)
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal(previewQuoteUnavailableCode, err)
 	}
 	strategy, limit, trail, notionalPrice, err := previewOrderPricing(action, orderType, p.Strategy, p.LimitPrice, p.Trail, contract, quote)
 	if err != nil {
@@ -435,10 +438,10 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 	notionalAuthority, err := s.captureOrderNotionalAuthority(ctx, previewAuthority, notional, contract.Currency, positionAuthority.BaseCurrency, timeout)
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal(previewNotionalUnavailableCode, err)
 	}
 	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency); err != nil {
-		return nil, errBadRequest(err.Error())
+		return nil, refusePreviewCode(previewRiskLimitCode, errBadRequest(err.Error()))
 	}
 	var whatIf rpc.OrderWhatIfResult
 	if scope == rpc.OrderTokenScopeModify {
@@ -447,13 +450,13 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		whatIf, err = s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, previewAuthority)
 	}
 	if err != nil {
-		return nil, err
+		return nil, previewStageRefusal(previewWhatIfFailedCode, err)
 	}
 	if previewAuthority != nil && !s.orderPreviewBrokerAuthorityCurrent(previewAuthority) {
-		return nil, fmt.Errorf("%w: broker session changed before preview token mint", ErrTradingDisabled)
+		return nil, refusePreviewCode(previewBrokerSessionChangedCode, fmt.Errorf("%w: broker session changed before preview token mint", ErrTradingDisabled))
 	}
 	if _, currentControlGeneration := s.effectiveTradingControlSnapshot(); currentControlGeneration != tradingControlGeneration {
-		return nil, fmt.Errorf("%w: trading controls changed during preview; refresh and retry", ErrTradingDisabled)
+		return nil, refusePreviewCode(tradingControlsChangedBlockerCode, fmt.Errorf("%w: trading controls changed during preview; refresh and retry", ErrTradingDisabled))
 	}
 	token, tokenID, expiresAt, err := s.orderTokens.mint(orderPreviewTokenPayload{
 		Scope:                    scope,
@@ -477,7 +480,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		Replace:                  replaceTargetFromView(replaceView),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTradingDisabled, err)
+		return nil, refusePreviewCode(previewTokenUnavailableCode, fmt.Errorf("%w: %v", ErrTradingDisabled, err))
 	}
 	if err := s.orderJournal.Append(orderJournalEvent{
 		At:             now,
@@ -512,7 +515,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		Source:         draft.Source,
 		Message:        previewWhatIfJournalMessage(whatIf),
 	}); err != nil {
-		return nil, fmt.Errorf("%w: append preview journal: %v", ErrTradingDisabled, err)
+		return nil, refusePreviewCode("order_journal_unavailable", fmt.Errorf("%w: append preview journal: %v", ErrTradingDisabled, err))
 	}
 
 	warnings := append([]rpc.DataWarning{}, quote.Warnings...)
@@ -1040,17 +1043,17 @@ func trailQuoteReferencePrice(action string, quote rpc.OrderQuoteSnapshot) (floa
 		return 0, err
 	}
 	if !rpc.IsLiveDataType(quote.DataType) {
-		return 0, errBadRequest("broker-trail requires live bid/ask data")
+		return 0, refusePreviewCode(previewQuoteNotLiveCode, errBadRequest("broker-trail requires live bid/ask data"))
 	}
 	switch action {
 	case rpc.OrderActionSell:
 		if quote.Bid == nil || *quote.Bid <= 0 {
-			return 0, errBadRequest("broker-trail SELL requires a positive bid")
+			return 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest("broker-trail SELL requires a positive bid"))
 		}
 		return *quote.Bid, nil
 	case rpc.OrderActionBuy:
 		if quote.Ask == nil || *quote.Ask <= 0 {
-			return 0, errBadRequest("broker-trail BUY requires a positive ask")
+			return 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest("broker-trail BUY requires a positive ask"))
 		}
 		return *quote.Ask, nil
 	default:
@@ -1276,10 +1279,10 @@ func previewLimitPrice(action, strategy string, explicit *float64, contract rpc.
 			return 0, err
 		}
 		if !rpc.IsLiveDataType(quote.DataType) {
-			return 0, errBadRequest("patient-limit requires live bid/ask data; use --limit for explicit-limit preview on stale or delayed data")
+			return 0, refusePreviewCode(previewQuoteNotLiveCode, errBadRequest("patient-limit requires live bid/ask data; use --limit for explicit-limit preview on stale or delayed data"))
 		}
 		if quote.Bid == nil || quote.Ask == nil || *quote.Bid <= 0 || *quote.Ask <= *quote.Bid {
-			return 0, errBadRequest("patient-limit requires a positive two-sided bid/ask")
+			return 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest("patient-limit requires a positive two-sided bid/ask"))
 		}
 		mid := (*quote.Bid + *quote.Ask) / 2
 		tick := patientLimitTick(contract, quote, mid)
@@ -1302,14 +1305,14 @@ func requireFreshPreviewQuote(quote rpc.OrderQuoteSnapshot, useCase string) erro
 		if reason == "" {
 			reason = "quote data is stale"
 		}
-		return errBadRequest(fmt.Sprintf("%s requires fresh quote data: %s", useCase, reason))
+		return refusePreviewCode(previewQuoteStaleCode, errBadRequest(fmt.Sprintf("%s requires fresh quote data: %s", useCase, reason)))
 	}
 	if quote.SessionContext != nil && !quote.SessionContext.IsOpen {
 		label := strings.TrimSpace(quote.SessionContext.State)
 		if label == "" {
 			label = "market is closed"
 		}
-		return errBadRequest(fmt.Sprintf("%s requires an open market session: %s", useCase, label))
+		return refusePreviewCode(previewMarketClosedCode, errBadRequest(fmt.Sprintf("%s requires an open market session: %s", useCase, label)))
 	}
 	return nil
 }

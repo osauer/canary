@@ -298,6 +298,7 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 		e.appendShownEvents(snap)
 	}
 	e.decorateAutomatic(&snap)
+	e.decorateReadiness(&snap)
 	return snap
 }
 
@@ -310,6 +311,7 @@ func (e *proposalEngine) Refresh(ctx context.Context, show bool) (rpc.TradePropo
 	snap, err := e.refresh(ctx, show)
 	e.noteRefreshOutcome(snap, err)
 	e.decorateAutomatic(&snap)
+	e.decorateReadiness(&snap)
 	return snap, err
 }
 
@@ -2077,10 +2079,25 @@ func marketEventBlockProposal(prop *rpc.TradeProposal, flag rpc.MarketEventFlag,
 }
 
 func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreviewParams) (rpc.TradeProposalPreviewResult, error) {
-	return e.preview(ctx, p, nil)
+	started := time.Now()
+	out, err := e.preview(ctx, p, nil)
+	d := proposalDecision{event: "preview", prop: out.Proposal, key: p.Key, rev: p.Revision, accepted: out.Accepted, accept: decisionPreviewed,
+		blockers: out.Blockers, err: err, readiness: out.Readiness, tokenID: out.PreviewTokenID, mode: e.decisionMode(out.Preview), started: started}
+	if out.Preview != nil {
+		d.orderRef = out.Preview.Draft.OrderRef
+	}
+	e.recordDecision(d)
+	return out, err
 }
 
-func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreviewParams, retain func(rpc.TradeProposal, *rpc.OrderPreviewResult) error) (rpc.TradeProposalPreviewResult, error) {
+// preview classifies every refusal it returns: Readiness is set whenever the
+// result is not accepted.
+func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreviewParams, retain func(rpc.TradeProposal, *rpc.OrderPreviewResult) error) (out rpc.TradeProposalPreviewResult, err error) {
+	defer func() {
+		if !out.Accepted {
+			out.Readiness = e.refusalReadiness(out.Proposal, out.Blockers, err)
+		}
+	}()
 	prop, blockers, err := e.previewProposal(ctx, p)
 	now := e.clock()
 	if len(blockers) > 0 || err != nil {
@@ -2099,7 +2116,7 @@ func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreview
 	}
 	preview, err := e.server.previewOrder(ctx, proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs))
 	if err != nil {
-		blockers := []rpc.TradingBlocker{{Code: "preview_failed", Message: err.Error()}}
+		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
@@ -2230,7 +2247,15 @@ func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	return e.submit(ctx, p, proposalSubmitOptions{})
 }
 
-func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitParams, opts proposalSubmitOptions) (rpc.TradeProposalSubmitResult, error) {
+func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitParams, opts proposalSubmitOptions) (out rpc.TradeProposalSubmitResult, err error) {
+	started := time.Now()
+	defer func() {
+		event := "submit"
+		if opts.automatic {
+			event = "submit_automatic"
+		}
+		e.finishSubmit(event, p, &out, err, started)
+	}()
 	now := e.clock()
 	cfg := e.server.cfg.AutoTrade.WithDefaults()
 	prop, blockers, err := e.submitProposal(ctx, p, cfg.FastPathEnabledResolved())
@@ -2266,7 +2291,7 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	}
 	preview, err := e.server.previewOrder(ctx, proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs))
 	if err != nil {
-		blockers := []rpc.TradingBlocker{{Code: "preview_failed", Message: err.Error()}}
+		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}

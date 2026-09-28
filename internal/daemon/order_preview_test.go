@@ -258,12 +258,19 @@ func TestOrderPreviewAllowsSingleLegOption(t *testing.T) {
 
 func newOrderPreviewTestServer(t *testing.T, trading config.Trading) *Server {
 	t.Helper()
+	return newOrderPreviewTestServerIn(t, trading, t.TempDir())
+}
+
+// newOrderPreviewTestServerIn keeps the authority database at
+// dir/authority/order-journal.jsonl.db (testOrderAuthorityPath).
+func newOrderPreviewTestServerIn(t *testing.T, trading config.Trading, dir string) *Server {
+	t.Helper()
 	now := time.Date(2026, 5, 28, 8, 45, 0, 0, time.UTC)
 	signer, err := newOrderTokenSigner(filepath.Join(t.TempDir(), "order-preview-key"), func() time.Time { return now })
 	if err != nil {
 		t.Fatalf("newOrderTokenSigner: %v", err)
 	}
-	journal := newTestOrderJournalStore(t, filepath.Join(t.TempDir(), "order-journal.jsonl"))
+	journal := newTestOrderJournalStore(t, filepath.Join(dir, "order-journal.jsonl"))
 	authority, err := journal.coreStore()
 	if err != nil {
 		t.Fatalf("test order authority: %v", err)
@@ -377,9 +384,15 @@ func TestAccountSnapshotAuthorityDoesNotCrossBrokerScope(t *testing.T) {
 	}
 }
 
+// testOrderAuthorityPath is the database newTestOrderJournalStore opens for
+// a journal at path.
+func testOrderAuthorityPath(path string) string {
+	return filepath.Join(filepath.Dir(path), "authority", filepath.Base(path)+".db")
+}
+
 func newTestOrderJournalStore(t *testing.T, path string) *orderJournalStore {
 	t.Helper()
-	dbPath := filepath.Join(filepath.Dir(path), "authority", filepath.Base(path)+".db")
+	dbPath := testOrderAuthorityPath(path)
 	store, err := corestore.Open(context.Background(), corestore.Options{Path: dbPath})
 	if err != nil {
 		t.Fatalf("open test order authority: %v", err)
