@@ -64,18 +64,28 @@ type decisionIDs struct {
 	Key         string `json:"key,omitempty"`
 	Rev         string `json:"rev,omitempty"`
 	Preparation string `json:"preparation,omitempty"`
+	Queue       string `json:"queue,omitempty"`
 	TokenID     string `json:"token_id,omitempty"`
 	OrderRef    string `json:"order_ref,omitempty"`
 }
 
 // Decision outcomes: an accepted step, a refusal with blockers, and a
-// refusal the RPC returned as an error.
+// refusal the RPC returned as an error. A queued authorisation's steps and
+// its executor's outcomes have their own.
 const (
 	decisionPreviewed = "previewed"
 	decisionPrepared  = "prepared"
 	decisionSubmitted = "submitted"
 	decisionBlocked   = "blocked"
 	decisionRefused   = "refused"
+
+	decisionQueued    = "queued"
+	decisionArmed     = "armed"
+	decisionCancelled = "cancelled"
+	decisionHeld      = "held"
+	decisionSent      = "sent"
+	decisionExpired   = "expired"
+	decisionFailed    = "failed"
 )
 
 func (l *decisionLog) append(ev decisionEvent) error {
@@ -131,6 +141,11 @@ type proposalDecision struct {
 	orderRef    string
 	mode        string
 	started     time.Time
+	// queue names a queued authorisation; code and note carry an executor
+	// outcome's reason code and reason.
+	queue string
+	code  string
+	note  string
 }
 
 // recordDecision appends d to the decision log. It warns once per process
@@ -142,7 +157,7 @@ func (e *proposalEngine) recordDecision(d proposalDecision) {
 	}
 	ev := decisionEvent{TS: e.clock(), Svc: "canary", Event: "proposal." + d.event, Bucket: d.prop.Bucket, Mode: d.mode,
 		IDs: decisionIDs{Key: nonEmptyString(d.prop.Key, strings.TrimSpace(d.key)), Rev: nonEmptyString(d.prop.Revision, strings.TrimSpace(d.rev)),
-			Preparation: d.preparation, TokenID: d.tokenID, OrderRef: d.orderRef}}
+			Preparation: d.preparation, Queue: d.queue, TokenID: d.tokenID, OrderRef: d.orderRef}, Code: d.code, Reason: d.note}
 	if !d.started.IsZero() {
 		ev.Ms = max(time.Since(d.started).Milliseconds(), 0)
 	}

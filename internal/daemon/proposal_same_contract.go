@@ -448,12 +448,13 @@ func openOrderInventoryFailure(err error) string {
 }
 
 // liveIntentFor reports an authorised intent that has not reached the broker
-// yet (a queued authorisation) for one contract and side, and its proposal
-// key. Nothing is queued before the queued-authorisation phase lands, so it
-// reports none; that phase fills it in, and every row for the contract and
-// side then blocks behind the intent.
+// yet for one contract and side, and its proposal key: a queued
+// authorisation the owner armed, while it waits for its window, is held or is
+// being sent (proposal_queue.go). Every other row for the contract and side
+// blocks behind it; once its order works at the broker, working-order
+// netting takes over.
 func (e *proposalEngine) liveIntentFor(contractSide string) (string, bool) {
-	return "", false
+	return e.queuedLiveIntentFor(contractSide)
 }
 
 // liveIntentBlockers blocks a row while another row's authorised intent for

@@ -104,6 +104,13 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTradeProposalsSubmit, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsVeto, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	// queue_prepare refreshes the proposals like prepare; queue_arm reads the
+	// broker's open-order inventory once for the settling baseline.
+	{Method: MethodTradeProposalsQueuePrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	{Method: MethodTradeProposalsQueueArm, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
+	{Method: MethodTradeProposalsQueueCancel, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodTradeProposalsQueueList, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodTradeProposalsQueueStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	// request_stop resolves positions and runs a full proposal refresh, so it
 	// carries the refresh budget, not the snapshot budget.
 	{Method: MethodTradeProposalsRequestStop, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},

@@ -186,6 +186,11 @@ func (e *proposalEngine) bindCore(ctx context.Context, core *corestore.Store) er
 			return fmt.Errorf("attach automatic submission records: %w", err)
 		}
 	}
+	if e.queued != nil {
+		if err := e.queued.bindCore(ctx, core); err != nil {
+			return fmt.Errorf("attach queued authorisations: %w", err)
+		}
+	}
 	return nil
 }
 

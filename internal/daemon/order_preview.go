@@ -400,7 +400,19 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err != nil {
 		return nil, previewStageRefusal(previewQuoteUnavailableCode, err)
 	}
-	strategy, limit, trail, notionalPrice, err := previewOrderPricing(action, orderType, p.Strategy, p.LimitPrice, p.Trail, contract, quote)
+	var strategy string
+	var limit, notionalPrice float64
+	var trail *rpc.OrderTrailSpec
+	switch {
+	case p.Bounded == nil && !strings.EqualFold(strings.TrimSpace(p.Strategy), rpc.OrderStrategyBoundedLimit):
+		strategy, limit, trail, notionalPrice, err = previewOrderPricing(action, orderType, p.Strategy, p.LimitPrice, p.Trail, contract, quote)
+	case orderType != rpc.OrderTypeLMT || p.Trail != nil:
+		err = errBadRequest("bounded-limit strategy prices LMT orders only")
+	default:
+		strategy = rpc.OrderStrategyBoundedLimit
+		limit, err = boundedLimitPrice(action, p.Bounded, p.LimitPrice, contract, quote)
+		notionalPrice = limit
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1297,6 +1309,53 @@ func previewLimitPrice(action, strategy string, explicit *float64, contract rpc.
 	default:
 		return 0, errBadRequest("strategy must be patient-limit or explicit-limit")
 	}
+}
+
+// boundedLimitPrice prices a bounded-limit draft from the live quote: the
+// bound's concession of the way from the mid toward the bid (sell) or the ask
+// (buy), rounded toward the mid on the tick grid and kept inside the spread,
+// refused when the spread is wider than the bound or the price would land
+// beyond the worst price. Only the daemon's queued executor sets the bound.
+func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *float64, contract rpc.ContractParams, quote rpc.OrderQuoteSnapshot) (float64, error) {
+	switch {
+	case bound == nil:
+		return 0, errBadRequest("bounded-limit strategy is daemon-internal")
+	case explicit != nil:
+		return 0, errBadRequest("bounded-limit strategy must not carry a limit price")
+	case math.IsNaN(bound.Concession) || bound.Concession < 0 || bound.Concession > 1 || !positiveFinite(bound.WorstPrice) || !positiveFinite(bound.MaxSpreadPctOfMid):
+		return 0, errBadRequest("bounded-limit bound is invalid")
+	}
+	if err := requireFreshPreviewQuote(quote, "bounded-limit"); err != nil {
+		return 0, err
+	}
+	if !rpc.IsLiveDataType(quote.DataType) {
+		return 0, refusePreviewCode(previewQuoteNotLiveCode, errBadRequest("bounded-limit requires live bid/ask data"))
+	}
+	if quote.Bid == nil || quote.Ask == nil || *quote.Bid <= 0 || *quote.Ask <= *quote.Bid {
+		return 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest("bounded-limit requires a positive two-sided bid/ask"))
+	}
+	bid, ask := *quote.Bid, *quote.Ask
+	mid := (bid + ask) / 2
+	if spread := (ask - bid) / mid * 100; spread > bound.MaxSpreadPctOfMid {
+		return 0, refusePreviewCode(previewBoundedSpreadCode, errBadRequest(fmt.Sprintf("bounded-limit requires a spread within %.1f%% of mid; it is %.1f%%", bound.MaxSpreadPctOfMid, spread)))
+	}
+	tick := patientLimitTick(contract, quote, mid)
+	var limit float64
+	switch action {
+	case rpc.OrderActionSell:
+		limit = roundPrice(min(ceilPriceToTick(mid-bound.Concession*(mid-bid), tick), ask))
+		if limit+1e-9 < bound.WorstPrice {
+			return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be below the worst price %.4f", limit, bound.WorstPrice)))
+		}
+	case rpc.OrderActionBuy:
+		limit = roundPrice(max(floorPriceToTick(mid+bound.Concession*(ask-mid), tick), bid))
+		if limit > bound.WorstPrice+1e-9 {
+			return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be above the worst price %.4f", limit, bound.WorstPrice)))
+		}
+	default:
+		return 0, errBadRequest("action must be buy or sell")
+	}
+	return limit, nil
 }
 
 func requireFreshPreviewQuote(quote rpc.OrderQuoteSnapshot, useCase string) error {

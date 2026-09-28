@@ -169,7 +169,7 @@ var Tools = []Tool{
 		Name:        "canary_orders_open",
 		RPCMethods:  []string{rpc.MethodOrdersOpen},
 		Title:       "Canary Open Orders",
-		Description: "Read-only current-context order lifecycle view: journaled open orders, each with the origin that placed it (agent, human-tty, human-paired-device or daemon-preauthorised), and under `untracked` the orders working at the broker that Canary never placed, such as hand orders in TWS, which carry no origin. Trust an empty `untracked` only when `untracked_status` is current. Use canary_orders_history for past orders. It does not place, modify, cancel, or transmit orders and is not a broker statement.",
+		Description: "Read-only current-context order lifecycle view: journaled open orders, each with the origin that placed it (agent, human-tty, human-paired-device, daemon-preauthorised or daemon-owner-queued), and under `untracked` the orders working at the broker that Canary never placed, such as hand orders in TWS, which carry no origin. Trust an empty `untracked` only when `untracked_status` is current. Use canary_orders_history for past orders. It does not place, modify, cancel, or transmit orders and is not a broker statement.",
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var in rpc.OrdersOpenParams

@@ -82,7 +82,8 @@ seeded trail is unaffected, and a date outside calendar coverage keeps the quote
 path's judgement. `default_send_at` is the open plus the opening offset (15
 minutes for options, 5 for stocks; the queued-authorisation design's
 recommended defaults). `queueable` marks governor, theta and issuer-trim rows in
-`market_closed` or `opening_window`. No queue exists yet.
+`market_closed` or `opening_window`; queued authorisations
+(queued-authorisations.md) are offered on those rows.
 
 Typed preview failures replace the generic `preview_failed` where the cause is
 known: `market_closed`, `quote_stale`, `quote_not_live`, `quote_not_two_sided`,
@@ -97,7 +98,7 @@ Each preview, prepare and submit (manual, prepared and pre-authorised) appends
 one JSON line to `events.jsonl` beside daemon.db, at every log level. The fields
 are `ts`, `svc`, `event`, `outcome` (`previewed`, `prepared`, `submitted`,
 `blocked`, `refused`), `code` (the readiness code), `codes`, `reason`, `ids`
-(`key`, `rev`, `preparation`, `token_id`, `order_ref`), `bucket`, `mode`,
+(`key`, `rev`, `preparation`, `queue`, `token_id`, `order_ref`), `bucket`, `mode`,
 `market`, `session_state`, `opens_at` and `ms`. A line never carries a preview
 token, a prepared reference or an account number. The file is capped at 32 MiB,
 with one previous generation. It is diagnostic evidence only: daemon.db remains

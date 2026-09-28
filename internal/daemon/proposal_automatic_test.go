@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,13 +40,29 @@ type automaticTestRig struct {
 	inventoryErr error
 	// inventoryReads counts settling-rule reads of that inventory.
 	inventoryReads int
+	// queuedRefreshes counts the queued executor's revalidating refreshes,
+	// which the rig serves from the installed snapshot.
+	queuedRefreshes int
+	// countMu guards the counters, which concurrent executor ticks bump;
+	// tests read them after the ticks have joined.
+	countMu sync.Mutex
+}
+
+func (r *automaticTestRig) count(n *int) {
+	r.countMu.Lock()
+	*n++
+	r.countMu.Unlock()
+}
+
+func frozenPlatformSettings() *platformSettingsStore {
+	return &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Trading: platformTradingSettingsData{Freeze: new(true)}}}
 }
 
 // installInventory seams the broker open-order inventory to the rig's
 // synthetic book, read at the rig clock.
 func (r *automaticTestRig) installInventory(srv *Server) {
 	srv.openOrderInventoryForTest = func(_ context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
-		r.inventoryReads++
+		r.count(&r.inventoryReads)
 		if r.inventoryErr != nil {
 			return ibkrlib.OpenOrderSnapshot{}, r.scope, r.inventoryErr
 		}
@@ -86,12 +103,16 @@ func newAutomaticTestRig(t *testing.T, authority string) *automaticTestRig {
 // newEngine binds a fresh engine to the same daemon.db: a restarted daemon.
 func (r *automaticTestRig) newEngine() *proposalEngine {
 	r.t.Helper()
-	e := &proposalEngine{server: r.server, store: &proposalStore{}, automatic: &automaticSubmissionStore{}, now: r.server.now, ignored: map[string]struct{}{}}
+	e := &proposalEngine{server: r.server, store: &proposalStore{}, automatic: &automaticSubmissionStore{}, queued: &queuedAuthStore{}, now: r.server.now, ignored: map[string]struct{}{}}
 	e.scope = func() brokerStateScope { return r.scope }
+	e.queuedRefreshForTest = func(context.Context) (rpc.TradeProposalSnapshot, error) {
+		r.count(&r.queuedRefreshes)
+		return e.Snapshot(false), nil
+	}
 	e.latchedForTest = func(brokerStateScope) bool { return r.latched }
 	e.startedAt = r.now
 	e.revalidateForTest = func(_ context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
-		r.revalidations++
+		r.count(&r.revalidations)
 		snap := e.Snapshot(false)
 		if snap.Revision != revision {
 			return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "stale"}}, nil

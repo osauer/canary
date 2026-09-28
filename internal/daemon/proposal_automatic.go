@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -53,6 +54,9 @@ const (
 	// alive; automaticEventHeld journals the settling rule holding it.
 	automaticEventDeferred = "deferred"
 	automaticEventHeld     = "held"
+	// automaticEventRescheduled journals a due time moved to the open plus
+	// the opening offset.
+	automaticEventRescheduled = "rescheduled"
 
 	// automaticSubmitTimeout bounds the quote/WhatIf wait of one automatic
 	// submission, the same default the CLI uses.
@@ -553,6 +557,10 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				rec.LatchSkippedWindow = true
 				rec.SubmitAt = now
 			}
+			// A row whose order prices off the regular session submits no
+			// earlier than the open plus the opening offset: the due time is
+			// max(notice + veto window, open + offset).
+			rec.SubmitAt = e.automaticSessionDue(prop, rec.SubmitAt)
 			records[automaticRecordKey(rec.Key, rec.Revision)] = rec
 			events = append(events, automaticSubmissionEvent{At: now, Type: automaticEventCreated, Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, State: rec.State, AccountID: rec.AccountID, AccountMode: rec.AccountMode, SubmitAt: rec.SubmitAt, Reason: automaticCreatedReason(rec)})
 		}
@@ -681,12 +689,27 @@ func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	// after a fresh inventory confirms nothing holds it. Each is read at most
 	// once per cycle, and only when a record is due.
 	var cached, fresh *automaticSettlingBook
+	var served map[string]rpc.TradeProposal
 	for _, rec := range e.automatic.list() {
 		if !rec.due(now, frozen) {
 			continue
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		// A record that fell due while its row's session is closed, or
+		// inside the opening window, waits for the open plus the offset.
+		if served == nil {
+			served = map[string]rpc.TradeProposal{}
+			for _, prop := range e.Snapshot(false).Proposals {
+				served[automaticRecordKey(prop.Key, prop.Revision)] = prop
+			}
+		}
+		if prop, ok := served[automaticRecordKey(rec.Key, rec.Revision)]; ok {
+			if at := e.automaticSessionDue(prop, now); at.After(now) {
+				e.rescheduleAutomatic(ctx, rec, at)
+				continue
+			}
 		}
 		// A record of another scope cannot fire here: revalidation against
 		// the current proposal set refuses it and the refusal supersedes it.
@@ -751,12 +774,19 @@ func (b automaticSettlingBook) marks() []string {
 // not be read. An unreadable inventory holds too: the rule proves an
 // absence, so doubt never reads as settled.
 func (b automaticSettlingBook) hold(rec automaticSubmissionRecord) string {
+	return b.holdSince(rec.CreatedAt, rec.SettlingBaseline, rec.SettlingBaselineKnown)
+}
+
+// holdSince applies the settling rule to an intent that began at since with
+// the given baseline: automaticHoldHandOrder, automaticHoldUnavailable, or
+// "" when nothing holds it.
+func (b automaticSettlingBook) holdSince(since time.Time, baseline []string, baselineKnown bool) string {
 	if !b.ok {
 		return automaticHoldUnavailable
 	}
 	for _, order := range b.hand {
-		if order.RequestedAt.After(rec.CreatedAt) || !rec.SettlingBaselineKnown ||
-			order.Mark == "" || !slices.Contains(rec.SettlingBaseline, order.Mark) {
+		if order.RequestedAt.After(since) || !baselineKnown ||
+			order.Mark == "" || !slices.Contains(baseline, order.Mark) {
 			return automaticHoldHandOrder
 		}
 	}
@@ -838,16 +868,72 @@ func latestOrderRequestAt(events []rpc.OrderEvent) time.Time {
 }
 
 // automaticSettlingMachineOrigin reports the origins the settling rule
-// treats as the machine's own: the daemon's pre-authorised scheduler and the
-// agent-origin gated CLI through which Desk places what the owner authorised.
-// Canary cannot see Desk's receipts, so any agent-origin order counts as the
-// gate's.
+// treats as the machine's own: the daemon's pre-authorised scheduler and
+// queued executor, and the agent-origin gated CLI through which Desk places
+// what the owner authorised. Canary cannot see Desk's receipts, so any
+// agent-origin order counts as the gate's.
 func automaticSettlingMachineOrigin(origin string) bool {
 	switch origin {
-	case rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginAgent:
+	case rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued, rpc.OrderOriginAgent:
 		return true
 	default:
 		return false
+	}
+}
+
+// automaticSessionDue moves due to the open plus the opening offset when the
+// row's order prices off the regular session and that session is not open
+// that long at due (queued-authorisation design). A row that can be placed
+// outside the session, or whose market has no calendar, keeps due.
+func (e *proposalEngine) automaticSessionDue(prop rpc.TradeProposal, due time.Time) time.Time {
+	if e == nil || e.server == nil || !proposalHasContract(prop) || !proposalNeedsOpenSession(prop) {
+		return due
+	}
+	market, ok := quoteSessionMarketForContract(prop.Contract)
+	if !ok {
+		return due
+	}
+	session, ok := e.server.previewSession(market, due)
+	if !ok || session.State == marketcal.StateUnknown {
+		return due
+	}
+	offset := readinessOpeningOffset(market)
+	switch {
+	case session.IsOpen && !session.Open.IsZero():
+		if earliest := session.Open.Add(offset).UTC(); due.Before(earliest) {
+			return earliest
+		}
+	case session.NextOpen != nil:
+		return session.NextOpen.Add(offset).UTC()
+	}
+	return due
+}
+
+// rescheduleAutomatic moves a due record's submit time, or a deferred
+// record's resubmit time, to at. The veto window is not touched.
+func (e *proposalEngine) rescheduleAutomatic(ctx context.Context, rec automaticSubmissionRecord, at time.Time) {
+	now := e.clock()
+	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+		r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
+		if !ok || !r.waiting() {
+			return nil
+		}
+		if r.deferred() {
+			if !at.After(r.ResubmitAt) {
+				return nil
+			}
+			r.ResubmitAt = at
+		} else {
+			if !at.After(r.SubmitAt) {
+				return nil
+			}
+			r.SubmitAt = at
+		}
+		return []automaticSubmissionEvent{{At: now, Type: automaticEventRescheduled, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode,
+			SubmitAt: r.SubmitAt, ResubmitAt: r.ResubmitAt, Reason: "the regular session is not open long enough yet; submits from " + at.Format(time.RFC3339) + ", the open plus the opening offset"}}
+	})
+	if err != nil && e.server != nil {
+		e.server.warnf("pre-authorised protection: reschedule %s for the session: %v", rec.Key, err)
 	}
 }
 
@@ -1116,17 +1202,49 @@ func (e *proposalEngine) recoverAutomaticAfterRestart(ctx context.Context) {
 // automaticRestartOutcome classifies a submitting record from the journal
 // events that carry its preview token.
 func automaticRestartOutcome(events []orderJournalEvent, tokenID string) (state, orderRef, reason string) {
-	if strings.TrimSpace(tokenID) == "" {
+	outcome, orderRef := orderJournalSendOutcome(events, tokenID)
+	switch outcome {
+	case orderSendReached:
+		return rpc.TradeProposalAutomaticSubmitted, orderRef, "order reached the broker before the daemon restarted; confirmed from the order journal"
+	case orderSendFailedUnsent:
+		return rpc.TradeProposalAutomaticFailed, orderRef, "broker send failed before the daemon restarted; not retried"
+	case orderSendUnclear:
+		return rpc.TradeProposalAutomaticFailed, orderRef, "broker send outcome unknown across the restart; confirm against the order journal and broker statements, not retried"
+	default:
 		return rpc.TradeProposalAutomaticFailed, "", "daemon restarted before the broker send; not retried"
 	}
-	attempted := false
+}
+
+// orderSendOutcome is what the order journal proves about one preview
+// token's broker send.
+type orderSendOutcome int
+
+const (
+	// orderSendNone: the journal holds no attempt, so no frame was sent;
+	// the place path stages its attempt before the first frame.
+	orderSendNone orderSendOutcome = iota
+	// orderSendFailedUnsent: the attempt failed and provably sent nothing.
+	orderSendFailedUnsent
+	// orderSendUnclear: an attempt was staged without a known outcome.
+	orderSendUnclear
+	// orderSendReached: the send completed or the broker answered it.
+	orderSendReached
+)
+
+// orderJournalSendOutcome classifies the send of tokenID from the journal
+// events that carry it, with the order reference they name.
+func orderJournalSendOutcome(events []orderJournalEvent, tokenID string) (orderSendOutcome, string) {
+	if strings.TrimSpace(tokenID) == "" {
+		return orderSendNone, ""
+	}
+	attempted, orderRef := false, ""
 	for _, ev := range events {
 		if ev.PreviewTokenID != tokenID {
 			continue
 		}
 		switch ev.Type {
 		case orderJournalEventSendCompleted, orderJournalEventBrokerAcknowledged, orderJournalEventStatusUpdated:
-			return rpc.TradeProposalAutomaticSubmitted, ev.OrderRef, "order reached the broker before the daemon restarted; confirmed from the order journal"
+			return orderSendReached, ev.OrderRef
 		case orderJournalEventSendAttempted:
 			attempted = true
 			if orderRef == "" {
@@ -1134,7 +1252,7 @@ func automaticRestartOutcome(events []orderJournalEvent, tokenID string) (state,
 			}
 		case orderJournalEventSendError:
 			if ev.SendDisposition == "" || ev.SendDisposition == "definitely_unsent" {
-				return rpc.TradeProposalAutomaticFailed, ev.OrderRef, "broker send failed before the daemon restarted; not retried"
+				return orderSendFailedUnsent, ev.OrderRef
 			}
 			attempted = true
 			if orderRef == "" {
@@ -1143,9 +1261,9 @@ func automaticRestartOutcome(events []orderJournalEvent, tokenID string) (state,
 		}
 	}
 	if attempted {
-		return rpc.TradeProposalAutomaticFailed, orderRef, "broker send outcome unknown across the restart; confirm against the order journal and broker statements, not retried"
+		return orderSendUnclear, orderRef
 	}
-	return rpc.TradeProposalAutomaticFailed, "", "daemon restarted before the broker send; not retried"
+	return orderSendNone, ""
 }
 
 // Veto marks the pending automatic submission for a key vetoed. Only a human

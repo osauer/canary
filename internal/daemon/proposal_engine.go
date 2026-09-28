@@ -70,16 +70,28 @@ type proposalEngine struct {
 	// places itself; a served snapshot that disagrees asks for a refresh
 	// (kickIfCoverageStale).
 	mergedAutomatic map[string]bool
+	// queued holds the queued authorisations the owner armed for the open
+	// (proposal_queue.go); the executor runs in Run after the automatic
+	// cycle.
+	queued *queuedAuthStore
+	// queuedRefreshForTest replaces the executor's fresh refresh (which
+	// needs a gateway) in hermetic tests of the queued send path.
+	queuedRefreshForTest func(ctx context.Context) (rpc.TradeProposalSnapshot, error)
 }
 
-// proposalSubmitOptions distinguishes the daemon's own pre-authorised
-// submission from a human or agent request. beforePlace runs after the
-// preview is minted and every pre-place gate has passed, immediately before
-// the broker call; an error refuses the write. placeRefused receives the
-// typed error of a refused place, which the result otherwise carries only
-// as blocker text.
+// proposalSubmitOptions distinguishes the daemon's own pre-authorised and
+// queued submissions from a human or agent request. beforePlace runs after
+// the preview is minted and every pre-place gate has passed, immediately
+// before the broker call; an error refuses the write. placeRefused receives
+// the typed error of a refused place, which the result otherwise carries
+// only as blocker text. A queued send names its record, the row the executor
+// already revalidated by key (resolved), and the bound its limit is priced
+// inside.
 type proposalSubmitOptions struct {
 	automatic    bool
+	queued       *queuedAuthRecord
+	resolved     *rpc.TradeProposal
+	bounded      *rpc.OrderBoundedLimit
 	beforePlace  func(preview *rpc.OrderPreviewResult) error
 	placeRefused func(err error)
 }
@@ -134,6 +146,7 @@ func (s *Server) installProposalEngine() {
 		server:    s,
 		store:     &proposalStore{},
 		automatic: &automaticSubmissionStore{},
+		queued:    &queuedAuthStore{},
 		cadence:   s.cfg.AutoTrade.WithDefaults().ProposalCadenceDuration(),
 		now:       s.now,
 		ignored:   map[string]struct{}{},
@@ -172,7 +185,14 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		}
 		// Pre-authorised submission rides the same cadence: reconcile the
 		// records against what was just generated, then place what is due.
+		// Queued authorisations follow, and the wait ends early at the next
+		// send window, arm deadline or window end.
 		e.runAutomaticCycle(ctx)
+		e.runQueuedCycle(ctx)
+		wait := proposalRefreshWait(e.cadence, failures)
+		if next, ok := e.queuedWake(e.clock()); ok {
+			wait = min(wait, next)
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -185,7 +205,7 @@ func (e *proposalEngine) Run(ctx context.Context) {
 			// "recovered after N blocked attempts" line still closes the
 			// outage trail.
 			failures = 0
-		case <-time.After(proposalRefreshWait(e.cadence, failures)):
+		case <-time.After(wait):
 		}
 	}
 }
@@ -2270,14 +2290,23 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	started := time.Now()
 	defer func() {
 		event := "submit"
-		if opts.automatic {
+		switch {
+		case opts.automatic:
 			event = "submit_automatic"
+		case opts.queued != nil:
+			event = "submit_queued"
 		}
 		e.finishSubmit(event, p, &out, err, started)
 	}()
 	now := e.clock()
 	cfg := e.server.cfg.AutoTrade.WithDefaults()
-	prop, blockers, err := e.submitProposal(ctx, p, cfg.FastPathEnabledResolved())
+	var prop rpc.TradeProposal
+	var blockers []rpc.TradingBlocker
+	if opts.resolved != nil {
+		prop = *opts.resolved
+	} else {
+		prop, blockers, err = e.submitProposal(ctx, p, cfg.FastPathEnabledResolved())
+	}
 	if len(blockers) > 0 || err != nil {
 		e.appendBlocked(prop, p.Key, p.Revision, blockers, err)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, err
@@ -2299,6 +2328,13 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 			e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 			return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 		}
+	} else if opts.queued != nil {
+		// A queued send carries the owner's signature for this record; it
+		// needs the executor's grant and proposal submit still enabled.
+		if blockers := e.queuedSubmitBlockers(prop, opts.queued); len(blockers) > 0 {
+			e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+			return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+		}
 	} else if !cfg.FastPathEnabledResolved() || !p.FastPath {
 		blockers := []rpc.TradingBlocker{{Code: "fast_path_disabled", Message: "proposal submit requires fast_path=true and [auto_trade].fast_path_enabled=true"}}
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
@@ -2308,7 +2344,11 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
-	preview, err := e.server.previewOrder(ctx, proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs))
+	params := proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs)
+	if opts.bounded != nil {
+		params.Strategy, params.Bounded = rpc.OrderStrategyBoundedLimit, opts.bounded
+	}
+	preview, err := e.server.previewOrder(ctx, params)
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)

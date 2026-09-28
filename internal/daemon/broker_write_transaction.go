@@ -89,10 +89,15 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 		return s.orderWriteOriginBlockersForTest(status, origin)
 	}
 	blockers := liveOriginBlockers(status, origin)
-	if origin == rpc.OrderOriginDaemonPreAuthorised {
-		for _, blocker := range s.daemonPreAuthorisedOriginBlockers() {
-			blockers = appendTradingBlockerOnce(blockers, blocker)
-		}
+	var originBlockers []rpc.TradingBlocker
+	switch origin {
+	case rpc.OrderOriginDaemonPreAuthorised:
+		originBlockers = s.daemonPreAuthorisedOriginBlockers()
+	case rpc.OrderOriginDaemonOwnerQueued:
+		originBlockers = s.daemonOwnerQueuedOriginBlockers()
+	}
+	for _, blocker := range originBlockers {
+		blockers = appendTradingBlockerOnce(blockers, blocker)
 	}
 	return blockers
 }

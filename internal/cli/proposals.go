@@ -48,6 +48,8 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 		return runProposalsIgnore(ctx, env, args)
 	case "veto":
 		return runProposalsVeto(ctx, env, args)
+	case "queue":
+		return runProposalsQueue(ctx, env, args)
 	default:
 		return fail(env, "proposals: unknown subcommand %q", sub)
 	}
@@ -56,7 +58,7 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 func proposalsSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "refresh", "list", "preview", "prepare", "prepared-status", "submit", "reduce", "request-stop", "ignore", "veto":
+		case "status", "refresh", "list", "preview", "prepare", "prepared-status", "submit", "reduce", "request-stop", "ignore", "veto", "queue":
 			return i
 		}
 	}

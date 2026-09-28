@@ -44,7 +44,8 @@ that was set and lifted in between.
 
 Each row of `canary orders open --json`, `orders history` and `order status`
 carries the `origin` journaled with the request that placed it: `agent`,
-`human-tty`, `human-paired-device` or `daemon-preauthorised`. Modify and
+`human-tty`, `human-paired-device`, `daemon-preauthorised` or
+`daemon-owner-queued` (a queued authorisation the owner signed). Modify and
 cancel requests keep their own origin on their events. A row without an origin
 was not placed through Canary. `canary orders open` also lists, under
 `untracked`, the orders working at the broker that Canary's journal does not

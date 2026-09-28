@@ -303,12 +303,13 @@ func (s *Server) brokerWriteAuthorizationWithControls(status rpc.TradingStatus, 
 }
 
 // normalizedWriteOrigin maps any request origin onto the journaled audit
-// value: the known human origins pass through, everything else is "agent".
+// value: the known human origins and the daemon's own pre-authorised and
+// queued executors pass through, everything else is "agent".
 // Origin remains audit/policy metadata; live broker writes are authorized by
 // the same trading gates, preview tokens, freeze state, and broker checks for
 // every origin.
 func normalizedWriteOrigin(origin string) string {
-	if originIsHuman(origin) || origin == rpc.OrderOriginDaemonPreAuthorised {
+	if originIsHuman(origin) || origin == rpc.OrderOriginDaemonPreAuthorised || origin == rpc.OrderOriginDaemonOwnerQueued {
 		return origin
 	}
 	return rpc.OrderOriginAgent

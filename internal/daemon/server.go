@@ -75,6 +75,10 @@ type Server struct {
 	// submitting right now; it is set and cleared under brokerWriteMu and is
 	// what lets the write gate accept the daemon-preauthorised origin.
 	automaticGrant atomic.Pointer[automaticWriteGrant]
+	// queuedGrant names the one queued authorisation the executor is sending
+	// right now, under brokerWriteMu; it lets the write gate accept the
+	// daemon-owner-queued origin.
+	queuedGrant atomic.Pointer[queuedWriteGrant]
 
 	// reduceBasketMu guards reduceBasketDedupe, the short-TTL replay cache for
 	// so a double-tap or client retry can never fan the basket out twice.
@@ -2655,6 +2659,16 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsIgnore(req), nil })
 	case rpc.MethodTradeProposalsVeto:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsVeto(ctx, req) })
+	case rpc.MethodTradeProposalsQueuePrepare:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueuePrepare(ctx, req) })
+	case rpc.MethodTradeProposalsQueueArm:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueArm(ctx, req) })
+	case rpc.MethodTradeProposalsQueueCancel:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueCancel(ctx, req) })
+	case rpc.MethodTradeProposalsQueueList:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueList(req) })
+	case rpc.MethodTradeProposalsQueueStatus:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueStatus(req) })
 	case rpc.MethodTradeProposalsRequestStop:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsRequestStop(ctx, req) })
 	case rpc.MethodTradeProposalsReducePreview:

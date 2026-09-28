@@ -171,10 +171,6 @@ func TestAutomaticLatchedBrakeSubmitsWithoutWaiting(t *testing.T) {
 }
 
 // frozenPlatformSettings is a runtime settings store with trading.freeze set.
-func frozenPlatformSettings() *platformSettingsStore {
-	return &platformSettingsStore{data: platformSettingsData{Version: platformSettingsDocVersion, Trading: platformTradingSettingsData{Freeze: new(true)}}}
-}
-
 // deferUnderFreeze drives one pre-authorised record to its closed window on
 // a frozen desk and returns the proposal and revision.
 func deferUnderFreeze(t *testing.T, rig *automaticTestRig) (rpc.TradeProposal, string) {

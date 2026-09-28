@@ -26,7 +26,7 @@ var (
 		"account_unavailable", "positions_unavailable", "positions_pending", "account_identity_unscoped", previewBrokerSessionChangedCode}
 	readinessHaltCodes    = []string{"market_event_" + rpc.MarketEventHaltRegulatoryOrNews, "market_event_" + rpc.MarketEventLULDPause}
 	readinessSessionCodes = []string{previewMarketClosedCode, "option_rth_closed"}
-	readinessSpreadCodes  = []string{"option_spread_too_wide", "wide_spread"}
+	readinessSpreadCodes  = []string{"option_spread_too_wide", "wide_spread", previewBoundedSpreadCode}
 	readinessQuoteCodes   = []string{"live_option_quote_required", "fresh_option_quote_required", "two_sided_option_quote_required",
 		optionQuoteRequestFailed, "missing_reference_price", previewQuoteStaleCode, previewQuoteNotLiveCode, previewQuoteNotTwoSidedCode, previewQuoteUnavailableCode}
 )

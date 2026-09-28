@@ -31,7 +31,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback / unavailable |
 |---|---|---|---|---|
-| Request origin | invoking adapter at call time | `origin` field on broker-write params (`agent`, `human-tty`, `human-paired-device`; `daemon-preauthorised` for the scheduler) | journaled per order event; served as `origin` on `orders open\|history` rows, `order status` and their events; available to policy hooks | missing/unknown → journaled as `agent`; a row with no journaled place request reads as none, never guessed |
+| Request origin | invoking adapter at call time | `origin` field on broker-write params (`agent`, `human-tty`, `human-paired-device`; `daemon-preauthorised` for the scheduler; `daemon-owner-queued` for the queued executor) | journaled per order event; served as `origin` on `orders open\|history` rows, `order status` and their events; available to policy hooks | missing/unknown → journaled as `agent`; a row with no journaled place request reads as none, never guessed |
 | Broker-write policy | daemon `brokerWriteAuthorization` | `can_write`, `write_blockers`, submit/place errors | `canary trading status`, write responses | connected gateway plus config/build/pins/freeze/journal/broker checks decide |
 | ~~Live human confirmation~~ | removed 2026-06-11 | was: typed `live/<account>` ack, compared verbatim | — | human origins write on live with preview token + pins only |
 | Agent detection (CLI) | process env + stdin | env markers `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CODEX_SANDBOX`, `OPENAI_CODEX`, `CANARY_AGENT_CONTEXT=1`, retired restrict-only `IBKR_AGENT_CONTEXT=1`, or `!isatty(stdin)` | n/a | any marker or non-TTY → `agent` |
@@ -69,7 +69,7 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
    each order row and each event's own origin on the event; `orders open`
    also lists broker-working orders the journal does not track (hand orders in
    TWS) under `untracked`, with no origin. The pre-authorised scheduler's
-   settling rule treats `daemon-preauthorised` and `agent` orders as the
+   settling rule treats `daemon-preauthorised`, `daemon-owner-queued` and `agent` orders as the
    machine's own and holds a due submission while any other order placed or
    modified after the submission's record was created is still working.
 6. **Hook layer (client-side, defense in depth, this repo's plugin):**

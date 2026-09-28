@@ -29,6 +29,10 @@ const (
 	previewWhatIfFailedCode         = "what_if_failed"
 	previewTokenUnavailableCode     = "preview_token_unavailable"
 	previewGenericFailureCode       = "preview_failed"
+	// A bounded limit refuses a spread wider than its bound, and a price
+	// that would land beyond its worst price.
+	previewBoundedSpreadCode = "bounded_spread_too_wide"
+	previewBoundedWorstCode  = "bounded_limit_beyond_worst"
 )
 
 // previewRefusal types an order-preview refusal with the blockers that caused
@@ -93,14 +97,18 @@ func previewFailureBlockers(err error) []rpc.TradingBlocker {
 }
 
 // previewNeedsOpenSession reports whether an order's pricing needs the
-// regular session: a patient limit prices off the live mid, and a broker trail
-// without an initial stop seeds it from the live bid or ask. Both fail
-// requireFreshPreviewQuote whenever the session is closed. An explicit limit
-// or a seeded trail can be previewed outside the session.
+// regular session: a patient or bounded limit prices off the live mid, and a
+// broker trail without an initial stop seeds it from the live bid or ask.
+// All fail requireFreshPreviewQuote whenever the session is closed. An
+// explicit limit or a seeded trail can be previewed outside the session.
 func previewNeedsOpenSession(orderType, strategy string, limit *float64, trail *rpc.OrderTrailSpec) bool {
 	switch strings.ToUpper(strings.TrimSpace(orderType)) {
 	case "", rpc.OrderTypeLMT:
-		return normalizePreviewStrategy(strategy, limit) == rpc.OrderStrategyPatientLimit
+		switch normalizePreviewStrategy(strategy, limit) {
+		case rpc.OrderStrategyPatientLimit, rpc.OrderStrategyBoundedLimit:
+			return true
+		}
+		return false
 	case rpc.OrderTypeTRAIL, rpc.OrderTypeTRAILLIMIT:
 		return trail == nil || trail.InitialStopPrice <= 0
 	default:

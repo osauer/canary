@@ -2471,6 +2471,10 @@ const (
 	OrderStrategyPatientLimit  = "patient-limit"
 	OrderStrategyExplicitLimit = "explicit-limit"
 	OrderStrategyBrokerTrail   = "broker-trail"
+	// OrderStrategyBoundedLimit prices a limit from the live quote inside an
+	// OrderBoundedLimit. It is daemon-internal: only the queued executor sets
+	// the bound, and a request that names it without one is refused.
+	OrderStrategyBoundedLimit = "bounded-limit"
 
 	OrderTrailBasisInstrumentPrice = "instrument_price"
 	OrderTrailOffsetPercent        = "percent"
@@ -2503,6 +2507,12 @@ const (
 	// scheduler holds a grant for that exact proposal and the active policy
 	// still lists its bucket; every other gate applies unchanged.
 	OrderOriginDaemonPreAuthorised = "daemon-preauthorised"
+	// OrderOriginDaemonOwnerQueued marks a broker write the daemon's queued
+	// executor issues for one queued authorisation the owner signed and Desk
+	// armed. The write gate accepts it only while the executor holds a grant
+	// for that exact record and the record is still an authorised intent
+	// (armed, held or sending); every other gate applies unchanged.
+	OrderOriginDaemonOwnerQueued = "daemon-owner-queued"
 	// OrderOriginPairedDevice identifies an audited request origin; it does not grant authority by itself.
 	OrderOriginPairedDevice = "human-paired-device"
 
@@ -2611,6 +2621,19 @@ type OrderPreviewParams struct {
 	// ResolvedStrategy is daemon-internal. External RPC callers can identify a
 	// strategy only through StrategyPreviewParams and cannot author combo legs.
 	ResolvedStrategy *StrategyOrderDraft `json:"-"`
+	// Bounded is daemon-internal: the bound a bounded-limit strategy prices
+	// inside. No RPC caller can set it.
+	Bounded *OrderBoundedLimit `json:"-"`
+}
+
+// OrderBoundedLimit bounds a limit priced from the live quote: Concession of
+// the way from the mid toward the bid (sell) or the ask (buy), on the tick
+// grid, never beyond WorstPrice, and only while the spread is at most
+// MaxSpreadPctOfMid percent of the mid.
+type OrderBoundedLimit struct {
+	Concession        float64
+	WorstPrice        float64
+	MaxSpreadPctOfMid float64
 }
 
 // StrategyPreviewParams requests one constrained group close or reduction.
