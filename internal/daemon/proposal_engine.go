@@ -66,6 +66,9 @@ type proposalEngine struct {
 	// revalidateForTest replaces the live account/position revalidation
 	// (which needs a gateway) in hermetic tests of the submit path.
 	revalidateForTest func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error)
+	// openOrdersForTest replaces the session-bound broker open-order
+	// inventory read (brokerOpenOrderInventory) in hermetic netting tests.
+	openOrdersForTest func(ctx context.Context) (ibkrlib.OpenOrderSnapshot, error)
 }
 
 // proposalSubmitOptions distinguishes the daemon's own pre-authorised
@@ -775,6 +778,18 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			out = append(out, e.unitExitProposals(ctx, policy, status, pos, sources, marketEvents, scope, now, economicEvidence, rulebookPolicy, units, rulebookPolicy.ExitActLossPct)...)
 		}
 	}
+	// Theta hygiene, issuer trims and budget reductions net against working
+	// broker orders like the exits and stops above. A shadow row never
+	// previews, so it reads no order evidence.
+	for i := range out {
+		if proposalIsReduction(out[i]) && !out[i].Shadow {
+			proposalBlockWith(&out[i], e.duplicateProtectiveBlockers(ctx, out[i], pos))
+		}
+	}
+	// One actionable row per exact contract and side, carrying every reason
+	// (proposal_same_contract.go). Coverage changes no key, quantity or
+	// effect, so it never moves the snapshot revision.
+	mergeSameContractProposals(out, e.preAuthorisedRow())
 	return out, suppressions, hedges, budget
 }
 
@@ -2366,21 +2381,30 @@ func closeReduceQuantity(position float64) (int, float64) {
 
 // duplicateProtectiveBlockers prevents two broker-working exits from
 // competing for the same position. Stock/ETF trails retain their stop-like
-// duplicate rule; an option loss exit or profit trail conflicts with any open
-// same-side exact-contract close order.
+// duplicate rule and also wait for a working sale Canary proposed; an option
+// loss exit or profit trail conflicts with any open same-side exact-contract
+// close order; a theta, issuer-trim or budget row conflicts with any
+// same-side order working for its exact contract (reductionOrderBlockers).
 func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.TradeProposal, currentPositions ...*rpc.PositionsResult) []rpc.TradingBlocker {
 	if e == nil || e.server == nil {
 		return nil
 	}
 	optionExit := proposalIsOptionExit(p)
-	if !optionExit && (p.Bucket != "" && p.Bucket != rpc.TradeProposalBucketTrailingStop || !isTrailOrderType(p.OrderType)) {
+	reduction := proposalIsReduction(p)
+	if !optionExit && !reduction && (p.Bucket != "" && p.Bucket != rpc.TradeProposalBucketTrailingStop || !isTrailOrderType(p.OrderType)) {
 		return nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if blockers := e.liveIntentBlockers(p); len(blockers) > 0 {
+		return blockers
+	}
 	if optionExit {
 		return e.optionExitBrokerOrderBlockers(ctx, p, len(currentPositions) == 0)
+	}
+	if reduction {
+		return e.reductionOrderBlockers(ctx, p, len(currentPositions) == 0)
 	}
 	var views []rpc.OrderView
 	var err error
@@ -2409,6 +2433,13 @@ func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.
 				Action:  fmt.Sprintf("Keep the standing exit, or cancel it first with `canary order cancel %s` before submitting a replacement.", v.OrderRef),
 			}}
 		}
+		if proposalDuplicateOrderIsCanaryReduction(v, p) {
+			return []rpc.TradingBlocker{{
+				Code:    reductionOrderExistingCode,
+				Message: fmt.Sprintf("Canary's sale %s is working for this position; the trailing stop waits until it fills or is cancelled, then re-proposes for what is left", v.OrderRef),
+				Action:  fmt.Sprintf("Keep the sale, or cancel it first with `canary order cancel %s`; the stop then re-proposes.", v.OrderRef),
+			}}
+		}
 		if !proposalDuplicateOrderIsProtective(v, p) {
 			continue
 		}
@@ -2428,28 +2459,13 @@ func (e *proposalEngine) optionExitBrokerOrderBlockers(ctx context.Context, p rp
 	if e == nil || e.server == nil || p.Contract.ConID <= 0 {
 		return block("option_exit_order_evidence_unavailable", "exact-contract broker open-order evidence is unavailable")
 	}
-	binding := e.server.currentProtectionOrderSnapshotBinding()
-	if binding.connector == nil || !brokerScopeConcrete(binding.scope) {
+	snapshot, failure := e.brokerOpenOrderInventory(ctx, forceCurrent)
+	switch failure {
+	case openOrderInventoryUnbound:
 		return block("option_exit_order_evidence_unavailable", "broker open-order authority is not bound to a concrete account session")
-	}
-	var snapshot ibkrlib.OpenOrderSnapshot
-	var err error
-	if forceCurrent {
-		snapshot, err = e.server.snapshotOpenOrdersFrom(ctx, binding.connector)
-	} else {
-		snapshot, err = e.server.protectionSnapshotOpenOrders(ctx, binding)
-	}
-	now := e.clock().UTC()
-	if err != nil || !snapshot.Complete || snapshot.AsOf.IsZero() || snapshot.AsOf.After(now) || now.Sub(snapshot.AsOf.UTC()) > protectionOrderSnapshotMaxAge {
+	case openOrderInventoryUnavailable:
 		return block("option_exit_order_snapshot_unavailable", "complete current all-client API open-order inventory is unavailable")
-	}
-	receipt := binding
-	receipt.session = snapshot.Session
-	receipt.generation = snapshot.Generation
-	if e.server.orderSnapshotFn != nil && receipt.session == (ibkrlib.ConnectorSessionBinding{}) {
-		receipt.session = binding.session
-	}
-	if !e.server.protectionOrderSnapshotBindingCurrent(receipt) {
+	case openOrderInventoryChanged:
 		return block("option_exit_order_snapshot_changed", "broker order session changed during the open-order inventory read")
 	}
 	for _, order := range snapshot.Orders {
@@ -3480,6 +3496,7 @@ func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapsh
 		out.Proposals[i].MarketFlags = append([]rpc.MarketEventFlag(nil), in.Proposals[i].MarketFlags...)
 		out.Proposals[i].Blockers = append([]rpc.TradingBlocker(nil), in.Proposals[i].Blockers...)
 		out.Proposals[i].Budget = cloneProposalBudget(in.Proposals[i].Budget)
+		out.Proposals[i].Covers = append([]rpc.TradeProposalCoverage(nil), in.Proposals[i].Covers...)
 	}
 	out.BudgetReduction = cloneBudgetStatus(in.BudgetReduction)
 	out.Blockers = append([]rpc.TradingBlocker(nil), in.Blockers...)

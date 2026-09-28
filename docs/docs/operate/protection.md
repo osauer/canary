@@ -239,6 +239,48 @@ classifier measures as directional leaves the list and appears as an exit
 review among the proposals. `counts.option_hedges` reports the list size
 separately from the proposal counts.
 
+### One row per contract
+
+Two buckets can ask to sell the same contract. A loss exit and theta hygiene
+both close a near-expiry call deep in loss, and the budget governor and the
+issuer trim can both cut one line. Canary shows one row for each exact
+contract and side, and that row carries every reason under `covers`. Its size
+is the largest single requirement, never the sum: each sale asks to sell at
+least its own quantity now, so the largest meets them all. When sizes tie,
+the Rulebook's exits come first (loss exit, expiry close, profit take), then
+the issuer trim, the budget governor and theta hygiene; the orders are then
+identical. The other rows stay listed, blocked with `covered_by_proposal`,
+and name the covering row in `covered_by`.
+
+Two rules settle the cases where the largest would be wrong (owner decisions,
+2026-09-28):
+
+- An immediate sale goes before a trailing stop, whatever the sizes. The stop
+  is conditional and would hide the sale. It is covered until the sale fills
+  or is cancelled, then re-proposes for what is left.
+- A pre-authorised row is never covered by a row that needs your approval.
+  When it is the smaller one, Canary still places it after its veto window,
+  and the larger row is the one you approve. That row's `covers` lists the
+  automatic row with `automatic: true`.
+
+Once an order works at the broker for the contract and side, every other row
+for it blocks until that order fills or is cancelled, and the rows then
+recompute from the new position:
+
+- Theta hygiene, issuer trims and budget reductions block with
+  `existing_reduction_order` on any same-side order that the broker's complete
+  open-order inventory shows for the exact contract. It does not matter which
+  client placed the order or what type it is. A trailing stop counts too:
+  selling beside a stop would leave the stop larger than the position.
+- They block with `reduction_order_evidence_unavailable` when that inventory
+  is missing or stale, and with `reduction_order_identity_unknown` when a
+  working order may match but carries no contract id.
+- Option exits keep `existing_option_exit_order`.
+- A stock trailing stop also waits, with `existing_reduction_order`, while a
+  sale Canary proposed works for its position.
+
+Preview and submit repeat the check against a fresh broker read.
+
 ## A blocked row is the system working
 
 Every blocker carries a code, a message, and an action line. Under stress the

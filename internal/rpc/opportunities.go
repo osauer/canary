@@ -765,6 +765,28 @@ type TradeProposal struct {
 	// Readiness is served, never persisted: the daemon classifies each row
 	// against its market's session at read time.
 	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
+	// Covers lists the other buckets' rows for this exact contract and side
+	// that this row stands for, each with its own reason, so one proposal
+	// carries every reason. A covered row is served blocked with
+	// covered_by_proposal and names this row in CoveredBy. An entry with
+	// Automatic set is not covered: it is a smaller pre-authorised row that
+	// Canary places itself beside this one, and whichever order works first
+	// blocks the other until it fills.
+	Covers []TradeProposalCoverage `json:"covers,omitempty"`
+	// CoveredBy is the key of the row that covers this one; set only while
+	// this row is blocked with covered_by_proposal.
+	CoveredBy string `json:"covered_by,omitempty"`
+}
+
+// TradeProposalCoverage is another bucket's requirement on the same exact
+// contract and side, as its own row states it.
+type TradeProposalCoverage struct {
+	Bucket    string `json:"bucket"`
+	Key       string `json:"key"`
+	Quantity  int    `json:"quantity"`
+	OrderType string `json:"order_type,omitempty"`
+	Reason    string `json:"reason"`
+	Automatic bool   `json:"automatic,omitempty"`
 }
 
 // AutomaticEligible is the predicate the pre-authorisation scheduler calls
