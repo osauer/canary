@@ -252,6 +252,9 @@ type DataFarmStatus struct {
 	Code    int
 	Message string
 	AsOf    time.Time
+	// impairedSince is when the current break began; repeated break notices
+	// keep it while AsOf follows the latest notice.
+	impairedSince time.Time
 }
 
 // DataFarmStatuses returns a detached snapshot of tracked farm notices.
@@ -1500,11 +1503,47 @@ func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Tim
 	// type "connectivity" and the same forced "tws-server" name, so the
 	// overwrite and its impaired->ok stamp land there.
 	key := dataFarmKey(farm.Type, farm.Name)
-	if prev, had := c.dataFarms[key]; had && farmStatusImpaired(prev.Status) && farm.Status == "ok" {
+	prev, had := c.dataFarms[key]
+	if had && farmStatusImpaired(prev.Status) && farm.Status == "ok" {
 		c.farmRecoveryAt = time.Now()
+	}
+	if farmStatusImpaired(farm.Status) {
+		farm.impairedSince = farm.AsOf
+		if had && farmStatusImpaired(prev.Status) && !prev.impairedSince.IsZero() {
+			farm.impairedSince = prev.impairedSince
+		}
 	}
 	c.dataFarms[key] = farm
 	c.dataFarmMu.Unlock()
+	c.logDataFarmTransition(prev, had, farm)
+}
+
+// logDataFarmTransition warns once when a data farm breaks and once when it
+// recovers. The notices themselves log at INFO, below a WARN-only production
+// log, so a farm that stopped answering left nothing there but the timeouts
+// of the requests it serves. 1100/1101/1102 already warn through the backend
+// link tracker; 2110 is the one connectivity break that did not.
+func (c *Connector) logDataFarmTransition(prev DataFarmStatus, had bool, farm DataFarmStatus) {
+	wasImpaired := had && farmStatusImpaired(prev.Status)
+	label := strings.ReplaceAll(farm.Type, "_", " ") + " data farm " + farm.Name
+	cid := 0
+	if c.config != nil {
+		cid = c.config.PreferredClientID
+	}
+	switch {
+	case farm.Type == "connectivity":
+		if farm.Code == 2110 && !wasImpaired {
+			c.logWarn("[cid=%d] TWS reports its connection to IBKR broken (code 2110)", cid)
+		}
+	case farmStatusImpaired(farm.Status) && !wasImpaired:
+		c.logWarn("[cid=%d] IBKR %s is %s (code %d); requests it serves wait until it recovers", cid, label, farm.Status, farm.Code)
+	case wasImpaired && !farmStatusImpaired(farm.Status):
+		since := prev.impairedSince
+		if since.IsZero() {
+			since = prev.AsOf
+		}
+		c.logWarn("[cid=%d] IBKR %s recovered (%s, code %d) after %s", cid, label, farm.Status, farm.Code, farm.AsOf.Sub(since).Round(time.Second))
+	}
 }
 
 func dataFarmStatusFromNotice(code int, message string, asOf time.Time) (DataFarmStatus, bool) {
