@@ -7408,6 +7408,12 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 		return nil, err
 	}
 	requestedContract := baseContract
+	// The identity this read inherits from the contract cache; a code 200
+	// against it can mean IBKR retired that conID (see refreshRetiredContract).
+	cachedConID := 0
+	if cached := c.cachedContractDetail(symbol); cached != nil {
+		cachedConID = cached.ConID
+	}
 	graceWindow := contractDetailsLateGrace
 	if timeout > 0 {
 		if half := timeout / 2; half > 0 && half < graceWindow {
@@ -7466,6 +7472,52 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 		return nil, fmt.Errorf("contract details unresolved for %s (exchange=%s primary=%s)", symbol, baseContract.Exchange, baseContract.PrimaryExch)
 	}
 
+	bars, err := c.fetchHistoricalDailyAttempts(ctx, symbol, baseContract, primary, lookbackDays, timeout, forceWhatToShow)
+	if err == nil || cachedConID == 0 || baseContract.ConID != cachedConID || !errors.Is(err, ErrContractNoDefinition) {
+		return bars, err
+	}
+	refreshed, ok := c.refreshRetiredContract(symbol, cachedConID, requestedContract, primary, requireConID, min(30*time.Second, timeout))
+	if !ok {
+		return bars, err
+	}
+	retryTimeout, timeoutErr := historicalTimeoutWithinContext(ctx, timeout)
+	if timeoutErr != nil {
+		return bars, err
+	}
+	return c.fetchHistoricalDailyAttempts(ctx, symbol, refreshed, primary, lookbackDays, retryTimeout, forceWhatToShow)
+}
+
+// refreshRetiredContract replaces a cached identity that drew a code 200.
+// IBKR re-lists a security under a new conID after some corporate actions;
+// the cache would otherwise keep the retired conID and draw the same
+// rejection on every read, for good (OKE, conID 10794 to 921971937 in 2026).
+// It reports false when the fresh lookup fails or names the rejected conID
+// again, so the broker's verdict stands.
+func (c *Connector) refreshRetiredContract(symbol string, rejectedConID int, requested Contract, primary string, requireConID bool, timeout time.Duration) (Contract, bool) {
+	c.contractMu.Lock()
+	if cached, ok := c.contractCache[symbol]; ok && cached.ConID == rejectedConID {
+		delete(c.contractCache, symbol)
+	}
+	c.contractMu.Unlock()
+	detail, err := c.ensureContractDetails(symbol, timeout)
+	if err != nil || detail == nil || detail.ConID == rejectedConID {
+		return Contract{}, false
+	}
+	candidate := requested
+	if !c.applyContractDetail(*detail, &candidate) {
+		return Contract{}, false
+	}
+	normalizeEquityRouting(&candidate, primary)
+	if !requireConID && !explicitContractRouteMatches(requested, candidate) {
+		return Contract{}, false
+	}
+	c.logWarn("Contract identity for %s changed (conID %d -> %d); replaced the cached contract", symbol, rejectedConID, detail.ConID)
+	return candidate, true
+}
+
+// fetchHistoricalDailyAttempts reads daily bars for a resolved contract,
+// walking the whatToShow sequence and the primary-exchange route.
+func (c *Connector) fetchHistoricalDailyAttempts(ctx context.Context, symbol string, baseContract Contract, primary string, lookbackDays int, timeout time.Duration, forceWhatToShow string) ([]HistoricalBar, error) {
 	type attempt struct {
 		contract   Contract
 		whatToShow string
