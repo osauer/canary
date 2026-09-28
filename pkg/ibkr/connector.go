@@ -3082,7 +3082,11 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 		contract.PrimaryExch = primary
 	}
 	detailsCh := make(chan ContractDetailsLite, 10)
-	doneCh := make(chan struct{})
+	// The end marker is buffered: it arrives right behind the last detail,
+	// while this waiter may still be handling that detail.
+	doneCh := make(chan struct{}, 1)
+	// stopCh releases the connection reader once nothing drains detailsCh.
+	stopCh := make(chan struct{})
 	serverVersion := c.conn.serverVersion
 	reqID, err := c.conn.nextRequestID()
 	if err != nil {
@@ -3094,7 +3098,10 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 	// Register temporary handlers
 	dataHandlerID := c.conn.RegisterHandler(msgContractData, func(fields []string) {
 		if lite, ok := parseContractDetailsLite(fields, reqID, serverVersion); ok {
-			detailsCh <- *lite
+			select {
+			case detailsCh <- *lite:
+			case <-stopCh:
+			}
 		}
 	})
 
@@ -3117,6 +3124,7 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 	if err := c.conn.sendContractDetailsRequest(contract, reqID); err != nil {
 		c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 		c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+		close(stopCh)
 		return nil, err
 	}
 
@@ -3133,6 +3141,8 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 		case <-doneCh:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+			results = drainQueuedContractDetails(detailsCh, results)
+			close(stopCh)
 			if len(results) == 0 {
 				c.logDebug("Contract details fetch complete reqID=%d symbol=%s (0 rows)", reqID, symbol)
 			} else {
@@ -3152,10 +3162,11 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 		case err := <-req.fail:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+			close(stopCh)
 			c.logDebug("Contract details fetch rejected reqID=%d symbol=%s received=%d: %v", reqID, symbol, len(results), err)
 			return results, err
 		case <-deadline:
-			c.deferContractDetailsCleanup(symbol, reqID, detailsCh, doneCh, dataHandlerID, endHandlerID)
+			c.deferContractDetailsCleanup(symbol, reqID, detailsCh, doneCh, stopCh, dataHandlerID, endHandlerID)
 			c.logDebug("Contract details fetch timeout reqID=%d symbol=%s received=%d", reqID, symbol, len(results))
 			return results, ErrContractDetailsTimeout
 		}
@@ -3203,7 +3214,10 @@ func (c *Connector) fetchContractDetailsForContractWire(contract Contract, key s
 	}
 
 	detailsCh := make(chan ContractDetailsLite, 10)
-	doneCh := make(chan struct{})
+	// Buffered end marker and reader release, as in fetchContractDetailsSymbolWire.
+	doneCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
 	serverVersion := c.conn.serverVersion
 	reqID, err := c.conn.nextRequestID()
 	if err != nil {
@@ -3215,7 +3229,10 @@ func (c *Connector) fetchContractDetailsForContractWire(contract Contract, key s
 
 	dataHandlerID := c.conn.RegisterHandler(msgContractData, func(fields []string) {
 		if lite, ok := parseContractDetailsLite(fields, reqID, serverVersion); ok {
-			detailsCh <- *lite
+			select {
+			case detailsCh <- *lite:
+			case <-stopCh:
+			}
 		}
 	})
 
@@ -3253,6 +3270,7 @@ func (c *Connector) fetchContractDetailsForContractWire(contract Contract, key s
 		case <-doneCh:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
+			results = drainQueuedContractDetails(detailsCh, results)
 			if len(results) > 0 {
 				c.clearInactiveCandidate(key)
 			}
@@ -3379,8 +3397,24 @@ func contractDetailsFlightKey(contract Contract) string {
 // unresponsive gateway still surfaces the failure within one regime
 const contractDetailsLateGrace = 30 * time.Second
 
-func (c *Connector) deferContractDetailsCleanup(symbol string, reqID int, detailsCh <-chan ContractDetailsLite, doneCh <-chan struct{}, dataHandlerID, endHandlerID uint64) {
+// drainQueuedContractDetails appends details the reader queued before the end
+// marker. A select that sees both channels ready may take the marker first.
+func drainQueuedContractDetails(detailsCh <-chan ContractDetailsLite, results []ContractDetailsLite) []ContractDetailsLite {
+	for {
+		select {
+		case d := <-detailsCh:
+			results = append(results, d)
+		default:
+			return results
+		}
+	}
+}
+
+// deferContractDetailsCleanup takes over draining detailsCh after the caller's
+// deadline and closes stopCh once nothing will drain it again.
+func (c *Connector) deferContractDetailsCleanup(symbol string, reqID int, detailsCh <-chan ContractDetailsLite, doneCh <-chan struct{}, stopCh chan<- struct{}, dataHandlerID, endHandlerID uint64) {
 	go func() {
+		defer close(stopCh)
 		timer := time.NewTimer(contractDetailsLateGrace)
 		defer timer.Stop()
 

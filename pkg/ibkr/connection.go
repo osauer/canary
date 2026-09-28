@@ -5957,7 +5957,11 @@ func (c *Connection) fetchOptionContractDetail(ctx context.Context, contract Con
 	}
 
 	detailsCh := make(chan ContractDetailsLite, 8)
-	doneCh := make(chan struct{})
+	// The end marker is buffered so a waiter busy with the last detail still
+	// sees it; stopCh releases the reader instead of dropping queued details.
+	doneCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{})
+	defer close(stopCh)
 
 	serverVersion := c.serverVersion
 	reqID, err := c.nextRequestID()
@@ -5969,7 +5973,7 @@ func (c *Connection) fetchOptionContractDetail(ctx context.Context, contract Con
 		if lite, ok := parseContractDetailsLite(fields, reqID, serverVersion); ok {
 			select {
 			case detailsCh <- *lite:
-			default:
+			case <-stopCh:
 			}
 		}
 	})
@@ -6026,6 +6030,12 @@ func (c *Connection) fetchOptionContractDetail(ctx context.Context, contract Con
 				selected = &d
 			}
 		case <-doneCh:
+			for _, detail := range drainQueuedContractDetails(detailsCh, nil) {
+				if prefer(detail) {
+					d := detail
+					selected = &d
+				}
+			}
 			if selected != nil {
 				return selected, nil
 			}
