@@ -501,8 +501,13 @@ func (e *Engine) execute(ctx context.Context, plan []fetchPlan, windows map[stri
 		if err != nil {
 			errs[item.Symbol] = err
 			failure := RefreshFailureFetch
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			switch {
+			case errors.Is(err, context.Canceled):
 				failure = RefreshFailureCancelled
+			case errors.Is(err, context.DeadlineExceeded):
+				failure = RefreshFailureTimeout
+			case errors.Is(err, ErrGatewayStalled):
+				failure = RefreshFailureTransport
 			}
 			if errors.Is(err, ErrNoDefinition) {
 				e.rememberDefinitionMiss(item.Symbol)

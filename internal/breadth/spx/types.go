@@ -38,6 +38,10 @@ const (
 	RefreshFailureFetch     RefreshFailure = "fetch_failed"
 	RefreshFailurePersist   RefreshFailure = "persist_failed"
 	RefreshFailureCancelled RefreshFailure = "cancelled"
+	// RefreshFailureTimeout marks a fetch that waited out its budget
+	// unanswered. Filing it under cancelled hid a Gateway that had stopped
+	// answering history (2026-09-28).
+	RefreshFailureTimeout RefreshFailure = "timeout"
 	// RefreshFailureTransport marks an attempt the health gate refused or
 	// aborted: the lane or its historical farm was known-dead, so no (or not
 	// every) per-symbol fetch was even tried. Distinct from fetch_failed so a

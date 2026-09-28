@@ -74,6 +74,9 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	if errors.Is(err, ibkrlib.ErrContractNoDefinition) {
 		return nil, spx.ErrNoDefinition
 	}
+	if errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) {
+		return nil, fmt.Errorf("%w: %w", spx.ErrGatewayStalled, err)
+	}
 	if err != nil {
 		return nil, err
 	}

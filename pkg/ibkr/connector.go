@@ -242,6 +242,8 @@ type Connector struct {
 
 	// historicalStall notices a Gateway that holds history requests unanswered.
 	historicalStall historicalStall
+	// answers keeps the answer and timeout clocks behind AnswerPath.
+	answers answerClock
 
 	// pnl owns account and per-contract P&L subscriptions and is never nil.
 	pnl *pnlCache
@@ -710,6 +712,7 @@ type historicalResult struct {
 }
 
 type historicalRequest struct {
+	sentAt                     time.Time
 	maxBars                    int
 	intraday                   bool
 	symbol                     string
@@ -1304,6 +1307,7 @@ func (c *Connector) recoverFromSystemNotice(origin ConnectorSessionBinding, alia
 type contractDetailsRequest struct {
 	resolutionKey string
 	fail          chan error
+	sentAt        time.Time
 }
 
 // registerContractDetailsRequest arms reqID for notice-driven failure and
@@ -1312,6 +1316,7 @@ func (c *Connector) registerContractDetailsRequest(reqID int, resolutionKey stri
 	req := &contractDetailsRequest{
 		resolutionKey: resolutionKey,
 		fail:          make(chan error, 1),
+		sentAt:        time.Now(),
 	}
 	c.contractDetailsMu.Lock()
 	c.contractDetailsReqs[reqID] = req
@@ -3200,16 +3205,19 @@ func (c *Connector) fetchContractDetailsSymbolWire(symbol string, timeout time.D
 				c.logDebug("Contract details fetch success reqID=%d symbol=%s count=%d conID=%d exch=%s primary=%s local=%s class=%s",
 					reqID, symbol, len(results), first.ConID, first.Exchange, first.PrimaryExch, first.LocalSymbol, first.TradingClass)
 			}
+			c.noteContractDetailsOutcome(nil, time.Now())
 			return results, nil
 		case err := <-req.fail:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
 			close(stopCh)
 			c.logDebug("Contract details fetch rejected reqID=%d symbol=%s received=%d: %v", reqID, symbol, len(results), err)
+			c.noteContractDetailsOutcome(err, time.Now())
 			return results, err
 		case <-deadline:
 			c.deferContractDetailsCleanup(symbol, reqID, detailsCh, doneCh, stopCh, dataHandlerID, endHandlerID)
 			c.logDebug("Contract details fetch timeout reqID=%d symbol=%s received=%d", reqID, symbol, len(results))
+			c.noteContractDetailsOutcome(ErrContractDetailsTimeout, time.Now())
 			return results, ErrContractDetailsTimeout
 		}
 	}
@@ -3317,16 +3325,19 @@ func (c *Connector) fetchContractDetailsForContractWire(contract Contract, key s
 				c.clearInactiveCandidate(key)
 			}
 			c.logDebug("Routed contract details fetch complete reqID=%d key=%s count=%d", reqID, key, len(results))
+			c.noteContractDetailsOutcome(nil, time.Now())
 			return results, nil
 		case err := <-req.fail:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
 			c.logDebug("Routed contract details fetch rejected reqID=%d key=%s received=%d: %v", reqID, key, len(results), err)
+			c.noteContractDetailsOutcome(err, time.Now())
 			return results, err
 		case <-deadline:
 			c.conn.UnregisterHandler(msgContractData, dataHandlerID)
 			c.conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
 			c.logDebug("Routed contract details fetch timeout reqID=%d key=%s received=%d", reqID, key, len(results))
+			c.noteContractDetailsOutcome(ErrContractDetailsTimeout, time.Now())
 			return results, ErrContractDetailsTimeout
 		}
 	}
@@ -6625,6 +6636,7 @@ type historicalRequestOptions struct {
 
 func (c *Connector) createHistoricalRequestWithOptions(reqID int, symbol string, options historicalRequestOptions) *historicalRequest {
 	req := &historicalRequest{
+		sentAt:   time.Now(),
 		intraday: options.chartBarSize != "" && options.chartBarSize != "1 day", symbol: symbol,
 		result:                     make(chan historicalResult, 1),
 		strictDaily:                options.strictDaily,

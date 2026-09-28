@@ -423,6 +423,9 @@ type Server struct {
 	// previewSessionAt replaces the official calendar behind the preview
 	// session gate and proposal readiness; nil reads marketcal.
 	previewSessionAt func(marketcal.Market, time.Time) (marketcal.Session, error)
+	// answerPath remembers, per connection lane, when a history stall was
+	// last redialled.
+	answerPath answerPathSupervisor
 	// orderPreview* hooks let tests exercise the full preview gate/token path
 	orderPreviewQuote            func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
 	orderPreviewPositionImpact   func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
@@ -1355,6 +1358,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startDataHealthChecks(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
 	go s.runAccountPnLAuthorityLoop(serverCtx)
+	go s.runAnswerPathSupervisor(serverCtx)
 	go s.acceptLoop(ctx, s.listener)
 	if s.initialAcceptLoopStartedForTest != nil {
 		s.initialAcceptLoopStartedForTest()

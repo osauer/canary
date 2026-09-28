@@ -346,6 +346,20 @@ is no external metrics stack and no tracing.
   longest outage), and the daemon's log coalesces flap bursts into
   episode-level lines instead of one warning per blip. It ends in
   one verdict: ready, attention, offline, or starting.
+- A connected session counts as alive only while the Gateway answers: the
+  heartbeat is kept by received frames, never by a successful send, so a
+  Gateway that accepts requests and answers none loses the session after two
+  heartbeat intervals and the daemon redials it. `status.health.answer_path`
+  reports each broker connection (`primary`, and `breadth` once the bulk
+  history client exists): requests in flight and the oldest one's send time,
+  the last answer, timeouts in the past 15 minutes, the pacing queue, and a
+  state of `answering`, `stalled` or `no_session`. A connection whose Gateway
+  holds history requests unanswered is `stalled`; after ten stalled minutes
+  the daemon drops the session so it is redialled (`redial_due`,
+  `redialed_at`), at most once an hour per connection and never while a broker
+  write holds the write lock. A stall that outlasts that redial is logged once
+  as needing a Gateway restart. Breadth fetches that wait out their budget
+  count as `timeout`, not `cancelled`.
 - `status.health.gateway_restart` adds diagnostic context for an operator-declared
   local Gateway restart. Configure `[gateway] restart_time = "23:45"`,
   `restart_timezone` with the Gateway's confirmed IANA zone, and optionally

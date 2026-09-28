@@ -15,6 +15,7 @@ func TestBreadthRefreshFailureMirrorsSPXValues(t *testing.T) {
 		rpc.BreadthRefreshFailureFetch:     spx.RefreshFailureFetch,
 		rpc.BreadthRefreshFailurePersist:   spx.RefreshFailurePersist,
 		rpc.BreadthRefreshFailureCancelled: spx.RefreshFailureCancelled,
+		rpc.BreadthRefreshFailureTimeout:   spx.RefreshFailureTimeout,
 		rpc.BreadthRefreshFailureTransport: spx.RefreshFailureTransport,
 	}
 	for wire, engine := range pairs {

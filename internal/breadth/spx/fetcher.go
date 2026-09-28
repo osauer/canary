@@ -14,6 +14,11 @@ import (
 // change within one, and asking again on every retry pass only repeats it.
 var ErrNoDefinition = errors.New("no security definition (skipped until the next session)")
 
+// ErrGatewayStalled is returned by a BarFetcher that refused a fetch before
+// the wire because the Gateway has stopped answering history on its session.
+// The engine books it as a transport failure, not a coverage verdict.
+var ErrGatewayStalled = errors.New("the Gateway is not answering historical data requests")
+
 // Bar is a dated daily close and optional reported share volume. ObservedAt
 // records acquisition here, never a historical publication time.
 type Bar struct {

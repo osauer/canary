@@ -94,6 +94,11 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	if restart := res.GatewayRestart; restart != nil && restart.Source == "operator" {
 		statusRow(env, out, "GW restart", restart.Time+" "+restart.Timezone+" · "+restart.State+" · "+restart.Reason)
 	}
+	for _, lane := range res.AnswerPath {
+		if lane.State == rpc.AnswerPathStalled {
+			statusRow(env, out, "Answers", env.yellow(formatStalledAnswerPath(lane)))
+		}
+	}
 	if len(res.BackgroundTasks) > 0 {
 		statusRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
 	}
@@ -512,6 +517,19 @@ func formatDaemonValue(res rpc.HealthResult) string {
 		return nonEmpty(res.DaemonVersion, "unknown") + ", just started"
 	}
 	return fmt.Sprintf("%s, up %s", nonEmpty(res.DaemonVersion, "unknown"), uptime)
+}
+
+// formatStalledAnswerPath names a connection whose Gateway holds history
+// unanswered, in local time.
+func formatStalledAnswerPath(lane rpc.ConnectionAnswerPath) string {
+	value := lane.Lane + " connection answers no history since " + lane.StalledSince.Local().Format("15:04")
+	switch {
+	case !lane.RedialDue.IsZero():
+		value += " · redial at " + lane.RedialDue.Local().Format("15:04")
+	case !lane.RedialedAt.IsZero():
+		value += " · redialled at " + lane.RedialedAt.Local().Format("15:04") + "; restart the Gateway"
+	}
+	return value
 }
 
 func formatBackendLinkValue(link rpc.BackendLinkHealth) string {

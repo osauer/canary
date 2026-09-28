@@ -69,6 +69,7 @@ func (c *Connector) admitHistoricalRequest(epoch uint64, now time.Time) error {
 // noteHistoricalAnswer records any broker answer to a history request: bars,
 // an end marker, or a broker error such as a pacing refusal.
 func (c *Connector) noteHistoricalAnswer(epoch uint64, now time.Time) {
+	c.answers.noteAnswer(now)
 	s := &c.historicalStall
 	s.mu.Lock()
 	s.resetForEpochLocked(epoch)
@@ -83,6 +84,7 @@ func (c *Connector) noteHistoricalAnswer(epoch uint64, now time.Time) {
 // noteHistoricalTimeout records a sent history request that waited out its
 // budget without any answer.
 func (c *Connector) noteHistoricalTimeout(epoch uint64, waited time.Duration, now time.Time) {
+	c.answers.noteTimeout(now)
 	if waited < historicalStallMinWait {
 		return
 	}

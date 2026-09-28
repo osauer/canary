@@ -465,6 +465,9 @@ const (
 	BreadthRefreshFailureFetch     BreadthRefreshFailure = "fetch_failed"
 	BreadthRefreshFailurePersist   BreadthRefreshFailure = "persist_failed"
 	BreadthRefreshFailureCancelled BreadthRefreshFailure = "cancelled"
+	// BreadthRefreshFailureTimeout marks a fetch that waited out its budget
+	// unanswered.
+	BreadthRefreshFailureTimeout BreadthRefreshFailure = "timeout"
 	// BreadthRefreshFailureTransport marks an attempt refused or aborted by
 	// the engine's transport gate (bulk lane down, historical farm broken):
 	// the universe was not swept, so the failure is not a coverage verdict.
@@ -2382,9 +2385,12 @@ type HealthResult struct {
 	// BackgroundTasks lists daemon-internal long-running computes that
 	// is active. Always present on the wire (never omitted) so
 	BackgroundTasks []BackgroundTaskStatus `json:"background_tasks"`
-	Subsystems      []SubsystemHealth      `json:"subsystems,omitempty"`
-	DataQuality     []DataQualityHealth    `json:"data_quality,omitempty"`
-	DataFarms       []DataFarmHealth       `json:"data_farms,omitempty"`
+	// AnswerPath reports, per broker connection, whether the Gateway answers
+	// what the connection asks.
+	AnswerPath  []ConnectionAnswerPath `json:"answer_path,omitempty"`
+	Subsystems  []SubsystemHealth      `json:"subsystems,omitempty"`
+	DataQuality []DataQualityHealth    `json:"data_quality,omitempty"`
+	DataFarms   []DataFarmHealth       `json:"data_farms,omitempty"`
 	// MarketDataAccess lists route keys the gateway is currently refusing
 	// market data for. Empty is the normal case and the only claim absence
 	MarketDataAccess []MarketDataAccessHealth `json:"market_data_access,omitempty"`

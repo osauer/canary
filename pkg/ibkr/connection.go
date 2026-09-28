@@ -1197,20 +1197,22 @@ func (c *Connection) heartbeatMonitor() {
 				continue
 			}
 
-			// Check if heartbeat is stale (no response for 2x interval)
-			if time.Since(lastHeartbeat) > c.config.HeartbeatInterval*2 {
-				connectLogger.Warnf("Heartbeat timeout (Client ID: %d)", c.config.ClientID)
-				c.handleDisconnection(fmt.Errorf("heartbeat timeout"))
+			// Liveness is an answer, never a send: the reader loop records
+			// every frame this socket receives, the reply to the request
+			// below included. A Gateway that accepts requests and answers
+			// none therefore goes stale here within two intervals and is
+			// redialled; counting a successful send as liveness had kept such
+			// a session "connected" indefinitely.
+			if silent := time.Since(lastHeartbeat); silent >= c.config.HeartbeatInterval*2 {
+				connectLogger.Warnf("Heartbeat timeout: the Gateway answered nothing for %s (Client ID: %d)", silent.Round(time.Second), c.config.ClientID)
+				c.handleDisconnection(fmt.Errorf("heartbeat timeout: no answer for %s", silent.Round(time.Second)))
 				return
 			}
 
-			// Send heartbeat request to IBKR
+			// Send heartbeat request to IBKR. A failed send is left to the
+			// answer timeout above.
 			if err := c.RequestCurrentTime(); err != nil {
 				connectLogger.Warnf("Failed to send heartbeat: %v", err)
-				// Don't disconnect immediately on heartbeat failure,
-				// let the timeout mechanism handle it
-			} else {
-				c.lastHeartbeatNano.Store(time.Now().UnixNano())
 			}
 		}
 	}

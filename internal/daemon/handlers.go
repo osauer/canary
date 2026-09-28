@@ -3410,6 +3410,7 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	// BackgroundTasks lists daemon-internal long-running computes
 	// contention message ride, so the three surfaces never diverge.
 	res.BackgroundTasks = s.backgroundTasks()
+	res.AnswerPath = s.answerPaths(s.orderNow())
 	res.Subsystems = s.subsystemHealth(res.Connected, farmStatuses)
 	res.DataQuality = s.statusDataQuality()
 	res.Members = s.membersHealth()
@@ -3566,6 +3567,15 @@ func (s *Server) breadthSubsystemHealth(gatewayStatus string) rpc.SubsystemHealt
 			}
 			sub.LastError = "breadth_hmds_farm_impaired"
 			sub.LastErrorAt = farm.AsOf
+			return sub
+		}
+		// The breadth connection keeps its own history stall; no farm notice
+		// reports a Gateway that holds its requests unanswered.
+		if since, stalled := lane.HistoricalServiceStalled(); stalled {
+			sub.Status = "degraded"
+			sub.Message = fmt.Sprintf("the Gateway has answered no historical data on the breadth connection since %s; the connection is redialled after %s", since.Format(time.TimeOnly), answerPathRedialAfter)
+			sub.LastError = "gateway_history_stalled"
+			sub.LastErrorAt = since
 			return sub
 		}
 	}
