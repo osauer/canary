@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -82,6 +83,10 @@ const (
 	queuedEventExpired         = "queued_auth.expired"
 	queuedEventFailed          = "queued_auth.failed"
 	queuedEventRecovered       = "queued_auth.recovered"
+	// queuedEventCancelRequested journals an owner cancel that arrived while
+	// the order was being placed; the record ends cancelled if the attempt
+	// proves unsent.
+	queuedEventCancelRequested = "queued_auth.cancel_requested"
 )
 
 // Why a record was cancelled, expired or failed. A blocker the executor does
@@ -100,6 +105,10 @@ const (
 	queuedReasonSendRefused       = "send_refused"
 	queuedReasonSendUnclear       = "send_outcome_unclear"
 	queuedReasonRestartBeforeSend = "restart_before_send"
+	// queuedReasonRecordUnreadable ends a record this build cannot fully
+	// read: a field, version, style or state it does not know, or terms that
+	// no longer hash to their digest.
+	queuedReasonRecordUnreadable = "record_unreadable"
 )
 
 // What a held record waits for, beside the readiness codes it shares:
@@ -158,6 +167,57 @@ type queuedAuthRecord struct {
 	ReasonCode   string    `json:"reason_code,omitempty"`
 	Reason       string    `json:"reason,omitempty"`
 	CancelOrigin string    `json:"cancel_origin,omitempty"`
+	// CancelRequested is an owner cancel that arrived while the order was
+	// being placed: an attempt that proves unsent ends cancelled.
+	CancelRequested bool `json:"cancel_requested,omitempty"`
+
+	// problem names why this build cannot execute the record as loaded; it
+	// is never persisted, and the executor ends such a record first.
+	problem string
+}
+
+// queuedKnownStates are the states this build reads.
+var queuedKnownStates = []string{rpc.QueuedAuthPrepared, rpc.QueuedAuthArmed, rpc.QueuedAuthHeld, rpc.QueuedAuthSending,
+	rpc.QueuedAuthSent, rpc.QueuedAuthFilled, rpc.QueuedAuthPartiallyFilled, rpc.QueuedAuthExpiredUnfilled,
+	rpc.QueuedAuthCancelled, rpc.QueuedAuthExpired, rpc.QueuedAuthFailed}
+
+// queuedRecordProblem names why this build cannot execute a record, or "":
+// a version, state, style or TIF it does not know, or terms that no longer
+// hash to their digest.
+func queuedRecordProblem(rec queuedAuthRecord) string {
+	switch {
+	case rec.problem != "":
+		return rec.problem
+	case rec.Version != queuedDocumentVersion || rec.Terms.Version != queuedTermsVersion:
+		return "the stored record has a version this build of Canary does not know"
+	case !slices.Contains(queuedKnownStates, rec.State):
+		return "the stored record is in a state this build of Canary does not know"
+	case rec.Terms.Style != rpc.QueuedAuthStyleBoundedLimit || rec.Terms.TIF != rpc.OrderTIFDay:
+		return "the stored record has an order style this build of Canary does not execute"
+	}
+	if digest, err := queuedTermsDigest(rec.Terms); err != nil || digest != rec.TermsDigest {
+		return "the stored terms no longer match their digest"
+	}
+	return ""
+}
+
+// decodeQueuedRecord reads one stored record strictly. A record with a field
+// this build does not know still loads, with the problem named, so the
+// executor ends it instead of sending terms it cannot fully read.
+func decodeQueuedRecord(raw json.RawMessage) (queuedAuthRecord, error) {
+	var rec queuedAuthRecord
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&rec); err == nil {
+		rec.problem = queuedRecordProblem(rec)
+		return rec, nil
+	}
+	var loose queuedAuthRecord
+	if err := json.Unmarshal(raw, &loose); err != nil {
+		return loose, err
+	}
+	loose.problem = "the stored record carries fields this build of Canary does not know"
+	return loose, nil
 }
 
 func (r queuedAuthRecord) scope() brokerStateScope {
@@ -192,6 +252,7 @@ func (r queuedAuthRecord) view() rpc.QueuedAuth {
 		SendingAt: r.SendingAt, SentAt: r.SentAt, Late: r.Late, PreviewTokenID: r.PreviewTokenID, OrderRef: r.OrderRef,
 		PermID: r.PermID, QuantitySent: r.QuantitySent, LimitPrice: r.LimitPrice, FilledQuantity: r.FilledQuantity,
 		AvgFillPrice: r.AvgFillPrice, ResolvedAt: r.ResolvedAt, ReasonCode: r.ReasonCode, Reason: r.Reason, CancelOrigin: r.CancelOrigin,
+		CancelRequested: r.CancelRequested,
 	}
 	if r.SendQuote != nil {
 		q := *r.SendQuote
@@ -306,13 +367,15 @@ func (s *queuedAuthStore) bindCore(ctx context.Context, core *corestore.Store) e
 	records := map[string]*queuedAuthRecord{}
 	var revision int64
 	if ok {
-		var parsed queuedAuthDocument
+		var parsed struct {
+			Records []json.RawMessage `json:"records"`
+		}
 		if err := json.Unmarshal(doc.JSON, &parsed); err != nil {
 			return fmt.Errorf("decode queued authorisation state: %w", err)
 		}
-		for i := range parsed.Records {
-			rec := parsed.Records[i]
-			if strings.TrimSpace(rec.Terms.QueueID) == "" || strings.TrimSpace(rec.Terms.Key) == "" {
+		for _, raw := range parsed.Records {
+			rec, err := decodeQueuedRecord(raw)
+			if err != nil || strings.TrimSpace(rec.Terms.QueueID) == "" || strings.TrimSpace(rec.Terms.Key) == "" {
 				return errors.New("queued authorisation state is malformed")
 			}
 			records[rec.Terms.QueueID] = &rec
@@ -650,10 +713,16 @@ func queuedSpreadLimit(policy protectionPolicy, prop rpc.TradeProposal) float64 
 // automaticIntentBlockers refuses a queue while the pre-authorised scheduler
 // may place an order for the same row or the same contract and side.
 func (e *proposalEngine) automaticIntentBlockers(prop rpc.TradeProposal, scope brokerStateScope) []rpc.TradingBlocker {
+	return e.automaticIntentBlockersFor(prop.Key, sameContractSide(prop), scope)
+}
+
+// automaticIntentBlockersFor is automaticIntentBlockers for a key and a
+// contract side; arm re-checks it for the record it arms. It reads the
+// automatic store, so it is never called inside a queued-store update.
+func (e *proposalEngine) automaticIntentBlockersFor(key, side string, scope brokerStateScope) []rpc.TradingBlocker {
 	if e == nil || !e.automatic.attached() {
 		return nil
 	}
-	side := sameContractSide(prop)
 	served := map[string]rpc.TradeProposal{}
 	for _, row := range e.Snapshot(false).Proposals {
 		served[row.Key] = row
@@ -663,7 +732,7 @@ func (e *proposalEngine) automaticIntentBlockers(prop rpc.TradeProposal, scope b
 			continue
 		}
 		row, ok := served[rec.Key]
-		if rec.Key == prop.Key || ok && sameContractSide(row) == side {
+		if rec.Key == key || ok && side != "" && sameContractSide(row) == side {
 			return []rpc.TradingBlocker{{Code: "automatic_submission_pending", Message: "Canary's pre-authorised protection may place an order for this contract; nothing is queued beside it",
 				Action: "Veto the automatic submission first if you want to queue this row instead."}}
 		}
@@ -671,9 +740,20 @@ func (e *proposalEngine) automaticIntentBlockers(prop rpc.TradeProposal, scope b
 	return nil
 }
 
+// queuedIntentExistsCode refuses a second intent beside a live queued
+// authorisation for the same contract and side.
+const queuedIntentExistsCode = "queued_intent_exists"
+
 func queuedIntentExistsBlocker(key string) []rpc.TradingBlocker {
-	return []rpc.TradingBlocker{{Code: "queued_intent_exists", Message: fmt.Sprintf("an armed queued authorisation (%s) already covers this contract and side", key),
+	return []rpc.TradingBlocker{{Code: queuedIntentExistsCode, Message: fmt.Sprintf("an armed queued authorisation (%s) already covers this contract and side", key),
 		Action: "Cancel the queued authorisation first to queue a different one."}}
+}
+
+// queuedOrderWorkingBlocker refuses a queue while a queued order for the same
+// contract and side still works at the broker.
+func queuedOrderWorkingBlocker(key string) []rpc.TradingBlocker {
+	return []rpc.TradingBlocker{{Code: "queued_order_working", Message: fmt.Sprintf("a queued order (%s) for this contract and side is working at the broker", key),
+		Action: "Wait until it fills or ends, or cancel it at the broker first."}}
 }
 
 // QueuePrepare fixes the terms of a queued authorisation for one row and
@@ -693,6 +773,9 @@ func (e *proposalEngine) QueuePrepare(ctx context.Context, p rpc.TradeProposalQu
 		}
 		e.recordDecision(d)
 	}()
+	if p.Quantity < 0 {
+		return out, errBadRequest("queue prepare quantity must not be negative")
+	}
 	if !e.queued.attached() {
 		out.Blockers = preparedBlocker("queue_unavailable", "Queued authorisations are unavailable: the daemon state store is not attached.")
 		return out, nil
@@ -758,6 +841,10 @@ func (e *proposalEngine) QueuePrepare(ctx context.Context, p rpc.TradeProposalQu
 			}
 			if other.liveIntent() {
 				refused = queuedIntentExistsBlocker(other.Terms.Key)
+				return nil
+			}
+			if other.State == rpc.QueuedAuthSent {
+				refused = queuedOrderWorkingBlocker(other.Terms.Key)
 				return nil
 			}
 			if other.State == rpc.QueuedAuthPrepared {
@@ -829,9 +916,8 @@ func (e *proposalEngine) QueueArm(ctx context.Context, p rpc.TradeProposalQueueA
 	}
 	view := rec.view()
 	out.Queue = &view
-	stored, digestErr := queuedTermsDigest(rec.Terms)
-	if digestErr != nil || stored != rec.TermsDigest {
-		return block("queued_record_invalid", "The stored terms no longer match their digest; nothing was armed.")
+	if problem := queuedRecordProblem(rec); problem != "" {
+		return block("queued_record_invalid", "This queued authorisation cannot be armed: "+problem+"; nothing was armed.")
 	}
 	signed := strings.ToLower(strings.TrimSpace(p.TermsDigest))
 	if subtle.ConstantTimeCompare([]byte(signed), []byte(rec.TermsDigest)) != 1 {
@@ -855,6 +941,14 @@ func (e *proposalEngine) QueueArm(ctx context.Context, p rpc.TradeProposalQueueA
 	if !brokerScopeConcrete(scope) || !sameBrokerScope(scope, rec.scope()) {
 		return block("queued_scope_mismatch", "The connected account or paper/live mode differs from the one the queue was prepared for.")
 	}
+	// The pre-authorised scheduler may have created a record for this row or
+	// its contract and side since prepare. Checked before the queued-store
+	// update, never inside it (lock order); the submit gates refuse the
+	// scheduler's send while this record is live.
+	if blockers := e.automaticIntentBlockersFor(rec.Terms.Key, rec.ContractSide, scope); len(blockers) > 0 {
+		out.Blockers = blockers
+		return out, nil
+	}
 	// The settling baseline: hand orders working now never hold the send;
 	// one placed or modified after the arm does.
 	book := e.automaticSettlingBook(ctx, scope, false)
@@ -866,8 +960,15 @@ func (e *proposalEngine) QueueArm(ctx context.Context, p rpc.TradeProposalQueueA
 			return nil
 		}
 		for _, other := range records {
-			if other != r && other.liveIntent() && other.ContractSide == r.ContractSide && sameBrokerScope(other.scope(), r.scope()) {
+			if other == r || other.ContractSide != r.ContractSide || !sameBrokerScope(other.scope(), r.scope()) {
+				continue
+			}
+			switch {
+			case other.liveIntent():
 				refused = queuedIntentExistsBlocker(other.Terms.Key)
+				return nil
+			case other.State == rpc.QueuedAuthSent:
+				refused = queuedOrderWorkingBlocker(other.Terms.Key)
 				return nil
 			}
 		}
@@ -933,7 +1034,7 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 	}
 	origin := normalizedWriteOrigin(p.Origin)
 	reason := nonEmptyString(boundedQueuedReason(strings.TrimSpace(p.Reason)), "cancelled by the owner")
-	var cancelled []queuedAuthRecord
+	var cancelled, inFlight []queuedAuthRecord
 	var single *queuedAuthRecord
 	err = e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
 		var events []queuedAuthEvent
@@ -944,6 +1045,26 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 			if !p.All {
 				copied := *r
 				single = &copied
+			}
+			switch r.State {
+			case rpc.QueuedAuthSending:
+				// The order is being placed now. The request is kept: an
+				// attempt that proves unsent ends cancelled, never waits again.
+				if !r.CancelRequested {
+					r.CancelRequested, r.CancelOrigin = true, origin
+					ev := r.note(queuedEventCancelRequested, r.State, now)
+					ev.Origin, ev.Reason = origin, reason
+					events = append(events, ev)
+				}
+				inFlight = append(inFlight, *r)
+				if !p.All {
+					copied := *r
+					single = &copied
+				}
+				continue
+			case rpc.QueuedAuthSent:
+				inFlight = append(inFlight, *r)
+				continue
 			}
 			if r.State != rpc.QueuedAuthPrepared && !r.waiting() {
 				continue
@@ -965,12 +1086,19 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 		return out, nil
 	}
 	slices.SortFunc(cancelled, compareQueuedRecords)
+	slices.SortFunc(inFlight, compareQueuedRecords)
 	for _, r := range cancelled {
 		out.Queues = append(out.Queues, r.view())
+	}
+	for _, r := range inFlight {
+		out.InFlight = append(out.InFlight, r.view())
 	}
 	if p.All {
 		out.Accepted = true
 		out.Message = fmt.Sprintf("cancelled %d queued authorisation(s) not yet sent", len(cancelled))
+		if len(inFlight) > 0 {
+			out.Message += fmt.Sprintf("; %d could not be cancelled here: being placed now (the cancel is kept, so an unsent attempt ends cancelled) or sent and working at the broker (cancel those with `canary order cancel`)", len(inFlight))
+		}
 		return out, nil
 	}
 	if single == nil {
@@ -983,13 +1111,47 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 	case len(cancelled) == 1:
 		out.Accepted, out.Message = true, "cancelled; nothing will be sent"
 	case single.State == rpc.QueuedAuthSending:
-		out.Blockers = preparedBlocker("queued_sending", "The order is being placed now; cancel it through the orders surface once it is journaled.")
+		out.Blockers = preparedBlocker("queued_sending", "The order is being placed now. The cancel is kept: if the attempt did not reach the broker, the record ends cancelled and is never retried; if it did, cancel the order at the broker once it is journaled.")
 	case single.State == rpc.QueuedAuthSent:
 		out.Blockers = preparedBlocker("queued_sent", fmt.Sprintf("The order is at the broker; cancel it with `canary order cancel %s`.", single.OrderRef))
 	default:
 		out.Accepted, out.Message = true, "already "+single.State+"; nothing will be sent"
 	}
 	return out, nil
+}
+
+// decorateQueued names, on each served row, the queued authorisation for its
+// exact contract and side in the snapshot's account and mode: armed, held or
+// sending, or sent until its order resolves. It is read at serve time, like
+// decorateAutomatic.
+func (e *proposalEngine) decorateQueued(snap *rpc.TradeProposalSnapshot) {
+	if e == nil || snap == nil || !e.queued.attached() {
+		return
+	}
+	scope := brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}
+	if !brokerScopeConcrete(scope) {
+		return
+	}
+	marks := map[string]rpc.TradeProposalQueued{}
+	for _, rec := range e.queued.list() {
+		live := rec.liveIntent()
+		if !live && rec.State != rpc.QueuedAuthSent || rec.ContractSide == "" || !sameBrokerScope(rec.scope(), scope) {
+			continue
+		}
+		if prior, ok := marks[rec.ContractSide]; ok && prior.State != rpc.QueuedAuthSent && !live {
+			continue
+		}
+		marks[rec.ContractSide] = rpc.TradeProposalQueued{QueueID: rec.Terms.QueueID, Key: rec.Terms.Key, State: rec.State,
+			NotBefore: rec.Terms.NotBefore, NotAfter: rec.Terms.NotAfter}
+	}
+	if len(marks) == 0 {
+		return
+	}
+	for i := range snap.Proposals {
+		if mark, ok := marks[sameContractSide(snap.Proposals[i])]; ok {
+			snap.Proposals[i].Queued = &mark
+		}
+	}
 }
 
 // QueueList lists the retained records, newest first, without references.

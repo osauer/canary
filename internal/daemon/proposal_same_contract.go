@@ -512,7 +512,10 @@ func (e *proposalEngine) liveIntentFor(contractSide string) (string, bool) {
 }
 
 // liveIntentBlockers blocks a row while another row's authorised intent for
-// the same contract and side waits to reach the broker.
+// the same contract and side waits to reach the broker. Row generation
+// exempts the intent's own key so the queued executor still finds its row;
+// the submit gates refuse the own key too unless the caller is the executor
+// sending that record (queuedIntentGateBlockers).
 func (e *proposalEngine) liveIntentBlockers(p rpc.TradeProposal) []rpc.TradingBlocker {
 	side := sameContractSide(p)
 	if side == "" {

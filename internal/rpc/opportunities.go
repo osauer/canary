@@ -769,6 +769,10 @@ type TradeProposal struct {
 	// Readiness is served, never persisted: the daemon classifies each row
 	// against its market's session at read time.
 	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
+	// Queued is served, never persisted: the live queued authorisation for
+	// this row's contract and side, read at serve time. Surfaces keep such a
+	// row out of approvals; only the queued executor may send it.
+	Queued *TradeProposalQueued `json:"queued,omitempty"`
 	// Covers lists the other buckets' rows for this exact contract and side
 	// that this row stands for, each with its own reason, so one proposal
 	// carries every reason. A covered row is served blocked with

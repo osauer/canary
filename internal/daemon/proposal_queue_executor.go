@@ -30,6 +30,14 @@ const (
 	queuedHoldSessionReason     = "the regular session is not open"
 	queuedMinWake               = time.Second
 	queuedIntentNotStagedReason = "the send intent could not be persisted; nothing was sent"
+	// queuedSendingStale is how long a record may stay sending in this
+	// process before its outcome write is taken as lost and the order journal
+	// decides, as after a restart. The executor sends synchronously, so
+	// nothing is in flight between cycles.
+	queuedSendingStale = queuedSubmitTimeout + time.Minute
+	// queuedHoldConfigPaused holds sends while config.toml runs parts of the
+	// automation sections on Canary's defaults (owner decision #42).
+	queuedHoldConfigPaused = "config_automation_paused"
 )
 
 // queuedWriteGrant is the request-scoped fact the broker-write gate checks
@@ -101,6 +109,7 @@ func (e *proposalEngine) runQueuedCycle(ctx context.Context) {
 	if e == nil || !e.queued.attached() || ctx == nil || ctx.Err() != nil {
 		return
 	}
+	e.endUnreadableQueued(ctx)
 	e.recoverQueuedAfterRestart(ctx)
 	e.expireQueued(ctx)
 	e.followQueuedSent(ctx)
@@ -257,16 +266,59 @@ func queuedOrderEnd(v rpc.OrderView) string {
 	return v.LifecycleStatus
 }
 
+// endUnreadableQueued ends the records this build cannot fully read
+// (queuedRecordProblem) before anything else runs: an unsent one is
+// cancelled, and one caught sending, sent or in an unknown state fails for
+// the owner to confirm against the order journal. None is ever sent.
+func (e *proposalEngine) endUnreadableQueued(ctx context.Context) {
+	now := e.clock()
+	var ended []queuedAuthRecord
+	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		var events []queuedAuthEvent
+		for _, r := range records {
+			problem := queuedRecordProblem(*r)
+			if problem == "" || r.final() && slices.Contains(queuedKnownStates, r.State) {
+				continue
+			}
+			r.problem = ""
+			var ev queuedAuthEvent
+			switch r.State {
+			case rpc.QueuedAuthPrepared, rpc.QueuedAuthArmed, rpc.QueuedAuthHeld:
+				ev = r.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonRecordUnreadable, problem+"; nothing was sent", now)
+			case rpc.QueuedAuthSent:
+				ev = r.resolve(queuedEventFailed, rpc.QueuedAuthFailed, queuedReasonRecordUnreadable, problem+"; the order reached the broker, so follow it in the order journal", now)
+			default:
+				ev = r.resolve(queuedEventFailed, rpc.QueuedAuthFailed, queuedReasonRecordUnreadable, problem+"; confirm against the order journal and broker statements; not resent", now)
+			}
+			ev.ExecutorTickAt = now
+			events = append(events, ev)
+			ended = append(ended, *r)
+		}
+		return events
+	})
+	if err != nil {
+		e.server.warnf("queued authorisations: ending unreadable records: %v", err)
+		return
+	}
+	for _, r := range ended {
+		e.server.warnf("queued authorisation %s for %s ended unreadable: %s", r.Terms.QueueID, r.Terms.Key, r.Reason)
+		e.recordQueuedOutcome(r, r.State, r.ReasonCode, r.Reason)
+	}
+}
+
 // recoverQueuedAfterRestart resolves records a previous process left in
 // sending. The intent was persisted before the broker call and the order
 // journal stages its send attempt before the first frame, so the journal
 // decides: a journaled send is sent, a staged attempt without an outcome is
 // unclear and never resent, and no trace at all proves nothing went out, so
-// the record waits again for a send inside its window.
+// the record waits again for a send inside its window, or ends cancelled if
+// the owner cancelled it meanwhile. A record this process left sending
+// because its outcome write failed is resolved the same way once stale.
 func (e *proposalEngine) recoverQueuedAfterRestart(ctx context.Context) {
 	var stuck []queuedAuthRecord
+	now := e.clock()
 	for _, rec := range e.queued.list() {
-		if rec.State == rpc.QueuedAuthSending && rec.SendingAt.Before(e.startedAt) {
+		if rec.State == rpc.QueuedAuthSending && (rec.SendingAt.Before(e.startedAt) || now.Sub(rec.SendingAt) > queuedSendingStale) {
 			stuck = append(stuck, rec)
 		}
 	}
@@ -278,7 +330,6 @@ func (e *proposalEngine) recoverQueuedAfterRestart(ctx context.Context) {
 		e.server.warnf("queued authorisations: restart recovery cannot read the order journal: %v", err)
 		return
 	}
-	now := e.clock()
 	var recovered []queuedAuthRecord
 	err = e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
 		var events []queuedAuthEvent
@@ -291,18 +342,24 @@ func (e *proposalEngine) recoverQueuedAfterRestart(ctx context.Context) {
 			if orderRef != "" {
 				r.OrderRef = orderRef
 			}
+			across := "across the restart"
+			if !r.SendingAt.Before(e.startedAt) {
+				across = "because its outcome was not recorded"
+			}
 			var ev queuedAuthEvent
-			switch outcome {
-			case orderSendReached:
+			switch {
+			case outcome == orderSendReached:
 				r.SentAt = now
 				ev = r.transition(queuedEventRecovered, rpc.QueuedAuthSent, now)
-				ev.Reason = "the order reached the broker before the daemon restarted; confirmed from the order journal"
-			case orderSendUnclear:
-				ev = r.resolve(queuedEventRecovered, rpc.QueuedAuthFailed, queuedReasonSendUnclear, "the broker send outcome is unknown across the restart; confirm against the order journal and broker statements; not resent", now)
+				ev.Reason = "the order reached the broker; confirmed from the order journal " + across
+			case outcome == orderSendUnclear:
+				ev = r.resolve(queuedEventRecovered, rpc.QueuedAuthFailed, queuedReasonSendUnclear, "the broker send outcome is unknown "+across+"; confirm against the order journal and broker statements; not resent", now)
+			case r.CancelRequested:
+				ev = r.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonOwnerCancelled, "cancelled by the owner while the order was being placed; the order journal shows the attempt never reached the broker, so nothing was sent", now)
 			default:
 				r.SendingAt, r.PreviewTokenID, r.OrderRef, r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late = time.Time{}, "", "", 0, 0, nil, false
 				ev = r.transition(queuedEventRecovered, rpc.QueuedAuthArmed, now)
-				ev.ReasonCode, ev.Reason = queuedReasonRestartBeforeSend, "the daemon restarted before the broker send; nothing was sent, and the send is retried inside the window after full revalidation"
+				ev.ReasonCode, ev.Reason = queuedReasonRestartBeforeSend, "the send stopped "+across+" before it reached the broker; nothing was sent, and the send is retried inside the window after full revalidation"
 			}
 			ev.DaemonStartedAt, ev.ExecutorTickAt = e.startedAt, now
 			events = append(events, ev)
@@ -327,6 +384,10 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 		return
 	}
 	now := e.clock()
+	if problem := queuedRecordProblem(rec); problem != "" {
+		e.cancelQueued(ctx, rec, queuedReasonRecordUnreadable, problem)
+		return
+	}
 	scope := e.currentScope()
 	switch {
 	case !brokerScopeConcrete(scope):
@@ -338,7 +399,12 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 	case s.tradingFrozen():
 		e.holdQueued(ctx, rec, rpc.ReadinessTradingFrozen, tradingFrozenBlockerMessage)
 		return
-	case !s.tradingGatewayReady():
+	}
+	if paused, sections := s.configPausesAutomation(); paused {
+		e.holdQueued(ctx, rec, queuedHoldConfigPaused, fmt.Sprintf("config.toml [%s] runs on Canary's defaults; the send waits inside its window until the file is fixed and Canary restarted", strings.Join(sections, "], [")))
+		return
+	}
+	if !s.tradingGatewayReady() {
 		e.holdQueued(ctx, rec, rpc.ReadinessBrokerUnavailable, queuedHoldBrokerLinkReason)
 		return
 	}
@@ -384,9 +450,11 @@ func (e *proposalEngine) queuedResolve(ctx context.Context, rec queuedAuthRecord
 	} else {
 		snap, err = e.Refresh(ctx, false)
 	}
-	if err != nil && len(snap.Proposals) == 0 {
+	if err != nil {
+		// A failed refresh may leave an older snapshot; the send waits for a
+		// current one rather than revalidating against it.
 		blockers := snap.Blockers
-		if len(blockers) == 0 {
+		if len(blockers) == 0 || len(snap.Proposals) > 0 {
 			blockers = []rpc.TradingBlocker{{Code: "proposal_refresh_failed", Message: err.Error()}}
 		}
 		return rpc.TradeProposal{}, blockers, "", ""
@@ -504,6 +572,10 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	params := rpc.TradeProposalSubmitParams{Key: prop.Key, Revision: prop.Revision, Quantity: min(terms.MaxQuantity, prop.Quantity), FastPath: true,
 		Origin: rpc.OrderOriginDaemonOwnerQueued, TimeoutMs: int(queuedSubmitTimeout.Milliseconds())}
 	staged, stagedToken := false, ""
+	// mismatch and problem end the record: the draft cannot sit inside the
+	// signed terms, or the record cannot be read as signed. outside means the
+	// window ended before staging; expiry ends the record.
+	mismatch, problem, outside := "", "", false
 	var placeErr error
 	res, err := e.submit(ctx, params, proposalSubmitOptions{
 		queued:       &current,
@@ -516,16 +588,28 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			// contract, side, quantity and price.
 			switch {
 			case preview.Draft.Contract.ConID != terms.Contract.ConID || !strings.EqualFold(preview.Draft.Action, terms.Action):
-				return errors.New("the preview does not describe the signed contract and side")
+				mismatch = "the preview does not describe the signed contract and side"
 			case preview.Draft.Quantity <= 0 || preview.Draft.Quantity > terms.MaxQuantity:
-				return errors.New("the preview quantity is outside the signed maximum")
+				mismatch = "the preview quantity is outside the signed maximum"
 			case !queuedLimitInside(terms.Action, preview.Draft.LimitPrice, terms.WorstPrice):
-				return errors.New("the preview limit is beyond the signed worst price")
+				mismatch = "the preview limit is beyond the signed worst price"
+			}
+			if mismatch != "" {
+				return errors.New(mismatch)
 			}
 			at := e.clock()
 			stageErr := e.queued.update(ctx, at, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
 				r := records[id]
 				if r == nil || !r.waiting() {
+					return nil
+				}
+				// The stored terms are read again as signed, and the send stays
+				// inside the window, at the moment the intent is staged.
+				if problem = queuedRecordProblem(*r); problem != "" {
+					return nil
+				}
+				if at.Before(r.Terms.NotBefore) || !at.Before(r.Terms.NotAfter) {
+					outside = true
 					return nil
 				}
 				var events []queuedAuthEvent
@@ -554,6 +638,16 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	})
 	finish := e.clock()
 	if !staged {
+		switch {
+		case mismatch != "":
+			e.cancelQueued(ctx, current, queuedReasonSendRefused, mismatch+"; nothing was sent")
+			return
+		case problem != "":
+			e.cancelQueued(ctx, current, queuedReasonRecordUnreadable, problem)
+			return
+		case outside:
+			return
+		}
 		if err == nil && len(res.Blockers) == 0 {
 			return
 		}
@@ -604,6 +698,11 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			// place before its first frame, or before it staged anything.
 			// The record waits again with its spent token proven unsent; the
 			// next attempt revalidates and previews afresh inside the window.
+			// An owner cancel that arrived meanwhile ends it instead.
+			if r.CancelRequested {
+				ev = r.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonOwnerCancelled, "cancelled by the owner while the order was being placed; the attempt never reached the broker, so nothing was sent", finish)
+				break
+			}
 			code, reason := rpc.ReadinessBrokerUnavailable, "the send was refused before it reached the broker ("+automaticOutcomeReason(res, err)+"); it is retried inside the window"
 			if automaticFrozenRefusal(res, err, placeErr) {
 				code, reason = rpc.ReadinessTradingFrozen, tradingFrozenBlockerMessage
@@ -628,6 +727,9 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	case rpc.QueuedAuthSent:
 		s.infof("queued authorisation %s: sent %s %d %s at %g", id, strings.ToLower(terms.Action), final.QuantitySent, terms.Key, final.LimitPrice)
 		e.recordQueuedOutcome(final, decisionSent, "", "")
+	case rpc.QueuedAuthCancelled:
+		s.infof("queued authorisation %s cancelled while it was being placed; nothing was sent", id)
+		e.recordQueuedOutcome(final, decisionCancelled, final.ReasonCode, final.Reason)
 	case rpc.QueuedAuthHeld:
 		s.infof("queued authorisation %s held after a refused send (%s): %s", id, final.HoldCode, final.HoldReason)
 		e.recordQueuedOutcome(final, decisionHeld, final.HoldCode, final.HoldReason)
@@ -683,16 +785,44 @@ func (s *Server) daemonOwnerQueuedOriginBlockers() []rpc.TradingBlocker {
 // queuedLiveIntentFor reports the key of an armed, held or sending record for
 // one contract and side in the current broker scope.
 func (e *proposalEngine) queuedLiveIntentFor(contractSide string) (string, bool) {
+	rec, ok := e.queuedLiveRecordFor(contractSide)
+	return rec.Terms.Key, ok
+}
+
+// queuedLiveRecordFor is the armed, held or sending record for one contract
+// and side in the current broker scope.
+func (e *proposalEngine) queuedLiveRecordFor(contractSide string) (queuedAuthRecord, bool) {
 	if e == nil || contractSide == "" || !e.queued.attached() {
-		return "", false
+		return queuedAuthRecord{}, false
 	}
 	scope := e.currentScope()
 	for _, rec := range e.queued.list() {
 		if rec.liveIntent() && rec.ContractSide == contractSide && sameBrokerScope(rec.scope(), scope) {
-			return rec.Terms.Key, true
+			return rec, true
 		}
 	}
-	return "", false
+	return queuedAuthRecord{}, false
+}
+
+// queuedIntentGateBlockers refuses a preview, a prepared submit or a submit
+// for a row whose exact contract and side a live queued authorisation covers,
+// the row's own key included. Row generation still exempts the own key, so
+// the executor's revalidation finds its row; the row's queued marker keeps it
+// out of approvals. Only the executor's send of that very record passes,
+// under its grant.
+func (e *proposalEngine) queuedIntentGateBlockers(p rpc.TradeProposal, own *queuedAuthRecord) []rpc.TradingBlocker {
+	rec, ok := e.queuedLiveRecordFor(sameContractSide(p))
+	if !ok {
+		return nil
+	}
+	if own != nil && own.Terms.QueueID == rec.Terms.QueueID && e.server != nil {
+		if grant := e.server.queuedGrant.Load(); grant != nil && grant.QueueID == rec.Terms.QueueID {
+			return nil
+		}
+	}
+	return []rpc.TradingBlocker{{Code: queuedIntentExistsCode,
+		Message: fmt.Sprintf("a queued authorisation (%s) for this contract and side is armed for the open; nothing else is sent beside it", rec.Terms.QueueID),
+		Action:  "Cancel the queued authorisation first to act on this row now."}}
 }
 
 // recordQueuedOutcome writes one decision line for an executor outcome.

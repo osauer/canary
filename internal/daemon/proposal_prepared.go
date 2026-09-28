@@ -295,6 +295,10 @@ func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposal
 		out.Blockers = blockers
 		return out, nil
 	}
+	if blockers := e.queuedIntentGateBlockers(prop, nil); len(blockers) > 0 {
+		out.Blockers = blockers
+		return out, nil
+	}
 	if blockers := e.checkOptionExitEconomics(ctx, prop, &record.Preview, false); len(blockers) > 0 {
 		out.Blockers = blockers
 		return out, nil

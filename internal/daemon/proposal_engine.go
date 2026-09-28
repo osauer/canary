@@ -322,6 +322,7 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 		e.appendShownEvents(snap)
 	}
 	e.decorateAutomatic(&snap)
+	e.decorateQueued(&snap)
 	e.decorateReadiness(&snap)
 	e.kickIfCoverageStale(snap.Proposals)
 	return snap
@@ -336,6 +337,7 @@ func (e *proposalEngine) Refresh(ctx context.Context, show bool) (rpc.TradePropo
 	snap, err := e.refresh(ctx, show)
 	e.noteRefreshOutcome(snap, err)
 	e.decorateAutomatic(&snap)
+	e.decorateQueued(&snap)
 	e.decorateReadiness(&snap)
 	return snap, err
 }
@@ -2168,6 +2170,10 @@ func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreview
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, PreviewTokenID: preview.PreviewTokenID, PreviewTokenExpiresAt: preview.PreviewTokenExpiresAt, Preview: sanitizeProposalPreviewForProposal(preview, prop), Blockers: blockers, AsOf: now}, nil
 	}
+	if blockers := e.queuedIntentGateBlockers(prop, nil); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalPreviewResult{Proposal: prop, PreviewTokenID: preview.PreviewTokenID, PreviewTokenExpiresAt: preview.PreviewTokenExpiresAt, Preview: sanitizeProposalPreviewForProposal(preview, prop), Blockers: blockers, AsOf: now}, nil
+	}
 	if !preview.SubmitEligible {
 		blockers := previewNotSubmitEligibleBlockers(preview)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
@@ -2360,6 +2366,13 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
 	}
 	if blockers := e.duplicateProtectiveBlockers(ctx, prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
+	}
+	// A live queued authorisation for this contract and side admits only the
+	// executor's own send of it; a manual, prepared or pre-authorised submit
+	// of the same row waits (the row's own key included).
+	if blockers := e.queuedIntentGateBlockers(prop, opts.queued); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
 	}

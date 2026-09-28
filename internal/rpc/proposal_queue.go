@@ -135,10 +135,26 @@ type QueuedAuth struct {
 	ReasonCode   string `json:"reason_code,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	CancelOrigin string `json:"cancel_origin,omitempty"`
+	// CancelRequested marks an owner cancel that arrived while the order was
+	// being placed: if the attempt proves unsent, the record ends cancelled
+	// instead of waiting again.
+	CancelRequested bool `json:"cancel_requested,omitempty"`
+}
+
+// TradeProposalQueued is the live queued authorisation a served proposal row
+// names: armed, held or sending, or sent until its order resolves, for the
+// row's exact contract and side in the snapshot's account and mode.
+type TradeProposalQueued struct {
+	QueueID   string    `json:"queue_id"`
+	Key       string    `json:"key"`
+	State     string    `json:"state"`
+	NotBefore time.Time `json:"not_before"`
+	NotAfter  time.Time `json:"not_after"`
 }
 
 // TradeProposalQueuePrepareParams names the row to queue. Quantity lowers
-// the signed maximum below the row's quantity; zero keeps it. Prepare reads
+// the signed maximum below the row's quantity; zero keeps it, and a negative
+// quantity is refused. Prepare reads
 // no quote: the price is set only when the order is sent.
 type TradeProposalQueuePrepareParams struct {
 	Key      string `json:"key"`
@@ -194,11 +210,14 @@ type TradeProposalQueueListParams struct {
 }
 
 // TradeProposalQueueResult answers arm, cancel and status. Queues lists every
-// record a cancel-all cancelled.
+// record a cancel-all cancelled; InFlight lists what it could not cancel:
+// records being placed at that moment (their cancel request is kept) and
+// sent orders still working at the broker.
 type TradeProposalQueueResult struct {
 	Accepted bool             `json:"accepted"`
 	Queue    *QueuedAuth      `json:"queue,omitempty"`
 	Queues   []QueuedAuth     `json:"queues,omitempty"`
+	InFlight []QueuedAuth     `json:"in_flight,omitempty"`
 	Message  string           `json:"message,omitempty"`
 	Blockers []TradingBlocker `json:"blockers,omitempty"`
 	AsOf     time.Time        `json:"as_of"`

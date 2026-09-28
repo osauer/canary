@@ -78,7 +78,13 @@ any of these:
 - an arm after the deadline, which also expires the record;
 - a different account or mode;
 - proposal submit disabled;
-- another live intent for the contract and side.
+- another live intent for the contract and side, or a queued order for them
+  still working at the broker (`queued_order_working`);
+- a record this build cannot fully read (below);
+- a pre-authorised record for the row or its contract and side, created since
+  prepare (`automatic_submission_pending`). This is checked before the
+  queued-store update, never inside it, so the two stores never lock in
+  opposite orders.
 
 The envelope is kept for audit only: Canary does not verify the owner's
 signature. Desk verifies it (the companion's P-256 signature or the passkey)
@@ -97,9 +103,18 @@ baseline. Once armed, the terms are immutable.
 The executor runs in the proposal loop after the pre-authorised cycle. The loop
 also wakes at the next send-window start, arm deadline or window end.
 
+0. **Readable.** Before anything else, the executor ends every record this
+   build cannot fully read (`record_unreadable`, added 2026-09-28 21:32 CEST). That covers a
+   field, version, style or state it does not know, and terms that no longer
+   hash to their digest. The store loads each record strictly, so one such
+   record never stops the rest. An unsent record is cancelled; one caught
+   sending, sent or in an unknown state fails, for the owner to confirm
+   against the order journal. None is sent. The terms are read again at
+   every send and when the intent is staged.
 1. **Window.** Nothing happens before not_before. Once not_after passes, a
    waiting record expires (`window_ended`), and a prepared record expires at
-   its arm deadline (`not_armed`).
+   its arm deadline (`not_armed`). The window is checked again when the
+   intent is staged, so a send whose preview ran past not_after never goes.
 2. **Hold.** A record that the send can wait out is held and journaled once
    per hold code:
    - `market_closed`, `trading_frozen`, `halted`, `quote_unusable` and
@@ -109,7 +124,12 @@ also wakes at the next send-window start, arm deadline or window end.
      failed;
    - `hand_order_working`: an order placed or modified outside Canary's gate
      since the arm, or a same-side order working for the contract;
-   - `worst_price`: the bounded limit would pass the worst price.
+   - `worst_price`: the bounded limit would pass the worst price;
+   - `config_automation_paused`: config.toml runs `[trading]`, `[auto_trade]`
+     or `[rulebook]` on Canary's defaults, as for pre-authorised submission
+     (owner decision #42).
+
+   A failed refresh holds the send even when an older snapshot is at hand.
 3. **Revalidate by key, not revision.** A fresh refresh must still carry the
    key, with the same row-terms digest, the same effective policy and Rulebook
    fingerprints, the same position and the same account and mode. Snapshot
@@ -118,8 +138,13 @@ also wakes at the next send-window start, arm deadline or window end.
    its own reason code: `position_changed`, `row_gone`, `row_terms_changed`,
    `policy_changed`, `account_changed`, `fast_path_disabled`,
    `whatif_refused` (a rejected WhatIf; an unanswered one holds), or the
-   blocker's code. The owner can cancel too (`owner_cancelled`). Cancelling
-   only withdraws authority, so any origin may ask, and the origin is recorded.
+   blocker's code. A draft that cannot sit inside the signed contract, side,
+   maximum or worst price cancels as `send_refused`. The owner can cancel too
+   (`owner_cancelled`). Cancelling only withdraws authority, so any origin may
+   ask, and the origin is recorded. A cancel that arrives while the order is
+   being placed is kept (`cancel_requested`): an attempt that proves unsent
+   ends cancelled and is never retried. Cancel-all lists such records, and
+   sent orders still working, under `in_flight`.
 5. **Send.** The executor sends through the ordinary proposal submit path,
    under `brokerWriteMu` and a grant for the one record, with origin
    `daemon-owner-queued`:
@@ -139,7 +164,8 @@ also wakes at the next send-window start, arm deadline or window end.
    - An accepted send is `sent`, flagged `late` when more than two minutes
      after not_before.
    - A refusal before the first frame (the freeze, or no journal trace) holds
-     the record again, with its spent token proven unsent.
+     the record again, with its spent token proven unsent, or ends it
+     cancelled if the owner asked meanwhile.
    - Anything else fails as `send_outcome_unclear` and is never resent.
 
 Sent orders are followed in the order journal:
@@ -153,7 +179,12 @@ journal stages each attempt before the first frame, so:
 - a journaled send is `sent`;
 - a staged attempt without an outcome is `failed` as unclear;
 - no trace at all returns the record to armed, for a late send inside the
-  window after full revalidation.
+  window after full revalidation, or cancelled if the owner asked meanwhile.
+
+The same resolution applies, without a restart, to a record this process left
+in `sending` because its outcome write failed, once it is more than a minute
+past the send timeout. The executor sends synchronously, so nothing is in
+flight between cycles.
 
 The write gate accepts `daemon-owner-queued` only while the executor holds the
 grant for a record that is still a live intent. The grant is set and cleared
@@ -166,9 +197,22 @@ guard.
 An armed, held or sending record is a live intent. `liveIntentFor` reports it
 to the netting (proposal_same_contract.go): every other row for the contract
 and side blocks with `existing_reduction_intent`. A second queue for them is
-refused (`queued_intent_exists`). Once the order works at the broker, the
+refused (`queued_intent_exists`), as is a queue while a queued order for them
+still works (`queued_order_working`). Once the order works at the broker, the
 working-order netting takes over. Records of another account or mode never
 block.
+
+Row generation exempts the intent's own key, so the executor's revalidation
+still finds its row. The submit gates do not (review #41, 2026-09-28 21:32 CEST): a preview, a
+prepared submit or a submit of any row for the contract and side, the queued
+row's own key included, is refused with `queued_intent_exists`. The one
+exception is the executor sending that very record under its grant. The
+pre-authorised scheduler creates no record for such a row either.
+
+Each served row carries `queued` (`queue_id`, `key`, `state`, `not_before`,
+`not_after`) while a record for its contract and side, in the snapshot's
+account and mode, is armed, held or sending, or sent until its order resolves.
+Desk and the companion keep such rows out of approvals.
 
 ## Pre-authorised due time
 
@@ -185,8 +229,8 @@ trails keep their plain window.
 Each transition appends a `trade_proposal_queued_event` in the same daemon.db
 transaction as the record document. Types are `queued_auth.prepared`, `armed`,
 `held`, `resumed`, `sending`, `sent`, `filled`, `partially_filled`,
-`expired_unfilled`, `cancelled`, `expired`, `failed` and `recovered`. `signed`
-is Desk's event.
+`expired_unfilled`, `cancelled`, `expired`, `failed`, `recovered` and
+`cancel_requested`. `signed` is Desk's event.
 
 An event carries:
 
