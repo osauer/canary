@@ -186,3 +186,56 @@ func TestFatalCannotBeHiddenByLifecycleOrSuccessfulAccessText(t *testing.T) {
 		}
 	}
 }
+
+func TestMirrorSyncRecordGatesCoverage(t *testing.T) {
+	now := time.Date(2026, 9, 28, 6, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, record, state, message string
+	}{
+		{"local", "-", "", ""},
+		{"absent", "", "missing", "log mirror has no sync record"},
+		{"garbage", "{", "invalid", "sync record is unreadable"},
+		{"unknown version", `{"version":2,"last_success":"2026-09-28T05:55:00Z"}`, "invalid", "sync record is unreadable"},
+		{"never synced", `{"version":1,"last_success":null}`, "never_synced", "has not completed a sync"},
+		{"stale", `{"version":1,"last_success":"2026-09-28T04:58:00Z"}`, "stale", "last synced 1h2m ago"},
+		{"current", `{"version":1,"last_success":"2026-09-28T05:55:00Z","files":{}}`, "current", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := testMonitorOptions(t)
+			opts.mirrorStaleAfter = 20 * time.Minute
+			writeTestFile(t, opts.daemonLog, "level=INFO msg=ready\n")
+			if tc.record != "-" {
+				opts.daemonMirror = filepath.Join(t.TempDir(), "mirror.json")
+			}
+			if tc.record != "" && tc.record != "-" {
+				writeTestFile(t, opts.daemonMirror, tc.record)
+			}
+			got, err := run(opts, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.state == "" {
+				if got.Daemon.Mirror != nil {
+					t.Fatalf("local log reported a mirror: %+v", got.Daemon.Mirror)
+				}
+			} else if got.Daemon.Mirror == nil || got.Daemon.Mirror.State != tc.state {
+				t.Fatalf("mirror state = %+v, want %s", got.Daemon.Mirror, tc.state)
+			}
+			var coverage []string
+			for _, s := range got.Daemon.Signals {
+				if s.Kind == "log_coverage" {
+					coverage = append(coverage, s.Message)
+				}
+			}
+			if tc.message == "" {
+				if got.NeedsAttention || len(coverage) != 0 {
+					t.Fatalf("current mirror needs attention: %+v", got.Daemon)
+				}
+				return
+			}
+			if !got.NeedsAttention || len(coverage) != 1 || !strings.Contains(coverage[0], tc.message) {
+				t.Fatalf("coverage = %q, want %q", coverage, tc.message)
+			}
+		})
+	}
+}

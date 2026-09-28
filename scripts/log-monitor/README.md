@@ -23,6 +23,15 @@ Missing logs require attention. `-stale-after=24h` also flags inactive logs as
 or zero to disable this check for deliberately quiet deployments. A clean scan
 is not proof that every service or data source is healthy.
 
+When the daemon runs on another machine, point `-daemon-log` at a local mirror
+of its log and `-daemon-mirror-status` at the mirror's sync record: JSON with
+`version: 1` and `last_success` (RFC 3339, `null` before the first completed
+sync). A missing, unreadable or never-completed record, or one older than
+`-mirror-stale-after` (default 20 minutes), is a coverage warning: an unchanged
+copy is no evidence while the mirror is behind. The report's `daemon.mirror`
+states which. The mirror must append in place and rotate its copy by rename, as
+the daemon does, so cursor identity and rotated-tail recovery still apply.
+
 Broker definition, entitlement and cancellation notices remain visible even
 below the old noise threshold. They require outcome assessment; the monitor
 does not infer recovery or an outage from a code alone. Only the indicative-data

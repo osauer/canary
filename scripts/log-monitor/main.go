@@ -29,13 +29,15 @@ const (
 )
 
 type options struct {
-	daemonLog    string
-	appLog       string
-	daemonOffset string
-	appOffset    string
-	maxSignals   int
-	commit       bool
-	staleAfter   time.Duration
+	daemonLog        string
+	appLog           string
+	daemonOffset     string
+	appOffset        string
+	daemonMirror     string
+	maxSignals       int
+	commit           bool
+	staleAfter       time.Duration
+	mirrorStaleAfter time.Duration
 }
 
 type report struct {
@@ -66,6 +68,8 @@ type logReport struct {
 	// row count is bounded by the closed kind set.
 	Suppressed        []suppressedSummary `json:"suppressed,omitempty"`
 	SuppressedSignals int                 `json:"suppressed_signals,omitempty"`
+	// Mirror is present when the input is a copy kept by a log mirror.
+	Mirror *mirrorReport `json:"mirror,omitempty"`
 }
 
 type signal struct {
@@ -134,6 +138,8 @@ func main() {
 	flag.IntVar(&opts.maxSignals, "max-signals", defaultMaxSignals, "maximum signal samples per log")
 	flag.BoolVar(&opts.commit, "commit", true, "persist offsets after a successful scan")
 	flag.DurationVar(&opts.staleAfter, "stale-after", 24*time.Hour, "flag log coverage unverified after this inactivity; zero disables")
+	flag.StringVar(&opts.daemonMirror, "daemon-mirror-status", "", "sync record of the mirror that copies -daemon-log from another machine; empty for a local log")
+	flag.DurationVar(&opts.mirrorStaleAfter, "mirror-stale-after", 20*time.Minute, "flag mirrored log coverage unverified when the last completed sync is older; zero disables")
 	flag.Parse()
 
 	result, err := run(opts, time.Now().UTC())
@@ -170,6 +176,9 @@ func run(opts options, now time.Time) (report, error) {
 	}
 	applyCoverage(&result.Daemon, daemon, now, opts.staleAfter)
 	applyCoverage(&result.App, app, now, opts.staleAfter)
+	if opts.daemonMirror != "" {
+		applyMirrorCoverage(&result.Daemon, opts.daemonMirror, now, opts.mirrorStaleAfter)
+	}
 	trackFamilies(&result.Daemon, &daemon, now)
 	trackFamilies(&result.App, &app, now)
 	finalizeSignals(&result.Daemon, opts.maxSignals)

@@ -1,9 +1,13 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -24,6 +28,48 @@ func applyCoverage(result *logReport, scanned scannedLog, now time.Time, staleAf
 	if scanned.state != "missing" && staleAfter > 0 && now.Sub(scanned.modified) > staleAfter {
 		addSignal(result, "WARN", "log_coverage", "log is inactive beyond the configured coverage interval; service health is unverified", 0)
 	}
+}
+
+// mirrorRecord is the sync record a log mirror keeps beside its copies. Only
+// the last completed sync matters here: an unchanged copy is neutral while the
+// mirror is current, and no evidence at all once it falls behind.
+type mirrorRecord struct {
+	Version     int       `json:"version"`
+	LastSuccess time.Time `json:"last_success"`
+}
+
+type mirrorReport struct {
+	State       string    `json:"state"`
+	LastSuccess time.Time `json:"last_success,omitzero"`
+}
+
+func applyMirrorCoverage(result *logReport, path string, now time.Time, staleAfter time.Duration) {
+	report, message := readMirror(path, now, staleAfter)
+	result.Mirror = &report
+	if message != "" {
+		addSignal(result, "WARN", "log_coverage", message, 0)
+	}
+}
+
+func readMirror(path string, now time.Time, staleAfter time.Duration) (mirrorReport, string) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return mirrorReport{State: "missing"}, "log mirror has no sync record; service health is unverified"
+	}
+	var record mirrorRecord
+	if err != nil || json.Unmarshal(raw, &record) != nil || record.Version != 1 {
+		return mirrorReport{State: "invalid"}, "log mirror sync record is unreadable; service health is unverified"
+	}
+	if record.LastSuccess.IsZero() {
+		return mirrorReport{State: "never_synced"}, "log mirror has not completed a sync; service health is unverified"
+	}
+	report := mirrorReport{State: "current", LastSuccess: record.LastSuccess}
+	if age := now.Sub(record.LastSuccess); staleAfter > 0 && age > staleAfter {
+		report.State = "stale"
+		elapsed := strings.TrimSuffix(age.Round(time.Minute).String(), "0s")
+		return report, "log mirror last synced " + elapsed + " ago; service health is unverified"
+	}
+	return report, ""
 }
 
 type familyTrend struct {
