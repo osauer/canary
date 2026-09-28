@@ -465,20 +465,24 @@ func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
 		return rpc.BriefReadyProposalsRow{BriefRowState: briefUnavailable("protection proposal snapshot is unavailable")}
 	}
 	snap := s.tradeProposals.Snapshot(false)
-	total, actionable, covered := snap.Counts.Total, snap.Counts.Actionable, snap.Counts.Covered
+	total, actionable, covered, queued := snap.Counts.Total, snap.Counts.Actionable, snap.Counts.Covered, snap.Counts.Queued
 	// A covered row is another rule's reason on a proposal that is counted
 	// already: one order per contract and side, never a blocked second one.
-	blocked := max(total-actionable-covered, 0)
-	row := rpc.BriefReadyProposalsRow{Actionable: actionable, Blocked: blocked, Covered: covered, Total: total}
+	// A queued row waits on Canary's executor, not on the owner.
+	blocked := max(total-actionable-covered-queued, 0)
+	row := rpc.BriefReadyProposalsRow{Actionable: actionable, Blocked: blocked, Covered: covered, Queued: queued, Total: total}
 	also := ""
 	if covered > 0 {
 		also = fmt.Sprintf("; %d more rule(s) covered by them", covered)
 	}
+	if queued > 0 {
+		also += fmt.Sprintf("; %d queued for the open", queued)
+	}
 	switch {
 	case actionable > 0:
 		row.BriefRowState = briefAttention(fmt.Sprintf("%d protection proposal(s) ready to act, %d blocked%s", actionable, blocked, also))
-	case blocked > 0:
-		row.BriefRowState = briefOK(fmt.Sprintf("no protection proposal is ready to act; %d blocked", blocked))
+	case blocked > 0 || queued > 0:
+		row.BriefRowState = briefOK(fmt.Sprintf("no protection proposal is ready to act; %d blocked%s", blocked, also))
 	default:
 		row.BriefRowState = briefOK("no protection proposals are staged")
 	}

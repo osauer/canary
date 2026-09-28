@@ -535,7 +535,11 @@ func printTradingBlockers(out io.Writer, indent string, blockers []rpc.TradingBl
 func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 	out := env.Stdout
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Canary Protection Proposals  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
+	queued := ""
+	if snap.Counts.Queued > 0 {
+		queued = fmt.Sprintf(" (%d queued for the open)", snap.Counts.Queued)
+	}
+	fmt.Fprintf(out, "Canary Protection Proposals  %d actionable / %d total%s\n", snap.Counts.Actionable, snap.Counts.Total, queued)
 	statusRow(env, out, "Revision", snap.Revision)
 	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
 	statusRow(env, out, "Theta/day", fmt.Sprintf("%.2f", snap.Counts.ThetaPerDay))

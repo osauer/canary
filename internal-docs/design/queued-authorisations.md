@@ -171,7 +171,14 @@ also wakes at the next send-window start, arm deadline or window end.
 Sent orders are followed in the order journal:
 
 - fill progress while the order works;
-- `filled`, `partially_filled` or `expired_unfilled` once it ends.
+- `filled`, `partially_filled` or `expired_unfilled` once it ends;
+- `failed` with `fill_unconfirmed` when the broker reconciled the order as
+  gone without a recorded end: its fill is not known, so it is never called
+  unfilled.
+
+A cancel that arrived while the order was being placed, after it reached the
+broker, leaves the record `sent` with `cancel_requested`; the executor warns
+that only a broker cancel (`canary order cancel <order_ref>`) stops it now.
 
 After a restart, the order journal resolves a record left in `sending`. The
 journal stages each attempt before the first frame, so:
@@ -212,7 +219,12 @@ pre-authorised scheduler creates no record for such a row either.
 Each served row carries `queued` (`queue_id`, `key`, `state`, `not_before`,
 `not_after`) while a record for its contract and side, in the snapshot's
 account and mode, is armed, held or sending, or sent until its order resolves.
-Desk and the companion keep such rows out of approvals.
+Desk and the companion keep such rows out of approvals. Such a row is counted
+queued, never ready to act (`counts.queued`, added 2026-09-28 21:50 CEST): the queued row leaves
+`actionable`, the rows it holds back leave the blocked remainder, and the brief
+says "N queued for the open" without raising attention. Its readiness is never
+`queueable`, and a prepare for it names the queue (`queued_intent_exists`, or
+`queued_order_working` once sent) rather than the session.
 
 ## Pre-authorised due time
 

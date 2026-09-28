@@ -229,16 +229,11 @@ func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 				r.PermID = v.PermID
 			}
 			var ev queuedAuthEvent
-			switch {
-			case orderLifecycleStatusIsTerminal(v.LifecycleStatus) && r.QuantitySent > 0 && r.FilledQuantity+1e-9 >= float64(r.QuantitySent):
-				ev = r.resolve(queuedEventFilled, rpc.QueuedAuthFilled, "", "filled at the broker", now)
-			case orderLifecycleStatusIsTerminal(v.LifecycleStatus) && r.FilledQuantity > 0:
-				ev = r.resolve(queuedEventPartiallyFilled, rpc.QueuedAuthPartiallyFilled, v.LifecycleStatus, "the order ended partly filled: "+queuedOrderEnd(v), now)
-			case orderLifecycleStatusIsTerminal(v.LifecycleStatus):
-				ev = r.resolve(queuedEventExpiredUnfilled, rpc.QueuedAuthExpiredUnfilled, v.LifecycleStatus, "the order ended unfilled: "+queuedOrderEnd(v), now)
-			case progressed && r.FilledQuantity > 0:
+			if eventType, state, code, reason, done := queuedOrderResolution(v, r.QuantitySent); done {
+				ev = r.resolve(eventType, state, code, reason, now)
+			} else if progressed && r.FilledQuantity > 0 {
 				ev = r.note(queuedEventPartiallyFilled, r.State, now)
-			default:
+			} else {
 				continue
 			}
 			ev.PermID, ev.FillQty, ev.AvgPrice = r.PermID, r.FilledQuantity, r.AvgFillPrice
@@ -256,6 +251,26 @@ func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 	for _, r := range done {
 		e.server.infof("queued authorisation %s for %s %s (%g of %d)", r.Terms.QueueID, r.Terms.Key, r.State, r.FilledQuantity, r.QuantitySent)
 		e.recordQueuedOutcome(r, r.State, r.ReasonCode, r.Reason)
+	}
+}
+
+// queuedOrderResolution classifies a sent order's broker view once it has
+// ended: filled, partly filled, unfilled, or, when the broker reconciled it
+// as gone without a recorded end, failed with its fill unconfirmed (never
+// called unfilled). done is false while the order works.
+func queuedOrderResolution(v rpc.OrderView, qtySent int) (eventType, state, code, reason string, done bool) {
+	if !orderLifecycleStatusIsTerminal(v.LifecycleStatus) {
+		return "", "", "", "", false
+	}
+	switch {
+	case qtySent > 0 && v.Filled+1e-9 >= float64(qtySent):
+		return queuedEventFilled, rpc.QueuedAuthFilled, "", "filled at the broker", true
+	case v.LifecycleStatus == rpc.OrderLifecycleClosedReconciled:
+		return queuedEventFailed, rpc.QueuedAuthFailed, "fill_unconfirmed", "the order closed at the broker without a recorded end, so its fill is not confirmed; check the position before any further action", true
+	case v.Filled > 0:
+		return queuedEventPartiallyFilled, rpc.QueuedAuthPartiallyFilled, v.LifecycleStatus, "the order ended partly filled: " + queuedOrderEnd(v), true
+	default:
+		return queuedEventExpiredUnfilled, rpc.QueuedAuthExpiredUnfilled, v.LifecycleStatus, "the order ended unfilled: " + queuedOrderEnd(v), true
 	}
 }
 
@@ -726,6 +741,14 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	switch final.State {
 	case rpc.QueuedAuthSent:
 		s.infof("queued authorisation %s: sent %s %d %s at %g", id, strings.ToLower(terms.Action), final.QuantitySent, terms.Key, final.LimitPrice)
+		if final.CancelRequested {
+			// The owner asked to cancel while it was being placed, but it
+			// reached the broker: only a broker cancel stops it now.
+			note := "the owner's cancel arrived while the order was being placed, after it reached the broker; cancel it with `canary order cancel " + final.OrderRef + "`"
+			s.warnf("queued authorisation %s: %s", id, note)
+			e.recordQueuedOutcome(final, decisionSent, "cancel_too_late", note)
+			break
+		}
 		e.recordQueuedOutcome(final, decisionSent, "", "")
 	case rpc.QueuedAuthCancelled:
 		s.infof("queued authorisation %s cancelled while it was being placed; nothing was sent", id)

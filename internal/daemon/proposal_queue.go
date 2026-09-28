@@ -797,6 +797,14 @@ func (e *proposalEngine) QueuePrepare(ctx context.Context, p rpc.TradeProposalQu
 		out.Blockers = blockers
 		return out, nil
 	}
+	// A row a queue already covers names that queue, not the session.
+	if q := prop.Queued; q != nil {
+		out.Blockers = queuedIntentExistsBlocker(q.Key)
+		if q.State == rpc.QueuedAuthSent {
+			out.Blockers = queuedOrderWorkingBlocker(q.Key)
+		}
+		return out, nil
+	}
 	out.Readiness = e.classifyReadiness(prop, nil, true, readinessSessions{})
 	if out.Readiness == nil || !out.Readiness.Queueable {
 		out.Blockers = []rpc.TradingBlocker{queuedNotOfferedBlocker(out.Readiness)}
@@ -1147,10 +1155,23 @@ func (e *proposalEngine) decorateQueued(snap *rpc.TradeProposalSnapshot) {
 	if len(marks) == 0 {
 		return
 	}
+	// A row a live queue covers is queued for the open, never ready to act:
+	// the queued row itself leaves Actionable, the rows it holds back leave
+	// the blocked remainder, and a covered row stays counted as covered.
 	for i := range snap.Proposals {
-		if mark, ok := marks[sameContractSide(snap.Proposals[i])]; ok {
-			snap.Proposals[i].Queued = &mark
+		p := &snap.Proposals[i]
+		mark, ok := marks[sameContractSide(*p)]
+		if !ok {
+			continue
 		}
+		p.Queued = &mark
+		if mark.State == rpc.QueuedAuthSent || p.CoveredBy != "" {
+			continue
+		}
+		if p.AutomaticEligible() {
+			snap.Counts.Actionable--
+		}
+		snap.Counts.Queued++
 	}
 }
 

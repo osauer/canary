@@ -361,7 +361,10 @@ type BriefReadyProposalsRow struct {
 	Actionable int `json:"actionable"`
 	Blocked    int `json:"blocked"`
 	Covered    int `json:"covered,omitempty"`
-	Total      int `json:"total"`
+	// Queued counts the proposals a queued authorisation covers: queued for
+	// the open, never ready to act.
+	Queued int `json:"queued,omitempty"`
+	Total  int `json:"total"`
 }
 
 // BriefCapitalEventsRow frames the drawdown latch and adjusted-peak provenance

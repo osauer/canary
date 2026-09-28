@@ -333,3 +333,54 @@ func TestQueuedTermsFieldsAreTheSignedContract(t *testing.T) {
 		}
 	}
 }
+
+// A queued row is counted queued for the open, never ready to act: the brief
+// raises no attention for it, and the row is not offered a second queue.
+func TestQueuedRowIsCountedQueuedNotActionable(t *testing.T) {
+	t.Parallel()
+	rig := newQueueTestRig(t)
+	trim := rig.trimProposal(10)
+	revision := rig.install(trim)
+	before := rig.engine.Snapshot(false)
+	if before.Counts.Actionable != 1 || before.Counts.Queued != 0 || !before.Proposals[0].Readiness.Queueable {
+		t.Fatalf("before the queue: counts %+v, readiness %+v", before.Counts, before.Proposals[0].Readiness)
+	}
+	rig.queueAndArm(trim, revision)
+	snap := rig.engine.Snapshot(false)
+	if snap.Counts.Actionable != 0 || snap.Counts.Queued != 1 || snap.Counts.Total != 1 {
+		t.Fatalf("counts with the row queued = %+v", snap.Counts)
+	}
+	if r := snap.Proposals[0].Readiness; r == nil || r.Queueable {
+		t.Fatalf("a queued row is still offered a queue: %+v", r)
+	}
+	rig.server.tradeProposals = rig.engine
+	row := rig.server.briefReadyProposals()
+	if row.Actionable != 0 || row.Queued != 1 || row.Blocked != 0 || row.Status == rpc.BriefStatusAttention || !strings.Contains(row.Detail, "1 queued for the open") {
+		t.Fatalf("brief row with the row queued = %+v", row)
+	}
+}
+
+// A sent order the broker reconciled as gone without a recorded end has no
+// confirmed fill: it fails for the owner to check, never reads as unfilled.
+func TestQueuedOrderReconciledAwayIsNotCalledUnfilled(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		view  rpc.OrderView
+		state string
+	}{
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, rpc.QueuedAuthFailed},
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled, Filled: 4}, rpc.QueuedAuthFailed},
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled, Filled: 10}, rpc.QueuedAuthFilled},
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled}, rpc.QueuedAuthExpiredUnfilled},
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 4}, rpc.QueuedAuthPartiallyFilled},
+		{rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleFilled, Filled: 10}, rpc.QueuedAuthFilled},
+	} {
+		_, state, code, _, done := queuedOrderResolution(tc.view, 10)
+		if !done || state != tc.state || state == rpc.QueuedAuthFailed && code != "fill_unconfirmed" {
+			t.Errorf("%+v: state %s code %s done %v, want %s", tc.view, state, code, done, tc.state)
+		}
+	}
+	if _, _, _, _, done := queuedOrderResolution(rpc.OrderView{LifecycleStatus: "working"}, 10); done {
+		t.Error("a working order was resolved")
+	}
+}

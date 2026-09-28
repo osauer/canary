@@ -661,7 +661,11 @@ type TradeProposalCounts struct {
 	// Covered counts rows blocked only because another row for the same exact
 	// contract and side stands for them (covered_by_proposal). They are in
 	// Total, never in Actionable.
-	Covered          int `json:"covered,omitempty"`
+	Covered int `json:"covered,omitempty"`
+	// Queued counts rows a live queued authorisation covers: the owner queued
+	// the contract and side for the open, so Canary's executor sends it. They
+	// are in Total, never in Actionable, and are not counted blocked.
+	Queued           int `json:"queued,omitempty"`
 	ThetaHygiene     int `json:"theta_hygiene"`
 	RiskReduction    int `json:"risk_reduction"`
 	TrailingStop     int `json:"trailing_stop"`

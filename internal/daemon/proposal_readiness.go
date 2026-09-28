@@ -138,7 +138,8 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 	if (out.Code == rpc.ReadinessMarketClosed || out.Code == rpc.ReadinessOpeningWindow) && out.OpensAt != nil {
 		send := out.OpensAt.Add(readinessOpeningOffset(market))
 		out.DefaultSendAt = &send
-		out.Queueable = !prop.Shadow && slices.Contains(readinessQueueBuckets, prop.Bucket)
+		// A row a queue already covers is not offered a second one.
+		out.Queueable = !prop.Shadow && prop.Queued == nil && slices.Contains(readinessQueueBuckets, prop.Bucket)
 	}
 	return out
 }
