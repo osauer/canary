@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-30 13:06 CEST
+Updated: 2026-09-30 13:30 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -158,7 +158,13 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   stage in force reads confirmed stress (a carried stage counts as its own
   stage, never as calm), the options offset is 30 minutes
   (`readinessStressOptionsOpeningOffset`), readiness says "stress open" with
-  the time and sets `stress_open`, and the queue arm message names it.
+  the time and sets `stress_open`, and the queue arm message names it. The
+  reviewer decision of 2026-09-30 13:18 CEST narrows it to
+  discretionary-scale rows (`readinessStressOpenBuckets`: budget_reduction,
+  theta_hygiene, risk_reduction, cash_sweep) and their queued or
+  pre-authorised sends; loss exits, expiry closes and trailing stops keep 15
+  minutes (a stop is a stop), and their readiness sets `stress_open_exempt`
+  and says so.
 
 ## Review gate removed (owner decision 2026-09-30 12:35 CEST)
 

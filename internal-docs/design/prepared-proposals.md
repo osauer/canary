@@ -68,7 +68,8 @@ is not a revision input. Fields: `code`, `market` and `market_label` (the
 contract's official calendar), `session_state` (`open`, `pre_open`, `break`,
 `after_close`, `closed`, `holiday`, `unknown`), `opens_at` (UTC; the next open
 while closed, today's open while open), `default_send_at`, `stress_open`,
-`queueable`, `canary_codes` (every blocker code read), `message` and `as_of`.
+`stress_open_exempt`, `queueable`, `canary_codes` (every blocker code read),
+`message` and `as_of`.
 
 The first matching class decides the code: `not_executable` for any blocker that
 waiting cannot clear (with Canary's message), then `trading_frozen`,
@@ -84,11 +85,18 @@ minutes for options, 5 for stocks; the queued-authorisation design's
 recommended defaults). At a stress open, while the latched regime stage in
 force reads confirmed stress (read as Rulebook rules 3, 4, 12 and 15 read it:
 a carried stage counts as its own stage, a stage never observed reads calm),
-the options offset is 30 minutes (owner decision 2026-09-30 12:35 CEST): the
-opening window lasts that long, `stress_open` is true, and `message` ends with
-"stress open: the regime reads confirmed stress, so options send from
-<time>, 30 minutes after the open". The queue's `not_before` and the
-pre-authorised due time use the same offset. `queueable` marks governor, theta and issuer-trim rows in
+the options offset of a discretionary-scale row, `budget_reduction`,
+`theta_hygiene`, `risk_reduction` or `cash_sweep`, is 30 minutes (owner
+decision 2026-09-30 12:35 CEST, narrowed to those rows by the reviewer
+decision of 13:18): its opening window lasts that long, `stress_open` is
+true, and `message` ends with "stress open: the regime reads confirmed
+stress, so options send from <time>, 30 minutes after the open". Every other
+options row, loss exits, expiry closes and trailing stops among them, keeps
+15 minutes (a stop is a stop): `stress_open_exempt` is true and `message`
+ends with "stress open: the regime reads confirmed stress, but a <loss
+exit|expiry close|trailing stop|protective exit> keeps the 15-minute options
+offset, so it sends from <time>". The queue's `not_before` and the
+pre-authorised due time use the row's own offset. `queueable` marks governor, theta and issuer-trim rows in
 `market_closed` or `opening_window`; queued authorisations
 (queued-authorisations.md) are offered on those rows.
 

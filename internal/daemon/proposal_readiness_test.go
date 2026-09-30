@@ -470,3 +470,86 @@ func TestStressOpenDoublesTheOptionsOpeningOffset(t *testing.T) {
 		})
 	}
 }
+
+// Reviewer decision 2026-09-30 13:18 CEST: the stress open's 30 minutes hold
+// only discretionary-scale rows (governor, theta and issuer-trim reductions
+// and the cash sweep) and their queued or pre-authorised sends. Loss exits,
+// expiry closes and trailing stops keep the 15-minute options offset under
+// confirmed stress, and readiness says which applies. In a calm regime every
+// options row keeps 15 minutes and readiness says nothing about a stress
+// open.
+func TestStressOpenHoldsOnlyDiscretionaryRows(t *testing.T) {
+	opens := utc(2026, 9, 28, 13, 30)
+	for _, regime := range []struct {
+		name          string
+		stage, bucket string
+	}{
+		{name: "calm", stage: rpc.LifecycleQuiet, bucket: risk.RegimeBucketCalm},
+		{name: "confirmed", stage: rpc.LifecycleConfirmedStress, bucket: risk.RegimeBucketConfirmed},
+	} {
+		confirmed := regime.bucket == risk.RegimeBucketConfirmed
+		for _, row := range []struct {
+			bucket, kind  string
+			discretionary bool
+		}{
+			{bucket: rpc.TradeProposalBucketBudgetReduction, discretionary: true},
+			{bucket: rpc.TradeProposalBucketThetaHygiene, discretionary: true},
+			{bucket: rpc.TradeProposalBucketRiskReduction, discretionary: true},
+			{bucket: rpc.TradeProposalBucketCashSweep, discretionary: true},
+			{bucket: rpc.TradeProposalBucketOptionLossExit, kind: "loss exit"},
+			{bucket: rpc.TradeProposalBucketOptionExpiryClose, kind: "expiry close"},
+			{bucket: rpc.TradeProposalBucketTrailingStop, kind: "trailing stop"},
+		} {
+			t.Run(regime.name+"/"+row.bucket, func(t *testing.T) {
+				held := confirmed && row.discretionary
+				exempt := confirmed && !row.discretionary
+				send := opens.Add(15 * time.Minute)
+				if held {
+					send = opens.Add(30 * time.Minute)
+				}
+				srv, _ := readinessPreviewServer(t, t.TempDir(), fixtureCEST1519)
+				latchRegimeStage(srv, regime.stage, regime.bucket, fixtureCEST1519.Add(-time.Minute))
+				engine := &proposalEngine{server: srv, now: func() time.Time { return srv.now() }}
+				prop := readinessRow(row.bucket)
+
+				// Before the open: the default send and the text name the
+				// offset that applies.
+				r := engine.classifyReadiness(prop, nil, false, readinessSessions{})
+				if r.Code != rpc.ReadinessMarketClosed || r.DefaultSendAt == nil || !r.DefaultSendAt.Equal(send) || r.StressOpen != held || r.StressOpenExempt != exempt {
+					t.Fatalf("pre-open readiness = %+v, want default send %s held %v exempt %v", r, send, held, exempt)
+				}
+				heldPhrase := "stress open: the regime reads confirmed stress, so options send from " + send.Format(time.RFC3339) + ", 30 minutes after the open"
+				exemptPhrase := "stress open: the regime reads confirmed stress, but a " + row.kind + " keeps the 15-minute options offset, so it sends from " + send.Format(time.RFC3339)
+				switch {
+				case held && !strings.HasSuffix(r.Message, "; "+heldPhrase):
+					t.Fatalf("held message = %q", r.Message)
+				case exempt && !strings.HasSuffix(r.Message, "; "+exemptPhrase):
+					t.Fatalf("exempt message = %q", r.Message)
+				case !confirmed && strings.Contains(r.Message, "stress open"):
+					t.Fatalf("calm message = %q", r.Message)
+				}
+
+				// Twenty minutes after the open: a held row is still in its
+				// opening window, every other row is ready.
+				srv.now = func() time.Time { return opens.Add(20 * time.Minute) }
+				r = engine.classifyReadiness(prop, nil, false, readinessSessions{})
+				if held != (r.Code == rpc.ReadinessOpeningWindow) || !held && r.Code != rpc.ReadinessReady {
+					t.Fatalf("twenty minutes in: %+v", r)
+				}
+
+				// The queued window and the pre-authorised due time start at
+				// the same offset; the queue names a stress open only for a
+				// held row.
+				srv.now = func() time.Time { return fixtureCEST1519 }
+				prop.LimitPrice = new(2.10)
+				terms, blockers := engine.queuedTerms(prop, protectionPolicy{}, rpc.ProtectionPolicyStatus{}, 0, brokerStateScope{Account: "DU1234567", Mode: "paper"}, fixtureCEST1519)
+				if len(blockers) != 0 || !terms.NotBefore.Equal(send) || engine.queuedStressOpen(terms) != held {
+					t.Fatalf("queued terms from %s (stress open %v), blockers %+v", terms.NotBefore, engine.queuedStressOpen(terms), blockers)
+				}
+				if due := engine.automaticSessionDue(prop, opens.Add(10*time.Minute)); !due.Equal(send) {
+					t.Fatalf("pre-authorised due = %s, want %s", due, send)
+				}
+			})
+		}
+	}
+}

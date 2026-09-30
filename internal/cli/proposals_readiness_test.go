@@ -23,6 +23,13 @@ func TestFormatProposalReadiness(t *testing.T) {
 	if got, want := formatProposalReadiness(stress), "opening window · US listed options open · default send "+stressSend.Local().Format("15:04 MST")+" (stress open: options wait 30 minutes)"; got != want {
 		t.Fatalf("stress open readiness = %q, want %q", got, want)
 	}
+	// A loss exit, expiry close or trailing stop keeps 15 minutes at a stress
+	// open and says so.
+	exitSend := opens.Add(15 * time.Minute)
+	exempt := &rpc.TradeProposalReadiness{Code: rpc.ReadinessOpeningWindow, Market: "us_options", MarketLabel: "US listed options", SessionState: rpc.ReadinessSessionOpen, OpensAt: &opens, DefaultSendAt: &exitSend, StressOpenExempt: true}
+	if got, want := formatProposalReadiness(exempt), "opening window · US listed options open · default send "+exitSend.Local().Format("15:04 MST")+" (stress open: exits keep 15 minutes)"; got != want {
+		t.Fatalf("stress open exempt readiness = %q, want %q", got, want)
+	}
 	hard := &rpc.TradeProposalReadiness{Code: rpc.ReadinessNotExecutable, SessionState: rpc.ReadinessSessionUnknown, Message: "proposal revision is stale; refresh proposals before preview or submit"}
 	if got := formatProposalReadiness(hard); !strings.HasPrefix(got, "not executable · proposal revision is stale") {
 		t.Fatalf("hard refusal readiness = %q", got)

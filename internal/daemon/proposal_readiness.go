@@ -15,9 +15,10 @@ import (
 // earliest time the queue and the pre-authorisation scheduler send after the
 // regular open: listed options open by rotation with their widest quotes (15
 // minutes), stocks settle sooner (5). At a stress open, while the latched
-// regime stage in force reads confirmed stress, options wait 30 minutes
-// (owner decision 2026-09-30 12:35 CEST, the senior review's ask for no
-// governor sends in the first 30 minutes of a stress open).
+// regime stage in force reads confirmed stress, discretionary-scale options
+// rows wait 30 minutes (owner decision 2026-09-30 12:35 CEST, the senior
+// review's ask for no governor sends in the first 30 minutes of a stress
+// open; narrowed to those rows by the reviewer decision of 13:18 CEST).
 const (
 	readinessOptionsOpeningOffset       = 15 * time.Minute
 	readinessStressOptionsOpeningOffset = 30 * time.Minute
@@ -40,6 +41,30 @@ var (
 // readinessQueueBuckets are the rows a queued authorisation may carry to the
 // open: governor, theta and issuer-trim reductions. Loss exits need a live bid.
 var readinessQueueBuckets = []string{rpc.TradeProposalBucketBudgetReduction, rpc.TradeProposalBucketThetaHygiene, rpc.TradeProposalBucketRiskReduction}
+
+// readinessStressOpenBuckets are the discretionary-scale rows a stress open
+// holds for 30 minutes, with their queued or pre-authorised sends: governor,
+// theta and issuer-trim reductions and the cash sweep (reviewer decision
+// 2026-09-30 13:18 CEST). Every other row, loss exits, expiry closes and
+// trailing stops among them, keeps the 15-minute options offset: a stop is a
+// stop.
+var readinessStressOpenBuckets = []string{rpc.TradeProposalBucketBudgetReduction, rpc.TradeProposalBucketThetaHygiene,
+	rpc.TradeProposalBucketRiskReduction, rpc.TradeProposalBucketCashSweep}
+
+// stressOpenRule says how a confirmed-stress regime bears on one row's
+// opening offset.
+type stressOpenRule int
+
+const (
+	// stressOpenNone: no stress open, because the market is not options or
+	// the regime does not read confirmed stress.
+	stressOpenNone stressOpenRule = iota
+	// stressOpenApplies: a discretionary-scale options row waits 30 minutes.
+	stressOpenApplies
+	// stressOpenExempt: the regime reads confirmed stress, but the row is not
+	// discretionary-scale and keeps the 15-minute options offset.
+	stressOpenExempt
+)
 
 // readinessSessions memoizes one classification pass's calendar reads.
 type readinessSessions map[marketcal.Market]readinessSession
@@ -95,7 +120,7 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 		}
 	}
 	closed := needsSession && sessionKnown && session.State != marketcal.StateUnknown && !session.IsOpen
-	offset, stress := e.server.readinessOpeningOffset(market, now)
+	offset, stress := e.server.readinessOpeningOffset(market, prop.Bucket, now)
 
 	first := func(group []string) (string, bool) {
 		for _, code := range codes {
@@ -145,9 +170,14 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 	if (out.Code == rpc.ReadinessMarketClosed || out.Code == rpc.ReadinessOpeningWindow) && out.OpensAt != nil {
 		send := out.OpensAt.Add(offset)
 		out.DefaultSendAt = &send
-		if stress {
+		// Readiness says which offset applies at a stress open.
+		switch stress {
+		case stressOpenApplies:
 			out.StressOpen = true
 			out.Message = strings.TrimPrefix(out.Message+"; "+stressOpenPhrase(send), "; ")
+		case stressOpenExempt:
+			out.StressOpenExempt = true
+			out.Message = strings.TrimPrefix(out.Message+"; "+stressOpenExemptPhrase(prop.Bucket, send), "; ")
 		}
 		// A row a queue already covers is not offered a second one.
 		out.Queueable = !prop.Shadow && prop.Queued == nil && slices.Contains(readinessQueueBuckets, prop.Bucket)
@@ -162,17 +192,21 @@ func proposalHasContract(prop rpc.TradeProposal) bool {
 }
 
 // readinessOpeningOffset is how long after the regular open Canary waits
-// before an order that prices off the session may go out: 5 minutes for
-// stocks, 15 for options, and 30 for options at a stress open. stress reports
-// that the stress open applied.
-func (s *Server) readinessOpeningOffset(market marketcal.Market, now time.Time) (offset time.Duration, stress bool) {
-	if market != marketcal.MarketUSOptions {
-		return readinessStockOpeningOffset, false
+// before an order of bucket that prices off the session may go out: 5
+// minutes for stocks, 15 for options, and 30 for a discretionary-scale
+// options row at a stress open. stress says whether the stress open applied,
+// or the regime reads confirmed stress and the row is exempt.
+func (s *Server) readinessOpeningOffset(market marketcal.Market, bucket string, now time.Time) (offset time.Duration, stress stressOpenRule) {
+	switch {
+	case market != marketcal.MarketUSOptions:
+		return readinessStockOpeningOffset, stressOpenNone
+	case !s.regimeStressOpen(now):
+		return readinessOptionsOpeningOffset, stressOpenNone
+	case slices.Contains(readinessStressOpenBuckets, bucket):
+		return readinessStressOptionsOpeningOffset, stressOpenApplies
+	default:
+		return readinessOptionsOpeningOffset, stressOpenExempt
 	}
-	if s.regimeStressOpen(now) {
-		return readinessStressOptionsOpeningOffset, true
-	}
-	return readinessOptionsOpeningOffset, false
 }
 
 // regimeStressOpen reports whether the latched regime stage in force reads
@@ -192,6 +226,22 @@ func (s *Server) regimeStressOpen(now time.Time) bool {
 func stressOpenPhrase(send time.Time) string {
 	return fmt.Sprintf("stress open: the regime reads confirmed stress, so options send from %s, %d minutes after the open",
 		send.UTC().Format(time.RFC3339), int(readinessStressOptionsOpeningOffset/time.Minute))
+}
+
+// stressOpenExemptPhrase says why a row that is not discretionary-scale keeps
+// the 15-minute options offset at a stress open, with the time.
+func stressOpenExemptPhrase(bucket string, send time.Time) string {
+	kind := "protective exit"
+	switch bucket {
+	case rpc.TradeProposalBucketOptionLossExit:
+		kind = "loss exit"
+	case rpc.TradeProposalBucketOptionExpiryClose:
+		kind = "expiry close"
+	case rpc.TradeProposalBucketTrailingStop:
+		kind = "trailing stop"
+	}
+	return fmt.Sprintf("stress open: the regime reads confirmed stress, but a %s keeps the %d-minute options offset, so it sends from %s",
+		kind, int(readinessOptionsOpeningOffset/time.Minute), send.UTC().Format(time.RFC3339))
 }
 
 func (e *proposalEngine) readinessSession(market marketcal.Market, now time.Time, sessions readinessSessions) (marketcal.Session, bool) {

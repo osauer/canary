@@ -633,7 +633,7 @@ func (e *proposalEngine) queuedTerms(prop rpc.TradeProposal, policy protectionPo
 	default:
 		return rpc.QueuedAuthTerms{}, unknown("the trading calendar dates no next regular open for this market")
 	}
-	offset, _ := e.server.readinessOpeningOffset(market, now)
+	offset, _ := e.server.readinessOpeningOffset(market, prop.Bucket, now)
 	notBefore := opens.Add(offset).UTC()
 	day, ok := e.server.previewSession(market, notBefore)
 	if !ok || !day.IsOpen {
@@ -668,10 +668,11 @@ func (e *proposalEngine) queuedTerms(prop rpc.TradeProposal, policy protectionPo
 }
 
 // queuedStressOpen reports that a queued window was dated at a stress open:
-// an options window that starts the stress offset after its session's open.
-// The terms stay as the owner signed them; this only names why.
+// a discretionary-scale options window that starts the stress offset after
+// its session's open. The terms stay as the owner signed them; this only
+// names why.
 func (e *proposalEngine) queuedStressOpen(t rpc.QueuedAuthTerms) bool {
-	if e == nil || e.server == nil || marketcal.Market(t.Market) != marketcal.MarketUSOptions {
+	if e == nil || e.server == nil || marketcal.Market(t.Market) != marketcal.MarketUSOptions || !slices.Contains(readinessStressOpenBuckets, t.Bucket) {
 		return false
 	}
 	day, ok := e.server.previewSession(marketcal.MarketUSOptions, t.NotBefore)

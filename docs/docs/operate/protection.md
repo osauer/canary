@@ -411,12 +411,15 @@ until `canary status` shows a push witnessed on the phone.
 **After the open.** An order that prices off the regular session (a patient
 limit, or a trail without an initial stop) does not go out in the session's
 first minutes: the pre-authorisation scheduler and a queued authorisation send
-no earlier than the open plus 5 minutes for stocks and 15 for options, and 30
-for options at a stress open, while the latched regime stage reads confirmed
-stress (a stale confirmed stage still counts; a stage never observed reads
-calm). A row's `readiness` dates that time in `default_send_at`; at a stress
-open it adds `stress_open: true`, and its message says "stress open" with the
-time.
+no earlier than the open plus 5 minutes for stocks and 15 for options. At a
+stress open, while the latched regime stage reads confirmed stress (a stale
+confirmed stage still counts; a stage never observed reads calm), options rows
+that scale the book at your discretion (budget, theta and issuer-trim
+reductions and the cash sweep) wait 30 minutes; loss exits, expiry closes and
+trailing stops keep 15, because a stop is a stop. A row's `readiness` dates
+that time in `default_send_at`; at a stress open it adds `stress_open: true` to
+a row that waits 30 minutes and `stress_open_exempt: true` to one that keeps
+15, and its message says which applies, with the time.
 
 A latched drawdown brake lets eligible non-budget protection records bypass
 both the notice prerequisite and the waiting window. Budget reductions always
