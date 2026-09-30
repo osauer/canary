@@ -89,9 +89,9 @@ that artifact.
   Queue combine current alerts, process exceptions, protection candidates,
   and exercise candidates without turning any row into submit authority.
 - **Am I within my limits?** `canary rules` checks the book against limits for
-  position size, premium budget, time value, expiry, losses and net market
-  exposure. They start from a compiled baseline; `canary rules policy set`
-  makes them yours.
+  position size, premium budget, time value, expiry, losses, net market
+  exposure and margin headroom. They start from a compiled baseline; `canary
+  rules policy set` makes them yours.
 - **How is the book exposed?** Account and position reads identify one selected
   account, group stock and option legs by underlying, and keep missing values
   separate from real zeros. Each position carries the listing venue IBKR
@@ -118,7 +118,8 @@ that artifact.
   reviewed as one unit, net premium paid against net close value at fresh leg
   quotes, and routed to the strategy workflow or a broker combo; the row
   places no order. Option purpose follows the measured book, not per-leg
-  declarations.
+  declarations. An opt-in cash sweep proposes putting idle cash into bills of
+  the same currency; it never converts one currency into another.
 
 Reconciliation, statement-derived equity, and Edge require one shared IBKR
 Activity Flex Query. Run `canary setup reporting`, then follow the
