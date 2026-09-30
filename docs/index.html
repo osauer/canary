@@ -3,807 +3,118 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canary CLI | your broker data on your machine, with Interactive Brokers today</title>
-  <meta name="description" content="Local risk desk for your brokerage account: CLI, read-only MCP tools, risk checks, reconciliation, and a paired app. Works with Interactive Brokers today.">
+  <title>Canary CLI — Oliver Sauer</title>
+  <meta name="description" content="Canary CLI is the open-source foundation of Desk: native Go access to Interactive Brokers, portfolio evidence, risk checks and read-only tools for AI agents.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
-
+  <link rel="preload" href="/assets/fonts/instrument-sans.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/assets/fonts/instrument-serif.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/assets/site.css">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://osauer.dev/canary/">
-  <meta property="og:title" content="Canary | local risk desk, works with IBKR today">
-  <meta property="og:description" content="A local risk desk for your brokerage account, with a command line, read-only MCP tools, risk checks, statement reconciliation, and a paired app. Works with Interactive Brokers today through IB Gateway or TWS.">
+  <meta property="og:title" content="Canary CLI — Oliver Sauer">
+  <meta property="og:description" content="The open-source foundation of Desk. Native Go access to Interactive Brokers, risk checks and read-only tools for AI agents.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Canary | local risk desk, works with IBKR today">
-  <meta name="twitter:description" content="A local risk desk with command-line and read-only MCP access to your entitled broker data, typed risk checks, and source quality. Works with Interactive Brokers today.">
+  <meta name="twitter:title" content="Canary CLI — Oliver Sauer">
+  <meta name="twitter:description" content="Native Go access to Interactive Brokers, risk checks and read-only tools for AI agents.">
   <meta name="twitter:image" content="https://osauer.dev/canary/social/social-preview.png">
-
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "SoftwareApplication",
-        "name": "Canary",
-        "alternateName": [
-          "IBKR MCP Server",
-          "IBKR MCP TWS",
-          "IBKR TWS MCP Server",
-          "Interactive Brokers MCP Server",
-          "TWS MCP Server",
-          "IB Gateway MCP Server",
-          "IBKR Claude Desktop MCP",
-          "Portfolio review with Claude and IBKR",
-          "osauer Canary",
-          "Canary"
-        ],
+        "name": "Canary CLI",
         "url": "https://osauer.dev/canary/",
-        "description": "Canary connects a local Interactive Brokers session to a command line, read-only MCP tools, typed risk checks, statement reconciliation, and a paired app.",
+        "description": "The open-source foundation of Desk, with native Go access to Interactive Brokers, portfolio evidence, risk checks and read-only MCP tools.",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
-          "url": "https://github.com/osauer"
-        },
-        "creator": {
-          "@type": "Person",
-          "name": "Oliver Sauer",
-          "url": "https://github.com/osauer"
+          "url": "https://osauer.dev/"
         },
         "applicationCategory": "FinanceApplication",
-        "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
         "softwareVersion": "3.14.0",
         "dateModified": "2026-09-30T08:13:30+02:00",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
         "downloadUrl": "https://github.com/osauer/canary/releases/latest",
         "codeRepository": "https://github.com/osauer/canary",
         "softwareHelp": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
-        "sameAs": [
-          "https://github.com/osauer/canary",
-          "https://osauer.dev/",
-          "https://pkg.go.dev/github.com/osauer/canary/v2"
-        ],
-        "isAccessibleForFree": true,
-        "keywords": "Canary, Interactive Brokers, IBKR MCP, TWS MCP server, IB Gateway MCP, Claude Desktop, Claude Code, portfolio risk, market data, statement reconciliation",
-        "featureList": [
-          "Entitlement-aware market data with freshness and source-quality fields",
-          "MCP server for Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts",
-          "Daily desk brief composing market regime, dealer gamma, and portfolio stress context with typed freshness",
-          "Advisory 18-rule trading discipline rulebook, with limits you set, that never renders a false pass",
-          "Operator-authored risk policy with advisory drawdown reporting (CLI)",
-          "Daily broker-statement ingestion and reconciliation (CLI)",
-          "Daemon-owned protection proposals: trailing stops, theta hygiene, risk reduction (read-only via MCP)",
-          "Paired Canary app with a written daily briefing, a monitor grid of regime and desk instruments, and an experimental remote relay beta",
-          "Read-only MCP surface in every build: no settings writes, order previews, or execution tools"
-        ]
+        "isAccessibleForFree": true
       },
       {
         "@type": "SoftwareSourceCode",
-        "name": "Canary",
+        "name": "Canary CLI",
         "codeRepository": "https://github.com/osauer/canary",
         "programmingLanguage": "Go",
         "runtimePlatform": "macOS, Linux, Unix",
         "license": "https://github.com/osauer/canary/blob/main/LICENSE",
-        "about": "Clean-room Go implementation of the Interactive Brokers TWS read-side protocol with CLI and MCP interfaces."
-      },
-      {
-        "@type": "VideoObject",
-        "name": "The Status Meeting",
-        "description": "A 53-second animated short about the moment a portfolio limit gets crossed while the trader is in a meeting, and the small yellow bird that watches. All account data shown is synthetic.",
-        "thumbnailUrl": "https://osauer.dev/canary/media/canary-status-meeting-poster.jpg",
-        "contentUrl": "https://osauer.dev/canary/media/canary-status-meeting.mp4",
-        "uploadDate": "2026-08-03",
-        "duration": "PT53S",
-        "inLanguage": "en",
-        "creator": {
-          "@type": "Person",
-          "name": "Oliver Sauer",
-          "url": "https://github.com/osauer"
-        }
-      },
-      {
-        "@type": "VideoObject",
-        "name": "Poolside",
-        "description": "A 21-second cartoon loop with the Canary theme: the trader is on vacation, the canary keeps watch, and one phone alert arrives. All account data shown is synthetic.",
-        "thumbnailUrl": "https://osauer.dev/canary/media/canary-poolside-poster.jpg",
-        "contentUrl": "https://osauer.dev/canary/media/canary-poolside.mp4",
-        "uploadDate": "2026-08-03",
-        "duration": "PT21S",
-        "inLanguage": "en",
-        "creator": {
-          "@type": "Person",
-          "name": "Oliver Sauer",
-          "url": "https://github.com/osauer"
-        }
-      },
-      {
-        "@type": "FAQPage",
-        "mainEntity": [
-          {
-            "@type": "Question",
-            "name": "What is the IBKR MCP server?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Canary is a local Model Context Protocol server and Canary app that lets Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts analyze Interactive Brokers account and market data through IB Gateway or TWS."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Can this MCP server place Interactive Brokers orders?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Not in the standard downloads. The installer, the Claude Desktop bundle, and the plain Canary tarballs are read-only builds with no order placement, modification, or cancellation tools compiled in. Each release also publishes a clearly marked canary-trading tarball for users who explicitly opt into order management; it ships with warnings and layered safeguards and is never installed by default."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Does Canary work with TWS and IB Gateway?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Yes. Canary can connect to a local Trader Workstation or IB Gateway API session and auto-discovers the standard paper and live ports unless you pin a specific config."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "How do I connect Claude Desktop to IBKR?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Install the latest Canary MCP Bundle from the GitHub release, open the .mcpb file with Claude Desktop, and restart Claude Desktop while IB Gateway or TWS is running locally."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Does Canary provide real-time market data?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Market data flows through the user's own TWS or IB Gateway session, so entitlements match TWS: real-time wherever the account holds IBKR market-data subscriptions, delayed otherwise."
-            }
-          },
-          {
-            "@type": "Question",
-            "name": "Where does Canary get market data?",
-            "acceptedAnswer": {
-              "@type": "Answer",
-              "text": "Canary reads through the trader's local TWS or IB Gateway session. Availability, delay status, and real-time coverage follow that account's subscriptions and the current market session."
-            }
-          }
-        ]
-      },
-      {
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-          {
-            "@type": "ListItem",
-            "position": 1,
-            "name": "Canary",
-            "item": "https://osauer.dev/canary/"
-          }
-        ]
+        "about": "Clean-room Go implementation of the Interactive Brokers TWS protocol with CLI and read-only MCP interfaces."
       }
     ]
   }
   </script>
-
-  <style>
-    :root {
-      --paper: #f7f5ef;
-      --paper-strong: #fffdf7;
-      --ink: #101827;
-      --muted: #42526a;
-      --line: #d8d2c4;
-      --green: #087f6b;
-      --green-dark: #055f52;
-      --amber: #9a5b00;
-      --blue: #245dbb;
-      --terminal: #0e1626;
-      --terminal-line: #26364c;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    html {
-      scroll-behavior: smooth;
-    }
-
-    body {
-      margin: 0;
-      background: var(--paper);
-      color: var(--ink);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      line-height: 1.5;
-    }
-
-    img {
-      display: block;
-      max-width: 100%;
-      height: auto;
-    }
-
-    a {
-      color: var(--green-dark);
-      text-decoration-thickness: 0.08em;
-      text-underline-offset: 0.18em;
-    }
-
-    .topline {
-      height: 12px;
-      background: var(--green);
-    }
-
-    .wrap {
-      width: min(1180px, calc(100% - 40px));
-      margin: 0 auto;
-    }
-
-    .nav {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-      padding: 22px 0 14px;
-    }
-
-    .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--ink);
-      font-size: 28px;
-      font-weight: 800;
-      letter-spacing: 0;
-      text-decoration: none;
-    }
-
-    .brand img {
-      width: 34px;
-      height: 34px;
-      border-radius: 8px;
-      box-shadow: 0 8px 18px rgba(16, 24, 39, 0.12);
-    }
-
-    .nav-links {
-      display: flex;
-      align-items: center;
-      gap: 22px;
-      color: var(--muted);
-      font-size: 15px;
-      font-weight: 650;
-    }
-
-    .nav-links a {
-      color: var(--muted);
-      text-decoration: none;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(340px, 0.75fr);
-      gap: 38px;
-      align-items: center;
-      padding: 20px 0 34px;
-    }
-
-    .eyebrow {
-      margin: 0 0 18px;
-      color: var(--green-dark);
-      font-size: 15px;
-      font-weight: 800;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-
-    h1 {
-      max-width: 760px;
-      margin: 0;
-      font-size: clamp(40px, 4.8vw, 58px);
-      line-height: 1.02;
-      letter-spacing: 0;
-    }
-
-    .lead {
-      max-width: 760px;
-      margin: 24px 0 0;
-      color: #26364d;
-      font-size: clamp(18px, 1.55vw, 19px);
-      line-height: 1.35;
-    }
-
-    .safety {
-      max-width: 760px;
-      margin: 18px 0 0;
-      color: var(--green-dark);
-      font-size: 18px;
-      font-weight: 750;
-    }
-
-    .disclaimer {
-      max-width: 760px;
-      margin: 14px 0 0;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      margin: 26px 0 0;
-    }
-
-    .button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 46px;
-      padding: 0 18px;
-      border: 1px solid var(--ink);
-      border-radius: 8px;
-      color: var(--ink);
-      font-weight: 750;
-      text-align: center;
-      text-decoration: none;
-      background: transparent;
-    }
-
-    .button.primary {
-      border-color: var(--green);
-      background: var(--green);
-      color: #fff;
-    }
-
-    .install-note {
-      margin: 16px 0 0;
-      color: var(--muted);
-      font-size: 15px;
-    }
-
-    .hero-media {
-      display: grid;
-      gap: 18px;
-      justify-items: start;
-    }
-
-    .hero-shot {
-      margin: 0;
-      padding: 0;
-    }
-
-    .hero-shot figcaption {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .hero-shot img,
-    .proof img {
-      border: 1px solid var(--terminal-line);
-      border-radius: 8px;
-      box-shadow: 0 18px 42px rgba(16, 24, 39, 0.18);
-    }
-
-    .remote-grid img {
-      width: 100%;
-      aspect-ratio: 4 / 3;
-      object-fit: cover;
-      object-position: top;
-    }
-
-    .film {
-      margin: 0;
-      max-width: 880px;
-    }
-
-    .film video {
-      width: 100%;
-      height: auto;
-      border: 1px solid var(--terminal-line);
-      border-radius: 8px;
-      box-shadow: 0 18px 42px rgba(16, 24, 39, 0.18);
-      background: #101827;
-    }
-
-    .film figcaption {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .remote-grid video {
-      width: min(340px, 100%);
-      aspect-ratio: 9 / 16;
-      height: auto;
-      border: 1px solid var(--terminal-line);
-      border-radius: 8px;
-      box-shadow: 0 18px 42px rgba(16, 24, 39, 0.18);
-    }
-
-    .trust {
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
-      background: var(--paper-strong);
-    }
-
-    .trust-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 1px;
-    }
-
-    .trust-item {
-      min-height: 120px;
-      padding: 24px;
-      border-left: 1px solid var(--line);
-    }
-
-    .trust-item:last-child {
-      border-right: 1px solid var(--line);
-    }
-
-    .trust-item strong {
-      display: block;
-      margin-bottom: 8px;
-      font-size: 18px;
-    }
-
-    .trust-item span {
-      color: var(--muted);
-      font-size: 15px;
-    }
-
-    section {
-      padding: 76px 0;
-    }
-
-    .section-head {
-      max-width: 760px;
-      margin-bottom: 34px;
-    }
-
-    h2 {
-      margin: 0;
-      font-size: clamp(32px, 4vw, 52px);
-      line-height: 1.05;
-      letter-spacing: 0;
-    }
-
-    .section-head p {
-      margin: 18px 0 0;
-      color: var(--muted);
-      font-size: 19px;
-    }
-
-    .proof-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 18px;
-      align-items: start;
-    }
-
-    .proof {
-      display: grid;
-      gap: 14px;
-    }
-
-    .proof h3,
-    .feature h3 {
-      margin: 0;
-      font-size: 20px;
-    }
-
-    .proof p,
-    .feature p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 16px;
-    }
-
-    .feature code,
-    .install-note code {
-      overflow-wrap: anywhere;
-    }
-
-    .feature-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 18px;
-    }
-
-    .feature-grid.desk {
-      grid-template-columns: repeat(2, 1fr);
-    }
-
-    .feature {
-      min-height: 210px;
-      padding: 24px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--paper-strong);
-    }
-
-    .feature small {
-      display: block;
-      margin-bottom: 16px;
-      color: var(--amber);
-      font-size: 13px;
-      font-weight: 800;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .install {
-      display: grid;
-      grid-template-columns: minmax(0, 0.85fr) minmax(360px, 1fr);
-      gap: 36px;
-      align-items: start;
-    }
-
-    pre {
-      min-width: 0;
-      max-width: 100%;
-      overflow-x: auto;
-      margin: 0;
-      padding: 24px;
-      border: 1px solid var(--terminal-line);
-      border-radius: 8px;
-      background: var(--terminal);
-      color: #f4f7fb;
-      font: 16px/1.55 Menlo, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-    }
-
-    .questions {
-      columns: 2;
-      column-gap: 36px;
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .questions li {
-      break-inside: avoid;
-      margin: 0 0 14px;
-      padding-left: 18px;
-      position: relative;
-      color: #24324a;
-      font-size: 18px;
-    }
-
-    .questions li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.7em;
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--green);
-    }
-
-    footer {
-      padding: 36px 0 54px;
-      border-top: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    footer .wrap {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 24px;
-      align-items: start;
-    }
-
-    footer p {
-      margin: 0;
-      max-width: 840px;
-    }
-
-    .footer-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-    }
-
-    @media (max-width: 980px) {
-      .hero,
-      .install {
-        grid-template-columns: 1fr;
-      }
-
-      .hero {
-        gap: 34px;
-        padding-top: 24px;
-      }
-
-      .hero-shot {
-        max-width: 760px;
-      }
-
-      .trust-grid,
-      .proof-grid,
-      .feature-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-
-    @media (max-width: 660px) {
-      .wrap {
-        width: min(100% - 28px, 1180px);
-      }
-
-      .nav {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 12px;
-        padding: 16px 0 10px;
-      }
-
-      .nav-links {
-        flex-wrap: wrap;
-        gap: 10px 14px;
-        font-size: 14px;
-      }
-
-      h1 {
-        font-size: 36px;
-        line-height: 1.03;
-      }
-
-      .hero {
-        gap: 22px;
-        padding: 14px 0 26px;
-      }
-
-      .lead {
-        margin-top: 18px;
-        font-size: 15px;
-        line-height: 1.34;
-      }
-
-      .safety {
-        margin-top: 14px;
-        font-size: 16px;
-      }
-
-      .actions {
-        gap: 8px;
-        margin-top: 20px;
-      }
-
-      .button {
-        min-height: 42px;
-        padding: 0 10px;
-        font-size: 14px;
-      }
-
-      .hero-shot {
-        max-width: 320px;
-      }
-
-      section {
-        padding: 58px 0;
-      }
-
-      .trust-grid,
-      .proof-grid,
-      .feature-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .feature-grid.desk {
-        grid-template-columns: 1fr;
-      }
-
-      .trust-item,
-      .trust-item:last-child {
-        border-right: 1px solid var(--line);
-      }
-
-      .questions {
-        columns: 1;
-      }
-
-      footer .wrap {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
 </head>
 <body>
-  <div class="topline"></div>
-
-  <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="https://osauer.dev/canary/" aria-label="Canary home"><img src="social/canary-icon.png" width="192" height="192" alt="">Canary</a>
-    <nav class="nav-links" aria-label="Page">
-      <a href="#install">Install</a>
-      <a href="docs/">Documentation</a>
-      <a href="docs/reference/mcp-tools.html">MCP tools</a>
-      <a href="canary-remote/">Remote app beta</a>
-      <a href="feedback/">Feedback</a>
-      <a href="https://github.com/osauer/canary">GitHub</a>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="wrap site-header">
+    <a class="brand" href="/">osauer.dev</a>
+    <nav class="site-nav" aria-label="Main navigation">
+      <a href="/desk/">Desk</a>
+      <a href="/canary/" aria-current="page">Canary CLI</a>
+      <a class="nav-social external" href="https://github.com/osauer">GitHub</a>
     </nav>
   </header>
-
-  <main>
-    <section class="wrap hero" aria-labelledby="hero-title">
+  <main id="main" tabindex="-1">
+    <section class="wrap hero project-intro canary-intro" aria-labelledby="hero-title">
       <div>
-        <p class="eyebrow">Local risk desk · runs with Interactive Brokers today</p>
-        <h1 id="hero-title">Account, market, and risk context from your local broker session</h1>
-        <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. One daemon composes the daily brief, current portfolio and market evidence, and a broker-confirmed review of what past position changes delivered.</p>
-        <p class="lead">It runs with Interactive Brokers today, through IB Gateway or TWS, and keeps the broker behind one interface, so a second platform can be added without starting over.</p>
-        <p class="lead">Canary Edge looks back at your own position changes and shows what each delivered against simply holding: observed outcomes, not a forecast. Delayed, held, unavailable and not-due inputs never masquerade as live data.</p>
-        <p class="safety">The MCP surface is read-only: no resources, settings writes, order previews, or execution tools.</p>
-        <div class="actions" aria-label="Main actions">
-          <a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a>
-          <a class="button" href="#install">Install other clients</a>
-          <a class="button" href="https://github.com/osauer/canary">View on GitHub</a>
-          <a class="button" href="docs/reference/mcp-tools.html">Read MCP tools</a>
+        <p class="kicker">Open source · Go · Interactive Brokers</p>
+        <h1 id="hero-title">Canary CLI</h1>
+        <p class="lead">The open-source foundation of Desk. Connect to Interactive Brokers, inspect portfolio and market evidence, and give AI agents read-only tools for analysis.</p>
+        <div class="actions">
+          <a class="text-link" href="https://github.com/osauer/canary">View on GitHub <span class="arrow" aria-hidden="true">↗</span></a>
+          <a class="text-link" href="#install">Install <span class="arrow" aria-hidden="true">↓</span></a>
         </div>
-        <p class="install-note">For Claude Desktop, use the MCPB install page, restart Claude, and keep IB Gateway or TWS running locally. The shell and Claude Code paths are there when you want one shared binary.</p>
-        <p class="install-note">Want a daily investment workspace around this evidence? <a href="https://osauer.dev/desk/">Canary Desk</a> is the private member of the Canary family.</p>
-        <p class="disclaimer">Canary is analysis software, not financial advice. Nothing it shows or says is a recommendation to buy or sell any security.</p>
+        <p class="note">MCP tools are read-only. Standard downloads have no order entry. Trading actions require a separate opt-in build, authority checks and owner confirmation.</p>
       </div>
-      <div class="hero-media">
-        <figure class="hero-shot">
-          <img src="social/canary-app-edge.png" width="821" height="684" alt="Current Canary Edge SPA with synthetic one-year review data, a 1/5/20-session matrix, and ranked findings">
-          <figcaption>Synthetic account history. Observed outcomes, not a forecast.</figcaption>
-        </figure>
+      <div class="terminal">
+        <span class="terminal-label">Read from your local broker session</span>
+        <pre><code><span class="command">$ canary brief</span>
+<span class="command">$ canary positions</span>
+<span class="command">$ canary rules</span></code></pre>
       </div>
     </section>
 
-    <div class="trust" aria-label="Core properties">
-      <div class="wrap trust-grid">
-        <div class="trust-item">
-          <strong>Local by default</strong>
-          <span>Connects to IB Gateway or TWS on your machine. No hosted broker custody layer.</span>
-        </div>
-        <div class="trust-item">
-          <strong>Agent-ready</strong>
-          <span>Runs as a stdio MCP server for Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts.</span>
-        </div>
-        <div class="trust-item">
-          <strong>Desk functions</strong>
-          <span>Daily brief, Action Queue, 18-rule rulebook, operator-written risk policy, and daily reconciliation.</span>
-        </div>
-        <div class="trust-item">
-          <strong>Go binary</strong>
-          <span>One installable CLI with a local daemon and a clean-room Go TWS protocol library.</span>
-        </div>
-      </div>
-    </div>
-
-    <section class="wrap" aria-labelledby="story-title">
-      <div class="section-head">
-        <h2 id="story-title">Why there is a bird.</h2>
-        <p>The market runs six and a half hours a day. You have a day job and a boss who expects eye contact. So you write your rules down, and the bird keeps the watch: one buzz on your phone when one of them needs your attention, in time to act.</p>
-      </div>
-      <figure class="film">
-        <video controls playsinline preload="none" poster="media/canary-status-meeting-poster.jpg" width="1920" height="1080" aria-label="The Status Meeting, an animated short film about a trader saved by a canary alert">
-          <source src="media/canary-status-meeting.mp4" type="video/mp4">
-          Your browser does not play MP4 video. <a href="media/canary-status-meeting.mp4">Download the film.</a>
-        </video>
-        <figcaption>The Status Meeting. 53 seconds, with sound.</figcaption>
-      </figure>
+    <section class="wrap section rhythm" aria-label="Ways to use Canary">
+      <article>
+        <span class="number" aria-hidden="true">01</span>
+        <h2>Portfolio review</h2>
+        <p>Holdings, exposure, risk checks and broker-statement reconciliation, with source and freshness information.</p>
+      </article>
+      <article>
+        <span class="number" aria-hidden="true">02</span>
+        <h2>For agents</h2>
+        <p>Read-only MCP tools connect your broker evidence to Claude and other AI assistants.</p>
+      </article>
+      <article>
+        <span class="number" aria-hidden="true">03</span>
+        <h2>Native Go</h2>
+        <p>The Go library speaks the IBKR TWS protocol directly. No Python bridge or vendor SDK.</p>
+      </article>
     </section>
 
-    <section class="wrap install" id="install" aria-labelledby="install-title">
+    <section class="wrap section install-row" id="install" aria-labelledby="install-title">
       <div>
-        <div class="section-head">
-          <h2 id="install-title">Install for Claude Desktop first.</h2>
-          <p>Most Mac users should start with the Claude Desktop MCPB. It bundles the local MCP server, keeps the broker session on your machine, and avoids hand-editing MCP config files.</p>
-        </div>
-        <p>Prerequisites: IB Gateway 10.37+ or TWS running locally, plus an IBKR Pro account with TWS API access. IBKR Lite does not include TWS API access.</p>
-        <p><a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a></p>
-        <p>The Claude Desktop path explains what the MCPB bundles, what still needs to be running locally, and the exact Mac install and restart steps.</p>
+        <p class="kicker">Get started</p>
+        <h2 id="install-title">Install Canary</h2>
+        <p>IB Gateway 10.37+ or TWS must run locally. Requires an IBKR Pro account with TWS API access; IBKR Lite does not include it.</p>
+        <a class="text-link" href="claude-desktop-interactive-brokers/">Claude Desktop install <span class="arrow" aria-hidden="true">↗</span></a>
       </div>
-      <pre><code># Claude Code plugin
+      <div class="terminal">
+        <span class="terminal-label">Claude Code or the command line</span>
+        <pre><code># Claude Code plugin
 /plugin marketplace add osauer/canary
 /plugin install canary@canary
 # restart Claude Code or run /reload-plugins after install/update
@@ -814,274 +125,50 @@ canary setup claude-desktop
 
 # then ask:
 # "How does my IBKR account look today?"</code></pre>
-    </section>
-
-    <section class="wrap" aria-labelledby="desk-title">
-      <div class="section-head">
-        <h2 id="desk-title">What the desk includes.</h2>
-        <p>Ten pieces that matter most. The <a href="https://github.com/osauer/canary/blob/main/CHANGELOG.md">changelog</a> carries the rest.</p>
-      </div>
-      <div class="feature-grid desk">
-        <article class="feature">
-          <small>Market data</small>
-          <h3>Market data with source quality</h3>
-          <p>The daemon evaluates entitled account and market sources and preserves their freshness, warning codes, and session context. A fallback or held value never becomes green merely because it exists.</p>
-        </article>
-        <article class="feature">
-          <small>MCP hosts</small>
-          <h3>Works with the agent you already use</h3>
-          <p>One binary serves Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. The tool descriptions do the routing, so an assistant finds the right surface on its own.</p>
-        </article>
-        <article class="feature">
-          <small>Action Queue</small>
-          <h3>One queue for decisions</h3>
-          <p>Current and recovered alerts, protection proposals, and option-exercise opportunities converge into one ranked app surface with explicit boundaries.</p>
-        </article>
-        <article class="feature">
-          <small>Morning brief</small>
-          <h3>Review and Ready</h3>
-          <p>The daemon composes the last completed session, the next session, source degradation, and the few rows that need a decision.</p>
-        </article>
-        <article class="feature">
-          <small>Discipline</small>
-          <h3><a href="docs/understand/sensors.html#rulebook">An 18-rule trading rulebook</a></h3>
-          <p>A daily checklist over the live book: issuer-loss concentration, premium caps, delta swings, cluster stress, loss budgets and hedge integrity. Missing evidence remains unknown. Checks inform alerts and separately authorised protection proposals.</p>
-        </article>
-        <article class="feature">
-          <small>Risk policy</small>
-          <h3><a href="docs/understand/policy.html">A risk policy you write yourself</a></h3>
-          <p><code>canary policy</code> reads your protected equity floor, declared risk capital and drawdown ladder. The constitution supplies evidence to the brief and protection workflows. Document editions and review labels do not grant trading permission.</p>
-        </article>
-        <article class="feature">
-          <small>Reconciliation</small>
-          <h3>Daily statement reconciliation</h3>
-          <p><code>canary recon</code> fetches IBKR Flex statements every day and checks broker-confirmed flows against your declared ledger. Clean reports take care of themselves. Exceptions ask for you. Terminal only.</p>
-        </article>
-        <article class="feature">
-          <small>Protection</small>
-          <h3>Protection proposals</h3>
-          <p>The daemon maintains trailing-stop, theta-hygiene, and risk-reduction proposals with per-row blockers, refreshed every 30 seconds. Agents read them through MCP; acting on one stays behind the separate gated order path. When a working stop no longer matches the position, the app flags it in red, sends one push, and offers a single guided fix: reduce the stop to the shares still held.</p>
-        </article>
-        <article class="feature">
-          <small>Desk brief</small>
-          <h3>One daily brief, wherever you work</h3>
-          <p>Monitor includes the daemon-authored daily brief: a lead verdict followed by Review for the last completed session and Ready for the next one. <code>canary brief</code> prints the same briefing in the terminal, while <code>canary_brief</code> lets Claude and other MCP clients read it without signing anything off or changing process state. Sources the daemon could not read are named rather than skipped, so missing evidence never looks clean. An experimental relay adds phone access away from home.</p>
-        </article>
-        <article class="feature">
-          <small>Boundary</small>
-          <h3>Read-only by default</h3>
-          <p>Standard downloads compile in no broker-write path, and MCP has no preview or execution tools. The opt-in trading binary keeps constrained CLI/app actions behind confirmation, journaling, daemon policy, and freeze gates.</p>
-        </article>
       </div>
     </section>
 
-    <section class="wrap">
-      <div class="section-head">
-        <h2>Ask portfolio and market questions in plain language.</h2>
-        <p>The MCP descriptions are written for agent routing, so assistants can pick the right tool without you naming commands.</p>
+    <section class="wrap section handbook" aria-labelledby="handbook-title">
+      <div>
+        <p class="kicker">Documentation</p>
+        <h2 id="handbook-title">Handbook &amp; reference</h2>
+        <a class="text-link" href="docs/">Open the handbook <span class="arrow" aria-hidden="true">↗</span></a>
+        <p class="note">For a workspace around the foundation, <a href="/desk/">explore Desk’s private preview</a>.</p>
       </div>
-      <ul class="questions">
-        <li>Review my portfolio and rank the risks I should look at today.</li>
-        <li>What is in my IBKR account?</li>
-        <li>Show my SPY exposure, including option deltas.</li>
-        <li>What does today's brief say is ready or blocked?</li>
-        <li>Which inputs are stale, held, degraded, or unavailable?</li>
-        <li>Show daily technical evidence for MSFT and NVDA.</li>
-        <li>Which protection or option-exercise candidates need review?</li>
-        <li>Which of my discipline rules is the book breaking today?</li>
-      </ul>
-    </section>
-
-    <section class="wrap" aria-labelledby="surfaces-title">
-      <div class="section-head">
-        <h2 id="surfaces-title">One local authority, three integration surfaces.</h2>
-      </div>
-      <div class="feature-grid">
-        <article class="feature">
-          <small>MCP server</small>
-          <h3>For AI assistants</h3>
-          <p><code>canary mcp</code> exposes read-only tools for status, account, positions, option strategies, named-symbol technical analysis, broker-reporting status, the retrospective Edge review, brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads.</p>
-        </article>
-        <article class="feature">
-          <small>Canary CLI</small>
-          <h3>For fast checks</h3>
-          <p>Run <code>canary status</code>, <code>canary positions</code>, <code>canary technical</code>, <code>canary brief</code>, <code>canary rules</code>, <code>canary policy show</code>, and <code>canary recon show</code>. The generated CLI reference carries the exact 22-command contract.</p>
-        </article>
-        <article class="feature">
-          <small>Go library</small>
-          <h3>For custom systems</h3>
-          <p><code>github.com/osauer/canary/v2/pkg/ibkr</code> speaks the TWS protocol directly with no Python bridge and no IBKR jars.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="wrap" aria-labelledby="canary-desk-title">
-      <div class="section-head">
-        <p class="eyebrow">Private product · daily investment workspace</p>
-        <h2 id="canary-desk-title" class="brand"><img src="social/canary-icon.png" width="192" height="192" alt="">Canary Desk</h2>
-        <p>Canary CLI supplies the local broker and market evidence. Canary Desk brings it into a continuing workflow: market and macro briefings, portfolio reviews, an analyst conversation and proposed decisions with dated evidence and independent review.</p>
-        <p>Begin with what happened overnight, understand how the book performed and see what needs your attention. Canary Desk's repository remains private; there is no public download.</p>
-        <div class="actions"><a class="button primary" href="https://osauer.dev/desk/">Explore Canary Desk</a></div>
-      </div>
-    </section>
-
-    <section class="wrap" aria-labelledby="remote-title">
-      <div class="section-head">
-        <h2 id="remote-title">Experimental remote Canary app.</h2>
-        <p>The paired Canary PWA opens on Monitor and can run through a beta HTTPS relay when you want phone access away from the LAN. Monitor carries the daily brief; Positions, Edge, Alerts, and Orders own the deeper reads. The app and broker session still live on your Mac; the relay is transport-only and currently maintainer-assisted for early users.</p>
-      </div>
-      <div class="proof-grid remote-grid">
-        <article class="proof">
-          <video controls autoplay muted loop playsinline preload="metadata" poster="media/canary-poolside-poster.jpg" width="720" height="1280" aria-label="Cartoon loop with theme music, muted until you unmute: a trader floats in a pool while the canary keeps watch, and one phone alert arrives">
-            <source src="media/canary-poolside.mp4" type="video/mp4">
-          </video>
-          <h3>Away from the screen</h3>
-          <p>You are in the water and the bird has the desk, back home on your Mac, checking the account against the rules you wrote down. While they hold, the phone by the towel stays quiet. The day one breaks, it buzzes once.</p>
-        </article>
-        <article class="feature">
-          <small>Security</small>
-          <h3>TLS-protected transport</h3>
-          <p>The phone uses HTTPS and the Mac connector uses WSS, so network intermediaries cannot read the traffic. Pairing and session authorization remain local to the app.</p>
-        </article>
-        <article class="feature">
-          <small>Guide</small>
-          <h3><a href="canary-remote/">Canary remote app beta</a></h3>
-          <p>Short setup notes, relay caveats, pairing flow, screenshots, and the current beta security model.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="wrap" aria-labelledby="desk-references-title">
-      <div class="section-head">
-        <h2 id="desk-references-title">Documentation.</h2>
-        <p>The <a href="docs/">handbook</a> runs from installing Canary through the daily desk routine, how to read each measurement, the generated command and tool references, and the system design underneath. Four pages carry most of the weight.</p>
-      </div>
-      <div class="feature-grid">
-        <article class="feature">
-          <small>System</small>
-          <h3><a href="docs/internals/architecture.html">Architecture</a></h3>
-          <p>Runtime processes, typed contracts, broker and external-data flows, state ownership, and deployment boundaries.</p>
-        </article>
-        <article class="feature">
-          <small>Human decisions</small>
-          <h3><a href="docs/understand/policy.html">Trading policy</a></h3>
-          <p>Who decides risk boundaries, what Canary evaluates today, how controls change, and what never becomes submit authority.</p>
-        </article>
-        <article class="feature">
-          <small>State and evidence</small>
-          <h3><a href="docs/internals/storage.html">Storage</a></h3>
-          <p>Why the daemon uses SQLite, how the data model follows from its job, how changes become durable, and where the design must evolve.</p>
-        </article>
-        <article class="feature">
-          <small>Measurements</small>
-          <h3><a href="docs/understand/sensors.html">Sensors</a></h3>
-          <p>What Gamma, Regime, Stress, Rulebook, and market events measure, when their evidence is fresh, and how gaps fail closed.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="wrap" aria-labelledby="faq-title">
-      <div class="section-head">
-        <h2 id="faq-title">IBKR MCP FAQ.</h2>
-      </div>
-      <div class="feature-grid">
-        <article class="feature">
-          <h3>What is the IBKR MCP server?</h3>
-          <p><code>canary mcp</code> is a local Model Context Protocol server for Interactive Brokers account and market-data workflows.</p>
-        </article>
-        <article class="feature">
-          <h3>Can it place orders?</h3>
-          <p>Not in the standard downloads: the installer, the Claude Desktop bundle, and the plain <code>canary</code> tarballs are read-only builds with no place, modify, or cancel tools compiled in. Each release also publishes a clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management. It ships with warnings and layered safeguards.</p>
-        </article>
-        <article class="feature">
-          <h3>Does it use TWS or IB Gateway?</h3>
-          <p>Yes. It connects to a local TWS or IB Gateway API session and auto-discovers the standard paper and live ports.</p>
-        </article>
-        <article class="feature">
-          <h3>How does Claude Desktop connect?</h3>
-          <p>Install the latest MCPB release asset, open it with Claude Desktop, and restart Claude while IB Gateway or TWS is running.</p>
-        </article>
-        <article class="feature">
-          <h3>Is the market data real-time?</h3>
-          <p>Broker data comes through your own TWS or IB Gateway session, so entitlements match what you see in TWS: real-time where you hold IBKR market-data subscriptions, delayed otherwise.</p>
-        </article>
-        <article class="feature">
-          <h3>Where does the market data come from?</h3>
-          <p>Canary reads through your local TWS or IB Gateway session. Coverage and delay status follow the connected account's subscriptions and the current market session. A few regime rows are the exception and read straight from the institution that publishes them, needing no IBKR entitlement: VVIX and VIX3M closes from Cboe, credit spreads from FRED, and the funding series from the Federal Reserve and US Treasury.</p>
-        </article>
-      </div>
-    </section>
-
-    <section class="wrap" aria-labelledby="search-paths-title">
-      <div class="section-head">
-        <h2 id="search-paths-title">Useful setup pages.</h2>
-        <p>Start with Claude Desktop if that is where you plan to ask questions. The other pages are here for TWS, Gateway, safety, and deeper portfolio-review context.</p>
-      </div>
-      <div class="feature-grid">
-        <article class="feature">
-          <small>Claude Desktop</small>
-          <h3><a href="claude-desktop-interactive-brokers/">Claude Desktop Install</a></h3>
-          <p>Mac prerequisites, MCPB download, Claude Desktop install steps, and first-run checks.</p>
-        </article>
-        <article class="feature">
-          <small>IBKR MCP</small>
-          <h3><a href="ibkr-mcp/">IBKR MCP server</a></h3>
-          <p>The compact overview of the local MCP server, supported hosts, and read-only boundary.</p>
-        </article>
-        <article class="feature">
-          <small>TWS</small>
-          <h3><a href="ibkr-mcp-tws/">IBKR MCP TWS setup</a></h3>
-          <p>Use Trader Workstation as the local API session behind Claude and other MCP clients.</p>
-        </article>
-        <article class="feature">
-          <small>IB Gateway</small>
-          <h3><a href="ib-gateway-mcp/">IB Gateway MCP server</a></h3>
-          <p>Use the lighter local Gateway process as the account and market-data source.</p>
-        </article>
-        <article class="feature">
-          <small>Safety</small>
-          <h3><a href="read-only-mcp-server/">Read-only MCP server</a></h3>
-          <p>The no-order-entry boundary for account and market workflows.</p>
-        </article>
-        <article class="feature">
-          <small>Portfolio review</small>
-          <h3><a href="portfolio-review-with-claude-ibkr/">Portfolio review with Claude and IBKR</a></h3>
-          <p>A practical review flow for exposures, options risk, quote freshness, and next steps.</p>
-        </article>
-        <article class="feature">
-          <small>Claude Code</small>
-          <h3><a href="best-ibkr-mcp-server-claude-code/">Choosing an IBKR MCP server for Claude Code</a></h3>
-          <p>What to evaluate in a local IBKR MCP server, and how Canary's boundary holds up.</p>
-        </article>
+      <div class="guide-links">
+        <a href="ibkr-mcp/">IBKR MCP overview</a>
+        <a href="interactive-brokers-mcp-server/">Interactive Brokers guide</a>
+        <a href="ibkr-mcp-tws/">TWS setup</a>
+        <a href="ib-gateway-mcp/">IB Gateway setup</a>
+        <a href="read-only-mcp-server/">Read-only boundary</a>
+        <a href="portfolio-review-with-claude-ibkr/">Portfolio review with Claude</a>
+        <a href="best-ibkr-mcp-server-claude-code/">Choosing an MCP server</a>
+        <a href="canary-remote/">Remote app beta</a>
+        <a href="docs/reference/mcp-tools.html">MCP tool reference</a>
+        <a href="docs/reference/cli.html">CLI reference</a>
+        <a href="https://pkg.go.dev/github.com/osauer/canary/v2/pkg/ibkr">Go API reference</a>
+        <a href="docs/internals/architecture.html">Architecture</a>
+        <a href="docs/understand/policy.html">Trading policy</a>
+        <a href="docs/internals/storage.html">Storage</a>
+        <a href="docs/understand/sensors.html">Sensors and rulebook</a>
+        <a href="docs/understand/sensors.html#rulebook">Trading rulebook</a>
       </div>
     </section>
   </main>
-
-  <footer>
-    <div class="wrap">
-      <p><strong>Independent third-party project.</strong> "Interactive Brokers", "IBKR", "TWS", and "IB Gateway" are trademarks or registered trademarks of Interactive Brokers Group, Inc. or its affiliates. This project is not built, endorsed, sponsored, or supported by Interactive Brokers Group, Inc. or its affiliates. <strong>Not financial advice.</strong> Canary is analysis software; nothing on this site or in its output is a recommendation to buy or sell any security. Trading decisions are yours.</p>
+  <footer class="wrap site-footer">
+    <div class="footer-top">
+      <a href="https://www.linkedin.com/in/osauer/">Oliver Sauer</a>
       <div class="footer-links">
-        <a href="https://www.linkedin.com/in/osauer/">Oliver Sauer</a>
-        <a href="docs/">Documentation</a>
-        <a href="docs/internals/architecture.html">Architecture</a>
-        <a href="docs/understand/policy.html">Trading policy</a>
-        <a href="docs/understand/sensors.html">Sensors</a>
         <a href="https://github.com/osauer/canary">GitHub</a>
+        <a href="https://github.com/osauer/canary/blob/main/CHANGELOG.md">Changelog</a>
         <a href="feedback/">Feedback</a>
         <a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a>
         <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a>
       </div>
-      <p>Canary is a private project of Oliver Sauer, unaffiliated with any employer, broker or model provider.</p>
+    </div>
+    <div class="footer-bottom">
+      <p>Independent personal project. Not affiliated with Interactive Brokers. IBKR, TWS and IB Gateway are Interactive Brokers trademarks. No investment advice.</p>
     </div>
   </footer>
-  <script>
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      document.querySelectorAll('video[autoplay]').forEach(function (v) {
-        v.removeAttribute('autoplay');
-        v.pause();
-        v.setAttribute('controls', '');
-      });
-    }
-  </script>
 </body>
 </html>
