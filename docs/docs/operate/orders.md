@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-09-25 19:25 CEST
+Updated: 2026-09-30 21:23 CEST
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 The separate opt-in trading binary exposes these actions:
@@ -8,6 +8,8 @@ The separate opt-in trading binary exposes these actions:
 - preview, place, or modify a single-leg stock/ETF or option order through the
   tokenized draft path (`canary order preview` → `place`/`modify`);
 - submit or reduce a daemon-owned close/reduce protection proposal;
+- submit a cash sweep proposal, which buys a same-currency bill with idle cash
+  or sells one ([Cash sweep](protection.md#cash-sweep));
 - exercise an eligible held option when the action reduces or closes risk;
 - close or reduce a grouped option strategy as one combo; and
 - cancel a Canary-owned order.

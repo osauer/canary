@@ -1,6 +1,6 @@
 # Working with agents
 
-Updated: 2026-09-26 08:52 CEST
+Updated: 2026-09-30 21:23 CEST
 
 `canary mcp` is a deliberately small, read-only adapter for local AI clients.
 It reads the same typed daemon authority as the CLI and paired app, but it has
@@ -53,7 +53,8 @@ Drill into narrower evidence only when needed:
   `unreviewed`, the limits are Canary's defaults that the owner has not yet
   reviewed, not approved numbers.
 - `canary_technical` analyzes explicitly named stock or ETF symbols.
-- `canary_proposals` reads close/reduce-only protection candidates.
+- `canary_proposals` reads close/reduce-only protection candidates and, when
+  the owner enabled it, the cash sweep's bill buys and redemptions.
 - `canary_opportunities` reads option-exercise candidates.
 - `canary_orders_open`, `canary_orders_history`, and `canary_order_status`
   inspect the local order lifecycle without changing it.

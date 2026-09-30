@@ -1,16 +1,18 @@
 # Protection and risk reduction
 
-Updated: 2026-09-30 10:05 CEST
+Updated: 2026-09-30 21:23 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
 fresh preview; optional pre-authorised buckets let the daemon schedule
-close/reduce actions under an owner-edited policy. Installing Canary does not
+close/reduce actions, and the cash sweep's bill orders, under an owner-edited
+policy. Installing Canary does not
 enable that automation.
 
 A blocked proposal row is normally the system refusing to act on evidence it
 cannot trust, not a fault to work around. Canary exposes only constrained
-close/reduce actions here; use TWS for an unmodeled emergency exit.
+close/reduce actions here, plus the cash sweep's bill buys; use TWS for an
+unmodeled emergency exit.
 
 ## What each command does
 
@@ -33,13 +35,15 @@ path fails closed anyway: the daemon's write handler is compiled out behind the
 
 The daemon owns generation. It rebuilds the set from current positions, the
 protection policy, and market-event context, and every row it emits closes or
-reduces. The submit path checks that twice, once against the proposal's own
+reduces, except a [cash sweep](#cash-sweep) buy of a same-currency bill, a
+typed exception described there. The submit path checks that twice, once against the proposal's own
 position effect and once against the preview's, and blocks on either. A
 protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
-Six buckets generate rows, enabled through the protection policy:
+Six buckets generate protection rows, enabled through the protection policy
+(a seventh, the [cash sweep](#cash-sweep), puts idle cash into bills):
 
 - **Trailing stop** places a broker-side trail against a stock or ETF. Its
   time-in-force is a policy decision, DAY by default, and a DAY
@@ -498,9 +502,12 @@ max_order_notional = 20000   # one order, in base currency; no default
 ```
 
 Per currency, in that currency: **cash** is the lower of trade-date and
-settled cash (the broker's ledger `SettledCash` where the gateway sends it,
-else derived from Canary's order journal; `settled_cash_source` names which),
-**committed** is working buy orders plus armed queued buys (a prepared,
+settled cash, which Canary derives from its order journal
+(`settled_cash_source: journal`): IBKR's `SettledCash` is one account-wide
+figure in the base currency, not one per currency. The journal vouches only
+for fills since the daemon started, so after each start every currency reads
+`settlement_unknown` until the settlement window, from the previous business
+day, has passed. **Committed** is working buy orders plus armed queued buys (a prepared,
 unarmed queue entry or an unapproved proposal never counts), and **free** is
 cash − committed − `keep_cash`. When free exceeds `min_tranche`
 the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
@@ -606,7 +613,7 @@ reports, with its figures and a state:
 | `hold` | inside the band, or the reason says why no order follows |
 | `no_instrument` | the currency declares `none` |
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
-| `settlement_unknown` | the ledger sends no `SettledCash` and the order journal cannot vouch for the settlement window, or working orders cannot be valued |
+| `settlement_unknown` | the order journal cannot vouch for the settlement window (after a daemon start, until that window has passed), or working orders cannot be valued |
 | `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
 | `needs_your_number` | `max_order_notional`, or the symbol of an ETF-only declaration, is not written |
 | `universe_unavailable` | no list of bills to choose from (see above) |

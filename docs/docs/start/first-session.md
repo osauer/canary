@@ -1,6 +1,6 @@
 # Your first session
 
-Updated: 2026-08-09
+Updated: 2026-09-30 21:23 CEST
 
 This walkthrough uses only read-only commands. It assumes Canary is installed
 and a local IB Gateway or TWS session is available. [Install and first
@@ -81,7 +81,8 @@ canary opportunities list
 canary orders open
 ```
 
-Proposals are close/reduce-only protection candidates. Opportunities are
+Proposals are close/reduce-only protection candidates, plus the cash sweep's
+bill buys when you enable it. Opportunities are
 option-exercise candidates. Order reads inspect the local lifecycle journal.
 These records are evidence, not broker-write authority; any action requires the
 separate trading build, a fresh exact review contract, daemon revalidation, and

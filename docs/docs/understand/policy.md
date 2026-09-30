@@ -136,7 +136,8 @@ each time it starts:
   NAME` prints the same file.
 - **Your numbers stay yours.** Canary writes no value for anything only you can
   decide: the constitution's capital numbers, the premium budget governor's
-  caps as a share of risk capital, the buckets that may submit automatically
+  caps as a share of risk capital, the cash sweep's order cap
+  (`max_order_notional`), the buckets that may submit automatically
   (`pre_authorised`), and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
   needs your number, one feature at a time; nothing else waits on it.
