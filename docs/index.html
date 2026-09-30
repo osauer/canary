@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canary | local risk desk, works with Interactive Brokers today</title>
+  <title>Canary CLI | your broker data on your machine, with Interactive Brokers today</title>
   <meta name="description" content="Local risk desk for your brokerage account: CLI, read-only MCP tools, risk checks, reconciliation, and a paired app. Works with Interactive Brokers today.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
@@ -737,8 +737,8 @@
         <p class="eyebrow">Local risk desk · runs with Interactive Brokers today</p>
         <h1 id="hero-title">Account, market, and risk context from your local broker session</h1>
         <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. One daemon composes the daily brief, current portfolio and market evidence, and a broker-confirmed review of what past position changes delivered.</p>
-        <p class="lead">Interactive Brokers is the broker Canary runs with today, through IB Gateway or TWS. The broker layer is its own Go package, built so other platforms can follow.</p>
-        <p class="lead">Canary Edge compares adequately repeated stock and ETF changes with leaving the prior position unchanged, while broker-recorded option P/L stays actual-only. Delayed, held, unavailable, and not-due inputs do not masquerade as live data.</p>
+        <p class="lead">It runs with Interactive Brokers today, through IB Gateway or TWS, and keeps the broker behind one interface, so a second platform can be added without starting over.</p>
+        <p class="lead">Canary Edge looks back at your own position changes and shows what each delivered against simply holding: observed outcomes, not a forecast. Delayed, held, unavailable and not-due inputs never masquerade as live data.</p>
         <p class="safety">The MCP surface is read-only: no resources, settings writes, order previews, or execution tools.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="claude-desktop-interactive-brokers/">Claude Desktop Install</a>
@@ -747,7 +747,7 @@
           <a class="button" href="docs/reference/mcp-tools.html">Read MCP tools</a>
         </div>
         <p class="install-note">For Claude Desktop, use the MCPB install page, restart Claude, and keep IB Gateway or TWS running locally. The shell and Claude Code paths are there when you want one shared binary.</p>
-        <p class="install-note">Want a daily investment workspace around this evidence? <a href="https://osauer.dev/desk/">Explore Canary Desk</a>, the privately developed member of the Canary family.</p>
+        <p class="install-note">Want a daily investment workspace around this evidence? <a href="https://osauer.dev/desk/">Canary Desk</a> is the private member of the Canary family.</p>
         <p class="disclaimer">Canary is analysis software, not financial advice. Nothing it shows or says is a recommendation to buy or sell any security.</p>
       </div>
       <div class="hero-media">
@@ -1071,7 +1071,7 @@ canary setup claude-desktop
         <a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a>
         <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a>
       </div>
-      <p>Canary is a personal project of Oliver Sauer, built in his own time and not connected to his employer.</p>
+      <p>Canary is independent work by Oliver Sauer, built in his own time and unaffiliated with any employer, broker or model provider.</p>
     </div>
   </footer>
   <script>
