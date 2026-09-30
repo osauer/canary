@@ -561,8 +561,12 @@ or price grid.
 A row carries a blocker only when its order cannot be priced or sized:
 `fresh_bill_quote_required` (the bill's quote, or a held bill's mark, is not
 live), `bill_contract_rules_unavailable` or `below_minimum_increment` (a
-redemption the held bill's size grid cannot fit); a stale quote's readiness
-is `quote_unusable`. Outside the bill's session the row's readiness is
+redemption the held bill's size grid cannot fit), and `bill_unit_mismatch`:
+a buy's preview compares the broker's WhatIf (its initial-margin change, the
+figure IBKR returns for a bond) with the order's value at the assumed unit,
+and when they differ by more than a factor of 3 either way, the preview is
+refused and that bill instrument's buys stay blocked, for every submit, until
+a preview checks clean. A stale quote's readiness is `quote_unusable`. Outside the bill's session the row's readiness is
 `market_closed` with the session's next open, and the preview refuses with
 `market_closed` before any quote. An
 order already working for the same bill and side, or sent and not yet

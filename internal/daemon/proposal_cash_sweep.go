@@ -558,6 +558,7 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 		if e.isIgnored(scope, p.Key) {
 			continue
 		}
+		e.applyBillUnitLatch(&p)
 		out = append(out, p)
 	}
 	st := plan.status

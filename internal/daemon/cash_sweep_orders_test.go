@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"slices"
 	"strings"
@@ -316,11 +317,16 @@ type sweepPreviewRig struct {
 	line   ibkrlib.BondContractDetails
 	quotes int
 	drafts []rpc.OrderDraft
+	// marginFactor scales the WhatIf's initial-margin change against the
+	// draft's value at the assumed unit (1: the broker agrees, as in a cash
+	// account); marginCcy is the currency it is reported in.
+	marginFactor float64
+	marginCcy    string
 }
 
 func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	t.Helper()
-	rig := &sweepPreviewRig{now: now}
+	rig := &sweepPreviewRig{now: now, marginFactor: 1, marginCcy: "USD"}
 	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, MaxNotional: 1e6})
 	srv.now = func() time.Time { return rig.now }
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
@@ -349,7 +355,10 @@ func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	srv.orderPreviewPositionImpact = fixedPreviewPosition(0, 55, rpc.OrderPositionEffectOpen)
 	srv.orderPreviewWhatIf = func(_ context.Context, d rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
 		rig.drafts = append(rig.drafts, d)
-		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true}, nil
+		before := 1000.0
+		after := before + float64(d.Quantity)*d.Bond.FacePerUnit*d.LimitPrice/100*rig.marginFactor
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
+			Margin: &rpc.OrderMarginImpact{Currency: rig.marginCcy, InitialMarginBefore: &before, InitialMarginAfter: &after}}, nil
 	}
 	srv.openOrderInventoryForTest = func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
 		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: rig.now}, brokerStateScope{Account: "DU1234567", Mode: "paper"}, nil
@@ -357,7 +366,7 @@ func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	rig.srv = srv
 	rig.engine = &proposalEngine{server: srv, now: func() time.Time { return rig.now }, queued: &queuedAuthStore{},
 		resolve: func(context.Context, string, string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
-			return rig.row, nil, nil
+			return rig.row, rig.row.Blockers, nil
 		}}
 	return rig
 }
@@ -515,5 +524,88 @@ func TestOrderPreviewAdmitsBondOnlyForASweepRow(t *testing.T) {
 	}
 	if err := validateOrderRiskAuthority(config.Trading{}, draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD"); err != nil {
 		t.Fatalf("a bond reduce was refused: %v", err)
+	}
+}
+
+// A wrong face unit is caught by the broker's own figure (reviewer decision
+// 2026-09-30 15:25 CEST): a WhatIf whose initial-margin change disagrees
+// with the order's value at the assumed unit by more than a factor of 3, in
+// either direction, refuses the preview with bill_unit_mismatch naming both
+// figures and the unit; the instrument's rows stay blocked, and no submit
+// passes, until a preview checks clean.
+func TestCashSweepBillUnitMismatch(t *testing.T) {
+	now := time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)
+	rig := newSweepPreviewRig(t, now)
+	rig.marginFactor = 1000
+	out := rig.preview(t)
+	var got *rpc.TradingBlocker
+	for i := range out.Blockers {
+		if out.Blockers[i].Code == rpc.CashSweepBlockerBillUnitMismatch {
+			got = &out.Blockers[i]
+		}
+	}
+	if out.Accepted || got == nil || !strings.Contains(got.Message, "54780000 USD") || !strings.Contains(got.Message, "expected value 54780 USD") ||
+		!strings.Contains(got.Message, "face_1000") || out.Readiness == nil || out.Readiness.Code != rpc.ReadinessNotExecutable {
+		t.Fatalf("1,000x WhatIf = %+v readiness %+v", out.Blockers, out.Readiness)
+	}
+	// The instrument's rows now carry the blocker: not eligible for the
+	// scheduler, and a submit is refused before any preview or broker call.
+	row := rig.row
+	rig.engine.applyBillUnitLatch(&row)
+	if row.AutomaticEligible() || len(row.Blockers) != 1 || row.Blockers[0].Code != rpc.CashSweepBlockerBillUnitMismatch {
+		t.Fatalf("latched row = %+v", row.Blockers)
+	}
+	other := row
+	other.CashSweep = &rpc.TradeProposalCashSweep{Side: rpc.CashSweepSideInvest, Currency: "EUR", Instrument: cashSweepInstrumentDEBubill}
+	other.Blockers = nil
+	if rig.engine.applyBillUnitLatch(&other); len(other.Blockers) != 0 {
+		t.Fatal("the latch blocked another instrument")
+	}
+	rig.row = row
+	previews := len(rig.drafts)
+	for _, fastPath := range []bool{false, true} {
+		submit, err := rig.engine.Submit(context.Background(), rpc.TradeProposalSubmitParams{Key: row.Key, Revision: row.Revision, FastPath: fastPath})
+		if err != nil || submit.Accepted || !slices.ContainsFunc(submit.Blockers, func(b rpc.TradingBlocker) bool { return b.Code == rpc.CashSweepBlockerBillUnitMismatch }) {
+			t.Fatalf("submit of a latched row = %+v err %v", submit, err)
+		}
+	}
+	if len(rig.drafts) != previews {
+		t.Fatal("a latched submit reached the broker's WhatIf")
+	}
+	// A thousand times too small is as wrong.
+	rig.marginFactor = 0.001
+	if out := rig.preview(t); out.Accepted {
+		t.Fatal("a 1/1,000 WhatIf passed")
+	}
+	// A preview of the latched row still runs, and a clean one clears the
+	// latch; a factor of 2 is inside the band.
+	rig.marginFactor = 2
+	if out := rig.preview(t); !out.Accepted {
+		t.Fatalf("clean preview of a latched row = %+v", out.Blockers)
+	}
+	fresh := rig.row
+	fresh.Blockers, fresh.State = nil, rpc.TradeProposalStateGenerated
+	if rig.engine.applyBillUnitLatch(&fresh); len(fresh.Blockers) != 0 {
+		t.Fatalf("a clean preview left the latch: %+v", fresh.Blockers)
+	}
+	// A figure in a third currency, or none at all, cannot vouch for the unit.
+	rig.row = fresh
+	rig.marginCcy = "JPY"
+	if out := rig.preview(t); out.Accepted || !strings.Contains(fmt.Sprint(out.Blockers), "JPY") {
+		t.Fatalf("margin in a third currency = %+v", out.Blockers)
+	}
+	check := func(m *rpc.OrderMarginImpact) bool {
+		_, mismatch, checked := cashSweepBillUnitCheck(rig.row, &rpc.OrderPreviewResult{Draft: rig.drafts[len(rig.drafts)-1], Notional: 54780, NotionalBase: 54780,
+			BaseCurrency: "USD", NotionalCurrency: "USD", WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Margin: m}})
+		return checked && mismatch
+	}
+	if !check(nil) || check(&rpc.OrderMarginImpact{InitialMarginBefore: new(0.0), InitialMarginAfter: new(54780.0)}) {
+		t.Fatal("margin figure handling")
+	}
+	// A redemption's quantity is the broker's own position count: unchecked.
+	redeem := rig.row
+	redeem.CashSweep = &rpc.TradeProposalCashSweep{Side: rpc.CashSweepSideRedeem, Currency: "USD", Instrument: cashSweepInstrumentUSTBill}
+	if _, _, checked := cashSweepBillUnitCheck(redeem, &rpc.OrderPreviewResult{Draft: rig.drafts[0], WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted}}); checked {
+		t.Fatal("a redemption was unit-checked")
 	}
 }

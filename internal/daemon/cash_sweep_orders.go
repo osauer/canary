@@ -5,6 +5,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -298,4 +299,124 @@ func cashSweepBondAdmitted(prop rpc.TradeProposal, preview *rpc.OrderPreviewResu
 			normCcy(prop.Contract.Currency) == s.Currency && cashSweepInstrumentAllowed(s.Instrument, s.Currency)
 	}
 	return false
+}
+
+// cashSweepUnitMismatchFactor is how far the broker's WhatIf figure may sit
+// from an invest order's expected value, either way, before the assumed
+// quantity unit is refused (reviewer decision 2026-09-30 15:25 CEST). A wrong
+// face unit is off by a factor of 1,000.
+const cashSweepUnitMismatchFactor = 3.0
+
+// cashSweepBillUnitCheck compares an invest bill preview's accepted WhatIf
+// with the order's expected value at the assumed unit (face × limit / 100).
+// IBKR's WhatIf sends no order cost for a bond, so the figure is its
+// initial-margin change (after − before), read in the margin currency: the
+// account base (the order's base notional) or the contract currency (its
+// notional). checked is false when there is nothing to check (another row,
+// a redemption, whose quantity is the broker's own position count, or a
+// WhatIf that was not accepted, which the submit-eligibility gate refuses
+// anyway); mismatch is true when the figures disagree by more than the
+// factor or the figure cannot be read, and the blocker says which.
+func cashSweepBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) (blocker rpc.TradingBlocker, mismatch, checked bool) {
+	s := prop.CashSweep
+	if preview == nil || prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || s.Side != rpc.CashSweepSideInvest ||
+		!strings.EqualFold(strings.TrimSpace(preview.Draft.Contract.SecType), "BOND") || preview.Draft.Bond == nil ||
+		preview.WhatIf.Status != rpc.OrderWhatIfStatusAccepted {
+		return rpc.TradingBlocker{}, false, false
+	}
+	terms := preview.Draft.Bond
+	unit := fmt.Sprintf("%s (%s of face per unit)", terms.QuantityUnit, formatBudgetMoney(terms.FacePerUnit, preview.Draft.Contract.Currency))
+	block := func(message string) (rpc.TradingBlocker, bool, bool) {
+		return rpc.TradingBlocker{Code: rpc.CashSweepBlockerBillUnitMismatch, Message: message,
+			Action: "Do not submit: check the bill's quantity unit against the broker (post-install proof steps 6–7). The row stays blocked until a preview checks clean."}, true, true
+	}
+	m := preview.WhatIf.Margin
+	if m == nil || m.InitialMarginBefore == nil || m.InitialMarginAfter == nil ||
+		math.IsNaN(*m.InitialMarginBefore) || math.IsNaN(*m.InitialMarginAfter) || math.IsInf(*m.InitialMarginBefore, 0) || math.IsInf(*m.InitialMarginAfter, 0) {
+		return block(fmt.Sprintf("the broker's WhatIf carried no initial-margin change, so the assumed unit %s cannot be checked against the broker's own figures", unit))
+	}
+	broker := math.Abs(*m.InitialMarginAfter - *m.InitialMarginBefore)
+	marginCcy := normCcy(m.Currency)
+	var expected float64
+	var ccy string
+	switch {
+	case marginCcy == "" || marginCcy == normCcy(preview.BaseCurrency):
+		expected, ccy = preview.NotionalBase, nonEmptyString(normCcy(preview.BaseCurrency), marginCcy)
+	case marginCcy == normCcy(nonEmptyString(preview.NotionalCurrency, preview.Draft.Contract.Currency)):
+		expected, ccy = preview.Notional, marginCcy
+	default:
+		return block(fmt.Sprintf("the broker's WhatIf reports its initial-margin change in %s, neither the account base nor the bill's currency, so the assumed unit %s cannot be checked", marginCcy, unit))
+	}
+	if !positiveFinite(expected) || !positiveFinite(broker) || broker > expected*cashSweepUnitMismatchFactor || broker*cashSweepUnitMismatchFactor < expected {
+		return block(fmt.Sprintf("the broker's WhatIf initial-margin change %s and the order's expected value %s at the assumed unit %s disagree by more than a factor of %.0f; the unit may be wrong",
+			formatBudgetMoney(broker, ccy), formatBudgetMoney(expected, ccy), unit, cashSweepUnitMismatchFactor))
+	}
+	return rpc.TradingBlocker{}, false, true
+}
+
+// cashSweepBillUnitKey names the unit assumption a check speaks for: one
+// instrument in one currency.
+func cashSweepBillUnitKey(ccy, instrument string) string {
+	return normCcy(ccy) + "|" + instrument
+}
+
+// cashSweepBillUnitLatch remembers, per currency and instrument, the last
+// invest preview whose WhatIf disagreed with the assumed unit. Rows of that
+// instrument carry bill_unit_mismatch until a preview of it checks clean, so
+// no submit (by hand, prepared or pre-authorised) can pass meanwhile. It is
+// the daemon's memory: a restart forgets it, and every submit previews and
+// checks again anyway.
+type cashSweepBillUnitLatch struct {
+	mu      sync.Mutex
+	blocked map[string]rpc.TradingBlocker
+}
+
+func (l *cashSweepBillUnitLatch) note(key string, blocker rpc.TradingBlocker, mismatch bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !mismatch {
+		delete(l.blocked, key)
+		return
+	}
+	if l.blocked == nil {
+		l.blocked = map[string]rpc.TradingBlocker{}
+	}
+	l.blocked[key] = blocker
+}
+
+func (l *cashSweepBillUnitLatch) get(key string) (rpc.TradingBlocker, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.blocked[key]
+	return b, ok
+}
+
+// noteBillUnitCheck records a fresh preview's unit check in the latch.
+func (e *proposalEngine) noteBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) {
+	if e == nil {
+		return
+	}
+	if b, mismatch, checked := cashSweepBillUnitCheck(prop, preview); checked {
+		e.billUnits.note(cashSweepBillUnitKey(prop.CashSweep.Currency, prop.CashSweep.Instrument), b, mismatch)
+	}
+}
+
+// applyBillUnitLatch blocks an invest row whose instrument a preview found
+// off its assumed unit.
+func (e *proposalEngine) applyBillUnitLatch(p *rpc.TradeProposal) {
+	if e == nil || p.CashSweep == nil || p.CashSweep.Side != rpc.CashSweepSideInvest {
+		return
+	}
+	if b, ok := e.billUnits.get(cashSweepBillUnitKey(p.CashSweep.Currency, p.CashSweep.Instrument)); ok {
+		cashSweepBlock(p, b)
+	}
+}
+
+// withoutBillUnitLatch drops the latch's blocker from the blockers a preview
+// resolves with: only a preview can clear it, so it never refuses one.
+// Submits keep it.
+func withoutBillUnitLatch(blockers []rpc.TradingBlocker) []rpc.TradingBlocker {
+	return slices.DeleteFunc(slices.Clone(blockers), func(b rpc.TradingBlocker) bool {
+		return b.Code == rpc.CashSweepBlockerBillUnitMismatch
+	})
 }

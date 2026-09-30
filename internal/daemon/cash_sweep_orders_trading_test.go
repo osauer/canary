@@ -50,6 +50,13 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 		return rpc.OrderQuoteSnapshot{Symbol: c.Symbol, Bid: &bid, Ask: &ask, DataType: rpc.MarketDataLive, PriceAt: rig.now, AsOf: rig.now}, nil
 	}
 	rig.server.orderPreviewPositionImpact = fixedPreviewPosition(0, 55, rpc.OrderPositionEffectOpen)
+	// The broker's WhatIf agrees with the assumed unit: its initial-margin
+	// change is the order's value, as in a cash account.
+	rig.server.orderPreviewWhatIf = func(_ context.Context, d rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
+		before, after := 0.0, float64(d.Quantity)*d.Bond.FacePerUnit*d.LimitPrice/100
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
+			Margin: &rpc.OrderMarginImpact{Currency: "USD", InitialMarginBefore: &before, InitialMarginAfter: &after}}, nil
+	}
 
 	revision := rig.install(row)
 	rig.cycle()
