@@ -16,8 +16,8 @@ import (
 
 // The cash sweep's order path (internal-docs/design/cash-sweep.md, Phase B).
 // An invest row buys its resolved bill in whole order units on the line's
-// size grid; a redemption sells a held bill on the same grid. Both are BOND
-// LMT DAY orders priced per 100 of face on the line's minimum tick, previewed
+// size grid; a redemption sells a held bill on the same grid. Both are BILL
+// or BOND (the line's own type) LMT DAY orders priced per 100 of face on the line's minimum tick, previewed
 // through every gate an ordinary proposal meets (freeze, authority, session,
 // quote freshness, WhatIf) and submitted only on the owner's approval, or,
 // when the owner lists cash_sweep under [authority].pre_authorised, by the
@@ -103,7 +103,7 @@ func bondSessionAt(sess *rpc.BondSession, at time.Time) (marketcal.Session, bool
 // when the row carries one.
 func proposalBondSession(prop rpc.TradeProposal) (*rpc.BondSession, bool) {
 	if prop.Bucket != rpc.TradeProposalBucketCashSweep || prop.CashSweep == nil || prop.CashSweep.Session == nil ||
-		!strings.EqualFold(strings.TrimSpace(prop.Contract.SecType), "BOND") {
+		!ibkrlib.IsBillOrBond(prop.Contract.SecType) {
 		return nil, false
 	}
 	return prop.CashSweep.Session, true
@@ -183,7 +183,7 @@ func cashSweepRedeemUnits(want, limit int, rules ibkrlib.BondOrderRules) (int, s
 // carries (rpc.OrderPreviewParams.Bond); nil for anything else.
 func cashSweepOrderTerms(prop rpc.TradeProposal) *rpc.OrderBondTerms {
 	s := prop.CashSweep
-	if prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || !strings.EqualFold(strings.TrimSpace(prop.Contract.SecType), "BOND") || !cashSweepIsBill(s.Instrument) {
+	if prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || !ibkrlib.IsBillOrBond(prop.Contract.SecType) || !cashSweepIsBill(s.Instrument) {
 		return nil
 	}
 	conv := cashSweepInstrumentConventions[s.Instrument]
@@ -226,7 +226,7 @@ func cashSweepOpenException(prop rpc.TradeProposal) (closeReduceOnlyException, b
 	case s.Currency == "" || normCcy(prop.Contract.Currency) != s.Currency:
 		return none, false
 	case s.Bill == nil || s.Bill.ConID <= 0 || s.Bill.ConID != prop.Contract.ConID || s.Bill.Instrument != s.Instrument ||
-		!strings.EqualFold(strings.TrimSpace(prop.Contract.SecType), "BOND"):
+		!ibkrlib.IsBillOrBond(prop.Contract.SecType):
 		return none, false
 	case s.MaxOrderNotionalBase <= 0 || !positiveFinite(s.ExchangeRate):
 		return none, false
@@ -254,7 +254,7 @@ func (x closeReduceOnlyException) previewBlockers(preview *rpc.OrderPreviewResul
 	d := preview.Draft
 	effect := preview.Position.Effect
 	if (effect != rpc.OrderPositionEffectOpen && effect != rpc.OrderPositionEffectIncrease) || d.Quantity < 1 || d.Quantity > x.MaxQuantity ||
-		d.Contract.ConID != x.ConID || normCcy(d.Contract.Currency) != x.Currency || !strings.EqualFold(d.Contract.SecType, "BOND") ||
+		d.Contract.ConID != x.ConID || normCcy(d.Contract.Currency) != x.Currency || !ibkrlib.IsBillOrBond(d.Contract.SecType) ||
 		d.Bond == nil || d.Bond.Instrument != x.Instrument || d.Bond.FacePerUnit != x.FacePerUnit || !positiveFinite(d.LimitPrice) {
 		return []rpc.TradingBlocker{{Code: "preview_effect_not_close_reduce",
 			Message: fmt.Sprintf("preview effect %q is not close/reduce and is not the sweep row's own bill buy within its planned units", effect),
@@ -286,7 +286,7 @@ func (x closeReduceOnlyException) admits(preview *rpc.OrderPreviewResult) bool {
 func cashSweepBondAdmitted(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) bool {
 	s := prop.CashSweep
 	if preview == nil || prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil ||
-		!strings.EqualFold(strings.TrimSpace(prop.SecType), "BOND") || !strings.EqualFold(strings.TrimSpace(preview.Draft.Contract.SecType), "BOND") ||
+		!ibkrlib.IsBillOrBond(prop.SecType) || !ibkrlib.IsBillOrBond(preview.Draft.Contract.SecType) ||
 		prop.Contract.ConID <= 0 || preview.Draft.Contract.ConID != prop.Contract.ConID || preview.Draft.Bond == nil ||
 		preview.Draft.Bond.Instrument != s.Instrument || !cashSweepIsBill(s.Instrument) {
 		return false
@@ -325,7 +325,7 @@ const (
 func cashSweepBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) (blocker rpc.TradingBlocker, mismatch, checked bool) {
 	s := prop.CashSweep
 	if preview == nil || prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || s.Side != rpc.CashSweepSideInvest ||
-		!strings.EqualFold(strings.TrimSpace(preview.Draft.Contract.SecType), "BOND") || preview.Draft.Bond == nil ||
+		!ibkrlib.IsBillOrBond(preview.Draft.Contract.SecType) || preview.Draft.Bond == nil ||
 		preview.WhatIf.Status != rpc.OrderWhatIfStatusAccepted {
 		return rpc.TradingBlocker{}, false, false
 	}

@@ -12,8 +12,8 @@ import (
 	"unicode"
 )
 
-// Bond support: contract details for secType BOND by ISIN, CUSIP or contract
-// id, and the yield ticks a bond quote carries. Canary's cash sweep
+// Bond support: contract details for secType BILL or BOND by ISIN, CUSIP or
+// contract id, and the yield ticks a bond quote carries. Canary's cash sweep
 // (internal-docs/design/cash-sweep.md, Phase B) resolves and quotes
 // government bills with these; bond_order.go builds the one order shape it
 // sends.
@@ -23,6 +23,33 @@ const (
 	BondIdentifierISIN  = "ISIN"
 	BondIdentifierCUSIP = "CUSIP"
 )
+
+// IBKR security types of a government bill or bond line. The TWS API lists
+// Treasury bills as BILL and notes and bonds as BOND; a US bill asked as
+// BOND finds no line (live read 2026-09-30).
+const (
+	SecTypeBill = "BILL"
+	SecTypeBond = "BOND"
+)
+
+// IsBillOrBond reports whether secType is BILL or BOND, whatever its case
+// and surrounding space: the one test every bill path uses.
+func IsBillOrBond(secType string) bool {
+	switch strings.ToUpper(strings.TrimSpace(secType)) {
+	case SecTypeBill, SecTypeBond:
+		return true
+	}
+	return false
+}
+
+// BillOrBondSecType is BILL for a BILL security type and BOND for anything
+// else: the wire type a bill-or-bond contract carries.
+func BillOrBondSecType(secType string) string {
+	if strings.EqualFold(strings.TrimSpace(secType), SecTypeBill) {
+		return SecTypeBill
+	}
+	return SecTypeBond
+}
 
 // BondContractDetails is one decoded bondContractData frame (message 18).
 // Identity fields come from the fixed frame prefix; the size rules, the
@@ -345,12 +372,34 @@ func (c *contractDetailsWireCursor) float() (float64, bool) {
 
 // BondContractRequest names one bond: an identifier (ISIN or CUSIP) or a
 // contract id, and the currency it trades in. Exchange defaults to SMART.
+// SecTypes are the security types asked, in order (BILL, BOND); none asks
+// BOND.
 type BondContractRequest struct {
 	IDType   string
 	ID       string
 	ConID    int
 	Currency string
 	Exchange string
+	SecTypes []string
+}
+
+// AskedSecTypes are the request's security types, upper-cased, each once,
+// in order; none reads as BOND. Anything but BILL or BOND is refused.
+func (r BondContractRequest) AskedSecTypes() ([]string, error) {
+	var out []string
+	for _, raw := range r.SecTypes {
+		secType := strings.ToUpper(strings.TrimSpace(raw))
+		if !IsBillOrBond(secType) {
+			return nil, fmt.Errorf("bond contract request security type %q is neither BILL nor BOND", raw)
+		}
+		if !slices.Contains(out, secType) {
+			out = append(out, secType)
+		}
+	}
+	if len(out) == 0 {
+		out = []string{SecTypeBond}
+	}
+	return out, nil
 }
 
 // bondWireForm is one way a reqContractDetails request names the bond.
@@ -360,20 +409,30 @@ type bondWireForm struct {
 }
 
 // wireForms are the reqContractDetails contracts for the request, in the
-// order they are asked. A contract id is asked once. An identifier is asked
-// first the way IBKR documents a bond, as the contract's symbol (secType
-// BOND, SMART, the currency), and, only when that finds no line, by
-// secIdType/secId. The first live read (2026-09-30) found the secIdType
-// CUSIP form answered with code 200 for outstanding US bills.
+// order they are asked: every form of the first security type, then every
+// form of the next. A contract id is asked once per type. An identifier is
+// asked first the way IBKR documents a bond, as the contract's symbol (the
+// type, SMART, the currency), and, only when that finds no line, by
+// secIdType/secId. The live reads of 2026-09-30 found both forms answered
+// without a line for outstanding US bills asked as BOND: IBKR lists
+// Treasury bills as BILL.
 func (r BondContractRequest) wireForms() ([]bondWireForm, error) {
-	base := Contract{SecType: "BOND", Exchange: strings.ToUpper(strings.TrimSpace(r.Exchange)), Currency: strings.ToUpper(strings.TrimSpace(r.Currency))}
+	secTypes, err := r.AskedSecTypes()
+	if err != nil {
+		return nil, err
+	}
+	base := Contract{Exchange: strings.ToUpper(strings.TrimSpace(r.Exchange)), Currency: strings.ToUpper(strings.TrimSpace(r.Currency))}
 	if !bondCurrencyCode(base.Currency) {
 		return nil, fmt.Errorf("bond contract request needs a three-letter currency")
 	}
+	var forms []bondWireForm
 	if r.ConID > 0 {
-		byConID := base
-		byConID.ConID = r.ConID
-		return []bondWireForm{{label: "by contract id", contract: byConID}}, nil
+		for _, secType := range secTypes {
+			byConID := base
+			byConID.SecType, byConID.ConID = secType, r.ConID
+			forms = append(forms, bondWireForm{label: secType + " by contract id", contract: byConID})
+		}
+		return forms, nil
 	}
 	if base.Exchange == "" {
 		base.Exchange = "SMART"
@@ -382,23 +441,33 @@ func (r BondContractRequest) wireForms() ([]bondWireForm, error) {
 	if (idType != BondIdentifierISIN || !ValidISIN(id)) && (idType != BondIdentifierCUSIP || !ValidCUSIP(id)) {
 		return nil, fmt.Errorf("bond contract request needs a valid ISIN, CUSIP or contract id")
 	}
-	bySymbol, bySecID := base, base
-	bySymbol.Symbol = id
-	bySecID.SecIDType, bySecID.SecID = idType, id
-	return []bondWireForm{{label: "by symbol", contract: bySymbol}, {label: "by secIdType " + idType, contract: bySecID}}, nil
+	for _, secType := range secTypes {
+		bySymbol, bySecID := base, base
+		bySymbol.SecType, bySecID.SecType = secType, secType
+		bySymbol.Symbol = id
+		bySecID.SecIDType, bySecID.SecID = idType, id
+		forms = append(forms, bondWireForm{label: secType + " by symbol", contract: bySymbol},
+			bondWireForm{label: secType + " by secIdType " + idType, contract: bySecID})
+	}
+	return forms, nil
 }
 
-// description names the request in a lookup error.
+// description names the request in a lookup error: the types asked, in
+// order, and the identifier.
 func (r BondContractRequest) description() string {
 	ccy := strings.ToUpper(strings.TrimSpace(r.Currency))
+	asked := "BOND"
+	if secTypes, err := r.AskedSecTypes(); err == nil {
+		asked = strings.Join(secTypes, " then ")
+	}
 	if r.ConID > 0 {
-		return fmt.Sprintf("BOND contract id %d in %s", r.ConID, ccy)
+		return fmt.Sprintf("%s contract id %d in %s", asked, r.ConID, ccy)
 	}
 	exchange := strings.ToUpper(strings.TrimSpace(r.Exchange))
 	if exchange == "" {
 		exchange = "SMART"
 	}
-	return fmt.Sprintf("BOND %s %s on %s in %s", strings.ToUpper(strings.TrimSpace(r.IDType)), strings.ToUpper(strings.TrimSpace(r.ID)), exchange, ccy)
+	return fmt.Sprintf("%s %s %s on %s in %s", asked, strings.ToUpper(strings.TrimSpace(r.IDType)), strings.ToUpper(strings.TrimSpace(r.ID)), exchange, ccy)
 }
 
 // linesNaming drops the lines that name a different identifier of the
@@ -569,7 +638,7 @@ func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSe
 	for _, form := range forms {
 		lines, err := c.bondContractDetailsOnce(ctx, binding, form.contract, timeout)
 		if err == nil {
-			named := request.linesNaming(lines)
+			named := request.linesNaming(stampSecType(lines, form.contract.SecType))
 			if len(named) > 0 {
 				return named, nil
 			}
@@ -582,6 +651,17 @@ func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSe
 		lookupErr.Attempts = append(lookupErr.Attempts, attempt)
 	}
 	return nil, lookupErr
+}
+
+// stampSecType names the type a line was asked as when its frame carried
+// none, so every caller reads which type resolved from the line itself.
+func stampSecType(lines []BondContractDetails, asked string) []BondContractDetails {
+	for i := range lines {
+		if lines[i].SecType == "" {
+			lines[i].SecType = asked
+		}
+	}
+	return lines
 }
 
 // bondContractDetailsOnce is one reqContractDetails for one request form.
@@ -616,7 +696,7 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 			deliver(d)
 		}
 	})
-	// Some gateway builds answer a BOND request with ordinary contractData
+	// Some gateway builds answer a BILL or BOND request with ordinary contractData
 	// frames; keep their identity so the caller can still see the line.
 	dataHandlerID := conn.RegisterHandlerAtEpoch(msgContractData, func(fields []string, receiptEpoch uint64) {
 		if receiptEpoch != binding.epoch {
@@ -720,11 +800,11 @@ func (s *Subscription) recordBondYield(tickType int, value float64) {
 	}
 }
 
-// isBondMarketDataContract reports whether a quote request is for a bond,
-// which is subscribed without generic ticks: the stock tick list is not
-// defined for bonds.
+// isBondMarketDataContract reports whether a quote request is for a bill or
+// bond, which is subscribed without generic ticks: the stock tick list is
+// not defined for them.
 func isBondMarketDataContract(contract Contract) bool {
-	return strings.EqualFold(strings.TrimSpace(contract.SecType), "BOND")
+	return IsBillOrBond(contract.SecType)
 }
 
 func cloneYield(v *float64) *float64 {

@@ -165,6 +165,26 @@ func TestBondOrderValidationAndProtoEncoding(t *testing.T) {
 		summary.tif != "DAY" || summary.lmtPrice != 99.6 || summary.action != "BUY" {
 		t.Fatalf("summary = %+v err %v", summary, err)
 	}
+	// A bill goes as BILL: the encoder admits it on the same terms.
+	bill := good()
+	bill.SecType = "BILL"
+	if body, err = encodePlaceOrderProtoBody(bill); err != nil {
+		t.Fatal(err)
+	}
+	if summary, err = parsePlaceOrderProtoSummary(body); err != nil || summary.secType != "BILL" {
+		t.Fatalf("bill summary = %+v err %v", summary, err)
+	}
+	bill.BondRules = nil
+	if err := ValidateOrder(bill); err == nil {
+		t.Fatal("a BILL order without its grid was accepted")
+	}
+	c, _, err := NewBondLimitOrder(Contract{ConID: 880001, Symbol: "SYNTHB", SecType: "bill", Currency: "USD"}, rules, "BUY", 1, 99.6)
+	if err != nil || c.SecType != "BILL" {
+		t.Fatalf("bill order contract = %+v err %v", c, err)
+	}
+	if c, _, err = NewBondLimitOrder(Contract{ConID: 880001, Symbol: "SYNTHB", SecType: "STK", Currency: "USD"}, rules, "BUY", 1, 99.6); err != nil || c.SecType != "BOND" {
+		t.Fatalf("bond order contract = %+v err %v", c, err)
+	}
 	// The WhatIf and submit builders carry the grid from the contract.
 	if cloneBondOrderRules(nil) != nil || *cloneBondOrderRules(&rules) != rules {
 		t.Fatal("clone")

@@ -337,7 +337,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if p.Quantity <= 0 {
 		return nil, errBadRequest("quantity must be positive")
 	}
-	isBond := strings.EqualFold(contract.SecType, "BOND")
+	isBond := ibkrlib.IsBillOrBond(contract.SecType)
 	if isBond {
 		if err := validatePreviewBondParams(p, scope == rpc.OrderTokenScopeModify); err != nil {
 			return nil, err
@@ -712,8 +712,8 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 	if secType != "OPT" {
 		multiplier = 0
 	}
-	if secType == "BOND" {
-		// A bond is ordered by contract id alone; no listing fields ride along.
+	if ibkrlib.IsBillOrBond(secType) {
+		// A bill or bond is ordered by contract id alone; no listing fields ride along.
 		return &ibkrlib.Contract{ConID: contract.ConID, Symbol: strings.ToUpper(strings.TrimSpace(contract.Symbol)), SecType: secType, Exchange: exchange, Currency: currency}
 	}
 	out := &ibkrlib.Contract{
@@ -923,7 +923,7 @@ func normalizePreviewContract(in rpc.ContractParams) (rpc.ContractParams, error)
 		return echo, nil
 	case "OPT":
 		return normaliseOptionQuoteContract(in)
-	case "BOND":
+	case ibkrlib.SecTypeBond, ibkrlib.SecTypeBill:
 		// Admitted only with a cash_sweep row's bill terms (previewOrder).
 		return normalizePreviewBondContract(in)
 	default:

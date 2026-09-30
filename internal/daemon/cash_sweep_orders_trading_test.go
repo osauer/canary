@@ -77,7 +77,7 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 		t.Fatalf("record = %+v, orders %d", rec, len(orders))
 	}
 	c, o := contracts[0], orders[0]
-	if c.SecType != "BOND" || c.ConID != 7101 || c.Currency != "USD" || c.Multiplier != 0 || c.BondRules == nil || *c.BondRules != usBillRules {
+	if c.SecType != "BILL" || c.ConID != 7101 || c.Currency != "USD" || c.Multiplier != 0 || c.BondRules == nil || *c.BondRules != usBillRules {
 		t.Fatalf("broker contract = %+v", c)
 	}
 	if o.Action != rpc.OrderActionBuy || o.TotalQty != 55 || o.OrderType != rpc.OrderTypeLMT || o.TIF != rpc.OrderTIFDay || o.LmtPrice != 99.6 || o.OutsideRth {

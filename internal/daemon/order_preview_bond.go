@@ -24,11 +24,11 @@ import (
 // previewBondOrderInvalidCode refuses a bond order the line's grid refuses.
 const previewBondOrderInvalidCode = "bond_order_invalid"
 
-// normalizePreviewBondContract keeps a BOND contract's identity: a positive
-// contract id, a three-letter currency, SMART unless named, no option or
-// multiplier fields.
+// normalizePreviewBondContract keeps a BILL or BOND contract's identity: its
+// type, a positive contract id, a three-letter currency, SMART unless named,
+// no option or multiplier fields.
 func normalizePreviewBondContract(in rpc.ContractParams) (rpc.ContractParams, error) {
-	out := rpc.ContractParams{ConID: in.ConID, Symbol: strings.ToUpper(strings.TrimSpace(in.Symbol)), SecType: "BOND",
+	out := rpc.ContractParams{ConID: in.ConID, Symbol: strings.ToUpper(strings.TrimSpace(in.Symbol)), SecType: ibkrlib.BillOrBondSecType(in.SecType),
 		Exchange: strings.ToUpper(strings.TrimSpace(in.Exchange)), Currency: normCcy(in.Currency)}
 	switch {
 	case out.ConID <= 0:
@@ -83,7 +83,8 @@ func (s *Server) resolvePreviewBondContract(ctx context.Context, authority *orde
 		lines, err = s.orderBondDetailsForTest(ctx, contract.ConID, contract.Currency)
 	case authority != nil:
 		lines, err = authority.connector.BondContractDetailsForSession(ctx, authority.session,
-			ibkrlib.BondContractRequest{ConID: contract.ConID, Currency: contract.Currency, Exchange: contract.Exchange}, timeout)
+			ibkrlib.BondContractRequest{ConID: contract.ConID, Currency: contract.Currency, Exchange: contract.Exchange,
+				SecTypes: cashSweepHeldSecTypes(contract.SecType, terms.Instrument)}, timeout)
 	default:
 		return fail(fmt.Errorf("%w: bond contract details need the broker session", ErrTradingDisabled))
 	}
@@ -168,7 +169,7 @@ func bondOrderNotional(quantity int, terms *rpc.OrderBondTerms, price float64) f
 // previewBondRules is the grid a BOND draft carries, for the WhatIf and
 // place encoders to re-check.
 func previewBondRules(draft rpc.OrderDraft) *ibkrlib.BondOrderRules {
-	if draft.Bond == nil || !strings.EqualFold(strings.TrimSpace(draft.Contract.SecType), "BOND") {
+	if draft.Bond == nil || !ibkrlib.IsBillOrBond(draft.Contract.SecType) {
 		return nil
 	}
 	return &ibkrlib.BondOrderRules{MinTick: draft.Bond.MinTick, MinSize: draft.Bond.MinSize, SizeIncrement: draft.Bond.SizeIncrement}

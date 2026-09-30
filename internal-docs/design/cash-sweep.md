@@ -1,9 +1,10 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 19:38 CEST
-Status: Phase B installed (daemon v3.14.0-27-g9c93be3a); post-install proof
-in progress: A4 answered (false), the USD bill lookup fixed pending
-reinstall (see "Post-install findings").
+Updated: 2026-09-30 20:09 CEST
+Status: Phase B installed (daemon v3.14.0-29); post-install proof in
+progress: A4 answered (false); the USD bill lookup asked as BOND still found
+nothing, so bills are now asked as secType BILL (A10), pending reinstall
+(see "Post-install findings", F1 and F3).
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
@@ -105,21 +106,27 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   under Phase B as built), minimum, session and T+1 settlement; (A6) a held
   bill's issuer is read from its identifier: US Treasury bill CUSIPs
   (912794–912797), else the ISIN's country (DE, FR, GB, CA); (A7) IBKR answers
-  a BOND contract-details request (the identifier as the symbol, as IBKR
+  a BILL or BOND contract-details request (the identifier as the symbol, as IBKR
   documents bonds; `secIdType`/`secId` only as the fallback, refuted as the
   first form for US bill CUSIPs 2026-09-30) with `bondContractData` frames, sends bond prices per 100 of face and yields in
   percent (ticks 50–52, delayed 103–105), and needs no generic ticks for a
   bond quote; (A8) a bond line's contract details carry its minimum size and
   size increment in order units, its minimum tick per 100 of face, and its
-  liquid (else trading) hours in its time zone, and a BOND LMT DAY order by
-  contract id on SMART is how IBKR takes a bill order; without hours, the
+  liquid (else trading) hours in its time zone, and a LMT DAY order by
+  contract id on SMART, carrying the line's own security type (A10), is how
+  IBKR takes a bill order; without hours, the
   assumed weekday sessions of the conventions table apply; (A9) IBKR's
   WhatIf for a bill buy reports an initial-margin change (and no order cost)
   whose ratio to the order's value lies between 0.005 and 1.2: about 0.01
   where a bill is margined at one percent (the owner's margin account), about
   1.0 in a cash account; a 1,000-fold unit error lands near 10 or near
   0.00001, outside the band either way (reviewer decision 2026-09-30 15:45
-  CEST).
+  CEST); (A10) IBKR lists US Treasury bills as secType `BILL` (the TWS
+  API's security-type vocabulary has BILL beside BOND, and held bills
+  arrive as BILL), so `us_tbill` is asked as BILL only; a German, French, UK
+  or Canadian bill is asked as BILL first and BOND second, and the row's
+  `bill.sec_type` records which one resolved; which type each non-US
+  instrument resolves as is to verify per instrument (proof steps 1–2).
 
 ## Authority And Evidence
 
@@ -287,10 +294,12 @@ threshold.
    when that finds no line (post-install findings, F1). Bond quotes
    ride the subscription manager's short-lived hold (no standing line) with no
    generic ticks; yield ticks 50–52 and 103–105 are stored as yields, never
-   prices. `canary market --symbol <ISIN|CUSIP> --type BOND` (text,
-   `--json`) and MCP `canary_market` with `bond_identifier` run the same
-   read: one line, one quote; a gap is `resolved`/`quoted` false with a
-   reason. The currency defaults to USD for a CUSIP, else the ISIN's issuer
+   prices. `canary market --symbol <ISIN|CUSIP> --type BILL|BOND` (text,
+   `--json`) and MCP `canary_market` with `bond_identifier` (asked as BOND)
+   run the same read: one line, one quote; a gap is `resolved`/`quoted`
+   false with a reason. The requested type is asked first; an identifier of
+   a vocabulary bill is then asked as the bill's own types (A10), and the
+   result's `sec_types` and `sec_types_note` say so. The currency defaults to USD for a CUSIP, else the ISIN's issuer
    country; an `XS` ISIN needs `--currency`.
 5. **Positions.** Held BOND rows stay in `stocks` with their valuation, so
    Desk, the SPA, portfolio aggregates and the Rulebook see no change; the new
@@ -301,9 +310,10 @@ threshold.
    prints them under *Bills & bonds* and keeps unclassified rows in the stock
    table. Contract details are read by contract id, cached a day (failures
    retried after ten minutes), and a cold read waits at most 1.5 s before the
-   lookup finishes detached. `positionWireSecType` keeps BOND a bond, so any
-   proposal built on a held bond names BOND and preview refuses it
-   (`unsupported_security_type`); none is generated today.
+   lookup finishes detached. `positionWireSecType` keeps a held BILL or BOND
+   row's own type, so any proposal built on a held bill or bond outside a
+   sweep row names it and preview refuses it (`unsupported_security_type`);
+   none is generated today.
 6. **Held-bill equivalents.** A classified bill is a cash equivalent when its
    issuer is a vocabulary issuer of the row's currency (A6); its face value is
    quantity × the instrument's assumed face per unit (A5). Any other bond is
@@ -338,21 +348,26 @@ threshold.
 10. **Not built.** The ETF fallback (no ETF resolution; the completed-search
     input stays empty) and the mode default.
 
-Instrument conventions (A5), explicit constants in
+Instrument conventions (A5, A10), explicit constants in
 `internal/daemon/cash_sweep_instruments.go`, each an assumption to verify; the
 order path sizes, prices and times orders by them. The assumed session applies
 only when the line's contract details carry no liquid or trading hours; it is
 weekdays only (holidays not modelled: on one the preview's live-quote
 requirement refuses instead):
 
-| Instrument | Quantity unit | Face per unit | Price | Assumed session |
-|---|---|---|---|---|
-| `us_tbill` | `face_1000` | 1,000 USD | per 100 of face | 08:00–17:00 America/New_York |
-| `de_bubill` | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Berlin |
-| `fr_btf` | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Paris |
-| `uk_tbill` | `face_1` | 1 GBP | per 100 of face | 08:00–16:30 Europe/London |
-| `ca_tbill` | `face_1` | 1 CAD | per 100 of face | 08:00–17:00 America/Toronto |
-| `etf` | `shares` | — | per share | its exchange calendar |
+| Instrument | IBKR secType, in order (A10) | Quantity unit | Face per unit | Price | Assumed session |
+|---|---|---|---|---|---|
+| `us_tbill` | BILL | `face_1000` | 1,000 USD | per 100 of face | 08:00–17:00 America/New_York |
+| `de_bubill` | BILL, then BOND | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Berlin |
+| `fr_btf` | BILL, then BOND | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Paris |
+| `uk_tbill` | BILL, then BOND | `face_1` | 1 GBP | per 100 of face | 08:00–16:30 Europe/London |
+| `ca_tbill` | BILL, then BOND | `face_1` | 1 CAD | per 100 of face | 08:00–17:00 America/Toronto |
+| `etf` | — (STK) | `shares` | — | per share | its exchange calendar |
+
+A held line is asked by contract id as its position's own type first, then
+the instrument's. The invest row's contract, its preview draft and its order
+carry the type the line resolved as (`bill.sec_type`); a redemption carries
+the position's type.
 
 A working bond order or a bond fill in the journal is valued at its
 currency's bill convention (USD 1,000 face per unit, EUR, GBP and CAD 1), the
@@ -366,17 +381,24 @@ redacted evidence here (identifiers of public government bills are fine;
 never an account id, a balance or an order reference).
 
 1. USD bill: pick one CUSIP from TreasuryDirect's list maturing 28–91 days
-   out; `canary market --symbol <CUSIP> --type BOND` and again with `--json`.
-   Expect `resolved: true`, one line, `class: bill`, the list's maturity,
+   out; `canary market --symbol <CUSIP> --type BILL` and again with `--json`.
+   Expect `resolved: true`, one line, `sec_type: BILL` (A10), `class: bill`,
+   the list's maturity,
    `min_size`/`size_increment`, and a quote with bid/ask per 100 of face and
    yields in percent (A7), `fresh: true` during the session (a quote without
    the gateway's feed-type notice reads stale; record which). Note whether
-   the quantity unit matches `face_1000` (A5).
+   the quantity unit matches `face_1000` (A5). `--type BOND` for the same
+   CUSIP asks BOND, then BILL, and its `Asked` line says so; a gap line
+   names every attempt with IBKR's code and text. If BILL also finds no
+   line, A10 is refuted for US bills: record the gap line.
 2. EUR bill: pick one German Bubill ISIN (`DE…`) maturing 28–182 days out;
-   `canary market --symbol <ISIN> --type BOND` (currency inferred EUR) and
-   `--json`. Same expectations; note whether one unit is 1 EUR of face.
+   `canary market --symbol <ISIN> --type BILL` (currency inferred EUR; BILL,
+   then BOND) and `--json`. Same expectations; record `sec_type` (which type
+   the Bubill resolved as, A10) and whether one unit is 1 EUR of face.
+   Repeat for one listed bill of every other declared currency when one is
+   configured (BTF, UK and Canadian bills), recording each `sec_type`.
 3. Positions: `canary positions` and `canary positions --json`. Every held
-   BOND row appears in `bonds` with its `con_id`, class, maturity and
+   BILL or BOND row appears in `bonds` with its `con_id`, class, maturity and
    currency (none `unresolved` after a second read), and still in `stocks`.
 4. SettledCash tag: `canary account --json` shows `settled_cash_ccy` on each
    `currency_exposure` row and on `base_currency_ledger`; with the sweep
@@ -389,8 +411,8 @@ never an account id, a balance or an order reference).
 6. One whatIf preview of a USD bill row, never a submit: with the sweep
    enabled and `mode = "active"` (and `cash_sweep` not pre-authorised),
    during the bill's session, `canary proposals preview KEY REVISION` for the
-   USD invest row. Expect `accepted: true`, a BOND LMT DAY draft for the
-   row's contract id, `quantity` in `face_1000` units, `bond.face_value` =
+   USD invest row. Expect `accepted: true`, a BILL LMT DAY draft for the
+   row's contract id (`cash_sweep.bill.sec_type: BILL`), `quantity` in `face_1000` units, `bond.face_value` =
    quantity × 1,000, a limit on the line's tick, `notional` = face × limit /
    100, and a WhatIf verdict; record the WhatIf's commission and margin
    change. A WhatIf that reads the quantity 1,000 times larger (or smaller)
@@ -399,7 +421,7 @@ never an account id, a balance or an order reference).
    order's value: about 0.01 is the margin account's one-percent bill margin
    (A2, A9); a ratio outside [0.005, 1.2] on a correct unit refutes A9. Do
    not submit.
-7. Size and tick read back: `canary market --symbol <CUSIP> --type BOND
+7. Size and tick read back: `canary market --symbol <CUSIP> --type BILL
    --json` for that bill shows `min_size`, `size_increment` and `min_tick`;
    they must equal the draft's `bond.min_size`, `bond.size_increment` and
    `bond.min_tick`, and `min_size` should read 1 for `face_1000` (a reading
@@ -437,6 +459,25 @@ text. Rerun step 1 after the reinstall; if the
 symbol form also reads code 200, the next suspects are bond market-data or
 the CUSIP subscription (Client Portal, Settings, Market Data
 Subscriptions), which the gap line will show.
+
+F3, proof step 1 rerun after the F1 fix (installed as v3.14.0-29,
+2026-09-30 19:58 CEST, read-only). With Bonds trading permission on the
+account, `canary market --type BOND` for 912797SK4 and 912797UM7, by CUSIP
+and by ISIN (US912797SK41, US912797UM78), still read no line: by symbol the
+search ended without a line, and by `secIdType` IBKR answered code 200 "No
+security definition has been found for the request". Every request named
+secType `BOND` on SMART in USD. The TWS API lists US Treasury bills as
+secType `BILL`, and Canary's own non-issuer vocabulary in
+`internal/daemon/rulebook.go` already names BILL beside BOND because held
+bills arrive that way: a bill asked as BOND finds nothing. Fix (A10): the
+vocabulary carries each instrument's security types (`us_tbill` BILL; the
+other bills BILL, then BOND); a lookup asks every form of the first type
+before the next, and the line keeps the type it resolved as; the row, its
+preview draft, the WhatIf and the order carry it, and every bill path tests
+BILL or BOND through one helper (`ibkr.IsBillOrBond`). `canary market
+--type BILL` asks BILL; `--type BOND` for a vocabulary bill's identifier
+asks BOND, then the bill's own types, and says so. Rerun steps 1–2 after
+the reinstall.
 
 F2, proof step 4, SettledCash (A4). The account-summary request names
 `$LEDGER:ALL` and no `SettledCash` tag. IBKR's `$LEDGER` cash-balance set

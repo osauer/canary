@@ -16,17 +16,17 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "market")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	watch := fs.Bool("watch", false, "stream complete display snapshots as NDJSON")
-	symbol := fs.String("symbol", "", "underlying symbol for history; with --type BOND, an ISIN or CUSIP")
+	symbol := fs.String("symbol", "", "underlying symbol for history; with --type BILL or BOND, an ISIN or CUSIP")
 	r := fs.String("range", "1D", "history range: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y")
 	exchange := fs.String("exchange", "SMART", "exact quote exchange")
-	sec := fs.String("type", "STK", "security type: STK, IND, CASH; BOND resolves and quotes one bond or bill (read-only)")
-	currency := fs.String("currency", "USD", "quote currency; with --type BOND, defaults to the identifier's own")
+	sec := fs.String("type", "STK", "security type: STK, IND, CASH; BILL or BOND resolves and quotes one bill or bond (read-only)")
+	currency := fs.String("currency", "USD", "quote currency; with --type BILL or BOND, defaults to the identifier's own")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
-	if strings.EqualFold(strings.TrimSpace(*sec), "BOND") {
+	if secType := strings.ToUpper(strings.TrimSpace(*sec)); secType == "BILL" || secType == "BOND" {
 		if *watch || *symbol == "" {
-			return fail(env, "market: --type BOND needs --symbol <ISIN|CUSIP> and cannot --watch")
+			return fail(env, "market: --type %s needs --symbol <ISIN|CUSIP> and cannot --watch", secType)
 		}
 		explicit := ""
 		fs.Visit(func(f *flag.Flag) {
@@ -34,7 +34,7 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 				explicit = *currency
 			}
 		})
-		return runMarketBond(ctx, env, *symbol, explicit, *jsonOut)
+		return runMarketBond(ctx, env, *symbol, secType, explicit, *jsonOut)
 	}
 	if *watch {
 		if *symbol != "" {

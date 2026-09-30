@@ -181,7 +181,7 @@ func ValidateOrder(order *IBKROrder) error {
 		return fmt.Errorf("order type is required")
 	}
 
-	if strings.EqualFold(strings.TrimSpace(order.SecType), "BOND") {
+	if IsBillOrBond(order.SecType) {
 		if err := validateBondOrder(order); err != nil {
 			return err
 		}

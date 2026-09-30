@@ -9,12 +9,14 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// runMarketBond is canary market --symbol <ISIN|CUSIP> --type BOND: a
-// read-only check that the broker resolves the identifier to one bond line
-// and quotes it. It never stages or sends an order.
-func runMarketBond(ctx context.Context, env *Env, identifier, currency string, jsonOut bool) int {
+// runMarketBond is canary market --symbol <ISIN|CUSIP> --type BILL|BOND: a
+// read-only check that the broker resolves the identifier to one bill or
+// bond line and quotes it. The daemon asks secType first and, for an
+// identifier of a vocabulary bill, the bill's own types after it. It never
+// stages or sends an order.
+func runMarketBond(ctx context.Context, env *Env, identifier, secType, currency string, jsonOut bool) int {
 	var res rpc.MarketBondResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketBond, rpc.MarketBondParams{Identifier: identifier, Currency: currency}, &res); err != nil {
+	if err := env.Conn.Call(ctx, rpc.MethodMarketBond, rpc.MarketBondParams{Identifier: identifier, Currency: currency, SecType: secType}, &res); err != nil {
 		return fail(env, "market bond: %v", err)
 	}
 	if jsonOut {
@@ -28,8 +30,19 @@ func runMarketBond(ctx context.Context, env *Env, identifier, currency string, j
 // conventions, and the quote, with every gap named.
 func renderMarketBondText(out io.Writer, res *rpc.MarketBondResult) {
 	fmt.Fprintf(out, "\nBond  %s · %s · %s\n", res.Identifier, res.IdentifierType, res.Currency)
+	if len(res.SecTypes) > 0 {
+		asked := "as " + strings.Join(res.SecTypes, ", then ")
+		if res.SecTypesNote != "" {
+			asked = res.SecTypesNote
+		}
+		fmt.Fprintf(out, "  %-10s %s\n", "Asked", asked)
+	}
 	if c := res.Contract; c != nil {
-		parts := []string{fmt.Sprintf("con_id %d", c.ConID), c.Class}
+		parts := []string{fmt.Sprintf("con_id %d", c.ConID)}
+		if c.SecType != "" {
+			parts = append(parts, c.SecType)
+		}
+		parts = append(parts, c.Class)
 		for _, id := range []struct{ label, v string }{{"ISIN", c.ISIN}, {"CUSIP", c.CUSIP}} {
 			if id.v != "" {
 				parts = append(parts, id.label+" "+id.v)

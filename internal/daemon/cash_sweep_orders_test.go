@@ -196,6 +196,10 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	if !p.AutomaticEligible() || cashSweepOrderTerms(p) == nil || cashSweepOrderTerms(p).FacePerUnit != 1 {
 		t.Fatalf("redeem row is not an ordinary proposal: %+v", p.CashSweep)
 	}
+	// The held line is asked as its position's type first, then the bill's.
+	if len(held.heldTypes) == 0 || !slices.Equal(held.heldTypes[0], []string{"BOND", "BILL"}) {
+		t.Fatalf("held lookups asked %v", held.heldTypes)
+	}
 	// The held line cannot be read: blocked, not dropped.
 	p = row(eurRedeemInput(10000), &fakeBillSource{})
 	if len(p.Blockers) != 1 || p.Blockers[0].Code != rpc.CashSweepBlockerBillRules || p.CashSweep.Session == nil || p.CashSweep.Session.Source != rpc.BondSessionSourceAssumed {
@@ -346,7 +350,7 @@ func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	}
 	srv.orderPreviewQuote = func(_ context.Context, c rpc.ContractParams, _ time.Duration) (rpc.OrderQuoteSnapshot, error) {
 		rig.quotes++
-		if c.SecType != "BOND" || c.ConID != 7101 || c.MinTick != 0.0001 {
+		if c.SecType != "BILL" || c.ConID != 7101 || c.MinTick != 0.0001 {
 			t.Fatalf("quoted contract = %+v", c)
 		}
 		bid, ask := 99.58, 99.62
@@ -392,7 +396,7 @@ func TestCashSweepBondPreview(t *testing.T) {
 		t.Fatalf("preview = %+v", out)
 	}
 	d := rig.drafts[0]
-	if d.Contract.SecType != "BOND" || d.Contract.ConID != 7101 || d.Quantity != 55 || d.OrderType != rpc.OrderTypeLMT || d.TIF != rpc.OrderTIFDay ||
+	if d.Contract.SecType != "BILL" || d.Contract.ConID != 7101 || d.Quantity != 55 || d.OrderType != rpc.OrderTypeLMT || d.TIF != rpc.OrderTIFDay ||
 		d.LimitPrice != 99.6 || d.Action != rpc.OrderActionBuy || d.OutsideRTH || d.Strategy != rpc.OrderStrategyPatientLimit || d.OpenClose != "O" {
 		t.Fatalf("draft = %+v", d)
 	}
@@ -405,7 +409,7 @@ func TestCashSweepBondPreview(t *testing.T) {
 	}
 	// The WhatIf and place encoders receive the grid with the contract.
 	contract, order := previewIBKRStrategyContract(d), previewIBKROrder(d)
-	if contract.SecType != "BOND" || contract.BondRules == nil || *contract.BondRules != usBillRules || contract.Multiplier != 0 {
+	if contract.SecType != "BILL" || contract.BondRules == nil || *contract.BondRules != usBillRules || contract.Multiplier != 0 {
 		t.Fatalf("broker contract = %+v", contract)
 	}
 	if err := ibkrlib.ValidateOrder(&ibkrlib.IBKROrder{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange,

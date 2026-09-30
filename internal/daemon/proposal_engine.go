@@ -2000,10 +2000,10 @@ func positionWireSecType(raw string) string {
 		return "OPT"
 	case strings.EqualFold(raw, "ETF"):
 		return "ETF"
-	case strings.EqualFold(raw, "BOND") || strings.EqualFold(raw, "BILL"):
-		// A held bond stays a bond: proposal gates refuse BOND
-		// (unsupported_security_type) until bond orders exist.
-		return "BOND"
+	case ibkrlib.IsBillOrBond(raw):
+		// A held bill or bond keeps its own type: proposal gates refuse it
+		// (unsupported_security_type) outside a cash_sweep row's own bill.
+		return ibkrlib.BillOrBondSecType(raw)
 	default:
 		return "STK"
 	}

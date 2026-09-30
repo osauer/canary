@@ -200,7 +200,7 @@ Subcommands: `tape`.
 | `--history` | no | - |
 | `--before` | yes | - |
 | `--exchange` | yes | - |
-| `--type` | yes | `STK`, `IND`, `CASH`, `BOND` |
+| `--type` | yes | `STK`, `IND`, `CASH`, `BILL`, `BOND` |
 | `--currency` | yes | - |
 | `--json` | no | - |
 

@@ -609,7 +609,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		if block.Session == nil {
 			block.Session = rpc.CloneBondSession(b.Session)
 		}
-		contract := rpc.ContractParams{ConID: b.ConID, Symbol: nonEmptyString(b.Symbol, nonEmptyString(b.CUSIP, b.ISIN)), SecType: "BOND", Exchange: "SMART", Currency: ccy}
+		contract := rpc.ContractParams{ConID: b.ConID, Symbol: nonEmptyString(b.Symbol, nonEmptyString(b.CUSIP, b.ISIN)), SecType: ibkrlib.BillOrBondSecType(b.SecType), Exchange: "SMART", Currency: ccy}
 		// The key binds the bill: a preview or submit of this key buys the
 		// bill the owner saw, never another the next cycle names.
 		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideInvest, cp.instrument, b.ConID),
@@ -727,21 +727,18 @@ func cashSweepInvestContract(cfg protectionCashSweepCurrency, ccy, instrument st
 	if instrument == cashSweepInstrumentETF {
 		return rpc.ContractParams{Symbol: cfg.ETFSymbol, SecType: "STK", Exchange: "SMART", PrimaryExch: cfg.ETFExchange, Currency: ccy}
 	}
-	return rpc.ContractParams{Symbol: strings.ToUpper(instrument), SecType: "BOND", Exchange: "SMART", Currency: ccy}
+	return rpc.ContractParams{Symbol: strings.ToUpper(instrument), SecType: cashSweepInstrumentSecTypes(instrument)[0], Exchange: "SMART", Currency: ccy}
 }
 
 // cashSweepHoldingContract is the held equivalent a redemption sells, by
-// contract id. A bill keeps its BOND type: positionWireSecType would turn it
-// into a stock.
+// contract id. A bill keeps its own BILL or BOND type.
 func cashSweepHoldingContract(row rpc.PositionView) rpc.ContractParams {
-	switch secType := strings.ToUpper(strings.TrimSpace(row.SecType)); secType {
-	case "BOND", "BILL":
-		c := proposalContractFromPosition(row, "BOND")
+	if ibkrlib.IsBillOrBond(row.SecType) {
+		c := proposalContractFromPosition(row, ibkrlib.BillOrBondSecType(row.SecType))
 		c.Exchange = nonEmptyString(row.Exchange, "SMART")
 		return c
-	default:
-		return proposalContractFromPosition(row, positionWireSecType(row.SecType))
 	}
+	return proposalContractFromPosition(row, positionWireSecType(row.SecType))
 }
 
 // cashSweepKey is a sweep row's stable key: currency, side, the planned
@@ -1004,7 +1001,7 @@ func cashSweepMultiplier(secType string, multiplier int, ccy string) (float64, b
 }
 
 func cashSweepBondSecType(secType string) bool {
-	return secType == "BOND" || secType == "BILL"
+	return ibkrlib.IsBillOrBond(secType)
 }
 
 // cashSweepCommitments sums what working buy orders (every client, from the

@@ -86,6 +86,47 @@ func TestMarketBondCLI(t *testing.T) {
 	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--type", "BOND"}); code == 0 {
 		t.Fatal("a bond check without an identifier ran")
 	}
+	if conn.params.SecType != "BOND" {
+		t.Fatalf("--type bond asked %q", conn.params.SecType)
+	}
+}
+
+// canary market --type BILL asks the daemon for a bill; a BOND check of a
+// bill identifier prints the types asked and why, the type the line
+// resolved as, and a gap line naming each attempt.
+func TestMarketBillCLI(t *testing.T) {
+	ask := 99.6
+	conn := &bondCLIConn{result: rpc.MarketBondResult{Identifier: "912797SK4", IdentifierType: "CUSIP", Currency: "USD", SecTypes: []string{"BILL"}, Resolved: true, Lines: 1, Quoted: true,
+		Contract: &rpc.BondContract{ConID: 7101, SecType: "BILL", CUSIP: "912797SK4", Class: rpc.BondClassBill, Currency: "USD", PriceConvention: rpc.BondPriceConventionPer100},
+		Quote:    &rpc.BondQuote{Ask: &ask, DataType: "live", Fresh: true}}}
+	var out bytes.Buffer
+	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--symbol", "912797SK4", "--type", "bill"}); code != 0 {
+		t.Fatalf("code %d: %s", code, &out)
+	}
+	if conn.method != rpc.MethodMarketBond || conn.params.SecType != "BILL" || conn.params.Identifier != "912797SK4" {
+		t.Fatalf("call = %s %+v", conn.method, conn.params)
+	}
+	for _, want := range []string{"Asked      as BILL", "con_id 7101 · BILL · bill"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in:\n%s", want, &out)
+		}
+	}
+	out.Reset()
+	note := "asked as BOND, then as BILL: CUSIP 912797SK4 reads as a us_tbill bill, which Canary asks as BILL"
+	gap := `contract details: IBKR lists no such bond line (BOND then BILL CUSIP 912797SK4 on SMART in USD; BOND by symbol: the search ended without a line; BOND by secIdType CUSIP: IBKR 200 "No security definition has been found for the request"; BILL by symbol: IBKR 200 "No security definition has been found for the request"; BILL by secIdType CUSIP: IBKR 200 "No security definition has been found for the request")`
+	conn.result = rpc.MarketBondResult{Identifier: "912797SK4", IdentifierType: "CUSIP", Currency: "USD", SecTypes: []string{"BOND", "BILL"}, SecTypesNote: note, Reason: gap}
+	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--symbol", "912797SK4", "--type", "BOND"}); code != 0 {
+		t.Fatalf("code %d: %s", code, &out)
+	}
+	for _, want := range []string{"Asked      " + note, "Resolved   no (0 lines)", "Gap        " + gap} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q in:\n%s", want, &out)
+		}
+	}
+	out.Reset()
+	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--type", "BILL", "--watch"}); code == 0 || !strings.Contains(out.String(), "--type BILL needs --symbol") {
+		t.Fatalf("a BILL watch ran: %d %s", code, &out)
+	}
 }
 
 // canary positions prints classified bonds in their own section and keeps

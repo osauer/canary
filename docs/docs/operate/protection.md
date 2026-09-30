@@ -480,8 +480,9 @@ more than that free cash at the preview's limit, and within
 `max_order_notional`. Nothing else is relaxed.
 
 It is off until you write the table. In `active` mode a row is an ordinary
-proposal: `canary proposals preview` previews its bill as a BOND limit order
-(DAY, regular hours) through every gate any proposal meets (trading freeze,
+proposal: `canary proposals preview` previews its bill as a limit order of
+the bill's own security type (BILL for a US Treasury bill, BILL or BOND for
+the others; DAY, regular hours) through every gate any proposal meets (trading freeze,
 authority, the bill's session, a live two-sided quote read during the preview,
 `[trading].max_notional`, broker WhatIf), and it is sent only when you approve
 it, or by the daemon after the full veto window when you list `cash_sweep`
@@ -542,13 +543,19 @@ GBP and CAD, the nearest of the bills you list by ISIN:
 isins = ["DE000BU0ZZ19", "FR0128ZZZZ13"]   # your bills; each of a declared instrument
 ```
 
-Canary names a bill only after the broker resolves it to one BOND line that
-carries its size rules and minimum tick, and quotes it. A currency with no
+Canary names a bill only after the broker resolves it to one line that
+carries its size rules and minimum tick, and quotes it. IBKR lists US
+Treasury bills as security type BILL, so Canary asks for a US bill as BILL
+and for a German, French, UK or Canadian bill as BILL first and BOND second
+(an assumption checked per instrument after install); the row records which
+type resolved. A currency with no
 list to choose from reads `universe_unavailable` (TreasuryDirect unreachable
 for two days, or no `isins` written); one whose candidates do not resolve,
 carry no size rules or no price reads `instrument_unresolved` with the
-evidence per candidate. `canary market --symbol <ISIN|CUSIP> --type BOND` runs
-the same resolution and quote as a read-only check, and `canary positions`
+evidence per candidate. `canary market --symbol <ISIN|CUSIP> --type BILL`
+(or `--type BOND`, which for a bill's identifier asks BILL as well and says
+so) runs the same resolution and quote as a read-only check, naming every
+attempt with IBKR's code and text when none finds a line, and `canary positions`
 lists held bills and bonds in their own section with class, maturity and
 currency.
 

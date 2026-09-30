@@ -25,6 +25,9 @@ type cashSweepInstrumentConvention struct {
 	FacePerUnit  float64
 	// PriceConvention is how a quote is expressed (rpc.BondPriceConvention*).
 	PriceConvention string
+	// SecTypes are the IBKR security types a line of the instrument is
+	// asked as, in order (A10).
+	SecTypes []string
 	// SessionLabel, TimeZone, Open and Close (local HHMM on weekdays) are the
 	// assumed session a DAY order fills in, used only when the line's
 	// contract details carry no liquid or trading hours. Holidays are not
@@ -47,18 +50,73 @@ type cashSweepInstrumentConvention struct {
 //     bound an order, and its liquid hours (else trading hours) replace the
 //     assumed session.
 //   - etf: shares, quoted per share, on its exchange's calendar.
+//   - security type (A10): IBKR lists US Treasury bills as secType BILL, so
+//     us_tbill is asked as BILL only; a German, French, UK or Canadian bill
+//     is asked as BILL first and BOND second, and the row records which one
+//     resolved.
 var cashSweepInstrumentConventions = map[string]cashSweepInstrumentConvention{
 	cashSweepInstrumentUSTBill: {QuantityUnit: rpc.BondQuantityUnitFace1000, FacePerUnit: 1000, PriceConvention: rpc.BondPriceConventionPer100,
+		SecTypes:     []string{ibkrlib.SecTypeBill},
 		SessionLabel: "US Treasury bills", TimeZone: "America/New_York", Open: 800, Close: 1700},
 	cashSweepInstrumentDEBubill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SecTypes:     []string{ibkrlib.SecTypeBill, ibkrlib.SecTypeBond},
 		SessionLabel: "German Bubills", TimeZone: "Europe/Berlin", Open: 900, Close: 1730},
 	cashSweepInstrumentFRBTF: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SecTypes:     []string{ibkrlib.SecTypeBill, ibkrlib.SecTypeBond},
 		SessionLabel: "French BTFs", TimeZone: "Europe/Paris", Open: 900, Close: 1730},
 	cashSweepInstrumentUKTBill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SecTypes:     []string{ibkrlib.SecTypeBill, ibkrlib.SecTypeBond},
 		SessionLabel: "UK Treasury bills", TimeZone: "Europe/London", Open: 800, Close: 1630},
 	cashSweepInstrumentCATBill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SecTypes:     []string{ibkrlib.SecTypeBill, ibkrlib.SecTypeBond},
 		SessionLabel: "Canadian Treasury bills", TimeZone: "America/Toronto", Open: 800, Close: 1700},
 	cashSweepInstrumentETF: {QuantityUnit: rpc.BondQuantityUnitShares, PriceConvention: rpc.BondPriceConventionPerShare},
+}
+
+// cashSweepInstrumentSecTypes are the IBKR security types a vocabulary
+// bill is asked as, in order; any other instrument is asked as BOND.
+func cashSweepInstrumentSecTypes(instrument string) []string {
+	if secTypes := cashSweepInstrumentConventions[instrument].SecTypes; len(secTypes) > 0 {
+		return slices.Clone(secTypes)
+	}
+	return []string{ibkrlib.SecTypeBond}
+}
+
+// cashSweepHeldSecTypes are the types a held line is asked as by contract
+// id: the position's own type first, then the instrument's.
+func cashSweepHeldSecTypes(positionSecType, instrument string) []string {
+	out := []string{ibkrlib.BillOrBondSecType(positionSecType)}
+	for _, secType := range cashSweepInstrumentSecTypes(instrument) {
+		if !slices.Contains(out, secType) {
+			out = append(out, secType)
+		}
+	}
+	return out
+}
+
+// cashSweepIdentifierInstrument names the vocabulary bill an identifier
+// would be, or "": a US Treasury bill CUSIP (or its US ISIN) is us_tbill;
+// another ISIN follows its issuer country. A line of that country may still
+// be a bond; the lookup asks both types.
+func cashSweepIdentifierInstrument(idType, id string) string {
+	switch idType {
+	case ibkrlib.BondIdentifierCUSIP:
+		if usTreasuryBillCUSIP(id) {
+			return cashSweepInstrumentUSTBill
+		}
+	case ibkrlib.BondIdentifierISIN:
+		if len(id) != 12 {
+			return ""
+		}
+		if id[:2] == "US" {
+			if usTreasuryBillCUSIP(id[2:11]) {
+				return cashSweepInstrumentUSTBill
+			}
+			return ""
+		}
+		return cashSweepISINCountryInstrument[id[:2]]
+	}
+	return ""
 }
 
 // cashSweepBondConvention is the convention of a BOND line in ccy that is

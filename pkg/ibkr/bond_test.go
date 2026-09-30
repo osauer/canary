@@ -22,6 +22,29 @@ func syntheticBondFrame(reqID int, conID, cusip, isin, currency, maturity, issue
 	}
 }
 
+// syntheticBillFrame is syntheticBondFrame for a line IBKR lists as BILL.
+func syntheticBillFrame(reqID int, conID, cusip, isin, currency, maturity, issue string) []string {
+	frame := syntheticBondFrame(reqID, conID, cusip, isin, currency, maturity, issue)
+	frame[3] = "BILL"
+	return frame
+}
+
+func TestIsBillOrBond(t *testing.T) {
+	for secType, want := range map[string]bool{"BILL": true, " bond ": true, "Bill": true, "STK": false, "": false, "BAG": false} {
+		if got := IsBillOrBond(secType); got != want {
+			t.Errorf("IsBillOrBond(%q) = %v", secType, got)
+		}
+	}
+	for secType, want := range map[string]string{"bill": "BILL", "BOND": "BOND", "": "BOND", "STK": "BOND"} {
+		if got := BillOrBondSecType(secType); got != want {
+			t.Errorf("BillOrBondSecType(%q) = %q", secType, got)
+		}
+	}
+	if d, ok := parseBondContractDetails(syntheticBillFrame(7, "880001", "912797ZZ3", "US912797ZZ37", "USD", "20261126", "20260827"), 7, maxClientVersion); !ok || d.SecType != "BILL" {
+		t.Fatalf("bill frame = %+v %v", d, ok)
+	}
+}
+
 func TestParseBondContractDetailsCompleteFrame(t *testing.T) {
 	frame := syntheticBondFrame(7, "880001", "912797ZZ3", "US912797ZZ37", "USD", "20261126", "20260827")
 	d, ok := parseBondContractDetails(frame, 7, maxClientVersion)
@@ -145,12 +168,12 @@ func TestBondContractDetailsFallsBackToSecID(t *testing.T) {
 	if !ok || !errors.Is(got.err, ErrContractNoDefinition) || len(lookupErr.Attempts) != 2 {
 		t.Fatalf("rejection = %#v", got.err)
 	}
-	for i, form := range []string{"by symbol", "by secIdType CUSIP"} {
+	for i, form := range []string{"BOND by symbol", "BOND by secIdType CUSIP"} {
 		if a := lookupErr.Attempts[i]; a.Form != form || a.Code != 200 || a.Message != noDefinition {
 			t.Fatalf("attempt %d = %+v", i, a)
 		}
 	}
-	if want := `by symbol: IBKR 200 "` + noDefinition + `"`; !strings.Contains(got.err.Error(), want) || !strings.Contains(got.err.Error(), "BOND CUSIP 912797ZZ3 on SMART in USD") {
+	if want := `BOND by symbol: IBKR 200 "` + noDefinition + `"`; !strings.Contains(got.err.Error(), want) || !strings.Contains(got.err.Error(), "BOND CUSIP 912797ZZ3 on SMART in USD") {
 		t.Fatalf("error text = %q", got.err.Error())
 	}
 
@@ -170,8 +193,81 @@ func TestBondContractDetailsFallsBackToSecID(t *testing.T) {
 	}
 }
 
-// A contract id is asked once, by id alone; an identifier is asked by
-// symbol, then by secIdType/secId, on SMART unless an exchange is named.
+// A request asked as BILL then BOND tries every BILL form before any BOND
+// form: IBKR lists US Treasury bills as BILL, and a bill asked as BOND
+// finds no line. The line found keeps the type it resolved as, and an
+// exhausted lookup names every attempt with IBKR's code and text.
+func TestBondContractDetailsAsksBillThenBond(t *testing.T) {
+	conn, connector, socket, _, _ := newQueuedInstructionReconnectFixture(t)
+	type result struct {
+		lines []BondContractDetails
+		err   error
+	}
+	done := make(chan result, 1)
+	ask := func(r BondContractRequest) {
+		go func() {
+			lines, err := connector.BondContractDetails(context.Background(), r, 2*time.Second)
+			done <- result{lines, err}
+		}()
+	}
+	const noDefinition = "No security definition has been found for the request"
+
+	// A US bill asked as BILL resolves by symbol on the first request.
+	ask(BondContractRequest{IDType: BondIdentifierCUSIP, ID: "912797ZZ3", Currency: "USD", SecTypes: []string{"BILL"}})
+	assertBillOrBondRequestFrame(t, nthBondRequestFrame(t, conn, socket, 1), "BILL", "912797ZZ3", "USD", "", "")
+	reqID := waitForHandlerReqID(t, conn, msgBondContractData)
+	conn.dispatchHandlers(msgBondContractData, syntheticBillFrame(reqID, "880001", "912797ZZ3", "US912797ZZ37", "USD", "20261126", "20260827"), conn.BrokerSessionEpoch())
+	prewarmTestEnd(conn, reqID)
+	if got := <-done; got.err != nil || len(got.lines) != 1 || got.lines[0].SecType != "BILL" || got.lines[0].ConID != 880001 {
+		t.Fatalf("bill lines = %+v err %v", got.lines, got.err)
+	}
+
+	// A German ISIN asked as BILL then BOND: neither BILL form finds a line,
+	// the BOND symbol form does.
+	ask(BondContractRequest{IDType: BondIdentifierISIN, ID: "DE000BU0ZZ19", Currency: "EUR", SecTypes: []string{"BILL", "BOND"}})
+	assertBillOrBondRequestFrame(t, nthBondRequestFrame(t, conn, socket, 2), "BILL", "DE000BU0ZZ19", "EUR", "", "")
+	reqID = waitForHandlerReqIDAfter(t, conn, msgBondContractData, reqID)
+	if !connector.failPendingContractDetails(reqID, 200, noDefinition) {
+		t.Fatal("the BILL symbol request was not armed for the broker's rejection")
+	}
+	assertBillOrBondRequestFrame(t, nthBondRequestFrame(t, conn, socket, 3), "BILL", "", "EUR", "ISIN", "DE000BU0ZZ19")
+	reqID = waitForHandlerReqIDAfter(t, conn, msgBondContractData, reqID)
+	prewarmTestEnd(conn, reqID)
+	assertBillOrBondRequestFrame(t, nthBondRequestFrame(t, conn, socket, 4), "BOND", "DE000BU0ZZ19", "EUR", "", "")
+	reqID = waitForHandlerReqIDAfter(t, conn, msgBondContractData, reqID)
+	conn.dispatchHandlers(msgBondContractData, syntheticBondFrame(reqID, "880002", "DE000BU0ZZ19", "DE000BU0ZZ19", "EUR", "20270120", "20260722"), conn.BrokerSessionEpoch())
+	prewarmTestEnd(conn, reqID)
+	if got := <-done; got.err != nil || len(got.lines) != 1 || got.lines[0].SecType != "BOND" || got.lines[0].ConID != 880002 {
+		t.Fatalf("bond lines = %+v err %v", got.lines, got.err)
+	}
+
+	// Asked as BILL then BOND and found by neither: four attempts, in order.
+	ask(BondContractRequest{IDType: BondIdentifierCUSIP, ID: "912797ZZ3", Currency: "USD", SecTypes: []string{"BILL", "BOND"}})
+	for n := 5; n <= 8; n++ {
+		nthBondRequestFrame(t, conn, socket, n)
+		reqID = waitForHandlerReqIDAfter(t, conn, msgBondContractData, reqID)
+		if !connector.failPendingContractDetails(reqID, 200, noDefinition) {
+			t.Fatalf("request %d was not armed for the broker's rejection", n)
+		}
+	}
+	got := <-done
+	lookupErr, ok := errors.AsType[*BondLookupError](got.err)
+	if !ok || !errors.Is(got.err, ErrContractNoDefinition) || len(lookupErr.Attempts) != 4 {
+		t.Fatalf("rejection = %#v", got.err)
+	}
+	for i, form := range []string{"BILL by symbol", "BILL by secIdType CUSIP", "BOND by symbol", "BOND by secIdType CUSIP"} {
+		if a := lookupErr.Attempts[i]; a.Form != form || a.Code != 200 || a.Message != noDefinition {
+			t.Fatalf("attempt %d = %+v", i, a)
+		}
+	}
+	if !strings.Contains(got.err.Error(), "BILL then BOND CUSIP 912797ZZ3 on SMART in USD") {
+		t.Fatalf("error text = %q", got.err.Error())
+	}
+}
+
+// A contract id is asked once per type, by id alone; an identifier is asked
+// by symbol, then by secIdType/secId, on SMART unless an exchange is named,
+// every form of one type before the next type.
 func TestBondContractRequestForms(t *testing.T) {
 	forms, err := BondContractRequest{ConID: 880001, Currency: "usd"}.wireForms()
 	if err != nil || len(forms) != 1 || forms[0].contract.ConID != 880001 || forms[0].contract.Exchange != "" || forms[0].contract.Symbol != "" || forms[0].contract.SecIDType != "" {
@@ -187,7 +283,24 @@ func TestBondContractRequestForms(t *testing.T) {
 	if c := forms[1].contract; c.Symbol != "" || c.SecIDType != "CUSIP" || c.SecID != "912797ZZ3" || c.Exchange != "SMART" {
 		t.Fatalf("secId form = %+v", c)
 	}
-	for _, bad := range []BondContractRequest{{IDType: "CUSIP", ID: "912797ZZ4", Currency: "USD"}, {IDType: "ISIN", ID: "912797ZZ3", Currency: "USD"}, {IDType: "CUSIP", ID: "912797ZZ3", Currency: "US"}} {
+	forms, err = BondContractRequest{IDType: "ISIN", ID: "DE000BU0ZZ19", Currency: "EUR", SecTypes: []string{"bill", "BOND", "BILL"}}.wireForms()
+	if err != nil || len(forms) != 4 {
+		t.Fatalf("BILL then BOND forms = %+v %v", forms, err)
+	}
+	for i, want := range []struct{ label, secType string }{{"BILL by symbol", "BILL"}, {"BILL by secIdType ISIN", "BILL"}, {"BOND by symbol", "BOND"}, {"BOND by secIdType ISIN", "BOND"}} {
+		if forms[i].label != want.label || forms[i].contract.SecType != want.secType {
+			t.Fatalf("form %d = %+v", i, forms[i])
+		}
+	}
+	forms, err = BondContractRequest{ConID: 880001, Currency: "USD", SecTypes: []string{"BILL", "BOND"}}.wireForms()
+	if err != nil || len(forms) != 2 || forms[0].contract.SecType != "BILL" || forms[1].contract.SecType != "BOND" || forms[1].contract.ConID != 880001 {
+		t.Fatalf("contract id BILL then BOND forms = %+v %v", forms, err)
+	}
+	if forms, err := (BondContractRequest{ConID: 880001, Currency: "USD"}).wireForms(); err != nil || forms[0].contract.SecType != "BOND" || forms[0].label != "BOND by contract id" {
+		t.Fatalf("default type forms = %+v %v", forms, err)
+	}
+	for _, bad := range []BondContractRequest{{IDType: "CUSIP", ID: "912797ZZ4", Currency: "USD"}, {IDType: "ISIN", ID: "912797ZZ3", Currency: "USD"}, {IDType: "CUSIP", ID: "912797ZZ3", Currency: "US"},
+		{IDType: "CUSIP", ID: "912797ZZ3", Currency: "USD", SecTypes: []string{"BILL", "STK"}}} {
 		if _, err := bad.wireForms(); err == nil {
 			t.Fatalf("%+v accepted", bad)
 		}
@@ -206,7 +319,7 @@ func nthBondRequestFrame(t *testing.T, conn *Connection, socket *safeBuffer, n i
 	for time.Now().Before(deadline) {
 		var bond [][]string
 		for _, frame := range decodeOutboundFrames(t, conn, socket.Bytes()) {
-			if len(frame) > 5 && frame[0] == strconv.Itoa(reqContractData) && frame[5] == "BOND" {
+			if len(frame) > 5 && frame[0] == strconv.Itoa(reqContractData) && IsBillOrBond(frame[5]) {
 				bond = append(bond, frame)
 			}
 		}
@@ -219,12 +332,19 @@ func nthBondRequestFrame(t *testing.T, conn *Connection, socket *safeBuffer, n i
 	return nil
 }
 
-// assertBondRequestFrame checks a reqContractDetails frame's symbol,
-// secType, exchange, currency and secIdType/secId.
+// assertBondRequestFrame checks a BOND reqContractDetails frame's symbol,
+// exchange, currency and secIdType/secId.
 func assertBondRequestFrame(t *testing.T, frame []string, symbol, currency, secIDType, secID string) {
 	t.Helper()
+	assertBillOrBondRequestFrame(t, frame, "BOND", symbol, currency, secIDType, secID)
+}
+
+// assertBillOrBondRequestFrame checks a reqContractDetails frame's secType,
+// symbol, exchange, currency and secIdType/secId.
+func assertBillOrBondRequestFrame(t *testing.T, frame []string, secType, symbol, currency, secIDType, secID string) {
+	t.Helper()
 	assertFields(t, frame, []fieldAssertion{
-		{0, strconv.Itoa(reqContractData), "message"}, {3, "0", "conId"}, {4, symbol, "symbol"}, {5, "BOND", "secType"},
+		{0, strconv.Itoa(reqContractData), "message"}, {3, "0", "conId"}, {4, symbol, "symbol"}, {5, secType, "secType"},
 		{10, "SMART", "exchange"}, {12, currency, "currency"}, {16, secIDType, "secIdType"}, {17, secID, "secId"},
 	})
 }

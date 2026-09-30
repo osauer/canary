@@ -183,9 +183,12 @@ type TradeProposalCashSweepCurrency struct {
 // SizeIncrement (order units) and MinTick come from the line's contract
 // details and bound every order; Session is when a DAY order can fill.
 type TradeProposalCashSweepBill struct {
-	Instrument      string       `json:"instrument"`
-	Source          string       `json:"source"`
-	ConID           int          `json:"con_id"`
+	Instrument string `json:"instrument"`
+	Source     string `json:"source"`
+	ConID      int    `json:"con_id"`
+	// SecType is the IBKR security type the bill resolved as (BILL or
+	// BOND); the row's order carries it.
+	SecType         string       `json:"sec_type,omitempty"`
 	Symbol          string       `json:"symbol,omitempty"`
 	ISIN            string       `json:"isin,omitempty"`
 	CUSIP           string       `json:"cusip,omitempty"`

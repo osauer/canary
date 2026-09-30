@@ -456,7 +456,7 @@ func TestCashSweepResolvedRowsAreOrdinaryProposals(t *testing.T) {
 				row.State != rpc.TradeProposalStateGenerated || row.Shadow != !active || row.Bucket != rpc.TradeProposalBucketCashSweep {
 				t.Fatalf("%s/%q row = %+v codes %v", tc.mode, tc.tax, row, codes)
 			}
-			if row.Action != rpc.OrderActionBuy || row.PositionEffect != rpc.OrderPositionEffectOpen || row.SecType != "BOND" || row.Contract.ConID <= 0 ||
+			if row.Action != rpc.OrderActionBuy || row.PositionEffect != rpc.OrderPositionEffectOpen || !ibkrlib.IsBillOrBond(row.SecType) || row.SecType != row.Contract.SecType || row.Contract.ConID <= 0 ||
 				row.CashSweep.Currency != row.Contract.Currency || row.CashSweep.Bill == nil || row.Contract.ConID != row.CashSweep.Bill.ConID {
 				t.Fatalf("invest row = %+v", row)
 			}

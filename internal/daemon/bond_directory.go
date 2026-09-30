@@ -16,10 +16,10 @@ import (
 )
 
 // Read-only bond support (internal-docs/design/cash-sweep.md, Phase B):
-// contract details for BOND lines by ISIN, CUSIP or contract id, a
+// contract details for BILL and BOND lines by ISIN, CUSIP or contract id, a
 // short-lived quote per line under the daemon's market-data budget, the
-// bill/bond classification of held BOND rows, and canary market --type
-// BOND. Nothing here builds or sends an order.
+// bill/bond classification of held BILL and BOND rows, and canary market
+// --type BILL|BOND. Nothing here builds or sends an order.
 
 // cashSweepBonds holds the daemon's bond directory and US bill universe.
 // The zero value is ready; both are built on first use.
@@ -42,6 +42,9 @@ const (
 	bondDetailsRetry          = 10 * time.Minute
 	bondDetailsTransientRetry = 30 * time.Second
 	bondDetailsWait           = 5 * time.Second
+	// The market check waits this long for a lookup that may ask two
+	// security types; a longer one answers on the next run.
+	bondMarketLookupWait = 8 * time.Second
 	// A quote is reused for a minute: the proposal cadence is 30 seconds and
 	// a bill's price does not need a line per cycle.
 	bondQuoteTTL      = time.Minute
@@ -87,11 +90,15 @@ func (d *bondDirectory) clock() time.Time {
 	return time.Now()
 }
 
+// bondRequestKey keys a lookup by what it asks: the types in order, the
+// identifier or contract id, and the currency.
 func bondRequestKey(r ibkrlib.BondContractRequest) string {
+	secTypes, _ := r.AskedSecTypes()
+	asked := strings.Join(secTypes, "+") + "|"
 	if r.ConID > 0 {
-		return "CONID:" + strconv.Itoa(r.ConID) + "|" + normCcy(r.Currency)
+		return asked + "CONID:" + strconv.Itoa(r.ConID) + "|" + normCcy(r.Currency)
 	}
-	return strings.ToUpper(strings.TrimSpace(r.IDType)) + ":" + strings.ToUpper(strings.TrimSpace(r.ID)) + "|" + normCcy(r.Currency)
+	return asked + strings.ToUpper(strings.TrimSpace(r.IDType)) + ":" + strings.ToUpper(strings.TrimSpace(r.ID)) + "|" + normCcy(r.Currency)
 }
 
 // lookup returns the lines a request names, from the cache when it is fresh.
@@ -113,8 +120,10 @@ func (d *bondDirectory) lookup(ctx context.Context, r ibkrlib.BondContractReques
 		done = make(chan struct{})
 		d.inflight[key] = done
 		fetch := d.fetch
+		// Each security type asked gets its own budget.
+		budget := bondDetailsWait * time.Duration(max(len(r.SecTypes), 1))
 		go func() {
-			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), bondDetailsWait)
+			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 			defer cancel()
 			var lines []ibkrlib.BondContractDetails
 			err := errors.New("no bond contract source is attached")
@@ -226,7 +235,7 @@ func (s *Server) quoteBondLine(ctx context.Context, line ibkrlib.BondContractDet
 		return q, ibkrlib.ErrIBKRUnavailable
 	}
 	contract := ibkrlib.Contract{ConID: line.ConID, Symbol: nonEmptyString(line.Symbol, nonEmptyString(line.CUSIP(), line.ISIN())),
-		SecType: "BOND", Exchange: "SMART", Currency: line.Currency}
+		SecType: ibkrlib.BillOrBondSecType(line.SecType), Exchange: "SMART", Currency: line.Currency}
 	key, release, err := s.subs.HoldContract(ctx, contract)
 	if err != nil {
 		return q, err
@@ -307,7 +316,7 @@ func bondClassOf(line ibkrlib.BondContractDetails) string {
 
 // bondContractView is the wire view of a line; today dates days to maturity.
 func bondContractView(line ibkrlib.BondContractDetails, today time.Time) rpc.BondContract {
-	out := rpc.BondContract{ConID: line.ConID, Symbol: line.Symbol, ISIN: line.ISIN(), CUSIP: line.CUSIP(), Issuer: nonEmptyString(line.LongName, line.DescAppend),
+	out := rpc.BondContract{ConID: line.ConID, Symbol: line.Symbol, SecType: line.SecType, ISIN: line.ISIN(), CUSIP: line.CUSIP(), Issuer: nonEmptyString(line.LongName, line.DescAppend),
 		Class: bondClassOf(line), Currency: line.Currency, Exchange: line.Exchange, PriceConvention: rpc.BondPriceConventionPer100}
 	if maturity, ok := line.MaturityDate(); ok {
 		out.Maturity = maturity.Format(time.DateOnly)
@@ -332,14 +341,14 @@ func bondLineInstrument(line ibkrlib.BondContractDetails) string {
 	return cashSweepHeldBillInstrument(rpc.PositionBond{Class: bondClassOf(line), ISIN: line.ISIN(), CUSIP: line.CUSIP()}, line.Currency)
 }
 
-// bondLineFor picks the one BOND line of ccy among a lookup's lines (and,
-// with conID, the line carrying it). Duplicates of one contract id count
-// once; two contract ids are ambiguous.
+// bondLineFor picks the one BILL or BOND line of ccy among a lookup's lines
+// (and, with conID, the line carrying it). Duplicates of one contract id
+// count once; two contract ids are ambiguous.
 func bondLineFor(lines []ibkrlib.BondContractDetails, ccy string, conID int) (ibkrlib.BondContractDetails, int, error) {
 	seen := map[int]ibkrlib.BondContractDetails{}
 	for _, line := range lines {
 		if line.ConID <= 0 || (conID > 0 && line.ConID != conID) || normCcy(line.Currency) != normCcy(ccy) ||
-			(line.SecType != "" && line.SecType != "BOND") {
+			(line.SecType != "" && !ibkrlib.IsBillOrBond(line.SecType)) {
 			continue
 		}
 		if prior, ok := seen[line.ConID]; !ok || (!prior.Complete && line.Complete) {
@@ -348,26 +357,22 @@ func bondLineFor(lines []ibkrlib.BondContractDetails, ccy string, conID int) (ib
 	}
 	switch len(seen) {
 	case 0:
-		return ibkrlib.BondContractDetails{}, 0, fmt.Errorf("no BOND line in %s", normCcy(ccy))
+		return ibkrlib.BondContractDetails{}, 0, fmt.Errorf("no BILL or BOND line in %s", normCcy(ccy))
 	case 1:
 		for _, line := range seen {
 			return line, 1, nil
 		}
 	}
-	return ibkrlib.BondContractDetails{}, len(seen), fmt.Errorf("%d BOND lines in %s; the identifier is ambiguous", len(seen), normCcy(ccy))
+	return ibkrlib.BondContractDetails{}, len(seen), fmt.Errorf("%d BILL or BOND lines in %s; the identifier is ambiguous", len(seen), normCcy(ccy))
 }
 
-// classifyBondPositions classifies every held BOND row by its contract id.
-// A row whose details cannot be read yet is unresolved and says why.
+// classifyBondPositions classifies every held BILL or BOND row by its
+// contract id, asked as the row's own type first. A row whose details
+// cannot be read yet is unresolved and says why.
 func (s *Server) classifyBondPositions(ctx context.Context, rows []rpc.PositionView, now time.Time) []rpc.PositionBond {
 	var out []rpc.PositionBond
 	for _, row := range rows {
-		switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
-		case "BOND", "BILL":
-		default:
-			continue
-		}
-		if row.Quantity == 0 {
+		if !ibkrlib.IsBillOrBond(row.SecType) || row.Quantity == 0 {
 			continue
 		}
 		b := rpc.PositionBond{ConID: row.ConID, Symbol: row.Symbol, Currency: normCcy(row.Currency), Class: rpc.BondClassUnresolved,
@@ -378,7 +383,8 @@ func (s *Server) classifyBondPositions(ctx context.Context, rows []rpc.PositionV
 		case b.Currency == "":
 			b.Reason = "the position carries no currency"
 		default:
-			lines, err := s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{ConID: row.ConID, Currency: b.Currency}, bondPositionWait)
+			lines, err := s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{ConID: row.ConID, Currency: b.Currency,
+				SecTypes: cashSweepHeldSecTypes(row.SecType, "")}, bondPositionWait)
 			if err == nil {
 				var line ibkrlib.BondContractDetails
 				if line, _, err = bondLineFor(lines, b.Currency, row.ConID); err == nil {
@@ -458,15 +464,19 @@ var bondISINCurrency = map[string]string{
 	"IE": "EUR", "PT": "EUR", "LU": "EUR", "GR": "EUR", "SK": "EUR", "SI": "EUR", "LT": "EUR", "LV": "EUR", "EE": "EUR",
 }
 
-// handleMarketBond resolves one bond by identifier and reads one quote: a
-// read-only check. A resolution or quote gap is data (resolved or quoted
-// false with a reason), not an error.
+// handleMarketBond resolves one bill or bond by identifier and reads one
+// quote: a read-only check. A resolution or quote gap is data (resolved or
+// quoted false with a reason), not an error.
 func (s *Server) handleMarketBond(ctx context.Context, req *rpc.Request) (*rpc.MarketBondResult, error) {
 	var p rpc.MarketBondParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
 	idType, id, ccy, err := bondIdentifierFor(p.Identifier, p.Currency)
+	if err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+	secTypes, note, err := marketBondSecTypes(p.SecType, idType, id)
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
@@ -477,13 +487,45 @@ func (s *Server) handleMarketBond(ctx context.Context, req *rpc.Request) (*rpc.M
 	if p.TimeoutMs > 0 {
 		timeout = min(time.Duration(p.TimeoutMs)*time.Millisecond, 10*time.Second)
 	}
-	return marketBondCheck(ctx, s.bondDirectory(), idType, id, ccy, timeout, time.Now().UTC()), nil
+	res := marketBondCheck(ctx, s.bondDirectory(), idType, id, ccy, secTypes, timeout, time.Now().UTC())
+	res.SecTypesNote = note
+	return res, nil
+}
+
+// marketBondSecTypes are the security types the market check asks, in
+// order: the requested one (BOND when none), then the types of the
+// vocabulary bill the identifier would be, with a note naming why.
+func marketBondSecTypes(requested, idType, id string) ([]string, string, error) {
+	first := strings.ToUpper(strings.TrimSpace(requested))
+	if first == "" {
+		first = ibkrlib.SecTypeBond
+	}
+	if !ibkrlib.IsBillOrBond(first) {
+		return nil, "", fmt.Errorf("security type %q is neither BILL nor BOND", requested)
+	}
+	secTypes := []string{first}
+	instrument := cashSweepIdentifierInstrument(idType, id)
+	if instrument == "" {
+		return secTypes, "", nil
+	}
+	var added []string
+	for _, secType := range cashSweepInstrumentSecTypes(instrument) {
+		if !slices.Contains(secTypes, secType) {
+			secTypes = append(secTypes, secType)
+			added = append(added, secType)
+		}
+	}
+	if len(added) == 0 {
+		return secTypes, "", nil
+	}
+	return secTypes, fmt.Sprintf("asked as %s, then as %s: %s %s reads as a %s bill, which Canary asks as %s", first, strings.Join(added, " and "),
+		idType, id, instrument, strings.Join(cashSweepInstrumentSecTypes(instrument), " then ")), nil
 }
 
 // marketBondCheck is the handler's read: contract details, then one quote.
-func marketBondCheck(ctx context.Context, dir *bondDirectory, idType, id, ccy string, timeout time.Duration, now time.Time) *rpc.MarketBondResult {
-	res := &rpc.MarketBondResult{Identifier: id, IdentifierType: idType, Currency: ccy, AsOf: now}
-	lines, err := dir.lookup(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy}, bondDetailsWait+time.Second)
+func marketBondCheck(ctx context.Context, dir *bondDirectory, idType, id, ccy string, secTypes []string, timeout time.Duration, now time.Time) *rpc.MarketBondResult {
+	res := &rpc.MarketBondResult{Identifier: id, IdentifierType: idType, Currency: ccy, SecTypes: slices.Clone(secTypes), AsOf: now}
+	lines, err := dir.lookup(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy, SecTypes: secTypes}, bondMarketLookupWait)
 	if err != nil {
 		res.Reason = "contract details: " + bondLookupReason(err)
 		return res

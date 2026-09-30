@@ -36,17 +36,23 @@ const (
 // MarketBondParams names one bond by identifier. Currency is optional: an
 // empty currency follows the identifier (a CUSIP or a US ISIN is USD; other
 // ISINs follow their issuer country where it has one currency).
+// SecType is the IBKR security type asked first, BILL or BOND (empty reads
+// as BOND); an identifier of a vocabulary bill is also asked as the
+// instrument's own types.
 type MarketBondParams struct {
 	Identifier string `json:"identifier"`
 	Currency   string `json:"currency,omitempty"`
+	SecType    string `json:"sec_type,omitempty"`
 	TimeoutMs  int    `json:"timeout_ms,omitempty"`
 }
 
 // BondContract is a resolved bond line. Dates are YYYY-MM-DD; nil numbers
 // were not sent.
 type BondContract struct {
-	ConID          int      `json:"con_id"`
-	Symbol         string   `json:"symbol,omitempty"`
+	ConID  int    `json:"con_id"`
+	Symbol string `json:"symbol,omitempty"`
+	// SecType is the IBKR security type the line resolved as: BILL or BOND.
+	SecType        string   `json:"sec_type,omitempty"`
 	ISIN           string   `json:"isin,omitempty"`
 	CUSIP          string   `json:"cusip,omitempty"`
 	Issuer         string   `json:"issuer,omitempty"`
@@ -94,16 +100,20 @@ func (q *BondQuote) HasPrice() bool {
 // contract details named exactly one line; Quoted says a quote carried a
 // price. Reason explains any gap; nothing is read as zero.
 type MarketBondResult struct {
-	Identifier     string        `json:"identifier"`
-	IdentifierType string        `json:"identifier_type"`
-	Currency       string        `json:"currency"`
-	Resolved       bool          `json:"resolved"`
-	Lines          int           `json:"lines"`
-	Contract       *BondContract `json:"contract,omitempty"`
-	Quoted         bool          `json:"quoted"`
-	Quote          *BondQuote    `json:"quote,omitempty"`
-	Reason         string        `json:"reason,omitempty"`
-	AsOf           time.Time     `json:"as_of"`
+	Identifier     string `json:"identifier"`
+	IdentifierType string `json:"identifier_type"`
+	Currency       string `json:"currency"`
+	// SecTypes are the IBKR security types asked, in order; SecTypesNote
+	// says why more than the requested one was asked.
+	SecTypes     []string      `json:"sec_types,omitempty"`
+	SecTypesNote string        `json:"sec_types_note,omitempty"`
+	Resolved     bool          `json:"resolved"`
+	Lines        int           `json:"lines"`
+	Contract     *BondContract `json:"contract,omitempty"`
+	Quoted       bool          `json:"quoted"`
+	Quote        *BondQuote    `json:"quote,omitempty"`
+	Reason       string        `json:"reason,omitempty"`
+	AsOf         time.Time     `json:"as_of"`
 }
 
 // PositionBond classifies one held BOND row. The row itself stays in the

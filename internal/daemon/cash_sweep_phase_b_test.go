@@ -29,13 +29,14 @@ const (
 
 // synthBondLine is a zero-coupon line issued 91 days before it matures. Its
 // size rules follow the assumed units: one bond of 1,000 face for USD, 1,000
-// of face in steps of 1,000 elsewhere.
+// of face in steps of 1,000 elsewhere. A USD line is a Treasury bill, which
+// IBKR lists as BILL.
 func synthBondLine(conID int, id, ccy string, maturity time.Time) ibkrlib.BondContractDetails {
 	line := ibkrlib.BondContractDetails{ConID: conID, Symbol: "SYNTHB", SecType: "BOND", CUSIPField: id, Currency: ccy,
 		Maturity: maturity.Format("20060102"), IssueDate: maturity.AddDate(0, 0, -91).Format("20060102"), Exchange: "SMART",
 		MinTick: 0.0001, MinSize: 1000, SizeIncrement: 1000, Complete: true, SecIDs: map[string]string{}}
 	if ccy == "USD" {
-		line.MinSize, line.SizeIncrement = 1, 1
+		line.MinSize, line.SizeIncrement, line.SecType = 1, 1, "BILL"
 	}
 	if ibkrlib.ValidISIN(id) {
 		line.SecIDs["ISIN"] = id
@@ -60,11 +61,16 @@ type fakeBillSource struct {
 	quotes   map[int]rpc.BondQuote
 	quoteErr map[int]error
 	asked    []string
-	// heldLines answer a held contract id's lookup.
+	// askedTypes are the security types each identifier was asked as.
+	askedTypes map[string][]string
+	// heldLines answer a held contract id's lookup; heldTypes are the types
+	// each held lookup asked.
 	heldLines map[int][]ibkrlib.BondContractDetails
+	heldTypes [][]string
 }
 
-func (f *fakeBillSource) held(_ context.Context, conID int, _ string) ([]ibkrlib.BondContractDetails, error) {
+func (f *fakeBillSource) held(_ context.Context, conID int, _ string, secTypes []string) ([]ibkrlib.BondContractDetails, error) {
+	f.heldTypes = append(f.heldTypes, secTypes)
 	lines, ok := f.heldLines[conID]
 	if !ok {
 		return nil, errBondLookupPending
@@ -76,8 +82,12 @@ func (f *fakeBillSource) usBills(time.Time) ([]treasuryBill, time.Time, string) 
 	return f.bills, f.at, f.reason
 }
 
-func (f *fakeBillSource) lines(_ context.Context, idType, id, ccy string) ([]ibkrlib.BondContractDetails, error) {
+func (f *fakeBillSource) lines(_ context.Context, idType, id, ccy string, secTypes []string) ([]ibkrlib.BondContractDetails, error) {
 	f.asked = append(f.asked, idType+":"+id+":"+ccy)
+	if f.askedTypes == nil {
+		f.askedTypes = map[string][]string{}
+	}
+	f.askedTypes[id] = secTypes
 	if err := f.lineErr[id]; err != nil {
 		return nil, err
 	}
@@ -264,10 +274,14 @@ func TestCashSweepResolvesNearestUSBill(t *testing.T) {
 	if !slices.Equal(src.asked, []string{"CUSIP:" + synthCUSIP35 + ":USD"}) {
 		t.Fatalf("asked = %v", src.asked)
 	}
+	// A US bill is asked as BILL only, and the row records it resolved so.
+	if got := src.askedTypes[synthCUSIP35]; !slices.Equal(got, []string{"BILL"}) || usd.bill.SecType != "BILL" {
+		t.Fatalf("asked types = %v, bill sec_type %q", got, usd.bill.SecType)
+	}
 	now := cashSweepTestNow()
 	plan := cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeShadow, Shadow: true}}
 	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, usd)
-	if row.Contract.ConID != usd.bill.ConID || row.Contract.SecType != "BOND" || row.Contract.Currency != "USD" || row.CashSweep.Bill == nil ||
+	if row.Contract.ConID != usd.bill.ConID || row.Contract.SecType != "BILL" || row.Contract.Currency != "USD" || row.CashSweep.Bill == nil ||
 		row.CashSweep.Bill.CUSIP != synthCUSIP35 || row.CashSweep.Instrument != cashSweepInstrumentUSTBill {
 		t.Fatalf("row = %+v / %+v", row.Contract, row.CashSweep)
 	}
@@ -657,23 +671,131 @@ func TestMarketBondCheck(t *testing.T) {
 			return synthLiveQuote(99.4), nil
 		},
 	}
-	res := marketBondCheck(context.Background(), dir, "ISIN", synthDEBill, "EUR", time.Second, now)
+	bond := []string{"BOND"}
+	res := marketBondCheck(context.Background(), dir, "ISIN", synthDEBill, "EUR", bond, time.Second, now)
 	if !res.Resolved || !res.Quoted || res.Contract.ConID != 7501 || res.Contract.Class != rpc.BondClassBill || res.Contract.QuantityUnit != rpc.BondQuantityUnitFace1 ||
 		*res.Contract.DaysToMaturity != 100 || *res.Quote.Ask != 99.4 || res.Reason != "" {
 		t.Fatalf("resolved = %+v / %+v", res, res.Contract)
 	}
-	if res := marketBondCheck(context.Background(), dir, "ISIN", synthFRBill, "EUR", time.Second, now); res.Resolved || res.Lines != 2 || !strings.Contains(res.Reason, "ambiguous") {
+	if res := marketBondCheck(context.Background(), dir, "ISIN", synthFRBill, "EUR", bond, time.Second, now); res.Resolved || res.Lines != 2 || !strings.Contains(res.Reason, "ambiguous") {
 		t.Fatalf("ambiguous = %+v", res)
 	}
 	// A line IBKR does not list names the request and each form's answer
 	// with IBKR's own code and text.
-	res = marketBondCheck(context.Background(), dir, "ISIN", synthDEBill2, "EUR", time.Second, now)
+	res = marketBondCheck(context.Background(), dir, "ISIN", synthDEBill2, "EUR", bond, time.Second, now)
 	if want := `contract details: IBKR lists no such bond line (BOND ISIN ` + synthDEBill2 + ` on SMART in EUR; by symbol: IBKR 200 "No security definition has been found for the request"; by secIdType ISIN: IBKR 200 "No security definition has been found for the request")`; res.Resolved || res.Reason != want {
 		t.Fatalf("unknown = %q", res.Reason)
 	}
 	refused := &ibkrlib.BondLookupError{Request: "BOND contract id 7509 in EUR", Attempts: []ibkrlib.BondLookupAttempt{{Form: "by contract id", Code: 321, Message: "Error validating request"}}}
 	if got := bondLookupReason(refused); got != `IBKR refused the request (BOND contract id 7509 in EUR; by contract id: IBKR 321 "Error validating request")` {
 		t.Fatalf("refusal = %q", got)
+	}
+}
+
+// The vocabulary carries each instrument's IBKR security types (A10): a US
+// bill is asked as BILL, the other bills as BILL then BOND; a held line is
+// asked as its position's type first; the market check asks the requested
+// type first and a vocabulary bill's own types after it, saying so.
+func TestCashSweepBillSecTypes(t *testing.T) {
+	for instrument, want := range map[string][]string{
+		cashSweepInstrumentUSTBill: {"BILL"}, cashSweepInstrumentDEBubill: {"BILL", "BOND"}, cashSweepInstrumentFRBTF: {"BILL", "BOND"},
+		cashSweepInstrumentUKTBill: {"BILL", "BOND"}, cashSweepInstrumentCATBill: {"BILL", "BOND"}, cashSweepInstrumentETF: {"BOND"}, "": {"BOND"},
+	} {
+		if got := cashSweepInstrumentSecTypes(instrument); !slices.Equal(got, want) {
+			t.Errorf("%q asks %v, want %v", instrument, got, want)
+		}
+	}
+	cashSweepInstrumentSecTypes(cashSweepInstrumentUSTBill)[0] = "BOND"
+	if got := cashSweepInstrumentSecTypes(cashSweepInstrumentUSTBill); !slices.Equal(got, []string{"BILL"}) {
+		t.Fatalf("the vocabulary was changed through a returned slice: %v", got)
+	}
+	for _, tc := range []struct {
+		position, instrument string
+		want                 []string
+	}{
+		{"BILL", cashSweepInstrumentDEBubill, []string{"BILL", "BOND"}},
+		{"bond", cashSweepInstrumentUSTBill, []string{"BOND", "BILL"}},
+		{"BOND", "", []string{"BOND"}},
+		{"BILL", "", []string{"BILL", "BOND"}},
+	} {
+		if got := cashSweepHeldSecTypes(tc.position, tc.instrument); !slices.Equal(got, tc.want) {
+			t.Errorf("held %s/%s asks %v, want %v", tc.position, tc.instrument, got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ idType, id, want string }{
+		{"CUSIP", synthCUSIP35, cashSweepInstrumentUSTBill},
+		{"CUSIP", "912828ZZ6", ""},
+		{"ISIN", "US912797ZZ37", cashSweepInstrumentUSTBill},
+		{"ISIN", synthDEBill, cashSweepInstrumentDEBubill},
+		{"ISIN", synthGBBill, cashSweepInstrumentUKTBill},
+		{"ISIN", "XS0000000009", ""},
+	} {
+		if got := cashSweepIdentifierInstrument(tc.idType, tc.id); got != tc.want {
+			t.Errorf("%s %s reads as %q, want %q", tc.idType, tc.id, got, tc.want)
+		}
+	}
+	for _, tc := range []struct {
+		requested, idType, id string
+		want                  []string
+		note                  string
+	}{
+		{"BOND", "CUSIP", "912797SK4", []string{"BOND", "BILL"}, "asked as BOND, then as BILL: CUSIP 912797SK4 reads as a us_tbill bill, which Canary asks as BILL"},
+		{"", "CUSIP", "912797SK4", []string{"BOND", "BILL"}, "asked as BOND, then as BILL"},
+		{"bill", "CUSIP", "912797SK4", []string{"BILL"}, ""},
+		{"BILL", "ISIN", synthDEBill, []string{"BILL", "BOND"}, "then as BOND: ISIN " + synthDEBill + " reads as a de_bubill bill, which Canary asks as BILL then BOND"},
+		{"BOND", "ISIN", synthDEBill, []string{"BOND", "BILL"}, "asked as BOND, then as BILL"},
+		{"BOND", "CUSIP", "912828ZZ6", []string{"BOND"}, ""},
+	} {
+		got, note, err := marketBondSecTypes(tc.requested, tc.idType, tc.id)
+		if err != nil || !slices.Equal(got, tc.want) || (tc.note == "") != (note == "") || !strings.Contains(note, tc.note) {
+			t.Errorf("%q %s %s = %v %q %v", tc.requested, tc.idType, tc.id, got, note, err)
+		}
+	}
+	if _, _, err := marketBondSecTypes("STK", "CUSIP", "912797SK4"); err == nil {
+		t.Fatal("a STK market bond check was accepted")
+	}
+}
+
+// A US bill IBKR lists only as BILL resolves when the check asks BOND then
+// BILL; the result names the types asked and the type the line resolved as,
+// and the lookup is keyed by the types it asked.
+func TestMarketBondCheckFindsABillAskedAsBond(t *testing.T) {
+	now := cashSweepTestNow()
+	var asked [][]string
+	dir := &bondDirectory{
+		fetch: func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+			asked = append(asked, r.SecTypes)
+			if slices.Contains(r.SecTypes, "BILL") {
+				return []ibkrlib.BondContractDetails{synthBondLine(7101, "912797SK4", "USD", cashSweepDay(now).AddDate(0, 0, 60))}, nil
+			}
+			return nil, &ibkrlib.BondLookupError{Request: "BOND CUSIP 912797SK4 on SMART in USD", Attempts: []ibkrlib.BondLookupAttempt{
+				{Form: "BOND by symbol", Message: "the search ended without a line"},
+				{Form: "BOND by secIdType CUSIP", Code: 200, Message: "No security definition has been found for the request"}}}
+		},
+		quote: func(_ context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
+			return synthLiveQuote(99.4), nil
+		},
+	}
+	secTypes, note, err := marketBondSecTypes("BOND", "CUSIP", "912797SK4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := marketBondCheck(context.Background(), dir, "CUSIP", "912797SK4", "USD", secTypes, time.Second, now)
+	if !res.Resolved || res.Contract == nil || res.Contract.SecType != "BILL" || res.Contract.Class != rpc.BondClassBill || !slices.Equal(res.SecTypes, []string{"BOND", "BILL"}) || note == "" {
+		t.Fatalf("result = %+v / %+v (%q)", res, res.Contract, note)
+	}
+	if len(asked) != 1 || !slices.Equal(asked[0], []string{"BOND", "BILL"}) {
+		t.Fatalf("asked = %v", asked)
+	}
+	// BOND alone is its own lookup: it does not reuse the BILL answer, and
+	// its gap names each attempt with IBKR's code and text.
+	res = marketBondCheck(context.Background(), dir, "CUSIP", "912797SK4", "USD", []string{"BOND"}, time.Second, now)
+	if want := `contract details: IBKR lists no such bond line (BOND CUSIP 912797SK4 on SMART in USD; BOND by symbol: the search ended without a line; BOND by secIdType CUSIP: IBKR 200 "No security definition has been found for the request")`; res.Resolved || res.Reason != want || len(asked) != 2 {
+		t.Fatalf("BOND only = %q (asked %v)", res.Reason, asked)
+	}
+	if a, b := bondRequestKey(ibkrlib.BondContractRequest{IDType: "CUSIP", ID: "912797SK4", Currency: "USD"}),
+		bondRequestKey(ibkrlib.BondContractRequest{IDType: "CUSIP", ID: "912797SK4", Currency: "USD", SecTypes: []string{"BILL"}}); a == b {
+		t.Fatalf("BOND and BILL lookups share the key %q", a)
 	}
 }
 

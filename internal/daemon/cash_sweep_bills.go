@@ -17,9 +17,11 @@ import (
 // names one bill: for USD the outstanding bill from TreasuryDirect's list
 // maturing nearest the rung's target inside [min_maturity_days,
 // max_maturity_days], resolved at the broker by CUSIP; for EUR, GBP and CAD
-// the owner's listed ISINs, resolved and filtered the same way. A candidate
-// becomes the row's bill only once contract details name exactly one BOND
-// line with its size rules and minimum tick and a quote carries a price;
+// the owner's listed ISINs, resolved and filtered the same way. Each is asked
+// as its instrument's security types (A10: BILL for US bills; BILL then
+// BOND for the others). A candidate becomes the row's bill only once
+// contract details name exactly one BILL or BOND line with its size rules
+// and minimum tick and a quote carries a price;
 // the row's quantity is then sized in the bill's order unit on that grid.
 // Otherwise the currency reads universe_unavailable (no list to choose from)
 // or instrument_unresolved (nothing confirmed), with the evidence, and no
@@ -32,12 +34,13 @@ import (
 type cashSweepBillSource interface {
 	// usBills is TreasuryDirect's outstanding list, when it can be served.
 	usBills(now time.Time) ([]treasuryBill, time.Time, string)
-	// lines are the broker's BOND lines for an identifier in a currency.
-	lines(ctx context.Context, idType, id, ccy string) ([]ibkrlib.BondContractDetails, error)
+	// lines are the broker's lines for an identifier in a currency, asked as
+	// secTypes in order (BILL, BOND).
+	lines(ctx context.Context, idType, id, ccy string, secTypes []string) ([]ibkrlib.BondContractDetails, error)
 	// quote reads one quote for a line.
 	quote(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error)
-	// held are the broker's lines for a held contract id.
-	held(ctx context.Context, conID int, ccy string) ([]ibkrlib.BondContractDetails, error)
+	// held are the broker's lines for a held contract id, asked as secTypes.
+	held(ctx context.Context, conID int, ccy string, secTypes []string) ([]ibkrlib.BondContractDetails, error)
 }
 
 // cashSweepResolveBudget bounds bill selection per refresh, so a slow
@@ -61,16 +64,16 @@ func (src serverBillSource) usBills(now time.Time) ([]treasuryBill, time.Time, s
 	return bills, at, reason
 }
 
-func (src serverBillSource) lines(ctx context.Context, idType, id, ccy string) ([]ibkrlib.BondContractDetails, error) {
-	return src.s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy}, bondDetailsWait)
+func (src serverBillSource) lines(ctx context.Context, idType, id, ccy string, secTypes []string) ([]ibkrlib.BondContractDetails, error) {
+	return src.s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy, SecTypes: secTypes}, bondDetailsWait)
 }
 
 func (src serverBillSource) quote(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 	return src.s.bondDirectory().quoteFor(ctx, line)
 }
 
-func (src serverBillSource) held(ctx context.Context, conID int, ccy string) ([]ibkrlib.BondContractDetails, error) {
-	return src.s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{ConID: conID, Currency: ccy}, bondDetailsWait)
+func (src serverBillSource) held(ctx context.Context, conID int, ccy string, secTypes []string) ([]ibkrlib.BondContractDetails, error) {
+	return src.s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{ConID: conID, Currency: ccy, SecTypes: secTypes}, bondDetailsWait)
 }
 
 // cashSweepBillSourceFor is the bill source the engine reads: the test
@@ -137,7 +140,7 @@ func cashSweepResolveRedemption(ctx context.Context, src cashSweepBillSource, cp
 	cp.units = cp.quantity
 	var line *ibkrlib.BondContractDetails
 	if src != nil {
-		if lines, err := src.held(ctx, h.Row.ConID, ccy); err == nil {
+		if lines, err := src.held(ctx, h.Row.ConID, ccy, cashSweepHeldSecTypes(h.Row.SecType, h.Instrument)); err == nil {
 			if l, _, err := bondLineFor(lines, ccy, h.Row.ConID); err == nil {
 				line = &l
 			}
@@ -216,7 +219,7 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 				evidence = append(evidence, fmt.Sprintf("%s: not an instrument declared for %s", isin, ccy))
 				continue
 			}
-			lines, err := src.lines(ctx, ibkrlib.BondIdentifierISIN, isin, ccy)
+			lines, err := src.lines(ctx, ibkrlib.BondIdentifierISIN, isin, ccy, cashSweepInstrumentSecTypes(instrument))
 			if err != nil {
 				evidence = append(evidence, fmt.Sprintf("%s: contract details %s", isin, bondLookupReason(err)))
 				continue
@@ -250,7 +253,7 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 	for _, cand := range candidates[:min(len(candidates), cashSweepMaxBillAttempts)] {
 		line := cand.line
 		if line == nil {
-			lines, err := src.lines(ctx, cand.idType, cand.id, ccy)
+			lines, err := src.lines(ctx, cand.idType, cand.id, ccy, cashSweepInstrumentSecTypes(cand.instrument))
 			if err != nil {
 				evidence = append(evidence, fmt.Sprintf("%s: contract details %s", cand.id, bondLookupReason(err)))
 				continue
@@ -301,7 +304,7 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 // cashSweepBillFrom is the resolved bill a row names.
 func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, q rpc.BondQuote, now time.Time) rpc.TradeProposalCashSweepBill {
 	conv := cashSweepInstrumentConventions[cand.instrument]
-	bill := rpc.TradeProposalCashSweepBill{Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, Symbol: line.Symbol,
+	bill := rpc.TradeProposalCashSweepBill{Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, SecType: ibkrlib.BillOrBondSecType(line.SecType), Symbol: line.Symbol,
 		ISIN: line.ISIN(), CUSIP: line.CUSIP(), Maturity: cand.maturity.Format(time.DateOnly), DaysToMaturity: cand.days,
 		Quote: rpc.CloneBondQuote(&q), QuoteFresh: q.Fresh, QuantityUnit: conv.QuantityUnit, PriceConvention: conv.PriceConvention}
 	switch cand.idType {

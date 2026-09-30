@@ -557,7 +557,7 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 		}
 		return nil
 	}
-	if strings.EqualFold(draft.Contract.SecType, "BOND") && stockShortOrFlip(position.Effect) {
+	if ibkrlib.IsBillOrBond(draft.Contract.SecType) && stockShortOrFlip(position.Effect) {
 		// A bond sale only ever reduces or closes a held line.
 		return fmt.Errorf("a bond order that opens or flips a short position is not supported")
 	}

@@ -134,13 +134,14 @@ func bondTickSnap(price, tick float64, round func(float64) float64) float64 {
 	return math.Round(n*tick*1e10) / 1e10
 }
 
-// NewBondLimitOrder builds the one order shape Canary sends for a bond: a DAY
+// NewBondLimitOrder builds the one order shape Canary sends for a bill or
+// bond (secType BILL stays BILL, anything else goes as BOND): a DAY
 // limit order for a contract id, with the line's grid attached so the
 // encoders re-check it. It refuses a quantity off the size grid and a price
 // off the minimum tick.
 func NewBondLimitOrder(contract Contract, rules BondOrderRules, action string, quantity int, price float64) (*Contract, *RawOrder, error) {
 	c := contract
-	c.SecType = "BOND"
+	c.SecType = BillOrBondSecType(c.SecType)
 	c.Symbol = strings.ToUpper(strings.TrimSpace(c.Symbol))
 	c.Currency = strings.ToUpper(strings.TrimSpace(c.Currency))
 	c.Exchange = strings.ToUpper(strings.TrimSpace(c.Exchange))
