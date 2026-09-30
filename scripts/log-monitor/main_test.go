@@ -264,3 +264,66 @@ func TestPerAttemptValuesCollapseButCodesStayDistinct(t *testing.T) {
 		t.Fatalf("broker codes must stay distinct: %+v", got.Signals[3:])
 	}
 }
+
+// TestDefinitionNoticeNamesItsContractButNeverAHolding witnesses a report
+// that counted thousands of code-200 notices without saying which contract
+// they were about: one delisted holding and one stale market-data identity
+// hid inside the same count. Each attributed contract is now its own signal;
+// a current holding is masked there and in free text alike.
+func TestDefinitionNoticeNamesItsContractButNeverAHolding(t *testing.T) {
+	saved := held
+	t.Cleanup(func() { held = saved })
+	held = newHoldings(holdingsFromCache, []string{"SYNTHQ", "SYNTHA B", "SPY"})
+	notice := func(tag string) string {
+		return `time=2026-09-30T05:00:00Z level=WARN msg="[IBKR cid=16] System notice ` + tag + ` code=200: No security definition has been found for the request"`
+	}
+	lines := []string{
+		notice("reqID=1 (OKE STK)"),
+		notice("reqID=1 (OKE STK)"),
+		notice("reqID=25696 (SYNTHQ STK)"),
+		notice("reqID=41 (SYNTHA B STK)"),
+		notice("reqID=7 (SPY STK)"),
+		notice("reqID=9"),
+		`time=2026-09-30T05:00:01Z level=WARN msg="market history refresh SYNTHQ: no security definition for contract; paused for the rest of this broker session"`,
+	}
+	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, defaultMaxSignals)
+	want := map[string]int{
+		"broker read notice requires outcome assessment: broker_code_200_no_definition (OKE STK)":                           2,
+		"broker read notice requires outcome assessment: broker_code_200_no_definition ([holding] STK)":                     2,
+		"broker read notice requires outcome assessment: broker_code_200_no_definition (SPY STK)":                           1,
+		"broker read notice requires outcome assessment: broker_code_200_no_definition (untagged)":                          1,
+		"market history refresh [holding]: no security definition for contract; paused for the rest of this broker session": 1,
+	}
+	if len(got.Signals) != len(want) || got.Families["broker_code_200_no_definition"] != 6 {
+		t.Fatalf("signals = %+v families = %v", got.Signals, got.Families)
+	}
+	for _, s := range got.Signals {
+		if n, ok := want[s.Message]; !ok || effectiveCount(s) != n {
+			t.Fatalf("unexpected signal %+v", s)
+		}
+		if strings.Contains(s.Message, "SYNTHQ") || strings.Contains(s.Message, "SYNTHA") {
+			t.Fatalf("holding named: %q", s.Message)
+		}
+	}
+
+	held = holdings{source: holdingsUnavailable}
+	if got := noticeContractLabel(notice("reqID=1 (OKE STK)")); got != "[contract] STK" {
+		t.Fatalf("label without a holdings list = %q, want the name withheld", got)
+	}
+}
+
+// TestHoldingsFallBackToTheGateCache reads the account-data gate's private
+// cache when the daemon store is absent, and reports unavailable with
+// neither.
+func TestHoldingsFallBackToTheGateCache(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "holdings-denylist")
+	writeTestFile(t, cache, "# as of 2026-09-29\nSYNTHQ\nsyntha\n")
+	got := loadHoldings(filepath.Join(dir, "missing.db"), cache)
+	if got.source != holdingsFromCache || !got.tickers["SYNTHQ"] || !got.tickers["SYNTHA"] || got.mask("refresh SYNTHQ now") != "refresh [holding] now" {
+		t.Fatalf("cache holdings = %+v", got)
+	}
+	if got := loadHoldings(filepath.Join(dir, "missing.db"), filepath.Join(dir, "missing")); got.available() || got.mask("SYNTHQ") != "SYNTHQ" {
+		t.Fatalf("no source = %+v, want unavailable", got)
+	}
+}

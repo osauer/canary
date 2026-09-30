@@ -32,6 +32,17 @@ copy is no evidence while the mirror is behind. The report's `daemon.mirror`
 states which. The mirror must append in place and rotate its copy by rename, as
 the daemon does, so cursor identity and rotated-tail recovery still apply.
 
+A "no security definition" (code 200) notice is about one contract, so its
+signal names the contract the connector tagged it with, `(OKE STK)`, or
+`(untagged)`; each contract counts separately. Reports never name a current
+holding: the monitor reads the account-data gate's holdings list (the latest
+Flex position report in the daemon store, opened read-only, else the gate's
+private cache at `~/.cache/ibkr/holdings-denylist`) and writes `[holding]` in
+its place, in contract labels and free text alike. The report's `holdings`
+field says which source was read; with neither it is `unavailable` and
+contract names are withheld as `[contract]`. The list is this machine's: a
+report on a mirrored log from another machine masks this machine's holdings.
+
 Broker definition, entitlement and cancellation notices remain visible even
 below the old noise threshold. They require outcome assessment; the monitor
 does not infer recovery or an outage from a code alone. Only the indicative-data

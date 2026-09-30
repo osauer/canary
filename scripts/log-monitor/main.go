@@ -34,6 +34,8 @@ type options struct {
 	daemonOffset     string
 	appOffset        string
 	daemonMirror     string
+	holdingsStore    string
+	holdingsCache    string
 	maxSignals       int
 	commit           bool
 	staleAfter       time.Duration
@@ -44,8 +46,11 @@ type report struct {
 	Version        int       `json:"version"`
 	GeneratedAt    time.Time `json:"generated_at"`
 	NeedsAttention bool      `json:"needs_attention"`
-	Daemon         logReport `json:"daemon"`
-	App            logReport `json:"app"`
+	// Holdings says where the current-holdings list that masks names came
+	// from: store, cache, or unavailable (contract names withheld).
+	Holdings string    `json:"holdings"`
+	Daemon   logReport `json:"daemon"`
+	App      logReport `json:"app"`
 }
 
 type logReport struct {
@@ -140,7 +145,10 @@ func main() {
 	flag.DurationVar(&opts.staleAfter, "stale-after", 24*time.Hour, "flag log coverage unverified after this inactivity; zero disables")
 	flag.StringVar(&opts.daemonMirror, "daemon-mirror-status", "", "sync record of the mirror that copies -daemon-log from another machine; empty for a local log")
 	flag.DurationVar(&opts.mirrorStaleAfter, "mirror-stale-after", 20*time.Minute, "flag mirrored log coverage unverified when the last completed sync is older; zero disables")
+	flag.StringVar(&opts.holdingsStore, "holdings-store", filepath.Join(xdgDir("XDG_STATE_HOME", home, ".local", "state"), "ibkr", "daemon.db"), "daemon store read (read-only) for the current holdings a report must not name")
+	flag.StringVar(&opts.holdingsCache, "holdings-cache", filepath.Join(xdgDir("XDG_CACHE_HOME", home, ".cache"), "ibkr", "holdings-denylist"), "the account-data gate's private holdings cache, used when the store cannot be read")
 	flag.Parse()
+	held = loadHoldings(opts.holdingsStore, opts.holdingsCache)
 
 	result, err := run(opts, time.Now().UTC())
 	if err != nil {
@@ -171,6 +179,7 @@ func run(opts options, now time.Time) (report, error) {
 	result := report{
 		Version:     reportVersion,
 		GeneratedAt: now,
+		Holdings:    held.source,
 		Daemon:      classifyDaemon(daemon, int(^uint(0)>>1)),
 		App:         classifyApp(app, int(^uint(0)>>1)),
 	}
@@ -231,7 +240,13 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 				if severity(trimmed) == "ERROR" {
 					level = "ERROR"
 				}
-				addSignal(&result, level, "broker_read_notice", "broker read notice requires outcome assessment: "+family, 0)
+				message := "broker read notice requires outcome assessment: " + family
+				if family == "broker_code_200_no_definition" {
+					// A definition failure is about one contract; name it so
+					// a recurring miss can be traced without the raw log.
+					message += " (" + noticeContractLabel(trimmed) + ")"
+				}
+				addSignal(&result, level, "broker_read_notice", message, 0)
 			}
 		case strings.Contains(trimmed, "code=2108"):
 			result.Families["market_data_farm_disconnect"]++
@@ -524,6 +539,7 @@ func safeMessage(line string) string {
 		}
 		return key + "=N"
 	})
+	message = held.mask(message)
 	message = spacePattern.ReplaceAllString(strings.TrimSpace(message), " ")
 	if len(message) > 240 {
 		message = message[:240] + "…"
