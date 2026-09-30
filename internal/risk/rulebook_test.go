@@ -28,8 +28,12 @@ func healthyInputs() RuleInputs {
 		CashBase:           new(-62000.0),
 		AvailableFundsBase: new(196000.0),
 		DailyPnLBase:       new(9700.0),
-		SessionOpen:        true,
-		SPYDayChangePct:    new(1.0),
+		// Rule 19: 98,000 of excess liquidity is 40% of NLV, a pass.
+		ExcessLiquidityBase:   new(98000.0),
+		MaintenanceMarginBase: new(61000.0),
+		InitialMarginBase:     new(78000.0),
+		SessionOpen:           true,
+		SPYDayChangePct:       new(1.0),
 		Names: []NameInput{
 			{
 				Symbol: "SYNTHA", ExposureBase: 380000, MarketValueBase: 120000, HasStockLeg: true, ExposureBaseComplete: true,

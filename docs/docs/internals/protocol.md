@@ -85,7 +85,7 @@ code/stage. The separate `established_alert_projection` intentionally retains
 its frozen `stress-fp-v1` compatibility identity for delivery continuity.
 
 [`rules.snapshot`](../../../internal-docs/design/trading-rulebook.md) emits
-`rulebook-fp-v3`, a policy-identity fingerprint rather than a classified-state
+`rulebook-fp-v8`, a policy-identity fingerprint rather than a classified-state
 hash. The key is a SHA-256 of a JSON projection of the active Rulebook model
 (rule set, thresholds, regime-conditional sets), so it changes when the model
 changes, not when verdicts move. The rules-decisions journal records the same

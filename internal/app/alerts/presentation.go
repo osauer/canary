@@ -38,6 +38,7 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationRulebookDeltaSwing:               {Title: "Delta swing on one issuer", Body: "One issuer's dollar delta is at its Rulebook watch level."},
 	rpc.AlertPresentationRulebookClusterStress:            {Title: "Cluster falling together", Body: "A declared cluster's loss in a joint fall is at its Rulebook watch level."},
 	rpc.AlertPresentationRulebookLossBudget:               {Title: "Issuer loss against risk capital", Body: "One issuer's worst-case loss is at its watch level against your risk capital."},
+	rpc.AlertPresentationRulebookMarginHeadroom:           {Title: "Margin headroom", Body: "Excess liquidity is below its Rulebook level as a share of NLV."},
 	rpc.AlertPresentationProtectionOrphanedOrder:          {Title: "Orphaned protection order", Body: "A protection order no longer matches a held position."},
 	rpc.AlertPresentationProtectionReconciliationRequired: {Title: "Protection check required", Body: "Protective orders require reconciliation."},
 	// Pre-authorised protection: the notice names the bucket and the timing;

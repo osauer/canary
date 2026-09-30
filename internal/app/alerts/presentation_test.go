@@ -21,6 +21,7 @@ func TestActionablePresentationsUseShortHumanCopy(t *testing.T) {
 		{rpc.AlertPresentationRulebookDeltaSwing, "Delta swing on one issuer", "at its Rulebook watch level"},
 		{rpc.AlertPresentationRulebookClusterStress, "Cluster falling together", "joint fall"},
 		{rpc.AlertPresentationRulebookLossBudget, "Issuer loss against risk capital", "against your risk capital"},
+		{rpc.AlertPresentationRulebookMarginHeadroom, "Margin headroom", "Excess liquidity is below its Rulebook level"},
 		{rpc.AlertPresentationRulebookOptionLinePremium, "Premium at risk", "One option position"},
 		{rpc.AlertPresentationRulebookCatalystCoverage, "Earnings timing", "expires before the next earnings announcement"},
 		{rpc.AlertPresentationRulebookHedgeIntegrity, "Index protection size", "missing or outside its Rulebook sizing range"},

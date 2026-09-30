@@ -25,6 +25,8 @@ func limitsInputs() RuleInputs {
 		RegimeStage:        RegimeBucketCalm,
 		RegimeStageAsOf:    now,
 		NonBaseNLVBase:     new(0.0),
+		// Rule 19 reads 90% headroom: a pass.
+		ExcessLiquidityBase: new(90000.0),
 	}
 }
 
@@ -303,6 +305,15 @@ func limitCases() []limitCase {
 			n.StockMark = 0
 			in.Names = append(in.Names, n)
 		}, status: RuleStatusUnknown, limit: f(100)},
+
+		// 19 — margin headroom (amendment 18): excess liquidity of NLV,
+		// watch below 30, act below 15; it reads downward, so an act row
+		// reports the 15 band and every other status the 30 band.
+		{name: "pass", rule: RuleMarginHeadroom, status: RuleStatusPass, watch: f(30), act: f(15)},
+		{name: "watch", rule: RuleMarginHeadroom, mutate: func(in *RuleInputs) { in.ExcessLiquidityBase = new(22000.0) }, status: RuleStatusWatch, watch: f(30), act: f(15)},
+		{name: "act", rule: RuleMarginHeadroom, mutate: func(in *RuleInputs) { in.ExcessLiquidityBase = new(9000.0) }, status: RuleStatusAct, watch: f(30), act: f(15)},
+		{name: "unknown", rule: RuleMarginHeadroom, mutate: func(in *RuleInputs) { in.ExcessLiquidityBase = nil }, status: RuleStatusUnknown},
+		{name: "gate", rule: RuleMarginHeadroom, mutate: func(in *RuleInputs) { in.Account = SourceState{Reason: "account_incomplete"} }, status: RuleStatusUnknown},
 
 		// 15 — net market exposure (amendment 17): calm 100/150, early
 		// warning 100/130, confirmed 75/100.

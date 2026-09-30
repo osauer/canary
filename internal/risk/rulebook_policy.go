@@ -148,6 +148,11 @@ type RulebookPolicy struct {
 	// FXExposureWatchPct watches at or above this magnitude of combined non-base-currency exposure as a percent of NLV. No act tier; missing account or currency evidence remains unknown.
 	FXExposureWatchPct float64 `toml:"fx_exposure_watch_pct" json:"fx_exposure_watch_pct"`
 
+	// MarginHeadroomWatchPct watches strictly below this broker excess liquidity as a percent of NLV (rule 19); a reading exactly at the level passes. Missing excess liquidity or NLV is unknown, never a pass.
+	MarginHeadroomWatchPct float64 `toml:"margin_headroom_watch_pct" json:"margin_headroom_watch_pct"`
+	// MarginHeadroomActPct acts strictly below this excess liquidity as a percent of NLV; it may not exceed the watch level. Rule 19 never trims and drives no proposal.
+	MarginHeadroomActPct float64 `toml:"margin_headroom_act_pct" json:"margin_headroom_act_pct"`
+
 	// HedgeSymbols lists the index underlyings whose long puts can classify as protection (rules 1, 2, 5, 12, 13).
 	HedgeSymbols []string `toml:"hedge_symbols" json:"hedge_symbols"`
 
@@ -182,6 +187,7 @@ func DefaultRulebookPolicy() RulebookPolicy {
 			RuleDeltaSwing:         RuleModeTrack,
 			RuleClusterStress:      RuleModeTrack,
 			RuleLossBudget:         RuleModeAlert,
+			RuleMarginHeadroom:     RuleModeAlert,
 		},
 		SingleNameWatchPct:     30,
 		SingleNameActPct:       40,
@@ -251,9 +257,12 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		ExitWatchLossPct:         40,
 		ExitActLossPct:           60,
 		FXExposureWatchPct:       60,
-		HedgeSymbols:             []string{"SPY", "SPX", "SPXW", "QQQ", "IWM"},
-		GreeksGapFloorPctNLV:     1,
-		EarningsStaleDays:        10,
+		// Rule 19 margin headroom: owner decision of 2026-09-30 (amendment 18).
+		MarginHeadroomWatchPct: 30,
+		MarginHeadroomActPct:   15,
+		HedgeSymbols:           []string{"SPY", "SPX", "SPXW", "QQQ", "IWM"},
+		GreeksGapFloorPctNLV:   1,
+		EarningsStaleDays:      10,
 	}
 }
 
@@ -406,6 +415,8 @@ func (p RulebookPolicy) FingerprintKey() string {
 		ExitWatchLossPct         float64             `json:"exit_watch_loss_pct"`
 		ExitActLossPct           float64             `json:"exit_act_loss_pct"`
 		FXExposureWatchPct       float64             `json:"fx_exposure_watch_pct"`
+		MarginHeadroomWatchPct   float64             `json:"margin_headroom_watch_pct"`
+		MarginHeadroomActPct     float64             `json:"margin_headroom_act_pct"`
 		HedgeSymbols             []string            `json:"hedge_symbols"`
 		GreeksGapFloorPctNLV     float64             `json:"greeks_gap_floor_pct_nlv"`
 		EarningsStaleDays        int                 `json:"earnings_stale_days"`
@@ -449,6 +460,8 @@ func (p RulebookPolicy) FingerprintKey() string {
 		ExitWatchLossPct:         q.ExitWatchLossPct,
 		ExitActLossPct:           q.ExitActLossPct,
 		FXExposureWatchPct:       q.FXExposureWatchPct,
+		MarginHeadroomWatchPct:   q.MarginHeadroomWatchPct,
+		MarginHeadroomActPct:     q.MarginHeadroomActPct,
 		HedgeSymbols:             q.HedgeSymbols,
 		GreeksGapFloorPctNLV:     q.GreeksGapFloorPctNLV,
 		EarningsStaleDays:        q.EarningsStaleDays,
@@ -525,6 +538,8 @@ func (p RulebookPolicy) Validate() error {
 		{"exit_watch_loss_pct", p.ExitWatchLossPct, 0, 100},
 		{"exit_act_loss_pct", p.ExitActLossPct, 0, 100},
 		{"fx_exposure_watch_pct", p.FXExposureWatchPct, 0, 1000},
+		{"margin_headroom_watch_pct", p.MarginHeadroomWatchPct, 0, 100},
+		{"margin_headroom_act_pct", p.MarginHeadroomActPct, 0, 100},
 		{"overhedge_multiple", p.OverhedgeMultiple, 1, 10},
 		{"greeks_gap_floor_pct_nlv", p.GreeksGapFloorPctNLV, 0, 100},
 		{"illiquid_watch_pct", p.IlliquidWatchPct, 0, 1000},
@@ -578,6 +593,10 @@ func (p RulebookPolicy) Validate() error {
 		if pair.w > pair.a {
 			return fmt.Errorf("%s (%g) must not exceed %s (%g)", pair.watch, pair.w, pair.act, pair.a)
 		}
+	}
+	// Rule 19 reads downward: its act level sits below its watch level.
+	if p.MarginHeadroomActPct > p.MarginHeadroomWatchPct {
+		return fmt.Errorf("margin_headroom_act_pct (%g) must not exceed margin_headroom_watch_pct (%g)", p.MarginHeadroomActPct, p.MarginHeadroomWatchPct)
 	}
 	switch {
 	case p.RunwayActDTE < 0 || p.RunwayWatchDTE < p.RunwayActDTE:

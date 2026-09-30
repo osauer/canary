@@ -40,6 +40,11 @@ type accountSummaryAuthority struct {
 	TotalCashAvailable      bool
 	AvailableFundsAvailable bool
 	BaseCurrencyAvailable   bool
+	// Rule 19's measure and its context: a field the broker did not send
+	// stays nil in the Rulebook's inputs, never a zero.
+	ExcessLiquidityAvailable   bool
+	InitialMarginAvailable     bool
+	MaintenanceMarginAvailable bool
 }
 
 // buildAccountSummary shares one builder across daemon compositions; observe
@@ -96,6 +101,10 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		TotalCashAvailable:      raw.TotalCashValue != nil,
 		AvailableFundsAvailable: raw.AvailableFunds != nil,
 		BaseCurrencyAvailable:   raw.BaseCurrencyProvenance.Proven() && strings.TrimSpace(raw.BaseCurrency) != "",
+		// Rule 19 (amendment 18).
+		ExcessLiquidityAvailable:   raw.ExcessLiquidity != nil,
+		InitialMarginAvailable:     raw.InitMarginReq != nil,
+		MaintenanceMarginAvailable: raw.MaintenanceMargin != nil,
 	}
 	baseCurrency := ""
 	if authority.BaseCurrencyAvailable {

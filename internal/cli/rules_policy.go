@@ -105,6 +105,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleDeltaSwing:         fmt.Sprintf("watch at %s of NLV in one issuer's dollar delta; never acts", pct(p.DeltaSwingWatchPct)),
 		risk.RuleClusterStress:      fmt.Sprintf("watch when a declared cluster falling %s together loses %s of NLV; never acts", pct(p.ClusterDropPct), pct(p.ClusterWatchPct)),
 		risk.RuleLossBudget:         fmt.Sprintf("watch when one issuer's worst-case loss reaches %s of effective risk capital; never acts", pct(p.BudgetWatchPct)),
+		risk.RuleMarginHeadroom:     fmt.Sprintf("broker excess liquidity of NLV: watch below %s, act below %s; never trims", pct(p.MarginHeadroomWatchPct), pct(p.MarginHeadroomActPct)),
 	}
 	for i, id := range risk.RuleIDs() {
 		fmt.Fprintf(out, "  %2d %-22s %-5s  %s\n", i+1, id, p.ModeFor(id), limits[id])

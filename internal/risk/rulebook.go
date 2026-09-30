@@ -53,6 +53,9 @@ const (
 	// RuleReasonRiskCapitalUnavailable marks rule 18 without the
 	// constitution's effective risk capital; the evidence names the number.
 	RuleReasonRiskCapitalUnavailable = "risk_capital_unavailable"
+	// RuleReasonExcessLiquidityUnavailable marks rule 19 without the
+	// broker's excess liquidity: headroom is unknown, never a pass.
+	RuleReasonExcessLiquidityUnavailable = "excess_liquidity_unavailable"
 )
 
 // IndexPutRoleProtection and the related values describe the economic role
@@ -86,6 +89,10 @@ const (
 	RuleDeltaSwing    = "delta_swing"
 	RuleClusterStress = "cluster_stress"
 	RuleLossBudget    = "loss_budget"
+	// RuleMarginHeadroom is rule 19 (amendment 18): the broker's excess
+	// liquidity as a share of NLV, watched and acted on as it falls. It never
+	// trims and drives no proposal bucket.
+	RuleMarginHeadroom = "margin_headroom"
 )
 
 // RuleIDs lists every Rulebook rule in rulebook order.
@@ -96,6 +103,7 @@ func RuleIDs() []string {
 		RuleRedOnGreen, RuleWinnerTrim, RuleGreenDayAction, RuleHedgeIntegrity,
 		RuleExitDiscipline, RuleFXExposure, RuleNetExposure,
 		RuleDeltaSwing, RuleClusterStress, RuleLossBudget,
+		RuleMarginHeadroom,
 	}
 }
 
@@ -341,10 +349,17 @@ type RuleInputs struct {
 	NLVBase  *float64
 	CashBase *float64
 	// AvailableFundsBase is broker-reported liquidity available without
-	// closing a position. It is the cash-reserve input because option
-	// obligations and margin use reduce it while gross cash may not.
+	// closing a position. Rule 3 quotes it as context.
 	AvailableFundsBase *float64
 	DailyPnLBase       *float64
+	// ExcessLiquidityBase is the broker's excess liquidity (equity with loan
+	// value above maintenance margin), rule 19's measure; nil when the
+	// account summary did not carry it, which reads unknown, never pass.
+	// InitialMarginBase and MaintenanceMarginBase are the broker's margin
+	// requirements, context on rule 19's evidence; nil when not reported.
+	ExcessLiquidityBase   *float64
+	InitialMarginBase     *float64
+	MaintenanceMarginBase *float64
 
 	Names []NameInput
 
@@ -410,7 +425,7 @@ type ruleContext struct {
 	issuersDone bool
 }
 
-// EvaluateRulebook computes all 18 rules. It never returns fewer than 18
+// EvaluateRulebook computes all 19 rules. It never returns fewer than 19
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	ctx := newRuleContext(in, pol)
 	pol = ctx.pol
@@ -436,6 +451,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		ctx.deltaSwing(),
 		ctx.clusterStress(),
 		ctx.lossBudget(),
+		ctx.marginHeadroom(),
 	}
 	rows[10] = ctx.greenDayAction(rows)
 	for i := range rows {

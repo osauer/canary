@@ -13,7 +13,7 @@ func TestRuleIDsMatchEvaluationAndBaselineModes(t *testing.T) {
 	for _, r := range ev.Rows {
 		got = append(got, r.ID)
 	}
-	if !slices.Equal(got, RuleIDs()) || len(got) != 18 {
+	if !slices.Equal(got, RuleIDs()) || len(got) != 19 {
 		t.Fatalf("rows %v, want %v", got, RuleIDs())
 	}
 	for _, id := range RuleIDs() {
@@ -115,6 +115,11 @@ func TestRulebookPolicyValidateRejectsUnusableLimits(t *testing.T) {
 		"regime band min>max": func(p *RulebookPolicy) { p.RegimeCalm.HedgeBandMinPct = 50 },
 		"overhedge below 1":   func(p *RulebookPolicy) { p.OverhedgeMultiple = 0.5 },
 		"overhedge NaN":       func(p *RulebookPolicy) { p.OverhedgeMultiple = math.NaN() },
+		// Rule 19 reads downward: 0 ≤ act ≤ watch ≤ 100.
+		"margin act above watch": func(p *RulebookPolicy) { p.MarginHeadroomActPct = 35 },
+		"margin watch above 100": func(p *RulebookPolicy) { p.MarginHeadroomWatchPct = 101 },
+		"negative margin act":    func(p *RulebookPolicy) { p.MarginHeadroomActPct = -1 },
+		"margin watch NaN":       func(p *RulebookPolicy) { p.MarginHeadroomWatchPct = math.NaN() },
 	} {
 		p := DefaultRulebookPolicy()
 		mutate(&p)
@@ -135,6 +140,8 @@ func TestRulebookFingerprintCoversNetExposureLimits(t *testing.T) {
 		"calm budget watch":            func(p *RulebookPolicy) { p.RegimeCalm.PremiumBudgetWatchPct = 24 },
 		"early warning budget act":     func(p *RulebookPolicy) { p.RegimeEarlyWarning.PremiumBudgetActPct = 31 },
 		"confirmed net exposure watch": func(p *RulebookPolicy) { p.RegimeConfirmed.NetExposureWatchPct = 70 },
+		"margin headroom watch":        func(p *RulebookPolicy) { p.MarginHeadroomWatchPct = 25 },
+		"margin headroom act":          func(p *RulebookPolicy) { p.MarginHeadroomActPct = 10 },
 	} {
 		changed = DefaultRulebookPolicy()
 		mutate(&changed)

@@ -139,6 +139,7 @@ var alertShadowCanonicalRulebookRows = [...]struct {
 	{risk.RuleDeltaSwing, 16},
 	{risk.RuleClusterStress, 17},
 	{risk.RuleLossBudget, 18},
+	{risk.RuleMarginHeadroom, 19},
 }
 
 var alertShadowCanonicalRulebookHealth = [...]string{
@@ -2593,6 +2594,7 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 // alertShadowRulebookHealthRelevance is the conservative operator-approved map
 // of the input sources each rule's verdict rests on. The regime-conditional
 // rules (3, 4, 12 and 15 since amendment 17) also rest on the regime stage.
+// Rule 19 (amendment 18) reads the broker's account figures alone.
 var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleSingleNameExposure: {"account", "positions"},
 	risk.RuleOptionLinePremium:  {"account", "positions"},
@@ -2611,6 +2613,7 @@ var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleDeltaSwing:         {"account", "positions"},
 	risk.RuleClusterStress:      {"account", "positions"},
 	risk.RuleLossBudget:         {"account", "positions"},
+	risk.RuleMarginHeadroom:     {"account"},
 }
 
 func alertShadowCanonicalRulebookRow(id string) (int, bool) {
@@ -2660,6 +2663,8 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 		return rpc.AlertPresentationRulebookClusterStress
 	case risk.RuleLossBudget:
 		return rpc.AlertPresentationRulebookLossBudget
+	case risk.RuleMarginHeadroom:
+		return rpc.AlertPresentationRulebookMarginHeadroom
 	default:
 		return ""
 	}

@@ -1,6 +1,6 @@
 # The rulebook
 
-`canary rules` evaluates eighteen discipline checks against the book you are
+`canary rules` evaluates nineteen discipline checks against the book you are
 holding, using limits you can set, and reports which are breached. Nothing it produces reaches the
 broker.
 
@@ -9,7 +9,7 @@ design document is the semantic authority for every threshold and edge case,
 and stays in the repository. [Sensors](sensors.md#rulebook) covers the same
 component as a measurement: authority, freshness, and evidence reuse.
 
-## The eighteen rules
+## The nineteen rules
 
 | # | Rule | What it measures | Default mode |
 |---|---|---|---|
@@ -31,6 +31,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 16 | Delta swing on one issuer | One issuer's dollar delta as a share of NLV: what a 10% move costs, with gamma named when it bends that materially. Watch at 30%; it never acts. | Track |
 | 17 | Cluster falling together | Every issuer in a cluster you declare falls 30% together, each netted like rule 1. Watch when the cluster loses 15% of NLV; it never acts. Not evaluated until you declare a cluster. | Track |
 | 18 | Issuer loss against risk capital | One issuer's worst-case loss against the constitution's effective risk capital. Watch at 100% of it; it never acts. Unknown, never a pass, until the constitution carries the numbers. | Alert |
+| 19 | Margin headroom | The broker's excess liquidity as a share of NLV: the room left before a margin call. It reads downward: watch below 30%, act below 15%, and a reading exactly at a level passes it. The evidence adds the maintenance and initial margin when the broker reports them. Unknown, never a pass, without the excess liquidity or NLV. It never trims and drives no proposal. | Alert |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
 creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
@@ -134,9 +135,11 @@ Offenders of the watch-only rules 16 to 18 read `watch`, and an offender that
 could not be measured reads `unknown`. A rule 1 offender also carries
 `issuer`: the lines it joins, every leg with its loss at the worst price, the
 hedges credited or not, and the legs sized at the takeover gap. A reading
-exactly at a level is in that level. Two rules read differently: expiry runway counts
+exactly at a level is in that level. Three rules read differently: expiry runway counts
 down and triggers at its limits (watch at 14 days or fewer, act at 7 or
-fewer), and index protection is a range whose edges are inside it. A baseline value is not itself proof that the
+fewer), index protection is a range whose edges are inside it, and margin
+headroom counts down and triggers only strictly below its levels
+(`margin_headroom_watch_pct`, `margin_headroom_act_pct`). A baseline value is not itself proof that the
 threshold has your approval; set the ones you have decided.
 
 ## Advisory by construction
@@ -191,7 +194,7 @@ returns the ranking and input health alongside the rows.
 
 ## What a clean run means
 
-It means eighteen specific checks did not fire on the book as the daemon last
+It means nineteen specific checks did not fire on the book as the daemon last
 saw it. That is all.
 
 A clean rulebook run is not permission to trade and carries no submit

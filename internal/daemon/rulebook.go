@@ -485,6 +485,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		if accountAuthority.AvailableFundsAvailable {
 			in.AvailableFundsBase = new(acct.AvailableFunds)
 		}
+		in.ExcessLiquidityBase, in.InitialMarginBase, in.MaintenanceMarginBase = rulebookMarginInputs(acct, accountAuthority)
 		in.DailyPnLBase = acct.DailyPnL
 		if accountAuthority.BaseCurrencyAvailable {
 			if baseCurrency, ok := rulebookBaseCurrency(acct.BaseCurrency); ok {
@@ -690,6 +691,25 @@ func rulebookAccountSourceHealth(scope brokerStateScope, account *rpc.AccountRes
 		health.Notes = []string{"daily P&L is not due outside the US equity regular session"}
 	}
 	return risk.SourceState{Healthy: true}, health
+}
+
+// rulebookMarginInputs maps rule 19's inputs (amendment 18) from the account
+// summary: the broker's excess liquidity, the measure, and its initial and
+// maintenance margin, context. A field the broker did not report, or one that
+// is not a finite number, stays nil, which the rule reads as unknown.
+func rulebookMarginInputs(account *rpc.AccountResult, authority accountSummaryAuthority) (excess, initial, maintenance *float64) {
+	if account == nil {
+		return nil, nil, nil
+	}
+	read := func(available bool, v float64) *float64 {
+		if !available || math.IsNaN(v) || math.IsInf(v, 0) {
+			return nil
+		}
+		return new(v)
+	}
+	return read(authority.ExcessLiquidityAvailable, account.ExcessLiquidity),
+		read(authority.InitialMarginAvailable, account.InitialMargin),
+		read(authority.MaintenanceMarginAvailable, account.MaintenanceMargin)
 }
 
 func rulebookDailyPnLState(account *rpc.AccountResult, dailyPnLDue bool) (failed, notDue bool) {

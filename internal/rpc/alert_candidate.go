@@ -99,6 +99,7 @@ const (
 	AlertPresentationRulebookDeltaSwing                 = risk.AlertPresentationRulebookDeltaSwing
 	AlertPresentationRulebookClusterStress              = risk.AlertPresentationRulebookClusterStress
 	AlertPresentationRulebookLossBudget                 = risk.AlertPresentationRulebookLossBudget
+	AlertPresentationRulebookMarginHeadroom             = risk.AlertPresentationRulebookMarginHeadroom
 	AlertPresentationProtectionOrphanedOrder            = risk.AlertPresentationProtectionOrphanedOrder
 	AlertPresentationProtectionAutoTrailingStop         = risk.AlertPresentationProtectionAutoTrailingStop
 	AlertPresentationProtectionAutoTrailingStopNow      = risk.AlertPresentationProtectionAutoTrailingStopNow

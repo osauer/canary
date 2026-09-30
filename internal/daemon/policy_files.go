@@ -412,6 +412,8 @@ var rulebookTemplateKeys = []rulebookTemplateKey{
 	{"exit_watch_loss_pct", "Rule 13 — long option loss limit"},
 	{"exit_act_loss_pct", ""},
 	{"fx_exposure_watch_pct", "Rule 14 — foreign-currency exposure"},
+	{"margin_headroom_watch_pct", "Rule 19 — margin headroom (broker excess liquidity)"},
+	{"margin_headroom_act_pct", ""},
 	{"hedge_symbols", "Shared inputs"},
 	{"greeks_gap_floor_pct_nlv", ""},
 }
@@ -500,7 +502,8 @@ func RulebookPolicyTemplate(release string) []byte {
 		"use % of gross long exposure. Watch/act edges are inclusive (at or above).",
 		"Rule 12: inside edges passes, below the bottom or above the top watches (no",
 		"protection at all is 0%), above its overhedge multiple acts. Rule 3 or 15 at",
-		"watch or act reads sell-only.")
+		"watch or act reads sell-only. Rule 19 reads downward: it watches and acts",
+		"strictly below its levels, and a reading exactly at a level passes it.")
 	fmt.Fprintf(&b, "kind = %q\nschema_version = 1\npolicy_id = %q\npolicy_version = %d\n", risk.RulebookPolicyKind, p.ID, p.Version)
 	for _, k := range rulebookTemplateKeys {
 		if k.heading != "" {

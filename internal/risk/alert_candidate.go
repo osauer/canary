@@ -123,6 +123,7 @@ const (
 	AlertPresentationRulebookDeltaSwing         AlertPresentationCode = "rulebook_delta_swing"
 	AlertPresentationRulebookClusterStress      AlertPresentationCode = "rulebook_cluster_stress"
 	AlertPresentationRulebookLossBudget         AlertPresentationCode = "rulebook_loss_budget"
+	AlertPresentationRulebookMarginHeadroom     AlertPresentationCode = "rulebook_margin_headroom"
 	AlertPresentationProtectionOrphanedOrder    AlertPresentationCode = "protection_orphaned_order"
 	// AlertPresentationProtectionAutoTrailingStop and the codes that follow
 	// are the pre-authorised protection notices: one per bucket, each with a
@@ -845,7 +846,7 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 			AlertPresentationRulebookExitDiscipline, AlertPresentationRulebookFXExposure,
 			AlertPresentationRulebookNetExposure, AlertPresentationRulebookDeltaSwing,
 			AlertPresentationRulebookClusterStress, AlertPresentationRulebookLossBudget,
-			AlertPresentationRulebookLegacyCondition:
+			AlertPresentationRulebookMarginHeadroom, AlertPresentationRulebookLegacyCondition:
 			return true
 		}
 	case AlertSourceRiskPolicy:

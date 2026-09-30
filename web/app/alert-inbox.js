@@ -479,6 +479,7 @@ const RULE_ALERT_TARGETS = {
   rulebook_delta_swing: "delta_swing",
   rulebook_cluster_stress: "cluster_stress",
   rulebook_loss_budget: "loss_budget",
+  rulebook_margin_headroom: "margin_headroom",
 };
 
 function alertEvidenceTarget(occurrence = {}) {

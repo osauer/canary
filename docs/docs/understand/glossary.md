@@ -5,8 +5,8 @@ this system uses and links to the page where the term does real work; where the
 wider industry uses a word differently, the entry says so.
 
 - **Advisory:** guidance that records and explains without blocking or
-  submitting an order. The personal risk policy, the Rulebook's 18 checks
-  (15 discipline rules and 3 concentration watches), and protection proposals
+  submitting an order. The personal risk policy, the Rulebook's 19 checks
+  (16 discipline rules and 3 concentration watches), and protection proposals
   are all advisory today. See
   [Trading policy](policy.md).
 - **Agent origin:** the classification an adapter stamps on a broker-write

@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 10:15 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, 2026-09-30). The
+Updated: 2026-09-30 13:03 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, and margin-headroom amendment 18, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -436,12 +436,53 @@ contradiction:
     stress fingerprint projection stays `stress-policy-fp-v3`: no stress
     threshold moved.
 
+18. Amendment (2026-09-30, owner decision of 12:35 CEST, "Do all
+    follow-ups", closing the risk that R2 of amendment 17 named: with the
+    cash reserve retired, nothing watched margin headroom). Rule 19
+    `margin_headroom`, title "Margin headroom", default mode `alert`.
+    - Measure: the broker-reported excess liquidity from the account summary
+      as % of NLV. Headroom falls as margin use grows, so the rule reads
+      downward: watch strictly below `margin_headroom_watch_pct` (default
+      30), act strictly below `margin_headroom_act_pct` (default 15), and a
+      reading exactly at a level passes that level. Both are top-level keys,
+      validated 0 ≤ act ≤ watch ≤ 100. The row carries both bands
+      (`watch_threshold` 30, `act_threshold` 15) and, as amendment 13 set,
+      `threshold` is the act band on an act row and the watch band otherwise.
+    - Missing excess liquidity (not reported by the broker, or not a finite
+      number) is `unknown` with reason `excess_liquidity_unavailable`;
+      missing NLV or an unhealthy account source is `unknown` with the
+      account's reason. Never a pass. The rule reads no positions: the
+      broker's figure already nets the whole book, so in the alert
+      authority's relevance map it rests on the account source alone.
+    - Evidence names the excess liquidity as % of NLV against the level and,
+      as context when the broker reported them, the maintenance and initial
+      margin as % of NLV. The daemon maps all three only from fields the
+      account summary carried (`accountSummaryAuthority`), never a zero.
+    - Ranking: no impact, so severity, then rule number, as rule 3 ranked
+      while it was the cash reserve. Rule 19 can act, so it is not a
+      watch-only rule, but it never trims, drives no proposal bucket, no
+      sell-only and no preview cause.
+    - Alert presentation code `rulebook_margin_headroom`. The upgrade
+      migration materialises `margin_headroom_watch_pct`,
+      `margin_headroom_act_pct` and `modes.margin_headroom` at their
+      defaults in an existing owner file; the policy in force is unchanged
+      by construction, as for every added key.
+    - Rule 19 overlaps the stress read's margin cushion (the broker's
+      `Cushion`, the same ratio, with the stress policy's own levels, watch
+      35, act 20, urgent 10). The stress read keeps its levels; making it
+      read rule 19, as amendments 15 and 16 did for concentration and net
+      exposure, is a separate decision.
+    The baseline stays `rulebook-v5` (Version 5): no existing limit moved,
+    and a new baseline identity would show as a sibling-pin change on every
+    install that runs Canary's defaults. The fingerprint projection becomes
+    `rulebook-fp-v8`, because it gains the two keys.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
 being written there.
 
-## The 18 rules
+## The 19 rules
 
 Inputs available today unless marked otherwise. "Exposure" for a name =
 stock shares×spot + Σ(option delta×100×contracts×spot), from
@@ -473,13 +514,14 @@ regime-conditionality notes).
 | 16 | `delta_swing` | one issuer's dollar delta / NLV; protection-classified index short delta exempt; never acts | watch ≥ 30% | track |
 | 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
 | 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
+| 19 | `margin_headroom` | broker-reported excess liquidity / NLV; reads downward, equality passes; never trims (amendment 18) | watch < 30%; act < 15% | alert |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
 five non-pass states are load-bearing: **no input condition may ever
 produce `pass` by absence of data.**
 
-Rules 1–8, 12–13 and 15–18 are portfolio-discipline checks in this advisory
+Rules 1–8, 12–13 and 15–19 are portfolio-discipline checks in this advisory
 model; 16–18 watch and never act.
 Rules 9–10 are optional tape heuristics, rule 11 is an optional behavioral
 nudge, and rule 14 is structural tracking. None is an enforced risk-policy
@@ -490,8 +532,8 @@ Semantics notes:
 - Ranking (hardest-first; the number 13 was reassigned to exit_discipline
   in v2): estimated exposure impact descending where the rule has a natural
   impact (1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 15 = offending exposure,
-  premium, or salvageable premium in base currency); rules 9, 11, 14 rank by
-  severity then rule number. Impact definition lives beside each rule in
+  premium, or salvageable premium in base currency); rules 9, 11, 14 and 19
+  rank by severity then rule number. Impact definition lives beside each rule in
   the policy file.
 - Index-put roles (rules 1, 2, 4, 5, 12, 13): eligible long puts use the
   policy-owned index list (`SPY, SPX, SPXW, QQQ, IWM`). They are protection
@@ -689,6 +731,7 @@ internal/risk/rulebook.go         rule ids, typed inputs, Evaluate() (pure)
 internal/risk/concentration.go    rule 1 issuer netting, trim plan (pure)
 internal/risk/concentration_watches.go
                                   rules 16-18 (pure)
+internal/risk/rulebook_margin.go  rule 19 margin headroom (pure)
 internal/daemon/rulebook_concentration.go
                                   stock lines, 20-day volume, risk capital
 internal/risk/rulebook_policy.go  RulebookPolicy, regime sets, fingerprint
