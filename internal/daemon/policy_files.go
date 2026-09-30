@@ -744,10 +744,11 @@ func ProtectionPolicyTemplate(release string) []byte {
 close_reduce_only = true
 auto_submit = false
 # Automatic submission is yours to decide, so Canary writes no value. List the
-# reduce-only buckets the daemon may place itself after a notice and a veto
-# window, then raise policy_version. Choices: trailing_stop, option_loss_exit,
-# option_profit_trail, budget_reduction.
-# pre_authorised = []
+# buckets the daemon may place itself after a notice and a veto window, then
+# raise policy_version. Choices: trailing_stop, option_loss_exit,
+# option_profit_trail, budget_reduction, cash_sweep (the sweep's bill buys and
+# redemptions: always the full window, each held to its max_order_notional).
+# pre_authorised = []   # for example ["trailing_stop", "cash_sweep"]
 # veto_window = "30m"
 
 `)
@@ -836,19 +837,23 @@ func writeCashSweepTemplate(b *strings.Builder) {
 	fmt.Fprintf(b, `
 # Cash sweep: puts cash above keep_cash into bills of the same currency and
 # never converts. max_order_notional is your number, so Canary writes none;
-# until you write it the sweep reports that it needs your number. Rows stay
-# observation (instrument_support_required) until bill support is proven on a
-# paper account. A currency without its own table follows Canary's default:
+# until you write it the sweep reports that it needs your number. In active
+# mode a row is an ordinary proposal: its bill order (BOND, LMT DAY) is
+# previewed under every gate and placed on your approval, or by the daemon
+# after the full veto window when cash_sweep is under pre_authorised. USD bills
+# come from TreasuryDirect's public list; EUR, GBP and CAD bills from the
+# isins you list. A currency without its own table follows Canary's default:
 # USD us_tbill; EUR de_bubill and fr_btf with an etf fallback; GBP uk_tbill;
 # CAD ca_tbill; any other currency none.
 # [buckets.cash_sweep]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the orders
-# max_order_notional = 0.0   # one buy, in base currency
-# tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; active rows wait for it
+# max_order_notional = 0.0   # one order, in base currency
+# tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #
 # [buckets.cash_sweep.currency.EUR]
 # instruments = [%q, %q]
+# isins = []   # the EUR bills the sweep may buy, by ISIN (DE… de_bubill, FR… fr_btf); empty reads universe_unavailable
 # fallback = %q   # used only after a contract search finds no bill line
 # etf_symbol = "XEON"   # example: a euro money-market ETF on Xetra
 # etf_exchange = "IBIS"   # Xetra

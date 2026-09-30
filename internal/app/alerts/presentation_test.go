@@ -92,3 +92,32 @@ func TestWaitingProtectionPresentationsReadAsPending(t *testing.T) {
 		}
 	}
 }
+
+// The cash sweep's pre-authorised notice has its own copy (no "now"
+// variant: a sweep row always waits the full window) and is a valid
+// Protection presentation code.
+func TestCashSweepAutomaticPresentation(t *testing.T) {
+	t.Parallel()
+	code := rpc.AlertPresentationProtectionAutoCashSweep
+	got, ok := PresentationFor(code, rpc.AlertEpisodeOpen)
+	if !ok || !strings.Contains(got.Title, "Cash sweep") || !strings.Contains(got.Body, "full veto window") || !strings.Contains(got.Body, "Open Protection to veto it.") {
+		t.Fatalf("presentation = %+v ok=%v", got, ok)
+	}
+	episode, err := rpc.BuildAlertEpisodeKey(rpc.AlertSourceProtection, rpc.AlertKindProtectionAutomatic, "sweep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurrence, err := rpc.BuildAlertOccurrenceKey(episode, "sequence:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 30, 13, 0, 0, 0, time.UTC)
+	if err := rpc.ValidateAlertCandidate(rpc.AlertCandidate{
+		EpisodeKey: episode, OccurrenceKey: occurrence, EvidenceFingerprint: "sha256:" + strings.Repeat("d", 64),
+		Source: rpc.AlertSourceProtection, Kind: rpc.AlertKindProtectionAutomatic, PresentationCode: code,
+		State: rpc.AlertEpisodeOpen, Severity: rpc.AlertSeverityAct, EvidenceHealth: rpc.AlertEvidenceCurrent,
+		Destination: rpc.AlertDestinationAlerts, EvidenceAsOf: at, StateChangedAt: at, ObservedAt: at,
+	}); err != nil {
+		t.Fatalf("not a valid Protection presentation code: %v", err)
+	}
+}

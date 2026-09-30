@@ -71,6 +71,12 @@ type MarketData struct {
 	ShortableObserved bool      `json:"shortable_observed,omitempty"`
 	ShortableTickAt   time.Time `json:"shortable_tick_at,omitzero"`
 
+	// BidYield, AskYield and LastYield are a bond's yield ticks as the
+	// gateway sends them (percent); nil for every other instrument.
+	BidYield  *float64 `json:"bid_yield,omitempty"`
+	AskYield  *float64 `json:"ask_yield,omitempty"`
+	LastYield *float64 `json:"last_yield,omitempty"`
+
 	IV     float64 `json:"iv"`
 	HV     float64 `json:"hv"`
 	IVRank float64 `json:"iv_rank"`

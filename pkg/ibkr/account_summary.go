@@ -119,6 +119,12 @@ type CurrencyLedger struct {
 	UnrealizedPnL            float64
 	RealizedPnL              float64
 	ExchangeRate             float64
+	// SettledCash is the row's SettledCash field and SettledCashObserved
+	// says the gateway sent one. That $LEDGER:ALL carries SettledCash per
+	// currency is an assumption the cash sweep verifies after install
+	// (internal-docs/design/cash-sweep.md); absent, it stays unobserved.
+	SettledCash         float64
+	SettledCashObserved bool
 }
 
 // accountSummaryLedgerKeyPrefix namespaces $LEDGER rows admitted into a
@@ -168,6 +174,7 @@ func currencyLedgerField(tag string) bool {
 	switch tag {
 	case "NetLiquidationByCurrency",
 		"CashBalance",
+		"SettledCash",
 		"StockMarketValue",
 		"OptionMarketValue",
 		"UnrealizedPnL",
@@ -673,6 +680,8 @@ func assignCurrencyLedgerValue(ledger map[string]*CurrencyLedger, field, ccy, va
 		row.NetLiquidationByCurrency = parsed
 	case "CashBalance":
 		row.CashBalance = parsed
+	case "SettledCash":
+		row.SettledCash, row.SettledCashObserved = parsed, true
 	case "StockMarketValue":
 		row.StockMarketValue = parsed
 	case "OptionMarketValue":

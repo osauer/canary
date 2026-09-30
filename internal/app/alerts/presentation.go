@@ -51,6 +51,7 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationProtectionAutoOptionProfitTrailNow: {Title: "Option profit trail being placed", Body: "The drawdown brake is latched, so Canary is placing the option profit trail it proposed now."},
 	rpc.AlertPresentationProtectionAutoBudgetReduction:      {Title: "Reduction to budget will be placed", Body: "Canary will place the reduction back to budget it proposed once the veto window closes. Open Protection to veto it."},
 	rpc.AlertPresentationProtectionAutoBudgetReductionNow:   {Title: "Reduction to budget being placed", Body: "The drawdown brake is latched, so Canary is placing the reduction back to budget it proposed now."},
+	rpc.AlertPresentationProtectionAutoCashSweep:            {Title: "Cash sweep order will be placed", Body: "Canary will place the bill order the cash sweep proposed once the full veto window closes. Open Protection to veto it."},
 	// A deferred or held submission is still pending: the copy says what it
 	// waits for, never that the protection resolved.
 	rpc.AlertPresentationProtectionAutoDeferred:        {Title: "Protection deferred", Body: "Deferred: trading frozen · resubmits when lifted. Canary will place the protection it proposed once trading.freeze is lifted, while the proposal is current. Open Protection to veto it."},

@@ -1810,6 +1810,10 @@ type PositionsResult struct {
 	AccountID          string                     `json:"account_id,omitempty"`
 	// Authority is the account scope and portfolio-stream receipt contract.
 	Authority *AccountDataAuthority `json:"authority,omitempty"`
+	// Bonds classifies every held BOND row as a bill or a bond with its
+	// maturity and currency. The rows stay in Stocks with their valuation;
+	// this section adds the classification and is keyed by con_id.
+	Bonds []PositionBond `json:"bonds,omitempty"`
 }
 
 // Position strategy sources, states, and operations form the typed contract
@@ -2035,6 +2039,10 @@ type CurrencyExposure struct {
 	// is an observation and not an absent field read as zero. The cash sweep
 	// reads a currency's cash only when this is set.
 	CashObserved bool `json:"cash_observed,omitempty"`
+	// SettledCashCcy is the ledger row's SettledCash in this currency; nil
+	// when the gateway sent none. The cash sweep prefers it to settled cash
+	// derived from Canary's order journal.
+	SettledCashCcy *float64 `json:"settled_cash_ccy,omitempty"`
 }
 
 // ChainStrike is one strike row in a chain.
@@ -2633,6 +2641,9 @@ type OrderPreviewParams struct {
 	// Bounded is daemon-internal: the bound a bounded-limit strategy prices
 	// inside. No RPC caller can set it.
 	Bounded *OrderBoundedLimit `json:"-"`
+	// Bond is daemon-internal: a cash_sweep row's bill conventions. A BOND
+	// preview without it is refused, so no RPC caller can preview a bond.
+	Bond *OrderBondTerms `json:"-"`
 }
 
 // OrderBoundedLimit bounds a limit priced from the live quote: Concession of
@@ -2699,6 +2710,8 @@ type OrderDraft struct {
 	OpenClose     string              `json:"open_close,omitempty"`
 	Source        string              `json:"source,omitempty"`
 	StrategyGroup *StrategyOrderDraft `json:"strategy_group,omitempty"`
+	// Bond carries a BOND draft's conventions and grid; nil otherwise.
+	Bond *OrderBondTerms `json:"bond,omitempty"`
 }
 
 // OrderTrailSpec is the canonical broker-side trailing-stop intent. Percent

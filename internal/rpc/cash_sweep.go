@@ -1,12 +1,16 @@
 package rpc
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work
 // in same-currency bills and never converts. It is the first bucket whose
-// rows buy; every other bucket stays close-or-reduce only. Phase A ships it
-// in shadow: every row carries instrument_support_required until a paper
-// account proves bill contracts, quotes and orders per instrument.
+// rows buy; every other bucket stays close-or-reduce only. Phase B resolves
+// and quotes the bill a row names and orders it: an active row is an
+// ordinary proposal, previewed and submitted as a BOND LMT DAY order under
+// every existing gate and the owner's approval.
 const (
 	// TradeProposalBucketCashSweep invests free cash above keep_cash into a
 	// vocabulary bill of the same currency, or redeems the nearest maturity
@@ -22,21 +26,19 @@ const (
 	CashSweepSideInvest = "invest"
 	CashSweepSideRedeem = "redeem"
 
-	// CashSweepQuantityFace, CashSweepQuantityCash and
-	// CashSweepQuantityPosition name what a sweep row's quantity counts: face
-	// value in whole units of the row's currency (a bill), a cash amount in
-	// whole units of the row's currency (an ETF buy, sized to shares at a
-	// fresh quote once instrument support exists), or the held position's own
-	// unit (a redemption).
-	CashSweepQuantityFace     = "face_value"
-	CashSweepQuantityCash     = "cash_amount"
+	// CashSweepQuantityPosition says a redemption's quantity counts the held
+	// position's own unit. An invest row's quantity counts its bill's order
+	// unit, named by a BondQuantityUnit* value (face_1000 or face_1).
 	CashSweepQuantityPosition = "position"
 )
 
 // Cash sweep states, one per currency. The first three are the band verdict;
-// no_instrument is a currency without a declared instrument; the last four
+// no_instrument is a currency without a declared instrument; the next four
 // are the unknown posture, in the order they are checked, and generate
-// nothing.
+// nothing. The last two replace invest when no bill can be named:
+// universe_unavailable (no candidate list: TreasuryDirect unreachable for
+// USD, no owner-listed isins elsewhere) and instrument_unresolved (no
+// candidate confirmed by contract details and a quote).
 const (
 	CashSweepStateInvest                  = "invest"
 	CashSweepStateRedeem                  = "redeem"
@@ -46,19 +48,56 @@ const (
 	CashSweepStateSettlementUnknown       = "settlement_unknown"
 	CashSweepStateEquivalentsUnclassified = "equivalents_unclassified"
 	CashSweepStateNeedsYourNumber         = "needs_your_number"
+	CashSweepStateUniverseUnavailable     = "universe_unavailable"
+	CashSweepStateInstrumentUnresolved    = "instrument_unresolved"
 )
 
-// Cash sweep blocker codes a row can carry.
+// CashSweepTaxUnreviewedDetail is the detail line every row carries while
+// the policy has no tax_reviewed_at. It is advisory (owner decision
+// 2026-09-30 12:35 CEST): the owner's approval of each order is the gate.
+const CashSweepTaxUnreviewedDetail = "tax treatment not yet confirmed (tax_reviewed_at unset)"
+
+// Settled-cash sources on a currency's status: the broker's $LEDGER
+// SettledCash field, else Canary's order journal.
 const (
-	// CashSweepBlockerInstrumentSupport is on every Phase A row: Canary cannot
-	// yet resolve, quote or order the instrument.
-	CashSweepBlockerInstrumentSupport = "instrument_support_required"
-	// CashSweepBlockerTaxReview is on every active row while the policy has
-	// no tax_reviewed_at.
-	CashSweepBlockerTaxReview = "tax_review_required"
-	// CashSweepBlockerFreshQuote is on a redemption whose position mark is
-	// stale.
+	CashSweepSettledSourceBroker  = "broker"
+	CashSweepSettledSourceJournal = "journal"
+)
+
+// Where a bill candidate came from.
+const (
+	CashSweepBillSourceTreasuryDirect = "treasurydirect"
+	CashSweepBillSourcePolicyISINs    = "policy_isins"
+)
+
+// Cash sweep blocker codes a row can carry. Each stops an order that could
+// not be priced or sized, not a decision: the owner's approval of each order
+// is the gate.
+const (
+	// CashSweepBlockerFreshQuote is on an invest row whose bill quote is not
+	// a live bid or ask, and on a redemption whose position mark is stale.
 	CashSweepBlockerFreshQuote = "fresh_bill_quote_required"
+	// CashSweepBlockerBillRules is on a redemption whose held bill's contract
+	// details carry no minimum size or minimum tick.
+	CashSweepBlockerBillRules = "bill_contract_rules_unavailable"
+	// CashSweepBlockerBelowMinimum is on a redemption whose sale cannot meet
+	// the bill's minimum size or size step within the position.
+	CashSweepBlockerBelowMinimum = "below_minimum_increment"
+	// CashSweepBlockerBillUnitMismatch is on an invest row whose last preview's
+	// broker WhatIf disagreed with the order's expected value at the assumed
+	// quantity unit by more than a factor of 3 (reviewer decision 2026-09-30
+	// 15:25 CEST): the unit may be wrong. It holds every submit of the
+	// currency's instrument until a preview checks clean.
+	CashSweepBlockerBillUnitMismatch = "bill_unit_mismatch"
+)
+
+// Bond session sources: the line's liquid or trading hours from its
+// contract details, else the instrument's assumed hours
+// (internal-docs/design/cash-sweep.md, A5).
+const (
+	BondSessionSourceLiquidHours  = "liquid_hours"
+	BondSessionSourceTradingHours = "trading_hours"
+	BondSessionSourceAssumed      = "assumed"
 )
 
 // TradeProposalCashSweepStatus is the sweep's account of one generation: the
@@ -76,9 +115,10 @@ type TradeProposalCashSweepStatus struct {
 	// in it, nil until the owner writes max_order_notional.
 	BaseCurrency         string   `json:"base_currency,omitempty"`
 	MaxOrderNotionalBase *float64 `json:"max_order_notional_base,omitempty"`
-	// TaxReviewedAt is the date the owner recorded; empty means active rows
-	// carry tax_review_required.
+	// TaxReviewedAt is the date the owner recorded; TaxReviewed is false
+	// while it is unset, and every row then carries an advisory detail line.
 	TaxReviewedAt string `json:"tax_reviewed_at,omitempty"`
+	TaxReviewed   bool   `json:"tax_reviewed"`
 	// NeedsYourNumber lists the bucket-level numbers only the owner can
 	// write (max_order_notional).
 	NeedsYourNumber []string                         `json:"needs_your_number,omitempty"`
@@ -110,17 +150,98 @@ type TradeProposalCashSweepCurrency struct {
 	LadderRungs     int      `json:"ladder_rungs"`
 	// ExchangeRate is the ledger rate (base units per unit of this currency)
 	// the order cap is converted at.
-	ExchangeRate       *float64 `json:"exchange_rate,omitempty"`
-	TradeDateCash      *float64 `json:"trade_date_cash,omitempty"`
-	SettledCash        *float64 `json:"settled_cash,omitempty"`
+	ExchangeRate  *float64 `json:"exchange_rate,omitempty"`
+	TradeDateCash *float64 `json:"trade_date_cash,omitempty"`
+	SettledCash   *float64 `json:"settled_cash,omitempty"`
+	// SettledCashSource is broker (the ledger's SettledCash) or journal
+	// (derived from Canary's order journal); empty while settled cash is
+	// unknown.
+	SettledCashSource  string   `json:"settled_cash_source,omitempty"`
 	Cash               *float64 `json:"cash,omitempty"`
 	Committed          *float64 `json:"committed,omitempty"`
 	PendingRedemptions *float64 `json:"pending_redemptions,omitempty"`
 	Free               *float64 `json:"free,omitempty"`
 	// CashEquivalents is the broker market value of classified cash
 	// equivalents in this currency; nil while a holding cannot be classified.
-	CashEquivalents *float64                     `json:"cash_equivalents,omitempty"`
-	Rungs           []TradeProposalCashSweepRung `json:"rungs,omitempty"`
+	CashEquivalents *float64 `json:"cash_equivalents,omitempty"`
+	// CashLike is Cash plus CashEquivalents, present only when both are.
+	CashLike *float64                     `json:"cash_like,omitempty"`
+	Rungs    []TradeProposalCashSweepRung `json:"rungs,omitempty"`
+	// Bill is the bill an invest row names, confirmed by contract details
+	// and a quote. Evidence lists what each candidate check found when no
+	// bill could be named (universe_unavailable, instrument_unresolved).
+	Bill     *TradeProposalCashSweepBill `json:"bill,omitempty"`
+	Evidence []string                    `json:"evidence,omitempty"`
+}
+
+// TradeProposalCashSweepBill is a resolved bill: its identifiers, maturity
+// and the quote it was confirmed with. Price is per 100 of face (the ask,
+// else the last, else the bid, else the close; PriceSource says which).
+// QuantityUnit and PriceConvention are Canary's assumed broker conventions
+// for the instrument (A5); the order sizes and prices by them. MinSize,
+// SizeIncrement (order units) and MinTick come from the line's contract
+// details and bound every order; Session is when a DAY order can fill.
+type TradeProposalCashSweepBill struct {
+	Instrument      string       `json:"instrument"`
+	Source          string       `json:"source"`
+	ConID           int          `json:"con_id"`
+	Symbol          string       `json:"symbol,omitempty"`
+	ISIN            string       `json:"isin,omitempty"`
+	CUSIP           string       `json:"cusip,omitempty"`
+	Maturity        string       `json:"maturity"`
+	DaysToMaturity  int          `json:"days_to_maturity"`
+	MinSize         *float64     `json:"min_size,omitempty"`
+	SizeIncrement   *float64     `json:"size_increment,omitempty"`
+	MinTick         *float64     `json:"min_tick,omitempty"`
+	Price           *float64     `json:"price,omitempty"`
+	PriceSource     string       `json:"price_source,omitempty"`
+	Quote           *BondQuote   `json:"quote,omitempty"`
+	QuoteFresh      bool         `json:"quote_fresh"`
+	QuantityUnit    string       `json:"quantity_unit"`
+	PriceConvention string       `json:"price_convention"`
+	Session         *BondSession `json:"session,omitempty"`
+}
+
+// CloneCashSweepBill deep-copies a resolved bill; nil stays nil.
+func CloneCashSweepBill(in *TradeProposalCashSweepBill) *TradeProposalCashSweepBill {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.MinSize = cloneCashSweepFloat(in.MinSize)
+	out.SizeIncrement = cloneCashSweepFloat(in.SizeIncrement)
+	out.MinTick = cloneCashSweepFloat(in.MinTick)
+	out.Price = cloneCashSweepFloat(in.Price)
+	out.Quote = CloneBondQuote(in.Quote)
+	out.Session = CloneBondSession(in.Session)
+	return &out
+}
+
+// BondSession is when a bond line's DAY order can fill: windows in UTC,
+// open inclusive and close exclusive, from the line's liquid or trading
+// hours, else the instrument's assumed hours on weekdays (holidays are then
+// not modelled). Label names the session for a reader.
+type BondSession struct {
+	Source   string              `json:"source"`
+	Label    string              `json:"label,omitempty"`
+	TimeZone string              `json:"time_zone,omitempty"`
+	Windows  []BondSessionWindow `json:"windows,omitempty"`
+}
+
+// BondSessionWindow is one trading interval of a bond session.
+type BondSessionWindow struct {
+	Open  time.Time `json:"open"`
+	Close time.Time `json:"close"`
+}
+
+// CloneBondSession deep-copies a bond session; nil stays nil.
+func CloneBondSession(in *BondSession) *BondSession {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Windows = slices.Clone(in.Windows)
+	return &out
 }
 
 // TradeProposalCashSweepRung is one ladder rung: its target maturity in days
@@ -140,8 +261,14 @@ type TradeProposalCashSweep struct {
 	Side       string `json:"side"`
 	Currency   string `json:"currency"`
 	Instrument string `json:"instrument"`
-	// QuantityUnit says what the proposal quantity counts (CashSweepQuantity*).
+	// QuantityUnit says what the proposal quantity counts: the bill's order
+	// unit on an invest row (BondQuantityUnit*), the held position's unit on
+	// a redemption (CashSweepQuantityPosition).
 	QuantityUnit string `json:"quantity_unit"`
+	// FaceValue is an invest order's face value (quantity × the unit's
+	// face); EstimatedCost is that face at the bill's quoted price.
+	FaceValue     float64 `json:"face_value,omitempty"`
+	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 	// OrderAmount is the cash the order puts to work (invest) or the gap it
 	// covers (redeem), before rounding to whole units.
 	OrderAmount float64 `json:"order_amount"`
@@ -163,6 +290,12 @@ type TradeProposalCashSweep struct {
 	ExchangeRate         float64 `json:"exchange_rate,omitempty"`
 	// Redeem: the maturity sold (YYYY-MM-DD; empty for the ETF).
 	MaturityDate string `json:"maturity_date,omitempty"`
+	// Bill is the resolved bill an invest row names.
+	Bill *TradeProposalCashSweepBill `json:"bill,omitempty"`
+	// Session is when the row's order can fill: the bill's session on an
+	// invest row, the held bill's on a redemption; nil for the ETF, which
+	// follows its exchange calendar.
+	Session *BondSession `json:"session,omitempty"`
 }
 
 // CloneCashSweepStatus deep-copies a sweep status; nil stays nil.
@@ -186,7 +319,10 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 		c.PendingRedemptions = cloneCashSweepFloat(c.PendingRedemptions)
 		c.Free = cloneCashSweepFloat(c.Free)
 		c.CashEquivalents = cloneCashSweepFloat(c.CashEquivalents)
+		c.CashLike = cloneCashSweepFloat(c.CashLike)
 		c.Rungs = slices.Clone(c.Rungs)
+		c.Bill = CloneCashSweepBill(c.Bill)
+		c.Evidence = slices.Clone(c.Evidence)
 	}
 	return &out
 }
@@ -197,6 +333,8 @@ func CloneProposalCashSweep(in *TradeProposalCashSweep) *TradeProposalCashSweep 
 		return nil
 	}
 	out := *in
+	out.Bill = CloneCashSweepBill(in.Bill)
+	out.Session = CloneBondSession(in.Session)
 	return &out
 }
 

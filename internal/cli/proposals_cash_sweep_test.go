@@ -24,9 +24,9 @@ func TestRenderProposalsListsTheCashSweepUnderItsOwnHeading(t *testing.T) {
 				{Currency: "USD", State: rpc.CashSweepStateInvest, KeepCash: 5000, Cash: &cash, Committed: &committed, Free: &free, CashEquivalents: &eq, Reason: "free cash is above min_tranche"},
 			}},
 		Proposals: []rpc.TradeProposal{
-			{Key: "cash_sweep:1", Bucket: rpc.TradeProposalBucketCashSweep, Action: "BUY", Quantity: 53000, Symbol: "US_TBILL", OrderType: "LMT", Shadow: true, NeverSkipVeto: true,
-				Reason: "free cash is above min_tranche", Details: []string{"rung 1 of 4 targets 28 days"},
-				Blockers: []rpc.TradingBlocker{{Code: "shadow_mode", Message: "the cash sweep runs in shadow mode"}, {Code: rpc.CashSweepBlockerInstrumentSupport, Message: "Canary cannot yet order bills"}}},
+			{Key: "cash_sweep:1", Bucket: rpc.TradeProposalBucketCashSweep, Action: "BUY", Quantity: 53, Symbol: "SYNTHB", OrderType: "LMT", Shadow: true, NeverSkipVeto: true,
+				Reason: "free cash is above min_tranche", Details: []string{"rung 1 of 4 targets 28 days", "buy 53 × face_1000 = $ 53,000.00 of face"},
+				Blockers: []rpc.TradingBlocker{{Code: "shadow_mode", Message: "the cash sweep runs in shadow mode"}, {Code: rpc.CashSweepBlockerFreshQuote, Message: "the bill's quote is not a live bid or ask"}}},
 			{Key: "budget_reduction:1", Bucket: rpc.TradeProposalBucketBudgetReduction, Action: "SELL", Quantity: 1, Symbol: "AAA", Shadow: true, Reason: "over budget"},
 			{Key: "trailing_stop:2", Bucket: rpc.TradeProposalBucketTrailingStop, Action: "SELL", Quantity: 100, Symbol: "BBB", OrderType: "TRAIL", Reason: "protective stop"},
 		},
@@ -40,14 +40,16 @@ func TestRenderProposalsListsTheCashSweepUnderItsOwnHeading(t *testing.T) {
 		t.Fatalf("sections out of order:\n%s", out)
 	}
 	for _, want := range []string{
-		"tax review not recorded",
+		"tax treatment not yet confirmed (advisory)",
 		"CHF  no instrument",
 		"EUR  settlement unknown",
 		"needs your number: etf_symbol, etf_exchange",
 		"USD  invest",
 		"free $ 53,000.00",
 		"rung 1 of 4 targets 28 days",
-		rpc.CashSweepBlockerInstrumentSupport,
+		"BUY 53 SYNTHB  LMT",
+		"buy 53 × face_1000",
+		rpc.CashSweepBlockerFreshQuote,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)

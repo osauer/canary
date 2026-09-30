@@ -35,7 +35,8 @@ var (
 	readinessSessionCodes = []string{previewMarketClosedCode, "option_rth_closed"}
 	readinessSpreadCodes  = []string{"option_spread_too_wide", "wide_spread", previewBoundedSpreadCode}
 	readinessQuoteCodes   = []string{"live_option_quote_required", "fresh_option_quote_required", "two_sided_option_quote_required",
-		optionQuoteRequestFailed, "missing_reference_price", previewQuoteStaleCode, previewQuoteNotLiveCode, previewQuoteNotTwoSidedCode, previewQuoteUnavailableCode}
+		optionQuoteRequestFailed, "missing_reference_price", previewQuoteStaleCode, previewQuoteNotLiveCode, previewQuoteNotTwoSidedCode, previewQuoteUnavailableCode,
+		rpc.CashSweepBlockerFreshQuote}
 )
 
 // readinessQueueBuckets are the rows a queued authorisation may carry to the
@@ -104,15 +105,11 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 	out.CanaryCodes = codes
 
 	needsSession := proposalHasContract(prop) && proposalNeedsOpenSession(prop)
-	market, hasMarket := quoteSessionMarketForContract(prop.Contract)
-	if !proposalHasContract(prop) {
-		hasMarket = false
-	}
-	var session marketcal.Session
-	var sessionKnown bool
+	// A sweep bill's session comes from its line's hours (else the assumed
+	// hours); every other row reads its exchange calendar.
+	market, session, hasMarket, sessionKnown := e.proposalSessionAt(prop, now, sessions)
 	if hasMarket {
 		out.Market = string(market)
-		session, sessionKnown = e.readinessSession(market, now, sessions)
 		if sessionKnown {
 			out.MarketLabel = session.Label
 			out.SessionState = readinessSessionState(session, now)

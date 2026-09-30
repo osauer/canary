@@ -47,6 +47,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodMarketSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
 	{Method: MethodMarketHistory, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
 	{Method: MethodMarketTape, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
+	{Method: MethodMarketBond, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodQuoteSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodQuoteSubscribe, Lifetime: MethodLifetimeStreaming},
 	{Method: MethodDisplaySubscribe, Lifetime: MethodLifetimeStreaming},

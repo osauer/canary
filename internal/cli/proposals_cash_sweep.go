@@ -9,9 +9,11 @@ import (
 )
 
 // renderCashSweepSection prints the cash sweep under its own heading: the
-// mode and the owner's numbers, one band line per currency, then the rows.
-// The rows are observation until instrument support exists, so they never
-// sit among the protection proposals (internal-docs/design/cash-sweep.md).
+// mode and the owner's numbers, one band line per currency (with the bill it
+// resolved, or the evidence why none), then the rows. A sweep row buys or
+// sells a bill rather than protecting a position, so it never sits among the
+// protection proposals (internal-docs/design/cash-sweep.md); an active row
+// previews and submits like any other.
 func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSweepStatus, rows []rpc.TradeProposal) {
 	if st == nil && len(rows) == 0 {
 		return
@@ -21,6 +23,9 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 	if st != nil {
 		for _, c := range st.Currencies {
 			fmt.Fprintf(out, "    %-4s %-24s %s\n", c.Currency, strings.ReplaceAll(c.State, "_", " "), formatCashSweepCurrency(c))
+			for _, line := range c.Evidence {
+				fmt.Fprintf(out, "         %-24s %s\n", "", line)
+			}
 		}
 	}
 	for _, p := range rows {
@@ -41,10 +46,10 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 	if st.MaxOrderNotionalBase != nil {
 		parts = append(parts, "max order "+cashSweepMoney(*st.MaxOrderNotionalBase, st.BaseCurrency))
 	}
-	if st.TaxReviewedAt != "" {
+	if st.TaxReviewed {
 		parts = append(parts, "tax reviewed "+st.TaxReviewedAt)
 	} else {
-		parts = append(parts, "tax review not recorded")
+		parts = append(parts, "tax treatment not yet confirmed (advisory)")
 	}
 	if len(st.NeedsYourNumber) > 0 {
 		parts = append(parts, "needs your number: "+strings.Join(st.NeedsYourNumber, ", "))
@@ -71,6 +76,10 @@ func formatCashSweepCurrency(c rpc.TradeProposalCashSweepCurrency) string {
 	}
 	money("free", c.Free)
 	money("equivalents", c.CashEquivalents)
+	money("cash-like", c.CashLike)
+	if c.SettledCashSource != "" {
+		parts = append(parts, "settled cash from "+c.SettledCashSource)
+	}
 	if c.Reason != "" {
 		parts = append(parts, c.Reason)
 	}

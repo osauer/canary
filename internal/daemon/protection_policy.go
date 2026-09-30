@@ -46,12 +46,14 @@ type protectionPolicyAuthority struct {
 	CloseReduceOnly bool `toml:"close_reduce_only" json:"close_reduce_only"`
 	// AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path.
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
-	// PreAuthorised lists the reduce-only buckets whose unblocked proposals
-	// the daemon places itself after recording an alert and the veto window
-	// (owner decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
-	// option_loss_exit, option_profit_trail, budget_reduction. Empty by
-	// default, so nothing submits itself until the owner lists a bucket
-	// and bumps policy_version.
+	// PreAuthorised lists the buckets whose unblocked proposals the daemon
+	// places itself after recording an alert and the veto window (owner
+	// decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
+	// option_loss_exit, option_profit_trail, budget_reduction, cash_sweep
+	// (the sweep's bill buys and redemptions, always after the full window,
+	// each held to its max_order_notional). Empty by default, so nothing
+	// submits itself until the owner lists a bucket and bumps
+	// policy_version.
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
 	// VetoWindow is how long a pre-authorised proposal waits between its
 	// notice and its submission; default 30m, minimum 5m. A latched
@@ -71,6 +73,10 @@ const (
 	// generates it (reductions back to budget while the brake is latched);
 	// listing it before that bucket exists authorises nothing.
 	preAuthorisedBucketBudgetReduction = "budget_reduction"
+	// preAuthorisedBucketCashSweep names the cash sweep's rows (bill buys
+	// and redemptions); each is NeverSkipVeto and held to the bucket's
+	// max_order_notional.
+	preAuthorisedBucketCashSweep = "cash_sweep"
 
 	defaultVetoWindow = 30 * time.Minute
 	minimumVetoWindow = 5 * time.Minute
@@ -79,7 +85,8 @@ const (
 func validPreAuthorisedBucket(name string) bool {
 	switch name {
 	case preAuthorisedBucketTrailingStop, preAuthorisedBucketOptionLossExit,
-		preAuthorisedBucketOptionProfitTrail, preAuthorisedBucketBudgetReduction:
+		preAuthorisedBucketOptionProfitTrail, preAuthorisedBucketBudgetReduction,
+		preAuthorisedBucketCashSweep:
 		return true
 	default:
 		return false
@@ -661,7 +668,7 @@ func validateProtectionPolicy(p protectionPolicy) error {
 	}
 	for i, bucket := range p.Authority.PreAuthorised {
 		if !validPreAuthorisedBucket(bucket) {
-			return fmt.Errorf("protection policy authority.pre_authorised[%d] %q is not a pre-authorisable bucket; use trailing_stop, option_loss_exit, option_profit_trail or budget_reduction", i, bucket)
+			return fmt.Errorf("protection policy authority.pre_authorised[%d] %q is not a pre-authorisable bucket; use trailing_stop, option_loss_exit, option_profit_trail, budget_reduction or cash_sweep", i, bucket)
 		}
 		if slices.Contains(p.Authority.PreAuthorised[:i], bucket) {
 			return fmt.Errorf("protection policy authority.pre_authorised lists %q twice", bucket)
@@ -986,9 +993,9 @@ type protectionCashSweepPolicy struct {
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate.
 	Mode string `toml:"mode" json:"mode,omitempty"`
-	// MaxOrderNotional caps one sweep buy in base currency, compared at the ledger rate; no default, and until it is written the sweep reports needs_your_number.
+	// MaxOrderNotional caps one sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); no default, and until it is written the sweep reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every active row carries tax_review_required.
+	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
 	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
 	// Currency holds one table per ISO currency code, as [buckets.cash_sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
 	Currency map[string]protectionCashSweepCurrency `toml:"currency" json:"currency,omitempty"`
@@ -1013,6 +1020,8 @@ type protectionCashSweepCurrency struct {
 	MaxMaturityDays int `toml:"max_maturity_days" json:"max_maturity_days"`
 	// LadderRungs is how many target maturities the ladder spreads evenly from min_maturity_days to max_maturity_days (default 4).
 	LadderRungs int `toml:"ladder_rungs" json:"ladder_rungs"`
+	// ISINs lists the bills the sweep may buy in EUR, GBP or CAD by ISIN (default empty, which reads universe_unavailable), each of a declared bill instrument: DE de_bubill, FR fr_btf, GB uk_tbill, CA ca_tbill; USD bills come from TreasuryDirect's list instead.
+	ISINs []string `toml:"isins" json:"isins,omitempty"`
 }
 
 // The closed instrument vocabulary. A bill instrument belongs to exactly one
@@ -1254,7 +1263,7 @@ func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency
 	if c.LadderRungs < 1 {
 		return fmt.Errorf("%s.ladder_rungs must be at least 1", prefix)
 	}
-	return nil
+	return validateCashSweepISINs(prefix, ccy, c)
 }
 
 // cashSweepInstrumentsFor lists the vocabulary a currency may declare.

@@ -351,6 +351,9 @@ type Subscription struct {
 	// IV is the option implied volatility tick (generic tick 106), present
 	// only when requested, stored as a fraction such as 0.30.
 	IV float64
+	// bidYield, askYield and lastYield are a bond's yield ticks (bond.go);
+	// nil until the gateway sends one.
+	bidYield, askYield, lastYield *float64
 	// LastTime is the subscription re-request staleness clock.
 	LastTime time.Time
 	Observed bool // true once we receive any tick for this reqID
@@ -2008,7 +2011,7 @@ func marketDataReplayRequest(spec mdReplaySpec) (Contract, string, error) {
 			return Contract{}, "", errors.New("market-data replay contract has no symbol")
 		}
 		genericTicks := spec.genericTicks
-		if genericTicks == "" {
+		if genericTicks == "" && !isBondMarketDataContract(spec.contract) {
 			genericTicks = sharedGenericTicks
 		}
 		return spec.contract, genericTicks, nil
@@ -4120,7 +4123,11 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 		return key, missErr
 	}
 
-	return key, c.subscribeSharedQuote(ctx, key, fields, mdReplaySpec{contract: contract, genericTicks: sharedGenericTicks})
+	ticks := sharedGenericTicks
+	if isBondMarketDataContract(contract) {
+		ticks = ""
+	}
+	return key, c.subscribeSharedQuote(ctx, key, fields, mdReplaySpec{contract: contract, genericTicks: ticks})
 }
 
 // SubscribeMarketDataWithContractForSession creates a short-lived,
@@ -4152,7 +4159,12 @@ func (c *Connector) SubscribeMarketDataWithContractForSession(ctx context.Contex
 	}
 	wireContract := contract
 	normalizeResolvedOptionMarketDataContract(&wireContract)
-	reqID, err := conn.requestMarketDataWithContractForEpoch(ctx, wireContract, OptionSubscriptionGenericTicks+",165,221,233,236", false, false, binding.epoch, func(reqID int) func() {
+	genericTicks := OptionSubscriptionGenericTicks + ",165,221,233,236"
+	if isBondMarketDataContract(wireContract) {
+		// The stock and option tick lists are not defined for bonds.
+		genericTicks = ""
+	}
+	reqID, err := conn.requestMarketDataWithContractForEpoch(ctx, wireContract, genericTicks, false, false, binding.epoch, func(reqID int) func() {
 		c.subMu.Lock()
 		c.reqIDMap[reqID] = key
 		c.subscriptions[key] = &Subscription{
@@ -4403,6 +4415,7 @@ func resetSubscriptionObservations(sub *Subscription) {
 	sub.Week26High = 0
 	sub.Week52Low = 0
 	sub.Week52High = 0
+	sub.bidYield, sub.askYield, sub.lastYield = nil, nil, nil
 	sub.LastAt = time.Time{}
 	sub.BidAt = time.Time{}
 	sub.AskAt = time.Time{}
@@ -4601,6 +4614,7 @@ func (c *Connector) submitOrderForSession(ctx context.Context, binding Connector
 		LocalSymbol:     contract.LocalSymbol,
 		TradingClass:    contract.TradingClass,
 		ComboLegs:       append([]ComboLeg(nil), contract.ComboLegs...),
+		BondRules:       cloneBondOrderRules(contract.BondRules),
 		Action:          order.Action,
 		TotalQty:        order.TotalQty,
 		OrderType:       order.OrderType,
@@ -5906,6 +5920,13 @@ func (c *Connector) handleTickPrice(fields []string) {
 
 	sub, exists := c.subscriptions[symbol]
 	if !exists || sub.ReqID != reqID {
+		return
+	}
+	// A bond's yield arrives as a price tick; it is never a price.
+	if isBondYieldTick(tickType) {
+		sub.recordBondYield(tickType, price)
+		sub.LastTime = time.Now()
+		sub.LastTickAt = sub.LastTime
 		return
 	}
 
@@ -8523,6 +8544,9 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 			Week52Low:         sub.Week52Low,
 			Week52High:        sub.Week52High,
 			IV:                sub.IV,
+			BidYield:          cloneYield(sub.bidYield),
+			AskYield:          cloneYield(sub.askYield),
+			LastYield:         cloneYield(sub.lastYield),
 			Timestamp:         sub.LastTime,
 		}
 	}

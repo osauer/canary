@@ -308,6 +308,10 @@ type Server struct {
 	authorityCloseOnce      sync.Once
 	authorityCloseErr       error
 
+	// cashSweepB is the cash sweep's read-only bond support: the bond
+	// directory and TreasuryDirect's bill list (bond_directory.go).
+	cashSweepB cashSweepBonds
+
 	// orderJournal is the durable audit log for order intents and broker
 	orderJournal *orderJournalStore
 	// strategyLineage is a read-through cache of durable submitted group
@@ -436,6 +440,7 @@ type Server struct {
 	orderRiskAuthorityForTest    func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
 	orderFXRateForTest           func(context.Context, string, string, time.Duration) (float64, time.Time, error)
 	orderContractResolverForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
+	orderBondDetailsForTest      func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
 	orderPreviewWhatIf           func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
 	orderWritesEnabled           func() bool
 	gatewayReadyForTrading       func() bool
@@ -1354,6 +1359,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// The canonical Rulebook refresh may immediately need the gateway. Start
 	// all daemon-owned read loops only after the initial connect slot is claimed
 	s.startMacroSources(serverCtx)
+	s.startCashSweepBillUniverse(serverCtx)
 	s.startRegimeRefreshLoop(serverCtx)
 	s.startRulebookCanonicalRefreshLoop(serverCtx)
 	s.startAlertShadowObservationLoops(serverCtx)
@@ -2561,6 +2567,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleMarketSnapshot(ctx, req) })
 	case rpc.MethodMarketHistory:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketHistory(ctx, req) })
+	case rpc.MethodMarketBond:
+		s.unary(req, enc, func() (any, error) { return s.handleMarketBond(ctx, req) })
 	case rpc.MethodMarketTape:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketTape(ctx, req) })
 	case rpc.MethodQuoteSnapshot:

@@ -136,6 +136,9 @@ const (
 	AlertPresentationProtectionAutoOptionProfitTrailNow AlertPresentationCode = "protection_auto_option_profit_trail_now"
 	AlertPresentationProtectionAutoBudgetReduction      AlertPresentationCode = "protection_auto_budget_reduction"
 	AlertPresentationProtectionAutoBudgetReductionNow   AlertPresentationCode = "protection_auto_budget_reduction_now"
+	// AlertPresentationProtectionAutoCashSweep has no Now variant: a sweep
+	// row always waits the full veto window.
+	AlertPresentationProtectionAutoCashSweep AlertPresentationCode = "protection_auto_cash_sweep"
 	// AlertPresentationProtectionAutoDeferred and the two held codes keep a
 	// pre-authorised submission's notice open while it still waits: deferred
 	// by trading.freeze, or held by the settling rule behind a working hand
@@ -859,6 +862,7 @@ func validAlertPresentationCode(source AlertSource, value AlertPresentationCode)
 			AlertPresentationProtectionAutoOptionLossExit, AlertPresentationProtectionAutoOptionLossExitNow,
 			AlertPresentationProtectionAutoOptionProfitTrail, AlertPresentationProtectionAutoOptionProfitTrailNow,
 			AlertPresentationProtectionAutoBudgetReduction, AlertPresentationProtectionAutoBudgetReductionNow,
+			AlertPresentationProtectionAutoCashSweep,
 			AlertPresentationProtectionAutoDeferred, AlertPresentationProtectionAutoHeld, AlertPresentationProtectionAutoHeldUnverified:
 			return true
 		}

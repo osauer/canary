@@ -337,6 +337,12 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if p.Quantity <= 0 {
 		return nil, errBadRequest("quantity must be positive")
 	}
+	isBond := strings.EqualFold(contract.SecType, "BOND")
+	if isBond {
+		if err := validatePreviewBondParams(p, scope == rpc.OrderTokenScopeModify); err != nil {
+			return nil, err
+		}
+	}
 	if scope == rpc.OrderTokenScopeModify {
 		contract = modifyContractForView(replaceView, contract)
 	}
@@ -348,11 +354,27 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err != nil {
 		return nil, previewStageRefusal("gateway_unavailable", err)
 	}
-	contract, err = s.resolvePreviewOrderContract(ctx, previewAuthority, contract, min(timeout, previewMinTickTimeout))
-	if err != nil {
-		return nil, previewStageRefusal(previewContractUnresolvedCode, err)
+	var bondTerms *rpc.OrderBondTerms
+	var bondRules ibkrlib.BondOrderRules
+	if isBond {
+		var terms rpc.OrderBondTerms
+		var session *rpc.BondSession
+		contract, terms, bondRules, session, err = s.resolvePreviewBondContract(ctx, previewAuthority, contract, *p.Bond, min(timeout, bondDetailsWait))
+		if err != nil {
+			return nil, previewStageRefusal(previewContractUnresolvedCode, err)
+		}
+		if err := bondSessionRefusal(session, s.orderNow()); err != nil {
+			return nil, err
+		}
+		terms.FaceValue = float64(p.Quantity) * terms.FacePerUnit
+		bondTerms = &terms
+	} else {
+		contract, err = s.resolvePreviewOrderContract(ctx, previewAuthority, contract, min(timeout, previewMinTickTimeout))
+		if err != nil {
+			return nil, previewStageRefusal(previewContractUnresolvedCode, err)
+		}
 	}
-	if contract.MinTick <= 0 && previewAuthority == nil {
+	if contract.MinTick <= 0 && previewAuthority == nil && !isBond {
 		// Socket-free unit seams retain the historical helper. Production uses
 		// the min tick returned by the exact session-bound resolver and lets
 		// pricing's static grid handle an explicitly omitted broker MinTick.
@@ -404,6 +426,10 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	var limit, notionalPrice float64
 	var trail *rpc.OrderTrailSpec
 	switch {
+	case isBond:
+		strategy = rpc.OrderStrategyPatientLimit
+		limit, err = bondPatientLimitPrice(action, contract.MinTick, quote)
+		notionalPrice = limit
 	case p.Bounded == nil && !strings.EqualFold(strings.TrimSpace(p.Strategy), rpc.OrderStrategyBoundedLimit):
 		strategy, limit, trail, notionalPrice, err = previewOrderPricing(action, orderType, p.Strategy, p.LimitPrice, p.Trail, contract, quote)
 	case orderType != rpc.OrderTypeLMT || p.Trail != nil:
@@ -417,6 +443,14 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		return nil, err
 	}
 	notional := float64(p.Quantity) * notionalPrice * float64(contractMultiplier(contract))
+	if isBond {
+		// Built through the one bond order shape, which refuses a quantity off
+		// the line's size grid or a price off its minimum tick.
+		if _, _, err := ibkrlib.NewBondLimitOrder(*previewIBKRContract(contract), bondRules, action, p.Quantity, limit); err != nil {
+			return nil, refusePreviewCode(previewBondOrderInvalidCode, errBadRequest(err.Error()))
+		}
+		notional = bondOrderNotional(p.Quantity, bondTerms, limit)
+	}
 
 	now := time.Now().UTC()
 	if s.now != nil {
@@ -436,6 +470,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		OrderRef:      previewOrderRef(now),
 		OpenClose:     orderOpenCloseForEffect(position.Effect),
 		Source:        strings.TrimSpace(p.Source),
+		Bond:          bondTerms,
 	}
 	if scope == rpc.OrderTokenScopeModify {
 		if err := validateModifyDraft(replaceView, draft); err != nil {
@@ -677,6 +712,10 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 	if secType != "OPT" {
 		multiplier = 0
 	}
+	if secType == "BOND" {
+		// A bond is ordered by contract id alone; no listing fields ride along.
+		return &ibkrlib.Contract{ConID: contract.ConID, Symbol: strings.ToUpper(strings.TrimSpace(contract.Symbol)), SecType: secType, Exchange: exchange, Currency: currency}
+	}
 	out := &ibkrlib.Contract{
 		ConID:        contract.ConID,
 		Symbol:       strings.ToUpper(strings.TrimSpace(contract.Symbol)),
@@ -696,6 +735,7 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 
 func previewIBKRStrategyContract(draft rpc.OrderDraft) *ibkrlib.Contract {
 	contract := previewIBKRContract(draft.Contract)
+	contract.BondRules = previewBondRules(draft)
 	if draft.StrategyGroup == nil {
 		return contract
 	}
@@ -883,6 +923,9 @@ func normalizePreviewContract(in rpc.ContractParams) (rpc.ContractParams, error)
 		return echo, nil
 	case "OPT":
 		return normaliseOptionQuoteContract(in)
+	case "BOND":
+		// Admitted only with a cash_sweep row's bill terms (previewOrder).
+		return normalizePreviewBondContract(in)
 	default:
 		return rpc.ContractParams{}, errBadRequest("order preview supports STK/ETF/OPT contracts only")
 	}

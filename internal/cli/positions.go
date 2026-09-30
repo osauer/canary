@@ -93,12 +93,13 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 	// always-on column adds dead width to the table.
 	showRealized := anyRealized(r.Stocks) || anyRealized(r.Options)
 	renderPortfolioSummaryTo(env, out, r)
-	if len(r.Stocks) > 0 {
-		renderStocksTable(env, out, r.Stocks, r.DataType, showRealized, quoteDetails)
+	if stocks := positionsStockTableRows(r); len(stocks) > 0 {
+		renderStocksTable(env, out, stocks, r.DataType, showRealized, quoteDetails)
 	}
 	if len(r.Options) > 0 {
 		renderOptionsTable(env, out, r.Options, r.DataType, showRealized)
 	}
+	renderBondsTable(env, out, r.Bonds)
 	fmt.Fprintf(out, "  %d positions  ·  as of %s\n",
 		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r)))
 	return 0
