@@ -84,10 +84,11 @@ const (
 	// the bill's minimum size or size step within the position.
 	CashSweepBlockerBelowMinimum = "below_minimum_increment"
 	// CashSweepBlockerBillUnitMismatch is on an invest row whose last preview's
-	// broker WhatIf disagreed with the order's expected value at the assumed
-	// quantity unit by more than a factor of 3 (reviewer decision 2026-09-30
-	// 15:25 CEST): the unit may be wrong. It holds every submit of the
-	// currency's instrument until a preview checks clean.
+	// broker WhatIf initial-margin change, divided by the order's expected
+	// value at the assumed quantity unit, fell outside [0.005, 1.2]
+	// (reviewer decisions 2026-09-30 15:25 and 15:45 CEST): the unit may be
+	// wrong. It holds every submit of the currency's instrument until a
+	// preview checks clean.
 	CashSweepBlockerBillUnitMismatch = "bill_unit_mismatch"
 )
 

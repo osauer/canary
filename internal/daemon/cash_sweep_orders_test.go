@@ -527,12 +527,14 @@ func TestOrderPreviewAdmitsBondOnlyForASweepRow(t *testing.T) {
 	}
 }
 
-// A wrong face unit is caught by the broker's own figure (reviewer decision
-// 2026-09-30 15:25 CEST): a WhatIf whose initial-margin change disagrees
-// with the order's value at the assumed unit by more than a factor of 3, in
-// either direction, refuses the preview with bill_unit_mismatch naming both
-// figures and the unit; the instrument's rows stay blocked, and no submit
-// passes, until a preview checks clean.
+// A wrong face unit is caught by the broker's own figure (reviewer decisions
+// 2026-09-30 15:25 and 15:45 CEST): a WhatIf whose initial-margin change,
+// divided by the order's value at the assumed unit, falls outside [0.005,
+// 1.2] refuses the preview with bill_unit_mismatch naming both figures, the
+// unit and both bounds; the instrument's rows stay blocked, and no submit
+// passes, until a preview checks clean. A bill margined at one percent
+// (0.01) and a cash account (1.0) pass; a 1,000-fold unit error either way
+// is refused in both.
 func TestCashSweepBillUnitMismatch(t *testing.T) {
 	now := time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)
 	rig := newSweepPreviewRig(t, now)
@@ -545,7 +547,8 @@ func TestCashSweepBillUnitMismatch(t *testing.T) {
 		}
 	}
 	if out.Accepted || got == nil || !strings.Contains(got.Message, "54780000 USD") || !strings.Contains(got.Message, "expected value 54780 USD") ||
-		!strings.Contains(got.Message, "face_1000") || out.Readiness == nil || out.Readiness.Code != rpc.ReadinessNotExecutable {
+		!strings.Contains(got.Message, "face_1000") || !strings.Contains(got.Message, "outside the band 0.005 to 1.2") ||
+		out.Readiness == nil || out.Readiness.Code != rpc.ReadinessNotExecutable {
 		t.Fatalf("1,000x WhatIf = %+v readiness %+v", out.Blockers, out.Readiness)
 	}
 	// The instrument's rows now carry the blocker: not eligible for the
@@ -572,14 +575,18 @@ func TestCashSweepBillUnitMismatch(t *testing.T) {
 	if len(rig.drafts) != previews {
 		t.Fatal("a latched submit reached the broker's WhatIf")
 	}
-	// A thousand times too small is as wrong.
-	rig.marginFactor = 0.001
-	if out := rig.preview(t); out.Accepted {
-		t.Fatal("a 1/1,000 WhatIf passed")
+	// A 1,000-fold unit error in a margin account (a one-percent margin read
+	// 1,000 times too large or too small), a cash account's figure 1,000
+	// times too small, and a ratio of 0.001 are refused as well.
+	for _, factor := range []float64{10, 0.00001, 0.001} {
+		rig.marginFactor = factor
+		if out := rig.preview(t); out.Accepted {
+			t.Fatalf("a WhatIf at %g of the value passed", factor)
+		}
 	}
 	// A preview of the latched row still runs, and a clean one clears the
-	// latch; a factor of 2 is inside the band.
-	rig.marginFactor = 2
+	// latch: a bill margined at one percent reads 0.01.
+	rig.marginFactor = 0.01
 	if out := rig.preview(t); !out.Accepted {
 		t.Fatalf("clean preview of a latched row = %+v", out.Blockers)
 	}
@@ -588,8 +595,13 @@ func TestCashSweepBillUnitMismatch(t *testing.T) {
 	if rig.engine.applyBillUnitLatch(&fresh); len(fresh.Blockers) != 0 {
 		t.Fatalf("a clean preview left the latch: %+v", fresh.Blockers)
 	}
-	// A figure in a third currency, or none at all, cannot vouch for the unit.
+	// A cash account's figure (1.0) passes too.
 	rig.row = fresh
+	rig.marginFactor = 1
+	if out := rig.preview(t); !out.Accepted {
+		t.Fatalf("cash-account preview = %+v", out.Blockers)
+	}
+	// A figure in a third currency, or none at all, cannot vouch for the unit.
 	rig.marginCcy = "JPY"
 	if out := rig.preview(t); out.Accepted || !strings.Contains(fmt.Sprint(out.Blockers), "JPY") {
 		t.Fatalf("margin in a third currency = %+v", out.Blockers)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -301,11 +302,15 @@ func cashSweepBondAdmitted(prop rpc.TradeProposal, preview *rpc.OrderPreviewResu
 	return false
 }
 
-// cashSweepUnitMismatchFactor is how far the broker's WhatIf figure may sit
-// from an invest order's expected value, either way, before the assumed
-// quantity unit is refused (reviewer decision 2026-09-30 15:25 CEST). A wrong
-// face unit is off by a factor of 1,000.
-const cashSweepUnitMismatchFactor = 3.0
+// The band the WhatIf's initial-margin change ÷ an invest order's expected
+// value must lie in before the assumed quantity unit is accepted (reviewer
+// decisions 2026-09-30 15:25 and 15:45 CEST; assumption A9). The account is
+// a margin account: a bill margined at one percent reads about 0.01, a cash
+// account about 1.0, and a 1,000-fold unit error near 10 or near 0.00001.
+const (
+	cashSweepUnitRatioMin = 0.005
+	cashSweepUnitRatioMax = 1.2
+)
 
 // cashSweepBillUnitCheck compares an invest bill preview's accepted WhatIf
 // with the order's expected value at the assumed unit (face × limit / 100).
@@ -315,8 +320,8 @@ const cashSweepUnitMismatchFactor = 3.0
 // notional). checked is false when there is nothing to check (another row,
 // a redemption, whose quantity is the broker's own position count, or a
 // WhatIf that was not accepted, which the submit-eligibility gate refuses
-// anyway); mismatch is true when the figures disagree by more than the
-// factor or the figure cannot be read, and the blocker says which.
+// anyway); mismatch is true when their ratio falls outside the band or the
+// figure cannot be read, and the blocker says which.
 func cashSweepBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) (blocker rpc.TradingBlocker, mismatch, checked bool) {
 	s := prop.CashSweep
 	if preview == nil || prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || s.Side != rpc.CashSweepSideInvest ||
@@ -347,9 +352,10 @@ func cashSweepBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewRes
 	default:
 		return block(fmt.Sprintf("the broker's WhatIf reports its initial-margin change in %s, neither the account base nor the bill's currency, so the assumed unit %s cannot be checked", marginCcy, unit))
 	}
-	if !positiveFinite(expected) || !positiveFinite(broker) || broker > expected*cashSweepUnitMismatchFactor || broker*cashSweepUnitMismatchFactor < expected {
-		return block(fmt.Sprintf("the broker's WhatIf initial-margin change %s and the order's expected value %s at the assumed unit %s disagree by more than a factor of %.0f; the unit may be wrong",
-			formatBudgetMoney(broker, ccy), formatBudgetMoney(expected, ccy), unit, cashSweepUnitMismatchFactor))
+	if ratio := broker / expected; !positiveFinite(expected) || !positiveFinite(broker) || ratio < cashSweepUnitRatioMin || ratio > cashSweepUnitRatioMax {
+		return block(fmt.Sprintf("the broker's WhatIf initial-margin change %s is %s of the order's expected value %s at the assumed unit %s, outside the band %s to %s; the unit may be wrong",
+			formatBudgetMoney(broker, ccy), strconv.FormatFloat(ratio, 'g', 3, 64), formatBudgetMoney(expected, ccy), unit,
+			strconv.FormatFloat(cashSweepUnitRatioMin, 'f', -1, 64), strconv.FormatFloat(cashSweepUnitRatioMax, 'f', -1, 64)))
 	}
 	return rpc.TradingBlocker{}, false, true
 }

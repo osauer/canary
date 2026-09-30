@@ -1,6 +1,6 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 15:27 CEST
+Updated: 2026-09-30 15:44 CEST
 Status: Phase B implemented on feat/cash-sweep-b; post-install proof pending.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
@@ -110,7 +110,13 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   size increment in order units, its minimum tick per 100 of face, and its
   liquid (else trading) hours in its time zone, and a BOND LMT DAY order by
   contract id on SMART is how IBKR takes a bill order; without hours, the
-  assumed weekday sessions of the conventions table apply.
+  assumed weekday sessions of the conventions table apply; (A9) IBKR's
+  WhatIf for a bill buy reports an initial-margin change (and no order cost)
+  whose ratio to the order's value lies between 0.005 and 1.2: about 0.01
+  where a bill is margined at one percent (the owner's margin account), about
+  1.0 in a cash account; a 1,000-fold unit error lands near 10 or near
+  0.00001, outside the band either way (reviewer decision 2026-09-30 15:45
+  CEST).
 
 ## Authority And Evidence
 
@@ -196,7 +202,8 @@ parser, no generic ticks on the exact order session),
 redemptions, bond valuation in commitments and settlement, readiness and the
 scheduler's session wait, the pre-authorised vocabulary, the end-to-end BOND
 preview and its refusals, BOND refused without a sweep row's terms, the
-unit check against a WhatIf 1,000 times off and its latch),
+unit check's ratio band (0.01 and 1.0 pass; 1,000-fold errors either way and
+0.001 are refused) and its latch),
 `internal/daemon/cash_sweep_orders_trading_test.go` (a pre-authorised buy
 waits the full window and the session, then reaches the broker as one BOND
 LMT DAY order with its grid), `internal/app/alerts/presentation_test.go`.
@@ -378,9 +385,10 @@ never an account id, a balance or an order reference).
    100, and a WhatIf verdict; record the WhatIf's commission and margin
    change. A WhatIf that reads the quantity 1,000 times larger (or smaller)
    than the face value refutes A5 for USD; the preview then reads
-   `bill_unit_mismatch`. In a margin account the initial-margin change is a
-   share of the value (A2, about 1% for bills), which the check also reads
-   as a mismatch (R8): record which it is. Do not submit.
+   `bill_unit_mismatch`. Record the ratio of the margin change to the
+   order's value: about 0.01 is the margin account's one-percent bill margin
+   (A2, A9); a ratio outside [0.005, 1.2] on a correct unit refutes A9. Do
+   not submit.
 7. Size and tick read back: `canary market --symbol <CUSIP> --type BOND
    --json` for that bill shows `min_size`, `size_increment` and `min_tick`;
    they must equal the draft's `bond.min_size`, `bond.size_increment` and
@@ -474,14 +482,15 @@ P1, not a new threshold; no new policy number exists.
    error, and on config defaults, exactly as for the other buckets. Its
    notice has its own copy (`protection_auto_cash_sweep`, no "now" variant).
    Nothing enables it: the owner writes `pre_authorised`.
-8. **Unit check against the broker** (reviewer decision 2026-09-30 15:25
-   CEST). A wrong face unit is caught by the broker's own figure, not a
-   policy gate: an invest preview compares the accepted WhatIf's
-   initial-margin change (IBKR's WhatIf sends no order cost for a bond) with
+8. **Unit check against the broker** (reviewer decisions 2026-09-30 15:25
+   and 15:45 CEST). A wrong face unit is caught by the broker's own figure,
+   not a policy gate: an invest preview divides the accepted WhatIf's
+   initial-margin change (IBKR's WhatIf sends no order cost for a bond) by
    the order's expected value, face × limit / 100 at the assumed unit, in the
-   margin currency (the account base or the bill's currency). More than a
-   factor of 3 apart either way, or no readable figure, refuses the preview
-   with `bill_unit_mismatch` naming both figures and the unit, and latches
+   margin currency (the account base or the bill's currency). A ratio outside
+   [0.005, 1.2] (A9), or no readable figure or one in a third currency,
+   refuses the preview with `bill_unit_mismatch` naming both figures, the
+   unit and both bounds, and latches
    the currency's instrument: its invest rows carry the blocker (so no
    submit, prepared submit or pre-authorised record passes) until a preview
    of it checks clean, which clears the latch. Every submit previews and
@@ -555,5 +564,5 @@ Phase B:
 | R5 | Issuer read from identifiers (A6) | only classifies held bills as equivalents; buys use only TreasuryDirect CUSIPs and the owner's ISINs |
 | R6 | Quantity unit and price convention (A5, A7) | the order path sizes and prices by them; a wrong EUR, GBP or CAD unit (IBKR counting in thousands) would make an order 1,000 times its intended face: the post-install proof (steps 6–7) checks it before any order, and the owner's approval of the previewed quantity and WhatIf is the last line |
 | R7 | Bond session hours (A8) | contract liquid or trading hours when sent, else the assumed weekday session; a holiday reads open and the live-quote requirement refuses |
-| R8 | The unit check's figure | built as decided: the WhatIf's initial-margin change within a factor of 3 of the order's value. That holds where the margin change is the order's value (a cash account); where IBKR margins a bill at a small share of its value (A2, a margin account), every bill buy reads `bill_unit_mismatch` and stays blocked. Fail-closed; the post-install proof step 6 shows which, and a different figure or band is the reviewer's to decide |
+| R8 | The unit check's figure (A9) | the WhatIf's initial-margin change ÷ the order's value must lie in [0.005, 1.2], admitting the margin account's one-percent bill margin and a cash account; a bill margined below 0.5% would read `bill_unit_mismatch` and stay blocked (fail-closed), which the post-install proof step 6 shows |
 | O7 | USD balance as FX exposure | out of scope; the sweep never converts |

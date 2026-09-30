@@ -416,8 +416,9 @@ no earlier than the open plus 5 minutes for stocks and 15 for options. At a
 stress open, while the latched regime stage reads confirmed stress (a stale
 confirmed stage still counts; a stage never observed reads calm), options rows
 that scale the book at your discretion (budget, theta and issuer-trim
-reductions and the cash sweep) wait 30 minutes; loss exits, expiry closes and
-trailing stops keep 15, because a stop is a stop. A row's `readiness` dates
+reductions) wait 30 minutes; loss exits, expiry closes and trailing stops keep
+15, because a stop is a stop. The cash sweep's bills are not options: they
+keep the 5-minute offset after their own session opens (see *Cash sweep*). A row's `readiness` dates
 that time in `default_send_at`; at a stress open it adds `stress_open: true` to
 a row that waits 30 minutes and `stress_open_exempt: true` to one that keeps
 15, and its message says which applies, with the time.
@@ -575,12 +576,14 @@ A row carries a blocker only when its order cannot be priced or sized:
 `fresh_bill_quote_required` (the bill's quote, or a held bill's mark, is not
 live), `bill_contract_rules_unavailable` or `below_minimum_increment` (a
 redemption the held bill's size grid cannot fit), and `bill_unit_mismatch`:
-a buy's preview compares the broker's WhatIf (its initial-margin change, the
-figure IBKR returns for a bond) with the order's value at the assumed unit,
-and when they differ by more than a factor of 3 either way, the preview is
-refused and that bill instrument's buys stay blocked, for every submit, until
-a preview checks clean. A stale quote's readiness is `quote_unusable`. Outside the bill's session the row's readiness is
-`market_closed` with the session's next open, and the preview refuses with
+a buy's preview divides the broker's WhatIf initial-margin change (the figure
+IBKR returns for a bond) by the order's value at the assumed unit, and when
+the ratio falls outside 0.005 to 1.2 (a bill margined at one percent reads
+about 0.01, a cash account about 1.0, a unit 1,000 times off near 10 or near
+0.00001), the preview is refused and that bill instrument's buys stay
+blocked, for every submit, until a preview checks clean. A stale quote's
+readiness is `quote_unusable`. Outside the bill's session the row's readiness
+is `market_closed` with the session's next open, and the preview refuses with
 `market_closed` before any quote. An
 order already working for the same bill and side, or sent and not yet
 acknowledged, holds a new preview until it fills or is cancelled; working
