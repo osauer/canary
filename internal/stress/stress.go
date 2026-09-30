@@ -1224,11 +1224,14 @@ func stressMarginHeadroomReading(h *rpc.StressMarginHeadroom) string {
 	return fmt.Sprintf("margin headroom %.1f%% NLV (Rulebook watch below %s%%, act below %s%%)", *h.PctNLV, stressLimitText(h.WatchPct), stressLimitText(h.ActPct))
 }
 
-// stressMarginHeadroomEvidence is rule 19's reading with the broker's
-// look-ahead headroom as context when reported; no verdict rests on it.
+// stressMarginHeadroomEvidence is rule 19's reading. A measured reading
+// already judges the broker's look-ahead excess liquidity (amendment 19 R3),
+// and rule 19's evidence names which figure governed, so the stress read adds
+// its own look-ahead figure only beside a missing reading, as context no
+// verdict rests on.
 func stressMarginHeadroomEvidence(p StressPortfolioSummary) string {
 	out := stressMarginHeadroomReading(p.MarginHeadroom)
-	if p.LookAheadCushionPct != nil {
+	if p.LookAheadCushionPct != nil && !stressMarginHeadroomMeasured(p.MarginHeadroom) {
 		out += fmt.Sprintf("; look-ahead %.1f%% NLV (context)", *p.LookAheadCushionPct)
 	}
 	return out
@@ -1971,8 +1974,9 @@ func stressSignals(p StressPortfolioSummary, pos rpc.PositionsResult, m StressMa
 // verdict and bands (amendment 19): a watch at the watch band, an act at the
 // act band whose target is the watch band. A rule 19 reading that is
 // unavailable, unknown or off raises nothing here; the margin row carries
-// that gap and never reads it as a pass. The broker's look-ahead figure is
-// context only, so lookahead_cushion_low is no longer raised.
+// that gap and never reads it as a pass. Rule 19 itself judges the broker's
+// look-ahead figure (amendment 19 R3), so lookahead_cushion_low is no longer
+// raised.
 func stressMarginSignals(p StressPortfolioSummary) []risk.Signal {
 	h := p.MarginHeadroom
 	severity, threshold, hit := stressMarginHeadroomLevel(h)

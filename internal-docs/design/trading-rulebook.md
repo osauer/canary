@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 13:31 CEST
+Updated: 2026-09-30 13:43 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -106,7 +106,9 @@ contradiction:
   watch, act an act, and an act cuts back to rule 19's watch level. The
   retired stress cushion levels (watch 35, act 20, urgent 10, target 25) are
   gone. Without a rule 19 measurement (unavailable, unknown, or rule 19 off)
-  the margin row is a data-quality watch, never a pass.
+  the margin row is a data-quality watch, never a pass. Rule 19 judges the
+  worse of the broker's current and look-ahead excess liquidity (amendment
+  19 R3), so the retired look-ahead warning lives under the same definition.
 - One aggregation: rule evaluation consumes the same
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
   read consumes. Bars may differ; observations may not. (An earlier revision
@@ -524,6 +526,33 @@ contradiction:
       and a sale never warns. This replaces amendment 18's "no preview
       cause"; rule 19 still never trims, drives no bucket and no sell-only.
       Advisory by construction: submit eligibility is untouched.
+    - R3 (reviewer decision of 13:40 CEST), rule 19 judges the worse of
+      current and look-ahead: when the broker reports its look-ahead excess
+      liquidity (the figure after the next margin cycle), rule 19's observed
+      value is the lower of the two as % of NLV, and that value sets the
+      verdict. The evidence names both figures and which one governed
+      ("Excess liquidity is 18.0% of NLV, below the 30% watch level (act
+      below 15%); look-ahead 18.0% governs; current 22.0%."); a tie goes to
+      the current figure. Without a look-ahead figure (not reported, or not
+      a finite number) the current figure stands alone, as before; without a
+      current figure the row stays `unknown` with
+      `excess_liquidity_unavailable`, because a look-ahead figure alone
+      never stands in for it. The daemon maps the look-ahead figure only
+      when the account summary carried it. This brings the look-ahead
+      warning R1 retired (`lookahead_cushion_low`) back under the one
+      definition: the stress margin row takes rule 19's worse-of figure, so
+      it quotes its own look-ahead figure as context only beside a missing
+      rule 19 reading. No key moved: baseline `rulebook-v5`, projection
+      `rulebook-fp-v8`.
+    - R4 (reviewer decision of 13:40 CEST), rule 19 also warns opening sales:
+      while rule 19 is at watch or act, a SELL that opens or increases a
+      short stock or option position (the preview's own position effect
+      `open_short`, `flip` or `increase`) carries the same advisory
+      `rule_margin_headroom` warning as a buy ("... a sale that opens or adds
+      to a short position consumes margin, so this order shrinks the
+      headroom further."). A sale that closes or reduces stays exempt, as
+      does a sale without a classified effect or of another security type.
+      This replaces R2's "a sale never warns".
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
@@ -562,7 +591,7 @@ regime-conditionality notes).
 | 16 | `delta_swing` | one issuer's dollar delta / NLV; protection-classified index short delta exempt; never acts | watch ≥ 30% | track |
 | 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
 | 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
-| 19 | `margin_headroom` | broker-reported excess liquidity / NLV; reads downward, equality passes; never trims (amendment 18); warns every buy at watch or act (amendment 19) | watch < 30%; act < 15% | alert |
+| 19 | `margin_headroom` | broker-reported excess liquidity / NLV, the worse of current and look-ahead when both are reported; reads downward, equality passes; never trims (amendment 18); warns every buy and every sale that opens or adds to a short at watch or act (amendment 19) | watch < 30%; act < 15% | alert |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The

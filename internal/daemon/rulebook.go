@@ -485,7 +485,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		if accountAuthority.AvailableFundsAvailable {
 			in.AvailableFundsBase = new(acct.AvailableFunds)
 		}
-		in.ExcessLiquidityBase, in.InitialMarginBase, in.MaintenanceMarginBase = rulebookMarginInputs(acct, accountAuthority)
+		in.ExcessLiquidityBase, in.LookAheadExcessLiquidityBase, in.InitialMarginBase, in.MaintenanceMarginBase = rulebookMarginInputs(acct, accountAuthority)
 		in.DailyPnLBase = acct.DailyPnL
 		if accountAuthority.BaseCurrencyAvailable {
 			if baseCurrency, ok := rulebookBaseCurrency(acct.BaseCurrency); ok {
@@ -693,13 +693,15 @@ func rulebookAccountSourceHealth(scope brokerStateScope, account *rpc.AccountRes
 	return risk.SourceState{Healthy: true}, health
 }
 
-// rulebookMarginInputs maps rule 19's inputs (amendment 18) from the account
-// summary: the broker's excess liquidity, the measure, and its initial and
+// rulebookMarginInputs maps rule 19's inputs (amendments 18 and 19) from the
+// account summary: the broker's excess liquidity and its look-ahead excess
+// liquidity, the measure (the worse of the two), and its initial and
 // maintenance margin, context. A field the broker did not report, or one that
-// is not a finite number, stays nil, which the rule reads as unknown.
-func rulebookMarginInputs(account *rpc.AccountResult, authority accountSummaryAuthority) (excess, initial, maintenance *float64) {
+// is not a finite number, stays nil: no current figure reads unknown, no
+// look-ahead figure leaves the current one alone.
+func rulebookMarginInputs(account *rpc.AccountResult, authority accountSummaryAuthority) (excess, lookAhead, initial, maintenance *float64) {
 	if account == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	read := func(available bool, v float64) *float64 {
 		if !available || math.IsNaN(v) || math.IsInf(v, 0) {
@@ -708,6 +710,7 @@ func rulebookMarginInputs(account *rpc.AccountResult, authority accountSummaryAu
 		return new(v)
 	}
 	return read(authority.ExcessLiquidityAvailable, account.ExcessLiquidity),
+		read(authority.LookAheadExcessLiquidityAvailable, account.LookAheadExcess),
 		read(authority.InitialMarginAvailable, account.InitialMargin),
 		read(authority.MaintenanceMarginAvailable, account.MaintenanceMargin)
 }
@@ -1882,10 +1885,39 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 		}
 	}
 	// Rule 19 reads downward (amendment 19): while margin headroom is at
-	// watch or act, every buy warns, because a buy consumes margin.
-	if r, ok := breached(risk.RuleMarginHeadroom); ok && isBuy {
-		out = append(out, warn(r, fmt.Sprintf("Excess liquidity is %s of NLV, below the margin-headroom %s %s; a buy consumes margin, so this order shrinks the headroom further.",
-			rulebookPercentText(r.Observed, false), rulebookPercentText(r.Threshold, false), rulebookLevelWord(r.Status))))
+	// watch or act, every buy warns, because a buy consumes margin, and so
+	// does a sale that opens or adds to a short stock or option position
+	// (R4). A sale that closes or reduces returned above.
+	if r, ok := breached(risk.RuleMarginHeadroom); ok {
+		consumes := ""
+		switch {
+		case isBuy:
+			consumes = "a buy consumes margin"
+		case draftSellsShortOnMargin(draft, position):
+			consumes = "a sale that opens or adds to a short position consumes margin"
+		}
+		if consumes != "" {
+			out = append(out, warn(r, fmt.Sprintf("Excess liquidity is %s of NLV, below the margin-headroom %s %s; %s, so this order shrinks the headroom further.",
+				rulebookPercentText(r.Observed, false), rulebookPercentText(r.Threshold, false), rulebookLevelWord(r.Status), consumes)))
+		}
 	}
 	return out
+}
+
+// draftSellsShortOnMargin reports whether a SELL opens or increases a short
+// stock or option position, on the preview's own position-effect
+// classification: open_short, flip (through zero to short) or increase (a
+// larger short). A close or reduce, an unclassified effect and any other
+// security type do not count.
+func draftSellsShortOnMargin(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
+	if !strings.EqualFold(draft.Action, rpc.OrderActionSell) ||
+		!(isStockLikeRiskSecType(draft.Contract.SecType) || strings.EqualFold(draft.Contract.SecType, "OPT")) {
+		return false
+	}
+	switch position.Effect {
+	case rpc.OrderPositionEffectOpenShort, rpc.OrderPositionEffectFlip, rpc.OrderPositionEffectIncrease:
+		return true
+	default:
+		return false
+	}
 }

@@ -148,7 +148,7 @@ type RulebookPolicy struct {
 	// FXExposureWatchPct watches at or above this magnitude of combined non-base-currency exposure as a percent of NLV. No act tier; missing account or currency evidence remains unknown.
 	FXExposureWatchPct float64 `toml:"fx_exposure_watch_pct" json:"fx_exposure_watch_pct"`
 
-	// MarginHeadroomWatchPct watches strictly below this broker excess liquidity as a percent of NLV (rule 19); a reading exactly at the level passes. Missing excess liquidity or NLV is unknown, never a pass.
+	// MarginHeadroomWatchPct watches strictly below this broker excess liquidity as a percent of NLV (rule 19), the worse of the current and the look-ahead figure when the broker reports both; a reading exactly at the level passes. Missing excess liquidity or NLV is unknown, never a pass.
 	MarginHeadroomWatchPct float64 `toml:"margin_headroom_watch_pct" json:"margin_headroom_watch_pct"`
 	// MarginHeadroomActPct acts strictly below this excess liquidity as a percent of NLV; it may not exceed the watch level. Rule 19 never trims and drives no proposal.
 	MarginHeadroomActPct float64 `toml:"margin_headroom_act_pct" json:"margin_headroom_act_pct"`

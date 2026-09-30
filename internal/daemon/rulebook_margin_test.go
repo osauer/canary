@@ -75,22 +75,28 @@ func TestEditRulebookPolicyValidatesMarginHeadroom(t *testing.T) {
 }
 
 // The account summary feeds rule 19 only the fields the broker reported:
-// an unreported or non-finite field stays nil, never a zero.
+// an unreported or non-finite field stays nil, never a zero. The look-ahead
+// excess liquidity (amendment 19 R3) follows the same rule.
 func TestRulebookMarginInputsReadOnlyReportedFields(t *testing.T) {
-	acct := &rpc.AccountResult{ExcessLiquidity: 22000, InitialMargin: 55000, MaintenanceMargin: 40000}
-	all := accountSummaryAuthority{ExcessLiquidityAvailable: true, InitialMarginAvailable: true, MaintenanceMarginAvailable: true}
-	excess, initial, maintenance := rulebookMarginInputs(acct, all)
-	if excess == nil || *excess != 22000 || initial == nil || *initial != 55000 || maintenance == nil || *maintenance != 40000 {
-		t.Fatalf("reported fields: %v %v %v", excess, initial, maintenance)
+	acct := &rpc.AccountResult{ExcessLiquidity: 22000, LookAheadExcess: 18000, InitialMargin: 55000, MaintenanceMargin: 40000}
+	all := accountSummaryAuthority{ExcessLiquidityAvailable: true, LookAheadExcessLiquidityAvailable: true, InitialMarginAvailable: true, MaintenanceMarginAvailable: true}
+	excess, lookAhead, initial, maintenance := rulebookMarginInputs(acct, all)
+	if excess == nil || *excess != 22000 || lookAhead == nil || *lookAhead != 18000 || initial == nil || *initial != 55000 || maintenance == nil || *maintenance != 40000 {
+		t.Fatalf("reported fields: %v %v %v %v", excess, lookAhead, initial, maintenance)
 	}
-	if excess, initial, maintenance := rulebookMarginInputs(acct, accountSummaryAuthority{}); excess != nil || initial != nil || maintenance != nil {
-		t.Fatalf("unreported fields read as numbers: %v %v %v", excess, initial, maintenance)
+	if excess, lookAhead, initial, maintenance := rulebookMarginInputs(acct, accountSummaryAuthority{}); excess != nil || lookAhead != nil || initial != nil || maintenance != nil {
+		t.Fatalf("unreported fields read as numbers: %v %v %v %v", excess, lookAhead, initial, maintenance)
 	}
-	acct.ExcessLiquidity = math.Inf(1)
-	if excess, _, _ := rulebookMarginInputs(acct, all); excess != nil {
-		t.Fatalf("a non-finite excess liquidity was read: %v", *excess)
+	current := all
+	current.LookAheadExcessLiquidityAvailable = false
+	if excess, lookAhead, _, _ := rulebookMarginInputs(acct, current); excess == nil || lookAhead != nil {
+		t.Fatalf("current only: excess %v look-ahead %v", excess, lookAhead)
 	}
-	if excess, initial, maintenance := rulebookMarginInputs(nil, all); excess != nil || initial != nil || maintenance != nil {
+	acct.ExcessLiquidity, acct.LookAheadExcess = math.Inf(1), math.NaN()
+	if excess, lookAhead, _, _ := rulebookMarginInputs(acct, all); excess != nil || lookAhead != nil {
+		t.Fatalf("a non-finite excess liquidity was read: %v %v", excess, lookAhead)
+	}
+	if excess, lookAhead, initial, maintenance := rulebookMarginInputs(nil, all); excess != nil || lookAhead != nil || initial != nil || maintenance != nil {
 		t.Fatal("no account summary produced inputs")
 	}
 }
@@ -120,9 +126,9 @@ func TestAlertShadowRulebookCarriesMarginHeadroom(t *testing.T) {
 
 // Rule 19 warns buys (amendment 19): while margin headroom is at watch or
 // act, every buy, stock or option, call or put, carries an advisory
-// rule_margin_headroom warning quoting the band its status rests on. A sale
-// never warns, a close or reduce stays exempt, and a pass or unknown row is
-// quiet. Submit eligibility is untouched.
+// rule_margin_headroom warning quoting the band its status rests on. A close
+// or reduce stays exempt, and a pass or unknown row is quiet. Submit
+// eligibility is untouched. Opening sales are covered below.
 func TestPreviewWarnsBuysWhileMarginHeadroomIsLow(t *testing.T) {
 	result := func(status string, observed, threshold float64) *rpc.RulesResult {
 		return &rpc.RulesResult{Enabled: true, Status: "ok", AsOf: time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC), Rules: []risk.RuleRow{
@@ -158,12 +164,79 @@ func TestPreviewWarnsBuysWhileMarginHeadroomIsLow(t *testing.T) {
 			t.Fatalf("%s warned: %+v", effect, ws)
 		}
 	}
+	// "open" is a long opening; a sale never classifies as one, so it is quiet.
 	if ws := rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), option("SELL", "C"), open); len(ws) != 0 {
-		t.Fatalf("a sale warned: %+v", ws)
+		t.Fatalf("a sale classified open warned: %+v", ws)
 	}
 	for _, status := range []string{risk.RuleStatusPass, risk.RuleStatusUnknown, risk.RuleStatusNotEvaluated} {
 		if ws := rulebookPreviewWarnings(result(status, 40, 30), stock, open); len(ws) != 0 {
 			t.Fatalf("rule 19 %s warned: %+v", status, ws)
+		}
+	}
+}
+
+// Rule 19 warns opening sales (amendment 19 R4): while margin headroom is at
+// watch or act, a SELL that opens or adds to a short stock or option position
+// uses margin as a buy does and carries the same advisory warning, on the
+// preview's own position-effect classification. A covered close or a reduce
+// stays exempt, and so does a sale of any other security type.
+func TestPreviewWarnsOpeningShortSalesWhileMarginHeadroomIsLow(t *testing.T) {
+	result := func(status string, observed, threshold float64) *rpc.RulesResult {
+		return &rpc.RulesResult{Enabled: true, Status: "ok", AsOf: time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC), Rules: []risk.RuleRow{
+			{ID: risk.RuleMarginHeadroom, Number: 19, Title: "Margin headroom", Status: status, Observed: new(observed), Threshold: new(threshold),
+				WatchThreshold: new(30.0), ActThreshold: new(15.0)},
+		}}
+	}
+	put := rpc.OrderDraft{Action: "SELL", Contract: rpc.ContractParams{Symbol: "AAA", SecType: "OPT", Right: "P", Expiry: "20261218", Strike: 450}}
+	call := rpc.OrderDraft{Action: "SELL", Contract: rpc.ContractParams{Symbol: "BBB", SecType: "OPT", Right: "C", Expiry: "20261218", Strike: 120}}
+	stock := rpc.OrderDraft{Action: "SELL", Contract: rpc.ContractParams{Symbol: "BBB", SecType: "STK"}}
+	code := "rule_" + risk.RuleMarginHeadroom
+	const saleMessage = "Excess liquidity is 18% of NLV, below the margin-headroom 30% watch level; a sale that opens or adds to a short position consumes margin, so this order shrinks the headroom further."
+
+	// An opening short put: no position before, a short one after.
+	w := previewCodes(rulebookPreviewWarnings(result(risk.RuleStatusWatch, 18, 30), put, rpc.OrderPositionImpact{Before: 0, After: -1, Effect: rpc.OrderPositionEffectOpenShort}))[code]
+	if w.Severity != risk.RuleStatusWatch || w.Scope != "rulebook" || w.Message != saleMessage ||
+		!strings.Contains(w.Impact, "rule 19") || !strings.Contains(w.Impact, "submit eligibility is unaffected") {
+		t.Fatalf("opening short put = %+v", w)
+	}
+	for name, c := range map[string]struct {
+		draft  rpc.OrderDraft
+		impact rpc.OrderPositionImpact
+	}{
+		"a larger short put":            {put, rpc.OrderPositionImpact{Before: -1, After: -3, Effect: rpc.OrderPositionEffectIncrease}},
+		"a short stock opening":         {stock, rpc.OrderPositionImpact{Before: 0, After: -100, Effect: rpc.OrderPositionEffectOpenShort}},
+		"a stock sale through to short": {stock, rpc.OrderPositionImpact{Before: 50, After: -50, Effect: rpc.OrderPositionEffectFlip}},
+		"an ETF short opening": {rpc.OrderDraft{Action: "SELL", Contract: rpc.ContractParams{Symbol: "CCC", SecType: "ETF"}},
+			rpc.OrderPositionImpact{Before: 0, After: -10, Effect: rpc.OrderPositionEffectOpenShort}},
+		"a naked call": {call, rpc.OrderPositionImpact{Before: 0, After: -1, Effect: rpc.OrderPositionEffectOpenShort}},
+	} {
+		w := previewCodes(rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), c.draft, c.impact))[code]
+		if w.Severity != risk.RuleStatusAct || !strings.Contains(w.Message, "below the margin-headroom 15% act level; a sale that opens or adds to a short position consumes margin") {
+			t.Fatalf("%s: warning = %+v", name, w)
+		}
+	}
+	// A sale that closes or reduces a long position, a covered close among
+	// them, stays exempt; so do an unclassified sale and a sale of another
+	// security type.
+	for name, c := range map[string]struct {
+		draft  rpc.OrderDraft
+		impact rpc.OrderPositionImpact
+	}{
+		"a covered close of the stock": {stock, rpc.OrderPositionImpact{Before: 100, After: 0, Effect: rpc.OrderPositionEffectClose}},
+		"a long stock reduced":         {stock, rpc.OrderPositionImpact{Before: 100, After: 40, Effect: rpc.OrderPositionEffectReduce}},
+		"a long put sold to close":     {put, rpc.OrderPositionImpact{Before: 2, After: 0, Effect: rpc.OrderPositionEffectClose}},
+		"an unclassified sale":         {put, rpc.OrderPositionImpact{}},
+		"a bond sold short": {rpc.OrderDraft{Action: "SELL", Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "BOND"}},
+			rpc.OrderPositionImpact{Before: 0, After: -1, Effect: rpc.OrderPositionEffectOpenShort}},
+	} {
+		if ws := rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), c.draft, c.impact); len(ws) != 0 {
+			t.Fatalf("%s warned: %+v", name, ws)
+		}
+	}
+	// A pass, unknown or off rule 19 is quiet for an opening sale too.
+	for _, status := range []string{risk.RuleStatusPass, risk.RuleStatusUnknown, risk.RuleStatusNotEvaluated} {
+		if ws := rulebookPreviewWarnings(result(status, 40, 30), put, rpc.OrderPositionImpact{Before: 0, After: -1, Effect: rpc.OrderPositionEffectOpenShort}); len(ws) != 0 {
+			t.Fatalf("rule 19 %s warned an opening sale: %+v", status, ws)
 		}
 	}
 }

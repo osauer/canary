@@ -102,6 +102,60 @@ func TestMarginHeadroomEvidenceNamesTheMargins(t *testing.T) {
 	}
 }
 
+// Rule 19 judges the worse of the current and the look-ahead excess
+// liquidity (amendment 19 R3): the lower of the two as % of NLV is the
+// observed value and sets the verdict, and the evidence names both and which
+// one governed. Without a look-ahead figure the current one stands alone, as
+// before; without a current figure the row stays unknown.
+func TestMarginHeadroomJudgesTheWorseOfCurrentAndLookAhead(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		current   *float64
+		lookAhead *float64
+		status    string
+		observed  float64
+		evidence  string
+	}{
+		{"current only", new(22000.0), nil, RuleStatusWatch, 22,
+			"Excess liquidity is 22.0% of NLV, below the 30% watch level (act below 15%)."},
+		{"look-ahead worse", new(22000.0), new(18000.0), RuleStatusWatch, 18,
+			"Excess liquidity is 18.0% of NLV, below the 30% watch level (act below 15%); look-ahead 18.0% governs; current 22.0%."},
+		{"look-ahead worse crosses the act level", new(22000.0), new(12000.0), RuleStatusAct, 12,
+			"Excess liquidity is 12.0% of NLV, below the 15% act level (watch below 30%); look-ahead 12.0% governs; current 22.0%."},
+		{"look-ahead worse turns a pass into a watch", new(40000.0), new(25000.0), RuleStatusWatch, 25,
+			"Excess liquidity is 25.0% of NLV, below the 30% watch level (act below 15%); look-ahead 25.0% governs; current 40.0%."},
+		{"look-ahead better", new(22000.0), new(35000.0), RuleStatusWatch, 22,
+			"Excess liquidity is 22.0% of NLV, below the 30% watch level (act below 15%); current 22.0% governs; look-ahead 35.0%."},
+		{"look-ahead better on a pass", new(45000.0), new(60000.0), RuleStatusPass, 45,
+			"Excess liquidity is 45.0% of NLV, at or above the 30% watch level; current 45.0% governs; look-ahead 60.0%."},
+		{"a tie goes to the current figure", new(20000.0), new(20000.0), RuleStatusWatch, 20,
+			"Excess liquidity is 20.0% of NLV, below the 30% watch level (act below 15%); current 20.0% governs; look-ahead 20.0%."},
+		{"a look-ahead that is not a number is ignored", new(22000.0), new(math.NaN()), RuleStatusWatch, 22,
+			"Excess liquidity is 22.0% of NLV, below the 30% watch level (act below 15%)."},
+	} {
+		in := marginInputs(c.current)
+		in.LookAheadExcessLiquidityBase = c.lookAhead
+		row := rowByID(t, EvaluateRulebook(in, DefaultRulebookPolicy()), RuleMarginHeadroom)
+		if row.Status != c.status || row.Observed == nil || *row.Observed != c.observed || row.Evidence != c.evidence {
+			t.Fatalf("%s: status %s observed %v evidence %q, want %s %v %q", c.name, row.Status, row.Observed, row.Evidence, c.status, c.observed, c.evidence)
+		}
+	}
+	// The margin context still follows the governing clause.
+	in := marginInputs(new(22000.0))
+	in.LookAheadExcessLiquidityBase, in.MaintenanceMarginBase = new(18000.0), new(40000.0)
+	if row := rowByID(t, EvaluateRulebook(in, DefaultRulebookPolicy()), RuleMarginHeadroom); !strings.HasSuffix(row.Evidence,
+		"; look-ahead 18.0% governs; current 22.0%. Maintenance margin is 40.0% of NLV.") {
+		t.Fatalf("evidence with margin context = %q", row.Evidence)
+	}
+	// A look-ahead figure never stands in for a missing current one.
+	in = marginInputs(nil)
+	in.LookAheadExcessLiquidityBase = new(9000.0)
+	if row := rowByID(t, EvaluateRulebook(in, DefaultRulebookPolicy()), RuleMarginHeadroom); row.Status != RuleStatusUnknown ||
+		row.Reason != RuleReasonExcessLiquidityUnavailable || row.Observed != nil {
+		t.Fatalf("look-ahead without current = %+v", row)
+	}
+}
+
 // Rule 19 carries no impact, so among rows of one mode it ranks by severity,
 // then rule number, as the cash reserve rule did. It drives no sell-only and
 // is not a watch-only rule: it can act.

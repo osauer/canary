@@ -357,7 +357,8 @@ and source health alongside the risk evidence.
 Rulebook evaluates 19 advisory checks over the current book, 16 discipline
 rules and 3 concentration watches that never act: which pass, which need
 attention, and which cannot be evaluated. Inputs are account and positions
-evidence (margin headroom reads the broker's excess liquidity), per-name
+evidence (margin headroom reads the broker's current and look-ahead excess
+liquidity), per-name
 earnings evidence, the classified Regime stage, 20-day average volume for days
 to exit, the constitution's effective risk capital for the loss budget, and
 current SPY tape where a rule needs it. The pure evaluator

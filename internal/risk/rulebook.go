@@ -355,11 +355,16 @@ type RuleInputs struct {
 	// ExcessLiquidityBase is the broker's excess liquidity (equity with loan
 	// value above maintenance margin), rule 19's measure; nil when the
 	// account summary did not carry it, which reads unknown, never pass.
+	// LookAheadExcessLiquidityBase is the broker's look-ahead excess
+	// liquidity, after the next margin cycle; when reported and lower, rule
+	// 19 judges it instead (amendment 19 R3). nil when not reported, which
+	// leaves the current figure alone.
 	// InitialMarginBase and MaintenanceMarginBase are the broker's margin
 	// requirements, context on rule 19's evidence; nil when not reported.
-	ExcessLiquidityBase   *float64
-	InitialMarginBase     *float64
-	MaintenanceMarginBase *float64
+	ExcessLiquidityBase          *float64
+	LookAheadExcessLiquidityBase *float64
+	InitialMarginBase            *float64
+	MaintenanceMarginBase        *float64
 
 	Names []NameInput
 

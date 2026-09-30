@@ -37,7 +37,7 @@ func TestRulesPolicyScreenShowsEveryRuleAndTheOverhedgeMultiple(t *testing.T) {
 		"option premium at risk of NLV, protection excluded, watch/act at: calm 25%/35%, early warning 20%/35%, confirmed 15%/35%; sell-only from watch",
 		"net exposure of NLV, whole book with hedges, watch/act at: calm 100%/150%, early warning 100%/130%, confirmed 75%/100%; sell-only from watch",
 		// Rule 19 (amendment 18) reads downward.
-		"19 margin_headroom        alert  broker excess liquidity of NLV: watch below 30%, act below 15%; never trims",
+		"19 margin_headroom        alert  broker excess liquidity of NLV, the worse of current and look-ahead: watch below 30%, act below 15%; never trims",
 	} {
 		if !strings.Contains(screen, want) {
 			t.Fatalf("screen lacks %q:\n%s", want, screen)

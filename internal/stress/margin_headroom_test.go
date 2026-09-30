@@ -30,7 +30,9 @@ func marginBook(h *rpc.StressMarginHeadroom) StressInput {
 // The stress read's margin headroom is rule 19's (amendment 19): its figure,
 // its bands and its verdict. A broker cushion the retired levels called
 // urgent is a pass when rule 19 passes, and the cushion figure and its trip
-// are rule 19's measure and watch band.
+// are rule 19's measure and watch band. A measured reading already judges the
+// broker's look-ahead figure (R3), so the row does not restate the stress
+// read's own; the portfolio still carries it.
 func TestStressMarginReadsRule19NotTheBrokerCushion(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(marginBook(rule19(risk.RuleStatusPass, 42)))
@@ -39,7 +41,7 @@ func TestStressMarginReadsRule19NotTheBrokerCushion(t *testing.T) {
 	}
 	row := stressRowByTitle(res.Rows, "Immediate margin safety")
 	if row == nil || row.Severity != risk.SeverityObserve ||
-		row.Evidence != "margin headroom 42.0% NLV (Rulebook watch below 30%, act below 15%); look-ahead 5.0% NLV (context)" {
+		row.Evidence != "margin headroom 42.0% NLV (Rulebook watch below 30%, act below 15%)" {
 		t.Fatalf("margin row = %+v", row)
 	}
 	p := res.Portfolio

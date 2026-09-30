@@ -1696,12 +1696,15 @@ type StressPortfolioSummary struct {
 	BaseCurrency   string  `json:"base_currency,omitempty"`
 	NetLiquidation float64 `json:"net_liquidation,omitempty"`
 	// CushionPct keeps its public name but carries Rulebook rule 19's
-	// measure (amendment 19): the broker's excess liquidity as % of NLV. It
-	// is absent whenever rule 19 did not measure the headroom.
+	// measure (amendment 19): the broker's excess liquidity as % of NLV, the
+	// worse of the current and the look-ahead figure when both are reported.
+	// It is absent whenever rule 19 did not measure the headroom.
 	CushionPct *float64 `json:"cushion_pct,omitempty"`
 	// LookAheadCushionPct is the broker's look-ahead excess liquidity as % of
-	// NLV. Since amendment 19 it is evidence context only: no verdict rests
-	// on it.
+	// NLV, as the stress read derives it. No stress verdict rests on it: rule
+	// 19 judges the broker's reported look-ahead figure itself (amendment 19
+	// R3), and the margin row quotes this one only when rule 19 did not
+	// measure.
 	LookAheadCushionPct *float64 `json:"look_ahead_cushion_pct,omitempty"`
 	// CushionTripPct is rule 19's watch band, the level headroom may not fall
 	// below: the trip a gauge prints beside CushionPct. Absent with it.
