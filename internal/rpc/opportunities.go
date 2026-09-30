@@ -581,13 +581,15 @@ type TradeProposalBudgetStatus struct {
 	ExcludedLegs   int    `json:"excluded_legs"`
 	Rows           int    `json:"rows"`
 	BaseCurrency   string `json:"base_currency,omitempty"`
-	// ShadowReason says why the governor runs in shadow although Mode may
-	// say active: under basis rulebook, the Rulebook policy in force is not
-	// an explicitly reviewed owner file (BudgetShadowRulebook*: the file is
-	// Canary's unreviewed default, there is no file, or the file is in drift
-	// or error). Mode stays as configured; empty when Mode alone explains
-	// Shadow.
+	// ShadowReason is empty: since the review gate's removal (owner
+	// decision 2026-09-30 12:35 CEST) Mode alone explains Shadow. It stays
+	// for readers of the earlier contract.
 	ShadowReason string `json:"shadow_reason,omitempty"`
+	// RulebookReview names, under basis rulebook, the review state of the
+	// Rulebook policy the governor sells against (BudgetRulebook*). It is
+	// advisory: the configured mode applies in every state, and each row
+	// carries the matching detail line unless the state is reviewed.
+	RulebookReview string `json:"rulebook_review,omitempty"`
 	// Candidates are the lines the total pass sells from, in its order, at
 	// most three; Plan is every order the measurement needs across cycles
 	// (amendment 2026-09-30). RankingWithoutRulebook says no current
@@ -597,18 +599,18 @@ type TradeProposalBudgetStatus struct {
 	RankingWithoutRulebook bool                           `json:"ranking_without_rulebook,omitempty"`
 }
 
-// The review gate's shadow reasons under basis rulebook (amendment
-// 2026-09-30; fail closed by reviewer decision 2026-09-30 10:52 CEST). The
-// governor acts only on an explicitly reviewed owner file: the file still
-// carries Canary's unreviewed defaults, no file is in force (the compiled
-// baseline), the file on disk is not the one in force (drift), or it could
-// not be read (error). BudgetShadowRulebookUnreviewed is also the first
-// blocker code on every row in all four cases.
+// The review states rulebook_review reports under basis rulebook: an owner
+// file in force, read cleanly, without Canary's review marker (reviewed);
+// the file still carries Canary's defaults (unreviewed); no file, so the
+// compiled baseline applies (no_file); the file on disk is not the one in
+// force (drift); or it could not be read (error). Advisory since owner
+// decision 2026-09-30 12:35 CEST: none of them holds the governor back.
 const (
-	BudgetShadowRulebookUnreviewed = "rulebook_unreviewed"
-	BudgetShadowRulebookNoFile     = "rulebook_no_file"
-	BudgetShadowRulebookDrift      = "rulebook_drift"
-	BudgetShadowRulebookError      = "rulebook_error"
+	BudgetRulebookReviewed   = "reviewed"
+	BudgetRulebookUnreviewed = "unreviewed"
+	BudgetRulebookNoFile     = "no_file"
+	BudgetRulebookDrift      = "drift"
+	BudgetRulebookError      = "error"
 )
 
 // TradeProposalBudgetCandidate is one line the governor's total pass may

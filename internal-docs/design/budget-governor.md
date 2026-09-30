@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-30 10:53 CEST
+Updated: 2026-09-30 12:50 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -69,7 +69,7 @@ The governor keeps its own protection classification, so its measured total
 can differ from rule 3's where a declared or covering option is protection to
 the governor but not to rule 12.
 
-## Ranking, candidates and the review gate (amendment 2026-09-30)
+## Ranking, candidates and the review state (amendment 2026-09-30)
 
 Owner decisions of 2026-09-30 09:10 CEST ("GO – I love it. Build 1-3"),
 recorded from the senior review of the first live governor row, which sold
@@ -77,7 +77,8 @@ the line with the largest unrealised loss. Largest loss first is exit
 discipline borrowed from rule 13, not a way to choose what to sell when a
 book-level budget is breached; a desk ranks by what the sale fixes.
 
-- **G1 · Review gate.** Under `basis = "rulebook"`, while the Rulebook policy
+- **G1 · Review gate (09:10, removed at 12:35; see "Review gate removed"
+  below).** Under `basis = "rulebook"`, while the Rulebook policy
   file in force reads `unreviewed` (`rpc.RulebookPolicyStatus.Review`, the
   file still opens with `# Canary defaults, not yet reviewed.`), the governor
   behaves as shadow whatever `mode` says: rows are listed and journaled with
@@ -104,7 +105,8 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   `rulebook_drift` (the file on disk is not the one in force: "the last good
   file applies") and `rulebook_error` (the file could not be read; the last
   good file, or before any good file Canary's compiled defaults, apply). Each
-  blocker's action names what lifts it.
+  blocker's action names what lifts it. Superseded the same day: nothing in
+  this bullet holds a row back any more.
 - **G2 · Ranking.** The total pass (both bases, one algorithm) sells whole
   contracts in this order: (1) relief, descending: the number of distinct
   Rulebook rows at watch or act (rules 1, 2, 4, 5, 13, 16, 18) on which the
@@ -143,7 +145,7 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   line out of the ranking and both passes: the next refresh plans from the
   next candidate. The ignored line still counts in the measured total.
 - **Surfaces.** `canary proposals` prints the candidates and the plan under
-  the Budget header and names the gate there; JSON and MCP
+  the Budget header and names the review state there; JSON and MCP
   `canary_proposals` carry both lists. Journaled events are unchanged apart
   from the new snapshot fields. The SPA is out of scope (Desk renders it).
 - **Send timing after the open** is compiled, not a policy key:
@@ -152,6 +154,38 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   earliest time the queue and the pre-authorisation scheduler send. The
   senior review's ask for no governor sends in the first 30 minutes of a
   stress open is a later decision.
+
+## Review gate removed (owner decision 2026-09-30 12:35 CEST)
+
+The owner decided, verbatim: "no shadow, armed. Human need to approve anyway.
+Do all follow-ups." The reason: the owner's approval of each order is the
+last line of defence, and a software gate in front of it that holds a
+governor the owner armed is unwanted. It restates the decision of 2026-09-28
+("armed instead of shadow … human has to approve trades anyways") against the
+09:10 gate (G1) and its fail-closed extension of 10:52.
+
+- Under `basis = "rulebook"` the governor follows the configured `mode` again
+  in every review state of the Rulebook policy file: unreviewed, no file,
+  drift and error. `shadow` on the status and on every row reflects the mode
+  alone, and `shadow_reason` stays empty. The `rulebook_unreviewed` blocker
+  and its four shadow reasons are gone; preview, submit, the queue and the
+  pre-authorisation scheduler treat an active row like any other.
+- The review state stays visible instead. The `budget_reduction` status
+  carries `rulebook_review` (`reviewed`, `unreviewed`, `no_file`, `drift` or
+  `error`; the rulebook basis only), read as the gate read it: `reviewed`
+  only for an owner file in force, read cleanly, without Canary's review
+  marker. While it is anything else, every governor row carries one advisory
+  detail line, just before the veto sentence: "Rulebook limits: Canary's
+  defaults, not yet reviewed", "Rulebook limits: no Rulebook policy file;
+  compiled defaults", "Rulebook limits: the file on disk is not the one in
+  force", or "Rulebook limits: the file could not be read; the last good file
+  applies" (before any good file: "…; Canary's compiled defaults apply").
+  `canary proposals` names the state on the Budget header.
+- Risk assessment: an active rulebook basis can now propose sales against
+  Canary's default limits. Every such row still waits for the owner's
+  approval (`never_skip_veto` and the full veto window on the pre-authorised
+  path; preview and submit otherwise), names the state of the limits it sold
+  against, and remains a close or reduce. The declared basis is unchanged.
 
 ## Meaning
 
@@ -226,7 +260,7 @@ book-level budget is breached; a desk ranks by what the sale fixes.
 | Leg purpose | standing option-purpose derivation + rulebook hedge list | `optionExitPurpose`, `optionExitStrategyScope`, `risk.RulebookPolicy.IsHedgeSymbol` | per refresh | protection ⇒ never selected; unit leg ⇒ `strategy_workflow_required` |
 | Relief per line (rank key 1) | the Rulebook result the daemon holds | `rpc.RulesResult` via `cachedRulebookResult` (scope-, connector- and policy-bound) | 75 s preview window | none current ⇒ relief 0, `ranking_without_rulebook` |
 | Time-value share (rank key 2) | positions view | `risk.OptionExtrinsicPerShare` on `PositionView.Underlying`, `.Mark` | per refresh | nil ⇒ sorts last |
-| Review gate (rulebook basis) | Rulebook policy file | `rpc.RulebookPolicyStatus` (`Source`, `Status`, `Review`) | manager reread every 30 s | anything but a reviewed owner file in force ⇒ shadow, `rulebook_unreviewed` first, `shadow_reason` names the case |
+| Review state (rulebook basis) | Rulebook policy file | `rpc.RulebookPolicyStatus` (`Source`, `Status`, `Review`) ⇒ `TradeProposalBudgetStatus.RulebookReview` | manager reread every 30 s | advisory only (owner decision 2026-09-30 12:35 CEST): anything but a reviewed owner file in force ⇒ `rulebook_review` names the case and every row carries one advisory detail line; the mode applies |
 | Line value and loss | positions view | `PositionView.MarketValueBase`, `.UnrealizedPnLBase` | per refresh; `Stale` honoured | nil base value ⇒ excluded and counted |
 | Measured state | proposal snapshot | `rpc.TradeProposalSnapshot.BudgetReduction` (`budget_reduction`) | per refresh | — |
 | Per-row arithmetic | proposal | `rpc.TradeProposal.Budget` (`budget`) | per refresh | — |
@@ -294,13 +328,16 @@ bucket sets it on every row.
   enforcement class and an open latch yield no rows with the typed reason; a
   partial fill re-evaluates from the new position.
 - Amendment 2026-09-30 fixtures (`proposal_budget_plan_test.go`, and the CLI
-  text in `proposals_budget_test.go`): an unreviewed Rulebook file holds an
-  active rulebook basis in shadow with `rulebook_unreviewed` first (preview,
-  queue and `AutomaticEligible()` refuse), a configured shadow adds
-  `shadow_mode` second, a reviewed file restores the mode, and the declared
-  basis is not gated; through a real policy manager the gate fails closed on
-  no file, a file in drift, a file in error after a good load and before
-  any, each with its `shadow_reason` and message; the engine reads the review state and the held Rulebook
+  text in `proposals_budget_test.go`): since the gate's removal, an
+  unreviewed Rulebook file leaves an active rulebook basis active (no
+  blocker; preview, queue and `AutomaticEligible()` accept) with
+  `rulebook_review: unreviewed` and the advisory line before the veto
+  sentence, a configured shadow is the only shadow (`shadow_mode` its only
+  refusal), a reviewed file adds no line, and the declared basis names no
+  review state; through a real policy manager the mode (active and shadow)
+  is followed with no file, the unreviewed template, a reviewed file, a file
+  in drift, and a file in error after a good load and before any, each with
+  its `rulebook_review` and line; the engine reads the review state and the held Rulebook
   result (a stale one is not read); four lines where largest loss would sell
   DDD then CCC sell AAA (two open rules) then BBB (one rule, more time value)
   on both bases, issuer groups count, unknown offenders and rows outside the
@@ -321,7 +358,7 @@ bucket sets it on every row.
 - Cross-surface parity checks: CLI text lists shadow rows under their own
   heading and the candidates and plan under the Budget header; JSON carries
   `shadow`, `never_skip_veto`, `budget` and the snapshot `budget_reduction`
-  status with `shadow_reason`, `candidates`, `plan` and
+  status with `rulebook_review`, `candidates`, `plan` and
   `ranking_without_rulebook`; the SPA renders the rows as blocked proposals
   through the existing blocker path.
 - Redacted before/after artifact: none against a live gateway (fixtures only,

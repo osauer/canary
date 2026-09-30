@@ -61,14 +61,15 @@ func TestRenderProposalsListsShadowRowsUnderTheirOwnHeading(t *testing.T) {
 	}
 }
 
-// Under the Budget header the text names the review gate, the ranked
-// candidates with their why, and every order of the plan with its cycle.
+// Under the Budget header the text names the advisory review state of the
+// Rulebook limits, the ranked candidates with their why, and every order of
+// the plan with its cycle.
 func TestRenderProposalsPrintsTheBudgetCandidatesAndPlan(t *testing.T) {
 	aaa := rpc.ContractParams{ConID: 701, Symbol: "AAA", SecType: "OPT", Expiry: "20261218", Strike: 100, Right: "C"}
 	bbb := rpc.ContractParams{ConID: 702, Symbol: "BBB", SecType: "OPT", Expiry: "20261218", Strike: 100, Right: "C"}
 	snap := &rpc.TradeProposalSnapshot{
 		Revision: "rev-1", PolicyID: "protection-mvp", PolicyVersion: 9,
-		BudgetReduction: &rpc.TradeProposalBudgetStatus{Mode: rpc.BudgetReductionModeActive, Shadow: true, ShadowReason: rpc.BudgetShadowRulebookUnreviewed,
+		BudgetReduction: &rpc.TradeProposalBudgetStatus{Mode: rpc.BudgetReductionModeActive, RulebookReview: rpc.BudgetRulebookUnreviewed,
 			State: rpc.BudgetStateOverBudget, Basis: rpc.BudgetBasisRulebook, BaseCurrency: "EUR",
 			Candidates: []rpc.TradeProposalBudgetCandidate{
 				{Rank: 1, Contract: aaa, Contracts: 4, UnitValueBase: 2000, Relief: []string{"option_line_premium", "exit_discipline"}, Why: "offends 2 open rules; 50% time value; unrealised −500"},
@@ -84,7 +85,7 @@ func TestRenderProposalsPrintsTheBudgetCandidatesAndPlan(t *testing.T) {
 	renderProposalsText(&Env{Stdout: &buf, Stderr: &buf}, snap)
 	out := buf.String()
 	for _, want := range []string{
-		"active · shadow: rulebook unreviewed · over budget",
+		"active · Rulebook limits: Canary's defaults, not yet reviewed · over budget",
 		"               candidates 1. AAA 20261218 100 C  4 ct × € 2,000.00  offends 2 open rules; 50% time value; unrealised −500\n",
 		"                          2. BBB 20261218 100 C  4 ct × € 2,000.00  offends 1 open rule; 100% time value; unrealised −100\n",
 		"               plan       1. sell 2 AAA 20261218 100 C · raises € 4,000.00 · cycle 1 · rank 1\n",
@@ -95,9 +96,20 @@ func TestRenderProposalsPrintsTheBudgetCandidatesAndPlan(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}
 	}
-	// A ranking made without a Rulebook result says so in the header.
-	snap.BudgetReduction.ShadowReason, snap.BudgetReduction.Shadow, snap.BudgetReduction.RankingWithoutRulebook = "", false, true
+	// A ranking made without a Rulebook result says so in the header, and a
+	// reviewed owner file adds nothing.
+	snap.BudgetReduction.RulebookReview, snap.BudgetReduction.RankingWithoutRulebook = rpc.BudgetRulebookReviewed, true
 	if got := formatProposalBudgetStatus(snap.BudgetReduction); got != "active · ranked without a Rulebook result · over budget" {
 		t.Fatalf("header = %q", got)
+	}
+	for review, want := range map[string]string{
+		rpc.BudgetRulebookNoFile: "no Rulebook policy file; compiled defaults",
+		rpc.BudgetRulebookDrift:  "the file on disk is not the one in force",
+		rpc.BudgetRulebookError:  "the file could not be read",
+	} {
+		snap.BudgetReduction.RulebookReview = review
+		if got := formatProposalBudgetStatus(snap.BudgetReduction); !strings.Contains(got, "active · Rulebook limits: "+want+" · ") {
+			t.Fatalf("%s header = %q", review, got)
+		}
 	}
 }

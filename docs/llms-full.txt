@@ -19,8 +19,7 @@ data-source health, market sensors, rulebook, protection proposals, and
 option-exercise opportunities. Other surfaces adapt that typed authority rather
 than recreating it.
 
-Canary is a personal project of Oliver Sauer, built in his own time and not
-connected to his employer.
+Canary is a private project of Oliver Sauer, unaffiliated with any employer.
 
 Data comes from the user's own TWS or IB Gateway session. Availability and
 freshness therefore depend on session state, market hours, broker entitlements,

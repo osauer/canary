@@ -208,22 +208,22 @@ carries `per_line_pct_of_nlv`, `premium_budget_watch_pct`,
 `premium_excess_base` (the premium at risk above the watch level), and each
 row names the limit that selected it.
 
-This basis sells against the Rulebook's numbers, so it waits for them to be
-yours: it acts only while the Rulebook policy in force is a
-`rulebook-policy.toml` you reviewed, read cleanly. Otherwise the governor
-runs in shadow whatever `mode` says; the status keeps your `mode` and adds
-`shadow: true` and a `shadow_reason`, and every row leads with the
-`rulebook_unreviewed` blocker, whose action says what lifts it:
+This basis sells against the Rulebook's numbers, which may still be Canary's
+defaults. Your `mode` applies whatever state the Rulebook policy file is in:
+you approve every order, and that approval is the gate. The status names the
+state in `rulebook_review`, and while it is anything but `reviewed` every row
+carries one detail line saying so:
 
-| `shadow_reason` | Case |
+| `rulebook_review` | Detail line on every row |
 |---|---|
-| `rulebook_unreviewed` | the file still opens with Canary's `# Canary defaults, not yet reviewed.` line: read it, set the limits you have decided, then delete that line |
-| `rulebook_no_file` | there is no file, so Canary's compiled defaults apply: `canary policy ensure` writes one |
-| `rulebook_drift` | the file on disk is not the one in force (edited without a higher `policy_version`, or removed) |
-| `rulebook_error` | the file could not be read; the last good file (or, before any, Canary's defaults) applies |
+| `reviewed` | none: the file in force is yours, read cleanly |
+| `unreviewed` | "Rulebook limits: Canary's defaults, not yet reviewed" (the file still opens with `# Canary defaults, not yet reviewed.`) |
+| `no_file` | "Rulebook limits: no Rulebook policy file; compiled defaults" (`canary policy ensure` writes one) |
+| `drift` | "Rulebook limits: the file on disk is not the one in force" (edited without a higher `policy_version`, or removed) |
+| `error` | "Rulebook limits: the file could not be read; the last good file applies" (before any good file, Canary's compiled defaults apply) |
 
-The configured mode applies from the next refresh after the file in force is
-yours. The declared-risk-capital basis measures your own caps and is not held.
+`canary proposals list` names the state on the Budget header. The
+declared-risk-capital basis measures your own caps and reads no review state.
 
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
 the snapshot with `shadow: true`, and listed by `canary proposals list` under
