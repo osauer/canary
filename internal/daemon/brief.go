@@ -1373,7 +1373,7 @@ func briefRulesStatus(current *rpc.RulesResult) rpc.BriefRulesRow {
 	}
 	switch {
 	case row.Act > 0:
-		row.BriefRowState = briefAttention(fmt.Sprintf("%d current %s require action", row.Act, pluralNoun(row.Act, "rule")))
+		row.BriefRowState = briefAttention(fmt.Sprintf("%d current %s %s action", row.Act, pluralNoun(row.Act, "rule"), briefVerb(row.Act, "requires", "require")))
 	case row.Watch > 0 || row.Unknown > 0 || current.Status == "degraded":
 		row.BriefRowState = briefDegraded(fmt.Sprintf("current rulebook: %d watch, %d unknown, %d not evaluated", row.Watch, row.Unknown, row.NotEvaluated))
 	case row.Track > 0:

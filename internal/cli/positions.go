@@ -101,7 +101,7 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 	}
 	renderBondsTable(env, out, r.Bonds)
 	fmt.Fprintf(out, "  %d positions  ·  as of %s\n",
-		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r)))
+		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r).Local()))
 	return 0
 }
 
@@ -111,7 +111,7 @@ func renderPositionsAuthority(env *Env, out io.Writer, r *rpc.PositionsResult) b
 	}
 	scope := r.Authority.Scope
 	if scope.AccountID != "" || scope.AccountMode != "" {
-		fmt.Fprintf(out, "Positions  %s", nonEmpty(scope.AccountID, "—"))
+		fmt.Fprintf(out, "%s  %s", env.bold("Positions"), nonEmpty(scope.AccountID, "—"))
 		if scope.AccountMode != "" {
 			fmt.Fprintf(out, " · %s", scope.AccountMode)
 		}
@@ -135,7 +135,6 @@ func positionsDisplayAsOf(r *rpc.PositionsResult) time.Time {
 // per-conId start-of-trading-day P&L from reqPnLSingle (TWS msg 95) — the
 // money and quantity columns when a larger account needs more room.
 func renderStocksTable(env *Env, out io.Writer, rows []rpc.PositionView, dataType string, showRealized bool, quoteDetails bool) {
-	fmt.Fprintf(out, "Stocks & ETFs%s\n", env.suffixBadge(dataType))
 	cols := []positionTableColumn{
 		{header: "SYMBOL", align: positionAlignLeft},
 		{header: "POS", align: positionAlignRight},
@@ -199,13 +198,97 @@ func renderStocksTable(env *Env, out io.Writer, rows []rpc.PositionView, dataTyp
 		row = append(row, formatPositionData(env, p), formatPositionAsOf(p))
 		tableRows = append(tableRows, row)
 	}
+	cols, tableRows, dropped := fitPositionTable(cols, tableRows, outputColumns(out),
+		positionColumnFold{header: "AS OF"}, positionColumnFold{header: "DATA", only: "live"},
+		positionColumnFold{header: "QUOTE", sameAs: "MARK"}, positionColumnFold{header: "CCY"})
+	title := "Stocks & ETFs"
+	if ccy := dropped["CCY"]; ccy != "" {
+		title += " · " + ccy
+	}
+	fmt.Fprintf(out, "%s%s\n", env.bold(title), env.suffixBadge(dataType))
 	renderPositionTable(env, out, cols, tableRows)
 	fmt.Fprintln(out)
 }
 
+// positionColumnFold names a column a narrow terminal may fold away. A column
+// folds only when it repeats what the screen already says: every row carries
+// the same value (and, with only set, that value is the unremarkable one), or
+// each row's cell equals its sameAs column.
+type positionColumnFold struct {
+	header string
+	only   string
+	sameAs string
+}
+
+// fitPositionTable folds columns, in the order given, until the table fits
+// width; width 0 (a pipe) folds nothing. It returns the kept columns and rows
+// and the value each folded uniform column held, so a caller can state it once.
+func fitPositionTable(cols []positionTableColumn, rows [][]string, width int, folds ...positionColumnFold) ([]positionTableColumn, [][]string, map[string]string) {
+	dropped := map[string]string{}
+	index := func(header string) int {
+		return slices.IndexFunc(cols, func(c positionTableColumn) bool { return c.header == header })
+	}
+	for _, fold := range folds {
+		if width <= 0 || positionTableWidth(cols, rows) <= width || len(rows) == 0 {
+			break
+		}
+		i := index(fold.header)
+		if i < 0 {
+			continue
+		}
+		same := -1
+		if fold.sameAs != "" {
+			if same = index(fold.sameAs); same < 0 {
+				continue
+			}
+		}
+		foldable := true
+		for _, row := range rows {
+			switch {
+			case same >= 0:
+				foldable = row[i] == row[same]
+			case fold.only != "":
+				foldable = row[i] == fold.only
+			default:
+				foldable = row[i] == rows[0][i]
+			}
+			if !foldable {
+				break
+			}
+		}
+		if !foldable {
+			continue
+		}
+		if same < 0 {
+			dropped[fold.header] = rows[0][i]
+		}
+		cols = slices.Delete(slices.Clone(cols), i, i+1)
+		for r := range rows {
+			rows[r] = slices.Delete(slices.Clone(rows[r]), i, i+1)
+		}
+	}
+	return cols, rows, dropped
+}
+
+// positionTableWidth is the printed width of the table: the two-cell indent,
+// each column at its widest cell, and two cells between columns.
+func positionTableWidth(cols []positionTableColumn, rows [][]string) int {
+	total := 2 + 2*max(len(cols)-1, 0)
+	for i, col := range cols {
+		w := visibleLen(col.header)
+		for _, row := range rows {
+			if i < len(row) {
+				w = max(w, visibleLen(row[i]))
+			}
+		}
+		total += w
+	}
+	return total
+}
+
 // renderOptionsTable prints the options block in the same column language
 func renderOptionsTable(env *Env, out io.Writer, rows []rpc.PositionView, dataType string, showRealized bool) {
-	fmt.Fprintf(out, "Options%s\n", env.suffixBadge(dataType))
+	fmt.Fprintf(out, "%s%s\n", env.bold("Options"), env.suffixBadge(dataType))
 	cols := []positionTableColumn{
 		{header: "UNDERLYING", align: positionAlignLeft},
 		{header: "SIDE", align: positionAlignLeft},
@@ -271,9 +354,11 @@ func renderPositionTable(env *Env, out io.Writer, cols []positionTableColumn, ro
 			widths[i] = max(widths[i], visibleLen(cell))
 		}
 	}
-	header := formatPositionTableRow(cols, widths, headers)
+	// The rule sits under the header text: indented like it, and ending
+	// where the last header does rather than at the padded column edge.
+	header := strings.TrimRight(formatPositionTableRow(cols, widths, headers), " ")
 	fmt.Fprintln(out, env.dim(header))
-	fmt.Fprintln(out, env.dim(strings.Repeat("─", visibleLen(header))))
+	fmt.Fprintln(out, "  "+env.dim(strings.Repeat("─", visibleLen(header)-2)))
 	for _, row := range rows {
 		fmt.Fprintln(out, formatPositionTableRow(cols, widths, row))
 	}

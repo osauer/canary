@@ -86,7 +86,7 @@ func renderBrief(env *Env, res rpc.BriefResult) {
 		renderBriefDetails(env, res)
 		return
 	}
-	fmt.Fprintf(env.Stdout, "Daily brief · %s\n", res.AsOf.Local().Format("2 Jan 15:04 MST"))
+	fmt.Fprintf(env.Stdout, "%s · %s\n", env.bold("Daily brief"), res.AsOf.Local().Format("2 Jan 15:04 MST"))
 	overview := res.Narrative.Overview
 	width := briefProseWidth(env.Stdout)
 	briefProseParagraph(env, overview.Assessment, width)
@@ -99,12 +99,12 @@ func renderBrief(env *Env, res rpc.BriefResult) {
 		if len(section.rows) == 0 {
 			continue
 		}
-		fmt.Fprintln(env.Stdout, "\n"+section.title)
+		fmt.Fprintln(env.Stdout, "\n"+env.bold(section.title))
 		for _, row := range section.rows {
-			briefProseParagraph(env, row.Runs, width)
+			briefProseItem(env, row.Runs, width)
 		}
 	}
-	fmt.Fprintln(env.Stdout, "\nDetails: canary brief --details · Sources: canary status")
+	fmt.Fprintln(env.Stdout, "\n"+env.dim("Details: canary brief --details · Sources: canary status"))
 }
 
 func renderBriefDetails(env *Env, res rpc.BriefResult) {
@@ -448,6 +448,20 @@ func briefProseParagraphs(env *Env, paragraphs [][]rpc.BriefRun, width int) {
 func briefProseParagraph(env *Env, runs []rpc.BriefRun, width int) {
 	for _, line := range briefWrapWords(briefWords(runs), width-len(briefProseIndent)) {
 		fmt.Fprintln(env.Stdout, briefProseIndent+briefLineText(env, line))
+	}
+}
+
+// briefProseItem prints one overview row. Rows are list items, so a row that
+// wraps hangs its continuation under its own text instead of starting what
+// reads as the next row.
+func briefProseItem(env *Env, runs []rpc.BriefRun, width int) {
+	hanging := briefProseIndent + briefProseIndent
+	for i, line := range briefWrapWords(briefWords(runs), width-len(hanging)) {
+		indent := briefProseIndent
+		if i > 0 {
+			indent = hanging
+		}
+		fmt.Fprintln(env.Stdout, indent+briefLineText(env, line))
 	}
 }
 

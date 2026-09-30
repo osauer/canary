@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"fmt"
@@ -62,10 +63,20 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 		return printJSON(env, res)
 	}
 
+	renderRulesText(env, env.Stdout, &res, *all)
+	return 0
+}
+
+// renderRulesText prints the checklist: breaches first, each rule's evidence
+// and offenders beneath it, wrapped to the terminal with a hanging indent.
+// Rules the policy turned off fold into one line unless all is set; their
+// count stays in the summary.
+func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 	if !res.Enabled {
-		fmt.Fprintln(env.Stdout, "Trading rulebook is disabled (features.rulebook.enabled=false).")
-		return 0
+		fmt.Fprintln(out, "Trading rulebook is disabled (features.rulebook.enabled=false).")
+		return
 	}
+	width := outputColumns(out)
 	source := ""
 	if st := res.PolicyStatus; st != nil {
 		source = " (compiled baseline)"
@@ -73,22 +84,22 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 			source = " (your policy file)"
 		}
 	}
-	fmt.Fprintf(env.Stdout, "Trading rulebook — %s  policy %s v%d%s  status %s\n",
-		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, source, res.Status)
-	if line := sellOnlyLine(res); line != "" {
-		fmt.Fprintln(env.Stdout, line)
+	writeRuleLines(out, "", "  ", fmt.Sprintf("%s — %s  policy %s v%d%s  status %s", env.bold("Trading rulebook"),
+		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, source, res.Status), width)
+	if line := sellOnlyLine(*res); line != "" {
+		writeRuleLines(out, "  ", "             ", strings.TrimSpace(line), width)
 	}
 	if st := res.PolicyStatus; st != nil && st.Message != "" {
-		fmt.Fprintf(env.Stdout, "  policy    %s: %s\n", st.Status, st.Message)
+		writeRuleLines(out, "  ", "            ", fmt.Sprintf("policy    %s: %s", st.Status, st.Message), width)
 	}
 	for _, h := range res.InputHealth {
 		if h.Status != "ok" {
-			fmt.Fprintf(env.Stdout, "  input %-9s %s %s\n", h.Source, h.Status, strings.Join(h.Notes, "; "))
+			writeRuleLines(out, "  ", "                ", fmt.Sprintf("input %-9s %s %s", h.Source, h.Status, strings.Join(h.Notes, "; ")), width)
 		} else if h.Source == "earnings" && len(h.Notes) > 0 {
-			fmt.Fprintf(env.Stdout, "  input %-9s ok (informational) %s\n", h.Source, strings.Join(h.Notes, "; "))
+			writeRuleLines(out, "  ", "                ", fmt.Sprintf("input %-9s ok (informational) %s", h.Source, strings.Join(h.Notes, "; ")), width)
 		}
 	}
-	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(out)
 
 	order := res.Ranked
 	if len(order) != len(res.Rules) {
@@ -97,28 +108,42 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 			order = append(order, i)
 		}
 	}
-	shown := 0
+	var shownRows []risk.RuleRow
+	var turnedOff []string
 	for _, ix := range order {
 		r := res.Rules[ix]
-		if r.Status == risk.RuleStatusPass && !*all {
+		switch {
+		case all:
+		case r.Status == risk.RuleStatusPass:
+			continue
+		case r.Status == risk.RuleStatusNotEvaluated && r.Reason == risk.RuleReasonRuleOff:
+			turnedOff = append(turnedOff, strconv.Itoa(r.Number))
 			continue
 		}
-		shown++
-		fmt.Fprintf(env.Stdout, "%s  %2d %-22s %s\n", ruleGlyph(r.Status), r.Number, r.ID, ruleHeadline(r))
-		fmt.Fprintf(env.Stdout, "      %s\n", r.Evidence)
+		shownRows = append(shownRows, r)
+	}
+	// Status and number sit in a ten-cell gutter; the headline, evidence,
+	// offenders and notes all hang from the column after it.
+	const gutter = "          "
+	for _, r := range shownRows {
+		// The rule id trails the headline, dim: the number and title are what
+		// a reader scans, and the id stays at hand for --rule and the policy.
+		prefix := fmt.Sprintf("%s %2d  ", ruleStatusLabel(env, r.Status), r.Number)
+		writeRuleLinesTrail(out, prefix, gutter, ruleHeadline(r), env.dim(r.ID), width)
+		writeRuleLines(out, gutter, gutter, r.Evidence, width)
 		for i, o := range r.Offenders {
 			if i >= 5 {
-				fmt.Fprintf(env.Stdout, "      … %d more\n", len(r.Offenders)-i)
+				fmt.Fprintf(out, "%s… %d more\n", gutter, len(r.Offenders)-i)
 				break
 			}
-			fmt.Fprintf(env.Stdout, "      • %s\n", offenderLine(r, o))
+			writeRuleLines(out, gutter+"• ", gutter+"  ", offenderLine(r, o), width)
 			for _, detail := range issuerDetailLines(o.Issuer, res.BaseCurrency) {
-				fmt.Fprintf(env.Stdout, "          %s\n", detail)
+				writeRuleLines(out, gutter+"    ", gutter+"      ", detail, width)
 			}
 		}
 		for i, o := range r.Exempt {
 			if i >= 5 {
-				fmt.Fprintf(env.Stdout, "      … %d more exemptions\n", len(r.Exempt)-i)
+				fmt.Fprintf(out, "%s… %d more exemptions\n", gutter, len(r.Exempt)-i)
 				break
 			}
 			line := o.Symbol
@@ -128,31 +153,51 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 			if o.Note != "" {
 				line += " — " + o.Note
 			}
-			fmt.Fprintf(env.Stdout, "      exempt: %s\n", line)
+			writeRuleLines(out, gutter+"exempt: ", gutter+"  ", line, width)
 		}
 		for _, note := range r.Notes {
-			fmt.Fprintf(env.Stdout, "      (%s)\n", note)
+			writeRuleLines(out, gutter, gutter+" ", "("+note+")", width)
 		}
 	}
-	if shown == 0 {
+	if len(turnedOff) > 0 {
+		var folded bytes.Buffer
+		writeRuleLines(&folded, "--        ", gutter, "rules "+strings.Join(turnedOff, ", ")+" are turned off in the Rulebook policy (--all lists them)", width)
+		for line := range strings.SplitSeq(strings.TrimSuffix(folded.String(), "\n"), "\n") {
+			fmt.Fprintln(out, env.dim(line))
+		}
+	}
+	if len(shownRows) == 0 && len(turnedOff) == 0 {
 		if notEvaluated := res.BreachCounts[risk.RuleStatusNotEvaluated]; notEvaluated > 0 {
-			fmt.Fprintf(env.Stdout, "%d rules were not evaluated; rerun with --all to see the full checklist.\n", notEvaluated)
+			fmt.Fprintf(out, "%d rules were not evaluated; rerun with --all to see the full checklist.\n", notEvaluated)
 		} else {
-			fmt.Fprintf(env.Stdout, "All %d rules pass. Rerun with --all to see the full checklist.\n", len(res.Rules))
+			fmt.Fprintf(out, "All %d rules pass. Rerun with --all to see the full checklist.\n", len(res.Rules))
 		}
 	}
 	passes := res.BreachCounts[risk.RuleStatusPass]
-	fmt.Fprintf(env.Stdout, "\n%d act, %d watch, %d unknown, %d info, %d pass",
-		res.BreachCounts[risk.RuleStatusAct], res.BreachCounts[risk.RuleStatusWatch],
+	act := fmt.Sprintf("%d act", res.BreachCounts[risk.RuleStatusAct])
+	if res.BreachCounts[risk.RuleStatusAct] > 0 {
+		act = env.red(act)
+	}
+	watch := fmt.Sprintf("%d watch", res.BreachCounts[risk.RuleStatusWatch])
+	if res.BreachCounts[risk.RuleStatusWatch] > 0 {
+		watch = env.yellow(watch)
+	}
+	fmt.Fprintf(out, "\n%s, %s, %d unknown, %d info, %d pass", act, watch,
 		res.BreachCounts[risk.RuleStatusUnknown], res.BreachCounts[risk.RuleStatusInfo], passes)
 	if n := res.BreachCounts[risk.RuleStatusNotEvaluated]; n > 0 {
-		fmt.Fprintf(env.Stdout, ", %d not evaluated", n)
+		fmt.Fprintf(out, ", %d not evaluated", n)
 	}
-	fmt.Fprintln(env.Stdout)
+	fmt.Fprintln(out)
 	if len(res.Earnings) > 0 {
-		var unresolved, terminal, nonissuer []string
+		var unresolved, terminal, nonissuer, byType []string
 		for _, e := range res.Earnings {
 			if e.Status == rpc.EarningsStatusNotApplicable {
+				// A security-type classification is weaker authority than a
+				// broker identity proof; the line must not claim the proof.
+				if e.Source == "security_type" {
+					byType = append(byType, fmt.Sprintf("%s (%s)", e.Symbol, strings.ToLower(nonEmpty(e.SecurityType, "no issuer"))))
+					continue
+				}
 				nonissuer = append(nonissuer, fmt.Sprintf("%s (broker-proven nonissuer)", e.Symbol))
 				continue
 			}
@@ -173,20 +218,66 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 			}
 		}
 		if len(terminal) > 0 {
-			fmt.Fprintf(env.Stdout, "Earnings not applicable: %s — exact-contract evidence and provenance are available in --json.\n", strings.Join(terminal, ", "))
+			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings not applicable: %s — exact-contract evidence and provenance are available in --json.", strings.Join(terminal, ", ")), width)
 		}
 		if len(nonissuer) > 0 {
-			fmt.Fprintf(env.Stdout, "Issuer earnings not applicable: %s — exact broker identity is available in --json without exposing the contract identifier.\n", strings.Join(nonissuer, ", "))
+			writeRuleLines(out, "", "  ", fmt.Sprintf("Issuer earnings not applicable: %s — exact broker identity is available in --json without exposing the contract identifier.", strings.Join(nonissuer, ", ")), width)
+		}
+		if len(byType) > 0 {
+			writeRuleLines(out, "", "  ", "Issuer earnings not applicable by security type: "+strings.Join(byType, ", ")+".", width)
 		}
 		if len(unresolved) > 0 {
-			fmt.Fprintf(env.Stdout, "Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 stay unknown, never pass).\n",
-				strings.Join(unresolved, ", "))
+			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 stay unknown, never pass).",
+				strings.Join(unresolved, ", ")), width)
 		}
-		if wshEntitlementNotice(&res) {
-			fmt.Fprintln(env.Stdout, "Earnings source notice: the optional Wall Street Horizon earnings feed is unavailable because this account lacks the WSH research subscription. Nasdaq remains active; names without a usable date stay unknown, never pass.")
+		if wshEntitlementNotice(res) {
+			writeRuleLines(out, "", "  ", "Earnings source notice: the optional Wall Street Horizon earnings feed is unavailable because this account lacks the WSH research subscription. Nasdaq remains active; names without a usable date stay unknown, never pass.", width)
 		}
 	}
-	return 0
+}
+
+// writeRuleLines prints text after first, wrapping at width with rest as the
+// hanging indent. Width 0 (a pipe or file) leaves the line whole for grep.
+func writeRuleLines(out io.Writer, first, rest, text string, width int) {
+	writeRuleLinesTrail(out, first, rest, text, "", width)
+}
+
+// writeRuleLinesTrail is writeRuleLines with a trailing tag set two cells
+// (one when only one is left) after the text on its last line, or on its own
+// continuation line when it does not fit there.
+func writeRuleLinesTrail(out io.Writer, first, rest, text, trail string, width int) {
+	// A line that fits prints as written, keeping its column padding; only
+	// a line that would overrun is re-flowed word by word.
+	lines := []string{text}
+	if width > 0 && visibleLen(first)+visibleLen(text) > width {
+		lines = wrapVisibleText(text, width-visibleLen(first))
+		if len(lines) > 1 {
+			tail := strings.Join(lines[1:], " ")
+			lines = append(lines[:1], wrapVisibleText(tail, width-visibleLen(rest))...)
+		}
+	}
+	if trail != "" {
+		last := len(lines) - 1
+		indent := visibleLen(rest)
+		if last == 0 {
+			indent = visibleLen(first)
+		}
+		switch room := width - indent - visibleLen(lines[last]) - visibleLen(trail); {
+		case width <= 0 || room >= 2:
+			lines[last] += "  " + trail
+		case room == 1:
+			lines[last] += " " + trail
+		default:
+			lines = append(lines, trail)
+		}
+	}
+	for i, line := range lines {
+		indent := rest
+		if i == 0 {
+			indent = first
+		}
+		fmt.Fprintln(out, indent+line)
+	}
 }
 
 // wshEntitlementNotice recognizes only the durable WSH entitlement result.
@@ -337,20 +428,22 @@ func uniformRulesPolicy(entries []rpc.RuleTransitionEntry) (string, int, bool) {
 	return id, version, id != ""
 }
 
-func ruleGlyph(status string) string {
+// ruleStatusLabel is the five-cell status column: the status words the
+// summary line counts, tinted red for act, yellow for watch and unknown.
+func ruleStatusLabel(env *Env, status string) string {
 	switch status {
 	case risk.RuleStatusAct:
-		return "ACT "
+		return env.red("ACT  ")
 	case risk.RuleStatusWatch:
-		return "WARN"
+		return env.yellow("WATCH")
 	case risk.RuleStatusInfo:
-		return "INFO"
+		return "INFO "
 	case risk.RuleStatusUnknown:
-		return "?   "
+		return env.yellow("?    ")
 	case risk.RuleStatusNotEvaluated:
-		return "--  "
+		return env.dim("--   ")
 	default:
-		return "ok  "
+		return env.green("ok   ")
 	}
 }
 
@@ -360,15 +453,24 @@ func ruleGlyph(status string) string {
 func ruleHeadline(r risk.RuleRow) string {
 	if r.Observed != nil && r.Threshold != nil {
 		if r.WatchThreshold != nil && r.ActThreshold != nil {
-			return fmt.Sprintf("%s (observed %.1f vs %s %s; watch %s, act %s)", r.Title, *r.Observed,
-				ruleLimitText(*r.Threshold), r.Unit, ruleLimitText(*r.WatchThreshold), ruleLimitText(*r.ActThreshold))
+			return fmt.Sprintf("%s (observed %.1f vs %s%s; watch %s, act %s)", r.Title, *r.Observed,
+				ruleLimitText(*r.Threshold), ruleUnitSuffix(r.Unit), ruleLimitText(*r.WatchThreshold), ruleLimitText(*r.ActThreshold))
 		}
-		return fmt.Sprintf("%s (observed %.1f vs %.1f %s)", r.Title, *r.Observed, *r.Threshold, r.Unit)
+		return fmt.Sprintf("%s (observed %.1f vs %.1f%s)", r.Title, *r.Observed, *r.Threshold, ruleUnitSuffix(r.Unit))
 	}
 	if r.Reason != "" {
 		return fmt.Sprintf("%s (%s)", r.Title, r.Reason)
 	}
 	return r.Title
+}
+
+// ruleUnitSuffix joins a unit to the number before it: a percent unit sits
+// against the number ("30% NLV"), any other unit after a space ("7 days").
+func ruleUnitSuffix(unit string) string {
+	if unit == "" || strings.HasPrefix(unit, "%") {
+		return unit
+	}
+	return " " + unit
 }
 
 // ruleLimitText prints a policy limit as configured (7.5 stays 7.5, 40 stays
