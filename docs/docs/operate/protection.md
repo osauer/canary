@@ -147,22 +147,45 @@ It generates rows only when all of the following hold, and the snapshot's
 Selection runs per line first: a line above the per-line cap is cut to the
 cap in whole contracts (`keep = floor(cap ÷ value per contract)`), and a cap
 that leaves no whole contract is a full close. Then the total: while the
-projected sum still exceeds the total cap, lines are cut in order of largest
-unrealised loss first, then largest market value, whole contracts, until the
-sum is within the cap. Every row names the cap that selected it, the measured
-line and total, the excess, and its place in the order, under `budget` in JSON
-and on a `Budget:` line in the text. `max_order_notional` bounds one order
-exactly as `risk_reduction.max_order_notional` does; the next cycle measures
-what is left. A stale mark blocks the row with `fresh_option_quote_required`;
-a leg of a multi-leg unit is measured but routes to the strategy workflow.
-Rows are close or reduce only, like every proposal.
+projected sum still exceeds the total cap, lines are cut in whole contracts,
+ranked by what the sale fixes, until the sum is within the cap:
+
+1. the number of open Rulebook rules the line relieves: rows at watch or act
+   among rules 1, 2, 4, 5, 13, 16 and 18 on which the line, or its issuer, is
+   an offender, read from the Rulebook result Canary already holds;
+2. the share of the line's value that is time value, highest first (unknown
+   last);
+3. the unrealised loss, largest first; then the line's value; then the
+   contract id.
+
+Without a current Rulebook result no line relieves anything, the ranking
+starts at time value, and the status says `ranking_without_rulebook`. Every
+row names the cap that selected it, the measured line and total, the excess,
+its place in the order and the order used, under `budget` in JSON and on a
+`Budget:` line in the text. `max_order_notional` bounds one order exactly as
+`risk_reduction.max_order_notional` does; the next cycle measures what is
+left. A stale mark blocks the row with `fresh_option_quote_required`; a leg of
+a multi-leg unit is measured but routes to the strategy workflow. Rows are
+close or reduce only, like every proposal.
+
+**The whole fix in one place.** The `budget_reduction` status lists up to
+three `candidates`, the ranked lines with their contract, contracts held,
+unit value, the rules they relieve (`relief`), `time_value_pct`, unrealised
+P&L and a one-line `why` ("offends 2 open rules; 50% time value; unrealised
+−500"), and the `plan`: every order the measurement needs, each with its
+`rank`, `contract`, `contracts`, `raises_base` and `cycle` (1 for this
+refresh, 2 and later for what `max_order_notional` holds back). `canary
+proposals list` prints both under the Budget header. Every governor row adds
+three detail lines: its place in the plan, the other open rules the sale
+relieves, and the next two candidates with their `why`. Ignoring a row takes
+its line out of the plan: the next refresh moves to the next candidate.
 
 **Measured against the Rulebook instead.** `basis = "rulebook"` replaces the
 two caps with limits you already keep in the Rulebook policy, as shares of NLV:
 a line is cut to `option_line_act_pct` (its premium at risk being the higher of
 price paid and value), and when the book's premium at risk reaches the premium
 budget's act level of the regime set in force (Rulebook rule 3,
-`premium_budget_act_pct`), lines are sold in the same loss-first order,
+`premium_budget_act_pct`), lines are sold in the same ranked order,
 each contract counted at its premium at risk, until the total is back at the
 budget's watch level (`premium_budget_watch_pct`). This basis needs the
 account's NLV, not a risk constitution or available funds, and it waits for no
@@ -184,6 +207,16 @@ carries `per_line_pct_of_nlv`, `premium_budget_watch_pct`,
 `premium_pct_of_nlv` and, once the act level is reached,
 `premium_excess_base` (the premium at risk above the watch level), and each
 row names the limit that selected it.
+
+This basis sells against the Rulebook's numbers, so it waits for them to be
+yours. While `rulebook-policy.toml` still opens with Canary's `# Canary
+defaults, not yet reviewed.` line, the governor runs in shadow whatever
+`mode` says: the status keeps your `mode` and adds `shadow: true` and
+`shadow_reason: "rulebook_unreviewed"`, and every row leads with the
+`rulebook_unreviewed` blocker. Read the file, set the limits you have
+decided, then delete its first line; the configured mode applies from the
+next refresh. The declared-risk-capital basis measures your own caps and is
+not held.
 
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
 the snapshot with `shadow: true`, and listed by `canary proposals list` under

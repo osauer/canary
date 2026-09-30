@@ -3080,6 +3080,7 @@ func cloneBudgetStatus(in *rpc.TradeProposalBudgetStatus) *rpc.TradeProposalBudg
 	out.NLVBase = cloneFloat64Ptr(in.NLVBase)
 	out.AvailableFundsBase = cloneFloat64Ptr(in.AvailableFundsBase)
 	out.PremiumExcessBase = cloneFloat64Ptr(in.PremiumExcessBase)
+	out.Candidates, out.Plan = cloneBudgetCandidates(in.Candidates), slices.Clone(in.Plan)
 	return &out
 }
 

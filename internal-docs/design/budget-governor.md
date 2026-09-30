@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-21 15:38 CEST
+Updated: 2026-09-30 10:41 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -69,6 +69,81 @@ The governor keeps its own protection classification, so its measured total
 can differ from rule 3's where a declared or covering option is protection to
 the governor but not to rule 12.
 
+## Ranking, candidates and the review gate (amendment 2026-09-30)
+
+Owner decisions of 2026-09-30 09:10 CEST ("GO – I love it. Build 1-3"),
+recorded from the senior review of the first live governor row, which sold
+the line with the largest unrealised loss. Largest loss first is exit
+discipline borrowed from rule 13, not a way to choose what to sell when a
+book-level budget is breached; a desk ranks by what the sale fixes.
+
+- **G1 · Review gate.** Under `basis = "rulebook"`, while the Rulebook policy
+  file in force reads `unreviewed` (`rpc.RulebookPolicyStatus.Review`, the
+  file still opens with `# Canary defaults, not yet reviewed.`), the governor
+  behaves as shadow whatever `mode` says: rows are listed and journaled with
+  `shadow: true`, preview, submit and the queue refuse them, and the first
+  blocker on every row is `rulebook_unreviewed` ("the Rulebook policy file
+  still carries Canary's defaults, not yet reviewed"; action: read the file,
+  set the limits you have decided, then delete its first line). The status
+  keeps `mode` as configured and adds `shadow: true` and `shadow_reason:
+  "rulebook_unreviewed"`; `AutomaticEligible()` is false. A configured shadow
+  mode keeps `shadow_mode` as the second blocker. Once the file is reviewed,
+  the configured mode applies at the next refresh (the manager rereads the
+  file every 30 s). This does not reverse the owner's decision of 2026-09-28
+  ("armed instead of shadow … human has to approve trades anyways"): the mode
+  stays the owner's; the gate only asks that the numbers the governor sells
+  against be the owner's numbers. The declared-risk-capital basis sells
+  against caps the owner wrote in the protection policy and is not gated.
+  A compiled baseline with no file, and a file held in `drift` or `error`,
+  do not read `unreviewed` and are not gated.
+- **G2 · Ranking.** The total pass (both bases, one algorithm) sells whole
+  contracts in this order: (1) relief, descending: the number of distinct
+  Rulebook rows at watch or act (rules 1, 2, 4, 5, 13, 16, 18) on which the
+  line (its exact leg, matched by the Rulebook's leg description) or its
+  issuer (`IssuerOf`, so issuer groups count) is a measured offender; an
+  offender listed as `unknown` is not relief. It reads the latest Rulebook
+  result the daemon holds for the broker scope and the policy in force
+  (`cachedRulebookResult`, the same read the stress page takes, within the
+  75 s preview window) and never re-measures. No result: every line relieves
+  nothing, the status carries `ranking_without_rulebook: true`, and the
+  reason says the ranking read time value, then loss. (2) Time-value share,
+  descending: extrinsic ÷ value from `risk.OptionExtrinsicPerShare`, the
+  decomposition the theta bucket and rule 4 share, on the row's underlying
+  price and mark (the valuation mark when no mark); unknown sorts last.
+  (3) Unrealised loss, largest first (the old key). (4) Line value.
+  (5) Contract id. The per-line pass runs first, unchanged; protection legs,
+  unit legs and stale marks keep their treatment (never selected, and
+  `strategy_workflow_required` / `fresh_option_quote_required` on the row).
+  The reason names the order used.
+- **G3 · Candidates and plan.** The status gains `candidates`, the first
+  three ranked lines, each with its contract (con_id, symbol, sec_type,
+  expiry, strike, right), `contracts` held, `unit_value_base`, `relief` (rule
+  ids in rulebook order), `time_value_pct`, `unrealized_pnl_base` and a one-line
+  `why` ("offends 2 open rules; 50% time value; unrealised −500"), and `plan`:
+  every order the measurement needs, one line's orders together and lines in
+  rank order, each with `rank`, `contract`, `contracts`, `raises_base` (at the
+  line's value) and `cycle` (1 for this refresh; 2 and later where
+  `max_order_notional`, unchanged, holds the rest back). Every governor row's
+  `details` gain three lines before the veto sentence: its place in the plan
+  ("order 1 of 2 in the plan; order 2 of 2 (2 contracts of the same line)
+  follows after this fill", or "... is the next line", or ", the last"), the
+  relief line ("also relieves rule 2 (line 12.5% of NLV), rule 4"; rule 2 is
+  left out where its act level is the row's own reason), and one
+  alternatives line naming the next two ranked lines with their `why`.
+- **Ignore.** Ignoring a row (the existing ignore path, by key) takes its
+  line out of the ranking and both passes: the next refresh plans from the
+  next candidate. The ignored line still counts in the measured total.
+- **Surfaces.** `canary proposals` prints the candidates and the plan under
+  the Budget header and names the gate there; JSON and MCP
+  `canary_proposals` carry both lists. Journaled events are unchanged apart
+  from the new snapshot fields. The SPA is out of scope (Desk renders it).
+- **Send timing after the open** is compiled, not a policy key:
+  `readinessOptionsOpeningOffset` (15 minutes; stocks 5) in
+  `internal/daemon/proposal_readiness.go` dates `default_send_at` and is the
+  earliest time the queue and the pre-authorisation scheduler send. The
+  senior review's ask for no governor sends in the first 30 minutes of a
+  stress open is a later decision.
+
 ## Meaning
 
 - Capital or exposure base: the constitution's `capital.declared_risk_capital`
@@ -106,7 +181,9 @@ the governor but not to rule 12.
     whole contracts (keep = floor(cap ÷ value per contract)); when the cap
     rounds to zero contracts the row is a full close.
   - Then the total: while the projected sum exceeds the total cap, reduce lines
-    in order of largest unrealised loss first, then largest market value, whole
+    in rank order (since 2026-09-30: open Rulebook rules relieved, then
+    time-value share, then largest unrealised loss, then largest market value,
+    then contract id; see the amendment above), whole
     contracts (needed = ceil(excess ÷ value per contract)), until within the
     cap. A line already trimmed by the per-line pass can be trimmed further.
   - `max_order_notional` caps one generated order exactly as
@@ -114,7 +191,8 @@ the governor but not to rule 12.
     cycle, which re-evaluates from the position as it then is. The row's
     reason asks to sell exactly the order's quantity; a held order also names
     the plan's number and the limit that held it (`budget.contracts_*` keep
-    the plan's cuts).
+    the plan's cuts), and the status `plan` lists the held remainder as
+    cycle 2 and later.
 - Enforcement class: advisory. `mode = "shadow"` lists and journals rows that
   no surface can preview or submit (`shadow_mode`); `mode = "active"` makes
   them ordinary proposals under every existing gate. Neither mode places an
@@ -137,6 +215,9 @@ the governor but not to rule 12.
 | Declared risk capital, floor, ladder, enforcement class | `risk-policy.toml` | `risk.Constitution` | manager reread every 30 s | absent/unapproved ⇒ `constitution_unapproved` |
 | Latch and tier | daemon `risk_capital` state | `rpc.CapitalStateReport.BlockLatched`, `.Tier` | live | not latched and not block ⇒ `not_latched` |
 | Leg purpose | standing option-purpose derivation + rulebook hedge list | `optionExitPurpose`, `optionExitStrategyScope`, `risk.RulebookPolicy.IsHedgeSymbol` | per refresh | protection ⇒ never selected; unit leg ⇒ `strategy_workflow_required` |
+| Relief per line (rank key 1) | the Rulebook result the daemon holds | `rpc.RulesResult` via `cachedRulebookResult` (scope-, connector- and policy-bound) | 75 s preview window | none current ⇒ relief 0, `ranking_without_rulebook` |
+| Time-value share (rank key 2) | positions view | `risk.OptionExtrinsicPerShare` on `PositionView.Underlying`, `.Mark` | per refresh | nil ⇒ sorts last |
+| Review gate (rulebook basis) | Rulebook policy file | `rpc.RulebookPolicyStatus.Review` | manager reread every 30 s | `unreviewed` ⇒ shadow, `rulebook_unreviewed` first |
 | Line value and loss | positions view | `PositionView.MarketValueBase`, `.UnrealizedPnLBase` | per refresh; `Stale` honoured | nil base value ⇒ excluded and counted |
 | Measured state | proposal snapshot | `rpc.TradeProposalSnapshot.BudgetReduction` (`budget_reduction`) | per refresh | — |
 | Per-row arithmetic | proposal | `rpc.TradeProposal.Budget` (`budget`) | per refresh | — |
@@ -193,14 +274,30 @@ bucket sets it on every row.
 ## Verification
 
 - Fixture scenarios (all synthetic books; `internal/daemon/proposal_budget_test.go`,
-  `proposal_budget_shadow_test.go`, `protection_policy_budget_test.go`,
-  `brief_capital_test.go`, and `internal/cli/proposals_budget_test.go`):
+  `proposal_budget_shadow_test.go`, `proposal_budget_plan_test.go`,
+  `protection_policy_budget_test.go`, `brief_capital_test.go`, and
+  `internal/cli/proposals_budget_test.go`):
   three discretionary lines plus a hedge-listed put and a covering put over a
   latched, approved constitution; the per-line pass runs before the total pass
-  and the order is largest loss first; cap arithmetic in whole contracts
+  and, with no Rulebook result and no time value, the order falls back to
+  largest loss first; cap arithmetic in whole contracts
   including the zero-contract full close; an unapproved constitution, a shadow
   enforcement class and an open latch yield no rows with the typed reason; a
   partial fill re-evaluates from the new position.
+- Amendment 2026-09-30 fixtures (`proposal_budget_plan_test.go`, and the CLI
+  text in `proposals_budget_test.go`): an unreviewed Rulebook file holds an
+  active rulebook basis in shadow with `rulebook_unreviewed` first (preview,
+  queue and `AutomaticEligible()` refuse), a configured shadow adds
+  `shadow_mode` second, a reviewed file restores the mode, and the declared
+  basis is not gated; the engine reads the review state and the held Rulebook
+  result (a stale one is not read); four lines where largest loss would sell
+  DDD then CCC sell AAA (two open rules) then BBB (one rule, more time value)
+  on both bases, issuer groups count, unknown offenders and rows outside the
+  seven rules do not; without a Rulebook result time value leads and the
+  status says `ranking_without_rulebook`; the tie-breaks (relief, time value
+  with unknown last, loss, value, contract id); the candidates and plan JSON,
+  a plan held by `max_order_notional` running into cycle 2, and the three new
+  detail lines; an ignored line leaves the plan to the next candidate.
 - Property/invariant tests: every row is a SELL with effect reduce or close and
   quantity within the position; a protection leg is never selected; the bucket
   is absent from `canary policy default protection` and disabled when the table
@@ -211,8 +308,10 @@ bucket sets it on every row.
   from the two policy files and typed position fields only; no symbol, order
   reference or broker text enters a decision.
 - Cross-surface parity checks: CLI text lists shadow rows under their own
-  heading; JSON carries `shadow`, `never_skip_veto`, `budget` and the snapshot
-  `budget_reduction` status; the SPA renders the rows as blocked proposals
+  heading and the candidates and plan under the Budget header; JSON carries
+  `shadow`, `never_skip_veto`, `budget` and the snapshot `budget_reduction`
+  status with `shadow_reason`, `candidates`, `plan` and
+  `ranking_without_rulebook`; the SPA renders the rows as blocked proposals
   through the existing blocker path.
 - Redacted before/after artifact: none against a live gateway (fixtures only,
   by instruction).

@@ -545,6 +545,7 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 	statusRow(env, out, "Theta/day", fmt.Sprintf("%.2f", snap.Counts.ThetaPerDay))
 	if budget := formatProposalBudgetStatus(snap.BudgetReduction); budget != "" {
 		statusRow(env, out, "Budget", budget)
+		renderProposalBudgetPlan(out, snap.BudgetReduction)
 	}
 	printTradingBlockers(out, "  ", snap.Blockers)
 	var shadow []rpc.TradeProposal
@@ -638,7 +639,8 @@ func formatProposalBudgetStatus(st *rpc.TradeProposalBudgetStatus) string {
 	if st == nil {
 		return ""
 	}
-	parts := []string{st.Mode, strings.ReplaceAll(st.State, "_", " ")}
+	parts := append([]string{st.Mode}, formatProposalBudgetGate(st)...)
+	parts = append(parts, strings.ReplaceAll(st.State, "_", " "))
 	if st.MeasuredPctOfRiskCapital != nil {
 		parts = append(parts, fmt.Sprintf("premium %.1f%% of risk capital (caps %.0f%% total, %.0f%% per line)", *st.MeasuredPctOfRiskCapital, st.PremiumAtRiskPctOfRiskCapital, st.PerLinePctOfRiskCapital))
 	}

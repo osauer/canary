@@ -577,6 +577,58 @@ type TradeProposalBudgetStatus struct {
 	ExcludedLegs   int    `json:"excluded_legs"`
 	Rows           int    `json:"rows"`
 	BaseCurrency   string `json:"base_currency,omitempty"`
+	// ShadowReason says why the governor runs in shadow although Mode may
+	// say active: BudgetShadowRulebookUnreviewed while the Rulebook policy
+	// file the rulebook basis sells against is Canary's unreviewed default.
+	// Mode stays as configured; empty when Mode alone explains Shadow.
+	ShadowReason string `json:"shadow_reason,omitempty"`
+	// Candidates are the lines the total pass sells from, in its order, at
+	// most three; Plan is every order the measurement needs across cycles
+	// (amendment 2026-09-30). RankingWithoutRulebook says no current
+	// Rulebook result was held, so no line was credited with relief.
+	Candidates             []TradeProposalBudgetCandidate `json:"candidates,omitempty"`
+	Plan                   []TradeProposalBudgetPlanOrder `json:"plan,omitempty"`
+	RankingWithoutRulebook bool                           `json:"ranking_without_rulebook,omitempty"`
+}
+
+// BudgetShadowRulebookUnreviewed is the shadow reason, and the first blocker
+// code on every row, while the Rulebook policy file in force still carries
+// Canary's defaults under basis rulebook.
+const BudgetShadowRulebookUnreviewed = "rulebook_unreviewed"
+
+// TradeProposalBudgetCandidate is one line the governor's total pass may
+// sell, ranked by what the sale fixes: the open Rulebook rules it relieves,
+// then its time-value share, then its unrealised loss, then its value.
+type TradeProposalBudgetCandidate struct {
+	Rank int `json:"rank"`
+	// Contract carries the display fields: con_id, symbol, sec_type, expiry,
+	// strike and right.
+	Contract      ContractParams `json:"contract"`
+	Contracts     int            `json:"contracts"`
+	UnitValueBase float64        `json:"unit_value_base"`
+	// Relief lists the Rulebook rules at watch or act (1, 2, 4, 5, 13, 16,
+	// 18) on which this line or its issuer is an offender, in rulebook order.
+	Relief []string `json:"relief,omitempty"`
+	// TimeValuePct is extrinsic value as a percent of the line's value; nil
+	// when the underlying price or the mark is missing.
+	TimeValuePct      *float64 `json:"time_value_pct,omitempty"`
+	UnrealizedPnLBase *float64 `json:"unrealized_pnl_base,omitempty"`
+	// Why is the ranking in one line, e.g. "offends 3 open rules; 51% time
+	// value; unrealised −2.1k".
+	Why string `json:"why"`
+}
+
+// TradeProposalBudgetPlanOrder is one order of the governor's plan. Cycle 1
+// is this refresh; 2 and later are the remainder max_order_notional holds
+// back, which each later cycle re-measures from the position as it then is.
+type TradeProposalBudgetPlanOrder struct {
+	// Rank is the line's place in the candidate ranking; the plan lists one
+	// line's orders together, lines in rank order.
+	Rank       int            `json:"rank"`
+	Contract   ContractParams `json:"contract"`
+	Contracts  int            `json:"contracts"`
+	RaisesBase float64        `json:"raises_base"`
+	Cycle      int            `json:"cycle"`
 }
 
 // TradeProposalBudget is one governor row's arithmetic: which cap selected the

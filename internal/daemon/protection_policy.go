@@ -122,7 +122,7 @@ type protectionPolicyBuckets struct {
 type protectionBudgetPolicy struct {
 	// Enabled turns the premium budget governor on (default false; the table is only a commented placeholder in the file Canary writes).
 	Enabled bool `toml:"enabled" json:"enabled"`
-	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals.
+	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals, except under basis = rulebook while the Rulebook policy file still carries Canary's unreviewed defaults, when the governor stays in shadow (rulebook_unreviewed).
 	Mode string `toml:"mode" json:"mode,omitempty"`
 	// PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default, and until it is written the governor reports needs_your_number.
 	PremiumAtRiskPctOfRiskCapital float64 `toml:"premium_at_risk_pct_of_risk_capital" json:"premium_at_risk_pct_of_risk_capital"`
