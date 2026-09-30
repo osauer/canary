@@ -578,9 +578,11 @@ type TradeProposalBudgetStatus struct {
 	Rows           int    `json:"rows"`
 	BaseCurrency   string `json:"base_currency,omitempty"`
 	// ShadowReason says why the governor runs in shadow although Mode may
-	// say active: BudgetShadowRulebookUnreviewed while the Rulebook policy
-	// file the rulebook basis sells against is Canary's unreviewed default.
-	// Mode stays as configured; empty when Mode alone explains Shadow.
+	// say active: under basis rulebook, the Rulebook policy in force is not
+	// an explicitly reviewed owner file (BudgetShadowRulebook*: the file is
+	// Canary's unreviewed default, there is no file, or the file is in drift
+	// or error). Mode stays as configured; empty when Mode alone explains
+	// Shadow.
 	ShadowReason string `json:"shadow_reason,omitempty"`
 	// Candidates are the lines the total pass sells from, in its order, at
 	// most three; Plan is every order the measurement needs across cycles
@@ -591,10 +593,19 @@ type TradeProposalBudgetStatus struct {
 	RankingWithoutRulebook bool                           `json:"ranking_without_rulebook,omitempty"`
 }
 
-// BudgetShadowRulebookUnreviewed is the shadow reason, and the first blocker
-// code on every row, while the Rulebook policy file in force still carries
-// Canary's defaults under basis rulebook.
-const BudgetShadowRulebookUnreviewed = "rulebook_unreviewed"
+// The review gate's shadow reasons under basis rulebook (amendment
+// 2026-09-30; fail closed by reviewer decision 2026-09-30 10:52 CEST). The
+// governor acts only on an explicitly reviewed owner file: the file still
+// carries Canary's unreviewed defaults, no file is in force (the compiled
+// baseline), the file on disk is not the one in force (drift), or it could
+// not be read (error). BudgetShadowRulebookUnreviewed is also the first
+// blocker code on every row in all four cases.
+const (
+	BudgetShadowRulebookUnreviewed = "rulebook_unreviewed"
+	BudgetShadowRulebookNoFile     = "rulebook_no_file"
+	BudgetShadowRulebookDrift      = "rulebook_drift"
+	BudgetShadowRulebookError      = "rulebook_error"
+)
 
 // TradeProposalBudgetCandidate is one line the governor's total pass may
 // sell, ranked by what the sale fixes: the open Rulebook rules it relieves,

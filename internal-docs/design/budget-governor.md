@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-30 10:41 CEST
+Updated: 2026-09-30 10:53 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -94,8 +94,17 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   stays the owner's; the gate only asks that the numbers the governor sells
   against be the owner's numbers. The declared-risk-capital basis sells
   against caps the owner wrote in the protection policy and is not gated.
-  A compiled baseline with no file, and a file held in `drift` or `error`,
-  do not read `unreviewed` and are not gated.
+  The gate fails closed (reviewer decision 2026-09-30 10:52 CEST): the
+  rulebook basis acts only when the Rulebook policy status reads an
+  explicitly reviewed owner file (`source = file`, `status = active`, no
+  review marker). Every other state holds it in shadow with the same
+  `rulebook_unreviewed` blocker and a `shadow_reason` naming the case:
+  `rulebook_unreviewed` (the marker), `rulebook_no_file` (the compiled
+  baseline: "no Rulebook policy file; Canary's compiled defaults apply"),
+  `rulebook_drift` (the file on disk is not the one in force: "the last good
+  file applies") and `rulebook_error` (the file could not be read; the last
+  good file, or before any good file Canary's compiled defaults, apply). Each
+  blocker's action names what lifts it.
 - **G2 · Ranking.** The total pass (both bases, one algorithm) sells whole
   contracts in this order: (1) relief, descending: the number of distinct
   Rulebook rows at watch or act (rules 1, 2, 4, 5, 13, 16, 18) on which the
@@ -217,7 +226,7 @@ book-level budget is breached; a desk ranks by what the sale fixes.
 | Leg purpose | standing option-purpose derivation + rulebook hedge list | `optionExitPurpose`, `optionExitStrategyScope`, `risk.RulebookPolicy.IsHedgeSymbol` | per refresh | protection ⇒ never selected; unit leg ⇒ `strategy_workflow_required` |
 | Relief per line (rank key 1) | the Rulebook result the daemon holds | `rpc.RulesResult` via `cachedRulebookResult` (scope-, connector- and policy-bound) | 75 s preview window | none current ⇒ relief 0, `ranking_without_rulebook` |
 | Time-value share (rank key 2) | positions view | `risk.OptionExtrinsicPerShare` on `PositionView.Underlying`, `.Mark` | per refresh | nil ⇒ sorts last |
-| Review gate (rulebook basis) | Rulebook policy file | `rpc.RulebookPolicyStatus.Review` | manager reread every 30 s | `unreviewed` ⇒ shadow, `rulebook_unreviewed` first |
+| Review gate (rulebook basis) | Rulebook policy file | `rpc.RulebookPolicyStatus` (`Source`, `Status`, `Review`) | manager reread every 30 s | anything but a reviewed owner file in force ⇒ shadow, `rulebook_unreviewed` first, `shadow_reason` names the case |
 | Line value and loss | positions view | `PositionView.MarketValueBase`, `.UnrealizedPnLBase` | per refresh; `Stale` honoured | nil base value ⇒ excluded and counted |
 | Measured state | proposal snapshot | `rpc.TradeProposalSnapshot.BudgetReduction` (`budget_reduction`) | per refresh | — |
 | Per-row arithmetic | proposal | `rpc.TradeProposal.Budget` (`budget`) | per refresh | — |
@@ -289,7 +298,9 @@ bucket sets it on every row.
   active rulebook basis in shadow with `rulebook_unreviewed` first (preview,
   queue and `AutomaticEligible()` refuse), a configured shadow adds
   `shadow_mode` second, a reviewed file restores the mode, and the declared
-  basis is not gated; the engine reads the review state and the held Rulebook
+  basis is not gated; through a real policy manager the gate fails closed on
+  no file, a file in drift, a file in error after a good load and before
+  any, each with its `shadow_reason` and message; the engine reads the review state and the held Rulebook
   result (a stale one is not read); four lines where largest loss would sell
   DDD then CCC sell AAA (two open rules) then BBB (one rule, more time value)
   on both bases, issuer groups count, unknown offenders and rows outside the

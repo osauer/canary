@@ -48,12 +48,11 @@ type budgetGovernorInput struct {
 	// (the calm set).
 	RegimeStage        string
 	RegimeStageCarried bool
-	// RulebookReview is the review state of the Rulebook policy file in
-	// force (rpc.PolicyReviewUnreviewed while it is Canary's default) and
-	// RulebookPath where it lives: under basis rulebook an unreviewed file
-	// holds the governor in shadow (amendment 2026-09-30).
-	RulebookReview string
-	RulebookPath   string
+	// RulebookStatus is the status of the Rulebook policy in force: under
+	// basis rulebook the governor acts only when it reads an explicitly
+	// reviewed owner file (amendment 2026-09-30, fail closed), so the zero
+	// value holds it in shadow.
+	RulebookStatus rpc.RulebookPolicyStatus
 	// Rules is the latest Rulebook result the daemon holds for this scope and
 	// policy, nil when none is current. The ranking reads from it which open
 	// rules each line offends; the governor never re-measures them.
@@ -83,7 +82,7 @@ func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.T
 	// One read, so the review state is the one of the policy the limits
 	// come from.
 	rulebook, rulebookStatus := server.activeRulebookPolicy()
-	in := budgetGovernorInput{Rulebook: rulebook, RulebookReview: rulebookStatus.Review, RulebookPath: rulebookStatus.Path}
+	in := budgetGovernorInput{Rulebook: rulebook, RulebookStatus: rulebookStatus}
 	if server != nil {
 		// The Rulebook's own current verdict, exactly as the stress read
 		// takes it: bound to this broker scope and policy, never re-measured.
@@ -184,17 +183,49 @@ const budgetMoneyEpsilon = 1e-6
 const budgetCandidateLimit = 3
 
 // budgetReductionPlan measures the book against the caps, then applies the
-// review gate (amendment 2026-09-30): under basis rulebook, while the
-// Rulebook policy file in force still carries Canary's defaults, the governor
-// runs in shadow whatever its mode says, so an unreviewed default never
-// generates an order. The mode stays the owner's; the gate asks only that
-// the numbers the governor sells against be the owner's numbers.
+// review gate (amendment 2026-09-30): under basis rulebook the governor runs
+// in shadow whatever its mode says unless the Rulebook policy in force is an
+// explicitly reviewed owner file, so Canary's defaults never generate an
+// order. The mode stays the owner's; the gate asks only that the numbers the
+// governor sells against be the owner's numbers.
 func budgetReductionPlan(policy protectionPolicy, input budgetGovernorInput, pos *rpc.PositionsResult, now time.Time) budgetPlan {
 	plan := budgetMeasurePlan(policy, input, pos, now)
-	if policy.Buckets.BudgetReduction.basis() == rpc.BudgetBasisRulebook && input.RulebookReview == rpc.PolicyReviewUnreviewed {
-		plan.status.Shadow, plan.status.ShadowReason = true, rpc.BudgetShadowRulebookUnreviewed
+	if policy.Buckets.BudgetReduction.basis() == rpc.BudgetBasisRulebook {
+		if reason, _, _ := budgetRulebookGate(input.RulebookStatus); reason != "" {
+			plan.status.Shadow, plan.status.ShadowReason = true, reason
+		}
 	}
 	return plan
+}
+
+// budgetRulebookGate fails closed (reviewer decision 2026-09-30 10:52 CEST):
+// the only open state is an owner file in force, read cleanly, without
+// Canary's review marker. Otherwise it returns the shadow reason and the
+// blocker's message and action for the case.
+func budgetRulebookGate(st rpc.RulebookPolicyStatus) (reason, message, action string) {
+	file := config.DefaultRulebookPolicyFile
+	if path := strings.TrimSpace(st.Path); path != "" && path != expandUserPath(file) {
+		file = path
+	}
+	fromFile := st.Source == rulebookPolicySourceFile
+	switch {
+	case st.Status == rpc.RulebookPolicyStatusError && fromFile:
+		return rpc.BudgetShadowRulebookError, "the Rulebook policy file in force could not be read; the last good file applies",
+			"fix " + file + " so it loads (canary rules policy shows the error), then raise its policy_version"
+	case st.Status == rpc.RulebookPolicyStatusError:
+		return rpc.BudgetShadowRulebookError, "the Rulebook policy file could not be read; Canary's compiled defaults apply",
+			"fix " + file + " so it loads (canary rules policy shows the error)"
+	case st.Status == rpc.RulebookPolicyStatusDrift:
+		return rpc.BudgetShadowRulebookDrift, "the Rulebook policy file on disk is not the one in force; the last good file applies",
+			"raise policy_version in " + file + " so the daemon adopts it, or restore the file in force (canary rules policy says which)"
+	case !fromFile:
+		return rpc.BudgetShadowRulebookNoFile, "no Rulebook policy file; Canary's compiled defaults apply",
+			"run canary policy ensure to write " + file + ", set the limits you have decided, then delete its first line"
+	case st.Review == rpc.PolicyReviewUnreviewed || st.Status != rpc.RulebookPolicyStatusActive:
+		return rpc.BudgetShadowRulebookUnreviewed, "the Rulebook policy file still carries Canary's defaults, not yet reviewed",
+			"read " + file + ", set the limits you have decided, then delete its first line"
+	}
+	return "", "", ""
 }
 
 // budgetMeasurePlan measures the book against the caps. It generates no
@@ -649,8 +680,9 @@ func (e *proposalEngine) budgetReductionProposals(policy protectionPolicy, statu
 			// reader must know about the row, and the review gate comes before
 			// the mode, because it holds the row whatever the mode says.
 			var lead []rpc.TradingBlocker
-			if st.ShadowReason == rpc.BudgetShadowRulebookUnreviewed {
-				lead = append(lead, budgetRulebookUnreviewedBlocker(input.RulebookPath))
+			if st.ShadowReason != "" {
+				_, message, action := budgetRulebookGate(input.RulebookStatus)
+				lead = append(lead, rpc.TradingBlocker{Code: rpc.BudgetShadowRulebookUnreviewed, Message: message, Action: action})
 			}
 			if st.Mode == rpc.BudgetReductionModeShadow {
 				lead = append(lead, budgetShadowBlocker())
@@ -1037,21 +1069,6 @@ func budgetShadowBlocker() rpc.TradingBlocker {
 		Code:    "shadow_mode",
 		Message: "budget reduction runs in shadow mode; this row is listed for observation and cannot be previewed or submitted",
 		Action:  "Set mode = \"active\" under [buckets.budget_reduction] and bump policy_version to make these rows ordinary proposals.",
-	}
-}
-
-// budgetRulebookUnreviewedBlocker is the review gate's refusal: the first
-// blocker on every governor row while the Rulebook policy file it sells
-// against is Canary's unreviewed default. path is the file in force.
-func budgetRulebookUnreviewedBlocker(path string) rpc.TradingBlocker {
-	file := config.DefaultRulebookPolicyFile
-	if path = strings.TrimSpace(path); path != "" && path != expandUserPath(file) {
-		file = path
-	}
-	return rpc.TradingBlocker{
-		Code:    rpc.BudgetShadowRulebookUnreviewed,
-		Message: "the Rulebook policy file still carries Canary's defaults, not yet reviewed",
-		Action:  "read " + file + ", set the limits you have decided, then delete its first line",
 	}
 }
 

@@ -368,7 +368,7 @@ func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
 	}
 	rb := risk.DefaultRulebookPolicy()
 	rb.OptionLineActPct = 40
-	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(70000.0), AvailableFundsBase: new(45000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
+	input := budgetGovernorInput{Rulebook: rb, RulebookStatus: reviewedRulebookStatus(), NLVBase: new(70000.0), AvailableFundsBase: new(45000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
 	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
 	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
 
@@ -405,7 +405,7 @@ func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
 		if basis == rpc.BudgetBasisRulebook {
 			p = budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
 			p.Buckets.BudgetReduction.Basis = basis
-			in = budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR"}
+			in = budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), RulebookStatus: reviewedRulebookStatus(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR"}
 		}
 		p.Buckets.BudgetReduction.MaxOrderNotional = 100
 		rows, _ := (&proposalEngine{}).budgetReductionProposals(p, rpc.ProtectionPolicyStatus{}, in, nil, budgetTestBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())

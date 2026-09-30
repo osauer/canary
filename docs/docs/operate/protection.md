@@ -209,14 +209,21 @@ carries `per_line_pct_of_nlv`, `premium_budget_watch_pct`,
 row names the limit that selected it.
 
 This basis sells against the Rulebook's numbers, so it waits for them to be
-yours. While `rulebook-policy.toml` still opens with Canary's `# Canary
-defaults, not yet reviewed.` line, the governor runs in shadow whatever
-`mode` says: the status keeps your `mode` and adds `shadow: true` and
-`shadow_reason: "rulebook_unreviewed"`, and every row leads with the
-`rulebook_unreviewed` blocker. Read the file, set the limits you have
-decided, then delete its first line; the configured mode applies from the
-next refresh. The declared-risk-capital basis measures your own caps and is
-not held.
+yours: it acts only while the Rulebook policy in force is a
+`rulebook-policy.toml` you reviewed, read cleanly. Otherwise the governor
+runs in shadow whatever `mode` says; the status keeps your `mode` and adds
+`shadow: true` and a `shadow_reason`, and every row leads with the
+`rulebook_unreviewed` blocker, whose action says what lifts it:
+
+| `shadow_reason` | Case |
+|---|---|
+| `rulebook_unreviewed` | the file still opens with Canary's `# Canary defaults, not yet reviewed.` line: read it, set the limits you have decided, then delete that line |
+| `rulebook_no_file` | there is no file, so Canary's compiled defaults apply: `canary policy ensure` writes one |
+| `rulebook_drift` | the file on disk is not the one in force (edited without a higher `policy_version`, or removed) |
+| `rulebook_error` | the file could not be read; the last good file (or, before any, Canary's defaults) applies |
+
+The configured mode applies from the next refresh after the file in force is
+yours. The declared-risk-capital basis measures your own caps and is not held.
 
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
 the snapshot with `shadow: true`, and listed by `canary proposals list` under

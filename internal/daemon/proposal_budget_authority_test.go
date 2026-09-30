@@ -50,6 +50,7 @@ func TestBudgetGovernorRequiresObservedNLV(t *testing.T) {
 			policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
 			pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "USD"}, Options: []rpc.PositionView{budgetOptionLeg("EXAMPLE", 1, "C", 2, 1000, -50)}}
 			input := engine.budgetGovernorInput(account, now)
+			input.RulebookStatus = reviewedRulebookStatus() // the owner's reviewed file
 			rows, status := engine.budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, account, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 			if status.State != tc.state || len(rows) != tc.rows {
 				t.Fatalf("state=%s rows=%d, want state=%s rows=%d", status.State, len(rows), tc.state, tc.rows)

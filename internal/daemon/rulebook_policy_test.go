@@ -210,7 +210,7 @@ func TestBudgetRulebookBasisCutsThePremiumBudgetBackToWatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	pos := budgetTestBook() // AAA 6×2,000 (loss 1,000), BBB 4×2,500 (loss 4,000), CCC 2×3,000 (gain); 28,000 at risk
-	input := budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR"}
+	input := budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), RulebookStatus: reviewedRulebookStatus(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR"}
 	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
 	// 28,000 is 35% of 80,000: exactly the calm act level, so the total pass
 	// runs. Line limit 10% = 8,000: AAA sells 2, BBB 1 (6,500 at risk). Back
@@ -295,7 +295,7 @@ func TestBudgetRulebookBasisCountsALosingLineAtItsPricePaid(t *testing.T) {
 	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"}, Options: []rpc.PositionView{leg}}
 	rb := risk.DefaultRulebookPolicy()
 	rb.OptionLineActPct = 50
-	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(100000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
+	input := budgetGovernorInput{Rulebook: rb, RulebookStatus: reviewedRulebookStatus(), NLVBase: new(100000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
 	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
 	// 36,000 at risk (price paid, over a 10,000 value) is 36% ≥ 35: back to
 	// 15% is 21,000, which 6 contracts at 3,600 cover; at value it would be

@@ -75,7 +75,13 @@ func budgetPlanRules() *rpc.RulesResult {
 func budgetPlanInput() budgetGovernorInput {
 	rb := risk.DefaultRulebookPolicy()
 	rb.IssuerGroups = map[string][]string{"GroupC": {"CCC", "CCD"}}
-	return budgetGovernorInput{Rulebook: rb, NLVBase: new(80000.0), AccountBaseCurrency: "EUR", Rules: budgetPlanRules()}
+	return budgetGovernorInput{Rulebook: rb, RulebookStatus: reviewedRulebookStatus(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR", Rules: budgetPlanRules()}
+}
+
+// reviewedRulebookStatus is an owner file in force, read cleanly, without
+// Canary's review marker: the only state that opens the review gate.
+func reviewedRulebookStatus() rpc.RulebookPolicyStatus {
+	return rpc.RulebookPolicyStatus{Status: rpc.RulebookPolicyStatusActive, Source: rulebookPolicySourceFile}
 }
 
 func budgetPlanPolicy(mode string, maxOrderNotional float64) protectionPolicy {
@@ -91,7 +97,7 @@ func budgetPlanPolicy(mode string, maxOrderNotional float64) protectionPolicy {
 func TestBudgetReviewGateHoldsTheRulebookBasisInShadow(t *testing.T) {
 	now := optionExitTestTime()
 	input := budgetPlanInput()
-	input.RulebookReview = rpc.PolicyReviewUnreviewed
+	input.RulebookStatus.Review = rpc.PolicyReviewUnreviewed
 	rows, st := (&proposalEngine{}).budgetReductionProposals(budgetPlanPolicy(rpc.BudgetReductionModeActive, 1e9), rpc.ProtectionPolicyStatus{}, input, nil, budgetPlanBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 	if st == nil || st.Mode != rpc.BudgetReductionModeActive || !st.Shadow || st.ShadowReason != rpc.BudgetShadowRulebookUnreviewed || st.Rows != 2 || len(rows) != 2 {
 		t.Fatalf("status = %+v rows %d", st, len(rows))
@@ -138,12 +144,14 @@ func TestBudgetReviewGateHoldsTheRulebookBasisInShadow(t *testing.T) {
 	}
 
 	// A file in a configured location is named in the action.
-	if b := budgetRulebookUnreviewedBlocker("/synthetic/rules.toml"); !strings.HasPrefix(b.Action, "read /synthetic/rules.toml, ") {
-		t.Fatalf("action = %q", b.Action)
+	elsewhere := input.RulebookStatus
+	elsewhere.Path = "/synthetic/rules.toml"
+	if _, _, action := budgetRulebookGate(elsewhere); !strings.HasPrefix(action, "read /synthetic/rules.toml, ") {
+		t.Fatalf("action = %q", action)
 	}
 
 	// Reviewed: the configured mode applies.
-	input.RulebookReview = ""
+	input.RulebookStatus = reviewedRulebookStatus()
 	rows, st = (&proposalEngine{}).budgetReductionProposals(budgetPlanPolicy(rpc.BudgetReductionModeActive, 1e9), rpc.ProtectionPolicyStatus{}, input, nil, budgetPlanBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 	if st.Shadow || st.ShadowReason != "" || len(rows) != 2 {
 		t.Fatalf("reviewed status = %+v", st)
@@ -155,17 +163,81 @@ func TestBudgetReviewGateHoldsTheRulebookBasisInShadow(t *testing.T) {
 	}
 
 	// The declared-risk-capital basis sells against the owner's own caps: the
-	// Rulebook file's review does not gate it.
+	// Rulebook file's review does not gate it, not even with no file at all.
 	declared := budgetLatchedInput()
-	declared.RulebookReview = rpc.PolicyReviewUnreviewed
 	if _, st := (&proposalEngine{}).budgetReductionProposals(budgetTestPolicy(rpc.BudgetReductionModeActive, 20, 15), rpc.ProtectionPolicyStatus{}, declared, nil, budgetTestBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now); st.Shadow || st.ShadowReason != "" {
 		t.Fatalf("declared basis gated: %+v", st)
 	}
 }
 
-// The engine reads the review state of the file in force and the Rulebook
-// result the daemon holds; deleting the marker line lifts the gate at the
-// next reload.
+// The gate fails closed (reviewer decision 2026-09-30 10:52 CEST): read
+// through the engine from a real policy manager, only an owner file read
+// cleanly and without the review marker opens it. No file (the compiled
+// baseline), a file in drift and a file in error hold the governor in shadow
+// with the rulebook_unreviewed blocker and a shadow_reason naming the case.
+func TestBudgetReviewGateFailsClosed(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	now := optionExitTestTime()
+	measure := func(t *testing.T, m *rulebookPolicyManager) (*rpc.TradeProposalBudgetStatus, []rpc.TradeProposal) {
+		t.Helper()
+		gathered := (&proposalEngine{server: &Server{rulebookPolicies: m}}).budgetGovernorInput(nil, now)
+		input := budgetPlanInput()
+		input.RulebookStatus = gathered.RulebookStatus
+		rows, st := (&proposalEngine{}).budgetReductionProposals(budgetPlanPolicy(rpc.BudgetReductionModeActive, 1e9), rpc.ProtectionPolicyStatus{}, input, nil, budgetPlanBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
+		return st, rows
+	}
+	held := func(t *testing.T, m *rulebookPolicyManager, reason, message string) {
+		t.Helper()
+		st, rows := measure(t, m)
+		if st.Mode != rpc.BudgetReductionModeActive || !st.Shadow || st.ShadowReason != reason || len(rows) != 2 {
+			t.Fatalf("want %s: status %+v rows %d", reason, st, len(rows))
+		}
+		for _, row := range rows {
+			if lead := row.Blockers[0]; !row.Shadow || row.AutomaticEligible() || lead.Code != "rulebook_unreviewed" || lead.Message != message || lead.Action == "" {
+				t.Fatalf("want %s: row %+v", reason, row)
+			}
+			if got := shadowProposalBlockers(row); len(got) != 1 || got[0].Message != message {
+				t.Fatalf("want %s: preview refusal %+v", reason, got)
+			}
+		}
+	}
+
+	// No file: Canary's compiled baseline is in force.
+	m, path, _ := rulebookTestManager(t)
+	m.reload()
+	held(t, m, rpc.BudgetShadowRulebookNoFile, "no Rulebook policy file; Canary's compiled defaults apply")
+	// An engine without a policy manager reads the same way.
+	if reason, _, _ := budgetRulebookGate((&proposalEngine{}).budgetGovernorInput(nil, now).RulebookStatus); reason != rpc.BudgetShadowRulebookNoFile {
+		t.Fatalf("bare engine gate = %q", reason)
+	}
+	// Canary's template, still marked unreviewed.
+	writeRulebookTestFile(t, path, PolicyUnreviewedMarker+"\npolicy_id = \"synthetic\"\npolicy_version = 1\nfx_exposure_watch_pct = 70\n")
+	m.reload()
+	held(t, m, rpc.BudgetShadowRulebookUnreviewed, "the Rulebook policy file still carries Canary's defaults, not yet reviewed")
+	// Reviewed: the marker line deleted, the configured mode applies.
+	writeRulebookTestFile(t, path, "policy_id = \"synthetic\"\npolicy_version = 1\nfx_exposure_watch_pct = 70\n")
+	m.reload()
+	if st, rows := measure(t, m); st.Shadow || st.ShadowReason != "" || len(rows) != 2 || !rows[0].AutomaticEligible() {
+		t.Fatalf("reviewed file: status %+v", st)
+	}
+	// Drift: an edit without a higher policy_version is not the file in force.
+	writeRulebookTestFile(t, path, "policy_id = \"synthetic\"\npolicy_version = 1\nfx_exposure_watch_pct = 50\n")
+	m.reload()
+	held(t, m, rpc.BudgetShadowRulebookDrift, "the Rulebook policy file on disk is not the one in force; the last good file applies")
+	// Error: an unreadable file keeps the last good file in force.
+	writeRulebookTestFile(t, path, "policy_id = \"synthetic\"\npolicy_version = 2\nnot_a_rulebook_key = 1\n")
+	m.reload()
+	held(t, m, rpc.BudgetShadowRulebookError, "the Rulebook policy file in force could not be read; the last good file applies")
+	// Error before any good file: the compiled baseline applies.
+	first, firstPath, _ := rulebookTestManager(t)
+	writeRulebookTestFile(t, firstPath, "not_a_rulebook_key = 1\n")
+	first.reload()
+	held(t, first, rpc.BudgetShadowRulebookError, "the Rulebook policy file could not be read; Canary's compiled defaults apply")
+}
+
+// The engine reads the status of the file in force and the Rulebook result
+// the daemon holds; deleting the marker line lifts the gate at the next
+// reload.
 func TestBudgetGovernorInputReadsTheReviewAndTheHeldRulebookResult(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	m, path, _ := rulebookTestManager(t)
@@ -180,13 +252,15 @@ func TestBudgetGovernorInputReadsTheReviewAndTheHeldRulebookResult(t *testing.T)
 	srv.lastRulesScope = brokerStateScope{Account: "DU1234567", Mode: rpc.AccountModePaper}
 
 	in := (&proposalEngine{server: srv}).budgetGovernorInput(nil, now)
-	if in.RulebookReview != rpc.PolicyReviewUnreviewed || in.RulebookPath != path || in.Rules == nil || len(in.Rules.Rules) != len(budgetPlanRules().Rules) {
-		t.Fatalf("input = review %q path %q rules %v", in.RulebookReview, in.RulebookPath, in.Rules)
+	if in.RulebookStatus.Review != rpc.PolicyReviewUnreviewed || in.RulebookStatus.Path != path || in.Rules == nil || len(in.Rules.Rules) != len(budgetPlanRules().Rules) {
+		t.Fatalf("input = status %+v rules %v", in.RulebookStatus, in.Rules)
 	}
 	writeRulebookTestFile(t, path, "policy_id = \"synthetic\"\npolicy_version = 1\n")
 	m.reload()
-	if in := (&proposalEngine{server: srv}).budgetGovernorInput(nil, now); in.RulebookReview != "" {
-		t.Fatalf("reviewed file still gated: %q", in.RulebookReview)
+	if in := (&proposalEngine{server: srv}).budgetGovernorInput(nil, now); in.RulebookStatus.Review != "" {
+		t.Fatalf("reviewed file still gated: %+v", in.RulebookStatus)
+	} else if reason, _, _ := budgetRulebookGate(in.RulebookStatus); reason != "" {
+		t.Fatalf("reviewed file gate = %q", reason)
 	}
 	// A result older than the preview window is not current: no relief.
 	srv.lastRulesAt = now.Add(-rulesPreviewTTL - time.Second)
