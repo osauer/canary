@@ -521,6 +521,23 @@ func bandStatus(observed, watch, act float64) string {
 	}
 }
 
+// countNoun writes a count with its noun in agreement: "1 long option
+// position", "2 long option positions".
+func countNoun(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// agree picks the verb form that agrees with a count.
+func agree(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // limitText renders a policy limit exactly as configured: 7.5 stays 7.5 and
 // 40 stays 40. Evidence quotes limits through it so the sentence and the
 // row's Threshold always carry the same number.
@@ -1017,10 +1034,10 @@ func (c *ruleContext) expiryRunway() RuleRow {
 				inside++
 			}
 		}
-		row.Evidence = fmt.Sprintf("%d long option position(s) expire in %d days or fewer, the act level; %d in %d days or fewer.", inside, actDTE, len(offenders), watchDTE)
+		row.Evidence = fmt.Sprintf("%s %s in %d days or fewer, the act level; %d in %d days or fewer.", countNoun(inside, "long option position"), agree(inside, "expires", "expire"), actDTE, len(offenders), watchDTE)
 		return row
 	}
-	row.Evidence = fmt.Sprintf("%d long option position(s) expire in %d days or fewer.", len(offenders), watchDTE)
+	row.Evidence = fmt.Sprintf("%s %s in %d days or fewer.", countNoun(len(offenders), "long option position"), agree(len(offenders), "expires", "expire"), watchDTE)
 	return row
 }
 
@@ -1227,7 +1244,7 @@ func (c *ruleContext) catalystCoverage() RuleRow {
 	switch {
 	case len(offenders) > 0:
 		row.Status = RuleStatusWatch
-		row.Evidence = fmt.Sprintf("%d out-of-the-money long option(s) expire before the next earnings announcement.", len(offenders))
+		row.Evidence = fmt.Sprintf("%s %s before the next earnings announcement.", countNoun(len(offenders), "out-of-the-money long option"), agree(len(offenders), "expires", "expire"))
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
@@ -1374,11 +1391,11 @@ func (c *ruleContext) overwriteEarnings() RuleRow {
 	switch {
 	case len(actOffenders) > 0:
 		row.Status = RuleStatusAct
-		row.Evidence = fmt.Sprintf("%d short option position(s) remain open through earnings and exceed the assignment-exposure limit.", len(actOffenders))
+		row.Evidence = fmt.Sprintf("%s %s open through earnings and %s the assignment-exposure limit.", countNoun(len(actOffenders), "short option position"), agree(len(actOffenders), "remains", "remain"), agree(len(actOffenders), "exceeds", "exceed"))
 		row.Offenders = append(offenders, unknowns...)
 	case len(watchOffenders) > 0:
 		row.Status = RuleStatusWatch
-		row.Evidence = fmt.Sprintf("%d short option position(s) remain open through the next earnings announcement.", len(watchOffenders))
+		row.Evidence = fmt.Sprintf("%s %s open through the next earnings announcement.", countNoun(len(watchOffenders), "short option position"), agree(len(watchOffenders), "remains", "remain"))
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown
@@ -1836,12 +1853,12 @@ func (c *ruleContext) exitDiscipline() RuleRow {
 	case len(actOff) > 0:
 		row.Status = RuleStatusAct
 		row.Observed = new(round1(worst))
-		row.Evidence = fmt.Sprintf("%d long option position(s) have lost at least %s%% of premium paid.", len(actOff), limitText(act))
+		row.Evidence = fmt.Sprintf("%s %s lost at least %s%% of premium paid.", countNoun(len(actOff), "long option position"), agree(len(actOff), "has", "have"), limitText(act))
 		row.Offenders = append(offenders, unknowns...)
 	case len(watchOff) > 0:
 		row.Status = RuleStatusWatch
 		row.Observed = new(round1(worst))
-		row.Evidence = fmt.Sprintf("%d long option position(s) have lost at least %s%% of premium paid.", len(watchOff), limitText(watch))
+		row.Evidence = fmt.Sprintf("%s %s lost at least %s%% of premium paid.", countNoun(len(watchOff), "long option position"), agree(len(watchOff), "has", "have"), limitText(watch))
 		row.Offenders = append(offenders, unknowns...)
 	case len(unknowns) > 0:
 		row.Status = RuleStatusUnknown

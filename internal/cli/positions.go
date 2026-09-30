@@ -546,7 +546,7 @@ func renderPortfolioSummaryTo(env *Env, out io.Writer, r *rpc.PositionsResult) {
 	if !hasGreeks && !hasFX && !hasProtection {
 		return
 	}
-	fmt.Fprintln(out, heroSummaryStyle(env, "Summary"))
+	fmt.Fprintln(out, env.bold("Summary"))
 	// All numeric values right-align to col (labelStart + labelWidth +
 	const labelWidth = 22
 	const valueWidth = 14

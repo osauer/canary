@@ -64,7 +64,11 @@ func composeBriefOverview(res *rpc.BriefResult, topics []briefTopic) *rpc.BriefO
 			// PeakAsOf dates the peak, not the capital assessment.
 			p.text(" · observation time unavailable")
 		case "protection proposals":
-			p.text(fmt.Sprintf("%d unblocked · %d blocked · observation time unavailable", res.Ready.Proposals.Actionable, res.Ready.Proposals.Blocked))
+			counts := fmt.Sprintf("%d ready", res.Ready.Proposals.Actionable)
+			if res.Ready.Proposals.Blocked > 0 {
+				counts += fmt.Sprintf(" · %d blocked", res.Ready.Proposals.Blocked)
+			}
+			p.text(counts + " · observation time unavailable")
 		default:
 			// Details may contain account-derived values or source free text.
 			// Keep privacy binding in the app even for an unfamiliar row.

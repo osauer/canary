@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -77,15 +78,7 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 		return
 	}
 	width := outputColumns(out)
-	source := ""
-	if st := res.PolicyStatus; st != nil {
-		source = " (compiled baseline)"
-		if st.Source == "file" {
-			source = " (your policy file)"
-		}
-	}
-	writeRuleLines(out, "", "  ", fmt.Sprintf("%s — %s  policy %s v%d%s  status %s", env.bold("Trading rulebook"),
-		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, source, res.Status), width)
+	writeRuleLines(out, "", "  ", rulesHeader(env, res), width)
 	if line := sellOnlyLine(*res); line != "" {
 		writeRuleLines(out, "  ", "             ", strings.TrimSpace(line), width)
 	}
@@ -109,18 +102,29 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 		}
 	}
 	var shownRows []risk.RuleRow
-	var turnedOff []string
+	var turnedOff, noClusters []string
 	for _, ix := range order {
 		r := res.Rules[ix]
 		switch {
 		case all:
 		case r.Status == risk.RuleStatusPass:
 			continue
+		// Rules idle because of the policy's own configuration are not
+		// findings; they fold into one quiet line.
 		case r.Status == risk.RuleStatusNotEvaluated && r.Reason == risk.RuleReasonRuleOff:
 			turnedOff = append(turnedOff, strconv.Itoa(r.Number))
 			continue
+		case r.Status == risk.RuleStatusNotEvaluated && r.Reason == risk.RuleReasonNoClusters:
+			noClusters = append(noClusters, strconv.Itoa(r.Number))
+			continue
 		}
 		shownRows = append(shownRows, r)
+	}
+	stageAsOf := time.Time{}
+	for _, h := range res.InputHealth {
+		if h.Source == "regime_stage" {
+			stageAsOf = h.AsOf
+		}
 	}
 	// Status and number sit in a ten-cell gutter; the headline, evidence,
 	// offenders and notes all hang from the column after it.
@@ -129,8 +133,11 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 		// The rule id trails the headline, dim: the number and title are what
 		// a reader scans, and the id stays at hand for --rule and the policy.
 		prefix := fmt.Sprintf("%s %2d  ", ruleStatusLabel(env, r.Status), r.Number)
-		writeRuleLinesTrail(out, prefix, gutter, ruleHeadline(r), env.dim(r.ID), width)
+		writeRuleLinesTrail(out, prefix, gutter, r.Title, env.dim(r.ID), width)
 		writeRuleLines(out, gutter, gutter, r.Evidence, width)
+		if levels := ruleLevels(r); levels != "" {
+			writeDimRuleLines(env, out, gutter, gutter, levels, width)
+		}
 		for i, o := range r.Offenders {
 			if i >= 5 {
 				fmt.Fprintf(out, "%s… %d more\n", gutter, len(r.Offenders)-i)
@@ -156,17 +163,30 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 			writeRuleLines(out, gutter+"exempt: ", gutter+"  ", line, width)
 		}
 		for _, note := range r.Notes {
+			// The regime note is restated from the row's own set and the
+			// stage's observation time, in local time.
+			if r.RegimeSet != "" && strings.HasPrefix(note, "thresholds: ") {
+				line := "Thresholds: " + risk.RegimeSetWords(r.RegimeSet) + " set"
+				if !stageAsOf.IsZero() {
+					line += " · stage as of " + stageAsOf.Local().Format("2 Jan 15:04 MST")
+				}
+				writeDimRuleLines(env, out, gutter, gutter, line, width)
+				continue
+			}
 			writeRuleLines(out, gutter, gutter+" ", "("+note+")", width)
 		}
 	}
+	var idle []string
 	if len(turnedOff) > 0 {
-		var folded bytes.Buffer
-		writeRuleLines(&folded, "--        ", gutter, "rules "+strings.Join(turnedOff, ", ")+" are turned off in the Rulebook policy (--all lists them)", width)
-		for line := range strings.SplitSeq(strings.TrimSuffix(folded.String(), "\n"), "\n") {
-			fmt.Fprintln(out, env.dim(line))
-		}
+		idle = append(idle, rulesPhrase(turnedOff)+" "+pluralWord(len(turnedOff), "is", "are")+" turned off in the Rulebook policy")
 	}
-	if len(shownRows) == 0 && len(turnedOff) == 0 {
+	if len(noClusters) > 0 {
+		idle = append(idle, rulesPhrase(noClusters)+" "+pluralWord(len(noClusters), "has", "have")+" no clusters declared to test")
+	}
+	if len(idle) > 0 {
+		writeDimRuleLines(env, out, "--        ", gutter, strings.Join(idle, "; ")+" (--all lists them)", width)
+	}
+	if len(shownRows) == 0 && len(idle) == 0 {
 		if notEvaluated := res.BreachCounts[risk.RuleStatusNotEvaluated]; notEvaluated > 0 {
 			fmt.Fprintf(out, "%d rules were not evaluated; rerun with --all to see the full checklist.\n", notEvaluated)
 		} else {
@@ -189,12 +209,13 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 	}
 	fmt.Fprintln(out)
 	if len(res.Earnings) > 0 {
-		var unresolved, terminal, nonissuer, byType []string
+		var unresolved, terminal, nonissuer, byType, byTypeSymbols []string
 		for _, e := range res.Earnings {
 			if e.Status == rpc.EarningsStatusNotApplicable {
 				// A security-type classification is weaker authority than a
 				// broker identity proof; the line must not claim the proof.
 				if e.Source == "security_type" {
+					byTypeSymbols = append(byTypeSymbols, e.Symbol)
 					byType = append(byType, fmt.Sprintf("%s (%s)", e.Symbol, strings.ToLower(nonEmpty(e.SecurityType, "no issuer"))))
 					continue
 				}
@@ -223,7 +244,7 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 		if len(nonissuer) > 0 {
 			writeRuleLines(out, "", "  ", fmt.Sprintf("Issuer earnings not applicable: %s — exact broker identity is available in --json without exposing the contract identifier.", strings.Join(nonissuer, ", ")), width)
 		}
-		if len(byType) > 0 {
+		if len(byType) > 0 && !exemptionsShown(shownRows, byTypeSymbols) {
 			writeRuleLines(out, "", "  ", "Issuer earnings not applicable by security type: "+strings.Join(byType, ", ")+".", width)
 		}
 		if len(unresolved) > 0 {
@@ -240,6 +261,17 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 // hanging indent. Width 0 (a pipe or file) leaves the line whole for grep.
 func writeRuleLines(out io.Writer, first, rest, text string, width int) {
 	writeRuleLinesTrail(out, first, rest, text, "", width)
+}
+
+// writeDimRuleLines is writeRuleLines for secondary text: each wrapped line
+// is dimmed on its own, so no escape spans a newline.
+func writeDimRuleLines(env *Env, out io.Writer, first, rest, text string, width int) {
+	var buf bytes.Buffer
+	writeRuleLines(&buf, first, rest, text, width)
+	for line := range strings.SplitSeq(strings.TrimSuffix(buf.String(), "\n"), "\n") {
+		indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
+		fmt.Fprintln(out, indent+env.dim(strings.TrimLeft(line, " ")))
+	}
 }
 
 // writeRuleLinesTrail is writeRuleLines with a trailing tag set two cells
@@ -447,21 +479,62 @@ func ruleStatusLabel(env *Env, status string) string {
 	}
 }
 
-// ruleHeadline sets the observed value beside the limit the daemon reported
-// for the row's status. A two-band rule also names both bands, so a watch row
-// shows how far the act level is; the renderer never picks a band itself.
-func ruleHeadline(r risk.RuleRow) string {
-	if r.Observed != nil && r.Threshold != nil {
-		if r.WatchThreshold != nil && r.ActThreshold != nil {
-			return fmt.Sprintf("%s (observed %.1f vs %s%s; watch %s, act %s)", r.Title, *r.Observed,
-				ruleLimitText(*r.Threshold), ruleUnitSuffix(r.Unit), ruleLimitText(*r.WatchThreshold), ruleLimitText(*r.ActThreshold))
+// rulesHeader is the screen's one title line: when, which policy and where
+// it came from, and the snapshot status only when it is not ok.
+func rulesHeader(env *Env, res *rpc.RulesResult) string {
+	policy := fmt.Sprintf("policy %s v%d", res.PolicyID, res.PolicyVersion)
+	if res.PolicyID == fmt.Sprintf("rulebook-v%d", res.PolicyVersion) {
+		policy = fmt.Sprintf("policy v%d", res.PolicyVersion)
+	}
+	if st := res.PolicyStatus; st != nil {
+		if st.Source == "file" {
+			policy += " (your file)"
+		} else {
+			policy += " (compiled baseline)"
 		}
-		return fmt.Sprintf("%s (observed %.1f vs %.1f%s)", r.Title, *r.Observed, *r.Threshold, ruleUnitSuffix(r.Unit))
 	}
-	if r.Reason != "" {
-		return fmt.Sprintf("%s (%s)", r.Title, r.Reason)
+	parts := []string{env.bold("Trading rulebook"), res.AsOf.Local().Format("2 Jan 15:04 MST"), policy}
+	if res.Status != "" && res.Status != "ok" {
+		parts = append(parts, env.yellow("status "+res.Status))
 	}
-	return r.Title
+	return strings.Join(parts, " · ")
+}
+
+// ruleLevels names both bands of a two-band rule on a watch row, so the
+// reader sees how far the act level is; the evidence line above already
+// states the observed value against the limit. The renderer never picks a
+// band itself. Rule 12 is a range whose act level is the over-hedge bound;
+// its evidence already names the range, and that bound beside an
+// under-hedged reading would mislead.
+func ruleLevels(r risk.RuleRow) string {
+	if r.Status != risk.RuleStatusWatch || r.WatchThreshold == nil || r.ActThreshold == nil || r.ID == risk.RuleHedgeIntegrity {
+		return ""
+	}
+	unit := ruleUnitSuffix(r.Unit)
+	return fmt.Sprintf("Levels: watch %s%s · act %s%s", ruleLimitText(*r.WatchThreshold), unit, ruleLimitText(*r.ActThreshold), unit)
+}
+
+// rulesPhrase names rule numbers as "rule 17" or "rules 9, 10, 11".
+func rulesPhrase(numbers []string) string {
+	return pluralWord(len(numbers), "rule ", "rules ") + strings.Join(numbers, ", ")
+}
+
+// exemptionsShown reports whether every symbol already appears on an
+// exempt line of a row on screen, so a footnote would only repeat it.
+func exemptionsShown(rows []risk.RuleRow, symbols []string) bool {
+	for _, sym := range symbols {
+		found := false
+		for _, r := range rows {
+			if slices.ContainsFunc(r.Exempt, func(o risk.RuleOffender) bool { return o.Symbol == sym }) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // ruleUnitSuffix joins a unit to the number before it: a percent unit sits
