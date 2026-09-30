@@ -148,6 +148,8 @@ type BriefPortfolioSection struct {
 	PremiumAtRisk BriefMoneyCoverageRow `json:"premium_at_risk"`
 	HedgeCost     BriefMoneyCoverageRow `json:"hedge_cost"`
 	WorkingOrders BriefCountRow         `json:"working_orders"`
+	// Cash is the cash-like row, present while the cash sweep is enabled.
+	Cash *BriefCashRow `json:"cash,omitempty"`
 }
 
 // BriefAccountRow reports base-currency equity and P&L. Nil amounts mean the
@@ -457,6 +459,9 @@ type BriefReadySection struct {
 	// their status group; other ties keep section order. market_events ranks
 	// by its worst event row and monthly_pulse by its rollup state.
 	Ranked []string `json:"ranked"`
+	// Cash is cash and cash equivalents per currency, present while the cash
+	// sweep is enabled (BriefReadyRowCash).
+	Cash *BriefCashRow `json:"cash,omitempty"`
 }
 
 // Ready row keys are the JSON names of BriefReadySection's rows: the

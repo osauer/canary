@@ -616,6 +616,9 @@ func shadowProposalBlockers(p rpc.TradeProposal) []rpc.TradingBlocker {
 	if !p.Shadow {
 		return nil
 	}
+	if p.Bucket == rpc.TradeProposalBucketCashSweep {
+		return []rpc.TradingBlocker{cashSweepShadowBlocker()}
+	}
 	return []rpc.TradingBlocker{budgetShadowBlocker()}
 }
 

@@ -161,7 +161,7 @@ func TestProtectionAndConstitutionTemplatesShowEveryKey(t *testing.T) {
 }
 
 // tomlLeafKeys lists the leaf toml keys of a struct type, descending into
-// nested structs, pointers and slices of structs.
+// nested structs, pointers, and slices and maps of structs.
 func tomlLeafKeys(typ reflect.Type, skip map[string]bool) []string {
 	for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice {
 		typ = typ.Elem()
@@ -173,7 +173,7 @@ func tomlLeafKeys(typ reflect.Type, skip map[string]bool) []string {
 			continue
 		}
 		inner := f.Type
-		for inner.Kind() == reflect.Pointer || inner.Kind() == reflect.Slice {
+		for inner.Kind() == reflect.Pointer || inner.Kind() == reflect.Slice || inner.Kind() == reflect.Map {
 			inner = inner.Elem()
 		}
 		if inner.Kind() == reflect.Struct && inner != reflect.TypeFor[time.Time]() {

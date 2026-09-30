@@ -547,8 +547,12 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 		statusRow(env, out, "Budget", budget)
 	}
 	printTradingBlockers(out, "  ", snap.Blockers)
-	var shadow []rpc.TradeProposal
+	var shadow, sweep []rpc.TradeProposal
 	for _, p := range snap.Proposals {
+		if p.Bucket == rpc.TradeProposalBucketCashSweep {
+			sweep = append(sweep, p)
+			continue
+		}
 		if p.Shadow {
 			shadow = append(shadow, p)
 			continue
@@ -565,6 +569,7 @@ func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {
 			renderProposalRow(env, out, &p)
 		}
 	}
+	renderCashSweepSection(env, out, snap.CashSweep, sweep)
 	fmt.Fprintln(out)
 }
 

@@ -303,6 +303,9 @@ func renderBriefReady(env *Env, ready rpc.BriefReadySection) {
 	}
 	briefLine(env, "premium at risk", ready.PremiumAtRisk.BriefRowState, premium)
 	briefLine(env, "hedge cost / day", ready.HedgeCost.BriefRowState, briefMoney(ready.HedgeCost))
+	if ready.Cash != nil {
+		briefLine(env, "cash", ready.Cash.BriefRowState, briefCashValue(ready.Cash))
+	}
 	if ready.PolicyDrift.SignoffRequired || ready.PolicyDrift.Status != rpc.BriefStatusOK {
 		briefLine(env, "policy drift", ready.PolicyDrift.BriefRowState, fmt.Sprintf("%d", len(ready.PolicyDrift.Rows)))
 	}
@@ -513,6 +516,9 @@ func briefDegradedRows(res rpc.BriefResult) []briefDisclosure {
 	add("drawdown latch", ready.Latch.BriefRowState)
 	add("premium at risk", ready.PremiumAtRisk.BriefRowState)
 	add("hedge cost / day", ready.HedgeCost.BriefRowState)
+	if ready.Cash != nil {
+		add("cash", ready.Cash.BriefRowState)
+	}
 	// The row render has no line for the Ready-side proposal projection; the
 	// disclosure must not inherit that gap.
 	add("protection proposals", ready.Proposals.BriefRowState)

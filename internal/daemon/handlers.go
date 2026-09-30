@@ -155,6 +155,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if res.BaseCurrency != "" {
 		ledger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, res.BaseCurrency)
 		res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
+		annotateLedgerCash(res, ledger, raw.Raw)
 	}
 	// Read the latest reqPnL frame; absence starts the idempotent subscription.
 	// connect setup skips the subscribe in auto-detect mode (ep.Account is

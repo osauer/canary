@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-09-26 08:33 CEST
+Updated: 2026-09-30 10:05 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -406,3 +406,83 @@ vetoed, or superseded.
 The daemon persists submission intent before the broker call and reconciles
 it against its journal after restart. Installing or updating the binary does
 not edit policy, enable buckets, or clear freeze.
+
+## Cash sweep (shadow)
+
+The cash sweep puts idle cash to work in bills of the same currency and never
+converts one currency into another. It is the only bucket whose rows buy;
+`authority.close_reduce_only` stays `true`, and the sweep passes the
+close-or-reduce check only as a typed exception: a `cash_sweep` buy of a
+vocabulary instrument in the row's own currency, for no more than the free
+cash it was planned against. Nothing else is relaxed.
+
+It is off until you write the table, and today it runs in shadow only: Canary
+cannot yet resolve, quote or order bills, so every row carries
+`instrument_support_required` and no preview or submit can pass. The rows show
+what the sweep would do so you can compare it with the interest your broker
+pays on cash.
+
+```toml
+[buckets.cash_sweep]
+enabled = true
+mode = "shadow"              # shadow (default) or active
+max_order_notional = 20000   # one buy, in base currency; no default
+# tax_reviewed_at = 2026-01-01   # active rows wait for your tax review
+```
+
+Per currency, in that currency: **cash** is the lower of trade-date and
+settled cash, **committed** is working buy orders plus armed queued buys (a
+prepared, unarmed queue entry or an unapproved proposal never counts), and
+**free** is cash − committed − `keep_cash`. When free exceeds `min_tranche`
+the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
+cap that holds the order below `min_tranche` holds the currency. When cash less
+commitments falls below `keep_cash` it sells the nearest maturity (or the
+declared ETF) to cover the gap, unless a held bill pays out before a sale
+today would settle; unsettled proceeds of such a sale count toward
+`keep_cash` so it is not sold twice. Otherwise nothing happens.
+
+A currency without its own table follows Canary's default: USD `us_tbill`;
+EUR `de_bubill` and `fr_btf` with an `etf` fallback; GBP `uk_tbill`; CAD
+`ca_tbill`; every other currency `none`, which keeps its cash as cash. Each
+currency defaults to `keep_cash = 5000`, `min_tranche = 1000`, a four-rung
+ladder from `min_maturity_days = 28` to `max_maturity_days = 91` (EUR 182, at
+most 397). The fallback ETF acts only after a completed contract search finds
+no bill line; until you write its `etf_symbol` and `etf_exchange` the status
+names them under `needs_your_number`, and the bills still plan.
+
+```toml
+[buckets.cash_sweep.currency.EUR]
+instruments = ["de_bubill", "fr_btf"]
+fallback = "etf"
+etf_symbol = "AAA"       # your fallback ETF
+etf_exchange = "IBIS"
+keep_cash = 8000
+```
+
+A key you leave out of a currency table takes that currency's default. An
+instrument outside the vocabulary, a bill of another currency, or any
+conversion fails validation.
+
+The snapshot's `cash_sweep` status lists every currency the account ledger
+reports, with its figures and a state:
+
+| State | Meaning |
+|---|---|
+| `invest` / `redeem` | the band asks for a buy or a sale; the row follows |
+| `hold` | inside the band, or the reason says why no order follows |
+| `no_instrument` | the currency declares `none` |
+| `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
+| `settlement_unknown` | the order journal cannot vouch for the settlement window, or working orders cannot be valued |
+| `equivalents_unclassified` | a bond, bill or declared-ETF holding cannot be classified yet |
+| `needs_your_number` | `max_order_notional`, or the symbol of an ETF-only declaration, is not written |
+
+`canary proposals list` shows the sweep under its own *Cash sweep* heading
+with one band line per currency; JSON carries a `cash_sweep` block on each
+row, and `counts.cash_sweep` and `counts.cash_sweep_shadow` count the rows.
+Every row carries `never_skip_veto`. `mode = "active"` makes the rows ordinary
+proposals under every gate, freeze included; without `tax_reviewed_at` they
+carry `tax_review_required`. While the sweep is enabled, `canary brief` adds a
+`cash` row (cash, cash equivalents and their sum per currency) and rule 14's
+evidence gains the same figures; the rule's own figure is unchanged, because
+the sweep never converts. Set `enabled = false`, or remove the table, to stop
+it: rows leave on the next refresh and held bills mature to cash.

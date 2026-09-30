@@ -1626,6 +1626,7 @@ func cloneBriefResult(in *rpc.BriefResult) *rpc.BriefResult {
 		monthly := *in.Ready.MonthlyPulse
 		out.Ready.MonthlyPulse = &monthly
 	}
+	out.Ready.Cash = rpc.CloneBriefCashRow(in.Ready.Cash)
 	// slices.Clone keeps an empty order empty rather than null on the wire.
 	out.Ready.Ranked = slices.Clone(in.Ready.Ranked)
 	out.AttentionOrder = slices.Clone(in.AttentionOrder)

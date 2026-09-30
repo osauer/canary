@@ -531,6 +531,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		sources.MarketEvents = &fp
 	}
 	proposals, thetaSuppressions, hedges, budget := e.generateBook(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
+	sweepRows, sweep := e.cashSweepProposals(ctx, policy, policyStatus, acct, pos, sources, scope, now)
+	proposals = append(proposals, sweepRows...)
 	slices.SortStableFunc(proposals, func(a, b rpc.TradeProposal) int {
 		if a.Score > b.Score {
 			return -1
@@ -543,7 +545,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	e.mu.Lock()
 	previous := e.snapshot
 	e.mu.Unlock()
-	revision, effectiveRevision := proposalPolicyRevision(previous, policyStatus, sources, scope, proposals)
+	revision, effectiveRevision := proposalPolicyRevision(previous, policyStatus, sources, scope, cashSweepRevisionRows(proposals))
 	for i := range proposals {
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
@@ -576,6 +578,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		Counts:                     proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
 	}
 	snap.Counts.OptionHedges = len(hedges)
+	snap.CashSweep = sweep
+	snap.Counts.CashSweep, snap.Counts.CashSweepShadow = cashSweepCounts(proposals)
 	return e.installScoped(snap, scope, show, thetaSuppressions)
 }
 
@@ -2776,10 +2780,13 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		add("proposal_preview_missing", "proposal preview result is unavailable", "Refresh and preview the proposal again before submit.")
 		return blockers
 	}
-	if !proposalCloseReduceEffect(prop.PositionEffect) {
+	// The cash sweep's typed exception (decision O1) is the only way past the
+	// close/reduce check; proposal_cash_sweep.go bounds it.
+	sweepException, excepted := cashSweepOpenException(prop)
+	if !proposalCloseReduceEffect(prop.PositionEffect) && !excepted {
 		add("proposal_effect_not_close_reduce", fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation.")
 	}
-	if !proposalCloseReduceEffect(preview.Position.Effect) {
+	if !proposalCloseReduceEffect(preview.Position.Effect) && !(excepted && sweepException.admits(preview.Position.Effect, preview.Draft.Quantity)) {
 		add("preview_effect_not_close_reduce", fmt.Sprintf("preview effect %q is not close/reduce", preview.Position.Effect), "Refresh positions and preview again; proposal submit cannot open, increase, or flip exposure.")
 	}
 	if !proposalSupportedSecType(prop.SecType) || !proposalSupportedSecType(preview.Draft.Contract.SecType) {
@@ -3557,8 +3564,10 @@ func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapsh
 		out.Proposals[i].Blockers = append([]rpc.TradingBlocker(nil), in.Proposals[i].Blockers...)
 		out.Proposals[i].Budget = cloneProposalBudget(in.Proposals[i].Budget)
 		out.Proposals[i].Covers = append([]rpc.TradeProposalCoverage(nil), in.Proposals[i].Covers...)
+		out.Proposals[i].CashSweep = rpc.CloneProposalCashSweep(in.Proposals[i].CashSweep)
 	}
 	out.BudgetReduction = cloneBudgetStatus(in.BudgetReduction)
+	out.CashSweep = rpc.CloneCashSweepStatus(in.CashSweep)
 	out.Blockers = append([]rpc.TradingBlocker(nil), in.Blockers...)
 	if in.MarketEvents != nil {
 		events := *in.MarketEvents
