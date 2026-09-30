@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 21:25 CEST
+Updated: 2026-09-30 21:33 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -1053,27 +1053,31 @@ web/app/*                         rules card + drill-in
 
 | UI concept | Label | Source | Snapshot path | Fixture/test | Stale/error | QA gate |
 |---|---|---|---|---|---|---|
-| Rules card | "Rules" | live snapshot sibling section | `snapshot.rules` | browser_script_ids_test + app-browser-smoke | worst 2–3 breaches as tone pills; `unknown` neutral; InputHealth degradation reachable behind the "Data notes" info affordance; card hidden when disabled | `make app-check` + `make app-refresh-smoke` |
+| Rules tile + sheet | "Rules" | live snapshot sibling section | `snapshot.rules` | production-behavior.test.mjs + app-browser-smoke | caption is the worst alert-mode finding, else "Data gaps", "Monitor only" or "No findings"; `unknown` neutral; notices behind "Data notes · N"; a rules source fault says the last evaluation is shown; tile hidden when disabled | `make app-check` + `make app-refresh-smoke` |
 
-Card: `#canaryRulesCard` beside the stress hero (worst 2–3 breaches as
-severity pills, ranked hardest-first) + `#canaryRulesToggle` expanding
-`#canaryRulesDetailPanel` with the full 14-row `.detail-grid` (tone classes
-`risk|warn|ok|neutral`; `info` and `unknown` render neutral). Each breach
-card shows observed against the served limits: watch and act levels on a
-two-band rule, the reference threshold otherwise. Money strings arrive daemon-rendered with
-real currency (the compat test bans a `"USD"` literal in app.js). Read-only.
+Tile: `#stressRulesCard` in the portfolio grid beside the Protection and
+Stress tiles. Its caption is the title of the worst alert-mode rule at watch
+or act in the daemon's ranking, with that tone; its figure counts alert-mode
+findings, monitor-only rows and data gaps; a day with only data gaps or
+monitor-only rows shows the advisory dot instead of a tone. A tap opens the
+`#rulesSheet` dialog: the rule tally and evaluation time, then a checklist
+(`#stressRulesGrid`) grouped as Needs attention, Cannot evaluate, Monitor
+only, Information, Pass, Not applicable, Not evaluated and Off, in the
+daemon's rank within each group. A row names its status and mode and expands
+to the evidence, observed against the served watch and act levels (the
+reference threshold on a one-band rule), the affected and exempt positions
+with each offender's own band, and the rule number. The provenance line
+names the policy and says "Canary defaults, not yet reviewed" while the file
+is unreviewed. An alert opens the sheet at its rule; the brief opens it for
+policy and premium topics. Money strings arrive daemon-rendered. Read-only.
 
 The earnings/applicability/entitlement/InputHealth notices are five
-independent strings. Concatenating them into one paragraph made them
-unreadable, so they render one block each inside `#canaryRulesNotesDialog`,
-opened by `#canaryRulesNotesToggle` ("Data notes · N", attention tone while an
-unknown-rule note is present). The trigger stays visible whenever any notice
-exists — degradation is collapsed, never suppressed.
-
-The `canary*` element ids and `canary-*` CSS class names in this section are
-deliberately unchanged by the stress rename: they are DOM and stylesheet
-contracts pinned by `browser_script_ids_test` and the compat test, not sensor
-naming.
+independent strings. They render one block each inside
+`#stressRulesNotesDialog`, opened by `#stressRulesNotesToggle` ("Data notes ·
+N", attention tone while an unknown-rule note is present). The trigger stays
+visible whenever any notice exists: degradation is collapsed, never
+suppressed. The element ids are DOM contracts pinned by
+`web/app/test/production-behavior.test.mjs` and `scripts/app-browser-smoke.mjs`.
 
 ## Safety invariants (unchanged)
 

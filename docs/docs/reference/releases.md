@@ -6,6 +6,22 @@ Every release publishes two binaries per platform, under two different names. On
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
 
+## Moving to 3.15
+
+Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md).
+Rule 3 now measures long option premium at risk as a share of net liquidation
+value instead of available funds, and rule 15's net exposure bands move into
+the regime tables. A policy file that still sets `cash_reserve_min_pct` or the
+top-level `net_exposure_watch_pct` and `net_exposure_act_pct` loads with a
+note; `canary rules policy reset KEY` removes each one, and the regime tables
+carry the new keys at their defaults. Rule 19, margin headroom, starts in alert
+mode. Check `canary rules policy` for the values in force.
+
+The cash sweep is absent and off by default. A sweep order needs your approval,
+or a pre-authorisation that keeps the full veto window. At a confirmed-stress
+open, budget, theta and issuer-trim option reductions wait 30 minutes after the
+open; stops and loss exits keep 15.
+
 ## Moving to 3.14
 
 Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md).

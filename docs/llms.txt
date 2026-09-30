@@ -2,12 +2,13 @@
 
 Updated: 2026-09-30
 
-Version 3.14 lets the owner queue a signed reduction for the next market open,
-explains why each proposal cannot act yet, and merges proposals that would sell
-the same contract. It detects a Gateway that accepts requests but stops
-answering, holds further requests and redials the stalled connection. Option
-loss exits keep working to expiry. Installation does not enable automatic
-submission or grant broker-write permission.
+Version 3.15 makes Rulebook rule 3 a budget for long option premium, gives
+net exposure regime bands and adds rule 19 for margin headroom; while the budget
+or net exposure is at watch or act, the Rulebook reports sell-only. The premium
+budget governor sells the line that fixes the most first and shows its whole
+plan. An optional cash sweep, off by default, puts idle cash into same-currency
+bills. Installation does not enable automatic submission or grant broker-write
+permission.
 
 Canary is a local risk desk for a brokerage account: a daemon, shell CLI,
 read-only MCP server, paired app, and a public Go module with a daemon client

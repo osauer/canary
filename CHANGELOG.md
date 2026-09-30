@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.15.0 — 2026-09-30 21:34 CEST
+
+### What's new
+
+- **Rule 3 is the premium budget.** Long option premium at risk, as a share of net liquidation value, replaces the available-funds reserve. The watch level follows the regime at 25, 20 and 15 percent, and the cap stays at 35 percent in every regime. While rule 3 or rule 15 is at watch or act, the Rulebook reports sell-only and order previews warn on buys.
+- **Rule 15 has regime bands.** Net exposure watches and acts at 100/150, 100/130 and 75/100 percent from calm to confirmed stress, and the stress read takes rule 15's own verdict.
+- **Rule 12 watches a long book with no index protection.** A long book without protection now reads watch as unhedged instead of passing.
+- **Rule 19 watches margin headroom.** It reads the worse of current and look-ahead excess liquidity as a share of net liquidation value, with watch below 30 percent and act below 15. The stress read's margin row uses it, and while it is low, previews warn on buys and on sales that open a short.
+- **The premium budget governor sells what fixes the most.** It sells the line that relieves the most open rules first, then the one with the most time value, then the largest loss. Every row names its place in the plan, the rules it relieves and the next candidates, and `canary proposals`, JSON and MCP show the top candidates and the whole plan. The governor follows the mode you configured and names the Rulebook file's review state instead of holding rows.
+- **Cash sweep.** Idle cash above a per-currency float can go into same-currency bills on a ladder. `[buckets.cash_sweep]` is absent and off by default; US bills come from TreasuryDirect's public list, EUR, GBP and CAD bills from ISINs you list, with an ETF fallback you name. Bills are resolved, quoted and ordered as IBKR's BILL security type, a preview refuses a bill whose broker cost disagrees with its face unit, and the bucket can be pre-authorised with the full veto window.
+- **A confirmed-stress open gives discretionary sales more time.** Budget, theta and issuer-trim option reductions wait 30 minutes after the open, stops keep 15, and readiness says which applies.
+
+### Added
+
+- `canary market --symbol <ISIN|CUSIP> --type BILL|BOND` looks up a bill or bond, and with `--json` its `attempts` name every request form tried and IBKR's answer to each.
+- `canary positions` lists bills and bonds in their own section.
+- The cash sweep status reports cash, cash equivalents and their sum per currency, the source of settled cash, and the bill it resolved.
+- Rulebook results carry `sell_only`, and the budget governor's status carries `rulebook_review`.
+
+### Changed
+
+- Rule 3 measures long option premium at risk instead of available funds, and rule 15's bands live in the regime tables. A policy file that still sets a retired key loads with a note, `canary rules policy reset KEY` removes it, and the regime tables carry the new keys at their defaults.
+- The Rulebook baseline is `rulebook-v5`.
+- Settled cash per currency is derived from Canary's order journal, because IBKR's SettledCash is one account-wide figure.
+- The tax review of bill rolls is advisory and holds no sweep row.
+
+### Removed
+
+- The `cash_reserve_min_pct` policy key and the top-level `net_exposure_watch_pct` and `net_exposure_act_pct` keys. Nothing else user-visible was removed.
+
+### Fixed
+
+- A US bill looked up by CUSIP or ISIN never resolved, because contract answers without a maturity or currency were dropped without a trace.
+- The base currency's settled cash could show IBKR's cached account-wide SettledCash figure instead of that currency's own.
+- The budget governor's rulebook basis measured available funds, so its limit relaxed as long calls lost value.
+- Nothing changed in the order path of the buckets you already run: the same account pins, previews, approvals, journal and trading freeze apply, and only the ranking and stress-open timing described above differ.
+
 ## v3.14.0 — 2026-09-30 08:25 CEST
 
 ### What's new

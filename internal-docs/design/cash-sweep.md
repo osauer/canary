@@ -1,12 +1,10 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 21:25 CEST
-Status: Phase B installed (daemon v3.14.0-30); post-install proof in
-progress: A4 answered (false); the USD bill lookup asked as BILL still found
-nothing, and the bond frame decoder dropped a frame without a maturity or
-currency without a trace; the lookup now keeps such a line, reads
-contractData answers too, asks a third form and records every frame it
-sees, pending reinstall (see "Post-install findings", F1, F3 and F4).
+Updated: 2026-09-30 21:32 CEST
+Status: Phase B installed (daemon v3.14.0-33, d819dfc4); post-install proof
+step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
+symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
+answered (false, F2); the remaining proof steps are in progress.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
@@ -413,6 +411,8 @@ never an account id, a balance or an order reference).
    record from `--json` each attempt's `outcome`, `code` and `frames`
    (`kind`, `fields`, `layout`, `line`, `note`): they say which frames IBKR
    answered each form with and why each became a line or did not (F4).
+   Passed 2026-09-30 at d819dfc4: a US bill resolved as BILL by symbol with
+   a live quote.
 2. EUR bill: pick one German Bubill ISIN (`DE…`) maturing 28–182 days out;
    `canary market --symbol <ISIN> --type BILL` (currency inferred EUR; BILL,
    then BOND) and `--json`. Same expectations; record `sec_type` (which type

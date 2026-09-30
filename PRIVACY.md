@@ -82,6 +82,9 @@ socket. The project makes these additional outbound connections:
   held symbols are matched locally and are not sent as query parameters.
 - Regime refreshes download public series from FRED, CBOE, the Federal Reserve,
   and the US Treasury. The requests contain no portfolio or account fields.
+- When the owner enables the cash sweep, it reads TreasuryDirect's public list
+  of Treasury bills over HTTPS to name US bills, and the request sends no
+  account data.
 - Macro refreshes download public economic calendars and official feeds from
   BLS, the New York Fed, BEA, the Federal Reserve, and the ECB. The requests
   contain no portfolio or account fields. Requests to BLS name Canary and its
