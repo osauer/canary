@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 13:43 CEST
+Updated: 2026-09-30 21:25 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -17,7 +17,7 @@ fixes (rules 6/8 silent skips), regime-conditional thresholds for rules
 short-put coverage, rule 1 provable lower bounds, new rules 13
 (exit_discipline) and 14 (fx_exposure), stock-leg underlying join.
 
-A daily, mechanical 15-rule checklist evaluated daemon-side against the live
+A daily, mechanical 19-rule checklist evaluated daemon-side against the live
 book. It is surfaced through CLI, MCP, the Canary SPA, daily-brief deltas,
 history, source-neutral alerts, and non-blocking order-preview causes. The
 initial heuristic set came from a discretionary-trader review on 2026-07-06;
@@ -49,7 +49,7 @@ authorize or block a broker write.
 
 ## Scope
 
-- Goal: encode rules 1–14 (below) as a versioned model evaluated by the
+- Goal: encode rules 1–19 (below) as a versioned model evaluated by the
   daemon; advisory-only. The hardest-first ranking is a property of the
   output, not a rule row. Still out of scope after v2: rule 12(b)
   (regime-aware wing-sell preview cause), carried-forward greeks for
@@ -71,7 +71,7 @@ authorize or block a broker write.
 - Existing behavior: stress signals already cover margin cushion, gross/net
   exposure, and single-name exposure; proposals already run theta_hygiene
   and risk_reduction buckets. The rulebook does not replace these; it
-  presents a fixed 15-rule daily contract on top of the same aggregation.
+  presents a fixed 19-rule daily contract on top of the same aggregation.
 
 ## Which verdict wins when
 
@@ -167,7 +167,8 @@ contradiction:
    alert episode; off rows are not evaluated. The default modes are part of
    the compiled policy until a dedicated versioned Rulebook policy loader and
    editor ship. Rule 3 now measures broker-reported available funds against a
-   75% NLV reserve. Rule 6 is an earnings-timing fact in track mode. Rule 8 is
+   75% NLV reserve (retired by amendment 17: rule 3 is the premium budget).
+   Rule 6 is an earnings-timing fact in track mode. Rule 8 is
    a tracked size proxy until quantified earnings-event loss is implemented.
    Rules 9-11 default off and rule 14 defaults track.
 10. Amendment (2026-08-10): a structurally eligible index put receives
@@ -189,8 +190,8 @@ contradiction:
     `net_exposure` (the book's signed stock-equivalent exposure with hedges,
     watch 100%, act above 150% of NLV) defaults to track. Rule 2 now counts a
     losing line at the price paid. The budget governor gains `basis =
-    "rulebook"`: rule 2's act level per line and rule 3's cash reserve, with no
-    brake gate.
+    "rulebook"`: rule 2's act level per line and rule 3's cash reserve (the
+    premium budget since amendment 17), with no brake gate.
 
 12. Amendment (2026-09-23 22:07 CEST, operator decision): the last compiled
     limit becomes a key. `overhedge_multiple` (default 2, between 1 and 10)
@@ -397,7 +398,9 @@ contradiction:
       3 reads it) instead of the reserve: its total pass triggers at the act
       level and cuts back to the watch level of the set in force (rule 1's
       trim convention), counting each contract at its premium at risk, in the
-      unchanged loss-first order. Deliberately, once a cap breach forces a
+      unchanged loss-first order (replaced the same day by the governor's
+      ranking: Rulebook rules relieved, then time value, then loss; see
+      budget-governor.md). Deliberately, once a cap breach forces a
       cut under confirmed stress, the cut goes to the stress budget (15 by
       default), not to the calm one: the regime decides how far to cut, never
       whether volatility alone forces a sale. Its reason and details name the
@@ -783,7 +786,7 @@ approval):
 entry per source (account, positions, regime_stage, earnings, tape) with
 status/as_of/reason. When positions or account are pending, stale, or absent
 — boot races included — every portfolio-dependent row is `unknown` with the
-source reason. A cold daemon renders a column of `unknown`, never 14 green
+source reason. A cold daemon renders a column of `unknown`, never 19 green
 rows. Positions health is bound to the completed portfolio-stream receipt for
 the current broker account, not the age of a locally assembled response: an
 unprimed, wrong-account, future-dated, or more-than-five-minute-silent stream is
@@ -791,7 +794,7 @@ pending/unavailable/stale and cannot clear a Rulebook alert episode. A download
 whose end marker arrived before its rows accounted for the stream's gross
 position value is still unprimed (see the protocol doc's portfolio receipt). This is
 the acceptance criterion for the property test below. Alert recovery also
-requires the exact 14 rule IDs with their canonical numbers and exactly those
+requires the exact 19 rule IDs with their canonical numbers and exactly those
 five health sources. Missing, extra, duplicate, or unknown rows stay
 uncovered. On rules 6-8, `not_evaluated` is a trusted negative only when every
 exempt symbol has matching current typed authority in the same result:

@@ -88,7 +88,8 @@ a carried stage counts as its own stage, a stage never observed reads calm),
 the options offset of a discretionary-scale row, `budget_reduction`,
 `theta_hygiene`, `risk_reduction` or `cash_sweep`, is 30 minutes (owner
 decision 2026-09-30 12:35 CEST, narrowed to those rows by the reviewer
-decision of 13:18): its opening window lasts that long, `stress_open` is
+decision of 13:18; a cash sweep row's bill is not an option, so it keeps five
+minutes after its own session opens): its opening window lasts that long, `stress_open` is
 true, and `message` ends with "stress open: the regime reads confirmed
 stress, so options send from <time>, 30 minutes after the open". Every other
 options row, loss exits, expiry closes and trailing stops among them, keeps

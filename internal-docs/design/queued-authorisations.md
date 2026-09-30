@@ -241,7 +241,8 @@ A pre-authorised record whose order prices off the regular session (a patient
 limit, or a trail without an initial stop) submits no earlier than the open
 plus the opening offset (the stress open's 30 minutes for a budget-reduction
 options row while the regime reads confirmed stress; trailing stops, option
-profit trails and option loss exits keep 15, a stop is a stop). Its due time
+profit trails and option loss exits keep 15, a stop is a stop; a cash sweep
+row waits for its bill's own session and five minutes after it opens). Its due time
 is max(notice + veto window, open + offset). The bound is set when the record
 is created. A record found due while
 its session is closed, or still inside the opening window, is rescheduled

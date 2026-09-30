@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-30 13:30 CEST
+Updated: 2026-09-30 21:25 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -56,7 +56,8 @@ is retired. The total pass now reads Rulebook rule 3, the premium budget of
 the regime set in force (the latched regime stage, read as rule 3 reads it; a
 carried stage uses the lower of its set and calm): it triggers when the book's
 premium at risk reaches `premium_budget_act_pct` of NLV and sells lines in the
-unchanged loss-first order, each contract counted at its premium at risk,
+unchanged loss-first order (replaced the same day by G2's ranking below), each
+contract counted at its premium at risk,
 until the total is back at `premium_budget_watch_pct` (rule 1's trim
 convention). The act level is the same in every set by default (35), so a
 rise in volatility alone starts no sale; once the cap is reached under
@@ -162,7 +163,8 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   reviewer decision of 2026-09-30 13:18 CEST narrows it to
   discretionary-scale rows (`readinessStressOpenBuckets`: budget_reduction,
   theta_hygiene, risk_reduction, cash_sweep) and their queued or
-  pre-authorised sends; loss exits, expiry closes and trailing stops keep 15
+  pre-authorised sends (a cash sweep row's bill is not an option, so it keeps
+  five minutes after its own session opens); loss exits, expiry closes and trailing stops keep 15
   minutes (a stop is a stop), and their readiness sets `stress_open_exempt`
   and says so.
 

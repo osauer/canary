@@ -1,6 +1,6 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 20:51 CEST
+Updated: 2026-09-30 21:25 CEST
 Status: Phase B installed (daemon v3.14.0-30); post-install proof in
 progress: A4 answered (false); the USD bill lookup asked as BILL still found
 nothing, and the bond frame decoder dropped a frame without a maturity or
@@ -51,7 +51,8 @@ line to write, and so is `cash_sweep` under `pre_authorised`.
 | O7 | Out of scope (USD balance as FX exposure is a separate decision). | — |
 
 R2 (ETF margin tripping the Rulebook-basis reserve) is out of scope and moot
-for the governor: rule 3 is becoming a premium budget in a parallel change.
+for the governor: rule 3 is the premium budget since Rulebook amendment 17,
+and no cash reserve remains to trip.
 
 ## Meaning
 
@@ -141,7 +142,7 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
 | Held equivalents | positions view and its `bonds` section | `rpc.PositionsResult.Bonds` (`classifyBondPositions`), ETF by ConID (not yet) | per refresh, `Stale` honoured | `equivalents_unclassified` |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |
 | EUR, GBP, CAD universe | owner's `isins` per currency | `protectionCashSweepCurrency.ISINs` | hot reload | `universe_unavailable` |
-| Bill lines, quotes | IBKR BOND contract details, quotes | `ibkr.BondContractDetails`, `bondDirectory`, `rpc.TradeProposalCashSweepBill` | details cached a day, quotes a minute | `instrument_unresolved`, `fresh_bill_quote_required` |
+| Bill lines, quotes | IBKR BILL or BOND contract details (A10), quotes | `ibkr.BondContractDetails`, `bondDirectory`, `rpc.TradeProposalCashSweepBill` | details cached a day, quotes a minute | `instrument_unresolved`, `fresh_bill_quote_required` |
 | Order grid, session | the line's contract details, re-read by contract id on the preview's own session | `ibkr.BondOrderRules`, `rpc.OrderBondTerms`, `rpc.BondSession` | per preview | `contract_unresolved`, `bond_order_invalid`, `market_closed` |
 | Status | proposal snapshot | `rpc.TradeProposalSnapshot.CashSweep` (`cash_sweep`) | per refresh | — |
 | Row arithmetic, flags | proposal | `rpc.TradeProposal.CashSweep`, `.Shadow`, `.NeverSkipVeto`, `AutomaticEligible()` | per refresh | shadow ⇒ `shadow_mode` |
@@ -149,8 +150,8 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
 
 Post-trade truth: fills and maturities arrive through the position stream and
 ledger; ConID is the reconciliation key. Rule 14's figure is unchanged by a
-sweep; its evidence gains cash and equivalents per currency. Rule 3 is left
-to its parallel change.
+sweep; its evidence gains cash and equivalents per currency. Rule 3 is the
+premium budget since Rulebook amendment 17; its measure reads no cash.
 
 ## Exceptions And Change Control
 
@@ -353,7 +354,7 @@ threshold.
    the currency declares, once each; refused for USD), resolved to learn their
    maturity. Candidates are tried nearest the rung's target first, at most
    three per cycle, inside a 10-second budget: contract details must name one
-   BOND line in the currency (for USD, maturing on the list's date) and the
+   BILL or BOND line (A10) in the currency (for USD, maturing on the list's date) and the
    quote must carry a price. The first confirmed bill is the row's `bill`
    (ISIN/CUSIP, contract id, maturity, days, price per 100 of face and its
    source, the quote, min size, assumed unit and convention); the contract is
@@ -696,7 +697,7 @@ Phase B:
 |---|---|---|
 | O1 | First buying bucket; `close_reduce_only` carve-out | decided: typed exception limited to vocabulary, currency and free cash |
 | R1 | Settled cash comes only from the journal (A4 false) | the journal derivation (fills Canary never observed stay invisible there); after every daemon start `settlement_unknown` until the settlement window has passed |
-| R2 | ETF margin (A2) lowers available funds | out of scope; moot for the governor (rule 3 becomes a premium budget in a parallel change) |
+| R2 | ETF margin (A2) lowers available funds | out of scope; moot for the governor (rule 3 is the premium budget since Rulebook amendment 17) |
 | O2 | Rung 1 under four weeks | decided: `min_maturity_days` 28 |
 | O3 | EUR fallback symbol, exchange | decided: owner writes; `needs_your_number`; bills still plan |
 | O4 | German tax (A3) | superseded by P1: advisory detail line and `tax_reviewed: false` |

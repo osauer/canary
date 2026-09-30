@@ -1,6 +1,6 @@
 # Internal docs index
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-09-30 21:25 CEST
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
@@ -17,6 +17,8 @@ and this index needs the fix.
 |---|---|
 | [design/platform-settings.md](design/platform-settings.md) | Settings, config, and state authority — required reading per AGENTS.md |
 | [design/trading-rulebook.md](design/trading-rulebook.md) | Rulebook semantics and authority |
+| [design/budget-governor.md](design/budget-governor.md) | Premium budget governor (`budget_reduction`): basis, ranking, candidates and plan |
+| [design/cash-sweep.md](design/cash-sweep.md) | Cash sweep (`cash_sweep`): idle cash into same-currency bills, and its post-install proof |
 | [design/risk-policy.md](design/risk-policy.md) | Risk-policy constitution and enforcement phases |
 | [design/agent-origin-gating.md](design/agent-origin-gating.md) | Agent-origin classification for broker writes |
 | [design/alert-regime-production.md](design/alert-regime-production.md) | Source-neutral alert inbox and Web Push delivery |
