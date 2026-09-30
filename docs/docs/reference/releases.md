@@ -1,10 +1,29 @@
 # Releases and support
 
-Updated: 2026-09-26
+Updated: 2026-09-30
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
+
+## Moving to 3.14
+
+Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md).
+Nothing converts at upgrade. With directional-option exits enabled
+(`[buckets.trailing_stop.options] enabled`), the loss exit now keeps working
+below `min_dte` until expiry, and an in-the-money long option is proposed for a
+DAY limit close from the Rulebook's expiry act level. Leave the bucket off, or
+review it, if that is not what you want.
+
+Proposals that would sell the same contract now appear as one row, and
+reductions wait while a same-side order for that contract is working. A queued
+authorisation needs a Desk and companion that know its terms; restart
+consuming clients after upgrading Canary. A queued send passes the same account
+pins, journal, daemon authorisation and trading freeze as any other send.
+
+Optional `[gateway] restart_time` and `restart_timezone` let status tell a
+declared daily Gateway restart from an unexpected outage. They are diagnostic
+only and never pause reconnection.
 
 ## Moving to 3.13
 

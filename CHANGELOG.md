@@ -2,6 +2,45 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.14.0 — 2026-09-30 08:25 CEST
+
+### What's new
+
+- **Queue an approved reduction for the next open.** A governor, theta or issuer-trim reduction approved before the market opens can now be queued with fixed terms: the exact contract, a maximum size, a DAY limit between mid and bid with a price floor, and a send window shortly after the open. The owner signs the terms in Desk; inside the window the daemon sends the order through every gate a manual submit passes. A changed position, policy or account cancels the queue, and an unclear send is never repeated. Queues have no MCP surface.
+- **Proposals say why they cannot act yet.** Every proposal, and every refused preview, prepare or submit, carries a readiness code such as market closed, opening window, unusable quote, wide spread, halted, broker unavailable or trading frozen, with the next open. A patient limit previewed before the open is refused at once instead of timing out on a quote.
+- **A Gateway that stops answering is caught.** When the Gateway accepts history requests but answers none, Canary declares the stall once, holds further requests behind a probe every five minutes, and shows the stalled connection in `canary status`. After ten minutes it redials that connection, at most once an hour and never during a broker write. Data-farm breaks and recoveries now log warnings.
+
+### Added
+
+- `status.health.answer_path` reports each broker connection's requests in flight, last answer, recent timeouts and whether it is answering or stalled.
+- Optional `[gateway] restart_time`, `restart_timezone` and `restart_grace` declare a daily local Gateway restart, so status can tell an expected restart from an unexpected outage. The annotation is diagnostic and never pauses reconnection.
+- SPY and QQQ are quoted as their own market references for pre-market reads while the cash indices are frozen.
+- In-the-money long options are proposed for a DAY limit close from the Rulebook's expiry act level, as `option_expiry_close`, so nothing is exercised by accident.
+- Each preview, prepare and submit appends one line to a local event log in the state directory, with codes and ids but never tokens, order references or account numbers.
+
+### Changed
+
+- The option loss exit keeps working until expiry; only the profit trail keeps the `min_dte` floor (default 14). Single-leg profit trails carry their high water.
+- Proposals that would sell the same contract merge into one row sized to the largest single requirement, never the sum; the others show as covered. Theta, issuer-trim and budget reductions wait while a same-side order for that contract is working or not yet acknowledged.
+- Preview failures carry typed blocker codes instead of a single `preview_failed`. The RPC error class is unchanged.
+- The broker heartbeat counts only received answers, so a session silent for two intervals is dropped and redialled.
+
+### Fixed
+
+- Approving two proposals for the same contract could send two sell orders whose sizes added up.
+- `canary stop` and `canary restart` refused to recognise a daemon installed under a path containing spaces.
+- Contract-detail lookups could wait out their full deadline with the answer already received, and a burst of details could block all inbound broker messages.
+- A security IBKR re-listed under a new contract id failed every daily history read. Canary now resolves the new identity, retries once and warns.
+- An option expiry rejected on every route no longer slows or aborts the gamma computation through per-leg retries.
+- A budget reduction's reason now names the quantity the row will sell and the order-size limit that held it back.
+- A held stock whose equity was cancelled, with current reviewed terminal evidence, is no longer probed for market data after every reconnect.
+
+### Upgrade notes
+
+- If directional-option exits are enabled, loss exits now apply below `min_dte` and in-the-money long options near expiry produce close proposals. Review `[buckets.trailing_stop.options]` after upgrading.
+- Restart Desk and other consuming clients after upgrading. Queued authorisations need a Desk and companion that know their terms.
+- This release does not enable automatic submission or grant broker-write permission. Standard binaries and MCP remain read-only; trading builds keep account binding, fresh evidence, confirmation or scoped pre-authorisation, journaling and freeze gates.
+
 ## v3.13.0 — 2026-09-26 21:34 CEST
 
 ### What's new

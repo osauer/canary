@@ -1,13 +1,13 @@
 # Canary
 
-Updated: 2026-09-26
+Updated: 2026-09-30
 
-Version 3.13 adds a descriptive daily market tape, issuer-loss concentration
-checks and exact reviewed proposals. Policy document revisions and labels do
-not grant trading permission. Existing files remain readable and unchanged;
-reviewed conversions preserve effective settings and keep backups. Alert sources
-commission independently, and push status distinguishes transport from device
-receipts. Installation does not enable automatic submission.
+Version 3.14 lets the owner queue a signed reduction for the next market open,
+explains why each proposal cannot act yet, and merges proposals that would sell
+the same contract. It detects a Gateway that accepts requests but stops
+answering, holds further requests and redials the stalled connection. Option
+loss exits keep working to expiry. Installation does not enable automatic
+submission or grant broker-write permission.
 
 Canary is a local Interactive Brokers risk desk: a daemon, shell CLI, read-only
 MCP server, paired app, and a public Go module with a daemon client and the TWS
