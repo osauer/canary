@@ -1,7 +1,9 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 15:44 CEST
-Status: Phase B implemented on feat/cash-sweep-b; post-install proof pending.
+Updated: 2026-09-30 19:38 CEST
+Status: Phase B installed (daemon v3.14.0-27-g9c93be3a); post-install proof
+in progress: A4 answered (false), the USD bill lookup fixed pending
+reinstall (see "Post-install findings").
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
@@ -62,8 +64,8 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   `max_maturity_days` 91 (EUR 182, ceiling 397), `ladder_rungs` 4. Bucket:
   `enabled`, `mode`, `max_order_notional` (no default), `tax_reviewed_at`.
 - Cash: `cash` is the lower of trade-date and settled cash; settled cash is
-  the ledger's `SettledCash` per currency (A4), else derived from Canary's
-  order journal; `committed` is working BUY orders plus authorised (armed,
+  derived from Canary's order journal (the ledger's per-currency
+  `SettledCash` was A4, verified false); `committed` is working BUY orders plus authorised (armed,
   held or sending) queued orders; `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
 - Band: invest when `free > min_tranche`: one BUY in the bill's whole order
@@ -98,13 +100,14 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   about 1%, ETF 25–50%; (A3) German tax measures bill rolls in EUR, FX
   component taxable; (A4) `$LEDGER` CashBalance is trade-date, and
   `$LEDGER:ALL` carries a per-currency `SettledCash` field that is settled
-  cash in that currency (verify post-install; absent, the journal derivation
-  stays); (A5) each instrument's quantity unit and price convention (table
+  cash in that currency (verified false 2026-09-30, see "Post-install
+  findings"; the journal derivation is the source); (A5) each instrument's quantity unit and price convention (table
   under Phase B as built), minimum, session and T+1 settlement; (A6) a held
   bill's issuer is read from its identifier: US Treasury bill CUSIPs
   (912794–912797), else the ISIN's country (DE, FR, GB, CA); (A7) IBKR answers
-  a BOND contract-details request by `secIdType`/`secId` with
-  `bondContractData` frames, sends bond prices per 100 of face and yields in
+  a BOND contract-details request (the identifier as the symbol, as IBKR
+  documents bonds; `secIdType`/`secId` only as the fallback, refuted as the
+  first form for US bill CUSIPs 2026-09-30) with `bondContractData` frames, sends bond prices per 100 of face and yields in
   percent (ticks 50–52, delayed 103–105), and needs no generic ticks for a
   bond quote; (A8) a bond line's contract details carry its minimum size and
   size increment in order units, its minimum tick per 100 of face, and its
@@ -124,7 +127,7 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
 |---|---|---|---|---|
 | Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
-| Settled cash | `$LEDGER:ALL` SettledCash (A4), else the order journal | `rpc.CurrencyExposure.SettledCashCcy`, `cashSweepLedgerRow.Settled`, `cashSweepSettlement`; `settled_cash_source` | per account refresh | journal fallback; `settlement_unknown` when both are missing |
+| Settled cash | the order journal (A4 false: `$LEDGER:ALL` sends no SettledCash) | `cashSweepSettlement`; `settled_cash_source: journal`; the ledger path (`rpc.CurrencyExposure.SettledCashCcy`, `cashSweepLedgerRow.Settled`) stays for a gateway that ever sends a per-currency row | per account refresh | `settlement_unknown` while the journal cannot vouch for the window |
 | Commitments | broker open-order inventory, queued authorisations | `cashSweepCommitments` | per refresh | `settlement_unknown` |
 | Held equivalents | positions view and its `bonds` section | `rpc.PositionsResult.Bonds` (`classifyBondPositions`), ETF by ConID (not yet) | per refresh, `Stale` honoured | `equivalents_unclassified` |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |
@@ -269,13 +272,19 @@ threshold.
    proceed (trade-date − settled, at least zero) counts toward `keep_cash`,
    which can only hold a redemption back. The journal derivation stays the
    fallback (`journal`); `settlement_unknown` needs both to be missing.
+   Post-install, A4 is false (F2): no gateway row reaches this path, so the
+   journal is the source. A bare `SettledCash_<CCY>` in the streaming map
+   is reqAccountUpdates' account-level figure and never reads as a
+   currency's settled cash.
 4. **Bonds at the broker (read-only).** `pkg/ibkr/bond.go` decodes
    `bondContractData` (message 18) with the strict cursor: the identity
    prefix (through the minimum tick, a positive contract id, a three-letter
    currency, a YYYYMMDD maturity) must decode; size rules, `secIdList` and
    the long name are kept only when the whole frame decodes.
-   `Connector.BondContractDetails` asks by ISIN, CUSIP (`secIdType`/`secId`)
-   or contract id, epoch-bound, ending on the gateway's rejection. Bond quotes
+   `Connector.BondContractDetails` asks by ISIN, CUSIP
+   or contract id, epoch-bound, ending on the gateway's rejection. An
+   identifier is asked as the symbol first and by `secIdType`/`secId` only
+   when that finds no line (post-install findings, F1). Bond quotes
    ride the subscription manager's short-lived hold (no standing line) with no
    generic ticks; yield ticks 50–52 and 103–105 are stored as yields, never
    prices. `canary market --symbol <ISIN|CUSIP> --type BOND` (text,
@@ -374,6 +383,7 @@ never an account id, a balance or an order reference).
    enabled, `canary proposals list --json` shows
    `cash_sweep.currencies[].settled_cash_source: "broker"`. If the tag is
    absent, A4 is false and the journal fallback stays; record that.
+   Answered 2026-09-30: absent (F2).
 5. Freshness: outside a bill's session the check reads `fresh: false` with a
    reason, and a sweep row carries `fresh_bill_quote_required`.
 6. One whatIf preview of a USD bill row, never a submit: with the sweep
@@ -403,6 +413,46 @@ never an account id, a balance or an order reference).
    US Treasury bills and for the EUR bill. `assumed` means the contract
    details carried no hours; record that too. Outside the session the row's
    readiness reads `market_closed` with the next open.
+
+### Post-install findings (2026-09-30)
+
+F1, proof step 1, USD bill lookup. `canary market --symbol <CUSIP> --type
+BOND` for two outstanding 13-week bills on TreasuryDirect's list
+(912797SK4, 912797UM7) read "Resolved no (0 lines) · contract details:
+IBKR lists no such bond line". The installed build sent one
+reqContractDetails per bill: conId 0, no symbol, secType `BOND`, exchange
+`SMART`, currency `USD`, `secIdType` `CUSIP`, `secId` the CUSIP. The daemon
+log shows IBKR's answer to each (19:24:16 and 19:24:32 CEST, reproduced
+19:39:20; no symbol alias because the request carried none): code 200, "No
+security definition has been found for the request". IBKR documents a bond contract as the
+CUSIP or ISIN in the symbol field (secType BOND, SMART, the currency), and
+ties CUSIP data to its CUSIP market-data subscription, the likely reason the
+`secIdType` CUSIP form finds nothing here. Code 200 is a definition verdict;
+a missing Treasury trading permission rejects an order, not a contract
+search. Fix: an identifier is asked as the symbol first and by
+`secIdType`/`secId` only when that finds no line; a line naming another
+identifier of the requested type is dropped; when neither form finds a line
+the gap line names the request and each form's answer with IBKR's code and
+text. Rerun step 1 after the reinstall; if the
+symbol form also reads code 200, the next suspects are bond market-data or
+the CUSIP subscription (Client Portal, Settings, Market Data
+Subscriptions), which the gap line will show.
+
+F2, proof step 4, SettledCash (A4). The account-summary request names
+`$LEDGER:ALL` and no `SettledCash` tag. IBKR's `$LEDGER` cash-balance set
+(CashBalance, TotalCashBalance, AccruedCash, market values by class,
+NetLiquidationByCurrency, UnrealizedPnL, RealizedPnL, ExchangeRate and
+kin) carries no SettledCash, and the live `canary account --json` shows no
+`settled_cash_ccy` on any row although the parser admits a per-currency
+SettledCash in both wire dialects. `SettledCash` itself is an account-level
+tag: one figure in the base currency covering every currency, so it cannot
+be one currency's settled cash and is not requested; reqAccountUpdates
+already streams it under the base currency's suffix, and the legacy ledger
+scan no longer reads that bare key as the base currency's settled cash.
+A4 is false; the journal derivation is the settled-cash source. Consequence: the journal
+vouches only for fills since the daemon started, so after each start every
+currency reads `settlement_unknown` until the settlement window (from the
+previous business day) has passed.
 
 ## Phase B order path as built
 
@@ -552,7 +602,7 @@ Phase B:
 | # | Item | Handling |
 |---|---|---|
 | O1 | First buying bucket; `close_reduce_only` carve-out | decided: typed exception limited to vocabulary, currency and free cash |
-| R1 | Settled cash observed only if A4 holds | the ledger's SettledCash when sent, else the journal derivation (fills Canary never observed stay invisible there); `settlement_unknown` when both are missing |
+| R1 | Settled cash comes only from the journal (A4 false) | the journal derivation (fills Canary never observed stay invisible there); after every daemon start `settlement_unknown` until the settlement window has passed |
 | R2 | ETF margin (A2) lowers available funds | out of scope; moot for the governor (rule 3 becomes a premium budget in a parallel change) |
 | O2 | Rung 1 under four weeks | decided: `min_maturity_days` 28 |
 | O3 | EUR fallback symbol, exchange | decided: owner writes; `needs_your_number`; bills still plan |

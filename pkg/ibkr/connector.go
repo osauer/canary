@@ -1311,16 +1311,26 @@ type contractDetailsRequest struct {
 	resolutionKey string
 	fail          chan error
 	sentAt        time.Time
+	// keepText fails the request with a *ContractDetailsRejection carrying
+	// IBKR's code and text; only bond lookups ask for it.
+	keepText bool
 }
 
 // registerContractDetailsRequest arms reqID for notice-driven failure and
 // returns the request plus a release func the caller must defer.
 func (c *Connector) registerContractDetailsRequest(reqID int, resolutionKey string) (*contractDetailsRequest, func()) {
-	req := &contractDetailsRequest{
-		resolutionKey: resolutionKey,
-		fail:          make(chan error, 1),
-		sentAt:        time.Now(),
-	}
+	return c.armContractDetailsRequest(reqID, &contractDetailsRequest{resolutionKey: resolutionKey})
+}
+
+// registerBondContractDetailsRequest is registerContractDetailsRequest for a
+// bond lookup, whose rejection keeps IBKR's code and text for the lookup's
+// gap line.
+func (c *Connector) registerBondContractDetailsRequest(reqID int) (*contractDetailsRequest, func()) {
+	return c.armContractDetailsRequest(reqID, &contractDetailsRequest{keepText: true})
+}
+
+func (c *Connector) armContractDetailsRequest(reqID int, req *contractDetailsRequest) (*contractDetailsRequest, func()) {
+	req.fail, req.sentAt = make(chan error, 1), time.Now()
 	c.contractDetailsMu.Lock()
 	c.contractDetailsReqs[reqID] = req
 	c.contractDetailsMu.Unlock()
@@ -1358,7 +1368,10 @@ func (c *Connector) failPendingContractDetails(reqID, code int, message string) 
 		return false
 	}
 	err := fmt.Errorf("contract details request failed (IBKR %d)", code)
-	if code == 200 && strings.Contains(strings.ToUpper(message), "NO SECURITY DEFINITION") {
+	switch {
+	case req.keepText:
+		err = &ContractDetailsRejection{Code: code, Message: brokerNoticeLine(message)}
+	case code == 200 && strings.Contains(strings.ToUpper(message), "NO SECURITY DEFINITION"):
 		err = ErrContractNoDefinition
 	}
 	select {

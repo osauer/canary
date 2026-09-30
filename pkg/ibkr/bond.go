@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Bond support: contract details for secType BOND by ISIN, CUSIP or contract
@@ -351,36 +353,192 @@ type BondContractRequest struct {
 	Exchange string
 }
 
-// wireContract is the reqContractDetails contract for the request.
-func (r BondContractRequest) wireContract() (Contract, error) {
-	contract := Contract{SecType: "BOND", Exchange: strings.ToUpper(strings.TrimSpace(r.Exchange)), Currency: strings.ToUpper(strings.TrimSpace(r.Currency))}
-	if !bondCurrencyCode(contract.Currency) {
-		return Contract{}, fmt.Errorf("bond contract request needs a three-letter currency")
+// bondWireForm is one way a reqContractDetails request names the bond.
+type bondWireForm struct {
+	label    string
+	contract Contract
+}
+
+// wireForms are the reqContractDetails contracts for the request, in the
+// order they are asked. A contract id is asked once. An identifier is asked
+// first the way IBKR documents a bond, as the contract's symbol (secType
+// BOND, SMART, the currency), and, only when that finds no line, by
+// secIdType/secId. The first live read (2026-09-30) found the secIdType
+// CUSIP form answered with code 200 for outstanding US bills.
+func (r BondContractRequest) wireForms() ([]bondWireForm, error) {
+	base := Contract{SecType: "BOND", Exchange: strings.ToUpper(strings.TrimSpace(r.Exchange)), Currency: strings.ToUpper(strings.TrimSpace(r.Currency))}
+	if !bondCurrencyCode(base.Currency) {
+		return nil, fmt.Errorf("bond contract request needs a three-letter currency")
 	}
-	if contract.Exchange == "" {
-		contract.Exchange = "SMART"
+	if r.ConID > 0 {
+		byConID := base
+		byConID.ConID = r.ConID
+		return []bondWireForm{{label: "by contract id", contract: byConID}}, nil
 	}
-	switch idType, id := strings.ToUpper(strings.TrimSpace(r.IDType)), strings.ToUpper(strings.TrimSpace(r.ID)); {
-	case r.ConID > 0:
-		contract.ConID = r.ConID
-		contract.Exchange = strings.ToUpper(strings.TrimSpace(r.Exchange))
-	case idType == BondIdentifierISIN && ValidISIN(id), idType == BondIdentifierCUSIP && ValidCUSIP(id):
-		contract.SecIDType, contract.SecID = idType, id
-	default:
-		return Contract{}, fmt.Errorf("bond contract request needs a valid ISIN, CUSIP or contract id")
+	if base.Exchange == "" {
+		base.Exchange = "SMART"
 	}
-	return contract, nil
+	idType, id := strings.ToUpper(strings.TrimSpace(r.IDType)), strings.ToUpper(strings.TrimSpace(r.ID))
+	if (idType != BondIdentifierISIN || !ValidISIN(id)) && (idType != BondIdentifierCUSIP || !ValidCUSIP(id)) {
+		return nil, fmt.Errorf("bond contract request needs a valid ISIN, CUSIP or contract id")
+	}
+	bySymbol, bySecID := base, base
+	bySymbol.Symbol = id
+	bySecID.SecIDType, bySecID.SecID = idType, id
+	return []bondWireForm{{label: "by symbol", contract: bySymbol}, {label: "by secIdType " + idType, contract: bySecID}}, nil
+}
+
+// description names the request in a lookup error.
+func (r BondContractRequest) description() string {
+	ccy := strings.ToUpper(strings.TrimSpace(r.Currency))
+	if r.ConID > 0 {
+		return fmt.Sprintf("BOND contract id %d in %s", r.ConID, ccy)
+	}
+	exchange := strings.ToUpper(strings.TrimSpace(r.Exchange))
+	if exchange == "" {
+		exchange = "SMART"
+	}
+	return fmt.Sprintf("BOND %s %s on %s in %s", strings.ToUpper(strings.TrimSpace(r.IDType)), strings.ToUpper(strings.TrimSpace(r.ID)), exchange, ccy)
+}
+
+// linesNaming drops the lines that name a different identifier of the
+// request's type: asked by symbol, the gateway matches free text, so a line
+// must not contradict the identifier it was asked for. A line that names
+// none (an ordinary contractData frame) is kept.
+func (r BondContractRequest) linesNaming(lines []BondContractDetails) []BondContractDetails {
+	id := strings.ToUpper(strings.TrimSpace(r.ID))
+	if r.ConID > 0 || id == "" {
+		return lines
+	}
+	return slices.DeleteFunc(lines, func(d BondContractDetails) bool {
+		var named string
+		switch strings.ToUpper(strings.TrimSpace(r.IDType)) {
+		case BondIdentifierISIN:
+			named = d.ISIN()
+		case BondIdentifierCUSIP:
+			named = d.CUSIP()
+		}
+		return named != "" && named != id
+	})
 }
 
 // ErrBondContractNotFound means the gateway finished the request without a
 // bond line: the identifier names nothing IBKR lists in that currency.
 var ErrBondContractNotFound = errors.New("no bond contract line for the request")
 
+// ContractDetailsRejection is the gateway's rejection of one bond
+// contract-details request: IBKR's code and its own text, on one line. It
+// is ErrContractNoDefinition for IBKR's code-200 no-definition verdict.
+type ContractDetailsRejection struct {
+	Code    int
+	Message string
+}
+
+// Error names IBKR's code and its text.
+func (e *ContractDetailsRejection) Error() string {
+	return fmt.Sprintf("IBKR %d \"%s\"", e.Code, e.Message)
+}
+
+// Is reports IBKR's definitive missing-contract verdict as
+// ErrContractNoDefinition, as the other contract-details paths classify it.
+func (e *ContractDetailsRejection) Is(target error) bool {
+	return target == ErrContractNoDefinition && e.Code == 200 && strings.Contains(strings.ToUpper(e.Message), "NO SECURITY DEFINITION")
+}
+
+// brokerNoticeLine keeps a gateway notice's text readable on one line:
+// control characters and runs of white space become one space, and the text
+// is cut at 200 characters.
+func brokerNoticeLine(message string) string {
+	line := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, message)), " ")
+	if runes := []rune(line); len(runes) > 200 {
+		line = string(runes[:200]) + "…"
+	}
+	return line
+}
+
+// BondLookupAttempt is one request form a bond lookup asked and the
+// gateway's answer: IBKR's code and text, or Code 0 with a note when the
+// search ended without a line.
+type BondLookupAttempt struct {
+	Form    string
+	Code    int
+	Message string
+}
+
+// String is the form and the gateway's answer, as a gap line shows it.
+func (a BondLookupAttempt) String() string {
+	if a.Code != 0 {
+		return fmt.Sprintf("%s: IBKR %d \"%s\"", a.Form, a.Code, a.Message)
+	}
+	return a.Form + ": " + a.Message
+}
+
+// BondLookupError is a lookup no request form found a line with. It matches
+// ErrContractNoDefinition or ErrBondContractNotFound through its attempts'
+// answers, so the callers' classification holds.
+type BondLookupError struct {
+	Request  string
+	Attempts []BondLookupAttempt
+}
+
+// Error names the request and every form's answer.
+func (e *BondLookupError) Error() string {
+	return "no bond line for " + e.Request + " (" + e.Answers() + ")"
+}
+
+// Answers is every attempt's form and the gateway's answer, in order.
+func (e *BondLookupError) Answers() string {
+	parts := make([]string, 0, len(e.Attempts))
+	for _, a := range e.Attempts {
+		parts = append(parts, a.String())
+	}
+	return strings.Join(parts, "; ")
+}
+
+// Unwrap is each attempt's answer as an error: a rejection, or
+// ErrBondContractNotFound for a search that ended without a line.
+func (e *BondLookupError) Unwrap() []error {
+	out := make([]error, 0, len(e.Attempts))
+	for _, a := range e.Attempts {
+		if a.Code != 0 {
+			out = append(out, &ContractDetailsRejection{Code: a.Code, Message: a.Message})
+		} else {
+			out = append(out, ErrBondContractNotFound)
+		}
+	}
+	return out
+}
+
+// bondLookupMiss turns a form's answer into an attempt when it is the
+// gateway's own "no line" (a rejection or an empty search), which the next
+// form may still answer; ok is false for any other failure (a timeout, a
+// changed session), which ends the lookup.
+func bondLookupMiss(form string, err error) (BondLookupAttempt, bool) {
+	if rejection, ok := errors.AsType[*ContractDetailsRejection](err); ok {
+		return BondLookupAttempt{Form: form, Code: rejection.Code, Message: rejection.Message}, true
+	}
+	if errors.Is(err, ErrBondContractNotFound) {
+		note := "the search ended without a line"
+		if msg := err.Error(); msg != ErrBondContractNotFound.Error() {
+			note = strings.TrimPrefix(msg, ErrBondContractNotFound.Error()+": ")
+		}
+		return BondLookupAttempt{Form: form, Message: note}, true
+	}
+	return BondLookupAttempt{}, false
+}
+
 // BondContractDetails asks the connected gateway for the bond lines a
 // request names and returns every decoded line. It is a read: one
-// reqContractDetails on the current socket, answered by bondContractData
-// frames and the end marker. A rejection from the gateway ends the wait with
-// its verdict (ErrContractNoDefinition for code 200).
+// reqContractDetails per request form on the current socket, each answered
+// by bondContractData frames and the end marker. A form the gateway answers
+// without a line moves to the next; when none finds one the error is a
+// *BondLookupError carrying each answer (ErrContractNoDefinition for code
+// 200).
 func (c *Connector) BondContractDetails(ctx context.Context, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
 	binding, ok := c.CaptureSession()
 	if !ok {
@@ -400,13 +558,34 @@ func (c *Connector) BondContractDetailsForSession(ctx context.Context, binding C
 }
 
 func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSessionBinding, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
-	contract, err := request.wireContract()
+	forms, err := request.wireForms()
 	if err != nil {
 		return nil, err
 	}
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
+	lookupErr := &BondLookupError{Request: request.description()}
+	for _, form := range forms {
+		lines, err := c.bondContractDetailsOnce(ctx, binding, form.contract, timeout)
+		if err == nil {
+			named := request.linesNaming(lines)
+			if len(named) > 0 {
+				return named, nil
+			}
+			err = fmt.Errorf("%w: the %d lines IBKR answered name another %s", ErrBondContractNotFound, len(lines), strings.ToUpper(strings.TrimSpace(request.IDType)))
+		}
+		attempt, miss := bondLookupMiss(form.label, err)
+		if !miss {
+			return nil, err
+		}
+		lookupErr.Attempts = append(lookupErr.Attempts, attempt)
+	}
+	return nil, lookupErr
+}
+
+// bondContractDetailsOnce is one reqContractDetails for one request form.
+func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding ConnectorSessionBinding, contract Contract, timeout time.Duration) ([]BondContractDetails, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	conn := binding.connection
@@ -415,7 +594,6 @@ func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSe
 		return nil, err
 	}
 	defer conn.discardRequestIDReservation(reqID)
-
 	detailsCh := make(chan BondContractDetails, 64)
 	doneCh := make(chan struct{}, 1)
 	overflowCh := make(chan struct{}, 1)
@@ -464,7 +642,7 @@ func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSe
 	defer conn.UnregisterHandler(msgBondContractData, bondHandlerID)
 	defer conn.UnregisterHandler(msgContractData, dataHandlerID)
 	defer conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
-	req, releaseReq := c.registerContractDetailsRequest(reqID, "")
+	req, releaseReq := c.registerBondContractDetailsRequest(reqID)
 	defer releaseReq()
 
 	if err := conn.sendContractDetailsRequestForEpoch(fetchCtx, contract, reqID, binding.epoch); err != nil {

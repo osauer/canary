@@ -396,8 +396,18 @@ func (s *Server) classifyBondPositions(ctx context.Context, rows []rpc.PositionV
 	return out
 }
 
-// bondLookupReason words a lookup failure without broker free text.
+// bondLookupReason words a lookup failure. A contract search that found no
+// line carries the request and each form's answer with IBKR's own code and
+// text, so the next attempt is diagnosable; other failures carry no broker
+// free text.
 func bondLookupReason(err error) string {
+	if lookupErr, ok := errors.AsType[*ibkrlib.BondLookupError](err); ok {
+		verdict := "IBKR refused the request"
+		if errors.Is(err, ibkrlib.ErrContractNoDefinition) || errors.Is(err, ibkrlib.ErrBondContractNotFound) {
+			verdict = "IBKR lists no such bond line"
+		}
+		return fmt.Sprintf("%s (%s; %s)", verdict, lookupErr.Request, lookupErr.Answers())
+	}
 	switch {
 	case errors.Is(err, errBondLookupPending):
 		return "the lookup is still running"

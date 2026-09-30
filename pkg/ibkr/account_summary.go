@@ -168,6 +168,16 @@ func dualUseSummaryTag(field string) bool {
 	return false
 }
 
+// accountLevelBareTag reports whether a bare (unprefixed) field is always an
+// account-level value, never a ledger slice. SettledCash is not in IBKR's
+// $LEDGER cash-balance set; reqAccountUpdates sends it once, in the base
+// currency, as the account's settled cash across every currency, so its
+// bare `SettledCash_<BASE>` key must never read as that currency's settled
+// cash. Only a wire-prefixed or ledger-namespaced SettledCash is a slice.
+func accountLevelBareTag(field string) bool {
+	return field == "SettledCash"
+}
+
 // currencyLedgerField reports whether tag is one of the closed set of
 // be projected into the typed ledger must never enter a one-account snapshot.
 func currencyLedgerField(tag string) bool {
@@ -626,7 +636,7 @@ func legacyCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
 		for field, cl := range byField {
 			switch {
 			case cl.hasPrefixed && cl.hasBare:
-				if dualUseSummaryTag(field) {
+				if dualUseSummaryTag(field) || accountLevelBareTag(field) {
 					// Expected coexistence, not a duplicate: the bare form is
 					// the account-level total, the prefixed form the slice.
 					assignCurrencyLedgerValue(ledger, field, ccy, cl.prefixed)
@@ -639,6 +649,8 @@ func legacyCurrencyLedger(raw map[string]string) map[string]CurrencyLedger {
 				connectorLogger.Warnf("account summary ledger: %s_%s arrived in both the bare and %s form with different values; refusing the ambiguous duplicate", field, ccy, gatewayLedgerTagPrefix)
 			case cl.hasPrefixed:
 				assignCurrencyLedgerValue(ledger, field, ccy, cl.prefixed)
+			case accountLevelBareTag(field):
+				// The account's settled cash in its base currency, not a slice.
 			case dualUseSummaryTag(field) && anyPrefixed:
 				// In a prefixed-dialect map a bare dual-use key is the
 				// account-level row; reading it as ledger would resurrect the

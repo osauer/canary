@@ -649,7 +649,9 @@ func TestMarketBondCheck(t *testing.T) {
 			case synthFRBill:
 				return []ibkrlib.BondContractDetails{synthBondLine(7502, synthFRBill, "EUR", day.AddDate(0, 0, 50)), synthBondLine(7503, synthFRBill, "EUR", day.AddDate(0, 0, 50))}, nil
 			}
-			return nil, ibkrlib.ErrContractNoDefinition
+			return nil, &ibkrlib.BondLookupError{Request: "BOND ISIN " + r.ID + " on SMART in EUR", Attempts: []ibkrlib.BondLookupAttempt{
+				{Form: "by symbol", Code: 200, Message: "No security definition has been found for the request"},
+				{Form: "by secIdType ISIN", Code: 200, Message: "No security definition has been found for the request"}}}
 		},
 		quote: func(context.Context, ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 			return synthLiveQuote(99.4), nil
@@ -663,8 +665,15 @@ func TestMarketBondCheck(t *testing.T) {
 	if res := marketBondCheck(context.Background(), dir, "ISIN", synthFRBill, "EUR", time.Second, now); res.Resolved || res.Lines != 2 || !strings.Contains(res.Reason, "ambiguous") {
 		t.Fatalf("ambiguous = %+v", res)
 	}
-	if res := marketBondCheck(context.Background(), dir, "ISIN", synthDEBill2, "EUR", time.Second, now); res.Resolved || !strings.Contains(res.Reason, "no such bond line") {
-		t.Fatalf("unknown = %+v", res)
+	// A line IBKR does not list names the request and each form's answer
+	// with IBKR's own code and text.
+	res = marketBondCheck(context.Background(), dir, "ISIN", synthDEBill2, "EUR", time.Second, now)
+	if want := `contract details: IBKR lists no such bond line (BOND ISIN ` + synthDEBill2 + ` on SMART in EUR; by symbol: IBKR 200 "No security definition has been found for the request"; by secIdType ISIN: IBKR 200 "No security definition has been found for the request")`; res.Resolved || res.Reason != want {
+		t.Fatalf("unknown = %q", res.Reason)
+	}
+	refused := &ibkrlib.BondLookupError{Request: "BOND contract id 7509 in EUR", Attempts: []ibkrlib.BondLookupAttempt{{Form: "by contract id", Code: 321, Message: "Error validating request"}}}
+	if got := bondLookupReason(refused); got != `IBKR refused the request (BOND contract id 7509 in EUR; by contract id: IBKR 321 "Error validating request")` {
+		t.Fatalf("refusal = %q", got)
 	}
 }
 
