@@ -51,11 +51,16 @@ func BillOrBondSecType(secType string) string {
 	return SecTypeBond
 }
 
-// BondContractDetails is one decoded bondContractData frame (message 18).
-// Identity fields come from the fixed frame prefix; the size rules, the
-// security-identifier list and the long name are kept only when the whole
-// versioned frame decoded (Complete), so a gateway that adds or moves a
-// trailing field can never shift a size rule into place.
+// BondContractDetails is one bill or bond line: a decoded bondContractData
+// frame (message 18), or an ordinary contractData frame (message 10) that
+// answered a bond request, whose bond-only fields (coupon, issue date, the
+// cusip field, bond and coupon types) stay empty. Identity fields come from
+// the fixed frame prefix; the size rules, the security-identifier list, the
+// long name and the hours are kept only when the whole frame decoded in the
+// negotiated layout (Complete), so a gateway that adds or moves a trailing
+// field can never shift a size rule into place. IBKR may leave the
+// maturity, the currency or the identifiers empty (bond data licensing);
+// such a line is kept, and the paths that need them refuse it.
 type BondContractDetails struct {
 	ReqID   int
 	ConID   int
@@ -212,131 +217,22 @@ func luhnValid(digits string) bool {
 	return len(digits) > 0 && sum%10 == 0
 }
 
-// parseBondContractDetails decodes one bondContractData frame. The identity
-// prefix (through the minimum tick) must decode with the declared wire types
-// and a positive contract id, a three-letter currency and a YYYYMMDD
-// maturity; otherwise the frame is refused. The rest is kept only when the
-// whole frame decodes.
-func parseBondContractDetails(fields []string, expectedReqID, serverVersion int) (BondContractDetails, bool) {
-	cursor := contractDetailsWireCursor{fields: fields, ok: true}
-	messageID, ok := cursor.integer()
-	if !ok || messageID != msgBondContractData {
-		return BondContractDetails{}, false
-	}
-	version := 6
-	if serverVersion < minServerVerSizeRules {
-		if version, ok = cursor.integer(); !ok || version < 1 {
-			return BondContractDetails{}, false
-		}
-	}
-	d := BondContractDetails{ReqID: -1}
-	if version >= 3 {
-		if d.ReqID, ok = cursor.integer(); !ok {
-			return BondContractDetails{}, false
-		}
-	}
-	if expectedReqID != 0 && d.ReqID != expectedReqID {
-		return BondContractDetails{}, false
-	}
-	d.Symbol = strings.TrimSpace(cursor.string())
-	d.SecType = strings.ToUpper(strings.TrimSpace(cursor.string()))
-	d.CUSIPField = strings.TrimSpace(cursor.string())
-	if d.Coupon, ok = cursor.float(); !ok {
-		return BondContractDetails{}, false
-	}
-	d.Maturity = bondWireDate(cursor.string())
-	d.IssueDate = bondWireDate(cursor.string())
-	_ = cursor.string() // ratings
-	d.BondType = strings.TrimSpace(cursor.string())
-	d.CouponType = strings.TrimSpace(cursor.string())
-	for range 3 { // convertible, callable, putable
-		if !cursor.boolean() {
-			return BondContractDetails{}, false
-		}
-	}
-	d.DescAppend = strings.TrimSpace(cursor.string())
-	d.Exchange = strings.ToUpper(strings.TrimSpace(cursor.string()))
-	d.Currency = strings.ToUpper(strings.TrimSpace(cursor.string()))
-	d.MarketName = strings.TrimSpace(cursor.string())
-	d.TradingClass = strings.TrimSpace(cursor.string())
-	if d.ConID, ok = cursor.integer(); !ok {
-		return BondContractDetails{}, false
-	}
-	if d.MinTick, ok = cursor.float(); !ok {
-		return BondContractDetails{}, false
-	}
-	if !cursor.ok || d.ConID <= 0 || !bondCurrencyCode(d.Currency) {
-		return BondContractDetails{}, false
-	}
-	if _, ok := d.MaturityDate(); !ok {
-		return BondContractDetails{}, false
-	}
-
-	tail := d
-	if serverVersion >= minServerVerMdSizeMultiplier && serverVersion < minServerVerSizeRules {
-		_, _ = cursor.integer() // mdSizeMultiplier, no longer used
-	}
-	_ = cursor.string() // orderTypes
-	tail.ValidExchanges = strings.TrimSpace(cursor.string())
-	_ = cursor.string()  // nextOptionDate
-	_ = cursor.string()  // nextOptionType
-	_ = cursor.boolean() // nextOptionPartial
-	_ = cursor.string()  // notes
-	if version >= 4 {
-		tail.LongName = strings.TrimSpace(cursor.string())
-	}
-	if serverVersion >= minServerVerBondTradingHours {
-		tail.TimeZoneID = strings.TrimSpace(cursor.string())
-		tail.TradingHours = cursor.string()
-		tail.LiquidHours = cursor.string()
-	}
-	if version >= 6 {
-		_ = cursor.string() // evRule
-		_ = cursor.number() // evMultiplier
-	}
-	if version >= 5 {
-		count, countOK := cursor.integer()
-		if !countOK || count < 0 || count > (len(fields)-cursor.idx)/2 {
-			cursor.ok = false
-		}
-		for range max(count, 0) {
-			tag := strings.ToUpper(strings.TrimSpace(cursor.string()))
-			value := strings.TrimSpace(cursor.string())
-			if tag != "" && value != "" && cursor.ok {
-				if tail.SecIDs == nil {
-					tail.SecIDs = map[string]string{}
-				}
-				tail.SecIDs[tag] = value
-			}
-		}
-	}
-	if serverVersion >= minServerVerAggGroup {
-		_, _ = cursor.integer()
-	}
-	if serverVersion >= minServerVerMarketRules {
-		_ = cursor.string() // marketRuleIds
-	}
-	if serverVersion >= minServerVerSizeRules {
-		tail.MinSize, _ = cursor.float()
-		tail.SizeIncrement, _ = cursor.float()
-		_, _ = cursor.float() // suggestedSizeIncrement
-	}
-	if cursor.ok && cursor.complete() {
-		tail.Complete = true
-		return tail, true
-	}
-	return d, true
-}
-
 // minServerVerBondTradingHours is the server version from which a bond
 // frame carries its time zone and trading hours.
 const minServerVerBondTradingHours = 188
 
-// bondWireDate keeps the date of a "YYYYMMDD[ HH:MM:SS[ TZ]]" or dashed
-// wire value.
+// bondWireDate keeps the date of a "YYYYMMDD[ HH:MM:SS[ TZ]]",
+// "YYYYMMDD-HH:MM:SS" or "YYYY-MM-DD" wire value as YYYYMMDD; any other
+// value keeps its first word, which reads as no date.
 func bondWireDate(raw string) string {
 	raw = strings.TrimSpace(raw)
-	if i := strings.IndexAny(raw, " -"); i >= 0 {
+	if i := strings.IndexByte(raw, ' '); i >= 0 {
+		raw = raw[:i]
+	}
+	if t, err := time.Parse(time.DateOnly, raw); err == nil {
+		return t.Format("20060102")
+	}
+	if i := strings.IndexByte(raw, '-'); i >= 0 {
 		raw = raw[:i]
 	}
 	return raw
@@ -352,22 +248,6 @@ func bondCurrencyCode(ccy string) bool {
 		}
 	}
 	return true
-}
-
-// float reads one numeric field; an empty field reads as zero.
-func (c *contractDetailsWireCursor) float() (float64, bool) {
-	value := strings.TrimSpace(c.string())
-	if !c.ok {
-		return 0, false
-	}
-	if value == "" {
-		return 0, true
-	}
-	parsed, err := strconv.ParseFloat(value, 64)
-	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
-		return 0, false
-	}
-	return parsed, true
 }
 
 // BondContractRequest names one bond: an identifier (ISIN or CUSIP) or a
@@ -408,14 +288,23 @@ type bondWireForm struct {
 	contract Contract
 }
 
+// attempt is the form's lookup attempt before the gateway answers: the
+// request as sent.
+func (f bondWireForm) attempt() BondLookupAttempt {
+	c := f.contract
+	return BondLookupAttempt{Form: f.label, SecType: c.SecType, Symbol: c.Symbol, SecIDType: c.SecIDType, SecID: c.SecID,
+		ConID: c.ConID, Exchange: c.Exchange, Currency: c.Currency}
+}
+
 // wireForms are the reqContractDetails contracts for the request, in the
 // order they are asked: every form of the first security type, then every
 // form of the next. A contract id is asked once per type. An identifier is
 // asked first the way IBKR documents a bond, as the contract's symbol (the
-// type, SMART, the currency), and, only when that finds no line, by
-// secIdType/secId. The live reads of 2026-09-30 found both forms answered
-// without a line for outstanding US bills asked as BOND: IBKR lists
-// Treasury bills as BILL.
+// type, SMART, the currency, nothing else), then by secIdType/secId, then
+// by symbol with no exchange, each only when the one before found no line.
+// The live reads of 2026-09-30 found the symbol form ending without a line
+// and the secIdType form answered with code 200 for outstanding US bills
+// asked as BOND and as BILL (F3, F4).
 func (r BondContractRequest) wireForms() ([]bondWireForm, error) {
 	secTypes, err := r.AskedSecTypes()
 	if err != nil {
@@ -446,8 +335,11 @@ func (r BondContractRequest) wireForms() ([]bondWireForm, error) {
 		bySymbol.SecType, bySecID.SecType = secType, secType
 		bySymbol.Symbol = id
 		bySecID.SecIDType, bySecID.SecID = idType, id
+		noExchange := bySymbol
+		noExchange.Exchange = ""
 		forms = append(forms, bondWireForm{label: secType + " by symbol", contract: bySymbol},
-			bondWireForm{label: secType + " by secIdType " + idType, contract: bySecID})
+			bondWireForm{label: secType + " by secIdType " + idType, contract: bySecID},
+			bondWireForm{label: secType + " by symbol, no exchange", contract: noExchange})
 	}
 	return forms, nil
 }
@@ -530,13 +422,43 @@ func brokerNoticeLine(message string) string {
 	return line
 }
 
-// BondLookupAttempt is one request form a bond lookup asked and the
-// gateway's answer: IBKR's code and text, or Code 0 with a note when the
-// search ended without a line.
+// Bond lookup attempt outcomes.
+const (
+	// BondAttemptLine: the form found the line the lookup returns.
+	BondAttemptLine = "line"
+	// BondAttemptNoLine: the search ended without a line the request
+	// keeps.
+	BondAttemptNoLine = "no_line"
+	// BondAttemptRejected: IBKR answered with an error code.
+	BondAttemptRejected = "rejected"
+	// BondAttemptFailed: no answer (a timeout, a changed session); the
+	// lookup ends here.
+	BondAttemptFailed = "failed"
+)
+
+// BondLookupAttempt is one request form a bond lookup asked, the request as
+// sent (request id, security type, symbol or secIdType/secId or contract
+// id, exchange, currency) and the gateway's answer: the outcome, IBKR's
+// code and text, or Code 0 with a note when the search ended without a
+// line. Lines counts the lines the form answered that the request kept;
+// Frames are the frames that named the request id, in arrival order, and
+// FramesOmitted counts those past the record's cap.
 type BondLookupAttempt struct {
-	Form    string
-	Code    int
-	Message string
+	Form          string
+	ReqID         int
+	SecType       string
+	Symbol        string
+	SecIDType     string
+	SecID         string
+	ConID         int
+	Exchange      string
+	Currency      string
+	Outcome       string
+	Code          int
+	Message       string
+	Lines         int
+	Frames        []BondLookupFrame
+	FramesOmitted int
 }
 
 // String is the form and the gateway's answer, as a gap line shows it.
@@ -545,6 +467,15 @@ func (a BondLookupAttempt) String() string {
 		return fmt.Sprintf("%s: IBKR %d \"%s\"", a.Form, a.Code, a.Message)
 	}
 	return a.Form + ": " + a.Message
+}
+
+// BondLookupTrace is how a lookup asked: the request, the server version
+// the frames were decoded for, and every attempt in order, the one that
+// found the line included.
+type BondLookupTrace struct {
+	Request       string
+	ServerVersion int
+	Attempts      []BondLookupAttempt
 }
 
 // BondLookupError is a lookup no request form found a line with. It matches
@@ -583,35 +514,46 @@ func (e *BondLookupError) Unwrap() []error {
 	return out
 }
 
-// bondLookupMiss turns a form's answer into an attempt when it is the
+// bondLookupMiss records a form's answer on its attempt when it is the
 // gateway's own "no line" (a rejection or an empty search), which the next
 // form may still answer; ok is false for any other failure (a timeout, a
 // changed session), which ends the lookup.
-func bondLookupMiss(form string, err error) (BondLookupAttempt, bool) {
+func bondLookupMiss(attempt BondLookupAttempt, err error) (BondLookupAttempt, bool) {
 	if rejection, ok := errors.AsType[*ContractDetailsRejection](err); ok {
-		return BondLookupAttempt{Form: form, Code: rejection.Code, Message: rejection.Message}, true
+		attempt.Outcome, attempt.Code, attempt.Message = BondAttemptRejected, rejection.Code, rejection.Message
+		return attempt, true
 	}
 	if errors.Is(err, ErrBondContractNotFound) {
 		note := "the search ended without a line"
 		if msg := err.Error(); msg != ErrBondContractNotFound.Error() {
 			note = strings.TrimPrefix(msg, ErrBondContractNotFound.Error()+": ")
 		}
-		return BondLookupAttempt{Form: form, Message: note}, true
+		attempt.Outcome, attempt.Message = BondAttemptNoLine, note
+		return attempt, true
 	}
-	return BondLookupAttempt{}, false
+	attempt.Outcome, attempt.Message = BondAttemptFailed, brokerNoticeLine(err.Error())
+	return attempt, false
 }
 
 // BondContractDetails asks the connected gateway for the bond lines a
 // request names and returns every decoded line. It is a read: one
 // reqContractDetails per request form on the current socket, each answered
-// by bondContractData frames and the end marker. A form the gateway answers
-// without a line moves to the next; when none finds one the error is a
-// *BondLookupError carrying each answer (ErrContractNoDefinition for code
-// 200).
+// by bondContractData or contractData frames and the end marker. A form the
+// gateway answers without a line moves to the next; when none finds one the
+// error is a *BondLookupError carrying each answer (ErrContractNoDefinition
+// for code 200).
 func (c *Connector) BondContractDetails(ctx context.Context, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
+	lines, _, err := c.BondContractDetailsTraced(ctx, request, timeout)
+	return lines, err
+}
+
+// BondContractDetailsTraced is BondContractDetails with the lookup's trace:
+// every form asked and the frames IBKR answered each with, reduced to
+// identifiers. The trace is nil only when no form was asked.
+func (c *Connector) BondContractDetailsTraced(ctx context.Context, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, *BondLookupTrace, error) {
 	binding, ok := c.CaptureSession()
 	if !ok {
-		return nil, ErrIBKRUnavailable
+		return nil, nil, ErrIBKRUnavailable
 	}
 	return c.bondContractDetails(ctx, binding, request, timeout)
 }
@@ -623,61 +565,118 @@ func (c *Connector) BondContractDetailsForSession(ctx context.Context, binding C
 	if c == nil || !c.SessionCurrent(binding) {
 		return nil, fmt.Errorf("broker session changed before bond contract details")
 	}
-	return c.bondContractDetails(ctx, binding, request, timeout)
+	lines, _, err := c.bondContractDetails(ctx, binding, request, timeout)
+	return lines, err
 }
 
-func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSessionBinding, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
+func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSessionBinding, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, *BondLookupTrace, error) {
 	forms, err := request.wireForms()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	lookupErr := &BondLookupError{Request: request.description()}
+	trace := &BondLookupTrace{Request: request.description(), ServerVersion: binding.connection.serverVersion}
+	lookupErr := &BondLookupError{Request: trace.Request}
 	for _, form := range forms {
-		lines, err := c.bondContractDetailsOnce(ctx, binding, form.contract, timeout)
+		lines, attempt, err := c.bondContractDetailsOnce(ctx, binding, form, timeout)
 		if err == nil {
-			named := request.linesNaming(stampSecType(lines, form.contract.SecType))
-			if len(named) > 0 {
-				return named, nil
+			named := request.linesNaming(stampAsked(lines, form.contract))
+			if attempt.Lines = len(named); len(named) > 0 {
+				attempt.Outcome = BondAttemptLine
+				trace.Attempts = append(trace.Attempts, attempt)
+				return named, trace, nil
 			}
-			err = fmt.Errorf("%w: the %d lines IBKR answered name another %s", ErrBondContractNotFound, len(lines), strings.ToUpper(strings.TrimSpace(request.IDType)))
+			err = fmt.Errorf("%w: the %d lines IBKR answered name another %s (%s)", ErrBondContractNotFound, len(lines),
+				strings.ToUpper(strings.TrimSpace(request.IDType)), strings.Join(linesNamed(lines, request.IDType), ", "))
 		}
-		attempt, miss := bondLookupMiss(form.label, err)
+		attempt, miss := bondLookupMiss(attempt, err)
+		trace.Attempts = append(trace.Attempts, attempt)
 		if !miss {
-			return nil, err
+			return nil, trace, err
 		}
 		lookupErr.Attempts = append(lookupErr.Attempts, attempt)
 	}
-	return nil, lookupErr
+	return nil, trace, lookupErr
 }
 
-// stampSecType names the type a line was asked as when its frame carried
-// none, so every caller reads which type resolved from the line itself.
-func stampSecType(lines []BondContractDetails, asked string) []BondContractDetails {
+// linesNamed is the identifier of idType each line names, for a gap line.
+func linesNamed(lines []BondContractDetails, idType string) []string {
+	out := make([]string, 0, len(lines))
+	for _, d := range lines {
+		named := d.CUSIP()
+		if strings.EqualFold(strings.TrimSpace(idType), BondIdentifierISIN) {
+			named = d.ISIN()
+		}
+		out = append(out, wireValue(named))
+	}
+	return out
+}
+
+// stampAsked names the type and currency a line was asked in when its
+// frame carried none (bond data licensing may leave them empty), so every
+// caller reads which type resolved, and in what currency, from the line
+// itself. A line that names another currency keeps it.
+func stampAsked(lines []BondContractDetails, asked Contract) []BondContractDetails {
 	for i := range lines {
 		if lines[i].SecType == "" {
-			lines[i].SecType = asked
+			lines[i].SecType = asked.SecType
+		}
+		if lines[i].Currency == "" {
+			lines[i].Currency = asked.Currency
 		}
 	}
 	return lines
 }
 
+// bondContractDetailsRequestMessage is reqContractDetails for a bill or
+// bond exactly as IBKR's documented bond example and its official encoder
+// (API 10.37, version 8) send it: the contract id, symbol, security type,
+// exchange, currency and secIdType/secId as the form names them and every
+// other field empty (includeExpired false, which the encoder sends as 0).
+// Unlike the discovery request it adds no SMART default and no primary
+// exchange, so a form can ask with no exchange.
+func (c *Connection) bondContractDetailsRequestMessage(contract Contract, reqID int) []byte {
+	c.registerReqAlias(reqID, contract)
+	return c.encodeMsg(reqContractData, 8, reqID, contract.ConID, contract.Symbol, contract.SecType,
+		"", "", "", "", // lastTradeDateOrContractMonth, strike, right, multiplier
+		contract.Exchange, "", // exchange, primaryExchange
+		contract.Currency, "", "", // currency, localSymbol, tradingClass
+		0,                                      // includeExpired
+		contract.SecIDType, contract.SecID, "") // secIdType, secId, issuerId
+}
+
 // bondContractDetailsOnce is one reqContractDetails for one request form.
-func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding ConnectorSessionBinding, contract Contract, timeout time.Duration) ([]BondContractDetails, error) {
+// While it is in flight every frame that names its request id is recorded
+// on the attempt and logged, one line per frame: a contract frame with its
+// identifiers and why it is or is not a line, the end marker, an error
+// with IBKR's code, and any other message that names the id.
+func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding ConnectorSessionBinding, form bondWireForm, timeout time.Duration) (lines []BondContractDetails, attempt BondLookupAttempt, err error) {
+	attempt = form.attempt()
 	fetchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	conn := binding.connection
 	reqID, err := conn.reserveRequestID(nil)
 	if err != nil {
-		return nil, err
+		return nil, attempt, err
 	}
 	defer conn.discardRequestIDReservation(reqID)
+	attempt.ReqID = reqID
+	frames := &bondFrameLog{}
+	defer func() { attempt.Frames, attempt.FramesOmitted = frames.snapshot() }()
+	record := func(f BondLookupFrame) {
+		frames.add(f)
+		if f.contract() && !f.Line {
+			c.logWarn("bond lookup reqID %d (%s): %s", reqID, form.label, f)
+			return
+		}
+		c.logInfo("bond lookup reqID %d (%s): %s", reqID, form.label, f)
+	}
 	detailsCh := make(chan BondContractDetails, 64)
 	doneCh := make(chan struct{}, 1)
 	overflowCh := make(chan struct{}, 1)
-	serverVersion := conn.serverVersion
+	layout := bondFrameLayoutFor(conn.serverVersion)
 	deliver := func(d BondContractDetails) {
 		select {
 		case detailsCh <- d:
@@ -688,24 +687,33 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 			}
 		}
 	}
-	bondHandlerID := conn.RegisterHandlerAtEpoch(msgBondContractData, func(fields []string, receiptEpoch uint64) {
-		if receiptEpoch != binding.epoch {
+	// A contract frame for this request is decoded in the layout it names
+	// the request in; either message is a line when its identity decodes.
+	decodeFrame := func(fields []string, decode func([]string, int, bondFrameLayout) (BondContractDetails, []string, error)) {
+		at, ours := bondFrameLayoutNaming(fields, reqID, layout)
+		if !ours {
 			return
 		}
-		if d, ok := parseBondContractDetails(fields, reqID, serverVersion); ok {
+		f := bondFrameSummary(fields, at)
+		d, notes, err := decode(fields, reqID, at)
+		if err != nil {
+			f.Note = err.Error()
+		} else {
+			f.Line, f.Complete, f.Note = true, d.Complete, strings.Join(notes, "; ")
+		}
+		record(f)
+		if err == nil {
 			deliver(d)
 		}
-	})
-	// Some gateway builds answer a BILL or BOND request with ordinary contractData
-	// frames; keep their identity so the caller can still see the line.
-	dataHandlerID := conn.RegisterHandlerAtEpoch(msgContractData, func(fields []string, receiptEpoch uint64) {
-		if receiptEpoch != binding.epoch {
-			return
+	}
+	bondHandlerID := conn.RegisterHandlerAtEpoch(msgBondContractData, func(fields []string, receiptEpoch uint64) {
+		if receiptEpoch == binding.epoch {
+			decodeFrame(fields, decodeBondContractData)
 		}
-		if lite, ok := parseContractDetailsLite(fields, reqID, serverVersion); ok && lite.ConID > 0 {
-			deliver(BondContractDetails{ReqID: reqID, ConID: lite.ConID, Symbol: lite.Symbol, SecType: strings.ToUpper(lite.SecType),
-				Maturity: bondWireDate(lite.Expiry), Exchange: strings.ToUpper(lite.Exchange), Currency: strings.ToUpper(lite.Currency),
-				TradingClass: lite.TradingClass, MinTick: lite.MinTick})
+	})
+	dataHandlerID := conn.RegisterHandlerAtEpoch(msgContractData, func(fields []string, receiptEpoch uint64) {
+		if receiptEpoch == binding.epoch {
+			decodeFrame(fields, decodeContractDataLine)
 		}
 	})
 	endHandlerID := conn.RegisterHandlerAtEpoch(msgContractDataEnd, func(fields []string, receiptEpoch uint64) {
@@ -713,20 +721,31 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 			return
 		}
 		if id, _ := strconv.Atoi(strings.TrimSpace(fields[2])); id == reqID {
+			record(BondLookupFrame{MessageID: msgContractDataEnd, Kind: BondFrameContractDataEnd, Fields: len(fields)})
 			select {
 			case doneCh <- struct{}{}:
 			default:
 			}
 		}
 	})
+	releaseTap := conn.tapInboundFrames(func(fields []string, receiptEpoch uint64) {
+		if receiptEpoch != binding.epoch {
+			return
+		}
+		if f, ok := bondTapFrame(fields, reqID); ok {
+			record(f)
+		}
+	})
+	defer releaseTap()
 	defer conn.UnregisterHandler(msgBondContractData, bondHandlerID)
 	defer conn.UnregisterHandler(msgContractData, dataHandlerID)
 	defer conn.UnregisterHandler(msgContractDataEnd, endHandlerID)
 	req, releaseReq := c.registerBondContractDetailsRequest(reqID)
 	defer releaseReq()
 
-	if err := conn.sendContractDetailsRequestForEpoch(fetchCtx, contract, reqID, binding.epoch); err != nil {
-		return nil, err
+	msg := conn.bondContractDetailsRequestMessage(form.contract, reqID)
+	if err := conn.sendMessageWithTypeContextForEpoch(fetchCtx, msg, RequestTypeGeneral, binding.epoch, true); err != nil {
+		return nil, attempt, err
 	}
 	var out []BondContractDetails
 	for {
@@ -734,9 +753,9 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 		case d := <-detailsCh:
 			out = append(out, d)
 		case err := <-req.fail:
-			return nil, err
+			return nil, attempt, err
 		case <-overflowCh:
-			return nil, fmt.Errorf("bond contract details overflow")
+			return nil, attempt, fmt.Errorf("bond contract details overflow")
 		case <-doneCh:
 			for {
 				select {
@@ -744,20 +763,20 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 					out = append(out, d)
 					continue
 				case <-overflowCh:
-					return nil, fmt.Errorf("bond contract details overflow")
+					return nil, attempt, fmt.Errorf("bond contract details overflow")
 				default:
 				}
 				break
 			}
 			if !c.SessionCurrent(binding) {
-				return nil, fmt.Errorf("broker session changed during bond contract details")
+				return nil, attempt, fmt.Errorf("broker session changed during bond contract details")
 			}
 			if len(out) == 0 {
-				return nil, ErrBondContractNotFound
+				return nil, attempt, fmt.Errorf("%w: %s", ErrBondContractNotFound, frames.emptyNote())
 			}
-			return out, nil
+			return out, attempt, nil
 		case <-fetchCtx.Done():
-			return nil, fetchCtx.Err()
+			return nil, attempt, fetchCtx.Err()
 		}
 	}
 }

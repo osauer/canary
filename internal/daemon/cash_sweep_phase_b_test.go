@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"slices"
@@ -31,6 +32,14 @@ const (
 // size rules follow the assumed units: one bond of 1,000 face for USD, 1,000
 // of face in steps of 1,000 elsewhere. A USD line is a Treasury bill, which
 // IBKR lists as BILL.
+// bondFetchOf adapts a test source that returns no lookup trace.
+func bondFetchOf(f func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error)) func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, *ibkrlib.BondLookupTrace, error) {
+	return func(ctx context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, *ibkrlib.BondLookupTrace, error) {
+		lines, err := f(ctx, r)
+		return lines, nil, err
+	}
+}
+
 func synthBondLine(conID int, id, ccy string, maturity time.Time) ibkrlib.BondContractDetails {
 	line := ibkrlib.BondContractDetails{ConID: conID, Symbol: "SYNTHB", SecType: "BOND", CUSIPField: id, Currency: ccy,
 		Maturity: maturity.Format("20060102"), IssueDate: maturity.AddDate(0, 0, -91).Format("20060102"), Exchange: "SMART",
@@ -528,7 +537,7 @@ func TestBondDirectoryCachesAndDetaches(t *testing.T) {
 	var calls atomic.Int32
 	release := make(chan struct{})
 	dir := &bondDirectory{now: func() time.Time { return now }}
-	dir.fetch = func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+	dir.fetch = bondFetchOf(func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
 		calls.Add(1)
 		if r.ID == synthCUSIP60 {
 			<-release
@@ -537,7 +546,7 @@ func TestBondDirectoryCachesAndDetaches(t *testing.T) {
 			return nil, ibkrlib.ErrContractNoDefinition
 		}
 		return []ibkrlib.BondContractDetails{synthBondLine(7300, r.ID, r.Currency, now.AddDate(0, 0, 35))}, nil
-	}
+	})
 	req := ibkrlib.BondContractRequest{IDType: "CUSIP", ID: synthCUSIP35, Currency: "USD"}
 	for range 3 {
 		if lines, err := dir.lookup(context.Background(), req, time.Second); err != nil || len(lines) != 1 {
@@ -595,12 +604,12 @@ func TestClassifyBondPositions(t *testing.T) {
 		7403: synthBondLine(7403, synthDEBill, "EUR", day.AddDate(0, 0, 100)),
 	}
 	s := &Server{}
-	s.cashSweepB.dir = &bondDirectory{fetch: func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+	s.cashSweepB.dir = &bondDirectory{fetch: bondFetchOf(func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
 		if line, ok := lines[r.ConID]; ok {
 			return []ibkrlib.BondContractDetails{line}, nil
 		}
 		return nil, ibkrlib.ErrBondContractNotFound
-	}}
+	})}
 	rows := []rpc.PositionView{
 		{Symbol: "SYNTH", SecType: "STK", ConID: 1, Currency: "USD", Quantity: 10},
 		{Symbol: "SYNTHB", SecType: "BOND", ConID: 7401, Currency: "USD", Quantity: 5, Mark: 99.5, MarketValue: 4975},
@@ -656,7 +665,7 @@ func TestMarketBondCheck(t *testing.T) {
 	now := cashSweepTestNow()
 	day := cashSweepDay(now)
 	dir := &bondDirectory{
-		fetch: func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+		fetch: bondFetchOf(func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
 			switch r.ID {
 			case synthDEBill:
 				return []ibkrlib.BondContractDetails{synthBondLine(7501, synthDEBill, "EUR", day.AddDate(0, 0, 100))}, nil
@@ -666,7 +675,7 @@ func TestMarketBondCheck(t *testing.T) {
 			return nil, &ibkrlib.BondLookupError{Request: "BOND ISIN " + r.ID + " on SMART in EUR", Attempts: []ibkrlib.BondLookupAttempt{
 				{Form: "by symbol", Code: 200, Message: "No security definition has been found for the request"},
 				{Form: "by secIdType ISIN", Code: 200, Message: "No security definition has been found for the request"}}}
-		},
+		}),
 		quote: func(context.Context, ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 			return synthLiveQuote(99.4), nil
 		},
@@ -763,7 +772,7 @@ func TestMarketBondCheckFindsABillAskedAsBond(t *testing.T) {
 	now := cashSweepTestNow()
 	var asked [][]string
 	dir := &bondDirectory{
-		fetch: func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+		fetch: bondFetchOf(func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
 			asked = append(asked, r.SecTypes)
 			if slices.Contains(r.SecTypes, "BILL") {
 				return []ibkrlib.BondContractDetails{synthBondLine(7101, "912797SK4", "USD", cashSweepDay(now).AddDate(0, 0, 60))}, nil
@@ -771,7 +780,7 @@ func TestMarketBondCheckFindsABillAskedAsBond(t *testing.T) {
 			return nil, &ibkrlib.BondLookupError{Request: "BOND CUSIP 912797SK4 on SMART in USD", Attempts: []ibkrlib.BondLookupAttempt{
 				{Form: "BOND by symbol", Message: "the search ended without a line"},
 				{Form: "BOND by secIdType CUSIP", Code: 200, Message: "No security definition has been found for the request"}}}
-		},
+		}),
 		quote: func(_ context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 			return synthLiveQuote(99.4), nil
 		},
@@ -843,5 +852,64 @@ func TestCashSweepBillSourceSelection(t *testing.T) {
 	src := serverBillSource{s: &Server{}}
 	if _, _, reason := src.usBills(cashSweepTestNow()); !strings.Contains(reason, "not been read") {
 		t.Fatalf("unread list = %q", reason)
+	}
+}
+
+// The market check carries the lookup's attempts: every form asked, the
+// request as sent (an empty exchange stays empty on the wire view), IBKR's
+// answer, and the frames that named each request, so a live run explains
+// itself without the daemon log. A lookup whose source carries no trace
+// still lists the attempts its error names.
+func TestMarketBondCheckCarriesAttempts(t *testing.T) {
+	now := cashSweepTestNow()
+	line := synthBondLine(7101, synthCUSIP35, "USD", cashSweepDay(now).AddDate(0, 0, 60))
+	trace := &ibkrlib.BondLookupTrace{Request: "BILL CUSIP " + synthCUSIP35 + " on SMART in USD", ServerVersion: 203, Attempts: []ibkrlib.BondLookupAttempt{
+		{Form: "BILL by symbol", ReqID: 41, SecType: "BILL", Symbol: synthCUSIP35, Exchange: "SMART", Currency: "USD", Outcome: ibkrlib.BondAttemptNoLine,
+			Message: "the search ended without a line: IBKR sent 1 contract frame that did not decode (bondContractData: the frame carries no positive contract id)",
+			Frames: []ibkrlib.BondLookupFrame{{MessageID: 18, Kind: ibkrlib.BondFrameBondContractData, Fields: 44, Layout: "server 203", SecType: "BILL", Exchange: "SMART",
+				Note: "the frame carries no positive contract id"}, {MessageID: 52, Kind: ibkrlib.BondFrameContractDataEnd, Fields: 4}}},
+		{Form: "BILL by secIdType CUSIP", ReqID: 42, SecType: "BILL", SecIDType: "CUSIP", SecID: synthCUSIP35, Exchange: "SMART", Currency: "USD",
+			Outcome: ibkrlib.BondAttemptRejected, Code: 200, Message: "No security definition has been found for the request",
+			Frames: []ibkrlib.BondLookupFrame{{MessageID: 204, Kind: ibkrlib.BondFrameError, Fields: 2, Code: 200}}},
+		{Form: "BILL by symbol, no exchange", ReqID: 43, SecType: "BILL", Symbol: synthCUSIP35, Currency: "USD", Outcome: ibkrlib.BondAttemptLine, Lines: 1,
+			Frames: []ibkrlib.BondLookupFrame{{MessageID: 10, Kind: ibkrlib.BondFrameContractData, Fields: 47, ConID: "7101", Line: true, Complete: true}}},
+	}}
+	dir := &bondDirectory{
+		now: func() time.Time { return now },
+		fetch: func(_ context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, *ibkrlib.BondLookupTrace, error) {
+			if r.ID == synthCUSIP35 {
+				return []ibkrlib.BondContractDetails{line}, trace, nil
+			}
+			return nil, nil, &ibkrlib.BondLookupError{Request: "BILL CUSIP " + r.ID + " on SMART in USD", Attempts: []ibkrlib.BondLookupAttempt{
+				{Form: "BILL by symbol", Code: 200, Message: "No security definition has been found for the request"}}}
+		},
+		quote: func(context.Context, ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
+			return synthLiveQuote(99.4), nil
+		},
+	}
+	res := marketBondCheck(context.Background(), dir, "CUSIP", synthCUSIP35, "USD", []string{"BILL"}, time.Second, now)
+	if !res.Resolved || res.ServerVersion != 203 || !res.LookupAsOf.Equal(now) || len(res.Attempts) != 3 {
+		t.Fatalf("result = %+v", res)
+	}
+	if a := res.Attempts[2]; a.Form != "BILL by symbol, no exchange" || a.Exchange != "" || a.Outcome != rpc.BondAttemptLine || a.Lines != 1 || a.ReqID != 43 ||
+		len(a.Frames) != 1 || a.Frames[0].Kind != "contractData" || a.Frames[0].ConID != "7101" || !a.Frames[0].Complete {
+		t.Fatalf("attempt 2 = %+v", a)
+	}
+	raw, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"attempts":[{"form":"BILL by symbol","req_id":41,"sec_type":"BILL","symbol":"` + synthCUSIP35 + `","exchange":"SMART","currency":"USD","outcome":"no_line"`,
+		`"frames":[{"msg_id":18,"kind":"bondContractData","fields":44,"layout":"server 203","sec_type":"BILL","exchange":"SMART","line":false,"note":"the frame carries no positive contract id"}`,
+		`{"form":"BILL by secIdType CUSIP","req_id":42,"sec_type":"BILL","sec_id_type":"CUSIP","sec_id":"` + synthCUSIP35 + `","exchange":"SMART","currency":"USD","outcome":"rejected","code":200`,
+		`{"form":"BILL by symbol, no exchange","req_id":43,"sec_type":"BILL","symbol":"` + synthCUSIP35 + `","exchange":"","currency":"USD","outcome":"line"`,
+		`"server_version":203`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("missing %s in %s", want, raw)
+		}
+	}
+	res = marketBondCheck(context.Background(), dir, "CUSIP", synthCUSIP60, "USD", []string{"BILL"}, time.Second, now)
+	if res.Resolved || len(res.Attempts) != 1 || res.Attempts[0].Outcome != rpc.BondAttemptRejected || res.Attempts[0].Code != 200 || res.Attempts[0].Frames == nil || res.ServerVersion != 0 {
+		t.Fatalf("untraced miss = %+v", res)
 	}
 }

@@ -343,6 +343,9 @@ type Connection struct {
 	whatIfOrderIDs      map[int]struct{}
 	openOrderObserverMu sync.RWMutex
 	openOrderObserver   func(msgID int, fields []string, epoch uint64)
+	// inboundTaps counts the armed frame taps (handlers under
+	// msgInboundTap); the reader skips the tap dispatch while it is zero.
+	inboundTaps atomic.Int32
 
 	// Market data type per reqID (1=RealTime,2=Frozen,3=Delayed,4=DelayedFrozen)
 	mktDataType   map[int]int
@@ -1420,6 +1423,10 @@ const (
 	msgWSHEventData                           = 105
 	msgSystemNotification                     = 204
 
+	// msgInboundTap is no IBKR message: handlers registered under it see
+	// every current-session inbound frame (tapInboundFrames).
+	msgInboundTap = -1
+
 	// Outgoing message IDs
 	reqMktData                  = 1
 	cancelMktData               = 2
@@ -2001,6 +2008,12 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		if observer != nil {
 			observer(msgID, fields, epoch)
 		}
+	}
+
+	// A diagnostics tap (a bond lookup's wire record) sees every
+	// current-session frame before the frame's own handlers run.
+	if c.inboundTaps.Load() > 0 {
+		c.dispatchHandlers(msgInboundTap, fields, epoch)
 	}
 
 	// Handle common messages
@@ -6777,6 +6790,18 @@ func (c *Connection) RegisterHandler(msgID int, handler func([]string)) uint64 {
 	c.msgHandlers[msgID] = append(c.msgHandlers[msgID], entry)
 	c.handlersMu.Unlock()
 	return entry.id
+}
+
+// tapInboundFrames arms fn to see every current-session inbound frame,
+// fields[0] its message id, before the frame's own handlers run, until
+// release. It is for diagnostics only: fn must not block or change fields.
+func (c *Connection) tapInboundFrames(fn func(fields []string, epoch uint64)) (release func()) {
+	id := c.RegisterHandlerAtEpoch(msgInboundTap, fn)
+	c.inboundTaps.Add(1)
+	return sync.OnceFunc(func() {
+		c.UnregisterHandler(msgInboundTap, id)
+		c.inboundTaps.Add(-1)
+	})
 }
 
 // RegisterHandlerAtEpoch adds a handler that receives the socket epoch that

@@ -1,10 +1,12 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 20:09 CEST
-Status: Phase B installed (daemon v3.14.0-29); post-install proof in
-progress: A4 answered (false); the USD bill lookup asked as BOND still found
-nothing, so bills are now asked as secType BILL (A10), pending reinstall
-(see "Post-install findings", F1 and F3).
+Updated: 2026-09-30 20:51 CEST
+Status: Phase B installed (daemon v3.14.0-30); post-install proof in
+progress: A4 answered (false); the USD bill lookup asked as BILL still found
+nothing, and the bond frame decoder dropped a frame without a maturity or
+currency without a trace; the lookup now keeps such a line, reads
+contractData answers too, asks a third form and records every frame it
+sees, pending reinstall (see "Post-install findings", F1, F3 and F4).
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
@@ -283,15 +285,24 @@ threshold.
    journal is the source. A bare `SettledCash_<CCY>` in the streaming map
    is reqAccountUpdates' account-level figure and never reads as a
    currency's settled cash.
-4. **Bonds at the broker (read-only).** `pkg/ibkr/bond.go` decodes
-   `bondContractData` (message 18) with the strict cursor: the identity
-   prefix (through the minimum tick, a positive contract id, a three-letter
-   currency, a YYYYMMDD maturity) must decode; size rules, `secIdList` and
-   the long name are kept only when the whole frame decodes.
-   `Connector.BondContractDetails` asks by ISIN, CUSIP
-   or contract id, epoch-bound, ending on the gateway's rejection. An
-   identifier is asked as the symbol first and by `secIdType`/`secId` only
-   when that finds no line (post-install findings, F1). Bond quotes
+4. **Bonds at the broker (read-only).** `pkg/ibkr/bond_frames.go` decodes
+   `bondContractData` (message 18) in the negotiated server version's layout
+   (IBKR API 10.37: a message version before 164, trading hours from 188,
+   size rules from 164): the identity (the request id, the typed fields
+   through the minimum tick, a positive contract id, a currency that is
+   empty or a three-letter code) must decode; an empty or unreadable
+   maturity or currency is a gap the line carries (F4). Size rules,
+   `secIdList`, the long name and the hours are kept only when the whole
+   frame decodes. An ordinary `contractData` frame (message 10) answering
+   the request is a line too, bond-only fields empty. A line without a
+   currency takes the one asked. `Connector.BondContractDetails` asks by
+   ISIN, CUSIP or contract id, epoch-bound, ending on the gateway's
+   rejection. An identifier is asked as the symbol first (IBKR's documented
+   bond form: symbol, type, SMART, currency, nothing else), then by
+   `secIdType`/`secId`, then by symbol with no exchange, each only when the
+   one before found no line (F1, F4). While a form is in flight every frame
+   that names its request id is logged at INFO (WARN for a contract frame
+   that is not a line) and recorded, reduced to identifiers. Bond quotes
    ride the subscription manager's short-lived hold (no standing line) with no
    generic ticks; yield ticks 50–52 and 103–105 are stored as yields, never
    prices. `canary market --symbol <ISIN|CUSIP> --type BILL|BOND` (text,
@@ -300,7 +311,14 @@ threshold.
    false with a reason. The requested type is asked first; an identifier of
    a vocabulary bill is then asked as the bill's own types (A10), and the
    result's `sec_types` and `sec_types_note` say so. The currency defaults to USD for a CUSIP, else the ISIN's issuer
-   country; an `XS` ISIN needs `--currency`.
+   country; an `XS` ISIN needs `--currency`. `--json` carries `attempts`:
+   each form sent (`form`, `req_id`, `sec_type`, `symbol` or
+   `sec_id_type`/`sec_id`, `exchange`, `currency`), its `outcome` (`line`,
+   `no_line`, `rejected`, `failed`) with IBKR's `code` and `message`, and
+   `frames`: every frame that named the request (`msg_id`, `kind`, raw
+   `fields` count, `layout`, `con_id`, `sec_type`, identifiers, `exchange`,
+   `currency`, `maturity` as sent, `line`, `complete`, `note`), with the
+   negotiated `server_version` and `lookup_as_of`.
 5. **Positions.** Held BOND rows stay in `stocks` with their valuation, so
    Desk, the SPA, portfolio aggregates and the Rulebook see no change; the new
    `bonds` section classifies each by `con_id` as `bill` (zero coupon, at most
@@ -390,7 +408,10 @@ never an account id, a balance or an order reference).
    the quantity unit matches `face_1000` (A5). `--type BOND` for the same
    CUSIP asks BOND, then BILL, and its `Asked` line says so; a gap line
    names every attempt with IBKR's code and text. If BILL also finds no
-   line, A10 is refuted for US bills: record the gap line.
+   line, A10 is refuted for US bills: record the gap line. Either way,
+   record from `--json` each attempt's `outcome`, `code` and `frames`
+   (`kind`, `fields`, `layout`, `line`, `note`): they say which frames IBKR
+   answered each form with and why each became a line or did not (F4).
 2. EUR bill: pick one German Bubill ISIN (`DE…`) maturing 28–182 days out;
    `canary market --symbol <ISIN> --type BILL` (currency inferred EUR; BILL,
    then BOND) and `--json`. Same expectations; record `sec_type` (which type
@@ -478,6 +499,37 @@ BILL or BOND through one helper (`ibkr.IsBillOrBond`). `canary market
 --type BILL` asks BILL; `--type BOND` for a vocabulary bill's identifier
 asks BOND, then the bill's own types, and says so. Rerun steps 1–2 after
 the reinstall.
+
+F4, proof step 1 rerun after the F3 fix (installed as v3.14.0-30,
+2026-09-30 20:22–20:24 CEST, read-only). `canary market --type BILL` for
+the bills of F3, by CUSIP and by ISIN, still read no line: "BILL by symbol:
+the search ended without a line; BILL by secIdType CUSIP/ISIN: IBKR 200".
+The daemon log carries code 200 only for the `secIdType` requests; the
+symbol requests logged neither an error nor a line. The negotiated server
+version is 203, so contract data arrives as text frames (protobuf contract
+data starts at 205), and the request matched IBKR's official 10.37 encoder
+field for field. IBKR answered the failed `secIdType` searches with code
+200, not with the end marker alone, so the symbol form most likely drew
+frames the lookup did not keep, and nothing recorded them: the bondContractData decoder
+refused any frame without a YYYYMMDD maturity or a three-letter currency,
+silently, while IBKR documents that bond market-data licensing leaves only
+a few fields of a bond description populated (the minimum tick, the
+exchange, the short name). Not settled live yet: which frames IBKR sends
+for a bill asked by symbol. Fix: a frame is a line when its identity
+decodes (request id, typed fields through the minimum tick, a positive
+contract id); a missing or unreadable maturity or currency is a gap the
+line names, the currency asked stands in, and the sweep still refuses a
+line without a maturity or whole-frame size rules. An ordinary contractData
+frame answering the request is decoded in full (bond-only fields empty). A
+third form asks by symbol with no exchange; the request is encoded exactly
+as the documented bond form (no SMART default, no primary exchange). Every
+frame that names a bond request's id, of any message, is logged at INFO
+with its message id, raw field count and identifiers, a contract frame that
+is not a line at WARN with the reason, and the same record reaches
+`canary market --json` as `attempts`. Rerun step 1 with `--json` after the
+reinstall and record the attempts; if the symbol form still ends without a
+line with no contract frame recorded, IBKR sends the end marker alone for
+it, and the next suspect is the bond market-data or CUSIP subscription.
 
 F2, proof step 4, SettledCash (A4). The account-summary request names
 `$LEDGER:ALL` and no `SettledCash` tag. IBKR's `$LEDGER` cash-balance set

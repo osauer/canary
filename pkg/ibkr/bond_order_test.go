@@ -17,9 +17,9 @@ func syntheticBondContract() Contract {
 // minimum tick cannot be ordered, and sizes must be whole order units.
 func TestBondOrderRulesFromDetails(t *testing.T) {
 	frame := syntheticBondFrame(7, "880001", "912797ZZ3", "US912797ZZ37", "USD", "20261126", "20260827")
-	d, ok := parseBondContractDetails(frame, 7, maxClientVersion)
-	if !ok {
-		t.Fatal("frame refused")
+	d, _, err := decodeBond(frame, 7)
+	if err != nil {
+		t.Fatalf("frame refused: %v", err)
 	}
 	rules, err := BondOrderRulesFrom(d)
 	if err != nil || rules.MinTick != 0.0001 || rules.MinSize != 1000 || rules.SizeIncrement != 1000 || rules.Step() != 1000 || rules.Minimum() != 1000 {

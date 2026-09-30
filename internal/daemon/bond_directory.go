@@ -56,19 +56,21 @@ const (
 )
 
 // bondDirectory caches bond lines by request and recent quotes by contract
-// id. Lookups for one request share one gateway call.
+// id. Lookups for one request share one gateway call; fetch returns the
+// lookup's trace (nil when nothing was asked), kept with its answer.
 type bondDirectory struct {
 	mu       sync.Mutex
 	lines    map[string]bondLinesEntry
 	quotes   map[int]bondQuoteEntry
 	inflight map[string]chan struct{}
-	fetch    func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error)
+	fetch    func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, *ibkrlib.BondLookupTrace, error)
 	quote    func(context.Context, ibkrlib.BondContractDetails) (rpc.BondQuote, error)
 	now      func() time.Time
 }
 
 type bondLinesEntry struct {
 	lines []ibkrlib.BondContractDetails
+	trace *ibkrlib.BondLookupTrace
 	err   error
 	at    time.Time
 }
@@ -104,6 +106,13 @@ func bondRequestKey(r ibkrlib.BondContractRequest) string {
 // lookup returns the lines a request names, from the cache when it is fresh.
 // A cold lookup runs detached from the caller, who waits at most wait for it.
 func (d *bondDirectory) lookup(ctx context.Context, r ibkrlib.BondContractRequest, wait time.Duration) ([]ibkrlib.BondContractDetails, error) {
+	e, err := d.lookupEntry(ctx, r, wait)
+	return e.lines, err
+}
+
+// lookupEntry is lookup with the answer's trace and time; the entry is
+// zero while the lookup is still running.
+func (d *bondDirectory) lookupEntry(ctx context.Context, r ibkrlib.BondContractRequest, wait time.Duration) (bondLinesEntry, error) {
 	key := bondRequestKey(r)
 	d.mu.Lock()
 	if d.lines == nil {
@@ -112,7 +121,8 @@ func (d *bondDirectory) lookup(ctx context.Context, r ibkrlib.BondContractReques
 	if e, ok := d.lines[key]; ok {
 		if d.clock().Sub(e.at) < bondLinesTTL(e.err) {
 			d.mu.Unlock()
-			return slices.Clone(e.lines), e.err
+			e.lines = slices.Clone(e.lines)
+			return e, e.err
 		}
 	}
 	done, running := d.inflight[key]
@@ -126,12 +136,13 @@ func (d *bondDirectory) lookup(ctx context.Context, r ibkrlib.BondContractReques
 			fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 			defer cancel()
 			var lines []ibkrlib.BondContractDetails
+			var trace *ibkrlib.BondLookupTrace
 			err := errors.New("no bond contract source is attached")
 			if fetch != nil {
-				lines, err = fetch(fetchCtx, r)
+				lines, trace, err = fetch(fetchCtx, r)
 			}
 			d.mu.Lock()
-			d.lines[key] = bondLinesEntry{lines: lines, err: err, at: d.clock()}
+			d.lines[key] = bondLinesEntry{lines: lines, trace: trace, err: err, at: d.clock()}
 			delete(d.inflight, key)
 			d.mu.Unlock()
 			close(done)
@@ -143,14 +154,15 @@ func (d *bondDirectory) lookup(ctx context.Context, r ibkrlib.BondContractReques
 	select {
 	case <-done:
 	case <-timer.C:
-		return nil, errBondLookupPending
+		return bondLinesEntry{}, errBondLookupPending
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return bondLinesEntry{}, ctx.Err()
 	}
 	d.mu.Lock()
 	e := d.lines[key]
 	d.mu.Unlock()
-	return slices.Clone(e.lines), e.err
+	e.lines = slices.Clone(e.lines)
+	return e, e.err
 }
 
 // bondLinesTTL is how long a lookup's answer is reused.
@@ -203,12 +215,12 @@ func (s *Server) bondSupport() *cashSweepBonds {
 	defer b.mu.Unlock()
 	if b.dir == nil {
 		b.dir = &bondDirectory{
-			fetch: func(ctx context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+			fetch: func(ctx context.Context, r ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, *ibkrlib.BondLookupTrace, error) {
 				c := s.gatewayConnector()
 				if c == nil {
-					return nil, ibkrlib.ErrIBKRUnavailable
+					return nil, nil, ibkrlib.ErrIBKRUnavailable
 				}
-				return c.BondContractDetails(ctx, r, bondDetailsWait)
+				return c.BondContractDetailsTraced(ctx, r, bondDetailsWait)
 			},
 			quote: func(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 				return s.quoteBondLine(ctx, line, bondQuoteTimeout)
@@ -430,6 +442,40 @@ func bondLookupReason(err error) string {
 	return err.Error()
 }
 
+// bondLookupAttemptViews is the wire view of a lookup's attempts: the
+// trace's, or, for a lookup that carries none, the attempts its error
+// names (without frames).
+func bondLookupAttemptViews(trace *ibkrlib.BondLookupTrace, err error) []rpc.BondLookupAttempt {
+	var attempts []ibkrlib.BondLookupAttempt
+	if trace != nil {
+		attempts = trace.Attempts
+	} else if lookupErr, ok := errors.AsType[*ibkrlib.BondLookupError](err); ok {
+		attempts = lookupErr.Attempts
+	}
+	if len(attempts) == 0 {
+		return nil
+	}
+	out := make([]rpc.BondLookupAttempt, 0, len(attempts))
+	for _, a := range attempts {
+		view := rpc.BondLookupAttempt{Form: a.Form, ReqID: a.ReqID, SecType: a.SecType, Symbol: a.Symbol, SecIDType: a.SecIDType, SecID: a.SecID,
+			ConID: a.ConID, Exchange: a.Exchange, Currency: a.Currency, Outcome: a.Outcome, Code: a.Code, Message: a.Message, Lines: a.Lines,
+			Frames: make([]rpc.BondLookupFrame, 0, len(a.Frames)), FramesOmitted: a.FramesOmitted}
+		if view.Outcome == "" {
+			view.Outcome = rpc.BondAttemptNoLine
+			if a.Code != 0 {
+				view.Outcome = rpc.BondAttemptRejected
+			}
+		}
+		for _, f := range a.Frames {
+			view.Frames = append(view.Frames, rpc.BondLookupFrame{MsgID: f.MessageID, Kind: f.Kind, Fields: f.Fields, Layout: f.Layout, ConID: f.ConID,
+				SecType: f.SecType, Symbol: f.Symbol, CUSIP: f.CUSIP, LocalSymbol: f.LocalSymbol, Exchange: f.Exchange, Currency: f.Currency,
+				Maturity: f.Maturity, Code: f.Code, Line: f.Line, Complete: f.Complete, Note: f.Note})
+		}
+		out = append(out, view)
+	}
+	return out
+}
+
 // bondIdentifierFor reads an identifier as an ISIN or CUSIP and resolves
 // the currency: the caller's, else the identifier's own where it has one.
 func bondIdentifierFor(identifier, currency string) (idType, id, ccy string, err error) {
@@ -525,12 +571,17 @@ func marketBondSecTypes(requested, idType, id string) ([]string, string, error) 
 // marketBondCheck is the handler's read: contract details, then one quote.
 func marketBondCheck(ctx context.Context, dir *bondDirectory, idType, id, ccy string, secTypes []string, timeout time.Duration, now time.Time) *rpc.MarketBondResult {
 	res := &rpc.MarketBondResult{Identifier: id, IdentifierType: idType, Currency: ccy, SecTypes: slices.Clone(secTypes), AsOf: now}
-	lines, err := dir.lookup(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy, SecTypes: secTypes}, bondMarketLookupWait)
+	entry, err := dir.lookupEntry(ctx, ibkrlib.BondContractRequest{IDType: idType, ID: id, Currency: ccy, SecTypes: secTypes}, bondMarketLookupWait)
+	res.Attempts = bondLookupAttemptViews(entry.trace, err)
+	res.LookupAsOf = entry.at
+	if entry.trace != nil {
+		res.ServerVersion = entry.trace.ServerVersion
+	}
 	if err != nil {
 		res.Reason = "contract details: " + bondLookupReason(err)
 		return res
 	}
-	line, n, err := bondLineFor(lines, ccy, 0)
+	line, n, err := bondLineFor(entry.lines, ccy, 0)
 	res.Lines = n
 	if err != nil {
 		res.Reason = "contract details: " + err.Error()

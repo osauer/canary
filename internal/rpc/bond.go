@@ -113,7 +113,72 @@ type MarketBondResult struct {
 	Quoted       bool          `json:"quoted"`
 	Quote        *BondQuote    `json:"quote,omitempty"`
 	Reason       string        `json:"reason,omitempty"`
-	AsOf         time.Time     `json:"as_of"`
+	// Attempts are the request forms the contract lookup sent, in order,
+	// and the frames IBKR answered each with; ServerVersion is the
+	// negotiated version the frames were decoded for, and LookupAsOf when
+	// the lookup ran (a lookup is reused for a day, a miss for ten
+	// minutes).
+	Attempts      []BondLookupAttempt `json:"attempts,omitempty"`
+	ServerVersion int                 `json:"server_version,omitempty"`
+	LookupAsOf    time.Time           `json:"lookup_as_of,omitzero"`
+	AsOf          time.Time           `json:"as_of"`
+}
+
+// Bond lookup attempt outcomes.
+const (
+	BondAttemptLine     = "line"
+	BondAttemptNoLine   = "no_line"
+	BondAttemptRejected = "rejected"
+	BondAttemptFailed   = "failed"
+)
+
+// BondLookupAttempt is one reqContractDetails a bond lookup sent: the form,
+// the request as sent (an empty exchange is sent empty), and IBKR's answer.
+// Outcome is line, no_line, rejected (Code and Message are IBKR's) or
+// failed (no answer); Message otherwise says why the form found no line.
+// Lines counts the lines the form answered that the lookup kept; Frames are
+// the frames that named the request id, in arrival order.
+type BondLookupAttempt struct {
+	Form          string            `json:"form"`
+	ReqID         int               `json:"req_id,omitempty"`
+	SecType       string            `json:"sec_type"`
+	Symbol        string            `json:"symbol,omitempty"`
+	SecIDType     string            `json:"sec_id_type,omitempty"`
+	SecID         string            `json:"sec_id,omitempty"`
+	ConID         int               `json:"con_id,omitempty"`
+	Exchange      string            `json:"exchange"`
+	Currency      string            `json:"currency"`
+	Outcome       string            `json:"outcome"`
+	Code          int               `json:"code,omitempty"`
+	Message       string            `json:"message,omitempty"`
+	Lines         int               `json:"lines"`
+	Frames        []BondLookupFrame `json:"frames"`
+	FramesOmitted int               `json:"frames_omitted,omitempty"`
+}
+
+// BondLookupFrame is one inbound frame that named a lookup's request id,
+// reduced to identifiers as sent: kind is bondContractData,
+// contractData, contractDataEnd, error or other; msg_id and fields are the
+// message id and raw field count; layout the layout a contract frame was
+// decoded in. line says the frame became a line (complete: the whole frame
+// decoded); note why it did not, or what the line lacks.
+type BondLookupFrame struct {
+	MsgID       int    `json:"msg_id"`
+	Kind        string `json:"kind"`
+	Fields      int    `json:"fields"`
+	Layout      string `json:"layout,omitempty"`
+	ConID       string `json:"con_id,omitempty"`
+	SecType     string `json:"sec_type,omitempty"`
+	Symbol      string `json:"symbol,omitempty"`
+	CUSIP       string `json:"cusip,omitempty"`
+	LocalSymbol string `json:"local_symbol,omitempty"`
+	Exchange    string `json:"exchange,omitempty"`
+	Currency    string `json:"currency,omitempty"`
+	Maturity    string `json:"maturity,omitempty"`
+	Code        int    `json:"code,omitempty"`
+	Line        bool   `json:"line"`
+	Complete    bool   `json:"complete,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // PositionBond classifies one held BOND row. The row itself stays in the

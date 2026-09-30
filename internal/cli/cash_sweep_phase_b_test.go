@@ -123,6 +123,19 @@ func TestMarketBillCLI(t *testing.T) {
 			t.Fatalf("missing %q in:\n%s", want, &out)
 		}
 	}
+	// --json carries the lookup's attempts and the frames IBKR answered
+	// each with.
+	out.Reset()
+	conn.result.Attempts = []rpc.BondLookupAttempt{{Form: "BILL by symbol, no exchange", ReqID: 43, SecType: "BILL", Symbol: "912797ZZ3", Currency: "USD", Outcome: rpc.BondAttemptNoLine,
+		Message: "the search ended without a line: no frame named the request before its end marker", Frames: []rpc.BondLookupFrame{{MsgID: 52, Kind: "contractDataEnd", Fields: 4}}}}
+	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--symbol", "912797SK4", "--type", "BILL", "--json"}); code != 0 {
+		t.Fatalf("code %d: %s", code, &out)
+	}
+	for _, want := range []string{`"attempts": [`, `"form": "BILL by symbol, no exchange"`, `"exchange": ""`, `"outcome": "no_line"`, `"kind": "contractDataEnd"`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %s in:\n%s", want, &out)
+		}
+	}
 	out.Reset()
 	if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--type", "BILL", "--watch"}); code == 0 || !strings.Contains(out.String(), "--type BILL needs --symbol") {
 		t.Fatalf("a BILL watch ran: %d %s", code, &out)
