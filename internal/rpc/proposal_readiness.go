@@ -59,9 +59,14 @@ type TradeProposalReadiness struct {
 	// open while it is open. Omitted when the calendar cannot date it.
 	OpensAt *time.Time `json:"opens_at,omitempty"`
 	// DefaultSendAt is OpensAt plus the opening offset (15 minutes for
-	// options, 5 for stocks): the earliest time a queued authorisation would
-	// send. Set only for market_closed and opening_window.
+	// options, 30 at a stress open, 5 for stocks): the earliest time a queued
+	// authorisation would send. Set only for market_closed and opening_window.
 	DefaultSendAt *time.Time `json:"default_send_at,omitempty"`
+	// StressOpen reports that DefaultSendAt is dated at a stress open: the
+	// latched regime stage in force reads confirmed stress, so an options
+	// order waits 30 minutes after the open, and Message says so with the
+	// time.
+	StressOpen bool `json:"stress_open,omitempty"`
 	// Queueable reports that the row's kind and state fit a queued
 	// authorisation: a governor, theta or issuer-trim row waiting for the open
 	// or its opening window. No queue exists yet; nothing is ever queued from

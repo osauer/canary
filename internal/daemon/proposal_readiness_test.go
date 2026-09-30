@@ -20,6 +20,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -38,6 +39,8 @@ func readinessPreviewServer(t *testing.T, dir string, at time.Time) (*Server, *a
 	srv := newOrderPreviewTestServerIn(t, config.Trading{Mode: config.TradingModePaper}, dir)
 	srv.now = func() time.Time { return at }
 	srv.previewSessionAt = officialCalendar
+	// No regime stage observed (the calm reading), never a stage from disk.
+	srv.rulesRegimeStageLoaded = true
 	quotes := new(atomic.Int32)
 	bid, ask := 2.05, 2.15
 	srv.orderPreviewQuote = func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error) {
@@ -377,5 +380,93 @@ func TestDecisionReasonMasksAccountsAndStaysBounded(t *testing.T) {
 	}
 	if n := len([]rune(boundedDecisionReason(strings.Repeat("word ", 400)))); n != decisionReasonRunes {
 		t.Fatalf("bounded reason has %d runes, want %d", n, decisionReasonRunes)
+	}
+}
+
+// latchRegimeStage sets the regime stage the Rulebook reads; a zero stage
+// is one never observed.
+func latchRegimeStage(srv *Server, stage, bucket string, asOf time.Time) {
+	srv.rulesRegimeStageMu.Lock()
+	defer srv.rulesRegimeStageMu.Unlock()
+	srv.rulesRegimeStageLoaded = true
+	srv.rulesRegimeStage = rulesRegimeStageState{}
+	if bucket != "" {
+		srv.rulesRegimeStage = rulesRegimeStageState{Version: rulesRegimeStageStateVer, Bucket: bucket, Stage: stage, AsOf: asOf}
+	}
+}
+
+// Owner decision 2026-09-30 12:35 CEST: at a stress open, while the latched
+// regime stage in force reads confirmed stress, the options opening offset is
+// 30 minutes instead of 15. A carried (stale) confirmed stage counts as its
+// own stage, never as calm; calm, early warning and a stage never observed
+// keep 15; stocks keep 5. Readiness, the queued window and the
+// pre-authorisation scheduler all read the same offset.
+func TestStressOpenDoublesTheOptionsOpeningOffset(t *testing.T) {
+	opens := utc(2026, 9, 28, 13, 30)
+	stock := readinessRow(rpc.TradeProposalBucketRiskReduction)
+	stock.SecType, stock.Contract = "STK", rpc.ContractParams{ConID: 700003, Symbol: "BBB", SecType: "STK", Currency: "USD", Exchange: "SMART"}
+	for _, c := range []struct {
+		name          string
+		stage, bucket string
+		age           time.Duration
+		stress        bool
+	}{
+		{name: "never observed"},
+		{name: "calm", stage: rpc.LifecycleQuiet, bucket: risk.RegimeBucketCalm, age: time.Minute},
+		{name: "early warning", stage: rpc.LifecycleEarlyWarning, bucket: risk.RegimeBucketEarlyWarning, age: time.Minute},
+		{name: "confirmed", stage: rpc.LifecycleConfirmedStress, bucket: risk.RegimeBucketConfirmed, age: time.Minute, stress: true},
+		{name: "carried confirmed", stage: rpc.LifecyclePanic, bucket: risk.RegimeBucketConfirmed, age: 6 * time.Hour, stress: true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			offset := 15 * time.Minute
+			if c.stress {
+				offset = 30 * time.Minute
+			}
+			send := opens.Add(offset)
+			srv, _ := readinessPreviewServer(t, t.TempDir(), fixtureCEST1519)
+			latchRegimeStage(srv, c.stage, c.bucket, fixtureCEST1519.Add(-c.age))
+			if _, carried := srv.rulebookRegimeStage(risk.DefaultRulebookPolicy(), fixtureCEST1519); carried != (c.age > 4*time.Hour) {
+				t.Fatalf("carried = %v", carried)
+			}
+			engine := &proposalEngine{server: srv, now: func() time.Time { return srv.now() }}
+			governor := readinessRow(rpc.TradeProposalBucketBudgetReduction)
+
+			// Before the open: the default send is the open plus the offset.
+			r := engine.classifyReadiness(governor, nil, false, readinessSessions{})
+			if r.Code != rpc.ReadinessMarketClosed || r.DefaultSendAt == nil || !r.DefaultSendAt.Equal(send) || r.StressOpen != c.stress {
+				t.Fatalf("pre-open readiness = %+v, want default send %s stress %v", r, send, c.stress)
+			}
+			phrase := "stress open: the regime reads confirmed stress, so options send from " + send.Format(time.RFC3339) + ", 30 minutes after the open"
+			if strings.Contains(r.Message, "stress open") != c.stress || c.stress && !strings.HasSuffix(r.Message, "; "+phrase) {
+				t.Fatalf("pre-open message = %q", r.Message)
+			}
+			// Stocks keep five minutes whatever the regime.
+			if s := engine.classifyReadiness(stock, nil, false, readinessSessions{}); s.DefaultSendAt == nil || !s.DefaultSendAt.Equal(opens.Add(5*time.Minute)) || s.StressOpen {
+				t.Fatalf("stock readiness = %+v", s)
+			}
+
+			// Twenty minutes after the open: ready in calm, still the opening
+			// window at a stress open.
+			srv.now = func() time.Time { return opens.Add(20 * time.Minute) }
+			r = engine.classifyReadiness(governor, nil, false, readinessSessions{})
+			switch {
+			case c.stress && (r.Code != rpc.ReadinessOpeningWindow || r.DefaultSendAt == nil || !r.DefaultSendAt.Equal(send) || r.Message != phrase || !r.StressOpen || !r.Queueable):
+				t.Fatalf("stress open window = %+v", r)
+			case !c.stress && (r.Code != rpc.ReadinessReady || r.DefaultSendAt != nil || r.Message != ""):
+				t.Fatalf("calm open = %+v", r)
+			}
+
+			// The queued window and the pre-authorised due time start at the
+			// same offset.
+			srv.now = func() time.Time { return fixtureCEST1519 }
+			governor.LimitPrice = new(2.10)
+			terms, blockers := engine.queuedTerms(governor, protectionPolicy{}, rpc.ProtectionPolicyStatus{}, 0, brokerStateScope{Account: "DU1234567", Mode: "paper"}, fixtureCEST1519)
+			if len(blockers) != 0 || !terms.NotBefore.Equal(send) || !terms.NotAfter.Equal(send.Add(queuedSendWindow)) || engine.queuedStressOpen(terms) != c.stress {
+				t.Fatalf("queued terms %s–%s blockers %+v", terms.NotBefore, terms.NotAfter, blockers)
+			}
+			if due := engine.automaticSessionDue(governor, opens.Add(10*time.Minute)); !due.Equal(send) {
+				t.Fatalf("pre-authorised due = %s, want %s", due, send)
+			}
+		})
 	}
 }

@@ -44,7 +44,9 @@ when the order is sent. The terms are:
   (default 25%) for other options, and the stock trail's (default 2%) for
   stocks;
 - time: market and session date from the embedded calendar, not_before (the
-  next regular open plus 15 minutes for options or 5 for stocks), not_after
+  next regular open plus 15 minutes for options or 5 for stocks; 30 for
+  options at a stress open, while the latched regime stage in force reads
+  confirmed stress, owner decision 2026-09-30 12:35 CEST), not_after
   (one hour later, never past that session's close), TIF DAY, and the arm
   deadline (ten minutes after prepare);
 - revalidation: the row-terms digest (bucket, contract and side, effect, order
@@ -236,7 +238,8 @@ says "N queued for the open" without raising attention. Its readiness is never
 
 A pre-authorised record whose order prices off the regular session (a patient
 limit, or a trail without an initial stop) submits no earlier than the open
-plus the opening offset. Its due time is max(notice + veto window, open +
+plus the opening offset (the stress open's 30 minutes for options while the
+regime reads confirmed stress). Its due time is max(notice + veto window, open +
 offset). The bound is set when the record is created. A record found due while
 its session is closed, or still inside the opening window, is rescheduled
 (event `rescheduled`) instead of being attempted and failing. Seeded stock

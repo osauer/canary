@@ -67,8 +67,8 @@ at read time: readiness is never stored in daemon.db or in a preparation, and it
 is not a revision input. Fields: `code`, `market` and `market_label` (the
 contract's official calendar), `session_state` (`open`, `pre_open`, `break`,
 `after_close`, `closed`, `holiday`, `unknown`), `opens_at` (UTC; the next open
-while closed, today's open while open), `default_send_at`, `queueable`,
-`canary_codes` (every blocker code read), `message` and `as_of`.
+while closed, today's open while open), `default_send_at`, `stress_open`,
+`queueable`, `canary_codes` (every blocker code read), `message` and `as_of`.
 
 The first matching class decides the code: `not_executable` for any blocker that
 waiting cannot clear (with Canary's message), then `trading_frozen`,
@@ -81,7 +81,14 @@ request whenever the calendar says the regular session is closed (blocker
 seeded trail is unaffected, and a date outside calendar coverage keeps the quote
 path's judgement. `default_send_at` is the open plus the opening offset (15
 minutes for options, 5 for stocks; the queued-authorisation design's
-recommended defaults). `queueable` marks governor, theta and issuer-trim rows in
+recommended defaults). At a stress open, while the latched regime stage in
+force reads confirmed stress (read as Rulebook rules 3, 4, 12 and 15 read it:
+a carried stage counts as its own stage, a stage never observed reads calm),
+the options offset is 30 minutes (owner decision 2026-09-30 12:35 CEST): the
+opening window lasts that long, `stress_open` is true, and `message` ends with
+"stress open: the regime reads confirmed stress, so options send from
+<time>, 30 minutes after the open". The queue's `not_before` and the
+pre-authorised due time use the same offset. `queueable` marks governor, theta and issuer-trim rows in
 `market_closed` or `opening_window`; queued authorisations
 (queued-authorisations.md) are offered on those rows.
 

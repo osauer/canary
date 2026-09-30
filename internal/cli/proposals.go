@@ -629,7 +629,11 @@ func formatProposalReadiness(r *rpc.TradeProposalReadiness) string {
 		parts = append(parts, "opens "+r.OpensAt.Local().Format("Mon 2 Jan 15:04 MST"))
 	}
 	if r.DefaultSendAt != nil {
-		parts = append(parts, "default send "+r.DefaultSendAt.Local().Format("15:04 MST"))
+		send := "default send " + r.DefaultSendAt.Local().Format("15:04 MST")
+		if r.StressOpen {
+			send += " (stress open: options wait 30 minutes)"
+		}
+		parts = append(parts, send)
 	}
 	if r.Message != "" && r.Code == rpc.ReadinessNotExecutable {
 		parts = append(parts, r.Message)

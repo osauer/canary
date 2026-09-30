@@ -909,7 +909,7 @@ func (e *proposalEngine) automaticSessionDue(prop rpc.TradeProposal, due time.Ti
 	if !ok || session.State == marketcal.StateUnknown {
 		return due
 	}
-	offset := readinessOpeningOffset(market)
+	offset, _ := e.server.readinessOpeningOffset(market, e.clock())
 	switch {
 	case session.IsOpen && !session.Open.IsZero():
 		if earliest := session.Open.Add(offset).UTC(); due.Before(earliest) {

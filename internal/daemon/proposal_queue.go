@@ -633,7 +633,8 @@ func (e *proposalEngine) queuedTerms(prop rpc.TradeProposal, policy protectionPo
 	default:
 		return rpc.QueuedAuthTerms{}, unknown("the trading calendar dates no next regular open for this market")
 	}
-	notBefore := opens.Add(readinessOpeningOffset(market)).UTC()
+	offset, _ := e.server.readinessOpeningOffset(market, now)
+	notBefore := opens.Add(offset).UTC()
 	day, ok := e.server.previewSession(market, notBefore)
 	if !ok || !day.IsOpen {
 		return rpc.QueuedAuthTerms{}, unknown("the trading calendar does not show the regular session open at the send time")
@@ -664,6 +665,17 @@ func (e *proposalEngine) queuedTerms(prop rpc.TradeProposal, policy protectionPo
 		ArmDeadline: now.Add(queuedArmWindow).UTC(), RowTermsDigest: queuedRowTermsDigest(prop),
 		PolicyFingerprint: status.EffectiveFingerprint, RulebookFingerprint: prop.SourceFingerprints.EffectiveRulebook,
 	}, nil
+}
+
+// queuedStressOpen reports that a queued window was dated at a stress open:
+// an options window that starts the stress offset after its session's open.
+// The terms stay as the owner signed them; this only names why.
+func (e *proposalEngine) queuedStressOpen(t rpc.QueuedAuthTerms) bool {
+	if e == nil || e.server == nil || marketcal.Market(t.Market) != marketcal.MarketUSOptions {
+		return false
+	}
+	day, ok := e.server.previewSession(marketcal.MarketUSOptions, t.NotBefore)
+	return ok && !day.Open.IsZero() && t.NotBefore.Sub(day.Open) == readinessStressOptionsOpeningOffset
 }
 
 // queuedDefaultWorstPrice moves the reference mark 25% against the order and
@@ -997,7 +1009,11 @@ func (e *proposalEngine) QueueArm(ctx context.Context, p rpc.TradeProposalQueueA
 	}
 	view = armed.view()
 	out.Accepted, out.Queue = true, &view
-	out.Message = fmt.Sprintf("armed: sends from %s until %s if every gate still passes", armed.Terms.NotBefore.Format(time.RFC3339), armed.Terms.NotAfter.Format(time.RFC3339))
+	stress := ""
+	if e.queuedStressOpen(armed.Terms) {
+		stress = fmt.Sprintf(" (stress open: %d minutes after the open)", int(readinessStressOptionsOpeningOffset/time.Minute))
+	}
+	out.Message = fmt.Sprintf("armed: sends from %s until %s%s if every gate still passes", armed.Terms.NotBefore.Format(time.RFC3339), armed.Terms.NotAfter.Format(time.RFC3339), stress)
 	if e.server != nil {
 		e.server.infof("queued authorisation %s armed for %s; sends from %s", armed.Terms.QueueID, armed.Terms.Key, armed.Terms.NotBefore.Format(time.RFC3339))
 	}

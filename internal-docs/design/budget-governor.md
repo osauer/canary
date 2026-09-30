@@ -1,6 +1,6 @@
 # Budget governor (options premium at risk, reduce by rule)
 
-Updated: 2026-09-30 12:50 CEST
+Updated: 2026-09-30 13:06 CEST
 Status: implemented in shadow on branch `p1-governor` (Desk product view "The
 Bounded Desk", Phase 1 · Reduce by rule, row 1.3 and the capital-row
 extension). The bucket ships absent from the embedded default and disabled;
@@ -153,7 +153,12 @@ book-level budget is breached; a desk ranks by what the sale fixes.
   `internal/daemon/proposal_readiness.go` dates `default_send_at` and is the
   earliest time the queue and the pre-authorisation scheduler send. The
   senior review's ask for no governor sends in the first 30 minutes of a
-  stress open is a later decision.
+  stress open was decided with the review gate's removal (owner decision
+  2026-09-30 12:35 CEST, "Do all follow-ups"): while the latched regime
+  stage in force reads confirmed stress (a carried stage counts as its own
+  stage, never as calm), the options offset is 30 minutes
+  (`readinessStressOptionsOpeningOffset`), readiness says "stress open" with
+  the time and sets `stress_open`, and the queue arm message names it.
 
 ## Review gate removed (owner decision 2026-09-30 12:35 CEST)
 

@@ -1,21 +1,27 @@
 package daemon
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// Opening offsets date default_send_at and the opening window: the queued
-// authorisation design's recommended defaults, since listed options open by
-// rotation with their widest quotes (15 minutes) and stocks settle sooner (5).
-// The owner's queue decisions may change them; nothing sends from them yet.
+// Opening offsets date default_send_at and the opening window, and are the
+// earliest time the queue and the pre-authorisation scheduler send after the
+// regular open: listed options open by rotation with their widest quotes (15
+// minutes), stocks settle sooner (5). At a stress open, while the latched
+// regime stage in force reads confirmed stress, options wait 30 minutes
+// (owner decision 2026-09-30 12:35 CEST, the senior review's ask for no
+// governor sends in the first 30 minutes of a stress open).
 const (
-	readinessOptionsOpeningOffset = 15 * time.Minute
-	readinessStockOpeningOffset   = 5 * time.Minute
+	readinessOptionsOpeningOffset       = 15 * time.Minute
+	readinessStressOptionsOpeningOffset = 30 * time.Minute
+	readinessStockOpeningOffset         = 5 * time.Minute
 )
 
 // Blocker codes grouped by what they wait for. A code in none of these groups
@@ -89,6 +95,7 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 		}
 	}
 	closed := needsSession && sessionKnown && session.State != marketcal.StateUnknown && !session.IsOpen
+	offset, stress := e.server.readinessOpeningOffset(market, now)
 
 	first := func(group []string) (string, bool) {
 		for _, code := range codes {
@@ -129,15 +136,19 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 		decide(rpc.ReadinessSpreadTooWide, code)
 	} else if code, ok := first(readinessQuoteCodes); ok {
 		decide(rpc.ReadinessQuoteUnusable, code)
-	} else if needsSession && sessionKnown && session.IsOpen && now.Before(session.Open.Add(readinessOpeningOffset(market))) {
+	} else if needsSession && sessionKnown && session.IsOpen && now.Before(session.Open.Add(offset)) {
 		decide(rpc.ReadinessOpeningWindow, "")
 	} else {
 		decide(rpc.ReadinessReady, "")
 	}
 
 	if (out.Code == rpc.ReadinessMarketClosed || out.Code == rpc.ReadinessOpeningWindow) && out.OpensAt != nil {
-		send := out.OpensAt.Add(readinessOpeningOffset(market))
+		send := out.OpensAt.Add(offset)
 		out.DefaultSendAt = &send
+		if stress {
+			out.StressOpen = true
+			out.Message = strings.TrimPrefix(out.Message+"; "+stressOpenPhrase(send), "; ")
+		}
 		// A row a queue already covers is not offered a second one.
 		out.Queueable = !prop.Shadow && prop.Queued == nil && slices.Contains(readinessQueueBuckets, prop.Bucket)
 	}
@@ -150,11 +161,37 @@ func proposalHasContract(prop rpc.TradeProposal) bool {
 	return strings.TrimSpace(prop.Contract.Symbol) != "" || prop.Contract.ConID > 0
 }
 
-func readinessOpeningOffset(market marketcal.Market) time.Duration {
-	if market == marketcal.MarketUSOptions {
-		return readinessOptionsOpeningOffset
+// readinessOpeningOffset is how long after the regular open Canary waits
+// before an order that prices off the session may go out: 5 minutes for
+// stocks, 15 for options, and 30 for options at a stress open. stress reports
+// that the stress open applied.
+func (s *Server) readinessOpeningOffset(market marketcal.Market, now time.Time) (offset time.Duration, stress bool) {
+	if market != marketcal.MarketUSOptions {
+		return readinessStockOpeningOffset, false
 	}
-	return readinessStockOpeningOffset
+	if s.regimeStressOpen(now) {
+		return readinessStressOptionsOpeningOffset, true
+	}
+	return readinessOptionsOpeningOffset, false
+}
+
+// regimeStressOpen reports whether the latched regime stage in force reads
+// confirmed stress, read as rules 3, 4, 12 and 15 read it: a carried (stale)
+// stage counts as its own stage, never as calm, and a stage never observed
+// reads calm. A latch that fails closed reads confirmed.
+func (s *Server) regimeStressOpen(now time.Time) bool {
+	if s == nil {
+		return false
+	}
+	pol, _ := s.activeRulebookPolicy()
+	stage, _ := s.rulebookRegimeStage(pol, now)
+	return stage.Bucket == risk.RegimeBucketConfirmed
+}
+
+// stressOpenPhrase says why an options send waits 30 minutes, with the time.
+func stressOpenPhrase(send time.Time) string {
+	return fmt.Sprintf("stress open: the regime reads confirmed stress, so options send from %s, %d minutes after the open",
+		send.UTC().Format(time.RFC3339), int(readinessStressOptionsOpeningOffset/time.Minute))
 }
 
 func (e *proposalEngine) readinessSession(market marketcal.Market, now time.Time, sessions readinessSessions) (marketcal.Session, bool) {

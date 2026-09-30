@@ -408,6 +408,16 @@ diagnostic push that never counts as an alert
 window as a guaranteed opportunity to receive a push, and do not list a bucket
 until `canary status` shows a push witnessed on the phone.
 
+**After the open.** An order that prices off the regular session (a patient
+limit, or a trail without an initial stop) does not go out in the session's
+first minutes: the pre-authorisation scheduler and a queued authorisation send
+no earlier than the open plus 5 minutes for stocks and 15 for options, and 30
+for options at a stress open, while the latched regime stage reads confirmed
+stress (a stale confirmed stage still counts; a stage never observed reads
+calm). A row's `readiness` dates that time in `default_send_at`; at a stress
+open it adds `stress_open: true`, and its message says "stress open" with the
+time.
+
 A latched drawdown brake lets eligible non-budget protection records bypass
 both the notice prerequisite and the waiting window. Budget reductions always
 retain the notice prerequisite and full veto window; shadow rows never schedule.
