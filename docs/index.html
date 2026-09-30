@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canary | local risk and market context for Interactive Brokers</title>
-  <meta name="description" content="Canary connects local IB Gateway or TWS data to a command line, read-only MCP tools, risk checks, statement reconciliation, and a paired app.">
+  <title>Canary | local risk desk, works with Interactive Brokers today</title>
+  <meta name="description" content="Local risk desk for your brokerage account: CLI, read-only MCP tools, risk checks, reconciliation, and a paired app. Works with Interactive Brokers today.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
 
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://osauer.dev/canary/">
-  <meta property="og:title" content="Canary | local risk and market context for IBKR">
-  <meta property="og:description" content="Use local Interactive Brokers data through a command line, read-only MCP tools, risk checks, statement reconciliation, and a paired app.">
+  <meta property="og:title" content="Canary | local risk desk, works with IBKR today">
+  <meta property="og:description" content="A local risk desk for your brokerage account, with a command line, read-only MCP tools, risk checks, statement reconciliation, and a paired app. Works with Interactive Brokers today through IB Gateway or TWS.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Canary | local risk and market context for IBKR">
-  <meta name="twitter:description" content="Command-line and read-only MCP access to entitled Interactive Brokers data, with typed risk checks and source quality.">
+  <meta name="twitter:title" content="Canary | local risk desk, works with IBKR today">
+  <meta name="twitter:description" content="A local risk desk with command-line and read-only MCP access to your entitled broker data, typed risk checks, and source quality. Works with Interactive Brokers today.">
   <meta name="twitter:image" content="https://osauer.dev/canary/social/social-preview.png">
 
   <script type="application/ld+json">
@@ -734,9 +734,10 @@
   <main>
     <section class="wrap hero" aria-labelledby="hero-title">
       <div>
-        <p class="eyebrow">Local Interactive Brokers risk desk</p>
+        <p class="eyebrow">Local risk desk · runs with Interactive Brokers today</p>
         <h1 id="hero-title">Account, market, and risk context from your local broker session</h1>
         <p class="lead">Canary connects TWS or IB Gateway to a command line, a paired app, and local MCP hosts. One daemon composes the daily brief, current portfolio and market evidence, and a broker-confirmed review of what past position changes delivered.</p>
+        <p class="lead">Interactive Brokers is the broker Canary runs with today, through IB Gateway or TWS. The broker layer is its own Go package, built so other platforms can follow.</p>
         <p class="lead">Canary Edge compares adequately repeated stock and ETF changes with leaving the prior position unchanged, while broker-recorded option P/L stays actual-only. Delayed, held, unavailable, and not-due inputs do not masquerade as live data.</p>
         <p class="safety">The MCP surface is read-only: no resources, settings writes, order previews, or execution tools.</p>
         <div class="actions" aria-label="Main actions">
@@ -1070,6 +1071,7 @@ canary setup claude-desktop
         <a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a>
         <a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a>
       </div>
+      <p>Canary is a personal project of Oliver Sauer, built in his own time and not connected to his employer.</p>
     </div>
   </footer>
   <script>

@@ -4,7 +4,10 @@
 [![release](https://img.shields.io/github/v/release/osauer/canary?display_name=tag&sort=semver)](https://github.com/osauer/canary/releases/latest)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**A local risk desk for your Interactive Brokers account.**
+**A local risk desk for your brokerage account.**
+
+It runs with Interactive Brokers today, through IB Gateway or TWS, and keeps the
+broker layer in its own Go package, `pkg/ibkr`, so other brokers can follow.
 
 Canary turns one local IB Gateway or TWS session into a daily brief, current
 portfolio and market evidence, and a broker-confirmed review of what past
@@ -302,5 +305,8 @@ documented TWS API. It is not built, endorsed, sponsored, or supported by
 Interactive Brokers Group, Inc. or its affiliates. `pkg/ibkr` redistributes no
 Interactive Brokers code, libraries, jars, or market data. Nothing here is
 investment advice.
+
+Canary is a personal project of Oliver Sauer, built and maintained in his own
+time. It is not connected to, sponsored by, or a product of his employer.
 
 MIT. See [LICENSE](LICENSE).

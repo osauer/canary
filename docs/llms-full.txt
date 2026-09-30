@@ -9,12 +9,18 @@ answering, holds further requests and redials the stalled connection. Option
 loss exits keep working to expiry. Installation does not enable automatic
 submission or grant broker-write permission.
 
-Canary is a local Interactive Brokers risk desk built as a Go daemon, a
+Canary is a local risk desk for a brokerage account, built as a Go daemon, a
 shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code
-plugin, a paired app, and a clean-room TWS protocol library. The daemon owns the
-broker connection, account scope, runtime state, data-source health, market
-sensors, rulebook, protection proposals, and option-exercise opportunities.
-Other surfaces adapt that typed authority rather than recreating it.
+plugin, a paired app, and a clean-room TWS protocol library. It works with
+Interactive Brokers today (IB Gateway or TWS); the broker layer is a separate
+Go package, `github.com/osauer/canary/v2/pkg/ibkr`, so other platforms can
+follow. The daemon owns the broker connection, account scope, runtime state,
+data-source health, market sensors, rulebook, protection proposals, and
+option-exercise opportunities. Other surfaces adapt that typed authority rather
+than recreating it.
+
+Canary is a personal project of Oliver Sauer, built in his own time and not
+connected to his employer.
 
 Data comes from the user's own TWS or IB Gateway session. Availability and
 freshness therefore depend on session state, market hours, broker entitlements,
