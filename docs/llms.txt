@@ -18,7 +18,7 @@ daemon owns account scope, market sensors, rulebook evaluation, protection
 proposals, option-exercise opportunities, and typed source quality. The CLI, MCP
 server, and app are adapters over that authority.
 
-Canary is a private project of Oliver Sauer, unaffiliated with any employer.
+Canary is an independent personal project by Oliver Sauer.
 
 Use it for:
 
