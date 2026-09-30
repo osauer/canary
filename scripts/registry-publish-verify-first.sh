@@ -297,7 +297,7 @@ done
 echo >&2
 echo "registry-publish: ==================================================================" >&2
 echo "registry-publish: OIDC WORKFLOW DID NOT DELIVER $release_version." >&2
-echo "registry-publish: FALLING BACK TO LOCAL PUBLISH; AN INTERACTIVE DEVICE CODE IS NOW REQUIRED." >&2
+echo "registry-publish: FALLING BACK TO LOCAL PUBLISH; AN INTERACTIVE DEVICE CODE IS REQUIRED." >&2
 echo "registry-publish: ==================================================================" >&2
 echo >&2
 

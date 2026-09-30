@@ -457,7 +457,7 @@ func edgeOptionContractLabel(underlying, symbol, expiry string, strike *float64,
 }
 
 // edgeCompactSymbol collapses the padded OCC spelling a broker row carries
-// ("NOW   260821C00115000") to single spaces after dropping control bytes.
+// ("SYNTH 260821C00115000") to single spaces after dropping control bytes.
 func edgeCompactSymbol(symbol string) string {
 	return strings.Join(strings.Fields(sanitizeRunText(symbol)), " ")
 }

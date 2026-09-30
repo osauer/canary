@@ -146,11 +146,11 @@ func TestRulesEarningsSourceHealthQuietsUnentitledProvider(t *testing.T) {
 
 func TestBriefEarningsOverrideHintNamesTheOperatorAction(t *testing.T) {
 	rules := &rpc.RulesResult{Earnings: []rpc.EarningsInfo{
-		{Symbol: "NOW", Status: rpc.EarningsStatusNoDatePublished},
+		{Symbol: "SYNTH", Status: rpc.EarningsStatusNoDatePublished},
 		{Symbol: "SPY", Status: rpc.EarningsStatusNotApplicable},
 	}}
 	hint := briefEarningsOverrideHint(rules)
-	if !strings.Contains(hint, "NOW") || !strings.Contains(hint, "features.rulebook.earnings_overrides") {
+	if !strings.Contains(hint, "SYNTH") || !strings.Contains(hint, "features.rulebook.earnings_overrides") {
 		t.Fatalf("hint = %q", hint)
 	}
 	if briefEarningsOverrideHint(&rpc.RulesResult{}) != "" {
@@ -163,7 +163,7 @@ func TestFlagClosedOptionSessionUsesTheOfficialCalendar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	options := []rpc.PositionView{{Symbol: "NOW", Expiry: "20261016", Right: "C", Strike: 100}}
+	options := []rpc.PositionView{{Symbol: "SYNTH", Expiry: "20261016", Right: "C", Strike: 100}}
 
 	// Thanksgiving 2026: a weekday the holiday-blind clock helper calls open.
 	flagClosedOptionSession(options, time.Date(2026, time.November, 26, 12, 0, 0, 0, newYork))
@@ -171,7 +171,7 @@ func TestFlagClosedOptionSessionUsesTheOfficialCalendar(t *testing.T) {
 		t.Fatal("holiday session must carry the options_closed warning")
 	}
 
-	open := []rpc.PositionView{{Symbol: "NOW", Expiry: "20261016", Right: "C", Strike: 100}}
+	open := []rpc.PositionView{{Symbol: "SYNTH", Expiry: "20261016", Right: "C", Strike: 100}}
 	flagClosedOptionSession(open, time.Date(2026, time.August, 13, 12, 0, 0, 0, newYork))
 	if positionWarningHasCode(open[0].WarningDetails, "options_closed") {
 		t.Fatal("regular open session must not flag options_closed")

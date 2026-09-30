@@ -16,8 +16,8 @@ import (
 func TestEarningsProviderOutcomeLogGate(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/NOW/") {
-			fmt.Fprint(w, `{"data":{"announcement":"Earnings announcement* for NOW: "},"message":null,"status":{"rCode":200}}`)
+		if strings.Contains(r.URL.Path, "/SYNTH/") {
+			fmt.Fprint(w, `{"data":{"announcement":"Earnings announcement* for SYNTH: "},"message":null,"status":{"rCode":200}}`)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
@@ -33,14 +33,14 @@ func TestEarningsProviderOutcomeLogGate(t *testing.T) {
 	})
 	cache.fetchURL = srv.URL + "/api/analyst/%s/earnings-date"
 
-	cache.refreshTarget(context.Background(), earningsRefreshTarget{Symbol: "NOW"})
+	cache.refreshTarget(context.Background(), earningsRefreshTarget{Symbol: "SYNTH"})
 	mu.Lock()
 	benign := append([]string(nil), lines...)
 	mu.Unlock()
 	if len(benign) != 0 {
 		t.Fatalf("benign no-date answer must not log, got %q", benign)
 	}
-	state := cache.symbols["NOW"]
+	state := cache.symbols["SYNTH"]
 	if got := state.Providers[earningsNasdaqProvider].LastAttempt.Status; got != "no_date_published" {
 		t.Fatalf("no-date answer status = %q, want no_date_published", got)
 	}

@@ -204,7 +204,7 @@ type EarningsInput struct {
 
 // LegInput is one option leg of a name.
 type LegInput struct {
-	Desc       string // "NOW 20260717 C 130"
+	Desc       string // "SYNTH 20260717 C 130"
 	Right      string // C | P
 	Strike     float64
 	Expiry     time.Time // ET calendar date
