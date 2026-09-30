@@ -58,7 +58,10 @@ carried stage uses the lower of its set and calm): it triggers when the book's
 premium at risk reaches `premium_budget_act_pct` of NLV and sells lines in the
 unchanged loss-first order, each contract counted at its premium at risk,
 until the total is back at `premium_budget_watch_pct` (rule 1's trim
-convention). Available funds are context only; the basis needs NLV. The
+convention). The act level is the same in every set by default (35), so a
+rise in volatility alone starts no sale; once the cap is reached under
+confirmed stress, the cut deliberately goes to the stress budget (15). Available
+funds are context only; the basis needs NLV. The
 status and row fields `cash_reserve_min_pct` and `cash_shortfall_base` became
 `premium_budget_watch_pct`, `premium_budget_act_pct`, `premium_pct_of_nlv` and
 `premium_excess_base`, with `premium_budget_set` naming the set on the status.

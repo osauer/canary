@@ -121,9 +121,9 @@ func limitCases() []limitCase {
 			in.Names = append(in.Names, optionName("AAA", leg))
 		}, status: RuleStatusUnknown, watch: f(5), act: f(10)},
 
-		// 3 — premium budget (amendment 17): calm 25/35, early warning
-		// 20/30, confirmed 15/25. No long option asks nothing; an unmeasured
-		// leg stops before a regime set is chosen.
+		// 3 — premium budget (amendment 17): watch calm 25, early warning 20,
+		// confirmed 15; act 35 in every set. No long option asks nothing; an
+		// unmeasured leg stops before a regime set is chosen.
 		{name: "no long options", rule: RuleCashSellOnly, mutate: name(limitsStock("AAA", 20000)), status: RuleStatusNotEvaluated},
 		{name: "pass", rule: RuleCashSellOnly, mutate: name(optionName("AAA", limitsLongCall("AAA", 60, 10000))), status: RuleStatusPass, watch: f(25), act: f(35)},
 		{name: "watch", rule: RuleCashSellOnly, mutate: name(optionName("AAA", limitsLongCall("AAA", 60, 9000), limitsLongCall("AAA", 90, 9000), limitsLongCall("AAA", 120, 9000))), status: RuleStatusWatch, watch: f(25), act: f(35)},
@@ -131,7 +131,11 @@ func limitCases() []limitCase {
 		{name: "confirmed watch", rule: RuleCashSellOnly, mutate: func(in *RuleInputs) {
 			in.RegimeStage = RegimeBucketConfirmed
 			in.Names = append(in.Names, optionName("AAA", limitsLongCall("AAA", 60, 9000), limitsLongCall("AAA", 90, 9000)))
-		}, status: RuleStatusWatch, watch: f(15), act: f(25)},
+		}, status: RuleStatusWatch, watch: f(15), act: f(35)},
+		{name: "confirmed act", rule: RuleCashSellOnly, mutate: func(in *RuleInputs) {
+			in.RegimeStage = RegimeBucketConfirmed
+			in.Names = append(in.Names, optionName("AAA", limitsLongCall("AAA", 60, 9000), limitsLongCall("AAA", 90, 9000), limitsLongCall("AAA", 120, 9000), limitsLongCall("AAA", 150, 9000)))
+		}, status: RuleStatusAct, watch: f(15), act: f(35)},
 		{name: "unknown", rule: RuleCashSellOnly, mutate: func(in *RuleInputs) {
 			leg := limitsLongCall("AAA", 60, 1000)
 			leg.MarketValueBaseSource = MarketValueBaseSourceSubstituted

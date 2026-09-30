@@ -356,10 +356,10 @@ func TestBudgetReductionReevaluatesFromTheCurrentPosition(t *testing.T) {
 // the plan's number and the limit; it never asks to sell more than the order
 // does. Both bases, every pass.
 func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
-	// One discretionary loser, 10 ct × 2,500 = 25,000, is 25% of a 100,000
-	// NLV: the confirmed-stress premium budget's act level (15/25). The line
-	// limit is raised to 30% so only the total pass acts: back to 15% is
-	// 10,000 at risk, 4 contracts.
+	// One discretionary loser, 10 ct × 2,500 = 25,000, is 35.7% of a 70,000
+	// NLV: over the premium budget's 35% cap, under the confirmed-stress set
+	// (budget 15%). The line limit is raised to 40% so only the total pass
+	// acts: back to 15% (10,500) is 14,500 at risk, 6 contracts.
 	book := func() *rpc.PositionsResult {
 		return &rpc.PositionsResult{
 			Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"},
@@ -367,8 +367,8 @@ func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
 		}
 	}
 	rb := risk.DefaultRulebookPolicy()
-	rb.OptionLineActPct = 30
-	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(100000.0), AvailableFundsBase: new(75000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
+	rb.OptionLineActPct = 40
+	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(70000.0), AvailableFundsBase: new(45000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
 	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
 	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
 
@@ -378,22 +378,22 @@ func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
 		pos := book()
 		rows, _ := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
 		assertBudgetRowsReduceOnly(t, rows, pos)
-		if len(rows) != 1 || rows[0].Budget == nil || rows[0].Budget.Cap != "total" || rows[0].Budget.ContractsTotal != 4 {
+		if len(rows) != 1 || rows[0].Budget == nil || rows[0].Budget.Cap != "total" || rows[0].Budget.ContractsTotal != 6 {
 			t.Fatalf("rows = %+v", rows)
 		}
 		return rows[0]
 	}
 
-	// 7,500 at 2,500 a contract holds one order to 3 of the plan's 4.
+	// 7,500 at 2,500 a contract holds one order to 3 of the plan's 6.
 	held := generate(7500)
-	if held.Quantity != 3 || !strings.Contains(held.Reason, "option premium at risk is 25.0% of NLV") ||
-		!strings.Contains(held.Reason, "sell 3 of 10 contracts now (the plan calls for 4; max_order_notional 7500 holds one order to 3") ||
-		strings.Contains(held.Reason, "sell 4 of 10") {
+	if held.Quantity != 3 || !strings.Contains(held.Reason, "option premium at risk is 35.7% of NLV") ||
+		!strings.Contains(held.Reason, "sell 3 of 10 contracts now (the plan calls for 6; max_order_notional 7500 holds one order to 3") ||
+		strings.Contains(held.Reason, "sell 6 of 10") {
 		t.Fatalf("held row: quantity %d, reason %q", held.Quantity, held.Reason)
 	}
-	// Unheld, the reason and the quantity are the plan's 4 and name no limit.
+	// Unheld, the reason and the quantity are the plan's 6 and name no limit.
 	whole := generate(1e9)
-	if whole.Quantity != 4 || !strings.HasSuffix(whole.Reason, "sell 4 of 10 contracts") || strings.Contains(whole.Reason, "max_order_notional") {
+	if whole.Quantity != 6 || !strings.HasSuffix(whole.Reason, "sell 6 of 10 contracts") || strings.Contains(whole.Reason, "max_order_notional") {
 		t.Fatalf("unheld row: quantity %d, reason %q", whole.Quantity, whole.Reason)
 	}
 

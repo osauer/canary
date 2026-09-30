@@ -198,8 +198,10 @@ GroupA = ["AAA", "AAB"]
 
 // With basis = rulebook the governor holds the book to the Rulebook's own
 // limits as shares of NLV: the per-line act level, and rule 3's premium
-// budget of the regime set in force, which triggers at its act level and cuts
-// back to its watch level (amendment 17, rule 1's trim convention). It needs
+// budget of the regime set in force, which triggers at its act level (the
+// cap, 35% in every set by default) and cuts back to that set's watch level
+// (amendment 17, rule 1's trim convention): the same breach cuts to 25% in a
+// calm market and to the 15% stress budget under confirmed stress. It needs
 // no constitution, waits for no brake, and never sells protection.
 func TestBudgetRulebookBasisCutsThePremiumBudgetBackToWatch(t *testing.T) {
 	policy := budgetTestPolicy(rpc.BudgetReductionModeShadow, 0, 0)
@@ -252,13 +254,29 @@ func TestBudgetRulebookBasisCutsThePremiumBudgetBackToWatch(t *testing.T) {
 		}
 	}
 
-	// The regime set in force moves the levels: confirmed stress is 15/25.
+	// Volatility alone forces no sale: 28% under confirmed stress is over the
+	// 15% budget but under the 35% cap, so only the line limit sells.
 	input.NLVBase, input.RegimeStage = new(100000.0), risk.RegimeBucketConfirmed
 	rows, st = (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+	if st.PremiumBudgetWatchPct != 15 || st.PremiumBudgetActPct != 35 || st.PremiumBudgetSet != "confirmed-stress" || st.PremiumExcessBase != nil {
+		t.Fatalf("confirmed set under the cap: %+v", st)
+	}
+	for _, row := range rows {
+		if row.Budget.ContractsTotal != 0 {
+			t.Fatalf("the total pass ran under the cap: %+v", row.Budget)
+		}
+	}
+	// Once the cap is reached in stress, the cut goes to the stress budget:
+	// 35% of 80,000 back to 15% is 16,000. Line limit 8,000: AAA 2, BBB 1
+	// (6,500); BBB (largest loss) then sells its last 3, AAA 1 more.
+	input.NLVBase = new(80000.0)
+	rows, st = (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
 	byID = budgetRowsByConID(rows)
-	if st.PremiumBudgetActPct != 25 || st.PremiumBudgetSet != "confirmed-stress" || st.PremiumExcessBase == nil || math.Abs(*st.PremiumExcessBase-13000) > 1e-6 ||
-		byID[602].Quantity != 4 || byID[601].Quantity != 2 {
-		t.Fatalf("confirmed set: %+v rows %+v", st, byID)
+	if st.PremiumExcessBase == nil || math.Abs(*st.PremiumExcessBase-16000) > 1e-6 || byID[602].Quantity != 4 || byID[601].Quantity != 3 {
+		t.Fatalf("confirmed set at the cap: %+v rows %+v", st, byID)
+	}
+	if _, sold := byID[603]; sold {
+		t.Fatal("a gaining line was sold before the losers covered the excess")
 	}
 
 	input.NLVBase = nil
@@ -272,17 +290,17 @@ func TestBudgetRulebookBasisCutsThePremiumBudgetBackToWatch(t *testing.T) {
 func TestBudgetRulebookBasisCountsALosingLineAtItsPricePaid(t *testing.T) {
 	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
 	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
-	leg := budgetOptionLeg("ZZZ", 701, "C", 10, 1000, -16000)
-	leg.Currency, leg.AvgCost = "EUR", 2600
+	leg := budgetOptionLeg("ZZZ", 701, "C", 10, 1000, -26000)
+	leg.Currency, leg.AvgCost = "EUR", 3600
 	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"}, Options: []rpc.PositionView{leg}}
 	rb := risk.DefaultRulebookPolicy()
 	rb.OptionLineActPct = 50
 	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(100000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
 	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
-	// 26,000 at risk (price paid, over a 10,000 value) is 26% ≥ 25: back to
-	// 15% is 11,000, which 5 contracts at 2,600 cover; at value it would be
+	// 36,000 at risk (price paid, over a 10,000 value) is 36% ≥ 35: back to
+	// 15% is 21,000, which 6 contracts at 3,600 cover; at value it would be
 	// the whole line.
-	if len(rows) != 1 || rows[0].Quantity != 5 || st.MeasuredPremiumBase == nil || *st.MeasuredPremiumBase != 26000 {
+	if len(rows) != 1 || rows[0].Quantity != 6 || st.MeasuredPremiumBase == nil || *st.MeasuredPremiumBase != 36000 {
 		t.Fatalf("rows %+v status %+v", rows, st)
 	}
 }
@@ -422,11 +440,16 @@ func TestDefaultRulebookPolicyTOMLCarriesNoRetiredKey(t *testing.T) {
 	for _, want := range []string{
 		"[regime_calm]\n", "premium_budget_watch_pct = 25.0\n", "premium_budget_act_pct = 35.0\n", "net_exposure_watch_pct = 100.0\n", "net_exposure_act_pct = 150.0\n",
 		"premium_budget_watch_pct = 20.0\n", "net_exposure_act_pct = 130.0\n",
-		"premium_budget_watch_pct = 15.0\n", "premium_budget_act_pct = 25.0\n", "net_exposure_watch_pct = 75.0\n", "net_exposure_act_pct = 100.0\n",
+		"premium_budget_watch_pct = 15.0\n", "net_exposure_watch_pct = 75.0\n", "net_exposure_act_pct = 100.0\n",
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("default file lacks %q:\n%s", want, data)
 		}
+	}
+	// The cap is the same in every set by default (reviewer decision
+	// 2026-09-30 10:12 CEST); only the budget for new buying tightens.
+	if n := strings.Count(string(data), "premium_budget_act_pct = 35.0\n"); n != 3 {
+		t.Fatalf("premium_budget_act_pct = 35.0 appears %d times, want once per regime set:\n%s", n, data)
 	}
 	calm := string(data)[strings.Index(string(data), "[regime_calm]"):]
 	if i, j := strings.Index(calm, "premium_budget_act_pct"), strings.Index(calm, "extrinsic_watch_pct"); i < 0 || j < 0 || i > j {

@@ -27,9 +27,9 @@ const (
 // rules: rule 3 premium budget and rule 4 extrinsic budget (both
 // ex-protection), rule 12 protection band, rule 15 net exposure.
 type RegimeThresholds struct {
-	// PremiumBudgetWatchPct is rule 3's watch level: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. At watch or act the Rulebook reads sell-only.
+	// PremiumBudgetWatchPct is rule 3's watch level, the budget for new buying: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. It tightens with the regime; at watch or act the Rulebook reads sell-only.
 	PremiumBudgetWatchPct float64 `toml:"premium_budget_watch_pct" json:"premium_budget_watch_pct"`
-	// PremiumBudgetActPct is rule 3's act level for the same measure. The budget governor under basis = rulebook sells back to the watch level once the total reaches it.
+	// PremiumBudgetActPct is rule 3's act level, the cap on the same measure. Canary's default is the same in every regime set, so a rise in volatility alone never forces a sale; tighten it per set if you want. Under basis = rulebook the budget governor sells back to the set's watch level once the total reaches it.
 	PremiumBudgetActPct float64 `toml:"premium_budget_act_pct" json:"premium_budget_act_pct"`
 	// ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV.
 	ExtrinsicWatchPct float64 `toml:"extrinsic_watch_pct" json:"extrinsic_watch_pct"`
@@ -212,7 +212,10 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		WinnerTrimDayUpPct:     4,
 		WinnerTrimMinExpoPct:   15,
 		// Rule 3 premium budget and rule 15 net exposure bands: owner
-		// decisions of 2026-09-30 (amendment 17).
+		// decisions of 2026-09-30 (amendment 17). Rule 3's watch level (the
+		// budget for new buying) tightens with the regime; its act level (the
+		// cap) is the same in every set by default (reviewer decision
+		// 2026-09-30 10:12 CEST), so volatility alone forces no sale.
 		RegimeCalm: RegimeThresholds{
 			PremiumBudgetWatchPct: 25,
 			PremiumBudgetActPct:   35,
@@ -225,7 +228,7 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		},
 		RegimeEarlyWarning: RegimeThresholds{
 			PremiumBudgetWatchPct: 20,
-			PremiumBudgetActPct:   30,
+			PremiumBudgetActPct:   35,
 			ExtrinsicWatchPct:     7.5,
 			ExtrinsicActPct:       12,
 			HedgeBandMinPct:       30,
@@ -235,7 +238,7 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		},
 		RegimeConfirmed: RegimeThresholds{
 			PremiumBudgetWatchPct: 15,
-			PremiumBudgetActPct:   25,
+			PremiumBudgetActPct:   35,
 			ExtrinsicWatchPct:     5,
 			ExtrinsicActPct:       10,
 			HedgeBandMinPct:       40,

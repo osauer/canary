@@ -490,7 +490,7 @@ cash_sell_only_pct = 10.0
 	for _, want := range []string{
 		"single_name_act_pct now caps the worst-case loss on one issuer with every leg netted (before amendment 15 it capped stock-equivalent delta): Canary now recommends 40.0; yours is 35.0",
 		"single_name_watch_pct now bounds the worst-case loss on one issuer with every leg netted (before amendment 15 it bounded stock-equivalent delta): Canary now recommends 30.0; yours is 25.0",
-		"cash_reserve_min_pct is retired: rule 3 is now the premium budget, per regime set in the [regime_*] tables (calm 25.0/35.0, early warning 20.0/30.0, confirmed 15.0/25.0 watch/act % of NLV); yours was 60.0 and is kept only as a comment",
+		"cash_reserve_min_pct is retired: rule 3 is now the premium budget, per regime set in the [regime_*] tables (calm 25.0/35.0, early warning 20.0/35.0, confirmed 15.0/35.0 watch/act % of NLV); yours was 60.0 and is kept only as a comment",
 	} {
 		if !slices.Contains(a.Notes, want) {
 			t.Fatalf("notes %q lack %q", a.Notes, want)

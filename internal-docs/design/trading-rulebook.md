@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 09:51 CEST
+Updated: 2026-09-30 10:15 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -352,9 +352,16 @@ contradiction:
       per-leg figure of rule 2 and the budget governor — as % of NLV. Watch
       and act per regime set, keys `premium_budget_watch_pct` and
       `premium_budget_act_pct` in each `[regime_*]` table beside
-      `extrinsic_*`: calm 25/35, early warning 20/30, confirmed 15/25, at or
-      above, with rule 4's regime evaluation (a carried stage keeps the worse
-      of its set and calm; a never-seen stage reads calm). Evidence names the
+      `extrinsic_*`, at or above, with rule 4's regime evaluation (a carried
+      stage keeps the worse of its set and calm; a never-seen stage reads
+      calm). The watch level is the budget for new buying and tightens by
+      regime: calm 25, early warning 20, confirmed 15. The act level is the
+      cap and is regime-independent by default: 35 in every set (reviewer
+      decision 2026-09-30 10:12 CEST, correcting the owner's first table of
+      35/30/25 the same day). A cap that tightened with the regime would
+      force sales of long premium into a stressed market on a rise in
+      volatility alone, the same sign problem the reserve had; the keys stay
+      per set so the owner can still tighten an act level. Evidence names the
       regime set, the observed percent and the level, and adds the broker's
       available funds as a share of NLV as context. Ranking impact is the
       premium at risk in base currency, as for rules 2 and 4. No NLV, a leg
@@ -379,9 +386,13 @@ contradiction:
       rulebook basis reads rule 3's levels of the regime set in force
       (`RulebookPolicy.PremiumBudgetInForce`, the latched stage read as rule
       3 reads it) instead of the reserve: its total pass triggers at the act
-      level and cuts back to the watch level (rule 1's trim convention),
-      counting each contract at its premium at risk, in the unchanged
-      loss-first order. Its reason and details name the premium budget; the
+      level and cuts back to the watch level of the set in force (rule 1's
+      trim convention), counting each contract at its premium at risk, in the
+      unchanged loss-first order. Deliberately, once a cap breach forces a
+      cut under confirmed stress, the cut goes to the stress budget (15 by
+      default), not to the calm one: the regime decides how far to cut, never
+      whether volatility alone forces a sale. Its reason and details name the
+      premium budget; the
       rulebook-basis fields became `premium_budget_watch_pct`,
       `premium_budget_act_pct`, `premium_pct_of_nlv` and
       `premium_excess_base` (the status also names `premium_budget_set`).
@@ -446,7 +457,7 @@ regime-conditionality notes).
 |---|---|---|---|---|
 | 1 | `single_name_exposure` | worst-case loss per issuer / NLV, every leg netted from current marks (amendment 15) | watch ≥ 30%; act ≥ 40%; illiquid 20% / 30% | alert |
 | 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act ≥ 10%; protection watch ≥ 15%, act ≥ 25% | track |
-| 3 | `cash_sell_only` | premium budget: Σ premium at risk (higher of price paid and value) of long options outside protection / NLV; the stable id is retained for history compatibility (amendment 17) | watch ≥ 25 / 20 / 15%; act ≥ 35 / 30 / 25% by regime; sell-only at watch or act | alert |
+| 3 | `cash_sell_only` | premium budget: Σ premium at risk (higher of price paid and value) of long options outside protection / NLV; the stable id is retained for history compatibility (amendment 17) | watch ≥ 25 / 20 / 15% by regime (budget for new buying); act ≥ 35% in every regime by default (cap); sell-only at watch or act | alert |
 | 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act ≥ 15 / 12 / 10% by regime | alert |
 | 5 | `expiry_runway` | long option DTE ≤ 14 unless ≥70-delta ITM or protection-classified | watch ≤ 14 DTE; act ≤ 7 DTE | alert |
 | 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |

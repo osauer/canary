@@ -65,8 +65,11 @@ func TestPremiumBudgetMeasuresPremiumAtRiskOutsideProtection(t *testing.T) {
 	}
 }
 
-// Each regime set carries its own levels; a carried stage keeps the worse of
-// its set and calm, and a never-seen stage reads calm. The row names the set.
+// Each regime set carries its own budget for new buying (the watch level);
+// the cap (the act level) is the same in every set by default, so a rise in
+// volatility alone moves a book from pass to watch but never to act (reviewer
+// decision 2026-09-30 10:12 CEST). A carried stage keeps the worse of its set
+// and calm, and a never-seen stage reads calm. The row names the set.
 func TestPremiumBudgetFollowsTheRegimeSet(t *testing.T) {
 	pol := limitsAllModes(RuleModeAlert)
 	for _, c := range []struct {
@@ -79,14 +82,34 @@ func TestPremiumBudgetFollowsTheRegimeSet(t *testing.T) {
 		words      string
 	}{
 		{"calm", RegimeBucketCalm, false, RuleStatusWatch, 25, 35, RegimeBucketCalm, "calm set's 25% budget"},
-		{"early warning", RegimeBucketEarlyWarning, false, RuleStatusWatch, 20, 30, RegimeBucketEarlyWarning, "early-warning set's 20% budget"},
-		{"confirmed", RegimeBucketConfirmed, false, RuleStatusAct, 15, 25, RegimeBucketConfirmed, "confirmed-stress set's 25% act level"},
-		{"carried confirmed keeps the worse", RegimeBucketConfirmed, true, RuleStatusAct, 15, 25, RegimeBucketConfirmed, "confirmed-stress set's 25% act level"},
+		{"early warning", RegimeBucketEarlyWarning, false, RuleStatusWatch, 20, 35, RegimeBucketEarlyWarning, "early-warning set's 20% budget"},
+		{"confirmed", RegimeBucketConfirmed, false, RuleStatusWatch, 15, 35, RegimeBucketConfirmed, "confirmed-stress set's 15% budget"},
+		{"carried confirmed keeps the worse", RegimeBucketConfirmed, true, RuleStatusWatch, 15, 35, RegimeBucketConfirmed, "confirmed-stress set's 15% budget"},
 		{"never seen reads calm", "", false, RuleStatusWatch, 25, 35, RegimeBucketCalm, "calm set's 25% budget"},
 	} {
 		r := rowByID(t, EvaluateRulebook(premiumInputs(c.stage, c.carried), pol), RuleCashSellOnly)
 		if r.Status != c.status || *r.WatchThreshold != c.watch || *r.ActThreshold != c.act || r.RegimeSet != c.set || !strings.Contains(r.Evidence, c.words) {
 			t.Errorf("%s: %s watch %v act %v set %q evidence %q", c.name, r.Status, *r.WatchThreshold, *r.ActThreshold, r.RegimeSet, r.Evidence)
+		}
+	}
+
+	// The same book at 22%: a pass in calm, a watch (no new buying) under
+	// early warning and confirmed stress, and never an act.
+	for stage, want := range map[string]string{RegimeBucketCalm: RuleStatusPass, RegimeBucketEarlyWarning: RuleStatusWatch, RegimeBucketConfirmed: RuleStatusWatch} {
+		in := limitsInputs()
+		in.RegimeStage = stage
+		in.Names = []NameInput{{Symbol: "AAA", ExposureBaseComplete: true, Legs: []LegInput{limitsLongCall("AAA", 60, 22000)}}}
+		if r := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly); r.Status != want {
+			t.Errorf("22%% under %s = %s, want %s", stage, r.Status, want)
+		}
+	}
+	// The cap acts at 35% in every set by default.
+	for _, stage := range []string{RegimeBucketCalm, RegimeBucketEarlyWarning, RegimeBucketConfirmed} {
+		in := limitsInputs()
+		in.RegimeStage = stage
+		in.Names = []NameInput{{Symbol: "AAA", ExposureBaseComplete: true, Legs: []LegInput{limitsLongCall("AAA", 60, 34900), limitsLongCall("AAA", 90, 100)}}}
+		if r := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly); r.Status != RuleStatusAct || *r.ActThreshold != 35 {
+			t.Errorf("35%% under %s = %s (act %v), want act at 35", stage, r.Status, *r.ActThreshold)
 		}
 	}
 }
@@ -249,10 +272,10 @@ func TestPremiumBudgetInForceMatchesRule3(t *testing.T) {
 	}{
 		{"", false, 25, 35},
 		{RegimeBucketCalm, false, 25, 35},
-		{RegimeBucketEarlyWarning, false, 20, 30},
-		{RegimeBucketConfirmed, false, 15, 25},
-		{RegimeBucketConfirmed, true, 15, 25},
-		{"unrecognized", false, 20, 30},
+		{RegimeBucketEarlyWarning, false, 20, 35},
+		{RegimeBucketConfirmed, false, 15, 35},
+		{RegimeBucketConfirmed, true, 15, 35},
+		{"unrecognized", false, 20, 35},
 	} {
 		watch, act, set := pol.PremiumBudgetInForce(c.stage, c.carried)
 		if watch != c.watch || act != c.act || set == "" {
