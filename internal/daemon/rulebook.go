@@ -1881,5 +1881,11 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 			}
 		}
 	}
+	// Rule 19 reads downward (amendment 19): while margin headroom is at
+	// watch or act, every buy warns, because a buy consumes margin.
+	if r, ok := breached(risk.RuleMarginHeadroom); ok && isBuy {
+		out = append(out, warn(r, fmt.Sprintf("Excess liquidity is %s of NLV, below the margin-headroom %s %s; a buy consumes margin, so this order shrinks the headroom further.",
+			rulebookPercentText(r.Observed, false), rulebookPercentText(r.Threshold, false), rulebookLevelWord(r.Status))))
+	}
 	return out
 }

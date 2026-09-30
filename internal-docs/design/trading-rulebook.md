@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 13:24 CEST
+Updated: 2026-09-30 13:31 CEST
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -514,6 +514,16 @@ contradiction:
       becomes `stress-policy-fp-v4`; the account fingerprint keeps the
       retired edges as hashing constants. The Rulebook itself is unchanged:
       baseline `rulebook-v5`, projection `rulebook-fp-v8`.
+    - R2, rule 19 warns buys: while rule 19 is at watch or act, whatever its
+      mode, an order preview attaches an advisory `rule_margin_headroom`
+      warning to every BUY, because a buy consumes margin ("Excess liquidity
+      is 22% of NLV, below the margin-headroom 30% watch level; a buy
+      consumes margin, so this order shrinks the headroom further."). Its
+      severity is rule 19's status and it quotes the band that status rests
+      on. A close or reduce effect stays exempt, as for every other rule,
+      and a sale never warns. This replaces amendment 18's "no preview
+      cause"; rule 19 still never trims, drives no bucket and no sell-only.
+      Advisory by construction: submit eligibility is untouched.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
@@ -552,7 +562,7 @@ regime-conditionality notes).
 | 16 | `delta_swing` | one issuer's dollar delta / NLV; protection-classified index short delta exempt; never acts | watch ≥ 30% | track |
 | 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
 | 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
-| 19 | `margin_headroom` | broker-reported excess liquidity / NLV; reads downward, equality passes; never trims (amendment 18) | watch < 30%; act < 15% | alert |
+| 19 | `margin_headroom` | broker-reported excess liquidity / NLV; reads downward, equality passes; never trims (amendment 18); warns every buy at watch or act (amendment 19) | watch < 30%; act < 15% | alert |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The

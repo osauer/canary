@@ -117,3 +117,53 @@ func TestAlertShadowRulebookCarriesMarginHeadroom(t *testing.T) {
 		t.Fatalf("batch = %+v", got)
 	}
 }
+
+// Rule 19 warns buys (amendment 19): while margin headroom is at watch or
+// act, every buy, stock or option, call or put, carries an advisory
+// rule_margin_headroom warning quoting the band its status rests on. A sale
+// never warns, a close or reduce stays exempt, and a pass or unknown row is
+// quiet. Submit eligibility is untouched.
+func TestPreviewWarnsBuysWhileMarginHeadroomIsLow(t *testing.T) {
+	result := func(status string, observed, threshold float64) *rpc.RulesResult {
+		return &rpc.RulesResult{Enabled: true, Status: "ok", AsOf: time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC), Rules: []risk.RuleRow{
+			{ID: risk.RuleMarginHeadroom, Number: 19, Title: "Margin headroom", Status: status, Observed: new(observed), Threshold: new(threshold),
+				WatchThreshold: new(30.0), ActThreshold: new(15.0)},
+		}}
+	}
+	stock := rpc.OrderDraft{Action: "BUY", Contract: rpc.ContractParams{Symbol: "BBB", SecType: "STK"}}
+	option := func(action, right string) rpc.OrderDraft {
+		return rpc.OrderDraft{Action: action, Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT", Right: right, Expiry: "20261218", Strike: 500}}
+	}
+	open := rpc.OrderPositionImpact{Effect: "open"}
+	code := "rule_" + risk.RuleMarginHeadroom
+
+	w := previewCodes(rulebookPreviewWarnings(result(risk.RuleStatusWatch, 22, 30), stock, open))[code]
+	if w.Severity != risk.RuleStatusWatch || w.Scope != "rulebook" ||
+		w.Message != "Excess liquidity is 22% of NLV, below the margin-headroom 30% watch level; a buy consumes margin, so this order shrinks the headroom further." ||
+		!strings.Contains(w.Impact, "rule 19") || !strings.Contains(w.Impact, "submit eligibility is unaffected") {
+		t.Fatalf("watch warning = %+v", w)
+	}
+	for _, draft := range []rpc.OrderDraft{option("BUY", "C"), option("BUY", "P")} {
+		w := previewCodes(rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), draft, open))[code]
+		if w.Severity != risk.RuleStatusAct || !strings.Contains(w.Message, "Excess liquidity is 9% of NLV, below the margin-headroom 15% act level") {
+			t.Fatalf("act warning on %s %s = %+v", draft.Action, draft.Contract.Right, w)
+		}
+	}
+	// An increase is not a close: it warns too.
+	if w := previewCodes(rulebookPreviewWarnings(result(risk.RuleStatusWatch, 22, 30), stock, rpc.OrderPositionImpact{Effect: "increase"}))[code]; w.Code == "" {
+		t.Fatal("a buy that increases a position did not warn")
+	}
+	for _, effect := range []string{"close", "reduce"} {
+		if ws := rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), stock, rpc.OrderPositionImpact{Effect: effect}); len(ws) != 0 {
+			t.Fatalf("%s warned: %+v", effect, ws)
+		}
+	}
+	if ws := rulebookPreviewWarnings(result(risk.RuleStatusAct, 9, 15), option("SELL", "C"), open); len(ws) != 0 {
+		t.Fatalf("a sale warned: %+v", ws)
+	}
+	for _, status := range []string{risk.RuleStatusPass, risk.RuleStatusUnknown, risk.RuleStatusNotEvaluated} {
+		if ws := rulebookPreviewWarnings(result(status, 40, 30), stock, open); len(ws) != 0 {
+			t.Fatalf("rule 19 %s warned: %+v", status, ws)
+		}
+	}
+}

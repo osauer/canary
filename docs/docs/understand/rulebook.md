@@ -31,7 +31,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 16 | Delta swing on one issuer | One issuer's dollar delta as a share of NLV: what a 10% move costs, with gamma named when it bends that materially. Watch at 30%; it never acts. | Track |
 | 17 | Cluster falling together | Every issuer in a cluster you declare falls 30% together, each netted like rule 1. Watch when the cluster loses 15% of NLV; it never acts. Not evaluated until you declare a cluster. | Track |
 | 18 | Issuer loss against risk capital | One issuer's worst-case loss against the constitution's effective risk capital. Watch at 100% of it; it never acts. Unknown, never a pass, until the constitution carries the numbers. | Alert |
-| 19 | Margin headroom | The broker's excess liquidity as a share of NLV: the room left before a margin call. It reads downward: watch below 30%, act below 15%, and a reading exactly at a level passes it. The evidence adds the maintenance and initial margin when the broker reports them. Unknown, never a pass, without the excess liquidity or NLV. It never trims and drives no proposal. | Alert |
+| 19 | Margin headroom | The broker's excess liquidity as a share of NLV: the room left before a margin call. It reads downward: watch below 30%, act below 15%, and a reading exactly at a level passes it. The evidence adds the maintenance and initial margin when the broker reports them. Unknown, never a pass, without the excess liquidity or NLV. It never trims and drives no proposal; at watch or act an order preview warns every buy. | Alert |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
 creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
@@ -47,6 +47,11 @@ buy that adds to the side rule 15 flags with `rule_net_exposure` (a put bought
 against a net-long book does not). Like every Rulebook verdict it is advisory:
 nothing about submit eligibility changes. Rule 15 tracks by default; to have
 it raise alerts as well, run `canary rules policy set modes.net_exposure=alert`.
+
+Rule 19 does not put the Rulebook in sell-only, but while margin headroom is
+at watch or act an order preview warns every buy with `rule_margin_headroom`,
+because a buy consumes margin. A close or reduce never warns, and the warning
+is advisory like the others.
 
 ## One issuer, one measure
 
