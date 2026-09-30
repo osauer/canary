@@ -1991,6 +1991,11 @@ type AccountResult struct {
 	AsOf     time.Time `json:"as_of"`
 	// Authority carries the concrete account/mode, producer, freshness, and
 	Authority *AccountDataAuthority `json:"authority,omitempty"`
+	// BaseCurrencyLedger is the base currency's own $LEDGER row, which
+	// CurrencyExposure leaves out so FX consumers never count base as
+	// exposure. The cash sweep reads the base currency's cash from it. Nil
+	// when the base is unproven or the ledger carried no base row.
+	BaseCurrencyLedger *CurrencyExposure `json:"base_currency_ledger,omitempty"`
 }
 
 // DailyPnLObservation is the value-free health record for the account Daily
@@ -2026,6 +2031,10 @@ type CurrencyExposure struct {
 	RealizedPnLCcy       float64 `json:"realized_pnl_ccy"`
 	ExchangeRate         float64 `json:"exchange_rate"`
 	NetLiquidationBase   float64 `json:"net_liquidation_base"`
+	// CashObserved says the ledger row carried a CashBalance value, so CashCcy
+	// is an observation and not an absent field read as zero. The cash sweep
+	// reads a currency's cash only when this is set.
+	CashObserved bool `json:"cash_observed,omitempty"`
 }
 
 // ChainStrike is one strike row in a chain.

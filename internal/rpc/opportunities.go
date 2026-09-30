@@ -519,6 +519,10 @@ type TradeProposalSnapshot struct {
 	BudgetReduction *TradeProposalBudgetStatus `json:"budget_reduction,omitempty"`
 	Blockers        []TradingBlocker           `json:"blockers,omitempty"`
 	LoadedFromState bool                       `json:"loaded_from_state,omitempty"`
+	// CashSweep is the cash sweep's typed status for this generation: per
+	// currency, the band figures and why it invests, redeems, holds or
+	// generates nothing. Absent while the bucket is not enabled.
+	CashSweep *TradeProposalCashSweepStatus `json:"cash_sweep,omitempty"`
 }
 
 // Budget governor states. The first four explain an empty generation; the
@@ -768,6 +772,10 @@ type TradeProposalCounts struct {
 	ThetaPerDayBase                 *float64 `json:"theta_per_day_base,omitempty"`
 	RiskReductionExcessNotionalBase *float64 `json:"risk_reduction_excess_notional_base,omitempty"`
 	BaseCurrency                    string   `json:"base_currency,omitempty"`
+	// CashSweep counts the cash sweep's rows; CashSweepShadow is the subset
+	// generated in shadow mode. Both are in Total, never in Actionable.
+	CashSweep       int `json:"cash_sweep,omitempty"`
+	CashSweepShadow int `json:"cash_sweep_shadow,omitempty"`
 }
 
 // TradeProposal is an advisory action bound to a key and revision. It is not a
@@ -862,6 +870,9 @@ type TradeProposal struct {
 	// CoveredBy is the key of the row that covers this one; set only while
 	// this row is blocked with covered_by_proposal.
 	CoveredBy string `json:"covered_by,omitempty"`
+	// CashSweep is the cash sweep's arithmetic for a cash_sweep row; nil on
+	// every other bucket.
+	CashSweep *TradeProposalCashSweep `json:"cash_sweep,omitempty"`
 }
 
 // TradeProposalCoverage is another bucket's requirement on the same exact

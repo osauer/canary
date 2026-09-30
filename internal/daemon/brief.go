@@ -251,6 +251,7 @@ func composeBriefReady(market rpc.BriefMarketSection, calendar rpc.BriefCalendar
 		Config:        riskLimits.Config,
 	}
 	out.PremiumAtRisk.PctOfRiskCapital = briefPremiumPctOfRiskCapital(out.PremiumAtRisk, out.Capital)
+	out.Cash = portfolio.Cash
 	out.BriefRowState = briefReadySectionState(out)
 	out.Ranked = briefReadyRanked(out)
 	return out
@@ -292,6 +293,9 @@ func briefReadyRows(ready rpc.BriefReadySection) []briefReadyRow {
 	}
 	if ready.Config != nil {
 		rows = append(rows, briefReadyRow{rpc.BriefReadyRowConfig, ready.Config.Status})
+	}
+	if ready.Cash != nil {
+		rows = append(rows, briefReadyRow{rpc.BriefReadyRowCash, ready.Cash.Status})
 	}
 	return rows
 }
@@ -1010,6 +1014,7 @@ func (s *Server) composeBriefPortfolio(acct *rpc.AccountResult, pos *rpc.Positio
 	out.WorkingOrders = s.briefWorkingOrders()
 	out.BriefRowState = briefSectionState("portfolio", out.Account.BriefRowState, out.Movers.BriefRowState,
 		out.PremiumAtRisk.BriefRowState, out.HedgeCost.BriefRowState, out.WorkingOrders.BriefRowState)
+	out.Cash = s.briefCashRow(acct, pos, posErr == nil && pos != nil && briefAccountDataCurrent(pos.Authority))
 	return out
 }
 

@@ -820,7 +820,41 @@ allow_short_profit_trail = %t
 # per_line_pct_of_risk_capital = 0.0
 # max_order_notional = 0.0
 `)
+	writeCashSweepTemplate(&b)
 	return []byte(b.String())
+}
+
+// writeCashSweepTemplate appends the cash sweep as a commented placeholder:
+// the order cap and the tax review are the owner's, so the file Canary
+// writes leaves the sweep off. The EUR block shows the compiled defaults and
+// the owner-approved example fallback ETF (decision O3).
+func writeCashSweepTemplate(b *strings.Builder) {
+	eur := defaultCashSweepCurrency("EUR")
+	fmt.Fprintf(b, `
+# Cash sweep: puts cash above keep_cash into bills of the same currency and
+# never converts. max_order_notional is your number, so Canary writes none;
+# until you write it the sweep reports that it needs your number. Rows stay
+# observation (instrument_support_required) until bill support is proven on a
+# paper account. A currency without its own table follows Canary's default:
+# USD us_tbill; EUR de_bubill and fr_btf with an etf fallback; GBP uk_tbill;
+# CAD ca_tbill; any other currency none.
+# [buckets.cash_sweep]
+# enabled = false
+# mode = "shadow"   # shadow lists and journals; active stages the orders
+# max_order_notional = 0.0   # one buy, in base currency
+# tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; active rows wait for it
+#
+# [buckets.cash_sweep.currency.EUR]
+# instruments = [%q, %q]
+# fallback = %q   # used only after a contract search finds no bill line
+# etf_symbol = "XEON"   # example: a euro money-market ETF on Xetra
+# etf_exchange = "IBIS"   # Xetra
+# keep_cash = %s
+# min_tranche = %s
+# min_maturity_days = %d
+# max_maturity_days = %d
+# ladder_rungs = %d
+`, eur.Instruments[0], eur.Instruments[1], eur.Fallback, tomlFloat(eur.KeepCash), tomlFloat(eur.MinTranche), eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
 }
 
 // OpportunityPolicyTemplate renders Canary's option-exercise defaults as a

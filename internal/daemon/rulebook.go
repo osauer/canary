@@ -520,6 +520,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 			corr = nil
 		}
 		in.NonBaseNLVBase, in.NonBaseCurrencies = nonBaseExposure(acct, corr)
+		in.CashLike = s.rulebookCashLike(acct, corr, corr != nil)
 	}
 
 	// Rules 3, 4, 12 and 15 read regime-conditional thresholds: serve the

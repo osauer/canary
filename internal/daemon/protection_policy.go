@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -111,6 +113,9 @@ type protectionPolicyBuckets struct {
 	// embedded default does not carry it, and a policy file written before it
 	// existed keeps its fingerprint byte-for-byte.
 	BudgetReduction *protectionBudgetPolicy `toml:"budget_reduction" json:"budget_reduction,omitempty"`
+	// CashSweep is a pointer for the same reason: the embedded default does
+	// not carry it, and a file without it keeps its fingerprint.
+	CashSweep *protectionCashSweepPolicy `toml:"cash_sweep" json:"cash_sweep,omitempty"`
 }
 
 // protectionBudgetPolicy is the options premium budget governor. It reduces
@@ -494,6 +499,7 @@ func parseProtectionPolicy(data []byte) (protectionPolicy, []string, error) {
 		return protectionPolicy{}, nil, fmt.Errorf("unknown protection policy key(s): %s", strings.Join(unknown, ", "))
 	}
 	applyProtectionPolicyDefaults(&p, &md)
+	applyCashSweepDefaults(p.Buckets.CashSweep, &md)
 	if err := validateProtectionPolicy(p); err != nil {
 		return protectionPolicy{}, nil, err
 	}
@@ -706,6 +712,9 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		return err
 	}
 	if err := validateBudgetPolicy("budget_reduction", p.Buckets.BudgetReduction); err != nil {
+		return err
+	}
+	if err := validateCashSweepPolicy("cash_sweep", p.Buckets.CashSweep); err != nil {
 		return err
 	}
 	return nil
@@ -964,4 +973,325 @@ func nonEmptyString(v, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work
+// in bills of the same currency and never converts (owner decisions S1–S6,
+// 2026-09-30). It is the one bucket whose rows buy: authority.close_reduce_only
+// stays true, and the carve-out is the typed exception in
+// proposal_cash_sweep.go (decision O1). The order cap has no embedded default
+// (O5); every other number below is the design's compiled default.
+type protectionCashSweepPolicy struct {
+	// Enabled turns the cash sweep on (default false; the table is only a commented placeholder in the file Canary writes).
+	Enabled bool `toml:"enabled" json:"enabled"`
+	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate.
+	Mode string `toml:"mode" json:"mode,omitempty"`
+	// MaxOrderNotional caps one sweep buy in base currency, compared at the ledger rate; no default, and until it is written the sweep reports needs_your_number.
+	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
+	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every active row carries tax_review_required.
+	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
+	// Currency holds one table per ISO currency code, as [buckets.cash_sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
+	Currency map[string]protectionCashSweepCurrency `toml:"currency" json:"currency,omitempty"`
+}
+
+type protectionCashSweepCurrency struct {
+	// Instruments lists what the sweep may buy in this currency from the closed vocabulary us_tbill (USD only), de_bubill and fr_btf (EUR only), uk_tbill (GBP only), ca_tbill (CAD only), etf, or none on its own (default: the currency's compiled declaration).
+	Instruments []string `toml:"instruments" json:"instruments"`
+	// Fallback is etf or none: the instrument used only after a completed contract search finds no bill line (default etf for EUR, none elsewhere).
+	Fallback string `toml:"fallback" json:"fallback,omitempty"`
+	// ETFSymbol is the declared ETF's exchange symbol, required when etf is an instrument or the fallback; no default, and until it is written the status names it under needs_your_number.
+	ETFSymbol string `toml:"etf_symbol" json:"etf_symbol,omitempty"`
+	// ETFExchange is the declared ETF's listing exchange, required with etf_symbol; the pair is resolved to a contract id and matched by it, never by broker text.
+	ETFExchange string `toml:"etf_exchange" json:"etf_exchange,omitempty"`
+	// KeepCash is the settlement float kept as cash in this currency (default 5000): the sweep invests only above it and redeems below it.
+	KeepCash float64 `toml:"keep_cash" json:"keep_cash"`
+	// MinTranche is the smallest amount one buy puts to work (default 1000); free cash at or below it stays cash.
+	MinTranche float64 `toml:"min_tranche" json:"min_tranche"`
+	// MinMaturityDays is the shortest maturity a bill may have when bought and the first rung's target (default 28, the four-week bill).
+	MinMaturityDays int `toml:"min_maturity_days" json:"min_maturity_days"`
+	// MaxMaturityDays is the longest maturity a bill may have when bought and the last rung's target (default 91, EUR 182; at most 397).
+	MaxMaturityDays int `toml:"max_maturity_days" json:"max_maturity_days"`
+	// LadderRungs is how many target maturities the ladder spreads evenly from min_maturity_days to max_maturity_days (default 4).
+	LadderRungs int `toml:"ladder_rungs" json:"ladder_rungs"`
+}
+
+// The closed instrument vocabulary. A bill instrument belongs to exactly one
+// currency; etf and none may be declared for any. An edit can change numbers
+// or set none; it cannot add an instrument or a conversion.
+const (
+	cashSweepInstrumentUSTBill  = "us_tbill"
+	cashSweepInstrumentDEBubill = "de_bubill"
+	cashSweepInstrumentFRBTF    = "fr_btf"
+	cashSweepInstrumentUKTBill  = "uk_tbill"
+	cashSweepInstrumentCATBill  = "ca_tbill"
+	cashSweepInstrumentETF      = "etf"
+	cashSweepInstrumentNone     = "none"
+
+	// cashSweepMaturityCeilingDays bounds max_maturity_days and what counts
+	// as a cash equivalent.
+	cashSweepMaturityCeilingDays = 397
+)
+
+// cashSweepBillCurrency is the one currency a bill instrument may be
+// declared for.
+var cashSweepBillCurrency = map[string]string{
+	cashSweepInstrumentUSTBill:  "USD",
+	cashSweepInstrumentDEBubill: "EUR",
+	cashSweepInstrumentFRBTF:    "EUR",
+	cashSweepInstrumentUKTBill:  "GBP",
+	cashSweepInstrumentCATBill:  "CAD",
+}
+
+// cashSweepInstrumentAllowed reports whether instrument is in the closed
+// vocabulary and may be declared for ccy.
+func cashSweepInstrumentAllowed(instrument, ccy string) bool {
+	switch instrument {
+	case cashSweepInstrumentETF, cashSweepInstrumentNone:
+		return true
+	}
+	want, ok := cashSweepBillCurrency[instrument]
+	return ok && want == ccy
+}
+
+// defaultCashSweepCurrency is Canary's compiled declaration for ccy (S1, S3,
+// O2, O3): bills where a vocabulary issuer exists, none elsewhere.
+func defaultCashSweepCurrency(ccy string) protectionCashSweepCurrency {
+	c := protectionCashSweepCurrency{KeepCash: 5000, MinTranche: 1000, MinMaturityDays: 28, MaxMaturityDays: 91, LadderRungs: 4}
+	switch ccy {
+	case "USD":
+		c.Instruments = []string{cashSweepInstrumentUSTBill}
+	case "EUR":
+		c.Instruments = []string{cashSweepInstrumentDEBubill, cashSweepInstrumentFRBTF}
+		c.Fallback = cashSweepInstrumentETF
+		c.MaxMaturityDays = 182
+	case "GBP":
+		c.Instruments = []string{cashSweepInstrumentUKTBill}
+	case "CAD":
+		c.Instruments = []string{cashSweepInstrumentCATBill}
+	default:
+		c.Instruments = []string{cashSweepInstrumentNone}
+	}
+	return c
+}
+
+// currency resolves the declaration in force for ccy: the owner's table,
+// else the compiled default.
+func (p *protectionCashSweepPolicy) currency(ccy string) protectionCashSweepCurrency {
+	if p != nil {
+		if c, ok := p.Currency[ccy]; ok {
+			return c
+		}
+	}
+	return defaultCashSweepCurrency(ccy)
+}
+
+// effectiveMode resolves the sweep mode: active only when the file says so,
+// shadow otherwise.
+func (p *protectionCashSweepPolicy) effectiveMode() string {
+	if p != nil && strings.EqualFold(strings.TrimSpace(p.Mode), rpc.CashSweepModeActive) {
+		return rpc.CashSweepModeActive
+	}
+	return rpc.CashSweepModeShadow
+}
+
+// enabled reports whether the sweep table is present and switched on.
+func (p *protectionCashSweepPolicy) enabled() bool {
+	return p != nil && p.Enabled
+}
+
+// missingNumbers lists the bucket-level numbers an enabled sweep still needs
+// from the owner; every currency holds until they are written.
+func (p *protectionCashSweepPolicy) missingNumbers() []string {
+	if !p.enabled() || p.MaxOrderNotional != 0 {
+		return nil
+	}
+	return []string{"max_order_notional"}
+}
+
+// declaresETF reports whether etf is an instrument or the fallback.
+func (c protectionCashSweepCurrency) declaresETF() bool {
+	return c.Fallback == cashSweepInstrumentETF || slices.Contains(c.Instruments, cashSweepInstrumentETF)
+}
+
+// missingNumbers names the currency keys only the owner can write: the
+// declared ETF's symbol and exchange (O3). A missing fallback symbol holds
+// only the fallback; bills still plan.
+func (c protectionCashSweepCurrency) missingNumbers() []string {
+	if !c.declaresETF() {
+		return nil
+	}
+	var out []string
+	if c.ETFSymbol == "" {
+		out = append(out, "etf_symbol")
+	}
+	if c.ETFExchange == "" {
+		out = append(out, "etf_exchange")
+	}
+	return out
+}
+
+// applyCashSweepDefaults fills the keys a written currency table leaves out
+// from that currency's compiled default. An absent table stays absent: it
+// follows the compiled default at evaluation and keeps the file's
+// fingerprint.
+func applyCashSweepDefaults(p *protectionCashSweepPolicy, md *toml.MetaData) {
+	if p == nil {
+		return
+	}
+	for ccy, c := range p.Currency {
+		d := defaultCashSweepCurrency(ccy)
+		defined := func(key string) bool {
+			return md != nil && md.IsDefined("buckets", "cash_sweep", "currency", ccy, key)
+		}
+		if !defined("instruments") {
+			c.Instruments = d.Instruments
+		}
+		if !defined("fallback") {
+			c.Fallback = d.Fallback
+		}
+		if !defined("keep_cash") {
+			c.KeepCash = d.KeepCash
+		}
+		if !defined("min_tranche") {
+			c.MinTranche = d.MinTranche
+		}
+		if !defined("min_maturity_days") {
+			c.MinMaturityDays = d.MinMaturityDays
+		}
+		if !defined("max_maturity_days") {
+			c.MaxMaturityDays = d.MaxMaturityDays
+		}
+		if !defined("ladder_rungs") {
+			c.LadderRungs = d.LadderRungs
+		}
+		p.Currency[ccy] = c
+	}
+}
+
+// cashSweepETFToken bounds the declared ETF's symbol and exchange to plain
+// exchange codes: policy data, never free text.
+var cashSweepETFToken = regexp.MustCompile(`^[A-Z0-9][A-Z0-9.]{0,11}$`)
+
+// validateCashSweepPolicy checks the sweep table when it is present. Like the
+// governor's, a written value must be well formed even while disabled, so a
+// bad number cannot sit dormant behind an enabled/version flip; a number the
+// owner has not written yet (max_order_notional, the ETF symbol) is not an
+// error but a needs_your_number state.
+func validateCashSweepPolicy(prefix string, p *protectionCashSweepPolicy) error {
+	if p == nil {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(p.Mode)) {
+	case "", rpc.CashSweepModeShadow, rpc.CashSweepModeActive:
+	default:
+		return fmt.Errorf("%s.mode %q is invalid; use shadow or active", prefix, p.Mode)
+	}
+	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 {
+		return fmt.Errorf("%s.max_order_notional must be positive", prefix)
+	}
+	if p.TaxReviewedAt != "" && !p.TaxReviewedAt.valid() {
+		return fmt.Errorf("%s.tax_reviewed_at %q is not a date; write it as 2006-01-02", prefix, string(p.TaxReviewedAt))
+	}
+	for _, ccy := range slices.Sorted(maps.Keys(p.Currency)) {
+		if err := validateCashSweepCurrency(prefix+".currency."+ccy, ccy, p.Currency[ccy]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency) error {
+	if len(ccy) != 3 || strings.ToUpper(ccy) != ccy || strings.IndexFunc(ccy, func(r rune) bool { return r < 'A' || r > 'Z' }) >= 0 {
+		return fmt.Errorf("%s: the table name must be a three-letter ISO currency code in capitals", prefix)
+	}
+	if len(c.Instruments) == 0 {
+		return fmt.Errorf("%s.instruments must name at least one instrument, or none", prefix)
+	}
+	for i, instrument := range c.Instruments {
+		if !cashSweepInstrumentAllowed(instrument, ccy) {
+			return fmt.Errorf("%s.instruments[%d] %q is not an instrument for %s; use %s", prefix, i, instrument, ccy, strings.Join(cashSweepInstrumentsFor(ccy), ", "))
+		}
+		if slices.Contains(c.Instruments[:i], instrument) {
+			return fmt.Errorf("%s.instruments lists %q twice", prefix, instrument)
+		}
+	}
+	if slices.Contains(c.Instruments, cashSweepInstrumentNone) && len(c.Instruments) > 1 {
+		return fmt.Errorf("%s.instruments: none stands alone", prefix)
+	}
+	switch c.Fallback {
+	case "", cashSweepInstrumentNone:
+	case cashSweepInstrumentETF:
+		if slices.Contains(c.Instruments, cashSweepInstrumentETF) {
+			return fmt.Errorf("%s.fallback = etf repeats an instrument; remove one", prefix)
+		}
+		if slices.Contains(c.Instruments, cashSweepInstrumentNone) {
+			return fmt.Errorf("%s.fallback = etf needs a bill instrument to fall back from", prefix)
+		}
+	default:
+		return fmt.Errorf("%s.fallback %q is invalid; use etf or none", prefix, c.Fallback)
+	}
+	for _, field := range []struct{ key, value string }{{"etf_symbol", c.ETFSymbol}, {"etf_exchange", c.ETFExchange}} {
+		key, value := field.key, field.value
+		if value == "" {
+			continue
+		}
+		if !c.declaresETF() {
+			return fmt.Errorf("%s.%s is set but etf is neither an instrument nor the fallback", prefix, key)
+		}
+		if !cashSweepETFToken.MatchString(value) {
+			return fmt.Errorf("%s.%s %q must be an exchange code in capitals (letters, digits and dots, at most 12)", prefix, key, value)
+		}
+	}
+	if !finiteProtectionOptionPolicyValue(c.KeepCash) || c.KeepCash < 0 {
+		return fmt.Errorf("%s.keep_cash must not be negative", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(c.MinTranche) || c.MinTranche <= 0 {
+		return fmt.Errorf("%s.min_tranche must be positive", prefix)
+	}
+	if c.MinMaturityDays < 1 || c.MaxMaturityDays < c.MinMaturityDays || c.MaxMaturityDays > cashSweepMaturityCeilingDays {
+		return fmt.Errorf("%s maturities must satisfy 1 <= min_maturity_days <= max_maturity_days <= %d", prefix, cashSweepMaturityCeilingDays)
+	}
+	if c.LadderRungs < 1 {
+		return fmt.Errorf("%s.ladder_rungs must be at least 1", prefix)
+	}
+	return nil
+}
+
+// cashSweepInstrumentsFor lists the vocabulary a currency may declare.
+func cashSweepInstrumentsFor(ccy string) []string {
+	var out []string
+	for _, instrument := range slices.Sorted(maps.Keys(cashSweepBillCurrency)) {
+		if cashSweepBillCurrency[instrument] == ccy {
+			out = append(out, instrument)
+		}
+	}
+	return append(out, cashSweepInstrumentETF, cashSweepInstrumentNone)
+}
+
+// policyDate is a calendar date the owner writes as a TOML local date
+// (2026-09-30) or a quoted one. It is held as YYYY-MM-DD so the policy
+// fingerprint never depends on the machine's time zone.
+type policyDate string
+
+// UnmarshalTOML accepts a local date or a quoted date; a date with a time of
+// day is refused rather than truncated.
+func (d *policyDate) UnmarshalTOML(v any) error {
+	switch x := v.(type) {
+	case string:
+		*d = policyDate(strings.TrimSpace(x))
+		return nil
+	case time.Time:
+		if h, m, s := x.Clock(); h != 0 || m != 0 || s != 0 || x.Nanosecond() != 0 {
+			return fmt.Errorf("%s has a time of day; write the date alone (2006-01-02)", x.Format(time.RFC3339))
+		}
+		*d = policyDate(x.Format(time.DateOnly))
+		return nil
+	default:
+		return fmt.Errorf("expected a date (2006-01-02), got %T", v)
+	}
+}
+
+func (d policyDate) valid() bool {
+	_, err := time.Parse(time.DateOnly, string(d))
+	return err == nil
 }

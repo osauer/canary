@@ -371,6 +371,11 @@ type RuleInputs struct {
 	// RiskCapital is the constitution's effective risk capital for rule 18;
 	// nil means the daemon supplied none, which reads unknown, never pass.
 	RiskCapital *RiskCapitalInput
+
+	// CashLike is cash and cash equivalents per currency for rule 14's
+	// evidence, served while the cash sweep is enabled. It never changes the
+	// rule's figure.
+	CashLike []CurrencyCashLike
 }
 
 // RiskCapitalInput is the constitution's effective risk capital in base
@@ -426,7 +431,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		{}, // rule 11 placeholder
 		r12,
 		ctx.exitDiscipline(),
-		ctx.fxExposure(),
+		ctx.withCashLikeEvidence(ctx.fxExposure()),
 		ctx.netExposure(),
 		ctx.deltaSwing(),
 		ctx.clusterStress(),
