@@ -549,6 +549,9 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)
 	addFXSensitivity(res.Portfolio, ledger, baseCcy)
 	s.attachProtectionCoverage(ctx, res, wantSym, wantType, health)
+	// BOND rows stay in Stocks for every valuation; the bonds section
+	// classifies them (bond_directory.go).
+	res.Bonds = s.classifyBondPositions(ctx, res.Stocks, time.Now())
 	completedAt := time.Now().UTC()
 	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
 	authorityScope := expectedScope

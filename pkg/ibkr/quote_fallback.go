@@ -79,7 +79,9 @@ func (c *Connector) subscribeSharedQuote(ctx context.Context, key string, fields
 	}
 	origin := ConnectorSessionBinding{connector: c, connection: conn, epoch: conn.BrokerSessionEpoch()}
 	if mode == 4 {
-		ticks = delayedQuoteGenericTicks
+		if !isBondMarketDataContract(contract) {
+			ticks = delayedQuoteGenericTicks
+		}
 		c.recordDelayedQuoteAttempt(key)
 	}
 	adopted := false
@@ -190,7 +192,7 @@ func (c *Connector) replaceSharedQuote(ctx context.Context, origin ConnectorSess
 	if err != nil {
 		return err
 	}
-	if mode == 4 {
+	if mode == 4 && !isBondMarketDataContract(contract) {
 		ticks = delayedQuoteGenericTicks
 	}
 	if cancelOld {

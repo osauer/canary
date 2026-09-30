@@ -1998,6 +1998,10 @@ func positionWireSecType(raw string) string {
 		return "OPT"
 	case strings.EqualFold(raw, "ETF"):
 		return "ETF"
+	case strings.EqualFold(raw, "BOND") || strings.EqualFold(raw, "BILL"):
+		// A held bond stays a bond: proposal gates refuse BOND
+		// (unsupported_security_type) until bond orders exist.
+		return "BOND"
 	default:
 		return "STK"
 	}

@@ -406,10 +406,11 @@ func TestCashSweepRedeemNearestMaturity(t *testing.T) {
 	}
 }
 
-// Every Phase A row is observation: it carries instrument_support_required,
-// waits the full veto window, and is never automatically eligible. Shadow
-// puts shadow_mode first; active without a tax review adds
-// tax_review_required.
+// Every row is observation: it carries instrument_support_required, waits
+// the full veto window, and is never automatically eligible. Shadow puts
+// shadow_mode first. The tax review is advisory (owner decision 2026-09-30
+// 12:35 CEST): without it active rows carry no extra blocker, only a detail
+// line, and the status says tax_reviewed false.
 func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
 	now := cashSweepTestNow()
 	for _, tc := range []struct {
@@ -417,7 +418,7 @@ func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
 		codes     []string
 	}{
 		{rpc.CashSweepModeShadow, "", []string{"shadow_mode", rpc.CashSweepBlockerInstrumentSupport}},
-		{rpc.CashSweepModeActive, "", []string{rpc.CashSweepBlockerInstrumentSupport, rpc.CashSweepBlockerTaxReview}},
+		{rpc.CashSweepModeActive, "", []string{rpc.CashSweepBlockerInstrumentSupport}},
 		{rpc.CashSweepModeActive, "2026-09-30", []string{rpc.CashSweepBlockerInstrumentSupport}},
 	} {
 		policy := cashSweepTestPolicy(tc.mode, 1e9)
@@ -451,6 +452,12 @@ func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
 			if tc.mode == rpc.CashSweepModeShadow && !strings.Contains(row.Blockers[0].Message, "cash sweep") {
 				t.Fatalf("shadow blocker names another bucket: %+v", row.Blockers[0])
 			}
+			if got := slices.Contains(row.Details, rpc.CashSweepTaxUnreviewedDetail); got != (tc.tax == "") {
+				t.Fatalf("%s/%q tax detail present = %v: %v", tc.mode, tc.tax, got, row.Details)
+			}
+		}
+		if plan.status.TaxReviewed != (tc.tax != "") {
+			t.Fatalf("%s/%q status tax_reviewed = %v", tc.mode, tc.tax, plan.status.TaxReviewed)
 		}
 	}
 	// Keys are stable per currency and side while the rung moves.

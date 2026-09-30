@@ -87,7 +87,16 @@
       "description": "Read benchmark quotes and independent quotes for held underlyings, including option-only holdings. Preserves contract identity, current versus close prices, feed quality, source timestamps and partial coverage. Benchmarks name their actual instruments, including ETFs. Use canary_positions for valuation and Greeks; this is not a chart or order tool.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "bond_currency": {
+            "type": "string",
+            "description": "optional three-letter currency for bond_identifier; default: USD for a CUSIP, else the ISIN's issuer country (required for XS ISINs)"
+          },
+          "bond_identifier": {
+            "type": "string",
+            "description": "optional ISIN (12 characters) or CUSIP (9) of one bond or bill to resolve and quote read-only; omit for the market snapshot"
+          }
+        }
       }
     },
     {

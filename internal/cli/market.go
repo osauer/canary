@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"flag"
+	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -12,15 +14,27 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 		return runMarketTape(ctx, env, append(append([]string{}, args[:idx]...), args[idx+1:]...))
 	}
 	fs := flagSet(env, "market")
-	fs.Bool("json", false, "emit machine-readable JSON")
+	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	watch := fs.Bool("watch", false, "stream complete display snapshots as NDJSON")
-	symbol := fs.String("symbol", "", "underlying symbol for history")
+	symbol := fs.String("symbol", "", "underlying symbol for history; with --type BOND, an ISIN or CUSIP")
 	r := fs.String("range", "1D", "history range: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y")
 	exchange := fs.String("exchange", "SMART", "exact quote exchange")
-	sec := fs.String("type", "STK", "security type: STK, IND, CASH")
-	currency := fs.String("currency", "USD", "quote currency")
+	sec := fs.String("type", "STK", "security type: STK, IND, CASH; BOND resolves and quotes one bond or bill (read-only)")
+	currency := fs.String("currency", "USD", "quote currency; with --type BOND, defaults to the identifier's own")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if strings.EqualFold(strings.TrimSpace(*sec), "BOND") {
+		if *watch || *symbol == "" {
+			return fail(env, "market: --type BOND needs --symbol <ISIN|CUSIP> and cannot --watch")
+		}
+		explicit := ""
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "currency" {
+				explicit = *currency
+			}
+		})
+		return runMarketBond(ctx, env, *symbol, explicit, *jsonOut)
 	}
 	if *watch {
 		if *symbol != "" {

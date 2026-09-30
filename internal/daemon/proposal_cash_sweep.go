@@ -30,18 +30,24 @@ import (
 // nothing and say which: cash_unavailable, settlement_unknown,
 // equivalents_unclassified, needs_your_number.
 //
-// Phase A ships this in shadow: Canary cannot yet resolve, quote or order a
-// bill, so every row carries instrument_support_required and no preview or
-// submit can pass. Bond and bill holdings cannot be classified yet either, so
-// a currency holding one reads equivalents_unclassified.
+// Phase B (read-only half) resolves and quotes the bill an invest row names
+// (cash_sweep_bills.go) and classifies held bills (bond_directory.go); Canary
+// still does not order bills, so every row carries
+// instrument_support_required and no preview or submit can pass. Settled
+// cash comes from the broker's $LEDGER SettledCash field where it is sent,
+// else from Canary's order journal. The tax review is advisory (owner
+// decision 2026-09-30 12:35 CEST): an unreviewed sweep adds a detail line
+// and blocks nothing.
 
 // cashSweepLedgerRow is one currency's cash observation from the account
-// ledger. Observed false means the row carried no cash balance.
+// ledger. Observed false means the row carried no cash balance; Settled is
+// the ledger's SettledCash, nil when the gateway sent none.
 type cashSweepLedgerRow struct {
 	Observed  bool
 	TradeDate float64
 	// ExchangeRate is base units per unit of this currency; 1 for the base.
 	ExchangeRate float64
+	Settled      *float64
 }
 
 // cashSweepSettlement is what Canary's order journal says about fills in the
@@ -118,6 +124,9 @@ type cashSweepCurrencyPlan struct {
 	orderAmount float64
 	quantity    int
 	heldToCap   bool
+	// bill is the resolved bill (cash_sweep_bills.go); nil until resolution
+	// names one, and on a row built straight from the plan.
+	bill *rpc.TradeProposalCashSweepBill
 	// Redeem.
 	holding *cashSweepHolding
 	gap     float64
@@ -138,7 +147,7 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 	mode := bucket.effectiveMode()
 	plan := cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{
 		Mode: mode, Shadow: mode == rpc.CashSweepModeShadow, Reason: in.LedgerReason,
-		BaseCurrency: normCcy(in.BaseCurrency), TaxReviewedAt: string(bucket.TaxReviewedAt),
+		BaseCurrency: normCcy(in.BaseCurrency), TaxReviewedAt: string(bucket.TaxReviewedAt), TaxReviewed: bucket != nil && bucket.TaxReviewedAt != "",
 		NeedsYourNumber: bucket.missingNumbers(), Currencies: []rpc.TradeProposalCashSweepCurrency{},
 	}}
 	if bucket != nil && bucket.MaxOrderNotional > 0 {
@@ -193,13 +202,28 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		row.ExchangeRate > 0 && finiteProtectionOptionPolicyValue(row.ExchangeRate)
 	settlementReason := cashSweepUnknownReason(in.Settlement.Known, in.Settlement.Reason, in.Settlement.Unknown, ccy)
 	commitReason := cashSweepUnknownReason(in.Commitments.Known, in.Commitments.Reason, in.Commitments.Unknown, ccy)
+	brokerSettled := row.Settled != nil && finiteProtectionOptionPolicyValue(*row.Settled)
 	if cashKnown {
 		cp.rate = row.ExchangeRate
 		st.ExchangeRate, st.TradeDateCash = new(row.ExchangeRate), new(row.TradeDate)
-		if settlementReason == "" {
+		switch {
+		case brokerSettled:
+			// The broker's settled cash wins. Pending redemptions still come
+			// from the journal; without it every unsettled net sale proceed
+			// counts, which can only hold a redemption back.
+			settled := *row.Settled
+			cp.pending = max(0, row.TradeDate-settled)
+			if settlementReason == "" {
+				cp.pending = in.Settlement.EquivalentSales[ccy]
+			}
+			cp.cash = min(row.TradeDate, settled)
+			st.SettledCash, st.Cash, st.PendingRedemptions = new(settled), new(cp.cash), new(cp.pending)
+			st.SettledCashSource = rpc.CashSweepSettledSourceBroker
+		case settlementReason == "":
 			settled := row.TradeDate - in.Settlement.SaleProceeds[ccy] + in.Settlement.PurchaseCosts[ccy]
 			cp.cash, cp.pending = min(row.TradeDate, settled), in.Settlement.EquivalentSales[ccy]
 			st.SettledCash, st.Cash, st.PendingRedemptions = new(settled), new(cp.cash), new(cp.pending)
+			st.SettledCashSource = rpc.CashSweepSettledSourceJournal
 		}
 	}
 	if commitReason == "" {
@@ -227,6 +251,9 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		}
 		st.CashEquivalents = new(equivalents)
 	}
+	if st.Cash != nil && st.CashEquivalents != nil {
+		st.CashLike = new(*st.Cash + *st.CashEquivalents)
+	}
 	for k, target := range targets {
 		st.Rungs = append(st.Rungs, rpc.TradeProposalCashSweepRung{Rung: k + 1, TargetDays: target, FaceValue: faces[k]})
 	}
@@ -240,8 +267,8 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 	case !cashKnown:
 		st.State, st.Reason = rpc.CashSweepStateCashUnavailable, cashSweepCashReason(in, ccy, inLedger, row)
 		return cp
-	case settlementReason != "":
-		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, settlementReason
+	case settlementReason != "" && !brokerSettled:
+		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, "the ledger carries no SettledCash for "+ccy+" and "+settlementReason
 		return cp
 	case commitReason != "":
 		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, commitReason
@@ -494,6 +521,8 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 		return nil, nil
 	}
 	plan := cashSweepPlanFor(policy, e.cashSweepInput(ctx, policy, acct, pos, scope, now), now)
+	// A row exists only for a bill confirmed by contract details and a quote.
+	cashSweepResolveBills(ctx, e.cashSweepBillSourceFor(), policy.Buckets.CashSweep, &plan, now)
 	var out []rpc.TradeProposal
 	for _, cp := range plan.currencies {
 		if cp.side == "" {
@@ -511,7 +540,8 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 }
 
 // cashSweepRow builds one sweep proposal. Every row waits the full veto
-// window, and in Phase A every row carries instrument_support_required.
+// window and carries instrument_support_required until bill orders are
+// authorised; an invest row names its resolved bill when resolution ran.
 func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan cashSweepPlan, cp cashSweepCurrencyPlan) rpc.TradeProposal {
 	bucket := policy.Buckets.CashSweep
 	cfg := bucket.currency(cp.status.Currency)
@@ -527,6 +557,11 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 	switch cp.side {
 	case rpc.CashSweepSideInvest:
 		contract := cashSweepInvestContract(cfg, ccy, cp.instrument)
+		if cp.bill != nil {
+			block.Bill = rpc.CloneCashSweepBill(cp.bill)
+			block.Instrument = cp.bill.Instrument
+			contract = rpc.ContractParams{ConID: cp.bill.ConID, Symbol: nonEmptyString(cp.bill.Symbol, nonEmptyString(cp.bill.CUSIP, cp.bill.ISIN)), SecType: "BOND", Exchange: "SMART", Currency: ccy}
+		}
 		block.Rung, block.TargetDays = cp.rung, cp.targetDays
 		block.MinMaturityDays, block.MaxMaturityDays = cfg.MinMaturityDays, cfg.MaxMaturityDays
 		block.QuantityUnit = rpc.CashSweepQuantityFace
@@ -543,8 +578,20 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 			details = append(details, fmt.Sprintf("order held to %s by max_order_notional %s at %.4f; the next cycle sweeps the rest",
 				formatBudgetMoney(float64(cp.quantity), ccy), formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(plan.status.BaseCurrency, "base")), cp.rate))
 		}
+		if b := cp.bill; b != nil {
+			quote := "live"
+			if !b.QuoteFresh {
+				reason := ""
+				if b.Quote != nil {
+					reason = b.Quote.StaleReason
+				}
+				quote = "stale: " + nonEmptyString(reason, "not a live bid or ask")
+			}
+			details = append(details, fmt.Sprintf("bill %s (%s) matures %s (%d days); quoted %s per 100 of face (%s, %s)",
+				cashSweepBillName(*b), b.Instrument, b.Maturity, b.DaysToMaturity, formatBillPrice(b.Price), nonEmptyString(b.PriceSource, "no price"), quote))
+		}
 		if block.QuantityUnit == rpc.CashSweepQuantityFace {
-			details = append(details, fmt.Sprintf("quantity is face value in whole %s; the bill's quantity unit and minimum (A5) are proven on a paper account before any order", ccy))
+			details = append(details, fmt.Sprintf("quantity is face value in whole %s; the bill's order unit (%s) and minimum are assumptions the post-install proof checks before any order", ccy, cashSweepInstrumentConventions[nonEmptyString(block.Instrument, cp.instrument)].QuantityUnit))
 		} else {
 			details = append(details, fmt.Sprintf("quantity is the cash amount in whole %s; the ETF's shares are sized at a fresh quote once instrument support exists", ccy))
 		}
@@ -567,6 +614,9 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		}
 		details = append(details, fmt.Sprintf("pending redemptions %s count toward keep_cash until they settle", formatBudgetMoney(cp.pending, ccy)))
 	}
+	if bucket.TaxReviewedAt == "" {
+		details = append(details, rpc.CashSweepTaxUnreviewedDetail)
+	}
 	details = append(details, "waits the full veto window: a sweep is never a stop")
 	p.CashSweep = block
 	p.Details = details
@@ -576,11 +626,11 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		cashSweepBlock(&p, rpc.TradingBlocker{Code: rpc.CashSweepBlockerFreshQuote, Message: "the held position's mark is stale, so the sale cannot be sized or priced",
 			Action: "Refresh during the instrument's session so the mark is current."})
 	}
-	cashSweepBlock(&p, cashSweepInstrumentSupportBlocker())
-	if !p.Shadow && bucket.TaxReviewedAt == "" {
-		cashSweepBlock(&p, rpc.TradingBlocker{Code: rpc.CashSweepBlockerTaxReview, Message: "active sweep rows wait for your tax review of bill rolls (decision O4)",
-			Action: "Write tax_reviewed_at under [buckets.cash_sweep] and bump policy_version once you have reviewed the tax treatment."})
+	if cp.side == rpc.CashSweepSideInvest && cp.bill != nil && !cp.bill.QuoteFresh {
+		cashSweepBlock(&p, rpc.TradingBlocker{Code: rpc.CashSweepBlockerFreshQuote, Message: "the bill's quote is not a live bid or ask, so the buy cannot be priced",
+			Action: "Refresh during the bill's trading session so the quote is live."})
 	}
+	cashSweepBlock(&p, cashSweepInstrumentSupportBlocker())
 	if p.Shadow {
 		// In front of every other blocker: the mode is the first thing a
 		// reader must know about the row.
@@ -640,8 +690,8 @@ func cashSweepBlock(p *rpc.TradeProposal, blocker rpc.TradingBlocker) {
 func cashSweepInstrumentSupportBlocker() rpc.TradingBlocker {
 	return rpc.TradingBlocker{
 		Code:    rpc.CashSweepBlockerInstrumentSupport,
-		Message: "Canary cannot yet resolve, quote or order bills or the sweep's ETF; this row is listed for observation",
-		Action:  "Nothing to do: the sweep acts only after a paper-account proof lifts this per instrument.",
+		Message: "Canary resolves and quotes bills but does not yet order them (nor the sweep's ETF); this row is listed for observation",
+		Action:  "Nothing to do: bill orders are a separate change you authorise; until then the row is observation.",
 	}
 }
 
@@ -649,7 +699,7 @@ func cashSweepShadowBlocker() rpc.TradingBlocker {
 	return rpc.TradingBlocker{
 		Code:    "shadow_mode",
 		Message: "the cash sweep runs in shadow mode; this row is listed for observation and cannot be previewed or submitted",
-		Action:  "Set mode = \"active\" under [buckets.cash_sweep], record tax_reviewed_at, and bump policy_version to make these rows ordinary proposals.",
+		Action:  "Set mode = \"active\" under [buckets.cash_sweep] and bump policy_version to make these rows ordinary proposals.",
 	}
 }
 
@@ -752,25 +802,34 @@ func cashSweepLedger(acct *rpc.AccountResult) (string, map[string]cashSweepLedge
 	ledger := map[string]cashSweepLedgerRow{}
 	for _, row := range acct.CurrencyExposure {
 		if ccy := normCcy(row.Currency); ccy != "" && ccy != base {
-			ledger[ccy] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: row.ExchangeRate}
+			ledger[ccy] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: row.ExchangeRate, Settled: cloneFloat64Ptr(row.SettledCashCcy)}
 		}
 	}
 	if row := acct.BaseCurrencyLedger; row != nil {
-		ledger[base] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: 1}
+		ledger[base] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: 1, Settled: cloneFloat64Ptr(row.SettledCashCcy)}
 	}
 	return base, ledger, ""
 }
 
-// cashSweepClassify sorts held positions into cash equivalents. Phase A has
-// no bill classifier and no contract id for the declared ETF, so it
-// classifies nothing: a bond or bill holding, or a holding that carries the
-// declared ETF's symbol, makes its currency unclassified. The symbol only
-// ever blocks; it never admits.
+// cashSweepClassify sorts held positions into cash equivalents. A BOND row
+// is classified by the positions' bonds section (bond_directory.go): a
+// vocabulary bill of the row's currency is an equivalent with its maturity
+// and face value; any other bond is not; a row that section could not
+// resolve makes its currency unclassified. The declared ETF still has no
+// contract id, so a holding carrying its symbol makes its currency
+// unclassified: the symbol only ever blocks; it never admits.
 func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResult) (map[string][]cashSweepHolding, map[string]string) {
 	unclassified := map[string]string{}
 	if pos == nil {
 		return nil, unclassified
 	}
+	classified := map[int]rpc.PositionBond{}
+	for _, b := range pos.Bonds {
+		if b.ConID > 0 {
+			classified[b.ConID] = b
+		}
+	}
+	var holdings map[string][]cashSweepHolding
 	bills := map[string]int{}
 	for _, row := range slices.Concat(pos.Stocks, pos.Options) {
 		if row.Quantity == 0 {
@@ -779,7 +838,21 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 		ccy := normCcy(row.Currency)
 		switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
 		case "BOND", "BILL":
-			bills[ccy]++
+			b, ok := classified[row.ConID]
+			if !ok || row.ConID <= 0 || ccy == "" || b.Class == rpc.BondClassUnresolved {
+				bills[ccy]++
+				continue
+			}
+			instrument := cashSweepHeldBillInstrument(b, ccy)
+			maturity, err := time.Parse(time.DateOnly, b.Maturity)
+			if instrument == "" || err != nil {
+				continue // a bond, or another issuer's bill: not a cash equivalent
+			}
+			if holdings == nil {
+				holdings = map[string][]cashSweepHolding{}
+			}
+			holdings[ccy] = append(holdings[ccy], cashSweepHolding{Row: row, Instrument: instrument, Maturity: maturity,
+				FaceValue: row.Quantity * cashSweepInstrumentConventions[instrument].FacePerUnit, MarketValue: row.MarketValue})
 		case "STK", "STOCK", "ETF":
 			cfg := bucket.currency(ccy)
 			if cfg.declaresETF() && cfg.ETFSymbol != "" && strings.EqualFold(strings.TrimSpace(row.Symbol), cfg.ETFSymbol) {
@@ -789,9 +862,9 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 	}
 	for ccy, n := range bills {
 		label := nonEmptyString(ccy, "an unknown currency")
-		unclassified[ccy] = fmt.Sprintf("%d bond or bill %s in %s cannot be classified until Canary supports bill contracts", n, pluralNoun(n, "holding"), label)
+		unclassified[ccy] = fmt.Sprintf("%d bond or bill %s in %s could not be classified: its contract details are unavailable (see the positions' bonds section)", n, pluralNoun(n, "holding"), label)
 	}
-	return nil, unclassified
+	return holdings, unclassified
 }
 
 // cashSweepSettlement reads the order journal's fills in the settlement

@@ -40,7 +40,7 @@ func TestRenderProposalsListsTheCashSweepUnderItsOwnHeading(t *testing.T) {
 		t.Fatalf("sections out of order:\n%s", out)
 	}
 	for _, want := range []string{
-		"tax review not recorded",
+		"tax treatment not yet confirmed (advisory)",
 		"CHF  no instrument",
 		"EUR  settlement unknown",
 		"needs your number: etf_symbol, etf_exchange",

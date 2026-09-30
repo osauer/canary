@@ -988,7 +988,7 @@ type protectionCashSweepPolicy struct {
 	Mode string `toml:"mode" json:"mode,omitempty"`
 	// MaxOrderNotional caps one sweep buy in base currency, compared at the ledger rate; no default, and until it is written the sweep reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every active row carries tax_review_required.
+	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
 	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
 	// Currency holds one table per ISO currency code, as [buckets.cash_sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
 	Currency map[string]protectionCashSweepCurrency `toml:"currency" json:"currency,omitempty"`
@@ -1013,6 +1013,8 @@ type protectionCashSweepCurrency struct {
 	MaxMaturityDays int `toml:"max_maturity_days" json:"max_maturity_days"`
 	// LadderRungs is how many target maturities the ladder spreads evenly from min_maturity_days to max_maturity_days (default 4).
 	LadderRungs int `toml:"ladder_rungs" json:"ladder_rungs"`
+	// ISINs lists the bills the sweep may buy in EUR, GBP or CAD by ISIN (default empty, which reads universe_unavailable), each of a declared bill instrument: DE de_bubill, FR fr_btf, GB uk_tbill, CA ca_tbill; USD bills come from TreasuryDirect's list instead.
+	ISINs []string `toml:"isins" json:"isins,omitempty"`
 }
 
 // The closed instrument vocabulary. A bill instrument belongs to exactly one
@@ -1254,7 +1256,7 @@ func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency
 	if c.LadderRungs < 1 {
 		return fmt.Errorf("%s.ladder_rungs must be at least 1", prefix)
 	}
-	return nil
+	return validateCashSweepISINs(prefix, ccy, c)
 }
 
 // cashSweepInstrumentsFor lists the vocabulary a currency may declare.

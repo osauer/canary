@@ -451,7 +451,7 @@ The daemon persists submission intent before the broker call and reconciles
 it against its journal after restart. Installing or updating the binary does
 not edit policy, enable buckets, or clear freeze.
 
-## Cash sweep (shadow)
+## Cash sweep
 
 The cash sweep puts idle cash to work in bills of the same currency and never
 converts one currency into another. It is the only bucket whose rows buy;
@@ -460,24 +460,26 @@ close-or-reduce check only as a typed exception: a `cash_sweep` buy of a
 vocabulary instrument in the row's own currency, for no more than the free
 cash it was planned against. Nothing else is relaxed.
 
-It is off until you write the table, and today it runs in shadow only: Canary
-cannot yet resolve, quote or order bills, so every row carries
-`instrument_support_required` and no preview or submit can pass. The rows show
-what the sweep would do so you can compare it with the interest your broker
-pays on cash.
+It is off until you write the table. Canary resolves and quotes the bill each
+buy would name, but it does not order bills yet: every row carries
+`instrument_support_required` and no preview or submit can pass. Bill orders
+are a separate change you authorise; your approval of each order stays the
+last step.
 
 ```toml
 [buckets.cash_sweep]
 enabled = true
-mode = "shadow"              # shadow (default) or active
+mode = "active"              # shadow (default) or active
 max_order_notional = 20000   # one buy, in base currency; no default
-# tax_reviewed_at = 2026-01-01   # active rows wait for your tax review
+# tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
 
 Per currency, in that currency: **cash** is the lower of trade-date and
-settled cash, **committed** is working buy orders plus armed queued buys (a
-prepared, unarmed queue entry or an unapproved proposal never counts), and
-**free** is cash − committed − `keep_cash`. When free exceeds `min_tranche`
+settled cash (the broker's ledger `SettledCash` where the gateway sends it,
+else derived from Canary's order journal; `settled_cash_source` names which),
+**committed** is working buy orders plus armed queued buys (a prepared,
+unarmed queue entry or an unapproved proposal never counts), and **free** is
+cash − committed − `keep_cash`. When free exceeds `min_tranche`
 the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
 cap that holds the order below `min_tranche` holds the currency. When cash less
 commitments falls below `keep_cash` it sells the nearest maturity (or the
@@ -507,6 +509,26 @@ A key you leave out of a currency table takes that currency's default. An
 instrument outside the vocabulary, a bill of another currency, or any
 conversion fails validation.
 
+Which bill a buy names: for USD, the outstanding bill from TreasuryDirect's
+public list (read once a day and kept in daemon state) that matures nearest
+the rung's target inside `min_maturity_days`–`max_maturity_days`; for EUR,
+GBP and CAD, the nearest of the bills you list by ISIN:
+
+```toml
+[buckets.cash_sweep.currency.EUR]
+isins = ["DE000BU0ZZ19", "FR0128ZZZZ13"]   # your bills; each of a declared instrument
+```
+
+Canary names a bill only after the broker resolves it to one BOND line and
+quotes it. A currency with no list to choose from reads `universe_unavailable`
+(TreasuryDirect unreachable for two days, or no `isins` written); one whose
+candidates do not resolve or carry no price reads `instrument_unresolved`
+with the evidence per candidate. A row whose bill quote is not a live bid or
+ask adds `fresh_bill_quote_required`. `canary market --symbol <ISIN|CUSIP>
+--type BOND` runs the same resolution and quote as a read-only check, and
+`canary positions` lists held bills and bonds in their own section with class,
+maturity and currency.
+
 The snapshot's `cash_sweep` status lists every currency the account ledger
 reports, with its figures and a state:
 
@@ -516,17 +538,22 @@ reports, with its figures and a state:
 | `hold` | inside the band, or the reason says why no order follows |
 | `no_instrument` | the currency declares `none` |
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
-| `settlement_unknown` | the order journal cannot vouch for the settlement window, or working orders cannot be valued |
-| `equivalents_unclassified` | a bond, bill or declared-ETF holding cannot be classified yet |
+| `settlement_unknown` | the ledger sends no `SettledCash` and the order journal cannot vouch for the settlement window, or working orders cannot be valued |
+| `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
 | `needs_your_number` | `max_order_notional`, or the symbol of an ETF-only declaration, is not written |
+| `universe_unavailable` | no list of bills to choose from (see above) |
+| `instrument_unresolved` | no candidate bill was confirmed by contract details and a quote; `evidence` says why |
 
 `canary proposals list` shows the sweep under its own *Cash sweep* heading
 with one band line per currency; JSON carries a `cash_sweep` block on each
 row, and `counts.cash_sweep` and `counts.cash_sweep_shadow` count the rows.
 Every row carries `never_skip_veto`. `mode = "active"` makes the rows ordinary
-proposals under every gate, freeze included; without `tax_reviewed_at` they
-carry `tax_review_required`. While the sweep is enabled, `canary brief` adds a
-`cash` row (cash, cash equivalents and their sum per currency) and rule 14's
+proposals under every gate, freeze included. Without `tax_reviewed_at` each
+row carries the line "tax treatment not yet confirmed" and the status
+`tax_reviewed: false`; it blocks nothing. Each currency's status carries
+`cash_like`, cash plus cash equivalents, when both are known. While the sweep
+is enabled, `canary brief` adds a `cash` row (cash, cash equivalents and
+their sum per currency) and rule 14's
 evidence gains the same figures; the rule's own figure is unchanged, because
 the sweep never converts. Set `enabled = false`, or remove the table, to stop
 it: rows leave on the next refresh and held bills mature to cash.

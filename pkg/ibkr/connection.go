@@ -2186,7 +2186,7 @@ func (c *Connection) processSystemNoticeMessageAtEpoch(fields []string, epoch ui
 
 func isBenignUnhandledMessage(msgID int) bool {
 	switch msgID {
-	case msgContractData, msgContractDataEnd:
+	case msgContractData, msgBondContractData, msgContractDataEnd:
 		return true
 	default:
 		return false

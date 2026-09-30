@@ -23,6 +23,7 @@ func annotateLedgerCash(res *rpc.AccountResult, ledger map[string]ibkrlib.Curren
 	}
 	for i := range res.CurrencyExposure {
 		res.CurrencyExposure[i].CashObserved = ledgerCashObserved(raw, res.CurrencyExposure[i].Currency)
+		res.CurrencyExposure[i].SettledCashCcy = ledgerSettledCash(ledger, res.CurrencyExposure[i].Currency)
 	}
 	base := normCcy(res.BaseCurrency)
 	if base == "" {
@@ -43,9 +44,23 @@ func annotateLedgerCash(res *rpc.AccountResult, ledger map[string]ibkrlib.Curren
 			ExchangeRate:         1,
 			NetLiquidationBase:   row.NetLiquidationByCurrency,
 			CashObserved:         ledgerCashObserved(raw, base),
+			SettledCashCcy:       ledgerSettledCash(ledger, base),
 		}
 		return
 	}
+}
+
+// ledgerSettledCash is a currency's SettledCash from the typed ledger, nil
+// when the gateway sent none. That $LEDGER:ALL sends it per currency is an
+// assumption the post-install proof checks (internal-docs/design/cash-sweep.md).
+func ledgerSettledCash(ledger map[string]ibkrlib.CurrencyLedger, ccy string) *float64 {
+	ccy = normCcy(ccy)
+	for key, row := range ledger {
+		if normCcy(key) == ccy && ccy != "" && row.SettledCashObserved {
+			return new(row.SettledCash)
+		}
+	}
+	return nil
 }
 
 // ledgerCashObserved reports whether the raw account summary carried a
@@ -169,8 +184,8 @@ func cashSweepNeedsYourNumber(p *protectionCashSweepPolicy) []string {
 	if _, written := p.Currency["EUR"]; !written {
 		out = append(out, "cash sweep: the EUR fallback ETF needs etf_symbol, etf_exchange in [buckets.cash_sweep.currency.EUR]; bills still plan")
 	}
-	if p.effectiveMode() == rpc.CashSweepModeActive && p.TaxReviewedAt == "" {
-		out = append(out, "cash sweep: active rows wait for tax_reviewed_at in [buckets.cash_sweep]")
+	if p.TaxReviewedAt == "" {
+		out = append(out, "cash sweep: tax treatment not yet confirmed; write tax_reviewed_at in [buckets.cash_sweep] once reviewed (advisory, blocks nothing)")
 	}
 	return out
 }
