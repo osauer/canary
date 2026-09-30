@@ -214,3 +214,52 @@ func TestDaemonStartIntegrityFailureNamesTheRecoveryDoc(t *testing.T) {
 	}
 	srv.Stop()
 }
+
+// TestReviewedTerminalStockExpectsNoMarketData witnesses the cancelled
+// holding the daemon probed for a quote, a classification and chart history
+// after every restart although reviewed evidence proves it defunct. Only the
+// exact current record mints the expectation; the same ticker on another
+// ConID, an identity conflict and an expired review are still probed.
+func TestReviewedTerminalStockExpectsNoMarketData(t *testing.T) {
+	const deadConID = 900201
+	record := earningsTerminalRecord{Contract: earningsTerminalContract{ConID: deadConID, Symbol: "SYNTHDEAD", SecType: "STK"}, Classification: earningsTerminalClassEquityCancelled,
+		EffectiveDate: "2026-08-01", VerifiedAt: terminalImportBase.Add(-time.Hour), RevalidateAfter: terminalImportBase.Add(24 * time.Hour)}
+	s := &Server{earningsTerminal: &earningsTerminalStore{revision: 2, reviewedAt: terminalImportBase, byConID: map[int]earningsTerminalStored{deadConID: {record: record, fingerprint: earningsTerminalRecordFingerprint(record)}}}}
+	rows := func() []rpc.PositionView {
+		return []rpc.PositionView{
+			{Symbol: "SYNTHDEAD", ConID: deadConID, SecType: "STK"},
+			{Symbol: "SYNTHDEAD", ConID: deadConID + 1, SecType: "STK"},
+			{Symbol: "SYNTHOTHER", ConID: deadConID, SecType: "STK"},
+			{Symbol: "SYNL", ConID: deadConID + 2, SecType: "STK"},
+		}
+	}
+	stocks := rows()
+	s.markReviewedTerminalStocks(stocks, terminalImportBase)
+	if rpc.ExpectsMarketData(stocks[0]) || stocks[0].QuoteExpectationReason != rpc.QuoteExpectationReasonTerminal {
+		t.Fatalf("exact reviewed terminal stock still expects market data: %+v", stocks[0])
+	}
+	for _, row := range stocks[1:] {
+		if !rpc.ExpectsMarketData(row) || row.QuoteExpectationReason != "" {
+			t.Fatalf("row without exact current authority lost its quote expectation: %+v", row)
+		}
+	}
+	group := rpc.PositionGroup{Underlying: "SYNTHDEAD", Stock: &stocks[0]}
+	if rpc.ExpectsMarketDataGroup(group) {
+		t.Fatal("stock-only terminal group is still quoted")
+	}
+	group.Options = []rpc.PositionView{{Symbol: "SYNTHDEAD", SecType: "OPT"}}
+	if !rpc.ExpectsMarketDataGroup(group) {
+		t.Fatal("option leg on a terminal underlying lost its quote")
+	}
+
+	expired := rows()
+	s.markReviewedTerminalStocks(expired, record.RevalidateAfter)
+	if !rpc.ExpectsMarketData(expired[0]) {
+		t.Fatal("expired review still minted the expectation")
+	}
+	unconfigured := rows()
+	(&Server{}).markReviewedTerminalStocks(unconfigured, terminalImportBase)
+	if !rpc.ExpectsMarketData(unconfigured[0]) {
+		t.Fatal("absent authority minted the expectation")
+	}
+}

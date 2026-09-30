@@ -91,15 +91,24 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 	if err != nil || !connector.SessionCurrent(binding) || current.Authority == nil || current.Authority.Availability != rpc.AccountDataAvailable || current.Authority.Freshness != rpc.AccountDataFreshnessCurrent || current.Authority.Scope != result.Authority.Scope {
 		return nil, errors.New("portfolio scope changed during market observation")
 	}
+	s.followSnapshotHistory(result)
+	return result, nil
+}
+
+// followSnapshotHistory keeps 1D and 1Y history warm for the rows the broker
+// priced. A position ConID alone does not prove IBKR still defines the
+// contract: a delisted holding comes back as a stale shell carrying it, and
+// following that shell would re-ask IBKR for a definition every session.
+// Opening a chart still registers interest through the history request.
+func (s *Server) followSnapshotHistory(result *rpc.MarketSnapshotResult) {
 	for _, list := range [][]rpc.MarketInstrument{result.Instruments, result.Underlyings} {
 		for _, item := range list {
-			if item.Quote != nil && item.Quote.Contract.ConID > 0 {
+			if item.Quote != nil && item.Quote.Contract.ConID > 0 && marketInstrumentCovered(item) {
 				s.rememberMarketHistory(rpc.MarketHistoryParams{Contract: item.Quote.Contract, Range: "1D"})
 				s.rememberMarketHistory(rpc.MarketHistoryParams{Contract: item.Quote.Contract, Range: "1Y"})
 			}
 		}
 	}
-	return result, nil
 }
 
 // markMarketSnapshotCoverage marks the snapshot partial when a row has no

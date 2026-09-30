@@ -119,8 +119,10 @@ type AccountFieldAvailability struct {
 // observed to be nothing — a cancelled equity, a defunct issuer — that is a
 // fact, not a gap. QuoteExpectationNone carries that distinction across every
 // surface so each consumer does not have to re-derive it from warning codes.
-// Only the broker's terminal non-reporting verdict may mint it; numeric zeros
-// in account rows are a data-quality warning, never expectation authority.
+// Only positive terminal evidence may mint it: the broker's terminal
+// non-reporting verdict, or a current reviewed terminal-evidence record bound
+// to the row's exact ConID, symbol and STK type. Numeric zeros in account rows
+// are a data-quality warning, never expectation authority.
 const (
 	QuoteExpectationNone = "none"
 

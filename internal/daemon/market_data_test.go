@@ -188,3 +188,41 @@ func TestMarketSnapshotCountsDelayedPreviousCloseAsCovered(t *testing.T) {
 		}
 	}
 }
+
+// TestMarketSnapshotFollowsHistoryOnlyForPricedRows witnesses the delisted
+// holding whose code-200 stale shell still carries the position ConID: the
+// snapshot followed its 1D and 1Y history, so the background refresh asked
+// IBKR for a definition every broker session. Only a row the broker priced
+// is followed.
+func TestMarketSnapshotFollowsHistoryOnlyForPricedRows(t *testing.T) {
+	contract := func(conID int, symbol string) rpc.ContractParams {
+		return rpc.ContractParams{ConID: conID, Symbol: symbol, SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	}
+	priced := contract(900101, "SYNP")
+	dead := contract(900102, "SYNTHQ")
+	result := &rpc.MarketSnapshotResult{Underlyings: []rpc.MarketInstrument{
+		{Key: "SYNP", Name: "SYNP", Kind: "underlying", Quote: &rpc.Quote{Symbol: "SYNP", Contract: priced, QuotePrice: new(12.5)}},
+		{Key: "SYNTHQ", Name: "SYNTHQ", Kind: "underlying", Quote: &rpc.Quote{Symbol: "SYNTHQ", Contract: dead, Stale: true, StaleReason: `subscription "SYNTHQ" rejected by gateway: code=200 msg=No security definition has been found for the request`}},
+	}}
+	s := &Server{}
+	s.followSnapshotHistory(result)
+	for _, r := range []string{"1D", "1Y"} {
+		key, _, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: priced, Range: r})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.marketData.interest[key]; !ok {
+			t.Fatalf("priced row lost its %s history interest", r)
+		}
+		deadKey, _, err := marketHistoryIdentity(rpc.MarketHistoryParams{Contract: dead, Range: r})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := s.marketData.interest[deadKey]; ok {
+			t.Fatalf("code-200 shell registered %s history interest", r)
+		}
+	}
+	if len(s.marketData.interest) != 2 {
+		t.Fatalf("interest = %d series, want the priced row's 1D and 1Y", len(s.marketData.interest))
+	}
+}

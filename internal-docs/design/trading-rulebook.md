@@ -696,6 +696,13 @@ web/app/*                         rules card + drill-in
   `revalidate_after` is evidence-expiry safety, not an alert or trading-policy
   threshold. At the deadline the record remains visible but rules degrade to
   unknown until a newer review advances the SQLite revision.
+  Amendment (2026-09-30, owner decision): a current exact record also mints
+  the held stock's `quote_expectation: none` (reason
+  `terminal_non_reporting`) on the positions read, beside the broker's own
+  inactive verdict. The row stays account truth; it is only no longer probed
+  for quotes, classification or chart history, and a stock-only group leaves
+  the market snapshot. Option legs on the same underlying are still quoted,
+  and an expired, conflicting or absent record leaves the row probed.
 
   ```json
   {

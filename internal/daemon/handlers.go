@@ -476,6 +476,8 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		return cmp.Compare(a.Strike, b.Strike)
 	})
 
+	// Reviewed terminal evidence settles a cancelled stock before any probe.
+	s.markReviewedTerminalStocks(res.Stocks, time.Now())
 	// Pre-warm held-stock quotes before deriving daily change.
 	s.prewarmStockQuoteSummaries(ctx, c, res.Stocks)
 	flagZeroValueStockPositions(res.Stocks)
@@ -652,7 +654,7 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 	for i := range stocks {
 		// The non-option slice carries every secType that is not OPT — bonds,
 		// with, and day-changed against, AT&T. Those rows keep the broker's
-		if !positionQuotesAsStock(stocks[i]) {
+		if !positionQuotesAsStock(stocks[i]) || !rpc.ExpectsMarketData(stocks[i]) {
 			continue
 		}
 		sym := normSym(stocks[i].Symbol)
@@ -732,11 +734,34 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 	})
 }
 
+// markReviewedTerminalStocks mints QuoteExpectationNone for held stocks whose
+// exact ConID, symbol and STK type match a current reviewed terminal-evidence
+// record. That record is the same authority analysisPositions and the rulebook
+// use; an expired, conflicting or absent record leaves the row to be probed.
+func (s *Server) markReviewedTerminalStocks(stocks []rpc.PositionView, now time.Time) {
+	if s == nil || s.earningsTerminal == nil {
+		return
+	}
+	for i := range stocks {
+		p := &stocks[i]
+		match, found := s.earningsTerminal.terminalEarningsFor(risk.NameInput{
+			Symbol:       p.Symbol,
+			StockConID:   p.ConID,
+			StockSecType: p.SecType,
+		}, now)
+		if found && match.Status == rpc.EarningsStatusTerminalNonReporting {
+			p.QuoteExpectation = rpc.QuoteExpectationNone
+			p.QuoteExpectationReason = rpc.QuoteExpectationReasonTerminal
+		}
+	}
+}
+
 // snapshotHeldStockQuote probes one held stock for a quote summary.
 // terminal reports the broker's own non-reporting verdict (the connector's
 // guarded inactive mark, minted from confirmed "no security definition"
-// answers) — the only evidence allowed to mint QuoteExpectationNone. A
-// probe that merely times out or fails transiently is not terminal.
+// answers). With reviewed terminal evidence (markReviewedTerminalStocks) it
+// is the only evidence allowed to mint QuoteExpectationNone. A probe that
+// merely times out or fails transiently is not terminal.
 func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connector, contract rpc.ContractParams, timeout time.Duration) (q rpc.Quote, ok, terminal bool) {
 	if s == nil || s.subs == nil {
 		return rpc.Quote{}, false, false
