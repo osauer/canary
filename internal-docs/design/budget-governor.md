@@ -93,7 +93,10 @@ absent under this basis. Shadow mode, protection legs, `never_skip_veto`,
     cap. A line already trimmed by the per-line pass can be trimmed further.
   - `max_order_notional` caps one generated order exactly as
     `risk_reduction.max_order_notional` does; the remainder waits for the next
-    cycle, which re-evaluates from the position as it then is.
+    cycle, which re-evaluates from the position as it then is. The row's
+    reason asks to sell exactly the order's quantity; a held order also names
+    the plan's number and the limit that held it (`budget.contracts_*` keep
+    the plan's cuts).
 - Enforcement class: advisory. `mode = "shadow"` lists and journals rows that
   no surface can preview or submit (`shadow_mode`); `mode = "active"` makes
   them ordinary proposals under every existing gate. Neither mode places an

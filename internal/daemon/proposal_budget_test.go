@@ -2,7 +2,9 @@ package daemon
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -346,5 +348,72 @@ func TestBudgetReductionReevaluatesFromTheCurrentPosition(t *testing.T) {
 	if proposalKey(rpc.TradeProposalBucketBudgetReduction, proposalContractFromPosition(first, "OPT"), rpc.OrderActionSell) !=
 		proposalKey(rpc.TradeProposalBucketBudgetReduction, proposalContractFromPosition(second, "OPT"), rpc.OrderActionSell) {
 		t.Fatal("proposal key moved with the quantity")
+	}
+}
+
+// The row's reason states the quantity the row carries. When max_order_notional
+// holds one order below the plan's cut, the sentence names the held quantity,
+// the plan's number and the limit; it never asks to sell more than the order
+// does. Both bases, every pass.
+func TestBudgetReductionReasonStatesTheHeldQuantity(t *testing.T) {
+	// One discretionary loser, 10 ct × 2,500 = 25,000, at the 10% line limit
+	// of a 250,000 NLV. Available funds are 70% (175,000) against the 75%
+	// reserve (187,500): 12,500 short, so the plan sells 5 contracts.
+	book := func() *rpc.PositionsResult {
+		return &rpc.PositionsResult{
+			Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"},
+			Options:   []rpc.PositionView{budgetOptionLeg("ZZZ", 701, "C", 10, 2500, -5000)},
+		}
+	}
+	input := budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(250000.0), AvailableFundsBase: new(175000.0), AccountBaseCurrency: "EUR"}
+	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
+
+	generate := func(notional float64) rpc.TradeProposal {
+		t.Helper()
+		policy.Buckets.BudgetReduction.MaxOrderNotional = notional
+		pos := book()
+		rows, _ := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+		assertBudgetRowsReduceOnly(t, rows, pos)
+		if len(rows) != 1 || rows[0].Budget == nil || rows[0].Budget.Cap != "total" || rows[0].Budget.ContractsTotal != 5 {
+			t.Fatalf("rows = %+v", rows)
+		}
+		return rows[0]
+	}
+
+	// 7,500 at 2,500 a contract holds one order to 3 of the plan's 5.
+	held := generate(7500)
+	if held.Quantity != 3 || !strings.Contains(held.Reason, "available funds are 70.0% of NLV") ||
+		!strings.Contains(held.Reason, "sell 3 of 10 contracts now (the plan calls for 5; max_order_notional 7500 holds one order to 3") ||
+		strings.Contains(held.Reason, "sell 5 of 10") {
+		t.Fatalf("held row: quantity %d, reason %q", held.Quantity, held.Reason)
+	}
+	// Unheld, the reason and the quantity are the plan's 5 and name no limit.
+	whole := generate(1e9)
+	if whole.Quantity != 5 || !strings.HasSuffix(whole.Reason, "sell 5 of 10 contracts") || strings.Contains(whole.Reason, "max_order_notional") {
+		t.Fatalf("unheld row: quantity %d, reason %q", whole.Quantity, whole.Reason)
+	}
+
+	// Every pass on both bases: a small notional holds each row to one
+	// contract, and each reason asks to sell exactly the row's quantity.
+	for _, basis := range []string{rpc.BudgetBasisDeclaredRiskCapital, rpc.BudgetBasisRulebook} {
+		p := budgetTestPolicy(rpc.BudgetReductionModeActive, 40, 15)
+		in := budgetLatchedInput()
+		if basis == rpc.BudgetBasisRulebook {
+			p = budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+			p.Buckets.BudgetReduction.Basis = basis
+			in = budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(100000.0), AvailableFundsBase: new(60000.0), AccountBaseCurrency: "EUR"}
+		}
+		p.Buckets.BudgetReduction.MaxOrderNotional = 100
+		rows, _ := (&proposalEngine{}).budgetReductionProposals(p, rpc.ProtectionPolicyStatus{}, in, nil, budgetTestBook(), rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+		if len(rows) == 0 {
+			t.Fatalf("%s: no rows", basis)
+		}
+		for _, row := range rows {
+			want := fmt.Sprintf("sell %d of ", row.Quantity)
+			if row.Quantity != 1 || !strings.Contains(row.Reason, want) || strings.Count(row.Reason, "sell ") != 1 {
+				t.Fatalf("%s %s (%s): quantity %d, reason %q", basis, row.Symbol, row.Budget.Cap, row.Quantity, row.Reason)
+			}
+		}
 	}
 }

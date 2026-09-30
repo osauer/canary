@@ -483,17 +483,18 @@ func budgetReductionRow(policy protectionPolicy, status rpc.ProtectionPolicyStat
 	switch {
 	case line.perLineCut > 0 && line.totalCut > 0:
 		budget.Cap = "per_line+total"
-		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap (%d %s), and total premium at risk is %.1f%%, above the %.1f%% cap (%s in order, %d %s)",
+		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap (%d %s), and total premium at risk is %.1f%%, above the %.1f%% cap (%s in order, %d %s); %s",
 			linePct, bucket.PerLinePctOfRiskCapital, line.perLineCut, pluralNoun(line.perLineCut, "contract"),
-			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"))
+			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"),
+			budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	case line.perLineCut > 0:
 		budget.Cap = "per_line"
-		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap; sell %d of %d %s to the cap",
-			linePct, bucket.PerLinePctOfRiskCapital, line.perLineCut, line.contracts, pluralNoun(line.contracts, "contract"))
+		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap; %s",
+			linePct, bucket.PerLinePctOfRiskCapital, budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, " to the cap"))
 	default:
 		budget.Cap = "total"
-		reason = fmt.Sprintf("total premium at risk is %.1f%% of declared risk capital, above the %.1f%% cap; %s in the reduction order (largest loss first): sell %d of %d %s",
-			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), line.totalCut, line.contracts, pluralNoun(line.contracts, "contract"))
+		reason = fmt.Sprintf("total premium at risk is %.1f%% of declared risk capital, above the %.1f%% cap; %s in the reduction order (largest loss first): %s",
+			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	}
 	details = append(details, fmt.Sprintf("line %s (%.1f%%) · per-line cap %s (%.1f%% of %s declared)",
 		formatBudgetMoney(line.valueBase, base), linePct, formatBudgetMoney(plan.perLineCap, base), bucket.PerLinePctOfRiskCapital, formatBudgetMoney(plan.declared, base)))
@@ -547,17 +548,18 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 	switch {
 	case line.perLineCut > 0 && line.totalCut > 0:
 		budget.Cap = "per_line+total"
-		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit (%d %s), and available funds are %.1f%% of NLV, below the %.0f%% cash reserve (%s in order, %d %s)",
+		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit (%d %s), and available funds are %.1f%% of NLV, below the %.0f%% cash reserve (%s in order, %d %s); %s",
 			linePct, plan.status.PerLinePctOfNLV, line.perLineCut, pluralNoun(line.perLineCut, "contract"),
-			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"))
+			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"),
+			budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	case line.perLineCut > 0:
 		budget.Cap = "per_line"
-		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit; sell %d of %d %s to the limit",
-			linePct, plan.status.PerLinePctOfNLV, line.perLineCut, line.contracts, pluralNoun(line.contracts, "contract"))
+		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit; %s",
+			linePct, plan.status.PerLinePctOfNLV, budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, " to the limit"))
 	default:
 		budget.Cap = "total"
-		reason = fmt.Sprintf("available funds are %.1f%% of NLV, below the Rulebook's %.0f%% cash reserve; %s in the reduction order (largest loss first): sell %d of %d %s",
-			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), line.totalCut, line.contracts, pluralNoun(line.contracts, "contract"))
+		reason = fmt.Sprintf("available funds are %.1f%% of NLV, below the Rulebook's %.0f%% cash reserve; %s in the reduction order (largest loss first): %s",
+			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	}
 	details := []string{
 		fmt.Sprintf("line %s at risk (%.1f%% of NLV; the higher of price paid and value) · line limit %s (%.1f%% of %s NLV)",
@@ -584,6 +586,19 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 	p.Shadow = plan.status.Shadow
 	p.NeverSkipVeto = true
 	return p
+}
+
+// budgetSellClause states the order the row actually carries. The plan's cut
+// can exceed what one order may sell: max_order_notional holds qty below it,
+// and the reason then names both numbers and the limit, so the sentence never
+// disagrees with the row's quantity. tail finishes an unheld clause (" to the
+// cap"); a held order does not reach the cap, so it drops the tail.
+func budgetSellClause(qty, cut, contracts int, maxOrderNotional float64, tail string) string {
+	if qty >= cut {
+		return fmt.Sprintf("sell %d of %d %s%s", qty, contracts, pluralNoun(contracts, "contract"), tail)
+	}
+	return fmt.Sprintf("sell %d of %d %s now (the plan calls for %d; max_order_notional %.0f holds one order to %d, and the next cycle measures the rest)",
+		qty, contracts, pluralNoun(contracts, "contract"), cut, maxOrderNotional, qty)
 }
 
 func budgetShadowBlocker() rpc.TradingBlocker {
