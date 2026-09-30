@@ -51,6 +51,21 @@ cash at all times, not only after a drawdown. The two percentage keys must be
 absent under this basis. Shadow mode, protection legs, `never_skip_veto`,
 `max_order_notional` and every order gate are unchanged.
 
+Amendment 2026-09-30 (owner decision, Rulebook amendment 17): the cash reserve
+is retired. The total pass now reads Rulebook rule 3, the premium budget of
+the regime set in force (the latched regime stage, read as rule 3 reads it; a
+carried stage uses the lower of its set and calm): it triggers when the book's
+premium at risk reaches `premium_budget_act_pct` of NLV and sells lines in the
+unchanged loss-first order, each contract counted at its premium at risk,
+until the total is back at `premium_budget_watch_pct` (rule 1's trim
+convention). Available funds are context only; the basis needs NLV. The
+status and row fields `cash_reserve_min_pct` and `cash_shortfall_base` became
+`premium_budget_watch_pct`, `premium_budget_act_pct`, `premium_pct_of_nlv` and
+`premium_excess_base`, with `premium_budget_set` naming the set on the status.
+The governor keeps its own protection classification, so its measured total
+can differ from rule 3's where a declared or covering option is protection to
+the governor but not to rule 12.
+
 ## Meaning
 
 - Capital or exposure base: the constitution's `capital.declared_risk_capital`

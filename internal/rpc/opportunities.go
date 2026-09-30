@@ -342,7 +342,8 @@ const (
 	// BudgetBasisDeclaredRiskCapital and BudgetBasisRulebook name what the
 	// governor measures against: the owner's caps as shares of the risk
 	// constitution's declared risk capital, or the Rulebook's own limits as
-	// shares of NLV (the per-line premium act level and the cash reserve).
+	// shares of NLV (the per-line premium act level and rule 3's premium
+	// budget).
 	BudgetBasisDeclaredRiskCapital = "declared_risk_capital"
 	BudgetBasisRulebook            = "rulebook"
 
@@ -547,13 +548,20 @@ type TradeProposalBudgetStatus struct {
 	Reason string `json:"reason,omitempty"`
 	// Basis says which limits were measured (BudgetBasis*).
 	Basis string `json:"basis"`
-	// Rulebook basis: the limits as shares of NLV, the account values they
-	// were measured against, and how much cash the reserve is short.
-	PerLinePctOfNLV    float64  `json:"per_line_pct_of_nlv,omitempty"`
-	CashReserveMinPct  float64  `json:"cash_reserve_min_pct,omitempty"`
-	NLVBase            *float64 `json:"nlv_base,omitempty"`
-	AvailableFundsBase *float64 `json:"available_funds_base,omitempty"`
-	CashShortfallBase  *float64 `json:"cash_shortfall_base,omitempty"`
+	// Rulebook basis: the limits as shares of NLV — the per-line act level
+	// and rule 3's premium budget of the regime set in force (the total pass
+	// triggers at its act level and cuts back to its watch level) — the
+	// account values they were measured against, the book's premium at risk
+	// as a share of NLV, and the premium at risk above the watch level once
+	// the act level is reached. Available funds are context only.
+	PerLinePctOfNLV       float64  `json:"per_line_pct_of_nlv,omitempty"`
+	PremiumBudgetWatchPct float64  `json:"premium_budget_watch_pct,omitempty"`
+	PremiumBudgetActPct   float64  `json:"premium_budget_act_pct,omitempty"`
+	PremiumBudgetSet      string   `json:"premium_budget_set,omitempty"`
+	PremiumPctOfNLV       *float64 `json:"premium_pct_of_nlv,omitempty"`
+	NLVBase               *float64 `json:"nlv_base,omitempty"`
+	AvailableFundsBase    *float64 `json:"available_funds_base,omitempty"`
+	PremiumExcessBase     *float64 `json:"premium_excess_base,omitempty"`
 	// The caps as written in the protection policy.
 	PremiumAtRiskPctOfRiskCapital float64 `json:"premium_at_risk_pct_of_risk_capital"`
 	PerLinePctOfRiskCapital       float64 `json:"per_line_pct_of_risk_capital"`
@@ -578,13 +586,16 @@ type TradeProposalBudget struct {
 	Mode  string `json:"mode"`
 	Basis string `json:"basis"`
 	// Rulebook basis: the line's premium at risk (the higher of price paid
-	// and value) as a share of NLV against the per-line limit, and the cash
-	// the reserve is short before this row.
-	LineAtRiskBase    float64  `json:"line_at_risk_base,omitempty"`
-	LinePctOfNLV      float64  `json:"line_pct_of_nlv,omitempty"`
-	PerLinePctOfNLV   float64  `json:"per_line_pct_of_nlv,omitempty"`
-	CashReserveMinPct float64  `json:"cash_reserve_min_pct,omitempty"`
-	CashShortfallBase *float64 `json:"cash_shortfall_base,omitempty"`
+	// and value) as a share of NLV against the per-line limit, the book's
+	// premium at risk as a share of NLV against rule 3's premium budget, and
+	// the premium at risk above the budget's watch level before this row.
+	LineAtRiskBase        float64  `json:"line_at_risk_base,omitempty"`
+	LinePctOfNLV          float64  `json:"line_pct_of_nlv,omitempty"`
+	PerLinePctOfNLV       float64  `json:"per_line_pct_of_nlv,omitempty"`
+	PremiumBudgetWatchPct float64  `json:"premium_budget_watch_pct,omitempty"`
+	PremiumBudgetActPct   float64  `json:"premium_budget_act_pct,omitempty"`
+	PremiumPctOfNLV       float64  `json:"premium_pct_of_nlv,omitempty"`
+	PremiumExcessBase     *float64 `json:"premium_excess_base,omitempty"`
 	// Cap is per_line, total, or per_line+total when both passes trimmed the
 	// same line.
 	Cap                           string  `json:"cap"`

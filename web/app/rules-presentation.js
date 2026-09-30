@@ -1,7 +1,7 @@
 function ruleStatusLabel(status, reason = "") {
   if (status === "not_evaluated") {
     if (reason === "rule_off") return "off";
-    if (reason === "no_index_protection") return "no protection position";
+    if (reason === "no_long_options") return "no long options";
     if (reason === "broker_nonissuer") return "broker nonissuer";
     if (reason === "terminal_non_reporting") return "terminal/non-reporting";
     if (reason === "earnings_not_applicable") return "issuer earnings not applicable";

@@ -24,8 +24,13 @@ const (
 )
 
 // RegimeThresholds is one stage's threshold set for the regime-conditional
-// rules: rule 4 extrinsic budget (ex-protection), rule 12 protection band.
+// rules: rule 3 premium budget and rule 4 extrinsic budget (both
+// ex-protection), rule 12 protection band, rule 15 net exposure.
 type RegimeThresholds struct {
+	// PremiumBudgetWatchPct is rule 3's watch level: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. At watch or act the Rulebook reads sell-only.
+	PremiumBudgetWatchPct float64 `toml:"premium_budget_watch_pct" json:"premium_budget_watch_pct"`
+	// PremiumBudgetActPct is rule 3's act level for the same measure. The budget governor under basis = rulebook sells back to the watch level once the total reaches it.
+	PremiumBudgetActPct float64 `toml:"premium_budget_act_pct" json:"premium_budget_act_pct"`
 	// ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV.
 	ExtrinsicWatchPct float64 `toml:"extrinsic_watch_pct" json:"extrinsic_watch_pct"`
 	// ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV.
@@ -34,6 +39,10 @@ type RegimeThresholds struct {
 	HedgeBandMinPct float64 `toml:"hedge_band_min_pct" json:"hedge_band_min_pct"`
 	// HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure.
 	HedgeBandMaxPct float64 `toml:"hedge_band_max_pct" json:"hedge_band_max_pct"`
+	// NetExposureWatchPct is rule 15's watch level: the magnitude of the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. At watch or act the Rulebook reads sell-only.
+	NetExposureWatchPct float64 `toml:"net_exposure_watch_pct" json:"net_exposure_watch_pct"`
+	// NetExposureActPct is rule 15's act level for the same measure; the stress read calls it urgent while the regime set is confirmed.
+	NetExposureActPct float64 `toml:"net_exposure_act_pct" json:"net_exposure_act_pct"`
 }
 
 // RulebookPolicy carries the Rulebook's verdict thresholds and rule modes.
@@ -46,7 +55,7 @@ type RulebookPolicy struct {
 	Kind string `toml:"kind" json:"-"`
 	// SchemaVersion selects the file format (1), independently of the owner revision.
 	SchemaVersion int `toml:"schema_version" json:"-"`
-	// ID names the policy (baseline rulebook-v4; canary rules policy set writes rulebook-owner).
+	// ID names the policy (baseline rulebook-v5; canary rules policy set writes rulebook-owner).
 	ID string `toml:"policy_id" json:"id"`
 	// Version records the owner revision; raise it for material edits. Cosmetic edits do not change operational identity. The first valid file is adopted at any positive revision.
 	Version int `toml:"policy_version" json:"version"`
@@ -82,9 +91,6 @@ type RulebookPolicy struct {
 	// Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names.
 	Clusters map[string][]string `toml:"clusters" json:"clusters"`
 
-	// CashReserveMinPct watches strictly below this broker-reported available-funds percentage of NLV; equality passes. It is not settled cash. Missing current funds are unknown; this row never blocks a buy.
-	CashReserveMinPct float64 `toml:"cash_reserve_min_pct" json:"cash_reserve_min_pct"`
-
 	// OptionLineWatchPct watches at or above this long-option premium at risk (the higher of cost and current value) as a percent of NLV. Missing cost falls back to current value; protection uses the separate hedge bands.
 	OptionLineWatchPct float64 `toml:"option_line_watch_pct" json:"option_line_watch_pct"`
 	// OptionLineActPct acts at or above this long-option premium at risk as a percent of NLV. It also supplies the budget governor's per-line limit under basis = rulebook.
@@ -118,14 +124,14 @@ type RulebookPolicy struct {
 	// WinnerTrimMinExpoPct is rule 10's inclusive minimum absolute stock-equivalent exposure as a percent of NLV. A qualifying gain with unmeasured size remains unknown.
 	WinnerTrimMinExpoPct float64 `toml:"winner_trim_min_exposure_pct" json:"winner_trim_min_exposure_pct"`
 
-	// RegimeCalm holds rules 4 and 12 levels in a calm regime. A carried or
-	// never-seen regime stage evaluates the carried set and the calm set and
+	// RegimeCalm holds rules 3, 4, 12 and 15 levels in a calm regime. A
+	// carried regime stage evaluates the carried set and the calm set and
 	// keeps the worse verdict, so stale regime data can hold or tighten a
-	// verdict but never relax it.
+	// verdict but never relax it; a never-seen stage uses the calm set.
 	RegimeCalm RegimeThresholds `toml:"regime_calm" json:"regime_calm"`
-	// RegimeEarlyWarning holds rules 4 and 12 levels in an early-warning regime.
+	// RegimeEarlyWarning holds rules 3, 4, 12 and 15 levels in an early-warning regime.
 	RegimeEarlyWarning RegimeThresholds `toml:"regime_early_warning" json:"regime_early_warning"`
-	// RegimeConfirmed holds rules 4 and 12 levels in a confirmed-stress regime.
+	// RegimeConfirmed holds rules 3, 4, 12 and 15 levels in a confirmed-stress regime.
 	RegimeConfirmed RegimeThresholds `toml:"regime_confirmed" json:"regime_confirmed"`
 	// RegimeStageMaxAgeMinutes bounds trust in the latched regime stage, in minutes. Carried or missing stages evaluate both the carried set and calm set, keeping the worse verdict; stale evidence cannot relax a band.
 	RegimeStageMaxAgeMinutes int `toml:"regime_stage_max_age_minutes" json:"regime_stage_max_age_minutes"`
@@ -142,11 +148,6 @@ type RulebookPolicy struct {
 	// FXExposureWatchPct watches at or above this magnitude of combined non-base-currency exposure as a percent of NLV. No act tier; missing account or currency evidence remains unknown.
 	FXExposureWatchPct float64 `toml:"fx_exposure_watch_pct" json:"fx_exposure_watch_pct"`
 
-	// NetExposureWatchPct watches at or above this magnitude of the whole book's signed stock-equivalent exposure, including hedges, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass.
-	NetExposureWatchPct float64 `toml:"net_exposure_watch_pct" json:"net_exposure_watch_pct"`
-	// NetExposureActPct acts at or above this magnitude of net exposure as a percent of NLV.
-	NetExposureActPct float64 `toml:"net_exposure_act_pct" json:"net_exposure_act_pct"`
-
 	// HedgeSymbols lists the index underlyings whose long puts can classify as protection (rules 1, 2, 5, 12, 13).
 	HedgeSymbols []string `toml:"hedge_symbols" json:"hedge_symbols"`
 
@@ -160,8 +161,8 @@ type RulebookPolicy struct {
 // DefaultRulebookPolicy returns the compiled baseline policy.
 func DefaultRulebookPolicy() RulebookPolicy {
 	return RulebookPolicy{
-		ID:      "rulebook-v4",
-		Version: 4,
+		ID:      "rulebook-v5",
+		Version: 5,
 		Modes: map[string]string{
 			RuleSingleNameExposure: RuleModeAlert,
 			RuleOptionLinePremium:  RuleModeTrack,
@@ -196,7 +197,6 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		BudgetWatchPct:         100,
 		IssuerGroups:           map[string][]string{},
 		Clusters:               map[string][]string{},
-		CashReserveMinPct:      75,
 		OptionLineWatchPct:     5,
 		OptionLineActPct:       10,
 		HedgeLineWatchPct:      15,
@@ -211,31 +211,43 @@ func DefaultRulebookPolicy() RulebookPolicy {
 		RedOnGreenSPYUpPct:     0.5,
 		WinnerTrimDayUpPct:     4,
 		WinnerTrimMinExpoPct:   15,
+		// Rule 3 premium budget and rule 15 net exposure bands: owner
+		// decisions of 2026-09-30 (amendment 17).
 		RegimeCalm: RegimeThresholds{
-			ExtrinsicWatchPct: 10,
-			ExtrinsicActPct:   15,
-			HedgeBandMinPct:   25,
-			HedgeBandMaxPct:   35,
+			PremiumBudgetWatchPct: 25,
+			PremiumBudgetActPct:   35,
+			ExtrinsicWatchPct:     10,
+			ExtrinsicActPct:       15,
+			HedgeBandMinPct:       25,
+			HedgeBandMaxPct:       35,
+			NetExposureWatchPct:   100,
+			NetExposureActPct:     150,
 		},
 		RegimeEarlyWarning: RegimeThresholds{
-			ExtrinsicWatchPct: 7.5,
-			ExtrinsicActPct:   12,
-			HedgeBandMinPct:   30,
-			HedgeBandMaxPct:   50,
+			PremiumBudgetWatchPct: 20,
+			PremiumBudgetActPct:   30,
+			ExtrinsicWatchPct:     7.5,
+			ExtrinsicActPct:       12,
+			HedgeBandMinPct:       30,
+			HedgeBandMaxPct:       50,
+			NetExposureWatchPct:   100,
+			NetExposureActPct:     130,
 		},
 		RegimeConfirmed: RegimeThresholds{
-			ExtrinsicWatchPct: 5,
-			ExtrinsicActPct:   10,
-			HedgeBandMinPct:   40,
-			HedgeBandMaxPct:   70,
+			PremiumBudgetWatchPct: 15,
+			PremiumBudgetActPct:   25,
+			ExtrinsicWatchPct:     5,
+			ExtrinsicActPct:       10,
+			HedgeBandMinPct:       40,
+			HedgeBandMaxPct:       70,
+			NetExposureWatchPct:   75,
+			NetExposureActPct:     100,
 		},
 		RegimeStageMaxAgeMinutes: 240,
 		OverhedgeMultiple:        2,
 		ExitWatchLossPct:         40,
 		ExitActLossPct:           60,
 		FXExposureWatchPct:       60,
-		NetExposureWatchPct:      100,
-		NetExposureActPct:        150,
 		HedgeSymbols:             []string{"SPY", "SPX", "SPXW", "QQQ", "IWM"},
 		GreeksGapFloorPctNLV:     1,
 		EarningsStaleDays:        10,
@@ -254,6 +266,49 @@ func (p RulebookPolicy) SetForBucket(bucket string) RegimeThresholds {
 	default:
 		return p.RegimeEarlyWarning
 	}
+}
+
+// regimeSetBucket names the set SetForBucket returns for a bucket: an
+// unrecognized bucket reads the early-warning set.
+func regimeSetBucket(bucket string) string {
+	switch bucket {
+	case RegimeBucketCalm, RegimeBucketConfirmed:
+		return bucket
+	default:
+		return RegimeBucketEarlyWarning
+	}
+}
+
+// RegimeSetWords renders a regime set's bucket for evidence prose.
+func RegimeSetWords(bucket string) string {
+	switch bucket {
+	case RegimeBucketCalm:
+		return "calm"
+	case RegimeBucketConfirmed:
+		return "confirmed-stress"
+	default:
+		return "early-warning"
+	}
+}
+
+// PremiumBudgetInForce returns rule 3's watch and act levels for a latched
+// regime stage exactly as rule 3 applies them, with the set's name for prose:
+// a never-seen stage reads the calm set, a fresh stage its own set, and a
+// carried stage the lower of the carried and calm levels. On a rising measure
+// the lower level of the two sets is the worse-of verdict rule 3 keeps, so a
+// stale stage can hold or tighten the budget but never relax it.
+func (p RulebookPolicy) PremiumBudgetInForce(stage string, carried bool) (watch, act float64, set string) {
+	calm := p.RegimeCalm
+	if stage == "" {
+		return calm.PremiumBudgetWatchPct, calm.PremiumBudgetActPct, RegimeSetWords(RegimeBucketCalm)
+	}
+	held := p.SetForBucket(stage)
+	name := RegimeSetWords(regimeSetBucket(stage))
+	if !carried {
+		return held.PremiumBudgetWatchPct, held.PremiumBudgetActPct, name
+	}
+	return min(held.PremiumBudgetWatchPct, calm.PremiumBudgetWatchPct), min(held.PremiumBudgetActPct, calm.PremiumBudgetActPct),
+		name + " (carried; the lower of it and calm)"
 }
 
 // Normalize uppercases and sorts the hedge list so fingerprints are stable
@@ -326,7 +381,6 @@ func (p RulebookPolicy) FingerprintKey() string {
 		Modes                    map[string]string   `json:"modes"`
 		SingleNameWatchPct       float64             `json:"single_name_watch_pct"`
 		SingleNameActPct         float64             `json:"single_name_act_pct"`
-		CashReserveMinPct        float64             `json:"cash_reserve_min_pct"`
 		OptionLineWatchPct       float64             `json:"option_line_watch_pct"`
 		OptionLineActPct         float64             `json:"option_line_act_pct"`
 		HedgeLineWatchPct        float64             `json:"hedge_line_watch_pct"`
@@ -349,8 +403,6 @@ func (p RulebookPolicy) FingerprintKey() string {
 		ExitWatchLossPct         float64             `json:"exit_watch_loss_pct"`
 		ExitActLossPct           float64             `json:"exit_act_loss_pct"`
 		FXExposureWatchPct       float64             `json:"fx_exposure_watch_pct"`
-		NetExposureWatchPct      float64             `json:"net_exposure_watch_pct"`
-		NetExposureActPct        float64             `json:"net_exposure_act_pct"`
 		HedgeSymbols             []string            `json:"hedge_symbols"`
 		GreeksGapFloorPctNLV     float64             `json:"greeks_gap_floor_pct_nlv"`
 		EarningsStaleDays        int                 `json:"earnings_stale_days"`
@@ -372,7 +424,6 @@ func (p RulebookPolicy) FingerprintKey() string {
 		Modes:                    q.Modes,
 		SingleNameWatchPct:       q.SingleNameWatchPct,
 		SingleNameActPct:         q.SingleNameActPct,
-		CashReserveMinPct:        q.CashReserveMinPct,
 		OptionLineWatchPct:       q.OptionLineWatchPct,
 		OptionLineActPct:         q.OptionLineActPct,
 		HedgeLineWatchPct:        q.HedgeLineWatchPct,
@@ -395,8 +446,6 @@ func (p RulebookPolicy) FingerprintKey() string {
 		ExitWatchLossPct:         q.ExitWatchLossPct,
 		ExitActLossPct:           q.ExitActLossPct,
 		FXExposureWatchPct:       q.FXExposureWatchPct,
-		NetExposureWatchPct:      q.NetExposureWatchPct,
-		NetExposureActPct:        q.NetExposureActPct,
 		HedgeSymbols:             q.HedgeSymbols,
 		GreeksGapFloorPctNLV:     q.GreeksGapFloorPctNLV,
 		EarningsStaleDays:        q.EarningsStaleDays,
@@ -459,7 +508,6 @@ func (p RulebookPolicy) Validate() error {
 	checks := []bounded{
 		{"single_name_watch_pct", p.SingleNameWatchPct, 0, 1000},
 		{"single_name_act_pct", p.SingleNameActPct, 0, 1000},
-		{"cash_reserve_min_pct", p.CashReserveMinPct, 0, 100},
 		{"option_line_watch_pct", p.OptionLineWatchPct, 0, 100},
 		{"option_line_act_pct", p.OptionLineActPct, 0, 100},
 		{"hedge_line_watch_pct", p.HedgeLineWatchPct, 0, 100},
@@ -474,8 +522,6 @@ func (p RulebookPolicy) Validate() error {
 		{"exit_watch_loss_pct", p.ExitWatchLossPct, 0, 100},
 		{"exit_act_loss_pct", p.ExitActLossPct, 0, 100},
 		{"fx_exposure_watch_pct", p.FXExposureWatchPct, 0, 1000},
-		{"net_exposure_watch_pct", p.NetExposureWatchPct, 0, 10000},
-		{"net_exposure_act_pct", p.NetExposureActPct, 0, 10000},
 		{"overhedge_multiple", p.OverhedgeMultiple, 1, 10},
 		{"greeks_gap_floor_pct_nlv", p.GreeksGapFloorPctNLV, 0, 100},
 		{"illiquid_watch_pct", p.IlliquidWatchPct, 0, 1000},
@@ -489,10 +535,14 @@ func (p RulebookPolicy) Validate() error {
 		t    RegimeThresholds
 	}{{"regime_calm", p.RegimeCalm}, {"regime_early_warning", p.RegimeEarlyWarning}, {"regime_confirmed", p.RegimeConfirmed}} {
 		checks = append(checks,
+			bounded{set.name + ".premium_budget_watch_pct", set.t.PremiumBudgetWatchPct, 0, 1000},
+			bounded{set.name + ".premium_budget_act_pct", set.t.PremiumBudgetActPct, 0, 1000},
 			bounded{set.name + ".extrinsic_watch_pct", set.t.ExtrinsicWatchPct, 0, 100},
 			bounded{set.name + ".extrinsic_act_pct", set.t.ExtrinsicActPct, 0, 100},
 			bounded{set.name + ".hedge_band_min_pct", set.t.HedgeBandMinPct, 0, 1000},
 			bounded{set.name + ".hedge_band_max_pct", set.t.HedgeBandMaxPct, 0, 1000},
+			bounded{set.name + ".net_exposure_watch_pct", set.t.NetExposureWatchPct, 0, 10000},
+			bounded{set.name + ".net_exposure_act_pct", set.t.NetExposureActPct, 0, 10000},
 		)
 	}
 	for _, c := range checks {
@@ -509,7 +559,12 @@ func (p RulebookPolicy) Validate() error {
 		{"option_line_watch_pct", "option_line_act_pct", p.OptionLineWatchPct, p.OptionLineActPct},
 		{"hedge_line_watch_pct", "hedge_line_act_pct", p.HedgeLineWatchPct, p.HedgeLineActPct},
 		{"exit_watch_loss_pct", "exit_act_loss_pct", p.ExitWatchLossPct, p.ExitActLossPct},
-		{"net_exposure_watch_pct", "net_exposure_act_pct", p.NetExposureWatchPct, p.NetExposureActPct},
+		{"regime_calm.premium_budget_watch_pct", "regime_calm.premium_budget_act_pct", p.RegimeCalm.PremiumBudgetWatchPct, p.RegimeCalm.PremiumBudgetActPct},
+		{"regime_early_warning.premium_budget_watch_pct", "regime_early_warning.premium_budget_act_pct", p.RegimeEarlyWarning.PremiumBudgetWatchPct, p.RegimeEarlyWarning.PremiumBudgetActPct},
+		{"regime_confirmed.premium_budget_watch_pct", "regime_confirmed.premium_budget_act_pct", p.RegimeConfirmed.PremiumBudgetWatchPct, p.RegimeConfirmed.PremiumBudgetActPct},
+		{"regime_calm.net_exposure_watch_pct", "regime_calm.net_exposure_act_pct", p.RegimeCalm.NetExposureWatchPct, p.RegimeCalm.NetExposureActPct},
+		{"regime_early_warning.net_exposure_watch_pct", "regime_early_warning.net_exposure_act_pct", p.RegimeEarlyWarning.NetExposureWatchPct, p.RegimeEarlyWarning.NetExposureActPct},
+		{"regime_confirmed.net_exposure_watch_pct", "regime_confirmed.net_exposure_act_pct", p.RegimeConfirmed.NetExposureWatchPct, p.RegimeConfirmed.NetExposureActPct},
 		{"regime_calm.extrinsic_watch_pct", "regime_calm.extrinsic_act_pct", p.RegimeCalm.ExtrinsicWatchPct, p.RegimeCalm.ExtrinsicActPct},
 		{"regime_early_warning.extrinsic_watch_pct", "regime_early_warning.extrinsic_act_pct", p.RegimeEarlyWarning.ExtrinsicWatchPct, p.RegimeEarlyWarning.ExtrinsicActPct},
 		{"regime_confirmed.extrinsic_watch_pct", "regime_confirmed.extrinsic_act_pct", p.RegimeConfirmed.ExtrinsicWatchPct, p.RegimeConfirmed.ExtrinsicActPct},

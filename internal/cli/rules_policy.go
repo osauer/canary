@@ -81,11 +81,15 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 	extA := func(t risk.RegimeThresholds) float64 { return t.ExtrinsicActPct }
 	hMin := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMinPct }
 	hMax := func(t risk.RegimeThresholds) float64 { return t.HedgeBandMaxPct }
+	pbW := func(t risk.RegimeThresholds) float64 { return t.PremiumBudgetWatchPct }
+	pbA := func(t risk.RegimeThresholds) float64 { return t.PremiumBudgetActPct }
+	netW := func(t risk.RegimeThresholds) float64 { return t.NetExposureWatchPct }
+	netA := func(t risk.RegimeThresholds) float64 { return t.NetExposureActPct }
 	limits := map[string]string{
 		risk.RuleSingleNameExposure: fmt.Sprintf("worst-case loss per issuer: watch at %s, act at %s of NLV, trim back to %s; illiquid (over %s days to exit at %s of 20-day volume) %s/%s; hedges count from %d days out and past earnings; unbounded legs sized at a %s rise",
 			pct(p.SingleNameWatchPct), pct(p.SingleNameActPct), pct(p.SingleNameWatchPct), strings.TrimSuffix(pct(p.IlliquidDaysToExit), "%"), pct(p.ExitParticipationPct), pct(p.IlliquidWatchPct), pct(p.IlliquidActPct), p.HedgeMinDays, pct(p.TakeoverGapPct)),
 		risk.RuleOptionLinePremium:  fmt.Sprintf("watch at %s, act at %s of NLV per position (higher of price paid and value); protection %s/%s", pct(p.OptionLineWatchPct), pct(p.OptionLineActPct), pct(p.HedgeLineWatchPct), pct(p.HedgeLineActPct)),
-		risk.RuleCashSellOnly:       fmt.Sprintf("available funds at least %s of NLV", pct(p.CashReserveMinPct)),
+		risk.RuleCashSellOnly:       fmt.Sprintf("option premium at risk of NLV, protection excluded, watch/act at: calm %s, early warning %s, confirmed %s; sell-only from watch", band(p.RegimeCalm, pbW, pbA), band(p.RegimeEarlyWarning, pbW, pbA), band(p.RegimeConfirmed, pbW, pbA)),
 		risk.RuleExtrinsicBudget:    fmt.Sprintf("time value of NLV, watch/act at: calm %s, early warning %s, confirmed %s", band(p.RegimeCalm, extW, extA), band(p.RegimeEarlyWarning, extW, extA), band(p.RegimeConfirmed, extW, extA)),
 		risk.RuleExpiryRunway:       fmt.Sprintf("watch at %d days or fewer, act at %d days or fewer to expiry; in the money from delta %.2f", p.RunwayWatchDTE, p.RunwayActDTE, p.RunwayITMDeltaFloor),
 		risk.RuleCatalystCoverage:   "earnings inside an option's life (no threshold)",
@@ -97,7 +101,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		risk.RuleHedgeIntegrity:     fmt.Sprintf("index protection band of long exposure: calm %s, early warning %s, confirmed %s; act above %g× the band's top", band(p.RegimeCalm, hMin, hMax), band(p.RegimeEarlyWarning, hMin, hMax), band(p.RegimeConfirmed, hMin, hMax), p.OverhedgeMultiple),
 		risk.RuleExitDiscipline:     fmt.Sprintf("watch at −%s, act at −%s of premium paid", pct(p.ExitWatchLossPct), pct(p.ExitActLossPct)),
 		risk.RuleFXExposure:         fmt.Sprintf("watch at %s of NLV in other currencies", pct(p.FXExposureWatchPct)),
-		risk.RuleNetExposure:        fmt.Sprintf("watch at %s, act at %s of NLV, whole book with hedges", pct(p.NetExposureWatchPct), pct(p.NetExposureActPct)),
+		risk.RuleNetExposure:        fmt.Sprintf("net exposure of NLV, whole book with hedges, watch/act at: calm %s, early warning %s, confirmed %s; sell-only from watch", band(p.RegimeCalm, netW, netA), band(p.RegimeEarlyWarning, netW, netA), band(p.RegimeConfirmed, netW, netA)),
 		risk.RuleDeltaSwing:         fmt.Sprintf("watch at %s of NLV in one issuer's dollar delta; never acts", pct(p.DeltaSwingWatchPct)),
 		risk.RuleClusterStress:      fmt.Sprintf("watch when a declared cluster falling %s together loses %s of NLV; never acts", pct(p.ClusterDropPct), pct(p.ClusterWatchPct)),
 		risk.RuleLossBudget:         fmt.Sprintf("watch when one issuer's worst-case loss reaches %s of effective risk capital; never acts", pct(p.BudgetWatchPct)),
@@ -112,7 +116,7 @@ func renderRulesPolicy(env *Env, st *rpc.RulebookPolicyStatus, p risk.RulebookPo
 		fmt.Fprintln(out, line)
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Change a limit:   canary rules policy set cash_reserve_min_pct=70")
+	fmt.Fprintln(out, "Change a limit:   canary rules policy set regime_calm.premium_budget_watch_pct=20")
 	fmt.Fprintln(out, "Set a rule's mode: canary rules policy set modes.winner_trim=off   (off | track | alert)")
 	fmt.Fprintln(out, "Back to baseline: canary rules policy reset KEY…  or  --all")
 	fmt.Fprintln(out, "Every key:        canary policy default rulebook")

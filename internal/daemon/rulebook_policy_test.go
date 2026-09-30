@@ -46,21 +46,21 @@ func TestRulebookPolicyAbsentFileRunsTheBaseline(t *testing.T) {
 func TestRulebookPolicyFileOverridesOnlyItsKeysAndVersionGatesEdits(t *testing.T) {
 	m, path, journal := rulebookTestManager(t)
 	m.reload()
-	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 1\ncash_reserve_min_pct = 70\n[modes]\nnet_exposure = \"alert\"\n")
+	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 1\nfx_exposure_watch_pct = 70\n[modes]\nnet_exposure = \"alert\"\n")
 	m.reload()
 	p, st := m.Active()
-	if st.Status != rpc.RulebookPolicyStatusActive || p.CashReserveMinPct != 70 || p.ModeFor(risk.RuleNetExposure) != risk.RuleModeAlert ||
-		p.SingleNameActPct != risk.DefaultRulebookPolicy().SingleNameActPct || !slices.Equal(st.Overrides, []string{"cash_reserve_min_pct", "modes.net_exposure"}) {
+	if st.Status != rpc.RulebookPolicyStatusActive || p.FXExposureWatchPct != 70 || p.ModeFor(risk.RuleNetExposure) != risk.RuleModeAlert ||
+		p.SingleNameActPct != risk.DefaultRulebookPolicy().SingleNameActPct || !slices.Equal(st.Overrides, []string{"fx_exposure_watch_pct", "modes.net_exposure"}) {
 		t.Fatalf("partial file: %+v %+v", st, p)
 	}
-	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 1\ncash_reserve_min_pct = 50\n")
+	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 1\nfx_exposure_watch_pct = 50\n")
 	m.reload()
-	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusDrift || p.CashReserveMinPct != 70 || !strings.Contains(st.Message, "higher policy_version") {
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusDrift || p.FXExposureWatchPct != 70 || !strings.Contains(st.Message, "higher policy_version") {
 		t.Fatalf("an edit without a version bump took effect: %+v", st)
 	}
-	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 2\ncash_reserve_min_pct = 50\n")
+	writeRulebookTestFile(t, path, "policy_id = \"mine\"\npolicy_version = 2\nfx_exposure_watch_pct = 50\n")
 	m.reload()
-	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.CashReserveMinPct != 50 || p.ModeFor(risk.RuleNetExposure) != risk.RuleModeTrack {
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.FXExposureWatchPct != 50 || p.ModeFor(risk.RuleNetExposure) != risk.RuleModeTrack {
 		t.Fatalf("a bumped edit was not adopted: %+v", st)
 	}
 	if len(*journal) < 4 {
@@ -72,16 +72,16 @@ func TestRulebookPolicyFileOverridesOnlyItsKeysAndVersionGatesEdits(t *testing.T
 // removed file does not silently return to the baseline.
 func TestRulebookPolicyBadOrRemovedFileKeepsThePolicyInForce(t *testing.T) {
 	m, path, _ := rulebookTestManager(t)
-	writeRulebookTestFile(t, path, "policy_version = 5\ncash_reserve_min_pct = 60\n")
+	writeRulebookTestFile(t, path, "policy_version = 5\nfx_exposure_watch_pct = 65\n")
 	m.reload()
 	for name, body := range map[string]string{
-		"unknown key": "policy_version = 6\ncash_reserve_min = 10\n",
+		"unknown key": "policy_version = 6\nfx_exposure_watch = 10\n",
 		"invalid":     "policy_version = 6\noption_line_watch_pct = 20\noption_line_act_pct = 10\n",
 		"syntax":      "policy_version = \n",
 	} {
 		writeRulebookTestFile(t, path, body)
 		m.reload()
-		if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusError || p.CashReserveMinPct != 60 || st.Message == "" {
+		if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusError || p.FXExposureWatchPct != 65 || st.Message == "" {
 			t.Fatalf("%s: %+v", name, st)
 		}
 	}
@@ -89,7 +89,7 @@ func TestRulebookPolicyBadOrRemovedFileKeepsThePolicyInForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.reload()
-	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusDrift || p.CashReserveMinPct != 60 || !strings.Contains(st.Message, "restart") {
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusDrift || p.FXExposureWatchPct != 65 || !strings.Contains(st.Message, "restart") {
 		t.Fatalf("a removed file changed the limits in force: %+v", st)
 	}
 }
@@ -101,11 +101,11 @@ func TestRulebookPolicyBadOrRemovedFileKeepsThePolicyInForce(t *testing.T) {
 // the keys it names, and refuses anything the daemon would refuse.
 func TestEditRulebookPolicyStartsFromTheTemplateAndRefusesInvalidValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "policies", "rulebook-policy.toml")
-	edit, err := EditRulebookPolicy(path, []string{"cash_reserve_min_pct=70", "modes.winner_trim=track", "single_name_act_pct=40"}, nil, false)
+	edit, err := EditRulebookPolicy(path, []string{"fx_exposure_watch_pct=70", "modes.winner_trim=track", "single_name_act_pct=40"}, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if edit.Version != risk.DefaultRulebookPolicy().Version+1 || !slices.Equal(edit.Differs, []string{"cash_reserve_min_pct", "modes.winner_trim"}) || len(edit.Changes) != 2 {
+	if edit.Version != risk.DefaultRulebookPolicy().Version+1 || !slices.Equal(edit.Differs, []string{"fx_exposure_watch_pct", "modes.winner_trim"}) || len(edit.Changes) != 2 {
 		t.Fatalf("edit = %+v", edit)
 	}
 	info, err := os.Stat(path)
@@ -115,10 +115,10 @@ func TestEditRulebookPolicyStartsFromTheTemplateAndRefusesInvalidValues(t *testi
 	before, _ := os.ReadFile(path)
 	read, err := parseRulebookPolicy(before)
 	if err != nil || len(read.missing) != 0 || policyFileReview(before) != "unreviewed" ||
-		!strings.Contains(string(before), "# Rule 1 — worst-case loss on one issuer") || !strings.Contains(string(before), "cash_reserve_min_pct = 70") {
+		!strings.Contains(string(before), "# Rule 1 — worst-case loss on one issuer") || !strings.Contains(string(before), "fx_exposure_watch_pct = 70") {
 		t.Fatalf("first edit did not start from the template: missing %v err %v\n%s", read.missing, err, before)
 	}
-	for _, bad := range [][]string{{"cash_reserve_min_pct=abc"}, {"no_such_key=1"}, {"option_line_act_pct=1"}, {"modes.fx_exposure=loud"}, {"runway_act_dte=2.5"}} {
+	for _, bad := range [][]string{{"fx_exposure_watch_pct=abc"}, {"no_such_key=1"}, {"option_line_act_pct=1"}, {"modes.fx_exposure=loud"}, {"runway_act_dte=2.5"}, {"regime_calm.premium_budget_watch_pct=40"}} {
 		if _, err := EditRulebookPolicy(path, bad, nil, false); err == nil {
 			t.Fatalf("%v accepted", bad)
 		}
@@ -128,7 +128,7 @@ func TestEditRulebookPolicyStartsFromTheTemplateAndRefusesInvalidValues(t *testi
 	}
 	m := newRulebookPolicyManager(path, time.Minute, time.Now)
 	m.reload()
-	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.CashReserveMinPct != 70 || p.ModeFor(risk.RuleWinnerTrim) != risk.RuleModeTrack {
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.FXExposureWatchPct != 70 || p.ModeFor(risk.RuleWinnerTrim) != risk.RuleModeTrack {
 		t.Fatalf("the daemon reads the edit differently: %+v", st)
 	}
 	edit, err = EditRulebookPolicy(path, nil, nil, true)
@@ -158,7 +158,7 @@ policy_version = 7
 # Concentration: I keep it tight.
 single_name_watch_pct = 25.0  # tighter than Canary's
 single_name_act_pct = 35.0
-cash_reserve_min_pct = 60.0
+fx_exposure_watch_pct = 50.0
 
 [modes]
 winner_trim = "track"  # I like the reminder
@@ -167,7 +167,7 @@ winner_trim = "track"  # I like the reminder
 GroupA = ["AAA", "AAB"]
 `
 	writeRulebookTestFile(t, path, original)
-	edit, err := EditRulebookPolicy(path, []string{"single_name_watch_pct=28", "issuer_groups.GroupB=BBB,BBC"}, []string{"cash_reserve_min_pct"}, false)
+	edit, err := EditRulebookPolicy(path, []string{"single_name_watch_pct=28", "issuer_groups.GroupB=BBB,BBC"}, []string{"fx_exposure_watch_pct"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ GroupA = ["AAA", "AAB"]
 	want := strings.NewReplacer(
 		"policy_version = 7", "policy_version = 8",
 		"single_name_watch_pct = 25.0  # tighter than Canary's", "single_name_watch_pct = 28.0  # tighter than Canary's",
-		"cash_reserve_min_pct = 60.0", "cash_reserve_min_pct = "+tomlFloat(risk.DefaultRulebookPolicy().CashReserveMinPct),
+		"fx_exposure_watch_pct = 50.0", "fx_exposure_watch_pct = "+tomlFloat(risk.DefaultRulebookPolicy().FXExposureWatchPct),
 		`GroupA = ["AAA", "AAB"]`, `GroupA = ["AAA", "AAB"]`+"\n"+`GroupB = ["BBB", "BBC"]`,
 	).Replace(original)
 	if string(written) != want {
@@ -196,44 +196,94 @@ GroupA = ["AAA", "AAB"]
 	}
 }
 
-// With basis = rulebook the governor restores the Rulebook's cash reserve and
-// per-line limit as shares of NLV. It needs no constitution and waits for no
-// brake, and protection legs are never sold.
-func TestBudgetRulebookBasisRestoresTheCashReserveWithoutABrake(t *testing.T) {
+// With basis = rulebook the governor holds the book to the Rulebook's own
+// limits as shares of NLV: the per-line act level, and rule 3's premium
+// budget of the regime set in force, which triggers at its act level and cuts
+// back to its watch level (amendment 17, rule 1's trim convention). It needs
+// no constitution, waits for no brake, and never sells protection.
+func TestBudgetRulebookBasisCutsThePremiumBudgetBackToWatch(t *testing.T) {
 	policy := budgetTestPolicy(rpc.BudgetReductionModeShadow, 0, 0)
 	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
 	if err := validateProtectionPolicy(policy); err != nil {
 		t.Fatal(err)
 	}
-	pos := budgetTestBook() // AAA 6×2,000 (loss 1,000), BBB 4×2,500 (loss 4,000), CCC 2×3,000 (gain)
-	input := budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(100000.0), AvailableFundsBase: new(60000.0), AccountBaseCurrency: "EUR"}
+	pos := budgetTestBook() // AAA 6×2,000 (loss 1,000), BBB 4×2,500 (loss 4,000), CCC 2×3,000 (gain); 28,000 at risk
+	input := budgetGovernorInput{Rulebook: risk.DefaultRulebookPolicy(), NLVBase: new(80000.0), AccountBaseCurrency: "EUR"}
 	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
-	// Line limit 10% = 10,000: AAA sells 1 (raises 2,000). Reserve 75% = 75,000
-	// against 60,000 available: 15,000 short, 13,000 after AAA. BBB (largest
-	// loss) sells all 4 (10,000), then AAA 2 more (4,000).
-	if st == nil || st.Basis != rpc.BudgetBasisRulebook || st.State != rpc.BudgetStateOverBudget || st.CashShortfallBase == nil ||
-		math.Abs(*st.CashShortfallBase-15000) > 1e-6 || st.ProtectionLegs != 2 || st.Rows != 2 || !st.Shadow {
+	// 28,000 is 35% of 80,000: exactly the calm act level, so the total pass
+	// runs. Line limit 10% = 8,000: AAA sells 2, BBB 1 (6,500 at risk). Back
+	// to the 25% budget is 8,000; BBB (largest loss) sells 1 more.
+	if st == nil || st.Basis != rpc.BudgetBasisRulebook || st.State != rpc.BudgetStateOverBudget || st.PremiumExcessBase == nil ||
+		math.Abs(*st.PremiumExcessBase-8000) > 1e-6 || st.PremiumPctOfNLV == nil || math.Abs(*st.PremiumPctOfNLV-35) > 1e-9 ||
+		st.PremiumBudgetWatchPct != 25 || st.PremiumBudgetActPct != 35 || st.PremiumBudgetSet != "calm" ||
+		st.ProtectionLegs != 2 || st.Rows != 2 || !st.Shadow || st.AvailableFundsBase != nil {
 		t.Fatalf("status = %+v", st)
 	}
 	assertBudgetRowsReduceOnly(t, rows, pos)
 	byID := budgetRowsByConID(rows)
-	if aaa := byID[601]; aaa.Quantity != 3 || aaa.Budget == nil || aaa.Budget.ContractsPerLine != 1 || aaa.Budget.ContractsTotal != 2 || aaa.Budget.Basis != rpc.BudgetBasisRulebook {
+	if aaa := byID[601]; aaa.Quantity != 2 || aaa.Budget == nil || aaa.Budget.Cap != "per_line" || aaa.Budget.Basis != rpc.BudgetBasisRulebook {
 		t.Fatalf("AAA = %+v", aaa.Budget)
 	}
-	if bbb := byID[602]; bbb.Quantity != 4 || bbb.Budget.Cap != "total" || !strings.Contains(bbb.Reason, "cash reserve") {
+	bbb := byID[602]
+	if bbb.Quantity != 2 || bbb.Budget.Cap != "per_line+total" || bbb.Budget.ContractsTotal != 1 || bbb.Budget.PremiumBudgetActPct != 35 ||
+		bbb.Budget.PremiumExcessBase == nil || !strings.Contains(bbb.Reason, "at or above the Rulebook's 35% premium budget act level (calm set)") ||
+		!strings.Contains(bbb.Reason, "cut back to its 25% budget") || strings.Contains(bbb.Reason, "reserve") || strings.Contains(bbb.Reason, "available funds") {
 		t.Fatalf("BBB = %+v %s", bbb.Budget, bbb.Reason)
 	}
+	if !slices.ContainsFunc(bbb.Details, func(d string) bool {
+		return strings.HasPrefix(d, "premium budget (calm set): 28000 EUR at risk (35.0% of NLV)")
+	}) {
+		t.Fatalf("BBB details do not name the premium budget: %v", bbb.Details)
+	}
 	if _, ok := byID[603]; ok {
-		t.Fatal("a gaining line was sold before the losers covered the shortfall")
+		t.Fatal("a gaining line was sold before the losers covered the excess")
 	}
-	input.AvailableFundsBase = new(90000.0)
-	pos.Options = pos.Options[:4] // drop CCC; AAA still above the line limit
-	if _, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime()); st.State != rpc.BudgetStateOverBudget || st.CashShortfallBase != nil {
-		t.Fatalf("line limit alone: %+v", st)
+
+	// Above the budget but under its act level: the total pass waits, only
+	// the line limit sells.
+	input.NLVBase = new(80500.0)
+	rows, st = (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+	if st.State != rpc.BudgetStateOverBudget || st.PremiumExcessBase != nil {
+		t.Fatalf("under the act level: %+v", st)
 	}
+	for _, row := range rows {
+		if row.Budget.ContractsTotal != 0 {
+			t.Fatalf("the total pass ran under the act level: %+v", row.Budget)
+		}
+	}
+
+	// The regime set in force moves the levels: confirmed stress is 15/25.
+	input.NLVBase, input.RegimeStage = new(100000.0), risk.RegimeBucketConfirmed
+	rows, st = (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+	byID = budgetRowsByConID(rows)
+	if st.PremiumBudgetActPct != 25 || st.PremiumBudgetSet != "confirmed-stress" || st.PremiumExcessBase == nil || math.Abs(*st.PremiumExcessBase-13000) > 1e-6 ||
+		byID[602].Quantity != 4 || byID[601].Quantity != 2 {
+		t.Fatalf("confirmed set: %+v rows %+v", st, byID)
+	}
+
 	input.NLVBase = nil
 	if _, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime()); st.State != rpc.BudgetStateAccountUnavailable {
 		t.Fatalf("no NLV: %+v", st)
+	}
+}
+
+// The total pass counts a losing line at its price paid, as rule 3 does: a
+// contract sold removes its premium at risk, not today's lower value.
+func TestBudgetRulebookBasisCountsALosingLineAtItsPricePaid(t *testing.T) {
+	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+	policy.Buckets.BudgetReduction.Basis = rpc.BudgetBasisRulebook
+	leg := budgetOptionLeg("ZZZ", 701, "C", 10, 1000, -16000)
+	leg.Currency, leg.AvgCost = "EUR", 2600
+	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"}, Options: []rpc.PositionView{leg}}
+	rb := risk.DefaultRulebookPolicy()
+	rb.OptionLineActPct = 50
+	input := budgetGovernorInput{Rulebook: rb, NLVBase: new(100000.0), AccountBaseCurrency: "EUR", RegimeStage: risk.RegimeBucketConfirmed}
+	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
+	// 26,000 at risk (price paid, over a 10,000 value) is 26% ≥ 25: back to
+	// 15% is 11,000, which 5 contracts at 2,600 cover; at value it would be
+	// the whole line.
+	if len(rows) != 1 || rows[0].Quantity != 5 || st.MeasuredPremiumBase == nil || *st.MeasuredPremiumBase != 26000 {
+		t.Fatalf("rows %+v status %+v", rows, st)
 	}
 }
 
@@ -262,72 +312,95 @@ func TestRulebookCacheRefusesAVerdictFromASupersededPolicy(t *testing.T) {
 	if _, ok := s.cachedRulebookResult(rulebookCacheBinding{scope: scope}, time.Minute, now); !ok {
 		t.Fatal("a verdict under the policy in force was not served")
 	}
-	writeRulebookTestFile(t, path, "policy_version = 4\ncash_reserve_min_pct = 70\n")
+	writeRulebookTestFile(t, path, "policy_version = 4\nfx_exposure_watch_pct = 70\n")
 	m.reload()
 	if _, ok := s.cachedRulebookResult(rulebookCacheBinding{scope: scope}, time.Minute, now); ok {
 		t.Fatal("a verdict from a superseded policy was served")
 	}
 }
 
-// Until v3.11.1 canary policy default rulebook wrote cash_sell_only_pct, which
-// no rule reads. A file carrying it must not void the limits the owner set
-// beside it: it loads, the key is ignored, and the status says which and why.
+// Retired keys never void the limits the owner set beside them: until
+// v3.11.1 canary policy default rulebook wrote cash_sell_only_pct, and since
+// amendment 17 (2026-09-30) cash_reserve_min_pct and the top-level
+// net_exposure_*_pct are retired too. The file loads, each key is ignored,
+// and the status says which and why; the regime tables' net_exposure_*_pct
+// are live limits.
 func TestRulebookPolicyFileWithARetiredKeyKeepsTheOwnersLimits(t *testing.T) {
 	m, path, _ := rulebookTestManager(t)
-	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pct = -25\n")
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\nfx_exposure_watch_pct = 70\ncash_reserve_min_pct = 70\nnet_exposure_watch_pct = 90\n\n[regime_calm]\ncash_sell_only_pct = -25\nnet_exposure_act_pct = 140\n")
 	m.reload()
 	p, st := m.Active()
-	if st.Status != rpc.RulebookPolicyStatusActive || p.CashReserveMinPct != 70 || !slices.Equal(st.Overrides, []string{"cash_reserve_min_pct"}) ||
-		!strings.Contains(st.Message, "regime_calm.cash_sell_only_pct") || !strings.Contains(st.Message, "cash_reserve_min_pct") {
-		t.Fatalf("retired key: %+v (cash reserve %v)", st, p.CashReserveMinPct)
+	if st.Status != rpc.RulebookPolicyStatusActive || p.FXExposureWatchPct != 70 || p.RegimeCalm.NetExposureActPct != 140 || p.RegimeCalm.NetExposureWatchPct != 100 ||
+		!slices.Equal(st.Overrides, []string{"fx_exposure_watch_pct", "regime_calm.net_exposure_act_pct"}) {
+		t.Fatalf("retired keys: %+v (policy %+v)", st, p)
+	}
+	for _, key := range []string{"regime_calm.cash_sell_only_pct", "cash_reserve_min_pct", "net_exposure_watch_pct"} {
+		if !strings.Contains(st.Message, key) {
+			t.Fatalf("the status does not name retired %s: %q", key, st.Message)
+		}
+	}
+	features := map[string]string{}
+	for _, d := range st.Diagnostics {
+		features[d.Key] = d.Feature
+	}
+	if features["cash_reserve_min_pct"] != "premium_budget" || features["net_exposure_watch_pct"] != "net_exposure" || !strings.Contains(st.Message, "premium budget") {
+		t.Fatalf("diagnostics = %+v", st.Diagnostics)
 	}
 	m.reload()
-	if _, st := m.Active(); !strings.Contains(st.Message, "cash_sell_only_pct") {
+	if _, st := m.Active(); !strings.Contains(st.Message, "cash_sell_only_pct") || !strings.Contains(st.Message, "cash_reserve_min_pct") {
 		t.Fatalf("the note vanished on a steady reload: %+v", st)
 	}
-	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pcx = -25\n")
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\nfx_exposure_watch_pct = 70\n\n[regime_calm]\ncash_sell_only_pcx = -25\n")
 	m.reload()
 	if _, st := m.Active(); st.Status != rpc.RulebookPolicyStatusError || !strings.Contains(st.Message, "cash_sell_only_pcx") {
 		t.Fatalf("a misspelt key was tolerated like a retired one: %+v", st)
 	}
 }
 
-// set refuses the retired key, reset removes it, and any other edit drops it,
+// set refuses a retired key, reset removes it, and any other edit drops it,
 // so a key that changes nothing never reads as a limit in force.
 func TestEditRulebookPolicyRefusesAndRemovesTheRetiredKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rulebook-policy.toml")
-	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\ncash_reserve_min_pct = 70\n\n[regime_calm]\ncash_sell_only_pct = -25\n\n[regime_confirmed]\ncash_sell_only_pct = 10\n")
+	writeRulebookTestFile(t, path, "policy_id = \"rulebook-owner\"\npolicy_version = 4\nfx_exposure_watch_pct = 70\ncash_reserve_min_pct = 70\nnet_exposure_act_pct = 140\n\n[regime_calm]\ncash_sell_only_pct = -25\n\n[regime_confirmed]\ncash_sell_only_pct = 10\n")
 	before, _ := os.ReadFile(path)
-	_, err := EditRulebookPolicy(path, []string{"regime_confirmed.cash_sell_only_pct=5"}, nil, false)
-	if err == nil || !strings.Contains(err.Error(), "retired") || !strings.Contains(err.Error(), "cash_reserve_min_pct") {
-		t.Fatalf("set accepted the retired key: %v", err)
+	for assignment, why := range map[string]string{
+		"regime_confirmed.cash_sell_only_pct=5": "premium_budget_watch_pct",
+		"cash_reserve_min_pct=70":               "rule 3 is the premium budget",
+		"net_exposure_watch_pct=90":             "[regime_*] table",
+	} {
+		_, err := EditRulebookPolicy(path, []string{assignment}, nil, false)
+		if err == nil || !strings.Contains(err.Error(), "retired") || !strings.Contains(err.Error(), why) {
+			t.Fatalf("set %s: %v", assignment, err)
+		}
 	}
 	if after, _ := os.ReadFile(path); string(after) != string(before) {
 		t.Fatal("a refused set changed the file")
 	}
-	edit, err := EditRulebookPolicy(path, []string{"overhedge_multiple=1.5"}, []string{"regime_calm.cash_sell_only_pct"}, false)
+	edit, err := EditRulebookPolicy(path, []string{"overhedge_multiple=1.5", "regime_confirmed.net_exposure_watch_pct=70"}, []string{"regime_calm.cash_sell_only_pct"}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	written, _ := os.ReadFile(path)
-	if strings.Contains(string(written), "cash_sell_only_pct") || !slices.Equal(edit.Differs, []string{"cash_reserve_min_pct", "overhedge_multiple"}) {
+	if strings.Contains(string(written), "cash_sell_only_pct") || strings.Contains(string(written), "cash_reserve_min_pct") ||
+		strings.Contains(string(written), "\nnet_exposure_act_pct") || !strings.Contains(string(written), "[regime_confirmed]\nnet_exposure_watch_pct = 70.0") ||
+		!slices.Equal(edit.Differs, []string{"fx_exposure_watch_pct", "overhedge_multiple", "regime_confirmed.net_exposure_watch_pct"}) {
 		t.Fatalf("edit kept a retired key or lost a limit: %+v\n%s", edit, written)
 	}
 	removed := 0
 	for _, c := range edit.Changes {
-		if strings.HasSuffix(c.Key, ".cash_sell_only_pct") && strings.HasPrefix(c.To, "removed") {
+		if retiredRulebookKey(c.Key) && strings.HasPrefix(c.To, "removed") {
 			removed++
 		}
 	}
-	if removed != 2 {
-		t.Fatalf("changes do not report both retired keys removed: %+v", edit.Changes)
+	if removed != 4 {
+		t.Fatalf("changes do not report every retired key removed: %+v", edit.Changes)
 	}
 	if _, err := EditRulebookPolicy(path, []string{"overhedge_multiple=0.5"}, nil, false); err == nil {
 		t.Fatal("an over-hedge multiple below 1 was accepted")
 	}
 	m := newRulebookPolicyManager(path, time.Minute, time.Now)
 	m.reload()
-	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.OverhedgeMultiple != 1.5 || st.Message != "" {
+	if p, st := m.Active(); st.Status != rpc.RulebookPolicyStatusActive || p.OverhedgeMultiple != 1.5 || p.RegimeConfirmed.NetExposureWatchPct != 70 || st.Message != "" {
 		t.Fatalf("the daemon reads the cleaned file differently: %+v (multiple %v)", st, p.OverhedgeMultiple)
 	}
 }
@@ -340,8 +413,23 @@ func TestDefaultRulebookPolicyTOMLCarriesNoRetiredKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, err := parseRulebookPolicy(data)
-	if err != nil || strings.Contains(string(data), "cash_sell_only_pct") || len(read.retired) != 0 ||
+	if err != nil || strings.Contains(string(data), "cash_sell_only_pct") || strings.Contains(string(data), "cash_reserve_min_pct") || len(read.retired) != 0 ||
 		read.policy.FingerprintKey() != risk.DefaultRulebookPolicy().FingerprintKey() || !strings.Contains(string(data), "overhedge_multiple = 2.0") {
 		t.Fatalf("default file: err %v retired %v\n%s", err, read.retired, data)
+	}
+	// The premium budget sits beside rule 4's time value budget in every
+	// regime table, and rule 15's bands follow the protection band.
+	for _, want := range []string{
+		"[regime_calm]\n", "premium_budget_watch_pct = 25.0\n", "premium_budget_act_pct = 35.0\n", "net_exposure_watch_pct = 100.0\n", "net_exposure_act_pct = 150.0\n",
+		"premium_budget_watch_pct = 20.0\n", "net_exposure_act_pct = 130.0\n",
+		"premium_budget_watch_pct = 15.0\n", "premium_budget_act_pct = 25.0\n", "net_exposure_watch_pct = 75.0\n", "net_exposure_act_pct = 100.0\n",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("default file lacks %q:\n%s", want, data)
+		}
+	}
+	calm := string(data)[strings.Index(string(data), "[regime_calm]"):]
+	if i, j := strings.Index(calm, "premium_budget_act_pct"), strings.Index(calm, "extrinsic_watch_pct"); i < 0 || j < 0 || i > j {
+		t.Fatalf("the premium budget is not written beside extrinsic_*:\n%s", calm)
 	}
 }

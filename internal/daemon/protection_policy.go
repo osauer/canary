@@ -130,7 +130,7 @@ type protectionBudgetPolicy struct {
 	PerLinePctOfRiskCapital float64 `toml:"per_line_pct_of_risk_capital" json:"per_line_pct_of_risk_capital"`
 	// MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does (the remainder waits for the next cycle); no default, and until it is written the governor reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent.
+	// Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV, and once the book's premium at risk reaches rule 3's premium budget act level of the regime set in force the total cut brings it back to that set's watch level, with no drawdown-brake gate; the two percentages must then be absent.
 	Basis string `toml:"basis" json:"basis,omitempty"`
 }
 

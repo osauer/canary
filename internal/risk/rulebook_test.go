@@ -273,8 +273,11 @@ func TestExtremeIndexPutPositionIsDirectional(t *testing.T) {
 
 	hedge := rowByID(t, ev, RuleHedgeIntegrity)
 
-	if hedge.Status != RuleStatusNotEvaluated || hedge.Reason != RuleReasonNoProtection || !strings.Contains(hedge.Evidence, "directional short") {
-		t.Fatalf("protection row = %s/%s (%s), want directional short", hedge.Status, hedge.Reason, hedge.Evidence)
+	// The long book is unprotected: a directional put is not protection, so
+	// rule 12 reads 0% coverage, a watch (amendment 17), and says why.
+	if hedge.Status != RuleStatusWatch || hedge.Reason != RuleReasonUnhedged || !strings.Contains(hedge.Evidence, "directional short") ||
+		hedge.Observed == nil || *hedge.Observed != 0 {
+		t.Fatalf("protection row = %s/%s (%s), want an unhedged watch naming the directional short", hedge.Status, hedge.Reason, hedge.Evidence)
 	}
 	// A directional put is ordinary exposure: its dollar delta is a delta
 	// swing like any other (no protection exemption), and rule 1 counts
@@ -312,17 +315,19 @@ func TestIndexPutRoleClassificationDoesNotMutateInputs(t *testing.T) {
 func TestRegimeConditionalThresholds(t *testing.T) {
 	pol := DefaultRulebookPolicy()
 
-	t.Run("cash reserve uses available funds", func(t *testing.T) {
+	// Rule 3 no longer reads available funds (amendment 17): the same book
+	// reads the same premium budget verdict whatever the broker's funds are.
+	t.Run("premium budget ignores available funds", func(t *testing.T) {
 		in := healthyInputs()
 		in.AvailableFundsBase = new(171500.0)
-		ev := EvaluateRulebook(in, pol)
-		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusWatch {
-			t.Errorf("available funds at 70%% = %s, want watch", got)
-		}
+		low := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly)
 		in.AvailableFundsBase = new(196000.0)
-		ev = EvaluateRulebook(in, pol)
-		if got := rowByID(t, ev, RuleCashSellOnly).Status; got != RuleStatusPass {
-			t.Errorf("available funds at 80%% = %s, want pass", got)
+		high := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly)
+		if low.Status != high.Status || *low.Observed != *high.Observed || low.Title != "Premium budget" {
+			t.Errorf("premium budget moved with available funds: %s %v vs %s %v", low.Status, *low.Observed, high.Status, *high.Observed)
+		}
+		if !strings.Contains(low.Evidence, "Available funds are 70.0% of NLV.") || !strings.Contains(high.Evidence, "Available funds are 80.0% of NLV.") {
+			t.Errorf("available funds are context in the evidence: %q / %q", low.Evidence, high.Evidence)
 		}
 	})
 

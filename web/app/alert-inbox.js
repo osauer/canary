@@ -462,6 +462,7 @@ const SEVERITY_TINT = { urgent: "pd-tile--act", act: "pd-tile--act", watch: "pd-
 const RULE_ALERT_TARGETS = {
   rulebook_single_name_exposure: "single_name_exposure",
   rulebook_option_line_premium: "option_line_premium",
+  // Rule 3, "Premium budget" since amendment 17; the stable id is kept.
   rulebook_cash_sell_only: "cash_sell_only",
   rulebook_extrinsic_budget: "extrinsic_budget",
   rulebook_expiry_runway: "expiry_runway",

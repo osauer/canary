@@ -160,13 +160,15 @@ Rows are close or reduce only, like every proposal.
 **Measured against the Rulebook instead.** `basis = "rulebook"` replaces the
 two caps with limits you already keep in the Rulebook policy, as shares of NLV:
 a line is cut to `option_line_act_pct` (its premium at risk being the higher of
-price paid and value), and when broker-reported available funds sit below
-`cash_reserve_min_pct`, lines are sold in the same loss-first order until
-their value covers the shortfall. This basis needs the account's NLV and
-available funds, not a risk constitution, and it waits for no drawdown brake:
-the rows appear whenever those limits are breached. Leave out the two
-percentages; the file fails validation with both a basis of `rulebook` and
-declared-capital caps.
+price paid and value), and when the book's premium at risk reaches the premium
+budget's act level of the regime set in force (Rulebook rule 3,
+`premium_budget_act_pct`), lines are sold in the same loss-first order,
+each contract counted at its premium at risk, until the total is back at the
+budget's watch level (`premium_budget_watch_pct`). This basis needs the
+account's NLV, not a risk constitution or available funds, and it waits for no
+drawdown brake: the rows appear whenever those limits are breached. Leave out
+the two percentages; the file fails validation with both a basis of `rulebook`
+and declared-capital caps.
 
 ```toml
 [buckets.budget_reduction]
@@ -176,10 +178,12 @@ basis = "rulebook"
 max_order_notional = 10000
 ```
 
-The state is `account_unavailable` when NLV or available funds are missing;
-the status then carries `per_line_pct_of_nlv`, `cash_reserve_min_pct`, the
-account values and `cash_shortfall_base`, and each row names the limit that
-selected it.
+The state is `account_unavailable` when NLV is missing; the status then
+carries `per_line_pct_of_nlv`, `premium_budget_watch_pct`,
+`premium_budget_act_pct` and `premium_budget_set`, the account values,
+`premium_pct_of_nlv` and, once the act level is reached,
+`premium_excess_base` (the premium at risk above the watch level), and each
+row names the limit that selected it.
 
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
 the snapshot with `shadow: true`, and listed by `canary proposals list` under

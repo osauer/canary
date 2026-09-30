@@ -36,9 +36,10 @@ type Policy struct {
 	GrossDeltaStressUrgentPct    float64 `json:"gross_delta_stress_urgent_pct"`
 
 	// Net exposure is not a stress threshold: the stress read takes rule 15's
-	// measure and its watch and act bands from the Rulebook policy, and
-	// confirmed stress moves the reading one band up (amendment 16, owner
-	// decision 2026-09-26). The retired net-delta watch 125, stress act 80 and
+	// measure, regime-banded verdict and bands from the Rulebook policy
+	// (amendment 16, owner decision 2026-09-26): watch is a watch, act an act,
+	// and an act under the confirmed regime set urgent (amendment 17, owner
+	// decision 2026-09-30). The retired net-delta watch 125, stress act 80 and
 	// stress urgent 125 have no replacement here.
 
 	// Single-name concentration is not a stress threshold: the stress read

@@ -1274,12 +1274,16 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 		evidence += "; " + gap
 	}
 	stressed := stressClusterStressed(m)
-	net, _, netHit := stressNetExposureLevel(p.NetExposure, stressed)
+	// Net exposure carries rule 15's own tier (amendment 17); gross exposure
+	// and gross delta keep the stress read's levels.
+	net, _, netHit := stressNetExposureLevel(p.NetExposure)
 	switch {
-	case stressed && (gross >= stressPolicy.GrossExposureStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct || (netHit && net == risk.SeverityUrgent)):
+	case (stressed && (gross >= stressPolicy.GrossExposureStressUrgentPct || grossDelta >= stressPolicy.GrossDeltaStressUrgentPct)) || net == risk.SeverityUrgent:
 		return stressRow("US equity/options exposure", risk.DirectionDefensive, risk.SeverityUrgent, "Go near-flat on broad equity beta; close or hedge option delta first.", evidence)
-	case stressed && (gross >= stressPolicy.GrossExposureStressActPct || grossDelta >= stressPolicy.GrossDeltaStressActPct || netHit):
+	case stressed && (gross >= stressPolicy.GrossExposureStressActPct || grossDelta >= stressPolicy.GrossDeltaStressActPct || net == risk.SeverityAct):
 		return stressRow("US equity/options exposure", risk.DirectionDefensive, risk.SeverityAct, "Cut 30-50% of net equity delta and avoid adding long gamma-dollar exposure.", evidence)
+	case net == risk.SeverityAct:
+		return stressRow("US equity/options exposure", risk.DirectionRebalance, risk.SeverityAct, "Net exposure is at the Rulebook's act level; sell back toward its watch level before adding risk.", evidence)
 	case gross >= stressPolicy.GrossExposureWatchPct || grossDelta >= stressPolicy.GrossDeltaWatchPct || netHit:
 		return stressRow("US equity/options exposure", risk.DirectionRebalance, risk.SeverityWatch, "Exposure is high; rebalance toward risk limits without treating this as confirmed market stress.", evidence)
 	case stressNetExposureGap(p.NetExposure):
@@ -1306,24 +1310,24 @@ func stressNetExposureMeasured(n *rpc.StressNetExposure) bool {
 }
 
 // stressNetExposureLevel maps rule 15's verdict onto the stress read's tiers
-// (amendment 16, owner decision 2026-09-26). The stress read keeps no net
-// level of its own; confirmed stress moves the reading one band up. In calm
-// markets only rule 15's act band is a stress watch, since a fully invested,
-// unlevered book already sits at rule 15's watch; under confirmed stress rule
-// 15's watch band acts and its act band is urgent. This keeps the retired
-// regime-conditional shape (calm watch 125, stress act 80, stress urgent 125)
-// on rule 15's two bands. threshold is the band the tier rests on.
-func stressNetExposureLevel(n *rpc.StressNetExposure, stressed bool) (severity risk.SignalSeverity, threshold *float64, hit bool) {
+// (amendment 17, owner decision 2026-09-30). The stress read keeps no net
+// level and no shift of its own: rule 15's regime-banded verdict is the one
+// definition. Rule 15 at watch is a stress watch, at act a stress act, and an
+// act under the confirmed regime set is urgent. It replaced amendment 16's
+// "one band up under confirmed stress", now that rule 15's bands tighten
+// with the regime themselves. threshold is the band the tier rests on.
+func stressNetExposureLevel(n *rpc.StressNetExposure) (severity risk.SignalSeverity, threshold *float64, hit bool) {
 	if !stressNetExposureMeasured(n) {
 		return "", nil, false
 	}
-	switch {
-	case n.Status == risk.RuleStatusAct && stressed:
-		return risk.SeverityUrgent, n.ActPct, true
-	case n.Status == risk.RuleStatusWatch && stressed:
-		return risk.SeverityAct, n.WatchPct, true
-	case n.Status == risk.RuleStatusAct:
-		return risk.SeverityWatch, n.ActPct, true
+	switch n.Status {
+	case risk.RuleStatusAct:
+		if n.RegimeSet == risk.RegimeBucketConfirmed {
+			return risk.SeverityUrgent, n.ActPct, true
+		}
+		return risk.SeverityAct, n.ActPct, true
+	case risk.RuleStatusWatch:
+		return risk.SeverityWatch, n.WatchPct, true
 	default:
 		return "", nil, false
 	}
@@ -2134,16 +2138,19 @@ func stressExposureSignals(p StressPortfolioSummary, m StressMarketSummary) []ri
 }
 
 // appendNetExposureSignal raises net_delta_high from Rulebook rule 15's
-// verdict and bands, one band up in confirmed stress (amendment 16). A rule
-// 15 reading that is unavailable, unknown or off raises nothing here; the
-// exposure row carries that gap and never reads it as a pass.
+// verdict and bands (amendment 17: its own regime set, urgent at act under
+// the confirmed set). A rule 15 reading that is unavailable, unknown or off
+// raises nothing here; the exposure row carries that gap and never reads it
+// as a pass.
 func appendNetExposureSignal(out []risk.Signal, n *rpc.StressNetExposure, stressed bool) []risk.Signal {
-	severity, threshold, hit := stressNetExposureLevel(n, stressed)
+	severity, threshold, hit := stressNetExposureLevel(n)
 	if !hit {
 		return out
 	}
+	// The direction matches the exposure row: urgent, or an act under
+	// confirmed market stress, is defensive; the rest rebalances.
 	direction := risk.DirectionRebalance
-	if stressed {
+	if severity == risk.SeverityUrgent || (stressed && severity == risk.SeverityAct) {
 		direction = risk.DirectionDefensive
 	}
 	confidence := "high"

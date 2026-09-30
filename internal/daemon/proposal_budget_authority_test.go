@@ -7,14 +7,18 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func TestBudgetGovernorRequiresObservedFunds(t *testing.T) {
+// The rulebook basis measures shares of NLV, so it needs an observed,
+// authority-bound NLV. Since amendment 17 it no longer reads available funds:
+// missing or odd funds change nothing, and only the premium budget's act
+// level starts the total pass.
+func TestBudgetGovernorRequiresObservedNLV(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		edit  func(*rpc.AccountResult)
 		state string
 		rows  int
 	}{
-		{"missing_funds", func(a *rpc.AccountResult) { a.Authority.Fields.AvailableFunds = false }, rpc.BudgetStateAccountUnavailable, 0},
+		{"missing_funds", func(a *rpc.AccountResult) { a.Authority.Fields.AvailableFunds = false }, rpc.BudgetStateWithinBudget, 0},
 		{"missing_nlv", func(a *rpc.AccountResult) { a.Authority.Fields.NetLiquidation = false }, rpc.BudgetStateAccountUnavailable, 0},
 		{"missing_currency", func(a *rpc.AccountResult) { a.Authority.Fields.BaseCurrency = false }, rpc.BudgetStateAccountUnavailable, 0},
 		{"missing_authority", func(a *rpc.AccountResult) { a.Authority = nil }, rpc.BudgetStateAccountUnavailable, 0},
@@ -24,11 +28,12 @@ func TestBudgetGovernorRequiresObservedFunds(t *testing.T) {
 		{"unstamped_cache", func(a *rpc.AccountResult) { a.Authority.Freshness = rpc.AccountDataFreshnessUnknown }, rpc.BudgetStateAccountUnavailable, 0},
 		{"wrong_account", func(a *rpc.AccountResult) { a.AccountID = "DU0000000" }, rpc.BudgetStateAccountUnavailable, 0},
 		{"unknown_mode", func(a *rpc.AccountResult) { a.Authority.Scope.AccountMode = "" }, rpc.BudgetStateAccountUnavailable, 0},
-		{"invalid_funds", func(a *rpc.AccountResult) { a.AvailableFunds = math.NaN() }, rpc.BudgetStateAccountUnavailable, 0},
+		{"invalid_funds", func(a *rpc.AccountResult) { a.AvailableFunds = math.NaN() }, rpc.BudgetStateWithinBudget, 0},
 		{"invalid_nlv", func(a *rpc.AccountResult) { a.NetLiquidation = math.Inf(1) }, rpc.BudgetStateAccountUnavailable, 0},
-		{"observed_zero", func(*rpc.AccountResult) {}, rpc.BudgetStateOverBudget, 1},
-		{"observed_negative", func(a *rpc.AccountResult) { a.AvailableFunds = -100 }, rpc.BudgetStateOverBudget, 1},
-		{"within_reserve", func(a *rpc.AccountResult) { a.AvailableFunds = 80000 }, rpc.BudgetStateWithinBudget, 0},
+		{"funds_zero_premium_small", func(*rpc.AccountResult) {}, rpc.BudgetStateWithinBudget, 0},
+		{"funds_negative_premium_small", func(a *rpc.AccountResult) { a.AvailableFunds = -100 }, rpc.BudgetStateWithinBudget, 0},
+		// 2,000 of premium on a 5,000 NLV is 40%, over the calm 35% act level.
+		{"premium_over_act", func(a *rpc.AccountResult) { a.NetLiquidation = 5000 }, rpc.BudgetStateOverBudget, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := optionExitTestTime()
@@ -50,7 +55,7 @@ func TestBudgetGovernorRequiresObservedFunds(t *testing.T) {
 				t.Fatalf("state=%s rows=%d, want state=%s rows=%d", status.State, len(rows), tc.state, tc.rows)
 			}
 			if tc.rows > 0 && (rows[0].Quantity != 2 || !rows[0].AutomaticEligible()) {
-				t.Fatalf("observed cash deficit must retain the existing reduction: %+v", rows[0])
+				t.Fatalf("an observed premium over the act level must retain the reduction: %+v", rows[0])
 			}
 			if tc.name == "missing_funds" && input.AvailableFundsBase != nil {
 				t.Fatal("missing funds became a numeric value")

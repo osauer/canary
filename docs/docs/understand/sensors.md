@@ -364,7 +364,7 @@ returns all 18 rows in stable order plus a hardest-first ranking, breach
 counts, offenders with their own status, observed values, thresholds, and
 evidence. The detailed
 [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md) is the semantic authority;
-Canary's default limits (`rulebook-v4`) are an advisory model, not proof that
+Canary's default limits (`rulebook-v5`) are an advisory model, not proof that
 every threshold has operator approval.
 
 Row outcomes are `pass`, `info`, `watch`, `act`, `unknown`, or `not_evaluated`.

@@ -940,7 +940,7 @@ test("Rules keep configuration, applicability, and incomplete measurements disti
   assert.equal(stress.ruleGroupKey({ status: "not_evaluated", reason: "pnl_unavailable" }), "not_evaluated");
   assert.equal(stress.ruleGroupKey({ mode: "off", status: "not_evaluated", reason: "rule_off" }), "off");
   assert.equal(stress.ruleGroupKey({ mode: "alert", status: "act", reason: "rule_off" }), "attention", "a conflicting reason cannot hide an active result");
-  const monitoring = stress.ruleChecklistRow({ id: "monitor", title: "Cash reserve", mode: "track", status: "act", evidence: "Reserve is below its threshold." });
+  const monitoring = stress.ruleChecklistRow({ id: "monitor", title: "Premium budget", mode: "track", status: "act", evidence: "Premium at risk is above its act level." });
   assert.equal(monitoring.classList.contains("neutral"), true);
   assert.equal(byClass(monitoring, "rules-row__status")[0].textContent, "Act level");
   assert.equal(byClass(monitoring, "rules-row__mode")[0].textContent, "Monitor only");

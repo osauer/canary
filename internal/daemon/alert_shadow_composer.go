@@ -2591,10 +2591,12 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 }
 
 // alertShadowRulebookHealthRelevance is the conservative operator-approved map
+// of the input sources each rule's verdict rests on. The regime-conditional
+// rules (3, 4, 12 and 15 since amendment 17) also rest on the regime stage.
 var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleSingleNameExposure: {"account", "positions"},
 	risk.RuleOptionLinePremium:  {"account", "positions"},
-	risk.RuleCashSellOnly:       {"account", "positions"},
+	risk.RuleCashSellOnly:       {"account", "positions", "regime_stage"},
 	risk.RuleExtrinsicBudget:    {"account", "positions", "regime_stage"},
 	risk.RuleExpiryRunway:       {"account", "positions"},
 	risk.RuleCatalystCoverage:   {"account", "positions", "earnings"},
@@ -2605,7 +2607,7 @@ var alertShadowRulebookHealthRelevance = map[string][]string{
 	risk.RuleHedgeIntegrity:     {"account", "positions", "regime_stage"},
 	risk.RuleExitDiscipline:     {"account", "positions"},
 	risk.RuleFXExposure:         {"account", "positions"},
-	risk.RuleNetExposure:        {"account", "positions"},
+	risk.RuleNetExposure:        {"account", "positions", "regime_stage"},
 	risk.RuleDeltaSwing:         {"account", "positions"},
 	risk.RuleClusterStress:      {"account", "positions"},
 	risk.RuleLossBudget:         {"account", "positions"},
@@ -2670,7 +2672,13 @@ func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResul
 	case risk.RuleRedOnGreen, risk.RuleWinnerTrim:
 		return row.Reason == risk.RuleReasonOffSession
 	case risk.RuleHedgeIntegrity:
-		return row.Reason == risk.RuleReasonNoLongBook || row.Reason == risk.RuleReasonNoProtection
+		// Since amendment 17 a long book without protection is a watch
+		// (unhedged); only a book with no long exposure is not evaluated.
+		return row.Reason == risk.RuleReasonNoLongBook
+	case risk.RuleCashSellOnly:
+		// No long option open: no premium to budget, and no offender a
+		// reason could hide.
+		return row.Reason == risk.RuleReasonNoLongOptions && len(row.Offenders) == 0
 	case risk.RuleClusterStress:
 		// No declared cluster asks nothing: the policy is the authority, and
 		// the row carries no offender that a reason could hide.

@@ -14,6 +14,26 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+// sellOnlyLine states the result-level sell-only fact under the header,
+// naming the rules behind it by number and title; "" while it is inactive.
+func sellOnlyLine(res rpc.RulesResult) string {
+	if !res.SellOnly.Active {
+		return ""
+	}
+	names := make([]string, 0, len(res.SellOnly.Rules))
+	for _, id := range res.SellOnly.Rules {
+		name := id
+		for _, r := range res.Rules {
+			if r.ID == id {
+				name = fmt.Sprintf("rule %d %s", r.Number, strings.ToLower(r.Title))
+				break
+			}
+		}
+		names = append(names, name)
+	}
+	return "  sell-only  " + strings.Join(names, " and ") + " at watch or act: buys work against the Rulebook (advisory)"
+}
+
 // runRules renders the daemon's advisory trading-rulebook checklist
 // (internal-docs/design/trading-rulebook.md). Read-only; verdicts, ranking, and
 // thresholds all come from the daemon — this renderer adds no policy.
@@ -55,6 +75,9 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 	}
 	fmt.Fprintf(env.Stdout, "Trading rulebook — %s  policy %s v%d%s  status %s\n",
 		res.AsOf.Local().Format("2006-01-02 15:04 MST"), res.PolicyID, res.PolicyVersion, source, res.Status)
+	if line := sellOnlyLine(res); line != "" {
+		fmt.Fprintln(env.Stdout, line)
+	}
 	if st := res.PolicyStatus; st != nil && st.Message != "" {
 		fmt.Fprintf(env.Stdout, "  policy    %s: %s\n", st.Status, st.Message)
 	}

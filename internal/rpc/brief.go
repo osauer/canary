@@ -1781,7 +1781,7 @@ type RiskPolicyWriteResult struct {
 const MethodRulesSnapshot = "rules.snapshot"
 
 // RulebookPolicyFingerprintVersion labels the advisory rulebook policy
-const RulebookPolicyFingerprintVersion = "rulebook-fp-v6"
+const RulebookPolicyFingerprintVersion = "rulebook-fp-v7"
 
 // RulebookPolicyStatusDefault and the related values say which Rulebook
 // policy produced a result: the compiled baseline, the owner's file in force,
@@ -2043,6 +2043,10 @@ type RulesResult struct {
 	// re-deriving it.
 	Rules  []risk.RuleRow `json:"rules"`
 	Ranked []int          `json:"ranked,omitempty"`
+	// SellOnly is the result-level sell-only fact (amendment 17): active
+	// while rule 3 (premium budget) or rule 15 (net exposure) is at watch or
+	// act, naming those rules. Advisory; it never changes submit eligibility.
+	SellOnly risk.RuleSellOnly `json:"sell_only"`
 	// BreachCounts summarizes row counts by status for compact surfaces.
 	BreachCounts map[string]int `json:"breach_counts,omitempty"`
 	// InputHealth is the result-level gate: when positions or account are

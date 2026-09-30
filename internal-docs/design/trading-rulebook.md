@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-26 10:45 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v4` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26). The
+Updated: 2026-09-30 09:51 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -63,7 +63,7 @@ authorize or block a broker write.
   `canary_rules`, the SPA Rules card, daily-brief Rulebook deltas,
   source-neutral alert episodes/inbox delivery, and advisory `rule_*` warnings
   on `canary order preview`.
-- Owner layers: the compiled `rulebook-v3` baseline (`internal/risk`) under the
+- Owner layers: the compiled `rulebook-v5` baseline (`internal/risk`) under the
   owner's `rulebook-policy.toml` (amendment 11), earnings and regime
   state (`daemon.db`), manual earnings overrides + feature toggle (runtime
   platform settings), canonical evaluation and alert lifecycle (daemon), and
@@ -79,7 +79,7 @@ Three surfaces measure overlapping metrics with different bars, by design:
 the **stress read** is regime×portfolio alerting (compiled thresholds, push
 alerts), **proposals** are executable protection orders (protection-policy
 TOML), and the **rulebook** is an advisory discipline model
-(compiled baseline `rulebook-v4` under the owner's `rulebook-policy.toml`). Same
+(compiled baseline `rulebook-v5` under the owner's `rulebook-policy.toml`). Same
 measurements, different questions. Containment so this never drifts into
 contradiction:
 
@@ -95,15 +95,17 @@ contradiction:
 - One definition of net exposure (amendment 16): the stress read's exposure
   row, its `net_delta_high` signal and its `net_delta_pct_nlv` figure read
   rule 15's measure and bands from the Rulebook result. The retired stress
-  net-delta levels (watch 125, stress act 80, stress urgent 125) are gone;
-  confirmed stress moves rule 15's reading one band up instead. Without a
-  rule 15 measurement the exposure row is a data-quality watch, never a pass.
+  net-delta levels (watch 125, stress act 80, stress urgent 125) are gone.
+  Since amendment 17 the stress read takes rule 15's own regime-banded
+  verdict: watch is a watch, act an act, and an act under the confirmed
+  regime set urgent. Without a rule 15 measurement the exposure row is a
+  data-quality watch, never a pass.
 - One aggregation: rule evaluation consumes the same
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
   read consumes. Bars may differ; observations may not. (An earlier revision
   claimed a Go test asserting identical observations; none existed, and
   concentration now has a single reader instead.)
-- The Rulebook policy in force (baseline `rulebook-v4` version 4, or the owner's
+- The Rulebook policy in force (baseline `rulebook-v5` version 5, or the owner's
   file by its `policy_id`/`policy_version`) is what the risk-constitution sibling
   pin compares. The sibling pin currently compares ID/version, not the
   Rulebook fingerprint; it detects version drift but is not threshold-level
@@ -334,6 +336,95 @@ contradiction:
     Rulebook itself is unchanged: baseline `rulebook-v4`, projection
     `rulebook-fp-v6`.
 
+17. Amendment (2026-09-30, operator decisions): the rule that fires is the
+    rule that bounds the book. On a book of long options without a margin
+    loan or short options, rule 3's "available funds at least 75% of NLV"
+    was arithmetically "long premium at most 25% of NLV", read the wrong way
+    round: it relaxed as the calls lost and tightened as they won, so it
+    asked for sales of winners, while a book far above 100% net long in a
+    confirmed-stress regime showed rule 15 only in track mode and rule 12
+    as not evaluated because no hedge existed.
+    - R1, rule 3 is the **premium budget** (title "Premium budget"; the
+      stable id `cash_sell_only`, the alert code `rulebook_cash_sell_only`
+      and history stay). Measure: the sum over every long option leg not
+      classified as protection (rule 12's classification) of premium at risk
+      — the higher of price paid and current value in base currency, the
+      per-leg figure of rule 2 and the budget governor — as % of NLV. Watch
+      and act per regime set, keys `premium_budget_watch_pct` and
+      `premium_budget_act_pct` in each `[regime_*]` table beside
+      `extrinsic_*`: calm 25/35, early warning 20/30, confirmed 15/25, at or
+      above, with rule 4's regime evaluation (a carried stage keeps the worse
+      of its set and calm; a never-seen stage reads calm). Evidence names the
+      regime set, the observed percent and the level, and adds the broker's
+      available funds as a share of NLV as context. Ranking impact is the
+      premium at risk in base currency, as for rules 2 and 4. No NLV, a leg
+      without a base value (a substituted, unconverted value cannot be judged
+      against the materiality floor, rule 4's guard, so every such leg
+      counts), or a leg with neither a price paid nor a value is `unknown`
+      (`premium_unmeasured`), never a pass, even beside a breach; no long
+      option leg at all is `not_evaluated/no_long_options`, which the alert
+      authority accepts as a trusted negative. Protection alone reads 0%.
+      Mode stays `alert`.
+    - R2, `cash_reserve_min_pct` is retired the way `cash_sell_only_pct`
+      was: `set` refuses it, a file that still carries it loads with the key
+      ignored and a `policy_status` note, any `set` or `reset` removes it,
+      `reset --all` writes the new template, and the upgrade migration
+      comments it out (with a note naming its replacement and the owner's
+      old value) and adds the new keys at their defaults. Risk assessment:
+      what still bounds premium is rule 3's budget (the same constraint on a
+      long-premium book, tighter in stress), rule 2 per line and rule 4 on
+      time value. The worst case is a future book with margin loans or short
+      options: nothing then watches margin headroom. That is a separate rule
+      for a separate decision, not this change. The budget governor's
+      rulebook basis reads rule 3's levels of the regime set in force
+      (`RulebookPolicy.PremiumBudgetInForce`, the latched stage read as rule
+      3 reads it) instead of the reserve: its total pass triggers at the act
+      level and cuts back to the watch level (rule 1's trim convention),
+      counting each contract at its premium at risk, in the unchanged
+      loss-first order. Its reason and details name the premium budget; the
+      rulebook-basis fields became `premium_budget_watch_pct`,
+      `premium_budget_act_pct`, `premium_pct_of_nlv` and
+      `premium_excess_base` (the status also names `premium_budget_set`).
+      The governor keeps its own protection classification.
+    - R3, **sell-only** is a result-level fact: while rule 3 or rule 15 is
+      at watch or act, whatever its mode, `RulesResult.sell_only` is
+      `{active: true, rules: [...]}` in rulebook order and those rows carry
+      `sell_only: true`; otherwise `{active: false}`. A rule turned off never
+      contributes. The preview keeps `rule_cash_sell_only` on every buy, now
+      in the premium budget's words, and adds `rule_net_exposure` on a buy
+      that opens or increases exposure on the side rule 15 flags (a put
+      bought against a net-long book reduces it and does not warn; close and
+      reduce never warn). `canary rules` prints one sell-only line under its
+      header. Advisory by construction: submit eligibility is untouched.
+    - R4, rule 15's bands are regime-conditional: keys
+      `net_exposure_watch_pct` and `net_exposure_act_pct` move into the
+      `[regime_*]` tables (calm 100/150, early warning 100/130, confirmed
+      75/100) and the top-level keys are retired as in R2. The stress read
+      no longer moves rule 15's reading one band up: it consumes rule 15's
+      regime-set verdict and bands, watch as a watch, act as an act, and an
+      act under the confirmed regime set as urgent (`StressNetExposure`
+      carries `regime_set`). An act is defensive under confirmed market
+      stress or when urgent, otherwise a rebalance. Mode stays `track`
+      (operator decision of 2026-09-23); `canary rules policy set
+      modes.net_exposure=alert` makes it alert.
+    - R5, rule 12 on a gross-long book with no protection-classified
+      position reads coverage 0%, below the band's bottom: `watch`, reason
+      `unhedged`, evidence "No index protection is open; the <set> band asks
+      for X–Y% of gross long exposure." Directional index puts are named as
+      such in the evidence and notes. This matches a below-band book, which
+      was already a watch; act stays the over-hedge tier. No long book stays
+      `not_evaluated/no_long_book`; `not_evaluated/no_index_protection` is
+      gone and the alert authority no longer accepts it.
+    Every regime-conditional row (3, 4, 12, 15) names the set behind its
+    verdict in `regime_set`, and in the alert authority's relevance map rules
+    3 and 15 now rest on the regime stage as rules 4 and 12 do, so a stale or
+    unseen stage holds their episodes instead of clearing them. The
+    behaviour changes, so the baseline becomes
+    `rulebook-v5` (Version 5) and the fingerprint projection `rulebook-fp-v7`
+    (the retired fields leave it; the regime sets carry the new ones). The
+    stress fingerprint projection stays `stress-policy-fp-v3`: no stress
+    threshold moved.
+
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
@@ -347,7 +438,7 @@ stock shares×spot + Σ(option delta×100×contracts×spot), from
 15 and 16 read it. Rule 1 reads the worst-case loss per issuer instead
 (amendment 15), from each line's summed stock rows and each option leg's mark,
 strike and FX rate.
-Rules 4/12 thresholds are regime-conditional: calm / early_warning /
+Rules 3, 4, 12 and 15 thresholds are regime-conditional: calm / early_warning /
 confirmed sets selected by the latched regime lifecycle stage (see the
 regime-conditionality notes).
 
@@ -355,7 +446,7 @@ regime-conditionality notes).
 |---|---|---|---|---|
 | 1 | `single_name_exposure` | worst-case loss per issuer / NLV, every leg netted from current marks (amendment 15) | watch ≥ 30%; act ≥ 40%; illiquid 20% / 30% | alert |
 | 2 | `option_line_premium` | each long option position's market value / NLV; protection positions use the protection tier | watch ≥ 5%; act ≥ 10%; protection watch ≥ 15%, act ≥ 25% | track |
-| 3 | `cash_sell_only` | broker AvailableFunds / NLV; the stable id is retained for history compatibility | watch < 75% | alert |
+| 3 | `cash_sell_only` | premium budget: Σ premium at risk (higher of price paid and value) of long options outside protection / NLV; the stable id is retained for history compatibility (amendment 17) | watch ≥ 25 / 20 / 15%; act ≥ 35 / 30 / 25% by regime; sell-only at watch or act | alert |
 | 4 | `extrinsic_budget` | Σ long-option time value / NLV, excluding protection-classified legs | watch ≥ 10 / 7.5 / 5%; act ≥ 15 / 12 / 10% by regime | alert |
 | 5 | `expiry_runway` | long option DTE ≤ 14 unless ≥70-delta ITM or protection-classified | watch ≤ 14 DTE; act ≤ 7 DTE | alert |
 | 6 | `catalyst_coverage` | OTM long option expiring before the next earnings announcement | expiry < earnings | track |
@@ -364,10 +455,10 @@ regime-conditionality notes).
 | 9 | `red_on_green` | stock day change ≤−1.5% while SPY ≥+0.5% | intraday only | off |
 | 10 | `winner_trim` | stock day change ≥+4% with exposure ≥15% NLV | intraday only | off |
 | 11 | `green_day_action` | account daily P&L >0 while an act-level rule is open | informational | off |
-| 12 | `hedge_integrity` | protection-classified short delta / gross long delta | 25–35 / 30–50 / 40–70% by regime (edges inside); act > 2× the top | alert |
+| 12 | `hedge_integrity` | protection-classified short delta / gross long delta; no protection on a long book reads 0% (`unhedged`, amendment 17) | 25–35 / 30–50 / 40–70% by regime (edges inside), watch outside; act > 2× the top | alert |
 | 13 | `exit_discipline` | each long option position's unrealized loss / premium paid; protection-classified legs exempt | watch ≥40%; act ≥60% | alert |
 | 14 | `fx_exposure` | Σ non-base-currency NLV / NLV | track ≥60% | track |
-| 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100%; act ≥ 150% | track |
+| 15 | `net_exposure` | signed Σ exposure of every name, hedges included / NLV; missing delta may indict (lower bound), never acquit | watch ≥ 100 / 100 / 75%; act ≥ 150 / 130 / 100% by regime (amendment 17); sell-only at watch or act | track |
 | 16 | `delta_swing` | one issuer's dollar delta / NLV; protection-classified index short delta exempt; never acts | watch ≥ 30% | track |
 | 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
 | 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
@@ -387,8 +478,8 @@ Semantics notes:
 
 - Ranking (hardest-first; the number 13 was reassigned to exit_discipline
   in v2): estimated exposure impact descending where the rule has a natural
-  impact (1, 2, 4, 5, 6, 7, 8, 10, 12, 13 = offending exposure, premium, or
-  salvageable premium in base currency); rules 3, 9, 11, 14 rank by
+  impact (1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13, 15 = offending exposure,
+  premium, or salvageable premium in base currency); rules 9, 11, 14 rank by
   severity then rule number. Impact definition lives beside each rule in
   the policy file.
 - Index-put roles (rules 1, 2, 4, 5, 12, 13): eligible long puts use the
@@ -492,7 +583,8 @@ approval):
   asserted only when the interval minimum alone crosses the bar, rendered
   "≥ X%" with `observed_is_lower_bound`; anything short of provable stays
   `unknown`.
-- **Regime conditionality (rules 3/4/12).** The daemon latches the regime
+- **Regime conditionality (rules 3, 4, 12 and 15; rule 3 before amendment 9
+  and again since amendment 17).** The daemon latches the regime
   lifecycle stage on every regime snapshot, buckets it (quiet/opportunity →
   calm; early_warning/stabilization → early_warning; confirmed_stress/
   panic → confirmed; data_quality holds the previous latch;
@@ -576,7 +668,8 @@ exempt symbol has matching current typed authority in the same result:
 reviewed terminal evidence, exact broker nonissuer identity, or a disclosed
 per-symbol mixture of both. A row reason alone, missing/mismatched authority,
 or stale/future/malformed proof retains the prior episode. Off-session tape on
-rules 9-10 and no long book on rule 12 remain the other accepted reasons.
+rules 9-10, no long book on rule 12 and no long option on rule 3 (with no
+offender) remain the other accepted reasons.
 
 ## Architecture
 
@@ -758,7 +851,7 @@ web/app/*                         rules card + drill-in
   warns), it appends `DataWarning{Code: "rule_<id>", Severity: <the rule's
   own watch|act>, Scope: "rulebook"}`. No ninth severity word;
   `submit_eligible` is never affected.
-- Policy: compiled baseline `rulebook-v3` (Version 3) or the owner's file (every threshold —
+- Policy: compiled baseline `rulebook-v5` (Version 5) or the owner's file (every threshold —
   including the three regime sets — is part of `FingerprintKey`, so a
   threshold outside the fingerprint is impossible without failing the
   fingerprint test). The optional operator TOML override
@@ -814,7 +907,8 @@ web/app/*                         rules card + drill-in
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback |
 |---|---|---|---|---|
-| Rule thresholds | Rulebook policy in force (baseline or owner file) × latched regime stage for rules 3/4/12 | `RulesResult.PolicyFingerprint` | all | baseline `rulebook-v3` or owner file (`policy_status`); sibling ID/version pin is not fingerprint-level approval; stage carried/never-seen ⇒ worse-of/calm with disclosure |
+| Rule thresholds | Rulebook policy in force (baseline or owner file) × latched regime stage for rules 3, 4, 12 and 15 | `RulesResult.PolicyFingerprint`, `RuleRow.regime_set` | all | baseline `rulebook-v5` or owner file (`policy_status`); sibling ID/version pin is not fingerprint-level approval; stage carried/never-seen ⇒ worse-of/calm with disclosure |
+| Sell-only | daemon canonical evaluation (rules 3 and 15 at watch or act) | `RulesResult.SellOnly`, `RuleRow.sell_only` | CLI header line, preview causes, Desk | inactive when neither row is at watch or act; never touches submit eligibility |
 | Rule verdicts | daemon canonical evaluation + `rules.snapshot` | `RulesResult.Rules []RuleRow` | CLI/MCP/SPA, brief delta, history | per-row `unknown`/`not_evaluated`, result-level InputHealth |
 | Earnings dates/applicability | daemon multi-provider earnings resolution ∪ authoritative override ∪ exact-contract SQLite terminal evidence ∪ exact broker identity observations | `RulesResult.Earnings[]` with provider outcomes and typed applicability authority | same | typed `unknown`; conflicts, expired, or mismatched evidence have no usable date or exemption; stale LKG flagged |
 | Preview causes | daemon preview handler (scope-bound canonical result ≤75s) | `Warnings[].Code = rule_*`, `Scope = rulebook`; as-of in `Impact` | order preview surfaces | explicit unavailable advisory when canonical read cannot complete |

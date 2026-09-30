@@ -7,18 +7,19 @@ import (
 )
 
 // The stress read's net exposure is a projection of Rulebook rule 15
-// (amendment 16): its status, measure, lower-bound flag and bands, the side
-// it flags, and why a reading is missing.
+// (amendments 16 and 17): its status, measure, lower-bound flag, bands and
+// the regime set behind them, the side it flags, and why a reading is
+// missing.
 func TestStressNetExposureFromRulesProjectsRule15(t *testing.T) {
 	watch := RulesResult{Enabled: true, Rules: []risk.RuleRow{
 		{ID: risk.RuleSingleNameExposure, Status: risk.RuleStatusPass},
 		{ID: risk.RuleNetExposure, Status: risk.RuleStatusWatch, Observed: new(121.5), ObservedIsLowerBound: true,
-			WatchThreshold: new(100.0), ActThreshold: new(150.0),
+			WatchThreshold: new(100.0), ActThreshold: new(150.0), RegimeSet: risk.RegimeBucketEarlyWarning,
 			Offenders: []risk.RuleOffender{{Symbol: "BBB", Note: "delta missing"}, {Symbol: "AAA", Observed: -80}}},
 	}}
 	got := StressNetExposureFromRules(&watch)
 	if got.Reason != "" || got.Status != risk.RuleStatusWatch || got.PctNLV == nil || *got.PctNLV != 121.5 || !got.IsLowerBound ||
-		*got.WatchPct != 100 || *got.ActPct != 150 || got.Direction != "short" || got.RuleReason != "" {
+		*got.WatchPct != 100 || *got.ActPct != 150 || got.Direction != "short" || got.RuleReason != "" || got.RegimeSet != risk.RegimeBucketEarlyWarning {
 		t.Fatalf("watch projection = %+v", got)
 	}
 	// The projection is a copy: the Rulebook result stays untouched.

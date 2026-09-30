@@ -297,20 +297,46 @@ func parseRulebookPolicy(data []byte) (rulebookPolicyRead, error) {
 	return rulebookPolicyRead{policy: policy, overrides: overrides, retired: retired, missing: missing}, nil
 }
 
-// retiredCashSellOnlyReason says why cash_sell_only_pct is retired.
-const retiredCashSellOnlyReason = "no rule reads cash_sell_only_pct (the cash reserve is cash_reserve_min_pct)"
+// Why each retired Rulebook key is ignored.
+const (
+	retiredCashSellOnlyReason   = "no rule reads cash_sell_only_pct (rule 3 is the premium budget: premium_budget_watch_pct and premium_budget_act_pct in each [regime_*] table)"
+	retiredCashReserveReason    = "rule 3 is the premium budget since amendment 17 (premium_budget_watch_pct and premium_budget_act_pct in each [regime_*] table); no rule reads available funds against a reserve"
+	retiredNetExposureTopReason = "rule 15's bands are regime-conditional since amendment 17: net_exposure_watch_pct and net_exposure_act_pct live in each [regime_*] table"
+)
 
 // retiredRulebookKey reports whether key is one an owner file may still carry
 // although no rule reads it: cash_sell_only_pct in a regime set, which
-// canary policy default rulebook wrote until v3.11.1. Loading ignores it and
-// says so, set refuses it, and any edit removes it.
+// canary policy default rulebook wrote until v3.11.1; earnings_stale_days;
+// and, since amendment 17 (2026-09-30), the top-level cash_reserve_min_pct,
+// net_exposure_watch_pct and net_exposure_act_pct. Loading ignores it and
+// says so, set refuses it, and any edit removes it. The regime tables'
+// net_exposure_* keys are live and never retired.
 func retiredRulebookKey(key string) bool {
-	if key == "earnings_stale_days" {
+	switch key {
+	case "earnings_stale_days", "cash_reserve_min_pct", "net_exposure_watch_pct", "net_exposure_act_pct":
 		return true
 	}
 	set, leaf, ok := strings.Cut(key, ".")
 	return ok && leaf == "cash_sell_only_pct" &&
 		(set == "regime_calm" || set == "regime_early_warning" || set == "regime_confirmed")
+}
+
+// retiredRulebookMigrationNote tells the owner, when an upgrade comments out
+// a retired key that carried a limit, what replaced it and what the file
+// said; "" when there is nothing to recommend.
+func retiredRulebookMigrationNote(key string, yours any) string {
+	p := risk.DefaultRulebookPolicy()
+	switch key {
+	case "cash_reserve_min_pct":
+		return fmt.Sprintf("cash_reserve_min_pct is retired: rule 3 is now the premium budget, per regime set in the [regime_*] tables (calm %s/%s, early warning %s/%s, confirmed %s/%s watch/act %% of NLV); yours was %s and is kept only as a comment",
+			tomlFloat(p.RegimeCalm.PremiumBudgetWatchPct), tomlFloat(p.RegimeCalm.PremiumBudgetActPct),
+			tomlFloat(p.RegimeEarlyWarning.PremiumBudgetWatchPct), tomlFloat(p.RegimeEarlyWarning.PremiumBudgetActPct),
+			tomlFloat(p.RegimeConfirmed.PremiumBudgetWatchPct), tomlFloat(p.RegimeConfirmed.PremiumBudgetActPct), tomlLiteral(yours))
+	case "net_exposure_watch_pct", "net_exposure_act_pct":
+		return fmt.Sprintf("%s moved into the [regime_*] tables (rule 15 is regime-conditional); yours was %s and is kept only as a comment, and each regime table now carries Canary's default", key, tomlLiteral(yours))
+	default:
+		return ""
+	}
 }
 
 // retiredRulebookKeysNote is the status note for the retired keys a file
@@ -320,8 +346,13 @@ func retiredRulebookKeysNote(keys []string) string {
 }
 
 func retiredRulebookKeyReason(key string) string {
-	if key == "earnings_stale_days" {
+	switch key {
+	case "earnings_stale_days":
 		return "no rule reads earnings_stale_days; earnings freshness follows the provider's 24-hour check"
+	case "cash_reserve_min_pct":
+		return retiredCashReserveReason
+	case "net_exposure_watch_pct", "net_exposure_act_pct":
+		return retiredNetExposureTopReason
 	}
 	return retiredCashSellOnlyReason
 }
@@ -329,9 +360,12 @@ func retiredRulebookKeyReason(key string) string {
 func retiredRulebookDiagnostics(keys []string) []rpc.PolicyDiagnostic {
 	var diagnostics []rpc.PolicyDiagnostic
 	for _, key := range keys {
-		feature := "cash_reserve"
-		if key == "earnings_stale_days" {
+		feature := "premium_budget"
+		switch key {
+		case "earnings_stale_days":
 			feature = "earnings"
+		case "net_exposure_watch_pct", "net_exposure_act_pct":
+			feature = "net_exposure"
 		}
 		diagnostics = append(diagnostics, rpc.PolicyDiagnostic{Key: key, Feature: feature, Message: "ignored retired key: " + retiredRulebookKeyReason(key) + "; canary rules policy reset KEY removes it"})
 	}

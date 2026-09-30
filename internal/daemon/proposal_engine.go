@@ -3062,6 +3062,7 @@ func cloneProposalBudget(in *rpc.TradeProposalBudget) *rpc.TradeProposalBudget {
 	out := *in
 	out.LineExcessBase = cloneFloat64Ptr(in.LineExcessBase)
 	out.TotalExcessBase = cloneFloat64Ptr(in.TotalExcessBase)
+	out.PremiumExcessBase = cloneFloat64Ptr(in.PremiumExcessBase)
 	out.UnrealizedPnLBase = cloneFloat64Ptr(in.UnrealizedPnLBase)
 	return &out
 }
@@ -3075,6 +3076,10 @@ func cloneBudgetStatus(in *rpc.TradeProposalBudgetStatus) *rpc.TradeProposalBudg
 	out.MeasuredPremiumBase = cloneFloat64Ptr(in.MeasuredPremiumBase)
 	out.MeasuredPctOfRiskCapital = cloneFloat64Ptr(in.MeasuredPctOfRiskCapital)
 	out.TotalExcessBase = cloneFloat64Ptr(in.TotalExcessBase)
+	out.PremiumPctOfNLV = cloneFloat64Ptr(in.PremiumPctOfNLV)
+	out.NLVBase = cloneFloat64Ptr(in.NLVBase)
+	out.AvailableFundsBase = cloneFloat64Ptr(in.AvailableFundsBase)
+	out.PremiumExcessBase = cloneFloat64Ptr(in.PremiumExcessBase)
 	return &out
 }
 

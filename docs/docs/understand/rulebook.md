@@ -15,7 +15,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 |---|---|---|---|
 | 1 | Worst-case loss on one issuer | The most one issuer can lose at any price, every leg on it netted from current marks, as a share of NLV. Watch at 30%, act (the cap) at 40%; an issuer that takes more than three days to exit at 20% of its 20-day volume uses 20/30. A long option counts as protection only if it expires after the issuer's next earnings and at least 14 days out; short stock and uncovered short calls are sized at a 100% rise and flagged unbounded. | Alert |
 | 2 | Premium at risk in one option position | Each long option position at the higher of the price paid and its value, as a share of NLV. A losing position keeps counting at what you paid, so its fall frees no room to buy more. | Track |
-| 3 | Cash reserve | Broker-reported available funds as a share of NLV. The default reserve is 75%. | Alert |
+| 3 | Premium budget | Premium at risk in every long option position outside portfolio protection (the higher of the price paid and its value, as in rule 2), summed, as a share of NLV. Watch and act by regime: calm 25% and 35%, early warning 20% and 30%, confirmed stress 15% and 25%. At watch or act the Rulebook reads sell-only. Available funds are shown as context. Not evaluated without a long option. | Alert |
 | 4 | Option time value at risk | Paid option time value as a share of NLV. Positions classified as portfolio protection use rules 2 and 12 instead. | Alert |
 | 5 | Options nearing expiry | Long options with 14 days or fewer remaining (act at 7 or fewer). Deep in-the-money positions and portfolio protection are listed separately. | Alert |
 | 6 | Earnings timing | Whether an out-of-the-money long option expires before the next earnings announcement. This is a timing fact; it does not assume the position should span earnings. | Track |
@@ -24,10 +24,10 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 9 | Holding falls while the market rises | A held stock falling while SPY rises during the regular session. | Off |
 | 10 | Large winner today | A large holding above its daily gain level. | Off |
 | 11 | Positive day with urgent risks open | A positive account day while an act-level Rulebook item remains open. | Off |
-| 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure, against a band that depends on the regime. It acts above twice the band's top (`overhedge_multiple`), and index puts above that multiple of the widest band count as directional shorts, not protection. | Alert |
+| 12 | Index protection size | Short delta assigned to portfolio protection as a share of gross long exposure, against a band that depends on the regime. A long book with no protection reads 0% and watches as `unhedged`; below the band's bottom is a watch too. It acts above twice the band's top (`overhedge_multiple`), and index puts above that multiple of the widest band count as directional shorts, not protection. Not evaluated without a long book. | Alert |
 | 13 | Long option loss limit | Loss on premium paid for each long option position. | Alert |
 | 14 | Foreign-currency exposure | Non-base-currency exposure as a share of NLV. | Track |
-| 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch at 100% (fully invested, unlevered), act at 150%. | Track |
+| 15 | Net market exposure | The whole book's signed stock-equivalent exposure, index protection included, as a share of NLV: how far the book moves with the market. Watch and act by regime: calm 100% (fully invested, unlevered) and 150%, early warning 100% and 130%, confirmed stress 75% and 100%. At watch or act the Rulebook reads sell-only. | Track |
 | 16 | Delta swing on one issuer | One issuer's dollar delta as a share of NLV: what a 10% move costs, with gamma named when it bends that materially. Watch at 30%; it never acts. | Track |
 | 17 | Cluster falling together | Every issuer in a cluster you declare falls 30% together, each netted like rule 1. Watch when the cluster loses 15% of NLV; it never acts. Not evaluated until you declare a cluster. | Track |
 | 18 | Issuer loss against risk capital | One issuer's worst-case loss against the constitution's effective risk capital. Watch at 100% of it; it never acts. Unknown, never a pass, until the constitution carries the numbers. | Alert |
@@ -35,6 +35,17 @@ component as a measurement: authority, freshness, and evidence reuse.
 `alert` rules can create alert episodes, `track` rules remain visible without
 creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
 they never act, never count toward act totals, and never drive a trim.
+
+## Sell-only
+
+While rule 3 or rule 15 is at watch or act, whatever its mode, the result
+carries `sell_only: {active: true, rules: [...]}` naming them, the two rows
+carry `sell_only: true`, and `canary rules` prints a `sell-only` line under its
+header. An order preview then warns every buy with `rule_cash_sell_only`, and a
+buy that adds to the side rule 15 flags with `rule_net_exposure` (a put bought
+against a net-long book does not). Like every Rulebook verdict it is advisory:
+nothing about submit eligibility changes. Rule 15 tracks by default; to have
+it raise alerts as well, run `canary rules policy set modes.net_exposure=alert`.
 
 ## One issuer, one measure
 
@@ -54,18 +65,17 @@ for its concentration row rather than measuring concentration itself.
 
 Rule 15 is likewise the only definition of net exposure. The stress read's
 exposure row, its `net_delta_high` driver and its net figure are rule 15's
-reading and bands; confirmed market stress moves that reading one band up. In
-a calm market only rule 15's act level is a stress watch, since a fully
-invested book already sits at its watch level. Under confirmed stress the
-watch level acts and the act level is urgent. Without a rule 15 measurement
-the exposure row says so and never reads as a pass.
+reading, bands and verdict under the regime set in force: rule 15 at watch is
+a stress watch, at act a stress act, and at act under the confirmed-stress set
+urgent. Without a rule 15 measurement the exposure row says so and never reads
+as a pass.
 
 ## Set your own limits
 
 Every threshold and mode in the table is yours to change. They live in
 `~/.config/ibkr/policies/rulebook-policy.toml` (or `[rulebook].policy_file`),
 which the installer and each daemon start write from Canary's defaults, policy
-`rulebook-v4`, when it is missing. Until you delete its
+`rulebook-v5`, when it is missing. Until you delete its
 `# Canary defaults, not yet reviewed.` line it reads `default, unreviewed`.
 See the limits in force:
 
@@ -76,9 +86,9 @@ canary rules policy
 Change one, turn a rule off or up, or return to Canary's defaults:
 
 ```sh
-canary rules policy set cash_reserve_min_pct=70
+canary rules policy set regime_confirmed.premium_budget_watch_pct=12
 canary rules policy set modes.net_exposure=alert
-canary rules policy reset cash_reserve_min_pct
+canary rules policy reset regime_confirmed.premium_budget_watch_pct
 canary rules policy reset --all
 ```
 
@@ -88,9 +98,13 @@ an unknown key or an invalid value before writing anything. `reset KEY` writes
 Canary's current default for that key, and `reset --all` rewrites the file
 from Canary's template after keeping the old one as a backup. Declare an
 issuer group or a cluster with `set issuer_groups.NAME=AAA,AAB` and remove it
-with `reset issuer_groups.NAME`. `set` refuses `cash_sell_only_pct`, which no
-rule reads; a file that still carries it loads with the key ignored, a note in
-`policy_status` names it, and any `set` or `reset` removes it. The daemon
+with `reset issuer_groups.NAME`. `set` refuses the retired keys no rule reads
+— `cash_sell_only_pct`, `cash_reserve_min_pct` (rule 3 is now the premium
+budget) and the top-level `net_exposure_watch_pct` and `net_exposure_act_pct`
+(rule 15's bands now live in the `[regime_*]` tables); a file that still
+carries one loads with the key ignored, a note in `policy_status` names it,
+any `set` or `reset` removes it, and the next upgrade turns it into a comment
+and adds the new keys at their defaults. The daemon
 applies the file within 30 seconds. Hand edits work as well and apply only
 with a higher `policy_version`. A key missing from the file follows Canary's
 default, `canary rules policy` lists it under `not in file`, and the next
@@ -100,13 +114,14 @@ deleted file comes back as Canary's template at the next daemon start. Every res
 `policy_status` names the baseline or your file, and `policy` carries every
 threshold. Agent sessions can read the limits; only you can change them.
 
-Rules 4 and 12 take their thresholds from the classified regime stage, so
-the same book can pass in a calm regime and breach in a confirmed one. A stale
-or never-observed stage is evaluated against both its own threshold set and
-the calm set, keeping the worse verdict: old market state may tighten a rule,
-never relax it.
+Rules 3, 4, 12 and 15 take their thresholds from the classified regime stage,
+so the same book can pass in a calm regime and breach in a confirmed one; each
+of their rows names the set it used in `regime_set`. A never-observed stage
+uses the calm set, and a stale one is evaluated against both its own threshold
+set and the calm set, keeping the worse verdict: old market state may tighten
+a rule, never relax it.
 
-The baseline ships as policy `rulebook-v4`, and every row carries its
+The baseline ships as policy `rulebook-v5`, and every row carries its
 `observed` value, `threshold`, and an evidence string, so you can check the
 arithmetic instead of trusting the verdict. `threshold` is the limit for the
 row's status: the act level on an `act` row, the watch level otherwise, and the
@@ -154,7 +169,8 @@ Row outcomes are `pass`, `info`, `watch`, `act`, `unknown`, and
 inputs are not trustworthy: an unresolved earnings date, a missing delta, an
 absent currency report. `not_evaluated` means the rule does not apply right
 now, as with the tape rules outside the US regular session, the hedge rule
-with no long book, or the earnings rules when every held name is a security
+with no long book, the premium budget with no long option, or the earnings
+rules when every held name is a security
 that has no issuer earnings by nature — an index, future, fund, bond, bill,
 cash, or commodity position is disclosed as exempt rather than left unknown.
 Neither is a pass, and the summary line counts them

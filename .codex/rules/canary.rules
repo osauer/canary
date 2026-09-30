@@ -215,7 +215,7 @@ prefix_rule(
     decision = "forbidden",
     justification = "Rulebook limits are the owner's policy; agents read them with canary rules policy and never edit them.",
     match = [
-        "canary rules policy set cash_reserve_min_pct=70",
+        "canary rules policy set regime_calm.premium_budget_watch_pct=20",
         "canary rules policy reset --all",
     ],
 )

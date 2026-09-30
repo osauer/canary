@@ -17,11 +17,13 @@ import (
 // brake is engaged, long option premium is reduced to the share of declared
 // risk capital the owner wrote into [buckets.budget_reduction]. With basis
 // rulebook, it is reduced whenever the Rulebook's own limits are breached: a
-// line above option_line_act_pct of NLV, or available funds below
-// cash_reserve_min_pct of NLV. Either way: per line first, then the total, in
-// whole contracts, largest unrealised loss first. Protection legs are never
-// selected. Every row is a SELL that reduces or closes; in shadow mode the
-// rows are listed and journaled and nothing can preview or submit them.
+// line above option_line_act_pct of NLV, or the book's premium at risk at or
+// above rule 3's premium budget act level of the regime set in force, which
+// is cut back to that set's watch level (rule 1's trim convention). Either
+// way: per line first, then the total, in whole contracts, largest unrealised
+// loss first. Protection legs are never selected. Every row is a SELL that
+// reduces or closes; in shadow mode the rows are listed and journaled and
+// nothing can preview or submit them.
 
 // budgetGovernorInput is what the governor reads from the risk constitution
 // and its runtime verdict. The engine gathers it; tests build it directly.
@@ -30,11 +32,17 @@ type budgetGovernorInput struct {
 	Capital      rpc.CapitalStateReport
 	Unapproved   []string
 	// Rulebook is the Rulebook policy in force; the rulebook basis reads its
-	// limits against the account's NLV and available funds.
+	// limits against the account's NLV. Available funds are context only.
 	Rulebook            risk.RulebookPolicy
 	NLVBase             *float64
 	AvailableFundsBase  *float64
 	AccountBaseCurrency string
+	// RegimeStage and RegimeStageCarried are the latched regime bucket and
+	// whether it is stale, read exactly as the Rulebook reads them, so the
+	// premium budget is the one rule 3 applies. Empty means never observed
+	// (the calm set).
+	RegimeStage        string
+	RegimeStageCarried bool
 }
 
 // resolveBudgetInput honours the test seam, else reads the daemon's own
@@ -61,6 +69,10 @@ func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.T
 		if acct.Authority.Fields.AvailableFunds && !math.IsNaN(acct.AvailableFunds) && !math.IsInf(acct.AvailableFunds, 0) {
 			in.AvailableFundsBase = new(acct.AvailableFunds)
 		}
+	}
+	if e != nil && e.server != nil {
+		stage, carried := e.server.rulebookRegimeStage(in.Rulebook, now)
+		in.RegimeStage, in.RegimeStageCarried = stage.Bucket, carried
 	}
 	if e == nil || e.server == nil || e.server.riskPolicies == nil || e.server.riskCapital == nil {
 		return in
@@ -102,9 +114,10 @@ type budgetPlan struct {
 	perLineCap float64
 	totalCap   float64
 	total      float64
-	// Rulebook basis: NLV and the cash the reserve is short.
-	nlv       float64
-	shortfall float64
+	// Rulebook basis: NLV and the premium at risk above the premium
+	// budget's watch level once the total reached its act level.
+	nlv    float64
+	excess float64
 }
 
 const budgetMoneyEpsilon = 1e-6
@@ -194,7 +207,7 @@ func budgetReductionPlan(policy protectionPolicy, input budgetGovernorInput, pos
 	for _, line := range plan.lines {
 		remaining -= float64(line.perLineCut) * line.unitBase
 	}
-	budgetTotalPass(plan.lines, remaining-plan.totalCap)
+	budgetTotalPass(plan.lines, remaining-plan.totalCap, budgetLineUnitValue)
 	if totalExcess := plan.total - plan.totalCap; totalExcess > budgetMoneyEpsilon {
 		st.TotalExcessBase = new(totalExcess)
 	}
@@ -250,10 +263,25 @@ func budgetMeasureLines(policy protectionPolicy, rulebook risk.RulebookPolicy, p
 	return lines, total
 }
 
+// budgetLineUnitValue is what one contract of a line adds to a total
+// measured in value (the declared-risk-capital basis).
+func budgetLineUnitValue(line budgetLine) float64 { return line.unitBase }
+
+// budgetLineUnitAtRisk is what one contract of a line adds to a total
+// measured as premium at risk, the higher of price paid and value (the
+// Rulebook basis): a losing line sheds its price paid per contract sold.
+func budgetLineUnitAtRisk(line budgetLine) float64 {
+	if line.contracts <= 0 {
+		return 0
+	}
+	return line.atRiskBase / float64(line.contracts)
+}
+
 // budgetTotalPass sells whole contracts, largest unrealised loss first and
-// then largest line value, until the excess (in value) is covered. Contracts
-// the per-line pass already sold are not sold twice.
-func budgetTotalPass(lines []budgetLine, excess float64) {
+// then largest line value, until the excess is covered; unit says what one
+// contract of a line counts toward it. Contracts the per-line pass already
+// sold are not sold twice.
+func budgetTotalPass(lines []budgetLine, excess float64, unit func(budgetLine) float64) {
 	if excess <= budgetMoneyEpsilon {
 		return
 	}
@@ -281,16 +309,17 @@ func budgetTotalPass(lines []budgetLine, excess float64) {
 	for _, i := range order {
 		line := &lines[i]
 		available := line.contracts - line.perLineCut
-		if line.unitBase <= 0 || available <= 0 {
+		per := unit(*line)
+		if per <= 0 || available <= 0 {
 			continue
 		}
-		take := min(int(math.Ceil(excess/line.unitBase-1e-9)), available)
+		take := min(int(math.Ceil(excess/per-1e-9)), available)
 		if take <= 0 {
 			continue
 		}
 		place++
 		line.totalCut, line.order = take, place
-		excess -= float64(take) * line.unitBase
+		excess -= float64(take) * per
 		if excess <= budgetMoneyEpsilon {
 			return
 		}
@@ -298,22 +327,26 @@ func budgetTotalPass(lines []budgetLine, excess float64) {
 }
 
 // budgetRulebookPlan measures the book against the Rulebook's own limits as
-// shares of NLV: a line whose premium at risk (the higher of price paid and
-// value) exceeds option_line_act_pct is cut to it, and when available funds
-// sit below cash_reserve_min_pct, lines are sold in the loss-first order
-// until their value covers the shortfall. It needs the account's NLV and
-// available funds, not the risk constitution, and waits for no brake.
+// shares of NLV. A line whose premium at risk (the higher of price paid and
+// value) exceeds option_line_act_pct is cut to it. When the book's premium at
+// risk reaches rule 3's premium budget act level of the regime set in force
+// (at or above, like rule 3), lines are sold in the loss-first order until the
+// total is back at that set's watch level, counting each contract at its
+// premium at risk (rule 1's trim convention: act triggers, watch is the
+// target). It needs the account's NLV, not the risk constitution or available
+// funds, and waits for no brake.
 func budgetRulebookPlan(policy protectionPolicy, input budgetGovernorInput, pos *rpc.PositionsResult, now time.Time) budgetPlan {
 	mode := policy.Buckets.BudgetReduction.effectiveMode()
 	rb := input.Rulebook
+	watchPct, actPct, set := rb.PremiumBudgetInForce(input.RegimeStage, input.RegimeStageCarried)
 	plan := budgetPlan{status: rpc.TradeProposalBudgetStatus{
 		Mode: mode, Shadow: mode == rpc.BudgetReductionModeShadow, Basis: rpc.BudgetBasisRulebook,
-		PerLinePctOfNLV: rb.OptionLineActPct, CashReserveMinPct: rb.CashReserveMinPct,
+		PerLinePctOfNLV: rb.OptionLineActPct, PremiumBudgetWatchPct: watchPct, PremiumBudgetActPct: actPct, PremiumBudgetSet: set,
 		BaseCurrency: protectionCoverageBaseCurrency(pos),
 	}}
 	st := &plan.status
-	if input.NLVBase == nil || *input.NLVBase <= 0 || input.AvailableFundsBase == nil {
-		st.State, st.Reason = rpc.BudgetStateAccountUnavailable, "the account's NLV or available funds are unavailable; the Rulebook limits are shares of NLV"
+	if input.NLVBase == nil || *input.NLVBase <= 0 {
+		st.State, st.Reason = rpc.BudgetStateAccountUnavailable, "the account's NLV is unavailable; the Rulebook limits are shares of NLV"
 		return plan
 	}
 	if want, have := normCcy(input.AccountBaseCurrency), normCcy(st.BaseCurrency); want != "" && have != "" && want != have {
@@ -321,34 +354,44 @@ func budgetRulebookPlan(policy protectionPolicy, input budgetGovernorInput, pos 
 		return plan
 	}
 	plan.nlv = *input.NLVBase
-	st.NLVBase, st.AvailableFundsBase = new(plan.nlv), new(*input.AvailableFundsBase)
+	st.NLVBase = new(plan.nlv)
+	if input.AvailableFundsBase != nil {
+		st.AvailableFundsBase = new(*input.AvailableFundsBase)
+	}
 	plan.perLineCap = rb.OptionLineActPct / 100 * plan.nlv
-	plan.lines, plan.total = budgetMeasureLines(policy, rb, pos, st, now)
+	plan.totalCap = watchPct / 100 * plan.nlv
+	plan.lines, _ = budgetMeasureLines(policy, rb, pos, st, now)
 	if st.IncludedLegs == 0 && st.ExcludedLegs > 0 {
 		st.State, st.Reason = rpc.BudgetStateUnmeasurable, fmt.Sprintf("%d long option %s without a base market value; nothing can be measured", st.ExcludedLegs, pluralNoun(st.ExcludedLegs, "leg"))
 		return plan
 	}
+	// The Rulebook's measure is premium at risk, not value: a losing line
+	// counts at the price paid, so a fall in value frees no budget.
+	for _, line := range plan.lines {
+		plan.total += line.atRiskBase
+	}
 	st.MeasuredPremiumBase = new(plan.total)
+	st.PremiumPctOfNLV = new(plan.total / plan.nlv * 100)
 
 	overLine := false
-	raised := 0.0
+	cut := 0.0
 	for i := range plan.lines {
 		line := &plan.lines[i]
 		if line.contracts <= 0 || line.atRiskBase <= plan.perLineCap+budgetMoneyEpsilon {
 			continue
 		}
-		unitRisk := line.atRiskBase / float64(line.contracts)
+		unitRisk := budgetLineUnitAtRisk(*line)
 		keep := max(int(math.Floor(plan.perLineCap/unitRisk+1e-9)), 0)
 		line.perLineCut = max(line.contracts-keep, 1)
-		raised += float64(line.perLineCut) * line.unitBase
+		cut += float64(line.perLineCut) * unitRisk
 		overLine = true
 	}
-	plan.shortfall = rb.CashReserveMinPct/100*plan.nlv - *input.AvailableFundsBase
-	if plan.shortfall > budgetMoneyEpsilon {
-		st.CashShortfallBase = new(plan.shortfall)
-		budgetTotalPass(plan.lines, plan.shortfall-raised)
+	if *st.PremiumPctOfNLV >= actPct {
+		plan.excess = plan.total - plan.totalCap
+		st.PremiumExcessBase = new(plan.excess)
+		budgetTotalPass(plan.lines, plan.excess-cut, budgetLineUnitAtRisk)
 	}
-	if overLine || plan.shortfall > budgetMoneyEpsilon {
+	if overLine || plan.excess > budgetMoneyEpsilon {
 		st.State = rpc.BudgetStateOverBudget
 	} else {
 		st.State = rpc.BudgetStateWithinBudget
@@ -526,10 +569,13 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 	bucket := policy.Buckets.BudgetReduction
 	base := plan.status.BaseCurrency
 	linePct := line.atRiskBase / plan.nlv * 100
+	totalPct := plan.total / plan.nlv * 100
+	watchPct, actPct, set := plan.status.PremiumBudgetWatchPct, plan.status.PremiumBudgetActPct, plan.status.PremiumBudgetSet
 	budget := &rpc.TradeProposalBudget{
 		Mode: plan.status.Mode, Basis: rpc.BudgetBasisRulebook,
 		LineMarketValueBase: line.valueBase, LineAtRiskBase: line.atRiskBase, LinePctOfNLV: linePct,
-		PerLinePctOfNLV: plan.status.PerLinePctOfNLV, CashReserveMinPct: plan.status.CashReserveMinPct,
+		PerLinePctOfNLV:       plan.status.PerLinePctOfNLV,
+		PremiumBudgetWatchPct: watchPct, PremiumBudgetActPct: actPct, PremiumPctOfNLV: totalPct,
 		TotalMeasuredBase: plan.total, Order: line.order,
 		ContractsPerLine: line.perLineCut, ContractsTotal: line.totalCut,
 		UnrealizedPnLBase: line.pnlBase, BaseCurrency: base,
@@ -537,20 +583,18 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 	if line.perLineCut > 0 {
 		budget.LineExcessBase = new(line.atRiskBase - plan.perLineCap)
 	}
-	if plan.shortfall > budgetMoneyEpsilon {
-		budget.CashShortfallBase = new(plan.shortfall)
+	if plan.excess > budgetMoneyEpsilon {
+		budget.PremiumExcessBase = new(plan.excess)
 	}
-	availablePct := 0.0
-	if plan.status.AvailableFundsBase != nil {
-		availablePct = *plan.status.AvailableFundsBase / plan.nlv * 100
-	}
+	budgetText := fmt.Sprintf("option premium at risk is %.1f%% of NLV, at or above the Rulebook's %s%% premium budget act level (%s set), so the total is cut back to its %s%% budget",
+		totalPct, trimFloat(actPct), set, trimFloat(watchPct))
 	var reason string
 	switch {
 	case line.perLineCut > 0 && line.totalCut > 0:
 		budget.Cap = "per_line+total"
-		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit (%d %s), and available funds are %.1f%% of NLV, below the %.0f%% cash reserve (%s in order, %d %s); %s",
+		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit (%d %s), and %s (%s in order, %d %s); %s",
 			linePct, plan.status.PerLinePctOfNLV, line.perLineCut, pluralNoun(line.perLineCut, "contract"),
-			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"),
+			budgetText, budgetOrdinal(line.order), line.totalCut, pluralNoun(line.totalCut, "contract"),
 			budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	case line.perLineCut > 0:
 		budget.Cap = "per_line"
@@ -558,15 +602,17 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 			linePct, plan.status.PerLinePctOfNLV, budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, " to the limit"))
 	default:
 		budget.Cap = "total"
-		reason = fmt.Sprintf("available funds are %.1f%% of NLV, below the Rulebook's %.0f%% cash reserve; %s in the reduction order (largest loss first): %s",
-			availablePct, plan.status.CashReserveMinPct, budgetOrdinal(line.order), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
+		reason = fmt.Sprintf("%s; %s in the reduction order (largest loss first): %s",
+			budgetText, budgetOrdinal(line.order), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
 	}
 	details := []string{
 		fmt.Sprintf("line %s at risk (%.1f%% of NLV; the higher of price paid and value) · line limit %s (%.1f%% of %s NLV)",
 			formatBudgetMoney(line.atRiskBase, base), linePct, formatBudgetMoney(plan.perLineCap, base), plan.status.PerLinePctOfNLV, formatBudgetMoney(plan.nlv, base)),
 	}
-	if plan.shortfall > budgetMoneyEpsilon {
-		details = append(details, fmt.Sprintf("cash reserve short by %s; a sale at today's value raises about %s per contract", formatBudgetMoney(plan.shortfall, base), formatBudgetMoney(line.unitBase, base)))
+	if plan.excess > budgetMoneyEpsilon {
+		details = append(details, fmt.Sprintf("premium budget (%s set): %s at risk (%.1f%% of NLV) · act at %s%%, back to %s (%s%%) · %s over; each contract sold removes about %s at risk",
+			set, formatBudgetMoney(plan.total, base), totalPct, trimFloat(actPct), formatBudgetMoney(plan.totalCap, base), trimFloat(watchPct),
+			formatBudgetMoney(plan.excess, base), formatBudgetMoney(budgetLineUnitAtRisk(line), base)))
 	}
 	if line.pnlBase != nil {
 		details = append(details, fmt.Sprintf("unrealised %s", formatBudgetMoney(*line.pnlBase, base)))

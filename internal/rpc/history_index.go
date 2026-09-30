@@ -1243,7 +1243,8 @@ type StressInput struct {
 
 // StressNetExposure projects Rulebook rule 15 (net_exposure) for the stress
 // read: the book's signed stock-equivalent exposure with hedges netted, as a
-// magnitude share of NLV, and rule 15's two bands from rulebook-policy.toml.
+// magnitude share of NLV, rule 15's two bands from rulebook-policy.toml and
+// the regime set that produced them.
 type StressNetExposure struct {
 	// Status is rule 15's status: pass, watch, act, unknown, or
 	// not_evaluated when the rule is off. Empty when the reading is
@@ -1258,6 +1259,10 @@ type StressNetExposure struct {
 	Direction string   `json:"direction,omitempty"`
 	WatchPct  *float64 `json:"watch_pct,omitempty"`
 	ActPct    *float64 `json:"act_pct,omitempty"`
+	// RegimeSet is the regime threshold set (calm, early_warning or
+	// confirmed) whose bands produced rule 15's verdict (amendment 17). The
+	// stress read calls an act urgent only while it is confirmed.
+	RegimeSet string `json:"regime_set,omitempty"`
 	// RuleReason is rule 15's own reason code when it is unknown or off
 	// (greeks_gap, rule_off, positions_pending and the like).
 	RuleReason string `json:"rule_reason,omitempty"`
@@ -1286,6 +1291,7 @@ func StressNetExposureFromRules(res *RulesResult) *StressNetExposure {
 		out.PctNLV = cloneFloatPtr(row.Observed)
 		out.IsLowerBound = row.ObservedIsLowerBound
 		out.WatchPct, out.ActPct = cloneFloatPtr(row.WatchThreshold), cloneFloatPtr(row.ActThreshold)
+		out.RegimeSet = row.RegimeSet
 		if row.Status == risk.RuleStatusUnknown || row.Status == risk.RuleStatusNotEvaluated {
 			out.RuleReason = row.Reason
 		}

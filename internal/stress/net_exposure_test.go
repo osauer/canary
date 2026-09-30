@@ -8,9 +8,14 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// rule15 builds a measured rule 15 reading with the default bands.
+// rule15 builds a measured rule 15 reading with the calm set's default bands.
 func rule15(status string, pct float64) *rpc.StressNetExposure {
-	return &rpc.StressNetExposure{Status: status, PctNLV: new(pct), Direction: "long", WatchPct: new(100.0), ActPct: new(150.0)}
+	return rule15In(risk.RegimeBucketCalm, status, pct, 100, 150)
+}
+
+// rule15In builds a measured rule 15 reading under a regime set's bands.
+func rule15In(set, status string, pct, watch, act float64) *rpc.StressNetExposure {
+	return &rpc.StressNetExposure{Status: status, PctNLV: new(pct), Direction: "long", WatchPct: new(watch), ActPct: new(act), RegimeSet: set}
 }
 
 func netExposureSummary(n *rpc.StressNetExposure) StressPortfolioSummary {
@@ -36,25 +41,25 @@ func netDeltaBook(n *rpc.StressNetExposure) StressInput {
 	}
 }
 
-// The stress read's net exposure is rule 15's (amendment 16). A book whose
-// positions aggregate shows 130% net delta, which the retired stress watch of
-// 125 flagged, sits at rule 15's watch band: in a calm market that is no
-// stress signal, and the figure served is rule 15's.
+// The stress read's net exposure is rule 15's (amendments 16 and 17). A book
+// whose positions aggregate shows 130% net delta sits at rule 15's watch band
+// at 112%: the stress read serves rule 15's figure and tier, a watch.
 func TestStressNetExposureReadsRule15NotThePositionsAggregate(t *testing.T) {
 	t.Parallel()
 	res := ComputeStress(netDeltaBook(rule15(risk.RuleStatusWatch, 112)))
-	if hasSignal(res.Signals, risk.SignalNetDeltaHigh) {
-		t.Fatalf("rule 15 at watch in a calm market raised net_delta_high: %+v", res.Signals)
+	sig, raised := findSignal(res.Signals, risk.SignalNetDeltaHigh)
+	if !raised || sig.Severity != risk.SeverityWatch || sig.Observed == nil || *sig.Observed != 112 {
+		t.Fatalf("net_delta_high = %+v (raised %v), want rule 15's watch at 112", sig, raised)
 	}
 	if got := res.Portfolio.NetDeltaPctNLV; got == nil || *got != 112 {
 		t.Fatalf("net_delta_pct_nlv = %v, want rule 15's 112, not the positions aggregate's 130", got)
 	}
 	row := stressRowByTitle(res.Rows, "US equity/options exposure")
-	if row == nil || row.Severity != risk.SeverityObserve ||
+	if row == nil || row.Severity != risk.SeverityWatch ||
 		!strings.Contains(row.Evidence, "net exposure long 112.0% NLV (Rulebook watch 100%, act 150%)") {
 		t.Fatalf("exposure row = %+v", row)
 	}
-	if n := res.Portfolio.NetExposure; n == nil || n.Status != risk.RuleStatusWatch || *n.WatchPct != 100 || *n.ActPct != 150 {
+	if n := res.Portfolio.NetExposure; n == nil || n.Status != risk.RuleStatusWatch || *n.WatchPct != 100 || *n.ActPct != 150 || n.RegimeSet != risk.RegimeBucketCalm {
 		t.Fatalf("portfolio.net_exposure = %+v", n)
 	}
 }
@@ -90,12 +95,15 @@ func TestStressNetExposureWithoutARule15ReadingIsNotAPass(t *testing.T) {
 	}
 }
 
-// In a calm market only rule 15's act band is a stress watch; confirmed
-// stress moves the reading one band up, so rule 15's watch band acts and its
-// act band is urgent. The retired stress act level of 80 is gone: 90% of NLV
-// in confirmed stress raises nothing.
-func TestStressNetExposureEscalatesOneRule15BandInConfirmedStress(t *testing.T) {
+// The stress read takes rule 15's own tier (amendment 17): watch is a watch,
+// act an act, and an act under the confirmed regime set urgent. Market
+// stress no longer moves the reading a band up; it only makes an act
+// defensive. A rule 15 pass raises nothing, whatever the market.
+func TestStressNetExposureTakesRule15sOwnTier(t *testing.T) {
 	t.Parallel()
+	confirmedSet := func(status string, pct float64) *rpc.StressNetExposure {
+		return rule15In(risk.RegimeBucketConfirmed, status, pct, 75, 100)
+	}
 	cases := []struct {
 		name      string
 		n         *rpc.StressNetExposure
@@ -104,11 +112,14 @@ func TestStressNetExposureEscalatesOneRule15BandInConfirmedStress(t *testing.T) 
 		threshold float64
 		direction risk.SignalDirection
 	}{
-		{name: "calm watch", n: rule15(risk.RuleStatusWatch, 130), market: StressMarketSummary{}},
-		{name: "calm act", n: rule15(risk.RuleStatusAct, 155), market: StressMarketSummary{}, severity: risk.SeverityWatch, threshold: 150, direction: risk.DirectionRebalance},
-		{name: "stress pass at 90", n: rule15(risk.RuleStatusPass, 90), market: confirmedStress},
-		{name: "stress watch", n: rule15(risk.RuleStatusWatch, 110), market: confirmedStress, severity: risk.SeverityAct, threshold: 100, direction: risk.DirectionDefensive},
-		{name: "stress act", n: rule15(risk.RuleStatusAct, 160), market: confirmedStress, severity: risk.SeverityUrgent, threshold: 150, direction: risk.DirectionDefensive},
+		{name: "calm watch", n: rule15(risk.RuleStatusWatch, 130), market: StressMarketSummary{}, severity: risk.SeverityWatch, threshold: 100, direction: risk.DirectionRebalance},
+		{name: "calm act", n: rule15(risk.RuleStatusAct, 155), market: StressMarketSummary{}, severity: risk.SeverityAct, threshold: 150, direction: risk.DirectionRebalance},
+		{name: "pass under market stress", n: confirmedSet(risk.RuleStatusPass, 60), market: confirmedStress},
+		{name: "watch under market stress stays a watch", n: rule15(risk.RuleStatusWatch, 110), market: confirmedStress, severity: risk.SeverityWatch, threshold: 100, direction: risk.DirectionRebalance},
+		{name: "act under market stress is defensive", n: rule15In(risk.RegimeBucketEarlyWarning, risk.RuleStatusAct, 135, 100, 130), market: confirmedStress, severity: risk.SeverityAct, threshold: 130, direction: risk.DirectionDefensive},
+		{name: "confirmed set watch", n: confirmedSet(risk.RuleStatusWatch, 80), market: StressMarketSummary{}, severity: risk.SeverityWatch, threshold: 75, direction: risk.DirectionRebalance},
+		{name: "confirmed set act is urgent", n: confirmedSet(risk.RuleStatusAct, 110), market: StressMarketSummary{}, severity: risk.SeverityUrgent, threshold: 100, direction: risk.DirectionDefensive},
+		{name: "confirmed set act under market stress", n: confirmedSet(risk.RuleStatusAct, 110), market: confirmedStress, severity: risk.SeverityUrgent, threshold: 100, direction: risk.DirectionDefensive},
 	}
 	for _, tc := range cases {
 		p := netExposureSummary(tc.n)
@@ -138,11 +149,11 @@ func TestStressNetExposureEscalatesOneRule15BandInConfirmedStress(t *testing.T) 
 // they are, and a proven lower bound indicts at medium confidence.
 func TestStressNetExposureUsesTheOwnersRule15Bands(t *testing.T) {
 	t.Parallel()
-	own := &rpc.StressNetExposure{Status: risk.RuleStatusWatch, PctNLV: new(70.0), IsLowerBound: true, Direction: "short", WatchPct: new(60.0), ActPct: new(90.0)}
+	own := &rpc.StressNetExposure{Status: risk.RuleStatusWatch, PctNLV: new(70.0), IsLowerBound: true, Direction: "short", WatchPct: new(60.0), ActPct: new(90.0), RegimeSet: risk.RegimeBucketConfirmed}
 	p := netExposureSummary(own)
 	sig, ok := findSignal(stressExposureSignals(p, confirmedStress), risk.SignalNetDeltaHigh)
-	if !ok || sig.Severity != risk.SeverityAct || *sig.Threshold != 60 || sig.Confidence != "medium" {
-		t.Fatalf("owner bands in stress: %+v (raised %v), want act at 60 with medium confidence", sig, ok)
+	if !ok || sig.Severity != risk.SeverityWatch || *sig.Threshold != 60 || sig.Confidence != "medium" {
+		t.Fatalf("owner bands in stress: %+v (raised %v), want watch at 60 with medium confidence", sig, ok)
 	}
 	row := stressExposureRow(p, confirmedStress)
 	if !strings.Contains(row.Evidence, "net exposure short ≥ 70.0% NLV (Rulebook watch 60%, act 90%)") {

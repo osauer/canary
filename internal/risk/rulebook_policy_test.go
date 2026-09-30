@@ -100,9 +100,11 @@ func TestOptionLinePremiumCountsALosingLineAtThePricePaid(t *testing.T) {
 
 func TestRulebookPolicyValidateRejectsUnusableLimits(t *testing.T) {
 	for name, mutate := range map[string]func(*RulebookPolicy){
-		"watch above act":     func(p *RulebookPolicy) { p.NetExposureWatchPct = 200 },
-		"negative reserve":    func(p *RulebookPolicy) { p.CashReserveMinPct = -1 },
-		"reserve above 100":   func(p *RulebookPolicy) { p.CashReserveMinPct = 101 },
+		"watch above act":     func(p *RulebookPolicy) { p.RegimeConfirmed.NetExposureWatchPct = 200 },
+		"budget watch > act":  func(p *RulebookPolicy) { p.RegimeEarlyWarning.PremiumBudgetWatchPct = 40 },
+		"negative budget":     func(p *RulebookPolicy) { p.RegimeCalm.PremiumBudgetWatchPct = -1 },
+		"budget NaN":          func(p *RulebookPolicy) { p.RegimeCalm.PremiumBudgetActPct = math.NaN() },
+		"negative net band":   func(p *RulebookPolicy) { p.RegimeCalm.NetExposureWatchPct = -5 },
 		"NaN":                 func(p *RulebookPolicy) { p.SingleNameActPct = math.NaN() },
 		"unknown mode":        func(p *RulebookPolicy) { p.Modes[RuleNetExposure] = "loud" },
 		"unknown rule":        func(p *RulebookPolicy) { p.Modes["no_such_rule"] = RuleModeAlert },
@@ -125,9 +127,20 @@ func TestRulebookPolicyValidateRejectsUnusableLimits(t *testing.T) {
 func TestRulebookFingerprintCoversNetExposureLimits(t *testing.T) {
 	base := DefaultRulebookPolicy()
 	changed := DefaultRulebookPolicy()
-	changed.NetExposureActPct = 175
+	changed.RegimeCalm.NetExposureActPct = 175
 	if base.FingerprintKey() == changed.FingerprintKey() {
 		t.Fatal("a net exposure limit change left the fingerprint unchanged")
+	}
+	for name, mutate := range map[string]func(*RulebookPolicy){
+		"calm budget watch":            func(p *RulebookPolicy) { p.RegimeCalm.PremiumBudgetWatchPct = 24 },
+		"early warning budget act":     func(p *RulebookPolicy) { p.RegimeEarlyWarning.PremiumBudgetActPct = 31 },
+		"confirmed net exposure watch": func(p *RulebookPolicy) { p.RegimeConfirmed.NetExposureWatchPct = 70 },
+	} {
+		changed = DefaultRulebookPolicy()
+		mutate(&changed)
+		if base.FingerprintKey() == changed.FingerprintKey() {
+			t.Fatalf("%s: a regime band change left the fingerprint unchanged", name)
+		}
 	}
 	changed = DefaultRulebookPolicy()
 	changed.OverhedgeMultiple = 1.5

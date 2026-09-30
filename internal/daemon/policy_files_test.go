@@ -455,9 +455,11 @@ func TestEnsurePolicyFilesUpgradesAnOwnerLikeSet(t *testing.T) {
 }
 
 // An older owner Rulebook file (written by `canary rules policy set` before
-// files were complete) gains every missing key at Canary's default, keeps
-// every owner value and comment, loses the retired key to a comment, and
-// reports the recommendation for keys whose meaning changed, once.
+// files were complete) gains every missing key at Canary's default — since
+// amendment 17 the premium budget and net exposure bands in every regime
+// table — keeps every owner value and comment, loses the retired keys
+// (cash_sell_only_pct, and cash_reserve_min_pct since amendment 17) to
+// comments, and reports the recommendations once.
 func TestEnsurePolicyFilesMigratesAnOlderRulebookFileInPlace(t *testing.T) {
 	set := policyTestSet(t)
 	old := `# My Rulebook overrides.
@@ -477,7 +479,7 @@ cash_sell_only_pct = 10.0
 `
 	writePolicyTestFile(t, set.Rulebook, old)
 	before, err := parseRulebookPolicy([]byte(old))
-	if err != nil || len(before.retired) != 1 {
+	if err != nil || !slices.Equal(before.retired, []string{"cash_reserve_min_pct", "regime_confirmed.cash_sell_only_pct"}) {
 		t.Fatalf("old file: %v retired %v", err, before.retired)
 	}
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
@@ -488,22 +490,36 @@ cash_sell_only_pct = 10.0
 	for _, want := range []string{
 		"single_name_act_pct now caps the worst-case loss on one issuer with every leg netted (before amendment 15 it capped stock-equivalent delta): Canary now recommends 40.0; yours is 35.0",
 		"single_name_watch_pct now bounds the worst-case loss on one issuer with every leg netted (before amendment 15 it bounded stock-equivalent delta): Canary now recommends 30.0; yours is 25.0",
+		"cash_reserve_min_pct is retired: rule 3 is now the premium budget, per regime set in the [regime_*] tables (calm 25.0/35.0, early warning 20.0/30.0, confirmed 15.0/25.0 watch/act % of NLV); yours was 60.0 and is kept only as a comment",
 	} {
 		if !slices.Contains(a.Notes, want) {
 			t.Fatalf("notes %q lack %q", a.Notes, want)
 		}
 	}
 	if !slices.Contains(a.Changes, "added takeover_gap_pct at Canary's default") || !slices.Contains(a.Changes, "added modes.loss_budget at Canary's default") ||
-		!slices.Contains(a.Changes, "commented out retired regime_confirmed.cash_sell_only_pct") || !slices.Contains(a.Changes, "added issuer_groups at Canary's default") {
+		!slices.Contains(a.Changes, "commented out retired regime_confirmed.cash_sell_only_pct") || !slices.Contains(a.Changes, "added issuer_groups at Canary's default") ||
+		!slices.Contains(a.Changes, "commented out retired cash_reserve_min_pct") || slices.Contains(a.Changes, "added cash_reserve_min_pct at Canary's default") ||
+		slices.Contains(a.Changes, "added net_exposure_watch_pct at Canary's default") {
 		t.Fatalf("changes = %v", a.Changes)
+	}
+	for _, set := range []string{"regime_calm", "regime_early_warning", "regime_confirmed"} {
+		for _, key := range []string{"premium_budget_watch_pct", "premium_budget_act_pct", "net_exposure_watch_pct", "net_exposure_act_pct"} {
+			if want := "added " + set + "." + key + " at Canary's default"; !slices.Contains(a.Changes, want) {
+				t.Fatalf("changes %v lack %q", a.Changes, want)
+			}
+		}
 	}
 	data := readPolicyTestFile(t, set.Rulebook)
 	after, err := parseRulebookPolicy(data)
 	if err != nil || after.policy.EffectiveFingerprintKey() != before.policy.EffectiveFingerprintKey() || after.policy.Version != 5 || len(after.missing) != 0 || len(after.retired) != 0 {
 		t.Fatalf("migrated file: err %v version %d missing %v retired %v", err, after.policy.Version, after.missing, after.retired)
 	}
-	if after.policy.SingleNameWatchPct != 25 || after.policy.SingleNameActPct != 35 || after.policy.ModeFor(risk.RuleLossBudget) != risk.RuleModeAlert {
+	if after.policy.SingleNameWatchPct != 25 || after.policy.SingleNameActPct != 35 || after.policy.ModeFor(risk.RuleLossBudget) != risk.RuleModeAlert ||
+		after.policy.RegimeConfirmed.PremiumBudgetWatchPct != 15 || after.policy.RegimeConfirmed.NetExposureActPct != 100 {
 		t.Fatalf("owner values moved: %+v", after.policy)
+	}
+	if !strings.Contains(string(data), "# cash_reserve_min_pct = 60.0  # retired by Canary v9.9.9") {
+		t.Fatalf("the retired cash reserve is not kept as a comment:\n%s", data)
 	}
 	for line := range strings.SplitSeq(strings.TrimSuffix(old, "\n"), "\n") {
 		if line == "cash_sell_only_pct = 10.0" || strings.HasPrefix(line, "kind =") {
@@ -559,7 +575,7 @@ func TestEnsurePolicyFilesLeavesABrokenFileAlone(t *testing.T) {
 func TestEnsurePolicyFilesRecreatesAFileDeletedBetweenRestarts(t *testing.T) {
 	set := policyTestSet(t)
 	EnsurePolicyFiles(set, EnsureOptions{Release: "v9.9.9"})
-	if _, err := EditRulebookPolicy(set.Rulebook, []string{"cash_reserve_min_pct=70"}, nil, false); err != nil {
+	if _, err := EditRulebookPolicy(set.Rulebook, []string{"fx_exposure_watch_pct=70"}, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	protection := readPolicyTestFile(t, set.Protection)

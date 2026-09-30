@@ -62,7 +62,7 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[authority]` | `close_reduce_only` | `bool` | CloseReduceOnly restricts proposals to reducing or closing existing positions; must be true in the MVP schema. |
 | `[authority]` | `pre_authorised` | `[]string` | PreAuthorised lists the reduce-only buckets whose unblocked proposals the daemon places itself after recording an alert and the veto window (owner decision D3, 2026-09-21). |
 | `[authority]` | `veto_window` | `string` | VetoWindow is how long a pre-authorised proposal waits between its notice and its submission; default 30m, minimum 5m. |
-| `[buckets.budget_reduction]` | `basis` | `string` | Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV and the total cut restores its cash_reserve_min_pct of NLV, with no drawdown-brake gate; the two percentages must then be absent. |
+| `[buckets.budget_reduction]` | `basis` | `string` | Basis is declared_risk_capital (default; the two percentages above are needed) or rulebook: the per-line cap becomes the Rulebook's option_line_act_pct of NLV, and once the book's premium at risk reaches rule 3's premium budget act level of the regime set in force the total cut brings it back to that set's watch level, with no drawdown-brake gate; the two percentages must then be absent. |
 | `[buckets.budget_reduction]` | `enabled` | `bool` | Enabled turns the premium budget governor on (default false; the table is only a commented placeholder in the file Canary writes). |
 | `[buckets.budget_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of one generated reduction order, exactly as risk_reduction.max_order_notional does (the remainder waits for the next cycle); no default, and until it is written the governor reports needs_your_number. |
 | `[buckets.budget_reduction]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals. |
@@ -110,7 +110,6 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
 | *(top level)* | `budget_watch_pct` | `float64` | BudgetWatchPct watches at or above this issuer loss as a percent of effective risk capital: the lesser of declared risk capital and equity above the protected floor. Missing capital inputs remain unknown. Rule 18 never acts or trims. |
-| *(top level)* | `cash_reserve_min_pct` | `float64` | CashReserveMinPct watches strictly below this broker-reported available-funds percentage of NLV; equality passes. It is not settled cash. Missing current funds are unknown; this row never blocks a buy. |
 | *(top level)* | `cluster_drop_pct` | `float64` | ClusterDropPct is the downward price scenario, in percent, for every issuer in a declared cluster. Empty clusters leave rule 17 unevaluated. |
 | *(top level)* | `cluster_watch_pct` | `float64` | ClusterWatchPct watches at or above this cluster scenario loss as a percent of NLV. Rule 17 never acts or trims. |
 | *(top level)* | `clusters` | `map[string][]string` | Clusters names related issuers that rule 17 tests falling together, keyed by a name you choose; members are symbols or issuer group names. |
@@ -132,12 +131,10 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | *(top level)* | `issuer_groups` | `map[string][]string` | IssuerGroups joins share classes and ADR/ordinary lines into one issuer, keyed by a name you choose. Canary has no issuer data: an ungrouped symbol is its own issuer. |
 | *(top level)* | `kind` | `string` | Kind identifies the file type (canary.rulebook_policy); ibkr.rulebook_policy remains a supported alias. It grants no authority. |
 | *(top level)* | `modes` | `map[string]string` | Modes controls presentation and alerts: off hides the row, track shows it without alerts, alert enables alert production. Shared measurements still run; independent proposal buckets retain their own enablement. |
-| *(top level)* | `net_exposure_act_pct` | `float64` | NetExposureActPct acts at or above this magnitude of net exposure as a percent of NLV. |
-| *(top level)* | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct watches at or above this magnitude of the whole book's signed stock-equivalent exposure, including hedges, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. |
 | *(top level)* | `option_line_act_pct` | `float64` | OptionLineActPct acts at or above this long-option premium at risk as a percent of NLV. It also supplies the budget governor's per-line limit under basis = rulebook. |
 | *(top level)* | `option_line_watch_pct` | `float64` | OptionLineWatchPct watches at or above this long-option premium at risk (the higher of cost and current value) as a percent of NLV. Missing cost falls back to current value; protection uses the separate hedge bands. |
 | *(top level)* | `overhedge_multiple` | `float64` | OverhedgeMultiple is the over-hedge boundary as a multiple of rule 12's band top: rule 12 acts above this multiple of the current regime's top, and index puts above this multiple of the widest regime's top count as directional exposure rather than protection. |
-| *(top level)* | `policy_id` | `string` | ID names the policy (baseline rulebook-v4; canary rules policy set writes rulebook-owner). |
+| *(top level)* | `policy_id` | `string` | ID names the policy (baseline rulebook-v5; canary rules policy set writes rulebook-owner). |
 | *(top level)* | `policy_version` | `int` | Version records the owner revision; raise it for material edits. Cosmetic edits do not change operational identity. The first valid file is adopted at any positive revision. |
 | *(top level)* | `red_on_green_name_drop_pct` | `float64` | RedOnGreenNameDropPct watches a stock-leg day change at or below this negative percent when SPY meets red_on_green_spy_up_pct. Missing stock-leg tape is not screened; absent SPY makes the row unknown. US session only. |
 | *(top level)* | `red_on_green_spy_up_pct` | `float64` | RedOnGreenSPYUpPct activates rule 9 when SPY's day gain is at or above this percent; the holding must also meet its drop threshold. |
@@ -157,14 +154,26 @@ Loaded from the path in `[rulebook].policy_file` (default `~/.config/ibkr/polici
 | `[regime_calm]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_calm]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
 | `[regime_calm]` | `hedge_band_min_pct` | `float64` | HedgeBandMinPct is rule 12's lower bound: index protection as a percent of gross long exposure. |
+| `[regime_calm]` | `net_exposure_act_pct` | `float64` | NetExposureActPct is rule 15's act level for the same measure; the stress read calls it urgent while the regime set is confirmed. |
+| `[regime_calm]` | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct is rule 15's watch level: the magnitude of the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. At watch or act the Rulebook reads sell-only. |
+| `[regime_calm]` | `premium_budget_act_pct` | `float64` | PremiumBudgetActPct is rule 3's act level for the same measure. The budget governor under basis = rulebook sells back to the watch level once the total reaches it. |
+| `[regime_calm]` | `premium_budget_watch_pct` | `float64` | PremiumBudgetWatchPct is rule 3's watch level: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. At watch or act the Rulebook reads sell-only. |
 | `[regime_confirmed]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_confirmed]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_confirmed]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
 | `[regime_confirmed]` | `hedge_band_min_pct` | `float64` | HedgeBandMinPct is rule 12's lower bound: index protection as a percent of gross long exposure. |
+| `[regime_confirmed]` | `net_exposure_act_pct` | `float64` | NetExposureActPct is rule 15's act level for the same measure; the stress read calls it urgent while the regime set is confirmed. |
+| `[regime_confirmed]` | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct is rule 15's watch level: the magnitude of the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. At watch or act the Rulebook reads sell-only. |
+| `[regime_confirmed]` | `premium_budget_act_pct` | `float64` | PremiumBudgetActPct is rule 3's act level for the same measure. The budget governor under basis = rulebook sells back to the watch level once the total reaches it. |
+| `[regime_confirmed]` | `premium_budget_watch_pct` | `float64` | PremiumBudgetWatchPct is rule 3's watch level: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. At watch or act the Rulebook reads sell-only. |
 | `[regime_early_warning]` | `extrinsic_act_pct` | `float64` | ExtrinsicActPct is rule 4's act level: option time value outside protection as a percent of NLV. |
 | `[regime_early_warning]` | `extrinsic_watch_pct` | `float64` | ExtrinsicWatchPct is rule 4's watch level: option time value outside protection as a percent of NLV. |
 | `[regime_early_warning]` | `hedge_band_max_pct` | `float64` | HedgeBandMaxPct is rule 12's upper bound: index protection as a percent of gross long exposure. |
 | `[regime_early_warning]` | `hedge_band_min_pct` | `float64` | HedgeBandMinPct is rule 12's lower bound: index protection as a percent of gross long exposure. |
+| `[regime_early_warning]` | `net_exposure_act_pct` | `float64` | NetExposureActPct is rule 15's act level for the same measure; the stress read calls it urgent while the regime set is confirmed. |
+| `[regime_early_warning]` | `net_exposure_watch_pct` | `float64` | NetExposureWatchPct is rule 15's watch level: the magnitude of the whole book's signed stock-equivalent exposure, hedges included, as a percent of NLV. Material missing delta may prove a breach by a lower bound but cannot prove a pass. At watch or act the Rulebook reads sell-only. |
+| `[regime_early_warning]` | `premium_budget_act_pct` | `float64` | PremiumBudgetActPct is rule 3's act level for the same measure. The budget governor under basis = rulebook sells back to the watch level once the total reaches it. |
+| `[regime_early_warning]` | `premium_budget_watch_pct` | `float64` | PremiumBudgetWatchPct is rule 3's watch level: premium at risk in long options outside protection (the higher of price paid and current value, summed) as a percent of NLV. At watch or act the Rulebook reads sell-only. |
 
 ## Opportunity policy file
 

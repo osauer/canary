@@ -15,7 +15,7 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// The rulebook's regime-conditional thresholds (rules 3/4/12) consume a
+// The rulebook's regime-conditional thresholds (rules 3, 4, 12, 15) consume a
 // bucketed regime lifecycle stage. The daemon latches the bucket whenever a
 // regime snapshot completes and persists it, so a restart mid-stress cannot
 // silently reset thresholds to calm. A stale latch is served as "carried" —
@@ -332,6 +332,19 @@ func (s *Server) projectRulesRegimeStageAt(ctx context.Context, res *rpc.RegimeS
 		}
 	}
 	return nil
+}
+
+// rulebookRegimeStage is the latched regime stage the regime-conditional
+// rules read, and whether it is carried: older than the policy's
+// regime_stage_max_age_minutes at now. An empty bucket means no stage was
+// ever observed. The Rulebook evaluation and the budget governor both read
+// it here, so the governor's premium budget is the one rule 3 applies.
+func (s *Server) rulebookRegimeStage(pol risk.RulebookPolicy, now time.Time) (rulesRegimeStageState, bool) {
+	st := s.rulesRegimeStageSnapshot()
+	if st.Bucket == "" {
+		return st, false
+	}
+	return st, now.Sub(st.AsOf) > time.Duration(pol.RegimeStageMaxAgeMinutes)*time.Minute
 }
 
 // rulesRegimeStageSnapshot returns the latched bucket, lazily restoring the

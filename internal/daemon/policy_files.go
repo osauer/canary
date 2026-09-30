@@ -397,7 +397,6 @@ var rulebookTemplateKeys = []rulebookTemplateKey{
 	{"option_line_act_pct", ""},
 	{"hedge_line_watch_pct", ""},
 	{"hedge_line_act_pct", ""},
-	{"cash_reserve_min_pct", "Rule 3 — cash reserve"},
 	{"runway_watch_dte", "Rule 5 — options nearing expiry"},
 	{"runway_act_dte", ""},
 	{"runway_itm_delta_floor", ""},
@@ -408,15 +407,43 @@ var rulebookTemplateKeys = []rulebookTemplateKey{
 	{"red_on_green_spy_up_pct", ""},
 	{"winner_trim_day_up_pct", ""},
 	{"winner_trim_min_exposure_pct", ""},
-	{"regime_stage_max_age_minutes", "Rules 4 and 12 — regime"},
+	{"regime_stage_max_age_minutes", "Rules 3, 4, 12 and 15 — regime (their bands are in the [regime_*] tables below)"},
 	{"overhedge_multiple", ""},
 	{"exit_watch_loss_pct", "Rule 13 — long option loss limit"},
 	{"exit_act_loss_pct", ""},
 	{"fx_exposure_watch_pct", "Rule 14 — foreign-currency exposure"},
-	{"net_exposure_watch_pct", "Rule 15 — net market exposure"},
-	{"net_exposure_act_pct", ""},
 	{"hedge_symbols", "Shared inputs"},
 	{"greeks_gap_floor_pct_nlv", ""},
+}
+
+// rulebookRegimeKeys orders and reads every key of a [regime_*] table: rule 3's
+// premium budget beside rule 4's time value budget, then rule 12's protection
+// band and rule 15's net exposure bands. A test fails when a RegimeThresholds
+// field has no entry here.
+var rulebookRegimeKeys = []struct {
+	key   string
+	value func(risk.RegimeThresholds) float64
+}{
+	{"premium_budget_watch_pct", func(t risk.RegimeThresholds) float64 { return t.PremiumBudgetWatchPct }},
+	{"premium_budget_act_pct", func(t risk.RegimeThresholds) float64 { return t.PremiumBudgetActPct }},
+	{"extrinsic_watch_pct", func(t risk.RegimeThresholds) float64 { return t.ExtrinsicWatchPct }},
+	{"extrinsic_act_pct", func(t risk.RegimeThresholds) float64 { return t.ExtrinsicActPct }},
+	{"hedge_band_min_pct", func(t risk.RegimeThresholds) float64 { return t.HedgeBandMinPct }},
+	{"hedge_band_max_pct", func(t risk.RegimeThresholds) float64 { return t.HedgeBandMaxPct }},
+	{"net_exposure_watch_pct", func(t risk.RegimeThresholds) float64 { return t.NetExposureWatchPct }},
+	{"net_exposure_act_pct", func(t risk.RegimeThresholds) float64 { return t.NetExposureActPct }},
+}
+
+// rulebookRegimeSets names the three [regime_*] tables with their values
+// under p.
+func rulebookRegimeSets(p risk.RulebookPolicy) []struct {
+	name string
+	t    risk.RegimeThresholds
+} {
+	return []struct {
+		name string
+		t    risk.RegimeThresholds
+	}{{"regime_calm", p.RegimeCalm}, {"regime_early_warning", p.RegimeEarlyWarning}, {"regime_confirmed", p.RegimeConfirmed}}
 }
 
 // rulebookPolicyValues maps each toml key of the policy to its value.
@@ -446,8 +473,8 @@ func rulebookTemplateKeySet() []string {
 		out = append(out, "modes."+id)
 	}
 	for _, set := range []string{"regime_calm", "regime_early_warning", "regime_confirmed"} {
-		for _, key := range []string{"extrinsic_watch_pct", "extrinsic_act_pct", "hedge_band_min_pct", "hedge_band_max_pct"} {
-			out = append(out, set+"."+key)
+		for _, k := range rulebookRegimeKeys {
+			out = append(out, set+"."+k.key)
 		}
 	}
 	return append(out, "issuer_groups", "clusters")
@@ -469,9 +496,11 @@ func RulebookPolicyTemplate(release string) []byte {
 		"proposals, never permission to trade. Off hides a rule; it does not disable",
 		"a separately enabled proposal bucket using that rule's thresholds.",
 		"Rules 6 and 11 have no numerical knob here. Rules 9-10 use the US session.",
-		"Regime extrinsic bands use % of NLV; hedge bands use % of gross long exposure.",
-		"Upper watch/act edges are inclusive; cash watches below its floor. Rule 12:",
-		"inside edges passes, above the top watches, above its overhedge multiple acts.")
+		"Regime premium, extrinsic and net exposure bands use % of NLV; hedge bands",
+		"use % of gross long exposure. Watch/act edges are inclusive (at or above).",
+		"Rule 12: inside edges passes, below the bottom or above the top watches (no",
+		"protection at all is 0%), above its overhedge multiple acts. Rule 3 or 15 at",
+		"watch or act reads sell-only.")
 	fmt.Fprintf(&b, "kind = %q\nschema_version = 1\npolicy_id = %q\npolicy_version = %d\n", risk.RulebookPolicyKind, p.ID, p.Version)
 	for _, k := range rulebookTemplateKeys {
 		if k.heading != "" {
@@ -485,25 +514,16 @@ func RulebookPolicyTemplate(release string) []byte {
 	for _, id := range risk.RuleIDs() {
 		fmt.Fprintf(&b, "%s = %q\n", id, p.ModeFor(id))
 	}
-	for _, set := range []struct {
-		name string
-		t    risk.RegimeThresholds
-		note string
-	}{
-		{"regime_calm", p.RegimeCalm, "Rule 4 time value budget and rule 12 protection band, calm regime."},
-		{"regime_early_warning", p.RegimeEarlyWarning, "The same in an early-warning regime."},
-		{"regime_confirmed", p.RegimeConfirmed, "The same in confirmed stress."},
-	} {
-		fmt.Fprintf(&b, "\n# %s\n[%s]\n", set.note, set.name)
-		for _, field := range []struct {
-			key   string
-			value float64
-		}{
-			{"extrinsic_watch_pct", set.t.ExtrinsicWatchPct}, {"extrinsic_act_pct", set.t.ExtrinsicActPct},
-			{"hedge_band_min_pct", set.t.HedgeBandMinPct}, {"hedge_band_max_pct", set.t.HedgeBandMaxPct},
-		} {
+	notes := map[string]string{
+		"regime_calm":          "Rule 3 premium budget, rule 4 time value budget, rule 12 protection band\n# and rule 15 net exposure, calm regime.",
+		"regime_early_warning": "The same in an early-warning regime.",
+		"regime_confirmed":     "The same in confirmed stress.",
+	}
+	for _, set := range rulebookRegimeSets(p) {
+		fmt.Fprintf(&b, "\n# %s\n[%s]\n", notes[set.name], set.name)
+		for _, field := range rulebookRegimeKeys {
 			writePolicyComment(&b, rulebookPolicyHelp[set.name+"."+field.key])
-			fmt.Fprintf(&b, "%s = %s\n", field.key, tomlFloat(field.value))
+			fmt.Fprintf(&b, "%s = %s\n", field.key, tomlFloat(field.value(set.t)))
 		}
 	}
 	b.WriteString(rulebookGroupsTemplate)
@@ -586,14 +606,8 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 			notes = append(notes, "modes."+id+" is not in the file and follows Canary's default; the file's modes table is not a [modes] section, so it was not edited")
 		}
 	}
-	for _, set := range []struct {
-		name string
-		t    risk.RegimeThresholds
-	}{{"regime_calm", p.RegimeCalm}, {"regime_early_warning", p.RegimeEarlyWarning}, {"regime_confirmed", p.RegimeConfirmed}} {
-		for _, kv := range []struct {
-			key string
-			v   float64
-		}{{"extrinsic_watch_pct", set.t.ExtrinsicWatchPct}, {"extrinsic_act_pct", set.t.ExtrinsicActPct}, {"hedge_band_min_pct", set.t.HedgeBandMinPct}, {"hedge_band_max_pct", set.t.HedgeBandMaxPct}} {
+	for _, set := range rulebookRegimeSets(p) {
+		for _, kv := range rulebookRegimeKeys {
 			full := set.name + "." + kv.key
 			if defined[full] {
 				continue
@@ -602,7 +616,7 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 				notes = append(notes, full+" is not in the file and follows Canary's default; the table is not a ["+set.name+"] section, so it was not edited")
 				continue
 			}
-			doc.insert(set.name, []string{fmt.Sprintf("%s = %s  # added by Canary %s at its default", kv.key, tomlFloat(kv.v), release)})
+			doc.insert(set.name, []string{fmt.Sprintf("%s = %s  # added by Canary %s at its default", kv.key, tomlFloat(kv.value(set.t)), release)})
 			added(full)
 		}
 	}
@@ -628,6 +642,9 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 		table, leaf := splitRulebookKey(key)
 		if doc.commentOut(table, leaf, fmt.Sprintf("retired by Canary %s: no operational consumer; see the current policy reference", release)) {
 			changes = append(changes, "commented out retired "+key)
+			if note := retiredRulebookMigrationNote(key, flat[key]); note != "" {
+				notes = append(notes, note)
+			}
 		}
 	}
 	if len(changes) == 0 {
@@ -798,7 +815,7 @@ allow_short_profit_trail = %t
 # [buckets.budget_reduction]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the sells
-# basis = "declared_risk_capital"   # or "rulebook": the Rulebook's cash reserve and per-line limit
+# basis = "declared_risk_capital"   # or "rulebook": the Rulebook's premium budget and per-line limit
 # premium_at_risk_pct_of_risk_capital = 0.0
 # per_line_pct_of_risk_capital = 0.0
 # max_order_notional = 0.0

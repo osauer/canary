@@ -31,6 +31,19 @@ func TestRulesPolicyScreenShowsEveryRuleAndTheOverhedgeMultiple(t *testing.T) {
 	if !strings.Contains(screen, "act above 1.5× the band's top") {
 		t.Fatalf("the over-hedge multiple is not on the screen:\n%s", screen)
 	}
+	// Rules 3 and 15 show their regime bands (amendment 17); the retired
+	// cash reserve example is gone.
+	for _, want := range []string{
+		"option premium at risk of NLV, protection excluded, watch/act at: calm 25%/35%, early warning 20%/30%, confirmed 15%/25%; sell-only from watch",
+		"net exposure of NLV, whole book with hedges, watch/act at: calm 100%/150%, early warning 100%/130%, confirmed 75%/100%; sell-only from watch",
+	} {
+		if !strings.Contains(screen, want) {
+			t.Fatalf("screen lacks %q:\n%s", want, screen)
+		}
+	}
+	if strings.Contains(screen, "cash_reserve_min_pct") {
+		t.Fatalf("the screen still names the retired cash reserve:\n%s", screen)
+	}
 }
 
 // A terminal-evidence import that did not apply shows on the rules policy

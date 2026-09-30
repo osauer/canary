@@ -205,6 +205,7 @@ func cloneRulesResult(in *rpc.RulesResult) *rpc.RulesResult {
 		}
 	}
 	out.Ranked = append([]int(nil), in.Ranked...)
+	out.SellOnly.Rules = append([]string(nil), in.SellOnly.Rules...)
 	if in.BreachCounts != nil {
 		out.BreachCounts = make(map[string]int, len(in.BreachCounts))
 		maps.Copy(out.BreachCounts, in.BreachCounts)
@@ -521,13 +522,13 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 		in.NonBaseNLVBase, in.NonBaseCurrencies = nonBaseExposure(acct, corr)
 	}
 
-	// Rules 3/4/12 regime-conditional thresholds: serve the latched stage,
-	// latch with one async refresh (single-flight; never from previews).
-	if st := s.rulesRegimeStageSnapshot(); st.Bucket != "" {
+	// Rules 3, 4, 12 and 15 read regime-conditional thresholds: serve the
+	// latched stage, and refresh a cold or stale latch with one async read
+	// (single-flight; never from previews).
+	if st, carried := s.rulebookRegimeStage(pol, time.Now()); st.Bucket != "" {
 		in.RegimeStage = st.Bucket
 		in.RegimeStageAsOf = st.AsOf
-		maxAge := time.Duration(pol.RegimeStageMaxAgeMinutes) * time.Minute
-		in.RegimeStageCarried = time.Since(st.AsOf) > maxAge
+		in.RegimeStageCarried = carried
 		stageStatus := "ok"
 		if in.RegimeStageCarried {
 			stageStatus = "stale"
@@ -572,6 +573,7 @@ func (s *Server) evaluateRulesModeLocked(ctx context.Context, includeTape, allow
 	ev := risk.EvaluateRulebook(in, pol)
 	res.Rules = ev.Rows
 	res.Ranked = ev.Ranked
+	res.SellOnly = ev.SellOnly
 	res.InputHealth = health
 	counts := map[string]int{}
 	for _, r := range ev.Rows {
@@ -1711,6 +1713,52 @@ func errText(err error) string {
 	return err.Error()
 }
 
+// netExposureSide names the side rule 15 flags, from its contributors' signed
+// shares of NLV; a row without one reads long, the side a buy most often adds.
+func netExposureSide(r risk.RuleRow) string {
+	for _, o := range r.Offenders {
+		if o.Observed < 0 {
+			return "short"
+		}
+		if o.Observed > 0 {
+			return "long"
+		}
+	}
+	return "long"
+}
+
+// draftAddsNetExposure reports whether a buy opening or increasing a position
+// adds to the side rule 15 flags: on a net-long book everything but a put
+// adds long exposure, and a put reduces it; on a net-short book only a put
+// adds. Close and reduce never reach here.
+func draftAddsNetExposure(r risk.RuleRow, draft rpc.OrderDraft) bool {
+	put := strings.EqualFold(draft.Contract.SecType, "OPT") && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(draft.Contract.Right)), "P")
+	if netExposureSide(r) == "short" {
+		return put
+	}
+	return !put
+}
+
+// rulebookPercentText renders a row figure for a preview sentence: "31.2%",
+// "at least 31.2%" on a lower bound, "an unmeasured share" without one.
+func rulebookPercentText(v *float64, lowerBound bool) string {
+	if v == nil {
+		return "an unmeasured share"
+	}
+	text := trimFloat(*v) + "%"
+	if lowerBound {
+		return "at least " + text
+	}
+	return text
+}
+
+func rulebookLevelWord(status string) string {
+	if status == risk.RuleStatusAct {
+		return "act level"
+	}
+	return "watch level"
+}
+
 // rulebookPreviewWarnings maps currently breached rules to advisory
 // DataWarnings on an order preview — only when the draft would WORSEN the
 // breached metric. Reduce/close intents never warn; submit eligibility is
@@ -1785,8 +1833,15 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 	if r, ok := breached(risk.RuleOptionLinePremium); ok && isBuy && isOption && offends(r) {
 		out = append(out, warn(r, fmt.Sprintf("%s already holds an option line over the premium cap; this adds premium.", sym)))
 	}
+	// Rules 3 and 15 put the Rulebook in sell-only (amendment 17). Rule 3
+	// warns every buy; rule 15 warns a buy that adds to the side it flags.
 	if r, ok := breached(risk.RuleCashSellOnly); ok && isBuy {
-		out = append(out, warn(r, "Cash ratio is below the sell-only floor; a buy deepens the margin debit."))
+		out = append(out, warn(r, fmt.Sprintf("Option premium at risk is %s of NLV, at or above the premium budget's %s %s; the Rulebook reads sell-only, so this buy works against it.",
+			rulebookPercentText(r.Observed, r.ObservedIsLowerBound), rulebookPercentText(r.Threshold, false), rulebookLevelWord(r.Status))))
+	}
+	if r, ok := breached(risk.RuleNetExposure); ok && isBuy && draftAddsNetExposure(r, draft) {
+		out = append(out, warn(r, fmt.Sprintf("The book is net %s %s of NLV, at or above the net-exposure %s %s; the Rulebook reads sell-only, so this buy adds to it.",
+			netExposureSide(r), rulebookPercentText(r.Observed, r.ObservedIsLowerBound), rulebookPercentText(r.Threshold, false), rulebookLevelWord(r.Status))))
 	}
 	if r, ok := breached(risk.RuleExtrinsicBudget); ok && isBuy && isOption {
 		out = append(out, warn(r, "Portfolio extrinsic already exceeds its budget; buying options adds nightly decay."))
