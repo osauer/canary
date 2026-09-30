@@ -10,9 +10,10 @@ import (
 
 // renderCashSweepSection prints the cash sweep under its own heading: the
 // mode and the owner's numbers, one band line per currency (with the bill it
-// resolved, or the evidence why none), then the rows. The rows are
-// observation until bill orders are authorised, so they never sit among the
-// protection proposals (internal-docs/design/cash-sweep.md).
+// resolved, or the evidence why none), then the rows. A sweep row buys or
+// sells a bill rather than protecting a position, so it never sits among the
+// protection proposals (internal-docs/design/cash-sweep.md); an active row
+// previews and submits like any other.
 func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSweepStatus, rows []rpc.TradeProposal) {
 	if st == nil && len(rows) == 0 {
 		return

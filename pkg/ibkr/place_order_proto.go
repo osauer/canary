@@ -160,12 +160,24 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	}
 
 	secType := strings.ToUpper(order.SecType)
-	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" {
-		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG only")
+	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" && secType != "BOND" {
+		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG/BOND only")
 	}
 	orderType := strings.ToUpper(strings.TrimSpace(order.OrderType))
 	if orderType != "LMT" && orderType != "TRAIL" && orderType != "TRAIL LIMIT" {
 		return unsupportedPlaceOrderProtoValue("orderType", order.OrderType, "LMT/TRAIL/TRAIL LIMIT only")
+	}
+	if secType == "BOND" {
+		// LMT DAY on a contract id, quantity and price on the line's grid.
+		if orderType != "LMT" {
+			return unsupportedPlaceOrderProtoValue("orderType", order.OrderType, "LMT only for BOND")
+		}
+		if tif := strings.ToUpper(strings.TrimSpace(order.TIF)); tif != "DAY" {
+			return unsupportedPlaceOrderProtoValue("tif", order.TIF, "DAY only for BOND")
+		}
+		if err := validateBondOrder(order); err != nil {
+			return fmt.Errorf("protobuf placeOrder BOND: %w", err)
+		}
 	}
 	if err := validatePlaceOrderTriggerMethod(orderType, order.TriggerMethod); err != nil {
 		return err

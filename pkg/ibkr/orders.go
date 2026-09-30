@@ -38,6 +38,9 @@ type IBKROrder struct {
 	TradingClass string
 	SecIDType    string
 	SecID        string
+	// BondRules is a BOND line's size and price grid; ValidateOrder refuses a
+	// BOND order without it or off it.
+	BondRules *BondOrderRules
 
 	// Order details
 	Action    string  // Action must be BUY or SELL.
@@ -176,6 +179,12 @@ func ValidateOrder(order *IBKROrder) error {
 
 	if order.OrderType == "" {
 		return fmt.Errorf("order type is required")
+	}
+
+	if strings.EqualFold(strings.TrimSpace(order.SecType), "BOND") {
+		if err := validateBondOrder(order); err != nil {
+			return err
+		}
 	}
 
 	// Validate limit price for limit orders

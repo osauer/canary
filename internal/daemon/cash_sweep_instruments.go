@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -10,10 +11,12 @@ import (
 )
 
 // cashSweepInstrumentConvention is how the broker counts and prices one
-// vocabulary instrument. EVERY VALUE IS AN ASSUMPTION TO VERIFY on the
-// post-install proof (internal-docs/design/cash-sweep.md, A5): no order uses
-// them yet. Today they only label a row's resolved bill and turn a held
-// bill's quantity into face value for the ladder.
+// vocabulary instrument, and when its orders can fill. EVERY VALUE IS AN
+// ASSUMPTION TO VERIFY on the post-install proof
+// (internal-docs/design/cash-sweep.md, A5). The order path sizes and prices
+// by them: an invest row's quantity is whole QuantityUnits, its limit is per
+// 100 of face, and a held bill's quantity turns into face value for the
+// ladder.
 type cashSweepInstrumentConvention struct {
 	// QuantityUnit is what one unit of order quantity counts
 	// (rpc.BondQuantityUnit*); FacePerUnit is that unit in face value of
@@ -22,23 +25,54 @@ type cashSweepInstrumentConvention struct {
 	FacePerUnit  float64
 	// PriceConvention is how a quote is expressed (rpc.BondPriceConvention*).
 	PriceConvention string
+	// SessionLabel, TimeZone, Open and Close (local HHMM on weekdays) are the
+	// assumed session a DAY order fills in, used only when the line's
+	// contract details carry no liquid or trading hours. Holidays are not
+	// modelled: on one the assumed session reads open and the preview's live
+	// quote requirement refuses instead.
+	SessionLabel string
+	TimeZone     string
+	Open, Close  int
 }
 
 // cashSweepInstrumentConventions: assumptions to verify, never facts.
 //   - us_tbill: IBKR counts US Treasuries in bonds of 1,000 USD face and
-//     quotes them per 100 of face.
+//     quotes them per 100 of face; they trade 08:00–17:00 New York time.
 //   - de_bubill, fr_btf, uk_tbill, ca_tbill: IBKR counts European, UK and
 //     Canadian government bills in face value of their currency (one unit
-//     is 1 of face) and quotes them per 100 of face; the contract's own
-//     min_size and size_increment bound an order.
-//   - etf: shares, quoted per share.
+//     is 1 of face) and quotes them per 100 of face; Bubills and BTFs trade
+//     09:00–17:30 Frankfurt and Paris time, UK bills 08:00–16:30 London,
+//     Canadian bills 08:00–17:00 Toronto.
+//   - every bill: the contract's own min_size, size_increment and min_tick
+//     bound an order, and its liquid hours (else trading hours) replace the
+//     assumed session.
+//   - etf: shares, quoted per share, on its exchange's calendar.
 var cashSweepInstrumentConventions = map[string]cashSweepInstrumentConvention{
-	cashSweepInstrumentUSTBill:  {QuantityUnit: rpc.BondQuantityUnitFace1000, FacePerUnit: 1000, PriceConvention: rpc.BondPriceConventionPer100},
-	cashSweepInstrumentDEBubill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100},
-	cashSweepInstrumentFRBTF:    {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100},
-	cashSweepInstrumentUKTBill:  {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100},
-	cashSweepInstrumentCATBill:  {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100},
-	cashSweepInstrumentETF:      {QuantityUnit: rpc.BondQuantityUnitShares, PriceConvention: rpc.BondPriceConventionPerShare},
+	cashSweepInstrumentUSTBill: {QuantityUnit: rpc.BondQuantityUnitFace1000, FacePerUnit: 1000, PriceConvention: rpc.BondPriceConventionPer100,
+		SessionLabel: "US Treasury bills", TimeZone: "America/New_York", Open: 800, Close: 1700},
+	cashSweepInstrumentDEBubill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SessionLabel: "German Bubills", TimeZone: "Europe/Berlin", Open: 900, Close: 1730},
+	cashSweepInstrumentFRBTF: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SessionLabel: "French BTFs", TimeZone: "Europe/Paris", Open: 900, Close: 1730},
+	cashSweepInstrumentUKTBill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SessionLabel: "UK Treasury bills", TimeZone: "Europe/London", Open: 800, Close: 1630},
+	cashSweepInstrumentCATBill: {QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100,
+		SessionLabel: "Canadian Treasury bills", TimeZone: "America/Toronto", Open: 800, Close: 1700},
+	cashSweepInstrumentETF: {QuantityUnit: rpc.BondQuantityUnitShares, PriceConvention: rpc.BondPriceConventionPerShare},
+}
+
+// cashSweepBondConvention is the convention of a BOND line in ccy that is
+// not known to be a vocabulary bill: a working order or a fill Canary's
+// journal holds for it. It assumes the currency's bill unit (A5), so a USD
+// bond counts 1,000 of face and a EUR, GBP or CAD bond 1; any other currency
+// has none and stays unvalued.
+func cashSweepBondConvention(ccy string) (cashSweepInstrumentConvention, bool) {
+	for _, instrument := range slices.Sorted(maps.Keys(cashSweepBillCurrency)) {
+		if cashSweepBillCurrency[instrument] == normCcy(ccy) {
+			return cashSweepInstrumentConventions[instrument], true
+		}
+	}
+	return cashSweepInstrumentConvention{}, false
 }
 
 // cashSweepISINCountryInstrument maps an ISIN's issuer country to the bill

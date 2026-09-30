@@ -284,9 +284,13 @@ func TestCashSweepEURFallbackOnlyAfterAnEmptySearch(t *testing.T) {
 			t.Fatalf("search %+v chose %s, want %s", tc.search, cp.instrument, tc.instrument)
 		}
 		if tc.instrument == "etf" {
-			row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, cashSweepPlanFor(policy, in, now), cp)
-			if row.Contract.Symbol != "BBB" || row.Contract.PrimaryExch != "IBIS" || row.Contract.Currency != "EUR" || row.CashSweep.QuantityUnit != rpc.CashSweepQuantityCash {
-				t.Fatalf("ETF row = %+v", row)
+			// The ETF is matched by contract id, which Canary does not
+			// resolve: resolution leaves no row and says why.
+			plan := cashSweepPlanFor(policy, in, now)
+			cashSweepResolveBills(context.Background(), &fakeBillSource{}, policy.Buckets.CashSweep, &plan, now)
+			etf := cashSweepCurrencyOf(t, plan, "EUR")
+			if etf.side != "" || etf.status.State != rpc.CashSweepStateInstrumentUnresolved || !strings.Contains(etf.status.Reason, "ETF") {
+				t.Fatalf("ETF invest = %+v", etf.status)
 			}
 		}
 	}
@@ -406,25 +410,28 @@ func TestCashSweepRedeemNearestMaturity(t *testing.T) {
 	}
 }
 
-// Every row is observation: it carries instrument_support_required, waits
-// the full veto window, and is never automatically eligible. Shadow puts
-// shadow_mode first. The tax review is advisory (owner decision 2026-09-30
-// 12:35 CEST): without it active rows carry no extra blocker, only a detail
-// line, and the status says tax_reviewed false.
-func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
+// A resolved row is an ordinary proposal: active rows carry no blocker and
+// are automatically eligible, shadow rows carry only shadow_mode, and every
+// row waits the full veto window. The tax review is advisory (owner decision
+// 2026-09-30 12:35 CEST): without it a row carries a detail line and no
+// blocker, and the status says tax_reviewed false.
+func TestCashSweepResolvedRowsAreOrdinaryProposals(t *testing.T) {
 	now := cashSweepTestNow()
 	for _, tc := range []struct {
 		mode, tax string
 		codes     []string
 	}{
-		{rpc.CashSweepModeShadow, "", []string{"shadow_mode", rpc.CashSweepBlockerInstrumentSupport}},
-		{rpc.CashSweepModeActive, "", []string{rpc.CashSweepBlockerInstrumentSupport}},
-		{rpc.CashSweepModeActive, "2026-09-30", []string{rpc.CashSweepBlockerInstrumentSupport}},
+		{rpc.CashSweepModeShadow, "", []string{"shadow_mode"}},
+		{rpc.CashSweepModeActive, "", nil},
+		{rpc.CashSweepModeActive, "2026-09-30", nil},
 	} {
 		policy := cashSweepTestPolicy(tc.mode, 1e9)
 		policy.Buckets.CashSweep.TaxReviewedAt = policyDate(tc.tax)
-		in := cashSweepTestInput(map[string]float64{"USD": 60000, "EUR": 60000, "CHF": 60000})
-		plan := cashSweepPlanFor(policy, in, now)
+		setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.ISINs = []string{synthDEBill} })
+		src := usBillSource(now)
+		src.byID[synthDEBill] = []ibkrlib.BondContractDetails{synthBondLine(7301, synthDEBill, "EUR", cashSweepDay(now).AddDate(0, 0, 40))}
+		src.quotes[7301] = synthLiveQuote(99.8)
+		plan, _ := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"USD": 60000, "EUR": 60000, "CHF": 60000}), src)
 		var rows []rpc.TradeProposal
 		for _, cp := range plan.currencies {
 			if cp.side != "" {
@@ -442,14 +449,18 @@ func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
 					t.Fatalf("blocker without message or action: %+v", b)
 				}
 			}
-			if !slices.Equal(codes, tc.codes) || !row.NeverSkipVeto || row.AutomaticEligible() || row.State != rpc.TradeProposalStateBlocked ||
-				row.Shadow != (tc.mode == rpc.CashSweepModeShadow) || row.Bucket != rpc.TradeProposalBucketCashSweep {
+			active := tc.mode == rpc.CashSweepModeActive
+			// A shadow row keeps its generated state behind shadow_mode, as a
+			// shadow budget row does.
+			if !slices.Equal(codes, tc.codes) || !row.NeverSkipVeto || row.AutomaticEligible() != active ||
+				row.State != rpc.TradeProposalStateGenerated || row.Shadow != !active || row.Bucket != rpc.TradeProposalBucketCashSweep {
 				t.Fatalf("%s/%q row = %+v codes %v", tc.mode, tc.tax, row, codes)
 			}
-			if row.Action != rpc.OrderActionBuy || row.PositionEffect != rpc.OrderPositionEffectOpen || row.SecType != "BOND" || row.CashSweep.Currency != row.Contract.Currency {
+			if row.Action != rpc.OrderActionBuy || row.PositionEffect != rpc.OrderPositionEffectOpen || row.SecType != "BOND" || row.Contract.ConID <= 0 ||
+				row.CashSweep.Currency != row.Contract.Currency || row.CashSweep.Bill == nil || row.Contract.ConID != row.CashSweep.Bill.ConID {
 				t.Fatalf("invest row = %+v", row)
 			}
-			if tc.mode == rpc.CashSweepModeShadow && !strings.Contains(row.Blockers[0].Message, "cash sweep") {
+			if !active && !strings.Contains(row.Blockers[0].Message, "cash sweep") {
 				t.Fatalf("shadow blocker names another bucket: %+v", row.Blockers[0])
 			}
 			if got := slices.Contains(row.Details, rpc.CashSweepTaxUnreviewedDetail); got != (tc.tax == "") {
@@ -460,10 +471,23 @@ func TestCashSweepRowsAreObservationInPhaseA(t *testing.T) {
 			t.Fatalf("%s/%q status tax_reviewed = %v", tc.mode, tc.tax, plan.status.TaxReviewed)
 		}
 	}
-	// Keys are stable per currency and side while the rung moves.
-	first, again := cashSweepKey("USD", "invest", "us_tbill", 0), cashSweepKey("USD", "invest", "us_tbill", 0)
-	if first != again || first == cashSweepKey("CAD", "invest", "us_tbill", 0) || first == cashSweepKey("USD", "redeem", "us_tbill", 0) {
-		t.Fatal("sweep keys are not stable per currency and side")
+	// Keys are stable per currency, side and contract while the rung moves,
+	// and change with the bill.
+	first, again := cashSweepKey("USD", "invest", "us_tbill", 7101), cashSweepKey("USD", "invest", "us_tbill", 7101)
+	if first != again || first == cashSweepKey("CAD", "invest", "us_tbill", 7101) || first == cashSweepKey("USD", "redeem", "us_tbill", 7101) ||
+		first == cashSweepKey("USD", "invest", "us_tbill", 7102) {
+		t.Fatal("sweep keys are not stable per currency, side and bill")
+	}
+	// A row built straight from the plan, without resolution, names no bill
+	// and is blocked: there is nothing to order.
+	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
+	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
+	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, plan.currencies[0])
+	if row.AutomaticEligible() || len(row.Blockers) != 1 || row.Blockers[0].Code != rpc.CashSweepStateInstrumentUnresolved {
+		t.Fatalf("unresolved row = %+v", row)
+	}
+	if _, ok := cashSweepOpenException(row); ok {
+		t.Fatal("an unresolved row passed the typed exception")
 	}
 }
 
@@ -501,21 +525,43 @@ func TestCashSweepShadowRowRefusedByPreviewAndSubmit(t *testing.T) {
 }
 
 // The close_reduce_only carve-out (O1) is a typed exception: a cash_sweep
-// buy opening or increasing a vocabulary instrument of the row's own
-// currency, within the free cash it was planned against. Nothing else passes
-// the effect gate.
+// buy opening or increasing the row's own resolved bill, a vocabulary
+// instrument of the row's currency, within the free cash it was planned
+// against, at its own limit and within max_order_notional. Nothing else
+// passes the effect gate, and BOND passes the security-type gate only there.
 func TestCashSweepCloseReduceOnlyException(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
-	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
-	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, plan.currencies[0])
+	_, got := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"USD": 60000}), usBillSource(now))
+	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeActive}}, got["USD"])
 	x, ok := cashSweepOpenException(row)
-	if !ok || x.Currency != "USD" || x.Instrument != "us_tbill" || x.MaxQuantity != 55000 {
+	// Free 55,000 USD buys 55 bills of 1,000 face.
+	if !ok || x.Currency != "USD" || x.Instrument != "us_tbill" || x.MaxQuantity != 55 || x.ConID != row.Contract.ConID || x.FacePerUnit != 1000 || x.MaxCost != 55000 {
 		t.Fatalf("exception = %+v %v", x, ok)
 	}
-	if !x.admits(rpc.OrderPositionEffectOpen, 55000) || !x.admits(rpc.OrderPositionEffectIncrease, 1) ||
-		x.admits(rpc.OrderPositionEffectOpen, 55001) || x.admits(rpc.OrderPositionEffectFlip, 1) || x.admits(rpc.OrderPositionEffectOpen, 0) {
+	preview := func(qty int, limit float64, effect string) *rpc.OrderPreviewResult {
+		p := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: qty, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: limit,
+			Contract: row.Contract, Source: proposalOrderSource, Bond: cashSweepOrderTerms(row)}, NotionalBase: float64(qty) * 1000 * limit / 100 * 0.9}
+		p.Position.Effect = effect
+		return p
+	}
+	if !x.admits(preview(55, 99.6, rpc.OrderPositionEffectOpen)) || !x.admits(preview(1, 99.6, rpc.OrderPositionEffectIncrease)) ||
+		x.admits(preview(56, 99.6, rpc.OrderPositionEffectOpen)) || x.admits(preview(1, 99.6, rpc.OrderPositionEffectFlip)) || x.admits(preview(0, 99.6, rpc.OrderPositionEffectOpen)) {
 		t.Fatal("admits is wider than the planned buy")
+	}
+	// A price above par would cost more than the free cash.
+	if x.admits(preview(55, 100.5, rpc.OrderPositionEffectOpen)) {
+		t.Fatal("a buy costing more than the free cash passed")
+	}
+	other := preview(55, 99.6, rpc.OrderPositionEffectOpen)
+	other.Draft.Contract.ConID++
+	if x.admits(other) {
+		t.Fatal("another contract passed")
+	}
+	capped := x
+	capped.MaxBaseNotional = 10000
+	if capped.admits(preview(55, 99.6, rpc.OrderPositionEffectOpen)) {
+		t.Fatal("a buy above max_order_notional passed")
 	}
 	for name, change := range map[string]func(*rpc.TradeProposal){
 		"another bucket":       func(p *rpc.TradeProposal) { p.Bucket = rpc.TradeProposalBucketBudgetReduction },
@@ -525,14 +571,20 @@ func TestCashSweepCloseReduceOnlyException(t *testing.T) {
 		"another currency":     func(p *rpc.TradeProposal) { p.Contract.Currency = "EUR" },
 		"a bill of another":    func(p *rpc.TradeProposal) { p.CashSweep.Instrument = "de_bubill" },
 		"none":                 func(p *rpc.TradeProposal) { p.CashSweep.Instrument = "none" },
+		"the ETF":              func(p *rpc.TradeProposal) { p.CashSweep.Instrument = "etf" },
 		"outside the vocab":    func(p *rpc.TradeProposal) { p.CashSweep.Instrument = "corporate_bond" },
-		"more than free cash":  func(p *rpc.TradeProposal) { p.MaxQuantity, p.Quantity = 55001, 55001 },
+		"more than free cash":  func(p *rpc.TradeProposal) { p.MaxQuantity, p.Quantity = 56, 56 },
 		"no sweep block":       func(p *rpc.TradeProposal) { p.CashSweep = nil },
 		"a redemption block":   func(p *rpc.TradeProposal) { p.CashSweep.Side = rpc.CashSweepSideRedeem },
 		"a position unit":      func(p *rpc.TradeProposal) { p.CashSweep.QuantityUnit = rpc.CashSweepQuantityPosition },
+		"another unit":         func(p *rpc.TradeProposal) { p.CashSweep.QuantityUnit = rpc.BondQuantityUnitFace1 },
 		"quantity above max":   func(p *rpc.TradeProposal) { p.Quantity = p.MaxQuantity + 1 },
 		"no quantity":          func(p *rpc.TradeProposal) { p.Quantity = 0 },
 		"no currency on block": func(p *rpc.TradeProposal) { p.CashSweep.Currency = "" },
+		"no bill":              func(p *rpc.TradeProposal) { p.CashSweep.Bill = nil },
+		"another contract":     func(p *rpc.TradeProposal) { p.Contract.ConID++ },
+		"a stock":              func(p *rpc.TradeProposal) { p.Contract.SecType = "STK" },
+		"no order cap":         func(p *rpc.TradeProposal) { p.CashSweep.MaxOrderNotionalBase = 0 },
 	} {
 		p := row
 		block := *row.CashSweep
@@ -542,30 +594,44 @@ func TestCashSweepCloseReduceOnlyException(t *testing.T) {
 			t.Fatalf("%s passed the exception", name)
 		}
 	}
-	// Through the preview safety gate: the sweep row passes the two effect
-	// checks (and is still refused for its BOND type until Phase B); the
-	// same buy under another bucket fails both.
-	preview := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 55000, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, Contract: row.Contract}}
-	preview.Position.Effect = rpc.OrderPositionEffectOpen
-	codes := func(p rpc.TradeProposal) []string {
+	// Through the preview safety gate: the sweep row passes the effect and
+	// security-type checks; the same buy under another bucket fails all
+	// three.
+	codes := func(p rpc.TradeProposal, preview *rpc.OrderPreviewResult) []string {
 		var out []string
 		for _, b := range proposalPreviewSafetyBlockers(p, preview) {
 			out = append(out, b.Code)
 		}
 		return out
 	}
-	got := codes(row)
-	if slices.Contains(got, "proposal_effect_not_close_reduce") || slices.Contains(got, "preview_effect_not_close_reduce") || !slices.Contains(got, "unsupported_security_type") {
+	if got := codes(row, preview(55, 99.6, rpc.OrderPositionEffectOpen)); len(got) != 0 {
 		t.Fatalf("sweep row gate codes = %v", got)
 	}
-	other := row
-	other.Bucket, other.CashSweep = rpc.TradeProposalBucketRiskReduction, nil
-	if got := codes(other); !slices.Contains(got, "proposal_effect_not_close_reduce") || !slices.Contains(got, "preview_effect_not_close_reduce") {
-		t.Fatalf("a non-sweep buy passed the effect gate: %v", got)
+	bystander := row
+	bystander.Bucket, bystander.CashSweep = rpc.TradeProposalBucketRiskReduction, nil
+	if got := codes(bystander, preview(55, 99.6, rpc.OrderPositionEffectOpen)); !slices.Contains(got, "proposal_effect_not_close_reduce") ||
+		!slices.Contains(got, "preview_effect_not_close_reduce") || !slices.Contains(got, "unsupported_security_type") {
+		t.Fatalf("a non-sweep bond buy passed the gate: %v", got)
 	}
-	preview.Draft.Quantity = 55001
-	if got := codes(row); !slices.Contains(got, "preview_effect_not_close_reduce") {
+	if got := codes(row, preview(56, 99.6, rpc.OrderPositionEffectOpen)); !slices.Contains(got, "preview_effect_not_close_reduce") {
 		t.Fatalf("an oversized sweep buy passed: %v", got)
+	}
+	// Above par the planned units would cost more than the free cash: the
+	// exception names that bound, not the effect.
+	if got := codes(row, preview(55, 100.5, rpc.OrderPositionEffectOpen)); !slices.Equal(got, []string{"cash_sweep_cost_above_free_cash"}) {
+		t.Fatalf("an above-par buy = %v", got)
+	}
+	tight := row
+	block := *row.CashSweep
+	block.MaxOrderNotionalBase = 40000 // 54,780 USD at 0.9 is 49,302 EUR
+	tight.CashSweep = &block
+	if got := codes(tight, preview(55, 99.6, rpc.OrderPositionEffectOpen)); !slices.Equal(got, []string{"cash_sweep_above_max_order_notional"}) {
+		t.Fatalf("a buy above max_order_notional = %v", got)
+	}
+	noTerms := preview(55, 99.6, rpc.OrderPositionEffectOpen)
+	noTerms.Draft.Bond = nil
+	if got := codes(row, noTerms); !slices.Contains(got, "unsupported_security_type") {
+		t.Fatalf("a bond draft without its bill terms passed: %v", got)
 	}
 }
 
@@ -600,19 +666,32 @@ func TestCashSweepInvariantsOverRandomBooks(t *testing.T) {
 			sides[cp.side]++
 			switch cp.side {
 			case rpc.CashSweepSideInvest:
-				row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cp)
-				if row.Contract.Currency != ccy || !cashSweepInstrumentAllowed(cp.instrument, ccy) || cp.instrument == "none" ||
-					float64(row.Quantity) > cp.free+1e-6 || float64(row.Quantity) < policy.Buckets.CashSweep.currency(ccy).MinTranche-1 ||
+				if float64(cp.quantity) > cp.free+1e-6 || float64(cp.quantity) < policy.Buckets.CashSweep.currency(ccy).MinTranche-1 {
+					t.Fatalf("book %d: planned amount out of bounds: %+v", i, cp.status)
+				}
+				// Resolved at a price either side of par, the order stays in
+				// the bill's units on its grid, within free cash in face and
+				// in cost.
+				resolved := cashSweepTestResolve(cp, 99+2*rng.Float64(), now)
+				if resolved.side == "" {
+					continue
+				}
+				row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, resolved)
+				conv := cashSweepInstrumentConventions[resolved.bill.Instrument]
+				face := float64(row.Quantity) * conv.FacePerUnit
+				cost := face * *resolved.bill.Price / 100
+				if row.Contract.Currency != ccy || !cashSweepInstrumentAllowed(cp.instrument, ccy) || cp.instrument == "none" || row.Quantity < 1 ||
+					face > cp.free+1e-6 || cost > cp.free+1e-6 || resolved.rules.CheckQuantity(row.Quantity) != nil ||
 					cp.targetDays < 28 || cp.targetDays > policy.Buckets.CashSweep.currency(ccy).MaxMaturityDays {
 					t.Fatalf("book %d: invest row out of bounds: %+v / %+v", i, row, cp.status)
 				}
 				if _, ok := cashSweepOpenException(row); !ok {
-					t.Fatalf("book %d: planned buy is outside the typed exception: %+v", i, row)
+					t.Fatalf("book %d: planned buy is outside the typed exception: %+v", i, row.CashSweep)
 				}
 				// Applied as a working order, the buy never turns into a sale.
 				next := in
 				next.Commitments.ByCurrency = maps.Clone(in.Commitments.ByCurrency)
-				next.Commitments.ByCurrency[ccy] += float64(row.Quantity)
+				next.Commitments.ByCurrency[ccy] += cost
 				if again := cashSweepCurrencyOf(t, cashSweepPlanFor(policy, next, now), ccy); again.side == rpc.CashSweepSideRedeem {
 					t.Fatalf("book %d: invest alternated into redeem: %+v", i, again.status)
 				}
@@ -680,11 +759,13 @@ func TestCashSweepSettlementFromJournal(t *testing.T) {
 	if !got.Known || math.Abs(got.SaleProceeds["USD"]-2300) > 1e-9 || math.Abs(got.PurchaseCosts["USD"]-300) > 1e-9 || got.SaleProceeds["EUR"] != 0 || len(got.Unknown) != 0 {
 		t.Fatalf("settlement = %+v", got)
 	}
-	views = append(views, view("d", "BUY", "BOND", "CAD", 0), view("e", "BUY", "CASH", "USD", 0))
+	// A bond in a currency without a bill convention cannot be valued (a CAD
+	// bond is: cash_sweep_orders_test.go).
+	views = append(views, view("d", "BUY", "BOND", "CHF", 0), view("e", "BUY", "CASH", "USD", 0))
 	events[orderViewKey(views[3])] = []rpc.OrderEvent{{At: now, Filled: 1, AvgFillPrice: 99}}
 	events[orderViewKey(views[4])] = []rpc.OrderEvent{{At: now, Filled: 1000, AvgFillPrice: 1.1}}
 	got = cashSweepSettlementFrom(views, events, scope, since)
-	if got.Unknown["CAD"] == "" || got.Unknown[""] == "" {
+	if got.Unknown["CHF"] == "" || got.Unknown[""] == "" {
 		t.Fatalf("unknown = %+v", got.Unknown)
 	}
 	// Another account's fills do not count.

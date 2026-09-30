@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -12,16 +13,19 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// Bill selection (read-only, internal-docs/design/cash-sweep.md Phase B).
-// An invest row names one bill: for USD the outstanding bill from
-// TreasuryDirect's list maturing nearest the rung's target inside
-// [min_maturity_days, max_maturity_days], resolved at the broker by CUSIP;
-// for EUR, GBP and CAD the owner's listed ISINs, resolved and filtered the
-// same way. A candidate becomes the row's bill only once contract details
-// name exactly one BOND line and a quote carries a price. Otherwise the
-// currency reads universe_unavailable (no list to choose from) or
-// instrument_unresolved (nothing confirmed), with the evidence, and no row
-// exists. A stale quote keeps the row and adds fresh_bill_quote_required.
+// Bill selection (internal-docs/design/cash-sweep.md Phase B). An invest row
+// names one bill: for USD the outstanding bill from TreasuryDirect's list
+// maturing nearest the rung's target inside [min_maturity_days,
+// max_maturity_days], resolved at the broker by CUSIP; for EUR, GBP and CAD
+// the owner's listed ISINs, resolved and filtered the same way. A candidate
+// becomes the row's bill only once contract details name exactly one BOND
+// line with its size rules and minimum tick and a quote carries a price;
+// the row's quantity is then sized in the bill's order unit on that grid.
+// Otherwise the currency reads universe_unavailable (no list to choose from)
+// or instrument_unresolved (nothing confirmed), with the evidence, and no
+// row exists. A stale quote keeps the row and adds
+// fresh_bill_quote_required. A redemption reads its held bill's line by
+// contract id for the same grid and its session.
 
 // cashSweepBillSource is what bill selection reads. The server implements
 // it; tests fake it.
@@ -32,6 +36,8 @@ type cashSweepBillSource interface {
 	lines(ctx context.Context, idType, id, ccy string) ([]ibkrlib.BondContractDetails, error)
 	// quote reads one quote for a line.
 	quote(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error)
+	// held are the broker's lines for a held contract id.
+	held(ctx context.Context, conID int, ccy string) ([]ibkrlib.BondContractDetails, error)
 }
 
 // cashSweepResolveBudget bounds bill selection per refresh, so a slow
@@ -61,6 +67,10 @@ func (src serverBillSource) lines(ctx context.Context, idType, id, ccy string) (
 
 func (src serverBillSource) quote(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 	return src.s.bondDirectory().quoteFor(ctx, line)
+}
+
+func (src serverBillSource) held(ctx context.Context, conID int, ccy string) ([]ibkrlib.BondContractDetails, error) {
+	return src.s.bondDirectory().lookup(ctx, ibkrlib.BondContractRequest{ConID: conID, Currency: ccy}, bondDetailsWait)
 }
 
 // cashSweepBillSourceFor is the bill source the engine reads: the test
@@ -97,14 +107,64 @@ func cashSweepResolveBills(ctx context.Context, src cashSweepBillSource, bucket 
 	defer cancel()
 	for i := range plan.currencies {
 		cp := &plan.currencies[i]
-		if cp.side != rpc.CashSweepSideInvest || !cashSweepIsBill(cp.instrument) {
-			continue
+		switch {
+		case cp.side == rpc.CashSweepSideInvest && cashSweepIsBill(cp.instrument):
+			cashSweepResolveCurrency(ctx, src, bucket.currency(cp.status.Currency), cp, now)
+		case cp.side == rpc.CashSweepSideInvest:
+			// The declared ETF is matched by contract id, which Canary does not
+			// resolve: there is nothing it could order, so there is no row.
+			cp.side = ""
+			cp.status.State = rpc.CashSweepStateInstrumentUnresolved
+			cp.status.Reason = "the declared ETF is matched by contract id, which Canary does not resolve yet; no ETF order is proposed and the cash stays cash"
+		case cp.side == rpc.CashSweepSideRedeem && cp.holding != nil && cashSweepIsBill(cp.holding.Instrument):
+			cashSweepResolveRedemption(ctx, src, cp, now)
 		}
-		cashSweepResolveCurrency(ctx, src, bucket.currency(cp.status.Currency), cp, now)
 		if i < len(plan.status.Currencies) && plan.status.Currencies[i].Currency == cp.status.Currency {
 			plan.status.Currencies[i] = cp.status
 		}
 	}
+}
+
+// cashSweepResolveRedemption reads the held bill's line by contract id for
+// its order grid and session and puts the sale on the grid. A line without
+// the rules, or a sale the grid refuses, keeps the row and blocks it: the
+// shortfall below keep_cash is news the owner needs even when Canary cannot
+// order the sale.
+func cashSweepResolveRedemption(ctx context.Context, src cashSweepBillSource, cp *cashSweepCurrencyPlan, now time.Time) {
+	h := cp.holding
+	ccy := cp.status.Currency
+	held := int(math.Floor(h.Row.Quantity + 1e-9))
+	cp.units = cp.quantity
+	var line *ibkrlib.BondContractDetails
+	if src != nil {
+		if lines, err := src.held(ctx, h.Row.ConID, ccy); err == nil {
+			if l, _, err := bondLineFor(lines, ccy, h.Row.ConID); err == nil {
+				line = &l
+			}
+		}
+	}
+	cp.session = cashSweepBondSession(line, h.Instrument, now)
+	if line == nil {
+		cp.blockers = append(cp.blockers, rpc.TradingBlocker{Code: rpc.CashSweepBlockerBillRules,
+			Message: "the held bill's contract details cannot be read now, so the sale cannot be put on its size and price grid",
+			Action:  "Refresh once the gateway answers; the row then sizes the sale."})
+		return
+	}
+	rules, err := ibkrlib.BondOrderRulesFrom(*line)
+	if err != nil {
+		cp.blockers = append(cp.blockers, rpc.TradingBlocker{Code: rpc.CashSweepBlockerBillRules,
+			Message: "the held bill's contract details carry no minimum size or minimum tick (" + err.Error() + "), so the sale cannot be sized",
+			Action:  "Sell by hand if cash must be raised; the row sizes the sale once the details carry the rules."})
+		return
+	}
+	cp.rules = &rules
+	units, reason := cashSweepRedeemUnits(cp.quantity, min(held, max(cp.capUnits, 1)), rules)
+	if units == 0 {
+		cp.blockers = append(cp.blockers, rpc.TradingBlocker{Code: rpc.CashSweepBlockerBelowMinimum, Message: reason,
+			Action: "Sell by hand if cash must be raised; Canary sends only orders on the bill's size grid."})
+		return
+	}
+	cp.units = units
 }
 
 func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg protectionCashSweepCurrency, cp *cashSweepCurrencyPlan, now time.Time) {
@@ -206,6 +266,11 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 			}
 			line = &resolved
 		}
+		rules, err := ibkrlib.BondOrderRulesFrom(*line)
+		if err != nil {
+			evidence = append(evidence, fmt.Sprintf("%s: %v, so no order can be sized", cand.id, err))
+			continue
+		}
 		q, err := src.quote(ctx, *line)
 		if err != nil {
 			evidence = append(evidence, fmt.Sprintf("%s: quote %s", cand.id, bondLookupReason(err)))
@@ -215,18 +280,26 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 			evidence = append(evidence, fmt.Sprintf("%s: the quote carried no price (%s)", cand.id, q.StaleReason))
 			continue
 		}
-		bill := cashSweepBillFrom(cand, *line, q)
-		cp.bill = &bill
-		st.Bill = rpc.CloneCashSweepBill(&bill)
+		bill := cashSweepBillFrom(cand, *line, q, now)
 		st.Evidence = nil
+		st.Bill = rpc.CloneCashSweepBill(&bill)
 		st.Reason += fmt.Sprintf("; the bill is %s maturing %s (%d days), quoted %s per 100 of face", cashSweepBillName(bill), bill.Maturity, bill.DaysToMaturity, formatBillPrice(bill.Price))
+		conv := cashSweepInstrumentConventions[bill.Instrument]
+		units, reason := cashSweepInvestUnits(cp.orderAmount, conv, rules, *bill.Price, ccy)
+		if units == 0 {
+			cp.side = ""
+			st.State, st.Reason = rpc.CashSweepStateHold, st.Reason+"; "+reason+", so nothing is swept"
+			return
+		}
+		cp.bill, cp.rules, cp.units, cp.session = &bill, &rules, units, rpc.CloneBondSession(bill.Session)
+		st.Reason += fmt.Sprintf("; the order is %d × %s (%s of face)", units, conv.QuantityUnit, formatBudgetMoney(float64(units)*conv.FacePerUnit, ccy))
 		return
 	}
 	fail(rpc.CashSweepStateInstrumentUnresolved, fmt.Sprintf("no %s bill maturing within %s was confirmed by contract details and a quote", ccy, window), evidence)
 }
 
 // cashSweepBillFrom is the resolved bill a row names.
-func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, q rpc.BondQuote) rpc.TradeProposalCashSweepBill {
+func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, q rpc.BondQuote, now time.Time) rpc.TradeProposalCashSweepBill {
 	conv := cashSweepInstrumentConventions[cand.instrument]
 	bill := rpc.TradeProposalCashSweepBill{Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, Symbol: line.Symbol,
 		ISIN: line.ISIN(), CUSIP: line.CUSIP(), Maturity: cand.maturity.Format(time.DateOnly), DaysToMaturity: cand.days,
@@ -240,6 +313,8 @@ func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDet
 	if line.Complete {
 		bill.MinSize, bill.SizeIncrement = ptrIfPos(line.MinSize), ptrIfPos(line.SizeIncrement)
 	}
+	bill.MinTick = ptrIfPos(line.MinTick)
+	bill.Session = cashSweepBondSession(&line, cand.instrument, now)
 	for _, p := range []struct {
 		name string
 		v    *float64

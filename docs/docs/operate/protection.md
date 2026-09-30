@@ -388,7 +388,8 @@ stale protective order is deliberately not counted as protection.
 
 The protection policy's `[authority].pre_authorised` list is empty by default.
 Only an explicit owner policy edit and version bump enable the named buckets:
-`trailing_stop`, `option_loss_exit`, `option_profit_trail`, or `budget_reduction`.
+`trailing_stop`, `option_loss_exit`, `option_profit_trail`, `budget_reduction`,
+or `cash_sweep` (the sweep's bill buys and redemptions).
 `auto_submit` remains false; it is not the switch for this scoped scheduler.
 Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
 and broker eligibility gates still apply to every submission.
@@ -409,8 +410,10 @@ window as a guaranteed opportunity to receive a push, and do not list a bucket
 until `canary status` shows a push witnessed on the phone.
 
 A latched drawdown brake lets eligible non-budget protection records bypass
-both the notice prerequisite and the waiting window. Budget reductions always
-retain the notice prerequisite and full veto window; shadow rows never schedule.
+both the notice prerequisite and the waiting window. Budget reductions and
+cash sweep rows always retain the notice prerequisite and full veto window;
+shadow rows never schedule. A sweep row also waits for its bill's session: a
+record created outside it is due at the session's open plus five minutes.
 `canary proposals status` reports authorised buckets and pending counts. A human
 can veto from `canary proposals veto KEY` or the app before submission. Agent
 origins cannot veto. A veto applies to that proposal revision; changed evidence
@@ -456,21 +459,26 @@ not edit policy, enable buckets, or clear freeze.
 The cash sweep puts idle cash to work in bills of the same currency and never
 converts one currency into another. It is the only bucket whose rows buy;
 `authority.close_reduce_only` stays `true`, and the sweep passes the
-close-or-reduce check only as a typed exception: a `cash_sweep` buy of a
-vocabulary instrument in the row's own currency, for no more than the free
-cash it was planned against. Nothing else is relaxed.
+close-or-reduce check only as a typed exception: a `cash_sweep` buy of the
+row's own resolved bill, a vocabulary instrument in the row's own currency,
+for no more face value than the free cash it was planned against, costing no
+more than that free cash at the preview's limit, and within
+`max_order_notional`. Nothing else is relaxed.
 
-It is off until you write the table. Canary resolves and quotes the bill each
-buy would name, but it does not order bills yet: every row carries
-`instrument_support_required` and no preview or submit can pass. Bill orders
-are a separate change you authorise; your approval of each order stays the
-last step.
+It is off until you write the table. In `active` mode a row is an ordinary
+proposal: `canary proposals preview` previews its bill as a BOND limit order
+(DAY, regular hours) through every gate any proposal meets (trading freeze,
+authority, the bill's session, a live two-sided quote read during the preview,
+`[trading].max_notional`, broker WhatIf), and it is sent only when you approve
+it, or by the daemon after the full veto window when you list `cash_sweep`
+under `[authority].pre_authorised`. Your approval of each order is the last
+step.
 
 ```toml
 [buckets.cash_sweep]
 enabled = true
 mode = "active"              # shadow (default) or active
-max_order_notional = 20000   # one buy, in base currency; no default
+max_order_notional = 20000   # one order, in base currency; no default
 # tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
 
@@ -483,9 +491,10 @@ cash − committed − `keep_cash`. When free exceeds `min_tranche`
 the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
 cap that holds the order below `min_tranche` holds the currency. When cash less
 commitments falls below `keep_cash` it sells the nearest maturity (or the
-declared ETF) to cover the gap, unless a held bill pays out before a sale
-today would settle; unsettled proceeds of such a sale count toward
-`keep_cash` so it is not sold twice. Otherwise nothing happens.
+declared ETF) to cover the gap, held to `max_order_notional` like a buy (the
+next cycle sells the rest), unless a held bill pays out before a sale today
+would settle; unsettled proceeds of such a sale count toward `keep_cash` so it
+is not sold twice. Otherwise nothing happens.
 
 A currency without its own table follows Canary's default: USD `us_tbill`;
 EUR `de_bubill` and `fr_btf` with an `etf` fallback; GBP `uk_tbill`; CAD
@@ -519,15 +528,47 @@ GBP and CAD, the nearest of the bills you list by ISIN:
 isins = ["DE000BU0ZZ19", "FR0128ZZZZ13"]   # your bills; each of a declared instrument
 ```
 
-Canary names a bill only after the broker resolves it to one BOND line and
-quotes it. A currency with no list to choose from reads `universe_unavailable`
-(TreasuryDirect unreachable for two days, or no `isins` written); one whose
-candidates do not resolve or carry no price reads `instrument_unresolved`
-with the evidence per candidate. A row whose bill quote is not a live bid or
-ask adds `fresh_bill_quote_required`. `canary market --symbol <ISIN|CUSIP>
---type BOND` runs the same resolution and quote as a read-only check, and
-`canary positions` lists held bills and bonds in their own section with class,
-maturity and currency.
+Canary names a bill only after the broker resolves it to one BOND line that
+carries its size rules and minimum tick, and quotes it. A currency with no
+list to choose from reads `universe_unavailable` (TreasuryDirect unreachable
+for two days, or no `isins` written); one whose candidates do not resolve,
+carry no size rules or no price reads `instrument_unresolved` with the
+evidence per candidate. `canary market --symbol <ISIN|CUSIP> --type BOND` runs
+the same resolution and quote as a read-only check, and `canary positions`
+lists held bills and bonds in their own section with class, maturity and
+currency.
+
+An order counts the bill's own unit: Canary assumes a US Treasury bill is
+bought in bonds of 1,000 USD face (`face_1000`) and a German, French, UK or
+Canadian bill in single units of face (`face_1`), priced per 100 of face.
+The buy is the planned cash at the higher of par and the quoted price, in
+whole units rounded down to the bill's minimum size and size step, so neither
+its face value nor its cost passes the free cash; a tranche too small for the
+bill's minimum holds the currency and says so. A redemption rounds its sale up
+to the held bill's size step, or down when up would pass the position or
+`max_order_notional`. The row's `cash_sweep`
+block carries `quantity_unit`, `face_value`, `estimated_cost` and the
+`session` its order fills in: the bill's liquid hours from its contract
+details, else assumed weekday hours (US bills 08:00–17:00 New York, Bubills
+and BTFs 09:00–17:30 Frankfurt and Paris, UK bills 08:00–16:30 London,
+Canadian bills 08:00–17:00 Toronto; holidays are then not modelled, and the
+live-quote requirement refuses instead). The units, the price convention and
+the hours are assumptions the post-install proof checks. The preview prices a
+patient limit on the bill's minimum tick (a buy at the mid rounded down, never
+below the bid), and Canary refuses to build any bond order off the bill's size
+or price grid.
+
+A row carries a blocker only when its order cannot be priced or sized:
+`fresh_bill_quote_required` (the bill's quote, or a held bill's mark, is not
+live), `bill_contract_rules_unavailable` or `below_minimum_increment` (a
+redemption the held bill's size grid cannot fit); a stale quote's readiness
+is `quote_unusable`. Outside the bill's session the row's readiness is
+`market_closed` with the session's next open, and the preview refuses with
+`market_closed` before any quote. An
+order already working for the same bill and side, or sent and not yet
+acknowledged, holds a new preview until it fills or is cancelled; working
+bond buys count as committed cash, and a bill sold inside the settlement
+window counts toward `keep_cash` until it settles.
 
 The snapshot's `cash_sweep` status lists every currency the account ledger
 reports, with its figures and a state:
@@ -547,8 +588,11 @@ reports, with its figures and a state:
 `canary proposals list` shows the sweep under its own *Cash sweep* heading
 with one band line per currency; JSON carries a `cash_sweep` block on each
 row, and `counts.cash_sweep` and `counts.cash_sweep_shadow` count the rows.
-Every row carries `never_skip_veto`. `mode = "active"` makes the rows ordinary
-proposals under every gate, freeze included. Without `tax_reviewed_at` each
+An invest row's key names its bill, so a preview or submit buys the bill you
+saw, never another one a later cycle names. Every row carries
+`never_skip_veto`. `mode = "active"` makes the rows ordinary proposals under
+every gate, freeze included; shadow rows carry `shadow_mode` and preview and
+submit refuse them. Without `tax_reviewed_at` each
 row carries the line "tax treatment not yet confirmed" and the status
 `tax_reviewed: false`; it blocks nothing. Each currency's status carries
 `cash_like`, cash plus cash equivalents, when both are known. While the sweep

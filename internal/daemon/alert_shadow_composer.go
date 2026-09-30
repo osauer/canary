@@ -1642,6 +1642,9 @@ func alertProtectionAutomaticPresentationCode(notice automaticNoticeKey) rpc.Ale
 			return rpc.AlertPresentationProtectionAutoBudgetReductionNow
 		}
 		return rpc.AlertPresentationProtectionAutoBudgetReduction
+	case preAuthorisedBucketCashSweep:
+		// NeverSkipVeto: the latched brake never places a sweep row now.
+		return rpc.AlertPresentationProtectionAutoCashSweep
 	default:
 		if notice.Latched {
 			return rpc.AlertPresentationProtectionAutoTrailingStopNow

@@ -382,6 +382,10 @@ func automaticBucketFor(p rpc.TradeProposal) string {
 		return ""
 	case preAuthorisedBucketBudgetReduction:
 		return preAuthorisedBucketBudgetReduction
+	case rpc.TradeProposalBucketCashSweep:
+		// Every sweep row is NeverSkipVeto: the full window even under the
+		// latched brake, and max_order_notional bounds each order.
+		return preAuthorisedBucketCashSweep
 	default:
 		return ""
 	}
@@ -901,12 +905,9 @@ func (e *proposalEngine) automaticSessionDue(prop rpc.TradeProposal, due time.Ti
 	if e == nil || e.server == nil || !proposalHasContract(prop) || !proposalNeedsOpenSession(prop) {
 		return due
 	}
-	market, ok := quoteSessionMarketForContract(prop.Contract)
-	if !ok {
-		return due
-	}
-	session, ok := e.server.previewSession(market, due)
-	if !ok || session.State == marketcal.StateUnknown {
+	// A sweep bill waits for its own session, like a stock for its exchange.
+	market, session, hasMarket, ok := e.proposalSessionAt(prop, due, nil)
+	if !hasMarket || !ok || session.State == marketcal.StateUnknown {
 		return due
 	}
 	offset := readinessOpeningOffset(market)

@@ -2455,7 +2455,10 @@ func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.
 		return nil
 	}
 	optionExit := proposalIsOptionExit(p)
-	reduction := proposalIsReduction(p)
+	// A sweep row nets like a reduction: an order already working (or sent
+	// and not yet acknowledged) for its exact bill and side holds it, so a
+	// buy or a redemption is never sent twice.
+	reduction := proposalIsReduction(p) || p.Bucket == rpc.TradeProposalBucketCashSweep
 	if !optionExit && !reduction && (p.Bucket != "" && p.Bucket != rpc.TradeProposalBucketTrailingStop || !isTrailOrderType(p.OrderType)) {
 		return nil
 	}
@@ -2731,7 +2734,8 @@ func proposalOrderPreviewParams(prop rpc.TradeProposal, qty, timeoutMs int) rpc.
 		strategy = rpc.OrderStrategyBrokerTrail
 	}
 	trail := cloneTrailSpec(prop.Trail)
-	return rpc.OrderPreviewParams{Action: prop.Action, Contract: prop.Contract, Quantity: qty, OrderType: orderType, Trail: trail, TriggerMethod: proposalTriggerMethod(prop), Strategy: strategy, TIF: proposalTIF(prop), OutsideRTH: prop.OutsideRTH, TimeoutMs: timeoutMs, Source: proposalOrderSource}
+	return rpc.OrderPreviewParams{Action: prop.Action, Contract: prop.Contract, Quantity: qty, OrderType: orderType, Trail: trail, TriggerMethod: proposalTriggerMethod(prop), Strategy: strategy, TIF: proposalTIF(prop), OutsideRTH: prop.OutsideRTH, TimeoutMs: timeoutMs, Source: proposalOrderSource,
+		Bond: cashSweepOrderTerms(prop)}
 }
 
 // proposalTIF normalizes a proposal's TIF for preview params and the
@@ -2785,16 +2789,23 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		return blockers
 	}
 	// The cash sweep's typed exception (decision O1) is the only way past the
-	// close/reduce check; proposal_cash_sweep.go bounds it.
+	// close/reduce check; cash_sweep_orders.go bounds it.
 	sweepException, excepted := cashSweepOpenException(prop)
 	if !proposalCloseReduceEffect(prop.PositionEffect) && !excepted {
 		add("proposal_effect_not_close_reduce", fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation.")
 	}
-	if !proposalCloseReduceEffect(preview.Position.Effect) && !(excepted && sweepException.admits(preview.Position.Effect, preview.Draft.Quantity)) {
+	switch {
+	case proposalCloseReduceEffect(preview.Position.Effect):
+	case excepted:
+		for _, b := range sweepException.previewBlockers(preview) {
+			add(b.Code, b.Message, b.Action)
+		}
+	default:
 		add("preview_effect_not_close_reduce", fmt.Sprintf("preview effect %q is not close/reduce", preview.Position.Effect), "Refresh positions and preview again; proposal submit cannot open, increase, or flip exposure.")
 	}
-	if !proposalSupportedSecType(prop.SecType) || !proposalSupportedSecType(preview.Draft.Contract.SecType) {
-		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders only", "Use a manual workflow for unsupported instruments.")
+	// BOND is admitted for a cash_sweep row's own bill only.
+	if !(proposalSupportedSecType(prop.SecType) && proposalSupportedSecType(preview.Draft.Contract.SecType)) && !cashSweepBondAdmitted(prop, preview) {
+		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders, and BOND only for a cash_sweep row's own bill", "Use a manual workflow for unsupported instruments.")
 	}
 	if !proposalSupportedOrderType(preview.Draft.OrderType) {
 		add("unsupported_order_type", fmt.Sprintf("proposal order type %q is not supported", preview.Draft.OrderType), "Refresh proposals and preview a supported close/reduce order.")

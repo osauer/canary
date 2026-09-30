@@ -30,14 +30,16 @@ import (
 // nothing and say which: cash_unavailable, settlement_unknown,
 // equivalents_unclassified, needs_your_number.
 //
-// Phase B (read-only half) resolves and quotes the bill an invest row names
-// (cash_sweep_bills.go) and classifies held bills (bond_directory.go); Canary
-// still does not order bills, so every row carries
-// instrument_support_required and no preview or submit can pass. Settled
-// cash comes from the broker's $LEDGER SettledCash field where it is sent,
-// else from Canary's order journal. The tax review is advisory (owner
-// decision 2026-09-30 12:35 CEST): an unreviewed sweep adds a detail line
-// and blocks nothing.
+// Phase B resolves and quotes the bill an invest row names
+// (cash_sweep_bills.go), classifies held bills (bond_directory.go) and orders
+// them (cash_sweep_orders.go): an active row is an ordinary proposal whose
+// BOND LMT DAY order is previewed under every existing gate and submitted on
+// the owner's approval, or by the daemon after the full veto window when the
+// owner lists cash_sweep under [authority].pre_authorised. Settled cash comes
+// from the broker's $LEDGER SettledCash field where it is sent, else from
+// Canary's order journal. The tax review is advisory (owner decision
+// 2026-09-30 12:35 CEST): an unreviewed sweep adds a detail line and blocks
+// nothing.
 
 // cashSweepLedgerRow is one currency's cash observation from the account
 // ledger. Observed false means the row carried no cash balance; Settled is
@@ -130,6 +132,16 @@ type cashSweepCurrencyPlan struct {
 	// Redeem.
 	holding *cashSweepHolding
 	gap     float64
+	// capUnits is the most units of the held equivalent one sale may sell
+	// under max_order_notional.
+	capUnits int
+	// Order sizing once resolution ran: units in the bill's order unit on
+	// the line's grid (rules), the session its order fills in, and what
+	// blocks a redemption the grid cannot size.
+	units    int
+	rules    *ibkrlib.BondOrderRules
+	session  *rpc.BondSession
+	blockers []rpc.TradingBlocker
 }
 
 // cashSweepPlan is the pure result of one generation.
@@ -289,7 +301,7 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 	case cp.free > cfg.MinTranche+cashSweepMoneyEpsilon:
 		cashSweepPlanInvest(&cp, bucket, cfg, in, targets, faces, plannable)
 	case available+cp.pending < cfg.KeepCash-cashSweepMoneyEpsilon:
-		cashSweepPlanRedeem(&cp, cfg, holdings, today)
+		cashSweepPlanRedeem(&cp, bucket, cfg, holdings, today)
 	default:
 		st.State = rpc.CashSweepStateHold
 		st.Reason = fmt.Sprintf("within the band: free cash %s is not above min_tranche %s, and cash less commitments %s is not below keep_cash %s",
@@ -354,9 +366,10 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 }
 
 // cashSweepPlanRedeem sells the nearest maturity, or the ETF when no bill is
-// held, to cover the gap below keep_cash. A held bill that pays out before a
-// sale today would settle makes the sale pointless.
-func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, today time.Time) {
+// held, to cover the gap below keep_cash, held to max_order_notional at the
+// ledger rate like a buy (the next cycle sells the rest). A held bill that
+// pays out before a sale today would settle makes the sale pointless.
+func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepPolicy, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, today time.Time) {
 	st := &cp.status
 	ccy := st.Currency
 	cp.gap = cfg.KeepCash - (cp.cash - cp.committed + cp.pending)
@@ -400,7 +413,16 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, cfg protectionCashSweepCurre
 	}
 	held := int(math.Floor(pick.Row.Quantity + 1e-9))
 	unit := pick.MarketValue / pick.Row.Quantity
-	cp.quantity = max(1, min(int(math.Ceil(cp.gap/unit-1e-9)), held))
+	needed := min(int(math.Ceil(cp.gap/unit-1e-9)), held)
+	cp.capUnits = int(math.Floor(bucket.MaxOrderNotional/cp.rate/unit + 1e-9))
+	if cp.capUnits < 1 {
+		st.State = rpc.CashSweepStateHold
+		st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s, but max_order_notional %s holds one sale below one unit worth %s; nothing is sold",
+			formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), formatBudgetMoney(bucket.MaxOrderNotional, "base"), formatBudgetMoney(unit, ccy))
+		return
+	}
+	cp.heldToCap = cp.capUnits < needed
+	cp.quantity = max(1, min(needed, cp.capUnits))
 	cp.side, cp.instrument, cp.holding, cp.orderAmount = rpc.CashSweepSideRedeem, pick.Instrument, pick, cp.gap
 	st.State = rpc.CashSweepStateRedeem
 	what := "the declared ETF"
@@ -409,6 +431,9 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, cfg protectionCashSweepCurre
 	}
 	st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s: sell %d of %d of %s",
 		formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), cp.quantity, held, what)
+	if cp.heldToCap {
+		st.Reason += "; max_order_notional holds this sale, and the next cycle sells the rest"
+	}
 }
 
 // cashSweepPlannable lists the declared instruments the sweep can plan with:
@@ -521,11 +546,12 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 		return nil, nil
 	}
 	plan := cashSweepPlanFor(policy, e.cashSweepInput(ctx, policy, acct, pos, scope, now), now)
-	// A row exists only for a bill confirmed by contract details and a quote.
+	// An invest row exists only for a bill confirmed by contract details and
+	// a quote and sized on its grid; a redemption reads its held bill's grid.
 	cashSweepResolveBills(ctx, e.cashSweepBillSourceFor(), policy.Buckets.CashSweep, &plan, now)
 	var out []rpc.TradeProposal
 	for _, cp := range plan.currencies {
-		if cp.side == "" {
+		if cp.side == "" || (cp.side == rpc.CashSweepSideInvest && cp.bill == nil) {
 			continue
 		}
 		p := cashSweepRow(policy, status, sources, now, plan, cp)
@@ -540,8 +566,9 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 }
 
 // cashSweepRow builds one sweep proposal. Every row waits the full veto
-// window and carries instrument_support_required until bill orders are
-// authorised; an invest row names its resolved bill when resolution ran.
+// window. An invest row buys its resolved bill in the bill's order unit; a
+// redemption sells the held equivalent in the position's unit. A row built
+// without resolution (no bill) is blocked: there is nothing to order.
 func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan cashSweepPlan, cp cashSweepCurrencyPlan) rpc.TradeProposal {
 	bucket := policy.Buckets.CashSweep
 	cfg := bucket.currency(cp.status.Currency)
@@ -549,70 +576,91 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 	block := &rpc.TradeProposalCashSweep{
 		Mode: plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
 		Cash: cp.cash, Committed: cp.committed, KeepCash: cfg.KeepCash, Free: cp.free, MinTranche: cfg.MinTranche,
+		Session: rpc.CloneBondSession(cp.session),
 	}
 	var p rpc.TradeProposal
 	details := []string{fmt.Sprintf("cash %s (the lower of trade-date %s and settled %s) · committed %s · keep_cash %s · free %s",
 		formatBudgetMoney(cp.cash, ccy), formatBudgetMoney(derefFloat(cp.status.TradeDateCash), ccy), formatBudgetMoney(derefFloat(cp.status.SettledCash), ccy),
 		formatBudgetMoney(cp.committed, ccy), formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.free, ccy))}
+	var blockers []rpc.TradingBlocker
 	switch cp.side {
 	case rpc.CashSweepSideInvest:
-		contract := cashSweepInvestContract(cfg, ccy, cp.instrument)
-		if cp.bill != nil {
-			block.Bill = rpc.CloneCashSweepBill(cp.bill)
-			block.Instrument = cp.bill.Instrument
-			contract = rpc.ContractParams{ConID: cp.bill.ConID, Symbol: nonEmptyString(cp.bill.Symbol, nonEmptyString(cp.bill.CUSIP, cp.bill.ISIN)), SecType: "BOND", Exchange: "SMART", Currency: ccy}
-		}
 		block.Rung, block.TargetDays = cp.rung, cp.targetDays
 		block.MinMaturityDays, block.MaxMaturityDays = cfg.MinMaturityDays, cfg.MaxMaturityDays
-		block.QuantityUnit = rpc.CashSweepQuantityFace
-		if cp.instrument == cashSweepInstrumentETF {
-			block.QuantityUnit = rpc.CashSweepQuantityCash
-		}
 		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
-		reason := cp.status.Reason
-		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideInvest, cp.instrument, 0),
-			rpc.OrderActionBuy, cp.quantity, cp.quantity, 0, rpc.OrderPositionEffectOpen, reason)
-		p.Notional = float64(cp.quantity)
+		b := cp.bill
+		if b == nil {
+			p = cashSweepProposal(policy, status, sources, now, cashSweepInvestContract(cfg, ccy, cp.instrument), cashSweepKey(ccy, rpc.CashSweepSideInvest, cp.instrument, 0),
+				rpc.OrderActionBuy, cp.quantity, cp.quantity, 0, rpc.OrderPositionEffectOpen, cp.status.Reason)
+			blockers = append(blockers, rpc.TradingBlocker{Code: rpc.CashSweepStateInstrumentUnresolved,
+				Message: "no bill was confirmed by contract details and a quote this cycle, so there is nothing to order",
+				Action:  "Refresh proposals; the sweep names a bill once one resolves and quotes."})
+			break
+		}
+		conv := cashSweepInstrumentConventions[b.Instrument]
+		block.Bill = rpc.CloneCashSweepBill(b)
+		block.Instrument = b.Instrument
+		block.QuantityUnit = conv.QuantityUnit
+		block.FaceValue = float64(cp.units) * conv.FacePerUnit
+		if b.Price != nil {
+			block.EstimatedCost = block.FaceValue * *b.Price / 100
+		}
+		if block.Session == nil {
+			block.Session = rpc.CloneBondSession(b.Session)
+		}
+		contract := rpc.ContractParams{ConID: b.ConID, Symbol: nonEmptyString(b.Symbol, nonEmptyString(b.CUSIP, b.ISIN)), SecType: "BOND", Exchange: "SMART", Currency: ccy}
+		// The key binds the bill: a preview or submit of this key buys the
+		// bill the owner saw, never another the next cycle names.
+		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideInvest, cp.instrument, b.ConID),
+			rpc.OrderActionBuy, cp.units, cp.units, 0, rpc.OrderPositionEffectOpen, cp.status.Reason)
+		p.Notional = block.EstimatedCost
 		details = append(details, fmt.Sprintf("rung %d of %d targets %d days; the bill must mature in %d–%d days", cp.rung, cfg.LadderRungs, cp.targetDays, cfg.MinMaturityDays, cfg.MaxMaturityDays))
 		if cp.heldToCap {
 			details = append(details, fmt.Sprintf("order held to %s by max_order_notional %s at %.4f; the next cycle sweeps the rest",
-				formatBudgetMoney(float64(cp.quantity), ccy), formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(plan.status.BaseCurrency, "base")), cp.rate))
+				formatBudgetMoney(cp.orderAmount, ccy), formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(plan.status.BaseCurrency, "base")), cp.rate))
 		}
-		if b := cp.bill; b != nil {
-			quote := "live"
-			if !b.QuoteFresh {
-				reason := ""
-				if b.Quote != nil {
-					reason = b.Quote.StaleReason
-				}
-				quote = "stale: " + nonEmptyString(reason, "not a live bid or ask")
+		quote := "live"
+		if !b.QuoteFresh {
+			reason := ""
+			if b.Quote != nil {
+				reason = b.Quote.StaleReason
 			}
-			details = append(details, fmt.Sprintf("bill %s (%s) matures %s (%d days); quoted %s per 100 of face (%s, %s)",
-				cashSweepBillName(*b), b.Instrument, b.Maturity, b.DaysToMaturity, formatBillPrice(b.Price), nonEmptyString(b.PriceSource, "no price"), quote))
+			quote = "stale: " + nonEmptyString(reason, "not a live bid or ask")
 		}
-		if block.QuantityUnit == rpc.CashSweepQuantityFace {
-			details = append(details, fmt.Sprintf("quantity is face value in whole %s; the bill's order unit (%s) and minimum are assumptions the post-install proof checks before any order", ccy, cashSweepInstrumentConventions[nonEmptyString(block.Instrument, cp.instrument)].QuantityUnit))
-		} else {
-			details = append(details, fmt.Sprintf("quantity is the cash amount in whole %s; the ETF's shares are sized at a fresh quote once instrument support exists", ccy))
-		}
+		details = append(details, fmt.Sprintf("bill %s (%s) matures %s (%d days); quoted %s per 100 of face (%s, %s)",
+			cashSweepBillName(*b), b.Instrument, b.Maturity, b.DaysToMaturity, formatBillPrice(b.Price), nonEmptyString(b.PriceSource, "no price"), quote))
+		details = append(details, fmt.Sprintf("buy %d × %s = %s of face, about %s at that price; the preview prices a limit on the bill's %s tick from a live bid and ask",
+			cp.units, conv.QuantityUnit, formatBudgetMoney(block.FaceValue, ccy), formatBudgetMoney(block.EstimatedCost, ccy), formatBillTick(b.MinTick)))
 	case rpc.CashSweepSideRedeem:
 		h := cp.holding
 		held := int(math.Floor(h.Row.Quantity + 1e-9))
+		qty := cp.quantity
+		if cp.units > 0 {
+			qty = cp.units
+		}
 		effect := rpc.OrderPositionEffectReduce
-		if cp.quantity >= held {
+		if qty >= held {
 			effect = rpc.OrderPositionEffectClose
 		}
 		block.QuantityUnit = rpc.CashSweepQuantityPosition
+		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
 		if !h.Maturity.IsZero() {
 			block.MaturityDate = h.Maturity.Format(time.DateOnly)
 		}
 		contract := cashSweepHoldingContract(h.Row)
 		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideRedeem, h.Instrument, h.Row.ConID),
-			rpc.OrderActionSell, cp.quantity, held, h.Row.Quantity, effect, cp.status.Reason)
+			rpc.OrderActionSell, qty, held, h.Row.Quantity, effect, cp.status.Reason)
 		if mark := h.MarketValue / h.Row.Quantity; mark > 0 {
-			p.Notional = mark * float64(cp.quantity)
+			p.Notional = mark * float64(qty)
+		}
+		if cp.rules != nil && qty != cp.quantity {
+			details = append(details, fmt.Sprintf("the sale of %d is rounded to %d on the bill's size grid (minimum %d, step %d)", cp.quantity, qty, cp.rules.Minimum(), cp.rules.Step()))
 		}
 		details = append(details, fmt.Sprintf("pending redemptions %s count toward keep_cash until they settle", formatBudgetMoney(cp.pending, ccy)))
+		blockers = append(blockers, cp.blockers...)
+	}
+	if s := block.Session; s != nil && len(s.Windows) > 0 {
+		details = append(details, fmt.Sprintf("the order fills in the %s session (%s)", s.Label, cashSweepSessionSource(s.Source)))
 	}
 	if bucket.TaxReviewedAt == "" {
 		details = append(details, rpc.CashSweepTaxUnreviewedDetail)
@@ -630,13 +678,33 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		cashSweepBlock(&p, rpc.TradingBlocker{Code: rpc.CashSweepBlockerFreshQuote, Message: "the bill's quote is not a live bid or ask, so the buy cannot be priced",
 			Action: "Refresh during the bill's trading session so the quote is live."})
 	}
-	cashSweepBlock(&p, cashSweepInstrumentSupportBlocker())
+	for _, b := range blockers {
+		cashSweepBlock(&p, b)
+	}
 	if p.Shadow {
 		// In front of every other blocker: the mode is the first thing a
 		// reader must know about the row.
 		p.Blockers = append([]rpc.TradingBlocker{cashSweepShadowBlocker()}, p.Blockers...)
 	}
 	return p
+}
+
+// cashSweepSessionSource words where a bill session's hours came from.
+func cashSweepSessionSource(source string) string {
+	switch source {
+	case rpc.BondSessionSourceLiquidHours:
+		return "the contract's liquid hours"
+	case rpc.BondSessionSourceTradingHours:
+		return "the contract's trading hours"
+	}
+	return "assumed hours: the contract details carried none"
+}
+
+func formatBillTick(v *float64) string {
+	if v == nil {
+		return "minimum"
+	}
+	return strconv.FormatFloat(*v, 'f', -1, 64)
 }
 
 // cashSweepProposal is the contract-based counterpart of baseProposal: an
@@ -651,9 +719,9 @@ func cashSweepProposal(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 	}
 }
 
-// cashSweepInvestContract describes what an invest row buys. A bill line is
-// resolved only with instrument support, so the contract names the
-// vocabulary instrument; the ETF is named by the owner's declaration.
+// cashSweepInvestContract names what an invest row would buy before a bill
+// resolves (a row built straight from the plan, blocked): the vocabulary
+// instrument, or the owner's ETF declaration.
 func cashSweepInvestContract(cfg protectionCashSweepCurrency, ccy, instrument string) rpc.ContractParams {
 	if instrument == cashSweepInstrumentETF {
 		return rpc.ContractParams{Symbol: cfg.ETFSymbol, SecType: "STK", Exchange: "SMART", PrimaryExch: cfg.ETFExchange, Currency: ccy}
@@ -675,8 +743,10 @@ func cashSweepHoldingContract(row rpc.PositionView) rpc.ContractParams {
 	}
 }
 
-// cashSweepKey is a sweep row's stable key: currency, side and what it
-// trades. An invest row keeps its key while the rung it targets moves.
+// cashSweepKey is a sweep row's stable key: currency, side, the planned
+// instrument and the contract it trades (the resolved bill of an invest row,
+// the held line of a redemption). An invest row keeps its key while the rung
+// it targets moves and changes it when the bill does.
 func cashSweepKey(ccy, side, instrument string, conID int) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{rpc.TradeProposalBucketCashSweep, ccy, side, instrument, strconv.Itoa(conID)}, "|")))
 	return rpc.TradeProposalBucketCashSweep + ":" + hex.EncodeToString(sum[:8])
@@ -685,14 +755,6 @@ func cashSweepKey(ccy, side, instrument string, conID int) string {
 func cashSweepBlock(p *rpc.TradeProposal, blocker rpc.TradingBlocker) {
 	p.State = rpc.TradeProposalStateBlocked
 	p.Blockers = appendTradingBlockerOnce(p.Blockers, blocker)
-}
-
-func cashSweepInstrumentSupportBlocker() rpc.TradingBlocker {
-	return rpc.TradingBlocker{
-		Code:    rpc.CashSweepBlockerInstrumentSupport,
-		Message: "Canary resolves and quotes bills but does not yet order them (nor the sweep's ETF); this row is listed for observation",
-		Action:  "Nothing to do: bill orders are a separate change you authorise; until then the row is observation.",
-	}
 }
 
 func cashSweepShadowBlocker() rpc.TradingBlocker {
@@ -714,8 +776,10 @@ func derefFloat(v *float64) float64 {
 // from: every row but the cash sweep's. A sweep row's quantity follows cash
 // to the unit, so hashing it would restart every pre-authorised veto window
 // and stale every open preview whenever an unrelated order, a fill's
-// settlement or a fee moved cash. Phase A rows cannot be previewed; Phase B
-// must bind a sweep preview to the row's own terms.
+// settlement or a fee moved cash. A sweep preview binds to the row's own
+// terms instead: the key names the contract (the resolved bill, the held
+// line), the quantity is capped by the free cash at preview (the typed O1
+// exception), and a prepared submit compares the reviewed terms exactly.
 func cashSweepRevisionRows(proposals []rpc.TradeProposal) []rpc.TradeProposal {
 	return slices.DeleteFunc(slices.Clone(proposals), func(p rpc.TradeProposal) bool {
 		return p.Bucket == rpc.TradeProposalBucketCashSweep
@@ -734,48 +798,6 @@ func cashSweepCounts(proposals []rpc.TradeProposal) (rows, shadow int) {
 		}
 	}
 	return rows, shadow
-}
-
-// closeReduceOnlyException is the one exception to authority.close_reduce_only
-// (owner decision O1, 2026-09-30): a cash_sweep buy that opens or increases a
-// position in a vocabulary instrument of the row's own currency, for no more
-// whole units than the free cash it was planned against. It is typed so it
-// cannot widen by accident: every other bucket, action, instrument, currency
-// or size stays close-or-reduce only.
-type closeReduceOnlyException struct {
-	Currency    string
-	Instrument  string
-	MaxQuantity int
-}
-
-// cashSweepOpenException returns the exception prop qualifies for.
-func cashSweepOpenException(prop rpc.TradeProposal) (closeReduceOnlyException, bool) {
-	s := prop.CashSweep
-	switch {
-	case prop.Bucket != rpc.TradeProposalBucketCashSweep || s == nil || s.Side != rpc.CashSweepSideInvest:
-		return closeReduceOnlyException{}, false
-	case !strings.EqualFold(strings.TrimSpace(prop.Action), rpc.OrderActionBuy):
-		return closeReduceOnlyException{}, false
-	case prop.PositionEffect != rpc.OrderPositionEffectOpen && prop.PositionEffect != rpc.OrderPositionEffectIncrease:
-		return closeReduceOnlyException{}, false
-	case s.Instrument == cashSweepInstrumentNone || !cashSweepInstrumentAllowed(s.Instrument, s.Currency):
-		return closeReduceOnlyException{}, false
-	case s.Currency == "" || normCcy(prop.Contract.Currency) != s.Currency:
-		return closeReduceOnlyException{}, false
-	case s.QuantityUnit != rpc.CashSweepQuantityFace && s.QuantityUnit != rpc.CashSweepQuantityCash:
-		return closeReduceOnlyException{}, false
-	case prop.Quantity < 1 || prop.MaxQuantity < prop.Quantity || float64(prop.MaxQuantity) > s.Free+cashSweepMoneyEpsilon:
-		return closeReduceOnlyException{}, false
-	}
-	return closeReduceOnlyException{Currency: s.Currency, Instrument: s.Instrument, MaxQuantity: prop.MaxQuantity}, true
-}
-
-// admits reports whether an order the close_reduce_only gate would refuse is
-// inside the exception: it opens or increases, and its quantity stays within
-// the planned whole units.
-func (x closeReduceOnlyException) admits(effect string, quantity int) bool {
-	return (effect == rpc.OrderPositionEffectOpen || effect == rpc.OrderPositionEffectIncrease) &&
-		quantity >= 1 && quantity <= x.MaxQuantity
 }
 
 // cashSweepInput gathers the planner's inputs for the connected scope.
@@ -856,7 +878,7 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 		case "STK", "STOCK", "ETF":
 			cfg := bucket.currency(ccy)
 			if cfg.declaresETF() && cfg.ETFSymbol != "" && strings.EqualFold(strings.TrimSpace(row.Symbol), cfg.ETFSymbol) {
-				unclassified[ccy] = fmt.Sprintf("a %s holding carries the declared ETF's symbol, and the ETF is matched by contract id, which needs instrument support", ccy)
+				unclassified[ccy] = fmt.Sprintf("a %s holding carries the declared ETF's symbol, and the ETF is matched by contract id, which Canary does not resolve yet", ccy)
 			}
 		}
 	}
@@ -890,9 +912,11 @@ func (e *proposalEngine) cashSweepSettlement(scope brokerStateScope, now time.Ti
 }
 
 // cashSweepSettlementFrom sums the scope's fills since the window start per
-// currency, from each order's cumulative fill events. A fill it cannot
-// attribute to one currency (no currency, a conversion) or cannot value (a
-// bond's percent-of-face price) makes that currency unknown.
+// currency, from each order's cumulative fill events. A bond fill is valued
+// at its currency's bill convention (price per 100 × face per unit, A5); a
+// fill it cannot attribute to one currency (no currency, a conversion) or
+// cannot value (a bond in a currency without a bill convention) makes that
+// currency unknown.
 func cashSweepSettlementFrom(views []rpc.OrderView, eventsByKey map[string][]rpc.OrderEvent, scope brokerStateScope, since time.Time) cashSweepSettlement {
 	out := cashSweepSettlement{Known: true, Since: since, Unknown: map[string]string{},
 		SaleProceeds: map[string]float64{}, PurchaseCosts: map[string]float64{}, EquivalentSales: map[string]float64{}}
@@ -925,14 +949,15 @@ func cashSweepSettlementFrom(views []rpc.OrderView, eventsByKey map[string][]rpc
 			case ccy == "":
 				out.Unknown[""] = "a fill inside the settlement window carries no currency"
 				continue
-			case secType == "BOND" || secType == "BILL":
-				out.Unknown[ccy] = fmt.Sprintf("a bond or bill fill in %s inside the settlement window cannot be valued until Canary supports bill contracts", ccy)
-				continue
 			case price <= 0 || quantity <= 0:
 				out.Unknown[ccy] = fmt.Sprintf("a fill in %s inside the settlement window has no fill price", ccy)
 				continue
 			}
-			multiplier, ok := cashSweepMultiplier(secType, view.Multiplier)
+			multiplier, ok := cashSweepMultiplier(secType, view.Multiplier, ccy)
+			if !ok && cashSweepBondSecType(secType) {
+				out.Unknown[ccy] = fmt.Sprintf("a bond fill in %s inside the settlement window has no bill convention to value it", ccy)
+				continue
+			}
 			if !ok {
 				out.Unknown[ccy] = fmt.Sprintf("a %s fill in %s inside the settlement window has no multiplier", secType, ccy)
 				continue
@@ -943,6 +968,12 @@ func cashSweepSettlementFrom(views []rpc.OrderView, eventsByKey map[string][]rpc
 				out.PurchaseCosts[ccy] += amount
 			case rpc.OrderActionSell:
 				out.SaleProceeds[ccy] += amount
+				if cashSweepBondSecType(secType) {
+					// A bill sold inside the window is a pending redemption: it
+					// counts toward keep_cash so the sale is not repeated
+					// while its proceeds settle.
+					out.EquivalentSales[ccy] += amount
+				}
 			default:
 				out.Unknown[ccy] = fmt.Sprintf("a fill in %s inside the settlement window has no side", ccy)
 			}
@@ -951,17 +982,28 @@ func cashSweepSettlementFrom(views []rpc.OrderView, eventsByKey map[string][]rpc
 	return out
 }
 
-// cashSweepMultiplier is the cash multiplier of one unit: 1 for a stock or
-// ETF share, the contract's own for anything else.
-func cashSweepMultiplier(secType string, multiplier int) (float64, bool) {
+// cashSweepMultiplier is the cash multiplier of one unit at its price: 1 for
+// a stock or ETF share; for a bond, its currency's face per unit over 100
+// (prices are per 100 of face, A5); the contract's own for anything else.
+func cashSweepMultiplier(secType string, multiplier int, ccy string) (float64, bool) {
 	switch secType {
 	case "STK", "STOCK", "ETF":
 		return 1, true
+	case "BOND", "BILL":
+		conv, ok := cashSweepBondConvention(ccy)
+		if !ok || conv.FacePerUnit <= 0 {
+			return 0, false
+		}
+		return conv.FacePerUnit / 100, true
 	}
 	if multiplier > 0 {
 		return float64(multiplier), true
 	}
 	return 0, false
+}
+
+func cashSweepBondSecType(secType string) bool {
+	return secType == "BOND" || secType == "BILL"
 }
 
 // cashSweepCommitments sums what working buy orders (every client, from the
@@ -979,9 +1021,9 @@ func (e *proposalEngine) cashSweepCommitments(ctx context.Context, scope brokerS
 }
 
 // cashSweepCommitmentsFrom is the pure half of cashSweepCommitments. A working
-// buy is valued at its limit (or stop) price; one with no price bound makes
-// its currency unknown. A queued buy counts only while armed, held or
-// sending, at its worst price.
+// buy is valued at its limit (or stop) price, a bond's at its currency's bill
+// convention; one with no price bound makes its currency unknown. A queued
+// buy counts only while armed, held or sending, at its worst price.
 func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope) cashSweepCommitments {
 	out := cashSweepCommitments{Known: true, Unknown: map[string]string{}, ByCurrency: map[string]float64{}}
 	for _, o := range orders {
@@ -1004,12 +1046,12 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		if price <= 0 {
 			price = o.AuxPrice
 		}
-		multiplier, multiplierOK := cashSweepMultiplier(secType, o.Multiplier)
+		multiplier, multiplierOK := cashSweepMultiplier(secType, o.Multiplier, ccy)
 		switch {
 		case ccy == "" || secType == "CASH":
 			out.Unknown[""] = "a working buy order carries no single currency (or converts one), so committed cash is unknown"
-		case secType == "BOND" || secType == "BILL":
-			out.Unknown[ccy] = fmt.Sprintf("a working bond or bill buy in %s cannot be valued until Canary supports bill contracts", ccy)
+		case cashSweepBondSecType(secType) && !multiplierOK:
+			out.Unknown[ccy] = fmt.Sprintf("a working bond buy in %s has no bill convention to value it, so committed cash is unknown", ccy)
 		case price <= 0 || remaining <= 0 || !multiplierOK:
 			out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no price bound, so the cash it commits is unknown", ccy)
 		default:
@@ -1021,7 +1063,7 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 			continue
 		}
 		ccy := normCcy(nonEmptyString(rec.Terms.Currency, rec.Terms.Contract.Currency))
-		multiplier, ok := cashSweepMultiplier(strings.ToUpper(strings.TrimSpace(rec.Terms.Contract.SecType)), rec.Terms.Contract.Multiplier)
+		multiplier, ok := cashSweepMultiplier(strings.ToUpper(strings.TrimSpace(rec.Terms.Contract.SecType)), rec.Terms.Contract.Multiplier, ccy)
 		if ccy == "" || !ok || rec.Terms.WorstPrice <= 0 {
 			out.Unknown[ccy] = "an armed queued buy has no currency, multiplier or worst price, so the cash it commits is unknown"
 			continue

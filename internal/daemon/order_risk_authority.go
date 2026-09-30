@@ -69,7 +69,7 @@ type orderPreviewBrokerAuthority struct {
 
 func (s *Server) hasOrderPreviewBrokerTestSeam() bool {
 	return s.orderPreviewQuote != nil || s.orderPreviewPositionImpact != nil || s.orderRiskAuthorityForTest != nil ||
-		s.orderContractResolverForTest != nil || s.orderPreviewWhatIf != nil
+		s.orderContractResolverForTest != nil || s.orderPreviewWhatIf != nil || s.orderBondDetailsForTest != nil
 }
 
 func (s *Server) captureOrderPreviewBrokerAuthority() (*orderPreviewBrokerAuthority, error) {
@@ -556,6 +556,10 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 			return err
 		}
 		return nil
+	}
+	if strings.EqualFold(draft.Contract.SecType, "BOND") && stockShortOrFlip(position.Effect) {
+		// A bond sale only ever reduces or closes a held line.
+		return fmt.Errorf("a bond order that opens or flips a short position is not supported")
 	}
 	riskEffect := position.Effect
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) {

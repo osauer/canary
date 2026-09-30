@@ -10,10 +10,11 @@ import (
 	"time"
 )
 
-// Read-only bond support: contract details for secType BOND by ISIN, CUSIP
-// or contract id, and the yield ticks a bond quote carries. Canary's cash
-// sweep (internal-docs/design/cash-sweep.md, Phase B) resolves and quotes
-// government bills with these; nothing here builds or sends an order.
+// Bond support: contract details for secType BOND by ISIN, CUSIP or contract
+// id, and the yield ticks a bond quote carries. Canary's cash sweep
+// (internal-docs/design/cash-sweep.md, Phase B) resolves and quotes
+// government bills with these; bond_order.go builds the one order shape it
+// sends.
 
 // Bond identifier types a contract-details request can name.
 const (
@@ -381,13 +382,27 @@ var ErrBondContractNotFound = errors.New("no bond contract line for the request"
 // frames and the end marker. A rejection from the gateway ends the wait with
 // its verdict (ErrContractNoDefinition for code 200).
 func (c *Connector) BondContractDetails(ctx context.Context, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
-	contract, err := request.wireContract()
-	if err != nil {
-		return nil, err
-	}
 	binding, ok := c.CaptureSession()
 	if !ok {
 		return nil, ErrIBKRUnavailable
+	}
+	return c.bondContractDetails(ctx, binding, request, timeout)
+}
+
+// BondContractDetailsForSession is BondContractDetails on the exact socket
+// generation binding names: an order preview reads its line's size, price
+// and session rules from the same session it prices and previews on.
+func (c *Connector) BondContractDetailsForSession(ctx context.Context, binding ConnectorSessionBinding, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
+	if c == nil || !c.SessionCurrent(binding) {
+		return nil, fmt.Errorf("broker session changed before bond contract details")
+	}
+	return c.bondContractDetails(ctx, binding, request, timeout)
+}
+
+func (c *Connector) bondContractDetails(ctx context.Context, binding ConnectorSessionBinding, request BondContractRequest, timeout time.Duration) ([]BondContractDetails, error) {
+	contract, err := request.wireContract()
+	if err != nil {
+		return nil, err
 	}
 	if timeout <= 0 {
 		timeout = 5 * time.Second

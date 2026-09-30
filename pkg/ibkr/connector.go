@@ -4159,7 +4159,12 @@ func (c *Connector) SubscribeMarketDataWithContractForSession(ctx context.Contex
 	}
 	wireContract := contract
 	normalizeResolvedOptionMarketDataContract(&wireContract)
-	reqID, err := conn.requestMarketDataWithContractForEpoch(ctx, wireContract, OptionSubscriptionGenericTicks+",165,221,233,236", false, false, binding.epoch, func(reqID int) func() {
+	genericTicks := OptionSubscriptionGenericTicks + ",165,221,233,236"
+	if isBondMarketDataContract(wireContract) {
+		// The stock and option tick lists are not defined for bonds.
+		genericTicks = ""
+	}
+	reqID, err := conn.requestMarketDataWithContractForEpoch(ctx, wireContract, genericTicks, false, false, binding.epoch, func(reqID int) func() {
 		c.subMu.Lock()
 		c.reqIDMap[reqID] = key
 		c.subscriptions[key] = &Subscription{
@@ -4609,6 +4614,7 @@ func (c *Connector) submitOrderForSession(ctx context.Context, binding Connector
 		LocalSymbol:     contract.LocalSymbol,
 		TradingClass:    contract.TradingClass,
 		ComboLegs:       append([]ComboLeg(nil), contract.ComboLegs...),
+		BondRules:       cloneBondOrderRules(contract.BondRules),
 		Action:          order.Action,
 		TotalQty:        order.TotalQty,
 		OrderType:       order.OrderType,

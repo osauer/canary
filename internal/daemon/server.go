@@ -440,6 +440,7 @@ type Server struct {
 	orderRiskAuthorityForTest    func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
 	orderFXRateForTest           func(context.Context, string, string, time.Duration) (float64, time.Time, error)
 	orderContractResolverForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
+	orderBondDetailsForTest      func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
 	orderPreviewWhatIf           func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
 	orderWritesEnabled           func() bool
 	gatewayReadyForTrading       func() bool

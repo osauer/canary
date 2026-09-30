@@ -27,11 +27,16 @@ const (
 	synthGBBill   = "GB00ZZZZZZ11"
 )
 
-// synthBondLine is a zero-coupon line issued 91 days before it matures.
+// synthBondLine is a zero-coupon line issued 91 days before it matures. Its
+// size rules follow the assumed units: one bond of 1,000 face for USD, 1,000
+// of face in steps of 1,000 elsewhere.
 func synthBondLine(conID int, id, ccy string, maturity time.Time) ibkrlib.BondContractDetails {
 	line := ibkrlib.BondContractDetails{ConID: conID, Symbol: "SYNTHB", SecType: "BOND", CUSIPField: id, Currency: ccy,
 		Maturity: maturity.Format("20060102"), IssueDate: maturity.AddDate(0, 0, -91).Format("20060102"), Exchange: "SMART",
 		MinTick: 0.0001, MinSize: 1000, SizeIncrement: 1000, Complete: true, SecIDs: map[string]string{}}
+	if ccy == "USD" {
+		line.MinSize, line.SizeIncrement = 1, 1
+	}
 	if ibkrlib.ValidISIN(id) {
 		line.SecIDs["ISIN"] = id
 	} else {
@@ -55,6 +60,16 @@ type fakeBillSource struct {
 	quotes   map[int]rpc.BondQuote
 	quoteErr map[int]error
 	asked    []string
+	// heldLines answer a held contract id's lookup.
+	heldLines map[int][]ibkrlib.BondContractDetails
+}
+
+func (f *fakeBillSource) held(_ context.Context, conID int, _ string) ([]ibkrlib.BondContractDetails, error) {
+	lines, ok := f.heldLines[conID]
+	if !ok {
+		return nil, errBondLookupPending
+	}
+	return lines, nil
 }
 
 func (f *fakeBillSource) usBills(time.Time) ([]treasuryBill, time.Time, string) {
@@ -260,8 +275,15 @@ func TestCashSweepResolvesNearestUSBill(t *testing.T) {
 	for _, b := range row.Blockers {
 		codes = append(codes, b.Code)
 	}
-	if !slices.Equal(codes, []string{"shadow_mode", rpc.CashSweepBlockerInstrumentSupport}) {
+	if !slices.Equal(codes, []string{"shadow_mode"}) {
 		t.Fatalf("codes = %v", codes)
+	}
+	// Free 55,000 USD at 99.6 buys 55 bills of 1,000 face, on the line's
+	// grid, bound to the bill by its key.
+	if row.Quantity != 55 || row.MaxQuantity != 55 || row.CashSweep.QuantityUnit != rpc.BondQuantityUnitFace1000 || row.CashSweep.FaceValue != 55000 ||
+		math.Abs(row.CashSweep.EstimatedCost-54780) > 1e-6 || row.Key != cashSweepKey("USD", rpc.CashSweepSideInvest, cashSweepInstrumentUSTBill, usd.bill.ConID) ||
+		row.CashSweep.Session == nil || row.CashSweep.Session.Source != rpc.BondSessionSourceAssumed || row.CashSweep.Bill.MinTick == nil {
+		t.Fatalf("sized row = %d/%d %+v", row.Quantity, row.MaxQuantity, row.CashSweep)
 	}
 	if _, ok := cashSweepOpenException(row); !ok {
 		t.Fatalf("a resolved bill left the typed exception: %+v", row.CashSweep)
@@ -366,7 +388,8 @@ func TestCashSweepResolvesListedEURBills(t *testing.T) {
 		t.Fatalf("EUR bill = %+v (%s)", eur.bill, eur.status.Reason)
 	}
 	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeShadow, Shadow: true}}, eur)
-	if row.CashSweep.Instrument != cashSweepInstrumentFRBTF || row.Key != cashSweepKey("EUR", rpc.CashSweepSideInvest, cashSweepInstrumentDEBubill, 0) {
+	if row.CashSweep.Instrument != cashSweepInstrumentFRBTF || row.Key != cashSweepKey("EUR", rpc.CashSweepSideInvest, cashSweepInstrumentDEBubill, 7202) ||
+		row.Quantity != 55000 || row.CashSweep.QuantityUnit != rpc.BondQuantityUnitFace1 {
 		t.Fatalf("row instrument %s key %s", row.CashSweep.Instrument, row.Key)
 	}
 	if _, ok := cashSweepOpenException(row); !ok {

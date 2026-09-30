@@ -1,12 +1,16 @@
 package rpc
 
-import "slices"
+import (
+	"slices"
+	"time"
+)
 
 // The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work
 // in same-currency bills and never converts. It is the first bucket whose
 // rows buy; every other bucket stays close-or-reduce only. Phase B resolves
-// and quotes the bill a row names; every row still carries
-// instrument_support_required until the owner authorises bill orders.
+// and quotes the bill a row names and orders it: an active row is an
+// ordinary proposal, previewed and submitted as a BOND LMT DAY order under
+// every existing gate and the owner's approval.
 const (
 	// TradeProposalBucketCashSweep invests free cash above keep_cash into a
 	// vocabulary bill of the same currency, or redeems the nearest maturity
@@ -22,14 +26,9 @@ const (
 	CashSweepSideInvest = "invest"
 	CashSweepSideRedeem = "redeem"
 
-	// CashSweepQuantityFace, CashSweepQuantityCash and
-	// CashSweepQuantityPosition name what a sweep row's quantity counts: face
-	// value in whole units of the row's currency (a bill), a cash amount in
-	// whole units of the row's currency (an ETF buy, sized to shares at a
-	// fresh quote once instrument support exists), or the held position's own
-	// unit (a redemption).
-	CashSweepQuantityFace     = "face_value"
-	CashSweepQuantityCash     = "cash_amount"
+	// CashSweepQuantityPosition says a redemption's quantity counts the held
+	// position's own unit. An invest row's quantity counts its bill's order
+	// unit, named by a BondQuantityUnit* value (face_1000 or face_1).
 	CashSweepQuantityPosition = "position"
 )
 
@@ -71,15 +70,28 @@ const (
 	CashSweepBillSourcePolicyISINs    = "policy_isins"
 )
 
-// Cash sweep blocker codes a row can carry.
+// Cash sweep blocker codes a row can carry. Each stops an order that could
+// not be priced or sized, not a decision: the owner's approval of each order
+// is the gate.
 const (
-	// CashSweepBlockerInstrumentSupport is on every row: Canary resolves and
-	// quotes bills but does not order them until the owner authorises the
-	// order path.
-	CashSweepBlockerInstrumentSupport = "instrument_support_required"
 	// CashSweepBlockerFreshQuote is on an invest row whose bill quote is not
 	// a live bid or ask, and on a redemption whose position mark is stale.
 	CashSweepBlockerFreshQuote = "fresh_bill_quote_required"
+	// CashSweepBlockerBillRules is on a redemption whose held bill's contract
+	// details carry no minimum size or minimum tick.
+	CashSweepBlockerBillRules = "bill_contract_rules_unavailable"
+	// CashSweepBlockerBelowMinimum is on a redemption whose sale cannot meet
+	// the bill's minimum size or size step within the position.
+	CashSweepBlockerBelowMinimum = "below_minimum_increment"
+)
+
+// Bond session sources: the line's liquid or trading hours from its
+// contract details, else the instrument's assumed hours
+// (internal-docs/design/cash-sweep.md, A5).
+const (
+	BondSessionSourceLiquidHours  = "liquid_hours"
+	BondSessionSourceTradingHours = "trading_hours"
+	BondSessionSourceAssumed      = "assumed"
 )
 
 // TradeProposalCashSweepStatus is the sweep's account of one generation: the
@@ -160,24 +172,28 @@ type TradeProposalCashSweepCurrency struct {
 // and the quote it was confirmed with. Price is per 100 of face (the ask,
 // else the last, else the bid, else the close; PriceSource says which).
 // QuantityUnit and PriceConvention are Canary's assumed broker conventions
-// for the instrument; no order uses them yet.
+// for the instrument (A5); the order sizes and prices by them. MinSize,
+// SizeIncrement (order units) and MinTick come from the line's contract
+// details and bound every order; Session is when a DAY order can fill.
 type TradeProposalCashSweepBill struct {
-	Instrument      string     `json:"instrument"`
-	Source          string     `json:"source"`
-	ConID           int        `json:"con_id"`
-	Symbol          string     `json:"symbol,omitempty"`
-	ISIN            string     `json:"isin,omitempty"`
-	CUSIP           string     `json:"cusip,omitempty"`
-	Maturity        string     `json:"maturity"`
-	DaysToMaturity  int        `json:"days_to_maturity"`
-	MinSize         *float64   `json:"min_size,omitempty"`
-	SizeIncrement   *float64   `json:"size_increment,omitempty"`
-	Price           *float64   `json:"price,omitempty"`
-	PriceSource     string     `json:"price_source,omitempty"`
-	Quote           *BondQuote `json:"quote,omitempty"`
-	QuoteFresh      bool       `json:"quote_fresh"`
-	QuantityUnit    string     `json:"quantity_unit"`
-	PriceConvention string     `json:"price_convention"`
+	Instrument      string       `json:"instrument"`
+	Source          string       `json:"source"`
+	ConID           int          `json:"con_id"`
+	Symbol          string       `json:"symbol,omitempty"`
+	ISIN            string       `json:"isin,omitempty"`
+	CUSIP           string       `json:"cusip,omitempty"`
+	Maturity        string       `json:"maturity"`
+	DaysToMaturity  int          `json:"days_to_maturity"`
+	MinSize         *float64     `json:"min_size,omitempty"`
+	SizeIncrement   *float64     `json:"size_increment,omitempty"`
+	MinTick         *float64     `json:"min_tick,omitempty"`
+	Price           *float64     `json:"price,omitempty"`
+	PriceSource     string       `json:"price_source,omitempty"`
+	Quote           *BondQuote   `json:"quote,omitempty"`
+	QuoteFresh      bool         `json:"quote_fresh"`
+	QuantityUnit    string       `json:"quantity_unit"`
+	PriceConvention string       `json:"price_convention"`
+	Session         *BondSession `json:"session,omitempty"`
 }
 
 // CloneCashSweepBill deep-copies a resolved bill; nil stays nil.
@@ -188,8 +204,37 @@ func CloneCashSweepBill(in *TradeProposalCashSweepBill) *TradeProposalCashSweepB
 	out := *in
 	out.MinSize = cloneCashSweepFloat(in.MinSize)
 	out.SizeIncrement = cloneCashSweepFloat(in.SizeIncrement)
+	out.MinTick = cloneCashSweepFloat(in.MinTick)
 	out.Price = cloneCashSweepFloat(in.Price)
 	out.Quote = CloneBondQuote(in.Quote)
+	out.Session = CloneBondSession(in.Session)
+	return &out
+}
+
+// BondSession is when a bond line's DAY order can fill: windows in UTC,
+// open inclusive and close exclusive, from the line's liquid or trading
+// hours, else the instrument's assumed hours on weekdays (holidays are then
+// not modelled). Label names the session for a reader.
+type BondSession struct {
+	Source   string              `json:"source"`
+	Label    string              `json:"label,omitempty"`
+	TimeZone string              `json:"time_zone,omitempty"`
+	Windows  []BondSessionWindow `json:"windows,omitempty"`
+}
+
+// BondSessionWindow is one trading interval of a bond session.
+type BondSessionWindow struct {
+	Open  time.Time `json:"open"`
+	Close time.Time `json:"close"`
+}
+
+// CloneBondSession deep-copies a bond session; nil stays nil.
+func CloneBondSession(in *BondSession) *BondSession {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Windows = slices.Clone(in.Windows)
 	return &out
 }
 
@@ -210,8 +255,14 @@ type TradeProposalCashSweep struct {
 	Side       string `json:"side"`
 	Currency   string `json:"currency"`
 	Instrument string `json:"instrument"`
-	// QuantityUnit says what the proposal quantity counts (CashSweepQuantity*).
+	// QuantityUnit says what the proposal quantity counts: the bill's order
+	// unit on an invest row (BondQuantityUnit*), the held position's unit on
+	// a redemption (CashSweepQuantityPosition).
 	QuantityUnit string `json:"quantity_unit"`
+	// FaceValue is an invest order's face value (quantity × the unit's
+	// face); EstimatedCost is that face at the bill's quoted price.
+	FaceValue     float64 `json:"face_value,omitempty"`
+	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 	// OrderAmount is the cash the order puts to work (invest) or the gap it
 	// covers (redeem), before rounding to whole units.
 	OrderAmount float64 `json:"order_amount"`
@@ -235,6 +286,10 @@ type TradeProposalCashSweep struct {
 	MaturityDate string `json:"maturity_date,omitempty"`
 	// Bill is the resolved bill an invest row names.
 	Bill *TradeProposalCashSweepBill `json:"bill,omitempty"`
+	// Session is when the row's order can fill: the bill's session on an
+	// invest row, the held bill's on a redemption; nil for the ETF, which
+	// follows its exchange calendar.
+	Session *BondSession `json:"session,omitempty"`
 }
 
 // CloneCashSweepStatus deep-copies a sweep status; nil stays nil.
@@ -273,6 +328,7 @@ func CloneProposalCashSweep(in *TradeProposalCashSweep) *TradeProposalCashSweep 
 	}
 	out := *in
 	out.Bill = CloneCashSweepBill(in.Bill)
+	out.Session = CloneBondSession(in.Session)
 	return &out
 }
 

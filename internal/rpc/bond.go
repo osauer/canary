@@ -16,9 +16,10 @@ const (
 	BondClassUnresolved = "unresolved"
 )
 
-// Bond quantity units and price conventions. No order uses them yet: they
-// are Canary's reading of how IBKR counts and prices each instrument, and
-// the post-install proof checks them (internal-docs/design/cash-sweep.md).
+// Bond quantity units and price conventions: Canary's reading of how IBKR
+// counts and prices each instrument (A5, internal-docs/design/cash-sweep.md).
+// The cash sweep's orders size and price by them; the post-install proof
+// checks them.
 const (
 	// BondQuantityUnitFace1000 counts one unit as 1,000 of face value.
 	BondQuantityUnitFace1000 = "face_1000"
@@ -60,7 +61,7 @@ type BondContract struct {
 	SizeIncrement  *float64 `json:"size_increment,omitempty"`
 	MinTick        *float64 `json:"min_tick,omitempty"`
 	// QuantityUnit and PriceConvention are Canary's assumed conventions for
-	// the line (Bond* constants); no order uses them yet.
+	// the line (Bond* constants, A5).
 	QuantityUnit    string `json:"quantity_unit,omitempty"`
 	PriceConvention string `json:"price_convention"`
 }
@@ -136,5 +137,31 @@ func CloneBondQuote(in *BondQuote) *BondQuote {
 	for _, p := range []**float64{&out.Bid, &out.Ask, &out.Last, &out.Close, &out.BidYield, &out.AskYield, &out.LastYield} {
 		*p = cloneCashSweepFloat(*p)
 	}
+	return &out
+}
+
+// OrderBondTerms is a BOND order's instrument conventions and its line's
+// order grid, carried on the draft so the signed preview says what one unit
+// and one price point mean. Canary previews a BOND only for a cash_sweep row
+// (internal-docs/design/cash-sweep.md): the proposal engine sets the
+// conventions, the preview reads the grid from the line's contract details.
+type OrderBondTerms struct {
+	Instrument      string  `json:"instrument"`
+	QuantityUnit    string  `json:"quantity_unit"`
+	FacePerUnit     float64 `json:"face_per_unit"`
+	PriceConvention string  `json:"price_convention"`
+	MinTick         float64 `json:"min_tick,omitempty"`
+	MinSize         float64 `json:"min_size,omitempty"`
+	SizeIncrement   float64 `json:"size_increment,omitempty"`
+	// FaceValue is quantity × FacePerUnit, in the contract's currency.
+	FaceValue float64 `json:"face_value,omitempty"`
+}
+
+// CloneOrderBondTerms copies bond terms; nil stays nil.
+func CloneOrderBondTerms(in *OrderBondTerms) *OrderBondTerms {
+	if in == nil {
+		return nil
+	}
+	out := *in
 	return &out
 }

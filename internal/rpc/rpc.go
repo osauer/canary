@@ -2641,6 +2641,9 @@ type OrderPreviewParams struct {
 	// Bounded is daemon-internal: the bound a bounded-limit strategy prices
 	// inside. No RPC caller can set it.
 	Bounded *OrderBoundedLimit `json:"-"`
+	// Bond is daemon-internal: a cash_sweep row's bill conventions. A BOND
+	// preview without it is refused, so no RPC caller can preview a bond.
+	Bond *OrderBondTerms `json:"-"`
 }
 
 // OrderBoundedLimit bounds a limit priced from the live quote: Concession of
@@ -2707,6 +2710,8 @@ type OrderDraft struct {
 	OpenClose     string              `json:"open_close,omitempty"`
 	Source        string              `json:"source,omitempty"`
 	StrategyGroup *StrategyOrderDraft `json:"strategy_group,omitempty"`
+	// Bond carries a BOND draft's conventions and grid; nil otherwise.
+	Bond *OrderBondTerms `json:"bond,omitempty"`
 }
 
 // OrderTrailSpec is the canonical broker-side trailing-stop intent. Percent

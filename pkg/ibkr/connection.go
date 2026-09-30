@@ -162,6 +162,9 @@ type Contract struct {
 	SecIDType    string
 	SecID        string
 	ComboLegs    []ComboLeg
+	// BondRules is a BOND line's size and price grid from its contract
+	// details; every BOND order must carry it (NewBondLimitOrder).
+	BondRules *BondOrderRules
 }
 
 // ComboLeg is one exact contract inside an IBKR BAG contract. Ratio is a

@@ -108,6 +108,7 @@ const (
 	AlertPresentationProtectionAutoOptionProfitTrailNow = risk.AlertPresentationProtectionAutoOptionProfitTrailNow
 	AlertPresentationProtectionAutoBudgetReduction      = risk.AlertPresentationProtectionAutoBudgetReduction
 	AlertPresentationProtectionAutoBudgetReductionNow   = risk.AlertPresentationProtectionAutoBudgetReductionNow
+	AlertPresentationProtectionAutoCashSweep            = risk.AlertPresentationProtectionAutoCashSweep
 	AlertPresentationProtectionAutoDeferred             = risk.AlertPresentationProtectionAutoDeferred
 	AlertPresentationProtectionAutoHeld                 = risk.AlertPresentationProtectionAutoHeld
 	AlertPresentationProtectionAutoHeldUnverified       = risk.AlertPresentationProtectionAutoHeldUnverified

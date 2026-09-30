@@ -1,22 +1,23 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 13:14 CEST
-Status: Phase B read-only half implemented on feat/cash-sweep-b; order path
-pending owner authorisation; post-install proof pending.
+Updated: 2026-09-30 13:59 CEST
+Status: Phase B implemented on feat/cash-sweep-b; post-install proof pending.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
-on the open items of 2026-09-30 09:30 CEST (O1–O7) and the owner's decision
+on the open items of 2026-09-30 09:30 CEST (O1–O7) and the owner's decisions
 of 2026-09-30 12:35 CEST (P1, verbatim: "no shadow, armed. Human need to
-approve anyway. Do all follow-ups."), and creates none. Items marked **(A)**
-are broker assumptions to verify, never facts.
+approve anyway. Do all follow-ups.") and 12:45 CEST (the order path may be
+built), and creates none. Items marked **(A)** are broker assumptions to
+verify, never facts.
 
 P1 reading: the owner's approval of each order is the last line; software
 gates ahead of it that only restate a review (the tax gate) are unwanted, so
-the tax review becomes advisory. Every follow-up of Phase A's read-only side
-is built here; the order path stays a separate, owner-authorised task, so
-every row still carries `instrument_support_required`. The mode default
-stays `shadow` in code; `mode = "active"` is the owner's line to write.
+the tax review becomes advisory, and `instrument_support_required` is
+retired. Technical blockers that stop a malformed order (no live quote, a
+size or price off the bill's grid, a closed session) are not gates and stay.
+The mode default stays `shadow` in code; `mode = "active"` is the owner's
+line to write, and so is `cash_sweep` under `pre_authorised`.
 
 ## Decision
 
@@ -36,7 +37,7 @@ stays `shadow` in code; `mode = "active"` is the owner's line to write.
 
 | # | Decision | Where it lives |
 |---|---|---|
-| O1 | Confirmed. The `close_reduce_only` carve-out exists for the `cash_sweep` bucket only, only for an instrument in the closed vocabulary in the row's own currency, only up to `free` cash. It is a typed, tested exception, not a general relaxation; Phase A rows still carry `instrument_support_required`, so no preview or submit can pass. | `closeReduceOnlyException`, `cashSweepOpenException`, the two effect checks in `proposalPreviewSafetyBlockers` |
+| O1 | Confirmed. The `close_reduce_only` carve-out exists for the `cash_sweep` bucket only, only for the row's own resolved bill (a vocabulary instrument in the row's own currency), only up to `free` cash in face value and in cost at the preview's limit, and within `max_order_notional`. It is a typed, tested exception, not a general relaxation; it is also the only way a BOND passes the preview's security-type check. | `closeReduceOnlyException`, `cashSweepOpenException`, `cashSweepBondAdmitted`, the effect and security-type checks in `proposalPreviewSafetyBlockers` (`cash_sweep_orders.go`) |
 | O2 | `min_maturity_days` per currency, default 28 (the four-week US bill); rung targets spread evenly from `min_maturity_days` to `max_maturity_days`. EUR default min 28, max 182. | `defaultCashSweepCurrency`, `cashSweepRungTargets` |
 | O3 | Accepted. The compiled EUR default declares `fallback = "etf"` with no symbol; the template comment shows the owner-approved example ETF on Xetra; the status reads `needs_your_number` for the fallback symbol only, and bills still plan. | `writeCashSweepTemplate`, `missingNumbers` |
 | O4 | Superseded by P1 (2026-09-30 12:35 CEST): `tax_reviewed_at` is advisory. Unset, every row carries the detail line "tax treatment not yet confirmed (tax_reviewed_at unset)" and the status `tax_reviewed: false`; nothing is blocked. | `cashSweepRow`, `cashSweepPlanFor` |
@@ -65,10 +66,11 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   order journal; `committed` is working BUY orders plus authorised (armed,
   held or sending) queued orders; `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
-- Band: invest when `free > min_tranche`: one BUY in whole face units, capped
-  by `max_order_notional`. Redeem when `cash − committed < keep_cash`: one SELL
-  of the nearest maturity (or the ETF) covering the gap, skipped when a held
-  bill pays out first. Otherwise nothing. An unauthorised proposal or queue
+- Band: invest when `free > min_tranche`: one BUY in the bill's whole order
+  units on its size grid, capped by `max_order_notional`. Redeem when
+  `cash − committed < keep_cash`: one SELL of the nearest maturity (or the
+  ETF) covering the gap, held to `max_order_notional` (the next cycle sells
+  the rest), skipped when a held bill pays out first. Otherwise nothing. An unauthorised proposal or queue
   entry is never a commitment. Maturities return to cash; the band re-sweeps.
 - Ladder: rung targets spread evenly from `min_maturity_days` to
   `max_maturity_days` (O2). A tranche goes to the rung holding least face
@@ -79,10 +81,10 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
 - Classification: invest rows BUY `open`/`increase` a cash equivalent; redeem
   rows SELL `reduce`/`close`. Nothing converts or leaves the vocabulary.
 - Enforcement: advisory. Shadow lists and journals (`shadow_mode`); active
-  rows are ordinary proposals under every gate, freeze included. An unset
-  `tax_reviewed_at` adds a detail line only (P1).
-  `instrument_support_required` stays on every row until the order path is
-  authorised. Every row sets `NeverSkipVeto`.
+  rows are ordinary proposals under every gate, freeze included, sent on the
+  owner's approval or, when `cash_sweep` is pre-authorised, by the daemon
+  after the full veto window. An unset `tax_reviewed_at` adds a detail line
+  only (P1). Every row sets `NeverSkipVeto`.
 - Unknown posture, per currency, generating nothing: `cash_unavailable`,
   `settlement_unknown` (no ledger `SettledCash` and a journal gap in the
   settlement window), `equivalents_unclassified`, `needs_your_number`. An
@@ -104,7 +106,11 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
   a BOND contract-details request by `secIdType`/`secId` with
   `bondContractData` frames, sends bond prices per 100 of face and yields in
   percent (ticks 50–52, delayed 103–105), and needs no generic ticks for a
-  bond quote.
+  bond quote; (A8) a bond line's contract details carry its minimum size and
+  size increment in order units, its minimum tick per 100 of face, and its
+  liquid (else trading) hours in its time zone, and a BOND LMT DAY order by
+  contract id on SMART is how IBKR takes a bill order; without hours, the
+  assumed weekday sessions of the conventions table apply.
 
 ## Authority And Evidence
 
@@ -117,7 +123,8 @@ for the governor: rule 3 is becoming a premium budget in a parallel change.
 | Held equivalents | positions view and its `bonds` section | `rpc.PositionsResult.Bonds` (`classifyBondPositions`), ETF by ConID (not yet) | per refresh, `Stale` honoured | `equivalents_unclassified` |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |
 | EUR, GBP, CAD universe | owner's `isins` per currency | `protectionCashSweepCurrency.ISINs` | hot reload | `universe_unavailable` |
-| Bill lines, quotes | IBKR BOND contract details, quotes | `ibkr.BondContractDetails`, `bondDirectory`, `rpc.TradeProposalCashSweepBill` | details cached a day, quotes a minute | `instrument_unresolved`, `fresh_bill_quote_required`; `instrument_support_required` until the order path |
+| Bill lines, quotes | IBKR BOND contract details, quotes | `ibkr.BondContractDetails`, `bondDirectory`, `rpc.TradeProposalCashSweepBill` | details cached a day, quotes a minute | `instrument_unresolved`, `fresh_bill_quote_required` |
+| Order grid, session | the line's contract details, re-read by contract id on the preview's own session | `ibkr.BondOrderRules`, `rpc.OrderBondTerms`, `rpc.BondSession` | per preview | `contract_unresolved`, `bond_order_invalid`, `market_closed` |
 | Status | proposal snapshot | `rpc.TradeProposalSnapshot.CashSweep` (`cash_sweep`) | per refresh | — |
 | Row arithmetic, flags | proposal | `rpc.TradeProposal.CashSweep`, `.Shadow`, `.NeverSkipVeto`, `AutomaticEligible()` | per refresh | shadow ⇒ `shadow_mode` |
 | Cash-like figures | brief, rule 14 | `BriefReadySection.Cash`, rule 14 notes | per brief / per Rulebook read | nil when unavailable |
@@ -156,16 +163,18 @@ to its parallel change.
   commitments; an unauthorised queue entry ignored; rung choice;
   `max_order_notional` hold; CHF `none`; EUR fallback only after an empty
   search; journal gap.
-- Invariants: no conversion; no BUY outside the vocabulary or maturity cap; no
+- Invariants: no conversion; no BUY outside the vocabulary or maturity cap,
+  above free cash (in face and in cost) or off the bill's grid; no
   invest/redeem alternation on unchanged inputs; absent from `canary policy
-  default protection`; shadow refused by preview and submit; Phase A rows never
-  `AutomaticEligible()`.
+  default protection`; shadow refused by preview and submit; an unresolved
+  row never `AutomaticEligible()`; no RPC caller can preview a BOND.
 - Adversarial: ETF symbol and exchange are policy data matched by ConID; no
   broker text enters a decision.
 - Parity: CLI text, JSON `cash_sweep`, MCP `canary_proposals`, SPA blocker path.
-- Phase B read-only: the post-install proof below (resolve and quote, the
-  positions section, the SettledCash tag); the order path adds a redacted
-  BUY, SELL and maturity artifact per currency.
+- Phase B: the post-install proof below (resolve and quote, the positions
+  section, the SettledCash tag, one whatIf preview, the grid and the hours);
+  the first live orders add a redacted BUY, SELL and maturity artifact per
+  currency.
 
 Phase A tests: `internal/daemon/protection_policy_cash_sweep_test.go`,
 `internal/daemon/proposal_cash_sweep_test.go` (including a 2,000-book random
@@ -179,7 +188,17 @@ precedence, `cash_like`, held-bill classification, nearest-bill selection,
 fail-closed resolution, listed EUR bills, `isins` validation, TreasuryDirect
 parsing and aging, directory caching, positions classification, the bond
 check), `internal/cli/cash_sweep_phase_b_test.go`,
-`internal/mcp/market_bond_test.go`.
+`internal/mcp/market_bond_test.go`. Order path tests: `pkg/ibkr/bond_order_test.go`
+(the grid from contract details, quantity and price checks, construction
+refusals, `ValidateOrder` and the protobuf encoder for BOND, the hours
+parser, no generic ticks on the exact order session),
+`internal/daemon/cash_sweep_orders_test.go` (sizing on the grid, sessions,
+redemptions, bond valuation in commitments and settlement, readiness and the
+scheduler's session wait, the pre-authorised vocabulary, the end-to-end BOND
+preview and its refusals, BOND refused without a sweep row's terms),
+`internal/daemon/cash_sweep_orders_trading_test.go` (a pre-authorised buy
+waits the full window and the session, then reaches the broker as one BOND
+LMT DAY order with its grid), `internal/app/alerts/presentation_test.go`.
 
 ## Phase A as built
 
@@ -296,29 +315,36 @@ threshold.
    the bill's contract id. A quote that is not a live bid or ask keeps the row
    and adds `fresh_bill_quote_required`. Nothing confirmed reads
    `instrument_unresolved` with evidence per candidate; no row exists.
-9. **Row identity.** The row key still uses the planned instrument, so it is
-   stable when the EUR bill alternates between issuers; `cash_sweep.instrument`
-   names the resolved bill's instrument, which stays inside the O1 exception.
-   The quantity stays face value in whole units; at a price at or below par
-   the cost never exceeds the free cash it was planned against.
+9. **Row identity.** Superseded by the order path (item 3 below): the key
+   binds the bill's contract id, and the quantity counts the bill's order
+   unit.
 10. **Not built.** The ETF fallback (no ETF resolution; the completed-search
-    input stays empty), the mode default, and everything under *Order path*.
+    input stays empty) and the mode default.
 
 Instrument conventions (A5), explicit constants in
-`internal/daemon/cash_sweep_instruments.go`, each an assumption to verify; no
-order uses them yet:
+`internal/daemon/cash_sweep_instruments.go`, each an assumption to verify; the
+order path sizes, prices and times orders by them. The assumed session applies
+only when the line's contract details carry no liquid or trading hours; it is
+weekdays only (holidays not modelled: on one the preview's live-quote
+requirement refuses instead):
 
-| Instrument | Quantity unit | Face per unit | Price |
-|---|---|---|---|
-| `us_tbill` | `face_1000` | 1,000 USD | per 100 of face |
-| `de_bubill`, `fr_btf` | `face_1` | 1 EUR | per 100 of face |
-| `uk_tbill` | `face_1` | 1 GBP | per 100 of face |
-| `ca_tbill` | `face_1` | 1 CAD | per 100 of face |
-| `etf` | `shares` | — | per share |
+| Instrument | Quantity unit | Face per unit | Price | Assumed session |
+|---|---|---|---|---|
+| `us_tbill` | `face_1000` | 1,000 USD | per 100 of face | 08:00–17:00 America/New_York |
+| `de_bubill` | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Berlin |
+| `fr_btf` | `face_1` | 1 EUR | per 100 of face | 09:00–17:30 Europe/Paris |
+| `uk_tbill` | `face_1` | 1 GBP | per 100 of face | 08:00–16:30 Europe/London |
+| `ca_tbill` | `face_1` | 1 CAD | per 100 of face | 08:00–17:00 America/Toronto |
+| `etf` | `shares` | — | per share | its exchange calendar |
 
-### Post-install proof (read-only)
+A working bond order or a bond fill in the journal is valued at its
+currency's bill convention (USD 1,000 face per unit, EUR, GBP and CAD 1), the
+same assumption; a bond in any other currency stays unvalued (unknown).
 
-Run by the owner after install, on the live session, with no order. Record
+### Post-install proof (read-only, one whatIf)
+
+Run by the owner after install, on the live session, with no order sent: the
+whatIf preview in step 6 transmits nothing, and nothing here submits. Record
 redacted evidence here (identifiers of public government bills are fine;
 never an account id, a balance or an order reference).
 
@@ -342,29 +368,112 @@ never an account id, a balance or an order reference).
    absent, A4 is false and the journal fallback stays; record that.
 5. Freshness: outside a bill's session the check reads `fresh: false` with a
    reason, and a sweep row carries `fresh_bill_quote_required`.
+6. One whatIf preview of a USD bill row, never a submit: with the sweep
+   enabled and `mode = "active"` (and `cash_sweep` not pre-authorised),
+   during the bill's session, `canary proposals preview KEY REVISION` for the
+   USD invest row. Expect `accepted: true`, a BOND LMT DAY draft for the
+   row's contract id, `quantity` in `face_1000` units, `bond.face_value` =
+   quantity × 1,000, a limit on the line's tick, `notional` = face × limit /
+   100, and a WhatIf verdict; record the WhatIf's commission and margin
+   change. A WhatIf that reads the quantity 1,000 times larger (or smaller)
+   than the face value refutes A5 for USD. Do not submit.
+7. Size and tick read back: `canary market --symbol <CUSIP> --type BOND
+   --json` for that bill shows `min_size`, `size_increment` and `min_tick`;
+   they must equal the draft's `bond.min_size`, `bond.size_increment` and
+   `bond.min_tick`, and `min_size` should read 1 for `face_1000` (a reading
+   of 1,000 or more says IBKR counts USD bills in face value, refuting A5).
+   Repeat the read for one listed EUR bill: `min_size` of 1,000 or similar
+   fits `face_1`; a `min_size` of 1 there says IBKR counts EUR bills in
+   thousands, and EUR orders must wait for a change to the convention.
+8. Bond session hours: the row's `cash_sweep.session` names its `source`;
+   record whether it is `liquid_hours` or `trading_hours` (A8) and the
+   windows for the next business day, against IBKR's published hours for
+   US Treasury bills and for the EUR bill. `assumed` means the contract
+   details carried no hours; record that too. Outside the session the row's
+   readiness reads `market_closed` with the next open.
 
-### Order path (separate task, owner-authorised)
+## Phase B order path as built
 
-What the order-path task must add before any sweep row can be previewed or
-submitted:
+Built on `feat/cash-sweep-b` on the read-only half (owner decisions of
+2026-09-30 12:35 and 12:45 CEST). Each item is a reading of the design or of
+P1, not a new threshold; no new policy number exists.
 
-1. BOND in `pkg/ibkr/place_order_proto.go` (LMT DAY; contract by contract id)
-   and in proposal preview admission (`proposalSupportedSecType` refuses BOND
-   today).
-2. The quantity conversion from face value to the broker's order unit (A5 as
-   proven), rounding to `min_size` and `size_increment`
-   (`below_minimum_increment`), and a limit price per 100 of face from a fresh
-   quote within the typed O1 exception's bound.
-3. A sweep preview bound to the row's own terms (the rows stay out of the
-   snapshot revision).
-4. Valuing working bond buys in commitments and bond fills in the journal
-   settlement (both read unknown today), and duplicate-order netting for
-   redeem rows.
-5. Bond session and trading-hours gates from the contract's hours.
-6. Lifting `instrument_support_required` per instrument after the proof, and
-   deciding whether `cash_sweep` joins the pre-authorised vocabulary
-   (`automaticBucketFor`; P1 says the owner approves each order).
-7. ETF resolution by contract id and the fallback's completed-search input.
+1. **BOND in the broker protocol** (`pkg/ibkr/bond_order.go`). One order
+   shape: LMT DAY for a contract id on SMART. `BondOrderRules` (minimum tick,
+   minimum size, size increment) come from the line's contract details (a
+   complete frame; a line without them cannot be ordered);
+   `NewBondLimitOrder` refuses at construction a quantity below the minimum
+   or off the size step (the increment, else the minimum) and a price off the
+   minimum tick. `ValidateOrder` refuses any BOND order without the grid or
+   off it, so neither the protobuf nor the legacy encoder can send one; the
+   protobuf encoder admits BOND only as LMT DAY. The WhatIf and submit
+   builders carry the grid with the contract. An exact-session bond quote asks
+   for no generic ticks; `BondContractDetailsForSession` reads the line on the
+   preview's own socket. `ParseTradingHours` reads IBKR's hours list (dated
+   and undated closes, CLOSED days, several spans a day); any malformed
+   segment refuses the list.
+2. **Sizing.** An invest row buys the planned cash at the higher of par and
+   the bill's quoted price, in whole order units (A5), rounded down to the
+   grid: neither its face value nor its cost passes the free cash. A tranche
+   below the bill's minimum holds the currency with the reason. A redemption
+   is held to `max_order_notional` at its mark like a buy (the brief's "bounded
+   by max_order_notional per order"; Phase A left sales uncapped), reads its
+   held bill's line by contract id and rounds its sale up to the step, or down
+   when up would pass the position or the cap; a line it cannot read blocks
+   the row (`bill_contract_rules_unavailable`), a sale the grid cannot fit (a
+   position below the bill's minimum) blocks it (`below_minimum_increment`).
+3. **Row identity and binding.** An invest row's key binds the bill's
+   contract id, so a preview, prepared submit or pre-authorised record of a
+   key buys the bill the owner saw; a new bill is a new row with a new window.
+   Sweep rows stay out of the snapshot revision (their quantity follows cash);
+   the preview binds to the row's own terms instead: the key, the quantity
+   capped by the free cash at preview (the O1 exception, in face and in cost
+   at the draft's limit, and `max_order_notional` in base), and a prepared
+   submit's exact comparison of the reviewed terms (contract id, quantity).
+4. **Preview admission.** `rpc.OrderPreviewParams.Bond` is daemon-internal
+   (`json:"-"`): the proposal engine sets the bill's conventions for a sweep
+   row, and a BOND preview without them is refused, so no RPC caller can
+   preview a bond. The preview re-reads the line by contract id on its own
+   session, checks it is still a bill of the row's instrument, refuses a
+   closed session before any quote (`market_closed`), prices a patient limit
+   on the line's tick from a live two-sided quote read during the preview (a
+   buy at the mid rounded down, never below the bid; a sell at the mid
+   rounded up, never above the ask), values the order at face × price / 100
+   for `[trading].max_notional` and FX, builds it through
+   `NewBondLimitOrder` (`bond_order_invalid` otherwise), and runs WhatIf.
+   Every existing gate still decides: trading mode and freeze, the
+   agent/human authority of the submit, position and base-currency
+   authority, the risk limits, the token and the journal. A bond short or
+   flip is refused outright. `proposalPreviewSafetyBlockers` admits BOND only
+   for a sweep row's own bill: the invest row through the typed exception, a
+   redemption as a SELL that reduces or closes the held bill.
+5. **Netting.** A sweep row nets like a reduction: an order working at the
+   broker for its exact bill and side, or one Canary sent and the broker has
+   not acknowledged, holds the preview until it fills or is cancelled.
+   Working bond buys count as committed cash at their limit (A5 by currency),
+   bond fills in the settlement window are valued the same way, and a bill
+   sold inside the window counts as a pending redemption toward `keep_cash`.
+6. **Session and readiness.** A row's `cash_sweep.session` is its bill's
+   liquid (else trading) hours from contract details, else the assumed
+   session of the conventions table. Readiness reads it: `market_closed`
+   with the next open outside it; a stale quote
+   (`fresh_bill_quote_required`) is `quote_unusable`, a transient wait, not a
+   refusal. `instrument_support_required` is retired; a row exists only when
+   its bill resolved and quoted in the current cycle, and the declared ETF
+   (matched by contract id, which Canary does not resolve) reads
+   `instrument_unresolved` instead of a row.
+7. **Pre-authorised path.** `cash_sweep` joins the pre-authorised vocabulary
+   and `automaticBucketFor`. Every sweep row is `NeverSkipVeto`: the full
+   veto window always, even under the latched brake; each order is bounded by
+   `max_order_notional` (the exception) and waits for its bill's session
+   (due at the open plus five minutes). Automation pauses on policy drift or
+   error, and on config defaults, exactly as for the other buckets. Its
+   notice has its own copy (`protection_auto_cash_sweep`, no "now" variant).
+   Nothing enables it: the owner writes `pre_authorised`.
+
+Not built: ETF resolution by contract id and the fallback's completed-search
+input (the ETF neither invests nor classifies); a spread limit for bills (no
+policy number exists; inventing one needs an owner decision).
 
 ## Implementation plan
 
@@ -382,8 +491,9 @@ Line references at Canary `a53daed0`.
 | `internal/risk/rulebook.go`, `rulebook_cash_like.go` (new), `internal/daemon/rulebook.go` | rule 14 notes |
 | `internal/daemon/policy_files.go`, `policy_file_status.go` | commented template block; needs-your-number lines |
 | `internal/cli/proposals.go`, `proposals_cash_sweep.go` (new), `brief.go`, `internal/mcp/tools.go` | section, brief line, description |
-| `internal/daemon/proposal_automatic.go` | Phase B: pre-authorised vocabulary, bond session |
-| `pkg/ibkr/connection.go`, `place_order_proto.go` | Phase B: bond contract handler; BOND LMT DAY |
+| `internal/daemon/proposal_automatic.go` | Phase B: pre-authorised vocabulary, bond session (built) |
+| `pkg/ibkr/connection.go`, `place_order_proto.go` | Phase B: bond contract handler; BOND LMT DAY (built) |
+| `pkg/ibkr/bond_order.go`, `internal/daemon/order_preview_bond.go`, `cash_sweep_orders.go` (new) | Phase B order path: the grid, the one order shape, the hours; the BOND preview; sizing, sessions, the O1 exception, netting |
 
 Phase A (built):
 
@@ -406,9 +516,9 @@ Phase B:
    `internal/daemon/bond_directory.go`, `cash_sweep_bills.go`,
    `cash_sweep_universe.go`, `cash_sweep_instruments.go`,
    `internal/cli/market_bond.go`, `positions_bonds.go`).
-3. Post-install proof (above); then the order path as a separate,
-   owner-authorised task (above).
-4. Lift `instrument_support_required` per instrument after that task.
+3. Order path (built, above); `instrument_support_required` retired.
+4. Post-install proof (above); then the first live orders, each on the
+   owner's approval.
 
 ## Risks and open decisions (ranked)
 
@@ -422,8 +532,9 @@ Phase B:
 | O4 | German tax (A3) | superseded by P1: advisory detail line and `tax_reviewed: false` |
 | O5 | `max_order_notional` | decided: owner number; `needs_your_number` |
 | O6 | `keep_cash` 5,000 earns nothing (A1) | decided: 5,000; owner reviews per currency |
-| R3 | Bill minimums, spreads (A5) | order path: `below_minimum_increment`; limit orders only |
+| R3 | Bill minimums, spreads (A5) | built: orders on the contract's grid only, patient limits from a live two-sided quote; a tranche below the minimum holds; no spread limit (owner number) |
 | R4 | TreasuryDirect unreachable | list served up to 48 h; then `universe_unavailable` for USD only |
 | R5 | Issuer read from identifiers (A6) | only classifies held bills as equivalents; buys use only TreasuryDirect CUSIPs and the owner's ISINs |
-| R6 | Quantity unit and price convention (A5, A7) | labels only until the post-install proof; the order path converts |
+| R6 | Quantity unit and price convention (A5, A7) | the order path sizes and prices by them; a wrong EUR, GBP or CAD unit (IBKR counting in thousands) would make an order 1,000 times its intended face: the post-install proof (steps 6–7) checks it before any order, and the owner's approval of the previewed quantity and WhatIf is the last line |
+| R7 | Bond session hours (A8) | contract liquid or trading hours when sent, else the assumed weekday session; a holiday reads open and the live-quote requirement refuses |
 | O7 | USD balance as FX exposure | out of scope; the sweep never converts |
