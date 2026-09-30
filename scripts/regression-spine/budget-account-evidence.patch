@@ -1,11 +1,11 @@
 diff --git a/internal/daemon/proposal_budget.go b/internal/daemon/proposal_budget.go
-index 99874a20..d3f03381 100644
+index c557c7a..b4a88d5 100644
 --- a/internal/daemon/proposal_budget.go
 +++ b/internal/daemon/proposal_budget.go
-@@ -51,14 +51,10 @@ func (e *proposalEngine) resolveBudgetInput(acct *rpc.AccountResult, now time.Ti
- // or a build that never installed it) reads as no constitution.
- func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.Time) budgetGovernorInput {
- 	in := budgetGovernorInput{Rulebook: e.rulebookPolicy()}
+@@ -88,14 +88,10 @@ func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.T
+ 		// takes it: bound to this broker scope and policy, never re-measured.
+ 		in.Rules, _ = server.cachedRulebookResult(server.currentRulebookBinding(), rulesPreviewTTL, server.orderNow().UTC())
+ 	}
 -	if acct != nil && currentPortfolioAuthority(acct.Authority) && acct.AccountID == acct.Authority.Scope.AccountID &&
 -		acct.Authority.Fields != nil && acct.Authority.Fields.BaseCurrency && normCcy(acct.BaseCurrency) != "" {
 -		in.AccountBaseCurrency = normCcy(acct.BaseCurrency)
