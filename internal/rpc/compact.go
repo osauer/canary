@@ -843,10 +843,10 @@ func BuildAccountFingerprint(a *AccountResult) Fingerprint {
 		HasNetLiquidation: a.NetLiquidation > 0,
 	}
 	if cushion := accountCushionPct(*a); cushion != nil {
-		projection.MarginCushion = riskBucket(*cushion, policy.MarginUrgentPct, policy.MarginActPct, policy.MarginWatchPct, true)
+		projection.MarginCushion = riskBucket(*cushion, accountFingerprintCushionUrgentPct, accountFingerprintCushionActPct, accountFingerprintCushionWatchPct, true)
 	}
 	if cushion := accountLookAheadCushionPct(*a); cushion != nil {
-		projection.LookAheadCushion = riskBucket(*cushion, policy.MarginUrgentPct, policy.MarginActPct, policy.MarginWatchPct, true)
+		projection.LookAheadCushion = riskBucket(*cushion, accountFingerprintCushionUrgentPct, accountFingerprintCushionActPct, accountFingerprintCushionWatchPct, true)
 	}
 	if a.NetLiquidation > 0 && a.GrossPositionValue > 0 {
 		grossPct := a.GrossPositionValue / a.NetLiquidation * 100
@@ -858,6 +858,16 @@ func BuildAccountFingerprint(a *AccountResult) Fingerprint {
 	}
 	return semanticFingerprint(AccountFingerprintVersion, projection)
 }
+
+// The account fingerprint's cushion bucket edges set hashing granularity, not
+// a margin level (that is rule 19 in the Rulebook policy, amendment 19). They
+// keep the retired stress cushion values, so account fingerprints do not
+// move.
+const (
+	accountFingerprintCushionWatchPct  = 35.0
+	accountFingerprintCushionActPct    = 20.0
+	accountFingerprintCushionUrgentPct = 10.0
+)
 
 // positionsFingerprintConcentrationBucketPct is the bucket edge the positions
 // fingerprint uses for its largest-name readings. It sets hashing granularity,

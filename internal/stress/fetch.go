@@ -53,31 +53,32 @@ func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
 	marketEvents := fetchStressMarketEvents(ctx, conn, pos)
-	concentration, netExposure := fetchStressRulebook(ctx, conn)
+	concentration, netExposure, margin := fetchStressRulebook(ctx, conn)
 	if acct.DailyPnL == nil {
 		var refreshed rpc.AccountResult
 		if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &refreshed); err == nil && refreshed.DailyPnL != nil {
 			acct = refreshed
 		}
 	}
-	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents, Concentration: concentration, NetExposure: netExposure})
+	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents, Concentration: concentration, NetExposure: netExposure, MarginHeadroom: margin})
 	rpc.CompactRegimeSnapshot(&regime)
 	return res, pos, regime, nil
 }
 
 // fetchStressRulebook reads the Rulebook's concentration verdicts (rules 1
-// and 16) and its net-exposure verdict (rule 15) in one call; the stress read
-// measures neither itself. A failed read leaves both readings unavailable,
-// which the concentration and exposure rows report, never as a pass.
+// and 16), its net-exposure verdict (rule 15) and its margin-headroom verdict
+// (rule 19) in one call; the stress read measures none of them itself. A
+// failed read leaves every reading unavailable, which the concentration,
+// exposure and margin rows report, never as a pass.
 func fetchStressRulebook(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (*rpc.StressConcentration, *rpc.StressNetExposure) {
+}) (*rpc.StressConcentration, *rpc.StressNetExposure, *rpc.StressMarginHeadroom) {
 	var rules rpc.RulesResult
 	if err := conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{}, &rules); err != nil {
 		reason := "the Rulebook read failed: " + err.Error()
-		return &rpc.StressConcentration{Reason: reason}, &rpc.StressNetExposure{Reason: reason}
+		return &rpc.StressConcentration{Reason: reason}, &rpc.StressNetExposure{Reason: reason}, &rpc.StressMarginHeadroom{Reason: reason}
 	}
-	return rpc.StressConcentrationFromRules(&rules), rpc.StressNetExposureFromRules(&rules)
+	return rpc.StressConcentrationFromRules(&rules), rpc.StressNetExposureFromRules(&rules), rpc.StressMarginHeadroomFromRules(&rules)
 }
 
 func fetchStressMarketEvents(ctx context.Context, conn interface {

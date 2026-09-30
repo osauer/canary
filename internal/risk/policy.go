@@ -11,8 +11,9 @@ import (
 // (amendment 15): the three single-name thresholds left the projection; the
 // stress read takes concentration from the Rulebook. v3 (amendment 16): the
 // three net-delta thresholds left it too; the stress read takes net exposure
-// from Rulebook rule 15.
-const StressPolicyFingerprintVersion = "stress-policy-fp-v3"
+// from Rulebook rule 15. v4 (amendment 19): the four margin-cushion levels
+// left it; the stress read takes margin headroom from Rulebook rule 19.
+const StressPolicyFingerprintVersion = "stress-policy-fp-v4"
 
 // Policy holds the shared stress thresholds used by live monitors and
 // protection proposal policy.
@@ -21,10 +22,11 @@ type Policy struct {
 	Profile string `json:"profile"`
 	Version string `json:"version"`
 
-	MarginUrgentPct float64 `json:"margin_urgent_pct"`
-	MarginActPct    float64 `json:"margin_act_pct"`
-	MarginWatchPct  float64 `json:"margin_watch_pct"`
-	MarginTargetPct float64 `json:"margin_target_pct"`
+	// Margin headroom is not a stress threshold: the stress read takes rule
+	// 19's measure, verdict and bands from the Rulebook policy (amendment 19,
+	// reviewer decision 2026-09-30 13:18 CEST): watch is a watch, act an act.
+	// The retired cushion watch 35, act 20, urgent 10 and target 25 have no
+	// replacement here.
 
 	GrossExposureWatchPct float64 `json:"gross_exposure_watch_pct"`
 	GrossDeltaWatchPct    float64 `json:"gross_delta_watch_pct"`
@@ -94,11 +96,6 @@ func DefaultPolicy() Policy {
 		Name:    "active-v1",
 		Profile: "active-v1",
 		Version: "risk-policy-v1",
-
-		MarginUrgentPct: 10,
-		MarginActPct:    20,
-		MarginWatchPct:  35,
-		MarginTargetPct: 25,
 
 		GrossExposureWatchPct: 150,
 		GrossDeltaWatchPct:    150,
@@ -173,10 +170,6 @@ func (p Policy) FingerprintKey() string {
 		Profile: p.PolicyProfile(),
 		Version: p.PolicyVersion(),
 		Policy: policyFields{
-			MarginUrgentPct:                   p.MarginUrgentPct,
-			MarginActPct:                      p.MarginActPct,
-			MarginWatchPct:                    p.MarginWatchPct,
-			MarginTargetPct:                   p.MarginTargetPct,
 			GrossExposureWatchPct:             p.GrossExposureWatchPct,
 			GrossDeltaWatchPct:                p.GrossDeltaWatchPct,
 			GrossExposureStressActPct:         p.GrossExposureStressActPct,
@@ -212,10 +205,6 @@ func (p Policy) FingerprintKey() string {
 }
 
 type policyFields struct {
-	MarginUrgentPct                   float64      `json:"margin_urgent_pct"`
-	MarginActPct                      float64      `json:"margin_act_pct"`
-	MarginWatchPct                    float64      `json:"margin_watch_pct"`
-	MarginTargetPct                   float64      `json:"margin_target_pct"`
 	GrossExposureWatchPct             float64      `json:"gross_exposure_watch_pct"`
 	GrossDeltaWatchPct                float64      `json:"gross_delta_watch_pct"`
 	GrossExposureStressActPct         float64      `json:"gross_exposure_stress_act_pct"`

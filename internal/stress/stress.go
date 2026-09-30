@@ -290,8 +290,9 @@ func stressEstablishedAlertFingerprint(result StressResult) rpc.Fingerprint {
 
 // summarizeStressPortfolioWith summarizes the book and attaches the
 // Rulebook's readings the stress read uses: rule 1 and rule 16 for the
-// concentration row, and rule 15 for net exposure. The net figure is rule
-// 15's measure (amendment 16); the stress read computes none of its own.
+// concentration row, rule 15 for net exposure and rule 19 for margin
+// headroom. The net figure is rule 15's measure (amendment 16) and the
+// cushion figure rule 19's (amendment 19); the stress read computes neither.
 func summarizeStressPortfolioWith(in StressInput, now time.Time) StressPortfolioSummary {
 	out := summarizeStressPortfolio(in.Account, in.Positions, in.MarketEvents, now)
 	if in.Concentration != nil {
@@ -310,6 +311,19 @@ func summarizeStressPortfolioWith(in StressInput, now time.Time) StressPortfolio
 	if stressNetExposureMeasured(out.NetExposure) {
 		out.NetDeltaPctNLV = cloneStressFloat(out.NetExposure.PctNLV)
 	}
+	if in.MarginHeadroom != nil {
+		h := *in.MarginHeadroom
+		h.PctNLV, h.WatchPct, h.ActPct = cloneStressFloat(h.PctNLV), cloneStressFloat(h.WatchPct), cloneStressFloat(h.ActPct)
+		out.MarginHeadroom = &h
+	} else {
+		out.MarginHeadroom = &rpc.StressMarginHeadroom{Reason: "no Rulebook reading was supplied"}
+	}
+	// The cushion figure and its trip are rule 19's measure and watch band;
+	// without a rule 19 measurement there is neither.
+	if stressMarginHeadroomMeasured(out.MarginHeadroom) {
+		out.CushionPct = cloneStressFloat(out.MarginHeadroom.PctNLV)
+		out.CushionTripPct = cloneStressFloat(out.MarginHeadroom.WatchPct)
+	}
 	return out
 }
 
@@ -319,12 +333,10 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 		NetLiquidation: acct.NetLiquidation,
 	}
 	if acct.NetLiquidation > 0 {
-		out.CushionPct = stressCurrentCushionPct(acct)
+		// Margin headroom is Rulebook rule 19's reading, attached by
+		// summarizeStressPortfolioWith; the broker's look-ahead figure stays
+		// as context only.
 		out.LookAheadCushionPct = stressLookAheadCushionPct(acct)
-		// The cushion trip is the policy's watch floor — the same number
-		if out.CushionPct != nil || out.LookAheadCushionPct != nil {
-			out.CushionTripPct = new(stressPolicy.MarginWatchPct)
-		}
 		if acct.GrossPositionValue > 0 {
 			pct := acct.GrossPositionValue / acct.NetLiquidation * 100
 			out.GrossExposurePctNLV = &pct
@@ -786,22 +798,6 @@ func stressUniqueFlags(flags []string, values ...string) []string {
 	return flags
 }
 
-func stressCurrentCushionPct(acct rpc.AccountResult) *float64 {
-	if acct.NetLiquidation <= 0 {
-		return nil
-	}
-	switch {
-	case acct.Cushion != 0:
-		return new(acct.Cushion * 100)
-	case acct.ExcessLiquidity != 0:
-		return new(acct.ExcessLiquidity / acct.NetLiquidation * 100)
-	case stressHasActiveMarginContext(acct):
-		return new(0.0)
-	default:
-		return nil
-	}
-}
-
 func stressLookAheadCushionPct(acct rpc.AccountResult) *float64 {
 	if acct.NetLiquidation <= 0 {
 		return nil
@@ -814,13 +810,6 @@ func stressLookAheadCushionPct(acct rpc.AccountResult) *float64 {
 	default:
 		return nil
 	}
-}
-
-func stressHasActiveMarginContext(acct rpc.AccountResult) bool {
-	return acct.ExcessLiquidity < 0 ||
-		acct.AvailableFunds < 0 ||
-		acct.MaintenanceMargin > 0 ||
-		acct.InitialMargin > 0
 }
 
 func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMarketSummary {
@@ -1165,20 +1154,84 @@ func stressRow(title string, direction risk.SignalDirection, severity risk.Signa
 	}
 }
 
+// stressMarginRow reads Rulebook rule 19 (amendment 19): its measure, its
+// verdict and its bands. Rule 19 at watch is a stress watch and at act a
+// stress act, both defensive, and an act cuts back to rule 19's watch level.
+// The stress read keeps no cushion level of its own, so the retired urgent
+// tier (10%) has no replacement. Without a rule 19 measurement (unavailable,
+// unknown, or the rule off) the row is a data-quality watch, never a pass.
 func stressMarginRow(p StressPortfolioSummary) StressRow {
-	cushion := stressWorstCushionPct(p)
-	if cushion != nil {
-		switch {
-		case *cushion < stressPolicy.MarginUrgentPct:
-			return stressRow("Immediate margin safety", risk.DirectionDefensive, risk.SeverityUrgent, fmt.Sprintf("Move to cash-heavy / near-flat now; margin cushion is below %.0f%%.", stressPolicy.MarginUrgentPct), stressCushionEvidence(p))
-		case *cushion < stressPolicy.MarginActPct:
-			return stressRow("Immediate margin safety", risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Cut gross and net exposure until cushion is back above %.0f%%.", stressPolicy.MarginTargetPct), stressCushionEvidence(p))
-		case *cushion < stressPolicy.MarginWatchPct:
-			return stressRow("Immediate margin safety", risk.DirectionDefensive, risk.SeverityWatch, fmt.Sprintf("Do not add risk; prepare a reduction plan if cushion falls below %.0f%%.", stressPolicy.MarginTargetPct), stressCushionEvidence(p))
-		}
-		return stressRow("Immediate margin safety", "", risk.SeverityObserve, "No forced margin action.", stressCushionEvidence(p))
+	const title = "Immediate margin safety"
+	h := p.MarginHeadroom
+	evidence := stressMarginHeadroomEvidence(p)
+	severity, _, hit := stressMarginHeadroomLevel(h)
+	switch {
+	case hit && severity == risk.SeverityAct:
+		return stressRow(title, risk.DirectionDefensive, risk.SeverityAct, fmt.Sprintf("Cut gross and net exposure until margin headroom is back at the Rulebook's %s%% watch level.", stressLimitText(h.WatchPct)), evidence)
+	case hit:
+		return stressRow(title, risk.DirectionDefensive, risk.SeverityWatch, fmt.Sprintf("Do not add risk; prepare a reduction plan before margin headroom falls below the Rulebook's %s%% act level.", stressLimitText(h.ActPct)), evidence)
+	case !stressMarginHeadroomMeasured(h):
+		return stressRow(title, risk.DirectionDataQuality, risk.SeverityWatch, "Margin headroom is not measured: the Rulebook's rule 19 reading is unavailable, unknown or off, so this is not a clean margin pass; confirm the account's excess liquidity before sizing new risk.", evidence)
+	default:
+		return stressRow(title, "", risk.SeverityObserve, "No forced margin action.", evidence)
 	}
-	return stressRow("Immediate margin safety", risk.DirectionDataQuality, risk.SeverityWatch, "No forced margin action, but confirm account cushion before sizing new risk.", "cushion unavailable")
+}
+
+// stressMarginHeadroomMeasured reports whether Rulebook rule 19 measured the
+// headroom: a pass, watch or act verdict carrying its observed share of NLV.
+func stressMarginHeadroomMeasured(h *rpc.StressMarginHeadroom) bool {
+	if h == nil || h.Reason != "" || h.PctNLV == nil {
+		return false
+	}
+	switch h.Status {
+	case risk.RuleStatusPass, risk.RuleStatusWatch, risk.RuleStatusAct:
+		return true
+	default:
+		return false
+	}
+}
+
+// stressMarginHeadroomLevel maps rule 19's verdict onto the stress read's
+// tiers: watch is a watch, act an act. threshold is the band the tier rests
+// on, as rule 19's own row reports it.
+func stressMarginHeadroomLevel(h *rpc.StressMarginHeadroom) (severity risk.SignalSeverity, threshold *float64, hit bool) {
+	if !stressMarginHeadroomMeasured(h) {
+		return "", nil, false
+	}
+	switch h.Status {
+	case risk.RuleStatusAct:
+		return risk.SeverityAct, h.ActPct, true
+	case risk.RuleStatusWatch:
+		return risk.SeverityWatch, h.WatchPct, true
+	default:
+		return "", nil, false
+	}
+}
+
+// stressMarginHeadroomReading quotes rule 19's reading beside its bands, or
+// says why there is none.
+func stressMarginHeadroomReading(h *rpc.StressMarginHeadroom) string {
+	switch {
+	case h == nil:
+		return "margin headroom unavailable (no Rulebook reading)"
+	case h.Reason != "":
+		return "margin headroom unavailable (" + h.Reason + ")"
+	case h.Status == risk.RuleStatusNotEvaluated:
+		return "margin headroom not assessed (Rulebook rule 19 is off)"
+	case !stressMarginHeadroomMeasured(h):
+		return "margin headroom unknown (Rulebook rule 19: " + nonEmptyStressText(h.RuleReason, "not measured") + ")"
+	}
+	return fmt.Sprintf("margin headroom %.1f%% NLV (Rulebook watch below %s%%, act below %s%%)", *h.PctNLV, stressLimitText(h.WatchPct), stressLimitText(h.ActPct))
+}
+
+// stressMarginHeadroomEvidence is rule 19's reading with the broker's
+// look-ahead headroom as context when reported; no verdict rests on it.
+func stressMarginHeadroomEvidence(p StressPortfolioSummary) string {
+	out := stressMarginHeadroomReading(p.MarginHeadroom)
+	if p.LookAheadCushionPct != nil {
+		out += fmt.Sprintf("; look-ahead %.1f%% NLV (context)", *p.LookAheadCushionPct)
+	}
+	return out
 }
 
 func stressPnLShockRow(p StressPortfolioSummary) StressRow {
@@ -1914,47 +1967,33 @@ func stressSignals(p StressPortfolioSummary, pos rpc.PositionsResult, m StressMa
 	return signals
 }
 
+// stressMarginSignals raises margin_cushion_low from Rulebook rule 19's
+// verdict and bands (amendment 19): a watch at the watch band, an act at the
+// act band whose target is the watch band. A rule 19 reading that is
+// unavailable, unknown or off raises nothing here; the margin row carries
+// that gap and never reads it as a pass. The broker's look-ahead figure is
+// context only, so lookahead_cushion_low is no longer raised.
 func stressMarginSignals(p StressPortfolioSummary) []risk.Signal {
-	out := []risk.Signal{}
-	addCushion := func(id risk.SignalID, metric string, observed *float64) {
-		if observed == nil {
-			return
-		}
-		severity, threshold, ok := stressCushionSeverity(*observed)
-		if !ok {
-			return
-		}
-		out = append(out, risk.Signal{
-			ID:         id,
-			Direction:  risk.DirectionDefensive,
-			Severity:   severity,
-			Metric:     metric,
-			Observed:   observed,
-			Threshold:  new(threshold),
-			Unit:       "pct_nlv",
-			Evidence:   pctEvidence(metric, *observed),
-			Confidence: "high",
-		})
-		if severity == risk.SeverityAct || severity == risk.SeverityUrgent {
-			out[len(out)-1].Target = new(stressPolicy.MarginTargetPct)
-		}
+	h := p.MarginHeadroom
+	severity, threshold, hit := stressMarginHeadroomLevel(h)
+	if !hit {
+		return nil
 	}
-	addCushion(risk.SignalMarginCushionLow, "cushion", p.CushionPct)
-	addCushion(risk.SignalLookAheadCushionLow, "lookahead_cushion", p.LookAheadCushionPct)
-	return out
-}
-
-func stressCushionSeverity(v float64) (risk.SignalSeverity, float64, bool) {
-	switch {
-	case v < stressPolicy.MarginUrgentPct:
-		return risk.SeverityUrgent, stressPolicy.MarginUrgentPct, true
-	case v < stressPolicy.MarginActPct:
-		return risk.SeverityAct, stressPolicy.MarginActPct, true
-	case v < stressPolicy.MarginWatchPct:
-		return risk.SeverityWatch, stressPolicy.MarginWatchPct, true
-	default:
-		return "", 0, false
+	sig := risk.Signal{
+		ID:         risk.SignalMarginCushionLow,
+		Direction:  risk.DirectionDefensive,
+		Severity:   severity,
+		Metric:     "cushion",
+		Observed:   cloneStressFloat(h.PctNLV),
+		Threshold:  cloneStressFloat(threshold),
+		Unit:       "pct_nlv",
+		Evidence:   stressMarginHeadroomReading(h),
+		Confidence: "high",
 	}
+	if severity == risk.SeverityAct {
+		sig.Target = cloneStressFloat(h.WatchPct)
+	}
+	return []risk.Signal{sig}
 }
 
 func stressPnLSignals(p StressPortfolioSummary) []risk.Signal {
@@ -3440,7 +3479,7 @@ func stressPortfolioEvidence(p StressPortfolioSummary) string {
 		net = stressNetExposureReading(p.NetExposure)
 	}
 	out := fmt.Sprintf("%s, gross %.0f%% NLV, %s, gross delta %.0f%% NLV",
-		stressCushionEvidence(p), derefPct(p.GrossExposurePctNLV), net, derefPct(p.GrossDeltaPctNLV))
+		stressMarginHeadroomSummary(p.MarginHeadroom), derefPct(p.GrossExposurePctNLV), net, derefPct(p.GrossDeltaPctNLV))
 	if p.ProtectionCoverage != nil {
 		out += ", protection " + formatProtectionCoverageEvidence(p.ProtectionCoverage)
 	}
@@ -3543,31 +3582,13 @@ func stressHasMarketDataIssue(m StressMarketSummary) bool {
 		len(m.StaleClusters) > 0
 }
 
-func stressWorstCushionPct(p StressPortfolioSummary) *float64 {
-	switch {
-	case p.CushionPct != nil && p.LookAheadCushionPct != nil:
-		v := min(*p.CushionPct, *p.LookAheadCushionPct)
-		return &v
-	case p.CushionPct != nil:
-		return p.CushionPct
-	default:
-		return p.LookAheadCushionPct
+// stressMarginHeadroomSummary is the overall row's short margin clause: rule
+// 19's figure when it measured one.
+func stressMarginHeadroomSummary(h *rpc.StressMarginHeadroom) string {
+	if !stressMarginHeadroomMeasured(h) {
+		return "margin headroom unavailable"
 	}
-}
-
-// The trailing trigger mirrors the tape row's disclosure style: the reader
-func stressCushionEvidence(p StressPortfolioSummary) string {
-	parts := []string{}
-	if p.CushionPct != nil {
-		parts = append(parts, pctEvidence("cushion", *p.CushionPct))
-	}
-	if p.LookAheadCushionPct != nil {
-		parts = append(parts, pctEvidence("look-ahead cushion", *p.LookAheadCushionPct))
-	}
-	if len(parts) == 0 {
-		return "cushion unavailable"
-	}
-	return strings.Join(parts, "; ") + fmt.Sprintf(" (watch below %.0f%%)", stressPolicy.MarginWatchPct)
+	return fmt.Sprintf("margin headroom %.0f%% NLV", *h.PctNLV)
 }
 
 func stressConcentrationEvidence(p StressPortfolioSummary) string {
@@ -3648,10 +3669,6 @@ func heldStressNames(stresses []rpc.HeldStress, limit int) string {
 		out += fmt.Sprintf("+%d", len(stresses)-len(names))
 	}
 	return out
-}
-
-func pctEvidence(label string, pct float64) string {
-	return fmt.Sprintf("%s %.0f%%", label, pct)
 }
 
 func derefPct(v *float64) float64 {

@@ -46,6 +46,8 @@ func TestComputeStressImmediateMarginDangerLiquidatesDespiteAmbiguousMarket(t *t
 	acct.Cushion = 0.07
 	res := ComputeStress(StressInput{Now: stressTestNow,
 		Account: acct,
+		// Margin danger is Rulebook rule 19's act (amendment 19).
+		MarginHeadroom: rule19(risk.RuleStatusAct, 7),
 		Regime: rpc.RegimeSnapshotResult{
 			Composite: rpc.RegimeComposite{ClusterRankedCount: 1, ClusterUnrankedCount: 5},
 			GammaZero: rpc.RegimeGammaZero{
@@ -220,9 +222,10 @@ func TestComputeStressStaleAccountBlocksMarginAction(t *testing.T) {
 	acct.Cushion = 0.07
 
 	res := ComputeStress(StressInput{
-		Account: acct,
-		Regime:  healthyStressRegime(),
-		Now:     now,
+		Account:        acct,
+		Regime:         healthyStressRegime(),
+		MarginHeadroom: rule19(risk.RuleStatusAct, 7),
+		Now:            now,
 	})
 
 	if res.Direction != risk.DirectionDataQuality || res.Severity != risk.SeverityWatch {

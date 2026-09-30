@@ -2196,7 +2196,10 @@ func alertShadowMarginObservation(scope alertShadowBrokerScope, result rpc.Stres
 			worst = sig.Severity
 		}
 	}
-	observed = worst != "" || result.Portfolio.CushionPct != nil || result.Portfolio.LookAheadCushionPct != nil
+	// CushionPct is Rulebook rule 19's measure (amendment 19), present only
+	// when rule 19 measured the headroom; the look-ahead figure is context
+	// and never makes an unmeasured cushion observed.
+	observed = worst != "" || result.Portfolio.CushionPct != nil
 	if worst == "" {
 		return alertEpisodeObservation{}, false, observed
 	}

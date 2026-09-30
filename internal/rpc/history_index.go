@@ -1238,7 +1238,62 @@ type StressInput struct {
 	// market exposure. The stress read keeps no net-exposure measure or level
 	// of its own (amendment 16); nil reads as unavailable.
 	NetExposure *StressNetExposure
-	Now         time.Time
+	// MarginHeadroom is the Rulebook's rule 19 reading of margin headroom,
+	// the broker's excess liquidity as a share of NLV. The stress read keeps
+	// no margin-cushion level of its own (amendment 19); nil reads as
+	// unavailable.
+	MarginHeadroom *StressMarginHeadroom
+	Now            time.Time
+}
+
+// StressMarginHeadroom projects Rulebook rule 19 (margin_headroom) for the
+// stress read: the broker's excess liquidity as a share of NLV and rule 19's
+// two bands from rulebook-policy.toml. The rule reads downward: watch
+// strictly below WatchPct, act strictly below ActPct.
+type StressMarginHeadroom struct {
+	// Status is rule 19's status: pass, watch, act, unknown, or
+	// not_evaluated when the rule is off. Empty when the reading is
+	// unavailable; Reason then says why.
+	Status string `json:"status,omitempty"`
+	// PctNLV is rule 19's observed headroom, % of NLV; absent when rule 19
+	// could not measure it.
+	PctNLV   *float64 `json:"pct_nlv,omitempty"`
+	WatchPct *float64 `json:"watch_pct,omitempty"`
+	ActPct   *float64 `json:"act_pct,omitempty"`
+	// RuleReason is rule 19's own reason code when it is unknown or off
+	// (excess_liquidity_unavailable, rule_off, an account reason).
+	RuleReason string `json:"rule_reason,omitempty"`
+	// Reason names why the reading is unavailable, when it is.
+	Reason string `json:"reason,omitempty"`
+}
+
+// StressMarginHeadroomFromRules projects rule 19 from a Rulebook result for
+// the stress read. A missing or disabled result, or one without a rule 19
+// row, reads as unavailable with a reason.
+func StressMarginHeadroomFromRules(res *RulesResult) *StressMarginHeadroom {
+	out := &StressMarginHeadroom{}
+	switch {
+	case res == nil:
+		out.Reason = "no current Rulebook result"
+		return out
+	case !res.Enabled:
+		out.Reason = "the Rulebook is turned off"
+		return out
+	}
+	for _, row := range res.Rules {
+		if row.ID != risk.RuleMarginHeadroom {
+			continue
+		}
+		out.Status = row.Status
+		out.PctNLV = cloneFloatPtr(row.Observed)
+		out.WatchPct, out.ActPct = cloneFloatPtr(row.WatchThreshold), cloneFloatPtr(row.ActThreshold)
+		if row.Status == risk.RuleStatusUnknown || row.Status == risk.RuleStatusNotEvaluated {
+			out.RuleReason = row.Reason
+		}
+		return out
+	}
+	out.Reason = "the Rulebook result has no rule 19 row"
+	return out
 }
 
 // StressNetExposure projects Rulebook rule 15 (net_exposure) for the stress
@@ -1638,11 +1693,18 @@ type StressMarketIndicator struct {
 
 // StressPortfolioSummary is a redacted portfolio-risk projection. Pointer
 type StressPortfolioSummary struct {
-	BaseCurrency        string   `json:"base_currency,omitempty"`
-	NetLiquidation      float64  `json:"net_liquidation,omitempty"`
-	CushionPct          *float64 `json:"cushion_pct,omitempty"`
+	BaseCurrency   string  `json:"base_currency,omitempty"`
+	NetLiquidation float64 `json:"net_liquidation,omitempty"`
+	// CushionPct keeps its public name but carries Rulebook rule 19's
+	// measure (amendment 19): the broker's excess liquidity as % of NLV. It
+	// is absent whenever rule 19 did not measure the headroom.
+	CushionPct *float64 `json:"cushion_pct,omitempty"`
+	// LookAheadCushionPct is the broker's look-ahead excess liquidity as % of
+	// NLV. Since amendment 19 it is evidence context only: no verdict rests
+	// on it.
 	LookAheadCushionPct *float64 `json:"look_ahead_cushion_pct,omitempty"`
-	// CushionTripPct is the stress policy's margin-cushion watch floor: the
+	// CushionTripPct is rule 19's watch band, the level headroom may not fall
+	// below: the trip a gauge prints beside CushionPct. Absent with it.
 	CushionTripPct      *float64 `json:"cushion_trip_pct,omitempty"`
 	GrossExposurePctNLV *float64 `json:"gross_exposure_pct_nlv,omitempty"`
 	// NetDeltaPctNLV keeps its public name but carries Rulebook rule 15's
@@ -1666,6 +1728,9 @@ type StressPortfolioSummary struct {
 	// NetExposure is the Rulebook's rule 15 reading the stress read used for
 	// its exposure row and net_delta_high signal, with rule 15's bands.
 	NetExposure *StressNetExposure `json:"net_exposure,omitempty"`
+	// MarginHeadroom is the Rulebook's rule 19 reading the stress read used
+	// for its margin row and margin_cushion_low signal, with rule 19's bands.
+	MarginHeadroom *StressMarginHeadroom `json:"margin_headroom,omitempty"`
 
 	// ExposureUnmeasured names the held underlyings that contributed nothing to
 	// the book, so a threshold comparison against them can only prove a breach,

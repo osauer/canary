@@ -605,8 +605,9 @@ function sourceTransportFault(snap = {}, name) {
 }
 
 
-// The cushion reading against its served trip: the stress policy's own watch
-// threshold this renderer invented would be policy the daemon never published.
+// The cushion reading against its served trip: Rulebook rule 19's measure and
+// watch band (amendment 19). A threshold this renderer invented would be policy
+// the daemon never published.
 function stressCushionFigure(stress = {}) {
   const cushion = stress.portfolio?.cushion_pct;
   if (typeof cushion !== "number") return "cushion pending";

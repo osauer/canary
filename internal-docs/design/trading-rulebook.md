@@ -1,7 +1,7 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 13:03 CEST
-Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, and margin-headroom amendment 18, 2026-09-30). The
+Updated: 2026-09-30 13:24 CEST
+Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
 earnings, terminal-evidence, canonical-refresh, and alert-production
@@ -100,6 +100,13 @@ contradiction:
   verdict: watch is a watch, act an act, and an act under the confirmed
   regime set urgent. Without a rule 15 measurement the exposure row is a
   data-quality watch, never a pass.
+- One definition of margin headroom (amendment 19): the stress read's margin
+  row, its `margin_cushion_low` signal and its `cushion_pct` figure read rule
+  19's measure, verdict and bands from the Rulebook result: watch is a
+  watch, act an act, and an act cuts back to rule 19's watch level. The
+  retired stress cushion levels (watch 35, act 20, urgent 10, target 25) are
+  gone. Without a rule 19 measurement (unavailable, unknown, or rule 19 off)
+  the margin row is a data-quality watch, never a pass.
 - One aggregation: rule evaluation consumes the same
   `PositionsPortfolio`/`PositionGroup`/`UnderlyingExposure` values the stress
   read consumes. Bars may differ; observations may not. (An earlier revision
@@ -471,11 +478,42 @@ contradiction:
       `Cushion`, the same ratio, with the stress policy's own levels, watch
       35, act 20, urgent 10). The stress read keeps its levels; making it
       read rule 19, as amendments 15 and 16 did for concentration and net
-      exposure, is a separate decision.
+      exposure, is a separate decision (taken in amendment 19).
     The baseline stays `rulebook-v5` (Version 5): no existing limit moved,
     and a new baseline identity would show as a sibling-pin change on every
     install that runs Canary's defaults. The fingerprint projection becomes
     `rulebook-fp-v8`, because it gains the two keys.
+
+19. Amendment (2026-09-30, reviewer decisions of 13:18 CEST under the
+    owner's standing instruction of 12:35, "Do all follow-ups"): one
+    definition of margin headroom.
+    - R1, the stress read's margin row ("Immediate margin safety") reads rule
+      19's measure, verdict and bands from the Rulebook result, as the
+      concentration row reads rule 1 (amendment 15) and the exposure row
+      reads rule 15 (amendment 16). `StressPortfolioSummary.margin_headroom`
+      carries rule 19's status, observed percent, both bands and its reason;
+      `cushion_pct` keeps its public name and carries rule 19's measure, and
+      `cushion_trip_pct` rule 19's watch band, both absent whenever rule 19
+      did not measure the headroom. Rule 19 at watch is a defensive stress
+      watch ("do not add risk"), at act a defensive stress act whose
+      `margin_cushion_low` signal targets rule 19's watch band (rule 1's trim
+      convention: cut back to the watch level). The stress policy's cushion
+      levels, watch 35, act 20, urgent 10 and target 25, are retired; they
+      lived only in compiled code, so no file needs migrating. The urgent
+      tier is dropped rather than kept as a new key: restoring one would be
+      a third band on rule 19 in `rulebook-policy.toml`, an owner decision.
+      Without a rule 19 measurement, whether the Rulebook result is missing
+      or off, the row is missing, rule 19 is unknown, or rule 19 is turned
+      off, the row is a data-quality watch, never a pass, and no margin
+      signal is raised. The broker's look-ahead excess liquidity stays in
+      the evidence as context only: `lookahead_cushion_low`, which judged it
+      against the retired levels, is no longer raised. The margin-safety
+      alert episode treats the cushion as observed only when rule 19
+      measured it, so a look-ahead figure alone never lets a source-level
+      negative recover the episode. The stress fingerprint projection
+      becomes `stress-policy-fp-v4`; the account fingerprint keeps the
+      retired edges as hashing constants. The Rulebook itself is unchanged:
+      baseline `rulebook-v5`, projection `rulebook-fp-v8`.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

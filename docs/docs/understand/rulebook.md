@@ -71,6 +71,13 @@ a stress watch, at act a stress act, and at act under the confirmed-stress set
 urgent. Without a rule 15 measurement the exposure row says so and never reads
 as a pass.
 
+Rule 19 is the only definition of margin headroom. The stress read's margin
+row, its `margin_cushion_low` driver and its cushion figure are rule 19's
+reading, bands and verdict: rule 19 at watch is a stress watch, at act a
+stress act that cuts back to the watch level. The broker's look-ahead figure
+is shown as context only. Without a rule 19 measurement, including rule 19
+turned off, the margin row says so and never reads as a pass.
+
 ## Set your own limits
 
 Every threshold and mode in the table is yours to change. They live in

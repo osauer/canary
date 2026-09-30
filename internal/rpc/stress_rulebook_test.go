@@ -43,3 +43,38 @@ func TestStressNetExposureFromRulesProjectsRule15(t *testing.T) {
 		}
 	}
 }
+
+// The stress read's margin headroom is a projection of Rulebook rule 19
+// (amendment 19): its status, measure and bands, and why a reading is
+// missing.
+func TestStressMarginHeadroomFromRulesProjectsRule19(t *testing.T) {
+	act := RulesResult{Enabled: true, Rules: []risk.RuleRow{
+		{ID: risk.RuleNetExposure, Status: risk.RuleStatusPass},
+		{ID: risk.RuleMarginHeadroom, Status: risk.RuleStatusAct, Observed: new(12.5), Threshold: new(15.0), WatchThreshold: new(30.0), ActThreshold: new(15.0)},
+	}}
+	got := StressMarginHeadroomFromRules(&act)
+	if got.Reason != "" || got.Status != risk.RuleStatusAct || got.PctNLV == nil || *got.PctNLV != 12.5 || *got.WatchPct != 30 || *got.ActPct != 15 || got.RuleReason != "" {
+		t.Fatalf("act projection = %+v", got)
+	}
+	// The projection is a copy: the Rulebook result stays untouched.
+	*got.PctNLV = 0
+	if *act.Rules[1].Observed != 12.5 {
+		t.Fatal("projection aliases the Rulebook row")
+	}
+
+	for status, reason := range map[string]string{risk.RuleStatusUnknown: risk.RuleReasonExcessLiquidityUnavailable, risk.RuleStatusNotEvaluated: risk.RuleReasonRuleOff} {
+		res := RulesResult{Enabled: true, Rules: []risk.RuleRow{{ID: risk.RuleMarginHeadroom, Status: status, Reason: reason}}}
+		if got := StressMarginHeadroomFromRules(&res); got.Status != status || got.RuleReason != reason || got.PctNLV != nil || got.Reason != "" {
+			t.Fatalf("%s projection = %+v", status, got)
+		}
+	}
+	for name, res := range map[string]*RulesResult{
+		"nil":      nil,
+		"disabled": {Enabled: false},
+		"no row":   {Enabled: true, Rules: []risk.RuleRow{{ID: risk.RuleNetExposure, Status: risk.RuleStatusPass}}},
+	} {
+		if got := StressMarginHeadroomFromRules(res); got.Reason == "" || got.Status != "" {
+			t.Errorf("%s: projection = %+v, want unavailable with a reason", name, got)
+		}
+	}
+}

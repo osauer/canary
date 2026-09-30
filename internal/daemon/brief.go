@@ -67,7 +67,7 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	sessionOpen := calErr != nil || cal == nil || cal.Session.IsOpen
 
 	market, can := composeBriefMarket(now, acct, pos, regime, breadth, gamma, marketEvents, rpc.StressConcentrationFromRules(rules), rpc.StressNetExposureFromRules(rules),
-		acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
+		rpc.StressMarginHeadroomFromRules(rules), acctErr, posErr, regimeErr, breadthErr, marketEventsErr, sessionOpen)
 	// Brief-hook stress evidence: the same computed result the brief row
 	s.journalStressDecision(&can)
 	calendar := composeBriefCalendar(cal, marketEvents, rules, calErr, marketEventsErr, sessionOpen, briefBorrowFeeRelevant(pos, posErr))
@@ -496,7 +496,8 @@ func (s *Server) briefReadyProposals() rpc.BriefReadyProposalsRow {
 // composeBriefMarket stays pure: it also returns the computed stress
 func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.PositionsResult,
 	regime *rpc.RegimeSnapshotResult, breadth *rpc.BreadthSPXResult, gamma *rpc.GammaZeroSPXResult,
-	events *rpc.MarketEventsResult, concentration *rpc.StressConcentration, netExposure *rpc.StressNetExposure, acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
+	events *rpc.MarketEventsResult, concentration *rpc.StressConcentration, netExposure *rpc.StressNetExposure, margin *rpc.StressMarginHeadroom,
+	acctErr, posErr, regimeErr, breadthErr, eventsErr error, sessionOpen bool) (rpc.BriefMarketSection, rpc.StressResult) {
 	out := rpc.BriefMarketSection{}
 	if regimeErr != nil || regime == nil {
 		out.Regime.BriefRowState = briefUnavailable("regime snapshot unavailable: " + errText(regimeErr))
@@ -568,6 +569,7 @@ func composeBriefMarket(now time.Time, acct *rpc.AccountResult, pos *rpc.Positio
 	}
 	stressInput.Concentration = concentration
 	stressInput.NetExposure = netExposure
+	stressInput.MarginHeadroom = margin
 	can := stress.ComputeStress(stressInput)
 	out.Stress = rpc.BriefStressRow{
 		BriefRowState: briefOK("pure stress composition over daemon snapshots"),
