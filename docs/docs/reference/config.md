@@ -73,8 +73,12 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.budget_reduction]` | `premium_at_risk_pct_of_risk_capital` | `float64` | PremiumAtRiskPctOfRiskCapital caps the total market value of non-protection long option legs as a percent of the constitution's declared risk capital, in (0, 100]; no default, and until it is written the governor reports needs_your_number. |
 | `[buckets.cash_sweep]` | `enabled` | `bool` | Enabled turns the cash sweep on (default false; the table is only a commented placeholder in the file Canary writes). |
 | `[buckets.cash_sweep]` | `max_order_notional` | `float64` | MaxOrderNotional caps one sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); no default, and until it is written the sweep reports needs_your_number. |
+| `[buckets.cash_sweep]` | `min_net_gain` | `float64` | MinNetGain is the minimum incremental purchase gain in base currency through maturity. |
+| `[buckets.cash_sweep]` | `min_order_notional` | `float64` | MinOrderNotional is the whole-order minimum in account base currency, on both sides. |
 | `[buckets.cash_sweep]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate. |
 | `[buckets.cash_sweep]` | `tax_reviewed_at` | `policyDate` | TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing. |
+| `[buckets.cash_sweep.currency.<name>]` | `cash_interest_rate_upper` | `*float64` | CashInterestRateUpper is a conservative annual decimal opportunity-cost bound. |
+| `[buckets.cash_sweep.currency.<name>]` | `cash_interest_valid_through` | `policyDate` | CashInterestValidThrough dates the owner-reviewed bound; expiry holds purchases using min_net_gain. |
 | `[buckets.cash_sweep.currency.<name>]` | `etf_exchange` | `string` | ETFExchange is the declared ETF's listing exchange, required with etf_symbol; the pair is resolved to a contract id and matched by it, never by broker text. |
 | `[buckets.cash_sweep.currency.<name>]` | `etf_symbol` | `string` | ETFSymbol is the declared ETF's exchange symbol, required when etf is an instrument or the fallback; no default, and until it is written the status names it under needs_your_number. |
 | `[buckets.cash_sweep.currency.<name>]` | `fallback` | `string` | Fallback is etf or none: the instrument used only after a completed contract search finds no bill line (default etf for EUR, none elsewhere). |
@@ -84,7 +88,10 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.cash_sweep.currency.<name>]` | `ladder_rungs` | `int` | LadderRungs is how many target maturities the ladder spreads evenly from min_maturity_days to max_maturity_days (default 4). |
 | `[buckets.cash_sweep.currency.<name>]` | `max_maturity_days` | `int` | MaxMaturityDays is the longest maturity a bill may have when bought and the last rung's target (default 91, EUR 182; at most 397). |
 | `[buckets.cash_sweep.currency.<name>]` | `min_maturity_days` | `int` | MinMaturityDays is the shortest maturity a bill may have when bought and the first rung's target (default 28, the four-week bill). |
-| `[buckets.cash_sweep.currency.<name>]` | `min_tranche` | `float64` | MinTranche is the smallest amount one buy puts to work (default 1000); free cash at or below it stays cash. |
+| `[buckets.cash_sweep.currency.<name>]` | `min_tranche` | `float64` | MinTranche is the legacy native-currency minimum on both sides (default 1000); min_order_notional supplies a portfolio base minimum. |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_days` | `*int` | SettlementDays is the commissioned lag of the exact broker route in payment business days, between 1 and 5; nil is unknown. |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_exchange` | `string` | SettlementExchange is the exact broker exchange whose lag was commissioned; no default. |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_valid_through` | `policyDate` | SettlementValidThrough dates route commissioning; missing or expired evidence holds bill orders. |
 | `[buckets.risk_reduction]` | `enabled` | `bool` | Enabled turns the issuer concentration-reduction bucket on (default true). |
 | `[buckets.risk_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of a single generated reduction order (default 10000). |
 | `[buckets.theta_hygiene]` | `enabled` | `bool` | Enabled turns the near-dated time-decay hygiene bucket on (default true). |

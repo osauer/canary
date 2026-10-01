@@ -111,6 +111,8 @@ type orderJournalEvent struct {
 	SendDisposition ibkrlib.SendDisposition  `json:"send_disposition,omitempty"`
 	Message         string                   `json:"message,omitempty"`
 	StrategyGroup   *rpc.StrategyOrderDraft  `json:"strategy_group,omitempty"`
+	FeeUpper        *float64                 `json:"fee_upper,omitempty"`
+	FeeCurrency     string                   `json:"fee_currency,omitempty"`
 
 	// clientIDPresent records whether a decoded legacy JSON object actually
 	// carried client_id. Zero is a valid IBKR client ID, so the numeric Go

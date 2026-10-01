@@ -285,7 +285,7 @@ func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposal
 		out.Blockers = preparedBlocker("prepared_proposal_changed", "The current proposal terms differ from the reviewed proposal; prepare and confirm again.")
 		return out, nil
 	}
-	for _, check := range [][]rpc.TradingBlocker{shadowProposalBlockers(prop), unitProposalOrderBlockers(prop), proposalPreviewSafetyBlockers(prop, &record.Preview)} {
+	for _, check := range [][]rpc.TradingBlocker{shadowProposalBlockers(prop), unitProposalOrderBlockers(prop), cashSweepCurrentEvidenceBlockers(prop, e.clock()), proposalPreviewSafetyBlockers(prop, &record.Preview)} {
 		if len(check) > 0 {
 			out.Blockers = check
 			return out, nil

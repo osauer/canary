@@ -169,6 +169,8 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 	}}
 	if bucket != nil && bucket.MaxOrderNotional > 0 {
 		plan.status.MaxOrderNotionalBase = new(bucket.MaxOrderNotional)
+		plan.status.MinOrderNotionalBase = bucket.MinOrderNotional
+		plan.status.MinNetGainBase = bucket.MinNetGain
 	}
 	for _, ccy := range cashSweepCurrencies(bucket, in) {
 		cp := cashSweepPlanCurrency(bucket, in, ccy, now)
@@ -308,10 +310,12 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 
 	available := cp.cash - cp.committed
 	switch {
-	case cp.free > cfg.MinTranche+cashSweepMoneyEpsilon:
+	case in.Settlement.Known && cp.pending > cashSweepMoneyEpsilon:
+		st.State, st.Reason = rpc.CashSweepStateHold, "pending bill-sale proceeds are restoring liquidity; do not reinvest before settlement"
+	case cp.free > cashSweepMinimum(bucket, cfg, cp.rate)+cashSweepMoneyEpsilon:
 		cashSweepPlanInvest(&cp, bucket, cfg, in, targets, faces, plannable)
 	case available+cp.pending < cfg.KeepCash-cashSweepMoneyEpsilon:
-		cashSweepPlanRedeem(&cp, bucket, cfg, holdings, today)
+		cashSweepPlanRedeem(&cp, bucket, cfg, holdings, now)
 	default:
 		st.State = rpc.CashSweepStateHold
 		st.Reason = fmt.Sprintf("within the band: free cash %s is not above min_tranche %s, and cash less commitments %s is not below keep_cash %s",
@@ -348,7 +352,7 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 	capCcy := bucket.MaxOrderNotional / cp.rate
 	order := min(cp.free, capCcy)
 	cp.heldToCap = capCcy < cp.free-cashSweepMoneyEpsilon
-	if order < cfg.MinTranche-cashSweepMoneyEpsilon {
+	if order < cashSweepMinimum(bucket, cfg, cp.rate)-cashSweepMoneyEpsilon {
 		st.State = rpc.CashSweepStateHold
 		st.Reason = fmt.Sprintf("max_order_notional %s holds one order to %s, below min_tranche %s; nothing is swept",
 			formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(in.BaseCurrency, "base")), formatBudgetMoney(order, ccy), formatBudgetMoney(cfg.MinTranche, ccy))
@@ -379,7 +383,8 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 // held, to cover the gap below keep_cash, held to max_order_notional at the
 // ledger rate like a buy (the next cycle sells the rest). A held bill that
 // pays out before a sale today would settle makes the sale pointless.
-func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepPolicy, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, today time.Time) {
+func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepPolicy, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, now time.Time) {
+	today := cashSweepDay(now)
 	st := &cp.status
 	ccy := st.Currency
 	cp.gap = cfg.KeepCash - (cp.cash - cp.committed + cp.pending)
@@ -414,7 +419,12 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 		return
 	}
 	if !pick.Maturity.IsZero() {
-		if settles := cashSweepNextBusinessDay(today); !pick.Maturity.After(settles) {
+		settles, reason := cashSweepSettlementDate(ccy, cfg.SettlementExchange, cfg.SettlementDays, string(cfg.SettlementValidThrough), now)
+		if reason != "" {
+			st.State, st.Reason = rpc.CashSweepStateHold, "sale held: "+reason
+			return
+		}
+		if !pick.Maturity.After(settles) {
 			st.State = rpc.CashSweepStateHold
 			st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s, but a held bill pays out on %s, before a sale today would settle",
 				formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), pick.Maturity.Format(time.DateOnly))
@@ -423,7 +433,8 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 	}
 	held := int(math.Floor(pick.Row.Quantity + 1e-9))
 	unit := pick.MarketValue / pick.Row.Quantity
-	needed := min(int(math.Ceil(cp.gap/unit-1e-9)), held)
+	target := max(cp.gap, cashSweepMinimum(bucket, cfg, cp.rate))
+	needed := min(int(math.Ceil(target/unit-1e-9)), held)
 	cp.capUnits = int(math.Floor(bucket.MaxOrderNotional/cp.rate/unit + 1e-9))
 	if cp.capUnits < 1 {
 		st.State = rpc.CashSweepStateHold
@@ -433,7 +444,7 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 	}
 	cp.heldToCap = cp.capUnits < needed
 	cp.quantity = max(1, min(needed, cp.capUnits))
-	cp.side, cp.instrument, cp.holding, cp.orderAmount = rpc.CashSweepSideRedeem, pick.Instrument, pick, cp.gap
+	cp.side, cp.instrument, cp.holding, cp.orderAmount = rpc.CashSweepSideRedeem, pick.Instrument, pick, min(target, bucket.MaxOrderNotional/cp.rate)
 	st.State = rpc.CashSweepStateRedeem
 	what := "the declared ETF"
 	if !pick.Maturity.IsZero() {
@@ -527,17 +538,6 @@ func cashSweepDaysLeft(today, maturity time.Time) int {
 	return int(math.Ceil(cashSweepDay(maturity).Sub(today).Hours() / 24))
 }
 
-// cashSweepNextBusinessDay is the next weekday after day: when a sale today
-// settles (T+1, assumption A5). Holidays are not modelled; a holiday only
-// makes the sale settle later than this date, never earlier.
-func cashSweepNextBusinessDay(day time.Time) time.Time {
-	next := day.AddDate(0, 0, 1)
-	for next.Weekday() == time.Saturday || next.Weekday() == time.Sunday {
-		next = next.AddDate(0, 0, 1)
-	}
-	return next
-}
-
 // cashSweepSettlementWindowStart bounds the legacy T+1 estimate. It has no
 // settlement-calendar or T+2 authority and never certifies settled cash.
 func cashSweepSettlementWindowStart(now time.Time) time.Time {
@@ -586,6 +586,9 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 	block := &rpc.TradeProposalCashSweep{
 		Mode: plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
 		Cash: cp.cash, Committed: cp.committed, KeepCash: cfg.KeepCash, Free: cp.free, MinTranche: cfg.MinTranche,
+		MinOrderNotionalBase: bucket.MinOrderNotional, MinNetGainBase: bucket.MinNetGain,
+		CashInterestRateUpper: cloneFloat64Ptr(cfg.CashInterestRateUpper), CashInterestValidThrough: string(cfg.CashInterestValidThrough),
+		SettlementDays: cfg.SettlementDays, SettlementExchange: cfg.SettlementExchange, SettlementValidThrough: string(cfg.SettlementValidThrough),
 		Session: rpc.CloneBondSession(cp.session),
 	}
 	var p rpc.TradeProposal
@@ -654,6 +657,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 			effect = rpc.OrderPositionEffectClose
 		}
 		block.QuantityUnit = rpc.CashSweepQuantityPosition
+		block.RedemptionTarget = cp.gap
 		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
 		if !h.Maturity.IsZero() {
 			block.MaturityDate = h.Maturity.Format(time.DateOnly)
@@ -663,7 +667,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		}
 		contract := cashSweepHoldingContract(h.Row)
 		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideRedeem, h.Instrument, h.Row.ConID),
-			rpc.OrderActionSell, qty, qty, h.Row.Quantity, effect, cp.status.Reason)
+			rpc.OrderActionSell, qty, cashSweepSaleLimit(held, cp.capUnits, cp.rules), h.Row.Quantity, effect, cp.status.Reason)
 		if mark := h.MarketValue / h.Row.Quantity; mark > 0 {
 			p.Notional = mark * float64(qty)
 		}
@@ -681,6 +685,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 	}
 	details = append(details, "waits the full veto window: a sweep is never a stop")
 	p.CashSweep = block
+	blockers = append(blockers, cashSweepCalendarBlockers(block, p.Contract.Exchange, now)...)
 	p.Details = details
 	p.Shadow = plan.status.Shadow
 	p.NeverSkipVeto = true
@@ -1037,17 +1042,28 @@ func (e *proposalEngine) cashSweepCommitments(ctx context.Context, scope brokerS
 	if err != nil || !sameBrokerScope(snapScope, scope) {
 		return cashSweepCommitments{Reason: "complete, current open-order inventory from every client is unavailable, so committed cash is unknown"}
 	}
-	return cashSweepCommitmentsFrom(snapshot.Orders, e.queued.list(), scope)
+	events, err := e.server.orderJournal.LoadEvents(0)
+	if err != nil {
+		return cashSweepCommitments{Reason: "durable commission evidence is unavailable, so fee-inclusive commitments are unknown"}
+	}
+	e.server.mu.Lock()
+	ep := e.server.endpoint
+	e.server.mu.Unlock()
+	endpoint := e.server.tradingStatus(ep).Endpoint
+	return cashSweepCommitmentsFrom(snapshot.Orders, e.queued.list(), scope, cashSweepFeeEvidence{Events: events, Now: e.clock(), Endpoint: endpoint})
 }
 
 // cashSweepCommitmentsFrom is the pure half of cashSweepCommitments. A working
 // buy is valued at its fixed limit price, a bond's at its currency's bill
 // convention; one with no price bound makes its currency unknown. A queued
 // buy counts only while armed, held or sending, at its worst price. These
-// observations carry no commission currency or upper bound, so principal
-// diagnostics alone cannot certify fee-inclusive commitments for any currency.
-func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope) cashSweepCommitments {
+// observations need an exact, current durable send-attempt fee bound. Legacy
+// records and external buys keep fee-inclusive commitments unknown.
+func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope, evidence ...cashSweepFeeEvidence) cashSweepCommitments {
 	out := cashSweepCommitments{Known: true, Unknown: map[string]string{}, ByCurrency: map[string]float64{}}
+	if len(evidence) == 1 {
+		cashSweepUnacknowledgedBuyGuard(&out, orders, scope, evidence[0])
+	}
 	for _, o := range orders {
 		if !brokerOrderWorking(o) || !strings.EqualFold(strings.TrimSpace(o.Action), rpc.OrderActionBuy) {
 			continue
@@ -1057,7 +1073,10 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		}
 		ccy := normCcy(o.Currency)
 		secType := strings.ToUpper(strings.TrimSpace(o.SecType))
-		cashSweepOutstandingFeesUnknown(&out, ccy, "a working")
+		fee, feeKnown := cashSweepWorkingFee(o, scope, evidence)
+		if !feeKnown {
+			cashSweepOutstandingFeesUnknown(&out, ccy, "a working")
+		}
 		remaining := o.Remaining
 		if remaining <= 0 {
 			remaining = o.TotalQuantity - o.Filled
@@ -1082,7 +1101,7 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 				out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no finite cash commitment", ccy)
 				continue
 			}
-			total := out.ByCurrency[ccy] + amount
+			total := out.ByCurrency[ccy] + amount + fee
 			if !positiveFinite(total) {
 				out.Unknown[ccy] = fmt.Sprintf("working buy commitments in %s have no finite total", ccy)
 				continue

@@ -49,6 +49,12 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 	if st.MaxOrderNotionalBase != nil {
 		parts = append(parts, "max order "+cashSweepMoney(*st.MaxOrderNotionalBase, st.BaseCurrency))
 	}
+	if st.MinOrderNotionalBase > 0 {
+		parts = append(parts, "min order "+cashSweepMoney(st.MinOrderNotionalBase, st.BaseCurrency))
+	}
+	if st.MinNetGainBase > 0 {
+		parts = append(parts, "min incremental gain "+cashSweepMoney(st.MinNetGainBase, st.BaseCurrency))
+	}
 	if st.TaxReviewed {
 		parts = append(parts, "tax reviewed "+st.TaxReviewedAt)
 	} else {

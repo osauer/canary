@@ -2168,7 +2168,13 @@ func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreview
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
-	preview, err := e.server.previewOrder(ctx, proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs))
+	params := proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs)
+	var preview *rpc.OrderPreviewResult
+	if p.Quantity <= 0 {
+		preview, err = e.previewSweepSized(ctx, prop, params)
+	} else {
+		preview, err = e.server.previewOrder(ctx, params)
+	}
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
@@ -2368,7 +2374,12 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	if opts.bounded != nil {
 		params.Strategy, params.Bounded = rpc.OrderStrategyBoundedLimit, opts.bounded
 	}
-	preview, err := e.server.previewOrder(ctx, params)
+	var preview *rpc.OrderPreviewResult
+	if opts.automatic || (p.Quantity <= 0 && opts.queued == nil) {
+		preview, err = e.previewSweepSized(ctx, prop, params)
+	} else {
+		preview, err = e.server.previewOrder(ctx, params)
+	}
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
@@ -2397,6 +2408,10 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Preview: sanitizeProposalPreviewForProposal(preview, prop), PreviewTokenID: preview.PreviewTokenID, Blockers: blockers, AsOf: now}, nil
 	}
 	if blockers := e.revalidateOptionExitEconomics(ctx, prop, preview); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: e.clock()}, nil
+	}
+	if blockers := cashSweepCurrentEvidenceBlockers(prop, e.clock()); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: e.clock()}, nil
 	}
@@ -2839,6 +2854,9 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		add(b.Code, b.Message, b.Action)
 	}
 	for _, b := range cashSweepPreviewNotionalBlockers(prop, preview) {
+		add(b.Code, b.Message, b.Action)
+	}
+	for _, b := range cashSweepEconomicsBlockers(prop, preview) {
 		add(b.Code, b.Message, b.Action)
 	}
 	if !proposalSupportedOrderType(preview.Draft.OrderType) {

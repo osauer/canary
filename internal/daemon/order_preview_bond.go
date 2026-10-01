@@ -141,10 +141,13 @@ func (s *Server) resolvePreviewBondContract(ctx context.Context, authority *orde
 
 // bondSessionRefusal refuses, before any quote is requested, a bond preview
 // while the line's session is closed. An unknown session (past the last
-// window the hours name) leaves the live-quote requirement to decide.
+// window the hours name) refuses before requesting a quote.
 func bondSessionRefusal(session *rpc.BondSession, now time.Time) error {
 	sess, ok := bondSessionAt(session, now)
-	if !ok || sess.IsOpen {
+	if !ok {
+		return refusePreview(errBadRequest("verified bill trading hours are unavailable"), rpc.TradingBlocker{Code: "session_unknown", Message: "Verified bill trading hours are unavailable; assumed weekday hours cannot authorize an order.", Action: "Refresh the contract details once the broker publishes its trading hours."})
+	}
+	if sess.IsOpen {
 		return nil
 	}
 	message := "bond patient-limit requires an open session: " + sessionClosedPhrase(sess)

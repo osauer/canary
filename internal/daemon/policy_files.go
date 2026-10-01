@@ -848,7 +848,9 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # [buckets.cash_sweep]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the orders
-# max_order_notional = 0.0   # one order, in base currency
+# max_order_notional = 0.0   # one order, in base currency; owner must choose
+# min_order_notional = 10000.0   # whole-order floor in base, both BUY and net SELL
+# min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #
 # [buckets.cash_sweep.currency.EUR]
@@ -858,7 +860,12 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # etf_symbol = "XEON"   # example: a euro money-market ETF on Xetra
 # etf_exchange = "IBIS"   # Xetra
 # keep_cash = %s
-# min_tranche = %s
+# min_tranche = %s   # legacy native floor; combined with the base floor above
+# cash_interest_rate_upper = 0.0   # EXAMPLE ONLY: review an annual decimal upper bound; missing is unknown
+# cash_interest_valid_through = 2026-01-01   # EXAMPLE ONLY: expires; does not attest today's rate
+# settlement_exchange = "SMART"   # EXAMPLE ONLY: commission the exact broker route
+# settlement_days = 2   # EXAMPLE ONLY: broker-reviewed lag, never inferred from currency
+# settlement_valid_through = 2026-01-01   # EXAMPLE ONLY: expires; no route is commissioned by the template
 # min_maturity_days = %d
 # max_maturity_days = %d
 # ladder_rungs = %d

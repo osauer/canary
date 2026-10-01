@@ -995,6 +995,10 @@ type protectionCashSweepPolicy struct {
 	Mode string `toml:"mode" json:"mode,omitempty"`
 	// MaxOrderNotional caps one sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); no default, and until it is written the sweep reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
+	// MinOrderNotional is the whole-order minimum in account base currency, on both sides. Zero retains the legacy native min_tranche.
+	MinOrderNotional float64 `toml:"min_order_notional" json:"min_order_notional"`
+	// MinNetGain is the minimum incremental purchase gain in base currency through maturity. Zero retains the legacy policy until owner migration.
+	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
 	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
 	// Currency holds one table per ISO currency code, as [buckets.cash_sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
@@ -1012,8 +1016,18 @@ type protectionCashSweepCurrency struct {
 	ETFExchange string `toml:"etf_exchange" json:"etf_exchange,omitempty"`
 	// KeepCash is the settlement float kept as cash in this currency (default 5000): the sweep invests only above it and redeems below it.
 	KeepCash float64 `toml:"keep_cash" json:"keep_cash"`
-	// MinTranche is the smallest amount one buy puts to work (default 1000); free cash at or below it stays cash.
+	// MinTranche is the legacy native-currency minimum on both sides (default 1000); min_order_notional supplies a portfolio base minimum.
 	MinTranche float64 `toml:"min_tranche" json:"min_tranche"`
+	// CashInterestRateUpper is a conservative annual decimal opportunity-cost bound. Nil is unknown, including when the broker pays no interest.
+	CashInterestRateUpper *float64 `toml:"cash_interest_rate_upper" json:"cash_interest_rate_upper,omitempty"`
+	// CashInterestValidThrough dates the owner-reviewed bound; expiry holds purchases using min_net_gain.
+	CashInterestValidThrough policyDate `toml:"cash_interest_valid_through" json:"cash_interest_valid_through,omitempty"`
+	// SettlementDays is the commissioned lag of the exact broker route in payment business days, between 1 and 5; nil is unknown.
+	SettlementDays *int `toml:"settlement_days" json:"settlement_days,omitempty"`
+	// SettlementExchange is the exact broker exchange whose lag was commissioned; no default.
+	SettlementExchange string `toml:"settlement_exchange" json:"settlement_exchange,omitempty"`
+	// SettlementValidThrough dates route commissioning; missing or expired evidence holds bill orders.
+	SettlementValidThrough policyDate `toml:"settlement_valid_through" json:"settlement_valid_through,omitempty"`
 	// MinMaturityDays is the shortest maturity a bill may have when bought and the first rung's target (default 28, the four-week bill).
 	MinMaturityDays int `toml:"min_maturity_days" json:"min_maturity_days"`
 	// MaxMaturityDays is the longest maturity a bill may have when bought and the last rung's target (default 91, EUR 182; at most 397).
@@ -1198,6 +1212,12 @@ func validateCashSweepPolicy(prefix string, p *protectionCashSweepPolicy) error 
 	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 {
 		return fmt.Errorf("%s.max_order_notional must be positive", prefix)
 	}
+	if !finiteProtectionOptionPolicyValue(p.MinOrderNotional) || p.MinOrderNotional < 0 || (p.MaxOrderNotional > 0 && p.MinOrderNotional > p.MaxOrderNotional) {
+		return fmt.Errorf("%s.min_order_notional must be nonnegative and no greater than max_order_notional", prefix)
+	}
+	if !finiteProtectionOptionPolicyValue(p.MinNetGain) || p.MinNetGain < 0 {
+		return fmt.Errorf("%s.min_net_gain must be nonnegative", prefix)
+	}
 	if p.TaxReviewedAt != "" && !p.TaxReviewedAt.valid() {
 		return fmt.Errorf("%s.tax_reviewed_at %q is not a date; write it as 2006-01-02", prefix, string(p.TaxReviewedAt))
 	}
@@ -1253,6 +1273,21 @@ func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency
 	}
 	if !finiteProtectionOptionPolicyValue(c.KeepCash) || c.KeepCash < 0 {
 		return fmt.Errorf("%s.keep_cash must not be negative", prefix)
+	}
+	if c.SettlementDays != nil && (*c.SettlementDays < 1 || *c.SettlementDays > 5) {
+		return fmt.Errorf("%s.settlement_days must be between 1 and 5", prefix)
+	}
+	if c.SettlementExchange != "" && !cashSweepETFToken.MatchString(c.SettlementExchange) {
+		return fmt.Errorf("%s.settlement_exchange must be a broker exchange code", prefix)
+	}
+	if c.SettlementValidThrough != "" && !c.SettlementValidThrough.valid() {
+		return fmt.Errorf("%s.settlement_valid_through must be a date", prefix)
+	}
+	if c.CashInterestRateUpper != nil && (!finiteProtectionOptionPolicyValue(*c.CashInterestRateUpper) || *c.CashInterestRateUpper < 0) {
+		return fmt.Errorf("%s.cash_interest_rate_upper must be a finite nonnegative annual decimal rate", prefix)
+	}
+	if c.CashInterestValidThrough != "" && !c.CashInterestValidThrough.valid() {
+		return fmt.Errorf("%s.cash_interest_valid_through must be a date", prefix)
 	}
 	if !finiteProtectionOptionPolicyValue(c.MinTranche) || c.MinTranche <= 0 {
 		return fmt.Errorf("%s.min_tranche must be positive", prefix)

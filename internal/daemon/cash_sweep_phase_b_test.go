@@ -52,6 +52,24 @@ func synthBondLine(conID int, id, ccy string, maturity time.Time) ibkrlib.BondCo
 	} else {
 		line.SecIDs["CUSIP"] = id
 	}
+	// Broker-owned synthetic hours: weekday windows, including the preview
+	// rig's May clock and the sweep planner's September clock.
+	line.TimeZoneID = "UTC"
+	var windows []string
+	for _, start := range []time.Time{time.Date(2026, 5, 25, 0, 0, 0, 0, time.UTC), cashSweepDay(cashSweepTestNow())} {
+		for i := range 8 {
+			day := start.AddDate(0, 0, i)
+			if day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+				continue
+			}
+			open, close := "0700", "1530"
+			if ccy == "USD" {
+				open, close = "1200", "2100"
+			}
+			windows = append(windows, day.Format("20060102")+":"+open+"-"+close)
+		}
+	}
+	line.LiquidHours = strings.Join(windows, ";")
 	return line
 }
 
@@ -346,7 +364,7 @@ func TestCashSweepResolvesNearestUSBill(t *testing.T) {
 	// grid, bound to the bill by its key.
 	if row.Quantity != 55 || row.MaxQuantity != 55 || row.CashSweep.QuantityUnit != rpc.BondQuantityUnitFace1000 || row.CashSweep.FaceValue != 55000 ||
 		math.Abs(row.CashSweep.EstimatedCost-54780) > 1e-6 || row.Key != cashSweepKey("USD", rpc.CashSweepSideInvest, cashSweepInstrumentUSTBill, usd.bill.ConID) ||
-		row.CashSweep.Session == nil || row.CashSweep.Session.Source != rpc.BondSessionSourceAssumed || row.CashSweep.Bill.MinTick == nil {
+		row.CashSweep.Session == nil || row.CashSweep.Session.Source != rpc.BondSessionSourceLiquidHours || row.CashSweep.Bill.MinTick == nil {
 		t.Fatalf("sized row = %d/%d %+v", row.Quantity, row.MaxQuantity, row.CashSweep)
 	}
 	if _, ok := cashSweepOpenException(row); !ok {
@@ -936,7 +954,8 @@ func TestMarketBondCheckSessionEvidence(t *testing.T) {
 		{name: "liquid", zone: "America/New_York", liquid: "20261001:0800-1700", source: rpc.BondSessionSourceLiquidHours, windows: 1},
 		{name: "trading", zone: "America/New_York", trading: "20261001:0700-1900", source: rpc.BondSessionSourceTradingHours, windows: 1},
 		{name: "closed", zone: "America/New_York", liquid: "20261001:CLOSED", source: rpc.BondSessionSourceLiquidHours},
-		{name: "assumed", source: rpc.BondSessionSourceAssumed, windows: 6},
+		{name: "unknown missing hours"},
+		{name: "unknown malformed hours", zone: "America/New_York", liquid: "unusable"},
 		{name: "unknown non-bill", coupon: 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -84,6 +84,20 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 	if o.Action != rpc.OrderActionBuy || o.TotalQty != 55 || o.OrderType != rpc.OrderTypeLMT || o.TIF != rpc.OrderTIFDay || o.LmtPrice != 99.6 || o.OutsideRth {
 		t.Fatalf("broker order = %+v", o)
 	}
+	events, err := rig.server.orderJournal.LoadEvents(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Type == orderJournalEventSendAttempted && event.OrderRef == o.OrderRef {
+			found = event.FeeUpper != nil && *event.FeeUpper == 1 && event.FeeCurrency == "USD"
+		}
+	}
+	if !found {
+		t.Fatal("production transmit did not atomically retain the exact fee bound")
+	}
+
 }
 
 // Even an injected stale revision cannot widen the quantity that received

@@ -20,6 +20,11 @@ request with no usable fallback, unknown modes, and delayed last-session data
 still raise source warnings. A healthy feed does not make a delayed quote live
 or establish that it is suitable for a particular calculation.
 
+A delayed Nasdaq-100 quote is a supported state for background market context.
+A paid live subscription is not a product prerequisite. Its delayed label and
+source time remain visible; time-sensitive calculations and execution quotes
+still need their required fresh evidence.
+
 A short list of regime inputs is the exception: they come from the institution
 that publishes them, not from your broker session.
 

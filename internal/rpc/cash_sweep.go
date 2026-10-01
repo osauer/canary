@@ -103,8 +103,8 @@ const (
 )
 
 // Bond session sources: the line's liquid or trading hours from its
-// contract details, else the instrument's assumed hours
-// (internal-docs/design/cash-sweep.md, A5).
+// contract details. Assumed labels remain readable in historical snapshots,
+// but cannot provide execution authority.
 const (
 	BondSessionSourceLiquidHours  = "liquid_hours"
 	BondSessionSourceTradingHours = "trading_hours"
@@ -126,6 +126,8 @@ type TradeProposalCashSweepStatus struct {
 	// in it, nil until the owner writes max_order_notional.
 	BaseCurrency         string   `json:"base_currency,omitempty"`
 	MaxOrderNotionalBase *float64 `json:"max_order_notional_base,omitempty"`
+	MinOrderNotionalBase float64  `json:"min_order_notional_base,omitempty"`
+	MinNetGainBase       float64  `json:"min_net_gain_base,omitempty"`
 	// TaxReviewedAt is the date the owner recorded; TaxReviewed is false
 	// while it is unset, and every row then carries an advisory detail line.
 	TaxReviewedAt string `json:"tax_reviewed_at,omitempty"`
@@ -338,12 +340,21 @@ type TradeProposalCashSweep struct {
 	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 	// OrderAmount is the cash the order puts to work (invest) or the gap it
 	// covers (redeem), before rounding to whole units.
-	OrderAmount float64 `json:"order_amount"`
-	Cash        float64 `json:"cash"`
-	Committed   float64 `json:"committed"`
-	KeepCash    float64 `json:"keep_cash"`
-	Free        float64 `json:"free"`
-	MinTranche  float64 `json:"min_tranche"`
+	OrderAmount              float64  `json:"order_amount"`
+	Cash                     float64  `json:"cash"`
+	Committed                float64  `json:"committed"`
+	KeepCash                 float64  `json:"keep_cash"`
+	Free                     float64  `json:"free"`
+	MinTranche               float64  `json:"min_tranche"`
+	MinOrderNotionalBase     float64  `json:"min_order_notional_base,omitempty"`
+	MinNetGainBase           float64  `json:"min_net_gain_base,omitempty"`
+	CashInterestRateUpper    *float64 `json:"cash_interest_rate_upper,omitempty"`
+	CashInterestValidThrough string   `json:"cash_interest_valid_through,omitempty"`
+	// RedemptionTarget is the liquidity shortfall. A capped sale may restore part, while still meeting the net whole-order minimum.
+	RedemptionTarget       float64 `json:"redemption_target,omitempty"`
+	SettlementDays         *int    `json:"settlement_days,omitempty"`
+	SettlementExchange     string  `json:"settlement_exchange,omitempty"`
+	SettlementValidThrough string  `json:"settlement_valid_through,omitempty"`
 	// Invest: the rung the tranche goes to, its target, and the window
 	// [MinMaturityDays, MaxMaturityDays] the bill must mature in.
 	Rung            int `json:"rung,omitempty"`
@@ -407,6 +418,10 @@ func CloneProposalCashSweep(in *TradeProposalCashSweep) *TradeProposalCashSweep 
 	}
 	out := *in
 	out.Bill = CloneCashSweepBill(in.Bill)
+	out.CashInterestRateUpper = cloneCashSweepFloat(in.CashInterestRateUpper)
+	if in.SettlementDays != nil {
+		out.SettlementDays = new(*in.SettlementDays)
+	}
 	out.Session = CloneBondSession(in.Session)
 	return &out
 }

@@ -13,14 +13,14 @@ import (
 
 func sweepFeePreview(free, principal, fee float64) (rpc.TradeProposal, *rpc.OrderPreviewResult) {
 	prop := rpc.TradeProposal{Bucket: rpc.TradeProposalBucketCashSweep, Action: rpc.OrderActionBuy, PositionEffect: rpc.OrderPositionEffectOpen,
-		SecType: "BILL", Quantity: 1, MaxQuantity: 1, Contract: rpc.ContractParams{ConID: 7101, SecType: "BILL", Currency: "USD"},
+		SecType: "BILL", Quantity: 1, MaxQuantity: 1, Contract: rpc.ContractParams{ConID: 7101, SecType: "BILL", Currency: "USD", Exchange: "SMART"},
 		CashSweep: &rpc.TradeProposalCashSweep{Side: rpc.CashSweepSideInvest, Currency: "USD", Instrument: cashSweepInstrumentUSTBill,
 			QuantityUnit: rpc.BondQuantityUnitFace1000, Free: free, ExchangeRate: 1, MaxOrderNotionalBase: principal,
-			Bill: &rpc.TradeProposalCashSweepBill{ConID: 7101, Instrument: cashSweepInstrumentUSTBill}}}
+			SettlementDays: new(1), SettlementExchange: "SMART", SettlementValidThrough: "2027-12-31", Bill: &rpc.TradeProposalCashSweepBill{ConID: 7101, Instrument: cashSweepInstrumentUSTBill}}}
 	preview := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{Contract: prop.Contract, Action: rpc.OrderActionBuy, Quantity: 1,
 		OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, Source: proposalOrderSource, LimitPrice: principal / 10, Bond: cashSweepOrderTerms(prop)},
 		Position: rpc.OrderPositionImpact{Effect: rpc.OrderPositionEffectOpen}, BaseCurrency: "USD", NotionalCurrency: "USD", Notional: principal, NotionalBase: principal,
-		WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
+		AsOf: cashSweepTestNow(), WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
 			Margin: &rpc.OrderMarginImpact{Currency: "USD", InitialMarginBefore: new(0.0), InitialMarginAfter: new(principal),
 				CommissionCurrency: "USD", Commission: new(fee), MinCommission: new(fee), MaxCommission: new(fee)}}}
 	return prop, preview
@@ -32,7 +32,7 @@ func TestCashSweepFeesRefuseThroughProposalPreview(t *testing.T) {
 		change     func(*rpc.OrderWhatIfResult)
 	}{
 		{"unknown upper", "cash_sweep_fees_unknown", func(w *rpc.OrderWhatIfResult) { w.Margin.MaxCommission = nil }},
-		{"fee would consume reserve", "cash_sweep_cost_above_free_cash", func(w *rpc.OrderWhatIfResult) { w.Margin.MaxCommission = new(1000.0) }},
+		{"fee would consume all cash", "cash_sweep_cost_above_free_cash", func(w *rpc.OrderWhatIfResult) { w.Margin.MaxCommission = new(60000.0) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rig := newSweepPreviewRig(t, time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC))
@@ -150,15 +150,15 @@ func TestCashSweepFeesRequireExactAcceptedFiniteUpperEnvelope(t *testing.T) {
 	}
 }
 
-func TestCashSweepFeeGuardLeavesSellRedemptionsUnchanged(t *testing.T) {
+func TestCashSweepSaleRequiresAnExactFeeBound(t *testing.T) {
 	for _, effect := range []string{rpc.OrderPositionEffectClose, rpc.OrderPositionEffectReduce} {
 		t.Run(effect, func(t *testing.T) {
 			prop, preview := sweepFeePreview(1000, 1000, 0)
 			prop.Action, prop.PositionEffect, prop.CashSweep.Side = rpc.OrderActionSell, effect, rpc.CashSweepSideRedeem
 			prop.CashSweep.QuantityUnit = rpc.CashSweepQuantityPosition
 			preview.Draft.Action, preview.Position.Effect, preview.WhatIf.Margin = rpc.OrderActionSell, effect, nil
-			if got := proposalPreviewSafetyBlockers(prop, preview); len(got) != 0 {
-				t.Fatalf("buy fee guard changed ordinary sell redemption: %v", got)
+			if got := proposalPreviewSafetyBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_fees_unknown") {
+				t.Fatalf("sale accepted without net proceeds: %v", got)
 			}
 		})
 	}

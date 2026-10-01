@@ -6,6 +6,10 @@ step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
 symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
 answered (false, F2); the remaining proof steps are in progress.
 
+The [2026-10-01 order controls](cash-sweep-controls.md) supersede the earlier
+assumed-hours, gross-redemption and pending-fee limitations below. They add no
+activation or calibrated portfolio stress reserve.
+
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
 on the open items of 2026-09-30 09:30 CEST (O1–O7) and the owner's decisions

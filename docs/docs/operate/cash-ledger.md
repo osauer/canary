@@ -95,7 +95,7 @@ initialisation as a fallback.
 
 `canary market --symbol <ISIN-or-CUSIP> --type BILL --json` reads contract,
 quote and session evidence without previewing an order. Session provenance
-distinguishes broker hours from assumed fallback hours. For an issued US bill
+names verified broker hours; missing or malformed hours stay unknown. For an issued US bill
 only, an exact fresh TreasuryDirect CUSIP may supply maturity when an explicit
 broker BILL line omits it; contradictory dates are refused and the review names
 the public maturity source. No date is invented for another issuer or identifier.
@@ -128,8 +128,30 @@ maximum commission. Limit principal plus that upper envelope must fit free
 cash. Missing or contradictory bounds hold at `cash_sweep_fees_unknown`; the
 order cap remains principal-only. A buy that unexpectedly closes or reduces a
 short holding is refused rather than bypassing the planned-bill checks.
-Outstanding working/armed buys currently
-carry no fee upper bound or currency, so fee-inclusive commitments remain
-unknown and new sweeps wait in all currencies until those buys resolve.
-Redemption proceeds and pending-sale estimates are still gross of commissions;
-net redemption top-ups, forecast outflows and net-yield floors need follow-up.
+Canary persists that exact fee envelope with its place or modify attempt.
+A matching current DAY working buy reserves remaining principal plus the full
+maximum fee, including after restart or partial fills. Unknown, stale or changed
+bounds hold new sweeps; external and unbounded queued buys retain that hold.
+Liquidity sales must restore net proceeds after exact maximum commission.
+Pending-sale estimates remain diagnostic, and forecast outflows and the broader
+portfolio stress reserve still need follow-up.
+
+## Sweep order checks
+
+Verified settled cash is one input. Bill orders also require broker trading
+hours, a reviewed route-specific settlement lag and a supported payment calendar.
+Missing evidence holds the route; a weekday guess does not authorize an order.
+
+`min_order_notional` bounds the complete order in account base currency, on both
+sides. Purchases use principal; liquidity sales use proceeds after exact maximum
+commission. `max_order_notional` bounds principal. Broker lots and the reviewed
+price still need to fit those bounds.
+
+`min_net_gain` compares a purchase held to maturity against leaving cash at the
+broker, using the entry spread, exact maximum purchase fees and a dated
+owner-reviewed cash-interest upper bound. A missing rate is unknown, not zero.
+Liquidity sales retain their separate cash-restoration rule. See
+[the configuration reference](../reference/config.md) for the policy fields.
+Existing private policy values stay unchanged until explicit owner migration;
+route commissioning and dated cash-interest assumptions are required for the
+new controls.

@@ -111,51 +111,32 @@ func TestCashSweepSizingOnTheBillsGrid(t *testing.T) {
 }
 
 // A bill's session: its contract's liquid hours when the details carry
-// them, else the instrument's assumed weekday hours; open inside a window,
-// closed with the next open before one, unknown past the last.
+// them. Missing or malformed hours stay unknown; historical assumed hours
+// cannot authorize execution. Broker windows expire after the last named day.
 func TestCashSweepBondSessions(t *testing.T) {
-	wed := time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC) // 10:00 in New York
-	s := cashSweepBondSession(nil, cashSweepInstrumentUSTBill, wed)
-	if s == nil || s.Source != rpc.BondSessionSourceAssumed || s.TimeZone != "America/New_York" || len(s.Windows) != 6 {
-		t.Fatalf("assumed session = %+v", s)
+	wed := cashSweepTestNow()
+	if s := cashSweepBondSession(nil, cashSweepInstrumentUSTBill, wed); s != nil {
+		t.Fatalf("missing hours gained a session: %+v", s)
 	}
-	if sess, ok := bondSessionAt(s, wed); !ok || !sess.IsOpen || sess.State != "regular" {
-		t.Fatalf("10:00 New York = %+v %v", sess, ok)
+	if _, known := bondSessionAt(cashSweepAssumedSession(cashSweepInstrumentUSTBill, wed), wed); known {
+		t.Fatal("assumed hours supplied authority")
 	}
-	evening := time.Date(2026, 9, 30, 22, 0, 0, 0, time.UTC)
-	sess, ok := bondSessionAt(s, evening)
-	if !ok || sess.IsOpen || sess.NextOpen == nil || !sess.NextOpen.Equal(time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)) {
-		t.Fatalf("18:00 New York = %+v %v", sess, ok)
+	line := synthBondLine(7101, synthCUSIP35, "USD", cashSweepDay(wed).AddDate(0, 0, 35))
+	line.LiquidHours = "20260930:0800-1500"
+	line.TimeZoneID = "America/New_York"
+	s := cashSweepBondSession(&line, cashSweepInstrumentUSTBill, wed)
+	if s == nil || s.Source != rpc.BondSessionSourceLiquidHours || len(s.Windows) != 1 || !s.Windows[0].Close.Equal(time.Date(2026, 9, 30, 19, 0, 0, 0, time.UTC)) {
+		t.Fatalf("broker hours: %+v", s)
 	}
-	saturday := time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC)
-	if sess, ok := bondSessionAt(s, saturday); !ok || sess.IsOpen || !sess.NextOpen.Equal(time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)) {
-		t.Fatalf("Saturday = %+v %v", sess, ok)
+	if session, known := bondSessionAt(s, wed); !known || !session.IsOpen {
+		t.Fatal("broker open was lost")
 	}
-	if _, ok := bondSessionAt(s, wed.AddDate(0, 0, 30)); ok {
-		t.Fatal("a session past its last window read as known")
+	if _, known := bondSessionAt(s, wed.AddDate(0, 0, 1)); known {
+		t.Fatal("expired hours remained authoritative")
 	}
-	// The contract's liquid hours win.
-	line := synthBondLine(7101, synthCUSIP35, "USD", wed.AddDate(0, 0, 35))
-	line.TimeZoneID, line.LiquidHours = "US/Eastern", "20260930:0900-20260930:1500;20261001:CLOSED"
-	s = cashSweepBondSession(&line, cashSweepInstrumentUSTBill, wed)
-	if s.Source != rpc.BondSessionSourceLiquidHours || len(s.Windows) != 1 || !s.Windows[0].Close.Equal(time.Date(2026, 9, 30, 19, 0, 0, 0, time.UTC)) {
-		t.Fatalf("contract session = %+v", s)
-	}
-	if sess, ok := bondSessionAt(s, wed); !ok || !sess.IsOpen {
-		t.Fatal("inside the contract's hours")
-	}
-	// Malformed hours fall back to the assumed session.
 	line.LiquidHours = "20260930:9-15"
-	if s := cashSweepBondSession(&line, cashSweepInstrumentUSTBill, wed); s.Source != rpc.BondSessionSourceAssumed {
-		t.Fatalf("malformed hours = %+v", s)
-	}
-	for _, instrument := range []string{cashSweepInstrumentDEBubill, cashSweepInstrumentFRBTF, cashSweepInstrumentUKTBill, cashSweepInstrumentCATBill} {
-		if s := cashSweepAssumedSession(instrument, wed); s == nil || len(s.Windows) == 0 {
-			t.Fatalf("%s has no assumed session", instrument)
-		}
-	}
-	if cashSweepAssumedSession(cashSweepInstrumentETF, wed) != nil {
-		t.Fatal("the ETF has an assumed bill session")
+	if s := cashSweepBondSession(&line, cashSweepInstrumentUSTBill, wed); s != nil {
+		t.Fatal("malformed hours gained assumed authority")
 	}
 }
 
@@ -189,7 +170,7 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	}
 	// The gap of 2,000 at 0.995 a unit asks for 2,011; the grid sells 3,000.
 	p := row(eurRedeemInput(10000), held)
-	if p.Quantity != 3000 || p.MaxQuantity != 3000 || p.PositionEffect != rpc.OrderPositionEffectReduce || len(p.Blockers) != 0 || p.Contract.SecType != "BOND" ||
+	if p.Quantity != 3000 || p.MaxQuantity != 10000 || p.PositionEffect != rpc.OrderPositionEffectReduce || len(p.Blockers) != 0 || p.Contract.SecType != "BOND" ||
 		p.Contract.ConID != 7401 || p.CashSweep.Session == nil || !slices.ContainsFunc(p.Details, func(d string) bool { return strings.Contains(d, "rounded to 3000") }) {
 		t.Fatalf("redeem row = %d/%d %s blockers %+v details %v", p.Quantity, p.MaxQuantity, p.PositionEffect, p.Blockers, p.Details)
 	}
@@ -202,7 +183,7 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	}
 	// The held line cannot be read: blocked, not dropped.
 	p = row(eurRedeemInput(10000), &fakeBillSource{})
-	if len(p.Blockers) != 1 || p.Blockers[0].Code != rpc.CashSweepBlockerBillRules || p.CashSweep.Session == nil || p.CashSweep.Session.Source != rpc.BondSessionSourceAssumed {
+	if len(p.Blockers) != 1 || p.Blockers[0].Code != rpc.CashSweepBlockerBillRules || p.CashSweep.Session != nil {
 		t.Fatalf("unreadable line = %+v", p.Blockers)
 	}
 	// 1,500 held sells the 1,000 the grid allows; 800 held cannot be sold on

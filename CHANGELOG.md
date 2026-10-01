@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.15.2 — Unreleased
+
+### What's new
+
+- Cash sweeps check complete-order bounds, net liquidity proceeds and purchase value after fees. Unknown hours or expired route evidence hold the order.
+
+### Added
+
+- Cash sweeps have configurable whole-order minimums and a minimum incremental purchase gain, including entry spread, maximum broker fees and cash interest forgone. Dated cash-interest assumptions remain explicit; missing evidence holds.
+- Pending Canary DAY buys retain exact fee bounds through restart and partial fills, allowing concurrent sweeps when principal and fees are fully reserved. Changed terms, stale or unavailable bounds and unacknowledged buys still hold.
+
+### Fixed
+
+- Bill top-ups now size and check net sale proceeds after maximum commission, with the same whole-order minimum as purchases. Lot rounding cannot authorize a tiny residual or exceed the order cap.
+- Missing or malformed bill trading hours no longer fall back to assumed weekday execution windows. Supported USD/EUR payment calendars include holidays; each route requires a reviewed settlement lag and expiry.
+
+### Upgrade notes
+
+- Existing private policy settings are unchanged. Review the new sweep controls and commission each bill route before activation. Portfolio stress calibration and buffer allocation remain open; delayed Nasdaq-100 context stays supported, tax review stays advisory and ETF fallback stays inactive.
+
 ## v3.15.1 — 2026-10-01 21:44 CEST
 
 ### What's new

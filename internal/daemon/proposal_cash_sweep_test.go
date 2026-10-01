@@ -24,7 +24,14 @@ func cashSweepTestNow() time.Time { return time.Date(2026, 9, 30, 14, 0, 0, 0, t
 func cashSweepTestPolicy(mode string, maxOrderNotional float64) protectionPolicy {
 	p := defaultProtectionPolicy()
 	p.PolicyVersion = 9
-	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional}
+	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{}}
+	for _, ccy := range []string{"USD", "EUR"} {
+		c := defaultCashSweepCurrency(ccy)
+		c.SettlementDays = new(1)
+		c.SettlementExchange = "SMART"
+		c.SettlementValidThrough = "2027-12-31"
+		p.Buckets.CashSweep.Currency[ccy] = c
+	}
 	return p
 }
 
@@ -88,7 +95,7 @@ func TestCashSweepBandEdges(t *testing.T) {
 		{"free equals tranche", 6000, false, rpc.CashSweepStateHold, "", 0},
 		{"free one above tranche", 6001, false, rpc.CashSweepStateInvest, rpc.CashSweepSideInvest, 1001},
 		{"exactly keep_cash", 5000, true, rpc.CashSweepStateHold, "", 0},
-		{"one below keep_cash", 4999, true, rpc.CashSweepStateRedeem, rpc.CashSweepSideRedeem, 1},
+		{"one below keep_cash", 4999, true, rpc.CashSweepStateRedeem, rpc.CashSweepSideRedeem, 2},
 		{"below keep_cash, nothing held", 4999, false, rpc.CashSweepStateHold, "", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -541,7 +548,7 @@ func TestCashSweepCloseReduceOnlyException(t *testing.T) {
 		t.Fatalf("exception = %+v %v", x, ok)
 	}
 	preview := func(qty int, limit float64, effect string) *rpc.OrderPreviewResult {
-		p := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: qty, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: limit,
+		p := &rpc.OrderPreviewResult{AsOf: now, Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: qty, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: limit,
 			Contract: row.Contract, Source: proposalOrderSource, Bond: cashSweepOrderTerms(row)}, BaseCurrency: "EUR", NotionalCurrency: "USD",
 			Notional: float64(qty) * 1000 * limit / 100, NotionalBase: float64(qty) * 1000 * limit / 100 * 0.9,
 			WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true, Margin: &rpc.OrderMarginImpact{
@@ -839,6 +846,7 @@ func TestCashSweepEngineGateCountsAndClone(t *testing.T) {
 	// Enabled without a current account: every declared currency reads
 	// cash_unavailable and nothing is generated.
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9)
+	delete(policy.Buckets.CashSweep.Currency, "EUR")
 	setSweepCcy(policy.Buckets.CashSweep, "USD", func(*protectionCashSweepCurrency) {})
 	rows, st := engine.cashSweepProposals(context.Background(), policy, rpc.ProtectionPolicyStatus{}, nil, nil, rpc.TradeProposalSourceFingerprints{}, brokerStateScope{}, now)
 	if rows != nil || st == nil || st.Reason == "" || len(st.Currencies) != 1 || st.Currencies[0].State != rpc.CashSweepStateCashUnavailable || st.Rows != 0 {

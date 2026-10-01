@@ -75,6 +75,7 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 	}
 	confirm := previewTokenConfirmedEvent(payload, reservedOrderID, now, fmt.Sprintf("preview token confirmed for %s broker transmit", auth.Route))
 	attempt := orderJournalEventForDraft(payload.Draft, orderJournalEventSendAttempted, status, payload.TokenID, reservedOrderID, now)
+	attachOrderFeeBound(&attempt, payload.WhatIf)
 	attempt.AttemptID = attemptID
 	attempt.ActionKind = corestore.ActionPlace
 	attempt.SendState = orderSendStateSendAttempted
@@ -172,6 +173,7 @@ func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc
 	confirm := previewTokenConfirmedEvent(payload, view.ReservedOrderID, now, fmt.Sprintf("preview token confirmed for %s broker modify", auth.Route))
 	confirm.OrderRef = view.OrderRef
 	modify := orderJournalEventForDraft(modifiedDraft, orderJournalEventModifyRequested, status, payload.TokenID, view.ReservedOrderID, now)
+	attachOrderFeeBound(&modify, payload.WhatIf)
 	modify.AttemptID = attemptID
 	modify.ActionKind = corestore.ActionModify
 	modify.SendState = orderSendStateSendAttempted

@@ -22,6 +22,7 @@ func sweepRedemptionCapRig(t *testing.T, cap, limit float64, authority string) (
 	broker := &brokerCallLog{}
 	broker.install(rig.server)
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, cap)
+	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.MinTranche = 900 })
 	in := eurRedeemInput(10000)
 	maturity := cashSweepDay(rig.now).AddDate(0, 0, 60)
 	in.Holdings["EUR"][0].Maturity = maturity
@@ -45,6 +46,9 @@ func sweepRedemptionCapRig(t *testing.T, cap, limit float64, authority string) (
 	}
 	rig.server.orderFXRateForTest = func(context.Context, string, string, time.Duration) (float64, time.Time, error) {
 		return 1, rig.now, nil
+	}
+	rig.server.orderPreviewWhatIf = func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true, Margin: &rpc.OrderMarginImpact{CommissionCurrency: "EUR", MaxCommission: new(1.0)}}, nil
 	}
 	row.Revision = rig.install(row)
 	return rig, row, broker

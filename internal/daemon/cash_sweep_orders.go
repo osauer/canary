@@ -32,8 +32,8 @@ const bondSessionMarket marketcal.Market = "bond"
 const cashSweepAssumedSessionDays = 8
 
 // cashSweepBondSession is when a line's DAY order can fill: its liquid (else
-// trading) hours from contract details, else the instrument's assumed hours
-// on weekdays.
+// trading) hours from contract details. Missing or malformed hours remain
+// unknown; assumed weekday hours have no execution authority.
 func cashSweepBondSession(line *ibkrlib.BondContractDetails, instrument string, now time.Time) *rpc.BondSession {
 	conv := cashSweepInstrumentConventions[instrument]
 	if line != nil {
@@ -45,7 +45,7 @@ func cashSweepBondSession(line *ibkrlib.BondContractDetails, instrument string, 
 			return s
 		}
 	}
-	return cashSweepAssumedSession(instrument, now)
+	return nil
 }
 
 // cashSweepAssumedSession is the instrument's assumed session (A5) for the
@@ -78,7 +78,7 @@ func cashSweepAssumedSession(instrument string, now time.Time) *rpc.BondSession 
 // an exchange calendar: open inside a window, closed before the next one
 // (with its open), unknown past the last window the session names.
 func bondSessionAt(sess *rpc.BondSession, at time.Time) (marketcal.Session, bool) {
-	if sess == nil || len(sess.Windows) == 0 || at.IsZero() {
+	if sess == nil || (sess.Source != rpc.BondSessionSourceLiquidHours && sess.Source != rpc.BondSessionSourceTradingHours) || len(sess.Windows) == 0 || at.IsZero() {
 		return marketcal.Session{}, false
 	}
 	windows := slices.Clone(sess.Windows)
@@ -119,6 +119,9 @@ func (e *proposalEngine) proposalSessionAt(prop rpc.TradeProposal, at time.Time,
 	if sess, ok := proposalBondSession(prop); ok {
 		session, known = bondSessionAt(sess, at)
 		return bondSessionMarket, session, true, known
+	}
+	if prop.Bucket == rpc.TradeProposalBucketCashSweep && ibkrlib.IsBillOrBond(prop.Contract.SecType) {
+		return bondSessionMarket, marketcal.Session{}, true, false
 	}
 	market, hasMarket = quoteSessionMarketForContract(prop.Contract)
 	if !hasMarket {
@@ -468,4 +471,15 @@ func withoutBillUnitLatch(blockers []rpc.TradingBlocker) []rpc.TradingBlocker {
 	return slices.DeleteFunc(slices.Clone(blockers), func(b rpc.TradingBlocker) bool {
 		return b.Code == rpc.CashSweepBlockerBillUnitMismatch
 	})
+}
+
+// Bound the selectable sale quantity to both the position/cap and the actual
+// broker grid. Fee-aware preview sizing may use this capacity before review.
+func cashSweepSaleLimit(held, capUnits int, rules *ibkrlib.BondOrderRules) int {
+	limit := min(held, capUnits)
+	if rules == nil {
+		return limit
+	}
+	quantity, _ := cashSweepRedeemUnits(limit, limit, *rules)
+	return quantity
 }
