@@ -537,6 +537,9 @@ func computeGammaZeroFor(
 	if c == nil {
 		return nil, ibkrlib.ErrIBKRUnavailable
 	}
+	if gammaBackendLinkDown(c) {
+		return nil, errGammaBackendLinkDown
+	}
 	if fetch == nil {
 		fetch = productionLegFetcher
 	}
@@ -627,6 +630,9 @@ func computeGammaZeroFor(
 	if err != nil {
 		return nil, err
 	}
+	if gammaBackendLinkDown(c) {
+		return nil, errGammaBackendLinkDown
+	}
 
 	// Keep the connection's current market-data mode. The ordinary path is
 	// fails to deliver OI off-hours (10/1260 in the last failed run) AND
@@ -645,6 +651,7 @@ func computeGammaZeroFor(
 		oiState:    oiState,
 		startWall:  startWall,
 		log:        log,
+		linkDown:   func() bool { return gammaBackendLinkDown(c) },
 	}
 	legs, liveOIUpdates, stats, err := fan.run(ctx, jobs)
 	if err != nil {
@@ -957,6 +964,18 @@ func prewarmGammaContracts(
 	return jobs, nil
 }
 
+// errGammaBackendLinkDown fails a compute while TWS reports its upstream IBKR
+// link lost (1100). Option requests sent then are never registered by the
+// backend, so every leg's teardown cancel draws IBKR 300 ("Can't find EId")
+// and no leg can price. It wraps ErrIBKRUnavailable: the outage is a broker
+// availability gap, not a data verdict on the chain.
+var errGammaBackendLinkDown = fmt.Errorf("zero-gamma: TWS lost its IBKR backend link; option fan-out paused until the 1101/1102 restore: %w", ibkrlib.ErrIBKRUnavailable)
+
+// gammaBackendLinkDown reads the connector's backend-link latch. Nil-safe.
+func gammaBackendLinkDown(c *ibkrlib.Connector) bool {
+	return c != nil && c.BackendLink().Down
+}
+
 // gammaFanoutStats carries the fan-out's aggregate counters into the result
 // IV-source counts feed the result's provenance fields and the failure
 type gammaFanoutStats struct {
@@ -981,6 +1000,11 @@ type gammaLegFanout struct {
 	oiState    map[string]gammaOIRecord
 	startWall  time.Time
 	log        gammaLogf
+	// linkDown reports TWS's upstream IBKR link latch (1100 until 1101/1102).
+	// Checked before every leg: the compute captured its connector at kick
+	// time, so the scheduler's per-tick guard cannot stop a fan-out already
+	// in flight. Nil means never down.
+	linkDown func() bool
 }
 
 func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legData, map[string]gammaOIRecord, gammaFanoutStats, error) {
@@ -996,6 +1020,7 @@ func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legDat
 		derivedCloseIVs atomic.Int32
 		throttledAbort  atomic.Bool
 		earlyAbort      atomic.Bool
+		backendAbort    atomic.Bool
 		total           = int32(len(jobs))
 	)
 	liveOIUpdates := map[string]gammaOIRecord{}
@@ -1012,7 +1037,11 @@ func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legDat
 	defer abortTimer.Stop()
 
 	runBounded(jobs, f.workers, func(j gammaLegSpec) {
-		if ctx.Err() != nil || throttledAbort.Load() || earlyAbort.Load() {
+		if ctx.Err() != nil || throttledAbort.Load() || earlyAbort.Load() || backendAbort.Load() {
+			return
+		}
+		if f.linkDown != nil && f.linkDown() {
+			backendAbort.Store(true)
 			return
 		}
 		r := f.fetch(ctx, f.c, f.sym, j.tradingClass, j.expiryYMD, j.strike, j.right, f.spot, f.spotAt, f.dataType)
@@ -1089,6 +1118,13 @@ func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legDat
 		f.log.Warnf("gamma.abort reason=ctx_cancelled landed=%d/%d elapsed=%s err=%v",
 			len(legs), len(jobs), fanoutElapsed, ctx.Err())
 		return nil, nil, stats, ctx.Err()
+	}
+	if backendAbort.Load() {
+		// Legs landed before the loss are a partial, pre-outage slice; the
+		// next scheduler tick after the restore recomputes from scratch.
+		f.log.Warnf("gamma.abort reason=backend_link_down landed=%d/%d done=%d elapsed=%s",
+			len(legs), len(jobs), done.Load(), fanoutElapsed)
+		return nil, nil, stats, errGammaBackendLinkDown
 	}
 	if len(legs) == 0 {
 		switch {

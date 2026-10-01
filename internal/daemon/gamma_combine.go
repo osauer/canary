@@ -259,7 +259,9 @@ func computeGammaCombined(
 ) (*rpc.GammaZeroComputed, error) {
 	spyRes, err := runGammaUnderlyingPhase(bgCtx, s, c, "SPY", params, prog, 0)
 	if err != nil {
-		if bgCtx.Err() != nil {
+		// A backend-link loss fails SPX the same way; do not open an SPX
+		// underlying hold or option fan-out the backend will never register.
+		if bgCtx.Err() != nil || errors.Is(err, errGammaBackendLinkDown) {
 			return nil, fmt.Errorf("zero-gamma: SPY phase: %w", err)
 		}
 		if s != nil && s.logger != nil {
@@ -454,6 +456,11 @@ func runUnderlyingPhase(
 ) (*rpc.GammaZeroComputed, error) {
 	if s == nil {
 		return nil, fmt.Errorf("server is nil")
+	}
+	// Checked before the underlying hold: that hold is itself a market-data
+	// request the backend would not register while the link is down.
+	if gammaBackendLinkDown(c) {
+		return nil, errGammaBackendLinkDown
 	}
 	// Every gamma compute — startup prewarm, scheduler refresh, and
 	bgCtx = ibkrlib.WithRequestPriority(bgCtx, ibkrlib.PriorityBackground)
