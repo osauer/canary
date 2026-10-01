@@ -34,6 +34,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- Cash-sweep redemptions could use the whole holding instead of the capped tranche. Both buys and redemptions now enforce the bucket's order-value cap on the actual previewed limit, including price changes since planning.
 - A US bill looked up by CUSIP or ISIN never resolved, because contract answers without a maturity or currency were dropped without a trace.
 - The base currency's settled cash could show IBKR's cached account-wide SettledCash figure instead of that currency's own.
 - The budget governor's rulebook basis measured available funds, so its limit relaxed as long calls lost value.

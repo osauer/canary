@@ -189,7 +189,7 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	}
 	// The gap of 2,000 at 0.995 a unit asks for 2,011; the grid sells 3,000.
 	p := row(eurRedeemInput(10000), held)
-	if p.Quantity != 3000 || p.MaxQuantity != 10000 || p.PositionEffect != rpc.OrderPositionEffectReduce || len(p.Blockers) != 0 || p.Contract.SecType != "BOND" ||
+	if p.Quantity != 3000 || p.MaxQuantity != 3000 || p.PositionEffect != rpc.OrderPositionEffectReduce || len(p.Blockers) != 0 || p.Contract.SecType != "BOND" ||
 		p.Contract.ConID != 7401 || p.CashSweep.Session == nil || !slices.ContainsFunc(p.Details, func(d string) bool { return strings.Contains(d, "rounded to 3000") }) {
 		t.Fatalf("redeem row = %d/%d %s blockers %+v details %v", p.Quantity, p.MaxQuantity, p.PositionEffect, p.Blockers, p.Details)
 	}
@@ -221,7 +221,7 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	plan, byCcy := planAndResolve(t, capped, eurRedeemInput(10000), held)
 	eur := byCcy["EUR"]
 	p = cashSweepRow(capped, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, eur)
-	if !eur.heldToCap || p.Quantity != 1000 || !p.CashSweep.HeldToCap || !strings.Contains(eur.status.Reason, "next cycle sells the rest") {
+	if !eur.heldToCap || p.Quantity != 1000 || p.MaxQuantity != 1000 || !p.CashSweep.HeldToCap || !strings.Contains(eur.status.Reason, "next cycle sells the rest") {
 		t.Fatalf("capped sale = %d %+v (%s)", p.Quantity, p.CashSweep, eur.status.Reason)
 	}
 	// A cap below one unit holds the currency.

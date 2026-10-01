@@ -2835,6 +2835,9 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 	if b, mismatch, _ := cashSweepBillUnitCheck(prop, preview); mismatch {
 		add(b.Code, b.Message, b.Action)
 	}
+	for _, b := range cashSweepPreviewNotionalBlockers(prop, preview) {
+		add(b.Code, b.Message, b.Action)
+	}
 	if !proposalSupportedOrderType(preview.Draft.OrderType) {
 		add("unsupported_order_type", fmt.Sprintf("proposal order type %q is not supported", preview.Draft.OrderType), "Refresh proposals and preview a supported close/reduce order.")
 	}

@@ -1,6 +1,6 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-09-30 21:32 CEST
+Updated: 2026-10-01
 Status: Phase B installed (daemon v3.14.0-33, d819dfc4); post-install proof
 step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
 symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
@@ -80,6 +80,11 @@ and no cash reserve remains to trip.
   ETF) covering the gap, held to `max_order_notional` (the next cycle sells
   the rest), skipped when a held bill pays out first. Otherwise nothing. An unauthorised proposal or queue
   entry is never a commitment. Maturities return to cash; the band re-sweeps.
+- Each redemption's maximum quantity is its planned, grid-valid capped
+  tranche, not the whole holding. Preview, preparation and every submit path
+  recheck both sides' actual draft value (quantity × face per unit × limit /
+  100 × pinned ledger FX) against `max_order_notional`; missing or nonfinite
+  terms hold the order, as does a fresh price above the cap.
 - Ladder: rung targets spread evenly from `min_maturity_days` to
   `max_maturity_days` (O2). A tranche goes to the rung holding least face
   value, into the bill maturing nearest its target, never earlier than

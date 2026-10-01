@@ -262,17 +262,52 @@ func (x closeReduceOnlyException) previewBlockers(preview *rpc.OrderPreviewResul
 	}
 	var out []rpc.TradingBlocker
 	cost := float64(d.Quantity) * x.FacePerUnit * d.LimitPrice / 100
-	if cost > x.MaxCost+cashSweepMoneyEpsilon {
+	if !positiveFinite(cost) || !positiveFinite(x.MaxCost) || cost > x.MaxCost+cashSweepMoneyEpsilon {
 		out = append(out, rpc.TradingBlocker{Code: "cash_sweep_cost_above_free_cash",
 			Message: fmt.Sprintf("the buy costs %s at its limit, above the free cash %s it was planned against", formatBudgetMoney(cost, x.Currency), formatBudgetMoney(x.MaxCost, x.Currency)),
 			Action:  "Refresh proposals; the next cycle sizes the buy at the current price."})
 	}
-	if base := cost * x.Rate; base > x.MaxBaseNotional+cashSweepMoneyEpsilon {
-		out = append(out, rpc.TradingBlocker{Code: "cash_sweep_above_max_order_notional",
-			Message: fmt.Sprintf("the buy is %s in base at the ledger rate, above max_order_notional %s", formatBudgetMoney(base, "base"), formatBudgetMoney(x.MaxBaseNotional, "base")),
-			Action:  "Refresh proposals; the next cycle sizes the buy at the current price."})
-	}
+	out = append(out, cashSweepNotionalBlockers(cost, x.Rate, x.MaxBaseNotional)...)
 	return out
+}
+
+// cashSweepPreviewNotionalBlockers applies the bucket's one-order cap to
+// the actual reviewed draft on every proposal path. A redemption's current
+// limit can differ from the mark used to size it; its position quantity is
+// not permission to sell beyond the planned tranche. Both sides use the
+// bill's pinned unit convention and the proposal's ledger FX rate.
+func cashSweepPreviewNotionalBlockers(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
+	if prop.Bucket != rpc.TradeProposalBucketCashSweep {
+		return nil
+	}
+	s := prop.CashSweep
+	if s == nil || preview == nil || preview.Draft.Bond == nil ||
+		!cashSweepIsBill(s.Instrument) || !ibkrlib.IsBillOrBond(preview.Draft.Contract.SecType) {
+		return cashSweepNotionalBlockers(0, 0, 0)
+	}
+	d := preview.Draft
+	conv := cashSweepInstrumentConventions[s.Instrument]
+	if d.Quantity < 1 || !positiveFinite(d.LimitPrice) || d.Bond.Instrument != s.Instrument ||
+		d.Bond.FacePerUnit != conv.FacePerUnit || d.Bond.QuantityUnit != conv.QuantityUnit ||
+		normCcy(d.Contract.Currency) != s.Currency {
+		return cashSweepNotionalBlockers(0, s.ExchangeRate, s.MaxOrderNotionalBase)
+	}
+	return cashSweepNotionalBlockers(bondOrderNotional(d.Quantity, d.Bond, d.LimitPrice), s.ExchangeRate, s.MaxOrderNotionalBase)
+}
+
+func cashSweepNotionalBlockers(notional, rate, capBase float64) []rpc.TradingBlocker {
+	base := notional * rate
+	if !positiveFinite(notional) || !positiveFinite(rate) || !positiveFinite(capBase) || !positiveFinite(base) {
+		return []rpc.TradingBlocker{{Code: "cash_sweep_notional_unknown",
+			Message: "the sweep order's value, ledger exchange rate or max_order_notional is unavailable or nonfinite",
+			Action:  "Refresh proposals and preview again with complete bill terms and a finite order cap."}}
+	}
+	if base > capBase+cashSweepMoneyEpsilon {
+		return []rpc.TradingBlocker{{Code: "cash_sweep_above_max_order_notional",
+			Message: fmt.Sprintf("the sweep order is %s in base at the ledger rate, above max_order_notional %s", formatBudgetMoney(base, "base"), formatBudgetMoney(capBase, "base")),
+			Action:  "Refresh proposals; the next cycle sizes the order at the current price."}}
+	}
+	return nil
 }
 
 // admits reports whether a preview is inside the exception.

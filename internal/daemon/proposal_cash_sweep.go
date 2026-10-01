@@ -650,7 +650,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		}
 		contract := cashSweepHoldingContract(h.Row)
 		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideRedeem, h.Instrument, h.Row.ConID),
-			rpc.OrderActionSell, qty, held, h.Row.Quantity, effect, cp.status.Reason)
+			rpc.OrderActionSell, qty, qty, h.Row.Quantity, effect, cp.status.Reason)
 		if mark := h.MarketValue / h.Row.Quantity; mark > 0 {
 			p.Notional = mark * float64(qty)
 		}
