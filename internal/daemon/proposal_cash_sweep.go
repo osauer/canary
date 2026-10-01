@@ -106,7 +106,9 @@ type cashSweepInput struct {
 	Ledger       map[string]cashSweepLedgerRow
 	LedgerReason string
 	Settlement   cashSweepSettlement
-	Commitments  cashSweepCommitments
+	// Flex projections remain diagnostic until complete activity evidence exists.
+	FlexProjections map[string]*rpc.CashSweepSettlementProjection
+	Commitments     cashSweepCommitments
 	// Holdings are the classified cash equivalents per currency;
 	// Unclassified names why a currency's equivalents cannot be measured
 	// (key "" applies to every currency).
@@ -209,6 +211,8 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		MinMaturityDays: cfg.MinMaturityDays, MaxMaturityDays: cfg.MaxMaturityDays, LadderRungs: cfg.LadderRungs,
 	}}
 	st := &cp.status
+	st.SettlementProjection = rpc.CloneCashSweepSettlementProjection(in.FlexProjections[ccy])
+	st.Evidence = append(st.Evidence, flexCashProjectionEvidence(st.SettlementProjection)...)
 	today := cashSweepDay(now)
 
 	// Figures first, so every state shows what was observed.
@@ -284,6 +288,9 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		return cp
 	case settlementReason != "" && !brokerSettled:
 		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, nonEmptyString(row.SettledReason, "the ledger carries no SettledCash for "+ccy+" and "+settlementReason)
+		if st.SettlementProjection != nil {
+			st.Reason = st.SettlementProjection.Reason
+		}
 		return cp
 	case commitReason != "":
 		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, commitReason
@@ -804,6 +811,7 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 	}
 	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, cashNow)
 	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
+	e.attachFlexCashProjections(ctx, policy.Buckets.CashSweep, acct, scope, &in)
 	return in
 }
 

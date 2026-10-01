@@ -1,9 +1,46 @@
 # Settlement evidence for the cash sweep
 
-The TWS cash ledger currently omits per-currency settled cash. The optional
-`[cash_ledger]` connection reads it from an existing authenticated IBKR Web API
-session. It supplements TWS; it never logs in, changes mode, starts a brokerage
-session, keeps a session alive, or sends an order.
+The TWS cash ledger currently omits per-currency settled cash. Canary can read
+an optional historical Flex cash baseline through the existing reporting query.
+It remains a **held estimate**, not permission to sweep. A current native
+settled-cash observation or the optional authenticated Web API ledger can
+separately certify live balances.
+
+## Historical Flex baseline
+
+In the existing Activity Flex Query, enable **Cash Report** and select
+`accountId`, `currency`, `fromDate`, `toDate`, `reportDate`, `endingCash` and
+`endingSettledCash`. Fetch a new statement. This adds no gateway login and does
+not change the required Recon/Edge reporting profile.
+
+Canary reads only accepted, query-scoped statement bytes bound to the current
+account/mode. The selected report must cover the latest completed New York
+reporting day. Cash rows must match its account and dates; aggregates, duplicate
+currencies, invalid amounts and conflicting same-generation baselines hold.
+Unknown values never become zero.
+
+The diagnostic estimate subtracts observed purchase principal from baseline settled
+cash, also bounded by current TWS cash after excluding observed sale proceeds.
+Exact fees remain unknown. Sale credits stay excluded until a
+later confirmed baseline. Commitments and the reserve reduce estimated free
+cash. Purchases are conservatively counted from the start of the report day in
+New York: neither its date nor its timezone-less generation label proves an
+exact intraday cutoff.
+
+**Coverage remains incomplete.** Before an estimate can authorise a sweep,
+Canary must verify unsettled debit obligations already outstanding at the
+baseline, complete account-wide manual/offline executions, withdrawals,
+transfers, FX/corporate-action cash legs, fees and uninterrupted activity.
+Equal ending cash and settled cash, an empty local journal or improving TWS
+cash cannot clear these gaps. Current code exposes `settlement_projection` in
+proposal JSON and labels CLI estimates unverified; it never uses them as
+settled-cash authority. Missing Cash Report fields show the owner action above.
+
+## Optional live Web API ledger
+
+The `[cash_ledger]` connection supplements TWS using an existing authenticated
+IBKR Web API session. It never logs in, changes mode, starts a brokerage session,
+keeps a session alive or sends an order.
 
 ```toml
 [cash_ledger]

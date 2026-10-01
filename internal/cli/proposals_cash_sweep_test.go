@@ -87,3 +87,42 @@ func TestBriefCashValue(t *testing.T) {
 		t.Fatal("nil row rendered")
 	}
 }
+
+func TestCashSweepProjectionRenderKeepsEstimatesUnverified(t *testing.T) {
+	projection := &rpc.CashSweepSettlementProjection{
+		State: "held", StatementDate: "2026-09-30", Source: "flex_projection",
+		BaselineSettledCash: new(12000.0), KnownPurchases: new(2000.0), KnownExcludedSales: new(3000.0),
+		EstimatedCash: new(10000.0), EstimatedFree: new(5000.0),
+		Reason:       "baseline obligations and intraday coverage remain unverified",
+		CoverageGaps: []string{"pre-baseline obligations", "manual and offline activity"},
+	}
+	var buf bytes.Buffer
+	renderCashSweepSection(&Env{}, &buf, &rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeActive, Currencies: []rpc.TradeProposalCashSweepCurrency{{Currency: "EUR", State: rpc.CashSweepStateSettlementUnknown, SettlementProjection: projection}}}, nil)
+	for _, want := range []string{
+		"Flex baseline 2026-09-30 · held", "estimates unverified; cannot authorise a sweep",
+		"settled baseline € 12,000.00", "purchase principal deducted € 2,000.00", "sale credits excluded € 3,000.00",
+		"estimated cash € 10,000.00", "estimated free € 5,000.00",
+		"coverage missing: pre-baseline obligations; manual and offline activity",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("missing %q in %s", want, buf.String())
+		}
+	}
+	if strings.Contains(buf.String(), "settled cash from flex") {
+		t.Fatal("historical estimate rendered as authoritative settled cash")
+	}
+}
+
+func TestCashSweepProjectionUnavailableNeverBecomesZero(t *testing.T) {
+	got := strings.Join(formatCashSweepProjection("USD", &rpc.CashSweepSettlementProjection{State: "unavailable", Reason: "enable Cash Report in the existing Activity Flex Query"}), "\n")
+	if !strings.Contains(got, "Flex baseline unavailable · unavailable") || !strings.Contains(got, "enable Cash Report") || !strings.Contains(got, "cannot authorise a sweep") || strings.Contains(got, "$ 0.00") {
+		t.Fatalf("unavailable projection: %s", got)
+	}
+	partial := strings.Join(formatCashSweepProjection("USD", &rpc.CashSweepSettlementProjection{State: "held", StatementDate: "2026-09-30", BaselineSettledCash: new(0.0)}), "\n")
+	if !strings.Contains(partial, "settled baseline $ 0.00") || !strings.Contains(partial, "purchase principal deducted unavailable") || !strings.Contains(partial, "sale credits excluded unavailable") {
+		t.Fatalf("partial projection: %s", partial)
+	}
+	if formatCashSweepProjection("USD", nil) != nil {
+		t.Fatal("nil projection rendered")
+	}
+}

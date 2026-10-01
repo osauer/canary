@@ -23,6 +23,9 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 	if st != nil {
 		for _, c := range st.Currencies {
 			fmt.Fprintf(out, "    %-4s %-24s %s\n", c.Currency, strings.ReplaceAll(c.State, "_", " "), formatCashSweepCurrency(c))
+			for _, line := range formatCashSweepProjection(c.Currency, c.SettlementProjection) {
+				fmt.Fprintf(out, "         %-24s %s\n", "", line)
+			}
 			for _, line := range c.Evidence {
 				fmt.Fprintf(out, "         %-24s %s\n", "", line)
 			}
@@ -87,6 +90,39 @@ func formatCashSweepCurrency(c rpc.TradeProposalCashSweepCurrency) string {
 		parts = append(parts, "needs your number: "+strings.Join(c.NeedsYourNumber, ", "))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// formatCashSweepProjection keeps historical estimates visibly outside the
+// authoritative band. Missing deductions are unavailable, never a zero.
+func formatCashSweepProjection(ccy string, p *rpc.CashSweepSettlementProjection) []string {
+	if p == nil {
+		return nil
+	}
+	date := p.StatementDate
+	if date == "" {
+		date = "unavailable"
+	}
+	state := strings.ReplaceAll(p.State, "_", " ")
+	if state == "" {
+		state = "unavailable"
+	}
+	lines := []string{fmt.Sprintf("Flex baseline %s · %s · estimates unverified; cannot authorise a sweep", date, state)}
+	if p.BaselineSettledCash != nil || p.KnownPurchases != nil || p.KnownExcludedSales != nil || p.EstimatedCash != nil || p.EstimatedFree != nil {
+		value := func(v *float64) string {
+			if v == nil {
+				return "unavailable"
+			}
+			return cashSweepMoney(*v, ccy)
+		}
+		lines = append(lines, "settled baseline "+value(p.BaselineSettledCash)+" · purchase principal deducted "+value(p.KnownPurchases)+" · sale credits excluded "+value(p.KnownExcludedSales)+" · estimated cash "+value(p.EstimatedCash)+" · estimated free "+value(p.EstimatedFree))
+	}
+	if p.Reason != "" {
+		lines = append(lines, p.Reason)
+	}
+	if len(p.CoverageGaps) > 0 {
+		lines = append(lines, "coverage missing: "+strings.Join(p.CoverageGaps, "; "))
+	}
+	return lines
 }
 
 // briefCashValue is the brief's cash line: per currency, cash plus

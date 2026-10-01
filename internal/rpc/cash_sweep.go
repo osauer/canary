@@ -147,6 +147,9 @@ type TradeProposalCashSweepCurrency struct {
 	Currency string `json:"currency"`
 	State    string `json:"state"`
 	Reason   string `json:"reason,omitempty"`
+	// SettlementProjection is separately labelled historical Flex evidence and
+	// an unverified estimate. It never supplies SettledCash or spend authority.
+	SettlementProjection *CashSweepSettlementProjection `json:"settlement_projection,omitempty"`
 	// Instruments and Fallback are the resolved declaration for the currency
 	// (the owner's table, else Canary's compiled default).
 	Instruments []string `json:"instruments"`
@@ -183,6 +186,49 @@ type TradeProposalCashSweepCurrency struct {
 	// bill could be named (universe_unavailable, instrument_unresolved).
 	Bill     *TradeProposalCashSweepBill `json:"bill,omitempty"`
 	Evidence []string                    `json:"evidence,omitempty"`
+}
+
+// CashSweepSettlementProjection explains the Flex-based settlement route.
+// Estimates are diagnostic only while baseline obligations, intraday activity
+// and fee coverage are unverified. Nil money means unavailable, never zero.
+type CashSweepSettlementProjection struct {
+	State             string `json:"state"`
+	Reason            string `json:"reason"`
+	Source            string `json:"source"`
+	QueryFingerprint  string `json:"query_fingerprint,omitempty"`
+	ReportFingerprint string `json:"report_fingerprint,omitempty"`
+	StatementDate     string `json:"statement_date,omitempty"`
+	// GeneratedLabel is the original timezone-less statement ordering label.
+	// AcceptedAt is the latest local inventory acceptance, not initial receipt.
+	GeneratedLabel      string    `json:"generated_label,omitempty"`
+	AcceptedAt          time.Time `json:"accepted_at,omitzero"`
+	ActivityFrom        time.Time `json:"activity_from,omitzero"`
+	BaselineCash        *float64  `json:"baseline_cash,omitempty"`
+	BaselineSettledCash *float64  `json:"baseline_settled_cash,omitempty"`
+	// KnownPurchases is observed fill principal; exact fees remain a coverage gap.
+	KnownPurchases     *float64 `json:"known_purchases,omitempty"`
+	KnownExcludedSales *float64 `json:"known_excluded_sales,omitempty"`
+	EstimatedCash      *float64 `json:"estimated_cash,omitempty"`
+	EstimatedFree      *float64 `json:"estimated_free,omitempty"`
+	// CoverageGaps names missing evidence, including pre-baseline obligations;
+	// equal or improving cash values cannot clear any of these gaps.
+	CoverageGaps []string `json:"coverage_gaps"`
+}
+
+// CloneCashSweepSettlementProjection isolates a diagnostic projection.
+func CloneCashSweepSettlementProjection(in *CashSweepSettlementProjection) *CashSweepSettlementProjection {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.BaselineCash = cloneCashSweepFloat(in.BaselineCash)
+	out.BaselineSettledCash = cloneCashSweepFloat(in.BaselineSettledCash)
+	out.KnownPurchases = cloneCashSweepFloat(in.KnownPurchases)
+	out.KnownExcludedSales = cloneCashSweepFloat(in.KnownExcludedSales)
+	out.EstimatedCash = cloneCashSweepFloat(in.EstimatedCash)
+	out.EstimatedFree = cloneCashSweepFloat(in.EstimatedFree)
+	out.CoverageGaps = slices.Clone(in.CoverageGaps)
+	return &out
 }
 
 // TradeProposalCashSweepBill is a resolved bill: its identifiers, maturity
@@ -340,6 +386,7 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 		c.ExchangeRate = cloneCashSweepFloat(c.ExchangeRate)
 		c.TradeDateCash = cloneCashSweepFloat(c.TradeDateCash)
 		c.SettledCash = cloneCashSweepFloat(c.SettledCash)
+		c.SettlementProjection = CloneCashSweepSettlementProjection(c.SettlementProjection)
 		c.Cash = cloneCashSweepFloat(c.Cash)
 		c.Committed = cloneCashSweepFloat(c.Committed)
 		c.PendingRedemptions = cloneCashSweepFloat(c.PendingRedemptions)

@@ -95,21 +95,26 @@ type EquityRow struct {
 
 // Statement is one parsed Flex statement.
 type Statement struct {
-	AccountID        string
-	FromDate         time.Time
-	ToDate           time.Time
-	WhenGenerated    time.Time
-	ManifestVersion  string
-	Coverage         []SectionCoverage
-	Cash             []CashLine
-	Transfers        []Transfer
-	Equity           []EquityRow
-	Trades           []Trade
-	Instruments      []Instrument
-	Positions        []OpenPosition
-	OptionEvents     []OptionEvent
-	CorporateActions []CorporateAction
-	FXRates          []FXRate
+	AccountID       string
+	FromDate        time.Time
+	ToDate          time.Time
+	WhenGenerated   time.Time
+	ManifestVersion string
+	Coverage        []SectionCoverage
+	// CashBalances and SettlementCoverage are optional settlement evidence;
+	// they do not change the Recon/Edge reporting query requirements.
+	CashBalances       []CashBalance
+	CashBalanceError   string
+	SettlementCoverage SectionCoverage
+	Cash               []CashLine
+	Transfers          []Transfer
+	Equity             []EquityRow
+	Trades             []Trade
+	Instruments        []Instrument
+	Positions          []OpenPosition
+	OptionEvents       []OptionEvent
+	CorporateActions   []CorporateAction
+	FXRates            []FXRate
 }
 
 type xmlFlexQueryResponse struct {
@@ -271,6 +276,7 @@ func Parse(data []byte) ([]Statement, error) {
 	if err := parseEdgeRecords(data, out); err != nil {
 		return nil, err
 	}
+	parseCashBalances(data, out)
 	return out, nil
 }
 

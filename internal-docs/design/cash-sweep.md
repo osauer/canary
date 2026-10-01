@@ -77,6 +77,15 @@ and no cash reserve remains to trip.
   new sweeps; exact BUY previews require principal plus a same-currency broker
   maximum commission to fit `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
+- Historical Flex cash: optional Cash Report rows supply a baseline from accepted
+  current-query bytes and the exact selected account/mode. The latest completed
+  reporting date is required. Known purchases are deducted conservatively from
+  the start of that report day in New York; sale credits remain excluded until
+  a later confirmed statement. Estimates are **diagnostic only**: no code today
+  proves baseline unsettled debit obligations or complete intraday/manual/offline
+  cash activity, FX/withdrawals/transfers/corporate actions and fees. Equal cash
+  figures or an empty local journal cannot clear these gaps. `settlement_projection`
+  reports held/unavailable estimates; it never populates authoritative settled cash.
 - Band: invest when `free > min_tranche`: one BUY in the bill's whole order
   units on its size grid, capped by `max_order_notional`. Redeem when
   `cash − committed < keep_cash`: one SELL of the nearest maturity (or the
@@ -148,6 +157,7 @@ and no cash reserve remains to trip.
 | Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
 | Settled cash | broker per-currency ledger observation, or configured authenticated Web API ledger (A4 false in TWS) | `rpc.CurrencyExposure.SettledCashCcy` / `.WebCash`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh; Web reads shared at most 15s and source time bounded to 1m | `settlement_unknown`; stale/session-mismatched/pre-fill receipts and journal estimates never admit orders |
+| Optional historical settled-cash baseline | accepted active-query Flex Cash Report | `flexCashBaseline`, `CashSweepSettlementProjection`; optional manifest independent of Recon/Edge | latest completed New York reporting day; exact statement/account/currency dates; accepted inventory hashes rechecked | diagnostic held/unavailable only; same-generation ambiguity and missing/invalid fields hold; complete baseline obligations and intraday activity remain unproved |
 | Commitments | broker open-order inventory, queued authorisations | `cashSweepCommitments` | per refresh | `settlement_unknown` |
 | Held equivalents | positions view and its `bonds` section; exact fresh TreasuryDirect CUSIP or same-session owner-allowlisted German ISIN-to-ConID reads when broker dates are omitted | `rpc.PositionBond` effective maturity/source/receipt and request-bound resolution provenance; typed holding/redemption and preview pins | per refresh; German mappings bypass broker directory cache and preserve concrete account/session | `equivalents_unclassified`; malformed dates, conflicting identifiers/frames, aliases, stale issuer reads and late scope changes never admit |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |
