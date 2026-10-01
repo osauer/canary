@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // ReviewedTerminalStock is one stock the caller holds reviewed terminal
@@ -14,6 +15,10 @@ import (
 type ReviewedTerminalStock struct {
 	ConID  int
 	Reason string
+	// ValidUntil bounds reviewed evidence; zero retains the caller-managed lifetime.
+	ValidUntil time.Time
+	// EvidenceFingerprint binds a carried entry to its reviewed source revision.
+	EvidenceFingerprint string
 }
 
 // defaultReviewedTerminalReason labels an entry supplied without a reason.
@@ -22,9 +27,9 @@ const defaultReviewedTerminalReason = "reviewed terminal evidence"
 // SetReviewedTerminal atomically replaces the set of stocks, keyed by symbol
 // (case-insensitive), that the Connector treats as inactive without asking
 // the broker. Unlike the heuristic inactive mark, which needs repeated broker
-// confirmations and expires, membership has no TTL and survives connection
-// loss; it ends only when a later call omits the symbol, which restores
-// ordinary behaviour.
+// confirmations and expires, membership survives connection loss. An explicit
+// ValidUntil expires it on lookup. A later call omitting the symbol also
+// restores ordinary behaviour.
 //
 // Membership covers the bare symbol, its default route and any STK route key
 // for it whose explicit ConID (if any) matches. Any market-data subscription
@@ -38,7 +43,7 @@ func (c *Connector) SetReviewedTerminal(stocks map[string]ReviewedTerminalStock)
 	next := make(map[string]ReviewedTerminalStock, len(stocks))
 	for symbol, entry := range stocks {
 		symbol = strings.ToUpper(strings.TrimSpace(symbol))
-		if symbol == "" || strings.Contains(symbol, "|") {
+		if symbol == "" || strings.Contains(symbol, "|") || (!entry.ValidUntil.IsZero() && !time.Now().Before(entry.ValidUntil)) {
 			continue
 		}
 		entry.Reason = strings.TrimSpace(entry.Reason)
@@ -53,7 +58,7 @@ func (c *Connector) SetReviewedTerminal(stocks map[string]ReviewedTerminalStock)
 	c.inactiveMu.Lock()
 	previous := c.reviewedTerminal
 	for symbol, entry := range next {
-		if prior, ok := previous[symbol]; !ok || prior.ConID != entry.ConID {
+		if prior, ok := previous[symbol]; !ok || prior.ConID != entry.ConID || !prior.ValidUntil.Equal(entry.ValidUntil) || prior.EvidenceFingerprint != entry.EvidenceFingerprint {
 			added[symbol] = entry
 			delete(c.inactiveCandidates, symbol)
 		}
@@ -118,7 +123,7 @@ func reviewedTerminalMatch(set map[string]ReviewedTerminalStock, key string) (st
 	key = strings.ToUpper(strings.TrimSpace(key))
 	symbol, rest, compound := strings.Cut(key, "|")
 	entry, ok := set[symbol]
-	if !ok {
+	if !ok || (!entry.ValidUntil.IsZero() && !time.Now().Before(entry.ValidUntil)) {
 		return "", false
 	}
 	if !compound {

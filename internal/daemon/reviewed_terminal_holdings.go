@@ -2,6 +2,10 @@ package daemon
 
 import (
 	"maps"
+	"time"
+
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -14,7 +18,7 @@ const reviewedTerminalHoldingReason = "reviewed terminal evidence"
 // whose exact ConID, symbol and STK type matched a current reviewed terminal
 // record (markReviewedTerminalStocks), and hands it to c. The connector then
 // stops every broker request for those stocks, including lingering
-// market-data re-probes, until a later read drops them.
+// market-data re-probes, until their review expires or a later read drops them.
 func (s *Server) publishReviewedTerminalHoldings(c *ibkrlib.Connector, held map[string]ibkrlib.ReviewedTerminalStock) {
 	if s == nil {
 		return
@@ -29,7 +33,8 @@ func (s *Server) publishReviewedTerminalHoldings(c *ibkrlib.Connector, held map[
 }
 
 // seedReviewedTerminalHoldings gives a newly published connector the last
-// computed set before its handshake, so a reconnect does not re-probe those
+// computed set after checking current exact-contract authority, before its
+// handshake, so a reconnect does not re-probe those
 // stocks while the first positions read is still pending. Before any
 // positions read has completed there is nothing to seed.
 func (s *Server) seedReviewedTerminalHoldings(c *ibkrlib.Connector) {
@@ -40,6 +45,17 @@ func (s *Server) seedReviewedTerminalHoldings(c *ibkrlib.Connector) {
 	held, known := maps.Clone(s.reviewedTerminalHeld), s.reviewedTerminalKnown
 	s.reviewedTerminalMu.Unlock()
 	if known {
+		now := time.Now()
+		for symbol, entry := range held {
+			if s.earningsTerminal == nil {
+				delete(held, symbol)
+				continue
+			}
+			match, found := s.earningsTerminal.terminalEarningsFor(risk.NameInput{Symbol: symbol, StockConID: entry.ConID, StockSecType: "STK"}, now)
+			if !found || match.Status != rpc.EarningsStatusTerminalNonReporting || entry.EvidenceFingerprint == "" || entry.EvidenceFingerprint != match.Info.AuthorityBinding || !entry.ValidUntil.Equal(match.Info.RevalidateAfter) {
+				delete(held, symbol)
+			}
+		}
 		c.SetReviewedTerminal(held)
 	}
 }

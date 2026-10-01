@@ -135,3 +135,24 @@ func TestSetReviewedTerminalDetachesLingeringSubscription(t *testing.T) {
 		t.Fatal("removal left the stock inactive")
 	}
 }
+
+func TestReviewedTerminalExpiresWithoutPositionsRead(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	defer c.Stop()
+	expires := time.Now().Add(time.Hour)
+	c.SetReviewedTerminal(map[string]ReviewedTerminalStock{"SYNTHDEAD": {ConID: 900201, ValidUntil: expires, EvidenceFingerprint: "revision1"}})
+	if !c.IsSymbolInactive("SYNTHDEAD") {
+		t.Fatal("current review did not suppress")
+	}
+	// Advance only the stored deadline: no positions read or disconnect clears it.
+	c.inactiveMu.Lock()
+	entry := c.reviewedTerminal["SYNTHDEAD"]
+	entry.ValidUntil = time.Now().Add(-time.Nanosecond)
+	c.reviewedTerminal["SYNTHDEAD"] = entry
+	c.inactiveMu.Unlock()
+	for _, key := range []string{"SYNTHDEAD", MarketDataKeyForContract(Contract{Symbol: "SYNTHDEAD", SecType: "STK", ConID: 900201})} {
+		if c.IsSymbolInactive(key) {
+			t.Fatalf("expired review suppresses %s", key)
+		}
+	}
+}

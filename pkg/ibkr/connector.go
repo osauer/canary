@@ -135,7 +135,7 @@ type Connector struct {
 	inactiveCandidates map[string]inactiveCandidateState
 	// reviewedTerminal is the caller-owned set of stocks with reviewed
 	// terminal evidence (see SetReviewedTerminal). Unlike inactiveSymbols it
-	// is authoritative, has no TTL, and survives connection loss.
+	// survives connection loss and carries its reviewed evidence deadline.
 	reviewedTerminal map[string]ReviewedTerminalStock
 	// contractDetailsFlights coalesces identical unresolved contract requests.
 	// The broker sees one reqContractDetails and concurrent callers whose wait

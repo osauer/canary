@@ -809,8 +809,10 @@ func (s *Server) markReviewedTerminalStocks(stocks []rpc.PositionView, now time.
 					matched = make(map[string]ibkrlib.ReviewedTerminalStock, 1)
 				}
 				matched[strings.ToUpper(strings.TrimSpace(p.Symbol))] = ibkrlib.ReviewedTerminalStock{
-					ConID:  p.ConID,
-					Reason: reviewedTerminalHoldingReason,
+					ConID:               p.ConID,
+					Reason:              reviewedTerminalHoldingReason,
+					ValidUntil:          match.Info.RevalidateAfter,
+					EvidenceFingerprint: match.Info.AuthorityBinding,
 				}
 			}
 		}
