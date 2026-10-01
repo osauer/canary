@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.15.1 — 2026-10-01 21:44 CEST
+
+### What's new
+
+- **Settled cash from a live Web API ledger.** An optional `[cash_ledger]` connection reads per-currency cash and settled cash from an IBKR Web API session you already have open. It never logs in, starts a brokerage session or sends an order, and `canary account --json` reports its health.
+- **A Flex settlement estimate, clearly labelled.** With Cash Report enabled in your existing Flex query, the cash sweep shows a settled-cash estimate per currency and names the evidence it still lacks. The estimate is diagnostic and never authorises a sweep.
+- **Reconnect knows when no IBKR app is running.** With no TWS, IB Gateway or IBKR Desktop open, the outage says so, retries slow to once a minute, and Canary connects as soon as an app starts.
+
+### Changed
+
+- The cash sweep requires broker-observed settled cash per currency. An account-wide figure or the order journal's estimate cannot authorise it; without that observation, or while a working buy has no fixed finite limit, the sweep holds at `settlement_unknown`.
+- Held US bills and German Bubills whose broker answer omits a maturity take it from the exact TreasuryDirect or Finance Agency record. Missing or conflicting evidence holds the currency.
+
+### Fixed
+
+- Cash-sweep redemptions could use the whole holding instead of the capped tranche. Buys and redemptions now enforce the order-value cap on the previewed limit.
+- `canary proposals ignore` reported success when the daemon had refused the request.
+- Zero-gamma option batches kept subscribing and cancelling options for minutes after TWS lost its IBKR backend link.
+- Delisted holdings you had reviewed kept drawing "no security definition" answers from the broker every thirty minutes and after each reconnect.
+- Account pins, previews, approvals, the journal and the trading freeze are unchanged for every bucket.
+
 ## v3.15.0 — 2026-09-30 21:34 CEST
 
 ### What's new
@@ -25,7 +46,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - Rule 3 measures long option premium at risk instead of available funds, and rule 15's bands live in the regime tables. A policy file that still sets a retired key loads with a note, `canary rules policy reset KEY` removes it, and the regime tables carry the new keys at their defaults.
 - The Rulebook baseline is `rulebook-v5`.
-- The cash sweep requires broker-observed settled cash per currency. An account-wide figure or the order journal's settlement estimate cannot authorise it; without the per-currency observation the sweep holds at `settlement_unknown`.
+- Settled cash per currency is derived from Canary's order journal, because IBKR's SettledCash is one account-wide figure.
 - The tax review of bill rolls is advisory and holds no sweep row.
 
 ### Removed
@@ -34,11 +55,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
-- Cash-sweep redemptions could use the whole holding instead of the capped tranche. Both buys and redemptions now enforce the bucket's order-value cap on the actual previewed limit, including price changes since planning.
 - A US bill looked up by CUSIP or ISIN never resolved, because contract answers without a maturity or currency were dropped without a trace.
 - The base currency's settled cash could show IBKR's cached account-wide SettledCash figure instead of that currency's own.
 - The budget governor's rulebook basis measured available funds, so its limit relaxed as long calls lost value.
-- The existing account pins, previews, approvals, journal and trading freeze remain binding for every bucket.
+- Nothing changed in the order path of the buckets you already run: the same account pins, previews, approvals, journal and trading freeze apply, and only the ranking and stress-open timing described above differ.
 
 ## v3.14.0 — 2026-09-30 08:25 CEST
 
