@@ -85,6 +85,10 @@ socket. The project makes these additional outbound connections:
 - When the owner enables the cash sweep, it reads TreasuryDirect's public list
   of Treasury bills over HTTPS to name US bills, and the request sends no
   account data.
+- German bill maturity checks read exact public ISIN factsheets from
+  `www.deutsche-finanzagentur.de` over verified HTTPS. The public ISIN is in
+  the request path; no holdings, balances, account identifiers or credentials
+  are sent. Redirects are refused and failed reads supply no stale evidence.
 - Macro refreshes download public economic calendars and official feeds from
   BLS, the New York Fed, BEA, the Federal Reserve, and the ECB. The requests
   contain no portfolio or account fields. Requests to BLS name Canary and its

@@ -3535,14 +3535,16 @@ func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFin
 				BillConID                                                 int
 				BillType, BillInstrument, BillQuantityUnit                string
 				BillSource, CUSIP, ISIN, Maturity, MaturitySource         string
+				ResolutionSource                                          string
 				PriceConvention                                           string
 			}{ConID: p.Contract.ConID, SecType: p.Contract.SecType, Exchange: p.Contract.Exchange,
 				ContractCurrency: p.Contract.Currency, Currency: s.Currency, Instrument: s.Instrument, Action: p.Action,
 				Side: s.Side, QuantityUnit: s.QuantityUnit, FaceValue: s.FaceValue,
-				Maturity: s.MaturityDate}
+				Maturity: s.MaturityDate, MaturitySource: s.MaturitySource, CUSIP: s.CUSIP, ISIN: s.ISIN, ResolutionSource: s.ResolutionSource}
 			if b := s.Bill; b != nil {
 				binding.BillConID, binding.BillType, binding.BillInstrument = b.ConID, b.SecType, b.Instrument
 				binding.BillQuantityUnit = b.QuantityUnit
+				binding.ResolutionSource = b.ResolutionSource
 				binding.BillSource, binding.CUSIP, binding.ISIN = b.Source, b.CUSIP, b.ISIN
 				binding.Maturity, binding.MaturitySource, binding.PriceConvention = b.Maturity, b.MaturitySource, b.PriceConvention
 			}

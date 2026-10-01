@@ -189,19 +189,23 @@ type BondLookupFrame struct {
 // holdings loses it; this entry adds what a bond is: bill or bond, maturity,
 // identifiers and currency.
 type PositionBond struct {
-	ConID          int      `json:"con_id"`
-	Symbol         string   `json:"symbol"`
-	Currency       string   `json:"currency"`
-	Class          string   `json:"class"`
-	ISIN           string   `json:"isin,omitempty"`
-	CUSIP          string   `json:"cusip,omitempty"`
-	Issuer         string   `json:"issuer,omitempty"`
-	Maturity       string   `json:"maturity,omitempty"`
-	DaysToMaturity *int     `json:"days_to_maturity,omitempty"`
-	Coupon         *float64 `json:"coupon,omitempty"`
-	Quantity       float64  `json:"quantity"`
-	Mark           float64  `json:"mark"`
-	MarketValue    float64  `json:"market_value_ccy"`
+	ResolutionSource string `json:"resolution_source,omitempty"`
+	// Effective maturity provenance; public evidence never changes raw broker frames.
+	MaturitySource     string    `json:"maturity_source,omitempty"`
+	MaturitySourceAsOf time.Time `json:"maturity_source_as_of,omitzero"`
+	ConID              int       `json:"con_id"`
+	Symbol             string    `json:"symbol"`
+	Currency           string    `json:"currency"`
+	Class              string    `json:"class"`
+	ISIN               string    `json:"isin,omitempty"`
+	CUSIP              string    `json:"cusip,omitempty"`
+	Issuer             string    `json:"issuer,omitempty"`
+	Maturity           string    `json:"maturity,omitempty"`
+	DaysToMaturity     *int      `json:"days_to_maturity,omitempty"`
+	Coupon             *float64  `json:"coupon,omitempty"`
+	Quantity           float64   `json:"quantity"`
+	Mark               float64   `json:"mark"`
+	MarketValue        float64   `json:"market_value_ccy"`
 	// Reason says why an unresolved row could not be classified.
 	Reason string `json:"reason,omitempty"`
 }
@@ -224,6 +228,12 @@ func CloneBondQuote(in *BondQuote) *BondQuote {
 // (internal-docs/design/cash-sweep.md): the proposal engine sets the
 // conventions, the preview reads the grid from the line's contract details.
 type OrderBondTerms struct {
+	ResolutionSource string `json:"resolution_source,omitempty"`
+	// Exact maturity and identity reviewed in the proposal, rechecked at preview.
+	Maturity        string  `json:"maturity,omitempty"`
+	MaturitySource  string  `json:"maturity_source,omitempty"`
+	CUSIP           string  `json:"cusip,omitempty"`
+	ISIN            string  `json:"isin,omitempty"`
 	Instrument      string  `json:"instrument"`
 	QuantityUnit    string  `json:"quantity_unit"`
 	FacePerUnit     float64 `json:"face_per_unit"`

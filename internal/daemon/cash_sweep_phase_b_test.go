@@ -263,12 +263,11 @@ func TestCashSweepClassifiesHeldBills(t *testing.T) {
 	}
 }
 
-// Investment proposal evidence is not a held-position source. Until the held
-// projection binds public maturity separately, a broker omission must stop the
-// currency's ladder/redemptions rather than silently treating the bill as zero.
+// Malformed broker dates cannot be repaired by public dates, even when an exact
+// fresh public match exists; the held exposure must remain explicitly unknown.
 func TestCashSweepHeldBillMissingMaturityBlocksCurrency(t *testing.T) {
 	now := cashSweepTestNow()
-	for _, raw := range []string{"", "2026-11", "2026-02-30"} {
+	for _, raw := range []string{"2026-11", "2026-02-30"} {
 		t.Run(nonEmptyString(raw, "omitted"), func(t *testing.T) {
 			line := synthBondLine(8401, synthCUSIP35, "USD", cashSweepDay(now).AddDate(0, 0, 35))
 			line.Maturity = raw
@@ -276,12 +275,11 @@ func TestCashSweepHeldBillMissingMaturityBlocksCurrency(t *testing.T) {
 			s.cashSweepB.dir = &bondDirectory{fetch: bondFetchOf(func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
 				return []ibkrlib.BondContractDetails{line}, nil
 			})}
-			// A fresh exact public date already exists, but the current held
-			// projection deliberately has no public provenance field yet.
+			// A fresh public date must not overwrite malformed broker evidence.
 			s.cashSweepB.universe = &billUniverse{record: treasuryBillUniverseRecord{FetchedAt: now.Add(-time.Hour), Bills: usBillSource(now).bills}}
 			rows := []rpc.PositionView{{Symbol: "SYNTH", SecType: "BILL", ConID: 8401, Currency: "USD", Quantity: 5, MarketValue: 4975}}
 			pos := &rpc.PositionsResult{Stocks: rows, Bonds: s.classifyBondPositions(context.Background(), rows, now)}
-			if len(pos.Bonds) != 1 || pos.Bonds[0].Class != rpc.BondClassBill || pos.Bonds[0].Maturity != "" {
+			if len(pos.Bonds) != 1 || pos.Bonds[0].Class != rpc.BondClassUnresolved || pos.Bonds[0].Maturity != "" {
 				t.Fatalf("held broker projection = %+v", pos.Bonds)
 			}
 			holdings, blocked := cashSweepClassify(&protectionCashSweepPolicy{Enabled: true}, pos)

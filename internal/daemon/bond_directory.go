@@ -403,6 +403,26 @@ func (s *Server) classifyBondPositions(ctx context.Context, rows []rpc.PositionV
 					view := bondContractView(line, cashSweepDay(now))
 					b.Class, b.ISIN, b.CUSIP, b.Issuer = view.Class, view.ISIN, view.CUSIP, view.Issuer
 					b.Maturity, b.DaysToMaturity, b.Coupon = view.Maturity, view.DaysToMaturity, view.Coupon
+					if view.Class == rpc.BondClassBill {
+						b.Maturity, b.MaturitySource, b.MaturitySourceAsOf, err = cashSweepHeldMaturity(serverBillSource{s}, lines, line, now)
+						if err == nil {
+							date, _ := time.Parse(time.DateOnly, b.Maturity)
+							b.DaysToMaturity = new(cashSweepDaysLeft(cashSweepDay(now), date))
+						} else {
+							b.Class, b.DaysToMaturity = rpc.BondClassUnresolved, nil
+						}
+					}
+				}
+			}
+			if b.Currency == "EUR" && row.SecType == ibkrlib.SecTypeBill && b.ISIN == "" {
+				if candidate, bindingErr := s.heldGermanBinding(ctx, row, now); bindingErr == nil {
+					b.Class, b.ISIN, b.Maturity = rpc.BondClassBill, candidate.id, candidate.maturity.Format(time.DateOnly)
+					b.ResolutionSource, b.MaturitySource, b.MaturitySourceAsOf = candidate.resolutionSource, candidate.maturitySource, candidate.publicFetchedAt
+					b.DaysToMaturity = new(candidate.days)
+					err = nil
+				} else {
+					b.Class, b.Maturity, b.DaysToMaturity = rpc.BondClassUnresolved, "", nil
+					err = bindingErr
 				}
 			}
 			if err != nil {

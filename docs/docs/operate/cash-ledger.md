@@ -62,10 +62,17 @@ distinguishes broker hours from assumed fallback hours. For an issued US bill
 only, an exact fresh TreasuryDirect CUSIP may supply maturity when an explicit
 broker BILL line omits it; contradictory dates are refused and the review names
 the public maturity source. No date is invented for another issuer or identifier.
-This fallback applies to new USD bill candidates. A held recognized bill with
-missing or invalid broker maturity holds its currency's cash-equivalent and
-sweep calculation; a provenance-bound public maturity for held positions and
-redemptions remains a commissioning follow-up.
+Held USD bills use the same exact fresh TreasuryDirect CUSIP binding, with
+public provenance shown separately. Invalid dates or conflicting frames hold
+classification and orders. German Bubills may use the exact official Finance
+Agency factsheet for their maturity. When the broker reports only an IBCID,
+issuer ISIN and currency are explicitly **request-bound**, never invented broker
+fields. Held German bills repeat the owner-allowlisted ISIN lookups and the
+ConID lookup on one captured account/session; exactly one matching mapping is
+required. Missing, ambiguous or changed mappings hold the currency. Every
+preview repeats exact identity and maturity checks on its own broker session;
+changes to semantic maturity or identity invalidate the approval revision.
+Order units remain assumptions until an exact broker WhatIf verifies them.
 
 An actual eligible sweep row is still needed for the gated WhatIf preview.
 It verifies units, access and commissions; preview tokens do not authorise

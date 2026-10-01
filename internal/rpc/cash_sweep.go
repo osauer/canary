@@ -74,6 +74,7 @@ const (
 
 // Maturity provenance remains separate from the broker's raw contract fields.
 const (
+	CashSweepMaturitySourceGermanIssuer         = "german_finance_agency"
 	CashSweepMaturitySourceBroker               = "broker"
 	CashSweepMaturitySourceBrokerTreasuryDirect = "broker_and_treasurydirect"
 	CashSweepMaturitySourceTreasuryDirect       = "treasurydirect"
@@ -192,9 +193,12 @@ type TradeProposalCashSweepCurrency struct {
 // SizeIncrement (order units) and MinTick come from the line's contract
 // details and bound every order; Session is when a DAY order can fill.
 type TradeProposalCashSweepBill struct {
-	Instrument string `json:"instrument"`
-	Source     string `json:"source"`
-	ConID      int    `json:"con_id"`
+	// request_bound: issuer ISIN and currency belong to the exact resolution
+	// request, rather than identifiers reported in the broker frame.
+	ResolutionSource string `json:"resolution_source,omitempty"`
+	Instrument       string `json:"instrument"`
+	Source           string `json:"source"`
+	ConID            int    `json:"con_id"`
 	// SecType is the IBKR security type the bill resolved as (BILL or
 	// BOND); the row's order carries it.
 	SecType  string `json:"sec_type,omitempty"`
@@ -306,7 +310,12 @@ type TradeProposalCashSweep struct {
 	MaxOrderNotionalBase float64 `json:"max_order_notional_base,omitempty"`
 	ExchangeRate         float64 `json:"exchange_rate,omitempty"`
 	// Redeem: the maturity sold (YYYY-MM-DD; empty for the ETF).
-	MaturityDate string `json:"maturity_date,omitempty"`
+	MaturityDate       string    `json:"maturity_date,omitempty"`
+	MaturitySource     string    `json:"maturity_source,omitempty"`
+	MaturitySourceAsOf time.Time `json:"maturity_source_as_of,omitzero"`
+	CUSIP              string    `json:"cusip,omitempty"`
+	ISIN               string    `json:"isin,omitempty"`
+	ResolutionSource   string    `json:"resolution_source,omitempty"`
 	// Bill is the resolved bill an invest row names.
 	Bill *TradeProposalCashSweepBill `json:"bill,omitempty"`
 	// Session is when the row's order can fill: the bill's session on an

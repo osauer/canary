@@ -82,6 +82,7 @@ type cashSweepCommitments struct {
 // cashSweepHolding is one classified cash equivalent: a vocabulary bill with
 // its maturity and face value, or the declared ETF (zero maturity).
 type cashSweepHolding struct {
+	Bond        rpc.PositionBond
 	Row         rpc.PositionView
 	Instrument  string
 	Maturity    time.Time
@@ -649,6 +650,9 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
 		if !h.Maturity.IsZero() {
 			block.MaturityDate = h.Maturity.Format(time.DateOnly)
+			block.MaturitySource, block.MaturitySourceAsOf = h.Bond.MaturitySource, h.Bond.MaturitySourceAsOf
+			block.CUSIP, block.ISIN = h.Bond.CUSIP, h.Bond.ISIN
+			block.ResolutionSource = h.Bond.ResolutionSource
 		}
 		contract := cashSweepHoldingContract(h.Row)
 		p = cashSweepProposal(policy, status, sources, now, contract, cashSweepKey(ccy, rpc.CashSweepSideRedeem, h.Instrument, h.Row.ConID),
@@ -876,7 +880,7 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 			if holdings == nil {
 				holdings = map[string][]cashSweepHolding{}
 			}
-			holdings[ccy] = append(holdings[ccy], cashSweepHolding{Row: row, Instrument: instrument, Maturity: maturity,
+			holdings[ccy] = append(holdings[ccy], cashSweepHolding{Row: row, Bond: b, Instrument: instrument, Maturity: maturity,
 				FaceValue: row.Quantity * cashSweepInstrumentConventions[instrument].FacePerUnit, MarketValue: row.MarketValue})
 		case "STK", "STOCK", "ETF":
 			cfg := bucket.currency(ccy)

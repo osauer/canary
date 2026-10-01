@@ -187,7 +187,13 @@ func cashSweepOrderTerms(prop rpc.TradeProposal) *rpc.OrderBondTerms {
 		return nil
 	}
 	conv := cashSweepInstrumentConventions[s.Instrument]
-	return &rpc.OrderBondTerms{Instrument: s.Instrument, QuantityUnit: conv.QuantityUnit, FacePerUnit: conv.FacePerUnit, PriceConvention: conv.PriceConvention}
+	terms := &rpc.OrderBondTerms{Instrument: s.Instrument, QuantityUnit: conv.QuantityUnit, FacePerUnit: conv.FacePerUnit, PriceConvention: conv.PriceConvention,
+		Maturity: s.MaturityDate, MaturitySource: s.MaturitySource, CUSIP: s.CUSIP, ISIN: s.ISIN, ResolutionSource: s.ResolutionSource}
+	if b := s.Bill; b != nil {
+		terms.Maturity, terms.MaturitySource, terms.CUSIP, terms.ISIN = b.Maturity, b.MaturitySource, b.CUSIP, b.ISIN
+		terms.ResolutionSource = b.ResolutionSource
+	}
+	return terms
 }
 
 // closeReduceOnlyException is the one exception to authority.close_reduce_only

@@ -95,8 +95,36 @@ func (s *Server) resolvePreviewBondContract(ctx context.Context, authority *orde
 	if err != nil {
 		return fail(fmt.Errorf("%w: bond contract details: %v", ErrTradingDisabled, err))
 	}
-	if instrument := bondLineInstrument(line); instrument != terms.Instrument {
+	requestBound := terms.ResolutionSource == cashSweepResolutionRequestBound
+	if requestBound {
+		var exactLines []ibkrlib.BondContractDetails
+		if authority == nil {
+			return fail(fmt.Errorf("%w: request-bound bill identity needs the preview broker session", ErrTradingDisabled))
+		}
+		exactLines, err = authority.connector.BondContractDetailsForSession(ctx, authority.session,
+			ibkrlib.BondContractRequest{IDType: ibkrlib.BondIdentifierISIN, ID: terms.ISIN, Currency: contract.Currency,
+				SecTypes: cashSweepInstrumentSecTypes(terms.Instrument)}, timeout)
+		if err != nil {
+			return fail(fmt.Errorf("%w: exact bill identity cannot be re-read", ErrTradingDisabled))
+		}
+		exactLine, _, err := bondLineFor(exactLines, contract.Currency, 0)
+		if err != nil || exactLine.ConID != contract.ConID {
+			return fail(fmt.Errorf("%w: exact bill identity changed", ErrTradingDisabled))
+		}
+		if err := cashSweepCheckGermanPreview(ctx, serverBillSource{s}, exactLines, exactLine, terms, s.orderNow()); err != nil {
+			return fail(fmt.Errorf("%w: %v", ErrTradingDisabled, err))
+		}
+		if err := cashSweepCheckGermanPreview(ctx, serverBillSource{s}, lines, line, terms, s.orderNow()); err != nil {
+			return fail(fmt.Errorf("%w: held contract details contradict the exact bill: %v", ErrTradingDisabled, err))
+		}
+	}
+	if instrument := bondLineInstrument(line); !requestBound && instrument != terms.Instrument {
 		return fail(fmt.Errorf("%w: contract %d is not a %s bill (its details read %q)", ErrTradingDisabled, contract.ConID, terms.Instrument, nonEmptyString(instrument, bondClassOf(line))))
+	}
+	if !requestBound {
+		if err := cashSweepCheckReviewedMaturity(serverBillSource{s}, lines, line, terms, s.orderNow()); err != nil {
+			return fail(fmt.Errorf("%w: bill maturity identity: %v", ErrTradingDisabled, err))
+		}
 	}
 	rules, err := ibkrlib.BondOrderRulesFrom(line)
 	if err != nil {

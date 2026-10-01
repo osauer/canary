@@ -99,6 +99,7 @@ type cashSweepBillCandidate struct {
 	days                           int
 	maturitySource                 string
 	publicFetchedAt                time.Time
+	resolutionSource               string
 	// line is set when the candidate was found by resolving it (an owner's
 	// ISIN); a TreasuryDirect bill is resolved when it is tried.
 	line *ibkrlib.BondContractDetails
@@ -144,7 +145,17 @@ func cashSweepResolveRedemption(ctx context.Context, src cashSweepBillSource, cp
 	if src != nil {
 		if lines, err := src.held(ctx, h.Row.ConID, ccy, cashSweepHeldSecTypes(h.Row.SecType, h.Instrument)); err == nil {
 			if l, _, err := bondLineFor(lines, ccy, h.Row.ConID); err == nil {
-				line = &l
+				terms := rpc.OrderBondTerms{Maturity: h.Maturity.Format(time.DateOnly), CUSIP: h.Bond.CUSIP, ISIN: h.Bond.ISIN}
+				if h.Bond.ResolutionSource == cashSweepResolutionRequestBound {
+					terms.Instrument, terms.MaturitySource = h.Instrument, h.Bond.MaturitySource
+					if issuerSrc, ok := src.(germanBillSource); ok {
+						if err := cashSweepCheckGermanPreview(ctx, issuerSrc, lines, l, terms, now); err == nil {
+							line = &l
+						}
+					}
+				} else if err := cashSweepCheckReviewedMaturity(src, lines, l, terms, now); err == nil {
+					line = &l
+				}
 			}
 		}
 	}
@@ -234,6 +245,19 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 			if err != nil {
 				evidence = append(evidence, fmt.Sprintf("%s: %v", isin, err))
 				continue
+			}
+			if instrument == cashSweepInstrumentDEBubill {
+				if issuerSrc, ok := src.(germanBillSource); ok {
+					candidate, err := cashSweepGermanCandidate(ctx, issuerSrc, lines, line, isin, now)
+					if err != nil {
+						evidence = append(evidence, fmt.Sprintf("%s: %v", isin, err))
+						continue
+					}
+					if candidate.days >= cfg.MinMaturityDays && candidate.days <= cfg.MaxMaturityDays {
+						candidates = append(candidates, candidate)
+					}
+					continue
+				}
 			}
 			maturity, ok := line.MaturityDate()
 			if !ok {
@@ -367,7 +391,7 @@ func cashSweepUSBillMaturity(cand cashSweepBillCandidate, line ibkrlib.BondContr
 // cashSweepBillFrom is the resolved bill a row names.
 func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, q rpc.BondQuote, now time.Time) rpc.TradeProposalCashSweepBill {
 	conv := cashSweepInstrumentConventions[cand.instrument]
-	bill := rpc.TradeProposalCashSweepBill{Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, SecType: ibkrlib.BillOrBondSecType(line.SecType), Symbol: line.Symbol,
+	bill := rpc.TradeProposalCashSweepBill{ResolutionSource: cand.resolutionSource, Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, SecType: ibkrlib.BillOrBondSecType(line.SecType), Symbol: line.Symbol,
 		ISIN: line.ISIN(), CUSIP: line.CUSIP(), Maturity: cand.maturity.Format(time.DateOnly), DaysToMaturity: cand.days,
 		MaturitySource: nonEmptyString(cand.maturitySource, rpc.CashSweepMaturitySourceBroker), MaturitySourceAsOf: cand.publicFetchedAt.UTC(),
 		Quote: rpc.CloneBondQuote(&q), QuoteFresh: q.Fresh, QuantityUnit: conv.QuantityUnit, PriceConvention: conv.PriceConvention}
@@ -396,6 +420,8 @@ func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDet
 
 func cashSweepBillMaturityDetail(b rpc.TradeProposalCashSweepBill) string {
 	switch b.MaturitySource {
+	case rpc.CashSweepMaturitySourceGermanIssuer:
+		return fmt.Sprintf("maturity from the German Finance Agency (read %s); issuer ISIN/currency bound to the exact resolution request, not reported by the broker", b.MaturitySourceAsOf.UTC().Format(time.RFC3339))
 	case rpc.CashSweepMaturitySourceTreasuryDirect:
 		return fmt.Sprintf("maturity from TreasuryDirect (read %s); the broker omitted its maturity", b.MaturitySourceAsOf.UTC().Format(time.RFC3339))
 	case rpc.CashSweepMaturitySourceBrokerTreasuryDirect:
