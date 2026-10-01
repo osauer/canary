@@ -63,7 +63,27 @@ func proposalPolicyRevision(previous rpc.TradeProposalSnapshot, status rpc.Prote
 	scoped := previous.Kind == rpc.TradeProposalSnapshotKind && sameBrokerScope(brokerStateScope{Account: previous.AccountID, Mode: previous.AccountMode}, scope) && previous.PolicyID == status.PolicyID
 	current := scoped && sameEffectivePolicy(previous.EffectivePolicyFingerprint, status.EffectiveFingerprint)
 	exactLegacy := scoped && previous.EffectivePolicyFingerprint.Key == "" && previous.PolicyVersion == status.PolicyVersion && previous.PolicyFingerprint.Key != "" && previous.PolicyFingerprint == status.Fingerprint
-	return retainedPolicyRevision(effective, legacy, previous.Revision, previous.EffectiveRevision, current, exactLegacy), effective
+	revision := retainedPolicyRevision(effective, legacy, previous.Revision, previous.EffectiveRevision, current, exactLegacy)
+	if scoped && previous.Revision != "" && previous.EffectiveRevision != effective && revision != previous.Revision &&
+		(hasCashSweepProposal(previous.Proposals) || hasCashSweepProposal(rows)) {
+		// A sweep may disappear after filling, then recur with the same bill
+		// and capped units. Chain semantic transitions to the persisted prior
+		// revision so that a new episode never reuses an old terminal record.
+		// Equivalent order terms still retain their revision and veto window.
+		envelope, _ := json.Marshal([]string{"cash-sweep-episode-v1", previous.Revision, effective})
+		sum := sha256.Sum256(envelope)
+		revision = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	return revision, effective
+}
+
+func hasCashSweepProposal(rows []rpc.TradeProposal) bool {
+	for _, row := range rows {
+		if row.Bucket == rpc.TradeProposalBucketCashSweep {
+			return true
+		}
+	}
+	return false
 }
 
 func opportunityPolicyRevision(previous rpc.OpportunitySnapshot, status rpc.OpportunityPolicyStatus, sources rpc.OpportunitySourceFingerprints, scope brokerStateScope, rows []rpc.Opportunity) (string, string) {

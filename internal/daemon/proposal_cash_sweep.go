@@ -36,8 +36,9 @@ import (
 // BOND LMT DAY order is previewed under every existing gate and submitted on
 // the owner's approval, or by the daemon after the full veto window when the
 // owner lists cash_sweep under [authority].pre_authorised. Settled cash comes
-// from the broker's $LEDGER SettledCash field where it is sent, else from
-// Canary's order journal. The tax review is advisory (owner decision
+// from the broker's per-currency $LEDGER SettledCash field. The order journal
+// carries an unverified estimate only; without the broker observation the
+// sweep holds. The tax review is advisory (owner decision
 // 2026-09-30 12:35 CEST): an unreviewed sweep adds a detail line and blocks
 // nothing.
 
@@ -52,10 +53,10 @@ type cashSweepLedgerRow struct {
 	Settled      *float64
 }
 
-// cashSweepSettlement is what Canary's order journal says about fills in the
-// settlement window. Known false means the journal cannot vouch for the
-// window at all; Unknown names currencies a fill could not be attributed to
-// (key "" applies to every currency).
+// cashSweepSettlement carries a legacy estimate from journal fills. The live
+// adapter never certifies Known: actual settlement dates and account-wide
+// fill coverage are unverified. Unknown names currencies a fill could not be
+// attributed to (key "" applies to every currency).
 type cashSweepSettlement struct {
 	Known  bool
 	Reason string
@@ -528,9 +529,8 @@ func cashSweepNextBusinessDay(day time.Time) time.Time {
 	return next
 }
 
-// cashSweepSettlementWindowStart is the start of the previous weekday: a fill
-// since then may not have settled (T+1). Counting the previous day whole is
-// the conservative side: it can only lower settled cash.
+// cashSweepSettlementWindowStart bounds the legacy T+1 estimate. It has no
+// settlement-calendar or T+2 authority and never certifies settled cash.
 func cashSweepSettlementWindowStart(now time.Time) time.Time {
 	day := cashSweepDay(now).AddDate(0, 0, -1)
 	for day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
@@ -770,20 +770,6 @@ func derefFloat(v *float64) float64 {
 	return *v
 }
 
-// cashSweepRevisionRows is the proposal set the snapshot revision is derived
-// from: every row but the cash sweep's. A sweep row's quantity follows cash
-// to the unit, so hashing it would restart every pre-authorised veto window
-// and stale every open preview whenever an unrelated order, a fill's
-// settlement or a fee moved cash. A sweep preview binds to the row's own
-// terms instead: the key names the contract (the resolved bill, the held
-// line), the quantity is capped by the free cash at preview (the typed O1
-// exception), and a prepared submit compares the reviewed terms exactly.
-func cashSweepRevisionRows(proposals []rpc.TradeProposal) []rpc.TradeProposal {
-	return slices.DeleteFunc(slices.Clone(proposals), func(p rpc.TradeProposal) bool {
-		return p.Bucket == rpc.TradeProposalBucketCashSweep
-	})
-}
-
 // cashSweepCounts counts the sweep's rows and the shadow subset.
 func cashSweepCounts(proposals []rpc.TradeProposal) (rows, shadow int) {
 	for _, p := range proposals {
@@ -887,15 +873,17 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 	return holdings, unclassified
 }
 
-// cashSweepSettlement reads the order journal's fills in the settlement
-// window. A window the journal cannot vouch for fails closed.
+// cashSweepSettlement retains the journal's settlement estimate, but it
+// cannot certify settled cash: the journal lacks actual settlement dates,
+// settlement-calendar authority and complete account-wide fill coverage.
+// Only a broker SettledCash observation can currently admit a sweep.
 func (e *proposalEngine) cashSweepSettlement(scope brokerStateScope, now time.Time) cashSweepSettlement {
 	since := cashSweepSettlementWindowStart(now)
 	if e == nil || e.server == nil {
 		return cashSweepSettlement{Since: since, Reason: "no order journal is attached; settled cash is unknown"}
 	}
 	if started := e.server.startedAt; started.IsZero() || started.After(since) {
-		return cashSweepSettlement{Since: since, Reason: fmt.Sprintf("Canary's order journal covers fills only since the daemon started (%s), inside the settlement window from %s; settled cash is unknown until the window has passed",
+		return cashSweepSettlement{Since: since, Reason: fmt.Sprintf("Canary's order journal covers fills only since the daemon started (%s), inside the settlement estimate window from %s; it cannot prove settled cash, which requires a broker SettledCash observation",
 			started.UTC().Format(time.RFC3339), since.Format(time.DateOnly))}
 	}
 	views, eventsByKey, err := e.server.loadOrderViews()
@@ -906,7 +894,10 @@ func (e *proposalEngine) cashSweepSettlement(scope brokerStateScope, now time.Ti
 		}
 		return cashSweepSettlement{Since: since, Reason: reason}
 	}
-	return cashSweepSettlementFrom(views, eventsByKey, scope, since)
+	estimate := cashSweepSettlementFrom(views, eventsByKey, scope, since)
+	estimate.Known = false
+	estimate.Reason = "the order journal has no verified settlement dates or complete account-wide fill coverage; settled cash requires a broker SettledCash observation"
+	return estimate
 }
 
 // cashSweepSettlementFrom sums the scope's fills since the window start per
@@ -1019,7 +1010,7 @@ func (e *proposalEngine) cashSweepCommitments(ctx context.Context, scope brokerS
 }
 
 // cashSweepCommitmentsFrom is the pure half of cashSweepCommitments. A working
-// buy is valued at its limit (or stop) price, a bond's at its currency's bill
+// buy is valued at its fixed limit price, a bond's at its currency's bill
 // convention; one with no price bound makes its currency unknown. A queued
 // buy counts only while armed, held or sending, at its worst price.
 func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope) cashSweepCommitments {
@@ -1038,22 +1029,31 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 			remaining = o.TotalQuantity - o.Filled
 		}
 		price := o.LimitPrice
-		if price <= 0 {
-			price = o.TrailStopPrice
-		}
-		if price <= 0 {
-			price = o.AuxPrice
-		}
+		// A stop or trailing trigger is not an execution-price cap. Even a
+		// trailing limit can ratchet its limit above the current snapshot, so
+		// only a fixed limit bounds the cash this working buy can consume.
+		orderType := strings.ToUpper(strings.TrimSpace(o.OrderType))
+		bounded := orderType == "LMT" || orderType == "STP LMT"
 		multiplier, multiplierOK := cashSweepMultiplier(secType, o.Multiplier, ccy)
 		switch {
 		case ccy == "" || secType == "CASH":
 			out.Unknown[""] = "a working buy order carries no single currency (or converts one), so committed cash is unknown"
 		case cashSweepBondSecType(secType) && !multiplierOK:
 			out.Unknown[ccy] = fmt.Sprintf("a working bond buy in %s has no bill convention to value it, so committed cash is unknown", ccy)
-		case price <= 0 || remaining <= 0 || !multiplierOK:
+		case !bounded || !positiveFinite(price) || !positiveFinite(remaining) || !multiplierOK:
 			out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no price bound, so the cash it commits is unknown", ccy)
 		default:
-			out.ByCurrency[ccy] += remaining * price * multiplier
+			amount := remaining * price * multiplier
+			if !positiveFinite(amount) {
+				out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no finite cash commitment", ccy)
+				continue
+			}
+			total := out.ByCurrency[ccy] + amount
+			if !positiveFinite(total) {
+				out.Unknown[ccy] = fmt.Sprintf("working buy commitments in %s have no finite total", ccy)
+				continue
+			}
+			out.ByCurrency[ccy] = total
 		}
 	}
 	for _, rec := range queued {
@@ -1062,11 +1062,21 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		}
 		ccy := normCcy(nonEmptyString(rec.Terms.Currency, rec.Terms.Contract.Currency))
 		multiplier, ok := cashSweepMultiplier(strings.ToUpper(strings.TrimSpace(rec.Terms.Contract.SecType)), rec.Terms.Contract.Multiplier, ccy)
-		if ccy == "" || !ok || rec.Terms.WorstPrice <= 0 {
+		if ccy == "" || !ok || !positiveFinite(rec.Terms.WorstPrice) || rec.Terms.MaxQuantity <= 0 {
 			out.Unknown[ccy] = "an armed queued buy has no currency, multiplier or worst price, so the cash it commits is unknown"
 			continue
 		}
-		out.ByCurrency[ccy] += float64(rec.Terms.MaxQuantity) * rec.Terms.WorstPrice * multiplier
+		amount := float64(rec.Terms.MaxQuantity) * rec.Terms.WorstPrice * multiplier
+		if !positiveFinite(amount) {
+			out.Unknown[ccy] = "an armed queued buy has no finite cash commitment"
+			continue
+		}
+		total := out.ByCurrency[ccy] + amount
+		if !positiveFinite(total) {
+			out.Unknown[ccy] = "working and armed queued buy commitments have no finite total"
+			continue
+		}
+		out.ByCurrency[ccy] = total
 	}
 	return out
 }

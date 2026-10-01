@@ -84,3 +84,26 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 		t.Fatalf("broker order = %+v", o)
 	}
 }
+
+// Even an injected stale revision cannot widen the quantity that received
+// an automatic notice. The production grant rejects it before broker reads.
+func TestCashSweepAutomaticRevalidationCannotWidenTheNoticedQuantity(t *testing.T) {
+	rig := newAutomaticTradingRig(t, `pre_authorised = ["cash_sweep"]`)
+	row := reviewSweepRow(t, rig.now, 10000)
+	revision := rig.install(row)
+	rig.engine.reconcileAutomatic(context.Background())
+	rec := rig.record(row.Key, revision)
+	rig.notice(rec)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	rig.engine.revalidateForTest = func(context.Context, string, string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
+		changed := row
+		changed.Revision = revision
+		changed.Quantity, changed.MaxQuantity = row.Quantity+50, row.Quantity+50
+		return changed, nil, nil
+	}
+	rig.engine.submitAutomatic(context.Background(), rec)
+	if broker.count() != 0 || rig.record(row.Key, revision).State != rpc.TradeProposalAutomaticSuperseded {
+		t.Fatal("automatic send widened the noticed quantity")
+	}
+}

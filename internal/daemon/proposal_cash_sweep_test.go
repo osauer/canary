@@ -145,8 +145,8 @@ func TestCashSweepCommitmentsAndSettlement(t *testing.T) {
 func TestCashSweepCommitmentsFromOrdersAndQueue(t *testing.T) {
 	scope := brokerStateScope{Account: "DU1234567", Mode: "paper"}
 	orders := []ibkrlib.OrderLifecycleEvent{
-		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "BUY", SecType: "STK", Currency: "USD", TotalQuantity: 10, Remaining: 10, LimitPrice: 50, Account: "DU1234567"},
-		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "BUY", SecType: "OPT", Currency: "USD", TotalQuantity: 2, Remaining: 2, LimitPrice: 1.5, Multiplier: 100, Account: "DU1234567"},
+		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "BUY", OrderType: "LMT", SecType: "STK", Currency: "USD", TotalQuantity: 10, Remaining: 10, LimitPrice: 50, Account: "DU1234567"},
+		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "BUY", OrderType: "LMT", SecType: "OPT", Currency: "USD", TotalQuantity: 2, Remaining: 2, LimitPrice: 1.5, Multiplier: 100, Account: "DU1234567"},
 		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "SELL", SecType: "STK", Currency: "USD", TotalQuantity: 10, Remaining: 10, LimitPrice: 99, Account: "DU1234567"},
 		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Submitted", Action: "BUY", SecType: "STK", Currency: "USD", TotalQuantity: 10, Remaining: 10, LimitPrice: 99, Account: "DU7654321"},
 		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Status: "Filled", Action: "BUY", SecType: "STK", Currency: "USD", TotalQuantity: 10, Filled: 10, LimitPrice: 99, Account: "DU1234567"},
@@ -893,25 +893,29 @@ func TestCashSweepCashLikeRows(t *testing.T) {
 	}
 }
 
-// The snapshot revision ignores the sweep: its quantity follows cash to the
-// unit, and a revision that moved with it would restart every pre-authorised
-// veto window and stale every open preview. Every other row still binds it.
-func TestCashSweepRowsStayOutOfTheSnapshotRevision(t *testing.T) {
+// Bind a sweep's actual bill and whole order units to its revision. Cash
+// movements that do not change the order leave the veto window stable;
+// a larger order, a different bill or its disappearance requires new review.
+func TestCashSweepRevisionBindsWholeOrderUnits(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9)
 	stop := rpc.TradeProposal{Key: "trailing_stop:1", Bucket: rpc.TradeProposalBucketTrailingStop, Quantity: 100, PositionEffect: rpc.OrderPositionEffectClose}
 	revision := func(cash float64) string {
 		plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": cash}), now)
+		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
 		rows := []rpc.TradeProposal{stop}
 		for _, cp := range plan.currencies {
 			if cp.side != "" {
 				rows = append(rows, cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cp))
 			}
 		}
-		return proposalRevision(rpc.Fingerprint{Key: "p"}, rpc.TradeProposalSourceFingerprints{}, brokerStateScope{Account: "DU1234567", Mode: "paper"}, cashSweepRevisionRows(rows))
+		return proposalRevision(rpc.Fingerprint{Key: "p"}, rpc.TradeProposalSourceFingerprints{}, brokerStateScope{Account: "DU1234567", Mode: "paper"}, rows)
 	}
-	if revision(60000) != revision(60001) || revision(60000) != revision(5000) {
-		t.Fatal("the sweep moved the snapshot revision")
+	if revision(60000) != revision(60001) {
+		t.Fatal("cash movement below one order unit moved the revision")
+	}
+	if revision(60000) == revision(61000) || revision(60000) == revision(5000) {
+		t.Fatal("a changed sweep order did not move the revision")
 	}
 	before := revision(60000)
 	stop.Quantity = 50

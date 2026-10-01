@@ -462,6 +462,9 @@ func runProposalsIgnore(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, res)
 	}
+	if !res.Accepted {
+		return fail(env, "proposals ignore: %s", res.Message)
+	}
 	fmt.Fprintf(env.Stdout, "Ignored %s (%s)\n", res.Key, res.Message)
 	return 0
 }

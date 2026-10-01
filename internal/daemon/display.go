@@ -40,7 +40,7 @@ func displayNumber(n float64) *float64 {
 	return &n
 }
 
-func displayUniverse(snapshot ibkr.DisplaySnapshot) ([]displayInstrument, bool) {
+func (s *Server) displayUniverse(snapshot ibkr.DisplaySnapshot, now time.Time) ([]displayInstrument, bool) {
 	rows := append([]*ibkr.RawPosition(nil), snapshot.Positions...)
 	slices.SortFunc(rows, func(a, b *ibkr.RawPosition) int { return a.Contract.ConID - b.Contract.ConID })
 	items := []displayInstrument{}
@@ -60,6 +60,14 @@ func displayUniverse(snapshot ibkr.DisplaySnapshot) ([]displayInstrument, bool) 
 	}
 	for _, p := range rows {
 		if p.Position != 0 && p.Account == snapshot.Health.Account {
+			// The raw cache keeps terminal holdings for valuation/account truth.
+			// Subscription demand uses the same reviewed exact-contract authority
+			// as positions; a terminal stock must not be re-probed every retry.
+			quoteRow := [1]rpc.PositionView{{Symbol: p.Contract.Symbol, ConID: p.Contract.ConID, SecType: p.Contract.SecType}}
+			s.markReviewedTerminalStocks(quoteRow[:], now)
+			if !rpc.ExpectsMarketData(quoteRow[0]) {
+				continue
+			}
 			add(p.Contract, "held", p.Contract.Symbol)
 		}
 	}
@@ -340,7 +348,7 @@ func (s *Server) handleDisplaySubscribe(parent context.Context, req *rpc.Request
 		if !ready {
 			return
 		}
-		items, truncated := displayUniverse(snapshot)
+		items, truncated := s.displayUniverse(snapshot, time.Now())
 		rawUniverse, _ := json.Marshal(itemsForComparison(items))
 		if string(rawUniverse) != previousUniverse {
 			select {

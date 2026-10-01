@@ -57,8 +57,10 @@ const (
 // 2026-09-30 12:35 CEST): the owner's approval of each order is the gate.
 const CashSweepTaxUnreviewedDetail = "tax treatment not yet confirmed (tax_reviewed_at unset)"
 
-// Settled-cash sources on a currency's status: the broker's $LEDGER
-// SettledCash field, else Canary's order journal.
+// Settled-cash sources on a currency's status. Live planning requires the
+// broker's per-currency SettledCash observation. The journal label is kept
+// for compatibility with older recorded snapshots and synthetic fixtures;
+// a journal estimate does not currently authorise a sweep.
 const (
 	CashSweepSettledSourceBroker  = "broker"
 	CashSweepSettledSourceJournal = "journal"
@@ -154,9 +156,9 @@ type TradeProposalCashSweepCurrency struct {
 	ExchangeRate  *float64 `json:"exchange_rate,omitempty"`
 	TradeDateCash *float64 `json:"trade_date_cash,omitempty"`
 	SettledCash   *float64 `json:"settled_cash,omitempty"`
-	// SettledCashSource is broker (the ledger's SettledCash) or journal
-	// (derived from Canary's order journal); empty while settled cash is
-	// unknown.
+	// SettledCashSource is broker for an observed per-currency balance;
+	// empty while settled cash is unknown. Journal is a legacy snapshot label,
+	// not a current live-planning source of settled-cash authority.
 	SettledCashSource  string   `json:"settled_cash_source,omitempty"`
 	Cash               *float64 `json:"cash,omitempty"`
 	Committed          *float64 `json:"committed,omitempty"`

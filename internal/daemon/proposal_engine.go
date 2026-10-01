@@ -547,7 +547,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	e.mu.Lock()
 	previous := e.snapshot
 	e.mu.Unlock()
-	revision, effectiveRevision := proposalPolicyRevision(previous, policyStatus, sources, scope, cashSweepRevisionRows(proposals))
+	revision, effectiveRevision := proposalPolicyRevision(previous, policyStatus, sources, scope, proposals)
 	for i := range proposals {
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
@@ -2680,6 +2680,7 @@ func truncateBlockerCause(s string) string {
 func (e *proposalEngine) Ignore(p rpc.TradeProposalIgnoreParams) rpc.TradeProposalIgnoreResult {
 	now := e.clock()
 	key := strings.TrimSpace(p.Key)
+	revision := strings.TrimSpace(p.Revision)
 	if key == "" {
 		return rpc.TradeProposalIgnoreResult{Accepted: false, Message: "proposal key is required", AsOf: now}
 	}
@@ -2687,7 +2688,23 @@ func (e *proposalEngine) Ignore(p rpc.TradeProposalIgnoreParams) rpc.TradePropos
 	if !brokerScopeConcrete(scope) {
 		return rpc.TradeProposalIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "proposal ignore requires a concrete account and paper/live mode", AsOf: now}
 	}
-	ev := proposalEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "proposal ignored",
+	snap := e.Snapshot(false)
+	refuse := func(message string) rpc.TradeProposalIgnoreResult {
+		return rpc.TradeProposalIgnoreResult{Accepted: false, Key: key, Revision: revision, Message: message, AsOf: now}
+	}
+	if snap.LoadedFromState || !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, scope) {
+		return refuse("proposal ignore requires a current snapshot for the connected account and mode; refresh proposals")
+	}
+	if snap.Revision == "" || (revision != "" && revision != snap.Revision) {
+		return refuse("proposal revision is stale; refresh proposals before ignoring")
+	}
+	if !slices.ContainsFunc(snap.Proposals, func(prop rpc.TradeProposal) bool { return prop.Key == key && prop.Revision == snap.Revision }) {
+		return refuse("proposal key is not present in the current snapshot")
+	}
+	// An omitted revision means the currently served proposal, never an
+	// arbitrary future key. Persist the revision the dismissal actually saw.
+	revision = snap.Revision
+	ev := proposalEvent{At: now, Type: "ignored", Key: key, Revision: revision, Reason: strings.TrimSpace(p.Reason), Message: "proposal ignored",
 		AccountID:   scope.Account,
 		AccountMode: scope.Mode}
 	if err := e.appendEvent(ev); err != nil {
@@ -2699,7 +2716,7 @@ func (e *proposalEngine) Ignore(p rpc.TradeProposalIgnoreParams) rpc.TradePropos
 	}
 	e.ignored[scopedIgnoreKey(scope, key)] = struct{}{}
 	e.mu.Unlock()
-	return rpc.TradeProposalIgnoreResult{Accepted: true, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "proposal ignored", AsOf: now}
+	return rpc.TradeProposalIgnoreResult{Accepted: true, Key: key, Revision: revision, Message: "proposal ignored", AsOf: now}
 }
 
 func (e *proposalEngine) revalidatedProposal(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {

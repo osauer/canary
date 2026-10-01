@@ -501,14 +501,17 @@ max_order_notional = 20000   # one order, in base currency; no default
 # tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
 
-Per currency, in that currency: **cash** is the lower of trade-date and
-settled cash, which Canary derives from its order journal
-(`settled_cash_source: journal`): IBKR's `SettledCash` is one account-wide
-figure in the base currency, not one per currency. The journal vouches only
-for fills since the daemon started, so after each start every currency reads
-`settlement_unknown` until the settlement window, from the previous business
-day, has passed. **Committed** is working buy orders plus armed queued buys (a prepared,
-unarmed queue entry or an unapproved proposal never counts), and **free** is
+Per currency, in that currency: **cash** is the lower of trade-date cash and
+the broker's observed per-currency settled cash
+(`settled_cash_source: broker`). The account-wide `SettledCash` figure does
+not establish a currency's settled cash. Without a per-currency observation,
+the sweep holds at `settlement_unknown`; waiting after a daemon restart does
+not clear it. The order journal lacks verified settlement dates, holiday
+calendars and complete account-wide fill coverage, so its estimate cannot
+authorise a sweep. **Committed** is working buy orders with a fixed finite
+limit plus armed queued buys at their finite worst price. An unknown bound
+or nonfinite total holds the sweep. A prepared, unarmed queue entry or an
+unapproved proposal never counts, and **free** is
 cash − committed − `keep_cash`. When free exceeds `min_tranche`
 the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
 cap that holds the order below `min_tranche` holds the currency. When cash less
@@ -613,7 +616,7 @@ reports, with its figures and a state:
 | `hold` | inside the band, or the reason says why no order follows |
 | `no_instrument` | the currency declares `none` |
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
-| `settlement_unknown` | the order journal cannot vouch for the settlement window (after a daemon start, until that window has passed), or working orders cannot be valued |
+| `settlement_unknown` | the broker supplied no per-currency settled cash, or working/armed queued buy commitments have no fixed finite bound; a journal estimate does not clear this state |
 | `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
 | `needs_your_number` | `max_order_notional`, or the symbol of an ETF-only declaration, is not written |
 | `universe_unavailable` | no list of bills to choose from (see above) |

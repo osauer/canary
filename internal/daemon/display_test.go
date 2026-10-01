@@ -76,6 +76,49 @@ func TestDisplayShutdownWaitsForOwnedRuns(t *testing.T) {
 
 type displayTransport struct{ subscribes, cancels int }
 
+func TestDisplayUniverseHonoursReviewedTerminalStock(t *testing.T) {
+	const deadConID = 900201
+	record := earningsTerminalRecord{Contract: earningsTerminalContract{ConID: deadConID, Symbol: "SYNTHDEAD", SecType: "STK"}, Classification: earningsTerminalClassEquityCancelled,
+		EffectiveDate: "2026-08-01", VerifiedAt: terminalImportBase.Add(-time.Hour), RevalidateAfter: terminalImportBase.Add(24 * time.Hour)}
+	s := &Server{earningsTerminal: &earningsTerminalStore{revision: 2, reviewedAt: terminalImportBase, byConID: map[int]earningsTerminalStored{deadConID: {record: record, fingerprint: earningsTerminalRecordFingerprint(record)}}}}
+	stock := ibkr.Contract{ConID: deadConID, Symbol: "SYNTHDEAD", SecType: "STK", Currency: "USD"}
+	snapshot := ibkr.DisplaySnapshot{Positions: []*ibkr.RawPosition{{Account: "U_SYNTHETIC", Contract: stock, Position: 1}}}
+	snapshot.Health.Account = "U_SYNTHETIC"
+	items, _ := s.displayUniverse(snapshot, terminalImportBase)
+	for _, item := range items {
+		if item.kind == "held" && item.contract.ConID == deadConID {
+			t.Fatal("current reviewed terminal stock is still automatically subscribed")
+		}
+	}
+	frame := projectDisplay(snapshot, nil, rpc.AccountDataScope{AccountID: "U_SYNTHETIC", AccountMode: "paper"}, nil)
+	if len(frame.Positions) != 1 || frame.Positions[0].Contract.ConID != deadConID || frame.Positions[0].Quantity != 1 {
+		t.Fatal("terminal quote exemption removed the broker holding")
+	}
+	for _, tc := range []struct {
+		name     string
+		server   *Server
+		contract ibkr.Contract
+		now      time.Time
+	}{
+		{"expired", s, stock, record.RevalidateAfter},
+		{"other_contract", s, ibkr.Contract{ConID: deadConID + 1, Symbol: stock.Symbol, SecType: "STK", Currency: "USD"}, terminalImportBase},
+		{"conflicting_symbol", s, ibkr.Contract{ConID: deadConID, Symbol: "SYNTHOTHER", SecType: "STK", Currency: "USD"}, terminalImportBase},
+		{"option_leg", s, ibkr.Contract{ConID: deadConID, Symbol: stock.Symbol, SecType: "OPT", Currency: "USD"}, terminalImportBase},
+		{"unconfigured", &Server{}, stock, terminalImportBase},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			snapshot.Positions[0].Contract = tc.contract
+			items, _ := tc.server.displayUniverse(snapshot, tc.now)
+			for _, item := range items {
+				if item.kind == "held" && item.contract.ConID == tc.contract.ConID && item.contract.Symbol == tc.contract.Symbol {
+					return
+				}
+			}
+			t.Fatal("holding without current exact terminal authority lost subscription demand")
+		})
+	}
+}
+
 func (f *displayTransport) SubscribeMarketData(context.Context, string, []string) error {
 	f.subscribes++
 	return nil

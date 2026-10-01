@@ -66,9 +66,13 @@ and no cash reserve remains to trip.
   `max_maturity_days` 91 (EUR 182, ceiling 397), `ladder_rungs` 4. Bucket:
   `enabled`, `mode`, `max_order_notional` (no default), `tax_reviewed_at`.
 - Cash: `cash` is the lower of trade-date and settled cash; settled cash is
-  derived from Canary's order journal (the ledger's per-currency
-  `SettledCash` was A4, verified false); `committed` is working BUY orders plus authorised (armed,
-  held or sending) queued orders; `free = cash − committed − keep_cash`;
+  proven by the broker's per-currency `SettledCash` observation. The journal
+  estimate cannot prove actual settlement dates, holiday calendars or
+  account-wide fill coverage; without the broker observation the sweep holds
+  at `settlement_unknown` (A4 is currently false). `committed` is working BUY
+  orders with a fixed finite limit plus authorised (armed, held or sending)
+  queued orders at their finite worst price. Unknown bounds or nonfinite
+  totals hold the sweep; `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
 - Band: invest when `free > min_tranche`: one BUY in the bill's whole order
   units on its size grid, capped by `max_order_notional`. Redeem when
@@ -90,8 +94,8 @@ and no cash reserve remains to trip.
   after the full veto window. An unset `tax_reviewed_at` adds a detail line
   only (P1). Every row sets `NeverSkipVeto`.
 - Unknown posture, per currency, generating nothing: `cash_unavailable`,
-  `settlement_unknown` (no ledger `SettledCash` and a journal gap in the
-  settlement window), `equivalents_unclassified`, `needs_your_number`. An
+  `settlement_unknown` (no broker per-currency `SettledCash`, or unbounded
+  commitments), `equivalents_unclassified`, `needs_your_number`. An
   invest verdict with no bill to name reads `universe_unavailable` (no
   candidate list) or `instrument_unresolved` (no candidate confirmed), with
   the evidence. A missing bill line is inferred only from a completed contract
@@ -103,7 +107,7 @@ and no cash reserve remains to trip.
   component taxable; (A4) `$LEDGER` CashBalance is trade-date, and
   `$LEDGER:ALL` carries a per-currency `SettledCash` field that is settled
   cash in that currency (verified false 2026-09-30, see "Post-install
-  findings"; the journal derivation is the source); (A5) each instrument's quantity unit and price convention (table
+  findings"; absent means the sweep holds); (A5) each instrument's quantity unit and price convention (table
   under Phase B as built), minimum, session and T+1 settlement; (A6) a held
   bill's issuer is read from its identifier: US Treasury bill CUSIPs
   (912794–912797), else the ISIN's country (DE, FR, GB, CA); (A7) IBKR answers
@@ -135,7 +139,7 @@ and no cash reserve remains to trip.
 |---|---|---|---|---|
 | Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
-| Settled cash | the order journal (A4 false: `$LEDGER:ALL` sends no SettledCash) | `cashSweepSettlement`; `settled_cash_source: journal`; the ledger path (`rpc.CurrencyExposure.SettledCashCcy`, `cashSweepLedgerRow.Settled`) stays for a gateway that ever sends a per-currency row | per account refresh | `settlement_unknown` while the journal cannot vouch for the window |
+| Settled cash | broker per-currency ledger observation (A4 false in the current gateway) | `rpc.CurrencyExposure.SettledCashCcy`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh | `settlement_unknown`; journal estimates never admit orders |
 | Commitments | broker open-order inventory, queued authorisations | `cashSweepCommitments` | per refresh | `settlement_unknown` |
 | Held equivalents | positions view and its `bonds` section | `rpc.PositionsResult.Bonds` (`classifyBondPositions`), ETF by ConID (not yet) | per refresh, `Stale` honoured | `equivalents_unclassified` |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |
@@ -235,12 +239,12 @@ design, not a new threshold.
    toward `keep_cash` on the redeem side, so a redemption is not sold again
    while `cash` (the lower of trade-date and settled) still waits for it. The
    invest side is unchanged, so the band keeps its dead zone.
-4. **Settlement window.** From the start (UTC) of the previous weekday; fills
-   since then are unsettled (T+1, A5). Holidays are not modelled; they can only
-   make the window too long, which lowers settled cash. A journal gap is an
-   unreadable journal or a daemon started inside the window; the journal also
-   cannot see fills Canary never observed (other clients, the mobile app),
-   which is R1's residual.
+4. **Settlement estimate.** The journal's previous-weekday window is an
+   unverified estimate, never settled-cash authority. T+2 products, settlement
+   holidays and unobserved fills can make it overstate settled cash. Without
+   a broker per-currency `SettledCash` observation the sweep holds at
+   `settlement_unknown`. A broker-supported complete settlement projection
+   is needed before a journal fallback can admit an order.
 5. **Fills and orders Canary cannot value** (a bond fill, a currency
    conversion, a buy without a price bound, a fill without a currency) make the
    affected currency `settlement_unknown` rather than guessing.
@@ -278,10 +282,9 @@ threshold.
    it is settled cash (`settled_cash_source: broker`); pending redemptions
    still come from the journal, and without it every unsettled net sale
    proceed (trade-date − settled, at least zero) counts toward `keep_cash`,
-   which can only hold a redemption back. The journal derivation stays the
-   fallback (`journal`); `settlement_unknown` needs both to be missing.
-   Post-install, A4 is false (F2): no gateway row reaches this path, so the
-   journal is the source. A bare `SettledCash_<CCY>` in the streaming map
+   which can only hold a redemption back. The journal estimate cannot admit
+   orders. Post-install, A4 is false (F2): no gateway row reaches this path,
+   so the sweep holds at `settlement_unknown`. A bare `SettledCash_<CCY>` in the streaming map
    is reqAccountUpdates' account-level figure and never reads as a
    currency's settled cash.
 4. **Bonds at the broker (read-only).** `pkg/ibkr/bond_frames.go` decodes
@@ -426,7 +429,7 @@ never an account id, a balance or an order reference).
    `currency_exposure` row and on `base_currency_ledger`; with the sweep
    enabled, `canary proposals list --json` shows
    `cash_sweep.currencies[].settled_cash_source: "broker"`. If the tag is
-   absent, A4 is false and the journal fallback stays; record that.
+   absent, A4 is false and the sweep holds; record that.
    Answered 2026-09-30: absent (F2).
 5. Freshness: outside a bill's session the check reads `fresh: false` with a
    reason, and a sweep row carries `fresh_bill_quote_required`.
@@ -543,10 +546,10 @@ tag: one figure in the base currency covering every currency, so it cannot
 be one currency's settled cash and is not requested; reqAccountUpdates
 already streams it under the base currency's suffix, and the legacy ledger
 scan no longer reads that bare key as the base currency's settled cash.
-A4 is false; the journal derivation is the settled-cash source. Consequence: the journal
-vouches only for fills since the daemon started, so after each start every
-currency reads `settlement_unknown` until the settlement window (from the
-previous business day) has passed.
+A4 is false. The safety review rejects the journal derivation as settled-cash
+authority: it lacks actual settlement dates, holiday calendars and complete
+account-wide fills. Every currency without broker per-currency settled cash
+therefore stays `settlement_unknown`; daemon age never removes that hold.
 
 ## Phase B order path as built
 
@@ -581,8 +584,15 @@ P1, not a new threshold; no new policy number exists.
 3. **Row identity and binding.** An invest row's key binds the bill's
    contract id, so a preview, prepared submit or pre-authorised record of a
    key buys the bill the owner saw; a new bill is a new row with a new window.
-   Sweep rows stay out of the snapshot revision (their quantity follows cash);
-   the preview binds to the row's own terms instead: the key, the quantity
+   Sweep rows bind their key, whole order units and position effect to the
+   snapshot revision. Cash movements below one order unit leave it stable;
+   a changed order requires a new automatic notice and full veto window.
+   Automatic submission also pins the quantity named in that notice. The
+   persisted public revision chains semantic sweep transitions, so an order
+   disappearing after a fill and later recurring at the same capped size
+   receives a fresh episode, notice and window; old terminal records cannot
+   prevent that future sweep. Equivalent effective terms retain the window.
+   The preview binds to the row's own terms: the key, the quantity
    capped by the free cash at preview (the O1 exception, in face and in cost
    at the draft's limit, and `max_order_notional` in base), and a prepared
    submit's exact comparison of the reviewed terms (contract id, quantity).
@@ -696,7 +706,7 @@ Phase B:
 | # | Item | Handling |
 |---|---|---|
 | O1 | First buying bucket; `close_reduce_only` carve-out | decided: typed exception limited to vocabulary, currency and free cash |
-| R1 | Settled cash comes only from the journal (A4 false) | the journal derivation (fills Canary never observed stay invisible there); after every daemon start `settlement_unknown` until the settlement window has passed |
+| R1 | Broker per-currency settled cash is absent (A4 false) | the sweep stays `settlement_unknown`; the journal estimate cannot certify settlement and is not an order-authority fallback |
 | R2 | ETF margin (A2) lowers available funds | out of scope; moot for the governor (rule 3 is the premium budget since Rulebook amendment 17) |
 | O2 | Rung 1 under four weeks | decided: `min_maturity_days` 28 |
 | O3 | EUR fallback symbol, exchange | decided: owner writes; `needs_your_number`; bills still plan |

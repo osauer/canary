@@ -25,7 +25,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - Rule 3 measures long option premium at risk instead of available funds, and rule 15's bands live in the regime tables. A policy file that still sets a retired key loads with a note, `canary rules policy reset KEY` removes it, and the regime tables carry the new keys at their defaults.
 - The Rulebook baseline is `rulebook-v5`.
-- Settled cash per currency is derived from Canary's order journal, because IBKR's SettledCash is one account-wide figure.
+- The cash sweep requires broker-observed settled cash per currency. An account-wide figure or the order journal's settlement estimate cannot authorise it; without the per-currency observation the sweep holds at `settlement_unknown`.
 - The tax review of bill rolls is advisory and holds no sweep row.
 
 ### Removed
@@ -37,7 +37,7 @@ All notable changes to this project are documented here. The project adheres to 
 - A US bill looked up by CUSIP or ISIN never resolved, because contract answers without a maturity or currency were dropped without a trace.
 - The base currency's settled cash could show IBKR's cached account-wide SettledCash figure instead of that currency's own.
 - The budget governor's rulebook basis measured available funds, so its limit relaxed as long calls lost value.
-- Nothing changed in the order path of the buckets you already run: the same account pins, previews, approvals, journal and trading freeze apply, and only the ranking and stress-open timing described above differ.
+- The existing account pins, previews, approvals, journal and trading freeze remain binding for every bucket.
 
 ## v3.14.0 — 2026-09-30 08:25 CEST
 

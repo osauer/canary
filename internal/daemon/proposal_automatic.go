@@ -978,6 +978,7 @@ type automaticWriteGrant struct {
 	Key      string
 	Revision string
 	Bucket   string
+	Quantity int
 }
 
 // submitAutomatic performs one automatic submission. The intent (state
@@ -997,13 +998,19 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		return
 	}
 	now := e.clock()
-	grant := &automaticWriteGrant{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket}
+	grant := &automaticWriteGrant{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, Quantity: rec.Quantity}
 	s.automaticGrant.Store(grant)
 	defer s.automaticGrant.Store(nil)
 	params := rpc.TradeProposalSubmitParams{Key: rec.Key, Revision: rec.Revision, Origin: rpc.OrderOriginDaemonPreAuthorised, TimeoutMs: int(automaticSubmitTimeout.Milliseconds())}
+	if rec.EngineBucket == rpc.TradeProposalBucketCashSweep {
+		params.Quantity = rec.Quantity
+	}
 	staged := false
 	var placeErr error
 	res, err := e.submit(ctx, params, proposalSubmitOptions{automatic: true, placeRefused: func(err error) { placeErr = err }, beforePlace: func(preview *rpc.OrderPreviewResult) error {
+		if rec.EngineBucket == rpc.TradeProposalBucketCashSweep && (rec.Quantity <= 0 || preview.Draft.Quantity > rec.Quantity) {
+			return errors.New("cash sweep quantity exceeds the amount in its automatic notice")
+		}
 		stageErr := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 			r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
 			if !ok || !r.waiting() {
@@ -1117,6 +1124,9 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 	bucket := automaticBucketFor(prop)
 	if grant == nil || grant.Key != prop.Key || grant.Revision != prop.Revision || grant.Bucket != bucket {
 		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "automatic submission grant does not name this proposal key, revision and bucket", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
+	}
+	if prop.Bucket == rpc.TradeProposalBucketCashSweep && (grant.Quantity <= 0 || prop.Quantity != grant.Quantity) {
+		return []rpc.TradingBlocker{{Code: "stale_revision", Message: "cash sweep quantity changed after its automatic notice; refresh proposals for a new veto window"}}
 	}
 	if paused, sections := e.server.configPausesAutomation(); paused {
 		return []rpc.TradingBlocker{{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}}
