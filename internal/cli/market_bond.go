@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -68,6 +69,17 @@ func renderMarketBondText(out io.Writer, res *rpc.MarketBondResult) {
 		}
 		size = append(size, "price per 100 of face")
 		fmt.Fprintf(out, "  %-10s %s\n", "Size", strings.Join(size, " · "))
+		if session := res.Session; session != nil {
+			fmt.Fprintf(out, "  %-10s %s · %s\n", "Session", session.Source, session.TimeZone)
+			if len(session.Windows) == 0 {
+				fmt.Fprintf(out, "  %-10s no trading windows\n", "Hours")
+			}
+			for _, window := range session.Windows {
+				fmt.Fprintf(out, "  %-10s %s → %s\n", "Hours", window.Open.UTC().Format(time.RFC3339), window.Close.UTC().Format(time.RFC3339))
+			}
+		} else {
+			fmt.Fprintf(out, "  %-10s unavailable\n", "Session")
+		}
 	} else {
 		fmt.Fprintf(out, "  %-10s no (%d lines)\n", "Resolved", res.Lines)
 	}

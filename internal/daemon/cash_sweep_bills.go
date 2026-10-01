@@ -97,6 +97,8 @@ type cashSweepBillCandidate struct {
 	idType, id, instrument, source string
 	maturity                       time.Time
 	days                           int
+	maturitySource                 string
+	publicFetchedAt                time.Time
 	// line is set when the candidate was found by resolving it (an owner's
 	// ISIN); a TreasuryDirect bill is resolved when it is tried.
 	line *ibkrlib.BondContractDetails
@@ -191,15 +193,19 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 			fail(rpc.CashSweepStateUniverseUnavailable, reason+"; USD bills are chosen from that list", nil)
 			return
 		}
+		if fetchedAt.IsZero() || fetchedAt.After(now) || now.Sub(fetchedAt) > treasuryBillUniverseMaxAge {
+			fail(rpc.CashSweepStateUniverseUnavailable, "TreasuryDirect's bill list has no current, dated receipt; USD bills are chosen only from that list", nil)
+			return
+		}
 		for _, bill := range bills {
 			issue, okIssue := treasuryDirectDate(bill.IssueDate)
 			maturity, okMaturity := treasuryDirectDate(bill.MaturityDate)
-			if !okIssue || !okMaturity || issue.After(today) {
+			if !okIssue || !okMaturity || issue.After(today) || !ibkrlib.ValidCUSIP(bill.CUSIP) || !usTreasuryBillCUSIP(bill.CUSIP) {
 				continue
 			}
 			if days := cashSweepDaysLeft(today, maturity); days >= cfg.MinMaturityDays && days <= cfg.MaxMaturityDays {
 				candidates = append(candidates, cashSweepBillCandidate{idType: ibkrlib.BondIdentifierCUSIP, id: bill.CUSIP,
-					instrument: cashSweepInstrumentUSTBill, source: rpc.CashSweepBillSourceTreasuryDirect, maturity: maturity, days: days})
+					instrument: cashSweepInstrumentUSTBill, source: rpc.CashSweepBillSourceTreasuryDirect, maturity: maturity, days: days, publicFetchedAt: fetchedAt})
 			}
 		}
 		if len(candidates) == 0 {
@@ -263,10 +269,29 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 				evidence = append(evidence, fmt.Sprintf("%s: %v", cand.id, err))
 				continue
 			}
-			if maturity, ok := resolved.MaturityDate(); !ok || !maturity.Equal(cand.maturity) {
-				evidence = append(evidence, fmt.Sprintf("%s: the broker's maturity %s differs from the list's %s", cand.id, resolved.Maturity, cand.maturity.Format(time.DateOnly)))
+			maturitySource, err := cashSweepUSBillMaturity(cand, resolved, now)
+			if err == nil {
+				// Deduplication must not hide contradictory observations of the
+				// same broker contract. Check every sibling before selecting it.
+				for _, sibling := range lines {
+					if sibling.ConID != resolved.ConID {
+						continue
+					}
+					var source string
+					source, err = cashSweepUSBillMaturity(cand, sibling, now)
+					if err != nil {
+						break
+					}
+					if source == rpc.CashSweepMaturitySourceBrokerTreasuryDirect {
+						maturitySource = source
+					}
+				}
+			}
+			if err != nil {
+				evidence = append(evidence, fmt.Sprintf("%s: %v", cand.id, err))
 				continue
 			}
+			cand.maturitySource = maturitySource
 			line = &resolved
 		}
 		rules, err := ibkrlib.BondOrderRulesFrom(*line)
@@ -301,11 +326,50 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 	fail(rpc.CashSweepStateInstrumentUnresolved, fmt.Sprintf("no %s bill maturing within %s was confirmed by contract details and a quote", ccy, window), evidence)
 }
 
+// cashSweepUSBillMaturity permits an omitted broker date only for the exact
+// issued Treasury bill selected from the fresh public list. The public date
+// never becomes a broker observation; contradictory broker fields still refuse.
+func cashSweepUSBillMaturity(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, now time.Time) (string, error) {
+	if cand.source != rpc.CashSweepBillSourceTreasuryDirect || cand.instrument != cashSweepInstrumentUSTBill ||
+		!ibkrlib.ValidCUSIP(cand.id) || !usTreasuryBillCUSIP(cand.id) || line.CUSIP() != cand.id ||
+		!strings.EqualFold(strings.TrimSpace(line.SecType), ibkrlib.SecTypeBill) || normCcy(line.Currency) != "USD" || line.Coupon != 0 {
+		return "", fmt.Errorf("the broker did not confirm the exact USD Treasury BILL CUSIP without a contradictory coupon")
+	}
+	// CUSIP() chooses one identifier channel; a conflicting valid channel
+	// must not disappear behind that precedence. Symbol remains display text.
+	for _, raw := range []string{line.CUSIPField, line.SecIDs[ibkrlib.BondIdentifierCUSIP], line.SecIDs[ibkrlib.BondIdentifierISIN]} {
+		id := strings.ToUpper(strings.TrimSpace(raw))
+		if ibkrlib.ValidCUSIP(id) && id != cand.id ||
+			ibkrlib.ValidISIN(id) && strings.HasPrefix(id, "US") && id[2:11] != cand.id {
+			return "", fmt.Errorf("the broker's identifier channels contradict the exact Treasury CUSIP")
+		}
+	}
+	if strings.TrimSpace(line.IssueDate) != "" {
+		issue, ok := line.IssueDateValue()
+		// Reopenings may have a different issue date from the earliest public
+		// auction. It must still be issued by today and precede this maturity.
+		if !ok || issue.After(cashSweepDay(now)) || !issue.Before(cand.maturity) {
+			return "", fmt.Errorf("the broker's issue date %q contradicts an issued bill maturing %s", line.IssueDate, cand.maturity.Format(time.DateOnly))
+		}
+	}
+	if maturity, ok := line.MaturityDate(); ok {
+		if !maturity.Equal(cand.maturity) {
+			return "", fmt.Errorf("the broker's maturity %s differs from the list's %s", line.Maturity, cand.maturity.Format(time.DateOnly))
+		}
+		return rpc.CashSweepMaturitySourceBrokerTreasuryDirect, nil
+	}
+	if strings.TrimSpace(line.Maturity) != "" {
+		return "", fmt.Errorf("the broker's maturity %q cannot be checked against the list's %s", line.Maturity, cand.maturity.Format(time.DateOnly))
+	}
+	return rpc.CashSweepMaturitySourceTreasuryDirect, nil
+}
+
 // cashSweepBillFrom is the resolved bill a row names.
 func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDetails, q rpc.BondQuote, now time.Time) rpc.TradeProposalCashSweepBill {
 	conv := cashSweepInstrumentConventions[cand.instrument]
 	bill := rpc.TradeProposalCashSweepBill{Instrument: cand.instrument, Source: cand.source, ConID: line.ConID, SecType: ibkrlib.BillOrBondSecType(line.SecType), Symbol: line.Symbol,
 		ISIN: line.ISIN(), CUSIP: line.CUSIP(), Maturity: cand.maturity.Format(time.DateOnly), DaysToMaturity: cand.days,
+		MaturitySource: nonEmptyString(cand.maturitySource, rpc.CashSweepMaturitySourceBroker), MaturitySourceAsOf: cand.publicFetchedAt.UTC(),
 		Quote: rpc.CloneBondQuote(&q), QuoteFresh: q.Fresh, QuantityUnit: conv.QuantityUnit, PriceConvention: conv.PriceConvention}
 	switch cand.idType {
 	case ibkrlib.BondIdentifierISIN:
@@ -328,6 +392,17 @@ func cashSweepBillFrom(cand cashSweepBillCandidate, line ibkrlib.BondContractDet
 		}
 	}
 	return bill
+}
+
+func cashSweepBillMaturityDetail(b rpc.TradeProposalCashSweepBill) string {
+	switch b.MaturitySource {
+	case rpc.CashSweepMaturitySourceTreasuryDirect:
+		return fmt.Sprintf("maturity from TreasuryDirect (read %s); the broker omitted its maturity", b.MaturitySourceAsOf.UTC().Format(time.RFC3339))
+	case rpc.CashSweepMaturitySourceBrokerTreasuryDirect:
+		return fmt.Sprintf("maturity matched by broker and TreasuryDirect (read %s)", b.MaturitySourceAsOf.UTC().Format(time.RFC3339))
+	default:
+		return "maturity from broker contract details"
+	}
 }
 
 // cashSweepBillName names a bill by the identifier it was chosen by.

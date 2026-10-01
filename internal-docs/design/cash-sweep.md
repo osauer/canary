@@ -66,13 +66,16 @@ and no cash reserve remains to trip.
   `max_maturity_days` 91 (EUR 182, ceiling 397), `ladder_rungs` 4. Bucket:
   `enabled`, `mode`, `max_order_notional` (no default), `tax_reviewed_at`.
 - Cash: `cash` is the lower of trade-date and settled cash; settled cash is
-  proven by the broker's per-currency `SettledCash` observation. The journal
+  proven by the broker's per-currency `SettledCash` observation or an exact scoped
+  authenticated Web API ledger row ([connection contract](../../docs/docs/operate/cash-ledger.md)). The journal
   estimate cannot prove actual settlement dates, holiday calendars or
   account-wide fill coverage; without the broker observation the sweep holds
-  at `settlement_unknown` (A4 is currently false). `committed` is working BUY
+  at `settlement_unknown` (A4 is currently false for TWS). `committed` is working BUY
   orders with a fixed finite limit plus authorised (armed, held or sending)
   queued orders at their finite worst price. Unknown bounds or nonfinite
-  totals hold the sweep; `free = cash − committed − keep_cash`;
+  totals hold the sweep. Outstanding buys lack fee envelopes and therefore hold
+  new sweeps; exact BUY previews require principal plus a same-currency broker
+  maximum commission to fit `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
 - Band: invest when `free > min_tranche`: one BUY in the bill's whole order
   units on its size grid, capped by `max_order_notional`. Redeem when
@@ -144,7 +147,7 @@ and no cash reserve remains to trip.
 |---|---|---|---|---|
 | Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
-| Settled cash | broker per-currency ledger observation (A4 false in the current gateway) | `rpc.CurrencyExposure.SettledCashCcy`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh | `settlement_unknown`; journal estimates never admit orders |
+| Settled cash | broker per-currency ledger observation, or configured authenticated Web API ledger (A4 false in TWS) | `rpc.CurrencyExposure.SettledCashCcy` / `.WebCash`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh; Web reads shared at most 15s and source time bounded to 1m | `settlement_unknown`; stale/session-mismatched/pre-fill receipts and journal estimates never admit orders |
 | Commitments | broker open-order inventory, queued authorisations | `cashSweepCommitments` | per refresh | `settlement_unknown` |
 | Held equivalents | positions view and its `bonds` section | `rpc.PositionsResult.Bonds` (`classifyBondPositions`), ETF by ConID (not yet) | per refresh, `Stale` honoured | `equivalents_unclassified` |
 | USD bill universe | TreasuryDirect securities API (public, no key) | `billUniverse`, daemon.db `cash_sweep_us_bill_universe_v1` | daily; served up to 48 h | `universe_unavailable` |

@@ -242,7 +242,7 @@ func TestCashSweepValuesBondOrdersAndFills(t *testing.T) {
 		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Account: "DU1234567", SecType: "BOND", Currency: "CHF", Action: rpc.OrderActionBuy, OrderType: "LMT", TotalQuantity: 5000, Remaining: 5000, LimitPrice: 99.8, Status: "Submitted"},
 	}
 	got := cashSweepCommitmentsFrom(orders, nil, scope)
-	if math.Abs(got.ByCurrency["USD"]-9950) > 1e-9 || math.Abs(got.ByCurrency["EUR"]-4990) > 1e-9 || got.Unknown["CHF"] == "" || got.Unknown["USD"] != "" {
+	if math.Abs(got.ByCurrency["USD"]-9950) > 1e-9 || math.Abs(got.ByCurrency["EUR"]-4990) > 1e-9 || got.Unknown["CHF"] == "" || !strings.Contains(got.Unknown["USD"], "commission") || got.Unknown[""] == "" {
 		t.Fatalf("commitments = %+v", got)
 	}
 	now := cashSweepTestNow()
@@ -362,7 +362,8 @@ func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 		before := 1000.0
 		after := before + float64(d.Quantity)*d.Bond.FacePerUnit*d.LimitPrice/100*rig.marginFactor
 		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
-			Margin: &rpc.OrderMarginImpact{Currency: rig.marginCcy, InitialMarginBefore: &before, InitialMarginAfter: &after}}, nil
+			Margin: &rpc.OrderMarginImpact{Currency: rig.marginCcy, InitialMarginBefore: &before, InitialMarginAfter: &after,
+				CommissionCurrency: "USD", MaxCommission: new(1.0)}}, nil
 	}
 	srv.openOrderInventoryForTest = func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
 		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: rig.now}, brokerStateScope{Account: "DU1234567", Mode: "paper"}, nil

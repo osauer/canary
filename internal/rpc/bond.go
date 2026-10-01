@@ -110,9 +110,12 @@ type MarketBondResult struct {
 	Resolved     bool          `json:"resolved"`
 	Lines        int           `json:"lines"`
 	Contract     *BondContract `json:"contract,omitempty"`
-	Quoted       bool          `json:"quoted"`
-	Quote        *BondQuote    `json:"quote,omitempty"`
-	Reason       string        `json:"reason,omitempty"`
+	// Session exposes the same contract-hours or explicitly assumed session
+	// used by bill proposal readiness. It does not establish order authority.
+	Session *BondSession `json:"session,omitempty"`
+	Quoted  bool         `json:"quoted"`
+	Quote   *BondQuote   `json:"quote,omitempty"`
+	Reason  string       `json:"reason,omitempty"`
 	// Attempts are the request forms the contract lookup sent, in order,
 	// and the frames IBKR answered each with; ServerVersion is the
 	// negotiated version the frames were decoded for, and LookupAsOf when

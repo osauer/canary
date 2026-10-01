@@ -263,6 +263,48 @@ func TestCashSweepClassifiesHeldBills(t *testing.T) {
 	}
 }
 
+// Investment proposal evidence is not a held-position source. Until the held
+// projection binds public maturity separately, a broker omission must stop the
+// currency's ladder/redemptions rather than silently treating the bill as zero.
+func TestCashSweepHeldBillMissingMaturityBlocksCurrency(t *testing.T) {
+	now := cashSweepTestNow()
+	for _, raw := range []string{"", "2026-11", "2026-02-30"} {
+		t.Run(nonEmptyString(raw, "omitted"), func(t *testing.T) {
+			line := synthBondLine(8401, synthCUSIP35, "USD", cashSweepDay(now).AddDate(0, 0, 35))
+			line.Maturity = raw
+			s := &Server{}
+			s.cashSweepB.dir = &bondDirectory{fetch: bondFetchOf(func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+				return []ibkrlib.BondContractDetails{line}, nil
+			})}
+			// A fresh exact public date already exists, but the current held
+			// projection deliberately has no public provenance field yet.
+			s.cashSweepB.universe = &billUniverse{record: treasuryBillUniverseRecord{FetchedAt: now.Add(-time.Hour), Bills: usBillSource(now).bills}}
+			rows := []rpc.PositionView{{Symbol: "SYNTH", SecType: "BILL", ConID: 8401, Currency: "USD", Quantity: 5, MarketValue: 4975}}
+			pos := &rpc.PositionsResult{Stocks: rows, Bonds: s.classifyBondPositions(context.Background(), rows, now)}
+			if len(pos.Bonds) != 1 || pos.Bonds[0].Class != rpc.BondClassBill || pos.Bonds[0].Maturity != "" {
+				t.Fatalf("held broker projection = %+v", pos.Bonds)
+			}
+			holdings, blocked := cashSweepClassify(&protectionCashSweepPolicy{Enabled: true}, pos)
+			if len(holdings["USD"]) != 0 || blocked["USD"] == "" || len(blocked) != 1 {
+				t.Fatalf("held bill disappeared: holdings=%v unclassified=%v", holdings, blocked)
+			}
+			in := cashSweepTestInput(map[string]float64{"USD": 60000, "EUR": 60000})
+			in.Holdings, in.Unclassified = holdings, blocked
+			plan := cashSweepPlanFor(cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9), in, now)
+			if cp := cashSweepCurrencyOf(t, plan, "USD"); cp.side != "" || cp.status.State != rpc.CashSweepStateEquivalentsUnclassified {
+				t.Fatalf("USD planner admitted unknown held maturity: %+v", cp.status)
+			}
+		})
+	}
+	// A preclassified invalid date must also fail closed even when it does
+	// not pass through the broker-date parser in this process.
+	pos := &rpc.PositionsResult{Stocks: []rpc.PositionView{{SecType: "BILL", ConID: 8401, Currency: "USD", Quantity: 5}},
+		Bonds: []rpc.PositionBond{{ConID: 8401, Currency: "USD", Class: rpc.BondClassBill, CUSIP: synthCUSIP35, Maturity: "2026-11"}}}
+	if _, blocked := cashSweepClassify(&protectionCashSweepPolicy{Enabled: true}, pos); blocked["USD"] == "" {
+		t.Fatal("an invalid retained maturity read as zero exposure")
+	}
+}
+
 // USD: the issued bill maturing nearest the rung's target inside the window
 // is resolved by CUSIP and quoted; the row names it.
 func TestCashSweepResolvesNearestUSBill(t *testing.T) {
@@ -274,6 +316,7 @@ func TestCashSweepResolvesNearestUSBill(t *testing.T) {
 	// unissued one is skipped, so the 35-day bill is nearest.
 	if usd.side != rpc.CashSweepSideInvest || usd.bill == nil || usd.bill.CUSIP != synthCUSIP35 || usd.bill.DaysToMaturity != 35 ||
 		usd.bill.Source != rpc.CashSweepBillSourceTreasuryDirect || usd.bill.PriceSource != "ask" || *usd.bill.Price != 99.6 || !usd.bill.QuoteFresh ||
+		usd.bill.MaturitySource != rpc.CashSweepMaturitySourceBrokerTreasuryDirect || !usd.bill.MaturitySourceAsOf.Equal(src.at) ||
 		usd.bill.QuantityUnit != rpc.BondQuantityUnitFace1000 || usd.bill.PriceConvention != rpc.BondPriceConventionPer100 {
 		t.Fatalf("USD bill = %+v (%s)", usd.bill, usd.status.Reason)
 	}
@@ -321,6 +364,188 @@ func TestCashSweepResolvesNearestUSBill(t *testing.T) {
 	*copied.Bill.Price = -1
 	if *row.CashSweep.Bill.Price == -1 {
 		t.Fatal("the row's bill is shared by its clone")
+	}
+}
+
+func TestCashSweepUSMaturityUsesExactPublicEvidenceWithoutChangingBrokerDate(t *testing.T) {
+	now := cashSweepTestNow()
+	src := usBillSource(now)
+	src.bills = src.bills[1:2]
+	src.byID[synthCUSIP35][0].Maturity, src.byID[synthCUSIP35][0].IssueDate = "", ""
+	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
+	_, got := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"USD": 60000}), src)
+	usd := got["USD"]
+	if usd.side != rpc.CashSweepSideInvest || usd.bill == nil || usd.bill.CUSIP != synthCUSIP35 || usd.bill.Maturity != src.bills[0].MaturityDate ||
+		usd.bill.MaturitySource != rpc.CashSweepMaturitySourceTreasuryDirect || !usd.bill.MaturitySourceAsOf.Equal(src.at) {
+		t.Fatalf("public maturity evidence = %+v / %+v", usd.status, usd.bill)
+	}
+	if src.byID[synthCUSIP35][0].Maturity != "" || src.byID[synthCUSIP35][0].IssueDate != "" {
+		t.Fatal("public evidence overwrote raw broker dates")
+	}
+	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, cashSweepPlan{}, usd)
+	if !slices.ContainsFunc(row.Details, func(s string) bool {
+		return strings.Contains(s, "maturity from TreasuryDirect") && strings.Contains(s, "broker omitted") && strings.Contains(s, src.at.UTC().Format(time.RFC3339))
+	}) {
+		t.Fatalf("owner details hid public provenance: %v", row.Details)
+	}
+	encoded, err := json.Marshal(row.CashSweep.Bill)
+	if err != nil || !strings.Contains(string(encoded), `"maturity_source":"treasurydirect"`) || !strings.Contains(string(encoded), `"maturity_source_as_of":`) {
+		t.Fatalf("wire provenance = %s / %v", encoded, err)
+	}
+}
+
+func TestCashSweepUSMaturityFallbackRefusesUnverifiedEvidence(t *testing.T) {
+	now := cashSweepTestNow()
+	for _, tc := range []struct {
+		name   string
+		change func(*fakeBillSource)
+	}{
+		{"contradictory maturity", func(s *fakeBillSource) {
+			s.byID[synthCUSIP35][0].Maturity = cashSweepDay(now).AddDate(0, 0, 36).Format("20060102")
+		}},
+		{"malformed maturity", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].Maturity = "2026-11" }},
+		{"malformed broker issue", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].IssueDate = "2026-11" }},
+		{"future broker issue", func(s *fakeBillSource) {
+			s.byID[synthCUSIP35][0].IssueDate = cashSweepDay(now).AddDate(0, 0, 1).Format("20060102")
+		}},
+		{"broker issue on maturity", func(s *fakeBillSource) {
+			s.byID[synthCUSIP35][0].IssueDate = cashSweepDay(now).AddDate(0, 0, 35).Format("20060102")
+		}},
+		{"broker issue after maturity", func(s *fakeBillSource) {
+			s.byID[synthCUSIP35][0].IssueDate = cashSweepDay(now).AddDate(0, 0, 36).Format("20060102")
+		}},
+		{"conflicting raw CUSIP", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].CUSIPField = synthCUSIP60 }},
+		{"conflicting US ISIN", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].SecIDs["ISIN"] = "US912797ZY61" }},
+		{"contradictory same contract line", func(s *fakeBillSource) {
+			line := s.byID[synthCUSIP35][0]
+			line.Maturity = cashSweepDay(now).AddDate(0, 0, 36).Format("20060102")
+			s.byID[synthCUSIP35] = append(s.byID[synthCUSIP35], line)
+		}},
+		{"contradictory same contract currency", func(s *fakeBillSource) {
+			line := s.byID[synthCUSIP35][0]
+			line.Currency = "EUR"
+			s.byID[synthCUSIP35] = append(s.byID[synthCUSIP35], line)
+		}},
+		{"wrong CUSIP", func(s *fakeBillSource) {
+			s.byID[synthCUSIP35][0].SecIDs["CUSIP"], s.byID[synthCUSIP35][0].CUSIPField = synthCUSIP60, synthCUSIP60
+		}},
+		{"missing CUSIP", func(s *fakeBillSource) {
+			delete(s.byID[synthCUSIP35][0].SecIDs, "CUSIP")
+			s.byID[synthCUSIP35][0].CUSIPField = ""
+		}},
+		{"wrong security type", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].SecType = "BOND" }},
+		{"missing security type", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].SecType = "" }},
+		{"wrong currency", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].Currency = "EUR" }},
+		{"nonzero coupon", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].Coupon = 1 }},
+		{"nonfinite coupon", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].Coupon = math.NaN() }},
+		{"missing grid", func(s *fakeBillSource) { s.byID[synthCUSIP35][0].MinSize = 0 }},
+		{"stale public source", func(s *fakeBillSource) { s.at = now.Add(-treasuryBillUniverseMaxAge - time.Nanosecond) }},
+		{"undated public source", func(s *fakeBillSource) { s.at = time.Time{} }},
+		{"future public receipt", func(s *fakeBillSource) { s.at = now.Add(time.Second) }},
+		{"unissued bill", func(s *fakeBillSource) {
+			s.bills[0].IssueDate = cashSweepDay(now).AddDate(0, 0, 1).Format(time.DateOnly)
+		}},
+		{"before maturity window", func(s *fakeBillSource) {
+			s.bills[0].MaturityDate = cashSweepDay(now).AddDate(0, 0, 27).Format(time.DateOnly)
+		}},
+		{"after maturity window", func(s *fakeBillSource) {
+			s.bills[0].MaturityDate = cashSweepDay(now).AddDate(0, 0, 92).Format(time.DateOnly)
+		}},
+		{"invalid public CUSIP", func(s *fakeBillSource) { s.bills[0].CUSIP = "912797ZZ0" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := usBillSource(now)
+			src.bills = src.bills[1:2]
+			src.byID[synthCUSIP35][0].Maturity = ""
+			tc.change(src)
+			policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
+			_, got := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"USD": 60000}), src)
+			usd := got["USD"]
+			if usd.side != "" || usd.bill != nil || usd.status.Bill != nil || usd.status.State != rpc.CashSweepStateInstrumentUnresolved && usd.status.State != rpc.CashSweepStateUniverseUnavailable {
+				t.Fatalf("unverified evidence produced a row: %+v / %+v", usd.status, usd.bill)
+			}
+		})
+	}
+}
+
+func TestCashSweepUSMaturityAllowsIssuedReopeningAndMatchingChannels(t *testing.T) {
+	now := cashSweepTestNow()
+	src := usBillSource(now)
+	src.bills = src.bills[1:2]
+	line := &src.byID[synthCUSIP35][0]
+	line.Maturity = ""
+	// A reopening date differs from the public list's earliest issue, but
+	// is already issued and before maturity. Neither date is rewritten.
+	line.IssueDate = cashSweepDay(now).Format("20060102")
+	line.SecIDs["ISIN"] = "US912797ZZ37"
+	line.CUSIPField = "US912797ZZ37"
+	line.Symbol = "non-identifier display text"
+	matching := *line
+	matching.Maturity = cashSweepDay(now).AddDate(0, 0, 35).Format("20060102")
+	src.byID[synthCUSIP35] = append(src.byID[synthCUSIP35], matching)
+	_, got := planAndResolve(t, cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9), cashSweepTestInput(map[string]float64{"USD": 60000}), src)
+	if b := got["USD"].bill; b == nil || b.MaturitySource != rpc.CashSweepMaturitySourceBrokerTreasuryDirect {
+		t.Fatalf("matching reopening refused or broker match hidden: %+v", got["USD"].status)
+	}
+	if src.byID[synthCUSIP35][0].Maturity != "" || src.byID[synthCUSIP35][0].IssueDate != cashSweepDay(now).Format("20060102") {
+		t.Fatal("public verification changed the raw broker dates")
+	}
+}
+
+func TestCashSweepRevisionBindsBillAuthorityAndUnitsWithoutReceiptChurn(t *testing.T) {
+	now := cashSweepTestNow()
+	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
+	src := usBillSource(now)
+	_, got := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"USD": 60000}), src)
+	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, cashSweepPlan{}, got["USD"])
+	revision := func(p rpc.TradeProposal) string {
+		return proposalRevision(rpc.Fingerprint{Key: "synthetic-policy"}, rpc.TradeProposalSourceFingerprints{}, brokerStateScope{Account: "DU1234567", Mode: "paper"}, []rpc.TradeProposal{p})
+	}
+	before := revision(row)
+	for name, change := range map[string]func(*rpc.TradeProposal){
+		"maturity": func(p *rpc.TradeProposal) { p.CashSweep.Bill.Maturity = now.AddDate(0, 0, 36).Format(time.DateOnly) },
+		"maturity source": func(p *rpc.TradeProposal) {
+			p.CashSweep.Bill.MaturitySource = rpc.CashSweepMaturitySourceTreasuryDirect
+		},
+		"CUSIP":           func(p *rpc.TradeProposal) { p.CashSweep.Bill.CUSIP = synthCUSIP60 },
+		"ISIN":            func(p *rpc.TradeProposal) { p.CashSweep.Bill.ISIN = "US912797ZY69" },
+		"broker type":     func(p *rpc.TradeProposal) { p.Contract.SecType = "BOND" },
+		"broker identity": func(p *rpc.TradeProposal) { p.Contract.ConID++ },
+		"broker currency": func(p *rpc.TradeProposal) { p.Contract.Currency = "EUR" },
+		"route":           func(p *rpc.TradeProposal) { p.Contract.Exchange = "SYNTH" },
+		"action":          func(p *rpc.TradeProposal) { p.Action = rpc.OrderActionSell },
+		"currency":        func(p *rpc.TradeProposal) { p.CashSweep.Currency = "EUR" },
+		"instrument":      func(p *rpc.TradeProposal) { p.CashSweep.Instrument = cashSweepInstrumentDEBubill },
+		"quantity unit":   func(p *rpc.TradeProposal) { p.CashSweep.QuantityUnit = rpc.BondQuantityUnitFace1 },
+		"face value":      func(p *rpc.TradeProposal) { p.CashSweep.FaceValue /= 1000 },
+		"bill unit":       func(p *rpc.TradeProposal) { p.CashSweep.Bill.QuantityUnit = rpc.BondQuantityUnitFace1 },
+		"bill identity":   func(p *rpc.TradeProposal) { p.CashSweep.Bill.ConID++ },
+		"bill type":       func(p *rpc.TradeProposal) { p.CashSweep.Bill.SecType = "BOND" },
+		"price unit":      func(p *rpc.TradeProposal) { p.CashSweep.Bill.PriceConvention = rpc.BondPriceConventionPerShare },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := row
+			changed.CashSweep = rpc.CloneProposalCashSweep(row.CashSweep)
+			change(&changed)
+			if revision(changed) == before {
+				t.Fatal("changed reviewed bill terms reused the revision")
+			}
+		})
+	}
+	refreshed := row
+	refreshed.CashSweep = rpc.CloneProposalCashSweep(row.CashSweep)
+	refreshed.CashSweep.Bill.MaturitySourceAsOf = now.Add(time.Hour)
+	refreshed.CashSweep.Bill.DaysToMaturity--
+	*refreshed.CashSweep.Bill.Price += 0.01
+	if revision(refreshed) != before {
+		t.Fatal("routine receipt, mark, or countdown refresh changed review identity")
+	}
+	stop := row
+	stop.Bucket, stop.CashSweep = rpc.TradeProposalBucketTrailingStop, nil
+	legacy := revision(stop)
+	stop.CashSweep = rpc.CloneProposalCashSweep(row.CashSweep)
+	if revision(stop) != legacy {
+		t.Fatal("non-sweep review identity changed")
 	}
 }
 
@@ -698,6 +923,52 @@ func TestMarketBondCheck(t *testing.T) {
 	refused := &ibkrlib.BondLookupError{Request: "BOND contract id 7509 in EUR", Attempts: []ibkrlib.BondLookupAttempt{{Form: "by contract id", Code: 321, Message: "Error validating request"}}}
 	if got := bondLookupReason(refused); got != `IBKR refused the request (BOND contract id 7509 in EUR; by contract id: IBKR 321 "Error validating request")` {
 		t.Fatalf("refusal = %q", got)
+	}
+}
+
+// Commissioning can inspect the readiness session without a sweep row, a
+// usable quote, or any order preview. Broker CLOSED and unknown are distinct.
+func TestMarketBondCheckSessionEvidence(t *testing.T) {
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, zone, liquid, trading, source string
+		windows                             int
+		coupon                              float64
+	}{
+		{name: "liquid", zone: "America/New_York", liquid: "20261001:0800-1700", source: rpc.BondSessionSourceLiquidHours, windows: 1},
+		{name: "trading", zone: "America/New_York", trading: "20261001:0700-1900", source: rpc.BondSessionSourceTradingHours, windows: 1},
+		{name: "closed", zone: "America/New_York", liquid: "20261001:CLOSED", source: rpc.BondSessionSourceLiquidHours},
+		{name: "assumed", source: rpc.BondSessionSourceAssumed, windows: 6},
+		{name: "unknown non-bill", coupon: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			line := synthBondLine(7501, synthCUSIP35, "USD", now.AddDate(0, 0, 35))
+			line.TimeZoneID, line.LiquidHours, line.TradingHours, line.Coupon = tc.zone, tc.liquid, tc.trading, tc.coupon
+			dir := &bondDirectory{
+				fetch: bondFetchOf(func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error) {
+					return []ibkrlib.BondContractDetails{line}, nil
+				}),
+				quote: func(context.Context, ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
+					return rpc.BondQuote{}, errors.New("quote unavailable")
+				},
+			}
+			res := marketBondCheck(t.Context(), dir, "CUSIP", synthCUSIP35, "USD", []string{"BILL"}, time.Second, now)
+			if !res.Resolved || res.Quoted || !strings.Contains(res.Reason, "quote unavailable") {
+				t.Fatalf("contract/quote evidence = %+v", res)
+			}
+			if tc.source == "" {
+				if res.Session != nil {
+					t.Fatalf("unknown line received assumed hours: %+v", res.Session)
+				}
+				return
+			}
+			if res.Session == nil || res.Session.Source != tc.source || len(res.Session.Windows) != tc.windows {
+				t.Fatalf("session evidence = %+v", res.Session)
+			}
+			if tc.name == "liquid" && (res.Session.TimeZone != tc.zone || !res.Session.Windows[0].Open.Equal(now) || !res.Session.Windows[0].Close.Equal(now.Add(9*time.Hour))) {
+				t.Fatalf("contract time zone/UTC windows changed: %+v", res.Session)
+			}
+		})
 	}
 }
 

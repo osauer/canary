@@ -49,8 +49,9 @@ type cashSweepLedgerRow struct {
 	Observed  bool
 	TradeDate float64
 	// ExchangeRate is base units per unit of this currency; 1 for the base.
-	ExchangeRate float64
-	Settled      *float64
+	ExchangeRate  float64
+	Settled       *float64
+	SettledReason string
 }
 
 // cashSweepSettlement carries a legacy estimate from journal fills. The live
@@ -281,7 +282,7 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		st.State, st.Reason = rpc.CashSweepStateCashUnavailable, cashSweepCashReason(in, ccy, inLedger, row)
 		return cp
 	case settlementReason != "" && !brokerSettled:
-		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, "the ledger carries no SettledCash for "+ccy+" and "+settlementReason
+		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, nonEmptyString(row.SettledReason, "the ledger carries no SettledCash for "+ccy+" and "+settlementReason)
 		return cp
 	case commitReason != "":
 		st.State, st.Reason = rpc.CashSweepStateSettlementUnknown, commitReason
@@ -630,6 +631,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		}
 		details = append(details, fmt.Sprintf("bill %s (%s) matures %s (%d days); quoted %s per 100 of face (%s, %s)",
 			cashSweepBillName(*b), b.Instrument, b.Maturity, b.DaysToMaturity, formatBillPrice(b.Price), nonEmptyString(b.PriceSource, "no price"), quote))
+		details = append(details, cashSweepBillMaturityDetail(*b))
 		details = append(details, fmt.Sprintf("buy %d × %s = %s of face, about %s at that price; the preview prices a limit on the bill's %s tick from a live bid and ask",
 			cp.units, conv.QuantityUnit, formatBudgetMoney(block.FaceValue, ccy), formatBudgetMoney(block.EstimatedCost, ccy), formatBillTick(b.MinTick)))
 	case rpc.CashSweepSideRedeem:
@@ -787,16 +789,27 @@ func cashSweepCounts(proposals []rpc.TradeProposal) (rows, shadow int) {
 // cashSweepInput gathers the planner's inputs for the connected scope.
 func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPolicy, acct *rpc.AccountResult, pos *rpc.PositionsResult, scope brokerStateScope, now time.Time) cashSweepInput {
 	in := cashSweepInput{}
-	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedger(acct)
 	in.Holdings, in.Unclassified = cashSweepClassify(policy.Buckets.CashSweep, pos)
 	in.Settlement = e.cashSweepSettlement(scope, now)
 	in.Commitments = e.cashSweepCommitments(ctx, scope)
+	// Broker reads can finish after the refresh's planning timestamp. Check
+	// cash at consumption time, retaining now for the planning day/calendar.
+	cashNow := now
+	if e.server != nil {
+		cashNow = e.server.nowUTC()
+	}
+	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, cashNow)
+	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
 	return in
 }
 
 // cashSweepLedger reads cash per currency from a current one-shot account
 // ledger: the non-base rows and the base row. Anything less is unavailable.
 func cashSweepLedger(acct *rpc.AccountResult) (string, map[string]cashSweepLedgerRow, string) {
+	return cashSweepLedgerAt(acct, time.Now().UTC())
+}
+
+func cashSweepLedgerAt(acct *rpc.AccountResult, now time.Time) (string, map[string]cashSweepLedgerRow, string) {
 	if acct == nil || !currentPortfolioAuthority(acct.Authority) || acct.AccountID != acct.Authority.Scope.AccountID {
 		return "", nil, "the account summary is not current for the connected account; cash is unavailable, not zero"
 	}
@@ -808,11 +821,11 @@ func cashSweepLedger(acct *rpc.AccountResult) (string, map[string]cashSweepLedge
 	ledger := map[string]cashSweepLedgerRow{}
 	for _, row := range acct.CurrencyExposure {
 		if ccy := normCcy(row.Currency); ccy != "" && ccy != base {
-			ledger[ccy] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: row.ExchangeRate, Settled: cloneFloat64Ptr(row.SettledCashCcy)}
+			ledger[ccy] = cashSweepCashObservation(row, acct, now)
 		}
 	}
 	if row := acct.BaseCurrencyLedger; row != nil {
-		ledger[base] = cashSweepLedgerRow{Observed: row.CashObserved, TradeDate: row.CashCcy, ExchangeRate: 1, Settled: cloneFloat64Ptr(row.SettledCashCcy)}
+		ledger[base] = cashSweepCashObservation(*row, acct, now)
 	}
 	return base, ledger, ""
 }
@@ -850,9 +863,15 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 				continue
 			}
 			instrument := cashSweepHeldBillInstrument(b, ccy)
-			maturity, err := time.Parse(time.DateOnly, b.Maturity)
-			if instrument == "" || err != nil {
+			if instrument == "" {
 				continue // a bond, or another issuer's bill: not a cash equivalent
+			}
+			maturity, err := time.Parse(time.DateOnly, b.Maturity)
+			if err != nil {
+				// A recognized cash equivalent cannot disappear from the ladder
+				// or read as zero merely because its broker date is unavailable.
+				bills[ccy]++
+				continue
 			}
 			if holdings == nil {
 				holdings = map[string][]cashSweepHolding{}
@@ -868,7 +887,7 @@ func cashSweepClassify(bucket *protectionCashSweepPolicy, pos *rpc.PositionsResu
 	}
 	for ccy, n := range bills {
 		label := nonEmptyString(ccy, "an unknown currency")
-		unclassified[ccy] = fmt.Sprintf("%d bond or bill %s in %s could not be classified: its contract details are unavailable (see the positions' bonds section)", n, pluralNoun(n, "holding"), label)
+		unclassified[ccy] = fmt.Sprintf("%d bond or bill %s in %s could not be classified: its contract identity or maturity is unavailable (see the positions' bonds section)", n, pluralNoun(n, "holding"), label)
 	}
 	return holdings, unclassified
 }
@@ -1012,7 +1031,9 @@ func (e *proposalEngine) cashSweepCommitments(ctx context.Context, scope brokerS
 // cashSweepCommitmentsFrom is the pure half of cashSweepCommitments. A working
 // buy is valued at its fixed limit price, a bond's at its currency's bill
 // convention; one with no price bound makes its currency unknown. A queued
-// buy counts only while armed, held or sending, at its worst price.
+// buy counts only while armed, held or sending, at its worst price. These
+// observations carry no commission currency or upper bound, so principal
+// diagnostics alone cannot certify fee-inclusive commitments for any currency.
 func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope) cashSweepCommitments {
 	out := cashSweepCommitments{Known: true, Unknown: map[string]string{}, ByCurrency: map[string]float64{}}
 	for _, o := range orders {
@@ -1024,6 +1045,7 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		}
 		ccy := normCcy(o.Currency)
 		secType := strings.ToUpper(strings.TrimSpace(o.SecType))
+		cashSweepOutstandingFeesUnknown(&out, ccy, "a working")
 		remaining := o.Remaining
 		if remaining <= 0 {
 			remaining = o.TotalQuantity - o.Filled
@@ -1061,6 +1083,7 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 			continue
 		}
 		ccy := normCcy(nonEmptyString(rec.Terms.Currency, rec.Terms.Contract.Currency))
+		cashSweepOutstandingFeesUnknown(&out, ccy, "an armed queued")
 		multiplier, ok := cashSweepMultiplier(strings.ToUpper(strings.TrimSpace(rec.Terms.Contract.SecType)), rec.Terms.Contract.Multiplier, ccy)
 		if ccy == "" || !ok || !positiveFinite(rec.Terms.WorstPrice) || rec.Terms.MaxQuantity <= 0 {
 			out.Unknown[ccy] = "an armed queued buy has no currency, multiplier or worst price, so the cash it commits is unknown"

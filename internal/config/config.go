@@ -17,6 +17,17 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// CashLedger configures a supplemental broker cash source. It is disabled
+// without a URL and never logs in, switches mode, or starts a trading session.
+type CashLedger struct {
+	// URL is the existing authenticated Web API root ending /v1/api. Only loopback or verified https://api.ibkr.com is accepted. No default; the TWS session alone does not provide this HTTP connection.
+	URL string `toml:"url"`
+	// BearerTokenFile optionally names a private file containing a final SSO bearer token for an already authenticated supported session. Local Client Portal Gateway normally needs no token file. No token is stored in configuration or logs.
+	BearerTokenFile string `toml:"bearer_token_file"`
+	// CACertFile optionally trusts the operator's local Gateway certificate; hostname and certificate validation remain enabled. No insecure TLS fallback exists.
+	CACertFile string `toml:"ca_cert_file"`
+}
+
 // Gateway holds the four pinnable connection knobs. Pointer fields
 // auto-discovery only probes loopback. A non-loopback host implies "I know
 // Account is plain string because empty already means "auto-detect via
@@ -379,6 +390,7 @@ type Config struct {
 	Opportunities Opportunities `toml:"opportunities"`
 	Flex          Flex          `toml:"flex"`
 	SPX           SPX           `toml:"spx"`
+	CashLedger    CashLedger    `toml:"cash_ledger"`
 }
 
 // Resolved is the validated, defaults-applied view a daemon actually uses.
@@ -391,6 +403,7 @@ type Resolved struct {
 	Opportunities Opportunities
 	Flex          Flex
 	SPX           SPX
+	CashLedger    CashLedger
 }
 
 // duration is a time.Duration that decodes from a TOML string ("5m").
@@ -454,7 +467,7 @@ func Load(path string) (*Config, error) {
 				return nil, fmt.Errorf("config %s: key %s was removed: %s", path, keys[i], msg)
 			}
 		}
-		return nil, fmt.Errorf("config %s: unknown key(s): %s (see README §Configuration for the supported schema: [gateway], [daemon], [trading], [rulebook], [auto_trade], [opportunities], [flex], [spx])", path, strings.Join(keys, ", "))
+		return nil, fmt.Errorf("config %s: unknown key(s): %s (supported sections: [gateway], [daemon], [trading], [rulebook], [auto_trade], [opportunities], [flex], [spx], [cash_ledger])", path, strings.Join(keys, ", "))
 	}
 	return cfg, nil
 }
@@ -496,6 +509,7 @@ func (c *Config) Resolve() (*Resolved, error) {
 		Opportunities: c.Opportunities.WithDefaults(),
 		Flex:          c.Flex.WithDefaults(),
 		SPX:           c.SPX,
+		CashLedger:    c.CashLedger,
 	}, nil
 }
 

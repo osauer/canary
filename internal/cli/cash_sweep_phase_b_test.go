@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -88,6 +89,48 @@ func TestMarketBondCLI(t *testing.T) {
 	}
 	if conn.params.SecType != "BOND" {
 		t.Fatalf("--type bond asked %q", conn.params.SecType)
+	}
+}
+
+func TestMarketBondSessionCLI(t *testing.T) {
+	const identifier = "912797ZZ3"
+	open := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name    string
+		session *rpc.BondSession
+		want    []string
+	}{
+		{name: "broker", session: &rpc.BondSession{Source: rpc.BondSessionSourceLiquidHours, TimeZone: "America/New_York", Windows: []rpc.BondSessionWindow{{Open: open, Close: open.Add(9 * time.Hour)}}},
+			want: []string{"Session    liquid_hours · America/New_York", "2026-10-01T12:00:00Z → 2026-10-01T21:00:00Z"}},
+		{name: "assumed", session: &rpc.BondSession{Source: rpc.BondSessionSourceAssumed, TimeZone: "America/New_York", Windows: []rpc.BondSessionWindow{{Open: open, Close: open.Add(9 * time.Hour)}}},
+			want: []string{"Session    assumed · America/New_York"}},
+		{name: "closed", session: &rpc.BondSession{Source: rpc.BondSessionSourceTradingHours, TimeZone: "America/New_York"}, want: []string{"Session    trading_hours", "no trading windows"}},
+		{name: "unknown", want: []string{"Session    unavailable"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := &bondCLIConn{result: rpc.MarketBondResult{Identifier: identifier, IdentifierType: "CUSIP", Currency: "USD", Resolved: true,
+				Contract: &rpc.BondContract{ConID: 7101, SecType: "BILL", Class: rpc.BondClassBill, Currency: "USD"}, Session: tc.session}}
+			var out bytes.Buffer
+			if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--symbol", identifier, "--type", "BILL"}); code != 0 {
+				t.Fatalf("text code %d: %s", code, &out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out.String(), want) {
+					t.Fatalf("missing %q in:\n%s", want, &out)
+				}
+			}
+			out.Reset()
+			if code := Run(t.Context(), &Env{Conn: conn, Stdout: &out, Stderr: &out}, "market", []string{"--symbol", identifier, "--type", "BILL", "--json"}); code != 0 {
+				t.Fatalf("json code %d: %s", code, &out)
+			}
+			var got rpc.MarketBondResult
+			if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			if (got.Session == nil) != (tc.session == nil) || tc.session != nil && (got.Session.Source != tc.session.Source || got.Session.TimeZone != tc.session.TimeZone || len(got.Session.Windows) != len(tc.session.Windows)) {
+				t.Fatalf("JSON dropped session evidence: %+v", got.Session)
+			}
+		})
 	}
 }
 

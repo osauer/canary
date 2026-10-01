@@ -14,6 +14,9 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[auto_trade]` | `proposal_cadence` | `duration` | ProposalCadence controls how often the daemon refreshes protection proposals; default 30s. |
 | `[auto_trade]` | `proposals_enabled` | `*bool` | ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false. |
 | `[auto_trade]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks policy-file changes; default 30s. |
+| `[cash_ledger]` | `bearer_token_file` | `string` | BearerTokenFile optionally names a private file containing a final SSO bearer token for an already authenticated supported session. |
+| `[cash_ledger]` | `ca_cert_file` | `string` | CACertFile optionally trusts the operator's local Gateway certificate; hostname and certificate validation remain enabled. |
+| `[cash_ledger]` | `url` | `string` | URL is the existing authenticated Web API root ending /v1/api. |
 | `[daemon]` | `idle_timeout` | `duration` | IdleTimeout is how long the auto-spawned daemon stays alive between CLI calls (default 15m, accepts any Go duration string like "1h" or "0s"); set "0s" to disable idle-shutdown when running long cold-start jobs such as the first breadth fan-out under `canary daemon --foreground`. |
 | `[daemon]` | `log_after_close_minutes` | `*int` | LogAfterCloseMinutes includes post-close and extended-hours work after each closing (default 240, range 0..720). |
 | `[daemon]` | `log_before_open_minutes` | `*int` | LogBeforeOpenMinutes includes preparation and extended-hours work before each opening (default 360, range 0..720). |

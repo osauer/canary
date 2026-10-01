@@ -508,13 +508,20 @@ not establish a currency's settled cash. Without a per-currency observation,
 the sweep holds at `settlement_unknown`; waiting after a daemon restart does
 not clear it. The order journal lacks verified settlement dates, holiday
 calendars and complete account-wide fill coverage, so its estimate cannot
-authorise a sweep. **Committed** is working buy orders with a fixed finite
-limit plus armed queued buys at their finite worst price. An unknown bound
-or nonfinite total holds the sweep. A prepared, unarmed queue entry or an
+authorise a sweep. An optional authenticated read-only Web API connection can
+provide the missing observation; see [Settlement evidence](cash-ledger.md).
+**Committed** is working buy orders with a fixed finite limit plus armed, held
+or sending queued buys at their finite worst price. An unknown principal or
+commission bound or a nonfinite total holds the sweep. Outstanding buy records
+currently lack fee envelopes, so new sweeps wait while such buys remain.
+A prepared, unarmed queue entry or an
 unapproved proposal never counts, and **free** is
 cash − committed − `keep_cash`. When free exceeds `min_tranche`
 the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
-cap that holds the order below `min_tranche` holds the currency. When cash less
+cap that holds the order below `min_tranche` holds the currency. Exact buy previews
+also require principal plus the broker's maximum same-currency commission to fit
+free cash. The cap is per order; no aggregate percentage or daily budget exists.
+When cash less
 commitments falls below `keep_cash` it sells the nearest maturity (or the
 declared ETF) to cover the gap, held to `max_order_notional` like a buy (the
 next cycle sells the rest), unless a held bill pays out before a sale today

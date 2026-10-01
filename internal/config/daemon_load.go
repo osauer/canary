@@ -107,6 +107,7 @@ func decodeForDaemon(path string, md toml.MetaData, root map[string]toml.Primiti
 		"trading": reflect.ValueOf(&cfg.Trading).Elem(), "rulebook": reflect.ValueOf(&cfg.Rulebook).Elem(),
 		"auto_trade": reflect.ValueOf(&cfg.AutoTrade).Elem(), "opportunities": reflect.ValueOf(&cfg.Opportunities).Elem(),
 		"flex": reflect.ValueOf(&cfg.Flex).Elem(), "spx": reflect.ValueOf(&cfg.SPX).Elem(),
+		"cash_ledger": reflect.ValueOf(&cfg.CashLedger).Elem(),
 	}
 	fail := func(format string, args ...any) (*Config, []Issue, error) {
 		return nil, nil, &IdentityError{Path: path, Detail: fmt.Sprintf(format, args...)}

@@ -2819,11 +2819,14 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		add("proposal_effect_not_close_reduce", fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation.")
 	}
 	switch {
-	case proposalCloseReduceEffect(preview.Position.Effect):
 	case excepted:
+		// A buy still spends cash when it covers a short. Always validate the
+		// typed sweep exception before generic close/reduce admission; a drift
+		// from its planned long-bill effect cannot skip the reserve/fee checks.
 		for _, b := range sweepException.previewBlockers(preview) {
 			add(b.Code, b.Message, b.Action)
 		}
+	case proposalCloseReduceEffect(preview.Position.Effect):
 	default:
 		add("preview_effect_not_close_reduce", fmt.Sprintf("preview effect %q is not close/reduce", preview.Position.Effect), "Refresh positions and preview again; proposal submit cannot open, increase, or flip exposure.")
 	}
@@ -3520,6 +3523,32 @@ func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFin
 	}{Policy: policy, Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode)), Sources: stableSources}
 	for _, p := range proposals {
 		projection.Proposal = append(projection.Proposal, p.Key+":"+strconv.Itoa(p.Quantity)+":"+p.PositionEffect)
+		if p.Bucket == rpc.TradeProposalBucketCashSweep && p.CashSweep != nil {
+			// Bind material bill terms and date authority, not routine receipt
+			// times, marks, or the daily days-to-maturity countdown.
+			s := p.CashSweep
+			binding := struct {
+				ConID                                                     int
+				SecType, Exchange, ContractCurrency, Currency, Instrument string
+				Action, Side, QuantityUnit                                string
+				FaceValue                                                 float64
+				BillConID                                                 int
+				BillType, BillInstrument, BillQuantityUnit                string
+				BillSource, CUSIP, ISIN, Maturity, MaturitySource         string
+				PriceConvention                                           string
+			}{ConID: p.Contract.ConID, SecType: p.Contract.SecType, Exchange: p.Contract.Exchange,
+				ContractCurrency: p.Contract.Currency, Currency: s.Currency, Instrument: s.Instrument, Action: p.Action,
+				Side: s.Side, QuantityUnit: s.QuantityUnit, FaceValue: s.FaceValue,
+				Maturity: s.MaturityDate}
+			if b := s.Bill; b != nil {
+				binding.BillConID, binding.BillType, binding.BillInstrument = b.ConID, b.SecType, b.Instrument
+				binding.BillQuantityUnit = b.QuantityUnit
+				binding.BillSource, binding.CUSIP, binding.ISIN = b.Source, b.CUSIP, b.ISIN
+				binding.Maturity, binding.MaturitySource, binding.PriceConvention = b.Maturity, b.MaturitySource, b.PriceConvention
+			}
+			raw, _ := json.Marshal(binding)
+			projection.Proposal = append(projection.Proposal, "cash-sweep-material-v1:"+string(raw))
+		}
 		if p.OptionExit != nil {
 			// Receipt times/values refresh at preview; scope and resulting role
 			// are semantic revision inputs. Never churn solely on receipt time.

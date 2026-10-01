@@ -72,6 +72,13 @@ const (
 	CashSweepBillSourcePolicyISINs    = "policy_isins"
 )
 
+// Maturity provenance remains separate from the broker's raw contract fields.
+const (
+	CashSweepMaturitySourceBroker               = "broker"
+	CashSweepMaturitySourceBrokerTreasuryDirect = "broker_and_treasurydirect"
+	CashSweepMaturitySourceTreasuryDirect       = "treasurydirect"
+)
+
 // Cash sweep blocker codes a row can carry. Each stops an order that could
 // not be priced or sized, not a decision: the owner's approval of each order
 // is the gate.
@@ -190,22 +197,26 @@ type TradeProposalCashSweepBill struct {
 	ConID      int    `json:"con_id"`
 	// SecType is the IBKR security type the bill resolved as (BILL or
 	// BOND); the row's order carries it.
-	SecType         string       `json:"sec_type,omitempty"`
-	Symbol          string       `json:"symbol,omitempty"`
-	ISIN            string       `json:"isin,omitempty"`
-	CUSIP           string       `json:"cusip,omitempty"`
-	Maturity        string       `json:"maturity"`
-	DaysToMaturity  int          `json:"days_to_maturity"`
-	MinSize         *float64     `json:"min_size,omitempty"`
-	SizeIncrement   *float64     `json:"size_increment,omitempty"`
-	MinTick         *float64     `json:"min_tick,omitempty"`
-	Price           *float64     `json:"price,omitempty"`
-	PriceSource     string       `json:"price_source,omitempty"`
-	Quote           *BondQuote   `json:"quote,omitempty"`
-	QuoteFresh      bool         `json:"quote_fresh"`
-	QuantityUnit    string       `json:"quantity_unit"`
-	PriceConvention string       `json:"price_convention"`
-	Session         *BondSession `json:"session,omitempty"`
+	SecType  string `json:"sec_type,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+	ISIN     string `json:"isin,omitempty"`
+	CUSIP    string `json:"cusip,omitempty"`
+	Maturity string `json:"maturity"`
+	// MaturitySource identifies who supplied or confirmed the date. The public
+	// timestamp is present for a TreasuryDirect date, including broker matches.
+	MaturitySource     string       `json:"maturity_source,omitempty"`
+	MaturitySourceAsOf time.Time    `json:"maturity_source_as_of,omitzero"`
+	DaysToMaturity     int          `json:"days_to_maturity"`
+	MinSize            *float64     `json:"min_size,omitempty"`
+	SizeIncrement      *float64     `json:"size_increment,omitempty"`
+	MinTick            *float64     `json:"min_tick,omitempty"`
+	Price              *float64     `json:"price,omitempty"`
+	PriceSource        string       `json:"price_source,omitempty"`
+	Quote              *BondQuote   `json:"quote,omitempty"`
+	QuoteFresh         bool         `json:"quote_fresh"`
+	QuantityUnit       string       `json:"quantity_unit"`
+	PriceConvention    string       `json:"price_convention"`
+	Session            *BondSession `json:"session,omitempty"`
 }
 
 // CloneCashSweepBill deep-copies a resolved bill; nil stays nil.

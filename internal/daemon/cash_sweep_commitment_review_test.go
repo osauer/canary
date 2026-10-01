@@ -72,7 +72,7 @@ func TestCashSweepWorkingBuysRequireAFixedFiniteLimit(t *testing.T) {
 				TotalQuantity: 100, Remaining: tc.remaining, LimitPrice: tc.price, AuxPrice: 10, TrailStopPrice: 10}
 			got := cashSweepCommitmentsFrom([]ibkrlib.OrderLifecycleEvent{order}, nil, scope)
 			if tc.bounded {
-				if got.Unknown["USD"] != "" || got.ByCurrency["USD"] != 1000 {
+				if !strings.Contains(got.Unknown["USD"], "commission") || got.Unknown[""] == "" || got.ByCurrency["USD"] != 1000 {
 					t.Fatalf("fixed limit commitment = %+v", got)
 				}
 				return

@@ -590,6 +590,7 @@ func marketBondCheck(ctx context.Context, dir *bondDirectory, idType, id, ccy st
 	res.Resolved = true
 	view := bondContractView(line, cashSweepDay(now))
 	res.Contract = &view
+	res.Session = cashSweepBondSession(&line, bondLineInstrument(line), now)
 	quoteCtx, cancel := context.WithTimeout(ctx, timeout+2*time.Second)
 	defer cancel()
 	q, err := dir.quoteFor(quoteCtx, line)

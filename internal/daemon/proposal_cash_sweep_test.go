@@ -141,7 +141,8 @@ func TestCashSweepCommitmentsAndSettlement(t *testing.T) {
 // Working buy orders from every client commit cash at their price bound;
 // an armed, held or sending queued buy commits its worst price; a prepared,
 // unarmed queue entry is never a commitment. A buy with no price bound makes
-// its currency unknown.
+// its currency unknown. Principal diagnostics survive, but absent commission
+// bounds and currency also prevent certifying the total commitments.
 func TestCashSweepCommitmentsFromOrdersAndQueue(t *testing.T) {
 	scope := brokerStateScope{Account: "DU1234567", Mode: "paper"}
 	orders := []ibkrlib.OrderLifecycleEvent{
@@ -160,22 +161,22 @@ func TestCashSweepCommitmentsFromOrdersAndQueue(t *testing.T) {
 	if !got.Known || got.ByCurrency["USD"] != 10*50+2*1.5*100+3*20 {
 		t.Fatalf("USD committed = %v (%+v)", got.ByCurrency["USD"], got)
 	}
-	if got.Unknown["EUR"] == "" || got.Unknown["USD"] != "" {
+	if got.Unknown["EUR"] == "" || !strings.Contains(got.Unknown["USD"], "commission") || got.Unknown[""] == "" {
 		t.Fatalf("unknown = %+v", got.Unknown)
 	}
 	// Without the prepared record's arm nothing of it counts.
 	if only := cashSweepCommitmentsFrom(nil, []queuedAuthRecord{queued(rpc.QueuedAuthPrepared)}, scope); only.ByCurrency["USD"] != 0 {
 		t.Fatalf("an unauthorised queue entry committed %v", only.ByCurrency["USD"])
 	}
-	// The planner reads an unknown commitment as settlement_unknown for that
-	// currency only.
+	// An unknown fee currency also holds the sibling currency; the retained
+	// principal is a diagnostic, not proof of fee-inclusive free cash.
 	in := cashSweepTestInput(map[string]float64{"USD": 60000, "EUR": 60000})
 	in.Commitments = got
 	plan := cashSweepPlanFor(cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9), in, cashSweepTestNow())
 	if s := cashSweepCurrencyOf(t, plan, "EUR").status.State; s != rpc.CashSweepStateSettlementUnknown {
 		t.Fatalf("EUR = %s", s)
 	}
-	if s := cashSweepCurrencyOf(t, plan, "USD").status.State; s != rpc.CashSweepStateInvest {
+	if s := cashSweepCurrencyOf(t, plan, "USD").status.State; s != rpc.CashSweepStateSettlementUnknown {
 		t.Fatalf("USD = %s", s)
 	}
 }
@@ -541,7 +542,11 @@ func TestCashSweepCloseReduceOnlyException(t *testing.T) {
 	}
 	preview := func(qty int, limit float64, effect string) *rpc.OrderPreviewResult {
 		p := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: qty, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: limit,
-			Contract: row.Contract, Source: proposalOrderSource, Bond: cashSweepOrderTerms(row)}, NotionalBase: float64(qty) * 1000 * limit / 100 * 0.9}
+			Contract: row.Contract, Source: proposalOrderSource, Bond: cashSweepOrderTerms(row)}, BaseCurrency: "EUR", NotionalCurrency: "USD",
+			Notional: float64(qty) * 1000 * limit / 100, NotionalBase: float64(qty) * 1000 * limit / 100 * 0.9,
+			WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true, Margin: &rpc.OrderMarginImpact{
+				Currency: "EUR", InitialMarginBefore: new(0.0), InitialMarginAfter: new(float64(qty) * 1000 * limit / 100 * 0.9),
+				CommissionCurrency: "USD", MaxCommission: new(1.0)}}}
 		p.Position.Effect = effect
 		return p
 	}

@@ -98,6 +98,7 @@ type Server struct {
 	// accountSnapshots owns the short-lived, request-authored account summary
 	// ready for use; connector session and broker scope are part of every key.
 	accountSnapshots accountSnapshotAuthority
+	cashLedger       cashLedgerAuthority
 	// dailyPnLObservations keeps an observed same-session feed failure visible
 	dailyPnLObservations dailyPnLObservationAuthority
 	// dailyPnLCloseCaptures pins each scope's account Daily P&L at the

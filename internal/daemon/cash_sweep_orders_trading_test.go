@@ -55,7 +55,8 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 	rig.server.orderPreviewWhatIf = func(_ context.Context, d rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
 		before, after := 0.0, float64(d.Quantity)*d.Bond.FacePerUnit*d.LimitPrice/100
 		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true,
-			Margin: &rpc.OrderMarginImpact{Currency: "USD", InitialMarginBefore: &before, InitialMarginAfter: &after}}, nil
+			Margin: &rpc.OrderMarginImpact{Currency: "USD", InitialMarginBefore: &before, InitialMarginAfter: &after,
+				CommissionCurrency: "USD", MaxCommission: new(1.0)}}, nil
 	}
 
 	revision := rig.install(row)

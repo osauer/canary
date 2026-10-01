@@ -2000,6 +2000,27 @@ type AccountResult struct {
 	// exposure. The cash sweep reads the base currency's cash from it. Nil
 	// when the base is unproven or the ledger carried no base row.
 	BaseCurrencyLedger *CurrencyExposure `json:"base_currency_ledger,omitempty"`
+	// CashLedger reports the supplemental Web API source without changing the
+	// TWS account-summary authority or timestamp.
+	CashLedger *CashLedgerHealth `json:"cash_ledger,omitempty"`
+}
+
+// CashLedgerHealth is value-free source health for the optional broker ledger.
+type CashLedgerHealth struct {
+	Source string    `json:"source"`
+	Status string    `json:"status"`
+	Reason string    `json:"reason,omitempty"`
+	AsOf   time.Time `json:"as_of,omitzero"`
+}
+
+// WebCashObservation preserves one broker row and its original source time.
+// Scope must match the independently observed TWS account/mode.
+type WebCashObservation struct {
+	Currency    string           `json:"currency"`
+	Scope       AccountDataScope `json:"scope"`
+	CashBalance float64          `json:"cash_balance"`
+	SettledCash float64          `json:"settled_cash"`
+	AsOf        time.Time        `json:"as_of"`
 }
 
 // DailyPnLObservation is the value-free health record for the account Daily
@@ -2043,6 +2064,8 @@ type CurrencyExposure struct {
 	// when the gateway sent none. The cash sweep prefers it to settled cash
 	// derived from Canary's order journal.
 	SettledCashCcy *float64 `json:"settled_cash_ccy,omitempty"`
+	// WebCash is supplemental exact-currency evidence, never a BASE aggregate.
+	WebCash *WebCashObservation `json:"web_cash,omitempty"`
 }
 
 // ChainStrike is one strike row in a chain.

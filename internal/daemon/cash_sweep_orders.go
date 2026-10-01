@@ -245,8 +245,8 @@ func cashSweepOpenException(prop rpc.TradeProposal) (closeReduceOnlyException, b
 // previewBlockers says why a preview the close_reduce_only gate would refuse
 // is outside the exception; none means it is inside: the row's own bill in
 // its currency, opening or increasing, within the planned units, costing no
-// more than the free cash at its own limit and, at the row's ledger rate, no
-// more than max_order_notional.
+// more than the free cash at its own limit including the broker's upper fee
+// envelope and, at the row's ledger rate, principal no more than max_order_notional.
 func (x closeReduceOnlyException) previewBlockers(preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
 	if preview == nil {
 		return []rpc.TradingBlocker{{Code: "proposal_preview_missing", Message: "proposal preview result is unavailable"}}
@@ -257,7 +257,7 @@ func (x closeReduceOnlyException) previewBlockers(preview *rpc.OrderPreviewResul
 		d.Contract.ConID != x.ConID || normCcy(d.Contract.Currency) != x.Currency || !ibkrlib.IsBillOrBond(d.Contract.SecType) ||
 		d.Bond == nil || d.Bond.Instrument != x.Instrument || d.Bond.FacePerUnit != x.FacePerUnit || !positiveFinite(d.LimitPrice) {
 		return []rpc.TradingBlocker{{Code: "preview_effect_not_close_reduce",
-			Message: fmt.Sprintf("preview effect %q is not close/reduce and is not the sweep row's own bill buy within its planned units", effect),
+			Message: fmt.Sprintf("preview effect %q or order terms do not match the sweep row's planned bill buy within its units", effect),
 			Action:  "Refresh proposals and positions and preview the row again."}}
 	}
 	var out []rpc.TradingBlocker
@@ -266,6 +266,8 @@ func (x closeReduceOnlyException) previewBlockers(preview *rpc.OrderPreviewResul
 		out = append(out, rpc.TradingBlocker{Code: "cash_sweep_cost_above_free_cash",
 			Message: fmt.Sprintf("the buy costs %s at its limit, above the free cash %s it was planned against", formatBudgetMoney(cost, x.Currency), formatBudgetMoney(x.MaxCost, x.Currency)),
 			Action:  "Refresh proposals; the next cycle sizes the buy at the current price."})
+	} else {
+		out = append(out, cashSweepFeeReserveBlockers(preview, cost, x.MaxCost, x.Currency)...)
 	}
 	out = append(out, cashSweepNotionalBlockers(cost, x.Rate, x.MaxBaseNotional)...)
 	return out

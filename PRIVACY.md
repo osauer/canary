@@ -97,6 +97,12 @@ socket. The project makes these additional outbound connections:
 - Configured IBKR Flex reconciliation contacts IBKR's Flex Statement service
   using the user's query credential and receives the requested broker report.
   That report is exchanged with IBKR, not with this project's maintainer.
+- When the owner configures `[cash_ledger]`, Canary reads the selected account's
+  currency ledger from an existing authenticated IBKR Web API session. The
+  account identifier and any private bearer credential go only to the specified
+  local Client Portal Gateway or verified `api.ibkr.com`; responses stay local.
+  It never starts a brokerage session or sends orders, and does not log tokens,
+  account identifiers, HTTP bodies or credential-file paths on failure.
 - When the user enables `canary app --remote`, authenticated app HTTP and SSE
   traffic passes through the configured Cloudflare relay. This can include
   portfolio/account fields returned to the paired phone; the relay does not own

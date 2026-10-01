@@ -63,8 +63,11 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if c != nil {
 		healthBinding, _ = c.CaptureSession()
 	}
+	scope := s.currentBrokerStateScope()
 	defer func() {
 		if healthErr == nil {
+			healthAuthority = finalizeAccountSummarySession(healthResult, healthAuthority,
+				c != nil && c.SessionCurrent(healthBinding) && sameBrokerScope(scope, s.currentBrokerStateScope()))
 			s.observeAccountRPC(healthResult, c, healthBinding)
 		}
 	}()
@@ -72,7 +75,6 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if c == nil {
 		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
 	}
-	scope := s.currentBrokerStateScope()
 	if !brokerScopeConcrete(scope) {
 		return nil, accountSummaryAuthority{}, errors.New("account summary requires one selected account; configure an account pin for a multi-account login")
 	}
@@ -168,6 +170,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
 		annotateLedgerCash(res, ledger, raw.Raw)
 	}
+	s.annotateWebCash(ctx, res, c, healthBinding, scope, authority)
 	// Read the latest reqPnL frame; absence starts the idempotent subscription.
 	// connect setup skips the subscribe in auto-detect mode (ep.Account is
 	// empty until the gateway emits managedAccounts after handshake), so
@@ -227,7 +230,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 			recoveryAllowed = current.status == rpc.RiskPolicyStatusActive
 		}
 		if pol != nil && pol.Capital.BaseCurrency != "" && res.BaseCurrency != "" &&
-			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) && sameBrokerScope(scope, s.currentBrokerStateScope()) {
+			strings.EqualFold(pol.Capital.BaseCurrency, res.BaseCurrency) && c.SessionCurrent(healthBinding) && sameBrokerScope(scope, s.currentBrokerStateScope()) {
 			capitalScope := scope
 			if firstDailyObservation := s.riskCapital.Observe(res.NetLiquidation, res.AsOf, pol, capitalScope, recoveryAllowed); firstDailyObservation {
 				// Re-evaluate when today's first runtime account observation arrives.
@@ -242,6 +245,33 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		}
 	}
 	return res, authority, nil
+}
+
+// The account read can finish HTTP, journal and P&L work after its original
+// connector or account has changed. Preserve display context while retiring
+// every decision-authority projection together at the final return boundary.
+func finalizeAccountSummarySession(res *rpc.AccountResult, authority accountSummaryAuthority, current bool) accountSummaryAuthority {
+	if current {
+		return authority
+	}
+	if res != nil {
+		if res.Authority != nil {
+			res.Authority.Availability = rpc.AccountDataUnavailable
+			res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
+			res.Authority.Reason = rpc.AccountDataReasonSessionChanged
+		}
+		if res.BaseCurrencyLedger != nil {
+			res.BaseCurrencyLedger.WebCash = nil
+		}
+		for i := range res.CurrencyExposure {
+			res.CurrencyExposure[i].WebCash = nil
+		}
+		if res.CashLedger != nil {
+			res.CashLedger.Status, res.CashLedger.AsOf = "unavailable", time.Time{}
+			res.CashLedger.Reason = "broker account or connector session changed before the account read completed"
+		}
+	}
+	return accountSummaryAuthority{}
 }
 
 // accountResultDataAuthority projects the daemon's internal account summary
