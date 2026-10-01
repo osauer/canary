@@ -36,7 +36,26 @@ var ProcessLister = listProcesses
 // line so it works whether the OS reports `Trader Workstation.app/.../...`,
 // `ibgateway`, or `IBKR Desktop`.
 func DetectIBKRApp(ctx context.Context) IBKRApp {
-	for _, line := range ProcessLister(ctx) {
+	app, _ := InspectIBKRApp(ctx)
+	return app
+}
+
+// InspectIBKRApp is DetectIBKRApp with the lookup's own outcome: known is
+// false when the process list came back empty — ps failed, timed out, or
+// the platform has no lister — so a zero IBKRApp with known true is the
+// affirmative "no IBKR app process is running" and a zero IBKRApp with
+// known false is "no information". A real process list is never empty: it
+// lists at least the lister itself.
+func InspectIBKRApp(ctx context.Context) (app IBKRApp, known bool) {
+	lines := ProcessLister(ctx)
+	if len(lines) == 0 {
+		return IBKRApp{}, false
+	}
+	return matchIBKRApp(lines), true
+}
+
+func matchIBKRApp(lines []string) IBKRApp {
+	for _, line := range lines {
 		l := strings.ToLower(line)
 		switch {
 		case strings.Contains(l, "trader workstation"):

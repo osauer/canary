@@ -141,3 +141,20 @@ func TestNoListenerHintNamesTheGatewayWithoutTheTWSCheckbox(t *testing.T) {
 		t.Fatalf("TWS verdict lost the checkbox hint: %v", err)
 	}
 }
+
+// An empty process list is a failed lookup, not proof that no IBKR app is
+// running: only a list that came back and matched nothing is.
+func TestInspectIBKRAppTellsNoAppFromNoInformation(t *testing.T) {
+	stubProcesses(t)
+	if app, known := InspectIBKRApp(t.Context()); known || app.Name != "" {
+		t.Fatalf("empty process list: app %+v known %v, want unknown", app, known)
+	}
+	stubProcesses(t, "1 /sbin/launchd", "88 /usr/libexec/logd")
+	if app, known := InspectIBKRApp(t.Context()); !known || app.Name != "" {
+		t.Fatalf("list without IBKR: app %+v known %v, want known absent", app, known)
+	}
+	stubProcesses(t, "1 /sbin/launchd", gatewayProcessLine)
+	if app, known := InspectIBKRApp(t.Context()); !known || app.Name != "IB Gateway" || app.PID != 17443 {
+		t.Fatalf("list with the Gateway: app %+v known %v", app, known)
+	}
+}

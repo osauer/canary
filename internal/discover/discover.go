@@ -236,23 +236,32 @@ const (
 // noListenerError builds the verdict the daemon surfaces (via log + status
 // LastError) when no canonical IBKR port responded. Combines the bare TCP
 // fact with a DetectIBKRApp pre-flight so the user sees a specific next
-// step for the app that is actually running:
+// step for the app that is actually running (see ClosedPortHint).
+func noListenerError(ctx context.Context, host string, ports []int, timeout time.Duration) error {
+	base := fmt.Sprintf("no IBKR listener found on %s ports %v (probe timeout %s)", host, ports, timeout)
+	return fmt.Errorf("%s; %s", base, ClosedPortHint(DetectIBKRApp(ctx)))
+}
+
+// NoAppRunningHint is the verdict for a local IBKR API port nobody listens
+// on when the process list shows no TWS, IB Gateway or IBKR Desktop.
+const NoAppRunningHint = "no TWS / IB Gateway / IBKR Desktop process found — start one and ibkr will reconnect automatically"
+
+// ClosedPortHint names the next step for a local IBKR API port nobody
+// listens on, given the IBKR app DetectIBKRApp found there (zero: none).
 //
 //	no app running            → start TWS, Gateway, or IBKR Desktop
 //	IB Gateway running        → still starting, or a non-default Socket port;
 //	                            the Gateway has no API on/off switch
 //	TWS / IBKR Desktop running → the API socket switch, an unfinished login,
 //	                            or a non-default Socket port
-func noListenerError(ctx context.Context, host string, ports []int, timeout time.Duration) error {
-	base := fmt.Sprintf("no IBKR listener found on %s ports %v (probe timeout %s)", host, ports, timeout)
-	app := DetectIBKRApp(ctx)
+func ClosedPortHint(app IBKRApp) string {
 	switch app.Name {
 	case "":
-		return fmt.Errorf("%s; no TWS / IB Gateway / IBKR Desktop process found — start one and ibkr will reconnect automatically", base)
+		return NoAppRunningHint
 	case appGateway:
-		return fmt.Errorf("%s; IB Gateway is running (pid %d) but its API port is closed — it is still starting (the port opens once its login has completed), or it listens on a non-default Socket port (Configure → Settings → API → Settings; pin it in ~/.config/ibkr/config.toml under [gateway])", base, app.PID)
+		return fmt.Sprintf("IB Gateway is running (pid %d) but its API port is closed — it is still starting (the port opens once its login has completed), or it listens on a non-default Socket port (Configure → Settings → API → Settings; pin it in ~/.config/ibkr/config.toml under [gateway])", app.PID)
 	default:
-		return fmt.Errorf("%s; %s is running (pid %d) but its API socket isn't open — most likely 'Enable ActiveX and Socket Clients' is unchecked (Global Configuration → API → Settings), login hasn't fully completed (2FA / day-end dialog), or you set a non-default Socket port (pin it in ~/.config/ibkr/config.toml under [gateway])", base, app.Name, app.PID)
+		return fmt.Sprintf("%s is running (pid %d) but its API socket isn't open — most likely 'Enable ActiveX and Socket Clients' is unchecked (Global Configuration → API → Settings), login hasn't fully completed (2FA / day-end dialog), or you set a non-default Socket port (pin it in ~/.config/ibkr/config.toml under [gateway])", app.Name, app.PID)
 	}
 }
 
