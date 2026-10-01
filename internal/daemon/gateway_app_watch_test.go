@@ -199,17 +199,48 @@ func TestAnIBKRAppThatAppearsIsDialledAtOnce(t *testing.T) {
 	h.s.serverCtx = t.Context()
 	h.s.mu.Unlock()
 
+	// A tick send only proves reception, not inspection completion. A second
+	// tick could still be inspecting when the app changes, exit the poller,
+	// and leave the appearance tick with no receiver. Acknowledge the captured
+	// absent observation directly instead; no extra poll remains in flight.
+	inspected := make(chan discover.IBKRApp, 2)
+	h.s.gatewayApp.mu.Lock()
+	inspect := h.s.gatewayApp.inspect
+	h.s.gatewayApp.inspect = func(ctx context.Context) (discover.IBKRApp, bool) {
+		app, known := inspect(ctx)
+		select {
+		case inspected <- app:
+		case <-ctx.Done():
+		}
+		return app, known
+	}
+	h.s.gatewayApp.mu.Unlock()
+	sendTick := func() {
+		t.Helper()
+		select {
+		case h.ticks <- h.clock():
+		case <-time.After(5 * time.Second):
+			t.Fatal("process poller did not receive a tick")
+		}
+	}
 	// Still nothing running: the poller keeps waiting and nothing dials.
 	h.advance(10 * time.Second)
-	h.ticks <- h.clock()
-	h.ticks <- h.clock() // the second send proves the first poll finished
+	sendTick()
+	select {
+	case observed := <-inspected:
+		if observed.Name != "" {
+			t.Fatalf("first poll unexpectedly observed an app: %+v", observed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("process poller did not inspect the absent app")
+	}
 	if absent, watching, _ := h.absent(); !absent || !watching || dials.Load() != 0 {
 		t.Fatalf("absent=%v watching=%v dials=%d after a poll that found nothing", absent, watching, dials.Load())
 	}
 
 	h.app.Store(discover.IBKRApp{Name: "IB Gateway", PID: 4242})
 	h.advance(10 * time.Second)
-	h.ticks <- h.clock()
+	sendTick()
 	deadline := time.After(5 * time.Second)
 	for dials.Load() == 0 {
 		select {
