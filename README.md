@@ -26,10 +26,6 @@ tests.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
-The [v3.9.0 release notes](https://github.com/osauer/canary/releases/tag/v3.9.0)
-cover the Go daemon client, the statement performance series, sector allocation
-under GICS, and options held as protection listed beside the proposals.
-
 ## Start
 
 You need IB Gateway 10.37+ or TWS with API socket access enabled, an IBKR Pro
