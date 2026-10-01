@@ -133,6 +133,10 @@ type Connector struct {
 	inactiveMu         sync.RWMutex
 	inactiveSymbols    map[string]inactiveSymbolState
 	inactiveCandidates map[string]inactiveCandidateState
+	// reviewedTerminal is the caller-owned set of stocks with reviewed
+	// terminal evidence (see SetReviewedTerminal). Unlike inactiveSymbols it
+	// is authoritative, has no TTL, and survives connection loss.
+	reviewedTerminal map[string]ReviewedTerminalStock
 	// contractDetailsFlights coalesces identical unresolved contract requests.
 	// The broker sees one reqContractDetails and concurrent callers whose wait
 	// budgets remain open see the same terminal result; exact identities stay separate.
@@ -915,6 +919,10 @@ func (c *Connector) recordContractTiming(symbol string, elapsed time.Duration, r
 
 func (c *Connector) inactiveReason(symbol string) (string, bool) {
 	c.inactiveMu.RLock()
+	if reason, reviewed := reviewedTerminalMatch(c.reviewedTerminal, symbol); reviewed {
+		c.inactiveMu.RUnlock()
+		return reason, true
+	}
 	state, ok := c.inactiveSymbols[symbol]
 	c.inactiveMu.RUnlock()
 	if !ok {
@@ -934,9 +942,11 @@ func (c *Connector) inactiveReason(symbol string) (string, bool) {
 	return state.reason, true
 }
 
-// InactiveReason reports an unexpired in-memory inactivity mark for symbol.
-// It performs no broker request. The boolean is false when no mark exists or
-// the mark has expired; the returned reason is untrusted broker text.
+// InactiveReason reports an unexpired in-memory inactivity mark for symbol,
+// or its membership in the reviewed terminal set (see
+// [Connector.SetReviewedTerminal]). It performs no broker request. The boolean
+// is false when no mark exists or the mark has expired; a heuristic mark's
+// reason is untrusted broker text.
 func (c *Connector) InactiveReason(symbol string) (string, bool) {
 	if symbol == "" {
 		return "", false
@@ -2407,6 +2417,8 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 	c.contractMu.Lock()
 	clear(c.contractCache)
 	c.contractMu.Unlock()
+	// reviewedTerminal is caller-owned evidence, not a session observation,
+	// so it deliberately survives here.
 	c.inactiveMu.Lock()
 	clear(c.inactiveSymbols)
 	clear(c.inactiveCandidates)

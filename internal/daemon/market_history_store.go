@@ -415,7 +415,7 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		if saved == nil {
 			return nil, fetchErr
 		}
-		if errors.Is(fetchErr, ibkrlib.ErrContractNoDefinition) {
+		if marketHistoryVerdict(fetchErr) {
 			// The served fallback carries only a fixed detail, so the
 			// refresh worker cannot classify it. Relay the broker's verdict
 			// to its memory here, which says it once instead of per attempt.

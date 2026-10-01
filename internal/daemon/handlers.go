@@ -519,7 +519,12 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	})
 
 	// Reviewed terminal evidence settles a cancelled stock before any probe.
-	s.markReviewedTerminalStocks(res.Stocks, time.Now())
+	reviewedTerminal := s.markReviewedTerminalStocks(res.Stocks, time.Now())
+	// Only an unfiltered, completed stock read is the whole held set; a
+	// filtered or partial read would wrongly lift other names.
+	if wantSym == "" && wantType != "opt" && !health.InitialCompletedAt.IsZero() {
+		s.publishReviewedTerminalHoldings(c, reviewedTerminal)
+	}
 	// Pre-warm held-stock quotes before deriving daily change.
 	s.prewarmStockQuoteSummaries(ctx, c, res.Stocks)
 	flagZeroValueStockPositions(res.Stocks)
@@ -783,9 +788,11 @@ func (s *Server) prewarmStockQuoteSummaries(ctx context.Context, c *ibkrlib.Conn
 // exact ConID, symbol and STK type match a current reviewed terminal-evidence
 // record. That record is the same authority analysisPositions and the rulebook
 // use; an expired, conflicting or absent record leaves the row to be probed.
-func (s *Server) markReviewedTerminalStocks(stocks []rpc.PositionView, now time.Time) {
+// It returns the matched stocks keyed by upper-case symbol, for the connector's
+// reviewed terminal set; it is nil when nothing matched.
+func (s *Server) markReviewedTerminalStocks(stocks []rpc.PositionView, now time.Time) (matched map[string]ibkrlib.ReviewedTerminalStock) {
 	if s == nil || s.earningsTerminal == nil {
-		return
+		return nil
 	}
 	for i := range stocks {
 		p := &stocks[i]
@@ -797,8 +804,18 @@ func (s *Server) markReviewedTerminalStocks(stocks []rpc.PositionView, now time.
 		if found && match.Status == rpc.EarningsStatusTerminalNonReporting {
 			p.QuoteExpectation = rpc.QuoteExpectationNone
 			p.QuoteExpectationReason = rpc.QuoteExpectationReasonTerminal
+			if p.ConID > 0 {
+				if matched == nil {
+					matched = make(map[string]ibkrlib.ReviewedTerminalStock, 1)
+				}
+				matched[strings.ToUpper(strings.TrimSpace(p.Symbol))] = ibkrlib.ReviewedTerminalStock{
+					ConID:  p.ConID,
+					Reason: reviewedTerminalHoldingReason,
+				}
+			}
 		}
 	}
+	return matched
 }
 
 // snapshotHeldStockQuote probes one held stock for a quote summary.

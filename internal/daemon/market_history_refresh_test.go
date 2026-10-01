@@ -378,3 +378,70 @@ func TestMarketHistoryRefreshWritesNothingForASeriesDroppedMidRead(t *testing.T)
 		}
 	}
 }
+
+// A held stock with reviewed terminal evidence is refused by the connector
+// itself (ErrSymbolInactive) without a broker request. The worker must treat
+// that like the broker's definition verdict: pause the contract quietly,
+// keep serving recorded history, and not warn on every retry.
+func TestMarketHistoryRefreshPausesQuietlyOnAnInactiveContract(t *testing.T) {
+	s, p, key, now, r := historyFixture(t)
+	log := &bytes.Buffer{}
+	s.logger = NewLogger(log, "info")
+	if _, err := s.readRetainedHistory(t.Context(), key, p, now, func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error) {
+		return &r, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	clock := now.AddDate(0, 0, 8)
+	s.now = func() time.Time { return clock }
+	intraday := p
+	intraday.Range = "1D"
+	s.rememberMarketHistory(p)
+	s.rememberMarketHistory(intraday)
+	intradayKey, _, err := marketHistoryIdentity(intraday)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	var served *rpc.MarketHistoryResult
+	request := func(ctx context.Context, got rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		k, got, err := marketHistoryIdentity(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := s.readRetainedHistory(ctx, k, got, clock, func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error) {
+			reads++
+			return nil, fmt.Errorf("chart bars: %w", ibkrlib.ErrSymbolInactive)
+		})
+		if k == key {
+			served = res
+		}
+		return res, err
+	}
+	pauses := func() int { return strings.Count(log.String(), "paused for the rest of this broker session") }
+
+	s.refreshMarketHistoryInterest(t.Context(), key, request)
+	if reads != 1 || pauses() != 1 {
+		t.Fatalf("an inactive contract must be paused once: reads=%d %q", reads, log.String())
+	}
+	if served == nil || served.Cache == nil || !served.Cache.RefreshFailed || served.Cache.Selected != "cache" {
+		t.Fatalf("recorded history must still be served: %+v", served)
+	}
+	if _, ok := s.marketData.definitionMisses[p.Contract]; !ok {
+		t.Fatal("the inactive refusal must be remembered by contract")
+	}
+	// Neither range of the paused contract is read again within the floor.
+	s.refreshMarketHistoryInterest(t.Context(), intradayKey, request)
+	item := s.marketData.interest[key]
+	item.RetryAt = time.Time{}
+	s.marketData.interest[key] = item
+	s.refreshMarketHistoryInterest(t.Context(), key, request)
+	if reads != 1 || pauses() != 1 {
+		t.Fatalf("a paused contract was read again: reads=%d pauses=%d", reads, pauses())
+	}
+	for _, noisy := range []string{"IBKR refresh failed", "next attempt after"} {
+		if strings.Contains(log.String(), noisy) {
+			t.Fatalf("an inactive refusal must not warn per retry (%q): %q", noisy, log.String())
+		}
+	}
+}

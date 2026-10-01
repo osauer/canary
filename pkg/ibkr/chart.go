@@ -25,6 +25,11 @@ func (c *Connector) FetchChartBars(ctx context.Context, contract Contract, days 
 	if (interval != "5 mins" && interval != "30 mins" && interval != "1 day") || days < 1 || days > 1830 || (interval != "1 day" && days > 7) {
 		return result, fmt.Errorf("invalid chart range or interval")
 	}
+	// Reviewed terminal evidence settles the contract before any resolution
+	// request; the heuristic inactive mark is deliberately not consulted here.
+	if _, terminal := c.reviewedTerminalReason(MarketDataKeyForContract(normalizeMarketDataContract(contract))); terminal {
+		return result, ErrSymbolInactive
+	}
 	binding, ok := c.CaptureSession()
 	if !ok {
 		return result, fmt.Errorf("broker session unavailable")

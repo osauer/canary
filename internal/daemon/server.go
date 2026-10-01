@@ -393,6 +393,12 @@ type Server struct {
 	// earningsTerminal is exact-contract, provenance-bound terminal issuer
 	// SQLite authority at startup; symbol text alone never grants an exemption.
 	earningsTerminal *earningsTerminalStore
+	// reviewedTerminalHeld is the last held-stock set that matched reviewed
+	// terminal evidence exactly, carried to each new connector so it never
+	// probes those stocks after a reconnect. See reviewed_terminal_holdings.go.
+	reviewedTerminalMu    sync.Mutex
+	reviewedTerminalHeld  map[string]ibkrlib.ReviewedTerminalStock
+	reviewedTerminalKnown bool
 	// lastRules memoizes the most recent rulebook evaluation for advisory
 	rulesEvaluationMu       sync.Mutex
 	rulesMu                 sync.Mutex
@@ -1643,6 +1649,7 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 				}
 			}
 			s.registerOrderLifecycleJournal(real)
+			s.seedReviewedTerminalHoldings(real)
 		} else {
 			s.mu.Lock()
 			s.endpoint = cand

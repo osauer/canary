@@ -134,7 +134,7 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), marketHistoryRefreshWindow)
 	result, err := request(readCtx, item.Params)
 	cancel()
-	verdict := errors.Is(err, ibkrlib.ErrContractNoDefinition)
+	verdict := marketHistoryVerdict(err)
 	s.marketData.mu.Lock()
 	// The series may have expired or been evicted during the read; it then
 	// stays gone rather than returning as an entry no request made.
@@ -170,6 +170,15 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	} else if recovered {
 		s.logger.Infof("market history refresh %s %s: recovered", item.Params.Contract.Symbol, item.Params.Range)
 	}
+}
+
+// marketHistoryVerdict reports whether err settles that a contract has no
+// history to refresh: the broker's "no security definition" answer, or the
+// connector refusing a contract it treats as inactive (reviewed terminal
+// evidence among them) without asking the broker. Either pauses the series
+// quietly rather than warning on every retry.
+func marketHistoryVerdict(err error) bool {
+	return errors.Is(err, ibkrlib.ErrContractNoDefinition) || errors.Is(err, ibkrlib.ErrSymbolInactive)
 }
 
 // marketHistoryDefinitionMiss is the broker's "no security definition"
