@@ -244,3 +244,26 @@ func TestDataHealthHistoryRestoresNoCurrentAccess(t *testing.T) {
 		}
 	}
 }
+
+// A real projection read may queue behind accepted-history work on the single
+// SQLite connection. This callback models that wait without acquiring data.
+func TestReportingHealthAllowsCompletedReadBeyondOneSecond(t *testing.T) {
+	row := reportingDataHealth(func(ctx context.Context) (*rpc.ReportingStatusResult, error) {
+		select {
+		case <-time.After(1200 * time.Millisecond):
+			return &rpc.ReportingStatusResult{State: rpc.ReportingStateCurrent}, nil
+		case <-ctx.Done():
+			return &rpc.ReportingStatusResult{State: rpc.ReportingStateUnavailable, Reason: rpc.ReconReportReasonAuthorityUnavailable}, nil
+		}
+	})
+	if row == nil || row.State != "current" || len(row.ProblemIDs) != 0 {
+		t.Fatalf("valid slow read became a storage warning: %+v", row)
+	}
+	// A genuine unavailable authority must retain the failure and its cause.
+	row = reportingDataHealth(func(context.Context) (*rpc.ReportingStatusResult, error) {
+		return &rpc.ReportingStatusResult{State: rpc.ReportingStateUnavailable, Reason: rpc.ReconReportReasonAuthorityUnavailable}, nil
+	})
+	if row == nil || row.State != "unavailable" || row.Detail != rpc.ReconReportReasonAuthorityUnavailable || len(row.ProblemIDs) != 1 {
+		t.Fatalf("failed read was hidden: %+v", row)
+	}
+}

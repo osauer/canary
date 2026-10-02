@@ -157,24 +157,8 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		row.Name, row.Provider, row.Kind = spec.name, spec.provider, "market_events"
 		rows = append(rows, row)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if report, err := s.handleReportingStatus(ctx); err == nil {
-		row := unknownDataSource("reporting", "Broker statements", "IBKR Flex", "reporting", "Reconciliation", "Performance review")
-		row.CheckedAt, row.ReceivedAt, row.SourceAt = report.Broker.LastAttempt, report.Broker.LastSuccess, report.Evidence.CoverageTo
-		row.SourceTimeKind, row.NextAttempt, row.Action, row.Detail = "coverage_end", report.Broker.NextAttempt, report.Action, report.Reason
-		switch report.State {
-		case rpc.ReportingStateCurrent:
-			row.State, row.Receiving = "current", "Current"
-		case rpc.ReportingStateUnavailable, rpc.ReportingStateActionRequired:
-			row.State, row.Receiving = "unavailable", "Action required"
-		default:
-			row.State, row.Receiving = "limited", "Coverage incomplete"
-		}
-		if row.State != "current" {
-			row.ProblemIDs = []string{row.ID}
-		}
-		rows = append(rows, row)
+	if row := reportingDataHealth(s.handleReportingStatus); row != nil {
+		rows = append(rows, *row)
 	}
 	// These owners expose retained snapshots rather than acquisition callbacks.
 	// Record only their diagnostic state here; a report never requests a fetch.
@@ -194,6 +178,34 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		s.dataHealth.mu.Unlock()
 	}
 	return rows, scope
+}
+
+// Statement health uses the reporting handler's full read budget. A short
+// inventory timeout must not turn a valid full-year projection into a storage
+// warning; actual failed reads still publish the handler's unavailable verdict.
+func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult, error)) *rpc.DataSourceHealth {
+	timing, _ := rpc.LookupMethodTiming(rpc.MethodReportingStatus)
+	ctx, cancel := context.WithTimeout(context.Background(), timing.DaemonTimeout)
+	defer cancel()
+	report, err := read(ctx)
+	if err != nil || report == nil {
+		return nil
+	}
+	row := unknownDataSource("reporting", "Broker statements", "IBKR Flex", "reporting", "Reconciliation", "Performance review")
+	row.CheckedAt, row.ReceivedAt, row.SourceAt = report.Broker.LastAttempt, report.Broker.LastSuccess, report.Evidence.CoverageTo
+	row.SourceTimeKind, row.NextAttempt, row.Action, row.Detail = "coverage_end", report.Broker.NextAttempt, report.Action, report.Reason
+	switch report.State {
+	case rpc.ReportingStateCurrent:
+		row.State, row.Receiving = "current", "Current"
+	case rpc.ReportingStateUnavailable, rpc.ReportingStateActionRequired:
+		row.State, row.Receiving = "unavailable", "Action required"
+	default:
+		row.State, row.Receiving = "limited", "Coverage incomplete"
+	}
+	if row.State != "current" {
+		row.ProblemIDs = []string{row.ID}
+	}
+	return &row
 }
 
 func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {

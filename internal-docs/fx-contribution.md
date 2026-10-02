@@ -132,3 +132,9 @@ intraday conversions, external capital, fees, price/income interaction, missing
 sections/rates/boundaries, restatements, coverage, gross exposure and native
 lending/collateral pairs, including a rejected pair across currencies. Real account
 statements and reconciliation outputs never enter Git.
+
+Statement source health allows the same five-second retained-evidence read as
+`reporting status`; aggregate health/status RPCs allow ten seconds. Full-year
+backfill can queue metadata reads behind accepted-inventory work. The health row
+must not report a storage failure merely because that valid read takes over one
+second. A failed or expired read remains unavailable.
