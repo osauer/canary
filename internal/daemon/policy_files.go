@@ -838,13 +838,16 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # Cash sweep: puts cash above keep_cash into bills of the same currency and
 # never converts. max_order_notional is your number, so Canary writes none;
 # until you write it the sweep reports that it needs your number. In active
-# mode a row is an ordinary proposal: its bill order (BOND, LMT DAY) is
+# mode a row is an ordinary proposal: its bill order (BILL or BOND, LMT DAY) is
 # previewed under every gate and placed on your approval, or by the daemon
 # after the full veto window when cash_sweep is under pre_authorised. USD bills
 # come from TreasuryDirect's public list; EUR, GBP and CAD bills from the
 # isins you list. A currency without its own table follows Canary's default:
 # USD us_tbill; EUR de_bubill and fr_btf with an etf fallback; GBP uk_tbill;
-# CAD ca_tbill; any other currency none.
+# CAD ca_tbill; any other currency none. USD and EUR bills settle on Canary's
+# maintained route (SMART; USD T+1, EUR T+2 and T+1 for trades from
+# 2027-10-11); settlement_exchange and settlement_days in a currency table
+# override it, and settlement_valid_through only ends an override on a date.
 # [buckets.cash_sweep]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the orders
@@ -867,9 +870,9 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # min_tranche = %s   # legacy native floor; combined with the base floor above
 # cash_interest_rate_upper = 0.0   # EXAMPLE ONLY: review an annual decimal upper bound; missing is unknown
 # cash_interest_valid_through = 2026-01-01   # EXAMPLE ONLY: expires; does not attest today's rate
-# settlement_exchange = "SMART"   # EXAMPLE ONLY: commission the exact broker route
-# settlement_days = 2   # EXAMPLE ONLY: broker-reviewed lag, never inferred from currency
-# settlement_valid_through = 2026-01-01   # EXAMPLE ONLY: expires; no route is commissioned by the template
+# settlement_exchange = "SMART"   # optional override; Canary's route needs no line here
+# settlement_days = 2   # optional override of the route's lag in payment business days
+# settlement_valid_through = 2027-06-30   # optional end date for this currency's route; omit it to follow Canary
 # min_maturity_days = %d
 # max_maturity_days = %d
 # ladder_rungs = %d

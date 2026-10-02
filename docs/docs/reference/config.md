@@ -91,9 +91,9 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.cash_sweep.currency.<name>]` | `max_maturity_days` | `int` | MaxMaturityDays is the longest maturity a bill may have when bought and the last rung's target (default 91, EUR 182; at most 397). |
 | `[buckets.cash_sweep.currency.<name>]` | `min_maturity_days` | `int` | MinMaturityDays is the shortest maturity a bill may have when bought and the first rung's target (default 28, the four-week bill). |
 | `[buckets.cash_sweep.currency.<name>]` | `min_tranche` | `float64` | MinTranche is the legacy native-currency minimum on both sides (default 1000); min_order_notional supplies a portfolio base minimum. |
-| `[buckets.cash_sweep.currency.<name>]` | `settlement_days` | `*int` | SettlementDays is the commissioned lag of the exact broker route in payment business days, between 1 and 5; nil is unknown. |
-| `[buckets.cash_sweep.currency.<name>]` | `settlement_exchange` | `string` | SettlementExchange is the exact broker exchange whose lag was commissioned; no default. |
-| `[buckets.cash_sweep.currency.<name>]` | `settlement_valid_through` | `policyDate` | SettlementValidThrough dates route commissioning; missing or expired evidence holds bill orders. |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_days` | `*int` | SettlementDays overrides the bill route's settlement lag in payment business days, between 1 and 5 (default: Canary's maintained route, USD bills T+1 and EUR bills T+2, T+1 for trades from 2027-10-11; other currencies have none and hold). |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_exchange` | `string` | SettlementExchange overrides the bill route's broker exchange (default SMART for USD and EUR bills); a bill order on another exchange holds. |
+| `[buckets.cash_sweep.currency.<name>]` | `settlement_valid_through` | `policyDate` | SettlementValidThrough optionally ends this currency's settlement route on a date (a TOML date such as 2027-06-30), after which its bill orders hold; omit it, as Canary maintains its default route with its payment calendars. |
 | `[buckets.risk_reduction]` | `enabled` | `bool` | Enabled turns the issuer concentration-reduction bucket on (default true). |
 | `[buckets.risk_reduction]` | `max_order_notional` | `float64` | MaxOrderNotional caps the notional of a single generated reduction order (default 10000). |
 | `[buckets.theta_hygiene]` | `enabled` | `bool` | Enabled turns the near-dated time-decay hygiene bucket on (default true). |

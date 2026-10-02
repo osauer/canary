@@ -62,7 +62,7 @@ if (readOnly) {
 
 const pairing = await createPairingSession(baseURL, pairPublicURL);
 
-async function runLendingSmoke(page, fixture, screenshotPath) {
+async function runLendingSmoke(page, fixture, screenshotPath, positions) {
   await page.locator("#lendingIncome > summary").click();
   await page.waitForFunction(() => document.querySelectorAll(".lending-fee").length === 1);
   await page.locator(".lending-fee > summary").first().click();
@@ -102,9 +102,9 @@ async function runLendingSmoke(page, fixture, screenshotPath) {
   });
   if (!states.missingFX.includes("Base conversion unavailable") || !states.partial.includes("partial period") || states.missing !== "Unavailable" || !states.zero.includes("0.00")) throw new Error("lending evidence states collapsed into a number");
   await page.locator("#tabPositions").click();
-  await page.evaluate((loan) => {
-    globalThis.__canarySmoke.applySnapshotPatch({ positions: { by_underlying: [{ underlying: "SYNTH-LEND", stock: { symbol: "SYNTH-LEND", sec_type: "STOCK", con_id: 900901, currency: "USD", quantity: 100, mark: 300, lending: loan, quote_expectation: "none" }, options: [], group_daily_pnl_base: 20 }], stocks: [], options: [] } });
-  }, lendingPositionFixture());
+  await page.evaluate((positions) => {
+    globalThis.__canarySmoke.applySnapshotPatch({ positions });
+  }, positions);
   if (!(await page.locator(".lending-position-label").textContent()).includes("60 shares lent")) throw new Error("dated loan badge missing");
   await page.locator('[data-position-select="SYNTH-LEND"]').click();
   await page.locator('[data-lending-con-id="900901"]').click();
@@ -738,7 +738,14 @@ async function runRound4SyntheticSmoke() {
       expanded: document.querySelector("#edgeOptionRealizedList .edge-option-row")?.getAttribute("aria-expanded") || "",
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     }));
-    await runLendingSmoke(page, syntheticLending, args["lending-screenshot"]);
+    // Tab navigation can finish an outstanding bootstrap read. Keep the
+    // served snapshot and the injected loan identical so that refresh cannot
+    // erase the position while Playwright is clicking its disclosure.
+    bootstrap.snapshot.positions = {
+      ...bootstrap.snapshot.positions,
+      by_underlying: [{ underlying: "SYNTH-LEND", stock: { symbol: "SYNTH-LEND", sec_type: "STOCK", con_id: 900901, currency: "USD", quantity: 100, mark: 300, lending: lendingPositionFixture(), quote_expectation: "none" }, options: [], group_daily_pnl_base: 20 }],
+    };
+    await runLendingSmoke(page, syntheticLending, args["lending-screenshot"], bootstrap.snapshot.positions);
     await page.locator("#tabMonitor").click();
     await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
     await page.evaluate(async () => {

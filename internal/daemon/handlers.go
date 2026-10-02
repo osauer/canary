@@ -171,6 +171,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		ledger := s.repairCurrencyLedgerFXRatesCached(ctx, c, raw.CurrencyLedger, res.BaseCurrency)
 		res.CurrencyExposure = buildCurrencyExposure(ledger, res.BaseCurrency)
 		annotateLedgerCash(res, ledger, raw.Raw)
+		annotateSettledCashSchedules(res, c.CaptureSettledCashSchedulesForSession(healthBinding, scope.Account))
 	}
 	s.annotateWebCash(ctx, res, c, healthBinding, scope, authority)
 	// Read the latest reqPnL frame; absence starts the idempotent subscription.

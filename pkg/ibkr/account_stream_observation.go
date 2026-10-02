@@ -44,10 +44,15 @@ type accountStreamReceipt struct {
 	tradingTypeObserved                bool
 	rows                               map[string]AccountStreamRow
 	truncated                          bool
+	// schedules keeps the raw SettledCashByDate values per key and native
+	// currency for CaptureSettledCashSchedulesForSession.
+	schedules          map[string]settledCashScheduleCell
+	schedulesTruncated bool
 }
 
 // Called with accountMu held by the existing account-value handler. This does
 // not admit a row to any financial snapshot or change subscription behavior.
+// Settled-cash schedules are kept for the daemon's own cash admission.
 func (c *Connection) observeAccountStreamValueLocked(account, key, value, currency string, at time.Time) {
 	r := &c.accountStreamReceipt
 	if r.requestedAt.IsZero() || r.epoch != c.BrokerSessionEpoch() || !accountCodeConcrete(r.account) || !strings.EqualFold(account, r.account) {
@@ -74,11 +79,14 @@ func (c *Connection) observeAccountStreamValueLocked(account, key, value, curren
 	if !streamCashDiagnosticField(field) {
 		return
 	}
+	r.observeSettledCashScheduleLocked(field, value, currency, at)
 	// The allowlist rejects reserved raw namespaces and suffixed storage keys.
 	// Invalid currencies retain only the fact of invalidity, never broker text.
 	source := "unlabelled"
 	if !concreteAccountSummaryLedgerCurrency(currency) && currency != "BASE" && currency != "" {
 		currency, source = "", "invalid_currency"
+	} else if settledCashScheduleField(field) && concreteAccountSummaryLedgerCurrency(currency) {
+		source = "currency_settlement_schedule"
 	} else if prefixed && concreteAccountSummaryLedgerCurrency(currency) {
 		source = "broker_ledger_label"
 	} else if field == "SettledCash" || field == "TotalCashValue" || strings.HasSuffix(field, "-S") || strings.HasSuffix(field, "-C") {
@@ -86,13 +94,7 @@ func (c *Connection) observeAccountStreamValueLocked(account, key, value, curren
 	} else if field == "CashBalance" && concreteAccountSummaryLedgerCurrency(currency) {
 		source = "currency_cash_balance"
 	}
-	status := "invalid"
-	if parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
-		status = "observed"
-		if parsed == math.MaxFloat64 {
-			status = "unset"
-		}
-	}
+	status := streamCashValueStatus(field, value)
 	if r.rows == nil {
 		r.rows = map[string]AccountStreamRow{}
 	}
@@ -114,10 +116,35 @@ func (c *Connection) observeAccountStreamValueLocked(account, key, value, curren
 
 func streamCashDiagnosticField(field string) bool {
 	switch field {
-	case "SettledCash", "CashBalance", "TotalCashBalance", "TotalCashValue", "TotalCashValue-S", "TotalCashValue-C", "EquityWithLoanValue-S", "EquityWithLoanValue-C", "FuturesPNL":
+	case "SettledCash", "CashBalance", "TotalCashBalance", "TotalCashValue", "TotalCashValue-S", "TotalCashValue-C", "EquityWithLoanValue-S", "EquityWithLoanValue-C", "FuturesPNL",
+		settledCashScheduleKey, settledCashScheduleSegmentKey:
 		return true
 	}
 	return false
+}
+
+func settledCashScheduleField(field string) bool {
+	return field == settledCashScheduleKey || field == settledCashScheduleSegmentKey
+}
+
+// streamCashValueStatus classifies a diagnostic value without exposing it: a
+// schedule is observed only when it parses strictly; a number is observed,
+// unset (IBKR's sentinel) or invalid.
+func streamCashValueStatus(field, value string) string {
+	if settledCashScheduleField(field) {
+		if _, err := parseSettledCashSchedule(value); err != nil {
+			return "invalid"
+		}
+		return "observed"
+	}
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	switch {
+	case err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0):
+		return "invalid"
+	case parsed == math.MaxFloat64:
+		return "unset"
+	}
+	return "observed"
 }
 
 func classifyStreamTradingType(value string) string {
@@ -168,8 +195,7 @@ func (c *Connector) CaptureAccountStreamObservationForSession(binding ConnectorS
 	if r.requestedAt.IsZero() {
 		return out
 	}
-	if r.epoch != binding.epoch || !strings.EqualFold(r.account, expected) || !strings.EqualFold(health.Account, expected) ||
-		(!r.requestedAt.Equal(health.RequestedAt) && health.ScopeConflictAt.IsZero() && health.InvalidPayloadAt.IsZero()) {
+	if !accountStreamReceiptBound(r, health, binding, expected) {
 		out.Status = "scope_or_generation_changed"
 		return out
 	}
@@ -189,18 +215,29 @@ func (c *Connector) CaptureAccountStreamObservationForSession(binding ConnectorS
 	slices.SortFunc(out.Rows, func(a, b AccountStreamRow) int {
 		return strings.Compare(a.Key+"\x00"+a.Currency, b.Key+"\x00"+b.Currency)
 	})
-	out.Status = "initial_pending"
+	out.Status = accountStreamReceiptStatus(health, r.accountReady)
+	return out
+}
+
+// accountStreamReceiptBound reports whether the receipt belongs to the
+// binding's socket, the expected account and the current subscription.
+func accountStreamReceiptBound(r accountStreamReceipt, health PortfolioStreamHealth, binding ConnectorSessionBinding, expected string) bool {
+	return r.epoch == binding.epoch && strings.EqualFold(r.account, expected) && strings.EqualFold(health.Account, expected) &&
+		(r.requestedAt.Equal(health.RequestedAt) || !health.ScopeConflictAt.IsZero() || !health.InvalidPayloadAt.IsZero())
+}
+
+func accountStreamReceiptStatus(health PortfolioStreamHealth, accountReady string) string {
 	switch {
 	case !health.ScopeConflictAt.IsZero():
-		out.Status = "scope_conflict"
+		return "scope_conflict"
 	case !health.InvalidPayloadAt.IsZero():
-		out.Status = "invalid_payload"
+		return "invalid_payload"
 	case !health.DownloadShortAt.IsZero():
-		out.Status = "download_short"
-	case out.AccountReady == "not_ready" || out.AccountReady == "invalid":
-		out.Status = "account_not_ready"
+		return "download_short"
+	case accountReady == "not_ready" || accountReady == "invalid":
+		return "account_not_ready"
 	case !health.InitialCompletedAt.IsZero():
-		out.Status = "initial_complete"
+		return "initial_complete"
 	}
-	return out
+	return "initial_pending"
 }

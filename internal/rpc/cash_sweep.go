@@ -396,10 +396,14 @@ type TradeProposalCashSweep struct {
 	CashInterestValidThrough string   `json:"cash_interest_valid_through,omitempty"`
 	// RedemptionTarget is the liquidity shortfall. A capped sale may restore part,
 	// while still meeting the gross whole-order minimum; fees reduce net proceeds.
-	RedemptionTarget       float64 `json:"redemption_target,omitempty"`
-	SettlementDays         *int    `json:"settlement_days,omitempty"`
-	SettlementExchange     string  `json:"settlement_exchange,omitempty"`
-	SettlementValidThrough string  `json:"settlement_valid_through,omitempty"`
+	RedemptionTarget float64 `json:"redemption_target,omitempty"`
+	// SettlementDays and SettlementExchange are the route in force: the
+	// policy's override, or Canary's maintained default when SettlementSource
+	// is default. SettlementValidThrough is the policy's optional end date.
+	SettlementDays         *int   `json:"settlement_days,omitempty"`
+	SettlementExchange     string `json:"settlement_exchange,omitempty"`
+	SettlementValidThrough string `json:"settlement_valid_through,omitempty"`
+	SettlementSource       string `json:"settlement_source,omitempty"`
 	// Invest: the rung the tranche goes to, its target, and the window
 	// [MinMaturityDays, MaxMaturityDays] the bill must mature in.
 	Rung            int `json:"rung,omitempty"`
@@ -462,6 +466,12 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 	}
 	return &out
 }
+
+// Where a sweep row's settlement route came from.
+const (
+	CashSweepSettlementSourcePolicy  = "policy"
+	CashSweepSettlementSourceDefault = "default"
+)
 
 // CloneProposalCashSweep copies a row's sweep block; nil stays nil.
 func CloneProposalCashSweep(in *TradeProposalCashSweep) *TradeProposalCashSweep {

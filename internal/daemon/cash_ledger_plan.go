@@ -12,6 +12,23 @@ func cashSweepCashObservation(row rpc.CurrencyExposure, account *rpc.AccountResu
 	if out.Settled != nil {
 		out.SettledSourceKind = "native_tws_ledger"
 	}
+	if schedule := row.SettledCashSchedule; schedule != nil {
+		// An admitted schedule's low is TWS's own per-currency settled cash.
+		// A held one says why, unless the ledger already supplied a value.
+		switch {
+		case schedule.Status == rpc.SettledCashScheduleAdmitted && schedule.Low != nil && finiteProtectionOptionPolicyValue(*schedule.Low):
+			low := *schedule.Low
+			out.SettledSourceKind = "native_tws_settlement_schedule"
+			if out.Settled != nil {
+				low = min(low, *out.Settled)
+				out.SettledSourceKind = "minimum_of_native_tws_ledger_and_schedule"
+			}
+			out.Settled = new(low)
+		case out.Settled == nil:
+			out.SettledReason = nonEmptyString(schedule.Reason, "TWS's settlement schedule was not admitted")
+		}
+	}
+	native := out.Settled != nil
 	if normCcy(row.Currency) == normCcy(account.BaseCurrency) {
 		out.ExchangeRate = 1
 	}
@@ -32,7 +49,7 @@ func cashSweepCashObservation(row rpc.CurrencyExposure, account *rpc.AccountResu
 			out.Settled = new(settled)
 			out.WebCashOriginalAsOf = web.AsOf
 			out.SettledSourceKind = "native_web_ledger"
-			if row.SettledCashCcy != nil {
+			if native {
 				out.SettledSourceKind = "minimum_of_native_tws_and_web_ledgers"
 			}
 		}

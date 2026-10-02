@@ -127,11 +127,18 @@ Payment dates use separate calendars with bounded 2026–2028 coverage:
 - EUR TARGET closing days, including Good Friday, Easter Monday and 1 May.
   Source: [ECB published calendar](https://www.ecb.europa.eu/ecb/contacts/working-hours/html/index.en.html).
 
-A calendar does not prove a security's settlement cycle. Each currency must
-commission `settlement_exchange`, `settlement_days` and
-`settlement_valid_through` for its exact broker bill route. Missing, expired,
-route-mismatched or out-of-coverage evidence holds. Unsupported GBP/CAD payment
-routes hold too; their existing instrument vocabulary is not commissioning.
+A calendar does not prove a security's settlement cycle, so Canary maintains
+each bill market's route beside the calendars (owner decision 2026-10-02,
+replacing per-file dated commissioning, which left fresh installs unable to
+order and expired on an arbitrary date): USD bills SMART T+1; EUR bills SMART
+T+2, and T+1 for trades from 11 October 2027 under Regulation (EU) 2025/2075.
+Fresh installs and upgraded files need no settlement lines; Canary releases keep
+the routes current with the calendars. A currency table may override
+`settlement_exchange` and `settlement_days`; `settlement_valid_through` is only
+an optional end date for that currency's route. Route-mismatched, expired or
+out-of-coverage evidence holds. GBP/CAD have no payment calendar or route and
+hold; their instrument vocabulary is not commissioning. Each sweep row carries
+its route and `settlement_source` (`default` or `policy`).
 A trade date is read in the payment jurisdiction's timezone. A bill that matures
 by the verified sale-settlement date is retained for its payout.
 
