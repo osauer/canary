@@ -2796,7 +2796,16 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 	}
 	if reqIDErr == nil {
 		if snap := c.summarySnapshots[reqID]; snap != nil {
+			// End freezes this request even if its waiter has not yet run.
+			// Continuing subscription updates must not rewrite the cutoff.
+			select {
+			case <-snap.done:
+				c.accountMu.Unlock()
+				return
+			default:
+			}
 			disposition := accountSummaryRequestRowDisposition(account, tag, currency, snap.expectedAccount, c.managedAccounts)
+			observeAccountSettlementRow(&snap.settlementObservation, account, tag, value, currency, snap.expectedAccount, c.managedAccounts)
 			if snap.scopeConflict || disposition == accountSummaryRowReject {
 				snap.scopeConflict = true
 				c.accountMu.Unlock()
@@ -2819,6 +2828,12 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 			c.accountMu.Unlock()
 			return
 		}
+	}
+
+	field, wirePrefixed := splitGatewayLedgerTag(tag)
+	if strings.HasPrefix(tag, accountSummaryLedgerKeyPrefix) || strings.ContainsRune(tag, '_') || (wirePrefixed && (!currencyLedgerField(field) || !concreteAccountSummaryLedgerCurrency(currency))) {
+		c.accountMu.Unlock()
+		return
 	}
 
 	// Unregistered account-summary traffic is context only. It may seed a
@@ -2885,6 +2900,11 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 	account = strings.TrimSpace(account)
 	if accountCodeConcrete(account) {
 		if strings.EqualFold(account, expectedAccount) {
+			// Internal storage keys are generated after wire admission. A raw
+			// callback cannot assert that provenance by naming the namespace.
+			if strings.HasPrefix(tag, accountSummaryLedgerKeyPrefix) || strings.ContainsRune(tag, '_') || (wirePrefixed && !ledgerRow) {
+				return accountSummaryRowIgnore
+			}
 			if wirePrefixed && ledgerRow {
 				// The gateway labeled the row a ledger slice and named the
 				// pinned account: ledger namespace, fully attributed.
@@ -2910,7 +2930,11 @@ func accountSummaryRequestRowDisposition(account, tag, currency, expectedAccount
 	// cannot be attributed to the pinned account, and admitting it would report
 	// a sibling's currency exposure as the pinned account's — wire-prefixed
 	// rows are withheld exactly like their bare twins.
-	if ledgerRow && !newManagedAccountSet(managed).multiAccount() {
+	// SettledCash is also explicitly requested as an account total. An
+	// unprefixed Account=All callback does not prove native currency scope,
+	// even on a single-account login. Only the broker ledger prefix proves it.
+	managedSet := newManagedAccountSet(managed)
+	if ledgerRow && (!accountLevelBareTag(field) || wirePrefixed) && len(managed) == 1 && len(managedSet) == 1 && managedSet.contains(accountCode(expectedAccount)) {
 		return accountSummaryRowAcceptLedger
 	}
 	return accountSummaryRowIgnore
@@ -6397,16 +6421,18 @@ func (c *Connection) completePositionsSnapshot() {
 // reqAccountSummary request, keyed like the shared accountSummary map
 // accountSummaryEnd for the request's reqID.
 type summarySnapshot struct {
-	values          map[string]string
-	done            chan struct{}
-	expectedAccount string
-	observedRows    int
-	scopeConflict   bool
+	settlementObservation AccountSettlementObservation
+	values                map[string]string
+	done                  chan struct{}
+	expectedAccount       string
+	observedRows          int
+	scopeConflict         bool
 }
 
 type summarySnapshotResult struct {
-	values        map[string]string
-	scopeConflict bool
+	settlementObservation AccountSettlementObservation
+	values                map[string]string
+	scopeConflict         bool
 }
 
 // registerSummarySnapshot opens a per-request accumulation for reqID.
@@ -6434,7 +6460,7 @@ func (c *Connection) dropSummarySnapshot(reqID int) summarySnapshotResult {
 	if snap == nil {
 		return summarySnapshotResult{}
 	}
-	return summarySnapshotResult{values: snap.values, scopeConflict: snap.scopeConflict}
+	return summarySnapshotResult{values: snap.values, scopeConflict: snap.scopeConflict, settlementObservation: snap.settlementObservation}
 }
 
 // signalSummaryEnd closes the per-request done channel for the reqID
@@ -6519,23 +6545,23 @@ func (c *Connection) WaitForAccountSummaryEnd(timeout time.Duration) error {
 // accountSummaryEnd for reqID (or timeout elapses) and returns only the
 // accountSummary map is also fed by the streaming reqAccountUpdates
 // subscription, so unrelated updates cannot overwrite this request snapshot.
-func (c *Connection) awaitAccountSummarySnapshot(reqID int, timeout time.Duration) (map[string]string, error) {
+func (c *Connection) awaitAccountSummarySnapshot(reqID int, timeout time.Duration) (map[string]string, AccountSettlementObservation, error) {
 	c.accountMu.RLock()
 	snap := c.summarySnapshots[reqID]
 	c.accountMu.RUnlock()
 	if snap == nil {
-		return nil, fmt.Errorf("no account summary request registered for reqID %d", reqID)
+		return nil, AccountSettlementObservation{}, fmt.Errorf("no account summary request registered for reqID %d", reqID)
 	}
 	select {
 	case <-snap.done:
 		result := c.dropSummarySnapshot(reqID)
 		if result.scopeConflict {
-			return nil, ErrAccountSummaryScopeConflict
+			return nil, AccountSettlementObservation{}, ErrAccountSummaryScopeConflict
 		}
-		return result.values, nil
+		return result.values, result.settlementObservation, nil
 	case <-time.After(timeout):
 		c.dropSummarySnapshot(reqID)
-		return nil, fmt.Errorf("timeout waiting for account summary end")
+		return nil, AccountSettlementObservation{}, fmt.Errorf("timeout waiting for account summary end")
 	}
 }
 

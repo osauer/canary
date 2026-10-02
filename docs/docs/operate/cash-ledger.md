@@ -1,10 +1,38 @@
 # Settlement evidence for the cash sweep
 
-The TWS cash ledger currently omits per-currency settled cash. Canary can read
-an optional historical Flex cash baseline through the existing reporting query.
+Canary explicitly requests `SettledCash` and `$LEDGER:ALL` from TWS. An
+account-wide settled total cannot certify a currency balance. Canary can also
+read an optional historical Flex cash baseline through the existing reporting query.
 It remains a **held estimate**, not permission to sweep. A current native
 settled-cash observation or the optional authenticated Web API ledger can
 separately certify live balances.
+
+## Native TWS observation
+
+`canary account --json` includes `settlement_observation` only for a completed,
+current-session account-summary request. It reports the callback count and
+currency, source label and finite-value flag for each settled-cash callback;
+it contains no amounts or account identifiers. `finite` means mathematical
+finiteness only, not availability: IBKR's finite unset sentinel is refused by
+the native settled-cash parser. Real zero remains an observed value. `account_total` is the concrete
+account's bare field, `aggregate_ambiguous` lacks usable currency scope, and
+`broker_ledger_label` carries TWS's explicit `$LEDGER-` prefix. A completed
+request with no callbacks is distinct from an unavailable receipt. The request
+end marker freezes both rows and diagnostic counts; continuing subscription
+updates cannot rewrite that observation cutoff.
+
+The diagnostic never supplies a balance or authorizes a sweep. Bare
+`SettledCash`, including an `Account=All` callback from a single-account login,
+remains excluded from the native currency ledger. Aggregate ledger callbacks
+also require one known managed account matching the selected account. Raw
+callbacks cannot claim the reserved internal `$LEDGER:` storage namespace.
+Request cancellation,
+timeout, conflicting account scope, cached fallback and changed socket/account
+sessions cannot publish a current receipt. Existing requests are cancelled by
+their own request IDs; an old socket epoch cannot cancel a successor's request.
+
+- [IBKR account-summary tags](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-summary/account-summary-tags)
+- [IBKR per-currency prefix](https://www.interactivebrokers.com/docs/tws-api/doc/tws-settings/per-currency-account-value-prefix)
 
 ## Historical Flex baseline
 
