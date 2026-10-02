@@ -36,3 +36,14 @@ test("sweep privacy masks balances and money-bearing reasons", () => {
   assert.doesNotMatch(dom.document.getElementById("cashSweepCurrencies").textContent, /123456|198765|198,765|123,456/);
   assert.doesNotMatch(dom.document.getElementById("cashSweepHistory").textContent, /123456/);
 });
+
+test("funding observations preserve missing totals and synthetic study labels", () => {
+  state.accountValueVisible = true;
+  renderCashSweepPanel({ currencies: [], operational_funding: { source: "live_partial", state: "partial", gaps: ["stressed_margin_unavailable"], currencies: [{ currency: "USD", indicative_principal: 50000, gaps: ["exact_option_deliverable_unavailable"] }] }, calibration_studies: [{ sessions: 5, source: "frozen_synthetic", state: "study_complete" }] });
+  assert.match(dom.document.getElementById("cashSweepFundingDetails").textContent, /incomplete reserve.*stressed margin unavailable.*gross obligations Unavailable/);
+  assert.match(dom.document.getElementById("cashSweepFundingDetails").textContent, /5-session study.*frozen synthetic/);
+  assert.doesNotMatch(dom.document.getElementById("cashSweepFundingDetails").textContent, /50,000|50000/);
+  renderCashSweepPanel({ currencies: [], operational_funding: { source: "live_partial", state: "unavailable", gaps: ["operational_source_scope_unavailable"] } });
+  assert.match(dom.document.getElementById("cashSweepFundingDetails").textContent, /Funding observations unavailable/);
+  assert.doesNotMatch(dom.document.getElementById("cashSweepFundingDetails").textContent, /Current observations/);
+});

@@ -3,6 +3,8 @@ package rpc
 import (
 	"slices"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work
@@ -120,21 +122,23 @@ const (
 // unavailable, never zero. Absent from the snapshot while the bucket is not
 // enabled.
 type TradeProposalCashSweepStatus struct {
-	AccountReceiptAt        time.Time                `json:"account_receipt_at,omitzero"`
-	PositionsReceiptAt      time.Time                `json:"positions_receipt_at,omitzero"`
-	FundingAsOf             time.Time                `json:"funding_as_of,omitzero"`
-	FundingValidUntil       time.Time                `json:"funding_valid_until,omitzero"`
-	ScenarioFingerprint     string                   `json:"scenario_fingerprint,omitempty"`
-	PlanningSessionEpoch    uint64                   `json:"planning_session_epoch,omitempty"`
-	PlanningDaemonStartedAt time.Time                `json:"planning_daemon_started_at,omitzero"`
-	CurrencyPriority        string                   `json:"currency_priority,omitempty"`
-	ReserveCushionEUR       *float64                 `json:"reserve_cushion_eur,omitempty"`
-	ReserveState            string                   `json:"reserve_state,omitempty"`
-	ReserveReason           string                   `json:"reserve_reason,omitempty"`
-	DecisionTrace           []CashSweepDecisionTrace `json:"decision_trace,omitempty"`
-	TraceState              string                   `json:"trace_state,omitempty"`
-	Mode                    string                   `json:"mode"`
-	Shadow                  bool                     `json:"shadow"`
+	OperationalFunding      *CashSweepOperationalObservation `json:"operational_funding,omitempty"`
+	CalibrationStudies      []CashSweepCalibrationStudy      `json:"calibration_studies,omitempty"`
+	AccountReceiptAt        time.Time                        `json:"account_receipt_at,omitzero"`
+	PositionsReceiptAt      time.Time                        `json:"positions_receipt_at,omitzero"`
+	FundingAsOf             time.Time                        `json:"funding_as_of,omitzero"`
+	FundingValidUntil       time.Time                        `json:"funding_valid_until,omitzero"`
+	ScenarioFingerprint     string                           `json:"scenario_fingerprint,omitempty"`
+	PlanningSessionEpoch    uint64                           `json:"planning_session_epoch,omitempty"`
+	PlanningDaemonStartedAt time.Time                        `json:"planning_daemon_started_at,omitzero"`
+	CurrencyPriority        string                           `json:"currency_priority,omitempty"`
+	ReserveCushionEUR       *float64                         `json:"reserve_cushion_eur,omitempty"`
+	ReserveState            string                           `json:"reserve_state,omitempty"`
+	ReserveReason           string                           `json:"reserve_reason,omitempty"`
+	DecisionTrace           []CashSweepDecisionTrace         `json:"decision_trace,omitempty"`
+	TraceState              string                           `json:"trace_state,omitempty"`
+	Mode                    string                           `json:"mode"`
+	Shadow                  bool                             `json:"shadow"`
 	// Reason explains an account-level gap (no current currency ledger);
 	// each currency then reads cash_unavailable.
 	Reason string `json:"reason,omitempty"`
@@ -427,6 +431,8 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 		return nil
 	}
 	out := *in
+	out.OperationalFunding = risk.CloneCashSweepOperationalObservation(in.OperationalFunding)
+	out.CalibrationStudies = risk.CloneCashSweepCalibrationStudies(in.CalibrationStudies)
 	out.ReserveCushionEUR = cloneCashSweepFloat(in.ReserveCushionEUR)
 	out.DecisionTrace = CloneCashSweepDecisionTrace(in.DecisionTrace)
 	out.MaxOrderNotionalBase = cloneCashSweepFloat(in.MaxOrderNotionalBase)

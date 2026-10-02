@@ -1,10 +1,15 @@
 package rpc
 
-import "time"
+import (
+	"github.com/osauer/canary/v2/internal/risk"
+	"time"
+)
 
 // CashSweepDecisionTrace is a planning transition, not an execution receipt.
 // SQLite keeps every event; the read-only proposal snapshot carries recent rows.
 type CashSweepDecisionTrace struct {
+	OperationalFunding *CashSweepOperationalObservation `json:"operational_funding,omitempty"`
+	CalibrationStudies []CashSweepCalibrationStudy      `json:"calibration_studies,omitempty"`
 	// Receipt clocks describe request/stream observation, never original TWS
 	// field timestamps. Original Web cash time is retained on each currency.
 	AccountReceiptAt        time.Time                   `json:"account_receipt_at,omitzero"`
@@ -52,6 +57,8 @@ func CloneCashSweepDecisionTrace(in []CashSweepDecisionTrace) []CashSweepDecisio
 	out := make([]CashSweepDecisionTrace, len(in))
 	for i, t := range in {
 		out[i] = t
+		out[i].OperationalFunding = risk.CloneCashSweepOperationalObservation(t.OperationalFunding)
+		out[i].CalibrationStudies = risk.CloneCashSweepCalibrationStudies(t.CalibrationStudies)
 		out[i].ReserveCushionEUR = cloneCashSweepFloat(t.ReserveCushionEUR)
 		out[i].Currencies = make([]CashSweepDecisionCurrency, len(t.Currencies))
 		for j, c := range t.Currencies {

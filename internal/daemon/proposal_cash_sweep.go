@@ -103,6 +103,8 @@ type cashSweepBillSearch struct {
 // cashSweepInput is everything the pure planner reads. The engine gathers
 // it; tests build it directly.
 type cashSweepInput struct {
+	OperationalFunding                   *risk.CashSweepOperationalObservation
+	CalibrationStudies                   []risk.CashSweepCalibrationStudy
 	AccountReceiptAt, PositionsReceiptAt time.Time
 	PlanningSessionEpoch                 uint64
 	PlanningDaemonStartedAt              time.Time
@@ -172,7 +174,9 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 	bucket := policy.Buckets.CashSweep
 	mode := bucket.effectiveMode()
 	plan := cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{
-		AccountReceiptAt: in.AccountReceiptAt, PositionsReceiptAt: in.PositionsReceiptAt,
+		OperationalFunding: risk.CloneCashSweepOperationalObservation(in.OperationalFunding),
+		CalibrationStudies: risk.CloneCashSweepCalibrationStudies(in.CalibrationStudies),
+		AccountReceiptAt:   in.AccountReceiptAt, PositionsReceiptAt: in.PositionsReceiptAt,
 		PlanningSessionEpoch: in.PlanningSessionEpoch, PlanningDaemonStartedAt: in.PlanningDaemonStartedAt,
 		Mode: mode, Shadow: mode == rpc.CashSweepModeShadow, Reason: in.LedgerReason,
 		BaseCurrency: normCcy(in.BaseCurrency), TaxReviewedAt: string(bucket.TaxReviewedAt), TaxReviewed: bucket != nil && bucket.TaxReviewedAt != "",
@@ -876,6 +880,9 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, cashNow)
 	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
 	e.attachFlexCashProjections(ctx, policy.Buckets.CashSweep, acct, scope, &in)
+	if policy.Buckets.CashSweep.reserveDesignEnabled() {
+		in.OperationalFunding, in.CalibrationStudies = e.observeCashSweepFunding(acct, pos, scope, in, cashNow)
+	}
 	return in
 }
 

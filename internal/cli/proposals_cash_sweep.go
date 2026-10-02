@@ -43,6 +43,20 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "  Cash sweep  %s\n", formatCashSweepStatus(st, len(rows)))
 	if st != nil {
+		if o := st.OperationalFunding; o != nil {
+			fmt.Fprintf(out, "    Operational funding: %s · %s · gross context, cannot authorise a sweep\n", o.State, o.Source)
+			for _, c := range o.Currencies {
+				amount := "unavailable"
+				if c.GrossPrincipal != nil {
+					amount = cashSweepMoney(*c.GrossPrincipal, c.Currency)
+				}
+				fmt.Fprintf(out, "         %s gross obligations %s · gaps: %s\n", c.Currency, amount, strings.Join(c.Gaps, ", "))
+			}
+			fmt.Fprintf(out, "         Remaining: %s\n", strings.Join(o.Gaps, ", "))
+		}
+		for _, study := range st.CalibrationStudies {
+			fmt.Fprintf(out, "    %d-session study: %s · %s · %s\n", study.Sessions, study.State, study.Source, strings.Join(study.Gaps, ", "))
+		}
 		if st.CurrencyPriority != "" {
 			fmt.Fprintf(out, "    Priority: %s · existing cash only\n", strings.ReplaceAll(st.CurrencyPriority, "_", " "))
 			if st.ReserveCushionEUR != nil {

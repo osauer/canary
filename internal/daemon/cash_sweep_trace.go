@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -31,6 +32,7 @@ func (e *proposalEngine) persistCashSweepTrace(ctx context.Context, policy prote
 		return errors.New("sweep SQLite authority unavailable")
 	}
 	trace := rpc.CashSweepDecisionTrace{At: now, PolicyID: policy.PolicyID, PolicyVersion: policy.PolicyVersion,
+		OperationalFunding: risk.CloneCashSweepOperationalObservation(st.OperationalFunding), CalibrationStudies: risk.CloneCashSweepCalibrationStudies(st.CalibrationStudies),
 		AccountReceiptAt: st.AccountReceiptAt, PositionsReceiptAt: st.PositionsReceiptAt, FundingAsOf: st.FundingAsOf,
 		FundingValidUntil: st.FundingValidUntil, ScenarioFingerprint: st.ScenarioFingerprint,
 		PlanningSessionEpoch: st.PlanningSessionEpoch, PlanningDaemonStartedAt: st.PlanningDaemonStartedAt,
@@ -54,6 +56,17 @@ func (e *proposalEngine) persistCashSweepTrace(ctx context.Context, policy prote
 	semantic.At = time.Time{}
 	semantic.AccountReceiptAt, semantic.PositionsReceiptAt, semantic.FundingAsOf, semantic.FundingValidUntil = time.Time{}, time.Time{}, time.Time{}, time.Time{}
 	semantic.PlanningSessionEpoch, semantic.PlanningDaemonStartedAt = 0, time.Time{}
+	semantic.OperationalFunding = risk.CloneCashSweepOperationalObservation(trace.OperationalFunding)
+	if o := semantic.OperationalFunding; o != nil {
+		o.AsOf, o.AccountReceiptAt, o.PositionsReceiptAt = time.Time{}, time.Time{}, time.Time{}
+		for i := range o.Obligations {
+			o.Obligations[i].QuoteOriginalAt, o.Obligations[i].DeliverableOriginalAt = time.Time{}, time.Time{}
+		}
+	}
+	semantic.CalibrationStudies = risk.CloneCashSweepCalibrationStudies(trace.CalibrationStudies)
+	for i := range semantic.CalibrationStudies {
+		semantic.CalibrationStudies[i].AsOf = time.Time{}
+	}
 	// Deep-copy before omitting refresh-only original clocks from the digest.
 	semantic.Currencies = append([]rpc.CashSweepDecisionCurrency(nil), trace.Currencies...)
 	for i := range semantic.Currencies {

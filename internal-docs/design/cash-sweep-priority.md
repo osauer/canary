@@ -72,6 +72,9 @@ cash/settlement evidence gaps visibly. Synthetic evidence exercises the full
 planner contract but cannot commission or activate the observer. Current
 protected-NAV and stressed-margin checks must also pass before verified reserve
 evidence can be consumed. No numeric shock or exit-time threshold is invented.
+The [operational observer and frozen finite studies](cash-sweep-funding-observer.md)
+now expose partial native obligations and calibration evidence. These remain
+separate from admitted reserve evidence and cannot clear that commissioning hold.
 
 EUR ≤182-day and USD ≤91-day bills, whole-order bounds, fee-inclusive funding,
 advisory benefit, settlement/route/quote gates and all broker authority checks
