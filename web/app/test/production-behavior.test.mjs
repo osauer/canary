@@ -182,7 +182,7 @@ test("lending privacy, signed corrections and native disclosures survive refresh
   result.summary.state = "unavailable"; result.summary.native = [];
   financing.renderFinancing(result.summary);
   assert.equal(dom.element("lendingIncomeValue").textContent, "Unavailable");
-  assert.match(dom.element("lendingIncomeCoverage").textContent, /sections are missing/);
+  assert.match(dom.element("lendingIncomeCoverage").textContent, /Securities Borrowed\/Lent Fee Details/);
   result.summary.state = "complete"; result.summary.covered_days = 2; result.summary.fee_count = 0;
   result.summary.earned_base = 0; result.summary.known_earned_base = 0;
   financing.renderFinancing(result.summary);

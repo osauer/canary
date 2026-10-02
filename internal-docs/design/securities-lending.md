@@ -46,8 +46,11 @@ IBKR documents [loan balances](https://www.ibkrguides.com/reportingreference/rep
 and [fee details](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlent%20fee%20detailsfq.htm)
 in its Activity Flex reporting. The references include `ManagedLoan`, exact
 contract identity, currency, quantity, collateral and customer net fees. Their
-descriptions also mention Portfolio Margin: retail/entity-specific availability
-and exact XML spellings still need a representative broker sample.
+descriptions also mention Portfolio Margin. Direct inspection of the Activity
+Flex editor on 2 October 2026 confirmed the Portal labels **Securities
+Borrowed/Lent**, **Securities Borrowed/Lent Activity** and **Securities
+Borrowed/Lent Fee Details**, including the customer net fee and percentage-rate
+controls. Populated XML mappings still need a representative broker sample.
 
 Canary already reads `SLBOpenContracts` for FX/collateral reconciliation in
 `internal/flexstmt/fx.go`. This proves an existing parser path, not a commissioned

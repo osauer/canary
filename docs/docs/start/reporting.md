@@ -96,13 +96,16 @@ separate checklist: the generated reference is the field authority.
 
 ### Optional stock lending
 
-For lending observations, add **Stock Yield Enhancement Program Securities Lent**
-and **Stock Yield Enhancement Program Securities Fee Earned Details**, selecting
-all fields. **Securities Lent Activity** is optional audit context. Some Portal
-variants use **Securities Borrowed/Lent**, **Securities Borrowed/Lent Activity**
-and **Securities Borrowed/Lent Fee Details** for these sections. IBKR documents
+In the Activity Flex query editor, select **Securities Borrowed/Lent** and
+**Securities Borrowed/Lent Fee Details**, with all fields.
+**Securities Borrowed/Lent Activity** is optional audit context. Save the field
+dialog, then use **Continue** to review and finish saving the whole query.
+
+These Portal labels were verified directly on 2 October 2026. IBKR's reporting
+guide uses Stock Yield Enhancement Program headings for the corresponding
 [loan balances](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlentfq.htm)
 and [earned fee details](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlent%20fee%20detailsfq.htm).
+The fee editor exposes **Net Lend Fee** and **Net Lend Fee Rate %**.
 
 Canary reads managed stock loans and customer net fees from `SLBOpenContracts`
 and `SLBFees`. These sections are optional: missing lending evidence does not

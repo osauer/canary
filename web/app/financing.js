@@ -97,7 +97,7 @@ function renderFinancing(summary) {
   $("lendingIncomeValue").classList.toggle("is-private", !state.accountValueVisible && (number(value) || summary.native.length > 0));
   const period = `${calendarDate(summary.from)} → ${calendarDate(summary.to)} (opening date excluded)`;
   const evidence = summary.state === "unavailable"
-    ? "Optional IBKR lending sections are missing. Add SYEP balances and fee details to the existing Flex query."
+    ? "Lending fee data is unavailable. Check Securities Borrowed/Lent Fee Details in the existing Flex query."
     : `${summary.covered_days}/${summary.expected_days} days covered · ${summary.fee_count} fee records${summary.reason === "net_fee_missing" ? " · some net fee amounts unavailable" : ""}`;
   const native = summary.native.length > 0 && value == null
     ? ` Native fees: ${summary.native.map((row) => feeMoney(row.amount, row.currency)).join("; ")}. Base conversion unavailable.` : "";
