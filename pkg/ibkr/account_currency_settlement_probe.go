@@ -3,7 +3,6 @@ package ibkr
 import (
 	"context"
 	"errors"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -291,13 +290,7 @@ func (c *Connection) handleCurrencyProbeMessage(msgID int, fields []string, epoc
 	case !concreteAccountSummaryLedgerCurrency(currency):
 		currency, source = "", "invalid_currency"
 	}
-	status := "invalid"
-	if parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) {
-		status = "observed"
-		if parsed == math.MaxFloat64 {
-			status = "unset"
-		}
-	}
+	status := streamCashValueStatus(field, value)
 	id := key + "\x00" + currency + "\x00" + source
 	row, exists := snap.rows[id]
 	if !exists && len(snap.rows) >= 128 {

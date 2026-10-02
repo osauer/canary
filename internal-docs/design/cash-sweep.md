@@ -73,11 +73,13 @@ and no cash reserve remains to trip.
   `max_maturity_days` 91 (EUR 182, ceiling 397), `ladder_rungs` 4. Bucket:
   `enabled`, `mode`, `max_order_notional` (no default), `tax_reviewed_at`.
 - Cash: `cash` is the lower of trade-date and settled cash; settled cash is
-  proven by the broker's per-currency `SettledCash` observation or an exact scoped
+  proven by TWS's per-currency `SettledCashByDate` schedule (its lowest
+  balance, admitted when the schedule ends at current trade-date cash), a
+  per-currency `SettledCash` ledger observation or an exact scoped
   authenticated Web API ledger row ([connection contract](../../docs/docs/operate/cash-ledger.md)). The journal
   estimate cannot prove actual settlement dates, holiday calendars or
-  account-wide fill coverage; without the broker observation the sweep holds
-  at `settlement_unknown` (A4 is currently false for TWS). `committed` is working BUY
+  account-wide fill coverage; without a broker observation the sweep holds
+  at `settlement_unknown`. `committed` is working BUY
   orders with a fixed finite limit plus authorised (armed, held or sending)
   queued orders at their finite worst price. Unknown bounds or nonfinite
   totals hold the sweep. Outstanding buys lack fee envelopes and therefore hold
@@ -118,7 +120,7 @@ and no cash reserve remains to trip.
   after the full veto window. An unset `tax_reviewed_at` adds a detail line
   only (P1). Every row sets `NeverSkipVeto`.
 - Unknown posture, per currency, generating nothing: `cash_unavailable`,
-  `settlement_unknown` (no broker per-currency `SettledCash`, or unbounded
+  `settlement_unknown` (no admitted broker per-currency settled cash, or unbounded
   commitments), `equivalents_unclassified`, `needs_your_number`. An
   invest verdict with no bill to name reads `universe_unavailable` (no
   candidate list) or `instrument_unresolved` (no candidate confirmed), with
@@ -129,9 +131,10 @@ and no cash reserve remains to trip.
   0.5% above 10,000 per currency, nothing below; (A2) T-bill initial margin
   about 1%, ETF 25–50%; (A3) German tax measures bill rolls in EUR, FX
   component taxable; (A4) `$LEDGER` CashBalance is trade-date, and
-  `$LEDGER:ALL` carries a per-currency `SettledCash` field that is settled
-  cash in that currency (verified false 2026-09-30, see "Post-install
-  findings"; absent means the sweep holds); (A5) each instrument's quantity unit and price convention (table
+  TWS supplies settled cash per currency: not in `$LEDGER:ALL` (verified
+  false 2026-09-30) but as the account-value schedule `SettledCashByDate`
+  (verified 2026-10-02, see "Post-install findings", F2 addendum; absent or
+  held means the sweep holds); (A5) each instrument's quantity unit and price convention (table
   under Phase B as built), minimum, session and T+1 settlement; (A6) a held
   bill's issuer is read from its identifier: US Treasury bill CUSIPs
   (912794–912797), else the ISIN's country (DE, FR, GB, CA); (A7) IBKR answers
@@ -163,7 +166,7 @@ and no cash reserve remains to trip.
 |---|---|---|---|---|
 | Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
-| Settled cash | broker per-currency ledger observation, or configured authenticated Web API ledger (A4 false in TWS) | `rpc.CurrencyExposure.SettledCashCcy` / `.WebCash`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh; Web reads shared at most 15s and source time bounded to 1m | `settlement_unknown`; stale/session-mismatched/pre-fill receipts and journal estimates never admit orders |
+| Settled cash | TWS `SettledCashByDate` schedule from the account-value stream (its low, admitted when it ends at current trade-date cash), a per-currency ledger observation, or configured authenticated Web API ledger | `rpc.CurrencyExposure.SettledCashSchedule` / `.SettledCashCcy` / `.WebCash`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh; the schedule reconciles with that refresh's trade-date cash and planning rechecks the fill frontier; Web reads shared at most 15s and source time bounded to 1m | `settlement_unknown`; held schedules, stale/session-mismatched/pre-fill receipts and journal estimates never admit orders |
 | Optional historical settled-cash baseline | accepted active-query Flex Cash Report | `flexCashBaseline`, `CashSweepSettlementProjection`; optional manifest independent of Recon/Edge | latest completed New York reporting day; exact statement/account/currency dates; accepted inventory hashes rechecked | diagnostic held/unavailable only; same-generation ambiguity and missing/invalid fields hold; complete baseline obligations and intraday activity remain unproved |
 | Commitments | broker open-order inventory, queued authorisations | `cashSweepCommitments` | per refresh | `settlement_unknown` |
 | Held equivalents | positions view and its `bonds` section; exact fresh TreasuryDirect CUSIP or same-session owner-allowlisted German ISIN-to-ConID reads when broker dates are omitted | `rpc.PositionBond` effective maturity/source/receipt and request-bound resolution provenance; typed holding/redemption and preview pins | per refresh; German mappings bypass broker directory cache and preserve concrete account/session | `equivalents_unclassified`; malformed dates, conflicting identifiers/frames, aliases, stale issuer reads and late scope changes never admit |
@@ -267,8 +270,8 @@ design, not a new threshold.
 4. **Settlement estimate.** The journal's previous-weekday window is an
    unverified estimate, never settled-cash authority. T+2 products, settlement
    holidays and unobserved fills can make it overstate settled cash. Without
-   a broker per-currency `SettledCash` observation the sweep holds at
-   `settlement_unknown`. A broker-supported complete settlement projection
+   broker per-currency settled cash (the `SettledCashByDate` schedule or a
+   ledger observation) the sweep holds at `settlement_unknown`. A broker-supported complete settlement projection
    is needed before a journal fallback can admit an order.
 5. **Fills and orders Canary cannot value** (a bond fill, a currency
    conversion, a buy without a price bound, a fill without a currency) make the
@@ -308,8 +311,9 @@ threshold.
    still come from the journal, and without it every unsettled net sale
    proceed (trade-date − settled, at least zero) counts toward `keep_cash`,
    which can only hold a redemption back. The journal estimate cannot admit
-   orders. Post-install, A4 is false (F2): no gateway row reaches this path,
-   so the sweep holds at `settlement_unknown`. A bare `SettledCash_<CCY>` in the streaming map
+   orders. Post-install, no `$LEDGER` row reaches this path (F2); TWS's
+   `SettledCashByDate` schedule does (F2 addendum), as
+   `CurrencyExposure.settled_cash_schedule`. A bare `SettledCash_<CCY>` in the streaming map
    is reqAccountUpdates' account-level figure and never reads as a
    currency's settled cash.
 4. **Bonds at the broker (read-only).** `pkg/ibkr/bond_frames.go` decodes
@@ -455,7 +459,10 @@ never an account id, a balance or an order reference).
    enabled, `canary proposals list --json` shows
    `cash_sweep.currencies[].settled_cash_source: "broker"`. If the tag is
    absent, A4 is false and the sweep holds; record that.
-   Answered 2026-09-30: absent (F2).
+   Answered 2026-09-30: absent (F2). Answered again 2026-10-02: TWS sends
+   `SettledCashByDate` per currency on the account-value stream, and
+   `canary account --json` shows it as `settled_cash_schedule` (status
+   `admitted` with its `low`) on each row.
 5. Freshness: outside a bill's session the check reads `fresh: false` with a
    reason, and a sweep row carries `fresh_bill_quote_required`.
 6. One whatIf preview of a USD bill row, never a submit: with the sweep
@@ -575,6 +582,23 @@ A4 is false. The safety review rejects the journal derivation as settled-cash
 authority: it lacks actual settlement dates, holiday calendars and complete
 account-wide fills. Every currency without broker per-currency settled cash
 therefore stays `settlement_unknown`; daemon age never removes that hold.
+
+F2 addendum, 2026-10-02 13:40 CEST (A4 holds under another key). The search
+above looked only for a key named `SettledCash`. TWS sends a margin account
+no plain `SettledCash` anywhere, but its full account-value feed
+(reqAccountUpdates, and reqAccountUpdatesMulti with `ledgerAndNLV=false`)
+carries `SettledCashByDate` and the securities-segment twin
+`SettledCashByDate-S` for each native currency and BASE: `YYYYMMDD:balance`
+pairs, today first, the last equal to trade-date cash once every pending
+trade has settled. A read-only probe on TWS 10.50 found EUR and USD schedules
+for 2026-10-02 and 2026-10-05 whose final balances matched CashBalance
+within its whole-unit rounding. The lightweight `ledgerAndNLV=true` request
+and reqAccountSummary carry neither key, and the passive diagnostics' closed
+allowlist dropped them, which is how the earlier probes missed it. The daemon
+admits a currency's schedule when the stream is completely downloaded and its
+final balance is within one unit of the refresh's trade-date cash, uses its
+lowest balance as settled cash, and rechecks it against the fill frontier at
+planning. The BASE row is never a currency's settled cash.
 
 ## Phase B order path as built
 
@@ -731,7 +755,7 @@ Phase B:
 | # | Item | Handling |
 |---|---|---|
 | O1 | First buying bucket; `close_reduce_only` carve-out | decided: typed exception limited to vocabulary, currency and free cash |
-| R1 | Broker per-currency settled cash is absent (A4 false) | the sweep stays `settlement_unknown`; the journal estimate cannot certify settlement and is not an order-authority fallback |
+| R1 | Broker per-currency settled cash | resolved 2026-10-02: TWS's `SettledCashByDate` schedule, admitted only when it ends at current trade-date cash; held or absent, the sweep stays `settlement_unknown`, and the journal estimate is still no order-authority fallback |
 | R2 | ETF margin (A2) lowers available funds | out of scope; moot for the governor (rule 3 is the premium budget since Rulebook amendment 17) |
 | O2 | Rung 1 under four weeks | decided: `min_maturity_days` 28 |
 | O3 | EUR fallback symbol, exchange | decided: owner writes; `needs_your_number`; bills still plan |

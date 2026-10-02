@@ -3,9 +3,11 @@ package daemon
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -48,6 +50,72 @@ func annotateLedgerCash(res *rpc.AccountResult, ledger map[string]ibkrlib.Curren
 		}
 		return
 	}
+}
+
+// settledCashScheduleReconcileTolerance is how far, in currency units, a
+// schedule's final balance may sit from current trade-date cash and still
+// describe the same account state. TWS rounds stream cash to whole units; a gap
+// within this bound moves the admitted low by no more than the gap itself.
+const settledCashScheduleReconcileTolerance = 1.0
+
+// annotateSettledCashSchedules judges TWS's per-currency settled-cash
+// schedules (SettledCashByDate) from the account stream against the snapshot's
+// trade-date cash. A schedule that ends at current trade-date cash describes
+// the current account state, so its lowest balance is the most the currency
+// can spend without a settled debit on any date. A mismatch (a fill TWS has
+// not re-sent yet, a truncated schedule), a stream that is not completely
+// downloaded or an invalid value is held, with the reason.
+func annotateSettledCashSchedules(res *rpc.AccountResult, capture *ibkrlib.SettledCashScheduleCapture) {
+	if res == nil || capture == nil {
+		return
+	}
+	apply := func(row *rpc.CurrencyExposure) {
+		if s, ok := capture.Schedules[normCcy(row.Currency)]; ok {
+			row.SettledCashSchedule = judgeSettledCashSchedule(*row, s, capture)
+		}
+	}
+	for i := range res.CurrencyExposure {
+		apply(&res.CurrencyExposure[i])
+	}
+	if res.BaseCurrencyLedger != nil {
+		apply(res.BaseCurrencyLedger)
+	}
+}
+
+func judgeSettledCashSchedule(row rpc.CurrencyExposure, s ibkrlib.SettledCashSchedule, capture *ibkrlib.SettledCashScheduleCapture) *rpc.SettledCashSchedule {
+	out := &rpc.SettledCashSchedule{Status: rpc.SettledCashScheduleHeld, ReceivedAt: s.ReceivedAt.UTC(),
+		Points: settledCashPoints(s.Points), SegmentPoints: settledCashPoints(s.SegmentPoints)}
+	ccy := normCcy(row.Currency)
+	switch {
+	case capture.StreamStatus != "initial_complete":
+		out.Reason = "the TWS account stream is " + strings.ReplaceAll(capture.StreamStatus, "_", " ")
+	case capture.Truncated:
+		out.Reason = "TWS sent more settlement schedules than Canary keeps"
+	case s.Status != "observed" || len(s.Points) == 0:
+		out.Reason = "TWS's " + ccy + " settlement schedule is invalid: " + nonEmptyString(s.Reason, "no points")
+	case !row.CashObserved || !finiteProtectionOptionPolicyValue(row.CashCcy):
+		out.Reason = "no current " + ccy + " trade-date cash to reconcile TWS's settlement schedule with"
+	case math.Abs(s.Points[len(s.Points)-1].Amount-row.CashCcy) > settledCashScheduleReconcileTolerance:
+		out.Reason = "TWS's " + ccy + " settlement schedule does not end at current trade-date cash; waiting for TWS's next account update"
+	default:
+		low := s.Points[0].Amount
+		for _, p := range slices.Concat(s.Points, s.SegmentPoints) {
+			low = min(low, p.Amount)
+		}
+		out.Status, out.Low = rpc.SettledCashScheduleAdmitted, new(low)
+	}
+	return out
+}
+
+func settledCashPoints(in []ibkrlib.SettledCashPoint) []rpc.SettledCashPoint {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]rpc.SettledCashPoint, 0, len(in))
+	for _, p := range in {
+		out = append(out, rpc.SettledCashPoint{Date: p.Date.Format(time.DateOnly), Amount: p.Amount})
+	}
+	return out
 }
 
 // ledgerSettledCash is a currency's SettledCash from the typed ledger, nil

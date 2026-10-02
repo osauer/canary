@@ -110,11 +110,13 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 		return
 	}
 	hasWeb := acct.BaseCurrencyLedger != nil && acct.BaseCurrencyLedger.WebCash != nil
+	hasSchedule := acct.BaseCurrencyLedger != nil && settledCashScheduleAdmitted(acct.BaseCurrencyLedger.SettledCashSchedule)
 	for _, row := range acct.CurrencyExposure {
 		hasWeb = hasWeb || row.WebCash != nil
+		hasSchedule = hasSchedule || settledCashScheduleAdmitted(row.SettledCashSchedule)
 	}
-	if !hasWeb {
-		return // Native broker settlement observations have their own authority.
+	if !hasWeb && !hasSchedule {
+		return // Native ledger settlement observations have their own authority.
 	}
 	if acct.Authority == nil || acct.Authority.Scope != accountDataScope(scope) {
 		in.LedgerReason = "supplemental cash belongs to a different proposal account/mode"
@@ -126,7 +128,12 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 		return
 	}
 	apply := func(row rpc.CurrencyExposure) {
-		if row.WebCash == nil || err == nil && (cutoff.IsZero() || !row.WebCash.AsOf.Before(cutoff)) {
+		dropWeb := row.WebCash != nil && (err != nil || !cutoff.IsZero() && row.WebCash.AsOf.Before(cutoff))
+		// A schedule is admitted against the snapshot's trade-date cash, which
+		// the cutoff check above already proved post-fill. Without a readable
+		// fill frontier nothing proves that cash still describes the account.
+		dropSchedule := settledCashScheduleAdmitted(row.SettledCashSchedule) && err != nil
+		if !dropWeb && !dropSchedule {
 			return
 		}
 		ccy := normCcy(row.Currency)
@@ -135,9 +142,15 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 		}
 		// Removing an unusable supplement cannot manufacture native settlement
 		// evidence. A separately observed native value can still be used.
-		row.WebCash = nil
+		if dropSchedule {
+			row.SettledCashSchedule = &rpc.SettledCashSchedule{Status: rpc.SettledCashScheduleHeld,
+				Reason: "TWS's settlement schedule cannot be checked against cash-affecting fills during proposal generation"}
+		}
+		if dropWeb {
+			row.WebCash = nil
+		}
 		native := cashSweepCashObservation(row, acct, now)
-		if native.Settled == nil {
+		if native.Settled == nil && dropWeb {
 			native.SettledReason = "supplemental cash predates a confirmed fill observed during proposal generation"
 			if err != nil {
 				native.SettledReason = "supplemental cash cannot validate cash-affecting fill continuity during proposal generation"
@@ -153,4 +166,8 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 	if row := acct.BaseCurrencyLedger; row != nil {
 		apply(*row)
 	}
+}
+
+func settledCashScheduleAdmitted(s *rpc.SettledCashSchedule) bool {
+	return s != nil && s.Status == rpc.SettledCashScheduleAdmitted
 }

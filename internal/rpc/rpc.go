@@ -2068,6 +2068,11 @@ type CurrencyExposure struct {
 	// when the gateway sent none. The cash sweep prefers it to settled cash
 	// derived from Canary's order journal.
 	SettledCashCcy *float64 `json:"settled_cash_ccy,omitempty"`
+	// SettledCashSchedule is TWS's dated settled-cash schedule for this
+	// currency and whether the daemon admitted it; nil when TWS sent none.
+	// The cash sweep reads an admitted schedule's low as settled cash, the
+	// lower of the two when SettledCashCcy is present too.
+	SettledCashSchedule *SettledCashSchedule `json:"settled_cash_schedule,omitempty"`
 	// WebCash is supplemental exact-currency evidence, never a BASE aggregate.
 	WebCash *WebCashObservation `json:"web_cash,omitempty"`
 }

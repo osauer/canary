@@ -8,11 +8,47 @@ evidence and studies stay complete. Full historical detail remains unchanged
 in Canary's SQLite audit and retained current state.
 
 Canary explicitly requests `SettledCash` and `$LEDGER:ALL` from TWS. An
-account-wide settled total cannot certify a currency balance. Canary can also
+account-wide settled total cannot certify a currency balance, and TWS sends a
+margin account none. Per-currency settled cash comes from TWS's
+`SettledCashByDate` schedule on the account-value stream, below. Canary can also
 read an optional historical Flex cash baseline through the existing reporting query.
 It remains a **held estimate**, not permission to sweep. A current native
 settled-cash observation or the optional authenticated Web API ledger can
 separately certify live balances.
+
+## TWS settlement schedule
+
+TWS reports settled cash per native currency as the account value
+`SettledCashByDate`, with a securities-segment twin `SettledCashByDate-S`, on
+the full account-value feed Canary already subscribes to (reqAccountUpdates;
+reqAccountUpdatesMulti only with `ledgerAndNLV=false`). Neither
+reqAccountSummary nor the lightweight ledger request carries it. The value
+lists settlement dates with the currency's settled balance on each, such as
+`20261002:1234.56;20261005:2345.67`: the first point is today's settled cash
+and the last is the balance once every pending trade has settled, which
+equals trade-date cash. A rising schedule means proceeds are still to settle;
+a falling one means a payment is.
+
+`canary account --json` shows each currency's schedule as
+`settled_cash_schedule` with `points`, `segment_points`, the local
+`received_at` and a `status`. The daemon admits a schedule only when the
+account stream is completely downloaded for the selected account on the
+current socket, the value parses strictly (exact ascending dates, finite
+amounts, IBKR's unset sentinel refused) and its final balance is within one
+currency unit of that refresh's trade-date cash. TWS rounds stream cash to
+whole units; a schedule that predates a fill or was cut short fails the
+check. An admitted schedule's `low`, its lowest balance including the segment
+twin, is the most the currency can spend without a settled debit on any
+listed date. The sweep reads it as settled cash (`settled_source_kind:
+native_tws_settlement_schedule`). Otherwise `status` is `held` with a
+`reason`, and the currency stays `settlement_unknown`.
+
+TWS resends a schedule only when it changes, so `received_at` can be hours
+old and still current; reconciliation with fresh trade-date cash is the
+freshness test. Proposal generation also rechecks the account snapshot
+against the latest confirmed local fill and holds when the fill journal
+cannot be read. The `BASE` row converts every currency into the base
+currency and is never one currency's settled cash.
 
 ## Native TWS observation
 
@@ -59,6 +95,8 @@ was observed, or that cash can be swept. Unknown readiness stays explicit even
 after initial completion. Bare `SettledCash` remains an account total. The
 passive diagnostic never contributes a balance to cash authority. A scope or
 socket change retires the receipt, and a subscription reset clears its rows.
+Settlement schedule rows carry `currency_settlement_schedule` and read
+`observed` only when they parse strictly.
 
 - [IBKR account-value keys](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-updates/account-value-keys)
 
@@ -297,6 +335,11 @@ The [official API1050 stable source](https://interactivebrokers.github.io/downlo
 verifies legacy request76/version1, cancel77/version1 and callbacks73/74.
 Account/position protobuf begins at protocol207; Canary currently advertises203.
 See the [official model-account request contract](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-update-by-model/requesting-account-update-by-model).
+
+`ledgerAndNLV=true` returns the lightweight ledger set only. Account values
+such as `SettledCashByDate` arrive only with `false`, so an empty result here
+says nothing about settled cash; the settlement schedule above is how TWS
+supplies it.
 
 If concrete-currency SettledCash is returned, financially admitting it is a
 separate change requiring verified account/model/original-epoch provenance,
