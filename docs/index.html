@@ -79,7 +79,7 @@
           <a class="text-link gh-link" href="https://github.com/osauer/canary"><svg class="gh" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>View on GitHub<span class="arrow" aria-hidden="true">↗</span></a>
           <a class="text-link" href="#install">Install<span class="arrow" aria-hidden="true">↓</span></a>
         </div>
-        <p class="proof">Read-only MCP tools · Signed releases · No telemetry · MIT licence</p>
+        <p class="proof"><span>Read-only MCP tools</span> · <span>Signed releases</span> · <span>No telemetry</span> · <span>MIT licence</span></p>
         <p class="note">Canary CLI does the broker work: the connection, the evidence, the rules, the proposals and the checks every order passes. <a href="/desk/">Canary Desk</a> adds the schedule, the AI analyst and the console on top. It runs with Interactive Brokers today, through IB Gateway or TWS; the broker layer is its own Go package.</p>
       </div>
     </section>
@@ -191,7 +191,7 @@
     </section>
     <section class="wrap section split fx-feature" aria-labelledby="fx-title">
       <div>
-        <p class="kicker">Statement-backed FX · Next release</p>
+        <p class="kicker">Statement-backed FX</p>
         <h2 id="fx-title">Count the<br>currency effect.</h2>
         <p>FX contribution measures how currency affects your P&amp;L in the account’s base currency. Day, week, month and year to date, from completed broker statements.</p>
       </div>
@@ -200,19 +200,104 @@
           <span><b>FX contribution</b>Currency effect</span><span class="operator" aria-hidden="true">+</span><span><b>Other P&amp;L</b>Prices, income and fees</span><span class="operator" aria-hidden="true">=</span><span><b>Portfolio change</b>After external cash flows</span>
         </div>
         <p>Implemented in current source and Desk’s private runtime; awaiting the next signed Canary release. <code>canary reporting fx --json</code> and <code>canary_reporting_fx</code> expose the same result. Missing days remain visible; incomplete periods have no total. This is valuation attribution, separate from realised Forex lot P&amp;L.</p>
-        <a class="text-link" href="docs/start/reporting.html#fx-contribution">Set up FX reporting<span class="arrow" aria-hidden="true">→</span></a>
+        <a class="text-link" href="docs/start/reporting.html#fx-contribution">How FX is measured<span class="arrow" aria-hidden="true">→</span></a>
       </div>
     </section>
     <section class="wrap section split lending-feature" aria-labelledby="lending-title">
       <div>
-        <p class="kicker">Lending observations · Next release</p>
+        <p class="kicker">Lending observations</p>
         <h2 id="lending-title">Your shares on loan.<br>The fees they earned.</h2>
-        <p>The new source implementation reads managed stock loans and customer net fees from retained IBKR statements. Dated position annotations and expandable fee history make the evidence visible.</p>
+        <p>Canary reads managed stock loans and customer net fees from retained IBKR statements. Dated position annotations and expandable fee history make the evidence visible.</p>
         <p><code>canary lending fees --json</code> and <code>canary_lending_fees</code> expose the same bounded, read-only history. Missing sections, partial periods and complete zero earnings remain distinct.</p>
-        <p class="note">Available in current source; not yet in the signed release. Participation stays with IBKR. Fees are separate from account P&amp;L; payout and P&amp;L linkage remain unproved. Account commissioning still needs a populated report.</p>
-        <a class="text-link" href="docs/understand/edge.html#stock-lending-income">Read the lending contract<span class="arrow" aria-hidden="true">→</span></a>
+        <p class="note">Available in current source; not yet in the signed release. Fees are separate from account P&amp;L; payout and P&amp;L linkage remain unproved. Account commissioning still needs a populated report.</p>
+        <a class="text-link" href="docs/understand/edge.html#stock-lending-income">How lending is reported<span class="arrow" aria-hidden="true">→</span></a>
       </div>
-      <figure class="lending-ledger"><picture><source media="(max-width: 760px)" srcset="/assets/lending-evidence-mobile.svg"><img src="/assets/lending-evidence.svg" width="1040" height="650" alt="IBKR lending statements provide dated shares-on-loan records and net-fee history. Lending income stays separate from broker P&amp;L." loading="lazy"></picture><figcaption>Reporting only · Participation stays with IBKR.</figcaption></figure>
+      <figure class="lending-ledger"><div class="ledger">
+<svg class="lending-wide" xmlns="http://www.w3.org/2000/svg" width="1040" height="650" viewBox="0 0 1040 650" role="img" aria-labelledby="lending-title lending-desc">
+<title id="lending-title">Lending, with the evidence attached</title>
+<desc id="lending-desc">A broker statement supplies dated shares-on-loan records and a net-fee ledger. Lending income is shown separately, without adding it again to broker profit and loss. This is a reporting diagram, not account data.</desc>
+<defs>
+<linearGradient id="lending-paper" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#333B45"/><stop offset="1" stop-color="#262A33"/></linearGradient>
+<pattern id="lending-grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#FFF1E5" stroke-opacity=".035"/></pattern>
+</defs>
+<rect width="1040" height="650" fill="url(#lending-paper)"/>
+<rect width="1040" height="650" fill="url(#lending-grid)"/>
+<g fill="#FFF1E5">
+<text x="52" y="58" font-size="17" letter-spacing="2.1" fill="#C9BEB3">LENDING / BROKER EVIDENCE</text>
+<text x="52" y="118" class="serif" font-size="48">The record behind the income.</text>
+<path d="M52 152H988" stroke="#FFF1E5" stroke-opacity=".22"/>
+<g transform="translate(52 190)">
+<path d="M0 0H31L44 13V59H0Z" stroke="#E8C66F" stroke-width="2" fill="none"/>
+<path d="M30 1V14H43M10 26H33M10 35H33M10 44H25" stroke="#E8C66F" stroke-width="2" fill="none"/>
+<text x="66" y="20" font-size="24">IBKR statement</text>
+<text x="66" y="51" font-size="19" fill="#C9BEB3">Reporting date + coverage</text>
+</g>
+<path d="M400 220H512M512 220V301M272 301H772" fill="none" stroke="#4FC3C9" stroke-width="2"/>
+<circle cx="512" cy="220" r="4" fill="#4FC3C9"/>
+<path d="M272 301V326M772 301V326" stroke="#4FC3C9" stroke-width="2"/>
+<g transform="translate(52 326)">
+<rect width="440" height="160" fill="#FFF1E5" fill-opacity=".04" stroke="#FFF1E5" stroke-opacity=".25"/>
+<rect width="3" height="160" fill="#E8C66F"/>
+<text x="24" y="38" font-size="17" letter-spacing="1.7" fill="#E8C66F">SHARES ON LOAN</text>
+<text x="24" y="83" class="serif" font-size="32">The dated position</text>
+<path d="M24 105H416" stroke="#FFF1E5" stroke-opacity=".18"/>
+<text x="24" y="137" font-size="18" fill="#C9BEB3">Quantity · collateral · broker date</text>
+</g>
+<g transform="translate(552 326)">
+<rect width="436" height="160" fill="#FFF1E5" fill-opacity=".04" stroke="#FFF1E5" stroke-opacity=".25"/>
+<rect width="3" height="160" fill="#4FC3C9"/>
+<text x="24" y="38" font-size="17" letter-spacing="1.7" fill="#4FC3C9">NET FEE HISTORY</text>
+<text x="24" y="83" class="serif" font-size="32">The earned-fee ledger</text>
+<path d="M24 105H412" stroke="#FFF1E5" stroke-opacity=".18"/>
+<text x="24" y="137" font-size="18" fill="#C9BEB3">Value date · currency · signed net fee</text>
+</g>
+<path d="M52 537H988" stroke="#FFF1E5" stroke-opacity=".22"/>
+<circle cx="64" cy="577" r="12" fill="none" stroke="#4FC3C9" stroke-width="1.5"/>
+<path d="m59 577 4 4 7-9" fill="none" stroke="#4FC3C9" stroke-width="1.5"/>
+<text x="92" y="585" font-size="24">Visible income. No extra addition to broker P&amp;L.</text>
+<text x="52" y="622" font-size="16" fill="#C9BEB3">REPORTING ONLY</text>
+<text x="988" y="622" text-anchor="end" font-size="16" fill="#C9BEB3">Participation stays with IBKR</text>
+</g>
+</svg>
+<svg class="lending-narrow" xmlns="http://www.w3.org/2000/svg" width="520" height="700" viewBox="0 0 520 700" role="img" aria-labelledby="lending-title-m lending-desc-m">
+<title id="lending-title-m">Lending, with the evidence attached</title>
+<desc id="lending-desc-m">A broker statement supplies dated shares-on-loan records and a net-fee ledger. Lending income is shown separately, without adding it again to broker profit and loss. This is a reporting diagram, not account data.</desc>
+<defs><linearGradient id="lending-paper-m" x2="1" y2="1"><stop stop-color="#333B45"/><stop offset="1" stop-color="#262A33"/></linearGradient><pattern id="lending-grid-m" width="26" height="26" patternUnits="userSpaceOnUse"><path d="M26 0H0V26" fill="none" stroke="#FFF1E5" stroke-opacity=".035"/></pattern></defs>
+<rect width="520" height="700" fill="url(#lending-paper-m)"/><rect width="520" height="700" fill="url(#lending-grid-m)"/>
+<g fill="#FFF1E5">
+<text x="30" y="45" font-size="16" letter-spacing="1.6" fill="#C9BEB3">LENDING / BROKER EVIDENCE</text>
+<text x="30" y="95" class="serif" font-size="37">The record behind</text>
+<text x="30" y="136" class="serif" font-size="37">the income.</text>
+<path d="M30 161H490" stroke="#FFF1E5" stroke-opacity=".22"/>
+<g transform="translate(30 191)">
+<path d="M0 0H29L41 12V55H0Z" stroke="#E8C66F" stroke-width="2" fill="none"/>
+<path d="M28 1V13H40M9 25H31M9 34H31M9 43H23" stroke="#E8C66F" stroke-width="2" fill="none"/>
+<text x="63" y="19" font-size="24">IBKR statement</text>
+<text x="63" y="48" font-size="18" fill="#C9BEB3">Reporting date + coverage</text>
+</g>
+<path d="M260 257V286" stroke="#4FC3C9" stroke-width="2"/>
+<circle cx="260" cy="275" r="4" fill="#4FC3C9"/>
+<g transform="translate(30 292)">
+<rect width="460" height="130" fill="#FFF1E5" fill-opacity=".04" stroke="#FFF1E5" stroke-opacity=".25"/><rect width="3" height="130" fill="#E8C66F"/>
+<text x="20" y="30" font-size="16" letter-spacing="1.5" fill="#E8C66F">SHARES ON LOAN</text>
+<text x="20" y="72" class="serif" font-size="30">The dated position</text>
+<path d="M20 90H440" stroke="#FFF1E5" stroke-opacity=".18"/>
+<text x="20" y="115" font-size="18" fill="#C9BEB3">Quantity · collateral · broker date</text>
+</g>
+<g transform="translate(30 439)">
+<rect width="460" height="130" fill="#FFF1E5" fill-opacity=".04" stroke="#FFF1E5" stroke-opacity=".25"/><rect width="3" height="130" fill="#4FC3C9"/>
+<text x="20" y="30" font-size="16" letter-spacing="1.5" fill="#4FC3C9">NET FEE HISTORY</text>
+<text x="20" y="72" class="serif" font-size="30">The earned-fee ledger</text>
+<path d="M20 90H440" stroke="#FFF1E5" stroke-opacity=".18"/>
+<text x="20" y="115" font-size="18" fill="#C9BEB3">Value date · currency · signed net fee</text>
+</g>
+<path d="M30 598H490" stroke="#FFF1E5" stroke-opacity=".22"/>
+<text x="30" y="632" font-size="21">Visible income.</text>
+<text x="30" y="660" font-size="21">No extra addition to broker P&amp;L.</text>
+<text x="30" y="688" font-size="15" fill="#C9BEB3">Reporting only · Participation stays with IBKR</text>
+</g>
+</svg>
+</div></figure>
     </section>
     <section class="wrap section detail-screen" aria-labelledby="arch-title">
       <div class="detail-copy">
@@ -284,7 +369,7 @@ fmt.Println(summary.AccountID)</code></pre>
         <h2 id="install-title">Install Canary</h2>
         <p>Run IB Gateway 10.37+ or TWS on the same machine. You need an IBKR Pro account with TWS API access; IBKR Lite does not include it.</p>
         <p>Every release ships signed checksums, and the installer checks them against a pinned key. Canary sends no telemetry.</p>
-        <a class="text-link" href="claude-desktop-interactive-brokers/">Claude Desktop install<span class="arrow" aria-hidden="true">↗</span></a>
+        <a class="text-link" href="claude-desktop-interactive-brokers/">Claude Desktop install<span class="arrow" aria-hidden="true">→</span></a>
       </div>
       <div class="terminal">
         <span class="terminal-label">The command line, Cursor, Continue, Zed and other MCP hosts</span>
@@ -308,7 +393,7 @@ canary setup claude-desktop
       <div>
         <p class="kicker">Documentation</p>
         <h2 id="handbook-title">Handbook &amp; reference</h2>
-        <a class="text-link" href="docs/">Open the handbook<span class="arrow" aria-hidden="true">↗</span></a>
+        <a class="text-link" href="docs/">Open the handbook<span class="arrow" aria-hidden="true">→</span></a>
         <p class="note">Canary Desk is the private workspace built on this engine. <a href="/desk/">See Canary Desk</a>.</p>
       </div>
       <div class="guide-links">
