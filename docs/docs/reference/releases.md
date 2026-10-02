@@ -1,10 +1,29 @@
 # Releases and support
 
-Updated: 2026-09-30
+Updated: 2026-10-02
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
+
+## Moving to 3.16
+
+Version 3.16 adds [FX contribution](../start/reporting.md#fx-contribution) and
+[earned stock-lending fees](../understand/edge.md#stock-lending-income).
+Extend the existing Flex query with the documented sections to supply the
+needed evidence. Missing sections and partial periods remain explicit; lending
+payment and P/L linkage still need account-specific broker commissioning.
+
+Cash sweeps now require broker-observed settled cash per currency. Account-wide
+figures and diagnostic Flex estimates cannot authorise a sweep. An optional
+[Web API ledger](../operate/cash-ledger.md) can read an existing session.
+Whole-order minimums, fixed-quantity fee bounds and net sale proceeds are shown
+separately from advisory purchase value. `min_net_gain` remains readable but
+is advisory; missing cash-interest assumptions no longer block an order.
+
+Existing private policy settings are unchanged. The sweep stays off by default;
+review the [sweep controls](../operate/protection.md#cash-sweep) and commission
+each bill route before activation. Installation grants no broker-write authority.
 
 ## Moving to 3.15
 

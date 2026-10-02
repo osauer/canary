@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-09-26 08:33 CEST
+Updated: 2026-10-02
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -34,10 +34,11 @@ on their maintained major instead of silently crossing the product boundary.
 
 ## Current source and signed releases
 
-The documentation and MCP discovery catalogue follow `main`. New commands and
-tools, including FX contribution and lending-fee reporting, can appear here before the next signed
-binary or MCP Bundle is published. Check your installed `canary --help` and
-the [latest release](https://github.com/osauer/canary/releases/latest).
+The documentation and MCP discovery catalogue follow `main`. FX contribution
+and lending-fee reporting are included in v3.16.0 signed binaries and MCPB.
+Future commands and tools can appear here before a signed release. Check your
+installed `canary --help` and the
+[latest release](https://github.com/osauer/canary/releases/latest).
 
 To try current source with a read-only build:
 

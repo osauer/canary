@@ -2,16 +2,16 @@
 
 Updated: 2026-10-02
 
-Version 3.15 makes Rulebook rule 3 a budget for long option premium, gives
-net exposure regime bands and adds rule 19 for margin headroom; while the budget
-or net exposure is at watch or act, the Rulebook reports sell-only. The premium
-budget governor sells the line that fixes the most first and shows its whole
-plan. An optional policy-based cash sweep, off by default, plans idle cash into
-same-currency government bills after commitments and liquidity reserves.
-Owner commissioning requires calibrated reserves and current native
-settlement evidence; source implementation alone does not establish readiness.
-Missing evidence holds the sweep. Bills can lose value on an early sale. Installation does not enable automatic submission or grant
-broker-write permission.
+Version 3.16 adds completed-day FX contribution and earned stock-lending
+fee history. CLI and read-only MCP tools expose both; the app shows dated
+loan observations and fees. Cash-sweep reporting separates broker-observed
+settled cash from diagnostic estimates and shows fixed-quantity fees, net
+proceeds and advisory purchase value. An optional Web API ledger reads
+per-currency settlement evidence from an existing session.
+The sweep remains off by default. Owner commissioning requires calibrated
+reserves and current native settlement evidence; missing evidence holds the
+sweep. Bills can lose value on an early sale. Installation does not enable
+automatic submission or grant broker-write permission.
 
 Canary is a local risk desk for a brokerage account, built as a Go daemon, a
 shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code
@@ -25,10 +25,9 @@ than recreating it.
 
 Canary is an independent personal project by Oliver Sauer.
 
-Lending observations are implemented in current source for the next signed
-release; the public installer and MCPB do not yet include them. The read-only
-`canary lending fees --json` command and `canary_lending_fees` MCP tool expose
-bounded customer net-fee history from retained IBKR statements. The app shows
+Canary v3.16.0 adds lending observations to the signed binaries and MCPB.
+The read-only `canary lending fees --json` command and `canary_lending_fees`
+MCP tool expose bounded customer net-fee history from retained IBKR statements. The app shows
 dated position loan annotations and expandable fees; Desk's analyst can read
 the same evidence. Missing sections, partial coverage and complete zero are
 distinct. Participation stays with IBKR. Fees are not added to account P&L:
@@ -39,8 +38,7 @@ transactions and realised lots; it is not the valuation contribution reported
 by `canary reporting fx`.
 See https://osauer.dev/canary/docs/understand/edge.html#stock-lending-income.
 
-FX contribution is implemented in current source and Desk's private runtime.
-The public installer and MCPB await the next signed release for this feature.
+Canary v3.16.0 adds FX contribution to the signed binaries and MCPB.
 `canary reporting fx`, `canary_reporting_fx` and Desk's Portfolio → Performance
 → FX expose the same result.
 It attributes completed statement-day P&L to currencies in the account's base
@@ -117,8 +115,8 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_brief`: current daemon-composed desk summary and Action Queue.
 - `canary_reporting`: redacted broker-reporting setup and evidence status.
 - `canary_reporting_performance`: retained statement equity series with dated external flows and year-to-date income sums; computes no return.
-- `canary_reporting_fx` (current source; next signed release): completed statement-day FX contribution, period coverage and dated gaps; read-only, with no backfill trigger.
-- `canary_lending_fees` (current source; next signed release): bounded earned net-fee history, with coverage and unproved payment/P&L linkage; no broker changes.
+- `canary_reporting_fx` (since v3.16.0): completed statement-day FX contribution, period coverage and dated gaps; read-only, with no backfill trigger.
+- `canary_lending_fees` (since v3.16.0): bounded earned net-fee history, with coverage and unproved payment/P&L linkage; no broker changes.
 - `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
 - `canary_rules`: ranked rulebook findings, explicit unknown inputs, and the limits in force with their source.
 - `canary_proposals`: read-only close/reduce protection candidates.
@@ -145,8 +143,8 @@ canary rules
 canary rules policy
 canary policy show
 canary recon show
-canary reporting fx --json # current source; next signed release
-canary lending fees --json  # current source; next signed release
+canary reporting fx --json # since v3.16.0
+canary lending fees --json  # since v3.16.0
 canary strategies list
 canary proposals list
 canary opportunities list

@@ -2,69 +2,47 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.15.2 — Unreleased
+## v3.16.0 — 2026-10-02 22:08 CEST
 
 ### What's new
 
-- Cash sweeps check complete-order bounds and net liquidity proceeds. One fixed-quantity broker preview shows fees and advisory purchase value; unknown hours or expired route evidence still hold the order.
+- **See what currency moves contributed.** Completed-day FX contribution separates investments, currency cash and accrued interest across Day, Week, Month and YTD, with reconciled backfill and explicit evidence gaps in the CLI and MCP.
+- **Read stock-lending income.** Positions show dated shares on loan; Edge, CLI and MCP show customer net-fee history. Missing sections and partial periods stay explicit. Fees are not added to account P/L, and payment and equity linkage still need broker commissioning.
+- **More control over bill sweeps.** Whole-order minimums, fixed fee bounds and advisory purchase gains account for spread, fees and cash interest forgone. An audited runtime preference orders currencies, while Canary maintains supported settlement routes and holds expired or incomplete evidence.
+- **Native settled-cash evidence.** Canary reads TWS's per-currency settlement schedule and can use an optional read-only Web API ledger connection. Flex Cash Report estimates and sanitized settlement diagnostics show coverage gaps without granting spending authority.
 
 ### Added
 
-- Read-only stock-lending observations: dated shares-on-loan badges in Positions
-  and expandable customer net-fee history in Edge, CLI and MCP. Missing sections,
-  partial periods and unavailable FX remain explicit; fees never change account
-  P/L and payment/equity linkage remains unproved pending broker commissioning.
-
-- Passive account-stream receipts show which cash fields TWS supplies without changing subscriptions, exposing balances or granting spending authority.
-
-- An opt-in currency-only account update diagnostic uses the existing broker connection, cancels its own request and reports sanitized cash-field receipts. Account changes, raw capture and uncertain cancellation withhold further diagnostics; ordinary account reads retain priority.
-
-- Cash sweep ordering can prefer USD first, balanced free cash or EUR first through an audited runtime preference. This changes ordering only; cash reserves, policy activation and execution authority remain separate.
-
-- An explicit read-only `account --settlement-probe --json` comparison tests the normal summary batch against an isolated SettledCash request. Responses contain only sanitized receipts and transport states; ordinary account/risk reads take priority and no diagnostic grants cash authority.
-
-- Completed-day FX contribution for investments, currency cash and accrued interest, with Day/Week/Month/YTD periods, explicit evidence gaps, reconciled daily backfill and matching CLI/MCP contracts for Desk.
-
-- Cash sweeps have configurable whole-order minimums and advisory incremental purchase gain, including entry spread, broker fees and cash interest forgone. Benefit advice explicitly distinguishes known, unknown and stale inputs.
-- Pending Canary DAY buys retain exact fee bounds through restart and partial fills, allowing concurrent sweeps when principal and fees are fully reserved. Changed terms, stale or unavailable bounds and unacknowledged buys still hold.
-
-### Fixed
-
-- Reserve stress studies include native cash and borrowing, require complete cash and portfolio coverage, and bind original reads to one current broker session. Live numeric studies require each input's original validity. A conservative call-cover observation can intentionally reserve full funding without claiming unknown settled shares as zero; positive BILL holdings share BOND funding treatment without creating sale credit.
-
-- Read-only cash-sweep history omits repeated obligation and calibration detail with explicit audit-availability counts, keeping large proposal snapshots within the Desk observer budget. Current evidence and full SQLite audit records remain intact.
-- Cash-sweep and budget status remain bound to the current account and paper/live mode even when there are no proposals to act on.
-
-- Account reads explicitly request settled cash and report sanitized callback labels. Ambiguous account-wide totals, unknown account inventory, forged ledger labels, unset sentinels and nonfinite settled values cannot become native-currency sweep funding. Completed request rows cannot be rewritten by later subscription updates.
-
-- Flex Cash Report exports without a separate row report date now use their exact statement-matched period end. Explicit conflicting or invalid dates remain refused; historical cash still cannot authorize a sweep.
-- Bill top-ups apply whole-order minimums to principal on both sides and show fee-adjusted sale proceeds plus the remaining cash gap. Partial restoration is allowed; fees do not trigger repeated previews or automatic resizing. Lot rounding cannot authorize a tiny residual or exceed the order cap.
-- Missing or malformed bill trading hours no longer fall back to assumed weekday execution windows. Supported USD/EUR payment calendars include holidays; each route requires a reviewed settlement lag and expiry.
-
-### Upgrade notes
-
-- Existing private policy settings are unchanged. `min_net_gain` remains compatible but is now an advisory benchmark, replacing the earlier hard profitability gate; missing or expired cash-interest assumptions affect advice only. Review the new sweep controls and commission each bill route before activation. Portfolio stress calibration and buffer allocation remain open; delayed Nasdaq-100 context stays supported, tax review stays advisory and ETF fallback stays inactive.
-
-## v3.15.1 — 2026-10-01 21:44 CEST
-
-### What's new
-
-- **Settled cash from a live Web API ledger.** An optional `[cash_ledger]` connection reads per-currency cash and settled cash from an IBKR Web API session you already have open. It never logs in, starts a brokerage session or sends an order, and `canary account --json` reports its health.
-- **A Flex settlement estimate, clearly labelled.** With Cash Report enabled in your existing Flex query, the cash sweep shows a settled-cash estimate per currency and names the evidence it still lacks. The estimate is diagnostic and never authorises a sweep.
-- **Reconnect knows when no IBKR app is running.** With no TWS, IB Gateway or IBKR Desktop open, the outage says so, retries slow to once a minute, and Canary connects as soon as an app starts.
+- Passive cash-field receipts and opt-in settlement probes report sanitized broker responses; ordinary account and risk reads keep priority.
+- Cash-sweep reserve studies include native cash, borrowing and funding obligations, with current-session evidence and a durable decision trace.
 
 ### Changed
 
-- The cash sweep requires broker-observed settled cash per currency. An account-wide figure or the order journal's estimate cannot authorise it; without that observation, or while a working buy has no fixed finite limit, the sweep holds at `settlement_unknown`.
-- Held US bills and German Bubills whose broker answer omits a maturity take it from the exact TreasuryDirect or Finance Agency record. Missing or conflicting evidence holds the currency.
+- Cash sweeps require broker-observed settled cash per currency. Account-wide figures, historical cash and journal estimates cannot authorize funding; unknown working-buy costs hold the sweep.
+- Pending Canary DAY buys retain exact principal and fee reservations through restart and partial fills. Changed terms, stale bounds and unacknowledged buys still hold.
+- Reconnect reports when no IBKR app is running, slows retries to once a minute and reconnects when an app starts.
+- Held US bills and German Bubills with missing broker maturities use exact issuer records; missing or conflicting evidence holds the currency.
 
 ### Fixed
 
-- Cash-sweep redemptions could use the whole holding instead of the capped tranche. Buys and redemptions now enforce the order-value cap on the previewed limit.
-- `canary proposals ignore` reported success when the daemon had refused the request.
-- Zero-gamma option batches kept subscribing and cancelling options for minutes after TWS lost its IBKR backend link.
-- Delisted holdings you had reviewed kept drawing "no security definition" answers from the broker every thirty minutes and after each reconnect.
-- Account pins, previews, approvals, the journal and the trading freeze are unchanged for every bucket.
+- A settlement schedule received before a confirmed fill can no longer fund a sweep, even when offsetting trades leave the final cash balance unchanged. Independently current native or Web API evidence remains usable.
+- Bill purchases and redemptions respect whole-order minimums and the previewed order-value cap. Top-ups show fee-adjusted proceeds and the remaining gap without automatic resizing or repeated previews.
+- Missing or malformed bill trading hours no longer fall back to assumed weekday windows; supported USD/EUR payment calendars include holidays and require reviewed, unexpired settlement routes.
+- Ambiguous cash totals, invalid callback values and late subscription updates cannot replace verified native-currency funding evidence.
+- Flex Cash Reports without a row report date use their exact statement-matched period end; conflicting dates remain refused.
+- Large cash-sweep histories fit the observer read budget while retaining complete audit records in SQLite.
+- Cash-sweep and budget status stay bound to the current account and paper/live mode, including when no proposals exist.
+- Ignoring a proposal no longer reports success when the daemon refuses it.
+- Option batches stop subscription churn while TWS has lost its IBKR backend link, and reviewed terminal holdings avoid repeated unsuccessful quote probes until their evidence expires.
+
+### Security
+
+- Updated the remote-relay development dependency Undici to address reported vulnerabilities. This release does not deploy the Cloudflare relay.
+
+### Upgrade notes
+
+- Existing private policy settings are unchanged. Cash-sweep activation still requires calibrated reserves and commissioned bill routes. Standard binaries and MCP remain read-only; trading builds retain account pins, previews, approvals, journaling and freeze gates.
+- `min_net_gain` remains compatible and is advisory; missing or expired cash-interest assumptions affect advice only. Review the new sweep controls before activation. Portfolio stress calibration and buffer allocation remain open, tax review stays advisory and ETF fallback stays inactive.
 
 ## v3.15.0 — 2026-09-30 21:34 CEST
 
