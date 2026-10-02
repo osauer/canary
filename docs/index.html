@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary CLI | Oliver Sauer</title>
-  <meta name="description" content="Let an AI read your brokerage account without handing it the keys. Canary CLI reads your book and the market, checks your risk rules and drafts the protection they call for. Open source, in Go. Runs with Interactive Brokers today.">
+  <meta name="description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
   <link rel="preload" href="/assets/fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,13 +14,13 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://osauer.dev/canary/">
   <meta property="og:title" content="Canary CLI | Oliver Sauer">
-  <meta property="og:description" content="Let an AI read your brokerage account without handing it the keys. Canary CLI reads your book and the market, checks your risk rules and drafts the protection they call for. Open source, in Go. Runs with Interactive Brokers today.">
+  <meta property="og:description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Canary CLI | Oliver Sauer">
-  <meta name="twitter:description" content="Let an AI read your brokerage account without handing it the keys. Your book, your risk rules and the protection they draft. Open source, in Go.">
+  <meta name="twitter:description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
   <meta name="twitter:image" content="https://osauer.dev/canary/social/social-preview.png">
   <script type="application/ld+json">
   {
@@ -30,7 +30,7 @@
         "@type": "SoftwareApplication",
         "name": "Canary CLI",
         "url": "https://osauer.dev/canary/",
-        "description": "The open-source engine under Canary Desk: a local risk desk for your broker account, with a daily brief, portfolio and market evidence, a risk rulebook, protection proposals, read-only MCP tools for AI assistants and a Go client for the TWS protocol.",
+        "description": "The open-source engine under Canary Desk: a local risk desk for your broker account, with a daily brief, portfolio and market evidence, reconciled FX contribution, a policy-based cash sweep, a risk rulebook, protection proposals and read-only MCP tools.",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -79,7 +79,7 @@
           <a class="text-link gh-link" href="https://github.com/osauer/canary"><svg class="gh" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>View on GitHub<span class="arrow" aria-hidden="true">↗</span></a>
           <a class="text-link" href="#install">Install<span class="arrow" aria-hidden="true">↓</span></a>
         </div>
-        <p class="proof">28 read-only MCP tools · Signed releases · No telemetry · MIT licence</p>
+        <p class="proof">Read-only MCP tools · Signed releases · No telemetry · MIT licence</p>
         <p class="note">Canary CLI does the broker work: the connection, the evidence, the rules, the proposals and the checks every order passes. <a href="/desk/">Canary Desk</a> adds the schedule, the AI analyst and the console on top. It runs with Interactive Brokers today, through IB Gateway or TWS; the broker layer is its own Go package.</p>
       </div>
     </section>
@@ -109,7 +109,7 @@
       <article>
         <span class="number" aria-hidden="true">04</span>
         <h2>Orders within your limits</h2>
-        <p>An experimental trading build sends what you confirm, and what you have pre-authorised by rule. The standard build cannot send an order at all.</p>
+        <p>The opt-in trading edition sends what you confirm or pre-authorise by rule, within your limits. Standard downloads are read-only.</p>
       </article>
     </section>
 
@@ -124,8 +124,8 @@
       <ul class="points">
         <li><b>Claude Code on your portfolio</b>Ask about exposure or the market regime. Check the trend and relative strength of the symbols you name.</li>
         <li><b>Agents that run all day</b>Exchange calendars, economic releases and source health tell a long-running agent when to look and what to trust.</li>
-        <li><b>Your own trading agent</b>Your agent decides; Canary checks. On the experimental trading build, its orders pass the same gates as yours.</li>
-        <li><b>Read-only by default</b>The standard build and all 28 MCP tools cannot place an order. MCP cannot change your limits; in Claude Code, the plugin’s hook blocks the commands that can.</li>
+        <li><b>From analysis to action</b>Your agent prepares decisions with read-only tools. You authorise orders; Canary checks them against your policy.</li>
+        <li><b>Read-only by default</b>The standard build and all MCP tools cannot place an order. MCP cannot change your limits; in Claude Code, the plugin’s hook blocks the commands that can.</li>
       </ul>
     </section>
 
@@ -133,18 +133,13 @@
       <div>
         <p class="kicker">Evidence</p>
         <h2 id="evidence-title">Missing <br>stays missing.</h2>
-        <p>A figure Canary cannot confirm is never shown as clean. Every reading carries one of nine states, so you and your assistant know what to trust.</p>
+        <p>A figure Canary cannot confirm is never shown as clean. Sources, age and coverage stay beside the figures, so you and your assistant know what to trust.</p>
       </div>
       <dl class="states">
-        <div><dt>current</dt><dd>Fresh. Nothing newer is due.</dd></div>
-        <div><dt>not_due</dt><dd>Nothing newer is due yet. The last value stays as context.</dd></div>
-        <div><dt>pending</dt><dd>A refresh is under way. The old value is context only.</dd></div>
-        <div><dt>partial</dt><dd>Some parts arrived. Only those count.</dd></div>
-        <div><dt>stale</dt><dd>Too old to rely on. Decisions that need it are held back.</dd></div>
-        <div><dt>overdue</dt><dd>A newer value should exist. Treated as a data failure.</dd></div>
-        <div><dt>unavailable</dt><dd>No value. Never read as zero or as calm.</dd></div>
-        <div><dt>degraded</dt><dd>Usable only within the limits it states.</dd></div>
-        <div><dt>computing</dt><dd>A calculation is running. Progress is not a result.</dd></div>
+        <div><dt>Fresh</dt><dd>A current reading, with its source and time.</dd></div>
+        <div><dt>Delayed</dt><dd>An older reading, clearly labelled.</dd></div>
+        <div><dt>Incomplete</dt><dd>The available evidence and its gaps, side by side.</dd></div>
+        <div><dt>Unavailable</dt><dd>No invented zero. Decisions that need it wait.</dd></div>
       </dl>
     </section>
 
@@ -177,6 +172,37 @@
       </figure>
     </section>
 
+    <section class="wrap section split cash-feature" aria-labelledby="sweep-title">
+      <div>
+        <p class="kicker">Cash sweep</p>
+        <h2 id="sweep-title">Idle cash,<br>under your rules.</h2>
+        <p>Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments, liquidity needs and your buffer ahead of new purchases.</p>
+        <p>Desk shows the plan; Canary checks the cash, bill, price, fees and authority. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.</p>
+        <p class="note">Bills can lose value if sold before maturity.</p>
+        <a class="text-link" href="docs/operate/protection.html#cash-sweep">Read the sweep controls<span class="arrow" aria-hidden="true">→</span></a>
+      </div>
+      <div class="cash-story">
+        <ol class="cash-flow" aria-label="Canary cash sweep checks">
+          <li><span class="kicker">01 · Evidence</span><b>What cash is usable?</b><p>Current settlement evidence, commitments and reserves establish the surplus.</p></li>
+          <li><span class="kicker">02 · Review</span><b>Which bill, at what cost?</b><p>A same-currency bill, its maturity and a broker preview of price and fees.</p></li>
+          <li><span class="kicker">03 · Authority</span><b>Within your policy</b><p>Confirm the order or use the scoped authority you have granted. Missing evidence holds it.</p></li>
+        </ol>
+      </div>
+    </section>
+    <section class="wrap section split fx-feature" aria-labelledby="fx-title">
+      <div>
+        <p class="kicker">Statement-backed performance</p>
+        <h2 id="fx-title">Count the<br>currency effect.</h2>
+        <p>FX contribution measures how currency affects your P&amp;L in the account’s base currency. Day, week, month and year to date, from completed broker statements.</p>
+      </div>
+      <div class="fx-explanation">
+        <div class="fx-bridge" aria-label="FX contribution plus other profit and loss equals portfolio value change after external cash flows">
+          <span><b>FX contribution</b>Currency effect</span><span class="operator" aria-hidden="true">+</span><span><b>Other P&amp;L</b>Prices, income and fees</span><span class="operator" aria-hidden="true">=</span><span><b>Portfolio change</b>After external cash flows</span>
+        </div>
+        <p><code>canary reporting fx</code>, the read-only MCP tool and Desk’s Performance → FX use one reconciled result. Missing days remain visible; incomplete periods have no total.</p>
+        <a class="text-link" href="docs/start/reporting.html#fx-contribution">Set up FX reporting<span class="arrow" aria-hidden="true">→</span></a>
+      </div>
+    </section>
     <section class="wrap section detail-screen" aria-labelledby="arch-title">
       <div class="detail-copy">
         <p class="kicker">Architecture</p>
@@ -187,7 +213,7 @@
       <div class="arch" role="img" aria-label="The shell, an AI assistant, a paired phone and your own Go code all talk to one canary daemon over a local socket. The daemon talks to IB Gateway or TWS and to public data sources.">
         <div class="arch-row">
           <div class="arch-node"><b>Your shell</b><span>Every command, with JSON</span></div>
-          <div class="arch-node"><b>Your AI assistant</b><span>28 read-only MCP tools</span></div>
+          <div class="arch-node"><b>Your AI assistant</b><span>Read-only MCP tools</span></div>
           <div class="arch-node"><b>Your phone</b><span>Paired app, opt-in alerts</span></div>
           <div class="arch-node"><b>Your Go code</b><span>Daemon client and test kit</span></div>
         </div>
@@ -205,8 +231,8 @@
       <div class="features-head"><p class="kicker">Full features</p><h2 id="features-title">What’s inside.</h2></div>
       <div class="features-grid four">
       <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, credit spreads, funding, the yen, dealer gamma computed from SPX options, and breadth.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, and borrow availability and fees.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
-      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
-      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Idle cash into short-dated government bills, and back.</li><li><b>Settled cash</b>An optional read of the broker’s own ledger gives settled cash per currency, for the sweep.</li><li><b>Trading build</b>Experimental. Sends what you confirm or pre-authorise, through Canary’s checks.</li></ul></div>
+      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution</b>Currency contribution to P&amp;L for Day, WTD, MTD and YTD, reconciled to daily statements.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
+      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with liquidity reserves and a reason for every plan.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Trading edition</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
       <div class="feature-group"><h3>Where you use it</h3><ul><li><b>Command line</b>One binary for macOS and Linux. Every command speaks JSON.</li><li><b>AI assistants</b>Read-only MCP tools for Claude and other hosts.</li><li><b>Your phone</b>A paired app with live updates and opt-in notifications.</li><li><b>Go library</b>The TWS protocol, spoken natively in Go, with no vendor SDK.</li></ul></div>
       </div>
     </section>
@@ -282,7 +308,7 @@ canary setup claude-desktop
         <a href="read-only-mcp-server/">Read-only boundary</a>
         <a href="portfolio-review-with-claude-ibkr/">Portfolio review with Claude</a>
         <a href="best-ibkr-mcp-server-claude-code/">Choosing an MCP server</a>
-        <a href="canary-remote/">Remote app beta</a>
+        <a href="canary-remote/">Remote access</a>
         <a href="docs/reference/mcp-tools.html">MCP tool reference</a>
         <a href="docs/reference/cli.html">CLI reference</a>
         <a href="https://pkg.go.dev/github.com/osauer/canary/v2/pkg/ibkr">Go API reference</a>

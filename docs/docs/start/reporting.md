@@ -1,10 +1,10 @@
 # Set up broker reporting
 
-Updated: 2026-09-17
+Updated: 2026-10-02
 
 Canary needs one **Activity Flex Query** from Interactive Brokers. This is the
 broker-reporting foundation for reconciliation, statement-derived equity,
-Canary Edge, and future broker-truth analytics. A working Gateway connection
+Canary Edge, and FX contribution. A working Gateway connection
 does not create this report for you.
 
 The reliable setup is intentionally broad: add the eight required sections below and
@@ -289,6 +289,57 @@ and rebuilds the 365-day SQLite projection automatically. Use
 `canary reporting status` to follow it. If you prefer a blue/green change,
 create a second query and run `canary setup reporting`; Canary keeps the
 working query active until the candidate validates.
+
+## FX contribution
+
+In Desk, open **Portfolio → Performance → FX**. Canary also serves the same
+result through `canary reporting fx` and the read-only `canary_reporting_fx`
+MCP tool. Day, WTD, MTD and YTD show the currency contribution to P&L in the
+account's base currency, with daily bars and a completed reporting cutoff.
+This is statement-based valuation attribution, not live intraday P&L or
+realised currency tax-lot P&L.
+
+```text
+FX contribution + other P&L = portfolio value change after external flows
+```
+
+The calculation includes currency cash, investments, accrued interest and
+reconciled lending balances. Its closing-value convention assigns the
+interaction between price changes and exchange rates to FX; there is no
+separate “Price × FX” line. A currency conversion can contribute even when
+the closing exchange rate is unchanged.
+
+### Extend the same query
+
+Keep the eight sections above, with every field selected. For FX, also add
+**Cash Report**, **Interest Accruals**, and **Conversion Rates**, with all
+fields, daily totals, dates and currency. Confirm Open Positions is at Summary
+detail and Trades at Executions detail. If the account lends securities,
+also add **Securities Borrowed/Lent** and **Securities Borrowed/Lent Activity**
+with all fields: base-currency NAV alone cannot establish the native liability.
+Use the existing Query ID and credentials.
+
+Canary acquires daily current-year reports and the opening boundary,
+reconciles their native balances to NAV, and resumes acquisition after restart.
+The existing Flex worker checks for newly completed days. After correcting a
+query, start or resume missing daily evidence with:
+
+```sh
+canary reporting fx --backfill
+canary reporting fx --json
+```
+
+The MCP tool reads evidence; it cannot start backfill.
+
+| Evidence state | What you see |
+| --- | --- |
+| Complete | Period contribution and daily values, with the reporting cutoff. |
+| Partial | Known daily contributions and dated gaps; no period total. |
+| Unavailable | The missing evidence and action needed; no invented zero. |
+| No foreign exposure | A hint and completed cutoff; no chart. Gross exposure must be absent throughout the period. |
+
+For the exact method and reconciliation checks, see the
+[FX contribution guide](https://github.com/osauer/canary/blob/main/internal-docs/fx-contribution.md).
 
 ## Official IBKR references
 

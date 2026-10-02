@@ -1,14 +1,16 @@
 # Canary full context
 
-Updated: 2026-09-30
+Updated: 2026-10-02
 
 Version 3.15 makes Rulebook rule 3 a budget for long option premium, gives
 net exposure regime bands and adds rule 19 for margin headroom; while the budget
 or net exposure is at watch or act, the Rulebook reports sell-only. The premium
 budget governor sells the line that fixes the most first and shows its whole
-plan. An optional cash sweep, off by default, puts idle cash into same-currency
-bills. Installation does not enable automatic submission or grant broker-write
-permission.
+plan. An optional policy-based cash sweep, off by default, plans idle cash into
+same-currency government bills after commitments and liquidity reserves.
+Missing evidence holds the sweep. Bills can lose value on an
+early sale. Installation does not enable automatic submission or grant
+broker-write permission.
 
 Canary is a local risk desk for a brokerage account, built as a Go daemon, a
 shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code
@@ -21,6 +23,14 @@ option-exercise opportunities. Other surfaces adapt that typed authority rather
 than recreating it.
 
 Canary is an independent personal project by Oliver Sauer.
+
+FX contribution is available through `canary reporting fx`, the read-only
+`canary_reporting_fx` MCP tool and Desk's Portfolio → Performance → FX.
+It attributes completed statement-day P&L to currencies in the account's base
+currency for Day, WTD, MTD and YTD. It reconciles FX plus other P&L to portfolio
+value change after external flows. Partial periods expose missing dates and
+omit totals; this is valuation attribution, not realised tax-lot P&L.
+See https://osauer.dev/canary/docs/start/reporting.html#fx-contribution.
 
 Data comes from the user's own TWS or IB Gateway session. Availability and
 freshness therefore depend on session state, market hours, broker entitlements,
@@ -90,6 +100,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_brief`: current daemon-composed desk summary and Action Queue.
 - `canary_reporting`: redacted broker-reporting setup and evidence status.
 - `canary_reporting_performance`: retained statement equity series with dated external flows and year-to-date income sums; computes no return.
+- `canary_reporting_fx`: completed statement-day FX contribution, period coverage and dated gaps; read-only, with no backfill trigger.
 - `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
 - `canary_rules`: ranked rulebook findings, explicit unknown inputs, and the limits in force with their source.
 - `canary_proposals`: read-only close/reduce protection candidates.
