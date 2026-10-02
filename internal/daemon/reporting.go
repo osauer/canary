@@ -217,7 +217,9 @@ func (s *Server) handleReportingValidate(ctx context.Context, req *rpc.Request) 
 	if s.flexRawDateRangeLockedFn != nil {
 		raw, err = s.flexRawDateRangeLockedFn(ctx, from, to, reportingValidationPollAttempts, queryID, tokenPath)
 	} else {
-		raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, reportingValidationPollAttempts, queryID, tokenPath)
+		if err = s.paceFlexRequestLocked(ctx); err == nil {
+			raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, reportingValidationPollAttempts, queryID, tokenPath)
+		}
 	}
 	if err != nil {
 		reason, _ := flexFailureStatus(err)

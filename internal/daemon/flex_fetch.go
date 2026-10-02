@@ -537,7 +537,9 @@ func (s *Server) fetchFlexDateRangeWithPollAttempts(ctx context.Context, from, t
 	if s.flexRawDateRangeLockedFn != nil {
 		raw, err = s.flexRawDateRangeLockedFn(ctx, from, to, pollAttempts, queryID, cfg.TokenPath)
 	} else {
-		raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, pollAttempts, queryID, cfg.TokenPath)
+		if err = s.paceFlexRequestLocked(ctx); err == nil {
+			raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, pollAttempts, queryID, cfg.TokenPath)
+		}
 	}
 	if err != nil {
 		return flexFetchOutcome{}, err
@@ -1095,4 +1097,24 @@ func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint f
 		return nil, nil, err
 	}
 	return out, problems, nil
+}
+
+// paceFlexRequestLocked preserves the token's SendRequest budget across FX,
+// ordinary reporting and candidate validation. Caller holds flexBrokerMu.
+// Generation time counts toward the ten-second interval; shutdown cancels wait.
+func (s *Server) paceFlexRequestLocked(ctx context.Context) error {
+	if wait := time.Until(s.flexNextRequest); wait > 0 {
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.flexNextRequest = time.Now().Add(10 * time.Second)
+	return nil
 }

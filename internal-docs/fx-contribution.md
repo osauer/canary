@@ -33,8 +33,8 @@ opening boundary, then one report per broker reporting date. Leap years split
 the calendar into windows within the broker’s 365-date bound. The complete
 requested broker report supplies the interior calendar; endpoint checks do not
 independently establish that IBKR emitted every possible reporting date. It fetches recent
-days first, shares the ordinary Flex request mutex and pauses ten seconds between
-jobs. Daily acquisition resumes from accepted statements after restart. No new
+days first, shares the ordinary Flex request mutex and enforces ten seconds between SendRequests across all consumers
+(at most six per minute). Generation time counts toward that interval. Daily acquisition resumes from accepted statements after restart. No new
 credentials, query, trading connection or broker order is created. Files stay in
 the private statement directory and the existing SQLite inventory.
 

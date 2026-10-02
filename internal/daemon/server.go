@@ -374,12 +374,13 @@ type Server struct {
 	// flexBrokerMu serializes the daily report and Edge's paced historical
 	// ranges. IBKR applies the Flex Web Service limit above Canary's query
 	// identities, so separate workers must still share one request lane.
-	flexBrokerMu sync.Mutex
-	fxMu         sync.Mutex
-	fxRunning    bool
-	fxWorker     bool
-	fxWake       chan struct{}
-	fxReason     string
+	flexBrokerMu    sync.Mutex
+	flexNextRequest time.Time
+	fxMu            sync.Mutex
+	fxRunning       bool
+	fxWorker        bool
+	fxWake          chan struct{}
+	fxReason        string
 	// Test-only seams for the broker fetch and retained-statement projection.
 	flexFetchOnceFn          func(context.Context, time.Time) (flexFetchOutcome, error)
 	flexProjectionFn         func(context.Context) error

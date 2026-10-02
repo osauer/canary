@@ -183,3 +183,24 @@ func TestFXLeapYearSeedStaysWithinBrokerBound(t *testing.T) {
 		t.Fatal("reconciled two-window calendar refused")
 	}
 }
+
+func TestFXSharedPacingCancelsBeforeSending(t *testing.T) {
+	srv := &Server{flexNextRequest: time.Now().Add(time.Hour)}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	before := srv.flexNextRequest
+	if err := srv.paceFlexRequestLocked(ctx); err != context.Canceled {
+		t.Fatal("pacing ignored lifecycle cancellation", err)
+	}
+	if srv.flexNextRequest != before {
+		t.Fatal("cancelled request consumed quota")
+	}
+	srv.flexNextRequest = time.Time{}
+	start := time.Now()
+	if err := srv.paceFlexRequestLocked(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if srv.flexNextRequest.Before(start.Add(10 * time.Second)) {
+		t.Fatal("shared lane permits more than six requests per minute")
+	}
+}

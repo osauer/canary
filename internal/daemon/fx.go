@@ -314,7 +314,7 @@ func attributeFX(end, start *flexstmt.FXSnapshot) rpc.FXDay {
 }
 
 // The worker resumes from accepted daily statements. It shares the existing
-// Flex request lane and waits ten seconds between jobs (at most six/minute).
+// Flex request lane with ten seconds between SendRequests (at most six/minute).
 // A read never starts a job; startup and the owner's CLI backfill do.
 func (s *Server) startFXWorker(ctx context.Context) {
 	if s == nil || s.cfg == nil || !s.cfg.Flex.Enabled || ctx == nil {
@@ -340,7 +340,7 @@ func (s *Server) startFXWorker(ctx context.Context) {
 		activeQuery := ""
 		defer func() { s.fxMu.Lock(); s.fxRunning = false; s.fxWorker = false; s.fxMu.Unlock() }()
 		for ctx.Err() == nil {
-			delay := 10 * time.Second
+			delay := time.Duration(0)
 			attemptedDay := ""
 			query := s.flexEvidenceSelection().ActiveQueryFingerprint
 			if query != activeQuery {
@@ -450,7 +450,9 @@ func (s *Server) fetchFXStatement(ctx context.Context, from, to time.Time) (flex
 	if s.flexRawDateRangeLockedFn != nil {
 		raw, err = s.flexRawDateRangeLockedFn(ctx, from, to, flexPollAttempts, query, s.cfg.Flex.TokenPath)
 	} else {
-		raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, flexPollAttempts, query, s.cfg.Flex.TokenPath)
+		if err = s.paceFlexRequestLocked(ctx); err == nil {
+			raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, flexPollAttempts, query, s.cfg.Flex.TokenPath)
+		}
 	}
 	if err != nil {
 		return flexFetchOutcome{}, err
