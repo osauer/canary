@@ -35,6 +35,26 @@ function renderCashSweepPanel(sweep) {
     return row;
   });
   $("cashSweepCurrencies").replaceChildren(...rows);
+  const observation = sweep.operational_funding;
+  $("cashSweepFundingEvidence").hidden = !observation;
+  const fundingRows = [];
+  if (observation) {
+    const context = document.createElement("p");
+    const sourceLabel = observation.source === "frozen_synthetic" ? "Frozen synthetic study" : observation.state === "unavailable" ? "Funding observations unavailable" : "Current observations, incomplete reserve";
+    context.textContent = `${sourceLabel} · ${(observation.gaps || []).map((gap) => String(gap).replaceAll("_", " ")).join(" · ")}`;
+    fundingRows.push(context);
+    for (const currency of observation.currencies || []) {
+      const row = document.createElement("p");
+      row.textContent = `${currency.currency} gross obligations ${cashSweepMoney(currency.gross_principal, currency.currency)} · ${(currency.gaps || []).map((gap) => String(gap).replaceAll("_", " ")).join(" · ")}`;
+      fundingRows.push(row);
+    }
+    for (const study of sweep.calibration_studies || []) {
+      const row = document.createElement("p");
+      row.textContent = `${study.sessions}-session study · ${study.source === "frozen_synthetic" ? "frozen synthetic" : "live inputs incomplete"} · ${String(study.state).replaceAll("_", " ")}`;
+      fundingRows.push(row);
+    }
+  }
+  $("cashSweepFundingDetails").replaceChildren(...fundingRows);
   $("cashSweepTraceState").textContent = sweep.trace_state === "recorded" ? "Recorded in SQLite" : "Audit unavailable";
   const history = (sweep.decision_trace || []).slice(0, 5).flatMap((trace) => (trace.currencies || []).map((currency) => {
     const row = document.createElement("p");

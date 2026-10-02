@@ -2513,6 +2513,8 @@ async function exerciseCashSweepDisclosure(page, bootstrap) {
     state.accountValueVisible = true;
     const sweep = { mode: "shadow", currency_priority: "usd_first", reserve_cushion_eur: 10000,
       reserve_state: "unavailable", reserve_reason: "reserve_calibration_required: operational funding is not commissioned", trace_state: "recorded",
+      operational_funding: { source: "live_partial", state: "partial", gaps: ["stressed_margin_unavailable"], currencies: [{ currency: "USD", gaps: ["exact_option_deliverable_unavailable"] }] },
+      calibration_studies: [{ sessions: 1, source: "live_partial", state: "unavailable" }, { sessions: 2, source: "live_partial", state: "unavailable" }, { sessions: 5, source: "live_partial", state: "unavailable" }],
       currencies: [{ currency: "USD", state: "hold", cash: 50000, committed: 0, keep_cash: 5000, reason: "Calibrated funding evidence required" }],
       decision_trace: [{ at: "2099-01-05T12:00:00Z", policy_id: "synthetic", policy_version: 1, currency_priority: "usd_first",
         currencies: [{ currency: "USD", action: "hold", reason: "Calibrated funding evidence required" }] }] };
@@ -2527,7 +2529,7 @@ async function exerciseCashSweepDisclosure(page, bootstrap) {
   for (const width of [320, 390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     const evidence = await page.locator("#cashSweepPanel").evaluate((panel) => ({
-      text: panel.textContent, disclosure_closed: !panel.querySelector("details").open,
+      text: panel.textContent, disclosure_closed: !panel.querySelector("#cashSweepDecisionLog").open,
       horizontal_overflow: panel.scrollWidth > panel.clientWidth || document.documentElement.scrollWidth > document.documentElement.clientWidth,
     }));
     if (!evidence.text.includes("USD first") || !evidence.text.includes("reserve Unavailable") || !evidence.text.includes("free Unavailable") || !evidence.disclosure_closed || evidence.horizontal_overflow) {
@@ -2535,8 +2537,10 @@ async function exerciseCashSweepDisclosure(page, bootstrap) {
     }
     if (args["cash-sweep-screenshot"]) await page.locator("#cashSweepPanel").screenshot({ path: `${args["cash-sweep-screenshot"]}-${width}.png` });
   }
-  await page.locator("#cashSweepPanel details > summary").click();
+  await page.locator("#cashSweepDecisionLog > summary").click();
   if (!(await page.locator("#cashSweepHistory").innerText()).includes("Calibrated funding evidence required")) throw new Error("Cash sweep history disclosure failed");
+  await page.locator("#cashSweepFundingEvidence > summary").click();
+  if (!(await page.locator("#cashSweepFundingDetails").innerText()).includes("gross obligations Unavailable")) throw new Error("Cash sweep partial funding disclosure fabricated a value");
   await page.evaluate(async () => {
     const { state } = await import("/state.js");
     state.accountValueVisible = globalThis.__sweepPriorPrivacy;
