@@ -123,6 +123,7 @@ func Register(deps Dependencies) {
 	srv.POST("/api/update", h.requireAuth(h.handleUpdateStart))
 	srv.GET("/api/snapshot", h.requireRead(h.handleSnapshot))
 	srv.GET("/api/edge", h.requireRead(h.handleEdgeSnapshot))
+	srv.GET("/api/financing/fees", h.requireRead(h.handleFinancingFees))
 	srv.GET("/api/market-tape", h.requireRead(h.handleMarketTape))
 	srv.GET("/api/settings", h.requireRead(h.handleGetSettings))
 	srv.PATCH("/api/settings", h.requireAuth(h.handlePatchSettings))

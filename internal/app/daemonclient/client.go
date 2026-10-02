@@ -76,6 +76,23 @@ type EdgeClient interface {
 	EdgeSnapshot(context.Context, rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error)
 }
 
+// FinancingClient is the optional read-only earned stock-lending fee history.
+type FinancingClient interface {
+	FinancingFees(context.Context, rpc.FinancingFeesParams) (*rpc.FinancingFeesResult, error)
+}
+
+// FinancingFees reads retained statement fees without contacting the broker.
+func (c Real) FinancingFees(ctx context.Context, params rpc.FinancingFeesParams) (*rpc.FinancingFeesResult, error) {
+	var out rpc.FinancingFeesResult
+	if err := c.call(ctx, rpc.MethodFinancingFees, params, &out); err != nil {
+		return nil, err
+	}
+	if err := rpc.ValidateFinancingFeesResponse(out, params); err != nil {
+		return nil, fmt.Errorf("invalid lending fees: %w", err)
+	}
+	return &out, nil
+}
+
 // PushDeliveryProofClient is the optional capability that relays the app's
 // redacted Web Push delivery proof to the daemon. It records evidence only;
 // it grants no delivery, alert, or broker authority.

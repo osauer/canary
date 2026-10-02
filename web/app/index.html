@@ -510,6 +510,18 @@
             </div>
             <strong class="edge-account__value" id="edgeAccountValue">--</strong>
             <p id="edgeAccountDefinition">Ending equity − starting equity − statement-confirmed external flows.</p>
+            <details class="lending-income" id="lendingIncome" hidden>
+              <summary><span id="lendingIncomeLabel">Lending income earned</span><strong id="lendingIncomeValue">Unavailable</strong></summary>
+              <p id="lendingIncomeCoverage"></p>
+              <p>Reported customer net fees. Their inclusion in account P/L and payment status are unproved; do not add them to the P/L above.</p>
+              <div class="lending-fees__head">
+                <strong id="lendingFeesTitle">Earned fee history</strong>
+                <div><button class="btn btn--small" id="lendingFeesAll" type="button" hidden>All shares</button><button class="btn btn--small" id="lendingFeesRefresh" type="button">Refresh fees</button></div>
+              </div>
+              <p id="lendingFeesStatus" role="status" aria-live="polite"></p>
+              <div class="lending-fees" id="lendingFees"></div>
+              <button class="btn btn--small" id="lendingFeesMore" type="button" hidden>Show more fees</button>
+            </details>
           </article>
 
           <article class="panel edge-options" aria-labelledby="edgeOptionsTitle">

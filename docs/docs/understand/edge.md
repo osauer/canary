@@ -100,6 +100,44 @@ Each move runs from the last daily close before the execution session to the ben
 
 This context is informational. It never changes Decision price impact, the selected action, or the sign of a headline. It helps the user see whether a repeated result accompanied a broad rise, selloff, technology-led move, Dow-led move, or volatility shift without asking them to tag trade intent manually. Edge does not infer why the user traded. If a benchmark has no matching daily interval, the public result names it as unavailable instead of silently omitting it.
 
+## Stock lending income
+
+Under account P/L, expand **Lending income earned** to read reported customer net
+fees, latest first. Expand a fee for its earning date, loan quantity, net rate,
+collateral and statement conversion. **Show more fees** reads another bounded
+page; the total remains for the full period, independent of the page or security
+filter. Historical fees remain available after a position closes.
+
+Positions show a dated loan badge only when the exact stock contract and the
+statement's owned quantity agree with the current holding. The expanded position
+opens that contract's fee history. An outdated observation says **stale report**;
+a missing badge does not prove non-enrollment or that no shares were lent.
+
+The fee period uses the account result's actual equity boundaries: the opening
+date is excluded and the closing date included. Signed corrections replace prior
+reported fees. Native amounts remain visible when FX is missing; incomplete
+coverage is labelled partial and never becomes a complete total. Collateral has
+a repayment obligation and is neither income nor available sweep funding.
+
+The first version reports earned fees. Payment status and reconciliation to
+equity/accruals remain **unproved**, so Canary does not label fees as paid, unpaid,
+or included in account P/L. Do not add them to the P/L already shown. This feature
+does not change lending participation, place orders or report short-borrow costs.
+Account privacy masks fee totals and expanded monetary details.
+
+```sh
+canary lending fees --json
+canary lending fees --con-id 900901 --limit 25 --json
+```
+
+The contract in the second example is fictional. CLI, `canary_lending_fees` and
+authenticated `GET /api/financing/fees` use the same retained daemon evidence.
+Reads do not trigger Flex downloads. Cursors and optional fingerprints reject
+changed account, query, period, filter or statement evidence. Add the optional
+sections through the [existing reporting setup](../start/reporting.md#optional-stock-lending).
+The XML path and display are fixture-tested; a populated IBKR report is still
+required to commission the account-specific schema and P/L/payment linkage.
+
 ## Options: broker actual, in separate scopes
 
 Options are a first-class review surface, but they cannot credibly use the stock/ETF counterfactual. Edge therefore keeps three broker-evidence scopes separate:

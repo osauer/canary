@@ -2,6 +2,7 @@
 import { withRegimeInsights } from "../web/app/test/regime-insight-fixture.mjs";
 import { withEdgeLearning } from "../web/app/test/edge-learning-fixture.mjs";
 import { marketTapeFixture } from "../web/app/test/market-tape-fixture.mjs";
+import { lendingFixture, lendingPositionFixture } from "../web/app/test/lending-fixture.mjs";
 
 import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
@@ -61,6 +62,59 @@ if (readOnly) {
 
 const pairing = await createPairingSession(baseURL, pairPublicURL);
 
+async function runLendingSmoke(page, fixture, screenshotPath) {
+  await page.locator("#lendingIncome > summary").click();
+  await page.waitForFunction(() => document.querySelectorAll(".lending-fee").length === 1);
+  await page.locator(".lending-fee > summary").first().click();
+  await page.locator(".lending-fee > summary").first().focus();
+  await page.evaluate(async () => {
+    const { state } = await import("/state.js");
+    const { renderFinancing } = await import("/financing.js");
+    renderFinancing(state.edgeResult.account.financing);
+  });
+  if (!await page.locator(".lending-fee").first().evaluate((node) => node.open && node.firstElementChild === document.activeElement)) throw new Error("fee refresh lost disclosure/focus");
+  await page.locator("#lendingFeesMore").click();
+  await page.waitForFunction(() => document.querySelectorAll(".lending-fee").length === 2);
+  if (await page.locator("#lendingIncomeValue").textContent() !== "+$4.20") throw new Error("pagination changed full lending total");
+  await page.locator("#accountPrivacyToggle").click();
+  if (/\$18,000|\$2\.10|\$4\.20/.test(await page.locator("#lendingIncome").textContent())) throw new Error("lending income privacy leak");
+  await page.locator("#accountPrivacyToggle").click();
+  for (const width of [320, 360, 768]) {
+    await page.setViewportSize({ width, height: 900 });
+    if (await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)) throw new Error(`lending overflow at ${width}px`);
+  }
+  if (screenshotPath) await page.locator(".edge-account").screenshot({ path: screenshotPath });
+  const states = await page.evaluate(async () => {
+    const { state } = await import("/state.js");
+    const { renderFinancing } = await import("/financing.js");
+    const original = state.edgeResult.account.financing;
+    const native = { ...original, earned_base: undefined, known_earned_base: undefined, reason: "base_conversion_unavailable" };
+    renderFinancing(native);
+    const missingFX = document.getElementById("lendingIncomeCoverage").textContent;
+    renderFinancing({ ...native, state: "partial", covered_days: 1 });
+    const partial = document.getElementById("lendingIncomeLabel").textContent;
+    renderFinancing({ ...original, state: "unavailable", earned_base: undefined, known_earned_base: undefined, native: [], covered_days: 0, fee_count: 0 });
+    const missing = document.getElementById("lendingIncomeValue").textContent;
+    renderFinancing({ ...original, earned_base: 0, known_earned_base: 0, fee_count: 0, native: [] });
+    const zero = document.getElementById("lendingIncomeValue").textContent;
+    renderFinancing(original);
+    return { missingFX, partial, missing, zero };
+  });
+  if (!states.missingFX.includes("Base conversion unavailable") || !states.partial.includes("partial period") || states.missing !== "Unavailable" || !states.zero.includes("0.00")) throw new Error("lending evidence states collapsed into a number");
+  await page.locator("#tabPositions").click();
+  await page.evaluate((loan) => {
+    globalThis.__canarySmoke.applySnapshotPatch({ positions: { by_underlying: [{ underlying: "SYNTH-LEND", stock: { symbol: "SYNTH-LEND", sec_type: "STOCK", con_id: 900901, currency: "USD", quantity: 100, mark: 300, lending: loan, quote_expectation: "none" }, options: [], group_daily_pnl_base: 20 }], stocks: [], options: [] } });
+  }, lendingPositionFixture());
+  if (!(await page.locator(".lending-position-label").textContent()).includes("60 shares lent")) throw new Error("dated loan badge missing");
+  await page.locator('[data-position-select="SYNTH-LEND"]').click();
+  await page.locator('[data-lending-con-id="900901"]').click();
+  await page.waitForFunction(() => document.getElementById("lendingFeesTitle").textContent.includes("SYNTH-LEND"));
+  if (!await page.locator("#lendingFeesAll").isVisible()) throw new Error("exact contract fee route missing");
+  await page.locator("#lendingFeesAll").click();
+  await page.waitForFunction(() => document.getElementById("lendingFeesTitle").textContent === "Earned fee history");
+  await page.setViewportSize({ width: 591, height: 844 });
+}
+
 async function runRound4SyntheticSmoke() {
   // WebKit stores but does not attach cookies to an intercepted `.invalid`
   // origin. Use a fully intercepted, non-listening loopback origin so the
@@ -79,6 +133,9 @@ async function runRound4SyntheticSmoke() {
   let successfulPairings = 0;
   let pairingAttempts = 0;
   let edgeReads = 0;
+  const syntheticLending = lendingFixture();
+  Object.assign(syntheticLending.summary, { from: "2025-08-25T00:00:00Z", to: "2026-08-24T00:00:00Z", base_currency: "USD", earned_base: 4.2, known_earned_base: 4.2, expected_days: 364, covered_days: 364 });
+  syntheticLending.fees.forEach((row, i) => { row.value_date = `2026-08-${24-i}T00:00:00Z`; row.start_date = "2026-08-23T00:00:00Z"; row.base_amount = row.net_fee; row.fx_rate_to_base = 1; });
   const externalRequests = [];
   let attention = {
     unread_count: 1,
@@ -151,6 +208,7 @@ async function runRound4SyntheticSmoke() {
       external_flows_base: 10000,
       profit_loss_base: 2500,
       definition: "Ending equity − starting equity − statement-confirmed external flows.",
+      financing: syntheticLending.summary,
     },
     action_rollups: [
       { action: "open", horizons: [{ sessions: 1, sample_count: 5, total_base: -39.5, median_base: -11 }, { sessions: 5, sample_count: 1, total_base: 14.5, median_base: 14.5 }, { sessions: 20, sample_count: 1, total_base: 24.5, median_base: 24.5 }] },
@@ -395,6 +453,14 @@ async function runRound4SyntheticSmoke() {
     if (method === "GET" && requestPath === "/api/alerts/attention") return json(attention);
     if (method === "GET" && requestPath === "/api/alerts") return json(alerts);
     if (method === "GET" && requestPath === "/api/market-tape") return json(marketTapeFixture());
+    if (method === "GET" && requestPath === "/api/financing/fees") {
+      if (requestURL.searchParams.get("fingerprint") !== syntheticLending.summary.fingerprint
+        || requestURL.searchParams.get("from") !== "2025-08-25" || requestURL.searchParams.get("to") !== "2026-08-24") return json({ error: "stale synthetic lending period" }, 400);
+      const conID = Number(requestURL.searchParams.get("con_id") || "0");
+      const rows = conID && conID !== 900901 ? [] : syntheticLending.fees;
+      const next = requestURL.searchParams.has("cursor");
+      return json({ ...syntheticLending, con_id: conID, fees: rows.slice(next ? 1 : 0, next ? 2 : 1), filtered_count: rows.length, ...(rows.length && !next ? { next_cursor: "synthetic-page-2" } : {}) });
+    }
     if (method === "GET" && requestPath === "/api/edge") {
       edgeReads += 1;
       const changeID = requestURL.searchParams.get("change");
@@ -626,7 +692,7 @@ async function runRound4SyntheticSmoke() {
       optionCoverage: document.getElementById("edgeOptionCoverage")?.textContent || "",
       methodCollapsed: document.getElementById("edgeMethod")?.open === false,
       explanationButtons: document.querySelectorAll("#edgeResults button.edge-finding, #edgeResults button.edge-option-row").length,
-      explanationOnly: [...document.querySelectorAll("#edgeResults button")].every((button) => button.matches("button.edge-finding[type='button'], button.edge-option-row[type='button']")),
+      explanationOnly: [...document.querySelectorAll("#edgeResults button")].every((button) => button.matches("button.edge-finding[type='button'], button.edge-option-row[type='button'], .lending-income button[type='button']")),
       controlsAbsent: !document.getElementById("edgeWindow") && !document.getElementById("edgeHorizon"),
       decisionFirst: (() => {
         const results = document.getElementById("edgeResults");
@@ -672,6 +738,7 @@ async function runRound4SyntheticSmoke() {
       expanded: document.querySelector("#edgeOptionRealizedList .edge-option-row")?.getAttribute("aria-expanded") || "",
       horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     }));
+    await runLendingSmoke(page, syntheticLending, args["lending-screenshot"]);
     await page.locator("#tabMonitor").click();
     await page.waitForFunction(() => document.getElementById("dashboard")?.hidden === false, { timeout: 5000 });
     await page.evaluate(async () => {
@@ -754,7 +821,7 @@ async function runRound4SyntheticSmoke() {
     if (!alertsView.activeAlerts.includes("Synthetic watch") || alertsView.authority !== "Active") throw new Error(`synthetic Alerts state failed: ${JSON.stringify(alertsView)}`);
     if (alertsView.litTiles !== 1 || !alertsView.authoritySeated) throw new Error(`synthetic annunciator log failed: ${JSON.stringify(alertsView)}`);
     if (JSON.stringify(settings.modes) !== JSON.stringify(["Off", "Action required", "Watch + action"]) || !settings.copy.includes("global for this app host and all paired devices") || !settings.copy.includes("Off stops phone notifications while current alerts remain visible") || !settings.copy.includes("Action required sends urgent items only") || !settings.copy.includes("Watch + action also sends review reminders") || !settings.copy.includes("not configured here") || !settings.copy.includes("shared across paired devices") || settings.pushState !== "unsupported" || settings.dateFormat !== "us_weekday" || JSON.stringify(settings.dateOptions) !== JSON.stringify(["us", "eu", "us_weekday", "eu_weekday"])) throw new Error(`synthetic Settings state failed: ${JSON.stringify(settings)}`);
-    if (!edgeView.active || edgeReads !== 3 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Account values hidden" || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 3 || edgeView.realizedOptions !== 2 || edgeView.openOptions !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("Open position") || !edgeView.optionText.includes("******") || !edgeView.optionCoverage.includes("opening-only zero-P/L") || !edgeView.methodCollapsed || edgeView.explanationButtons !== 6 || !edgeView.explanationOnly || !edgeView.controlsAbsent || !edgeView.decisionFirst || edgeView.horizontalOverflow) {
+    if (!edgeView.active || edgeReads !== 4 || edgeView.status || edgeView.account !== "******" || edgeView.headline !== "Account values hidden" || edgeView.matrixRows !== 5 || edgeView.findings !== 3 || !edgeView.findingText.includes("GAMMA") || !edgeView.findingText.includes("-18.30%") || !edgeView.findingText.includes("******") || edgeView.options !== 3 || edgeView.realizedOptions !== 2 || edgeView.openOptions !== 1 || !edgeView.optionText.includes("Exact Order") || !edgeView.optionText.includes("Open position") || !edgeView.optionText.includes("******") || !edgeView.optionCoverage.includes("opening-only zero-P/L") || !edgeView.methodCollapsed || edgeView.explanationButtons !== 6 || !edgeView.explanationOnly || !edgeView.controlsAbsent || !edgeView.decisionFirst || edgeView.horizontalOverflow) {
       throw new Error(`synthetic Edge rendered state failed: ${JSON.stringify({ edgeReads, edgeView })}`);
     }
     if (edgeDetailView.title !== "GAMMA · Add decision" || !edgeDetailView.summary.includes("30 → 45") || !edgeDetailView.summary.includes("$55.00") || !edgeDetailView.summary.includes("$1.00") || edgeDetailView.scoreCount !== 3 || !/-(?:US)?\$151\.00 · -18\.30%/.test(edgeDetailView.scores) || edgeDetailView.expanded !== "true" || edgeDetailView.horizontalOverflow) {

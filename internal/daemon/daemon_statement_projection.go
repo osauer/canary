@@ -20,8 +20,8 @@ import (
 
 const (
 	statementProjectionScope   = "statements"
-	statementProjectionVersion = 7
-	statementProjectionStatus  = "parsed_v7"
+	statementProjectionVersion = 8
+	statementProjectionStatus  = "parsed_v8"
 	statementProjectionMaxRows = 10000
 )
 
@@ -40,13 +40,14 @@ type statementEquityProjectionPayload struct {
 }
 
 type statementMetadataProjectionPayload struct {
-	Version          int                        `json:"version"`
-	QueryFingerprint string                     `json:"query_fingerprint,omitempty"`
-	FromDate         time.Time                  `json:"from_date"`
-	ToDate           time.Time                  `json:"to_date"`
-	ManifestVersion  string                     `json:"manifest_version"`
-	Coverage         []flexstmt.SectionCoverage `json:"coverage"`
-	PositionSnapshot []flexstmt.OpenPosition    `json:"position_snapshot"`
+	Version          int                          `json:"version"`
+	QueryFingerprint string                       `json:"query_fingerprint,omitempty"`
+	FromDate         time.Time                    `json:"from_date"`
+	ToDate           time.Time                    `json:"to_date"`
+	ManifestVersion  string                       `json:"manifest_version"`
+	Coverage         []flexstmt.SectionCoverage   `json:"coverage"`
+	PositionSnapshot []flexstmt.OpenPosition      `json:"position_snapshot"`
+	Financing        *flexstmt.FinancingStatement `json:"financing,omitempty"`
 }
 
 // refreshStatementProjection fingerprints the complete retained Flex XML set,
@@ -315,7 +316,7 @@ func addStatementTypedRecords(winners map[string]corestore.StatementRecord, vers
 		Version: statementProjectionVersion, QueryFingerprint: queryFingerprint,
 		FromDate: statement.FromDate.UTC(), ToDate: statement.ToDate.UTC(),
 		ManifestVersion: statement.ManifestVersion, Coverage: append([]flexstmt.SectionCoverage(nil), statement.Coverage...),
-		PositionSnapshot: positionSnapshot,
+		PositionSnapshot: positionSnapshot, Financing: statement.Financing,
 	}); err != nil {
 		return err
 	}

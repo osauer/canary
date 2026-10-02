@@ -16,6 +16,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	edgecore "github.com/osauer/canary/v2/internal/edge"
+	"github.com/osauer/canary/v2/internal/financing"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -932,6 +933,19 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	}
 	if result.ProtectionState != "current" {
 		withholdEdgeProtectionContext(result)
+	}
+	if fingerprintErr == nil && currentEvidence == publication.EvidenceFingerprint && result.Account != nil && result.Account.ActualTo.After(result.Account.ActualFrom) {
+		projectionScope := s.activeStatementProjectionScope()
+		if statements, readErr := s.loadFinancingStatements(ctx, scope); readErr == nil {
+			attribution := financing.Calculate(statements, financingEvidenceScope(scope, projectionScope), result.Account.ActualFrom, result.Account.ActualTo, result.Account.BaseCurrency)
+			rechecked, checkErr := s.edgeProjectionFingerprint(ctx, scope, scopeFingerprint)
+			if checkErr == nil && rechecked == currentEvidence && projectionScope == s.activeStatementProjectionScope() && rpc.ValidateFinancingSummary(attribution.Summary) == nil {
+				result.Account.Financing = &attribution.Summary
+			}
+		}
+	}
+	if !sameBrokerScope(scope, s.currentBrokerStateScope()) {
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil
 	}
 	if err := rpc.ValidateEdgeResult(*result); err != nil {
 		return nil, fmt.Errorf("invalid Edge publication: %w", err)

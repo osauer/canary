@@ -958,6 +958,44 @@ p {
   letter-spacing: -0.025em;
 }
 
+.lending-income {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line-soft);
+}
+.lending-income > summary,
+.lending-fee > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  cursor: pointer;
+  color: var(--pd-readout);
+  font-size: 12px;
+  list-style: none;
+}
+.lending-income summary::-webkit-details-marker,
+.lending-fee summary::-webkit-details-marker { display: none; }
+.lending-income > summary::before,
+.lending-fee > summary::before { content: "+"; color: var(--pd-dim); }
+.lending-income[open] > summary::before,
+.lending-fee[open] > summary::before { content: "−"; }
+.lending-income > summary > span,
+.lending-fee > summary > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lending-income summary > strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.lending-fees__head,
+.position-lending { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.lending-fees__head { margin-top: 18px; color: var(--pd-readout); font-size: 12px; }
+.lending-fees__head > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.lending-income button { min-height: 44px; padding: 5px 10px; border: 1px solid var(--pd-border); border-radius: 7px; background: var(--pd-readout-face); color: var(--pd-strip-value); font: inherit; font-size: 11px; cursor: pointer; }
+.lending-fee { border-top: 1px solid var(--line-soft); }
+.lending-fee p { padding: 0 0 10px; overflow-wrap: anywhere; }
+.lending-position-label { color: var(--pd-advisory) !important; font-size: 10px; white-space: normal !important; }
+.position-lending { padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.position-lending p { flex: 1 1 240px; margin: 0; color: var(--pd-caption); font-size: 11px; line-height: 1.45; }
+.lending-income summary:focus-visible { outline: 2px solid var(--pd-advisory); outline-offset: 3px; border-radius: 4px; }
+
 .edge-market-context {
   display: flex;
   flex-wrap: wrap;

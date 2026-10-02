@@ -10,6 +10,11 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- Read-only stock-lending observations: dated shares-on-loan badges in Positions
+  and expandable customer net-fee history in Edge, CLI and MCP. Missing sections,
+  partial periods and unavailable FX remain explicit; fees never change account
+  P/L and payment/equity linkage remains unproved pending broker commissioning.
+
 - Passive account-stream receipts show which cash fields TWS supplies without changing subscriptions, exposing balances or granting spending authority.
 
 - An opt-in currency-only account update diagnostic uses the existing broker connection, cancels its own request and reports sanitized cash-field receipts. Account changes, raw capture and uncertain cancellation withhold further diagnostics; ordinary account reads retain priority.

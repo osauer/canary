@@ -2,6 +2,8 @@ import { applyTileSeverity, heldStressEvidence, heldStressItems, humanList, mark
 import { marketEventFlagsForSymbol, marketFlagRow, renderMarketFlagRail, underlyingHeroMarketFlags } from "./market-events.js";
 import { $, accountAuthority, accountBaseCurrency, accountFieldAvailable, accountFieldValue, ageLabel, cleanDetail, compactMoney, displayMoney, firstNumber, hasNumericValue, labelize, mergeCurrency, normalizeCurrency, normalizeSymbol, numberRead, parseDate, pct, privacyMask, quoteTimestamp, renderFreshnessTimestamp, renderSensitiveAccountId, renderSensitiveText, riskMoney, sensitiveDisplayMoney, sensitiveMoneyHidden, shortTime, signedClass, signedDisplayMoney, signedPct } from "./shared.js";
 import { normalizedPositionsSort, state } from "./state.js";
+import { validLendingPosition } from "./financing.js";
+import { calendarDate } from "./shared.js";
 
 function renderAccountPanel(account = {}, positions = {}, stress = {}) {
   const detail = $("accountOverviewDetail");
@@ -569,6 +571,8 @@ function heldUnderlyingRows(positions, baseCurrency, marketEvents = {}) {
       stockCount,
       optionCount,
       detail: underlyingPositionDetail(stockCount, optionCount),
+      lending: validLendingPosition(group.stock?.lending, group.stock) ? group.stock.lending : null,
+      lendingConID: group.stock?.con_id,
       marketValue: marketValueBase ?? (currency !== "MIX" && typeof group.group_market_value_ccy === "number" ? group.group_market_value_ccy : null),
       marketValueBase,
       marketValueCurrency: marketValueBase !== null ? baseCurrency : currency,
@@ -799,6 +803,12 @@ function underlyingBookRow(row, baseCurrency) {
   const detail = document.createElement("small");
   detail.textContent = row.detail;
   identity.append(title, detail);
+  if (row.lending) {
+    const lending = document.createElement("small");
+    lending.className = "lending-position-label";
+    lending.textContent = `${row.lending.quantity} shares lent · ${calendarDate(row.lending.as_of)}${row.lending.state === "stale" ? " · stale report" : " · reported"}`;
+    identity.append(lending);
+  }
   const flagRow = marketFlagRow(row.marketFlags || []);
   if (flagRow) identity.append(flagRow);
 
@@ -948,7 +958,21 @@ function positionInspector(row, baseCurrency, quoteStatus) {
   scope.className = "position-inspector__scope";
   scope.textContent = `Portfolio trim is a whole-book delta tool, not a recommendation or a ${row.symbol}-only order. Every route still begins with guarded preview.`;
 
-  inspector.append(head, facts, distinction, actionArea, scope);
+  inspector.append(head, facts, distinction);
+  if (row.lending) {
+    const lending = document.createElement("section");
+    lending.className = "position-lending";
+    const text = document.createElement("p");
+    text.textContent = `${row.lending.quantity} of ${row.lending.owned_quantity} shares lent as of ${calendarDate(row.lending.as_of)}${row.lending.state === "stale" ? " (stale report)" : ""}. ${hasNumericValue(row.lending.net_rate_pct) ? `Customer net rate ${row.lending.net_rate_pct.toFixed(2)}%. ` : "Customer net rate unavailable. "}Participation is managed at IBKR.`;
+    if (hasNumericValue(row.lending.collateral)) text.textContent += ` Reported collateral ${sensitiveDisplayMoney(row.lending.collateral, row.lending.currency)}, with a repayment obligation.`;
+    const fees = document.createElement("button");
+    fees.type = "button";
+    fees.className = "position-inspector__action";
+    fees.dataset.lendingConId = String(row.lendingConID);
+    fees.textContent = "View earned fees";
+    lending.append(text, fees); inspector.append(lending);
+  }
+  inspector.append(actionArea, scope);
   return inspector;
 }
 

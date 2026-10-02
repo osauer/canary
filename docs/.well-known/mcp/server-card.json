@@ -516,6 +516,50 @@
       }
     },
     {
+      "name": "canary_lending_fees",
+      "description": "Read earned customer net stock-lending fees, native/base currency sums, report coverage and a bounded latest-first history. Use after canary_edge to expand lending income or to read historical fees after a holding closes. Missing sections, net amounts or conversion stay unavailable; fees are not extra P/L to add to broker equity and collateral is not income. Cash-payment and P/L reconciliation are unproved until linked statement evidence exists. Use canary_positions for dated loan annotations and current holdings, canary_edge for decision review, not this tool for short-borrow availability or enrollment. Read-only retained evidence; cannot fetch Flex, enroll or place orders.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "con_id": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "optional exact stock contract ID; omitted or zero includes all contracts"
+          },
+          "cursor": {
+            "type": "string",
+            "description": "opaque next_cursor returned by the prior page; bound to period, scope and contract filter"
+          },
+          "fingerprint": {
+            "type": "string",
+            "description": "optional summary fingerprint from Edge or a prior page; rejects changed evidence"
+          },
+          "from": {
+            "type": "string",
+            "description": "optional exclusive opening YYYY-MM-DD equity date; requires to"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "maximum fee rows per page; default 25; totals always cover the full period"
+          },
+          "to": {
+            "type": "string",
+            "description": "optional inclusive closing YYYY-MM-DD equity date; requires from; at most 400 days"
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "90d",
+              "365d"
+            ],
+            "description": "Edge period; default 365d unless paired explicit equity dates are supplied"
+          }
+        }
+      }
+    },
+    {
       "name": "canary_rules",
       "description": "Advisory 19-rule daily trading checklist evaluated daemon-side against the live book and the owner's limits: worst-case loss on one issuer with every leg netted from current marks (share classes joined by the owner's issuer groups; a long option credited as protection only when it outlasts the next earnings and 14 days; short stock and uncovered calls sized at a takeover gap and flagged; tighter bands for an issuer that needs more than 3 days to exit; disclosed lower-bound breaches under data gaps), single option-line premium cap at the higher of price paid and value (hedge lines get their own higher tier), premium budget (long option premium at risk outside protection as a share of NLV, regime-banded), portfolio extrinsic (theta-rent) budget excluding classified hedge legs, expiry runway on long options (watch at 14 days or fewer, act at 7 or fewer), catalyst coverage vs earnings, short options spanning earnings (short calls act; short puts watch, act on assignment notional), pre-earnings size freeze, red-on-green-tape relative weakness, winner-trim into strength, green-day execution nudge, hedge-band integrity (a long book with no protection watches as unhedged; act past twice the band top), exit discipline on long-option loss fences, non-base-currency FX exposure (watch-only), net market exposure of the whole book with hedges (regime-banded, tracked by default), three concentration watches that never act (dollar-delta swing per issuer, declared clusters falling together, and an issuer's worst-case loss against the constitution's remaining risk capital), and margin headroom (the broker's excess liquidity as a share of NLV, the worse of current and look-ahead; watch below 30%, act below 15%). `policy_status` says where the limits came from (Canary's defaults, flagged `review: unreviewed` until the owner reviews the file, or the owner's rulebook-policy.toml), and `policy` carries every threshold; the owner changes them with `canary rules policy set`. Each offender of a two-band rule carries its own `status`, and a rule 1 offender carries `issuer`: lines, legs, credited and uncredited hedges, unbounded legs. Rules 3, 4, 12 and 15 thresholds are regime-conditional (calm/early_warning/confirmed sets from the latched regime lifecycle stage; a carried stage evaluates worse-of carried/calm, a never-seen stage uses calm thresholds — both disclosed in row notes). Use when the user asks \"what should I fix today?\", \"which rules am I breaking?\", \"is my book within my own risk rules?\", or wants a daily discipline review. Rows are ranked hardest-first (`ranked` indexes: act \u003e watch \u003e unknown, then base-currency impact); statuses are pass/info/watch/act/unknown/not_evaluated where `unknown` means an input was missing (positions pending, earnings unknown, Greeks gaps, FX report absent) — never treat unknown as pass; `sell_only` is active while the premium budget or net exposure is at watch or act; `observed_is_lower_bound` marks a breach proven from partial data (\"at least X%\"). `earnings[]` shows each name's next earnings date with source (fetched/override/unknown, with estimated and stale flags); `input_health[]` is the result-level gate (includes the regime_stage row). Advisory only: verdicts never block orders. NOT for the market-regime × portfolio alert verdict (use `canary_brief`), NOT for executable protective-stop candidates (use `canary_proposals`), and NOT a data source for positions themselves (use `canary_positions`).",
       "inputSchema": {

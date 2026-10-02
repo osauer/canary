@@ -538,6 +538,37 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name: "canary_lending_fees", Title: "Canary Stock Lending Fees", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodFinancingFees},
+		Description: "Read earned customer net stock-lending fees, native/base currency sums, report coverage and a bounded latest-first history. Use after canary_edge to expand lending income or to read historical fees after a holding closes. Missing sections, net amounts or conversion stay unavailable; fees are not extra P/L to add to broker equity and collateral is not income. Cash-payment and P/L reconciliation are unproved until linked statement evidence exists. Use canary_positions for dated loan annotations and current holdings, canary_edge for decision review, not this tool for short-borrow availability or enrollment. Read-only retained evidence; cannot fetch Flex, enroll or place orders.",
+		JSONSchema: schemaObject(map[string]json.RawMessage{
+			"window":      schemaEnum([]string{"90d", "365d"}, "Edge period; default 365d unless paired explicit equity dates are supplied"),
+			"from":        schemaString("optional exclusive opening YYYY-MM-DD equity date; requires to"),
+			"to":          schemaString("optional inclusive closing YYYY-MM-DD equity date; requires from; at most 400 days"),
+			"con_id":      json.RawMessage(`{"type":"integer","minimum":0,"description":"optional exact stock contract ID; omitted or zero includes all contracts"}`),
+			"limit":       json.RawMessage(`{"type":"integer","minimum":1,"maximum":100,"description":"maximum fee rows per page; default 25; totals always cover the full period"}`),
+			"cursor":      schemaString("opaque next_cursor returned by the prior page; bound to period, scope and contract filter"),
+			"fingerprint": schemaString("optional summary fingerprint from Edge or a prior page; rejects changed evidence"),
+		}, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var params rpc.FinancingFeesParams
+			if err := unmarshalArgs(args, &params); err != nil {
+				return nil, err
+			}
+			params, err := rpc.NormalizeFinancingFeesParams(params)
+			if err != nil {
+				return nil, err
+			}
+			var result rpc.FinancingFeesResult
+			if err := conn.Call(ctx, rpc.MethodFinancingFees, params, &result); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateFinancingFeesResponse(result, params); err != nil {
+				return nil, fmt.Errorf("invalid lending fees: %w", err)
+			}
+			return json.Marshal(result)
+		},
+	},
+	{
 		Name:        "canary_rules",
 		RPCMethods:  []string{rpc.MethodRulesSnapshot},
 		Title:       "Canary Trading Rulebook",

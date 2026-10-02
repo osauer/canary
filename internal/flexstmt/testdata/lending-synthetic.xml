@@ -1,0 +1,23 @@
+<!-- Entirely synthetic: no owner account, holdings, transaction or broker data. -->
+<FlexQueryResponse><FlexStatements>
+<FlexStatement accountId="DUSYNTHFIN" fromDate="20260930" toDate="20261001" whenGenerated="20261002;020000">
+  <CashTransactions/>
+  <EquitySummaryInBase>
+    <EquitySummaryByReportDateInBase reportDate="20260929" total="100000" currency="EUR"/>
+    <EquitySummaryByReportDateInBase reportDate="20261001" total="101500" currency="EUR"/>
+  </EquitySummaryInBase>
+  <OpenPositions>
+    <OpenPosition accountId="DUSYNTHFIN" conid="900901" symbol="SYNTH-LEND" assetCategory="STK" currency="USD" reportDate="20261001" position="100" levelOfDetail="SUMMARY"/>
+  </OpenPositions>
+  <SLBOpenContracts>
+    <SLBOpenContract accountId="DUSYNTHFIN" conid="900901" symbol="SYNTH-LEND" assetCategory="STK" currency="USD" date="20261001" type="ManagedLoan" slbTransactionId="synthetic-loan-1" quantity="-60" collateralAmount="18000" feeRate="8.4"/>
+  </SLBOpenContracts>
+  <SLBActivities>
+    <SLBActivity accountId="DUSYNTHFIN" conid="900901" symbol="SYNTH-LEND" assetCategory="STK" currency="USD" date="20260930" type="ManagedLoan" slbTransactionId="synthetic-loan-1" quantity="-60"/>
+  </SLBActivities>
+  <SLBFees>
+    <SLBFee accountId="DUSYNTHFIN" conid="900901" symbol="SYNTH-LEND" assetCategory="STK" currency="USD" valueDate="20260930" startDate="20260930" type="ManagedLoan" slbTransactionId="synthetic-loan-1" quantity="-60" collateralAmount="18000" grossLendFee="4.20" netLendFeeRate="4.2" netLendFee="2.10" fxRateToBase="0.90"/>
+    <SLBFee accountId="DUSYNTHFIN" conid="900901" symbol="SYNTH-LEND" assetCategory="STK" currency="USD" valueDate="20261001" startDate="20260930" type="ManagedLoan" slbTransactionId="synthetic-loan-1" quantity="-60" collateralAmount="18000" grossLendFee="4.20" netLendFeeRate="4.2" netLendFee="2.10" fxRateToBase="0.90"/>
+  </SLBFees>
+</FlexStatement>
+</FlexStatements></FlexQueryResponse>

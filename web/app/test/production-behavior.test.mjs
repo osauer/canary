@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import { withEdgeLearning } from "./edge-learning-fixture.mjs";
 import { marketTapeFixture } from "./market-tape-fixture.mjs";
+import { lendingFixture, lendingPositionFixture } from "./lending-fixture.mjs";
 
 import { FakeElement, createDOMHarness } from "./dom-harness.mjs";
 
@@ -28,7 +29,7 @@ Object.defineProperty(globalThis, "EventSource", { configurable: true, value: un
 const { normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
-  "alerts", "alert-inbox", "brief", "chrome", "edge", "lifecycle", "market-events", "market-tape", "opportunities", "orders",
+  "alerts", "alert-inbox", "brief", "chrome", "edge", "financing", "lifecycle", "market-events", "market-tape", "opportunities", "orders",
   "portfolio", "protection", "protection-coverage", "settings", "shared", "shell", "strategies", "stress", "underlyings",
   "update",
 ];
@@ -38,6 +39,7 @@ const alertInbox = modules["alert-inbox"];
 const coverage = modules["protection-coverage"];
 const marketEvents = modules["market-events"];
 const marketTape = modules["market-tape"];
+const financing = modules.financing;
 
 let renderCount = 0;
 installRenderAll(() => { renderCount += 1; });
@@ -83,6 +85,7 @@ function reset() {
   Object.assign(state, {
     snapshot: null, settings: null, authenticated: true, activeTab: "monitor", accountValueVisible: false,
     edgeResult: null, edgeBusy: false, edgeError: "", edgeRequestID: 0,
+    financing: { fingerprint: "", conID: 0, result: null, busy: false, error: "", requestID: 0 },
     marketTapeResult: null, marketTapeBusy: false, marketTapeError: "", marketTapeRequestID: 0, marketTapeIndex: 0,
     pairingRequired: false, connectionOK: false, connectionText: "Connecting", eventSource: null,
     readOnlyPreview: false, updateStatus: null, updatePollTimer: null, updateCompleteTimer: null,
@@ -114,6 +117,123 @@ function descendants(node) {
 }
 
 const byClass = (node, className) => descendants(node).filter((item) => item.classList?.contains(className));
+
+test("lending validates exact stock identity and rejects impossible annotations", () => {
+  const loan = lendingPositionFixture();
+  const stock = { sec_type: "STOCK", con_id: 900901, quantity: 100, currency: "USD" };
+  assert.equal(financing.validLendingPosition(loan, stock), true);
+  assert.equal(financing.validLendingPosition(loan, { ...stock, sec_type: "OPTION" }), false);
+  assert.equal(financing.validLendingPosition(loan, { ...stock, quantity: 20 }), false);
+  assert.equal(financing.validLendingPosition({ ...loan, quantity: 101 }, stock), false);
+  const summary = lendingFixture();
+  assert.equal(financing.validFinancingFees(summary), true);
+  for (const mutate of [
+    (r) => { r.summary.earned_base = "0"; },
+    (r) => { r.summary.pnl_reconciliation = "included"; },
+    (r) => { r.summary.expected_days = 3; },
+    (r) => { r.fees[0].net_fee = NaN; },
+    (r) => { r.fees[0].base_amount = 123; },
+    (r) => { r.fees[0].value_date = r.summary.from; },
+    (r) => { r.fees[0].id = r.fees[1].id; },
+    (r) => { r.con_id = 900902; },
+  ]) { const bad = structuredClone(summary); mutate(bad); assert.equal(financing.validFinancingFees(bad), false); }
+});
+
+test("lending privacy, signed corrections and native disclosures survive refresh", async () => {
+  reset(); state.accountValueVisible = true;
+  const result = lendingFixture();
+  state.edgeResult = { account: { financing: result.summary } };
+  const requests = [];
+  globalThis.fetch = async (path, options) => { requests.push({ path, options }); return response(result); };
+  financing.renderFinancing(result.summary);
+  assert.match(dom.element("lendingIncomeValue").textContent, /3\.78/);
+  assert.equal(await financing.refreshFinancingFees(), true);
+  assert.equal(requests[0].options.credentials, "include");
+  assert.equal(requests[0].options.method, undefined);
+  const params = new URL(requests[0].path, "http://localhost").searchParams;
+  assert.equal(params.get("from"), "2026-09-29");
+  assert.equal(params.get("to"), "2026-10-01");
+  assert.equal(params.get("fingerprint"), result.summary.fingerprint);
+  const row = dom.element("lendingFees").children[0]; row.open = true;
+  assert.match(row.textContent, /4\.20%/);
+  assert.match(row.textContent, /18,000\.00/);
+  financing.renderFinancing(result.summary);
+  assert.equal(dom.element("lendingFees").children[0], row);
+  assert.equal(row.open, true);
+  state.accountValueVisible = false; financing.renderFinancing(result.summary);
+  assert.doesNotMatch(dom.element("lendingIncomeValue").textContent, /3\.78/);
+  assert.doesNotMatch(row.textContent, /18,000|2\.10|1\.89/);
+  assert.equal(row.open, true);
+  state.accountValueVisible = true;
+  result.fees[0].net_fee = -1.1; result.fees[0].base_amount = -.99; result.fees[0].symbol = "<img src=x>";
+  assert.equal(await financing.refreshFinancingFees(), true);
+  assert.match(row.textContent, /correction/);
+  assert.match(row.textContent, /-.*1\.10/);
+  assert.equal(descendants(row).some((n) => n.tagName === "IMG"), false);
+  delete result.summary.earned_base; delete result.summary.known_earned_base;
+  result.summary.reason = "base_conversion_unavailable";
+  financing.renderFinancing(result.summary);
+  assert.match(dom.element("lendingIncomeValue").textContent, /4\.20/);
+  assert.match(dom.element("lendingIncomeCoverage").textContent, /Base conversion unavailable/);
+  result.summary.state = "partial"; result.summary.covered_days = 1;
+  financing.renderFinancing(result.summary);
+  assert.match(dom.element("lendingIncomeLabel").textContent, /partial period/);
+  assert.match(dom.element("lendingIncomeCoverage").textContent, /1\/2 days/);
+  result.summary.state = "unavailable"; result.summary.native = [];
+  financing.renderFinancing(result.summary);
+  assert.equal(dom.element("lendingIncomeValue").textContent, "Unavailable");
+  assert.match(dom.element("lendingIncomeCoverage").textContent, /sections are missing/);
+  result.summary.state = "complete"; result.summary.covered_days = 2; result.summary.fee_count = 0;
+  result.summary.earned_base = 0; result.summary.known_earned_base = 0;
+  financing.renderFinancing(result.summary);
+  assert.match(dom.element("lendingIncomeValue").textContent, /0\.00/);
+});
+
+test("lending pages are scope bound and discard replies after an Edge refresh", async () => {
+  reset(); const all = lendingFixture();
+  state.edgeResult = { account: { financing: all.summary } };
+  const page = { ...all, fees: [all.fees[0]], next_cursor: "synthetic-bound-cursor" };
+  globalThis.fetch = async () => response(page);
+  assert.equal(await financing.refreshFinancingFees(), true);
+  globalThis.fetch = async (path) => {
+    assert.equal(new URL(path, "http://localhost").searchParams.get("cursor"), page.next_cursor);
+    return response({ ...all, fees: [all.fees[1]] });
+  };
+  assert.equal(await financing.refreshFinancingFees(true), true);
+  assert.equal(state.financing.result.fees.length, 2);
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
+  const oldRead = financing.refreshFinancingFees();
+  const replacement = structuredClone(all.summary); replacement.fingerprint = `finance_${"c".repeat(32)}`;
+  state.edgeResult.account.financing = replacement;
+  financing.renderFinancing(replacement);
+  pending[0](response(all));
+  assert.equal(await oldRead, false);
+  assert.equal(state.financing.result, null);
+  assert.equal(dom.element("lendingFees").children.length, 0);
+  state.authenticated = false;
+  globalThis.fetch = () => assert.fail("unauthenticated fee read");
+  assert.equal(await financing.refreshFinancingFees(), false);
+  financing.renderFinancing(replacement);
+  assert.equal(dom.element("lendingIncome").hidden, true);
+});
+
+test("changing the account or paper/live mode hides old fees and cancels a pending read", async () => {
+  reset(); const result = lendingFixture();
+  state.snapshot = { positions: { authority: { scope: { account_id: "SYNTHETIC-LEND", account_mode: "paper" } } } };
+  state.edgeResult = { account: { financing: result.summary } };
+  const pending = [];
+  globalThis.fetch = () => new Promise((resolve) => pending.push(resolve));
+  const old = financing.refreshFinancingFees();
+  state.snapshot.positions.authority.scope.account_mode = "live";
+  financing.renderFinancing(result.summary);
+  pending[0](response(result));
+  assert.equal(await old, false);
+  assert.equal(state.financing.result, null);
+  financing.renderFinancing(result.summary);
+  assert.equal(dom.element("lendingIncome").hidden, true);
+  assert.equal(await financing.refreshFinancingFees(), false);
+});
 
 test("market tape rejects malformed evidence and never joins gaps", () => {
   reset();

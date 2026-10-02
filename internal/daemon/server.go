@@ -2655,6 +2655,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleReportingValidate(ctx, req) })
 	case rpc.MethodEdgeSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleEdgeSnapshot(ctx, req) })
+	case rpc.MethodFinancingFees:
+		s.unary(req, enc, func() (any, error) { return s.handleFinancingFees(ctx, req) })
 	case rpc.MethodMarketEventsSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketEventsSnapshot(ctx, req) })
 	case rpc.MethodDataHealth:

@@ -618,6 +618,22 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		res.Authority.Reason = rpc.AccountDataReasonSessionChanged
 	} else if currentPortfolioAuthority(res.Authority) {
 		res.Authority.BrokerReadSession = s.cashSweepReadSession(c, session)
+		s.attachLendingAnnotations(ctx, res, expectedScope)
+		if !c.SessionCurrent(session) || !sameBrokerScope(expectedScope, s.currentBrokerStateScope()) {
+			authorityScope = brokerStateScope{}
+			res.Authority.Availability = rpc.AccountDataUnavailable
+			res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
+			res.Authority.Reason = rpc.AccountDataReasonSessionChanged
+			res.Authority.BrokerReadSession = rpc.BrokerReadSession{}
+			for i := range res.Stocks {
+				res.Stocks[i].Lending = nil
+			}
+			for i := range res.ByUnderlying {
+				if res.ByUnderlying[i].Stock != nil {
+					res.ByUnderlying[i].Stock.Lending = nil
+				}
+			}
+		}
 	}
 	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, completedAt)
 	return res, nil

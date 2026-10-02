@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**29 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**30 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -235,6 +235,22 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 | `limit` | integer | no | maximum findings; default 3 |
 | `option_id` | string | no | optional opaque option ID returned by a prior canary_edge call |
 | `window` | string | no | optional review override; default 365d |
+
+## `canary_lending_fees`
+
+Read earned customer net stock-lending fees, native/base currency sums, report coverage and a bounded latest-first history. Use after canary_edge to expand lending income or to read historical fees after a holding closes. Missing sections, net amounts or conversion stay unavailable; fees are not extra P/L to add to broker equity and collateral is not income. Cash-payment and P/L reconciliation are unproved until linked statement evidence exists. Use canary_positions for dated loan annotations and current holdings, canary_edge for decision review, not this tool for short-borrow availability or enrollment. Read-only retained evidence; cannot fetch Flex, enroll or place orders.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `con_id` | integer | no | optional exact stock contract ID; omitted or zero includes all contracts |
+| `cursor` | string | no | opaque next_cursor returned by the prior page; bound to period, scope and contract filter |
+| `fingerprint` | string | no | optional summary fingerprint from Edge or a prior page; rejects changed evidence |
+| `from` | string | no | optional exclusive opening YYYY-MM-DD equity date; requires to |
+| `limit` | integer | no | maximum fee rows per page; default 25; totals always cover the full period |
+| `to` | string | no | optional inclusive closing YYYY-MM-DD equity date; requires from; at most 400 days |
+| `window` | string | no | Edge period; default 365d unless paired explicit equity dates are supplied |
 
 ## `canary_rules`
 

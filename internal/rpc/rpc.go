@@ -1691,10 +1691,11 @@ type FrameError struct {
 // unavailable, never zero-substituted.
 // (illiquid leg, OOH model abstention, subscribe slot churn) — never zero-
 type PositionView struct {
-	Symbol   string `json:"symbol"`
-	SecType  string `json:"sec_type"`
-	ConID    int    `json:"con_id,omitempty"`
-	Exchange string `json:"exchange,omitempty"`
+	Lending  *LendingPosition `json:"lending,omitempty"`
+	Symbol   string           `json:"symbol"`
+	SecType  string           `json:"sec_type"`
+	ConID    int              `json:"con_id,omitempty"`
+	Exchange string           `json:"exchange,omitempty"`
 	// PrimaryExch is the listing venue IBKR reports for the held contract
 	// (IBIS, NASDAQ, NYSE, ...). Position reports usually leave Exchange
 	// empty, so consumers that scope work by venue need this field.

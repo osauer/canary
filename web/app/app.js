@@ -4,6 +4,7 @@ import { renderAlerts, setupAttentionVisibility } from "./alert-inbox.js";
 import { completePairing } from "./auth.js";
 import { renderBriefCard } from "./brief.js";
 import { refreshEdge, renderEdge } from "./edge.js";
+import { setupFinancing, showLendingFees } from "./financing.js";
 import { setupMarketTape } from "./market-tape.js";
 import { renderStressDetail, renderStressStatus, renderStressTimestamp, renderMarketContext, renderRegimePanel, renderRulesCard } from "./stress.js";
 import { ensureRegimeStressExpansion, handleAccountPanelTap, handleOpportunitiesPanelTap, handlePortfolioPanelTap, renderTabs, resetViewportScroll, setAccountOverviewExpansion, setAccountValueVisible, setActiveTab, setOpportunitiesExpansion, setProtectionSheetOpen, setPortfolioTrimSheetOpen, setRegimeStressExpansion, setRulesSheetOpen, setupBottomTabs, syncAccountPrivacyState } from "./chrome.js";
@@ -24,6 +25,7 @@ import { renderUpdateStatus, requestUpdate } from "./update.js";
 installRenderAll(renderAll);
 installSmokeHooks();
 setupMarketTape();
+setupFinancing();
 
 function installSmokeHooks() {
   const smoke = globalThis.__canarySmoke;
@@ -313,6 +315,16 @@ $("strategiesPanel").addEventListener("toggle", (event) => {
 });
 $("positionsSort").addEventListener("change", (event) => setPositionsSort(event.currentTarget.value));
 $("underlyingPanel").addEventListener("click", (event) => {
+  const lending = event.target.closest("[data-lending-con-id]");
+  if (lending) {
+    const conID = Number(lending.dataset.lendingConId);
+    if (!Number.isSafeInteger(conID) || conID <= 0) return;
+    void (async () => {
+      const loaded = await setActiveTab("edge");
+      if (loaded) await showLendingFees(conID);
+    })();
+    return;
+  }
   const action = event.target.closest("[data-position-action]");
   if (action) {
     if (action.dataset.positionAction === "trim") openPortfolioTrimReview();

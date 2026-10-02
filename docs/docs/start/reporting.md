@@ -94,6 +94,27 @@ The exact XML attribute names are generated from the parser itself in the
 page when diagnosing a named missing requirement. Do not copy the list into a
 separate checklist: the generated reference is the field authority.
 
+### Optional stock lending
+
+For lending observations, add **Stock Yield Enhancement Program Securities Lent**
+and **Stock Yield Enhancement Program Securities Fee Earned Details**, selecting
+all fields. **Securities Lent Activity** is optional audit context. Some Portal
+variants use **Securities Borrowed/Lent**, **Securities Borrowed/Lent Activity**
+and **Securities Borrowed/Lent Fee Details** for these sections. IBKR documents
+[loan balances](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlentfq.htm)
+and [earned fee details](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlent%20fee%20detailsfq.htm).
+
+Canary reads managed stock loans and customer net fees from `SLBOpenContracts`
+and `SLBFees`. These sections are optional: missing lending evidence does not
+block reconciliation or Edge. Missing sections mean unavailable income; a
+present, complete empty fee section can establish zero. A conversion to account
+base currency also needs a matching statement base-currency identity.
+
+Participation remains a setting at IBKR. Canary adds no enrollment modes. See
+[lending observations in Edge](../understand/edge.md#stock-lending-income).
+Availability and exact fields still need confirmation for your account/entity;
+synthetic tests do not establish broker commissioning.
+
 ## 3. Configure delivery
 
 Under **Delivery Configuration**:

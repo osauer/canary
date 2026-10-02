@@ -1,5 +1,6 @@
 import { $, calendarDate, calendarDateTime, hasNumericValue, labelize, money, privacyMask, readJSONOrText, signedMoneyRead } from "./shared.js";
 import { state } from "./state.js";
+import { renderFinancing, validFinancingSummary } from "./financing.js";
 
 const EDGE_WINDOWS = new Set(["90d", "365d"]);
 const EDGE_HORIZONS = new Set([1, 5, 20]);
@@ -81,6 +82,9 @@ function validEdgeResult(result) {
   if (result.change != null && !validEdgeChange(result.change)) return false;
   if (result.option != null && !validEdgeOptionDetail(result.option)) return false;
   if (result.change != null && result.option != null) return false;
+  if (result.account?.financing != null && (!validFinancingSummary(result.account.financing)
+    || result.account.financing.from !== result.account.actual_from || result.account.financing.to !== result.account.actual_to
+    || result.account.financing.base_currency !== result.account.base_currency)) return false;
   return result.findings.every((finding) => String(finding?.change_id || "").startsWith("change_") && hasNumericValue(finding?.decision_notional_base) && Number(finding.decision_notional_base) > 0 && hasNumericValue(finding?.decision_impact_base) && hasNumericValue(finding?.decision_impact_pct) && Array.isArray(finding.market_context || []) && (finding.market_context || []).every(validEdgeMarketContext));
 }
 
@@ -204,6 +208,7 @@ function renderEdge() {
   const result = state.edgeResult;
   renderEdgeStatus(result);
   if (!result) {
+    renderFinancing(null);
     $("edgeSetup").hidden = true;
     $("edgeResults").hidden = true;
     $("edgeAsOf").textContent = state.edgeBusy ? "loading" : "not loaded";
@@ -217,7 +222,7 @@ function renderEdge() {
   if (setup) renderEdgeSetup(result);
   const hasResults = result.state !== "action_required" && edgeHasResults(result);
   $("edgeResults").hidden = !hasResults;
-  if (!hasResults) return;
+  if (!hasResults) { renderFinancing(null); return; }
 
   renderEdgeMatrix(result);
   renderEdgeLearning(result);
@@ -295,6 +300,7 @@ function renderEdgeSetup(result) {
 
 function renderEdgeAccount(result) {
   const account = result.account;
+  renderFinancing(account?.financing || null);
   if (!account) {
     $("edgeAccountValue").textContent = "Unavailable";
     $("edgeAccountValue").className = "edge-account__value";

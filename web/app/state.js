@@ -93,6 +93,7 @@ const state = {
   edgeBusy: false,
   edgeError: "",
   edgeRequestID: 0,
+  financing: { fingerprint: "", conID: 0, result: null, busy: false, error: "", requestID: 0 },
   activeTab: normalizedTab(localStorage.getItem("canaryActiveTab") || "monitor"),
 };
 

@@ -122,15 +122,16 @@ type EdgeHorizonSelection struct {
 // EdgeAccountResult is the sanitized account-level result for exact statement
 // boundaries.
 type EdgeAccountResult struct {
-	BaseCurrency       string    `json:"base_currency,omitempty"`
-	RequestedFrom      time.Time `json:"requested_from"`
-	ActualFrom         time.Time `json:"actual_from"`
-	ActualTo           time.Time `json:"actual_to"`
-	StartingEquityBase float64   `json:"starting_equity_base"`
-	EndingEquityBase   float64   `json:"ending_equity_base"`
-	ExternalFlowsBase  float64   `json:"external_flows_base"`
-	ProfitLossBase     float64   `json:"profit_loss_base"`
-	Definition         string    `json:"definition"`
+	Financing          *FinancingSummary `json:"financing,omitempty"`
+	BaseCurrency       string            `json:"base_currency,omitempty"`
+	RequestedFrom      time.Time         `json:"requested_from"`
+	ActualFrom         time.Time         `json:"actual_from"`
+	ActualTo           time.Time         `json:"actual_to"`
+	StartingEquityBase float64           `json:"starting_equity_base"`
+	EndingEquityBase   float64           `json:"ending_equity_base"`
+	ExternalFlowsBase  float64           `json:"external_flows_base"`
+	ProfitLossBase     float64           `json:"profit_loss_base"`
+	Definition         string            `json:"definition"`
 }
 
 // EdgeActionRollup is one public action-matrix row.
@@ -447,6 +448,14 @@ func ValidateEdgeResult(result EdgeResult) error {
 		return fmt.Errorf("published Edge result has an invalid method contract")
 	}
 	if result.Account != nil {
+		if financing := result.Account.Financing; financing != nil {
+			if err := ValidateFinancingSummary(*financing); err != nil {
+				return err
+			}
+			if !financing.From.Equal(result.Account.ActualFrom) || !financing.To.Equal(result.Account.ActualTo) || financing.BaseCurrency != result.Account.BaseCurrency {
+				return fmt.Errorf("financing attribution does not match Edge account period")
+			}
+		}
 		amounts := [...]float64{result.Account.StartingEquityBase, result.Account.EndingEquityBase, result.Account.ExternalFlowsBase, result.Account.ProfitLossBase}
 		for _, amount := range amounts {
 			if !finite(amount) {

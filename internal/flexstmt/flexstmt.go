@@ -118,6 +118,9 @@ type Statement struct {
 	// FX is optional daily currency attribution evidence; its errors do not
 	// prevent the existing Recon/Edge parser from retaining a statement.
 	FX *FXSnapshot
+	// Financing is optional SYEP evidence. Invalid lending rows never prevent
+	// the existing reconciliation and Edge sections from being retained.
+	Financing *FinancingStatement
 }
 
 type xmlFlexQueryResponse struct {
@@ -281,6 +284,7 @@ func Parse(data []byte) ([]Statement, error) {
 	}
 	parseCashBalances(data, out)
 	parseFXSnapshots(data, out)
+	parseFinancing(data, out)
 	return out, nil
 }
 

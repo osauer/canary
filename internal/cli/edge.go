@@ -239,6 +239,10 @@ func renderEdgeAccount(env *Env, result rpc.EdgeResult, width int) {
 	fmt.Fprintln(out, "\nAccount P/L")
 	edgeRow(env, env.bold(edgeSignedMoney(env, account.ProfitLossBase, account.BaseCurrency)), fmt.Sprintf("%s to %s", account.ActualFrom.Format(time.DateOnly), account.ActualTo.Format(time.DateOnly)), "external flows "+edgeSignedMoney(env, account.ExternalFlowsBase, account.BaseCurrency))
 	edgeProse(env, env.dim("Everything after confirmed flows, options and market moves included; not a sum of the rows below."), width)
+	if account.Financing != nil {
+		renderLendingSummary(env, *account.Financing)
+		fmt.Fprintln(out, "  Fee details: canary lending fees")
+	}
 }
 
 // renderEdgeMatrix prints the all-sample matrix with its caveat directly

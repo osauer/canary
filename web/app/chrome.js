@@ -44,7 +44,7 @@ function setActiveTab(tab, options = {}) {
   renderTabs();
   if (previous !== state.activeTab) resetViewportScroll();
   handleAttentionContextChange();
-  if (state.activeTab === "edge") void refreshEdge();
+  if (state.activeTab === "edge") return refreshEdge();
 }
 
 function renderTabs() {
