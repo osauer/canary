@@ -252,8 +252,16 @@ portfolio stress reserve still need follow-up.
 ## Sweep order checks
 
 Verified settled cash is one input. Bill orders also require broker trading
-hours, a reviewed route-specific settlement lag and a supported payment calendar.
-Missing evidence holds the route; a weekday guess does not authorize an order.
+hours, a settlement route and a supported payment calendar. USD and EUR bills
+follow Canary's maintained route: SMART, USD T+1, EUR T+2 and T+1 for trades
+from 11 October 2027. Canary releases keep it current with the payment
+calendars, so a policy file needs no settlement lines and no date. A currency
+table may override `settlement_exchange` and `settlement_days`;
+`settlement_valid_through` only ends that currency's route on a date. A bill
+order on another exchange, a passed end date, a currency without a payment
+calendar or a date beyond the calendars' published coverage holds the route; a
+weekday guess never authorizes an order. Each sweep row names its route and
+`settlement_source`.
 
 `min_order_notional` bounds the complete order in account base currency, on both
 sides, using gross principal for both purchases and liquidity sales.

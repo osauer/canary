@@ -1028,11 +1028,11 @@ type protectionCashSweepCurrency struct {
 	CashInterestRateUpper *float64 `toml:"cash_interest_rate_upper" json:"cash_interest_rate_upper,omitempty"`
 	// CashInterestValidThrough dates the owner-reviewed cash-interest assumption; expiry makes the benefit comparison unavailable without blocking an order.
 	CashInterestValidThrough policyDate `toml:"cash_interest_valid_through" json:"cash_interest_valid_through,omitempty"`
-	// SettlementDays is the commissioned lag of the exact broker route in payment business days, between 1 and 5; nil is unknown.
+	// SettlementDays overrides the bill route's settlement lag in payment business days, between 1 and 5 (default: Canary's maintained route, USD bills T+1 and EUR bills T+2, T+1 for trades from 2027-10-11; other currencies have none and hold).
 	SettlementDays *int `toml:"settlement_days" json:"settlement_days,omitempty"`
-	// SettlementExchange is the exact broker exchange whose lag was commissioned; no default.
+	// SettlementExchange overrides the bill route's broker exchange (default SMART for USD and EUR bills); a bill order on another exchange holds.
 	SettlementExchange string `toml:"settlement_exchange" json:"settlement_exchange,omitempty"`
-	// SettlementValidThrough dates route commissioning; missing or expired evidence holds bill orders.
+	// SettlementValidThrough optionally ends this currency's settlement route on a date (a TOML date such as 2027-06-30), after which its bill orders hold; omit it, as Canary maintains its default route with its payment calendars.
 	SettlementValidThrough policyDate `toml:"settlement_valid_through" json:"settlement_valid_through,omitempty"`
 	// MinMaturityDays is the shortest maturity a bill may have when bought and the first rung's target (default 28, the four-week bill).
 	MinMaturityDays int `toml:"min_maturity_days" json:"min_maturity_days"`

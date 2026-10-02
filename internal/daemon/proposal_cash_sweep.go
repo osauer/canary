@@ -460,7 +460,8 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 		return
 	}
 	if !pick.Maturity.IsZero() {
-		settles, reason := cashSweepSettlementDate(ccy, cfg.SettlementExchange, cfg.SettlementDays, string(cfg.SettlementValidThrough), now)
+		route := cashSweepRouteFor(ccy, cfg, now)
+		settles, reason := cashSweepSettlementDate(ccy, route.exchange, route.days, route.validThrough, now)
 		if reason != "" {
 			st.State, st.Reason = rpc.CashSweepStateHold, "sale held: "+reason
 			return
@@ -637,13 +638,14 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		cfg.KeepCash = *cp.status.EffectiveReserve
 	}
 	ccy := cp.status.Currency
+	route := cashSweepRouteFor(ccy, cfg, now)
 	block := &rpc.TradeProposalCashSweep{
 		PriorityRank: cp.status.PriorityRank,
 		Mode:         plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
 		Cash: cp.cash, Committed: cp.committed, KeepCash: cfg.KeepCash, Free: cp.free, MinTranche: cfg.MinTranche,
 		MinOrderNotionalBase: bucket.MinOrderNotional, MinNetGainBase: bucket.MinNetGain,
 		CashInterestRateUpper: cloneFloat64Ptr(cfg.CashInterestRateUpper), CashInterestValidThrough: string(cfg.CashInterestValidThrough),
-		SettlementDays: cfg.SettlementDays, SettlementExchange: cfg.SettlementExchange, SettlementValidThrough: string(cfg.SettlementValidThrough),
+		SettlementDays: route.days, SettlementExchange: route.exchange, SettlementValidThrough: route.validThrough, SettlementSource: route.source,
 		Session: rpc.CloneBondSession(cp.session),
 	}
 	var p rpc.TradeProposal
