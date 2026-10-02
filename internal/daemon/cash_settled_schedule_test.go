@@ -138,7 +138,7 @@ func TestCashLedgerPlanningRechecksSettledScheduleAgainstFills(t *testing.T) {
 			srv.openOrderInventoryForTest = func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
 				return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: now}, scope, nil
 			}
-			schedule := &rpc.SettledCashSchedule{Status: rpc.SettledCashScheduleAdmitted, Low: new(52000.0),
+			schedule := &rpc.SettledCashSchedule{Status: rpc.SettledCashScheduleAdmitted, ReceivedAt: now, Low: new(52000.0),
 				Points: []rpc.SettledCashPoint{{Date: "2026-10-02", Amount: 52000}, {Date: "2026-10-05", Amount: 60000}}}
 			acct := &rpc.AccountResult{AccountID: scope.Account, BaseCurrency: "USD", AsOf: tc.twsAt,
 				Authority: &rpc.AccountDataAuthority{Scope: accountDataScope(scope), Availability: rpc.AccountDataAvailable,
@@ -168,5 +168,97 @@ func TestCashLedgerPlanningRechecksSettledScheduleAgainstFills(t *testing.T) {
 				t.Fatal("planner mutated the retained account source snapshot")
 			}
 		})
+	}
+}
+
+// Equal trade-date cash is not proof that a retained settlement schedule still
+// covers the account: an earlier-settling buy and later-settling sale can net
+// to zero while temporarily consuming most of the settled cash.
+func TestCashLedgerPlanningOffsettingFillsRequireCurrentSchedule(t *testing.T) {
+	now := time.Date(2026, 10, 2, 10, 0, 3, 0, time.UTC)
+	oldAt, latestFill := now.Add(-3*time.Second), now.Add(-time.Second)
+	scope := brokerStateScope{Account: "DU1234567", Mode: "paper"}
+	for _, base := range []string{"USD", "EUR"} {
+		for _, tc := range []struct {
+			name       string
+			scheduleAt time.Time
+			low        float64
+			native     *float64
+			webAt      time.Time
+			noFills    bool
+			wantState  string
+			wantCash   float64
+			wantReason string
+		}{
+			{"pre-fill schedule with unchanged cash", oldAt, 60000, nil, time.Time{}, false, rpc.CashSweepStateSettlementUnknown, 0, "predates a confirmed fill"},
+			{"schedule without receipt time", time.Time{}, 60000, nil, time.Time{}, false, rpc.CashSweepStateSettlementUnknown, 0, "no receipt time"},
+			{"schedule without receipt time or local fills", time.Time{}, 60000, nil, time.Time{}, true, rpc.CashSweepStateSettlementUnknown, 0, "no receipt time"},
+			{"schedule at the fill frontier", latestFill, 10000, nil, time.Time{}, false, rpc.CashSweepStateInvest, 10000, ""},
+			{"post-fill schedule retains interim debit", now, 10000, nil, time.Time{}, false, rpc.CashSweepStateInvest, 10000, ""},
+			{"independent native cash survives old schedule", oldAt, 60000, new(7000.0), time.Time{}, false, rpc.CashSweepStateInvest, 7000, ""},
+			{"independent Web cash survives old schedule", oldAt, 60000, nil, now, false, rpc.CashSweepStateInvest, 9000, ""},
+			{"native and Web retain their lower bound", oldAt, 60000, new(7000.0), now, false, rpc.CashSweepStateInvest, 7000, ""},
+			{"old Web cannot repair old schedule", oldAt, 60000, nil, oldAt, false, rpc.CashSweepStateSettlementUnknown, 0, "predates a confirmed fill"},
+		} {
+			t.Run(base+"/"+tc.name, func(t *testing.T) {
+				srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper})
+				srv.now = func() time.Time { return now }
+				srv.openOrderInventoryForTest = func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+					return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: now}, scope, nil
+				}
+				if !tc.noFills {
+					for i, side := range []string{rpc.OrderActionBuy, rpc.OrderActionSell} {
+						fill := originTestOrder("offsetting-"+side, 801+i, oldAt.Add(time.Duration(i+1)*time.Second))
+						fill.Type, fill.Status, fill.SendState = orderJournalEventStatusUpdated, "Filled", orderSendStateTerminal
+						fill.Action, fill.Quantity, fill.Filled, fill.LimitPrice = side, 10, 10, 5000
+						if err := srv.orderJournal.Append(fill); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if cutoff, err := srv.cashLedgerFillCutoff(scope); err != nil || !cutoff.Equal(latestFill) {
+						t.Fatal("offsetting fills did not establish the durable frontier", cutoff, err)
+					}
+				}
+				row := rpc.CurrencyExposure{Currency: "USD", CashObserved: true, CashCcy: 60000, ExchangeRate: 1, SettledCashCcy: tc.native}
+				if !tc.webAt.IsZero() {
+					row.WebCash = &rpc.WebCashObservation{Currency: "USD", Scope: accountDataScope(scope), CashBalance: 60000, SettledCash: 9000, AsOf: tc.webAt}
+				}
+				acct := &rpc.AccountResult{AccountID: scope.Account, BaseCurrency: base, AsOf: now,
+					Authority: &rpc.AccountDataAuthority{Scope: accountDataScope(scope), Availability: rpc.AccountDataAvailable,
+						Freshness: rpc.AccountDataFreshnessCurrent, AsOf: now, Fields: &rpc.AccountFieldAvailability{BaseCurrency: true, CurrencyExposure: true}}}
+				if base == "USD" {
+					acct.BaseCurrencyLedger = &row
+				} else {
+					acct.CurrencyExposure = []rpc.CurrencyExposure{row}
+				}
+				schedule := settledScheduleFixture("USD", 60000, tc.low, 60000)
+				schedule.ReceivedAt = tc.scheduleAt
+				annotateSettledCashSchedules(acct, settledScheduleCapture("initial_complete", schedule))
+				retained := acct.BaseCurrencyLedger
+				if base != "USD" {
+					retained = &acct.CurrencyExposure[0]
+				}
+				if retained.SettledCashSchedule.Status != rpc.SettledCashScheduleAdmitted {
+					t.Fatal("fixture must reconcile the same final trade-date cash before the fill check")
+				}
+				engine := &proposalEngine{server: srv, queued: &queuedAuthStore{}}
+				policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
+				in := engine.cashSweepInput(context.Background(), policy, acct, &rpc.PositionsResult{}, scope, now)
+				cp := cashSweepCurrencyOf(t, cashSweepPlanFor(policy, in, now), "USD")
+				if cp.status.State != tc.wantState || !strings.Contains(cp.status.Reason, tc.wantReason) {
+					t.Fatalf("settlement posture = %+v, want %s %q", cp.status, tc.wantState, tc.wantReason)
+				}
+				if tc.wantState == rpc.CashSweepStateInvest {
+					if cp.side != rpc.CashSweepSideInvest || cp.cash != tc.wantCash {
+						t.Fatalf("cash authority = %v, side %q; want %v", cp.cash, cp.side, tc.wantCash)
+					}
+				} else if cp.side != "" || cp.status.SettledCash != nil || cp.status.Cash != nil {
+					t.Fatal("unavailable schedule authorized settled cash or an action")
+				}
+				if retained.SettledCashSchedule.Status != rpc.SettledCashScheduleAdmitted || !retained.SettledCashSchedule.ReceivedAt.Equal(tc.scheduleAt) || retained.WebCash != row.WebCash {
+					t.Fatal("planning changed the original account evidence")
+				}
+			})
+		}
 	}
 }

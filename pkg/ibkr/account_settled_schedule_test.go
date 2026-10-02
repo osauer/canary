@@ -111,3 +111,44 @@ func TestSettledCashScheduleCaptureIsBounded(t *testing.T) {
 		t.Fatalf("provider could grow the schedule receipt without bound: truncated=%v n=%d", got.Truncated, len(got.Schedules))
 	}
 }
+
+func TestSettledCashScheduleReceiptRequiresEveryIncludedComponent(t *testing.T) {
+	oldAt := time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
+	freshAt := oldAt.Add(2 * time.Second)
+	for _, tc := range []struct {
+		name      string
+		totalAt   time.Time
+		segmentAt time.Time
+		segment   bool
+		want      time.Time
+	}{
+		{"total alone retains its receipt", freshAt, time.Time{}, false, freshAt},
+		{"fresh segment cannot refresh old total", oldAt, freshAt, true, oldAt},
+		{"fresh total cannot refresh old segment", freshAt, oldAt, true, oldAt},
+		{"both components fresh", freshAt, freshAt, true, freshAt},
+		{"unknown total stays unknown", time.Time{}, freshAt, true, time.Time{}},
+		{"unknown segment stays unknown", freshAt, time.Time{}, true, time.Time{}},
+		{"unknown total alone", time.Time{}, time.Time{}, false, time.Time{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := accountStreamReceipt{}
+			r.observeSettledCashScheduleLocked(settledCashScheduleKey, "20261002:60000;20261005:60000", "USD", tc.totalAt)
+			if tc.segment {
+				r.observeSettledCashScheduleLocked(settledCashScheduleSegmentKey, "20261002:60000;20261005:60000", "USD", tc.segmentAt)
+			}
+			s := r.settledCashSchedules()["USD"]
+			if s.Status != "observed" || !s.ReceivedAt.Equal(tc.want) || len(s.Points) != 2 || tc.segment && len(s.SegmentPoints) != 2 {
+				t.Fatalf("component receipt = %+v, want %v", s, tc.want)
+			}
+			// Replacing every included component with post-fill evidence restores
+			// the combined receipt; reading the snapshot alone never advances it.
+			r.observeSettledCashScheduleLocked(settledCashScheduleKey, "20261002:60000;20261005:10000;20261006:60000", "USD", freshAt)
+			if tc.segment {
+				r.observeSettledCashScheduleLocked(settledCashScheduleSegmentKey, "20261002:60000;20261005:10000;20261006:60000", "USD", freshAt)
+			}
+			if s := r.settledCashSchedules()["USD"]; !s.ReceivedAt.Equal(freshAt) || len(s.Points) != 3 || s.Points[1].Amount != 10000 {
+				t.Fatalf("fully refreshed schedule did not restore receipt provenance: %+v", s)
+			}
+		})
+	}
+}

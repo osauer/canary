@@ -129,10 +129,21 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 	}
 	apply := func(row rpc.CurrencyExposure) {
 		dropWeb := row.WebCash != nil && (err != nil || !cutoff.IsZero() && row.WebCash.AsOf.Before(cutoff))
-		// A schedule is admitted against the snapshot's trade-date cash, which
-		// the cutoff check above already proved post-fill. Without a readable
-		// fill frontier nothing proves that cash still describes the account.
-		dropSchedule := settledCashScheduleAdmitted(row.SettledCashSchedule) && err != nil
+		// Offsetting fills can leave trade-date cash unchanged while introducing
+		// an interim settled debit. The schedule's own receipt, not only the
+		// account snapshot, must therefore cover the durable fill frontier.
+		scheduleReason := ""
+		if schedule := row.SettledCashSchedule; settledCashScheduleAdmitted(schedule) {
+			switch {
+			case err != nil:
+				scheduleReason = "TWS's settlement schedule cannot be checked against cash-affecting fills during proposal generation"
+			case schedule.ReceivedAt.IsZero():
+				scheduleReason = "TWS's settlement schedule has no receipt time to check against cash-affecting fills"
+			case !cutoff.IsZero() && schedule.ReceivedAt.Before(cutoff):
+				scheduleReason = "TWS's settlement schedule predates a confirmed fill; wait for a post-fill settlement schedule"
+			}
+		}
+		dropSchedule := scheduleReason != ""
 		if !dropWeb && !dropSchedule {
 			return
 		}
@@ -144,7 +155,7 @@ func (s *Server) cashLedgerValidatePlanning(acct *rpc.AccountResult, scope broke
 		// evidence. A separately observed native value can still be used.
 		if dropSchedule {
 			row.SettledCashSchedule = &rpc.SettledCashSchedule{Status: rpc.SettledCashScheduleHeld,
-				Reason: "TWS's settlement schedule cannot be checked against cash-affecting fills during proposal generation"}
+				Reason: scheduleReason}
 		}
 		if dropWeb {
 			row.WebCash = nil

@@ -46,9 +46,12 @@ type SettledCashSchedule struct {
 	Currency      string
 	Points        []SettledCashPoint
 	SegmentPoints []SettledCashPoint
-	ReceivedAt    time.Time
-	Status        string
-	Reason        string
+	// ReceivedAt is the oldest receipt among included total/segment components.
+	// A missing component timestamp remains unknown rather than being refreshed
+	// by another component's newer callback.
+	ReceivedAt time.Time
+	Status     string
+	Reason     string
 }
 
 // SettledCashScheduleCapture is the schedule receipt of the already-running
@@ -122,12 +125,12 @@ func (r *accountStreamReceipt) settledCashSchedules() map[string]SettledCashSche
 	for _, id := range slices.Sorted(maps.Keys(r.schedules)) {
 		field, currency, _ := strings.Cut(id, "\x00")
 		cell := r.schedules[id]
-		s := out[currency]
+		s, exists := out[currency]
 		s.Currency = currency
 		if s.Status == "" {
 			s.Status = "observed"
 		}
-		if cell.receivedAt.After(s.ReceivedAt) {
+		if !exists || cell.receivedAt.Before(s.ReceivedAt) {
 			s.ReceivedAt = cell.receivedAt
 		}
 		points, err := parseSettledCashSchedule(cell.value)
