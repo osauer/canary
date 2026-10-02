@@ -26,8 +26,10 @@ NAV floor. Stressed NAV loss and cash funding needs are different quantities.
 Assignment, margin, gaps, exit timing and settlement can create funding needs
 that differ from marked losses. Liquidation cannot guarantee a floor.
 
-The finite portfolio scenario, exit horizon, volatility/rate shocks and
-per-currency allocation of the proposed buffer remain uncalibrated. This change
+The finite portfolio scenario, exit horizon and volatility/rate shocks remain
+uncalibrated. The [currency-priority increment](cash-sweep-priority.md) implements
+one funding-weighted EUR-equivalent cushion and a durable planning log; its
+opt-in holds until calibrated native funding evidence exists. This change
 adds no portfolio stress-floor engine and does not imply those inputs are ready.
 The current `keep_cash` remains an owner-set native-currency reserve. Do not
 activate the broader reserve design before those choices and their evidence are

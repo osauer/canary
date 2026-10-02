@@ -784,6 +784,7 @@ async function runRound4SyntheticSmoke() {
       throw new Error(`synthetic desktop layout failed: ${JSON.stringify(desktopLayout)}`);
     }
     const protectionUI = await exerciseProtectionDisclosure(page, bootstrap);
+    await exerciseCashSweepDisclosure(page, bootstrap);
     await page.setViewportSize({ width: 390, height: 844 });
     const mutationPaths = mutationRequests.map(({ method, path }) => `${method} ${path}`);
     if (JSON.stringify(mutationPaths) !== JSON.stringify(["POST /api/pairing/complete", "POST /api/alerts/attention/read", "POST /api/strategies/preview"]) || JSON.parse(mutationRequests[1].body).through_seq !== 4) throw new Error(`unexpected synthetic mutations: ${JSON.stringify(mutationRequests)}`);
@@ -2500,6 +2501,49 @@ async function exerciseProtectionDisclosure(page, bootstrap) {
   await page.keyboard.press("Escape");
   await page.waitForFunction(() => !document.getElementById("protectionSheet")?.open);
   return { layouts, execution_warning_visible: true, comparison_is_table: true, disclosure_and_focus_retained: retained, trim_separate: true, broker_actions_clicked: false };
+}
+
+// Exercise the new read-only sweep panel with synthetic evidence only.
+async function exerciseCashSweepDisclosure(page, bootstrap) {
+  const priorServerSweep = bootstrap.snapshot.proposals.cash_sweep;
+  const sweep = await page.evaluate(async () => {
+    const { state } = await import("/state.js");
+    const { renderCashSweepPanel } = await import("/cash-sweep.js");
+    globalThis.__sweepPriorPrivacy = state.accountValueVisible;
+    state.accountValueVisible = true;
+    const sweep = { mode: "shadow", currency_priority: "usd_first", reserve_cushion_eur: 10000,
+      reserve_state: "unavailable", reserve_reason: "reserve_calibration_required: operational funding is not commissioned", trace_state: "recorded",
+      currencies: [{ currency: "USD", state: "hold", cash: 50000, committed: 0, keep_cash: 5000, reason: "Calibrated funding evidence required" }],
+      decision_trace: [{ at: "2099-01-05T12:00:00Z", policy_id: "synthetic", policy_version: 1, currency_priority: "usd_first",
+        currencies: [{ currency: "USD", action: "hold", reason: "Calibrated funding evidence required" }] }] };
+    globalThis.__sweepPriorValue = state.snapshot.proposals.cash_sweep;
+    state.snapshot.proposals.cash_sweep = sweep;
+    renderCashSweepPanel(sweep);
+    document.getElementById("protectionSheet").showModal();
+    return sweep;
+  });
+  // Slow CI/parallel gates may trigger a scheduled synthetic snapshot refresh.
+  bootstrap.snapshot.proposals.cash_sweep = sweep;
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const evidence = await page.locator("#cashSweepPanel").evaluate((panel) => ({
+      text: panel.textContent, disclosure_closed: !panel.querySelector("details").open,
+      horizontal_overflow: panel.scrollWidth > panel.clientWidth || document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    }));
+    if (!evidence.text.includes("USD first") || !evidence.text.includes("reserve Unavailable") || !evidence.text.includes("free Unavailable") || !evidence.disclosure_closed || evidence.horizontal_overflow) {
+      throw new Error(`Cash sweep panel failed: ${JSON.stringify(evidence)}`);
+    }
+    if (args["cash-sweep-screenshot"]) await page.locator("#cashSweepPanel").screenshot({ path: `${args["cash-sweep-screenshot"]}-${width}.png` });
+  }
+  await page.locator("#cashSweepPanel details > summary").click();
+  if (!(await page.locator("#cashSweepHistory").innerText()).includes("Calibrated funding evidence required")) throw new Error("Cash sweep history disclosure failed");
+  await page.evaluate(async () => {
+    const { state } = await import("/state.js");
+    state.accountValueVisible = globalThis.__sweepPriorPrivacy;
+    state.snapshot.proposals.cash_sweep = globalThis.__sweepPriorValue;
+    document.getElementById("protectionSheet").close();
+  });
+  bootstrap.snapshot.proposals.cash_sweep = priorServerSweep;
 }
 
 // Alerts is the current annunciator log. Terminal delivery evidence stays

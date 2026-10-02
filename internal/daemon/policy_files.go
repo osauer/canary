@@ -848,6 +848,10 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # [buckets.cash_sweep]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the orders
+# currency_priority = "usd_first"   # usd_first | balanced | eur_first; existing native cash only
+# reserve_cushion_eur = 10000.0   # ONE total cushion; funding-weighted EUR/USD split
+# These opt into calibrated reserves. Missing funding/stress/exit evidence holds;
+# configuration cannot commission the unfinished reserve observer or authorize FX.
 # max_order_notional = 0.0   # one order, in base currency; owner must choose
 # min_order_notional = 10000.0   # whole-order floor in base, both BUY and net SELL
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone

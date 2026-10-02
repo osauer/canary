@@ -989,6 +989,12 @@ func nonEmptyString(v, fallback string) string {
 // proposal_cash_sweep.go (decision O1). The order cap has no embedded default
 // (O5); every other number below is the design's compiled default.
 type protectionCashSweepPolicy struct {
+	// CurrencyPriority orders eligible native-currency proposals only. Writing
+	// it opts into the calibrated reserve design; it cannot enable FX conversion.
+	CurrencyPriority string `toml:"currency_priority" json:"currency_priority,omitempty"`
+	// ReserveCushionEUR is one portfolio-wide cushion. Nil preserves existing
+	// policy semantics unless currency_priority explicitly opts in.
+	ReserveCushionEUR *float64 `toml:"reserve_cushion_eur" json:"reserve_cushion_eur,omitempty"`
 	// Enabled turns the cash sweep on (default false; the table is only a commented placeholder in the file Canary writes).
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate.
@@ -1203,6 +1209,12 @@ var cashSweepETFToken = regexp.MustCompile(`^[A-Z0-9][A-Z0-9.]{0,11}$`)
 func validateCashSweepPolicy(prefix string, p *protectionCashSweepPolicy) error {
 	if p == nil {
 		return nil
+	}
+	if p.CurrencyPriority != "" && !slices.Contains([]string{rpc.CashSweepPriorityUSDFirst, rpc.CashSweepPriorityBalanced, rpc.CashSweepPriorityEURFirst}, p.CurrencyPriority) {
+		return fmt.Errorf("%s.currency_priority must be usd_first, balanced or eur_first", prefix)
+	}
+	if p.ReserveCushionEUR != nil && (!finiteProtectionOptionPolicyValue(*p.ReserveCushionEUR) || *p.ReserveCushionEUR < 0) {
+		return fmt.Errorf("%s.reserve_cushion_eur must be finite and nonnegative", prefix)
 	}
 	switch strings.ToLower(strings.TrimSpace(p.Mode)) {
 	case "", rpc.CashSweepModeShadow, rpc.CashSweepModeActive:

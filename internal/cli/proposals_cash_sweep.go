@@ -43,6 +43,15 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "  Cash sweep  %s\n", formatCashSweepStatus(st, len(rows)))
 	if st != nil {
+		if st.CurrencyPriority != "" {
+			fmt.Fprintf(out, "    Priority: %s · existing cash only\n", strings.ReplaceAll(st.CurrencyPriority, "_", " "))
+			if st.ReserveCushionEUR != nil {
+				fmt.Fprintf(out, "    Total cushion: %s · funding-weighted allocation\n", cashSweepMoney(*st.ReserveCushionEUR, "EUR"))
+			}
+			if st.ReserveReason != "" {
+				fmt.Fprintf(out, "    Reserve: %s\n", st.ReserveReason)
+			}
+		}
 		for _, c := range st.Currencies {
 			fmt.Fprintf(out, "    %-4s %-24s %s\n", c.Currency, strings.ReplaceAll(c.State, "_", " "), formatCashSweepCurrency(c))
 			for _, line := range formatCashSweepProjection(c.Currency, c.SettlementProjection) {
@@ -50,6 +59,17 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 			}
 			for _, line := range c.Evidence {
 				fmt.Fprintf(out, "         %-24s %s\n", "", line)
+			}
+		}
+		if st.TraceState != "" {
+			fmt.Fprintf(out, "    Decision log: %s\n", st.TraceState)
+		}
+		for i, trace := range st.DecisionTrace {
+			if i >= 5 {
+				break
+			}
+			for _, c := range trace.Currencies {
+				fmt.Fprintf(out, "    %s · %s · %s · %s\n", trace.At.Format("2006-01-02 15:04 MST"), c.Currency, strings.ReplaceAll(c.Action, "_", " "), c.Reason)
 			}
 		}
 	}
@@ -102,6 +122,9 @@ func formatCashSweepCurrency(c rpc.TradeProposalCashSweepCurrency) string {
 	}
 	money("cash", c.Cash)
 	money("committed", c.Committed)
+	money("funding", c.FundingNeed)
+	money("cushion", c.BufferAllocation)
+	money("reserve", c.EffectiveReserve)
 	if c.Cash != nil {
 		parts = append(parts, "keep "+cashSweepMoney(c.KeepCash, c.Currency))
 	}
