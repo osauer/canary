@@ -16,6 +16,7 @@ type FXSnapshot struct {
 	Book, Rates                            map[string]float64
 	CashStart, CashEnd                     map[string]float64
 	InterestStart, InterestEnd             map[string]float64
+	CollateralStart, CollateralEnd         map[string]float64
 	Conversion, External                   map[string]float64
 	ExternalBase, NAV                      float64
 	// Calendar reports identify lending days to acquire first, so missing
@@ -56,6 +57,7 @@ type fxRawStatement struct {
 	CashTransactions *fxSection `xml:"CashTransactions"`
 	Transfers        *fxSection `xml:"Transfers"`
 	CorporateActions *fxSection `xml:"CorporateActions"`
+	Lending          *fxSection `xml:"SLBOpenContracts"`
 }
 
 func parseFXSnapshots(data []byte, statements []Statement) {
@@ -67,7 +69,7 @@ func parseFXSnapshots(data []byte, statements []Statement) {
 	}
 	for i, raw := range doc.Statements {
 		st := &statements[i]
-		f := &FXSnapshot{Day: st.ToDate.Format("2006-01-02"), SingleDay: st.FromDate.Equal(st.ToDate), Book: map[string]float64{}, Rates: map[string]float64{}, CashStart: map[string]float64{}, CashEnd: map[string]float64{}, InterestStart: map[string]float64{}, InterestEnd: map[string]float64{}, Conversion: map[string]float64{}, External: map[string]float64{}}
+		f := &FXSnapshot{Day: st.ToDate.Format("2006-01-02"), SingleDay: st.FromDate.Equal(st.ToDate), Book: map[string]float64{}, Rates: map[string]float64{}, CashStart: map[string]float64{}, CashEnd: map[string]float64{}, InterestStart: map[string]float64{}, InterestEnd: map[string]float64{}, CollateralStart: map[string]float64{}, CollateralEnd: map[string]float64{}, Conversion: map[string]float64{}, External: map[string]float64{}}
 		st.FX = f
 		if raw.NAV != nil {
 			for _, row := range raw.NAV.Rows {
@@ -204,6 +206,70 @@ func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {
 	if len(f.CashEnd) == 0 {
 		return fmt.Errorf("native_cash_balances_missing")
 	}
+	// Lending collateral is an asset with a matching return obligation.
+	// Prove the pair in each native currency; a zero base sum alone is unsafe.
+	loans := map[string]float64{}
+	if raw.Lending != nil {
+		seen := map[string]bool{}
+		for _, row := range raw.Lending.Rows {
+			if err := checkRow(row); err != nil {
+				return err
+			}
+			d, err := parseFlexDate(row.text("date"))
+			if err != nil || !d.Equal(st.ToDate) {
+				return fmt.Errorf("lending_date_mismatch")
+			}
+			id := row.text("slbTransactionId")
+			if id == "" || seen[id] {
+				return fmt.Errorf("lending_identity_missing_or_duplicate")
+			}
+			seen[id] = true
+			if typ := row.text("type"); typ != "ManagedLoan" && typ != "DirectLoan" {
+				return fmt.Errorf("native_borrow_requires_review")
+			}
+			c := row.text("currency")
+			amount, e1 := row.number("collateralAmount")
+			quantity, e2 := row.number("quantity")
+			if c == "" || e1 != nil || e2 != nil || amount <= 0 || quantity >= 0 {
+				return fmt.Errorf("native_lending_units_missing")
+			}
+			loans[c] += amount
+		}
+	}
+	for _, row := range raw.Cash.Rows {
+		c := row.text("currency")
+		if c == "BASE_SUMMARY" {
+			continue
+		}
+		a, e1 := row.number("slbStartingCashCollateral")
+		b, e2 := row.number("slbEndingCashCollateral")
+		movement, e3 := row.number("slbNetSecuritiesLentActivity")
+		if e1 != nil || e2 != nil || e3 != nil {
+			return fmt.Errorf("native_collateral_balances_missing")
+		}
+		if a < 0 || b < 0 || math.Abs(b-a-movement) > .02 {
+			return fmt.Errorf("native_collateral_movement_does_not_reconcile")
+		}
+		if (a != 0 || b != 0) && raw.Lending == nil {
+			return fmt.Errorf("native_lending_section_missing")
+		}
+		if math.Abs(b-loans[c]) > .02 {
+			return fmt.Errorf("native_lending_collateral_pair_does_not_reconcile")
+		}
+		f.CollateralStart[c], f.CollateralEnd[c] = a, b
+		f.Book[c] += b - loans[c]
+		if c != f.BaseCurrency && (a != 0 || b != 0) {
+			f.Foreign = true
+		}
+		if c != f.BaseCurrency && b != 0 {
+			f.ClosingForeign = true
+		}
+	}
+	for c, amount := range loans {
+		if _, ok := f.CollateralEnd[c]; !ok && amount != 0 {
+			return fmt.Errorf("lending_collateral_currency_missing")
+		}
+	}
 	positionTotals := map[string]float64{}
 	seenPositions := map[string]bool{}
 	for _, row := range raw.Positions.Rows {
@@ -212,6 +278,9 @@ func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {
 		}
 		if strings.ToUpper(row.text("levelOfDetail")) != "SUMMARY" {
 			return fmt.Errorf("position_summary_required")
+		}
+		if category := row.text("assetCategory"); category != "STK" && category != "OPT" && category != "BOND" && category != "FUND" {
+			return fmt.Errorf("native_position_category_requires_review")
 		}
 		day, err := parseFlexDate(row.text("reportDate"))
 		if err != nil || !day.Equal(st.ToDate) {
@@ -350,7 +419,7 @@ func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {
 		if !d.Equal(st.ToDate) {
 			continue
 		}
-		for _, key := range []string{"ipoSubscription", "slbDirectSecuritiesBorrowed", "slbDirectSecuritiesLent", "commodities", "notes", "dividendAccruals", "liteSurchargeAccruals", "cgtWithholdingAccruals", "incentiveCouponAccruals", "brokerFeesAccrualsComponent", "eventContractInterestAccruals", "marginFinancingChargeAccruals", "softDollars", "forexCfdUnrealizedPl", "cfdUnrealizedPl", "physDel", "crypto", "bondInterestAccrualsComponent", "fdicInsuredAccountInterestAccrualsComponent"} {
+		for _, key := range []string{"ipoSubscription", "slbDirectSecuritiesBorrowed", "commodities", "notes", "dividendAccruals", "liteSurchargeAccruals", "cgtWithholdingAccruals", "incentiveCouponAccruals", "brokerFeesAccrualsComponent", "eventContractInterestAccruals", "marginFinancingChargeAccruals", "softDollars", "forexCfdUnrealizedPl", "cfdUnrealizedPl", "physDel", "crypto", "bondInterestAccrualsComponent", "fdicInsuredAccountInterestAccrualsComponent"} {
 			v, err := row.number(key)
 			if err != nil {
 				return fmt.Errorf("nav_component_coverage_missing")
@@ -359,7 +428,13 @@ func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {
 				return fmt.Errorf("unsupported_native_nav_component")
 			}
 		}
-		checks := map[string]float64{"cash": 0, "stock": positionTotals["STK"], "options": positionTotals["OPT"], "bonds": positionTotals["BOND"], "funds": positionTotals["FUND"], "interestAccruals": 0}
+		checks := map[string]float64{"cash": 0, "stock": positionTotals["STK"], "options": positionTotals["OPT"], "bonds": positionTotals["BOND"], "funds": positionTotals["FUND"], "interestAccruals": 0, "slbCashCollateral": 0, "slbDirectSecuritiesLent": 0}
+		for c, amount := range f.CollateralEnd {
+			checks["slbCashCollateral"] += amount * f.Rates[c]
+		}
+		for c, amount := range loans {
+			checks["slbDirectSecuritiesLent"] -= amount * f.Rates[c]
+		}
 		for c, v := range f.CashEnd {
 			checks["cash"] += v * f.Rates[c]
 		}

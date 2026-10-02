@@ -67,7 +67,8 @@ canonical NAV calendar. Restated NAV requires refreshed daily evidence.
 ## Calculation and reconciliation
 
 For currency `c`, `B0/B1` are the opening/closing native book: trade-date cash,
-marked investments and accrued interest. `x0/x1` convert one native unit to base.
+marked investments, accrued interest and reconciled lending collateral less
+its return obligation. `x0/x1` convert one native unit to base.
 `A` is actual currency-conversion principal in each leg, excluding commission.
 `F` is external native capital, and `Fbase` its broker-reported base value.
 
@@ -83,6 +84,14 @@ legs; execution-rate differences relative to the opening broker rate are include
 in FX even on a day with unchanged closing rates. Explicit commissions enter
 the native cash ledger once, outside conversion principal. Foreign income and fees
 participate through their closing-value interaction. Residence is irrelevant.
+
+Managed and direct loans require native `SLBOpenContracts` records. The
+cash-report collateral and loan obligation must pair in each currency and
+match their separate NAV components; equal and opposite base values alone
+are insufficient. The stock remains in marked investments. Paired collateral
+does not create a second investment or extra FX contribution. Cash-report
+collateral movements and adjacent closing/opening collateral are reconciled.
+Direct borrowing remains unsupported.
 
 Certification checks native position quantity × multiplier × price, each NAV
 component, the full native book translated to NAV, the dated native cash ledger
@@ -114,5 +123,6 @@ financial attribution; it only selects periods and draws Canary's daily values.
 
 Tests use synthetic books and broker XML: conversions in both directions, flat
 intraday conversions, external capital, fees, price/income interaction, missing
-sections/rates/boundaries, restatements, coverage and gross exposure. Real account
+sections/rates/boundaries, restatements, coverage, gross exposure and native
+lending/collateral pairs, including a rejected pair across currencies. Real account
 statements and reconciliation outputs never enter Git.

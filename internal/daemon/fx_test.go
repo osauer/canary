@@ -77,6 +77,14 @@ func TestFXBoundaryFailuresNeverZero(t *testing.T) {
 			t.Fatal("accrual gap certified")
 		}
 	})
+	t.Run("lending collateral discontinuity", func(t *testing.T) {
+		a, b := *start, *end
+		a.CollateralEnd = map[string]float64{"USD": 100}
+		b.CollateralStart = map[string]float64{"USD": 101}
+		if attributeFX(&b, &a).Contribution != nil {
+			t.Fatal("collateral gap certified")
+		}
+	})
 	t.Run("missing rate", func(t *testing.T) {
 		a := *start
 		a.Rates = map[string]float64{"EUR": 1}

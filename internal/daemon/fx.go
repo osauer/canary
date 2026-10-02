@@ -269,7 +269,7 @@ func attributeFX(end, start *flexstmt.FXSnapshot) rpc.FXDay {
 		d.Reason = "opening_boundary_mismatch"
 		return d
 	}
-	for _, pair := range []struct{ a, b map[string]float64 }{{end.CashStart, start.CashEnd}, {end.InterestStart, start.InterestEnd}} {
+	for _, pair := range []struct{ a, b map[string]float64 }{{end.CashStart, start.CashEnd}, {end.InterestStart, start.InterestEnd}, {end.CollateralStart, start.CollateralEnd}} {
 		keys := map[string]bool{}
 		for c := range pair.a {
 			keys[c] = true
