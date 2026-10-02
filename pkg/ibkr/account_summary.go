@@ -258,7 +258,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	}
 	defer conn.discardRequestIDReservation(reqID)
 
-	if err := conn.RequestAccountSummaryForAccount(reqID, accountSummaryTags, string(expectedAccount)); err != nil {
+	if err := conn.requestAccountSummaryForAccountContext(ctx, reqID, accountSummaryTags, string(expectedAccount)); err != nil {
 		return nil, "", fmt.Errorf("request account summary: %w", err)
 	}
 
@@ -267,8 +267,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 		if conn.IsConnected() && conn.BrokerSessionEpoch() == origin.epoch {
 			cancelCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			msg := conn.encodeMsg(cancelAccountSummary, "1", reqID)
-			if cancelErr := conn.sendMessageWithTypeContextForEpochGuarded(cancelCtx, msg, RequestTypeGeneral, origin.epoch, true, func() error {
+			if cancelErr := conn.cancelAccountSummaryForEpoch(cancelCtx, reqID, origin.epoch, func() error {
 				if !c.SessionCurrent(origin) {
 					return ErrIBKRUnavailable
 				}
@@ -279,28 +278,9 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 		}
 	}()
 
-	type snapshotResult struct {
-		rows        map[string]string
-		observation AccountSettlementObservation
-		err         error
-	}
-	resCh := make(chan snapshotResult, 1)
-	go func() {
-		rows, observation, err := conn.awaitAccountSummarySnapshot(reqID, timeout)
-		resCh <- snapshotResult{rows: rows, observation: observation, err: err}
-	}()
-
-	var raw map[string]string
-	var observation AccountSettlementObservation
-	select {
-	case res := <-resCh:
-		if res.err != nil {
-			return nil, "", fmt.Errorf("await account summary end: %w", res.err)
-		}
-		raw = res.rows
-		observation = res.observation
-	case <-ctx.Done():
-		return nil, "", ctx.Err()
+	raw, observation, err := conn.awaitAccountSummarySnapshotContext(ctx, reqID, timeout)
+	if err != nil {
+		return nil, "", fmt.Errorf("await account summary end: %w", err)
 	}
 
 	// Keep normal reads isolated from concurrent streaming account updates. An

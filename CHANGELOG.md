@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- An explicit read-only `account --settlement-probe --json` comparison tests the normal summary batch against an isolated SettledCash request. Responses contain only sanitized receipts and transport states; ordinary account/risk reads take priority and no diagnostic grants cash authority.
+
 - Completed-day FX contribution for investments, currency cash and accrued interest, with Day/Week/Month/YTD periods, explicit evidence gaps, reconciled daily backfill and matching CLI/MCP contracts for Desk.
 
 - Cash sweeps have configurable whole-order minimums and advisory incremental purchase gain, including entry spread, broker fees and cash interest forgone. Benefit advice explicitly distinguishes known, unknown and stale inputs.

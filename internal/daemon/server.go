@@ -2602,7 +2602,7 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	defer cancel()
 	switch req.Method {
 	case rpc.MethodAccountSummary:
-		s.unary(req, enc, func() (any, error) { return s.handleAccountSummary(ctx) })
+		s.unary(req, enc, func() (any, error) { return s.handleAccountSummaryRequest(ctx, req) })
 	case rpc.MethodPositionsList:
 		s.unary(req, enc, func() (any, error) { return s.handlePositionsList(ctx, req) })
 	case rpc.MethodPortfolioSnapshot:

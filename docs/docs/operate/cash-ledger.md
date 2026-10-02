@@ -207,3 +207,30 @@ Liquidity sales show fee-adjusted expected proceeds and any remaining cash gap. 
 Existing private policy values stay unchanged until explicit owner migration;
 route commissioning remains required for orders. Dated cash-interest assumptions
 are needed only for current purchase-benefit advice.
+
+
+## Settled-cash request comparison
+
+`canary account --settlement-probe --json` compares the normal account-summary
+batch with one separate request whose tags are exactly `SettledCash`. Its raw
+RPC response contains callback source/currency labels, mathematical finiteness,
+receipt times and transport states. It contains no balances, account identifiers
+or trading authority. Normal `canary account` reads retain their existing shape.
+
+This is an explicit one-shot diagnostic on the existing connection, not a
+scheduled fetch or a new broker session. The isolated request skips busy
+ordinary subscriptions and yields when a new account, risk or exit read arrives.
+End freezes its receipt; a guarded cancellation follows on the same socket.
+`completed_empty`, `timeout`, `broker_error`, scope/session changes and failed
+cancellation remain distinct. Late diagnostic callbacks cannot seed ordinary
+account caches. An uncertain cancel prevents another probe and reserves one
+broker summary slot; a competing second ordinary subscription receives a named
+hold instead of waiting indefinitely. Session reset retires that reservation.
+
+The isolated send/response has a two-second budget, then cancellation has at
+most one second. A normal-batch comparison needs enough of the existing account
+RPC budget to leave that room. Successful cancellation means the request was
+written in order; TWS provides no cancellation acknowledgement. The experiment
+can test whether batching suppresses a callback in the current session. A
+returned account-wide or ambiguous total still cannot authorize native-currency
+cash sweeping.

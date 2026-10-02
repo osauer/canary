@@ -385,8 +385,10 @@ type Connection struct {
 	// synchronous reqAccountSummary read cannot be clobbered by the
 	// streaming reqAccountUpdates subscription, which writes the shared
 	// accountSummary map (issue #12). Guarded by accountMu.
-	summarySnapshots map[int]*summarySnapshot
-	accountMu        sync.RWMutex
+	summarySnapshots     map[int]*summarySnapshot
+	summarySchedule      accountSummarySchedule
+	retiredSummaryProbes map[int]uint64
+	accountMu            sync.RWMutex
 
 	// Completion signals for async operations
 	positionsEndChan   chan struct{} // Signals when position sync is complete
@@ -2157,6 +2159,20 @@ func (c *Connection) processErrorMessageAtEpoch(fields []string, epoch uint64) {
 			return
 		}
 		current = true
+		if len(fields) > 3 {
+			code, _ := strconv.Atoi(fields[3])
+			if c.consumeSummaryProbeError(fields[2], code, epoch) {
+				// Keep pacing, connection loss and all existing numeric-code recovery,
+				// but never pass diagnostic broker prose to log/recovery surfaces.
+				fields = append([]string(nil), fields...)
+				for i := 4; i < len(fields); i++ {
+					fields[i] = ""
+				}
+				if len(fields) > 4 {
+					fields[4] = "settlement diagnostic broker notice"
+				}
+			}
+		}
 		if post := c.handleErrorMessage(fields, epoch); post != nil {
 			postLease = append(postLease, post)
 		}
@@ -2795,6 +2811,10 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 		key = fmt.Sprintf("%s_%s", tag, currency)
 	}
 	if reqIDErr == nil {
+		if epoch, retired := c.retiredSummaryProbes[reqID]; retired && epoch == c.BrokerSessionEpoch() {
+			c.accountMu.Unlock()
+			return
+		}
 		if snap := c.summarySnapshots[reqID]; snap != nil {
 			// End freezes this request even if its waiter has not yet run.
 			// Continuing subscription updates must not rewrite the cutoff.
@@ -2808,6 +2828,10 @@ func (c *Connection) handleAccountSummaryUnderBrokerScopeLease(fields []string) 
 			observeAccountSettlementRow(&snap.settlementObservation, account, tag, value, currency, snap.expectedAccount, c.managedAccounts)
 			if snap.scopeConflict || disposition == accountSummaryRowReject {
 				snap.scopeConflict = true
+				c.accountMu.Unlock()
+				return
+			}
+			if snap.diagnosticOnly {
 				c.accountMu.Unlock()
 				return
 			}
@@ -5113,7 +5137,9 @@ func (c *Connection) invalidateUnstampedObservationAuthority() {
 	c.displayAccountValues = nil
 	c.accountValueTimes = nil
 	clear(c.summarySnapshots)
+	clear(c.retiredSummaryProbes)
 	c.accountMu.Unlock()
+	c.summarySchedule.reset()
 
 	c.aliasMu.Lock()
 	clear(c.reqAlias)
@@ -6427,6 +6453,8 @@ type summarySnapshot struct {
 	expectedAccount       string
 	observedRows          int
 	scopeConflict         bool
+	diagnosticOnly        bool
+	brokerErrorCode       int
 }
 
 type summarySnapshotResult struct {
@@ -6496,6 +6524,10 @@ func (c *Connection) RequestAccountSummary(reqID int, tags string) error {
 // still receives group "All" because account codes are not account-group
 // names; every row must match expectedAccount before publication.
 func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAccount string) error {
+	return c.requestAccountSummaryForAccountContext(context.Background(), reqID, tags, expectedAccount)
+}
+
+func (c *Connection) requestAccountSummaryForAccountContext(ctx context.Context, reqID int, tags, expectedAccount string) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
 	}
@@ -6508,7 +6540,12 @@ func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAc
 	if tags == "" {
 		tags = "NetLiquidation,BuyingPower,TotalCashValue,GrossPositionValue,UnrealizedPnL,RealizedPnL"
 	}
+	epoch := c.BrokerSessionEpoch()
+	if err := c.summarySchedule.enterOrdinary(ctx, reqID, epoch); err != nil {
+		return err
+	}
 	if err := c.claimRequestID(reqID); err != nil {
+		c.summarySchedule.leaveOrdinary(reqID, epoch)
 		return err
 	}
 
@@ -6523,8 +6560,11 @@ func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAc
 	// reqAccountSummary message:
 	// 3: group ("All" to get all accounts)
 	msg := c.encodeMsg(reqAccountSummary, "1", reqID, "All", tags)
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendMessageWithTypeContextForEpochGuarded(ctx, msg, RequestTypeGeneral, epoch, true, nil); err != nil {
 		c.dropSummarySnapshot(reqID)
+		if SendDispositionOf(err) == SendDispositionDefinitelyUnsent {
+			c.summarySchedule.leaveOrdinary(reqID, epoch)
+		}
 		return err
 	}
 	return nil
@@ -6546,6 +6586,10 @@ func (c *Connection) WaitForAccountSummaryEnd(timeout time.Duration) error {
 // accountSummary map is also fed by the streaming reqAccountUpdates
 // subscription, so unrelated updates cannot overwrite this request snapshot.
 func (c *Connection) awaitAccountSummarySnapshot(reqID int, timeout time.Duration) (map[string]string, AccountSettlementObservation, error) {
+	return c.awaitAccountSummarySnapshotContext(context.Background(), reqID, timeout)
+}
+
+func (c *Connection) awaitAccountSummarySnapshotContext(ctx context.Context, reqID int, timeout time.Duration) (map[string]string, AccountSettlementObservation, error) {
 	c.accountMu.RLock()
 	snap := c.summarySnapshots[reqID]
 	c.accountMu.RUnlock()
@@ -6559,6 +6603,9 @@ func (c *Connection) awaitAccountSummarySnapshot(reqID int, timeout time.Duratio
 			return nil, AccountSettlementObservation{}, ErrAccountSummaryScopeConflict
 		}
 		return result.values, result.settlementObservation, nil
+	case <-ctx.Done():
+		c.dropSummarySnapshot(reqID)
+		return nil, AccountSettlementObservation{}, ctx.Err()
 	case <-time.After(timeout):
 		c.dropSummarySnapshot(reqID)
 		return nil, AccountSettlementObservation{}, fmt.Errorf("timeout waiting for account summary end")
@@ -6574,8 +6621,21 @@ func (c *Connection) CancelAccountSummary(reqID int) error {
 		return fmt.Errorf("not connected to IBKR")
 	}
 
+	epoch := c.BrokerSessionEpoch()
+	err := c.sendMessage(c.encodeMsg(cancelAccountSummary, "1", reqID))
+	if err == nil {
+		c.summarySchedule.leaveOrdinary(reqID, epoch)
+	}
+	return err
+}
+
+func (c *Connection) cancelAccountSummaryForEpoch(ctx context.Context, reqID int, epoch uint64, guard func() error) error {
 	msg := c.encodeMsg(cancelAccountSummary, "1", reqID)
-	return c.sendMessage(msg)
+	err := c.sendMessageWithTypeContextForEpochGuarded(ctx, msg, RequestTypeGeneral, epoch, true, guard)
+	if err == nil {
+		c.summarySchedule.leaveOrdinary(reqID, epoch)
+	}
+	return err
 }
 
 // GetPositions returns a detached map containing the current position cache.
