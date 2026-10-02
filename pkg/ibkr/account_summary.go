@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -57,7 +58,9 @@ type RawAccountSummary struct {
 	// CurrencyLedger holds the per-currency rollup the gateway emitted
 	// accounts. The "BASE" pseudo-currency entry IBKR emits is dropped
 	CurrencyLedger map[string]CurrencyLedger
-	AsOf           time.Time
+	// SettlementObservation is sanitized callback provenance, never cash authority.
+	SettlementObservation *AccountSettlementObservation
+	AsOf                  time.Time
 	// Raw is the unparsed map from IBKR keyed exactly as the gateway returned it
 	// diagnostic and forward-compatibility purposes.
 	Raw map[string]string
@@ -200,7 +203,7 @@ const (
 	defaultAccountSummaryTimeout = 5 * time.Second
 	// $LEDGER:ALL asks IBKR to emit per-currency rows (one block per
 	// MaintenanceMarginReq alias emitted by some gateway/account combinations.
-	accountSummaryTags = "NetLiquidation,BuyingPower,AvailableFunds,ExcessLiquidity,TotalCashValue,MaintMarginReq,InitMarginReq,GrossPositionValue,UnrealizedPnL,RealizedPnL,Cushion,LookAheadInitMarginReq,LookAheadMaintMarginReq,LookAheadAvailableFunds,LookAheadExcessLiquidity,AccountType,$LEDGER:ALL"
+	accountSummaryTags = "NetLiquidation,BuyingPower,AvailableFunds,ExcessLiquidity,TotalCashValue,SettledCash,MaintMarginReq,InitMarginReq,GrossPositionValue,UnrealizedPnL,RealizedPnL,Cushion,LookAheadInitMarginReq,LookAheadMaintMarginReq,LookAheadAvailableFunds,LookAheadExcessLiquidity,AccountType,$LEDGER:ALL"
 )
 
 // RequestAccountSummary issues a synchronous reqAccountSummary request and
@@ -244,6 +247,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	if conn == nil || !conn.IsConnected() {
 		return nil, "", ErrIBKRUnavailable
 	}
+	origin := ConnectorSessionBinding{connector: c, connection: conn, epoch: conn.BrokerSessionEpoch()}
 	expectedAccount := accountSummaryExpectedAccount(conn)
 	if !expectedAccount.valid() {
 		return nil, "", ErrAccountSummaryScopeConflict
@@ -260,30 +264,41 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 
 	// Always cancel the subscription on the way out: end-of-stream means IBKR
 	defer func() {
-		if conn.IsConnected() {
-			if cancelErr := conn.CancelAccountSummary(reqID); cancelErr != nil {
+		if conn.IsConnected() && conn.BrokerSessionEpoch() == origin.epoch {
+			cancelCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			msg := conn.encodeMsg(cancelAccountSummary, "1", reqID)
+			if cancelErr := conn.sendMessageWithTypeContextForEpochGuarded(cancelCtx, msg, RequestTypeGeneral, origin.epoch, true, func() error {
+				if !c.SessionCurrent(origin) {
+					return ErrIBKRUnavailable
+				}
+				return nil
+			}); cancelErr != nil {
 				connectorLogger.Debugf("CancelAccountSummary(reqID=%d) failed: %v", reqID, cancelErr)
 			}
 		}
 	}()
 
 	type snapshotResult struct {
-		rows map[string]string
-		err  error
+		rows        map[string]string
+		observation AccountSettlementObservation
+		err         error
 	}
 	resCh := make(chan snapshotResult, 1)
 	go func() {
-		rows, err := conn.awaitAccountSummarySnapshot(reqID, timeout)
-		resCh <- snapshotResult{rows: rows, err: err}
+		rows, observation, err := conn.awaitAccountSummarySnapshot(reqID, timeout)
+		resCh <- snapshotResult{rows: rows, observation: observation, err: err}
 	}()
 
 	var raw map[string]string
+	var observation AccountSettlementObservation
 	select {
 	case res := <-resCh:
 		if res.err != nil {
 			return nil, "", fmt.Errorf("await account summary end: %w", res.err)
 		}
 		raw = res.rows
+		observation = res.observation
 	case <-ctx.Done():
 		return nil, "", ctx.Err()
 	}
@@ -293,7 +308,12 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	if len(raw) == 0 && accountSummaryCacheAdmissible(conn, expectedAccount) {
 		fallback = conn.GetAccountSummary()
 	}
-	return accountSummaryFromRequestRows(raw, fallback, string(expectedAccount))
+	summary, provenance, err := accountSummaryFromRequestRows(raw, fallback, string(expectedAccount))
+	if err == nil && provenance == AccountSummaryProvenanceRequest && c.SessionCurrent(origin) {
+		observation.AsOf = summary.AsOf
+		summary.SettlementObservation = &observation
+	}
+	return summary, provenance, err
 }
 
 // accountCode is one concrete broker account code — the only identity an
@@ -679,7 +699,7 @@ func splitLedgerKey(k string) (field, ccy string, ok bool) {
 // assignCurrencyLedgerValue parses and stores one canonical ledger field.
 func assignCurrencyLedgerValue(ledger map[string]*CurrencyLedger, field, ccy, val string) {
 	parsed, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
-	if err != nil {
+	if err != nil || (field == "SettledCash" && (math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed == math.MaxFloat64)) {
 		return
 	}
 	row, ok := ledger[ccy]

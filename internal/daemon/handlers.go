@@ -115,10 +115,11 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		baseCurrency = normCcy(raw.BaseCurrency)
 	}
 	res := &rpc.AccountResult{
-		AccountID:    raw.AccountID,
-		AccountType:  raw.AccountType,
-		BaseCurrency: baseCurrency,
-		AsOf:         accountResultAuthorityAsOf(authority, time.Now().UTC()),
+		SettlementObservation: accountSettlementObservation(raw, provenance),
+		AccountID:             raw.AccountID,
+		AccountType:           raw.AccountType,
+		BaseCurrency:          baseCurrency,
+		AsOf:                  accountResultAuthorityAsOf(authority, time.Now().UTC()),
 	}
 	if raw.NetLiquidation != nil {
 		res.NetLiquidation = *raw.NetLiquidation
@@ -255,6 +256,7 @@ func finalizeAccountSummarySession(res *rpc.AccountResult, authority accountSumm
 		return authority
 	}
 	if res != nil {
+		res.SettlementObservation = nil
 		if res.Authority != nil {
 			res.Authority.Availability = rpc.AccountDataUnavailable
 			res.Authority.Freshness = rpc.AccountDataFreshnessUnknown

@@ -2002,7 +2002,8 @@ type AccountResult struct {
 	BaseCurrencyLedger *CurrencyExposure `json:"base_currency_ledger,omitempty"`
 	// CashLedger reports the supplemental Web API source without changing the
 	// TWS account-summary authority or timestamp.
-	CashLedger *CashLedgerHealth `json:"cash_ledger,omitempty"`
+	CashLedger            *CashLedgerHealth             `json:"cash_ledger,omitempty"`
+	SettlementObservation *AccountSettlementObservation `json:"settlement_observation,omitempty"`
 }
 
 // CashLedgerHealth is value-free source health for the optional broker ledger.

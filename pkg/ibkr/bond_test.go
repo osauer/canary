@@ -714,11 +714,10 @@ func TestBondYieldTicksAndGenericTicks(t *testing.T) {
 	}
 }
 
-// SettledCash is a typed $LEDGER field: admitted from an Account=All row on
-// a single-account login, projected per currency, and unobserved (never
-// zero) when the gateway sends none.
+// Only explicitly broker-labeled SettledCash is a typed native ledger field.
+// Unprefixed aggregate callbacks remain unavailable as native cash.
 func TestLedgerSettledCashIsTyped(t *testing.T) {
-	if got := accountSummaryRequestRowDisposition("All", "SettledCash", "USD", "DU1234567", []string{"DU1234567"}); got != accountSummaryRowAcceptLedger {
+	if got := accountSummaryRequestRowDisposition("All", "$LEDGER-SettledCash", "USD", "DU1234567", []string{"DU1234567"}); got != accountSummaryRowAcceptLedger {
 		t.Fatalf("SettledCash ledger row disposition = %v", got)
 	}
 	ledger := extractCurrencyLedger(map[string]string{"$LEDGER:CashBalance_USD": "12000", "$LEDGER:SettledCash_USD": "11000", "$LEDGER:CashBalance_EUR": "500"})

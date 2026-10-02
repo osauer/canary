@@ -17,6 +17,8 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- Account reads explicitly request settled cash and report sanitized callback labels. Ambiguous account-wide totals, unknown account inventory, forged ledger labels, unset sentinels and nonfinite settled values cannot become native-currency sweep funding. Completed request rows cannot be rewritten by later subscription updates.
+
 - Flex Cash Report exports without a separate row report date now use their exact statement-matched period end. Explicit conflicting or invalid dates remain refused; historical cash still cannot authorize a sweep.
 - Bill top-ups apply whole-order minimums to principal on both sides and show fee-adjusted sale proceeds plus the remaining cash gap. Partial restoration is allowed; fees do not trigger repeated previews or automatic resizing. Lot rounding cannot authorize a tiny residual or exceed the order cap.
 - Missing or malformed bill trading hours no longer fall back to assumed weekday execution windows. Supported USD/EUR payment calendars include holidays; each route requires a reviewed settlement lag and expiry.
