@@ -19,7 +19,7 @@ flowchart LR
 ## Evidence and acquisition
 
 Enable these sections in the existing query: Net Asset Value Summary in Base
-(daily totals and currency), Cash Report (all fields), Interest Accruals (all
+(all component fields, daily totals and currency), Cash Report (all fields), Interest Accruals (all
 fields), Open Positions at Summary detail (currency, report date, contract ID,
 quantity, multiplier, mark price and native position value), Conversion Rates
 (date, from/to currencies and rate), Trades at Execution detail (identifiers,
@@ -29,7 +29,10 @@ type, native amount/currency and FX rate), Transfers and Corporate Actions.
 Existing Recon/Edge query requirements still apply.
 
 The daemon first fetches the full current-year NAV calendar with its prior-year
-opening boundary, then one report per broker reporting date. It fetches recent
+opening boundary, then one report per broker reporting date. Leap years split
+the calendar into windows within the broker’s 365-date bound. The complete
+requested broker report supplies the interior calendar; endpoint checks do not
+independently establish that IBKR emitted every possible reporting date. It fetches recent
 days first, shares the ordinary Flex request mutex and pauses ten seconds between
 jobs. Daily acquisition resumes from accepted statements after restart. No new
 credentials, query, trading connection or broker order is created. Files stay in
@@ -51,7 +54,10 @@ read unaccepted replacement bytes.
 Only accepted files tagged for the active query and current account are used.
 An attached XML report is useful for diagnosis; copying it into the directory
 does not establish that authority. Newest daily broker generation wins;
-conflicting equal generations fail closed. Both daily boundaries must match the
+conflicting equal generations fail closed. Broker-cached historical reports are
+ordered within their own account/date range, so an older generation from a
+different range cannot block valid backfill. Ordinary reporting retains its
+global freshness guard. Both daily boundaries must match the
 canonical NAV calendar. Restated NAV requires refreshed daily evidence.
 
 ## Calculation and reconciliation

@@ -1,7 +1,10 @@
 package daemon
 
 import (
+	"context"
+	"github.com/osauer/canary/v2/internal/config"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -119,5 +122,64 @@ func TestFXPeriodsAndHistoricalExposure(t *testing.T) {
 	r = buildFX(rows, now)
 	if r.Periods[3].Contribution != nil || r.Periods[3].State != "partial" || len(r.Periods[3].MissingDays) != 2 {
 		t.Fatalf("gap certified: %+v", r.Periods[3])
+	}
+}
+
+func TestFXHistoricalRetentionScopesGeneration(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	selection := flexEvidenceSelection{ActiveQueryFingerprint: flexQueryFingerprint("synthetic-query")}
+	annual := reportingFlexFixture("20260101", "20260824")
+	if _, err := retainFlexStatementWithGenerationPolicy(t.Context(), annual, selection, false); err != nil {
+		t.Fatal(err)
+	}
+	cached := []byte(strings.ReplaceAll(string(reportingFlexFixture("20260820", "20260820")), "20260824;120000", "20260821;120000"))
+	if _, err := retainFlexStatementWithGenerationPolicy(t.Context(), cached, selection, false); err == nil {
+		t.Fatal("ordinary freshness guard bypassed")
+	}
+	if _, err := retainFlexStatementWithGenerationPolicy(t.Context(), cached, selection, true); err != nil {
+		t.Fatal("cached historic day refused", err)
+	}
+	older := []byte(strings.ReplaceAll(string(cached), "20260821;120000", "20260820;120000"))
+	if _, err := retainFlexStatementWithGenerationPolicy(t.Context(), older, selection, true); err == nil {
+		t.Fatal("older generation of same daily scope accepted")
+	}
+	otherQuery := flexEvidenceSelection{ActiveQueryFingerprint: flexQueryFingerprint("other-synthetic-query")}
+	if _, err := retainFlexStatementWithGenerationPolicy(t.Context(), older, otherQuery, true); err != nil {
+		t.Fatal("other query's generation contaminated scope", err)
+	}
+}
+
+func TestFXAcquisitionRequiresRequestedRangeAndSharedLane(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	day := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	srv := &Server{cfg: &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "synthetic-query"}}}
+	srv.flexRawDateRangeLockedFn = func(_ context.Context, from, to time.Time, _ int, query, token string) ([]byte, error) {
+		if srv.flexBrokerMu.TryLock() {
+			srv.flexBrokerMu.Unlock()
+			t.Fatal("historical fetch outside shared lane")
+		}
+		return reportingFlexFixture("20260819", "20260819"), nil
+	}
+	if _, err := srv.fetchFXStatement(t.Context(), day, day); err == nil {
+		t.Fatal("off-day broker report retained as requested day")
+	}
+}
+
+func TestFXLeapYearSeedStaysWithinBrokerBound(t *testing.T) {
+	from := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	a, b, complete := fxNextSeed(nil, from, "2024-12-31")
+	if complete || a != from || int(b.Sub(a).Hours()/24)+1 > 365 || b.Weekday() == time.Saturday || b.Weekday() == time.Sunday {
+		t.Fatal("invalid primary calendar window", a, b, complete)
+	}
+	prior := from.AddDate(0, 0, -1)
+	seed := flexstmt.Statement{FromDate: from, ToDate: b, Equity: []flexstmt.EquityRow{{ReportDate: prior}, {ReportDate: b}}}
+	a, b, complete = fxNextSeed([]flexstmt.Statement{seed}, from, "2024-12-31")
+	if complete || a.Format(performanceDayFormat) != "2024-12-31" || b.Format(performanceDayFormat) != "2024-12-31" {
+		t.Fatal("tail calendar not requested", a, b)
+	}
+	tail := flexstmt.Statement{FromDate: a, ToDate: b, Equity: []flexstmt.EquityRow{{ReportDate: seed.ToDate}, {ReportDate: b}}}
+	_, _, complete = fxNextSeed([]flexstmt.Statement{seed, tail}, from, "2024-12-31")
+	if !complete {
+		t.Fatal("reconciled two-window calendar refused")
 	}
 }

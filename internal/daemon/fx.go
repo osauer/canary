@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -83,6 +84,7 @@ func buildFX(rows []flexstmt.Statement, now time.Time) rpc.FXResult {
 	// boundary. No weekends, holidays, missing closes or prices are invented.
 	nav := map[string]float64{}
 	generation := map[string]time.Time{}
+	navConflict := map[string]bool{}
 	ordered := append([]flexstmt.Statement(nil), rows...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].WhenGenerated.After(ordered[j].WhenGenerated) })
 	snapshots := map[string]*flexstmt.FXSnapshot{}
@@ -91,6 +93,9 @@ func buildFX(rows []flexstmt.Statement, now time.Time) rpc.FXResult {
 	for _, st := range ordered {
 		for _, row := range st.Equity {
 			d := row.ReportDate.Format(performanceDayFormat)
+			if existing, ok := nav[d]; ok && generation[d].Equal(st.WhenGenerated) && math.Abs(existing-row.TotalBase) > .02 {
+				navConflict[d] = true
+			}
 			if _, ok := nav[d]; !ok {
 				nav[d] = row.TotalBase
 				generation[d] = st.WhenGenerated
@@ -138,6 +143,11 @@ func buildFX(rows []flexstmt.Statement, now time.Time) rpc.FXResult {
 			}
 			if f.Reason == "" {
 				day = attributeFX(f, snapshots[f.PreviousDay])
+				if navConflict[d] || navConflict[f.PreviousDay] {
+					day.Contribution = nil
+					day.ReconciliationResidual = nil
+					day.Reason = "conflicting_nav_evidence"
+				}
 				if index == 0 || f.PreviousDay != dates[index-1] {
 					day.Contribution = nil
 					day.ReconciliationResidual = nil
@@ -148,7 +158,7 @@ func buildFX(rows []flexstmt.Statement, now time.Time) rpc.FXResult {
 					day.ReconciliationResidual = nil
 					day.Reason = "restated_opening_nav_requires_daily_snapshot"
 				}
-				if math.Abs(nav[d]-f.NAV) > .02 && generation[d].After(snapshotGeneration[d]) {
+				if math.Abs(nav[d]-f.NAV) > .02 {
 					day.Contribution = nil
 					day.ReconciliationResidual = nil
 					day.Reason = "restated_nav_requires_daily_snapshot"
@@ -234,12 +244,7 @@ func buildFX(rows []flexstmt.Statement, now time.Time) rpc.FXResult {
 	r.State = r.Periods[len(r.Periods)-1].State
 	// No short retained window may claim a YTD total. The seed statement must
 	// cover Jan 1 through the latest completed day, including its opening NAV.
-	seeded := false
-	for _, st := range rows {
-		if fxCalendarSeed(st, time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC), latest) {
-			seeded = true
-		}
-	}
+	_, _, seeded := fxNextSeed(rows, time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC), latest)
 	if !seeded {
 		p := &r.Periods[len(r.Periods)-1]
 		p.State = "partial"
@@ -350,14 +355,9 @@ func (s *Server) startFXWorker(ctx context.Context) {
 				}
 				latest := latestCompletedFlexDate(now)
 				from := time.Date(now.Year(), 1, 1, 0, 0, 0, 0, time.UTC)
-				seeded := false
-				for _, st := range rows {
-					if fxCalendarSeed(st, from, latest.Format(performanceDayFormat)) {
-						seeded = true
-					}
-				}
+				seedFrom, seedTo, seeded := fxNextSeed(rows, from, latest.Format(performanceDayFormat))
 				if !seeded {
-					_, err = s.fetchFlexDateRange(ctx, from.AddDate(0, 0, -1), latest)
+					_, err = s.fetchFXStatement(ctx, seedFrom, seedTo)
 				} else {
 					result := buildFX(rows, now)
 					required := map[string]bool{}
@@ -400,7 +400,7 @@ func (s *Server) startFXWorker(ctx context.Context) {
 						attemptedDay = dates[0]
 						attempted[dates[0]] = true
 						day, _ := time.Parse(performanceDayFormat, dates[0])
-						_, err = s.fetchFlexDateRange(ctx, day, day)
+						_, err = s.fetchFXStatement(ctx, day, day)
 					}
 				}
 				if err == nil {
@@ -413,6 +413,10 @@ func (s *Server) startFXWorker(ctx context.Context) {
 					delete(attempted, attemptedDay)
 				}
 				s.fxReason = "backfill_fetch_or_acceptance_failed"
+				if failure, ok := errors.AsType[*flexFetchFailure](err); ok {
+					s.fxReason = "backfill_" + failure.reason
+				}
+				s.warnf("FX backfill: %s", s.fxReason)
 				delay = time.Minute
 			} else {
 				s.fxReason = ""
@@ -430,6 +434,37 @@ func (s *Server) startFXWorker(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// fetchFXStatement retains only a broker-authenticated response matching
+// the requested historical range. It serializes on the same lane as ordinary Flex fetches.
+func (s *Server) fetchFXStatement(ctx context.Context, from, to time.Time) (flexFetchOutcome, error) {
+	if from.IsZero() || to.IsZero() || from.After(to) || int(to.Sub(from)/(24*time.Hour))+1 > 365 {
+		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonQueryInvalid, detail: "historical FX request range invalid"}
+	}
+	s.flexBrokerMu.Lock()
+	defer s.flexBrokerMu.Unlock()
+	query := s.cfg.Flex.QueryID
+	var raw []byte
+	var err error
+	if s.flexRawDateRangeLockedFn != nil {
+		raw, err = s.flexRawDateRangeLockedFn(ctx, from, to, flexPollAttempts, query, s.cfg.Flex.TokenPath)
+	} else {
+		raw, err = fetchFlexRawDateRangeWithCredentialsLocked(ctx, from, to, flexPollAttempts, query, s.cfg.Flex.TokenPath)
+	}
+	if err != nil {
+		return flexFetchOutcome{}, err
+	}
+	rows, err := flexstmt.Parse(raw)
+	if err != nil {
+		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, detail: "daily FX report could not be parsed"}
+	}
+	for _, row := range rows {
+		if !row.FromDate.Equal(from) || !row.ToDate.Equal(to) {
+			return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, detail: "historical FX report does not match requested range"}
+		}
+	}
+	return retainFlexStatementWithGenerationPolicy(ctx, raw, flexEvidenceSelection{ActiveQueryFingerprint: flexQueryFingerprint(query)}, true)
 }
 
 func (s *Server) handleFXBackfill(ctx context.Context) (*rpc.FXResult, error) {
@@ -457,4 +492,39 @@ func fxCalendarSeed(st flexstmt.Statement, from time.Time, through string) bool 
 		}
 	}
 	return opening && closing
+}
+
+// fxNextSeed splits a leap-year calendar within Flex's 365-date request bound.
+// Each window must include its opening NAV and last broker reporting close.
+func fxNextSeed(rows []flexstmt.Statement, from time.Time, through string) (time.Time, time.Time, bool) {
+	end, _ := time.Parse(performanceDayFormat, through)
+	if end.Before(from) {
+		return time.Time{}, time.Time{}, true
+	}
+	cap := from.AddDate(0, 0, 364)
+	if end.Before(cap) {
+		cap = end
+	}
+	for cap.Weekday() == time.Saturday || cap.Weekday() == time.Sunday {
+		cap = cap.AddDate(0, 0, -1)
+	}
+	primary := false
+	for _, st := range rows {
+		if fxCalendarSeed(st, from, cap.Format(performanceDayFormat)) {
+			primary = true
+		}
+	}
+	if !primary {
+		return from, cap, false
+	}
+	if !end.After(cap) {
+		return time.Time{}, time.Time{}, true
+	}
+	tail := cap.AddDate(0, 0, 1)
+	for _, st := range rows {
+		if fxCalendarSeed(st, tail, through) {
+			return time.Time{}, time.Time{}, true
+		}
+	}
+	return tail, end, false
 }

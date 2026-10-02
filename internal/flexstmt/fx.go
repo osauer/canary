@@ -336,6 +336,15 @@ func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {
 		if !d.Equal(st.ToDate) {
 			continue
 		}
+		for _, key := range []string{"ipoSubscription", "slbDirectSecuritiesBorrowed", "slbDirectSecuritiesLent", "commodities", "notes", "dividendAccruals", "liteSurchargeAccruals", "cgtWithholdingAccruals", "incentiveCouponAccruals", "brokerFeesAccrualsComponent", "eventContractInterestAccruals", "marginFinancingChargeAccruals", "softDollars", "forexCfdUnrealizedPl", "cfdUnrealizedPl", "physDel", "crypto", "bondInterestAccrualsComponent", "fdicInsuredAccountInterestAccrualsComponent"} {
+			v, err := row.number(key)
+			if err != nil {
+				return fmt.Errorf("nav_component_coverage_missing")
+			}
+			if math.Abs(v) > .000001 {
+				return fmt.Errorf("unsupported_native_nav_component")
+			}
+		}
 		checks := map[string]float64{"cash": 0, "stock": positionTotals["STK"], "options": positionTotals["OPT"], "bonds": positionTotals["BOND"], "funds": positionTotals["FUND"], "interestAccruals": 0}
 		for c, v := range f.CashEnd {
 			checks["cash"] += v * f.Rates[c]

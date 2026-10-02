@@ -634,6 +634,14 @@ func (s *Server) retainFlexStatementForQuery(ctx context.Context, raw []byte, qu
 }
 
 func retainFlexStatementSelected(ctx context.Context, raw []byte, selection flexEvidenceSelection) (flexFetchOutcome, error) {
+	return retainFlexStatementWithGenerationPolicy(ctx, raw, selection, false)
+}
+
+// Historical reports may be broker-cached before a newly generated
+// annual report. Their generation must advance their own account/date-range scope,
+// not the generation of an unrelated date range. Ordinary fetches retain the
+// global freshness guard. Only authenticated historical FX acquisition uses this.
+func retainFlexStatementWithGenerationPolicy(ctx context.Context, raw []byte, selection flexEvidenceSelection, historical bool) (flexFetchOutcome, error) {
 	statements, err := flexstmt.Parse(raw)
 	if err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, retryable: true, detail: "Flex report did not match the expected format"}
@@ -657,6 +665,20 @@ func retainFlexStatementSelected(ctx context.Context, raw []byte, selection flex
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, retryable: true, detail: "Flex report did not carry a coverage date"}
 	}
 	_, latestGenerated, evidenceOK := latestFlexEvidenceSelected(ctx, selection)
+	if historical {
+		retained, _, err := loadRetainedFlexStatementsContextSelected(ctx, nil, selection)
+		if err != nil {
+			return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonStorageFailed, retryable: true, detail: "historical daily generations could not be verified"}
+		}
+		for _, incoming := range statements {
+			for _, old := range retained {
+				if old.AccountID == incoming.AccountID && old.FromDate.Equal(incoming.FromDate) && old.ToDate.Equal(incoming.ToDate) && incoming.WhenGenerated.Before(old.WhenGenerated) {
+					return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "IBKR returned an older daily report generation"}
+				}
+			}
+		}
+		evidenceOK = false
+	}
 	if evidenceOK && generated.Before(latestGenerated) {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "IBKR returned an older report generation"}
 	}
