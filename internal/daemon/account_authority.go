@@ -160,6 +160,11 @@ func cloneRawAccountSummary(in *ibkrlib.RawAccountSummary) *ibkrlib.RawAccountSu
 		return nil
 	}
 	out := *in
+	if in.SettlementObservation != nil {
+		observation := *in.SettlementObservation
+		observation.Rows = append([]ibkrlib.AccountSettlementRow(nil), observation.Rows...)
+		out.SettlementObservation = &observation
+	}
 	out.NetLiquidation = cloneFloat64Ptr(in.NetLiquidation)
 	out.BuyingPower = cloneFloat64Ptr(in.BuyingPower)
 	out.AvailableFunds = cloneFloat64Ptr(in.AvailableFunds)
