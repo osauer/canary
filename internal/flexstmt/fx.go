@@ -18,6 +18,9 @@ type FXSnapshot struct {
 	InterestStart, InterestEnd             map[string]float64
 	Conversion, External                   map[string]float64
 	ExternalBase, NAV                      float64
+	// Calendar reports identify lending days to acquire first, so missing
+	// native evidence is discovered before the rest of a long backfill.
+	LendingDays []string
 }
 
 type fxNode struct {
@@ -66,6 +69,17 @@ func parseFXSnapshots(data []byte, statements []Statement) {
 		st := &statements[i]
 		f := &FXSnapshot{Day: st.ToDate.Format("2006-01-02"), SingleDay: st.FromDate.Equal(st.ToDate), Book: map[string]float64{}, Rates: map[string]float64{}, CashStart: map[string]float64{}, CashEnd: map[string]float64{}, InterestStart: map[string]float64{}, InterestEnd: map[string]float64{}, Conversion: map[string]float64{}, External: map[string]float64{}}
 		st.FX = f
+		if raw.NAV != nil {
+			for _, row := range raw.NAV.Rows {
+				borrowed, _ := row.number("slbDirectSecuritiesBorrowed")
+				lent, _ := row.number("slbDirectSecuritiesLent")
+				if borrowed != 0 || lent != 0 {
+					if day, err := parseFlexDate(row.text("reportDate")); err == nil {
+						f.LendingDays = append(f.LendingDays, day.Format("2006-01-02"))
+					}
+				}
+			}
+		}
 		if !f.SingleDay {
 			f.Reason = "daily_statement_required"
 			continue

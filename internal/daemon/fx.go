@@ -360,6 +360,14 @@ func (s *Server) startFXWorker(ctx context.Context) {
 					_, err = s.fetchFXStatement(ctx, seedFrom, seedTo)
 				} else {
 					result := buildFX(rows, now)
+					lending := map[string]bool{}
+					for _, st := range rows {
+						if st.FX != nil {
+							for _, day := range st.FX.LendingDays {
+								lending[day] = true
+							}
+						}
+					}
 					required := map[string]bool{}
 					for _, d := range result.Days {
 						if d.Contribution == nil {
@@ -390,7 +398,12 @@ func (s *Server) startFXWorker(ctx context.Context) {
 							dates = append(dates, day)
 						}
 					}
-					sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+					sort.Slice(dates, func(i, j int) bool {
+						if lending[dates[i]] != lending[dates[j]] {
+							return lending[dates[i]]
+						}
+						return dates[i] > dates[j]
+					})
 					s.fxMu.Lock()
 					s.fxRunning = len(dates) > 0
 					s.fxMu.Unlock()

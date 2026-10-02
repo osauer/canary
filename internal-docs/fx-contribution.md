@@ -26,6 +26,9 @@ quantity, multiplier, mark price and native position value), Conversion Rates
 report date, asset category, symbol, native quantity/proceeds/price, taxes,
 commission and commission currency), Cash Transactions (identity, report date,
 type, native amount/currency and FX rate), Transfers and Corporate Actions.
+For lending balances, also enable Securities Borrowed/Lent and Securities
+Borrowed/Lent Activity with all fields; the base NAV alone cannot establish
+the native currency of a lending liability.
 Existing Recon/Edge query requirements still apply.
 
 The daemon first fetches the full current-year NAV calendar with its prior-year
@@ -33,7 +36,8 @@ opening boundary, then one report per broker reporting date. Leap years split
 the calendar into windows within the broker’s 365-date bound. The complete
 requested broker report supplies the interior calendar; endpoint checks do not
 independently establish that IBKR emitted every possible reporting date. It fetches recent
-days first, shares the ordinary Flex request mutex and enforces ten seconds between SendRequests across all consumers
+days first, prioritising lending dates identified by NAV to discover missing
+native evidence early. It shares the ordinary Flex request mutex and enforces ten seconds between SendRequests across all consumers
 (at most six per minute). Generation time counts toward that interval. Daily acquisition resumes from accepted statements after restart. No new
 credentials, query, trading connection or broker order is created. Files stay in
 the private statement directory and the existing SQLite inventory.
@@ -96,7 +100,9 @@ continues to process those events separately.
 
 `canary-fx-v1` exposes ascending `days`, four `periods`, the shared `method`,
 `base_currency`, last completed `through` and `backfill` progress. Money is absent
-when unknown; an observed zero is present. Complete counts are required for
+when unknown; an observed zero is present. The public validator checks dated
+daily bridge residuals, period boundaries, counts, missing dates and totals
+against the daily evidence. Complete counts are required for
 `available` and `no_exposure`. Partial periods show known daily effects but omit
 the total; missing dates are explicit and must not be interpolated.
 

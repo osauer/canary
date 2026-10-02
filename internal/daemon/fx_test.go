@@ -204,3 +204,71 @@ func TestFXSharedPacingCancelsBeforeSending(t *testing.T) {
 		t.Fatal("shared lane permits more than six requests per minute")
 	}
 }
+
+func TestFXCanonicalNAVAndCurrencyFailures(t *testing.T) {
+	now := time.Date(2026, 1, 6, 12, 0, 0, 0, time.UTC)
+	fixture := func() []flexstmt.Statement {
+		dates := []string{"2025-12-31", "2026-01-01", "2026-01-02", "2026-01-05"}
+		rows := []flexstmt.Statement{}
+		equity := []flexstmt.EquityRow{}
+		for i, d := range dates {
+			day, _ := time.Parse(performanceDayFormat, d)
+			f := fxTestSnapshot(d, "2025-12-30", 1000, 0, .9)
+			if i > 0 {
+				f.PreviousDay = dates[i-1]
+			}
+			rows = append(rows, flexstmt.Statement{FromDate: day, ToDate: day, WhenGenerated: now, FX: f})
+			equity = append(equity, flexstmt.EquityRow{ReportDate: day, TotalBase: 1000})
+		}
+		return append(rows, flexstmt.Statement{FromDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ToDate: time.Date(2026, 1, 5, 0, 0, 0, 0, time.UTC), WhenGenerated: now, Equity: equity})
+	}
+	for _, opening := range []bool{false, true} {
+		rows := fixture()
+		index := 3
+		want := "restated_nav_requires_daily_snapshot"
+		if opening {
+			index = 2
+			want = "restated_opening_nav_requires_daily_snapshot"
+		}
+		rows[4].Equity[index].TotalBase++
+		r := buildFX(rows, now)
+		last := r.Days[len(r.Days)-1]
+		if last.Contribution != nil || last.Reason != want {
+			t.Fatalf("restatement certified: %+v", last)
+		}
+	}
+	t.Run("equal generation NAV conflict", func(t *testing.T) {
+		rows := fixture()
+		conflict := rows[4]
+		conflict.Equity = append([]flexstmt.EquityRow{}, conflict.Equity...)
+		conflict.Equity[3].TotalBase++
+		r := buildFX(append(rows, conflict), now)
+		if r.Days[len(r.Days)-1].Contribution != nil || r.Periods[3].Contribution != nil {
+			t.Fatal("conflicting NAV certified")
+		}
+	})
+	t.Run("base currency change", func(t *testing.T) {
+		rows := fixture()
+		rows[2].FX.BaseCurrency = "USD"
+		r := buildFX(rows, now)
+		if r.BaseCurrency != "" || r.Reason != "base_currency_changed_within_year" {
+			t.Fatal("mixed currency labelled", r)
+		}
+		for _, p := range r.Periods {
+			if p.Contribution != nil {
+				t.Fatal("mixed currency total certified")
+			}
+		}
+		if err := rpc.ValidateFXResult(r); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("short calendar cannot certify YTD", func(t *testing.T) {
+		rows := fixture()
+		rows[4].FromDate = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+		r := buildFX(rows, now)
+		if r.Periods[3].Contribution != nil || r.Reason != "year_to_date_calendar_backfill_required" {
+			t.Fatal("short calendar certified YTD")
+		}
+	})
+}
