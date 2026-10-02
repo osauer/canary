@@ -15,6 +15,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- Flex Cash Report exports without a separate row report date now use their exact statement-matched period end. Explicit conflicting or invalid dates remain refused; historical cash still cannot authorize a sweep.
 - Bill top-ups now size and check net sale proceeds after maximum commission, with the same whole-order minimum as purchases. Lot rounding cannot authorize a tiny residual or exceed the order cap.
 - Missing or malformed bill trading hours no longer fall back to assumed weekday execution windows. Supported USD/EUR payment calendars include holidays; each route requires a reviewed settlement lag and expiry.
 

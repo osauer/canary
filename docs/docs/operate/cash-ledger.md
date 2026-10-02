@@ -9,9 +9,13 @@ separately certify live balances.
 ## Historical Flex baseline
 
 In the existing Activity Flex Query, enable **Cash Report** and select
-`accountId`, `currency`, `fromDate`, `toDate`, `reportDate`, `endingCash` and
+`accountId`, `currency`, `fromDate`, `toDate`, `endingCash` and
 `endingSettledCash`. Fetch a new statement. This adds no gateway login and does
 not change the required Recon/Edge reporting profile.
+
+Native cash exports can omit `reportDate`: Canary binds it to the row's `toDate`
+only when that date exactly matches the parent statement's period end. If
+`reportDate` is supplied, it must also match; empty or invalid values are refused.
 
 Canary reads only accepted, query-scoped statement bytes bound to the current
 account/mode. The selected report must cover the latest completed New York

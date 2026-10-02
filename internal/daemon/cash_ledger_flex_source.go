@@ -41,7 +41,7 @@ type flexCashSourceStatement struct {
 	AcceptedAt time.Time
 }
 
-const flexCashReportOwnerAction = "enable Cash Report with currency, fromDate, toDate, reportDate, endingCash and endingSettledCash in the existing Activity Flex Query, then fetch a new statement"
+const flexCashReportOwnerAction = "enable Cash Report with currency, fromDate, toDate, endingCash and endingSettledCash in the existing Activity Flex Query, then fetch a new statement"
 
 // flexSettledCashBaseline reads only bytes already accepted in the current
 // query-scoped SQLite inventory. New, changed or missing files invalidate the

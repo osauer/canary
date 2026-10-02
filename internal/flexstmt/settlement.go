@@ -25,7 +25,7 @@ const SettlementManifestVersion = "canary-settlement-flex-v1"
 
 var settlementManifest = ManifestSection{
 	Key: "cash_report", Label: "Cash Report", Container: "CashReport", Row: "CashReportCurrency",
-	RequiredFields: []string{"accountId", "currency", "fromDate", "toDate", "reportDate", "endingCash", "endingSettledCash"},
+	RequiredFields: []string{"accountId", "currency", "fromDate", "toDate", "endingCash", "endingSettledCash"},
 }
 
 // SettlementQueryManifest returns the optional section independently of the
@@ -148,11 +148,13 @@ func parseStatementCashBalances(raw xmlCashStatement, st *Statement, namespace s
 			return "cash_report_ambiguous_segments"
 		}
 	}
-	for field, expected := range map[string]time.Time{"fromDate": st.FromDate, "toDate": st.ToDate, "reportDate": st.ToDate, "whenGenerated": st.WhenGenerated} {
-		if rawDate, exists := container[field]; exists {
-			date, err := parseFlexDate(rawDate)
-			if err != nil || !date.Equal(expected) {
-				return "cash_report_invalid_dates"
+	for _, scope := range []map[string]string{parent, container} {
+		for field, expected := range map[string]time.Time{"fromDate": st.FromDate, "toDate": st.ToDate, "reportDate": st.ToDate, "whenGenerated": st.WhenGenerated} {
+			if rawDate, exists := scope[field]; exists {
+				date, err := parseFlexDate(rawDate)
+				if err != nil || !date.Equal(expected) {
+					return "cash_report_invalid_dates"
+				}
 			}
 		}
 	}
@@ -188,7 +190,14 @@ func parseStatementCashBalances(raw xmlCashStatement, st *Statement, namespace s
 		seen[ccy] = true
 		from, e1 := parseFlexDate(row["fromDate"])
 		to, e2 := parseFlexDate(row["toDate"])
-		report, e3 := parseFlexDate(row["reportDate"])
+		// Native CashReportCurrency exports may omit reportDate. Bind that
+		// absent field to the row's exact period end, which is checked against
+		// the parent below. An explicitly supplied value must still validate;
+		// empty, malformed or conflicting values cannot use this fallback.
+		report, e3 := to, e2
+		if reportDate, supplied := row["reportDate"]; supplied {
+			report, e3 = parseFlexDate(reportDate)
+		}
 		if e1 != nil || e2 != nil || e3 != nil || !from.Equal(st.FromDate) || !to.Equal(st.ToDate) || !report.Equal(st.ToDate) || !settlementDay(from) || !settlementDay(to) || !settlementDay(report) {
 			return "cash_report_invalid_dates"
 		}

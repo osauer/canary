@@ -441,7 +441,7 @@ status and failure.
 ```sh
 canary status --json
 canary brief --json
-canary rules --symbol GME --json
+canary rules --symbol SYNTH --json
 ```
 
 Read market-event `source_health` before flags surfaced by the brief or rules.

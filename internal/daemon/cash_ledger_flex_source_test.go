@@ -69,6 +69,23 @@ func TestFlexCashBaselineAcceptedQueryScopedEvidence(t *testing.T) {
 	}
 }
 
+func TestFlexCashBaselineAcceptedPeriodDatesWithoutRowReportDate(t *testing.T) {
+	s, scope, now := flexCashSourceTestServer(t)
+	raw := syntheticFlexCashSourceXML(scope.Account, "20260918", "20260930", "20261001;003000", "11000")
+	raw = []byte(strings.ReplaceAll(string(raw), ` toDate="20260930" reportDate="20260930"`, ` toDate="20260930"`))
+	acceptSyntheticFlexCash(t, s, raw)
+	baseline, err := s.flexSettledCashBaseline(scope, now)
+	if err != nil {
+		t.Fatalf("exact accepted period-date export rejected: %v", err)
+	}
+	if baseline.Currencies["EUR"].EndingSettledCash == nil || *baseline.Currencies["EUR"].EndingSettledCash != 11000 || baseline.Currencies["USD"].EndingSettledCash == nil || *baseline.Currencies["USD"].EndingSettledCash != 0 {
+		t.Fatal("native cash or explicit zero lost")
+	}
+	if !baseline.ReportDate.Equal(time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)) || baseline.QueryFingerprint != s.configuredFlexQueryFingerprint() || !sameBrokerScope(baseline.Scope, scope) {
+		t.Fatal("period-date baseline lost exact report/query/account binding")
+	}
+}
+
 func TestFlexCashBaselineRejectsWrongAuthorityAndIncompleteSource(t *testing.T) {
 	for _, name := range []string{"wrong query", "wrong account", "wrong mode", "stale date", "missing section", "modified accepted bytes", "unaccepted new file", "duplicate currency"} {
 		t.Run(name, func(t *testing.T) {
