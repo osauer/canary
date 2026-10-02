@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"github.com/osauer/canary/v2/internal/config"
 	"math"
 	"strings"
@@ -11,6 +12,40 @@ import (
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+func TestFXEvidenceCacheRestatementAndRetraction(t *testing.T) {
+	file := func(raw []byte) statementProjectionFile {
+		return statementProjectionFile{data: raw, digest: sha256.Sum256(raw)}
+	}
+	raw := reportingFlexFixture("20260820", "20260820")
+	cache := &fxEvidenceCache{}
+	rows, err := cache.parse(t.Context(), []statementProjectionFile{file(raw)})
+	if err != nil || len(rows) != 1 || len(cache.rows) != 1 {
+		t.Fatal("initial evidence", err)
+	}
+	repeated, err := cache.parse(t.Context(), []statementProjectionFile{file(raw)})
+	if err != nil || repeated[0].FX != rows[0].FX {
+		t.Fatal("exact bytes were reparsed", err)
+	}
+	// An equal-length source restatement must replace the parsed book.
+	restated := []byte(strings.Replace(string(raw), `total="100"`, `total="101"`, 1))
+	if string(restated) == string(raw) {
+		t.Fatal("fixture did not change")
+	}
+	updated, err := cache.parse(t.Context(), []statementProjectionFile{file(restated)})
+	if err != nil || updated[0].Equity[0].TotalBase == rows[0].Equity[0].TotalBase || len(cache.rows) != 1 {
+		t.Fatal("restatement reused old evidence", err)
+	}
+	empty, err := cache.parse(t.Context(), nil)
+	if err != nil || len(empty) != 0 || len(cache.rows) != 0 {
+		t.Fatal("removed evidence retained", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := cache.parse(ctx, []statementProjectionFile{file(raw)}); err != context.Canceled {
+		t.Fatal("cancelled read parsed evidence", err)
+	}
+}
 
 func fxTestSnapshot(day, previous string, eur, usd, rate float64) *flexstmt.FXSnapshot {
 	return &flexstmt.FXSnapshot{Day: day, PreviousDay: previous, BaseCurrency: "EUR", SingleDay: true, Foreign: usd != 0, ClosingForeign: usd != 0, Book: map[string]float64{"EUR": eur, "USD": usd}, Rates: map[string]float64{"EUR": 1, "USD": rate}, NAV: eur + usd*rate, Conversion: map[string]float64{}, External: map[string]float64{}}

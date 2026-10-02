@@ -381,6 +381,7 @@ type Server struct {
 	fxWorker        bool
 	fxWake          chan struct{}
 	fxReason        string
+	fxEvidence      fxEvidenceCache
 	// Test-only seams for the broker fetch and retained-statement projection.
 	flexFetchOnceFn          func(context.Context, time.Time) (flexFetchOutcome, error)
 	flexProjectionFn         func(context.Context) error

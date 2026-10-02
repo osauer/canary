@@ -55,6 +55,12 @@ The MCP tool cannot trigger acquisition. Concurrent local reads may briefly
 report an inventory change while a new report is being accepted; they never
 read unaccepted replacement bytes.
 
+Parsed evidence is reused by its exact SHA-256 to keep repeated full-history
+reads responsive. Every read still fingerprints the files and checks the
+accepted inventory and account/query authority before and after selection.
+Restatements reparse; removed sources retract. The cache supplies no fallback
+when current evidence cannot be verified.
+
 Only accepted files tagged for the active query and current account are used.
 An attached XML report is useful for diagnosis; copying it into the directory
 does not establish that authority. Newest daily broker generation wins;
