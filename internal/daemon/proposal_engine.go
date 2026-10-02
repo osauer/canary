@@ -306,9 +306,11 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	}
 	// Serve guard: proposals are generated from one account/mode session
 	// and must never surface under another (paper proposals shown on a
-	// live session was the originating incident). Proposal-free shells
-	// carry session-independent blockers and pass through unchanged.
-	if len(snap.Proposals) > 0 {
+	// live session was the originating incident). Any account-bound snapshot
+	// stays scoped, including budget/cash status with no generated proposals.
+	// Only genuinely unscoped shells without financial evidence pass through.
+	bound := strings.TrimSpace(snap.AccountID) != "" || strings.TrimSpace(snap.AccountMode) != ""
+	if bound || len(snap.Proposals) > 0 || snap.CashSweep != nil || snap.BudgetReduction != nil || len(snap.OptionHedges) > 0 {
 		scope := e.currentScope()
 		if blockers := proposalScopeBlockers(snap.AccountID, snap.AccountMode, scope); len(blockers) > 0 {
 			shell := emptyProposalSnapshot(e.clock())
@@ -3719,6 +3721,7 @@ func (s *Server) handleTradeProposalsSnapshot(req *rpc.Request) *rpc.TradePropos
 		return &snap
 	}
 	snap := s.tradeProposals.Snapshot(p.Show)
+	rpc.CompactCashSweepDecisionHistory(&snap)
 	return &snap
 }
 
@@ -3732,6 +3735,7 @@ func (s *Server) handleTradeProposalsRefresh(ctx context.Context, req *rpc.Reque
 		return &snap, nil
 	}
 	snap, err := s.tradeProposals.Refresh(ctx, p.Show)
+	rpc.CompactCashSweepDecisionHistory(&snap)
 	return &snap, err
 }
 

@@ -8,8 +8,9 @@ import (
 // CashSweepDecisionTrace is a planning transition, not an execution receipt.
 // SQLite keeps every event; the read-only proposal snapshot carries recent rows.
 type CashSweepDecisionTrace struct {
-	OperationalFunding *CashSweepOperationalObservation `json:"operational_funding,omitempty"`
-	CalibrationStudies []CashSweepCalibrationStudy      `json:"calibration_studies,omitempty"`
+	OperationalFunding *CashSweepOperationalObservation  `json:"operational_funding,omitempty"`
+	CalibrationStudies []CashSweepCalibrationStudy       `json:"calibration_studies,omitempty"`
+	DetailAvailability *CashSweepTraceDetailAvailability `json:"detail_availability,omitempty"`
 	// Receipt clocks describe request/stream observation, never original TWS
 	// field timestamps. Original Web cash time is retained on each currency.
 	AccountReceiptAt        time.Time                   `json:"account_receipt_at,omitzero"`
@@ -31,6 +32,47 @@ type CashSweepDecisionTrace struct {
 	AccountFingerprint      string                      `json:"account_fingerprint,omitempty"`
 	PositionsFingerprint    string                      `json:"positions_fingerprint,omitempty"`
 	Currencies              []CashSweepDecisionCurrency `json:"currencies"`
+}
+
+// CashSweepTraceDetailAvailability distinguishes compact transport history
+// from an observation with no obligations or studies. Full details remain in
+// Canary's SQLite audit. A nil count means the original list was unavailable.
+type CashSweepTraceDetailAvailability struct {
+	State                  string `json:"state"`
+	FundingObligationCount *int   `json:"funding_obligation_count,omitempty"`
+	CalibrationStudyCount  *int   `json:"calibration_study_count,omitempty"`
+}
+
+// CashSweepTraceDetailsRetained identifies omitted transport detail preserved
+// in Canary's full SQLite audit; it never states that the detail is absent.
+const CashSweepTraceDetailsRetained = "retained_in_canary_audit"
+
+// CompactCashSweepDecisionHistory makes a transport-only copy. Current
+// funding/studies stay full, and callers must persist the original snapshot.
+func CompactCashSweepDecisionHistory(snap *TradeProposalSnapshot) {
+	if snap == nil || snap.CashSweep == nil || len(snap.CashSweep.DecisionTrace) == 0 {
+		return
+	}
+	snap.CashSweep = CloneCashSweepStatus(snap.CashSweep)
+	for i := range snap.CashSweep.DecisionTrace {
+		trace := &snap.CashSweep.DecisionTrace[i]
+		// Preserve original counts when a compact snapshot passes through
+		// another adapter; omission must never be rewritten as zero.
+		if trace.DetailAvailability == nil {
+			detail := CashSweepTraceDetailAvailability{State: CashSweepTraceDetailsRetained}
+			if trace.OperationalFunding != nil && trace.OperationalFunding.Obligations != nil {
+				detail.FundingObligationCount = new(len(trace.OperationalFunding.Obligations))
+			}
+			if trace.CalibrationStudies != nil {
+				detail.CalibrationStudyCount = new(len(trace.CalibrationStudies))
+			}
+			trace.DetailAvailability = &detail
+		}
+		if trace.OperationalFunding != nil {
+			trace.OperationalFunding.Obligations = nil
+		}
+		trace.CalibrationStudies = nil
+	}
 }
 
 // CashSweepDecisionCurrency preserves native money and unavailable values.
@@ -57,6 +99,16 @@ func CloneCashSweepDecisionTrace(in []CashSweepDecisionTrace) []CashSweepDecisio
 	out := make([]CashSweepDecisionTrace, len(in))
 	for i, t := range in {
 		out[i] = t
+		if t.DetailAvailability != nil {
+			detail := *t.DetailAvailability
+			if detail.FundingObligationCount != nil {
+				detail.FundingObligationCount = new(*detail.FundingObligationCount)
+			}
+			if detail.CalibrationStudyCount != nil {
+				detail.CalibrationStudyCount = new(*detail.CalibrationStudyCount)
+			}
+			out[i].DetailAvailability = &detail
+		}
 		out[i].OperationalFunding = risk.CloneCashSweepOperationalObservation(t.OperationalFunding)
 		out[i].CalibrationStudies = risk.CloneCashSweepCalibrationStudies(t.CalibrationStudies)
 		out[i].ReserveCushionEUR = cloneCashSweepFloat(t.ReserveCushionEUR)

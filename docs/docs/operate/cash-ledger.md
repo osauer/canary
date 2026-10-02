@@ -1,5 +1,12 @@
 # Settlement evidence for the cash sweep
 
+Read-only proposal history summarizes funding observations and omits repeated
+obligation lists and calibration studies. Each historical row carries
+`detail_availability.state=retained_in_canary_audit` and original list counts;
+a missing count means that list was unavailable, not empty. Current funding
+evidence and studies stay complete. Full historical detail remains unchanged
+in Canary's SQLite audit and retained current state.
+
 Canary explicitly requests `SettledCash` and `$LEDGER:ALL` from TWS. An
 account-wide settled total cannot certify a currency balance. Canary can also
 read an optional historical Flex cash baseline through the existing reporting query.

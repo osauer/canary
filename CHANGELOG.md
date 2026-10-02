@@ -17,6 +17,9 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- Read-only cash-sweep history omits repeated obligation and calibration detail with explicit audit-availability counts, keeping large proposal snapshots within the Desk observer budget. Current evidence and full SQLite audit records remain intact.
+- Cash-sweep and budget status remain bound to the current account and paper/live mode even when there are no proposals to act on.
+
 - Account reads explicitly request settled cash and report sanitized callback labels. Ambiguous account-wide totals, unknown account inventory, forged ledger labels, unset sentinels and nonfinite settled values cannot become native-currency sweep funding. Completed request rows cannot be rewritten by later subscription updates.
 
 - Flex Cash Report exports without a separate row report date now use their exact statement-matched period end. Explicit conflicting or invalid dates remain refused; historical cash still cannot authorize a sweep.
