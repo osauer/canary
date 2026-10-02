@@ -1985,6 +1985,14 @@ function protectionPreviewText(result = null, proposal = {}) {
   if (expiresAt) parts.push(`expires ${shortTimeWithZone(expiresAt)}`);
   const whatIfDetails = protectionWhatIfDetails(preview.what_if || {});
   if (whatIfDetails) parts.push(whatIfDetails);
+  const economics = preview.cash_sweep_economics;
+  if (economics?.message) {
+    parts.push(`Sweep advice: ${shortPreviewMessage(economics.message)}`);
+    if (hasNumericValue(economics.net_proceeds)) parts.push(`estimated net proceeds ${compactMoney(economics.net_proceeds, economics.currency)}; pending settlement`);
+    if (hasNumericValue(economics.remaining_gap) && Number(economics.remaining_gap) > 0) parts.push(`remaining cash gap ${compactMoney(economics.remaining_gap, economics.currency)}`);
+    if (hasNumericValue(economics.incremental_gain_base)) parts.push(`benefit ${compactMoney(economics.incremental_gain_base, economics.base_currency)} (advisory)`);
+    if (economics.as_of) parts.push(`advice as of ${shortTimeWithZone(economics.as_of)}`);
+  }
   if (!submitEligible && whatIfStatus && whatIfAccepted) parts.push("WhatIf accepted");
   if (!submitEligible && preview.what_if?.message) parts.push(shortPreviewMessage(preview.what_if.message));
   if (protectionPreviewStale(result, proposal)) parts.push("live suggestion changed");

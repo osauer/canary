@@ -995,9 +995,9 @@ type protectionCashSweepPolicy struct {
 	Mode string `toml:"mode" json:"mode,omitempty"`
 	// MaxOrderNotional caps one sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); no default, and until it is written the sweep reports needs_your_number.
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// MinOrderNotional is the whole-order minimum in account base currency, on both sides. Zero retains the legacy native min_tranche.
+	// MinOrderNotional is the gross whole-order minimum in account base currency, on both sides. Zero retains the legacy native min_tranche.
 	MinOrderNotional float64 `toml:"min_order_notional" json:"min_order_notional"`
-	// MinNetGain is the minimum incremental purchase gain in base currency through maturity. Zero retains the legacy policy until owner migration.
+	// MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. Below-benchmark or unavailable benefit never blocks or resizes an order; zero omits the benchmark.
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
 	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
@@ -1020,7 +1020,7 @@ type protectionCashSweepCurrency struct {
 	MinTranche float64 `toml:"min_tranche" json:"min_tranche"`
 	// CashInterestRateUpper is a conservative annual decimal opportunity-cost bound. Nil is unknown, including when the broker pays no interest.
 	CashInterestRateUpper *float64 `toml:"cash_interest_rate_upper" json:"cash_interest_rate_upper,omitempty"`
-	// CashInterestValidThrough dates the owner-reviewed bound; expiry holds purchases using min_net_gain.
+	// CashInterestValidThrough dates the owner-reviewed cash-interest assumption; expiry makes the benefit comparison unavailable without blocking an order.
 	CashInterestValidThrough policyDate `toml:"cash_interest_valid_through" json:"cash_interest_valid_through,omitempty"`
 	// SettlementDays is the commissioned lag of the exact broker route in payment business days, between 1 and 5; nil is unknown.
 	SettlementDays *int `toml:"settlement_days" json:"settlement_days,omitempty"`

@@ -8,6 +8,28 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+func renderCashSweepEconomicsAdvice(env *Env, out io.Writer, advice *rpc.CashSweepEconomics) {
+	if advice == nil {
+		return
+	}
+	if advice.NetProceeds != nil {
+		text := cashSweepMoney(*advice.NetProceeds, advice.Currency) + " (estimated; pending settlement)"
+		if advice.RemainingGap != nil && *advice.RemainingGap > 0 {
+			text += " · remaining cash gap " + cashSweepMoney(*advice.RemainingGap, advice.Currency)
+		}
+		statusRow(env, out, "Net proceeds", text)
+	}
+	if advice.IncrementalGainBase != nil {
+		statusRow(env, out, "Benefit (advisory)", cashSweepMoney(*advice.IncrementalGainBase, advice.BaseCurrency))
+	}
+	if advice.Message != "" {
+		statusRow(env, out, "Sweep advice", advice.Message)
+	}
+	if !advice.AsOf.IsZero() {
+		statusRow(env, out, "Advice as of", advice.AsOf.Format("2006-01-02 15:04:05 MST"))
+	}
+}
+
 // renderCashSweepSection prints the cash sweep under its own heading: the
 // mode and the owner's numbers, one band line per currency (with the bill it
 // resolved, or the evidence why none), then the rows. A sweep row buys or
@@ -53,7 +75,7 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 		parts = append(parts, "min order "+cashSweepMoney(st.MinOrderNotionalBase, st.BaseCurrency))
 	}
 	if st.MinNetGainBase > 0 {
-		parts = append(parts, "min incremental gain "+cashSweepMoney(st.MinNetGainBase, st.BaseCurrency))
+		parts = append(parts, "benefit benchmark "+cashSweepMoney(st.MinNetGainBase, st.BaseCurrency)+" (advisory)")
 	}
 	if st.TaxReviewed {
 		parts = append(parts, "tax reviewed "+st.TaxReviewedAt)

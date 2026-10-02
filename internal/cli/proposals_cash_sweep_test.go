@@ -4,9 +4,29 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+func TestCashSweepAdviceDistinguishesUnavailableFromZero(t *testing.T) {
+	var buf bytes.Buffer
+	env := &Env{Stdout: &buf, Stderr: &buf}
+	a := &rpc.CashSweepEconomics{State: "unavailable", Message: "Benefit unavailable; advisory only.", AsOf: time.Date(2099, 1, 5, 12, 0, 0, 0, time.UTC)}
+	renderCashSweepEconomicsAdvice(env, &buf, a)
+	if strings.Contains(buf.String(), "0.00") || !strings.Contains(buf.String(), "2099-01-05") || !strings.Contains(buf.String(), a.Message) {
+		t.Fatalf("unavailable advice: %s", buf.String())
+	}
+	buf.Reset()
+	a.IncrementalGainBase, a.BaseCurrency = new(0.0), "EUR"
+	a.NetProceeds, a.RemainingGap, a.Currency = new(9990.0), new(10.0), "USD"
+	renderCashSweepEconomicsAdvice(env, &buf, a)
+	for _, want := range []string{"Benefit (advisory)", "€ 0.00", "pending settlement", "remaining cash gap $ 10.00"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Fatalf("missing %q: %s", want, buf.String())
+		}
+	}
+}
 
 // Sweep rows sit under their own "Cash sweep" heading after every other row,
 // never under the budget governor's shadow heading, and the heading carries

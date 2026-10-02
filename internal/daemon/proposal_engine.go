@@ -2169,12 +2169,9 @@ func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreview
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
 	params := proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs)
-	var preview *rpc.OrderPreviewResult
-	if p.Quantity <= 0 {
-		preview, err = e.previewSweepSized(ctx, prop, params)
-	} else {
-		preview, err = e.server.previewOrder(ctx, params)
-	}
+	// Review the proposed whole order once. Fees may refuse an unsafe cash
+	// envelope, but never silently change the quantity under review.
+	preview, err := e.server.previewOrder(ctx, params)
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
@@ -2374,12 +2371,7 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	if opts.bounded != nil {
 		params.Strategy, params.Bounded = rpc.OrderStrategyBoundedLimit, opts.bounded
 	}
-	var preview *rpc.OrderPreviewResult
-	if opts.automatic || (p.Quantity <= 0 && opts.queued == nil) {
-		preview, err = e.previewSweepSized(ctx, prop, params)
-	} else {
-		preview, err = e.server.previewOrder(ctx, params)
-	}
+	preview, err := e.server.previewOrder(ctx, params)
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)
@@ -3216,7 +3208,7 @@ func sanitizeProposalPreviewForProposal(in *rpc.OrderPreviewResult, prop rpc.Tra
 	if in == nil {
 		return nil
 	}
-	return &rpc.TradeProposalOrderPreview{PreviewTokenID: in.PreviewTokenID, PreviewTokenScope: in.PreviewTokenScope, PreviewTokenExpiresAt: in.PreviewTokenExpiresAt, TokenMinted: in.TokenMinted, SubmitEligible: in.SubmitEligible, Mode: in.Mode, Account: in.Account, Endpoint: in.Endpoint, ClientID: in.ClientID, Draft: in.Draft, Quote: in.Quote, Position: in.Position, ExecutionSemantics: cloneExecutionSemantics(prop.ExecutionSemantics), StopRisk: cloneStopRisk(prop.StopRisk), Notional: in.Notional, MaxNotional: in.MaxNotional, WhatIf: in.WhatIf, Warnings: append([]rpc.DataWarning(nil), in.Warnings...), AsOf: in.AsOf}
+	return &rpc.TradeProposalOrderPreview{PreviewTokenID: in.PreviewTokenID, PreviewTokenScope: in.PreviewTokenScope, PreviewTokenExpiresAt: in.PreviewTokenExpiresAt, TokenMinted: in.TokenMinted, SubmitEligible: in.SubmitEligible, Mode: in.Mode, Account: in.Account, Endpoint: in.Endpoint, ClientID: in.ClientID, Draft: in.Draft, Quote: in.Quote, Position: in.Position, ExecutionSemantics: cloneExecutionSemantics(prop.ExecutionSemantics), StopRisk: cloneStopRisk(prop.StopRisk), CashSweepEconomics: cashSweepEconomicsAdvisory(prop, in), Notional: in.Notional, MaxNotional: in.MaxNotional, WhatIf: in.WhatIf, Warnings: append([]rpc.DataWarning(nil), in.Warnings...), AsOf: in.AsOf}
 }
 
 func (e *proposalEngine) installSnapshot(snap rpc.TradeProposalSnapshot, show bool, extraEvents ...proposalEvent) error {

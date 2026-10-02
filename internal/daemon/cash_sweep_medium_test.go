@@ -34,12 +34,26 @@ func TestCashSweepMinimumIsAWholeOrderInBaseOnBothSides(t *testing.T) {
 	prop.CashSweep.Side = rpc.CashSweepSideRedeem
 	prop.CashSweep.MinTranche = 0
 	preview.Draft.LimitPrice = 100
-	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_net_proceeds_below_target") {
-		t.Fatalf("gross minimum was confused with net cash: %v", got)
+	prop.CashSweep.RedemptionTarget = 10000
+	if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
+		t.Fatalf("fee changed the gross whole-order floor: %v", got)
+	}
+	if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "partial_restoration" || got.NetProceeds == nil || *got.NetProceeds != 9990 || got.RemainingGap == nil || *got.RemainingGap != 10 {
+		t.Fatalf("sale fee or remaining target disappeared: %+v", got)
 	}
 	preview.Draft.LimitPrice = 100.1
 	if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
-		t.Fatalf("exact net floor failed: %v", got)
+		t.Fatalf("whole-order floor failed: %v", got)
+	}
+	preview.Draft.LimitPrice = 99.99
+	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_below_minimum_tranche") {
+		t.Fatalf("sale below gross floor admitted: %v", got)
+	}
+	preview.Draft.LimitPrice = 100
+	preview.WhatIf.Margin.Commission, preview.WhatIf.Margin.MinCommission = nil, nil
+	preview.WhatIf.Margin.MaxCommission = new(10000.0)
+	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_net_proceeds_invalid") {
+		t.Fatalf("sale cannot restore cash: %v", got)
 	}
 }
 
@@ -54,25 +68,34 @@ func TestCashSweepPurchaseGainIncludesCashInterestAndSpread(t *testing.T) {
 	preview.Quote.DataType = rpc.MarketDataLive
 	// Ten units, 10000 face. Gross discount 100, fee 1, forgone interest ~98.
 	preview.Draft.Quantity = 10
-	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_net_gain_below_minimum") {
-		t.Fatalf("ignored cash opportunity cost: %v", got)
+	if got := cashSweepEconomicsBlockers(prop, preview); len(got) > 0 {
+		t.Fatalf("advisory cash opportunity cost blocked the order: %v", got)
+	}
+	if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "below_benchmark" || got.IncrementalGainBase == nil || *got.IncrementalGainBase >= 25 {
+		t.Fatalf("ignored cash opportunity cost: %+v", got)
 	}
 	prop.CashSweep.CashInterestRateUpper = new(0.0)
 	if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
 		t.Fatalf("explicit zero interest with worthwhile bill: %v", got)
 	}
+	if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "estimated" || got.IncrementalGainBase == nil || math.Abs(*got.IncrementalGainBase-99) > 1e-9 {
+		t.Fatalf("explicit zero interest was lost: %+v", got)
+	}
 	// The actual limit is attractive, but an ask including spread is too costly.
 	preview.Quote.Ask = new(99.9)
-	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_net_gain_below_minimum") {
-		t.Fatalf("spread was ignored: %v", got)
+	if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "below_benchmark" || got.IncrementalGainBase == nil || math.Abs(*got.IncrementalGainBase-9) > 1e-9 {
+		t.Fatalf("spread was ignored: %+v", got)
 	}
 	for _, change := range []func(){func() { prop.CashSweep.CashInterestRateUpper = nil }, func() { prop.CashSweep.CashInterestRateUpper = new(math.NaN()) }, func() {
 		prop.CashSweep.CashInterestRateUpper = new(0.04)
 		prop.CashSweep.CashInterestValidThrough = "2026-01-01"
 	}} {
 		change()
-		if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_net_value_unknown") {
-			t.Fatalf("unknown/stale cash interest became zero: %v", got)
+		if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
+			t.Fatalf("unknown/stale cash interest blocked the order: %v", got)
+		}
+		if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "unavailable" || got.IncrementalGainBase != nil {
+			t.Fatalf("unknown/stale cash interest became zero: %+v", got)
 		}
 	}
 }
@@ -183,7 +206,7 @@ func TestCashSweepUnacknowledgedBuyCannotDisappearFromCommitments(t *testing.T) 
 	}
 }
 
-func TestCashSweepRetainedPreviewCannotRenewExpiredAssumptions(t *testing.T) {
+func TestCashSweepRetainedPreviewExpirySeparatesAdvisoryFromSettlement(t *testing.T) {
 	prop, preview := sweepFeePreview(30000, 1000, 1)
 	prop.CashSweep.MinNetGainBase = 25
 	prop.CashSweep.CashInterestRateUpper = new(0.0)
@@ -191,8 +214,8 @@ func TestCashSweepRetainedPreviewCannotRenewExpiredAssumptions(t *testing.T) {
 	if got := cashSweepCurrentEvidenceBlockers(prop, preview.AsOf); len(got) > 0 {
 		t.Fatalf("valid assumption refused: %v", got)
 	}
-	if got := cashSweepCurrentEvidenceBlockers(prop, preview.AsOf.AddDate(0, 0, 1)); !hasTradingBlocker(got, "cash_sweep_net_value_unknown") {
-		t.Fatalf("old preview renewed expired interest: %v", got)
+	if got := cashSweepCurrentEvidenceBlockers(prop, preview.AsOf.AddDate(0, 0, 1)); len(got) != 0 {
+		t.Fatalf("expired advisory cash-interest assumption blocked order consumption: %v", got)
 	}
 	prop.CashSweep.SettlementValidThrough = preview.AsOf.Format(time.DateOnly)
 	if got := cashSweepCurrentEvidenceBlockers(prop, preview.AsOf.AddDate(0, 0, 1)); !hasTradingBlocker(got, "cash_sweep_settlement_calendar_unknown") {

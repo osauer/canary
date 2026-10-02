@@ -867,6 +867,7 @@ func renderProposalOrderPreview(env *Env, out io.Writer, p *rpc.TradeProposalOrd
 	if p.WhatIf.Action != "" {
 		statusRow(env, out, "WhatIf action", p.WhatIf.Action)
 	}
+	renderCashSweepEconomicsAdvice(env, out, p.CashSweepEconomics)
 	if len(p.Warnings) > 0 {
 		fmt.Fprintln(out, "Warnings:")
 		for _, w := range p.Warnings {

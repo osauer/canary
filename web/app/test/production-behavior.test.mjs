@@ -42,6 +42,25 @@ const marketTape = modules["market-tape"];
 let renderCount = 0;
 installRenderAll(() => { renderCount += 1; });
 
+test("sweep estimates stay advisory and distinguish missing benefit from zero", () => {
+  const advice = { state: "partial_restoration", message: "The reviewed quantity stays fixed.", currency: "USD", base_currency: "EUR", net_proceeds: 49799, remaining_gap: 201, as_of: "2099-01-05T12:00:00Z" };
+  const result = { accepted: true, submit_eligible: true, preview: { draft: { quantity: 50 }, what_if: { status: "accepted" }, cash_sweep_economics: advice } };
+  let text = protection.protectionPreviewText(result);
+  assert.match(text, /Sweep advice: The reviewed quantity stays fixed/);
+  assert.match(text, /estimated net proceeds .*pending settlement/);
+  assert.match(text, /remaining cash gap/);
+  assert.doesNotMatch(text, /benefit /);
+  advice.incremental_gain_base = 0;
+  text = protection.protectionPreviewText(result);
+  assert.match(text, /benefit .*0.*\(advisory\)/);
+  assert.match(text, /advice as of/);
+  assert.equal(protection.protectionPreviewSubmitEligible(result), true);
+  assert.equal(result.preview.draft.quantity, 50);
+  const held = { ...result, submit_eligible: false, blockers: [{ code: "cash_sweep_fees_unknown", message: "Fee evidence unavailable." }] };
+  assert.match(protection.protectionPreviewText(held), /Preview blocked; no order placed/);
+  assert.equal(protection.protectionPreviewSubmitEligible(held), false);
+});
+
 function response(body, status = 200) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
   return {

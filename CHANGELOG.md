@@ -6,22 +6,22 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### What's new
 
-- Cash sweeps check complete-order bounds, net liquidity proceeds and purchase value after fees. Unknown hours or expired route evidence hold the order.
+- Cash sweeps check complete-order bounds and net liquidity proceeds. One fixed-quantity broker preview shows fees and advisory purchase value; unknown hours or expired route evidence still hold the order.
 
 ### Added
 
-- Cash sweeps have configurable whole-order minimums and a minimum incremental purchase gain, including entry spread, maximum broker fees and cash interest forgone. Dated cash-interest assumptions remain explicit; missing evidence holds.
+- Cash sweeps have configurable whole-order minimums and advisory incremental purchase gain, including entry spread, broker fees and cash interest forgone. Benefit advice explicitly distinguishes known, unknown and stale inputs.
 - Pending Canary DAY buys retain exact fee bounds through restart and partial fills, allowing concurrent sweeps when principal and fees are fully reserved. Changed terms, stale or unavailable bounds and unacknowledged buys still hold.
 
 ### Fixed
 
 - Flex Cash Report exports without a separate row report date now use their exact statement-matched period end. Explicit conflicting or invalid dates remain refused; historical cash still cannot authorize a sweep.
-- Bill top-ups now size and check net sale proceeds after maximum commission, with the same whole-order minimum as purchases. Lot rounding cannot authorize a tiny residual or exceed the order cap.
+- Bill top-ups apply whole-order minimums to principal on both sides and show fee-adjusted sale proceeds plus the remaining cash gap. Partial restoration is allowed; fees do not trigger repeated previews or automatic resizing. Lot rounding cannot authorize a tiny residual or exceed the order cap.
 - Missing or malformed bill trading hours no longer fall back to assumed weekday execution windows. Supported USD/EUR payment calendars include holidays; each route requires a reviewed settlement lag and expiry.
 
 ### Upgrade notes
 
-- Existing private policy settings are unchanged. Review the new sweep controls and commission each bill route before activation. Portfolio stress calibration and buffer allocation remain open; delayed Nasdaq-100 context stays supported, tax review stays advisory and ETF fallback stays inactive.
+- Existing private policy settings are unchanged. `min_net_gain` remains compatible but is now an advisory benchmark, replacing the earlier hard profitability gate; missing or expired cash-interest assumptions affect advice only. Review the new sweep controls and commission each bill route before activation. Portfolio stress calibration and buffer allocation remain open; delayed Nasdaq-100 context stays supported, tax review stays advisory and ETF fallback stays inactive.
 
 ## v3.15.1 — 2026-10-01 21:44 CEST
 

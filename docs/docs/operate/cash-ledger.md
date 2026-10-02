@@ -127,16 +127,22 @@ Repeated separately authorised orders may therefore deploy almost all eligible
 free cash down to the reserve and sizing residual. Those additional limits are
 owner decisions, not values Canary chooses.
 
-A buy's accepted exact WhatIf must supply a consistent finite same-currency
-maximum commission. Limit principal plus that upper envelope must fit free
-cash. Missing or contradictory bounds hold at `cash_sweep_fees_unknown`; the
-order cap remains principal-only. A buy that unexpectedly closes or reduces a
+A bill review chooses a sensible whole-order quantity, then requests one broker
+WhatIf for those exact terms. It shows price, yield and fees; fees do not trigger
+repeated previews or automatic resizing. Behind the scenes, an exact finite
+same-currency maximum commission and limit principal must fit free cash. The
+ordinary broker estimate is informational; it cannot certify that reservation.
+A missing or contradictory exact bound holds at `cash_sweep_fees_unknown`; the order cap remains
+principal-only. A buy that unexpectedly closes or reduces a
 short holding is refused rather than bypassing the planned-bill checks.
-Canary persists that exact fee envelope with its place or modify attempt.
+Canary persists that exact-term maximum-fee reservation with its place or modify attempt.
 A matching current DAY working buy reserves remaining principal plus the full
-maximum fee, including after restart or partial fills. Unknown, stale or changed
+reserved fee, including after restart or partial fills. Unknown, stale or changed
 bounds hold new sweeps; external and unbounded queued buys retain that hold.
-Liquidity sales must restore net proceeds after exact maximum commission.
+Liquidity sales estimate net proceeds after the exact reserved broker fee.
+They may restore only part of a shortfall without fee-driven resizing or a
+shortfall-only hold; the remaining gap stays visible until settlement proves
+cash has returned.
 Pending-sale estimates remain diagnostic, and forecast outflows and the broader
 portfolio stress reserve still need follow-up.
 
@@ -147,15 +153,22 @@ hours, a reviewed route-specific settlement lag and a supported payment calendar
 Missing evidence holds the route; a weekday guess does not authorize an order.
 
 `min_order_notional` bounds the complete order in account base currency, on both
-sides. Purchases use principal; liquidity sales use proceeds after exact maximum
-commission. `max_order_notional` bounds principal. Broker lots and the reviewed
-price still need to fit those bounds.
+sides, using gross principal for both purchases and liquidity sales.
+`max_order_notional` also bounds principal. Broker lots and the reviewed
+price still need to fit those bounds. A failed cash or whole-order check holds
+the reviewed quantity; a different quantity needs a new review.
 
-`min_net_gain` compares a purchase held to maturity against leaving cash at the
-broker, using the entry spread, exact maximum purchase fees and a dated
-owner-reviewed cash-interest upper bound. A missing rate is unknown, not zero.
-Liquidity sales retain their separate cash-restoration rule. See
+Purchase-benefit advice compares holding the bill to maturity with leaving cash
+at the broker, using entry spread, reserved purchase fees and a dated
+owner-reviewed cash-interest upper bound. Current complete inputs give a known
+estimate; missing inputs give unknown advice, and expired interest assumptions
+give stale advice. A missing rate is never assumed to be zero.
+
+`min_net_gain` stays readable in existing policy files as an advisory benchmark.
+Below-benchmark or negative estimates remain warnings; unknown or stale benefit
+does not block or resize an order. Fees still matter to actual cash accounting.
+Liquidity sales show fee-adjusted expected proceeds and any remaining cash gap. See
 [the configuration reference](../reference/config.md) for the policy fields.
 Existing private policy values stay unchanged until explicit owner migration;
-route commissioning and dated cash-interest assumptions are required for the
-new controls.
+route commissioning remains required for orders. Dated cash-interest assumptions
+are needed only for current purchase-benefit advice.

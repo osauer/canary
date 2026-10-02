@@ -1,14 +1,17 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-10-01
+Updated: 2026-10-02
 Status: Phase B installed (daemon v3.14.0-33, d819dfc4); post-install proof
 step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
 symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
 answered (false, F2); the remaining proof steps are in progress.
 
-The [2026-10-01 order controls](cash-sweep-controls.md) supersede the earlier
-assumed-hours, gross-redemption and pending-fee limitations below. They add no
-activation or calibrated portfolio stress reserve.
+The [current order controls](cash-sweep-controls.md) supersede the earlier
+assumed-hours, gross-redemption and pending-fee limitations below. On 2026-10-02,
+the owner simplified fee review: one fixed-quantity broker preview, cash
+accounting including fees, and advisory purchase benefit without a profitability
+gate or repeated fee-driven resizing. These source changes add no activation
+or calibrated portfolio stress reserve.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions of 2026-09-30 09:10 CEST (S1–S6), the reviewer's decisions
@@ -79,7 +82,7 @@ and no cash reserve remains to trip.
   queued orders at their finite worst price. Unknown bounds or nonfinite
   totals hold the sweep. Outstanding buys lack fee envelopes and therefore hold
   new sweeps; exact BUY previews require principal plus a same-currency broker
-  maximum commission to fit `free = cash − committed − keep_cash`;
+  maximum-fee reservation to fit `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
 - Historical Flex cash: optional Cash Report rows supply a baseline from accepted
   current-query bytes and the exact selected account/mode. The latest completed

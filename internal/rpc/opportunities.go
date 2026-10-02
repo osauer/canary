@@ -1113,6 +1113,7 @@ type TradeProposalPreviewResult struct {
 
 // TradeProposalOrderPreview is the sanitized broker WhatIf and order preview.
 type TradeProposalOrderPreview struct {
+	CashSweepEconomics    *CashSweepEconomics              `json:"cash_sweep_economics,omitempty"`
 	PreviewTokenID        string                           `json:"preview_token_id,omitempty"`
 	PreviewTokenScope     string                           `json:"preview_token_scope,omitempty"`
 	PreviewTokenExpiresAt time.Time                        `json:"preview_token_expires_at,omitzero"`

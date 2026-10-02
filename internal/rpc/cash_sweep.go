@@ -140,6 +140,22 @@ type TradeProposalCashSweepStatus struct {
 	Rows int `json:"rows"`
 }
 
+// CashSweepEconomics is optional advice for one exact broker preview. It
+// cannot authorize, block or resize an order. Native cash fields use Currency;
+// gain and its advisory benchmark use BaseCurrency. Nil means unavailable.
+type CashSweepEconomics struct {
+	State               string    `json:"state"`
+	Message             string    `json:"message"`
+	Currency            string    `json:"currency,omitempty"`
+	BaseCurrency        string    `json:"base_currency,omitempty"`
+	FeeReserve          *float64  `json:"fee_reserve,omitempty"`
+	NetProceeds         *float64  `json:"net_proceeds,omitempty"`
+	RemainingGap        *float64  `json:"remaining_gap,omitempty"`
+	IncrementalGainBase *float64  `json:"incremental_gain_base,omitempty"`
+	MinNetGainBase      float64   `json:"min_net_gain_base,omitempty"`
+	AsOf                time.Time `json:"as_of"`
+}
+
 // TradeProposalCashSweepCurrency is one currency's band. Cash is the lower of
 // trade-date and settled cash; Committed is working buy orders plus armed
 // queued buys; Free is Cash − Committed − KeepCash. PendingRedemptions is
@@ -350,7 +366,8 @@ type TradeProposalCashSweep struct {
 	MinNetGainBase           float64  `json:"min_net_gain_base,omitempty"`
 	CashInterestRateUpper    *float64 `json:"cash_interest_rate_upper,omitempty"`
 	CashInterestValidThrough string   `json:"cash_interest_valid_through,omitempty"`
-	// RedemptionTarget is the liquidity shortfall. A capped sale may restore part, while still meeting the net whole-order minimum.
+	// RedemptionTarget is the liquidity shortfall. A capped sale may restore part,
+	// while still meeting the gross whole-order minimum; fees reduce net proceeds.
 	RedemptionTarget       float64 `json:"redemption_target,omitempty"`
 	SettlementDays         *int    `json:"settlement_days,omitempty"`
 	SettlementExchange     string  `json:"settlement_exchange,omitempty"`

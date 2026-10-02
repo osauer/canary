@@ -1,9 +1,11 @@
 # Cash-sweep order controls
 
-Owner decisions: 2026-10-01. Source implementation; activation and live route
+Owner decisions: 2026-10-01, simplified on 2026-10-02. Source implementation; activation and live route
 commissioning are separate. The original [cash-sweep record](cash-sweep.md)
 retains earlier assumptions and installed evidence. This record supersedes its
 weekday-session fallback, gross-sale sizing and principal-only fee limitations.
+The 2026-10-02 decision supersedes the earlier EUR 25 hard purchase-gain gate:
+purchase value is advice, and a reviewed quantity is never resized for fees.
 
 ## Two independent checks
 
@@ -12,8 +14,11 @@ flowchart LR
   NAV[Portfolio NAV under approved finite stress] --> Floor[Protected NAV floor]
   Cash[Observed settled cash in each currency] --> Available[Subtract commitments, liquidity needs and buffer]
   Available --> Bills[Eligible same-currency bills]
-  Bills --> Order[Whole-order bounds, exact fees, calendars and net value]
-  Order --> Approval[Existing owner approval or scoped authority]
+  Bills --> Order[Choose whole-order size]
+  Order --> Preview[One broker preview: price, yield and fees]
+  Preview --> Checks[Cash reserve, units, caps and settlement]
+  Checks --> Approval[Existing owner approval or scoped authority]
+  Preview --> Advice[Advisory benefit versus keeping cash]
 ```
 
 Buying a bill exchanges cash for an asset; it does not segregate the protected
@@ -37,31 +42,32 @@ exit value.
 
 | Control | Meaning | Missing evidence |
 | --- | --- | --- |
-| `min_order_notional` | Minimum complete order in account base currency; BUY principal and SELL net proceeds. For the approved EUR-base profile: 10,000. | Zero preserves legacy native `min_tranche` until explicit owner migration. |
+| `min_order_notional` | Minimum complete order principal in account base currency, on both BUY and SELL. For the approved EUR-base profile: 10,000. | Zero preserves legacy native `min_tranche` until explicit owner migration. |
 | `max_order_notional` | Maximum complete order principal in base; approved profile: 100,000. Fees consume cash separately. | An absent cap holds all sweeps. |
 | `min_tranche` | Legacy native minimum, combined with the base minimum by taking the larger. | Invalid policy is refused. |
-| Accepted exact WhatIf maximum commission | Fee and currency must be finite, consistent and match the cash currency. | Purchase or liquidity sale holds. |
+| Exact broker maximum commission | The behind-the-scenes cash reservation must be finite, consistent and match the cash currency. The ordinary broker estimate is shown for information. | An absent or contradictory exact bound still holds; an estimate cannot certify the reservation. |
 
 The minimum is per order, not per broker lot. A small liquidity shortfall can
 produce a larger top-up to meet that floor. Lot rounding and the actual reviewed
 price still need to fit holdings and the cap. A capped sale may restore only
-part of a larger shortfall; it must still meet the net minimum. An inadequate
+part of a larger shortfall; it must still meet the principal minimum. An inadequate
 holding or incompatible grid holds rather than selling a tiny residual.
 
-Before a new review, sizing can request up to two additional exact WhatIfs after
-adjusting quantity for fees. Each result remains independently gated; the fee
-bound from one quantity cannot certify another. An explicitly requested quantity
-is held when it fails, rather than enlarged. Signed/prepared orders retain their
-exact draft. An automatic order also cannot exceed the quantity in its existing
-notice; a fee-driven increase requires new terms and the existing authority path.
+Sizing chooses one sensible whole-order quantity from cash, lots and the owner
+bounds, then requests one WhatIf for that quantity. Fees do not trigger repeated
+previews or automatic resizing. The actual previewed principal plus reserved
+fees must fit cash; a failed cash or whole-order check holds that fixed quantity.
+Signed/prepared orders retain their exact draft. An automatic order cannot
+exceed the quantity in its existing notice. A different size needs new terms
+and the existing authority path.
 Known pending bill-sale proceeds hold new purchases until settlement, preventing
 an immediate reversal of a liquidity top-up.
 
-A Canary BUY's accepted fee maximum is persisted atomically with its exact place
+A Canary BUY's accepted maximum-fee reservation is persisted atomically with its exact place
 or modify attempt before transmission. A current DAY working order can reuse it
 only with matching endpoint, account/mode, broker/client identity, contract,
 quantity, fixed limit, currency, route and execution terms, on the same UTC date.
-The full fee bound is reserved after partial fills. A changed or unbounded newer
+The full fee reservation is kept after partial fills. A changed or unbounded newer
 modify never falls back to an older bound. An unused preview cannot certify a
 working order. An unmatched local BUY intent holds despite an empty cached
 broker inventory. Restart restores the SQLite evidence; unavailable storage holds.
@@ -74,28 +80,36 @@ remain distinct from this conservative reservation.
 
 ## Purchase value
 
-`min_net_gain` is a configurable minimum incremental gain in base currency;
-the approved profile uses 25 per purchase. Zero preserves the earlier policy
-until owner migration. Liquidity sales do not use this profitability threshold.
+`min_net_gain` remains accepted for policy-file compatibility as an advisory
+benchmark in base currency. It never blocks or resizes a purchase. The earlier
+EUR 25 hard-gate decision was replaced by the owner's 2026-10-02 simplification;
+this source change adds no numeric benchmark and changes no private policy.
+Liquidity sales subtract the exact reserved fee when estimating restored cash.
+An otherwise valid sale can restore only part of the shortfall without a
+fee-driven resize or hold; its remaining gap stays visible. Estimated or
+pending proceeds cannot clear the gap before actual settlement.
 
 ```text
 incremental gain = par redemption
                  − conservative entry at max(reviewed limit, live ask)
-                 − exact maximum purchase fee
+                 − exact broker maximum-fee reservation
                  − cash interest forgone on all-in cost
 ```
 
 The ask includes entry spread, so it is not subtracted a second time. Risk's
 pure calculation uses continuous compounding of the stated annual nominal upper
-rate to conservatively cover cash-interest reinvestment. Fees or rates that
-produce nonfinite results cannot pass.
+rate to conservatively cover cash-interest reinvestment. The result is advice,
+not a forecast or an eligibility gate.
 
-Each currency needs an owner-reviewed `cash_interest_rate_upper` (annual decimal)
-and `cash_interest_valid_through`. Missing is unknown, including when actual cash
-interest is zero: zero must be explicit. Expired evidence holds. This is a
+Each currency can supply an owner-reviewed `cash_interest_rate_upper` (annual
+decimal) and `cash_interest_valid_through`. With current inputs the benefit is
+known; absent or invalid calculation inputs make it unknown, and expired
+interest assumptions make it stale. These states never hold the order. Missing
+interest is not zero: zero must be explicit. This is a
 conservative opportunity-cost assumption, not a live IBKR interest-rate feed or
 a prediction of future rates. Review changes in published broker rates, account
-terms and the intended holding period; do not insert a guessed zero to clear it.
+terms and the intended holding period; do not insert a guessed zero to make the
+advice look known. Below-benchmark or negative benefits remain visible warnings.
 
 ## Verified hours and settlement calendars
 
@@ -143,8 +157,9 @@ commitments. Broker-write confirmations, freezes and account pins remain binding
 
 ## Validation
 
-Synthetic regressions cover whole-order FX/rounding, net sale fees, incremental
-gain versus cash interest/spread, exact-zero versus unknown rates, payment
+Synthetic regressions cover whole-order FX/rounding, fixed-quantity previewing,
+net sale fees, advisory gain versus cash interest/spread, known/unknown/stale
+advice and exact-zero versus unknown rates, payment
 holidays and coverage boundaries, SQLite restart with partial fills, modified
 and stale bounds, and unacknowledged local BUYs. Both daemon build modes retain
 the prepared-order, automatic-notice and maximum-notional safety tests. These
