@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canary Remote App Beta for IBKR</title>
-  <meta name="description" content="Experimental remote access for the Canary mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.">
+  <title>Canary Remote Access for IBKR</title>
+  <meta name="description" content="Reach Canary from your phone through an encrypted relay. Pairing, authorisation and your broker session stay on your Mac.">
   <link rel="canonical" href="https://osauer.dev/canary/canary-remote/">
   <link rel="icon" type="image/png" href="../social/canary-icon.png">
 
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://osauer.dev/canary/canary-remote/">
-  <meta property="og:title" content="Canary Remote App Beta">
-  <meta property="og:description" content="A short beta guide for pairing the Canary app through the remote relay.">
+  <meta property="og:title" content="Canary Remote Access">
+  <meta property="og:description" content="Pair your phone and reach Canary away from home, with control on your Mac.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta name="twitter:card" content="summary_large_image">
 
@@ -19,9 +19,9 @@
   {
     "@context": "https://schema.org",
     "@type": "TechArticle",
-    "headline": "Canary Remote App Beta",
-    "description": "Experimental remote access for the Canary mobile web app through a TLS-protected relay, with local pairing and session authorization on your Mac.",
-    "dateModified": "2026-08-03T14:10:00+02:00",
+    "headline": "Canary Remote Access",
+    "description": "Reach Canary from your phone through an encrypted relay. Pairing, authorisation and your broker session stay on your Mac.",
+    "dateModified": "2026-10-02T11:30:00+02:00",
     "video": {
       "@type": "VideoObject",
       "name": "Poolside",
@@ -157,14 +157,6 @@
       color: #26364d;
       font-size: clamp(18px, 1.6vw, 20px);
       line-height: 1.38;
-    }
-
-    .beta {
-      max-width: 720px;
-      margin: 20px 0 0;
-      color: var(--red);
-      font-size: 18px;
-      font-weight: 800;
     }
 
     .actions {
@@ -415,13 +407,12 @@
   <main>
     <section class="wrap hero" aria-labelledby="hero-title">
       <div>
-        <h1 id="hero-title">Canary remote app beta</h1>
-        <p class="lead">Canary can now pair a phone through a remote HTTPS relay while the app, broker session, and authorization still run from your Mac. It is meant for early users who already understand the local IBKR setup and want mobile access away from the LAN.</p>
-        <p class="beta">Experimental beta: for now, relay-agent operation is maintainer-assisted and may change without compatibility promises.</p>
+        <h1 id="hero-title">Canary on your phone.</h1>
+        <p class="lead">Check your book and alerts away from home. An encrypted relay connects your paired phone to Canary; the app, broker session and authorisation stay on your Mac.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#start">Start remote mode</a>
           <a class="button" href="#security">Security model</a>
-          <a class="button" href="#screenshots">Current app</a>
+          <a class="button" href="#screenshots">See the app</a>
           <a class="button" href="../feedback/">Give feedback</a>
         </div>
       </div>
@@ -440,7 +431,7 @@
         <article class="feature">
           <small>Remote access</small>
           <h3>Phone pairing through the relay</h3>
-          <p>The printed pairing URL uses the remote origin and a short route id, so a phone can open Canary without being on the same LAN.</p>
+          <p>Pair your phone to open Canary away from your home network.</p>
         </article>
         <article class="feature">
           <small>Local control</small>
@@ -448,9 +439,9 @@
           <p>The relay forwards allowed app traffic only. Pairing creation, device grants, sessions, and broker data access remain in the local app process.</p>
         </article>
         <article class="feature">
-          <small>Beta shape</small>
-          <h3>Small, explicit, reversible</h3>
-          <p>The feature is intentionally narrow while the relay operations, failure modes, and install flow are proven with early users.</p>
+          <small>Personal setup</small>
+          <h3>Arrange remote access</h3>
+          <p>Set up the relay connector with the maintainer, then pair your phone from your Mac. <a href="../feedback/#private">Get in touch</a> to arrange access.</p>
         </article>
       </div>
     </section>
@@ -483,7 +474,7 @@ canary app pair</code></pre>
       <div class="section-head">
         <h2 id="security-title">Security model.</h2>
         <p>Remote access uses TLS-protected transport: the phone connects to the relay over HTTPS, and the Mac connector uses WSS. Network intermediaries between the phone, relay, and Mac connector cannot read the traffic without breaking TLS.</p>
-        <p>The relay is transport only, not the owner of your broker session. The local app creates pairing sessions, validates device proof, sets the session cookie, and talks to the daemon. The current relay is not an extra app-layer end-to-end encryption boundary, so treat the operated relay as trusted beta infrastructure.</p>
+        <p>Pairing, device authorisation and broker access stay in the local app. The relay terminates TLS, so its operator must be trusted; transport encryption does not make the relay an end-to-end encryption boundary.</p>
       </div>
       <div class="feature-grid">
         <article class="feature">
@@ -506,8 +497,8 @@ canary app pair</code></pre>
 
     <section class="wrap" id="screenshots" aria-labelledby="screenshots-title">
       <div class="section-head">
-        <h2 id="screenshots-title">Current app surface.</h2>
-        <p>This current Canary Edge capture comes from the real PWA with synthetic data. It shows the automatic one-year review, 1/5/20-session matrix, and ranked findings without exposing a broker account. Edge describes observed historical outcomes, not a forecast or causal claim.</p>
+        <h2 id="screenshots-title">The app in use.</h2>
+        <p>This Canary Edge capture uses the app with synthetic data. It shows the automatic one-year review, 1/5/20-session matrix, and ranked findings without exposing a broker account. Edge describes observed historical outcomes, not a forecast or causal claim.</p>
       </div>
       <div class="screens">
         <figure class="screen">
