@@ -3,7 +3,7 @@
     "name": "canary",
     "title": "Canary MCP Server",
     "version": "3.15.1",
-    "description": "Canary's local read-only MCP server for Interactive Brokers account, market, broker-reporting, retrospective Edge, and advisory risk context through IB Gateway or TWS.",
+    "description": "Canary's local read-only MCP source catalogue for Interactive Brokers account, market, broker reporting, FX, lending fees, Edge and risk context. New tools may precede the latest signed release; check installed tools/list.",
     "homepage": "https://osauer.dev/canary/",
     "repository": "https://github.com/osauer/canary",
     "license": "MIT"

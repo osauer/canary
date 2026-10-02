@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary CLI | Oliver Sauer</title>
-  <meta name="description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
+  <meta name="description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in the next release. Works with Interactive Brokers.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
   <link rel="preload" href="/assets/fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,13 +14,13 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://osauer.dev/canary/">
   <meta property="og:title" content="Canary CLI | Oliver Sauer">
-  <meta property="og:description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
+  <meta property="og:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in the next release. Works with Interactive Brokers.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Canary CLI | Oliver Sauer">
-  <meta name="twitter:description" content="Your broker evidence, risk rules and reconciled FX contribution. Canary CLI also powers a policy-based cash sweep. Open source, in Go. Runs with Interactive Brokers today.">
+  <meta name="twitter:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in the next release. Works with Interactive Brokers.">
   <meta name="twitter:image" content="https://osauer.dev/canary/social/social-preview.png">
   <script type="application/ld+json">
   {
@@ -30,7 +30,7 @@
         "@type": "SoftwareApplication",
         "name": "Canary CLI",
         "url": "https://osauer.dev/canary/",
-        "description": "The open-source engine under Canary Desk: a local risk desk for your broker account, with a daily brief, portfolio and market evidence, reconciled FX contribution, a policy-based cash sweep, a risk rulebook, protection proposals and read-only MCP tools.",
+        "description": "Open-source Go broker engine with a CLI, read-only MCP tools and risk rules. Statement-backed FX contribution and lending observations are in current source for the next signed release.",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -178,7 +178,7 @@
         <h2 id="sweep-title">Idle cash,<br>under your rules.</h2>
         <p>Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments, liquidity needs and your buffer ahead of new purchases.</p>
         <p>Desk shows the plan; Canary checks the cash, bill, price, fees and authority. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.</p>
-        <p class="note">Bills can lose value if sold before maturity.</p>
+        <p class="note">Off by default. Commissioning needs a calibrated policy and current settlement evidence. Bills can lose value if sold before maturity.</p>
         <a class="text-link" href="docs/operate/protection.html#cash-sweep">Read the sweep controls<span class="arrow" aria-hidden="true">→</span></a>
       </div>
       <div class="cash-story">
@@ -191,7 +191,7 @@
     </section>
     <section class="wrap section split fx-feature" aria-labelledby="fx-title">
       <div>
-        <p class="kicker">Statement-backed performance</p>
+        <p class="kicker">Statement-backed FX · Next release</p>
         <h2 id="fx-title">Count the<br>currency effect.</h2>
         <p>FX contribution measures how currency affects your P&amp;L in the account’s base currency. Day, week, month and year to date, from completed broker statements.</p>
       </div>
@@ -199,9 +199,20 @@
         <div class="fx-bridge" aria-label="FX contribution plus other profit and loss equals portfolio value change after external cash flows">
           <span><b>FX contribution</b>Currency effect</span><span class="operator" aria-hidden="true">+</span><span><b>Other P&amp;L</b>Prices, income and fees</span><span class="operator" aria-hidden="true">=</span><span><b>Portfolio change</b>After external cash flows</span>
         </div>
-        <p><code>canary reporting fx</code>, the read-only MCP tool and Desk’s Performance → FX use one reconciled result. Missing days remain visible; incomplete periods have no total.</p>
+        <p>Implemented in current source and Desk’s private runtime; awaiting the next signed Canary release. <code>canary reporting fx --json</code> and <code>canary_reporting_fx</code> expose the same result. Missing days remain visible; incomplete periods have no total. This is valuation attribution, separate from realised Forex lot P&amp;L.</p>
         <a class="text-link" href="docs/start/reporting.html#fx-contribution">Set up FX reporting<span class="arrow" aria-hidden="true">→</span></a>
       </div>
+    </section>
+    <section class="wrap section split lending-feature" aria-labelledby="lending-title">
+      <div>
+        <p class="kicker">Lending observations · Next release</p>
+        <h2 id="lending-title">Your shares on loan.<br>The fees they earned.</h2>
+        <p>The new source implementation reads managed stock loans and customer net fees from retained IBKR statements. Dated position annotations and expandable fee history make the evidence visible.</p>
+        <p><code>canary lending fees --json</code> and <code>canary_lending_fees</code> expose the same bounded, read-only history. Missing sections, partial periods and complete zero earnings remain distinct.</p>
+        <p class="note">Available in current source; not yet in the signed release. Participation stays with IBKR. Fees are separate from account P&amp;L; payout and P&amp;L linkage remain unproved. Account commissioning still needs a populated report.</p>
+        <a class="text-link" href="docs/understand/edge.html#stock-lending-income">Read the lending contract<span class="arrow" aria-hidden="true">→</span></a>
+      </div>
+      <figure class="lending-ledger"><picture><source media="(max-width: 760px)" srcset="/assets/lending-evidence-mobile.svg"><img src="/assets/lending-evidence.svg" width="1040" height="650" alt="IBKR lending statements provide dated shares-on-loan records and net-fee history. Lending income stays separate from broker P&amp;L." loading="lazy"></picture><figcaption>Reporting only · Participation stays with IBKR.</figcaption></figure>
     </section>
     <section class="wrap section detail-screen" aria-labelledby="arch-title">
       <div class="detail-copy">
@@ -231,7 +242,7 @@
       <div class="features-head"><p class="kicker">Full features</p><h2 id="features-title">What’s inside.</h2></div>
       <div class="features-grid four">
       <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, credit spreads, funding, the yen, dealer gamma computed from SPX options, and breadth.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, and borrow availability and fees.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
-      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution</b>Currency contribution to P&amp;L for Day, WTD, MTD and YTD, reconciled to daily statements.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
+      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · Next release</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements; available in current source.</li><li><b>Lending observations · Next release</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
       <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with liquidity reserves and a reason for every plan.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Trading edition</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
       <div class="feature-group"><h3>Where you use it</h3><ul><li><b>Command line</b>One binary for macOS and Linux. Every command speaks JSON.</li><li><b>AI assistants</b>Read-only MCP tools for Claude and other hosts.</li><li><b>Your phone</b>A paired app with live updates and opt-in notifications.</li><li><b>Go library</b>The TWS protocol, spoken natively in Go, with no vendor SDK.</li></ul></div>
       </div>

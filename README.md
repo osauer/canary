@@ -100,6 +100,16 @@ that artifact.
   opens/adds/trims/exits with leaving the prior position unchanged over 1, 5,
   and 20 sessions, and reports broker-recorded option P/L separately. It does
   not infer intent, recommend a trade, or claim causation.
+- **What did stock lending earn?** Current source adds dated shares-lent
+  annotations and `canary lending fees --json`, with customer net fees,
+  expandable history and explicit report coverage. IBKR controls participation.
+  Fees explain income; they are never added again to broker account P/L.
+  Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
+- **How much did exchange rates contribute?** Current source adds `canary reporting fx --json`, which
+  reads completed daily valuation effects across investments, currency cash
+  and accrued interest, with missing days retained. This differs from realised
+  currency-lot P/L in IBKR's Forex P/L Details. See
+  [FX reporting](docs/docs/start/reporting.md#fx-contribution).
 - **Can this reading be trusted?** Quotes, calendars, breadth, gamma, regime,
   stress, earnings, borrow, halt, and reporting sources carry their own health,
   freshness, coverage, and last-good state. Unavailable evidence stays
@@ -309,6 +319,6 @@ Canary is a private project of Oliver Sauer, unaffiliated with any employer.
 
 MIT. See [LICENSE](LICENSE).
 
-FX contribution is available through `canary reporting fx` and the read-only
+Current source provides FX contribution through `canary reporting fx` and the read-only
 `canary_reporting_fx` MCP tool. See [FX contribution and backfill](internal-docs/fx-contribution.md)
 for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantics.

@@ -32,6 +32,25 @@ for that module path, so `/v2/...@latest` continues to resolve the newest valid
 v2 tag. This keeps existing library consumers and source-built v2 installations
 on their maintained major instead of silently crossing the product boundary.
 
+## Current source and signed releases
+
+The documentation and MCP discovery catalogue follow `main`. New commands and
+tools, including FX contribution and lending-fee reporting, can appear here before the next signed
+binary or MCP Bundle is published. Check your installed `canary --help` and
+the [latest release](https://github.com/osauer/canary/releases/latest).
+
+To try current source with a read-only build:
+
+```sh
+git clone https://github.com/osauer/canary.git
+cd canary
+make build GO_TAGS=""
+./bin/canary --help
+```
+
+This builds a separate executable; it does not replace an installed Canary.
+Go, Make and the versions declared in the repository are required.
+
 ## What the shell installer does
 
 1. Detects your OS and architecture, and refuses anything other than Darwin or Linux on arm64 or amd64.

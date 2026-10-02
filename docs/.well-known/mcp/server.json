@@ -1,7 +1,7 @@
 {
   "name": "canary",
   "title": "Canary MCP Server",
-  "description": "Canary's read-only MCP server for Interactive Brokers: the daily brief, detailed regime and portfolio stress, account and position detail, broker-reporting status, retrospective Edge review, desk rules, named-symbol technical analysis, and action discovery.",
+  "description": "Canary's read-only MCP source catalogue for Interactive Brokers: daily brief, portfolio and market evidence, broker reporting, reconciled FX contribution, earned stock-lending fees, Edge review, rules and action discovery. This catalogue follows main; new tools may precede the latest signed binary or MCP Bundle.",
   "homepage": "https://osauer.dev/canary/",
   "repository": "https://github.com/osauer/canary",
   "license": "MIT",
@@ -9,7 +9,9 @@
   "transport": {
     "type": "stdio",
     "command": "canary",
-    "args": ["mcp"]
+    "args": [
+      "mcp"
+    ]
   },
   "install": {
     "shell": "curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh",
@@ -42,7 +44,9 @@
     "protection proposal reads",
     "option exercise opportunity reads",
     "trading-readiness and platform-settings reads",
-    "open-order, order-history, and order-status reads"
+    "open-order, order-history, and order-status reads",
+    "completed-day FX contribution reads",
+    "earned stock-lending fee history and report coverage reads"
   ],
   "safety": {
     "order_entry_surface": false,

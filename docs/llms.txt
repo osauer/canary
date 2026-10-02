@@ -8,8 +8,9 @@ or net exposure is at watch or act, the Rulebook reports sell-only. The premium
 budget governor sells the line that fixes the most first and shows its whole
 plan. An optional policy-based cash sweep, off by default, plans idle cash into
 same-currency government bills after commitments and liquidity reserves.
-Missing evidence holds the sweep. Bills can lose value on an
-early sale. Installation does not enable automatic submission or grant
+Owner commissioning requires calibrated reserves and current native
+settlement evidence; source implementation alone does not establish readiness.
+Missing evidence holds the sweep. Bills can lose value on an early sale. Installation does not enable automatic submission or grant
 broker-write permission.
 
 Canary is a local risk desk for a brokerage account: a daemon, shell CLI,
@@ -23,8 +24,24 @@ server, and app are adapters over that authority.
 
 Canary is an independent personal project by Oliver Sauer.
 
-FX contribution is available through `canary reporting fx`, the read-only
-`canary_reporting_fx` MCP tool and Desk's Portfolio → Performance → FX.
+Lending observations are implemented in current source for the next signed
+release; the public installer and MCPB do not yet include them. The read-only
+`canary lending fees --json` command and `canary_lending_fees` MCP tool expose
+bounded customer net-fee history from retained IBKR statements. The app shows
+dated position loan annotations and expandable fees; Desk's analyst can read
+the same evidence. Missing sections, partial coverage and complete zero are
+distinct. Participation stays with IBKR. Fees are not added to account P&L:
+payment status and P&L/accrual linkage remain unproved. Populated account reports
+are still needed for commissioning. Borrow Fee Details describes short-borrow
+costs; it is not earned lending income. Forex P&L Details describes currency
+transactions and realised lots; it is not the valuation contribution reported
+by `canary reporting fx`.
+See https://osauer.dev/canary/docs/understand/edge.html#stock-lending-income.
+
+FX contribution is implemented in current source and Desk's private runtime.
+The public installer and MCPB await the next signed release for this feature.
+`canary reporting fx`, `canary_reporting_fx` and Desk's Portfolio → Performance
+→ FX expose the same result.
 It attributes completed statement-day P&L to currencies in the account's base
 currency for Day, WTD, MTD and YTD. It reconciles FX plus other P&L to portfolio
 value change after external flows. Partial periods expose missing dates and
@@ -47,7 +64,8 @@ Use it for:
 The MCP server exposes read-only tools for status, trading status, settings,
 open orders, order history, one-order status, account, positions, option
 strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status and the
-statement performance series, Edge, rules, proposals, opportunities, portfolio allocation, reconciliation status,
+statement performance series, FX contribution and lending fee history (both
+next release), Edge, rules, proposals, opportunities, portfolio allocation, reconciliation status,
 market quotes and price history, exchange sessions, and official macro calendars
 and publications. It has no MCP resources, settings writes, order previews, or
 execution tools. Breadth and gamma remain daemon inputs. Use
