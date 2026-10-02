@@ -12,6 +12,9 @@ import (
 // ordinary proposal, previewed and submitted as a BOND LMT DAY order under
 // every existing gate and the owner's approval.
 const (
+	CashSweepPriorityUSDFirst = "usd_first"
+	CashSweepPriorityBalanced = "balanced"
+	CashSweepPriorityEURFirst = "eur_first"
 	// TradeProposalBucketCashSweep invests free cash above keep_cash into a
 	// vocabulary bill of the same currency, or redeems the nearest maturity
 	// when cash falls below keep_cash.
@@ -117,8 +120,21 @@ const (
 // unavailable, never zero. Absent from the snapshot while the bucket is not
 // enabled.
 type TradeProposalCashSweepStatus struct {
-	Mode   string `json:"mode"`
-	Shadow bool   `json:"shadow"`
+	AccountReceiptAt        time.Time                `json:"account_receipt_at,omitzero"`
+	PositionsReceiptAt      time.Time                `json:"positions_receipt_at,omitzero"`
+	FundingAsOf             time.Time                `json:"funding_as_of,omitzero"`
+	FundingValidUntil       time.Time                `json:"funding_valid_until,omitzero"`
+	ScenarioFingerprint     string                   `json:"scenario_fingerprint,omitempty"`
+	PlanningSessionEpoch    uint64                   `json:"planning_session_epoch,omitempty"`
+	PlanningDaemonStartedAt time.Time                `json:"planning_daemon_started_at,omitzero"`
+	CurrencyPriority        string                   `json:"currency_priority,omitempty"`
+	ReserveCushionEUR       *float64                 `json:"reserve_cushion_eur,omitempty"`
+	ReserveState            string                   `json:"reserve_state,omitempty"`
+	ReserveReason           string                   `json:"reserve_reason,omitempty"`
+	DecisionTrace           []CashSweepDecisionTrace `json:"decision_trace,omitempty"`
+	TraceState              string                   `json:"trace_state,omitempty"`
+	Mode                    string                   `json:"mode"`
+	Shadow                  bool                     `json:"shadow"`
 	// Reason explains an account-level gap (no current currency ledger);
 	// each currency then reads cash_unavailable.
 	Reason string `json:"reason,omitempty"`
@@ -162,9 +178,15 @@ type CashSweepEconomics struct {
 // unsettled sale proceeds of cash equivalents, which count toward keep_cash
 // so a redemption is not repeated before it settles.
 type TradeProposalCashSweepCurrency struct {
-	Currency string `json:"currency"`
-	State    string `json:"state"`
-	Reason   string `json:"reason,omitempty"`
+	WebCashOriginalAsOf time.Time `json:"web_cash_original_as_of,omitzero"`
+	SettledSourceKind   string    `json:"settled_source_kind,omitempty"`
+	PriorityRank        int       `json:"priority_rank,omitempty"`
+	BufferAllocation    *float64  `json:"buffer_allocation,omitempty"`
+	FundingNeed         *float64  `json:"funding_need,omitempty"`
+	EffectiveReserve    *float64  `json:"effective_reserve,omitempty"`
+	Currency            string    `json:"currency"`
+	State               string    `json:"state"`
+	Reason              string    `json:"reason,omitempty"`
 	// SettlementProjection is separately labelled historical Flex evidence and
 	// an unverified estimate. It never supplies SettledCash or spend authority.
 	SettlementProjection *CashSweepSettlementProjection `json:"settlement_projection,omitempty"`
@@ -342,10 +364,11 @@ type TradeProposalCashSweepRung struct {
 // must fall in; a redemption names the gap it covers and the maturity it
 // sells.
 type TradeProposalCashSweep struct {
-	Mode       string `json:"mode"`
-	Side       string `json:"side"`
-	Currency   string `json:"currency"`
-	Instrument string `json:"instrument"`
+	PriorityRank int    `json:"priority_rank,omitempty"`
+	Mode         string `json:"mode"`
+	Side         string `json:"side"`
+	Currency     string `json:"currency"`
+	Instrument   string `json:"instrument"`
 	// QuantityUnit says what the proposal quantity counts: the bill's order
 	// unit on an invest row (BondQuantityUnit*), the held position's unit on
 	// a redemption (CashSweepQuantityPosition).
@@ -404,11 +427,16 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 		return nil
 	}
 	out := *in
+	out.ReserveCushionEUR = cloneCashSweepFloat(in.ReserveCushionEUR)
+	out.DecisionTrace = CloneCashSweepDecisionTrace(in.DecisionTrace)
 	out.MaxOrderNotionalBase = cloneCashSweepFloat(in.MaxOrderNotionalBase)
 	out.NeedsYourNumber = slices.Clone(in.NeedsYourNumber)
 	out.Currencies = slices.Clone(in.Currencies)
 	for i := range out.Currencies {
 		c := &out.Currencies[i]
+		c.BufferAllocation = cloneCashSweepFloat(c.BufferAllocation)
+		c.FundingNeed = cloneCashSweepFloat(c.FundingNeed)
+		c.EffectiveReserve = cloneCashSweepFloat(c.EffectiveReserve)
 		c.Instruments = slices.Clone(c.Instruments)
 		c.NeedsYourNumber = slices.Clone(c.NeedsYourNumber)
 		c.ExchangeRate = cloneCashSweepFloat(c.ExchangeRate)

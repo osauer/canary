@@ -6,12 +6,14 @@ import { applyProtectionSnapshot, currentProtectionCoverage, protectionCoverageB
 import { $, accountBaseCurrency, blockerText, calendarDate, cleanDetail, compactMoney, compactWholeMoney, firstNumber, hasNumericValue, labelize, money, normalizeCurrency, normalizeSymbol, numberRead, pct, protectionWriteConfirmation, protectionWriteConfirmationLabel, protectionWriteUnavailableReason, readJSONOrText, renderFreshnessTimestamp, setMetricTone, shortPreviewMessage, shortPreviewTokenID, shortTimeWithZone, signedMoneyRead } from "./shared.js";
 import { currentMarketCalendar, marketSessionLabel } from "./shell.js";
 import { state } from "./state.js";
+import { renderCashSweepPanel } from "./cash-sweep.js";
 
 const PROTECTION_PRESET_DISTANCE_NOTE = "Volatility data unavailable; using the configured fallback.";
 
 const PROTECTION_READ_ONLY_REASON = "Read-only preview. Use your paired Canary app for protection actions.";
 
 function renderProtectionPanel(proposals = {}, autoTrade = {}, marketEvents = state.snapshot?.market_events || {}) {
+	renderCashSweepPanel(proposals.cash_sweep);
   const panel = $("protectionPanel");
   const detail = $("protectionDetailPanel");
   const rows = proposals.proposals || [];

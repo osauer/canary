@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -46,8 +47,10 @@ import (
 // ledger. Observed false means the row carried no cash balance; Settled is
 // the ledger's SettledCash, nil when the gateway sent none.
 type cashSweepLedgerRow struct {
-	Observed  bool
-	TradeDate float64
+	WebCashOriginalAsOf time.Time
+	SettledSourceKind   string
+	Observed            bool
+	TradeDate           float64
 	// ExchangeRate is base units per unit of this currency; 1 for the base.
 	ExchangeRate  float64
 	Settled       *float64
@@ -100,7 +103,13 @@ type cashSweepBillSearch struct {
 // cashSweepInput is everything the pure planner reads. The engine gathers
 // it; tests build it directly.
 type cashSweepInput struct {
-	BaseCurrency string
+	AccountReceiptAt, PositionsReceiptAt time.Time
+	PlanningSessionEpoch                 uint64
+	PlanningDaemonStartedAt              time.Time
+	FundingEvidence                      *risk.CashSweepFundingEvidence
+	EffectiveReserves                    map[string]float64
+	BufferAllocations                    map[string]float64
+	BaseCurrency                         string
 	// Ledger holds every currency the account ledger reports; LedgerReason
 	// is set when the ledger itself is unavailable.
 	Ledger       map[string]cashSweepLedgerRow
@@ -163,6 +172,8 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 	bucket := policy.Buckets.CashSweep
 	mode := bucket.effectiveMode()
 	plan := cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{
+		AccountReceiptAt: in.AccountReceiptAt, PositionsReceiptAt: in.PositionsReceiptAt,
+		PlanningSessionEpoch: in.PlanningSessionEpoch, PlanningDaemonStartedAt: in.PlanningDaemonStartedAt,
 		Mode: mode, Shadow: mode == rpc.CashSweepModeShadow, Reason: in.LedgerReason,
 		BaseCurrency: normCcy(in.BaseCurrency), TaxReviewedAt: string(bucket.TaxReviewedAt), TaxReviewed: bucket != nil && bucket.TaxReviewedAt != "",
 		NeedsYourNumber: bucket.missingNumbers(), Currencies: []rpc.TradeProposalCashSweepCurrency{},
@@ -172,9 +183,21 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 		plan.status.MinOrderNotionalBase = bucket.MinOrderNotional
 		plan.status.MinNetGainBase = bucket.MinNetGain
 	}
+	applyCashSweepReservePolicy(bucket, &in, &plan.status, now)
 	for _, ccy := range cashSweepCurrencies(bucket, in) {
 		cp := cashSweepPlanCurrency(bucket, in, ccy, now)
+		if bucket.reserveDesignEnabled() && plan.status.ReserveState != "ready" {
+			cp.side = ""
+			if cp.status.State == rpc.CashSweepStateInvest || cp.status.State == rpc.CashSweepStateRedeem || cp.status.State == rpc.CashSweepStateHold {
+				cp.status.State, cp.status.Reason = rpc.CashSweepStateHold, plan.status.ReserveReason
+			}
+			cp.status.Free = nil
+		}
 		plan.currencies = append(plan.currencies, cp)
+	}
+	enforceCashSweepFundedReserves(bucket, &plan)
+	orderCashSweepCurrencies(bucket, &plan)
+	for _, cp := range plan.currencies {
 		plan.status.Currencies = append(plan.status.Currencies, cp.status)
 	}
 	return plan
@@ -183,7 +206,8 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 // cashSweepCurrencies lists the currencies the status reports: every ledger
 // currency and every currency holding an equivalent. While the ledger is
 // unavailable the owner's declared tables are listed too, so the status says
-// cash_unavailable instead of going quiet.
+// cash_unavailable instead of going quiet. An opted-in reserve policy always
+// includes every declared currency: missing cash must not erase its reserve.
 func cashSweepCurrencies(bucket *protectionCashSweepPolicy, in cashSweepInput) []string {
 	set := map[string]bool{}
 	for ccy := range in.Ledger {
@@ -195,7 +219,7 @@ func cashSweepCurrencies(bucket *protectionCashSweepPolicy, in cashSweepInput) [
 	for ccy := range in.Unclassified {
 		set[normCcy(ccy)] = true
 	}
-	if in.LedgerReason != "" && bucket != nil {
+	if bucket != nil && (in.LedgerReason != "" || bucket.reserveDesignEnabled()) {
 		for ccy := range bucket.Currency {
 			set[ccy] = true
 		}
@@ -206,6 +230,9 @@ func cashSweepCurrencies(bucket *protectionCashSweepPolicy, in cashSweepInput) [
 
 func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput, ccy string, now time.Time) cashSweepCurrencyPlan {
 	cfg := bucket.currency(ccy)
+	if reserve, ok := in.EffectiveReserves[ccy]; ok {
+		cfg.KeepCash = reserve
+	}
 	targets := cashSweepRungTargets(cfg.MinMaturityDays, cfg.MaxMaturityDays, cfg.LadderRungs)
 	cp := cashSweepCurrencyPlan{status: rpc.TradeProposalCashSweepCurrency{
 		Currency: ccy, Instruments: slices.Clone(cfg.Instruments), Fallback: cfg.Fallback,
@@ -213,6 +240,12 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		MinMaturityDays: cfg.MinMaturityDays, MaxMaturityDays: cfg.MaxMaturityDays, LadderRungs: cfg.LadderRungs,
 	}}
 	st := &cp.status
+	st.WebCashOriginalAsOf, st.SettledSourceKind = in.Ledger[ccy].WebCashOriginalAsOf, in.Ledger[ccy].SettledSourceKind
+	st.KeepCash = bucket.currency(ccy).KeepCash
+	if reserve, ok := in.EffectiveReserves[ccy]; ok {
+		st.EffectiveReserve, st.BufferAllocation = new(reserve), new(in.BufferAllocations[ccy])
+		st.FundingNeed = new(in.FundingEvidence.FundingNative[ccy])
+	}
 	st.SettlementProjection = rpc.CloneCashSweepSettlementProjection(in.FlexProjections[ccy])
 	st.Evidence = append(st.Evidence, flexCashProjectionEvidence(st.SettlementProjection)...)
 	today := cashSweepDay(now)
@@ -572,6 +605,16 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 	}
 	st := plan.status
 	st.Rows = len(out)
+	if err := e.persistCashSweepTrace(ctx, policy, sources, scope, now, &st); err != nil {
+		st.TraceState = "unavailable"
+		if policy.Buckets.CashSweep.reserveDesignEnabled() {
+			out, st.Rows = nil, 0
+			st.Reason = "decision_trace_unavailable: sweep held until SQLite audit is available"
+			for i := range st.Currencies {
+				st.Currencies[i].State, st.Currencies[i].Reason = rpc.CashSweepStateHold, st.Reason
+			}
+		}
+	}
 	return out, &st
 }
 
@@ -582,9 +625,13 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan cashSweepPlan, cp cashSweepCurrencyPlan) rpc.TradeProposal {
 	bucket := policy.Buckets.CashSweep
 	cfg := bucket.currency(cp.status.Currency)
+	if cp.status.EffectiveReserve != nil {
+		cfg.KeepCash = *cp.status.EffectiveReserve
+	}
 	ccy := cp.status.Currency
 	block := &rpc.TradeProposalCashSweep{
-		Mode: plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
+		PriorityRank: cp.status.PriorityRank,
+		Mode:         plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
 		Cash: cp.cash, Committed: cp.committed, KeepCash: cfg.KeepCash, Free: cp.free, MinTranche: cfg.MinTranche,
 		MinOrderNotionalBase: bucket.MinOrderNotional, MinNetGainBase: bucket.MinNetGain,
 		CashInterestRateUpper: cloneFloat64Ptr(cfg.CashInterestRateUpper), CashInterestValidThrough: string(cfg.CashInterestValidThrough),
@@ -805,6 +852,18 @@ func cashSweepCounts(proposals []rpc.TradeProposal) (rows, shadow int) {
 // cashSweepInput gathers the planner's inputs for the connected scope.
 func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPolicy, acct *rpc.AccountResult, pos *rpc.PositionsResult, scope brokerStateScope, now time.Time) cashSweepInput {
 	in := cashSweepInput{}
+	if acct != nil && acct.Authority != nil {
+		in.AccountReceiptAt = acct.Authority.AsOf
+	}
+	if pos != nil && pos.Authority != nil {
+		in.PositionsReceiptAt = pos.Authority.AsOf
+	}
+	in.PlanningDaemonStartedAt = e.startedAt
+	if e.server != nil {
+		e.server.mu.Lock()
+		in.PlanningSessionEpoch = e.server.connectorEpoch
+		e.server.mu.Unlock()
+	}
 	in.Holdings, in.Unclassified = cashSweepClassify(policy.Buckets.CashSweep, pos)
 	in.Settlement = e.cashSweepSettlement(scope, now)
 	in.Commitments = e.cashSweepCommitments(ctx, scope)

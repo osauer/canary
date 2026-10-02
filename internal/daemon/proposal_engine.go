@@ -542,6 +542,23 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		if a.Score < b.Score {
 			return 1
 		}
+		ap, bp := a.CashSweep != nil && a.CashSweep.PriorityRank > 0, b.CashSweep != nil && b.CashSweep.PriorityRank > 0
+		if ap && bp {
+			if a.CashSweep.PriorityRank < b.CashSweep.PriorityRank {
+				return -1
+			}
+			if a.CashSweep.PriorityRank > b.CashSweep.PriorityRank {
+				return 1
+			}
+		}
+		// Keep other same-score risk actions ahead of opted-in sweep rows;
+		// grouping also keeps the comparator transitive across mixed buckets.
+		if ap && !bp {
+			return 1
+		}
+		if bp && !ap {
+			return -1
+		}
 		return strings.Compare(a.Key, b.Key)
 	})
 	e.mu.Lock()

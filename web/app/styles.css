@@ -7415,3 +7415,8 @@ body:has(#alertsPanel[data-state="unknown"]) #alertAuthorityState {
   font-size: 13px;
   padding: 8px 2px;
 }
+.cash-sweep-panel { border-top: 1px solid var(--line); padding-top: 12px; }
+.cash-sweep-panel h3 { margin: 0; font-size: 14px; }
+.cash-sweep-panel p { margin: 8px 0; overflow-wrap: anywhere; }
+.cash-sweep-panel p > b, .cash-sweep-panel p > span, .cash-sweep-panel p > small { display: block; }
+.cash-sweep-panel small, #cashSweepHistory { color: var(--muted); font-size: 12px; }

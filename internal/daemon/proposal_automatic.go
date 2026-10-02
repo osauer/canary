@@ -706,7 +706,9 @@ func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	// once per cycle, and only when a record is due.
 	var cached, fresh *automaticSettlingBook
 	var served map[string]rpc.TradeProposal
-	for _, rec := range e.automatic.list() {
+	records := e.automatic.list()
+	prioritizeCashSweepRecords(records, e.Snapshot(false).Proposals)
+	for _, rec := range records {
 		if !rec.due(now, frozen) {
 			continue
 		}
