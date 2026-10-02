@@ -407,7 +407,7 @@ var pages = []pageSpec{
 var navItems = []struct{ Label, Href string }{
 	{"Documentation", hubHref},
 	{"MCP tools", "docs/reference/mcp-tools.html"},
-	{"Remote app beta", "canary-remote/"},
+	{"Remote access", "canary-remote/"},
 	{"Feedback", "feedback/"},
 	{"GitHub", "https://github.com/osauer/canary"},
 }
