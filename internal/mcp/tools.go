@@ -469,6 +469,25 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name:         "canary_reporting_fx",
+		Title:        "Canary FX Contribution",
+		Description:  "Read completed daily FX valuation contribution for investments, currency cash and native accrued interest, in the portfolio base currency. Use for the effect of exchange rates over Day, week-to-date, month-to-date and YTD. Returns ascending daily contributions, reconciled period totals, explicit missing dates and acquisition progress. Null/absent money is unavailable evidence, never zero; no_exposure means no gross foreign exposure throughout a complete period. Uses closing native values, including price/income interaction and actual conversion principal correction. Does not report asset performance, realised currency tax lots or live intraday P&L. Use canary_reporting_performance for portfolio performance facts and canary_account for live P&L. Read-only cached evidence: cannot start backfill, alter configuration or transmit orders.",
+		ReadOnlyHint: new(true),
+		RPCMethods:   []string{rpc.MethodFX},
+		JSONSchema:   schemaObject(nil, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
+			var res rpc.FXResult
+			if err := conn.Call(ctx, rpc.MethodFX, struct{}{}, &res); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateFXResult(res); err != nil {
+				return nil, fmt.Errorf("invalid FX result: %w", err)
+			}
+			return json.Marshal(res)
+		},
+	},
+
+	{
 		Name:         "canary_reporting_performance",
 		Title:        "Canary Statement Performance Series",
 		Description:  "Read the retained IBKR statement equity series in the account base currency (one close per report date), dated external capital flows (deposits, withdrawals, position transfers in and out), statement coverage, and year-to-date sums of FIFO realised trading P&L, commissions, dividends, interest, withholding tax and fees, so that a consumer can compute cash-flow-adjusted (time-weighted) performance, drawdowns and a benchmark comparison itself. A missing report date is a gap, never interpolated; nothing is annualised or compared here. Use canary_account for live net liquidation and today's P&L, canary_reporting for statement setup and broker reachability, and canary_recon_status for capital-flow reconciliation verdicts. Read-only; returns no account identity, computes no return figure, and cannot refresh statements.",

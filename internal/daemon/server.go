@@ -375,6 +375,11 @@ type Server struct {
 	// ranges. IBKR applies the Flex Web Service limit above Canary's query
 	// identities, so separate workers must still share one request lane.
 	flexBrokerMu sync.Mutex
+	fxMu         sync.Mutex
+	fxRunning    bool
+	fxWorker     bool
+	fxWake       chan struct{}
+	fxReason     string
 	// Test-only seams for the broker fetch and retained-statement projection.
 	flexFetchOnceFn          func(context.Context, time.Time) (flexFetchOutcome, error)
 	flexProjectionFn         func(context.Context) error
@@ -1400,6 +1405,7 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 	go s.runFlexFetchLoop(serverCtx)
 	s.startEdgeWorker(serverCtx)
+	s.startFXWorker(serverCtx)
 	s.startStressEvaluationLoop(serverCtx)
 	if s.tradeProposals != nil {
 		s.proposalsStarted.Do(func() {
@@ -2637,6 +2643,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(ctx, req) })
 	case rpc.MethodReportingStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleReportingStatus(ctx) })
+	case rpc.MethodFX:
+		s.unary(req, enc, func() (any, error) { return s.handleFX(ctx) })
+	case rpc.MethodFXBackfill:
+		s.unary(req, enc, func() (any, error) { return s.handleFXBackfill(ctx) })
 	case rpc.MethodReportingPerformance:
 		s.unary(req, enc, func() (any, error) { return s.handleReportingPerformance(ctx) })
 	case rpc.MethodReportingValidate:

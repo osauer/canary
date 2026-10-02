@@ -464,16 +464,17 @@ IBKR statement reporting status and performance series for Recon and Edge.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary reporting status|performance [--json]
+canary reporting status|performance|fx [--json]
 ```
 
-Subcommands: `status`, `performance`.
+Subcommands: `status`, `performance`, `fx`.
 
 **Flags**
 
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
 | `--json` | no | - |
+| `--backfill` | no | - |
 
 ## `canary proposals`
 

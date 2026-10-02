@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**28 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**29 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -207,6 +207,12 @@ Start here for the daemon's current desk summary: regime stage and verdict, port
 ## `canary_reporting`
 
 Read shared IBKR statement-reporting setup, broker reachability, backfill state, absent sections, present-empty sections, and proven missing fields for Recon and Edge. Read-only; returns no Query ID or token and cannot validate candidates, refresh reports, or change setup.
+
+*No parameters.*
+
+## `canary_reporting_fx`
+
+Read completed daily FX valuation contribution for investments, currency cash and native accrued interest, in the portfolio base currency. Use for the effect of exchange rates over Day, week-to-date, month-to-date and YTD. Returns ascending daily contributions, reconciled period totals, explicit missing dates and acquisition progress. Null/absent money is unavailable evidence, never zero; no_exposure means no gross foreign exposure throughout a complete period. Uses closing native values, including price/income interaction and actual conversion principal correction. Does not report asset performance, realised currency tax lots or live intraday P&L. Use canary_reporting_performance for portfolio performance facts and canary_account for live P&L. Read-only cached evidence: cannot start backfill, alter configuration or transmit orders.
 
 *No parameters.*
 

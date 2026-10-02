@@ -306,3 +306,7 @@ investment advice.
 Canary is a private project of Oliver Sauer, unaffiliated with any employer.
 
 MIT. See [LICENSE](LICENSE).
+
+FX contribution is available through `canary reporting fx` and the read-only
+`canary_reporting_fx` MCP tool. See [FX contribution and backfill](internal-docs/fx-contribution.md)
+for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantics.

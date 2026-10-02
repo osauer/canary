@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- Completed-day FX contribution for investments, currency cash and accrued interest, with Day/Week/Month/YTD periods, explicit evidence gaps, reconciled daily backfill and matching CLI/MCP contracts for Desk.
+
 - Cash sweeps have configurable whole-order minimums and advisory incremental purchase gain, including entry spread, broker fees and cash interest forgone. Benefit advice explicitly distinguishes known, unknown and stale inputs.
 - Pending Canary DAY buys retain exact fee bounds through restart and partial fills, allowing concurrent sweeps when principal and fees are fully reserved. Changed terms, stale or unavailable bounds and unacknowledged buys still hold.
 

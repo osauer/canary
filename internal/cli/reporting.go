@@ -18,6 +18,9 @@ func runReporting(ctx context.Context, env *Env, args []string) int {
 		sub = args[idx]
 		args = append(append([]string{}, args[:idx]...), args[idx+1:]...)
 	}
+	if sub == "fx" {
+		return runReportingFX(ctx, env, args)
+	}
 	if sub == "performance" {
 		return runReportingPerformance(ctx, env, args)
 	}
@@ -48,6 +51,7 @@ func printReportingUsage(env *Env) {
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Usage: canary reporting status [--json]")
 	fmt.Fprintln(env.Stdout, "       canary reporting performance [--json]")
+	fmt.Fprintln(env.Stdout, "       canary reporting fx [--backfill] [--json]")
 	fmt.Fprintln(env.Stdout, "       canary setup reporting")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "status separates local credentials, broker reachability, report freshness,")

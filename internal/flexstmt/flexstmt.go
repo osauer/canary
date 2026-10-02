@@ -115,6 +115,9 @@ type Statement struct {
 	OptionEvents       []OptionEvent
 	CorporateActions   []CorporateAction
 	FXRates            []FXRate
+	// FX is optional daily currency attribution evidence; its errors do not
+	// prevent the existing Recon/Edge parser from retaining a statement.
+	FX *FXSnapshot
 }
 
 type xmlFlexQueryResponse struct {
@@ -277,6 +280,7 @@ func Parse(data []byte) ([]Statement, error) {
 		return nil, err
 	}
 	parseCashBalances(data, out)
+	parseFXSnapshots(data, out)
 	return out, nil
 }
 
