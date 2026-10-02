@@ -27,11 +27,12 @@ type summaryProbeFlight struct {
 	yielded bool
 }
 type accountSummarySchedule struct {
-	mu             sync.Mutex
-	ordinary       map[int]uint64
-	pending        int
-	uncertainProbe bool
-	probe          *summaryProbeFlight
+	mu                     sync.Mutex
+	ordinary               map[int]uint64
+	pending                int
+	uncertainProbe         bool
+	uncertainCurrencyProbe bool
+	probe                  *summaryProbeFlight
 }
 
 // Ordinary subscriptions retain their lease until their cancellation is sent.
@@ -84,7 +85,7 @@ func (s *accountSummarySchedule) leaveOrdinary(reqID int, epoch uint64) {
 func (s *accountSummarySchedule) beginProbe(cancel context.CancelFunc) *summaryProbeFlight {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.pending != 0 || len(s.ordinary) != 0 || s.probe != nil {
+	if s.pending != 0 || len(s.ordinary) != 0 || s.probe != nil || s.uncertainCurrencyProbe {
 		return nil
 	}
 	p := &summaryProbeFlight{cancel: cancel, done: make(chan struct{})}
@@ -106,6 +107,7 @@ func (s *accountSummarySchedule) reset() {
 	defer s.mu.Unlock()
 	clear(s.ordinary)
 	s.uncertainProbe = false
+	s.uncertainCurrencyProbe = false
 	if s.probe != nil {
 		s.probe.cancel()
 	}

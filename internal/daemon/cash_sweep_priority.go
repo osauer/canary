@@ -55,8 +55,7 @@ func applyCashSweepReservePolicy(p *protectionCashSweepPolicy, in *cashSweepInpu
 	}
 }
 
-func orderCashSweepCurrencies(p *protectionCashSweepPolicy, plan *cashSweepPlan) {
-	mode := p.effectiveCurrencyPriority()
+func orderCashSweepCurrenciesByPriority(mode string, plan *cashSweepPlan) {
 	if mode == "" {
 		return
 	}

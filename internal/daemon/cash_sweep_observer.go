@@ -12,9 +12,10 @@ import (
 func (e *proposalEngine) observeCashSweepFunding(acct *rpc.AccountResult, pos *rpc.PositionsResult, scope brokerStateScope, cash cashSweepInput, now time.Time) (*risk.CashSweepOperationalObservation, []risk.CashSweepCalibrationStudy) {
 	pol := e.rulebookPolicy()
 	in := risk.CashSweepOperationalInput{AsOf: now, Source: "live_partial", PolicyFingerprint: pol.FingerprintKey(),
-		AccountReceiptAt: cash.AccountReceiptAt, PositionsReceiptAt: cash.PositionsReceiptAt, TakeoverGapPct: pol.TakeoverGapPct}
+		AccountReceiptAt: cash.AccountReceiptAt, PositionsReceiptAt: cash.PositionsReceiptAt, TakeoverGapPct: pol.TakeoverGapPct,
+		CoverageCreditMode: risk.CashSweepCoverageUncredited}
 	if acct == nil || pos == nil || !currentPortfolioAuthority(acct.Authority) || !currentPortfolioAuthority(pos.Authority) ||
-		(acct.Authority.Source != rpc.AccountDataSourceAccountSummaryRequest && acct.Authority.Source != rpc.AccountDataSourceAccountUpdatesCache) || pos.Authority.Source != rpc.AccountDataSourcePortfolioStream ||
+		(acct.Authority.Source != rpc.AccountDataSourceAccountSummaryRequest && acct.Authority.Source != rpc.AccountDataSourceAccountUpdatesCache) || pos.Authority.Source != rpc.AccountDataSourcePortfolioStream || !pos.Authority.PortfolioComplete ||
 		acct.Authority.Scope != accountDataScope(scope) || pos.Authority.Scope != accountDataScope(scope) || acct.AccountID != scope.Account || pos.AccountID != scope.Account ||
 		cash.AccountReceiptAt.IsZero() || cash.AccountReceiptAt.After(now) || cash.PositionsReceiptAt.IsZero() || cash.PositionsReceiptAt.After(now) ||
 		!cash.AccountReceiptAt.Equal(acct.Authority.AsOf) || !cash.PositionsReceiptAt.Equal(pos.Authority.AsOf) || now.Sub(cash.AccountReceiptAt) > accountSnapshotFreshFor || now.Sub(cash.PositionsReceiptAt) > portfolioStreamReceiptMaxAge ||
@@ -25,8 +26,13 @@ func (e *proposalEngine) observeCashSweepFunding(acct *rpc.AccountResult, pos *r
 		in.Currencies = append(in.Currencies, ccy)
 	}
 	study := risk.CashSweepCalibrationInput{AsOf: now, Source: "live_partial", PolicyFingerprint: pol.FingerprintKey(), EURRates: map[string]float64{},
-		ClusterDropPct: pol.ClusterDropPct, TakeoverGapPct: pol.TakeoverGapPct, ExitParticipationPct: pol.ExitParticipationPct}
+		ClusterDropPct: pol.ClusterDropPct, TakeoverGapPct: pol.TakeoverGapPct, ExitParticipationPct: pol.ExitParticipationPct,
+		CommonReadSessionVerified: e != nil && e.server.cashSweepCommonReadSession(acct, pos)}
 	if in.ScopeReason == "" {
+		study.NativeCash, study.CashReceiptAt = cashSweepNativeValuationCash(acct)
+		if study.NativeCash != nil {
+			study.CashValidUntil = study.CashReceiptAt.Add(accountSnapshotFreshFor)
+		}
 		budget := e.resolveBudgetInput(acct, now)
 		if budget.Constitution != nil && budget.AccountBaseCurrency == "EUR" {
 			study.ProtectedFloor = cloneFloat64Ptr(budget.Constitution.Capital.ProtectedFloor)
@@ -55,8 +61,35 @@ func (e *proposalEngine) observeCashSweepFunding(acct *rpc.AccountResult, pos *r
 		}
 	}
 	out := risk.ObserveCashSweepOperationalFunding(in)
-	// The public receipt contract has no common original connector epoch.
-	// A sampled planning epoch cannot silently certify the earlier reads.
-	out.Gaps = append(out.Gaps, "common_read_session_provenance_unavailable")
+	if !study.CommonReadSessionVerified {
+		out.Gaps = append(out.Gaps, "common_read_session_provenance_unavailable")
+	}
 	return &out, risk.StudyCashSweepFiniteHorizons(study)
+}
+
+// NAV valuation uses the account's full trade-date ledger. The spending
+// ledger may take the minimum across channels; that lower bound would
+// understate FX losses on positive cash and cannot value the whole account.
+func cashSweepNativeValuationCash(acct *rpc.AccountResult) (map[string]float64, time.Time) {
+	if acct == nil || acct.Authority == nil || acct.Authority.Fields == nil ||
+		!acct.Authority.Fields.CurrencyExposure || !acct.Authority.Fields.BaseCurrency ||
+		acct.BaseCurrency != "EUR" || acct.BaseCurrencyLedger == nil || acct.Authority.AsOf.IsZero() {
+		return nil, time.Time{}
+	}
+	rows := append([]rpc.CurrencyExposure{*acct.BaseCurrencyLedger}, acct.CurrencyExposure...)
+	if acct.Authority.LedgerCurrencyCount != len(rows) {
+		return nil, time.Time{}
+	}
+	out := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		ccy := normCcy(row.Currency)
+		if _, duplicate := out[ccy]; duplicate || ccy == "" || !row.CashObserved || !finiteProtectionOptionPolicyValue(row.CashCcy) {
+			return nil, time.Time{}
+		}
+		out[ccy] = row.CashCcy
+	}
+	if _, exists := out["EUR"]; !exists || normCcy(acct.BaseCurrencyLedger.Currency) != "EUR" {
+		return nil, time.Time{}
+	}
+	return out, acct.Authority.AsOf
 }

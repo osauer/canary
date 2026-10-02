@@ -588,6 +588,8 @@ func render(tables [][]tomlField, envs []envVar) string {
 		case rpc.SettingsKindDateMap:
 			key += ".<SYMBOL>"
 			grammar = "YYYY-MM-DD[Tamc/Tbmo]/null"
+		case rpc.SettingsKindCashSweepPriority:
+			grammar = "usd_first/balanced/eur_first/null"
 		case rpc.SettingsKindDateFormat:
 			grammar = "us/eu/us_weekday/eu_weekday/null"
 		}

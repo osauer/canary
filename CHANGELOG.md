@@ -10,6 +10,12 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- Passive account-stream receipts show which cash fields TWS supplies without changing subscriptions, exposing balances or granting spending authority.
+
+- An opt-in currency-only account update diagnostic uses the existing broker connection, cancels its own request and reports sanitized cash-field receipts. Account changes, raw capture and uncertain cancellation withhold further diagnostics; ordinary account reads retain priority.
+
+- Cash sweep ordering can prefer USD first, balanced free cash or EUR first through an audited runtime preference. This changes ordering only; cash reserves, policy activation and execution authority remain separate.
+
 - An explicit read-only `account --settlement-probe --json` comparison tests the normal summary batch against an isolated SettledCash request. Responses contain only sanitized receipts and transport states; ordinary account/risk reads take priority and no diagnostic grants cash authority.
 
 - Completed-day FX contribution for investments, currency cash and accrued interest, with Day/Week/Month/YTD periods, explicit evidence gaps, reconciled daily backfill and matching CLI/MCP contracts for Desk.
@@ -18,6 +24,8 @@ All notable changes to this project are documented here. The project adheres to 
 - Pending Canary DAY buys retain exact fee bounds through restart and partial fills, allowing concurrent sweeps when principal and fees are fully reserved. Changed terms, stale or unavailable bounds and unacknowledged buys still hold.
 
 ### Fixed
+
+- Reserve stress studies include native cash and borrowing, require complete cash and portfolio coverage, and bind original reads to one current broker session. Live numeric studies require each input's original validity. A conservative call-cover observation can intentionally reserve full funding without claiming unknown settled shares as zero; positive BILL holdings share BOND funding treatment without creating sale credit.
 
 - Read-only cash-sweep history omits repeated obligation and calibration detail with explicit audit-availability counts, keeping large proposal snapshots within the Desk observer budget. Current evidence and full SQLite audit records remain intact.
 - Cash-sweep and budget status remain bound to the current account and paper/live mode even when there are no proposals to act on.

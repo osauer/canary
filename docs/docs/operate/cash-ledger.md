@@ -41,6 +41,27 @@ their own request IDs; an old socket epoch cannot cancel a successor's request.
 - [IBKR account-summary tags](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-summary/account-summary-tags)
 - [IBKR per-currency prefix](https://www.interactivebrokers.com/docs/tws-api/doc/tws-settings/per-currency-account-value-prefix)
 
+`account_stream_observation` separately surveys the already-running
+`reqAccountUpdates` subscription. Reading it sends no new subscription,
+connection or login. Its source is exact selected-account/current-socket
+receipt metadata: allowlisted cash key names and currencies, broker ledger
+prefix classification, invalid/unset/observed value flags, first/last callback
+clocks and the existing initial-download health. No amounts or account IDs are
+included. `AccountReady` can be ready, not ready, invalid or unknown;
+`TradingType-S` distinguishes a recognized cash or margin regime, while absent
+or unrecognized values remain unknown. `AccountType=INDIVIDUAL` describes
+account ownership and cannot classify cash versus margin.
+
+All stream clocks are **local receive/read clocks**, not broker valuation
+times. `initial_complete` records an initial account download; it does not
+prove that an individual cash field is fresh, that every subsequent cash event
+was observed, or that cash can be swept. Unknown readiness stays explicit even
+after initial completion. Bare `SettledCash` remains an account total. The
+passive diagnostic never contributes a balance to cash authority. A scope or
+socket change retires the receipt, and a subscription reset clears its rows.
+
+- [IBKR account-value keys](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-updates/account-value-keys)
+
 ## Historical Flex baseline
 
 In the existing Activity Flex Query, enable **Cash Report** and select
@@ -83,7 +104,7 @@ keeps a session alive or sends an order.
 
 ```toml
 [cash_ledger]
-url = "https://localhost:5001/v1/api"
+url = "https://localhost:5050/v1/api"
 ca_cert_file = "/absolute/private/path/client-portal-ca.pem"
 ```
 
@@ -120,15 +141,24 @@ Restart Canary after configuring the connection. Check `canary account --json`:
 `web_cash` with its scope and original timestamp. `canary proposals list --json`
 reports remaining sweep holds. Source readiness does not authorise an order.
 
-IBKR documents that an outer read-only Web session can coexist with TWS; a
-second brokerage session can replace it. Authenticate locally without taking
-over the existing trading session. Client Portal Gateway authentication and API
-calls must be on the same machine; Canary never calls `/iserver` session
-initialisation as a fallback.
+IBKR distinguishes outer Web sessions from brokerage sessions. Only one
+brokerage session per username can be active across TWS, Client Portal and
+other IBKR services. Do not assume that a Client Portal Gateway browser login
+creates only an outer session: its actual authentication path must be verified
+before use alongside the owner's TWS session. A competing login can displace
+TWS. IBKR documents a second username for concurrent products; its permissions
+and actual coexistence require owner commissioning. This reader neither starts
+nor maintains a brokerage session and never calls `/iserver` initialization.
+Gateway authentication and API calls must be on the same machine. IBKR requires
+daily browser reauthentication and does not support automated Gateway login.
+The example port is illustrative; no service is launched or trusted by this
+configuration example.
 
 - [IBKR Ledger fields](https://www.interactivebrokers.com/docs/web-api/v1/endpoints/portfolio/portfolio-ledger)
 - [IBKR session boundaries](https://www.interactivebrokers.com/docs/web-api/authentication/sessions)
 - [Gateway limitations](https://www.interactivebrokers.com/docs/web-api/authentication/cpgw/limitations-of-the-client-portal-gateway)
+- [IBKR multiple sessions](https://www.interactivebrokers.com/docs/web-api/authentication/multiple-sessions)
+- [Gateway authentication FAQ](https://www.interactivebrokers.com/docs/web-api/authentication/cpgw/client-portal-gateway-faq)
 
 ## Bill commissioning and allocation limits
 
@@ -234,3 +264,42 @@ written in order; TWS provides no cancellation acknowledgement. The experiment
 can test whether batching suppresses a callback in the current session. A
 returned account-wide or ambiguous total still cannot authorize native-currency
 cash sweeping.
+
+
+## Currency-only settlement experiment
+
+`canary account --currency-settlement-probe --json` requests one lightweight
+`reqAccountUpdatesMulti` subscription on the existing ready connector: the
+exact managed account, an empty model and `ledgerAndNLV=true`. Ordinary reads
+never start it. The request does not replace the existing legacy account stream
+or require another connection, client ID, Gateway or login.
+
+The official currency-only request contract differs from legacy account-value
+callbacks. Exact concrete-currency callbacks retain `currency_only_multi`
+origin, even when their key has no broker prefix. `BASE`, empty and malformed
+currencies remain separate. Allowlisted wire keys, real-zero/finite/unset/invalid
+value states, callback counts and local receipt clocks are returned without
+amounts or account identifiers. No result is admitted to a financial cache or
+used to authorize a sweep. Initial End alone does not prove field freshness,
+settled-cash completeness or suitability for execution.
+
+The same diagnostic scheduling lane gives ordinary account/risk reads priority.
+Send/response is bounded at two seconds, followed by at most one second for
+guarded cancellation on the original socket. End freezes the receipt; retired
+IDs and late callbacks remain quarantined. An uncertain Multi cancel prevents
+all further diagnostics until a socket reset, while preserving both ordinary
+account-summary slots because Multi is a separate broker service. No cancel
+acknowledgement is claimed. Active raw wire/packet capture prevents this
+metadata-only experiment; existing capture behavior stays intact. Unimplemented
+account protobuf protocols are refused.
+
+The [official API1050 stable source](https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip)
+verifies legacy request76/version1, cancel77/version1 and callbacks73/74.
+Account/position protobuf begins at protocol207; Canary currently advertises203.
+See the [official model-account request contract](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-update-by-model/requesting-account-update-by-model).
+
+If concrete-currency SettledCash is returned, financially admitting it is a
+separate change requiring verified account/model/original-epoch provenance,
+complete batch and duplicate handling, clock/freshness rules, cancellation and
+readiness checks. If omitted, the result establishes omission only for this
+session and request, rather than claiming that TWS never has that information.

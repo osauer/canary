@@ -132,6 +132,7 @@ type TradeProposalCashSweepStatus struct {
 	PlanningSessionEpoch    uint64                           `json:"planning_session_epoch,omitempty"`
 	PlanningDaemonStartedAt time.Time                        `json:"planning_daemon_started_at,omitzero"`
 	CurrencyPriority        string                           `json:"currency_priority,omitempty"`
+	CurrencyPrioritySource  string                           `json:"currency_priority_source,omitempty"`
 	ReserveCushionEUR       *float64                         `json:"reserve_cushion_eur,omitempty"`
 	ReserveState            string                           `json:"reserve_state,omitempty"`
 	ReserveReason           string                           `json:"reserve_reason,omitempty"`

@@ -14,12 +14,23 @@ func runAccount(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "account")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	settlementProbe := fs.Bool("settlement-probe", false, "compare settled-cash callback receipts without amounts; requires --json")
+	currencySettlementProbe := fs.Bool("currency-settlement-probe", false, "inspect currency-only Multi callback receipts without amounts; requires --json")
 	watch := fs.Bool("watch", false, "re-poll on a fixed interval; in-place redraw on a TTY")
 	rate := fs.Duration("rate", time.Second, "poll interval for --watch")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
 
+	if *currencySettlementProbe {
+		if !*jsonOut || *watch || *settlementProbe {
+			return fail(env, "account: --currency-settlement-probe requires --json, cannot watch or combine diagnostics")
+		}
+		var result rpc.AccountCurrencySettlementProbe
+		if err := env.Conn.Call(ctx, rpc.MethodAccountSummary, rpc.AccountSummaryParams{CurrencySettlementProbe: true}, &result); err != nil {
+			return fail(env, "account: %v", err)
+		}
+		return printJSONTo(env, env.Stdout, result)
+	}
 	if *settlementProbe {
 		if !*jsonOut || *watch {
 			return fail(env, "account: --settlement-probe requires --json and cannot watch")

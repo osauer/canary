@@ -22,7 +22,9 @@ need a Go wire-protocol client, use [`pkg/ibkr`](#go-wire-protocol-library).
 To read a running Canary from your own Go program, import the module root
 `github.com/osauer/canary/v2`: it runs the same read-only tool catalogue over the
 daemon socket, and `canarytest` serves the wire types on a temporary socket for
-tests.
+tests. The client also exposes a narrow audited cash-sweep ordering preference;
+its tool catalogue remains read-only and the preference cannot activate reserves
+or broker execution.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 

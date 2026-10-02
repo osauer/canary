@@ -15,6 +15,7 @@ func fundingRefuterStudyInput() risk.CashSweepCalibrationInput {
 	return risk.CashSweepCalibrationInput{AsOf: now, Source: "frozen_synthetic", PolicyFingerprint: "synthetic",
 		SessionEnds: []time.Time{now.Add(24 * time.Hour), now.Add(48 * time.Hour), now.Add(72 * time.Hour), now.Add(96 * time.Hour), now.Add(120 * time.Hour)},
 		BaseNAV:     new(100000.), ProtectedFloor: new(10000.), EURRates: map[string]float64{"EUR": 1},
+		NativeCash: map[string]float64{"EUR": 0}, CashReceiptAt: now.Add(-time.Second),
 		ClusterDropPct: 20, TakeoverGapPct: 20, ExitParticipationPct: 10,
 		Lines: []risk.CashSweepCalibrationLine{{ConID: 101, Currency: "EUR", SecType: "STK", Quantity: 100, Multiplier: 1, CurrentMark: 100,
 			PriceOriginalAt: now.Add(-time.Minute), ExitOriginalAt: now.Add(-time.Minute), ADV20InPositionUnits: new(10000.), ExitSpreadUpper: new(0.), ExitFeeUpper: new(0.)}},
@@ -110,7 +111,7 @@ func TestFundingRefuterLiveSourceGapCannotBecomeEmptyBook(t *testing.T) {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	scope := brokerStateScope{Account: "DU1234567", Mode: "paper"}
 	e := &proposalEngine{scope: func() brokerStateScope { return scope }}
-	for _, variant := range []string{"nil", "scope", "stale", "future", "ledger", "account_source", "positions_source", "receipt_mismatch", "old_account", "old_positions"} {
+	for _, variant := range []string{"nil", "scope", "stale", "future", "ledger", "account_source", "positions_source", "receipt_mismatch", "old_account", "old_positions", "filtered"} {
 		t.Run(variant, func(t *testing.T) {
 			authority := func() *rpc.AccountDataAuthority {
 				return &rpc.AccountDataAuthority{Scope: accountDataScope(scope), Availability: rpc.AccountDataAvailable, Freshness: rpc.AccountDataFreshnessCurrent, AsOf: now}
@@ -119,6 +120,7 @@ func TestFundingRefuterLiveSourceGapCannotBecomeEmptyBook(t *testing.T) {
 			pos := &rpc.PositionsResult{AccountID: scope.Account, Authority: authority()}
 			acct.Authority.Source = rpc.AccountDataSourceAccountSummaryRequest
 			pos.Authority.Source = rpc.AccountDataSourcePortfolioStream
+			pos.Authority.PortfolioComplete = true
 			cash := cashSweepInput{AccountReceiptAt: now, PositionsReceiptAt: now}
 			control, _ := e.observeCashSweepFunding(acct, pos, scope, cash, now)
 			if control.State != "partial" {
@@ -147,6 +149,8 @@ func TestFundingRefuterLiveSourceGapCannotBecomeEmptyBook(t *testing.T) {
 			case "old_positions":
 				pos.Authority.AsOf = now.Add(-time.Hour)
 				cash.PositionsReceiptAt = pos.Authority.AsOf
+			case "filtered":
+				pos.Authority.PortfolioComplete = false
 			}
 			out, studies := e.observeCashSweepFunding(acct, pos, scope, cash, now)
 			if out.State != "unavailable" || len(out.Currencies) != 0 || len(out.Obligations) != 0 {
@@ -229,5 +233,42 @@ func TestFundingRefuterCompleteStudyDoesNotAuthorizeSweeping(t *testing.T) {
 		if currency.side != "" {
 			t.Fatalf("study authorized sweep action: %+v", currency)
 		}
+	}
+}
+
+func TestCashSweepConservativeCoverageDoesNotInventZeroSettledShares(t *testing.T) {
+	for _, available := range []*float64{nil, new(0.), new(100.)} {
+		in := fundingRefuterCallInput()
+		in.CoverageCreditMode = risk.CashSweepCoverageUncredited
+		in.Positions[0].SettledAvailableShares = available
+		out := risk.ObserveCashSweepOperationalFunding(in)
+		if len(out.Currencies) != 1 || out.Currencies[0].GrossPrincipal == nil || *out.Currencies[0].GrossPrincipal != 24000 || len(out.Currencies[0].Gaps) != 0 {
+			t.Fatalf("settled coverage changed the deliberately uncredited cash bound: %+v", out)
+		}
+		for _, o := range out.Obligations {
+			if o.CoveredShares != nil || o.CoverageTreatment != risk.CashSweepCoverageUncredited || o.GrossPrincipal == nil || *o.GrossPrincipal != 12000 {
+				t.Fatalf("uncredited shares were emitted as observed zero: %+v", o)
+			}
+		}
+	}
+	for _, variant := range []string{"terms", "deadline", "underlying_quote", "unknown_mode"} {
+		t.Run(variant, func(t *testing.T) {
+			in := fundingRefuterCallInput()
+			in.CoverageCreditMode = risk.CashSweepCoverageUncredited
+			switch variant {
+			case "terms":
+				in.Positions[1].Deliverable = nil
+			case "deadline":
+				in.Positions[1].Deliverable.EarliestSettlement = time.Time{}
+			case "underlying_quote":
+				in.Positions[0].Price = nil
+			case "unknown_mode":
+				in.CoverageCreditMode = "synthetic-unknown"
+			}
+			out := risk.ObserveCashSweepOperationalFunding(in)
+			if len(out.Currencies) != 0 && out.Currencies[0].GrossPrincipal != nil {
+				t.Fatalf("uncredited mode bypassed another source gap: %+v", out)
+			}
+		})
 	}
 }

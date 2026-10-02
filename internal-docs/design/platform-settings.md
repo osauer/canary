@@ -56,6 +56,32 @@ write origin. A semantic no-op advances neither the revision nor the audit
 stream. Revision conflicts, duplicate audit identities, or critical database
 errors roll back both records; no legacy-file write or fallback follows.
 
+## Cash sweep ordering
+
+`cash_sweep.currency_priority` is a runtime ordering preference: `usd_first`,
+`balanced`, `eur_first`, or `null` to restore the protection policy/default.
+It affects only the final currency ordering and priority ranks. It never writes
+`protection.toml`, opts into its reserve design, changes the cushion, funding
+checks, floors, caps, policy fingerprint, trading-control generation or AUTO.
+The legacy TOML priority keeps its reserve opt-in semantics. USD first is the
+ordering default when neither source supplies a preference. Existing native cash
+is used; the preference authorizes no FX conversion or broker action.
+
+The settings document is version 4. Version 3 is strictly decoded and upgraded
+in memory without an eager database rewrite; its controls survive the next write.
+
+The dedicated non-catalogue `settings.cash_sweep.get` and
+`settings.cash_sweep.set_priority` RPCs and Go client methods expose only this
+preference. A save requires `currency_priority`, `expected_revision` and an
+immutable `request_id`. Canary always audits this narrow client's origin as
+agent; it claims no human-terminal authority. Each accepted request records its
+canonical terms, digest, before value and saved revision in the existing
+append-only event table. Changed settings and the receipt commit together.
+A semantic no-op records a receipt under a revision fence without rewriting
+state. Reusing an ID with changed terms fails. Retrying an old ID returns its
+saved revision plus the current settings; it never reapplies the old choice.
+Cash/funding readiness remains a separate proposal observation.
+
 ## Policy
 
 `display.date_format` is presentation-only and defaults to `us`. The closed

@@ -10,30 +10,32 @@ import (
 
 // Daemon method names are stable wire identifiers shared by every adapter.
 const (
-	MethodAccountSummary   = "account.summary"
-	MethodPositionsList    = "positions.list"
-	MethodQuoteSnapshot    = "quote.snapshot"
-	MethodQuoteSubscribe   = "quote.subscribe"
-	MethodDisplaySubscribe = "display.subscribe"
-	MethodChainFetch       = "chain.fetch"
-	MethodChainExpiries    = "chain.expiries"
-	MethodTechnical        = "technical.snapshot"
-	MethodMarketCalendar   = "market.calendar"
-	MethodStatusHealth     = "status.health"
-	MethodTradingStatus    = "trading.status"
-	MethodSettingsGet      = "settings.get"
-	MethodSettingsUpdate   = "settings.update"
-	MethodOrdersOpen       = "orders.open"
-	MethodOrdersHistory    = "orders.history"
-	MethodOrderStatus      = "order.status"
-	MethodOrderPreview     = "order.preview"
-	MethodStrategyPreview  = "strategy.preview"
-	MethodBreadthSPX       = "breadth.spx"
-	MethodGammaZeroSPX     = "gamma.zero_spx"
-	MethodRegimeSnapshot   = "regime.snapshot"
-	MethodOrderPlace       = "order.place"
-	MethodOrderModify      = "order.modify"
-	MethodOrderCancel      = "order.cancel"
+	MethodAccountSummary          = "account.summary"
+	MethodPositionsList           = "positions.list"
+	MethodQuoteSnapshot           = "quote.snapshot"
+	MethodQuoteSubscribe          = "quote.subscribe"
+	MethodDisplaySubscribe        = "display.subscribe"
+	MethodChainFetch              = "chain.fetch"
+	MethodChainExpiries           = "chain.expiries"
+	MethodTechnical               = "technical.snapshot"
+	MethodMarketCalendar          = "market.calendar"
+	MethodStatusHealth            = "status.health"
+	MethodTradingStatus           = "trading.status"
+	MethodCashSweepPreferencesGet = "settings.cash_sweep.get"
+	MethodCashSweepPrioritySet    = "settings.cash_sweep.set_priority"
+	MethodSettingsGet             = "settings.get"
+	MethodSettingsUpdate          = "settings.update"
+	MethodOrdersOpen              = "orders.open"
+	MethodOrdersHistory           = "orders.history"
+	MethodOrderStatus             = "order.status"
+	MethodOrderPreview            = "order.preview"
+	MethodStrategyPreview         = "strategy.preview"
+	MethodBreadthSPX              = "breadth.spx"
+	MethodGammaZeroSPX            = "gamma.zero_spx"
+	MethodRegimeSnapshot          = "regime.snapshot"
+	MethodOrderPlace              = "order.place"
+	MethodOrderModify             = "order.modify"
+	MethodOrderCancel             = "order.cancel"
 )
 
 // Error codes classify terminal request failures carried by Error.Code.
@@ -1939,9 +1941,9 @@ type UnderlyingExposure struct {
 // UnrealizedPnL / RealizedPnL are the gateway-reported base-currency
 // session totals. Cushion is ExcessLiquidity / NetLiquidation as
 // reported by the gateway (not derived locally) — a ratio, unitless.
-// AccountType is one of IBKR's account-type strings ("INDIVIDUAL",
-// "IB-MARGIN", "REG-T-MARGIN", "PORTFOLIO", "CASH", …); empty when the
-// gateway didn't deliver it (older server versions or non-margin accounts).
+// AccountType identifies the broker's account ownership structure, such as
+// "INDIVIDUAL". It does not establish cash versus margin trading regime;
+// the passive stream diagnostic classifies recognized TradingType-S values.
 // LookAhead* fields project the post-overnight-margin-cycle state — useful
 // to spot "fine now, blown by tonight" cases on portfolio-margin books.
 // Legacy scalar fields remain float64 for wire compatibility. Authority.Fields
@@ -2004,6 +2006,7 @@ type AccountResult struct {
 	// TWS account-summary authority or timestamp.
 	CashLedger            *CashLedgerHealth             `json:"cash_ledger,omitempty"`
 	SettlementObservation *AccountSettlementObservation `json:"settlement_observation,omitempty"`
+	StreamObservation     *AccountStreamObservation     `json:"account_stream_observation,omitempty"`
 }
 
 // CashLedgerHealth is value-free source health for the optional broker ledger.

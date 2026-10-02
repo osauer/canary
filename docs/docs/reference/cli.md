@@ -95,6 +95,8 @@ Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary account [--watch --rate 1s] [--json]
+canary account --settlement-probe --json
+canary account --currency-settlement-probe --json
 ```
 
 **Flags**
@@ -104,6 +106,8 @@ canary account [--watch --rate 1s] [--json]
 | `--watch` | no | - |
 | `--rate` | yes | - |
 | `--json` | no | - |
+| `--settlement-probe` | no | - |
+| `--currency-settlement-probe` | no | - |
 
 ## `canary positions`
 

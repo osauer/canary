@@ -29,6 +29,7 @@ type CashSweepFundingPosition struct {
 	Multiplier                       int
 	Price                            *float64
 	PriceAt                          time.Time
+	PriceValidUntil                  time.Time
 	SettledAvailableShares           *float64
 	Deliverable                      *CashSweepDeliverable
 }
@@ -41,7 +42,14 @@ type CashSweepOperationalInput struct {
 	Positions                                  []CashSweepFundingPosition
 	Currencies                                 []string
 	TakeoverGapPct                             float64
+	// The uncredited mode reserves full call-cover funding without pretending
+	// that unavailable settled-share coverage was observed as zero.
+	CoverageCreditMode string
 }
+
+// CashSweepCoverageUncredited reserves full delivery-cover funding while
+// explicitly giving no credit for observed or unavailable settled shares.
+const CashSweepCoverageUncredited = "uncredited_conservative"
 
 // CashSweepFundingObligation describes gross principal before commitments.
 // IndicativePrincipal is context only, never an admitted funding amount.
@@ -52,6 +60,7 @@ type CashSweepFundingObligation struct {
 	GrossPrincipal        *float64  `json:"gross_principal,omitempty"`
 	IndicativePrincipal   *float64  `json:"indicative_principal,omitempty"`
 	CoveredShares         *float64  `json:"covered_shares,omitempty"`
+	CoverageTreatment     string    `json:"coverage_treatment,omitempty"`
 	EarliestSettlement    time.Time `json:"earliest_settlement,omitzero"`
 	QuoteOriginalAt       time.Time `json:"quote_original_at,omitzero"`
 	DeliverableOriginalAt time.Time `json:"deliverable_original_at,omitzero"`
@@ -93,6 +102,11 @@ func ObserveCashSweepOperationalFunding(in CashSweepOperationalInput) CashSweepO
 	if in.ScopeReason != "" || in.AsOf.IsZero() || in.Source != "live_partial" && in.Source != "frozen_synthetic" {
 		out.State = "unavailable"
 		out.Gaps = append(out.Gaps, "operational_source_scope_unavailable")
+		return out
+	}
+	if in.CoverageCreditMode != "" && in.CoverageCreditMode != CashSweepCoverageUncredited {
+		out.State = "unavailable"
+		out.Gaps = append(out.Gaps, "coverage_credit_mode_unavailable")
 		return out
 	}
 	ccys := map[string]*CashSweepOperationalCurrency{}
@@ -146,7 +160,7 @@ func ObserveCashSweepOperationalFunding(in CashSweepOperationalInput) CashSweepO
 				continue
 			}
 			o.Kind = "short_stock_cover"
-			if p.Price == nil || !sweepNonnegative(*p.Price) || *p.Price == 0 || p.PriceAt.IsZero() || p.PriceAt.After(in.AsOf) || !sweepNonnegative(in.TakeoverGapPct) {
+			if p.Price == nil || !sweepNonnegative(*p.Price) || *p.Price == 0 || p.PriceAt.IsZero() || p.PriceAt.After(in.AsOf) || !sweepNonnegative(in.TakeoverGapPct) || in.Source == "live_partial" && !sweepLiveEvidenceValid(p.PriceAt, p.PriceValidUntil, in.AsOf) {
 				o.Gaps = append(o.Gaps, "cover_price_or_finite_gap_unavailable")
 			} else {
 				o.GrossPrincipal = new(-p.Quantity * *p.Price * (1 + in.TakeoverGapPct/100))
@@ -188,16 +202,21 @@ func ObserveCashSweepOperationalFunding(in CashSweepOperationalInput) CashSweepO
 					o.Gaps = append(o.Gaps, "underlying_currency_conflict")
 					break
 				}
-				if _, known := available[d.UnderlyingConID]; !known {
-					o.Gaps = append(o.Gaps, "settled_covered_shares_unavailable")
+				covered := 0.
+				if in.CoverageCreditMode == CashSweepCoverageUncredited {
+					o.CoverageTreatment = CashSweepCoverageUncredited
+				} else {
+					if _, known := available[d.UnderlyingConID]; !known {
+						o.Gaps = append(o.Gaps, "settled_covered_shares_unavailable")
+					}
+					covered = min(available[d.UnderlyingConID], shares)
+					available[d.UnderlyingConID] -= covered
+					o.CoveredShares = new(covered)
 				}
-				covered := min(available[d.UnderlyingConID], shares)
-				available[d.UnderlyingConID] -= covered
-				o.CoveredShares = new(covered)
 				if covered == shares {
 					o.GrossPrincipal = new(0.)
 				} else {
-					if identified && stock.Price != nil && sweepNonnegative(*stock.Price) && *stock.Price > 0 && !stock.PriceAt.IsZero() && !stock.PriceAt.After(in.AsOf) && sweepNonnegative(in.TakeoverGapPct) {
+					if identified && stock.Price != nil && sweepNonnegative(*stock.Price) && *stock.Price > 0 && !stock.PriceAt.IsZero() && !stock.PriceAt.After(in.AsOf) && sweepNonnegative(in.TakeoverGapPct) && (in.Source != "live_partial" || sweepLiveEvidenceValid(stock.PriceAt, stock.PriceValidUntil, in.AsOf)) {
 						o.GrossPrincipal = new((shares - covered) * *stock.Price * (1 + in.TakeoverGapPct/100))
 					} else {
 						o.Gaps = append(o.Gaps, "uncovered_call_funding_unavailable")
@@ -206,7 +225,7 @@ func ObserveCashSweepOperationalFunding(in CashSweepOperationalInput) CashSweepO
 			default:
 				o.Gaps = append(o.Gaps, "option_right_unavailable")
 			}
-		case "BOND":
+		case "BOND", "BILL":
 			if p.Quantity > 0 {
 				continue
 			}

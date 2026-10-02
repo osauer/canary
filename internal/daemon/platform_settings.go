@@ -31,20 +31,22 @@ type platformSettingsStore struct {
 
 // Persisted shape versions of the platform-settings state document. Version 1
 const (
-	platformSettingsDocVersion       = 3
-	platformSettingsDocVersionStress = 2
-	platformSettingsDocVersionCanary = 1
+	platformSettingsDocVersion        = 4
+	platformSettingsDocVersionDisplay = 3
+	platformSettingsDocVersionStress  = 2
+	platformSettingsDocVersionCanary  = 1
 )
 
 type platformSettingsData struct {
-	Version                  int                         `json:"version"`
-	TradingControlGeneration uint64                      `json:"trading_control_generation"`
-	Display                  platformDisplaySettingsData `json:"display"`
-	Features                 platformFeatureSettingsData `json:"features"`
-	Trading                  platformTradingSettingsData `json:"trading"`
-	Regime                   platformRegimeSettingsData  `json:"regime"`
-	Stress                   platformStressSettingsData  `json:"stress"`
-	History                  platformHistorySettingsData `json:"history"`
+	Version                  int                           `json:"version"`
+	TradingControlGeneration uint64                        `json:"trading_control_generation"`
+	Display                  platformDisplaySettingsData   `json:"display"`
+	CashSweep                platformCashSweepSettingsData `json:"cash_sweep"`
+	Features                 platformFeatureSettingsData   `json:"features"`
+	Trading                  platformTradingSettingsData   `json:"trading"`
+	Regime                   platformRegimeSettingsData    `json:"regime"`
+	Stress                   platformStressSettingsData    `json:"stress"`
+	History                  platformHistorySettingsData   `json:"history"`
 }
 
 // platformSettingsDocument is the decode shape of a persisted settings
@@ -79,6 +81,21 @@ type platformSettingsDocumentV2 struct {
 	History                  platformHistorySettingsData `json:"history"`
 }
 
+// platformSettingsDocumentV3 keeps new preference fields out of the strict old decoder.
+type platformSettingsDocumentV3 struct {
+	Version                  int                         `json:"version"`
+	TradingControlGeneration uint64                      `json:"trading_control_generation"`
+	Display                  platformDisplaySettingsData `json:"display"`
+	Features                 platformFeatureSettingsData `json:"features"`
+	Trading                  platformTradingSettingsData `json:"trading"`
+	Regime                   platformRegimeSettingsData  `json:"regime"`
+	Stress                   platformStressSettingsData  `json:"stress"`
+	History                  platformHistorySettingsData `json:"history"`
+}
+type platformCashSweepSettingsData struct {
+	CurrencyPriority *string `json:"currency_priority,omitempty"`
+}
+
 // UnmarshalJSON keeps legacy-file cutover on the same version-specific decode
 // strictly decode only against the transitional union above, which would still
 func (d *platformSettingsDocument) UnmarshalJSON(raw []byte) error {
@@ -104,7 +121,7 @@ func (d platformSettingsDocument) upgrade() (platformSettingsData, error) {
 		}
 		data.Version = platformSettingsDocVersionStress
 		fallthrough
-	case platformSettingsDocVersionStress:
+	case platformSettingsDocVersionStress, platformSettingsDocVersionDisplay:
 		data.Version = platformSettingsDocVersion
 	case platformSettingsDocVersion:
 	default:
@@ -167,6 +184,13 @@ func decodePlatformSettingsDocument(raw []byte) (platformSettingsDocument, error
 			Regime:                   prior.Regime,
 			Stress:                   prior.Stress,
 			History:                  prior.History}, nil
+	case platformSettingsDocVersionDisplay:
+		var prior platformSettingsDocumentV3
+		if err := decodeStrictPlatformSettingsJSON(raw, &prior); err != nil {
+			return platformSettingsDocument{}, err
+		}
+		return platformSettingsDocument{Version: prior.Version, TradingControlGeneration: prior.TradingControlGeneration,
+			Display: prior.Display, Features: prior.Features, Trading: prior.Trading, Regime: prior.Regime, Stress: prior.Stress, History: prior.History}, nil
 	case platformSettingsDocVersion:
 		var current platformSettingsData
 		if err := decodeStrictPlatformSettingsJSON(raw, &current); err != nil {
@@ -527,6 +551,8 @@ func deriveTradingControlGeneration(current platformSettingsData, next *platform
 func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.RawMessage, error) {
 	var value any
 	switch key {
+	case "cash_sweep.currency_priority":
+		value = data.CashSweep.CurrencyPriority
 	case "display.date_format":
 		value = data.Display.DateFormat
 	case "features.stock_protection.enabled":
@@ -752,6 +778,13 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 		return nil
 	}
 	switch key {
+	case "cash_sweep.currency_priority":
+		v, err := nullableCashSweepPriority(raw)
+		if err != nil {
+			return err
+		}
+		next.CashSweep.CurrencyPriority = v
+		return nil
 	case "display.date_format":
 		v, err := nullableString(raw)
 		if err != nil || (v != nil && !validDisplayDateFormat(*v)) {
@@ -924,7 +957,8 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 		return rpc.SettingsSourceConfig
 	}
 	out := rpc.PlatformSettings{
-		Kind: "ibkr.platform_settings",
+		Kind:      "ibkr.platform_settings",
+		CashSweep: s.platformCashSweepSettings(data),
 		Display: rpc.PlatformDisplaySettings{
 			DateFormat: settingsString(displayDateFormatFrom(data), rpc.SettingsAccessWrite, rpc.SettingsSourceRuntime, "calendar-date presentation only; timestamps and market-session authority are unchanged"),
 		},

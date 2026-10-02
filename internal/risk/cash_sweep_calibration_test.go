@@ -11,7 +11,7 @@ func sweepCalibrationFixture() CashSweepCalibrationInput {
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	pol := DefaultRulebookPolicy()
 	ends := []time.Time{now.AddDate(0, 0, 3), now.AddDate(0, 0, 4), now.AddDate(0, 0, 5), now.AddDate(0, 0, 6), now.AddDate(0, 0, 7)}
-	return CashSweepCalibrationInput{AsOf: now, Source: "frozen_synthetic", PolicyFingerprint: pol.FingerprintKey(), SessionEnds: ends, BaseNAV: new(250000.), ProtectedFloor: new(200000.), EURRates: map[string]float64{"EUR": 1, "USD": .9}, ClusterDropPct: pol.ClusterDropPct, TakeoverGapPct: pol.TakeoverGapPct, ExitParticipationPct: pol.ExitParticipationPct,
+	return CashSweepCalibrationInput{AsOf: now, Source: "frozen_synthetic", PolicyFingerprint: pol.FingerprintKey(), SessionEnds: ends, BaseNAV: new(250000.), ProtectedFloor: new(200000.), EURRates: map[string]float64{"EUR": 1, "USD": .9}, NativeCash: map[string]float64{"EUR": 0, "USD": 0}, CashReceiptAt: now.Add(-time.Second), ClusterDropPct: pol.ClusterDropPct, TakeoverGapPct: pol.TakeoverGapPct, ExitParticipationPct: pol.ExitParticipationPct,
 		Lines: []CashSweepCalibrationLine{{ConID: 101, Currency: "EUR", SecType: "STK", Quantity: 50, Multiplier: 1, CurrentMark: 100, PriceOriginalAt: now.Add(-time.Second), ExitOriginalAt: now.Add(-time.Minute), ADV20InPositionUnits: new(100.), ExitSpreadUpper: new(.01), ExitFeeUpper: new(1.)}}}
 }
 
@@ -94,5 +94,126 @@ func TestCashSweepCalibrationMissingEvidenceDoesNotBecomeZero(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCashSweepCalibrationCashFXAndBorrowingAffectWholeNAV(t *testing.T) {
+	for _, native := range []float64{100000, -100000} {
+		in := sweepCalibrationFixture()
+		in.Lines = nil
+		in.NativeCash["USD"] = native
+		in.FXAdversePct = new(10.)
+		for _, s := range StudyCashSweepFiniteHorizons(in) {
+			if s.State != "study_complete" || s.WorstLossEUR == nil || math.Abs(*s.WorstLossEUR-9000) > 1e-8 || s.NAVAfterEUR == nil || math.Abs(*s.NAVAfterEUR-241000) > 1e-8 {
+				t.Fatalf("cash or borrowing FX disappeared from total NAV: native=%v study=%+v", native, s)
+			}
+		}
+	}
+}
+
+func TestCashSweepCalibrationIncompleteCashCannotCertifyNAV(t *testing.T) {
+	for _, variant := range []string{"missing", "empty", "base", "position_currency", "clock", "future", "cash_nonfinite", "cash_fx", "shock", "overflow"} {
+		t.Run(variant, func(t *testing.T) {
+			in := sweepCalibrationFixture()
+			switch variant {
+			case "missing":
+				in.NativeCash = nil
+			case "empty":
+				in.NativeCash = map[string]float64{}
+			case "base":
+				delete(in.NativeCash, "EUR")
+			case "position_currency":
+				in.Lines[0].Currency = "USD"
+				delete(in.NativeCash, "USD")
+			case "clock":
+				in.CashReceiptAt = time.Time{}
+			case "future":
+				in.CashReceiptAt = in.AsOf.Add(time.Second)
+			case "cash_nonfinite":
+				in.NativeCash["USD"] = math.NaN()
+			case "cash_fx":
+				delete(in.EURRates, "USD")
+			case "shock":
+				in.NativeCash["USD"] = 100000
+			case "overflow":
+				in.NativeCash["USD"] = math.MaxFloat64
+				in.EURRates["USD"] = math.MaxFloat64
+				in.FXAdversePct = new(10.)
+			}
+			for _, s := range StudyCashSweepFiniteHorizons(in) {
+				if s.State == "study_complete" || s.WorstLossEUR != nil || s.NAVAfterEUR != nil {
+					t.Fatalf("unknown cash certified total NAV: %+v", s)
+				}
+			}
+		})
+	}
+}
+
+func liveSweepCalibrationFixture() CashSweepCalibrationInput {
+	in := sweepCalibrationFixture()
+	in.Source, in.CommonReadSessionVerified = "live_partial", true
+	in.CashValidUntil = in.CashReceiptAt.Add(15 * time.Second)
+	in.ValuationReceiptAt, in.ValuationValidUntil = in.AsOf.Add(-time.Second), in.AsOf.Add(time.Second)
+	for i := range in.Lines {
+		in.Lines[i].PriceValidUntil = in.AsOf.Add(time.Second)
+		// The measured volume window may be historical. Its source, spread
+		// and fee validity ends at an explicit expiry, not at the window date.
+		in.Lines[i].ExitValidUntil = in.AsOf.Add(time.Second)
+	}
+	return in
+}
+
+func TestCashSweepLiveSourceExpiryDoesNotRefreshOriginalClocks(t *testing.T) {
+	for _, s := range StudyCashSweepFiniteHorizons(liveSweepCalibrationFixture()) {
+		if s.State != "study_complete" || s.NAVAfterEUR == nil {
+			t.Fatalf("current original-source control failed: %+v", s)
+		}
+	}
+	for _, source := range []string{"cash", "valuation", "price", "exit"} {
+		for _, variant := range []string{"missing", "expired", "boundary", "invalid_interval", "future_original", "old_receipt_and_expiry"} {
+			t.Run(source+"/"+variant, func(t *testing.T) {
+				in := liveSweepCalibrationFixture()
+				var original, until *time.Time
+				switch source {
+				case "cash":
+					original, until = &in.CashReceiptAt, &in.CashValidUntil
+				case "valuation":
+					original, until = &in.ValuationReceiptAt, &in.ValuationValidUntil
+				case "price":
+					original, until = &in.Lines[0].PriceOriginalAt, &in.Lines[0].PriceValidUntil
+				case "exit":
+					original, until = &in.Lines[0].ExitOriginalAt, &in.Lines[0].ExitValidUntil
+				}
+				switch variant {
+				case "missing":
+					*until = time.Time{}
+				case "expired":
+					*until = in.AsOf.Add(-time.Nanosecond)
+				case "boundary":
+					*until = in.AsOf
+				case "invalid_interval":
+					*until = original.Add(-time.Second)
+				case "future_original":
+					*original = in.AsOf.Add(time.Nanosecond)
+				case "old_receipt_and_expiry":
+					*original = in.AsOf.Add(-365 * 24 * time.Hour)
+					*until = original.Add(15 * time.Second)
+				}
+				for _, s := range StudyCashSweepFiniteHorizons(in) {
+					if s.State == "study_complete" || s.WorstLossEUR != nil || s.NAVAfterEUR != nil {
+						t.Fatalf("invalid original source emitted numeric total NAV: %+v", s)
+					}
+				}
+			})
+		}
+	}
+	// Frozen experiments retain historical source timestamps; no current
+	// live-source validity is invented for a locked synthetic snapshot.
+	in := sweepCalibrationFixture()
+	in.CashReceiptAt = in.AsOf.Add(-365 * 24 * time.Hour)
+	for _, s := range StudyCashSweepFiniteHorizons(in) {
+		if s.State != "study_complete" {
+			t.Fatalf("frozen snapshot was treated as a current live read: %+v", s)
+		}
 	}
 }

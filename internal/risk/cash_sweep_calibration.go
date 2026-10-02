@@ -14,6 +14,7 @@ type CashSweepCalibrationLine struct {
 	Quantity, Multiplier, CurrentMark, Spot, Strike     float64
 	Expiry                                              time.Time
 	PriceOriginalAt, ExitOriginalAt                     time.Time
+	PriceValidUntil, ExitValidUntil                     time.Time
 	IV, RiskFreeRate, DividendYield                     *float64
 	ADV20InPositionUnits, ExitSpreadUpper, ExitFeeUpper *float64
 	ExactVanillaDeliverable                             bool
@@ -23,12 +24,21 @@ type CashSweepCalibrationLine struct {
 // real/frozen exchange session dates, never a weekday or calendar-day fallback.
 // Shock numbers supplied in fixtures are synthetic, not new owner defaults.
 type CashSweepCalibrationInput struct {
-	AsOf                                                 time.Time
-	Source, PolicyFingerprint                            string
-	SessionEnds                                          []time.Time
-	Lines                                                []CashSweepCalibrationLine
-	BaseNAV, ProtectedFloor                              *float64
-	EURRates                                             map[string]float64
+	AsOf                      time.Time
+	Source, PolicyFingerprint string
+	CommonReadSessionVerified bool
+	SessionEnds               []time.Time
+	Lines                     []CashSweepCalibrationLine
+	BaseNAV, ProtectedFloor   *float64
+	EURRates                  map[string]float64
+	// NativeCash is the complete trade-date cash ledger, including borrowing.
+	// It is valuation evidence, never settled cash or funding authority.
+	NativeCash     map[string]float64
+	CashReceiptAt  time.Time
+	CashValidUntil time.Time
+	// Valuation validity is the intersection of original NAV and FX source
+	// validity. A planner clock cannot freshen either underlying observation.
+	ValuationReceiptAt, ValuationValidUntil              time.Time
 	ClusterDropPct, TakeoverGapPct, ExitParticipationPct float64
 	VolShockPoints, RateShockBPS, FXAdversePct           *float64
 }
@@ -63,6 +73,12 @@ func StudyCashSweepFiniteHorizons(in CashSweepCalibrationInput) []CashSweepCalib
 		if in.AsOf.IsZero() || in.Source != "frozen_synthetic" && in.Source != "live_partial" {
 			missing = append(missing, "calibration_source_unavailable")
 		}
+		if in.Source == "live_partial" && !in.CommonReadSessionVerified {
+			missing = append(missing, "common_read_session_provenance_unavailable")
+		}
+		if in.Source == "live_partial" && !sweepLiveEvidenceValid(in.ValuationReceiptAt, in.ValuationValidUntil, in.AsOf) {
+			missing = append(missing, "valuation_source_validity_unavailable")
+		}
 		if len(in.SessionEnds) < horizon {
 			missing = append(missing, "exchange_session_horizon_unavailable")
 		} else {
@@ -81,6 +97,8 @@ func StudyCashSweepFiniteHorizons(in CashSweepCalibrationInput) []CashSweepCalib
 		if !sweepNonnegative(in.ClusterDropPct) || in.ClusterDropPct > 100 || !sweepNonnegative(in.TakeoverGapPct) || !sweepNonnegative(in.ExitParticipationPct) || in.ExitParticipationPct == 0 || in.ExitParticipationPct > 100 {
 			missing = append(missing, "approved_risk_assumptions_unavailable")
 		}
+		cashLoss, cashGaps := sweepCalibrationCashLoss(in)
+		missing = append(missing, cashGaps...)
 		worstLoss, friction := 0., 0.
 		exitComplete := true
 		seen := map[int]bool{}
@@ -91,13 +109,17 @@ func StudyCashSweepFiniteHorizons(in CashSweepCalibrationInput) []CashSweepCalib
 			seen[p.ConID] = true
 		}
 		for _, direction := range []float64{-1, 1} {
-			loss, scenarioFriction := 0., 0.
+			loss, scenarioFriction := cashLoss, 0.
 			for _, p := range in.Lines {
 				if p.Quantity == 0 {
 					continue
 				}
 				if p.ConID <= 0 || p.Currency == "" || !sweepFinite(p.Quantity) || !sweepNonnegative(p.CurrentMark) || p.Multiplier <= 0 || !sweepFinite(p.Multiplier) || p.PriceOriginalAt.IsZero() || p.PriceOriginalAt.After(in.AsOf) {
 					missing = append(missing, "valuation_identity_or_original_clock_unavailable")
+					continue
+				}
+				if in.Source == "live_partial" && !sweepLiveEvidenceValid(p.PriceOriginalAt, p.PriceValidUntil, in.AsOf) {
+					missing = append(missing, "price_source_validity_unavailable")
 					continue
 				}
 				fx := in.EURRates[p.Currency]
@@ -145,6 +167,10 @@ func StudyCashSweepFiniteHorizons(in CashSweepCalibrationInput) []CashSweepCalib
 					missing = append(missing, "exit_volume_window_spread_fee_or_original_clock_unavailable")
 					continue
 				}
+				if in.Source == "live_partial" && !sweepLiveEvidenceValid(p.ExitOriginalAt, p.ExitValidUntil, in.AsOf) {
+					missing = append(missing, "exit_source_validity_unavailable")
+					continue
+				}
 				if math.Abs(p.Quantity) > *p.ADV20InPositionUnits*in.ExitParticipationPct/100*float64(horizon) {
 					exitComplete = false
 				}
@@ -169,6 +195,50 @@ func StudyCashSweepFiniteHorizons(in CashSweepCalibrationInput) []CashSweepCalib
 		out = append(out, s)
 	}
 	return out
+}
+
+// Cash FX belongs in total NAV stress even when no securities are held.
+// As with security FX, opposing exposures receive no hedge credit here;
+// the component-wise adverse envelope is conservative, not a forecast.
+func sweepCalibrationCashLoss(in CashSweepCalibrationInput) (float64, []string) {
+	if len(in.NativeCash) == 0 || in.CashReceiptAt.IsZero() || in.CashReceiptAt.After(in.AsOf) {
+		return 0, []string{"complete_native_cash_valuation_unavailable"}
+	}
+	if in.Source == "live_partial" && !sweepLiveEvidenceValid(in.CashReceiptAt, in.CashValidUntil, in.AsOf) {
+		return 0, []string{"cash_source_validity_unavailable"}
+	}
+	if _, ok := in.NativeCash["EUR"]; !ok || in.EURRates["EUR"] != 1 {
+		return 0, []string{"complete_native_cash_valuation_unavailable"}
+	}
+	for _, p := range in.Lines {
+		if p.Quantity != 0 {
+			if _, known := in.NativeCash[p.Currency]; !known {
+				return 0, []string{"complete_native_cash_valuation_unavailable"}
+			}
+		}
+	}
+	loss := 0.
+	for ccy, cash := range in.NativeCash {
+		fx := in.EURRates[ccy]
+		if ccy == "" || !sweepFinite(cash) || !sweepFinite(fx) || fx <= 0 || ccy == "EUR" && fx != 1 {
+			return 0, []string{"native_cash_eur_valuation_unavailable"}
+		}
+		if ccy == "EUR" || cash == 0 {
+			continue
+		}
+		if in.FXAdversePct == nil || !sweepNonnegative(*in.FXAdversePct) || *in.FXAdversePct >= 100 {
+			return 0, []string{"fx_shock_unreviewed"}
+		}
+		loss += math.Abs(cash) * fx * (*in.FXAdversePct / 100)
+	}
+	if !sweepNonnegative(loss) {
+		return 0, []string{"calibration_arithmetic_invalid"}
+	}
+	return loss, nil
+}
+
+func sweepLiveEvidenceValid(originalAt, validUntil, now time.Time) bool {
+	return !originalAt.IsZero() && !now.IsZero() && !originalAt.After(now) && validUntil.After(now) && validUntil.After(originalAt)
 }
 
 // sweepOptionCRR prices exact vanilla contracts under explicit frozen inputs.

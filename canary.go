@@ -7,7 +7,9 @@
 // gate, and this package restates none of them.
 //
 // A Client opens one connection per call because the daemon answers one
-// request at a time per connection. Concurrent calls therefore never queue
+// request at a time per connection. Dedicated non-catalogue methods can read
+// and save only a cash-sweep ordering preference, never protection policy or
+// broker authority. Concurrent calls therefore never queue
 // behind each other, and a Client holds nothing between calls.
 package canary
 

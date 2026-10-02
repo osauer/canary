@@ -52,6 +52,7 @@ type SettingsString struct {
 // PlatformSettings is the typed, daemon-authored settings view. It combines
 type PlatformSettings struct {
 	Kind       string                    `json:"kind"`
+	CashSweep  PlatformCashSweepSettings `json:"cash_sweep"`
 	Display    PlatformDisplaySettings   `json:"display"`
 	Features   PlatformFeatureSettings   `json:"features"`
 	Trading    PlatformTradingSettings   `json:"trading"`
@@ -227,6 +228,8 @@ const (
 	// SettingsKindDateFormat accepts one closed calendar-date presentation
 	// value or null to restore the US default.
 	SettingsKindDateFormat SettingsKeyKind = "date-format"
+	// SettingsKindCashSweepPriority accepts one closed currency ordering value or null.
+	SettingsKindCashSweepPriority SettingsKeyKind = "cash-sweep-priority"
 )
 
 // Writability classes the daemon enforces beyond per-kind parsing.
@@ -257,6 +260,7 @@ type SettingsKeySpec struct {
 // SettingsKeys returns the registry in stable display order.
 func SettingsKeys() []SettingsKeySpec {
 	return []SettingsKeySpec{
+		{Key: "cash_sweep.currency_priority", Kind: SettingsKindCashSweepPriority, Class: SettingsClassRuntime, Doc: "Cash-sweep ordering only: usd_first, balanced, eur_first, or null for policy/default; never activates reserve policy or changes funding, caps, floors, freeze, or execution authority."},
 		{
 			Key: "display.date_format", Kind: SettingsKindDateFormat, Class: SettingsClassRuntime,
 			Doc: "Calendar-date presentation in the SPA: us, eu, us_weekday, or eu_weekday; it never changes typed timestamps or market-session authority (default us).",

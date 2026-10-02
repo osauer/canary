@@ -5,7 +5,8 @@ import "time"
 // AccountSummaryParams opts into a receipt-only diagnostic. Empty/nil params
 // preserve the ordinary account summary contract.
 type AccountSummaryParams struct {
-	SettlementProbe bool `json:"settlement_probe,omitempty"`
+	SettlementProbe         bool `json:"settlement_probe,omitempty"`
+	CurrencySettlementProbe bool `json:"currency_settlement_probe,omitempty"`
 }
 
 // AccountSettlementComparison compares the normal tag batch with an isolated

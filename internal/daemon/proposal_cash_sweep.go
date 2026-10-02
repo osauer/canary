@@ -103,6 +103,8 @@ type cashSweepBillSearch struct {
 // cashSweepInput is everything the pure planner reads. The engine gathers
 // it; tests build it directly.
 type cashSweepInput struct {
+	OrderingPriority *string
+
 	OperationalFunding                   *risk.CashSweepOperationalObservation
 	CalibrationStudies                   []risk.CashSweepCalibrationStudy
 	AccountReceiptAt, PositionsReceiptAt time.Time
@@ -200,7 +202,9 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 		plan.currencies = append(plan.currencies, cp)
 	}
 	enforceCashSweepFundedReserves(bucket, &plan)
-	orderCashSweepCurrencies(bucket, &plan)
+	priority, source := cashPriorityEffective(in.OrderingPriority, bucket)
+	plan.status.CurrencyPriority, plan.status.CurrencyPrioritySource = priority, source
+	orderCashSweepCurrenciesByPriority(priority, &plan)
 	for _, cp := range plan.currencies {
 		plan.status.Currencies = append(plan.status.Currencies, cp.status)
 	}
@@ -856,6 +860,9 @@ func cashSweepCounts(proposals []rpc.TradeProposal) (rows, shadow int) {
 // cashSweepInput gathers the planner's inputs for the connected scope.
 func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPolicy, acct *rpc.AccountResult, pos *rpc.PositionsResult, scope brokerStateScope, now time.Time) cashSweepInput {
 	in := cashSweepInput{}
+	if e.server != nil {
+		in.OrderingPriority = e.server.platformSettings.currentCashSweepPriority()
+	}
 	if acct != nil && acct.Authority != nil {
 		in.AccountReceiptAt = acct.Authority.AsOf
 	}

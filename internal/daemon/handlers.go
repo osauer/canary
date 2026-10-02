@@ -116,6 +116,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	}
 	res := &rpc.AccountResult{
 		SettlementObservation: accountSettlementObservation(raw, provenance),
+		StreamObservation:     accountStreamObservation(c.CaptureAccountStreamObservationForSession(healthBinding, scope.Account)),
 		AccountID:             raw.AccountID,
 		AccountType:           raw.AccountType,
 		BaseCurrency:          baseCurrency,
@@ -221,6 +222,9 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	}
 	res.DailyPnLObservation = &pnlObservation
 	res.Authority = accountResultDataAuthority(scope, raw, provenance, res)
+	if currentPortfolioAuthority(res.Authority) && provenance == ibkrlib.AccountSummaryProvenanceRequest {
+		res.Authority.BrokerReadSession = s.cashSweepReadSession(snapshot.source.connector, snapshot.source.session)
+	}
 	// Successful account reads feed the cash-flow-adjusted capital state.
 	if observe && s.riskCapital != nil && res.NetLiquidation > 0 {
 		var pol *risk.Constitution
@@ -257,7 +261,9 @@ func finalizeAccountSummarySession(res *rpc.AccountResult, authority accountSumm
 	}
 	if res != nil {
 		res.SettlementObservation = nil
+		res.StreamObservation = nil
 		if res.Authority != nil {
+			res.Authority.BrokerReadSession = rpc.BrokerReadSession{}
 			res.Authority.Availability = rpc.AccountDataUnavailable
 			res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
 			res.Authority.Reason = rpc.AccountDataReasonSessionChanged
@@ -317,6 +323,7 @@ func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountS
 	switch provenance {
 	case ibkrlib.AccountSummaryProvenanceRequest:
 		authority.Source = rpc.AccountDataSourceAccountSummaryRequest
+		authority.LedgerCurrencyCount = len(raw.CurrencyLedger)
 		authority.AsOf = res.AsOf.UTC()
 		if res.AsOf.IsZero() {
 			authority.Availability = rpc.AccountDataUnavailable
@@ -602,12 +609,15 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	res.Bonds = s.classifyBondPositions(ctx, res.Stocks, time.Now())
 	completedAt := time.Now().UTC()
 	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
+	res.Authority.PortfolioComplete = wantSym == "" && wantType == "" && currentPortfolioAuthority(res.Authority)
 	authorityScope := expectedScope
 	if !sessionOK || !c.SessionCurrent(session) || !sameBrokerScope(expectedScope, s.currentBrokerStateScope()) {
 		authorityScope = brokerStateScope{}
 		res.Authority.Availability = rpc.AccountDataUnavailable
 		res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
 		res.Authority.Reason = rpc.AccountDataReasonSessionChanged
+	} else if currentPortfolioAuthority(res.Authority) {
+		res.Authority.BrokerReadSession = s.cashSweepReadSession(c, session)
 	}
 	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, completedAt)
 	return res, nil

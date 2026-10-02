@@ -36,7 +36,7 @@ func (e *proposalEngine) persistCashSweepTrace(ctx context.Context, policy prote
 		AccountReceiptAt: st.AccountReceiptAt, PositionsReceiptAt: st.PositionsReceiptAt, FundingAsOf: st.FundingAsOf,
 		FundingValidUntil: st.FundingValidUntil, ScenarioFingerprint: st.ScenarioFingerprint,
 		PlanningSessionEpoch: st.PlanningSessionEpoch, PlanningDaemonStartedAt: st.PlanningDaemonStartedAt,
-		PolicyFingerprint: fingerprintProtectionPolicy(policy).Key, Mode: st.Mode, CurrencyPriority: st.CurrencyPriority,
+		PolicyFingerprint: fingerprintProtectionPolicy(policy).Key, Mode: st.Mode, CurrencyPriority: st.CurrencyPriority, CurrencyPrioritySource: st.CurrencyPrioritySource,
 		ReserveCushionEUR: st.ReserveCushionEUR, ReserveState: st.ReserveState, ReserveReason: st.ReserveReason}
 	if sources.Account != nil {
 		trace.AccountFingerprint = sources.Account.Key

@@ -210,7 +210,7 @@ func init() {
 	commands = []Command{
 		{"status", "Daemon + gateway health (run this first if anything fails)", "canary status [--json]", runStatus},
 		{"data", "Canary-owned source health and bounded required-feed checks", "canary data health [--offset N --limit N --revision ID] [--json] | canary data check [--json]", runData},
-		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json]", runAccount},
+		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json] | canary account --settlement-probe --json | canary account --currency-settlement-probe --json", runAccount},
 		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},
 		{"strategies", "Group option legs and close or reduce them as one guaranteed combo", "canary strategies list [--json] | canary strategies close ID REVISION [--limit PRICE] [--submit] | canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]", runStrategies},
 		{"portfolio", "Signed allocation by asset class and GICS sector, with coverage", "canary portfolio [--json]", runPortfolio},

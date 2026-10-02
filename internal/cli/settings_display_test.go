@@ -30,3 +30,27 @@ func TestSettingsPatchAcceptsClosedDateFormatStrings(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsPatchAcceptsCashSweepPriorityAndClear(t *testing.T) {
+	for _, v := range []string{"usd_first", "balanced", "eur_first", "null"} {
+		raw, err := settingsPatchFromAssignment("cash_sweep.currency_priority=" + v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var patch struct {
+			CashSweep struct {
+				CurrencyPriority *string `json:"currency_priority"`
+			} `json:"cash_sweep"`
+		}
+		if err = json.Unmarshal(raw, &patch); err != nil {
+			t.Fatal(err)
+		}
+		if v == "null" {
+			if patch.CashSweep.CurrencyPriority != nil {
+				t.Fatal("clear lost")
+			}
+		} else if patch.CashSweep.CurrencyPriority == nil || *patch.CashSweep.CurrencyPriority != v {
+			t.Fatal("priority lost")
+		}
+	}
+}

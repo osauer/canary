@@ -385,10 +385,13 @@ type Connection struct {
 	// synchronous reqAccountSummary read cannot be clobbered by the
 	// streaming reqAccountUpdates subscription, which writes the shared
 	// accountSummary map (issue #12). Guarded by accountMu.
-	summarySnapshots     map[int]*summarySnapshot
-	summarySchedule      accountSummarySchedule
-	retiredSummaryProbes map[int]uint64
-	accountMu            sync.RWMutex
+	summarySnapshots      map[int]*summarySnapshot
+	summarySchedule       accountSummarySchedule
+	retiredSummaryProbes  map[int]uint64
+	currencyProbes        map[int]*currencyProbeSnapshot
+	retiredCurrencyProbes map[int]uint64
+	accountMu             sync.RWMutex
+	accountStreamReceipt  accountStreamReceipt
 
 	// Completion signals for async operations
 	positionsEndChan   chan struct{} // Signals when position sync is complete
@@ -1473,6 +1476,8 @@ const (
 	updateDisplayGroup          = 69
 	unsubscribeFromGroupEvents  = 70
 	startAPI                    = 71
+	reqAccountUpdatesMulti      = 76
+	cancelAccountUpdatesMulti   = 77
 	reqSecDefOptParams          = 78
 	reqWSHMetaData              = 100
 	cancelWSHMetaData           = 101
@@ -1489,20 +1494,22 @@ const (
 // suppressedMessageLogIDs keeps high-volume price, size, and computation
 // frames out of debug logs during regular trading hours.
 var suppressedMessageLogIDs = map[int]bool{
-	msgTickPrice:         true, // Tick price updates (1)
-	msgTickSize:          true, // Tick size updates (2)
-	msgTickString:        true, // Tick string updates (46)
-	msgTickGeneric:       true, // Generic tick updates (45)
-	msgMarketDataType:    true, // Market data type (58)
-	msgTickNews:          true, // Tick news (81)
-	msgAccountSummary:    true, // Account summary (63)
-	msgAccountSummaryEnd: true, // Account summary end (64)
-	msgPosition:          true, // Position updates (61)
-	msgPositionEnd:       true, // Position sync complete (62)
-	15:                   true, // Managed accounts
-	9:                    true, // Next valid ID
-	4:                    true, // Error messages (handled separately)
-	msgCurrentTimeMillis: true, // Heartbeat variant with ms precision (109)
+	msgTickPrice:             true, // Tick price updates (1)
+	msgTickSize:              true, // Tick size updates (2)
+	msgTickString:            true, // Tick string updates (46)
+	msgTickGeneric:           true, // Generic tick updates (45)
+	msgMarketDataType:        true, // Market data type (58)
+	msgTickNews:              true, // Tick news (81)
+	msgAccountSummary:        true, // Account summary (63)
+	msgAccountSummaryEnd:     true, // Account summary end (64)
+	msgAccountUpdateMulti:    true,
+	msgAccountUpdateMultiEnd: true,
+	msgPosition:              true, // Position updates (61)
+	msgPositionEnd:           true, // Position sync complete (62)
+	15:                       true, // Managed accounts
+	9:                        true, // Next valid ID
+	4:                        true, // Error messages (handled separately)
+	msgCurrentTimeMillis:     true, // Heartbeat variant with ms precision (109)
 }
 
 var placeOrderBaseFields = []string{
@@ -2074,6 +2081,8 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		default:
 			// Channel already has a signal
 		}
+	case msgAccountUpdateMulti, msgAccountUpdateMultiEnd:
+		c.handleCurrencyProbeMessage(msgID, fields, epoch)
 	case msgPortfolioValue:
 		c.handlePortfolioValue(fields)
 	case msgAcctValue:
@@ -2097,7 +2106,9 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		if len(fields) > 2 {
 			account = fields[2]
 		}
-		c.completePortfolioDownload(account, time.Now().UTC())
+		completedAt := time.Now().UTC()
+		c.observeAccountStreamEnd(account, completedAt)
+		c.completePortfolioDownload(account, completedAt)
 	case msgMarketDataType:
 		c.processMarketDataTypeAtEpoch(fields, epoch)
 	case msgSystemNotification:
@@ -2161,7 +2172,7 @@ func (c *Connection) processErrorMessageAtEpoch(fields []string, epoch uint64) {
 		current = true
 		if len(fields) > 3 {
 			code, _ := strconv.Atoi(fields[3])
-			if c.consumeSummaryProbeError(fields[2], code, epoch) {
+			if c.consumeSummaryProbeError(fields[2], code, epoch) || c.consumeCurrencyProbeError(fields[2], code, epoch) {
 				// Keep pacing, connection loss and all existing numeric-code recovery,
 				// but never pass diagnostic broker prose to log/recovery surfaces.
 				fields = append([]string(nil), fields...)
@@ -3353,6 +3364,9 @@ func (c *Connection) resetPortfolioStreamHealthUnderEvidence(account string, req
 	c.advancePortfolioProjectionGenerationLocked()
 	c.portfolioHealthMu.Unlock()
 	c.portfolioStaging = make(map[string]*RawPosition)
+	c.accountMu.Lock()
+	c.accountStreamReceipt = accountStreamReceipt{account: strings.TrimSpace(account), epoch: c.BrokerSessionEpoch(), requestedAt: requestedAt.UTC()}
+	c.accountMu.Unlock()
 	c.portfolioStagingActive = true
 }
 
@@ -3409,6 +3423,7 @@ func (c *Connection) handleAccountValue(fields []string) {
 	}
 	c.accountSummary[mapKey] = value
 	if accountCodeConcrete(account) && strings.EqualFold(account, bound) {
+		c.observeAccountStreamValueLocked(account, key, value, currency, time.Now().UTC())
 		if c.displayAccount != account {
 			c.displayAccount = account
 			c.displayAccountValues = map[string]string{}
@@ -5136,8 +5151,11 @@ func (c *Connection) invalidateUnstampedObservationAuthority() {
 	c.displayAccount = ""
 	c.displayAccountValues = nil
 	c.accountValueTimes = nil
+	c.accountStreamReceipt = accountStreamReceipt{}
 	clear(c.summarySnapshots)
 	clear(c.retiredSummaryProbes)
+	clear(c.currencyProbes)
+	clear(c.retiredCurrencyProbes)
 	c.accountMu.Unlock()
 	c.summarySchedule.reset()
 

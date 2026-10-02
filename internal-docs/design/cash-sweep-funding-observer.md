@@ -24,8 +24,13 @@ Consume the already-read account/positions results only after matching concrete
 account/mode, closed source vocabulary, available/current authority, original
 receipt clocks and the engine's current scope. Recheck freshness at consumption
 using existing 15-second account and five-minute portfolio receipt limits.
-The public authority contract has no common original connector epoch; that gap
-is named. The sampled planning epoch does not certify preceding reads.
+The public authority contract retains each original read's daemon start,
+published connector generation and physical socket epoch. Account reads use
+the account snapshot's original binding; positions use the reader's original
+binding. All three values must match one another and the current connector.
+Missing or different receipts retain a named gap; the sampled planning epoch
+does not certify preceding reads. Filtered position views are explicitly not
+whole-portfolio funding input.
 
 Short stock cover uses the current explicit live quote and existing approved
 takeover-gap scenario. Its borrow-recall deadline remains unknown. Short puts
@@ -43,6 +48,13 @@ Sources: [OCC equity product specifications](https://www.theocc.com/clearance-an
 
 Covered calls consume exact same-currency settled, unpledged, unreserved shares
 once across all calls. A held stock quantity alone grants no coverage credit.
+The live partial observer now explicitly uses `uncredited_conservative`:
+reserve cash to cover every deliverable share, without crediting even a known
+settled holding. Each call names that coverage treatment and leaves
+`covered_shares` absent; unavailable coverage is not emitted as observed zero.
+This removes a settled-share-proof dependency from that conservative bound.
+Exact deliverables, the underlying quote and the earliest cash deadline remain
+required. Verified-credit experiments retain their once-only share allocation.
 Uncovered shares require the exact underlying identity and explicit quote;
 cover cost is gross, without crediting prospective exercise proceeds. Long
 options retain an automatic-exercise-policy gap: calls can require strike
@@ -69,6 +81,31 @@ dividend yield, volatility shock, rate shock and adverse FX assumptions must be
 explicit. No VIX shock is silently promoted to an option-IV shock. Unsupported
 bonds/derivatives remain unpriced; bills still require dated curve/rate-stress
 and exact maturity/early-exit evidence. Quote/exit source clocks stay original.
+
+Total-NAV studies also require the complete native trade-date cash ledger and
+its original account receipt. The account authority retains the broker's full
+currency count before display projections can omit an FX-unknown row. Missing,
+duplicate, unobserved or nonfinite cash rows withhold NAV totals. Valuation
+uses original account balances, including native borrowing; the lower spending
+balance across broker channels is not a valid whole-account FX valuation.
+Under the explicitly supplied FX shock, both positive foreign cash and foreign
+borrowing contribute adverse FX loss. As with security FX, this is a conservative
+component-wise envelope with no cross-asset hedge credit. It does not invent a
+shock or convert cash and remains separate from settled-cash admission.
+
+Live numeric studies additionally require explicit source validity. Cash uses
+its original account receipt plus the existing 15-second account freshness
+window. Each price and exit envelope has its own original observation and
+source-supplied expiry. A separate NAV/FX valuation bundle expires at the
+earliest original NAV or FX source expiry. Missing, future, reversed, expired
+or boundary-equal validity withholds all numeric loss/NAV totals. The observer
+does not attach account freshness to unrelated quote, volume, fee or FX data.
+Historic ADV windows may remain usable when their evidence owner explicitly
+supplies current validity; their old window date alone does not make them stale.
+Frozen synthetic studies retain their locked historical-clock semantics.
+Current live quote/exit/FX contracts do not yet expose all those expiry proofs,
+so their omissions remain explicit commissioning gaps rather than refreshed
+planner timestamps.
 
 Exit completion uses verified 20-day volume in exact position units and the
 existing participation policy. Explicit maximum spread and fee evidence supply
@@ -116,3 +153,92 @@ capacity but keeps funding exposed longer; a stronger envelope retains more
 cash. Request the owner's acceptance of a concrete reviewed envelope only when
 that choice is needed. Missing market facts are our implementation work, not a
 request for the owner to guess or provide screenshots.
+
+## Production commissioning sequence
+
+```mermaid
+flowchart TD
+  Original[Original account and whole positions receipts] --> Session[Same daemon, connector and socket]
+  Session --> Terms[Exact contract and settlement terms]
+  Session --> Valuation[Complete securities, cash and borrowing valuation]
+  Terms --> Demand[Native cash demands by payment deadline]
+  Valuation --> Stress[Accepted finite stress and measured exit horizon]
+  Demand --> Reconcile[Deduplicate commitments and assignment demands]
+  Stress --> Safety[Protected NAV and stress margin proof]
+  Reconcile --> Safety
+  Safety --> Evidence[Current fingerprinted FundingEvidence]
+  Evidence --> Reserve[Max floor or native need plus single allocated cushion]
+  Reserve --> Row[Exact same-currency bill proposal]
+  Row --> Owner[Owner permits one exact preview]
+  Owner --> Broker[WhatIf units and maximum fee reservation]
+```
+
+The next producer should consume a frozen bundle, rather than infer approval
+from a completed study. Its binding includes original session tuple, account
+scope, full portfolio identity/generation, current policy fingerprint, terms
+and source clocks. Expiry is the earliest expiration of any admitted input.
+Payment-deadline demands are computed in each native currency; broker-confirmed
+settled cash funds them. Future bill sales, protective-option exercise, borrowing
+and FX conversions do not create funding credit. Existing working buys overlap
+only when exact obligation identity proves the same demand; otherwise reserve
+both. Optional settled-share coverage may reduce call funding only on exact
+settled/unreserved proof; a conservative no-coverage study should show the full
+cash cost, rather than wait for the owner to guess share settlement.
+
+The remaining live-input work belongs to the implementation: exact option
+deliverables/style/underlying and adjustment evidence, true assignment/exercise
+cash deadlines, dated rates/dividends/FX, exact-unit volume and executable
+spread envelopes, bill curve/rate-shock valuation, and pending commitments.
+Read-only existing broker and official issuer/OCC sources should be used first.
+TWS ContractDetails' underlying ID is not sufficient proof of an adjusted
+option's deliverable; official [OCC adjustment notices](https://infomemo.theocc.com/infomemo/search)
+are a separate source. [OCC's T+1 conversion notice](https://infomemo.theocc.com/infomemos?number=54580)
+establishes the general equity settlement cycle, not the exact pending account
+obligation or availability of held shares.
+
+Two earlier assumptions need review before they become permanent requirements:
+
+- A broker-generated stress-margin number is not the only defensible design.
+  A documented conservative margin model, checked against actual broker
+  observations and existing house requirements, can supply bounded evidence.
+  Current account/look-ahead margin or one ordinary order WhatIf alone cannot
+  certify that bound. IBKR's published
+  [margin requirements](https://portal.interactivebrokers.com/en/trading/margin-requirements.php)
+  depend on residence, venue and product and may include house requirements.
+  Its [risk-report guide](https://www.ibkrguides.com/orgportal/contact-other-reports.htm)
+  describes stress reports as P/L changes, so a P/L report must not be relabeled
+  as stress-margin evidence.
+- Not every missing source must block every conservative study. Settled shares
+  can receive no coverage credit; long options can receive no automatic
+  protective exercise credit. Such bounds need explicit semantics and verified
+  contract terms, not a fabricated zero observation. A model must still include
+  the gross funding obligation and its earliest deadline.
+
+The no-covered-share-credit operational mode is implemented as partial evidence;
+the eventual calibrated producer and any policy activation remain open. It
+does not create `FundingEvidence`, certify margin or make a bill tradeable.
+
+No new owner thresholds are needed to implement those readers. If the existing
+Rulebook cannot specify an accepted shock envelope and horizon, present one
+concrete calibrated choice after source coverage is measured. Do not request a
+generic permission to activate an uncommissioned reserve.
+
+## Exact bill-route evidence
+
+| Evidence | Read-only work we own | Exact owner step |
+| --- | --- | --- |
+| Issuer, currency, maturity and contract identity | Official issue calendar/list plus native contract resolution; held bills retain broker maturity source | None |
+| Tick, minimum and size increment | Current exact broker contract details; conventions remain assumptions until checked | None |
+| Session and quote | Broker contract liquid/trading hours and a live bid/ask with original clocks | None |
+| Settlement lag and payment calendar | Public market convention plus matching broker route evidence; reuse exact historical confirmed fills/settlement if retained; no weekday inference | Review dated route only if broker evidence cannot establish it |
+| Exact quantity unit and commission | Choose one sensible whole quantity, freeze currency/ConID/route/side/quantity/limit/LMT/DAY, then one WhatIf | Explicit current-turn permission for that exact preview; no submit |
+| Cash reservation | Principal plus finite exact same-currency broker maximum commission; estimate remains informational | None to alter fees or resize automatically |
+| First purchase | All existing account, freeze, pin, policy, journal and fresh authorization gates remain in force | Separate transaction-specific purchase approval |
+
+USD `face_1000` and EUR `face_1` are current conventions, not guarantees from
+an instrument's identifier. A read-only lot check can refute them; it cannot
+replace the exact preview's broker margin/unit witness. A fee witness is tied
+to the exact current terms, not a permanent currency-wide commission number.
+Broker/public facts should be collected before asking for the narrow preview;
+no new login, repeated screenshots or fee threshold decisions are required by
+this engineering sequence.

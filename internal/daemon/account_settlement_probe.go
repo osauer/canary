@@ -17,6 +17,12 @@ func (s *Server) handleAccountSummaryRequest(ctx context.Context, req *rpc.Reque
 			return nil, errors.New("invalid account summary params")
 		}
 	}
+	if params.SettlementProbe && params.CurrencySettlementProbe {
+		return nil, errors.New("choose one settlement diagnostic")
+	}
+	if params.CurrencySettlementProbe {
+		return s.handleCurrencySettlementProbe(ctx)
+	}
 	if !params.SettlementProbe {
 		return s.handleAccountSummary(ctx)
 	}

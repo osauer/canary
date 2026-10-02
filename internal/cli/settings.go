@@ -162,7 +162,7 @@ func settingsPatchFromAssignment(raw string) (json.RawMessage, error) {
 		}
 		return marshalPatch(append(path, mapSymbol), value)
 	}
-	if spec.Kind == rpc.SettingsKindDateFormat {
+	if spec.Kind == rpc.SettingsKindDateFormat || spec.Kind == rpc.SettingsKindCashSweepPriority {
 		if strings.EqualFold(valueRaw, "null") {
 			return marshalPatch(path, nil)
 		}

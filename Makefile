@@ -267,6 +267,17 @@ uninstall: ## Remove Canary and any pre-upgrade executable residue from $(PREFIX
 
 TEST_JOBS ?= 3
 TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
+.PHONY: build-space-check build-space-contract-check
+build-space-check: ## Refuse heavy local gates when a build filesystem has less than 8 GiB available
+	@./scripts/check-build-space.sh
+
+build-space-contract-check: ## Exercise capacity refusals with synthetic filesystem responses
+	@./scripts/check-build-space_test.sh
+
+# Keep the guard ahead of every major entrypoint, including independently run
+# race legs. No cache is removed and no service is changed by this prerequisite.
+build check test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live regression-spine-check: build-space-check
+
 test: ## Full gate: check + render + historical regressions + pkg, support, and daemon/integration tests (-race), overlapped
 	$(MAKE) $(TEST_MAKEFLAGS) check app-render-check test-pkg test-support test-daemon regression-spine-check
 
@@ -290,6 +301,7 @@ commit-check: check ## Compatibility alias for the canonical repository gate
 CHECK_DEPS ?= plugin-check parity-check
 CHECK_JOBS ?= 8
 CHECK_TARGETS = $(CHECK_DEPS) agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS += build-space-contract-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)

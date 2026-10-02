@@ -87,7 +87,9 @@ refreshable in-memory views do not.
   broker credentials.
 - `web/app` is the embedded no-build Canary SPA and its service worker. Global
   account, market, and sync state stays outside individual tab content.
-- The module root package `canary` is the Go daemon client. It runs the MCP
+- The module root package `canary` is the Go daemon client. Its dedicated
+  cash-sweep preference methods sit outside the read-only tool catalogue and
+  change ordering only, without reserve policy or broker authority. It runs the MCP
   tool catalogue over the daemon socket, one connection per call and under the
   same per-tool budgets as the MCP server, and holds no policy. `canarytest`
   serves the same wire types on a temporary socket for tests of embedding

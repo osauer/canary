@@ -2747,6 +2747,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesSubmitExercise(ctx, req) })
 	case rpc.MethodOpportunitiesIgnore:
 		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesIgnore(req), nil })
+	case rpc.MethodCashSweepPreferencesGet:
+		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
+	case rpc.MethodCashSweepPrioritySet:
+		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPrioritySet(ctx, req) })
 	case rpc.MethodSettingsGet:
 		s.unary(req, enc, func() (any, error) { return s.handleSettingsGet() })
 	case rpc.MethodSettingsUpdate:
@@ -2819,10 +2823,13 @@ func writeError(enc *json.Encoder, id, code, message string) {
 
 func classifyError(err error) (string, string) {
 	var bad *badRequestError
+	var settingsConflict *rpc.Error
 	var contractTimeout *chainContractTimeoutError
 	var mdAbsent *ibkrlib.MarketDataAbsenceError
 	var regimeUnavailable *regimeSnapshotCacheUnavailableError
 	switch {
+	case errors.As(err, &settingsConflict) && settingsConflict.Code == rpc.CodeSettingsConflict:
+		return settingsConflict.Code, settingsConflict.Message
 	case errors.As(err, &regimeUnavailable):
 		return rpc.CodeRegimeUnavailable, regimeUnavailable.Error()
 	case errors.As(err, &bad):

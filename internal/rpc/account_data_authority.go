@@ -19,13 +19,28 @@ import (
 // not send the field. PositionsResult leaves Fields nil because the portfolio
 // stream's completeness is described by Availability, Freshness, and Reason.
 type AccountDataAuthority struct {
-	Scope        AccountDataScope          `json:"scope"`
-	Source       AccountDataSource         `json:"source"`
-	Availability AccountDataAvailability   `json:"availability"`
-	Freshness    AccountDataFreshness      `json:"freshness"`
-	Reason       AccountDataReason         `json:"reason,omitempty"`
-	AsOf         time.Time                 `json:"as_of,omitzero"`
-	Fields       *AccountFieldAvailability `json:"fields,omitempty"`
+	Scope             AccountDataScope          `json:"scope"`
+	Source            AccountDataSource         `json:"source"`
+	Availability      AccountDataAvailability   `json:"availability"`
+	Freshness         AccountDataFreshness      `json:"freshness"`
+	Reason            AccountDataReason         `json:"reason,omitempty"`
+	AsOf              time.Time                 `json:"as_of,omitzero"`
+	Fields            *AccountFieldAvailability `json:"fields,omitempty"`
+	BrokerReadSession BrokerReadSession         `json:"broker_read_session,omitzero"`
+	// LedgerCurrencyCount retains the full broker-ledger currency count,
+	// before display projection drops a row with unknown FX.
+	LedgerCurrencyCount int `json:"ledger_currency_count,omitempty"`
+	// PortfolioComplete is true only for the unfiltered whole stream view.
+	PortfolioComplete bool `json:"portfolio_complete,omitempty"`
+}
+
+// BrokerReadSession identifies the original producer's socket generation.
+// It grants no authority by itself. All three fields must match across reads;
+// epoch numbers alone can restart at one when a connector is replaced.
+type BrokerReadSession struct {
+	DaemonStartedAt     time.Time `json:"daemon_started_at"`
+	ConnectorGeneration uint64    `json:"connector_generation"`
+	SocketEpoch         uint64    `json:"socket_epoch"`
 }
 
 // AccountDataScope names one concrete broker account and its paper/live mode.

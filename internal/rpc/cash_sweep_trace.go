@@ -26,6 +26,7 @@ type CashSweepDecisionTrace struct {
 	PolicyFingerprint       string                      `json:"policy_fingerprint"`
 	Mode                    string                      `json:"mode"`
 	CurrencyPriority        string                      `json:"currency_priority,omitempty"`
+	CurrencyPrioritySource  string                      `json:"currency_priority_source,omitempty"`
 	ReserveCushionEUR       *float64                    `json:"reserve_cushion_eur,omitempty"`
 	ReserveState            string                      `json:"reserve_state,omitempty"`
 	ReserveReason           string                      `json:"reserve_reason,omitempty"`
