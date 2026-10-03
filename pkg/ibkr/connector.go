@@ -156,6 +156,10 @@ type Connector struct {
 	absenceMu     sync.Mutex
 	mktDataAbsent map[string]marketDataAbsence
 	absenceNow    func() time.Time
+	// entitlementGapWarned records, per subscription key, when a terminal 354
+	// first warned; repeat probes inside entitlementGapMemory log at INFO.
+	// Guarded by absenceMu.
+	entitlementGapWarned map[string]time.Time
 	// contractMisses rate-bounds re-resolution of symbols the broker answered
 	// "no security definition" for. Unlike inactiveSymbols this is not a
 	// verdict — only an escalating probe backoff — so it stays effective while
@@ -419,6 +423,11 @@ func isTerminalSubscriptionError(code int) bool {
 // marketDataAbsenceRetry bounds terminal-rejection suppression.
 const marketDataAbsenceRetry = 30 * time.Minute
 
+// entitlementGapMemory bounds how long a warned 354 keeps its repeat probes at
+// INFO. A gap the account closes mid-day is honestly re-probed at the next
+// retry window either way; this only decides the log level of the echo.
+const entitlementGapMemory = 24 * time.Hour
+
 // inactiveMarkTTL bounds an inactive mark the same way marketDataAbsenceRetry
 // Marks are in-memory only — a false mark formed while the gateway answered
 // "no security definition" for everything (nightly-reset wedge, observed
@@ -468,9 +477,120 @@ func (c *Connector) rememberMarketDataAbsence(key string, code int, message stri
 	}
 	prev, had := c.mktDataAbsent[key]
 	c.mktDataAbsent[key] = marketDataAbsence{code: code, message: message, at: now}
+	if code == 354 {
+		if c.entitlementGapWarned == nil {
+			c.entitlementGapWarned = make(map[string]time.Time)
+		}
+		if first, ok := c.entitlementGapWarned[key]; !ok || now.Sub(first) >= entitlementGapMemory {
+			c.entitlementGapWarned[key] = now
+		}
+	}
 	c.absenceMu.Unlock()
 	if !had || now.Sub(prev.at) >= marketDataAbsenceRetry {
 		c.logInfo("Market data for %s rejected (code %d); suppressing resubscribes for %s", key, code, marketDataAbsenceRetry)
+	}
+}
+
+// knownEntitlementGap reports whether a 354 for reqID repeats a gap this
+// connector (or the one it inherited from) already warned about. The first
+// rejection of a key keeps its warning; the wire echo of every later probe
+// inside entitlementGapMemory is INFO.
+func (c *Connector) knownEntitlementGap(reqID int, alias reqAliasEntry) bool {
+	key := c.subscriptionMissKeyForNotice(reqID, alias)
+	if key == "" {
+		return false
+	}
+	now := c.absenceClock()
+	c.absenceMu.Lock()
+	defer c.absenceMu.Unlock()
+	first, ok := c.entitlementGapWarned[key]
+	if !ok {
+		return false
+	}
+	if now.Sub(first) >= entitlementGapMemory {
+		delete(c.entitlementGapWarned, key)
+		return false
+	}
+	return true
+}
+
+// backendLinkBroken is true from a 1100 or 2110 until the 1101/1102 restore:
+// the backend latch, or the connectivity farm row that 2110 writes and only a
+// connectivity notice clears (see recordDataFarmNotice).
+func (c *Connector) backendLinkBroken() bool {
+	if down, _ := c.backendConnectivityDown(); down {
+		return true
+	}
+	c.dataFarmMu.RLock()
+	defer c.dataFarmMu.RUnlock()
+	for _, farm := range c.dataFarms {
+		if farm.Type == "connectivity" && farm.Status == "broken" {
+			return true
+		}
+	}
+	return false
+}
+
+// noticeLogContext is the connector's view for wire-notice severity.
+func (c *Connector) noticeLogContext() noticeLogContext {
+	return noticeLogContext{backendLinkDown: c.backendLinkBroken, knownEntitlementGap: c.knownEntitlementGap}
+}
+
+// MarketDataMemory is the connector-independent part of the entitlement
+// memory: terminal 354 absences still inside their retry window and the keys
+// whose entitlement gap already warned. A successor connector inherits it so a
+// reconnect neither re-probes a fresh gap nor warns about a known one again.
+// It carries subscription keys and broker notice text, never account data.
+type MarketDataMemory struct {
+	absences  map[string]marketDataAbsence
+	gapWarned map[string]time.Time
+}
+
+// ExportMarketDataMemory snapshots the live entitlement memory for a successor.
+func (c *Connector) ExportMarketDataMemory() MarketDataMemory {
+	if c == nil {
+		return MarketDataMemory{}
+	}
+	now := c.absenceClock()
+	c.absenceMu.Lock()
+	defer c.absenceMu.Unlock()
+	m := MarketDataMemory{absences: make(map[string]marketDataAbsence, len(c.mktDataAbsent)), gapWarned: make(map[string]time.Time, len(c.entitlementGapWarned))}
+	for key, entry := range c.mktDataAbsent {
+		if now.Sub(entry.at) < marketDataAbsenceRetry {
+			m.absences[key] = entry
+		}
+	}
+	for key, first := range c.entitlementGapWarned {
+		if now.Sub(first) < entitlementGapMemory {
+			m.gapWarned[key] = first
+		}
+	}
+	return m
+}
+
+// InheritMarketDataMemory seeds a connector before it starts. Entries the
+// connector already holds win, so its own observations are never overwritten.
+func (c *Connector) InheritMarketDataMemory(m MarketDataMemory) {
+	if c == nil || (len(m.absences) == 0 && len(m.gapWarned) == 0) {
+		return
+	}
+	c.absenceMu.Lock()
+	defer c.absenceMu.Unlock()
+	if c.mktDataAbsent == nil {
+		c.mktDataAbsent = make(map[string]marketDataAbsence, len(m.absences))
+	}
+	for key, entry := range m.absences {
+		if _, ok := c.mktDataAbsent[key]; !ok {
+			c.mktDataAbsent[key] = entry
+		}
+	}
+	if c.entitlementGapWarned == nil {
+		c.entitlementGapWarned = make(map[string]time.Time, len(m.gapWarned))
+	}
+	for key, first := range m.gapWarned {
+		if _, ok := c.entitlementGapWarned[key]; !ok {
+			c.entitlementGapWarned[key] = first
+		}
 	}
 }
 
@@ -1812,19 +1932,27 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 	}
 	c.backendConnMu.Unlock()
 
+	// Cancel echoes drawn by requests the dead link never registered were
+	// kept at debug; account for them once, on the bookend.
+	echoes := ""
+	if c.conn != nil {
+		if n := c.conn.takeSuppressedCancelEchoes(); n > 0 {
+			echoes = fmt.Sprintf("; %d cancel echoes (code 300) kept in debug logs", n)
+		}
+	}
 	switch {
 	case !lossWarned && !required:
-		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outside configured gateway duty windows", outage.Round(time.Second), losses, restoreCode)
+		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outside configured gateway duty windows%s", outage.Round(time.Second), losses, restoreCode, echoes)
 	case outage > backendOutageAttention:
 		// A blip heals in seconds; anything past the threshold was a real
 		// hole in availability and stays loud regardless of episode state.
-		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outage exceeded %s", outage.Round(time.Second), losses, restoreCode, backendOutageAttention)
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d) — outage exceeded %s%s", outage.Round(time.Second), losses, restoreCode, backendOutageAttention, echoes)
 	case firstOfEpisode || lossWarned:
 		// WARN, not INFO: this pairs the episode's opening loss warning and
 		// must survive the warn default log level.
-		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)", outage.Round(time.Second), losses, restoreCode)
+		c.logWarn("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)%s", outage.Round(time.Second), losses, restoreCode, echoes)
 	default:
-		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)", outage.Round(time.Second), losses, restoreCode)
+		c.logInfo("TWS restored connectivity to the IBKR backend after %s (loss %d this session, restore_code=%d)%s", outage.Round(time.Second), losses, restoreCode, echoes)
 	}
 }
 
@@ -5745,6 +5873,7 @@ func (c *Connector) registerHandlers(conn *Connection) {
 	conn.SetSystemNoticeHandlerAtEpochWithPostAction(func(note *systemNotification, alias reqAliasEntry, epoch uint64) func() {
 		return c.processSystemNoticeFrom(ConnectorSessionBinding{connector: c, connection: conn, epoch: epoch}, alias, note)
 	})
+	conn.setNoticeLogContext(c.noticeLogContext())
 
 	// Daily P&L streams: msgPnL (94) for account-level, msgPnLSingle (95)
 	// for per-conId. Subscriptions are owned by Connector.SubscribeAccountPnL

@@ -255,49 +255,72 @@ func launchAgentDomain(sup appSupervisor) (string, error) {
 	return domain, nil
 }
 
-func rewriteLaunchAgentExecutable(data []byte, sup appSupervisor, currentExecutable string) ([]byte, error) {
+// launchAgentProgram is the ProgramArguments vector of an on-disk app plist,
+// with the byte range of its executable value for an in-place rewrite.
+type launchAgentProgram struct {
+	executable      string
+	args            []string // starting at "app"
+	executableStart int
+	executableEnd   int
+}
+
+// parseLaunchAgentPlist accepts only the pinned app job: one Label equal to
+// appLaunchAgentLabel, no Program override, and exactly one ProgramArguments
+// array made of plain strings with an app subcommand.
+func parseLaunchAgentPlist(data []byte) (launchAgentProgram, error) {
 	labelMatches := plistLabelRe.FindAllSubmatch(data, -1)
 	if len(labelMatches) != 1 {
-		return nil, errors.New("launchd plist must contain exactly one parseable Label")
+		return launchAgentProgram{}, errors.New("launchd plist must contain exactly one parseable Label")
 	}
-	labelMatch := labelMatches[0]
-	label, err := decodePlistString(labelMatch[1])
+	label, err := decodePlistString(labelMatches[0][1])
 	if err != nil || label != appLaunchAgentLabel {
-		return nil, fmt.Errorf("launchd plist label is not %q", appLaunchAgentLabel)
+		return launchAgentProgram{}, fmt.Errorf("launchd plist label is not %q", appLaunchAgentLabel)
 	}
 	if plistProgramKeyRe.Match(data) {
-		return nil, errors.New("launchd plist has a separate Program override")
+		return launchAgentProgram{}, errors.New("launchd plist has a separate Program override")
 	}
 	blocks := plistProgramArgumentsRe.FindAllSubmatchIndex(data, -1)
 	if len(blocks) != 1 {
-		return nil, errors.New("launchd plist must contain exactly one parseable ProgramArguments array")
+		return launchAgentProgram{}, errors.New("launchd plist must contain exactly one parseable ProgramArguments array")
 	}
-	block := blocks[0]
-	bodyStart, bodyEnd := block[2], block[3]
+	bodyStart, bodyEnd := blocks[0][2], blocks[0][3]
 	body := data[bodyStart:bodyEnd]
 	stringMatches := plistStringRe.FindAllSubmatchIndex(body, -1)
 	if len(stringMatches) < 2 {
-		return nil, errors.New("launchd plist ProgramArguments has no app subcommand")
+		return launchAgentProgram{}, errors.New("launchd plist ProgramArguments has no app subcommand")
 	}
 	remaining := append([]byte(nil), body...)
 	for i := range slices.Backward(stringMatches) {
 		remaining = append(remaining[:stringMatches[i][0]], remaining[stringMatches[i][1]:]...)
 	}
 	if strings.TrimSpace(string(remaining)) != "" {
-		return nil, errors.New("launchd plist ProgramArguments contains unsupported XML")
+		return launchAgentProgram{}, errors.New("launchd plist ProgramArguments contains unsupported XML")
 	}
 	programArgs := make([]string, 0, len(stringMatches))
 	for _, match := range stringMatches {
 		value, err := decodePlistString(body[match[2]:match[3]])
 		if err != nil {
-			return nil, fmt.Errorf("decode launchd ProgramArguments: %w", err)
+			return launchAgentProgram{}, fmt.Errorf("decode launchd ProgramArguments: %w", err)
 		}
 		programArgs = append(programArgs, value)
 	}
-	if !slices.Equal(programArgs[1:], sup.Args) {
+	return launchAgentProgram{
+		executable:      programArgs[0],
+		args:            programArgs[1:],
+		executableStart: bodyStart + stringMatches[0][2],
+		executableEnd:   bodyStart + stringMatches[0][3],
+	}, nil
+}
+
+func rewriteLaunchAgentExecutable(data []byte, sup appSupervisor, currentExecutable string) ([]byte, error) {
+	program, err := parseLaunchAgentPlist(data)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Equal(program.args, sup.Args) {
 		return nil, errors.New("on-disk launchd arguments do not match the loaded supervisor")
 	}
-	onDiskExecutable := programArgs[0]
+	onDiskExecutable := program.executable
 	if onDiskExecutable != sup.Executable && onDiskExecutable != currentExecutable {
 		return nil, errors.New("on-disk launchd executable does not match the loaded or canonical supervisor")
 	}
@@ -305,16 +328,14 @@ func rewriteLaunchAgentExecutable(data []byte, sup appSupervisor, currentExecuta
 		return nil, errors.New("on-disk launchd executable is not the explicit pre-upgrade command")
 	}
 
-	firstValueStart := bodyStart + stringMatches[0][2]
-	firstValueEnd := bodyStart + stringMatches[0][3]
 	var escaped bytes.Buffer
 	if err := xml.EscapeText(&escaped, []byte(currentExecutable)); err != nil {
 		return nil, fmt.Errorf("encode canonical executable path: %w", err)
 	}
-	rewritten := make([]byte, 0, len(data)-firstValueEnd+firstValueStart+escaped.Len())
-	rewritten = append(rewritten, data[:firstValueStart]...)
+	rewritten := make([]byte, 0, len(data)-program.executableEnd+program.executableStart+escaped.Len())
+	rewritten = append(rewritten, data[:program.executableStart]...)
 	rewritten = append(rewritten, escaped.Bytes()...)
-	rewritten = append(rewritten, data[firstValueEnd:]...)
+	rewritten = append(rewritten, data[program.executableEnd:]...)
 	return rewritten, nil
 }
 
@@ -328,11 +349,18 @@ func decodePlistString(raw []byte) (string, error) {
 	return value, nil
 }
 
-func writeLaunchAgentAtomically(path string, data []byte, mode os.FileMode) (retErr error) {
+func writeLaunchAgentAtomically(path string, data []byte, mode os.FileMode) error {
+	return writeFileAtomically(path, data, mode, "launchd plist candidate", "LaunchAgents directory")
+}
+
+// writeFileAtomically publishes data at path through a same-directory
+// temporary file and a rename, so no reader sees a partial file. what and
+// dirName only label errors.
+func writeFileAtomically(path string, data []byte, mode os.FileMode, what, dirName string) (retErr error) {
 	dir := filepath.Dir(path)
-	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".migrate-*")
+	temp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".next-*")
 	if err != nil {
-		return fmt.Errorf("create launchd plist candidate: %w", err)
+		return fmt.Errorf("create %s: %w", what, err)
 	}
 	tempPath := temp.Name()
 	defer func() {
@@ -342,27 +370,27 @@ func writeLaunchAgentAtomically(path string, data []byte, mode os.FileMode) (ret
 		}
 	}()
 	if err := temp.Chmod(mode); err != nil {
-		return fmt.Errorf("set launchd plist candidate mode: %w", err)
+		return fmt.Errorf("set %s mode: %w", what, err)
 	}
 	if _, err := temp.Write(data); err != nil {
-		return fmt.Errorf("write launchd plist candidate: %w", err)
+		return fmt.Errorf("write %s: %w", what, err)
 	}
 	if err := temp.Sync(); err != nil {
-		return fmt.Errorf("sync launchd plist candidate: %w", err)
+		return fmt.Errorf("sync %s: %w", what, err)
 	}
 	if err := temp.Close(); err != nil {
-		return fmt.Errorf("close launchd plist candidate: %w", err)
+		return fmt.Errorf("close %s: %w", what, err)
 	}
 	if err := os.Rename(tempPath, path); err != nil {
-		return fmt.Errorf("publish launchd plist candidate: %w", err)
+		return fmt.Errorf("publish %s: %w", what, err)
 	}
 	dirHandle, err := os.Open(dir)
 	if err != nil {
-		return fmt.Errorf("open LaunchAgents directory for sync: %w", err)
+		return fmt.Errorf("open %s for sync: %w", dirName, err)
 	}
 	defer dirHandle.Close()
 	if err := dirHandle.Sync(); err != nil && !errors.Is(err, os.ErrInvalid) {
-		return fmt.Errorf("sync LaunchAgents directory: %w", err)
+		return fmt.Errorf("sync %s: %w", dirName, err)
 	}
 	return nil
 }

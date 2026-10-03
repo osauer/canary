@@ -152,13 +152,19 @@ func (s *Server) upgradeCoreStoreSchema(ctx context.Context, minimum *corestore.
 	return updatedMinimum, nil
 }
 
+// liveCoreStoreOptions builds the options for the one live authority handle.
+// Arming the authority incident here keeps the store's health observer and
+// the logger's blocked-store hook bound to the same incident on every live
+// open path, including the schema-upgrade retry and the cutover reopen.
 func (s *Server) liveCoreStoreOptions(minimum *corestore.AuthorityHead) corestore.Options {
+	incident := s.armAuthorityIncident()
 	return corestore.Options{
 		Path:        s.coreStorePath,
 		MinimumHead: minimum,
 		CommitObserver: func(head corestore.AuthorityHead) error {
 			return writeAuthorityWatermark(s.coreStorePath+".head", head)
 		},
+		HealthObserver: incident.observe,
 	}
 }
 
@@ -240,8 +246,11 @@ func (s *Server) tryCoreStoreRecovery(ctx context.Context) {
 		}
 		return
 	}
-	if recovered && s.logger != nil {
-		s.logger.Infof("daemon authority: transient head-watermark latch recovered after integrity, identity, monotonic-head, and external-watermark verification")
+	if recovered {
+		// The store reported the Ready transition to its health observer,
+		// which owns the single WARN bookend that closes the authority
+		// incident; a second line here would double that evidence.
+		s.debugf("daemon authority: transient head-watermark proof succeeded; recovery is announced by the authority incident bookend")
 	}
 }
 

@@ -87,6 +87,20 @@ func compileGatewaySchedule(now time.Time, markets []marketcal.Market, before, a
 	return v
 }
 
+// widenLoggingMarkets adds a recognised stock venue from live inventory to the
+// declared duty baseline. Instruments the calendar cannot place — options,
+// futures, SMART-only routes, outside-RTH orders — neither widen nor veto it:
+// in scheduled mode the operator's declaration is the duty statement and
+// inventory is evidence that can only extend it. (Until 2026-10-03 such
+// inventory forced the unknown scope, so an option book kept every off-duty
+// outage at WARN.)
+func widenLoggingMarkets(markets []marketcal.Market, c ibkrlib.Contract) []marketcal.Market {
+	if m, ok := loggingPositionMarket(c); ok && !slices.Contains(markets, m) {
+		return append(markets, m)
+	}
+	return markets
+}
+
 // loggingPositionMarket deliberately has no currency, symbol or SMART fallback.
 // Options and other products may have global sessions not modeled by cash calendars.
 func loggingPositionMarket(c ibkrlib.Contract) (marketcal.Market, bool) {
@@ -177,11 +191,10 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 				}
 			}
 		}
-		unsupported := false
 		var evidence gatewayScopeEvidence
 		var compiled *gatewayScheduleView
 		var compiledAt time.Time
-		previousCount, previousUnsupported := -1, false
+		previousCount := -1
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for {
@@ -205,19 +218,10 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 								evidence.until = observed.Add(24 * time.Hour)
 							}
 							for _, row := range p.Positions {
-								if row == nil {
-									unsupported = true
+								if row == nil || row.Position == 0 {
 									continue
 								}
-								if row.Position == 0 {
-									continue
-								}
-								m, ok := loggingPositionMarket(row.Contract)
-								if !ok {
-									unsupported = true
-								} else if !slices.Contains(markets, m) {
-									markets = append(markets, m)
-								}
+								markets = widenLoggingMarkets(markets, row.Contract)
 							}
 						} else {
 							evidence.until = time.Time{}
@@ -232,17 +236,12 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 				if order.WhatIf {
 					continue
 				}
-				m, ok := loggingPositionMarket(ibkrlib.Contract{SecType: order.SecType, Exchange: order.Exchange})
-				if order.OutsideRth || !ok {
-					unsupported = true
-				} else if !slices.Contains(markets, m) {
-					markets = append(markets, m)
-				}
+				markets = widenLoggingMarkets(markets, ibkrlib.Contract{SecType: order.SecType, Exchange: order.Exchange})
 			}
 			s.protectionOrderSnapshotMu.Unlock()
-			if compiled == nil || now.Before(compiledAt) || now.Sub(compiledAt) >= time.Hour || previousCount != len(markets) || previousUnsupported != unsupported {
-				compiled = compileGatewaySchedule(now, markets, before, after, evidence.until, unsupported)
-				compiledAt, previousCount, previousUnsupported = now, len(markets), unsupported
+			if compiled == nil || now.Before(compiledAt) || now.Sub(compiledAt) >= time.Hour || previousCount != len(markets) {
+				compiled = compileGatewaySchedule(now, markets, before, after, evidence.until, false)
+				compiledAt, previousCount = now, len(markets)
 			}
 			view := *compiled
 			view.evidenceUntil = evidence.until

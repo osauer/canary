@@ -25,6 +25,7 @@ type Store struct {
 	path           string
 	busyTimeout    time.Duration
 	commitObserver func(AuthorityHead) error
+	healthObserver func(Health, error)
 	readHead       func(context.Context) (AuthorityHead, error)
 	checkIntegrity func(context.Context) (IntegrityReport, error)
 
@@ -181,6 +182,7 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 	store := &Store{
 		db: db, path: path, busyTimeout: timeout,
 		commitObserver:   opts.CommitObserver,
+		healthObserver:   opts.HealthObserver,
 		lastObservedHead: head,
 		health:           Health{Ready: true},
 	}
@@ -284,8 +286,10 @@ func (s *Store) Close() error {
 }
 
 // Health returns mutation health. A false Ready value blocks critical
-// mutations. Only the explicitly eligible post-commit head-read timeout can be
-// proof-recovered in process; every other latch requires an explicit reopen.
+// mutations. Only the explicitly eligible head-watermark latches (a post-commit
+// head-read timeout or a CommitObserver failure after the committed head was
+// read) can be proof-recovered in process; every other latch requires an
+// explicit reopen.
 func (s *Store) Health() Health {
 	s.healthMu.RLock()
 	defer s.healthMu.RUnlock()
@@ -317,11 +321,49 @@ func requireMinimumHead(got, minimum AuthorityHead) error {
 	return nil
 }
 
+// latchNotice is one Ready-to-blocked transition captured under the store
+// locks and delivered to the health observer only after they are released.
+type latchNotice struct {
+	health Health
+	cause  error
+}
+
+func (s *Store) latchNoticeFor(latched bool, cause error) *latchNotice {
+	if !latched {
+		return nil
+	}
+	return &latchNotice{health: s.Health(), cause: cause}
+}
+
+// notifyHealth reports one health transition to the configured observer. It
+// runs after writeMu and healthMu are released so the observer may read
+// Health or log without deadlocking the store.
+func (s *Store) notifyHealth(health Health, cause error) {
+	if s.healthObserver != nil {
+		s.healthObserver(health, cause)
+	}
+}
+
+func (s *Store) notifyLatch(notice *latchNotice) {
+	if notice != nil {
+		s.notifyHealth(notice.health, notice.cause)
+	}
+}
+
 func (s *Store) criticalMutation(ctx context.Context, fn func(*sql.Tx) error) error {
+	notice, err := s.criticalMutationLocked(ctx, fn)
+	s.notifyLatch(notice)
+	return err
+}
+
+// criticalMutationLocked runs one mutation under writeMu. A non-nil notice
+// means this mutation latched the store; the caller delivers it once the lock
+// is released.
+func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) error) (*latchNotice, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if !s.Health().Ready {
-		return ErrBlocked
+		return nil, ErrBlocked
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err == nil {
@@ -332,31 +374,31 @@ func (s *Store) criticalMutation(ctx context.Context, fn func(*sql.Tx) error) er
 	} else if tx != nil {
 		_ = tx.Rollback()
 	}
+	latched := false
 	if err == nil && s.commitObserver != nil {
 		headCtx, cancel := context.WithTimeout(context.Background(), s.busyTimeout)
 		head, headErr := s.readCommittedHead(headCtx)
 		cancel()
 		if headErr != nil {
 			if errors.Is(headErr, context.DeadlineExceeded) {
-				s.latchRecoverableHeadWatermarkTimeout()
+				latched = s.latchRecoverableHeadWatermarkTimeout()
 			} else {
-				s.latchCritical(headErr)
-				if s.Health().Ready {
-					s.latchHealth("head_watermark")
-				}
+				latched = s.latchCritical(headErr) || s.latchHealth("head_watermark")
 			}
 			err = fmt.Errorf("read committed authority head: %w", headErr)
 		} else if observerErr := s.commitObserver(head); observerErr != nil {
-			s.latchHealth("head_watermark")
+			// The mutation is durable and its head was read; only the external
+			// watermark is unproven, so the committed head is the recovery floor.
+			latched = s.latchRecoverableObserverFailure(head)
 			err = fmt.Errorf("persist committed authority head: %w", observerErr)
 		} else {
 			s.lastObservedHead = head
 		}
 	}
 	if err != nil {
-		s.latchCritical(err)
+		latched = s.latchCritical(err) || latched
 	}
-	return err
+	return s.latchNoticeFor(latched, err), err
 }
 
 func (s *Store) readCommittedHead(ctx context.Context) (AuthorityHead, error) {
@@ -366,48 +408,80 @@ func (s *Store) readCommittedHead(ctx context.Context) (AuthorityHead, error) {
 	return readAuthorityHead(ctx, s.db)
 }
 
-func (s *Store) latchCritical(err error) {
+// latchCritical latches a permanent SQLite failure class. It reports whether
+// this call moved the store from Ready to blocked.
+func (s *Store) latchCritical(err error) bool {
 	code, critical := criticalSQLiteCode(err)
 	if !critical {
-		return
+		return false
 	}
-	s.latchHealth(code)
+	return s.latchHealth(code)
 }
 
-func (s *Store) latchHealth(code string) {
+// latchHealth records a permanent latch that only an explicit reopen clears.
+// It reports whether this call moved the store from Ready to blocked.
+func (s *Store) latchHealth(code string) bool {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if !s.health.Ready {
-		return
+		return false
 	}
 	s.health = Health{Ready: false, Code: code, BlockedAt: time.Now().UTC()}
 	s.recoveryMinimumHead = AuthorityHead{}
+	return true
 }
 
-// latchRecoverableHeadWatermarkTimeout records the one in-process recovery
-// class. The caller holds writeMu, so lastObservedHead is the exact head whose
-// watermark was known durable before the just-committed mutation.
-func (s *Store) latchRecoverableHeadWatermarkTimeout() {
+// latchRecoverableHeadWatermark records the one recovery-eligible latch class:
+// the mutation is durable but its external head watermark is unproven.
+// minimum is the newest head known durable; the proof must read a head at
+// least that new and persist it before writes may reopen.
+func (s *Store) latchRecoverableHeadWatermark(minimum AuthorityHead) bool {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if !s.health.Ready {
-		return
+		return false
 	}
-	s.recoveryMinimumHead = s.lastObservedHead
+	s.recoveryMinimumHead = minimum
 	s.health = Health{
 		Ready: false, Code: "head_watermark", BlockedAt: time.Now().UTC(), RecoveryEligible: true,
 	}
+	return true
+}
+
+// latchRecoverableHeadWatermarkTimeout covers a post-commit head read that hit
+// its bounded deadline. The caller holds writeMu, so lastObservedHead is the
+// exact head whose watermark was known durable before the just-committed
+// mutation; the committed head itself is unknown.
+func (s *Store) latchRecoverableHeadWatermarkTimeout() bool {
+	return s.latchRecoverableHeadWatermark(s.lastObservedHead)
+}
+
+// latchRecoverableObserverFailure covers a CommitObserver that could not
+// persist a successfully read committed head. That head is the floor: the
+// proof must read a head at least that new and persist it through the same
+// observer before writes reopen, exactly as for the timeout class.
+func (s *Store) latchRecoverableObserverFailure(head AuthorityHead) bool {
+	return s.latchRecoverableHeadWatermark(head)
 }
 
 // RecoverTransientHeadWatermark attempts the only supported in-process
 // authority recovery. The write lock keeps every mutation blocked throughout
 // the proof. Success requires intact content, the exact authority epoch, a
-// head no older than the last externally observed head, and a successful
-// synchronous persistence of the current head through CommitObserver.
+// head no older than the latch's recovery floor, and a successful synchronous
+// persistence of the current head through CommitObserver. A successful proof
+// reports a Ready health to the configured HealthObserver.
 func (s *Store) RecoverTransientHeadWatermark(ctx context.Context) (bool, error) {
 	if s == nil {
 		return false, ErrRecoveryNotEligible
 	}
+	recovered, err := s.recoverTransientHeadWatermarkLocked(ctx)
+	if recovered {
+		s.notifyHealth(Health{Ready: true}, nil)
+	}
+	return recovered, err
+}
+
+func (s *Store) recoverTransientHeadWatermarkLocked(ctx context.Context) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
@@ -550,24 +624,30 @@ WHERE singleton=1 AND signer_generation=?`, next, formatTime(now), expected)
 // Checkpoint quiesces in-process writers and fully checkpoints/truncates the
 // WAL. A busy result is explicit; callers must not publish a cutover snapshot.
 func (s *Store) Checkpoint(ctx context.Context) (CheckpointResult, error) {
+	result, notice, err := s.checkpointLocked(ctx)
+	s.notifyLatch(notice)
+	return result, err
+}
+
+func (s *Store) checkpointLocked(ctx context.Context) (CheckpointResult, *latchNotice, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if !s.Health().Ready {
-		return CheckpointResult{}, ErrBlocked
+		return CheckpointResult{}, nil, ErrBlocked
 	}
 	var result CheckpointResult
 	err := s.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&result.Busy, &result.LogFrames, &result.CheckpointedFrames)
 	if err != nil {
-		s.latchCritical(err)
-		return CheckpointResult{}, fmt.Errorf("checkpoint authority WAL: %w", err)
+		err = fmt.Errorf("checkpoint authority WAL: %w", err)
+		return CheckpointResult{}, s.latchNoticeFor(s.latchCritical(err), err), err
 	}
 	if result.Busy != 0 {
-		return result, ErrCheckpointBusy
+		return result, nil, ErrCheckpointBusy
 	}
 	if err := enforcePrivateModes(s.path); err != nil {
-		return result, err
+		return result, nil, err
 	}
-	return result, nil
+	return result, nil, nil
 }
 
 func formatTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }

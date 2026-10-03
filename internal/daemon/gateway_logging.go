@@ -43,13 +43,34 @@ func (s *Server) gatewayLogClock() time.Time {
 }
 
 // logGatewayDependency suppresses duplicate symptoms only during an already
-// reported transport outage. It never infers an outage from arbitrary text.
+// reported outage: the daemon's own transport incident, or the connector's
+// TWS-to-IBKR backend-link loss, which the connector announces once (1100)
+// and whose restore it reports itself (1101/1102). It never infers an outage
+// from arbitrary text.
 func (s *Server) logGatewayDependency(detail string) bool {
-	if !s.gatewayLog.Join() {
+	switch {
+	case s.gatewayLog.Join():
+		if s.logger != nil && s.logger.debugEnabled() {
+			s.logger.Debugf("Gateway dependency unavailable: %s", detail)
+		}
+	case s.backendLinkDown():
+		if s.logger != nil && s.logger.debugEnabled() {
+			s.logger.Debugf("Backend link dependency unavailable: %s", detail)
+		}
+	default:
 		return false
 	}
-	if s.logger != nil && s.logger.debugEnabled() {
-		s.logger.Debugf("Gateway dependency unavailable: %s", detail)
-	}
 	return true
+}
+
+// backendLinkDown reads the current connector's backend-link latch without
+// the reconnect side effect of gatewayConnector.
+func (s *Server) backendLinkDown() bool {
+	if s.backendLink != nil {
+		return s.backendLink().Down
+	}
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	return c != nil && c.BackendLink().Down
 }

@@ -25,6 +25,34 @@ silence incident; an old subscription frame, reconnect, or attempted rebuild
 cannot claim recovery. Frame quality remains separately visible in account
 health.
 
+## Authority storage incident
+
+The daemon's authority store (`corestore.Store`) latches fail-closed on a
+critical SQLite failure or an unproven head watermark; every dependent write
+then fails with `corestore: health is blocked`. The store reports the
+Ready-to-blocked transition once, outside its locks, through
+`corestore.Options.HealthObserver`, and the daemon's single authority incident
+announces it at WARN with the health code, the error the failing operation
+returned, whether the latch is recovery-eligible (a transient proof retries
+every five seconds) or needs a restart, and a pointer to debug logs. Health
+and status RPC surfaces keep reading the store's health directly.
+
+While the incident is open, a warning whose argument wraps
+`corestore.ErrBlocked` joins it at debug through the logger hook instead of
+repeating the symptom; those joins are counted. A dependency cannot open the
+incident: with no latch announced, the warning stays a warning, as do
+independent defects during the latch. A successful recovery proof reports a
+Ready health through the same observer, and the incident closes with one WARN
+bookend carrying the blocked duration and the dependent failure count. The
+recovery loop no longer writes its own bookend.
+
+Two latch classes are recovery-eligible and share one proof (intact content,
+exact authority epoch, head no older than the latch's floor, successful
+synchronous watermark persistence): a post-commit head read that hit its
+bounded deadline, whose floor is the last proven head, and a watermark
+persistence failure after the committed head was read, whose floor is that
+committed head. Every other critical class stays latched until a restart.
+
 ## Resource budget
 
 Each incident uses fixed in-memory timestamps, a counter and a short mutex.
@@ -65,10 +93,12 @@ log_after_close_minutes = 240
 There is no authoritative watchlist store in the current daemon. Scheduled mode
 samples passive, exact-session portfolio evidence once per minute and reuses
 already collected API-order snapshots; neither path sends broker requests.
-Recognized stock venues add markets. Ambiguous SMART routes, unsupported
-securities (including options with potentially global hours), outside-RTH orders,
-or invalid inventory keep warning relevance conservative. Inferred markets and
-unsupported evidence are retained until daemon restart; closing a position does
+Recognized stock venues add markets. Options, futures, cash lines, SMART-only
+routes and outside-RTH orders neither widen nor veto the declaration: the
+configured markets are the duty statement, and inventory is evidence that can
+only extend it. (Until 2026-10-03 such inventory forced the unknown scope, so
+an option book kept every off-duty outage at WARN — the opt-in never quieted.)
+Inferred markets are retained until daemon restart; closing a position does
 not automatically narrow the logging scope. API snapshots do not cover every
 manual TWS order; the configured duty declaration is essential, not inferred
 from an empty portfolio.

@@ -46,6 +46,40 @@ func TestGammaGatewayDependencyKeepsStandaloneFailuresVisible(t *testing.T) {
 	}
 }
 
+// A TWS-to-IBKR backend-link loss is announced once by the connector; the
+// gamma scheduler and history refreshes that fail on it must join that
+// outage rather than warn every cycle (observed 2026-10-02: 60 gamma and
+// 65 history warnings per hour behind one 1100).
+func TestGatewayDependencyJoinsBackendLinkOutage(t *testing.T) {
+	var buf bytes.Buffer
+	s := &Server{logger: NewLogger(&buf, "debug")}
+	down := true
+	s.backendLink = func() ibkrlib.BackendLinkReport { return ibkrlib.BackendLinkReport{Down: down} }
+	saved := &storedMarketHistory{}
+	saved.Result.End = time.Now()
+	for range 60 {
+		s.kickZeroGamma(context.Background(), "scheduler")
+		s.logMarketHistoryFallback(rpc.MarketHistoryParams{}, saved, ibkrlib.ErrIBKRUnavailable)
+	}
+	if strings.Contains(buf.String(), "level=WARN") {
+		t.Fatalf("dependents warned behind the backend-link outage:\n%s", buf.String())
+	}
+	if got := strings.Count(buf.String(), "Backend link dependency unavailable"); got != 120 {
+		t.Fatalf("debug diagnostics=%d want 120", got)
+	}
+	// An independent history defect is not a link symptom.
+	s.logMarketHistoryFallback(rpc.MarketHistoryParams{}, saved, errors.New("response lacks sessions"))
+	if !strings.Contains(buf.String(), "response lacks sessions") {
+		t.Fatal("independent defect hidden")
+	}
+	down = false
+	buf.Reset()
+	s.kickZeroGamma(context.Background(), "scheduler")
+	if strings.Count(buf.String(), "level=WARN") != 1 {
+		t.Fatal("standalone gamma failure hidden after the link restored")
+	}
+}
+
 func TestGatewayRetryAndHistoryFanoutShareIncident(t *testing.T) {
 	var buf bytes.Buffer
 	s := &Server{logger: NewLogger(&buf, "warn")}

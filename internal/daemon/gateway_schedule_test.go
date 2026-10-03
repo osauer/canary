@@ -6,6 +6,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,28 @@ func TestGatewayScopeDoesNotGuessFromSymbolOrCurrency(t *testing.T) {
 		if _, ok := loggingPositionMarket(ibkrlib.Contract{SecType: "STK", PrimaryExch: v}); !ok {
 			t.Fatal("Asian identity ignored")
 		}
+	}
+}
+
+// The configured declaration is the duty statement: option, future, cash and
+// SMART-only inventory neither widens nor vetoes it; a recognised venue widens.
+func TestGatewayScheduleDeclarationWinsOverUnsupportedInventory(t *testing.T) {
+	markets := []marketcal.Market{marketcal.MarketUSEquity}
+	for _, c := range []ibkrlib.Contract{{SecType: "OPT", Exchange: "CBOE"}, {SecType: "FUT", Exchange: "CME"}, {SecType: "STK", Exchange: "SMART"}, {SecType: "CASH", Exchange: "IDEALPRO"}} {
+		markets = widenLoggingMarkets(markets, c)
+	}
+	if len(markets) != 1 {
+		t.Fatalf("unsupported inventory changed the declaration: %v", markets)
+	}
+	markets = widenLoggingMarkets(markets, ibkrlib.Contract{SecType: "STK", PrimaryExch: "IBIS"})
+	if !slices.Contains(markets, marketcal.MarketDEXetra) {
+		t.Fatal("recognised venue did not widen the declaration")
+	}
+	// Saturday 02:00 CEST with that scope is off duty.
+	now := scheduleTime(t, "2026-10-03T00:00:00Z")
+	v := compileGatewaySchedule(now, markets, 2*time.Hour, 90*time.Minute, now.Add(time.Hour), false)
+	if v.required(now, now) {
+		t.Fatal("off-duty weekend outage required")
 	}
 }
 

@@ -358,6 +358,14 @@ type Connection struct {
 	systemNoticeHandler func(note *systemNotification, alias reqAliasEntry, epoch uint64) func()
 	errorPostActionMu   sync.RWMutex
 	errorPostAction     func(fields []string, epoch uint64) func()
+	// noticeLog is installed by the owning Connector so wire-notice severity
+	// can reflect state the connector already accounts for; see noticeLogContext.
+	noticeLogMu sync.RWMutex
+	noticeLog   noticeLogContext
+	// suppressedCancelEchoes counts code-300 cancel echoes kept at debug while
+	// the backend link was broken; the Connector reports the count once when
+	// the link restores.
+	suppressedCancelEchoes atomic.Uint64
 
 	// Competing live session detection (error 10197)
 	competingMu          sync.RWMutex
@@ -555,6 +563,41 @@ func (c *Connection) SetSystemNoticeHandlerAtEpoch(handler func(note *systemNoti
 		handler(note, alias, epoch)
 		return nil
 	})
+}
+
+// noticeLogContext lets the owning Connector shape the severity of wire
+// notices it already accounts for elsewhere. Each probe is optional and runs
+// on the read loop for every notice, so it must stay cheap and lock-light.
+type noticeLogContext struct {
+	// backendLinkDown reports an announced TWS-to-IBKR link break (1100 or
+	// 2110, until the 1101/1102 restore). Requests sent into a dead link are
+	// never registered by the backend, so their teardown cancels draw code
+	// 300 ("Can't find EId") for every leg: a consequence of the outage the
+	// connector already warned about once, not a verdict, so those echoes stay
+	// in debug logs while the break holds (1,681 WARN lines in 80 minutes on
+	// 2026-10-02).
+	backendLinkDown func() bool
+	// knownEntitlementGap reports whether a 354 repeats an entitlement gap the
+	// connector already warned about for this request's subscription key.
+	knownEntitlementGap func(reqID int, alias reqAliasEntry) bool
+}
+
+func (c *Connection) setNoticeLogContext(ctx noticeLogContext) {
+	c.noticeLogMu.Lock()
+	c.noticeLog = ctx
+	c.noticeLogMu.Unlock()
+}
+
+func (c *Connection) noticeLogContextSnapshot() noticeLogContext {
+	c.noticeLogMu.RLock()
+	defer c.noticeLogMu.RUnlock()
+	return c.noticeLog
+}
+
+// takeSuppressedCancelEchoes returns and resets the count of cancel echoes
+// kept at debug during a backend-link break.
+func (c *Connection) takeSuppressedCancelEchoes() uint64 {
+	return c.suppressedCancelEchoes.Swap(0)
 }
 
 // SetSystemNoticeHandlerAtEpochWithPostAction installs the Connector-owned
@@ -3510,6 +3553,15 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	// stale/zero-value warnings, so the wire echo is debug-grade.
 	indicativeDisclaimer := note.code == 2129
 	definitionProbe := note.code == 200 && (aliasEntry.secType == "OPT" || aliasEntry.secType == "CASH")
+	// Consequences the connector already reports once do not earn a warning
+	// each: cancel echoes while the backend link is broken, and repeat probes
+	// of an entitlement gap it has warned about.
+	noticeCtx := c.noticeLogContextSnapshot()
+	cancelEcho := note.code == 300 && noticeCtx.backendLinkDown != nil && noticeCtx.backendLinkDown()
+	if cancelEcho {
+		c.suppressedCancelEchoes.Add(1)
+	}
+	repeatGap := note.code == 354 && noticeCtx.knownEntitlementGap != nil && noticeCtx.knownEntitlementGap(int(note.tickerID), aliasEntry)
 	upperMsg := strings.ToUpper(note.message)
 	parserMisalign := strings.Contains(upperMsg, "MART") || strings.Contains(upperMsg, "'BOE") || strings.Contains(upperMsg, "\"BOE") || strings.Contains(upperMsg, " BOE")
 	context := ""
@@ -3531,8 +3583,10 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 		switch {
 		case parserMisalign:
 			ibkrLogger.Errorf(format, args...)
-		case definitionProbe, indicativeDisclaimer:
+		case definitionProbe, indicativeDisclaimer, cancelEcho:
 			ibkrLogger.Debugf(format, args...)
+		case repeatGap:
+			ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
 		case shouldWarn:
 			ibkrLogger.Warnf(format, args...)
 		default:
@@ -3546,8 +3600,10 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	switch {
 	case parserMisalign:
 		ibkrLogger.Errorf(format, args...)
-	case definitionProbe:
+	case definitionProbe, cancelEcho:
 		ibkrLogger.Debugf(format, args...)
+	case repeatGap:
+		ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
 	case shouldWarn:
 		ibkrLogger.Warnf(format, args...)
 	default:

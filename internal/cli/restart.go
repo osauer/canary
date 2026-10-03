@@ -128,7 +128,12 @@ type appRestartResult struct {
 	NewPID     int      `json:"new_pid,omitempty"`
 	OldCommand string   `json:"old_command,omitempty"`
 	Args       []string `json:"args,omitempty"`
-	ElapsedMS  int64    `json:"elapsed_ms"`
+	// QuiescedAt and QuiesceRecord describe a launchd app job booted out by a
+	// stack restart: when it was unloaded and, while it stays unloaded, the
+	// record the next restart resumes it from.
+	QuiescedAt    string `json:"quiesced_at,omitempty"`
+	QuiesceRecord string `json:"quiesce_record,omitempty"`
+	ElapsedMS     int64  `json:"elapsed_ms"`
 }
 
 var (
@@ -287,6 +292,9 @@ func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps r
 	if exit != 0 {
 		if appPlan.ran {
 			fmt.Fprintf(opts.err, "%s restart: daemon stage failed while the app was quiesced; the app remains stopped so it cannot autospawn a competing daemon (fix the reported failure and rerun `%s restart`)\n", productidentity.Executable, productidentity.Executable)
+			if appPlan.result.QuiesceRecord != "" {
+				fmt.Fprintf(opts.err, "%s restart: the quiesce record at %s persists; the next successful `%s restart` will resume the supervised app\n", productidentity.Executable, appPlan.result.QuiesceRecord, productidentity.Executable)
+			}
 		}
 		if opts.jsonOut {
 			if jsonExit := printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res); jsonExit != 0 {
@@ -296,6 +304,16 @@ func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps r
 		return exit
 	}
 	if appPlan.ran && !res.Started {
+		if appPlan.pendingResume {
+			// Nothing changed in this run: the job was already booted out by
+			// an earlier restart, and resuming it now would autospawn a daemon
+			// outside any restart stage. The record stays for the next run.
+			if opts.jsonOut {
+				return printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res)
+			}
+			fmt.Fprintf(opts.out, "%s restart: daemon left stopped; the app supervisor quiesced by an earlier restart stays stopped (its quiesce record persists; the next `%s restart` that starts the daemon will resume it)\n", productidentity.Executable, productidentity.Executable)
+			return 0
+		}
 		fmt.Fprintf(opts.err, "%s restart: daemon remained stopped while the app was quiesced; refusing to resume the app because it would autospawn a daemon outside this restart stage\n", productidentity.Executable)
 		if opts.jsonOut {
 			if jsonExit := printJSON(&Env{Stdout: opts.out, Stderr: opts.err}, res); jsonExit != 0 {
@@ -333,6 +351,10 @@ type appStackRestartPlan struct {
 	currentPath map[string]struct{}
 	startedAt   time.Time
 	ran         bool
+	// pendingResume marks a plan rebuilt from a quiesce record: the job was
+	// booted out by an earlier restart whose daemon stage failed.
+	pendingResume bool
+	quiescedAt    time.Time
 }
 
 // quiesceAppForDaemonRestart removes every running app instance managed by a
@@ -350,6 +372,7 @@ func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps 
 	proc, findErr := deps.find(ctx)
 	if deps.supervisor != nil {
 		if sup, ok := deps.supervisor(ctx); ok {
+			discardStaleRestartQuiesceMarker(opts, prefix)
 			if supervisedRestartApplies(proc, findErr, sup) {
 				return quiesceSupervisedAppForDaemonRestart(ctx, opts, deps, prefix, proc, findErr, sup, plan)
 			}
@@ -381,6 +404,9 @@ func quiesceAppForDaemonRestart(ctx context.Context, opts *restartOptions, deps 
 		plan.result.Graceful = !forced
 		return plan, 0
 	case errors.Is(findErr, errAppNotRunning):
+		if pending, ok := findPendingSupervisorResume(opts, deps, prefix); ok {
+			return planPendingSupervisorResume(ctx, opts, deps, prefix, plan, pending)
+		}
 		if !opts.jsonOut {
 			fmt.Fprintf(opts.out, "%s: no app was running; app not restarted\n", prefix)
 		}
@@ -431,6 +457,18 @@ func quiesceSupervisedAppForDaemonRestart(ctx context.Context, opts *restartOpti
 		}
 		plan.result.Reason = "migrated_pre_upgrade_supervisor"
 	}
+	// Record the job before booting it out: an unloaded job is invisible to
+	// `launchctl print` and to process discovery, so if the daemon stage
+	// fails only this record lets the next restart resume the app.
+	recordPath := restartQuiesceMarkerPath()
+	quiescedAt := time.Now()
+	if err := writeRestartQuiesceMarker(recordPath, sup, quiescedAt); err != nil {
+		fmt.Fprintf(opts.err, "%s: record quiesced launchd app supervisor: %v\n", prefix, err)
+		return plan, 1
+	}
+	plan.quiescedAt = quiescedAt
+	plan.result.QuiescedAt = quiescedAt.UTC().Format(time.RFC3339)
+	plan.result.QuiesceRecord = recordPath
 	if err := deps.unload(ctx, sup); err != nil {
 		fmt.Fprintf(opts.err, "%s: quiesce launchd app supervisor: %v\n", prefix, err)
 		return plan, 1
@@ -458,6 +496,15 @@ func resumeAppAfterDaemonRestart(ctx context.Context, opts *restartOptions, deps
 		}
 		return res, 0
 	}
+	return bootstrapQuiescedSupervisor(ctx, opts, deps, prefix, plan)
+}
+
+// bootstrapQuiescedSupervisor loads the booted-out launchd job again, waits
+// for its canonical respawn, and retires the quiesce record. The stack
+// restart and `restart --app` share it, since either may find a record left
+// by an earlier run whose daemon stage failed.
+func bootstrapQuiescedSupervisor(ctx context.Context, opts *restartOptions, deps appRestartDeps, prefix string, plan appStackRestartPlan) (appRestartResult, int) {
+	res := plan.result
 	sup := *plan.supervisor
 	if err := deps.load(ctx, sup); err != nil {
 		fmt.Fprintf(opts.err, "%s: resume launchd app supervisor: %v\n", prefix, err)
@@ -471,8 +518,21 @@ func resumeAppAfterDaemonRestart(ctx context.Context, opts *restartOptions, deps
 	res.Started = true
 	res.NewPID = newPID
 	res.ElapsedMS = time.Since(plan.startedAt).Milliseconds()
+	if plan.pendingResume {
+		res.Action = "started"
+		res.Reason = "resumed_quiesced_supervisor"
+	}
+	if err := removeRestartQuiesceMarker(res.QuiesceRecord); err != nil {
+		fmt.Fprintf(opts.err, "%s: remove quiesce record %s: %v (delete it by hand; it is stale now that the job is loaded)\n", prefix, res.QuiesceRecord, err)
+	} else {
+		res.QuiesceRecord = ""
+	}
 	if !opts.jsonOut {
-		fmt.Fprintf(opts.out, "%s: resumed supervised app pid %d after daemon restart (%s)\n", prefix, newPID, sup.Target)
+		if plan.pendingResume {
+			fmt.Fprintf(opts.out, "%s: resumed app supervisor quiesced by an earlier restart at %s (pid %d, %s)\n", prefix, plan.quiescedAt.Local().Format(time.RFC3339), newPID, sup.Target)
+		} else {
+			fmt.Fprintf(opts.out, "%s: resumed supervised app pid %d after daemon restart (%s)\n", prefix, newPID, sup.Target)
+		}
 	}
 	return res, 0
 }
@@ -590,8 +650,11 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 
 	proc, err := deps.find(ctx)
 	if deps.supervisor != nil {
-		if sup, ok := deps.supervisor(ctx); ok && supervisedRestartApplies(proc, err, sup) {
-			return restartSupervisedApp(ctx, opts, deps, prefix, startedAt, proc, err, sup)
+		if sup, ok := deps.supervisor(ctx); ok {
+			discardStaleRestartQuiesceMarker(opts, prefix)
+			if supervisedRestartApplies(proc, err, sup) {
+				return restartSupervisedApp(ctx, opts, deps, prefix, startedAt, proc, err, sup)
+			}
 		}
 	}
 	switch {
@@ -627,6 +690,9 @@ func restartApp(ctx context.Context, opts *restartOptions, deps appRestartDeps, 
 		}
 	case errors.Is(err, errAppNotRunning):
 		finalizeArgs()
+		if pending, ok := findPendingSupervisorResume(opts, deps, prefix); ok {
+			return resumePendingSupervisorApp(ctx, opts, deps, prefix, startedAt, pending)
+		}
 		if !behavior.startWhenMissing {
 			res.Action = "not_running"
 			res.ElapsedMS = time.Since(startedAt).Milliseconds()

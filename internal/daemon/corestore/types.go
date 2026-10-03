@@ -38,6 +38,7 @@ var (
 )
 
 // Options configures the authoritative store. Path is required; the daemon
+// holds the only live handle.
 type Options struct {
 	Path        string
 	BusyTimeout time.Duration
@@ -45,8 +46,17 @@ type Options struct {
 	// authority. It is intended for restore/backup selection boundaries.
 	MinimumHead *AuthorityHead
 	// CommitObserver runs synchronously after every successful durable
-	// to persist an external monotonic head; an observer failure is returned
+	// mutation to persist an external monotonic head. An observer failure is
+	// returned to the caller and latches the store fail-closed; because the
+	// committed head was read, that latch stays eligible for the in-process
+	// head-watermark proof.
 	CommitObserver func(AuthorityHead) error
+	// HealthObserver, when non-nil, runs outside every store lock on each
+	// mutation-health transition: once when the store latches fail-closed,
+	// with the blocking Health and the error the failing operation returned,
+	// and once when an in-process proof reopens writes, with a Ready Health
+	// and a nil error. It is diagnostics only and must not mutate the store.
+	HealthObserver func(Health, error)
 }
 
 // AuthorityHead is the rollback-detection identity and monotonic write head
@@ -248,10 +258,12 @@ type QuiesceOptions struct {
 
 // Health is fail-closed mutation health. Critical failures caused by a full,
 // busy, readonly, corrupt, or I/O-failing SQLite store remain latched until an
-// explicit reopen. RecoveryEligible is true only for the narrow case where a
-// mutation committed but reading its post-commit head hit the bounded context
-// deadline; the live store may clear that latch only after an integrity,
-// identity, monotonic-head, and external-watermark proof succeeds.
+// explicit reopen. RecoveryEligible is true only for the narrow head-watermark
+// classes where a mutation committed but its external watermark is unproven:
+// reading the post-commit head hit the bounded context deadline, or the head
+// was read and CommitObserver failed to persist it. The live store may clear
+// that latch only after an integrity, identity, monotonic-head, and
+// external-watermark proof succeeds.
 type Health struct {
 	Ready            bool
 	Code             string

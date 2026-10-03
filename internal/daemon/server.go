@@ -68,6 +68,13 @@ type Server struct {
 	startedAt     time.Time
 	version       string
 	now           func() time.Time
+	// backendLink overrides the connector's TWS-to-IBKR link report for tests;
+	// nil reads the current connector.
+	backendLink func() ibkrlib.BackendLinkReport
+	// marketDataMemory carries the retired connector's entitlement memory to its
+	// successor so a reconnect does not re-probe a known gap at warning level.
+	// Guarded by mu.
+	marketDataMemory ibkrlib.MarketDataMemory
 
 	// brokerWriteMu serializes the check-then-act sections of every broker
 	// races, not a throughput concern. Cancel stays outside so a protective
@@ -1654,6 +1661,10 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		// Publish the candidate so handlers / status see the port the
 		// production (buildAttempter returns *ibkrlib.Connector); test
 		if real, ok := a.(*ibkrlib.Connector); ok {
+			s.mu.Lock()
+			memory := s.marketDataMemory
+			s.mu.Unlock()
+			real.InheritMarketDataMemory(memory)
 			for {
 				s.mu.Lock()
 				expected := s.connector
@@ -2322,6 +2333,10 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 		s.connectorEpoch++
 	})
 	if old != nil {
+		memory := old.ExportMarketDataMemory()
+		s.mu.Lock()
+		s.marketDataMemory = memory
+		s.mu.Unlock()
 		if err := old.Stop(); err != nil {
 			s.logger.Warnf("Reconnect: stop old connector: %v", err)
 		}
@@ -2437,6 +2452,14 @@ func (s *Server) stopConnector() {
 	s.mu.Lock()
 	c := s.connector
 	s.mu.Unlock()
+	if c != nil {
+		// The successor inherits remembered entitlement gaps so a reconnect
+		// does not re-probe them at warning level.
+		memory := c.ExportMarketDataMemory()
+		s.mu.Lock()
+		s.marketDataMemory = memory
+		s.mu.Unlock()
+	}
 	s.withConnectorEvidencePublication(c, nil, func() {
 		s.connector = nil
 		s.connectorEpoch++

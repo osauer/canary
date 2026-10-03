@@ -140,11 +140,16 @@ func TestCommitObserverTracksDurableHeadAndFailureBlocksStore(t *testing.T) {
 	if health := store.Health(); health.Ready || health.Code != "head_watermark" {
 		t.Fatalf("health after observer failure=%+v", health)
 	}
-	if store.Health().RecoveryEligible {
-		t.Fatal("observer persistence failure must not be eligible for in-process recovery")
+	if !store.Health().RecoveryEligible {
+		t.Fatal("observer persistence failure after a read committed head must stay eligible for the in-process proof")
 	}
-	if recovered, err := store.RecoverTransientHeadWatermark(t.Context()); recovered || !errors.Is(err, ErrRecoveryNotEligible) {
-		t.Fatalf("observer failure recovery=(%v,%v), want not eligible", recovered, err)
+	// The watermark is still unavailable, so the proof must fail without
+	// reopening writes and without giving up the eligibility.
+	if recovered, err := store.RecoverTransientHeadWatermark(t.Context()); recovered || err == nil || errors.Is(err, ErrRecoveryNotEligible) {
+		t.Fatalf("observer failure recovery=(%v,%v), want a failed proof", recovered, err)
+	}
+	if health := store.Health(); health.Ready || !health.RecoveryEligible {
+		t.Fatalf("health after failed proof=%+v", health)
 	}
 	if _, err := store.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{
 		ScopeKey: "test", Kind: "blocked", JSON: []byte(`{}`),
