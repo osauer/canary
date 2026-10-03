@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.16.1 — 2026-10-03 21:46 CEST
+
+### What's new
+
+- **Responsive status checks and reliable stopping.** Health polling no longer reparses retained reports, and background clients respect an explicit daemon stop.
+
+### Fixed
+
+- Fixed excessive CPU and memory use during repeated status polling by reading the committed statement summary instead of reparsing Flex XML. (#54)
+- Report parsing is limited to one report at a time and honours cancellation during XML decoding. (#54)
+- MCP pings, cancellation and shutdown remain responsive while a tool call waits for the daemon; queued work is bounded and excess calls receive a busy response. (#54)
+- `canary stop` now keeps the daemon stopped until `canary restart`, including when background MCP or app clients attempt to start it again. (#54)
+
+Broker-write permissions, trading limits and retained account evidence are unchanged.
+
 ## v3.16.0 — 2026-10-02 22:08 CEST
 
 ### What's new

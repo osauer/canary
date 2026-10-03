@@ -8,6 +8,7 @@
 package flexstmt
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -166,13 +167,29 @@ type xmlFlexQueryResponse struct {
 // anything that is not a well-formed statement — including the Flex
 // service's own error/status envelope — so a failed fetch can never be
 // mistaken for an empty week.
-func Parse(data []byte) ([]Statement, error) {
+func Parse(data []byte) ([]Statement, error) { return ParseContext(context.Background(), data) }
+
+// ParseContext bounds simultaneous parsing and cancels every XML decoding pass.
+func ParseContext(ctx context.Context, data []byte) ([]Statement, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	select {
+	case parseSlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-parseSlot }()
+	return parseContext(ctx, data)
+}
+
+func parseContext(ctx context.Context, data []byte) ([]Statement, error) {
 	trimmed := strings.TrimSpace(string(data))
 	if strings.Contains(trimmed, "<FlexStatementResponse") {
 		return nil, fmt.Errorf("flex service envelope, not a statement (fetch not complete or errored)")
 	}
 	var doc xmlFlexQueryResponse
-	if err := xml.Unmarshal(data, &doc); err != nil {
+	if err := unmarshalContext(ctx, data, &doc); err != nil {
 		return nil, fmt.Errorf("parse flex statement: %w", err)
 	}
 	if len(doc.Statements) == 0 {
@@ -279,12 +296,15 @@ func Parse(data []byte) ([]Statement, error) {
 		}
 		out = append(out, st)
 	}
-	if err := parseEdgeRecords(data, out); err != nil {
+	if err := parseEdgeRecords(ctx, data, out); err != nil {
 		return nil, err
 	}
-	parseCashBalances(data, out)
-	parseFXSnapshots(data, out)
-	parseFinancing(data, out)
+	parseCashBalances(ctx, data, out)
+	parseFXSnapshots(ctx, data, out)
+	parseFinancing(ctx, data, out)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

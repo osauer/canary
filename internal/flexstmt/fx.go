@@ -1,6 +1,7 @@
 package flexstmt
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"math"
@@ -60,11 +61,11 @@ type fxRawStatement struct {
 	Lending          *fxSection `xml:"SLBOpenContracts"`
 }
 
-func parseFXSnapshots(data []byte, statements []Statement) {
+func parseFXSnapshots(ctx context.Context, data []byte, statements []Statement) {
 	var doc struct {
 		Statements []fxRawStatement `xml:"FlexStatements>FlexStatement"`
 	}
-	if xml.Unmarshal(data, &doc) != nil || len(doc.Statements) != len(statements) {
+	if unmarshalContext(ctx, data, &doc) != nil || len(doc.Statements) != len(statements) {
 		return
 	}
 	for i, raw := range doc.Statements {

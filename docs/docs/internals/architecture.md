@@ -42,7 +42,9 @@ enforces one daemon per socket directory. Inside the daemon, a primary broker
 connection serves interactive, account, and gamma work, while a second client
 connection carries the S&P 500 breadth history fan-out.
 
-Clients auto-spawn the daemon when the socket is absent, and it exits after
+Clients auto-spawn the daemon when the socket is absent unless an explicit
+`canary stop` recorded stop intent. Only `canary restart` clears that intent;
+background clients cannot undo an operator stop. The daemon exits after
 15 idle minutes unless foreground mode disables the timeout. `daemon.db` and
 the separately listed configuration, evidence, and app files survive;
 refreshable in-memory views do not.

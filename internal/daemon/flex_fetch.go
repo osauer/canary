@@ -192,7 +192,7 @@ func (st *flexFetchState) bindCore(ctx context.Context, core *corestore.Store) e
 		state.Stage = rpc.ReconReportStateRetryScheduled
 		state.LastReason = rpc.ReconReportReasonNetworkUnavailable
 		state.LastBrokerCode = ""
-		if recoveredProjecting || retainedFlexEvidenceSince(state.LastAttempt) {
+		if recoveredProjecting || retainedFlexEvidenceSince(ctx, state.LastAttempt) {
 			state.LastReason = rpc.ReconReportReasonProjectionFailed
 		}
 		state.LastRetryable = true
@@ -644,7 +644,7 @@ func retainFlexStatementSelected(ctx context.Context, raw []byte, selection flex
 // not the generation of an unrelated date range. Ordinary fetches retain the
 // global freshness guard. Only authenticated historical FX acquisition uses this.
 func retainFlexStatementWithGenerationPolicy(ctx context.Context, raw []byte, selection flexEvidenceSelection, historical bool) (flexFetchOutcome, error) {
-	statements, err := flexstmt.Parse(raw)
+	statements, err := flexstmt.ParseContext(ctx, raw)
 	if err != nil {
 		return flexFetchOutcome{}, &flexFetchFailure{reason: rpc.ReconReportReasonReportInvalid, retryable: true, detail: "Flex report did not match the expected format"}
 	}
@@ -739,7 +739,7 @@ func findRetainedFlexReportSelected(dir string, raw []byte, selection flexEviden
 	return "", false, nil
 }
 
-func retainedFlexEvidenceSince(at time.Time) bool {
+func retainedFlexEvidenceSince(ctx context.Context, at time.Time) bool {
 	if at.IsZero() {
 		return false
 	}
@@ -764,7 +764,7 @@ func retainedFlexEvidenceSince(at time.Time) bool {
 		if err != nil {
 			continue
 		}
-		if statements, err := flexstmt.Parse(data); err == nil && len(statements) > 0 {
+		if statements, err := flexstmt.ParseContext(ctx, data); err == nil && len(statements) > 0 {
 			return true
 		}
 	}
@@ -905,7 +905,15 @@ func latestFlexEvidenceSelected(ctx context.Context, selection flexEvidenceSelec
 
 func (s *Server) flexFetchStatusAt(now time.Time) rpc.ReconFetchStatus {
 	targetDate, firstAttempt := flexDailyWindow(now)
-	coverage, _, evidenceOK := s.latestFlexEvidence(context.Background())
+	// This is a status read, not ingestion. Re-reading all retained XML here
+	// lets ordinary health polling create unbounded, uncancellable parse work.
+	var coverage time.Time
+	var evidenceOK bool
+	if s != nil && s.coreStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), unaryDeadline(rpc.MethodStatusHealth))
+		defer cancel()
+		coverage, _, evidenceOK, _ = s.coreStore.StatementCoverage(ctx, s.activeStatementProjectionScope())
+	}
 	selection := s.flexEvidenceSelection()
 	status := rpc.ReconFetchStatus{
 		CoverageTo: coverage, RetryAutomatic: true,
@@ -1086,7 +1094,7 @@ func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint f
 			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
 			continue
 		}
-		sts, err := flexstmt.Parse(data)
+		sts, err := flexstmt.ParseContext(ctx, data)
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
 			continue

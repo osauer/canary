@@ -443,7 +443,7 @@ func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = restartedCore.Close() })
-	restarted := &Server{now: func() time.Time { return now }, cfg: first.cfg, logger: NewLogger(&bytes.Buffer{}, "error")}
+	restarted := &Server{coreStore: restartedCore, now: func() time.Time { return now }, cfg: first.cfg, logger: NewLogger(&bytes.Buffer{}, "error")}
 	if err := restarted.flexFetch.bindCore(t.Context(), restartedCore); err != nil {
 		t.Fatal(err)
 	}
@@ -456,7 +456,7 @@ func TestRestartAfterRawRetentionResumesProjectionWithoutRedownload(t *testing.T
 		fetchCalls++
 		return flexFetchOutcome{}, errors.New("broker redownload must not run")
 	}
-	restarted.flexProjectionFn = func(context.Context) error { projectionCalls++; return nil }
+	restarted.flexProjectionFn = func(ctx context.Context) error { projectionCalls++; return restarted.refreshStatementProjection(ctx) }
 	if !restarted.startFlexFetch(t.Context(), false) {
 		t.Fatal("projection recovery did not start")
 	}
@@ -476,9 +476,10 @@ func TestDrawdownLatchFlexRechecksBackOffUntilCoverage(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = core.Close() })
 	s := &Server{
-		now:    func() time.Time { return current },
-		cfg:    &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
-		logger: NewLogger(&bytes.Buffer{}, "error"),
+		coreStore: core,
+		now:       func() time.Time { return current },
+		cfg:       &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
+		logger:    NewLogger(&bytes.Buffer{}, "error"),
 	}
 	if err := s.flexFetch.bindCore(t.Context(), core); err != nil {
 		t.Fatal(err)
@@ -521,6 +522,9 @@ func TestDrawdownLatchFlexRechecksBackOffUntilCoverage(t *testing.T) {
 
 	// Retained coverage reaching the latch day ends the rechecks.
 	writeFlexFixture(t, "flex-"+flexQueryFingerprint("daily-report")+"-latch-covered.xml", "20260810;170000", "20260810", "20260810", "")
+	if err := s.refreshStatementProjection(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	current = current.Add(6 * time.Hour)
 	fire(false, "coverage reached the latch day")
 	if fetchCalls != 3 {

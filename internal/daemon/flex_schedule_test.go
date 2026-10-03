@@ -89,9 +89,10 @@ func newFlexScheduleTestServer(t *testing.T, clock *time.Time) (*Server, *[]time
 	}
 	t.Cleanup(func() { _ = core.Close() })
 	s := &Server{
-		now:    func() time.Time { return *clock },
-		cfg:    &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
-		logger: NewLogger(&bytes.Buffer{}, "error"),
+		coreStore: core,
+		now:       func() time.Time { return *clock },
+		cfg:       &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "daily-report"}},
+		logger:    NewLogger(&bytes.Buffer{}, "error"),
 	}
 	if err := s.flexFetch.bindCore(t.Context(), core); err != nil {
 		t.Fatal(err)
@@ -106,6 +107,9 @@ func newFlexScheduleTestServer(t *testing.T, clock *time.Time) (*Server, *[]time
 
 func persistFlexScheduleTestState(t *testing.T, s *Server, state flexFetchStateV2) {
 	t.Helper()
+	if err := s.refreshStatementProjection(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	state.Version = flexFetchStateVersion
 	state.QueryFingerprint = flexQueryFingerprint(s.cfg.Flex.QueryID)
 	s.flexFetch.mu.Lock()

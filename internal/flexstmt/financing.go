@@ -1,6 +1,7 @@
 package flexstmt
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"math"
@@ -58,7 +59,7 @@ type financingNode struct {
 
 func (n financingNode) text(key string) string { return (fxNode{Attrs: n.Attrs}).text(key) }
 
-func parseFinancing(data []byte, statements []Statement) {
+func parseFinancing(ctx context.Context, data []byte, statements []Statement) {
 	var doc struct {
 		Statements []struct {
 			Loans      *financingSection `xml:"SLBOpenContracts"`
@@ -67,7 +68,7 @@ func parseFinancing(data []byte, statements []Statement) {
 			Equity     *financingSection `xml:"EquitySummaryInBase"`
 		} `xml:"FlexStatements>FlexStatement"`
 	}
-	if xml.Unmarshal(data, &doc) != nil || len(doc.Statements) != len(statements) {
+	if unmarshalContext(ctx, data, &doc) != nil || len(doc.Statements) != len(statements) {
 		return
 	}
 	for i, raw := range doc.Statements {
