@@ -26,6 +26,7 @@ import (
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/logepisode"
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -1285,6 +1286,11 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	s.lock = lock
+	if err := dial.CheckAutostart(s.socketPath); err != nil {
+		lock.Release()
+		s.lock = nil
+		return err
+	}
 	// Authority verification (quick_check, foreign keys, a re-hash of every
 	// history, so on a large authority it is effectively the whole pre-socket
 	authorityStartedAt := time.Now()

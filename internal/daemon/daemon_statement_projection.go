@@ -209,7 +209,7 @@ func parseStatementProjectionFiles(ctx context.Context, files []statementProject
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		statements, err := flexstmt.Parse(files[i].data)
+		statements, err := flexstmt.ParseContext(ctx, files[i].data)
 		if err != nil {
 			return fmt.Errorf("parse retained statement %q: %w", files[i].name, err)
 		}

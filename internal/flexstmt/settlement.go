@@ -1,6 +1,7 @@
 package flexstmt
 
 import (
+	"context"
 	"encoding/xml"
 	"math"
 	"math/big"
@@ -91,9 +92,9 @@ type xmlCashResponse struct {
 // parseCashBalances deliberately isolates optional authority rejection from
 // existing reporting. Malformed settlement evidence clears all native balances
 // of that statement; unrelated Recon/Edge records remain usable.
-func parseCashBalances(data []byte, statements []Statement) {
+func parseCashBalances(ctx context.Context, data []byte, statements []Statement) {
 	var doc xmlCashResponse
-	if xml.Unmarshal(data, &doc) != nil || len(doc.Statements) != len(statements) {
+	if unmarshalContext(ctx, data, &doc) != nil || len(doc.Statements) != len(statements) {
 		return
 	}
 	for i, raw := range doc.Statements {

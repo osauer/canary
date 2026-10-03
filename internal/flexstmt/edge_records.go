@@ -1,6 +1,7 @@
 package flexstmt
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
@@ -306,15 +307,15 @@ func (v *xmlFXRate) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return d.Skip()
 }
 
-func parseEdgeRecords(data []byte, statements []Statement) error {
+func parseEdgeRecords(ctx context.Context, data []byte, statements []Statement) error {
 	var doc xmlEdgeResponse
-	if err := xml.Unmarshal(data, &doc); err != nil {
+	if err := unmarshalContext(ctx, data, &doc); err != nil {
 		return fmt.Errorf("parse edge flex records: %w", err)
 	}
 	if len(doc.Statements) != len(statements) {
 		return fmt.Errorf("edge flex statement count mismatch")
 	}
-	coverage, err := inspectCoverage(data)
+	coverage, err := inspectCoverage(ctx, data)
 	if err != nil {
 		return err
 	}
@@ -554,7 +555,7 @@ func parseFXRates(raw xmlEdgeStatement, st *Statement) error {
 	return nil
 }
 
-func inspectCoverage(data []byte) ([]SectionCoverage, error) {
+func inspectCoverage(ctx context.Context, data []byte) ([]SectionCoverage, error) {
 	manifest := CanonicalQueryManifest()
 	byContainer := make(map[string]int, len(manifest))
 	byRow := make(map[string][]int, len(manifest))
@@ -568,7 +569,7 @@ func inspectCoverage(data []byte) ([]SectionCoverage, error) {
 	for i := range observed {
 		observed[i] = make(map[string]struct{})
 	}
-	dec := xml.NewDecoder(strings.NewReader(string(data)))
+	dec := xml.NewDecoder(contextReader{ctx, strings.NewReader(string(data))})
 	for {
 		tok, err := dec.Token()
 		if err != nil {

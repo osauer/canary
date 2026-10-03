@@ -42,7 +42,7 @@ var commandNotes = map[string]string{
 	"stop": "Stopping is local process management: it signals the daemon and the app on this machine and reaches no broker. Orders already working stay at the broker, but nothing local watches them until the daemon runs again — no fills or cancels in the journal, no protection proposals, no phone alerts. " +
 		"So `stop` asks before it stops a daemon that still has work in flight, the same work its own idle shutdown defers on, and `--yes` is how a script answers. " +
 		"`--force` only escalates a stuck process from SIGTERM to SIGKILL after `--timeout`; it never widens what is stopped. " +
-		"MCP servers belong to the AI client that started them and are reported, never signalled.",
+		"Stopping the daemon records a persistent stop intent for its socket. Ordinary CLI, MCP and app requests cannot start it again until `canary restart` clears that intent. MCP servers belong to the AI client that started them and are reported, never signalled.",
 	"settings": "`show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. " +
 		"The keys are listed in the [configuration reference](config.md).",
 }

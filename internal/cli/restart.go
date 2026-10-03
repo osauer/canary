@@ -176,6 +176,12 @@ func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "%s restart: --timeout must be positive\n", productidentity.Executable)
 		return 2
 	}
+	if !opts.app {
+		if err := dial.AllowAutostart(dial.DefaultSocketPath()); err != nil {
+			fmt.Fprintf(stderr, "%s restart: clear stop intent: %v\n", productidentity.Executable, err)
+			return 1
+		}
+	}
 	appDeps := productionAppRestartDeps()
 	if opts.app {
 		return runRestartAppCore(ctx, &opts, appDeps)

@@ -72,8 +72,45 @@ type ServeOptions struct {
 
 // ServeWithOptions is Serve with explicit lifecycle controls for production
 func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writer, opts ServeOptions) error {
+	ctx, cancel := context.WithCancel(ctx)
 	s.out = bufio.NewWriter(out)
-	defer s.out.Flush()
+	type queuedCall struct {
+		request rpcRequest
+		ctx     context.Context
+		cancel  context.CancelFunc
+	}
+	// One worker and one queued request bound both daemon work and response
+	// buffers, including when the host stops reading stdout.
+	queue := make(chan queuedCall, 1)
+	finished := make(chan string, 2)
+	pending := make(map[string]context.CancelFunc)
+	var calls sync.WaitGroup
+	calls.Go(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case call := <-queue:
+				s.handleToolsCall(call.ctx, call.request.ID, call.request.Params)
+				call.cancel()
+				select {
+				case finished <- string(call.request.ID):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	})
+	defer func() {
+		cancel()
+		for _, cancelCall := range pending {
+			cancelCall()
+		}
+		calls.Wait()
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		_ = s.out.Flush()
+	}()
 
 	reader := bufio.NewReader(in)
 	// Generous line buffer — MCP messages can include large tool results.
@@ -130,7 +167,12 @@ func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writ
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-idle:
-			return nil
+			if len(pending) == 0 {
+				return nil
+			}
+		case id := <-finished:
+			delete(pending, id)
+			resetIdleTimer()
 		case line, ok := <-lines:
 			if !ok {
 				select {
@@ -145,9 +187,45 @@ func (s *Server) ServeWithOptions(ctx context.Context, in io.Reader, out io.Writ
 			if len(line) == 0 {
 				continue
 			}
-			// Each request is handled inline. Tools call the daemon, which may
-			// take seconds; that's fine — MCP clients send one request at a
-			// time over stdio and wait for the response.
+			var request rpcRequest
+			if json.Unmarshal(line, &request) == nil && request.JSONRPC == "2.0" {
+				if request.Method == "notifications/cancelled" {
+					var params struct {
+						RequestID json.RawMessage `json:"requestId"`
+					}
+					if json.Unmarshal(request.Params, &params) == nil {
+						if cancelCall := pending[string(params.RequestID)]; cancelCall != nil {
+							cancelCall()
+						}
+					}
+					continue
+				}
+				if request.Method == "tools/call" && (len(request.ID) == 0 || string(request.ID) == "null") {
+					continue
+				}
+				if request.Method == "tools/call" {
+					// Retire completions before admission, including a response the
+					// host just received before sending this request.
+					for len(finished) > 0 {
+						delete(pending, <-finished)
+					}
+					id := string(request.ID)
+					if pending[id] != nil || len(pending) >= 2 {
+						s.writeError(request.ID, -32000, "tool call queue is full or request ID is already active; cancel or wait")
+						continue
+					}
+					callCtx, callCancel := context.WithCancel(ctx)
+					select {
+					case queue <- queuedCall{request, callCtx, callCancel}:
+						pending[id] = callCancel
+						stopIdleTimer()
+					default:
+						callCancel()
+						s.writeError(request.ID, -32000, "tool call queue is full; cancel or wait")
+					}
+					continue
+				}
+			}
 			if s.handle(ctx, line) {
 				return nil
 			}

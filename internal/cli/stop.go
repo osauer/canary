@@ -45,8 +45,9 @@ type stopDeps struct {
 	daemon restartDeps
 	app    appRestartDeps
 	// health reads daemon status without autospawning one. running=false
-	health func(ctx context.Context, socketPath string) (health rpc.HealthResult, running bool, err error)
-	mcp    func(context.Context) []mcpProcess
+	health  func(ctx context.Context, socketPath string) (health rpc.HealthResult, running bool, err error)
+	mcp     func(context.Context) []mcpProcess
+	inhibit func(string) error
 }
 
 type stopResult struct {
@@ -135,10 +136,11 @@ func RunStop(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 
 func productionStopDeps() stopDeps {
 	return stopDeps{
-		daemon: productionDaemonRestartDeps(),
-		app:    productionAppRestartDeps(),
-		health: readDaemonHealth,
-		mcp:    findMCPProcesses,
+		daemon:  productionDaemonRestartDeps(),
+		app:     productionAppRestartDeps(),
+		health:  readDaemonHealth,
+		mcp:     findMCPProcesses,
+		inhibit: dial.InhibitAutostart,
 	}
 }
 
@@ -179,6 +181,13 @@ func runStopCore(ctx context.Context, opts *stopOptions, deps stopDeps) int {
 		res.Blockers = blockers
 		if exit != 0 {
 			return abort("refused", exit)
+		}
+	}
+
+	if opts.daemon && deps.inhibit != nil {
+		if err := deps.inhibit(dial.DefaultSocketPath()); err != nil {
+			fmt.Fprintf(opts.err, "%s: %v\n", prefix, err)
+			return abort("failed", 1)
 		}
 	}
 
@@ -397,7 +406,7 @@ func renderStopFooter(opts *stopOptions, prefix string, res stopResult) {
 	}
 	switch {
 	case res.Daemon != nil && res.Daemon.Action == "stopped":
-		fmt.Fprintf(opts.out, "%s: any %s command starts the daemon again\n", prefix, productidentity.Executable)
+		fmt.Fprintf(opts.out, "%s: the daemon stays stopped; run %s restart to resume\n", prefix, productidentity.Executable)
 	case res.Daemon == nil && res.App != nil && res.App.WasRunning:
 		fmt.Fprintf(opts.out, "%s: the daemon is still running; `%s stop --daemon` stops it too\n", prefix, productidentity.Executable)
 	}

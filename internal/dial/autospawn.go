@@ -191,6 +191,9 @@ func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, 
 // semantics, so a caller that finds a daemon still booting waits for its
 // socket instead of starting a second one.
 func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, executable string) (*Conn, error) {
+	if err := CheckAutostart(socketPath); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -216,6 +219,9 @@ func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, e
 	}
 
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := CheckAutostart(socketPath); err != nil {
 		return nil, err
 	}
 	spawnedPID, err := spawnDaemonFromExecutable(executable)
