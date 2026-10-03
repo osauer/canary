@@ -537,6 +537,34 @@ var Tools = []Tool{
 			return json.Marshal(res)
 		},
 	},
+
+	{
+		Name: "canary_lending_screen", Title: "Canary US Borrow-Fee Discovery", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodLendingScreen},
+		Description: "Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Reuses daemon source cadence and backoff; no per-symbol broker scan. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.",
+		JSONSchema: schemaObject(map[string]json.RawMessage{
+			"min_rate": json.RawMessage(`{"type":"number","minimum":0,"description":"Minimum annualized borrower percentage, default 50; research filter only"}`),
+			"limit":    json.RawMessage(`{"type":"integer","minimum":1,"maximum":100,"description":"Maximum ranked results, default 25; matching count reports omitted results"}`),
+			"exclude":  json.RawMessage(`{"type":"array","maxItems":100,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9.]{0,31}$"},"description":"Known symbols to omit, normalized case-insensitively; optional"}`),
+		}, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			in := rpc.LendingScreenParams{MinRate: 50, Limit: 25}
+			if err := unmarshalArgs(args, &in); err != nil {
+				return nil, err
+			}
+			p, err := rpc.NormalizeLendingScreenParams(in)
+			if err != nil {
+				return nil, err
+			}
+			var result rpc.LendingScreenResult
+			if err := conn.Call(ctx, rpc.MethodLendingScreen, p, &result); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateLendingScreenResult(result, p); err != nil {
+				return nil, err
+			}
+			return json.Marshal(result)
+		},
+	},
 	{
 		Name: "canary_lending_rates", Title: "Canary Indicative Borrowing Rates", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodMarketEventsSnapshot},
 		Description: "Read dated indicative annualized borrowing fees for 1-100 explicit US stock symbols using Canary's existing market-event source and cache cadence. Returns symbol-level borrow_fee_coverage, nullable fee_rate, source dates, scale_status, policy_eligible and source_health. Missing, stale and unverified-scale rows are not zero or usable quotes. These are borrower rates, not the owner's lending yield, guaranteed allocation, exact contract identity, earned income or buy recommendations. Use canary_lending_fees for actual reported income. Read-only; no enrollment, policy changes or orders.",

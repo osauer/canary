@@ -246,3 +246,28 @@ quoted lender yield or a reason to buy. Any income scenario must separately
 state its assumed lender rate, revenue share, collateral basis and time actually
 on loan. Rates and allocation can change. Use `canary lending fees` for actual
 reported customer income; never add a hypothetical estimate to broker P/L.
+
+### Broader US fee discovery
+
+Use `canary lending screen --min-rate 50 --limit 25 --exclude AAA,BBB --json`
+or `canary_lending_screen` with `{"min_rate":50,"limit":25,"exclude":["AAA","BBB"]}`
+to discover names beyond an existing list. The example symbols are fictional.
+CLI/MCP default to 50% and 25 rows; limits are 1–100, exclusions at most 100.
+The shared `lending.screen` RPC defaults to 50 rows and accepts a nonnegative
+minimum annualized borrower percentage. These are research filters, not risk policy.
+
+The daemon scans its existing IBKR US short-stock bulk feed, reusing acquisition
+cadence, durable cache, calendar and failure backoff. There is no per-symbol
+broker fan-out, independent download or unverified historical-rate fallback.
+Only usable, published, finite, nonnegative USD rates qualify; results sort by
+fee descending, then symbol. Names come from the provider and do not establish
+exact broker identity, exchange listing, liquidity or lending eligibility.
+
+`total` counts parsed USD records, `usable` counts valid published USD rates,
+`matching` counts those meeting the filter after exclusions, and `truncated`
+means more matches exist than returned rows. `skipped_rows` reports malformed
+feed rows omitted by the source parser. `status: unavailable` is distinct from
+an observed zero-match screen. Both source and receipt clocks, plus source health,
+remain visible. Stale/failed feeds never rank last-good quotes as current.
+This covers the US feed, not every market; distressed and OTC names may appear.
+No enrollment, watchlist mutation, policy change or order is authorized.

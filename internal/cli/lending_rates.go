@@ -35,3 +35,30 @@ func runLendingRates(ctx context.Context, env *Env, symbols string, jsonOut bool
 	}
 	return 0
 }
+
+func runLendingScreen(ctx context.Context, env *Env, minRate float64, limit int, exclude string, jsonOut bool) int {
+	p := rpc.LendingScreenParams{MinRate: minRate, Limit: limit}
+	if exclude != "" {
+		p.Exclude = strings.Split(exclude, ",")
+	}
+	p, err := rpc.NormalizeLendingScreenParams(p)
+	if err != nil {
+		return fail(env, "lending screen: %v", err)
+	}
+	var result rpc.LendingScreenResult
+	if err := env.Conn.Call(ctx, rpc.MethodLendingScreen, p, &result); err != nil {
+		return fail(env, "lending screen: %v", err)
+	}
+	if err := rpc.ValidateLendingScreenResult(result, p); err != nil {
+		return fail(env, "lending screen: %v", err)
+	}
+	if jsonOut {
+		return printJSON(env, result)
+	}
+	fmt.Fprintf(env.Stdout, "IBKR US borrowing fees · %s · %d usable / %d USD records · %d matches · %d shown\n", result.Status, result.Usable, result.Total, result.Matching, len(result.Rows))
+	for _, row := range result.Rows {
+		fmt.Fprintf(env.Stdout, "  %s  %.2f%% · %s · %s\n", sanitizeRunText(row.Symbol), *row.FeeRate, sanitizeRunText(row.Name), row.AsOf.Format("2006-01-02 15:04 MST"))
+	}
+	fmt.Fprintln(env.Stdout, "Borrower costs, not lending yields. Listing, liquidity and lending allocation are unverified.")
+	return 0
+}

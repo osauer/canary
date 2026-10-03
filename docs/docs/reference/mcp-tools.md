@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**31 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**32 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -235,6 +235,18 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 | `limit` | integer | no | maximum findings; default 3 |
 | `option_id` | string | no | optional opaque option ID returned by a prior canary_edge call |
 | `window` | string | no | optional review override; default 365d |
+
+## `canary_lending_screen`
+
+Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Reuses daemon source cadence and backoff; no per-symbol broker scan. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `exclude` | array | no | Known symbols to omit, normalized case-insensitively; optional |
+| `limit` | integer | no | Maximum ranked results, default 25; matching count reports omitted results |
+| `min_rate` | number | no | Minimum annualized borrower percentage, default 50; research filter only |
 
 ## `canary_lending_rates`
 

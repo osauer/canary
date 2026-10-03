@@ -105,6 +105,10 @@ that artifact.
   expandable history and explicit report coverage. IBKR controls participation.
   Fees explain income; they are never added again to broker account P/L.
   Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
+- **What high-fee names are outside my list?** `canary lending screen --min-rate 50 --limit 25 --json`
+  and MCP `canary_lending_screen` rank the existing IBKR US USD bulk feed.
+  Optional exclusions remove familiar names; coverage, source dates and truncation
+  stay explicit. This does not establish listing quality, liquidity or lender yield.
 - **Where are borrowing fees unusually high?** `canary lending rates --symbols AAA,BBB --json`
   and MCP `canary_lending_rates` read dated indicative borrower costs for an explicit
   US-stock universe. Preserve missing data, source age and numeric scale. These

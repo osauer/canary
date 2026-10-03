@@ -54,3 +54,35 @@ func TestLendingRatesScopeReadOnlyAndMissingEvidence(t *testing.T) {
 		t.Fatal("scope substitution accepted")
 	}
 }
+
+type lendingScreenConn struct{ calls int }
+
+func (c *lendingScreenConn) Call(_ context.Context, method string, params, out any) error {
+	c.calls++
+	if method != rpc.MethodLendingScreen {
+		panic("wrong method")
+	}
+	p := params.(rpc.LendingScreenParams)
+	*out.(*rpc.LendingScreenResult) = rpc.LendingScreenResult{Kind: "lending_screen", Universe: "us_short_stock", Status: "unavailable", Params: p, Rows: []rpc.LendingScreenRow{}}
+	return nil
+}
+func (*lendingScreenConn) Stream(context.Context, string, any, func(json.RawMessage) error) error {
+	return nil
+}
+func TestLendingScreenCLIReadOnlyAndFlags(t *testing.T) {
+	c := &lendingScreenConn{}
+	var out, errs bytes.Buffer
+	env := &Env{Conn: c, Stdout: &out, Stderr: &errs}
+	for _, args := range [][]string{{"screen", "--limit", "101"}, {"screen", "--symbols", "AAA"}, {"fees", "--min-rate", "50"}, {"screen", "--exclude", "$BAD"}} {
+		if Run(t.Context(), env, "lending", args) == 0 || c.calls != 0 {
+			t.Fatal("invalid arguments reached daemon")
+		}
+	}
+	if Run(t.Context(), env, "lending", []string{"screen", "--min-rate", "50", "--exclude", "bbb,aaa", "--limit", "10", "--json"}) != 0 {
+		t.Fatal(errs.String())
+	}
+	var r rpc.LendingScreenResult
+	if json.Unmarshal(out.Bytes(), &r) != nil || r.Status != "unavailable" || r.Params.Limit != 10 || r.Params.Exclude[0] != "AAA" {
+		t.Fatal("scope or unavailable evidence changed")
+	}
+}

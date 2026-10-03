@@ -73,3 +73,29 @@ func TestLendingRatesToolReadOnlyScopeAndUnavailable(t *testing.T) {
 		t.Fatal("wrong RPC boundary")
 	}
 }
+
+func TestLendingScreenToolReadOnlyAndScope(t *testing.T) {
+	want := rpc.LendingScreenResult{Kind: "lending_screen", Universe: "us_short_stock", Status: "unavailable", Params: rpc.LendingScreenParams{MinRate: 50, Limit: 25, Exclude: []string{"AAA"}}}
+	conn, calls := riskToolConn(t, map[string]any{rpc.MethodLendingScreen: want})
+	tool, ok := lookupTool("canary_lending_screen")
+	if !ok || tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint {
+		t.Fatal("missing read-only tool")
+	}
+	for _, args := range []string{`{"limit":101}`, `{"min_rate":-1}`, `{"exclude":["$BAD"]}`} {
+		if _, err := tool.Handler(t.Context(), conn, json.RawMessage(args)); err == nil {
+			t.Fatal("invalid bounds accepted")
+		}
+	}
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"exclude":["aaa"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got rpc.LendingScreenResult
+	if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
+		t.Fatal("evidence changed")
+	}
+	_ = conn.Close()
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodLendingScreen}) {
+		t.Fatal("wrong RPC boundary")
+	}
+}

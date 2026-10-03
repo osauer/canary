@@ -92,6 +92,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodReportingPerformance, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodReportingValidate, Lifetime: MethodLifetimeUnary, DaemonTimeout: 9 * time.Minute},
 	{Method: MethodEdgeSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodLendingScreen, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodFinancingFees, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodMarketEventsSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodAutoTradeStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},

@@ -8,7 +8,7 @@ description: Use Canary through the local `canary` CLI for the daily brief,
   transaction-specific request and the gated CLI path.
 allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
   Bash(canary calendar*) Bash(canary regime*) Bash(canary stress*) Bash(canary brief*) Bash(canary edge*) Bash(canary rules*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*)
-  Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
+  Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary lending screen*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
 ---
 
 # Canary
@@ -149,3 +149,28 @@ canary order status ORDER_ID --json
 canary settings show --json
 canary recon show --json
 ```
+
+### Broader US fee discovery
+
+Use `canary lending screen --min-rate 50 --limit 25 --exclude AAA,BBB --json`
+or `canary_lending_screen` with `{"min_rate":50,"limit":25,"exclude":["AAA","BBB"]}`
+to discover names beyond an existing list. The example symbols are fictional.
+CLI/MCP default to 50% and 25 rows; limits are 1–100, exclusions at most 100.
+The shared `lending.screen` RPC defaults to 50 rows and accepts a nonnegative
+minimum annualized borrower percentage. These are research filters, not risk policy.
+
+The daemon scans its existing IBKR US short-stock bulk feed, reusing acquisition
+cadence, durable cache, calendar and failure backoff. There is no per-symbol
+broker fan-out, independent download or unverified historical-rate fallback.
+Only usable, published, finite, nonnegative USD rates qualify; results sort by
+fee descending, then symbol. Names come from the provider and do not establish
+exact broker identity, exchange listing, liquidity or lending eligibility.
+
+`total` counts parsed USD records, `usable` counts valid published USD rates,
+`matching` counts those meeting the filter after exclusions, and `truncated`
+means more matches exist than returned rows. `skipped_rows` reports malformed
+feed rows omitted by the source parser. `status: unavailable` is distinct from
+an observed zero-match screen. Both source and receipt clocks, plus source health,
+remain visible. Stale/failed feeds never rank last-good quotes as current.
+This covers the US feed, not every market; distressed and OTC names may appear.
+No enrollment, watchlist mutation, policy change or order is authorized.

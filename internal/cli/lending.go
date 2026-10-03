@@ -11,17 +11,31 @@ import (
 
 func runLending(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "lending")
+	minRate := fs.Float64("min-rate", 50, "discovery minimum annualized borrower percentage; not a risk rule")
+	exclude := fs.String("exclude", "", "discovery: up to 100 comma-separated symbols to omit")
 	symbols := fs.String("symbols", "", "1-100 comma-separated US stock symbols")
 	window := fs.String("window", "365d", "retained Edge period: 90d or 365d")
 	from := fs.String("from", "", "exclusive opening equity date; pair with --to")
 	to := fs.String("to", "", "inclusive closing equity date; pair with --from")
 	conID := fs.Int64("con-id", 0, "optional exact stock contract ID")
-	limit := fs.Int("limit", 25, "maximum fee rows: 1-100")
+	limit := fs.Int("limit", 25, "maximum fee or discovery rows: 1-100")
 	cursor := fs.String("cursor", "", "opaque next cursor from the previous page")
 	fingerprint := fs.String("fingerprint", "", "optional prior summary fingerprint; rejects changed evidence")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if fs.NArg() == 1 && fs.Arg(0) == "screen" {
+		invalid := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "min-rate" && f.Name != "exclude" && f.Name != "limit" && f.Name != "json" {
+				invalid = true
+			}
+		})
+		if invalid {
+			return fail(env, "lending screen: only --min-rate, --exclude, --limit and --json are supported")
+		}
+		return runLendingScreen(ctx, env, *minRate, *limit, *exclude, *jsonOut)
 	}
 	if fs.NArg() == 1 && fs.Arg(0) == "rates" {
 		invalid := false
@@ -34,6 +48,15 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "lending rates: only --symbols and --json are supported")
 		}
 		return runLendingRates(ctx, env, *symbols, *jsonOut)
+	}
+	screenFlag := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "min-rate" || f.Name == "exclude" {
+			screenFlag = true
+		}
+	})
+	if screenFlag {
+		return fail(env, "--min-rate and --exclude require lending screen")
 	}
 	if *symbols != "" {
 		return fail(env, "lending fees: --symbols requires rates")
