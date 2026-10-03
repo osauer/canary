@@ -59,13 +59,14 @@ type Server struct {
 	marketTapeCollecting    atomic.Bool
 	marketTapeArchiveFailed atomic.Bool
 
-	dataHealth dataHealthState
-	marketData marketDataCache
-	cfg        *config.Resolved
-	socketPath string
-	startedAt  time.Time
-	version    string
-	now        func() time.Time
+	dataHealth    dataHealthState
+	marketData    marketDataCache
+	setupProfiles setupProfileCache
+	cfg           *config.Resolved
+	socketPath    string
+	startedAt     time.Time
+	version       string
+	now           func() time.Time
 
 	// brokerWriteMu serializes the check-then-act sections of every broker
 	// races, not a throughput concern. Cancel stays outside so a protective
@@ -302,6 +303,7 @@ type Server struct {
 	macro            *macroCache
 	macroLoopWG      sync.WaitGroup
 	coreStore        *corestore.Store
+	watchlistMu      sync.Mutex
 	coreStorePath    string
 	coreStorePathErr error
 	// productionStateDatabase distinguishes the XDG authority from isolated
@@ -2623,6 +2625,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleChainExpiries(ctx, req) })
 	case rpc.MethodTechnical:
 		s.unary(req, enc, func() (any, error) { return s.handleTechnical(ctx, req) })
+	case rpc.MethodSetupsEvaluate:
+		s.unary(req, enc, func() (any, error) { return s.handleSetupsEvaluate(ctx, req) })
+	case rpc.MethodSetupsOptions:
+		s.unary(req, enc, func() (any, error) { return s.handleSetupOptions(ctx, req) })
 	case rpc.MethodMacroSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMacroRequest(*req) })
 	case rpc.MethodMarketCalendar:
@@ -2749,6 +2755,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesSubmitExercise(ctx, req) })
 	case rpc.MethodOpportunitiesIgnore:
 		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesIgnore(req), nil })
+	case rpc.MethodWatchlistList:
+		s.unary(req, enc, func() (any, error) { return s.handleWatchlistList(ctx) })
+	case rpc.MethodWatchlistReplace, rpc.MethodWatchlistAdd, rpc.MethodWatchlistRemove:
+		s.unary(req, enc, func() (any, error) { return s.handleWatchlistMutation(ctx, req) })
 	case rpc.MethodCashSweepPreferencesGet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
 	case rpc.MethodCashSweepPrioritySet:
@@ -2830,7 +2840,7 @@ func classifyError(err error) (string, string) {
 	var mdAbsent *ibkrlib.MarketDataAbsenceError
 	var regimeUnavailable *regimeSnapshotCacheUnavailableError
 	switch {
-	case errors.As(err, &settingsConflict) && settingsConflict.Code == rpc.CodeSettingsConflict:
+	case errors.As(err, &settingsConflict) && (settingsConflict.Code == rpc.CodeSettingsConflict || settingsConflict.Code == rpc.CodeWatchlistConflict):
 		return settingsConflict.Code, settingsConflict.Message
 	case errors.As(err, &regimeUnavailable):
 		return rpc.CodeRegimeUnavailable, regimeUnavailable.Error()

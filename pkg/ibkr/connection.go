@@ -5729,6 +5729,10 @@ func (c *Connection) CancelHistoricalData(ctx context.Context, reqID int) error 
 // option chain (expirations + strikes) for an underlying. The IBKR wire format
 // wire so callers can register their per-request handler atomically.
 func (c *Connection) RequestSecDefOptParams(underlyingSymbol, futFopExchange, underlyingSecType string, underlyingConId int, beforeSend func(int)) (int, error) {
+	return c.requestSecDefOptParamsContext(context.Background(), underlyingSymbol, futFopExchange, underlyingSecType, underlyingConId, beforeSend)
+}
+
+func (c *Connection) requestSecDefOptParamsContext(ctx context.Context, underlyingSymbol, futFopExchange, underlyingSecType string, underlyingConId int, beforeSend func(int)) (int, error) {
 	if !c.IsConnected() {
 		return 0, fmt.Errorf("not connected to IBKR")
 	}
@@ -5754,7 +5758,7 @@ func (c *Connection) RequestSecDefOptParams(underlyingSymbol, futFopExchange, un
 		beforeSend(reqID)
 	}
 
-	if err := c.sendMessage(msg); err != nil {
+	if err := c.sendMessageWithTypeContext(ctx, msg, RequestTypeGeneral); err != nil {
 		return 0, fmt.Errorf("failed to request sec def opt params: %w", err)
 	}
 	return reqID, nil

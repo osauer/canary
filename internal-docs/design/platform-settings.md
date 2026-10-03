@@ -35,6 +35,10 @@ Cutover imports the validated settings document exactly, including
 `trading.freeze` and any limit overrides. Trading readiness is a separate
 safety authority and remains unavailable until startup completes.
 
+The owner [watchlist](watchlist.md) is a separate typed preference document in
+the same daemon.db authority. Its CAS/request receipts preserve intentional empty
+lists and current-state retry semantics; it is not a broker or risk control.
+
 ## Contract
 
 Every returned setting field carries:

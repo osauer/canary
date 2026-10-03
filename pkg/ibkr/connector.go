@@ -2511,6 +2511,7 @@ type ContractDetailsLite struct {
 	PrimaryExch  string
 	Currency     string
 	ConID        int
+	UnderConID   int
 	LocalSymbol  string
 	TradingClass string
 	Multiplier   int
@@ -2529,6 +2530,7 @@ type ContractDetailsLite struct {
 // captured on one exact Connector session. Contract always has a positive
 // ConID; MinTick is zero only when the broker omitted it.
 type ResolvedOrderContract struct {
+	UnderConID int
 	Industry   string
 	Category   string
 	StockType  string
@@ -2680,7 +2682,7 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 		if selected != nil {
 			if selected.ConID != detail.ConID || !strings.EqualFold(selected.Exchange, detail.Exchange) ||
 				!strings.EqualFold(selected.PrimaryExch, detail.PrimaryExch) || !strings.EqualFold(selected.LocalSymbol, detail.LocalSymbol) ||
-				!strings.EqualFold(selected.TradingClass, detail.TradingClass) {
+				!strings.EqualFold(selected.TradingClass, detail.TradingClass) || selected.UnderConID != detail.UnderConID || selected.Multiplier != detail.Multiplier {
 				return ResolvedOrderContract{}, fmt.Errorf("contract details are ambiguous")
 			}
 			continue
@@ -2713,7 +2715,7 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	if selected.TradingClass != "" {
 		resolved.TradingClass = selected.TradingClass
 	}
-	return ResolvedOrderContract{Contract: resolved, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType}, nil
+	return ResolvedOrderContract{Contract: resolved, UnderConID: selected.UnderConID, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType}, nil
 }
 
 // exactOrderContractRouteMatches applies caller-supplied routing as an
@@ -3743,8 +3745,10 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 	if version >= 2 {
 		idx++ // price magnifier
 	}
+	underConID := 0
 	if version >= 4 {
-		idx++ // underConId
+		underConID = parseIntSafe(safeGet(fields, idx))
+		idx++
 	}
 
 	primaryExch := ""
@@ -3791,6 +3795,7 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 		PrimaryExch:  primaryExch,
 		Currency:     currency,
 		ConID:        conID,
+		UnderConID:   underConID,
 		LocalSymbol:  localSymbol,
 		TradingClass: tradingClass,
 		Multiplier:   multiplier,
@@ -6669,6 +6674,7 @@ func (c *Connector) getHistoricalRequest(reqID int) *historicalRequest {
 }
 
 type historicalRequestOptions struct {
+	endDateTime                string
 	maxBars                    int
 	chartBarSize               string
 	chartOutsideRTH            bool
@@ -7820,7 +7826,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		if options.chartBarSize != "" {
 			barSize = options.chartBarSize
 		}
-		reqID, err = c.conn.requestHistoricalDataWithIDGuard(ctx, contract, "", duration, barSize, whatToShow, !options.chartOutsideRTH, false, formatDate, false, nil, register)
+		reqID, err = c.conn.requestHistoricalDataWithIDGuard(ctx, contract, options.endDateTime, duration, barSize, whatToShow, !options.chartOutsideRTH, false, formatDate, false, nil, register)
 	}
 	if err != nil {
 		if registeredReqID != 0 {

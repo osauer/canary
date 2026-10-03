@@ -8,8 +8,8 @@
 //
 // A Client opens one connection per call because the daemon answers one
 // request at a time per connection. Dedicated non-catalogue methods can read
-// and save only a cash-sweep ordering preference, never protection policy or
-// broker authority. Concurrent calls therefore never queue
+// entry setup observations and read/save a cash-sweep ordering preference,
+// never protection policy or broker authority. Concurrent calls never queue
 // behind each other, and a Client holds nothing between calls.
 package canary
 

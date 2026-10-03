@@ -698,16 +698,18 @@ func sanitizeOrderStatusForMCP(res *rpc.OrderStatusResult) {
 // MCP tool counterpart. The parity test consults this so adding a new CLI
 // command without an MCP tool fails the gate unless the exclusion is recorded.
 var ExcludedCLI = map[string]string{
-	"version": "info-only CLI verb; not useful as a tool call",
-	"mcp":     "transport server mode; the MCP host starts this process, no LLM should call it as a tool",
-	"daemon":  "local background service mode; autospawned by CLI/MCP clients and not an agent operation",
-	"app":     "local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool",
-	"setup":   "interactive local integration and credential configuration; not an LLM operation",
-	"update":  "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
-	"restart": "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
-	"stop":    "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
-	"policy":  "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",
-	"recon":   "post-trade reconciliation surface deferred from MCP in phase 3a (internal-docs/design/post-trade-truth.md): dismiss/sign-off are human-only governance acts and the read view ships CLI-first, same posture as `policy`; revisit together with it",
+	"watchlist": "owner-managed local preferences; typed read-only client and owner CLI, no model mutation tool",
+	"setups":    "owner-configured entry observations ship through CLI and the typed host client first; no model tool or automatic playbook activation",
+	"version":   "info-only CLI verb; not useful as a tool call",
+	"mcp":       "transport server mode; the MCP host starts this process, no LLM should call it as a tool",
+	"daemon":    "local background service mode; autospawned by CLI/MCP clients and not an agent operation",
+	"app":       "local mobile/PWA service mode with browser pairing and Web Push state; not a broker-data MCP tool",
+	"setup":     "interactive local integration and credential configuration; not an LLM operation",
+	"update":    "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
+	"restart":   "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
+	"stop":      "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
+	"policy":    "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",
+	"recon":     "post-trade reconciliation surface deferred from MCP in phase 3a (internal-docs/design/post-trade-truth.md): dismiss/sign-off are human-only governance acts and the read view ships CLI-first, same posture as `policy`; revisit together with it",
 }
 
 func schemaObject(props map[string]json.RawMessage, required []string) json.RawMessage {

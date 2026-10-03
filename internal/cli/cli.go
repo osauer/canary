@@ -98,7 +98,7 @@ func hoistFlags(in []string) []string {
 		if len(a) > 1 && a[0] == '-' {
 			flags = append(flags, a)
 			// Detect "--flag value" (value on next token) vs "--flag=value".
-			if !strings.Contains(a, "=") && i+1 < len(in) && !strings.HasPrefix(in[i+1], "-") {
+			if !strings.Contains(a, "=") && i+1 < len(in) && (!strings.HasPrefix(in[i+1], "-") || in[i+1] == "-") {
 				// Heuristic: only treat next as value if the flag is one of the
 				// known value-taking flags. False positives are tolerable since
 				// runQuote's positional parser re-checks shape.
@@ -216,6 +216,8 @@ func init() {
 		{"portfolio", "Signed allocation by asset class and GICS sector, with coverage", "canary portfolio [--json]", runPortfolio},
 		{"market", "Observed quotes, price history and a daily price/breadth/volume tape", "canary market [--symbol SYMBOL --range 1D] [--json] | canary market tape [--history] [--before YYYY-MM-DD] [--sessions 5] [--explain] [--json]", runMarket},
 		{"technical", "Trend, relative strength, ATR, and liquidity from daily bars", "canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de] [--json]", runTechnical},
+		{"watchlist", "Read and edit the durable owner watchlist; no broker or policy changes", "canary watchlist list [--json]\ncanary watchlist add|remove SYMBOL [--con-id ID] [--expected-revision N] [--request-id ID] [--json]\ncanary watchlist replace --spec PATH|- [--json]", runWatchlist},
+		{"setups", "Observe volume turns and discover exact standard calls; no trade or policy authority", "canary setups evaluate --spec PATH|- --symbol SYMBOL [--con-id ID] [--at RFC3339] [--json]\ncanary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] --json", runSetups},
 		{"calendar", "Official exchange sessions, holidays, early closes, and coverage bounds", "canary calendar [--market us|us-options|de|uk|jp|hk] [--date YYYY-MM-DD] [--at RFC3339] [--days N] [--json]", runCalendar},
 		{"macro", "Public economic calendar, official publications and source coverage", "canary macro [--window-start DATE --window-end DATE] [--json]", runMacro},
 		{"regime", "Detailed broad-market regime across volatility, credit, funding, FX, gamma, and breadth", "canary regime [--explain] [--json [--view full|monitor] [--profiles]]", runRegime},
