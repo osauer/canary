@@ -8,7 +8,7 @@ description: Use Canary through the local `canary` CLI for the daily brief,
   transaction-specific request and the gated CLI path.
 allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
   Bash(canary calendar*) Bash(canary regime*) Bash(canary stress*) Bash(canary brief*) Bash(canary edge*) Bash(canary rules*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*)
-  Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
+  Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
 ---
 
 # Canary
@@ -113,6 +113,22 @@ reduce or close risk and must never open, increase, or flip exposure.
 
 No browser or paired-app automation may submit broker actions. Browser use is
 read-only QA.
+
+## Stock lending: earned fees versus indicative rates
+
+Use `canary lending fees --json` / `canary_lending_fees` for reported customer
+net income and dated coverage. Do not add these fees again to broker P/L.
+Use `canary lending rates --symbols AAA,BBB --json` / `canary_lending_rates`
+with `{"symbols":["AAA","BBB"]}` for up to 100 explicit US stock symbols (these
+examples are fictional). This reads Canary's existing market-event source and
+cache cadence. Preserve `borrow_fee_coverage` source dates, nullable `fee_rate`,
+`status`, `scale_status`, `policy_eligible` and `source_health`.
+
+Only usable, observed percent-annualized quotes support rate comparisons.
+Missing rates are unavailable, not zero. Borrower costs are not lender yields,
+exact-contract eligibility, allocation guarantees or purchase recommendations.
+Any income illustration must state its assumed lender rate, share, collateral
+and time on loan. Lending research does not authorize enrollment or trading.
 
 ## Useful reads
 

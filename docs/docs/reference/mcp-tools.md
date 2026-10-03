@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**30 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**31 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -235,6 +235,16 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 | `limit` | integer | no | maximum findings; default 3 |
 | `option_id` | string | no | optional opaque option ID returned by a prior canary_edge call |
 | `window` | string | no | optional review override; default 365d |
+
+## `canary_lending_rates`
+
+Read dated indicative annualized borrowing fees for 1-100 explicit US stock symbols using Canary's existing market-event source and cache cadence. Returns symbol-level borrow_fee_coverage, nullable fee_rate, source dates, scale_status, policy_eligible and source_health. Missing, stale and unverified-scale rows are not zero or usable quotes. These are borrower rates, not the owner's lending yield, guaranteed allocation, exact contract identity, earned income or buy recommendations. Use canary_lending_fees for actual reported income. Read-only; no enrollment, policy changes or orders.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `symbols` | array | **yes** | Explicit US stock symbols; case-insensitive, deduplicated and sorted |
 
 ## `canary_lending_fees`
 

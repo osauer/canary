@@ -105,6 +105,11 @@ that artifact.
   expandable history and explicit report coverage. IBKR controls participation.
   Fees explain income; they are never added again to broker account P/L.
   Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
+- **Where are borrowing fees unusually high?** `canary lending rates --symbols AAA,BBB --json`
+  and MCP `canary_lending_rates` read dated indicative borrower costs for an explicit
+  US-stock universe. Preserve missing data, source age and numeric scale. These
+  rates are research inputs, not your lending yield or a buy recommendation.
+  See [lending research](docs/docs/understand/edge.md#lending-research-and-borrowing-rates).
 - **How much did exchange rates contribute?** Current source adds `canary reporting fx --json`, which
   reads completed daily valuation effects across investments, currency cash
   and accrued interest, with missing days retained. This differs from realised

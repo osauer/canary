@@ -226,3 +226,23 @@ Use `canary edge` for the automatic concise review, `canary edge --json` for its
 For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 
 The exact shared field profile is generated from the parser manifest in the [Canary reporting Flex query reference](../reference/edge-flex.md). Follow [Set up broker reporting](../start/reporting.md) for the Client Portal ceremony.
+
+### Lending research and borrowing rates
+
+`canary lending rates --symbols AAA,BBB --json` and MCP
+`canary_lending_rates` (`{"symbols":["AAA","BBB"]}`) read the same
+`market_events.snapshot` evidence for 1–100 US stock symbols. The symbols here
+are fictional. The existing source cache and acquisition cadence apply.
+
+`borrow_fee_coverage` preserves nullable annualized borrower fees, source and
+receipt dates, coverage status, scale status and source health. Only observed,
+current, percent-annualized evidence is usable for comparison. Missing evidence
+is not a zero rate. Symbol-level bulk rows do not establish exact contract
+identity, SYEP eligibility or allocation. Historical FEE_RATE fallbacks with
+unverified numeric scale remain unsuitable for rate comparisons.
+
+A high borrower fee can identify lending research candidates but is not a
+quoted lender yield or a reason to buy. Any income scenario must separately
+state its assumed lender rate, revenue share, collateral basis and time actually
+on loan. Rates and allocation can change. Use `canary lending fees` for actual
+reported customer income; never add a hypothetical estimate to broker P/L.

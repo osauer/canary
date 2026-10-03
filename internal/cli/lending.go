@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"time"
 
@@ -9,7 +10,8 @@ import (
 )
 
 func runLending(ctx context.Context, env *Env, args []string) int {
-	fs := flagSet(env, "lending fees")
+	fs := flagSet(env, "lending")
+	symbols := fs.String("symbols", "", "1-100 comma-separated US stock symbols")
 	window := fs.String("window", "365d", "retained Edge period: 90d or 365d")
 	from := fs.String("from", "", "exclusive opening equity date; pair with --to")
 	to := fs.String("to", "", "inclusive closing equity date; pair with --from")
@@ -20,6 +22,21 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if fs.NArg() == 1 && fs.Arg(0) == "rates" {
+		invalid := false
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name != "symbols" && f.Name != "json" {
+				invalid = true
+			}
+		})
+		if invalid {
+			return fail(env, "lending rates: only --symbols and --json are supported")
+		}
+		return runLendingRates(ctx, env, *symbols, *jsonOut)
+	}
+	if *symbols != "" {
+		return fail(env, "lending fees: --symbols requires rates")
 	}
 	if fs.NArg() != 0 && (fs.NArg() != 1 || fs.Arg(0) != "fees") {
 		return failUnexpectedArgs(env, fs)

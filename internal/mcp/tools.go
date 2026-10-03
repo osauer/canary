@@ -538,6 +538,33 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name: "canary_lending_rates", Title: "Canary Indicative Borrowing Rates", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodMarketEventsSnapshot},
+		Description: "Read dated indicative annualized borrowing fees for 1-100 explicit US stock symbols using Canary's existing market-event source and cache cadence. Returns symbol-level borrow_fee_coverage, nullable fee_rate, source dates, scale_status, policy_eligible and source_health. Missing, stale and unverified-scale rows are not zero or usable quotes. These are borrower rates, not the owner's lending yield, guaranteed allocation, exact contract identity, earned income or buy recommendations. Use canary_lending_fees for actual reported income. Read-only; no enrollment, policy changes or orders.",
+		JSONSchema: schemaObject(map[string]json.RawMessage{
+			"symbols": json.RawMessage(`{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9.]{0,31}$"},"description":"Explicit US stock symbols; case-insensitive, deduplicated and sorted"}`),
+		}, []string{"symbols"}),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var in struct {
+				Symbols []string `json:"symbols"`
+			}
+			if err := unmarshalArgs(args, &in); err != nil {
+				return nil, err
+			}
+			symbols, err := rpc.NormalizeLendingRateSymbols(in.Symbols)
+			if err != nil {
+				return nil, err
+			}
+			var result rpc.MarketEventsResult
+			if err := conn.Call(ctx, rpc.MethodMarketEventsSnapshot, rpc.MarketEventsParams{Symbols: symbols}, &result); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateLendingRateScope(result, symbols); err != nil {
+				return nil, err
+			}
+			return json.Marshal(result)
+		},
+	},
+	{
 		Name: "canary_lending_fees", Title: "Canary Stock Lending Fees", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodFinancingFees},
 		Description: "Read earned customer net stock-lending fees, native/base currency sums, report coverage and a bounded latest-first history. Use after canary_edge to expand lending income or to read historical fees after a holding closes. Missing sections, net amounts or conversion stay unavailable; fees are not extra P/L to add to broker equity and collateral is not income. Cash-payment and P/L reconciliation are unproved until linked statement evidence exists. Use canary_positions for dated loan annotations and current holdings, canary_edge for decision review, not this tool for short-borrow availability or enrollment. Read-only retained evidence; cannot fetch Flex, enroll or place orders.",
 		JSONSchema: schemaObject(map[string]json.RawMessage{

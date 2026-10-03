@@ -47,3 +47,29 @@ func TestLendingToolPreservesNetFeesAndReadOnlyBounds(t *testing.T) {
 		t.Fatal("MCP changed evidence or reached another method")
 	}
 }
+
+func TestLendingRatesToolReadOnlyScopeAndUnavailable(t *testing.T) {
+	want := rpc.MarketEventsResult{Symbols: []string{"AAA"}, BorrowFeeCoverage: []rpc.MarketEventBorrowFeeCoverage{{Symbol: "AAA", Status: rpc.BorrowFeeCoverageMissing}}}
+	conn, calls := riskToolConn(t, map[string]any{rpc.MethodMarketEventsSnapshot: want})
+	tool, ok := lookupTool("canary_lending_rates")
+	if !ok || tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint {
+		t.Fatal("missing read-only rates tool")
+	}
+	for _, args := range []string{`{}`, `{"symbols":[]}`, `{"symbols":["$BAD"]}`} {
+		if _, err := tool.Handler(t.Context(), conn, json.RawMessage(args)); err == nil {
+			t.Fatal("invalid scope accepted")
+		}
+	}
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"symbols":["aaa"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got rpc.MarketEventsResult
+	if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
+		t.Fatal("evidence changed")
+	}
+	_ = conn.Close()
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodMarketEventsSnapshot}) {
+		t.Fatal("wrong RPC boundary")
+	}
+}
