@@ -87,3 +87,67 @@ not acquire or release shared option quote lines. Exact selection returns an
 identity; the existing subsequent Canary preview acquires execution evidence
 and owner-confirmed order authority remains mandatory. The typed Go adapter
 is `Client.DiscoverSetupOptions`; no MCP tool is exposed.
+
+## Entry markouts
+
+Owner decision 2026-10-04; capture added 2026-10-04 11:58 CEST.
+`canary setups markouts --json [--order-ref REF] [--since YYYY-MM-DD] [--symbol SYMBOL]`
+and `Client.SetupMarkouts` read the ledger; there is no MCP tool. Every
+result has `kind: entry_diagnostic`: a displayed quote marked against an actual
+fill. It is not a fill, a paper portfolio, realized profit or accounting, and
+it never replaces the existing realized P&L.
+
+**What is scheduled.** Each broker execution journaled for an order Canary
+placed through its own preview path (preview token present, no bypass) on a
+stock or option schedules two targets in daemon.db, keyed by `order_ref`,
+`exec_id` and horizon. Manual TWS orders and other instruments are not
+scheduled. `t30` is 30 regular-session minutes after the fill on the exchange
+calendar; minutes left at the close carry across breaks, weekends and holidays
+to the next open, and a fill outside the session starts counting at the next
+open. `next_close` is the scheduled close of the first regular session opening
+after the fill (the same day's close for a pre-market fill). Options use the
+09:30–16:00 ET single-name session, not the 16:15 index-options calendar.
+The fill time is the broker execution time when it carries a zone, otherwise
+the journal receipt, named in `fill_time_source`. Quantity, side and price are
+the execution's own (`exec_shares`, `exec_side`, `last_fill_price` in the
+journal), not the cumulative order fill.
+
+**Durability.** The schedule is a state document with at most 256 pending
+targets; scheduling beyond that resolves the oldest as missing
+(`backlog_full`). Resolved targets leave it atomically as append-only,
+non-decision observations; neither advances the order-event frontier. The
+lifecycle callback only offers the fill to a bounded queue, so fill handling
+never waits; queue overflow and every start rescan the journal for fills since
+`tracking_since`. Fills journaled before tracking began are never scheduled.
+
+**Capture rule.** Five seconds before the target the worker reads the exact
+contract through the request-owned exact-session quote read used for
+option-exit evidence (never the strike-rounding option key), waiting at most
+five seconds for both sides and displayed sizes; one read serves every target
+on the same contract and clock, and at most four reads run at once. A target
+is `captured` only if the quote is live, two-sided, finite, positive and not
+crossed (locked is allowed), its as-of (the older side receipt) is at or before
+the target and at most 60 seconds old there, and the displayed size on the
+marking side is at least the fill quantity. Sizes are compared as reported by
+IBKR; a feed reporting stock size in round lots can only understate depth and
+yield `displayed_size_insufficient`, never a false capture. BUY fills are longs
+marked at the bid; SELL fills are shorts marked at the ask. `markout` is
+(mark − fill price) × signed quantity × multiplier in the contract currency,
+BUY positive and SELL negative, so a positive value favours the fill. It
+excludes commission; the journal records none, so `commission_status` is
+`not_recorded` and no liquidation fee is estimated. Rows keep the full
+contract, side and quantity; stock, long-call and other option captures are
+never aggregated.
+
+**Missing.** A target is `missing` with the first failing condition and no
+prices: `quote_not_two_sided`, `quote_not_positive_finite`, `quote_crossed`,
+`quote_not_live`, `quote_time_unavailable`, `quote_after_target`,
+`quote_too_old`, `displayed_size_unavailable`, `displayed_size_insufficient`,
+`quote_unavailable`, `broker_unavailable`, `capture_window_missed` (no read
+before the clock passed, including while the daemon was down),
+`scheduled_after_target`, `backlog_full`, `exchange_calendar_unavailable`,
+`exchange_calendar_unsupported`, or a fill-identity reason such as
+`fill_quantity_unknown`. Missing is never a zero, an estimate, a midpoint or an
+underlying return, and a later quote is never backdated to the target. Option
+quotes for past minutes cannot be reconstructed, so a missed target stays
+missing.
