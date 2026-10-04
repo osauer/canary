@@ -19,6 +19,10 @@ type SetupOptionExpiry = rpc.SetupOptionExpiry
 // SetupOptionCall is one strike with optional indicative quote evidence.
 type SetupOptionCall = rpc.SetupOptionCall
 
+// SetupOptionQuote is the one dated quote for the exact selected call; its
+// bid and ask are present only when its status is quoted.
+type SetupOptionQuote = rpc.SetupOptionQuote
+
 // DiscoverSetupOptions lists or resolves standard calls without preparing an order.
 func (c *Client) DiscoverSetupOptions(ctx context.Context, in SetupOptionsParams) (*SetupOptionsResult, error) {
 	budget, _ := rpc.LookupMethodTiming(rpc.MethodSetupsOptions)

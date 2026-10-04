@@ -55,3 +55,21 @@ func TestSetupOptionsClientPreservesExactDiscoveryTuple(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupOptionsClientCarriesExactCallQuote(t *testing.T) {
+	s := canarytest.Serve(t)
+	quote := canary.SetupOptionQuote{Bid: new(1.2), Ask: new(1.35), DataType: "live", Status: "quoted"}
+	s.Handle("setups.options", func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var got canary.SetupOptionsParams
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		call := canary.SetupContract{ConID: 900002, Symbol: "SYNX", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: got.Expiry, Strike: *got.Strike, Right: "C", Multiplier: 100}
+		return json.Marshal(canary.SetupOptionsResult{Version: 1, Underlying: got.Underlying, Expiries: []canary.SetupOptionExpiry{}, Expiry: got.Expiry, Calls: []canary.SetupOptionCall{}, Contract: &call, Quote: &quote})
+	})
+	c := canary.New(canary.Options{SocketPath: s.SocketPath()})
+	out, err := c.DiscoverSetupOptions(t.Context(), canary.SetupOptionsParams{Underlying: canary.SetupContract{Symbol: "SYNX", ConID: 17, SecType: "STK", Currency: "USD", Exchange: "SMART"}, Expiry: "20351120", Strike: new(102.5)})
+	if err != nil || out.Contract == nil || out.Quote == nil || out.Quote.Status != "quoted" || *out.Quote.Bid != 1.2 || *out.Quote.Ask != 1.35 || out.Quote.DataType != "live" {
+		t.Fatal(out, err)
+	}
+}
