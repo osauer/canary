@@ -35,10 +35,15 @@ type setupMarkoutRuntime struct {
 
 	inFlightMu sync.Mutex
 	inFlight   map[string]bool
+	// reads is the semaphore for concurrent quote reads; wg tracks them.
+	reads chan struct{}
+	wg    sync.WaitGroup
+	// quote replaces the exact-contract broker read in tests.
+	quote func(context.Context, rpc.ContractParams, time.Duration) (setupMarkoutQuote, error)
 }
 
 func newSetupMarkoutRuntime(store *setupMarkoutStore) *setupMarkoutRuntime {
-	return &setupMarkoutRuntime{store: store, fills: make(chan orderJournalEvent, setupMarkoutFillQueue), inFlight: map[string]bool{}}
+	return &setupMarkoutRuntime{store: store, fills: make(chan orderJournalEvent, setupMarkoutFillQueue), inFlight: map[string]bool{}, reads: make(chan struct{}, setupMarkoutMaxReads)}
 }
 
 // offerSetupMarkoutFill is called after a lifecycle event is durably
@@ -403,6 +408,7 @@ func (s *Server) runSetupMarkoutLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			rt.wg.Wait()
 			return
 		case ev := <-rt.fills:
 			s.scheduleSetupMarkoutFill(ctx, ev)
@@ -410,7 +416,9 @@ func (s *Server) runSetupMarkoutLoop(ctx context.Context) {
 			if rt.rescan.Swap(false) {
 				s.rescanSetupMarkoutFills(ctx)
 			}
-			s.sweepSetupMarkouts(ctx, s.setupMarkoutNow())
+			now := s.setupMarkoutNow()
+			s.captureDueSetupMarkouts(ctx, now)
+			s.sweepSetupMarkouts(ctx, now)
 		}
 	}
 }

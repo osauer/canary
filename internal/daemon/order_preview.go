@@ -1216,12 +1216,28 @@ func (s *Server) previewExactSessionFXQuote(ctx context.Context, authority *orde
 }
 
 func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, requireBidAsk bool) (rpc.OrderQuoteSnapshot, error) {
+	q, _, err := s.exactSessionContractQuote(ctx, authority, contract, timeout, requireBidAsk, false)
+	return q, err
+}
+
+// exactQuoteSizes are the displayed bid/ask sizes observed on the same
+// request-owned subscription as the snapshot's sides, in shares or contracts.
+type exactQuoteSizes struct {
+	Bid *int
+	Ask *int
+}
+
+// exactSessionContractQuote is the exact-contract read behind preview and
+// option-exit evidence. waitSizes additionally waits, within the same budget,
+// for displayed sizes; when the budget ends with both sides but no sizes the
+// snapshot is still returned and the sizes stay nil.
+func (s *Server) exactSessionContractQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, requireBidAsk, waitSizes bool) (rpc.OrderQuoteSnapshot, exactQuoteSizes, error) {
 	quoteCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	started := time.Now()
 	key, err := authority.connector.SubscribeMarketDataWithContractForSession(quoteCtx, authority.session, *previewIBKRContract(contract), defaultGenericTicks)
 	if err != nil {
-		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
+		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
 	}
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
@@ -1230,6 +1246,7 @@ func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority
 	}()
 	q := &rpc.Quote{Symbol: contract.Symbol, Contract: contract, IVStatus: "unavailable", AsOf: s.orderNow()}
 	var priceTickAt, bidAt, askAt time.Time
+	sidesReady := false
 	if err := pollMarketData(quoteCtx, authority.connector, key, started.Add(timeout), func(data *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, data)
 		if data != nil && data.LastPriceTickAt.After(priceTickAt) {
@@ -1240,16 +1257,18 @@ func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority
 			q.DataType = quoteDataTypeName(data.FeedType, true, false)
 			bidAt, askAt = data.BidAt, data.AskAt
 		}
-		return exactQuoteReady(q, requireBidAsk)
-	}); err != nil {
-		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact contract quote unavailable: %v", ErrTradingDisabled, err)
+		sidesReady = exactQuoteReady(q, requireBidAsk)
+		return sidesReady && (!waitSizes || q.BidSize != nil && q.AskSize != nil)
+	}); err != nil && (!waitSizes || !sidesReady || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil) {
+		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: exact contract quote unavailable: %v", ErrTradingDisabled, err)
 	}
 	if !s.orderPreviewBrokerAuthorityCurrent(authority) {
-		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: broker session changed during exact quote", ErrTradingDisabled)
+		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: broker session changed during exact quote", ErrTradingDisabled)
 	}
 	q.AsOf = s.orderNow()
+	sizes := exactQuoteSizes{Bid: q.BidSize, Ask: q.AskSize}
 	if requireBidAsk {
-		return s.exactBidAskQuoteSnapshot(q, contract, started, bidAt, askAt), nil
+		return s.exactBidAskQuoteSnapshot(q, contract, started, bidAt, askAt), sizes, nil
 	}
 	s.decorateExactPreviewQuote(q, contract)
 	if !priceTickAt.IsZero() {
@@ -1263,7 +1282,7 @@ func (s *Server) previewExactSessionContractQuote(ctx context.Context, authority
 			q.QuotePriceAsOf = quoteAsOfLabel(q, market, q.QuotePriceAt, q.QuotePriceSource, q.DataType)
 		}
 	}
-	return orderQuoteSnapshotFromQuote(q), nil
+	return orderQuoteSnapshotFromQuote(q), sizes, nil
 }
 
 // exactQuoteReady waits for the broker's feed classification as well as prices.
