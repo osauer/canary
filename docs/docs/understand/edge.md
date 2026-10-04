@@ -297,8 +297,10 @@ not trading policy or a liquidity guarantee. Discovery filters apply across the
 full qualifying fee/exclusion universe before the output limit, using only known
 market values. Acquisition is progressive: inspect `coverage` before interpreting
 an empty or partial screen. `covered`, `pending` and `unavailable` partition all
-candidates; `complete` requires every candidate to have the fields needed by the
-query (default price and turnover). Missing YTD does not block price-only filters.
+candidates; `complete` requires every candidate to have the market fields needed
+by active filters or a market-field sort. With neither, coverage measures price
+and turnover. It does not measure FINRA or borrowing-fee completeness. Missing
+YTD does not block price-only filters.
 Desk's own-list view retains its separate named-rate/local filtering path so
 nonbulk evidence is not silently dropped.
 
@@ -320,3 +322,46 @@ Each row also exposes at most seven dated `history` samples for the fee chart.
 Repeated polls of one timestamp never add dates. This history is persisted with
 the daemon's borrow-fee source state; it starts from genuine retained observations,
 not an assumed backfill. Old installations therefore initially know one date.
+
+### Reported short interest across US equities
+
+```sh
+canary short-interest screen --listed-only --min-average-volume 1000000 --sort-by days_to_cover --sort-dir desc --limit 50 --json
+```
+
+The read-only `canary_short_interest_screen` MCP tool and `short_interest.screen`
+RPC use the same request fields: `limit` (1–100, default 50), `exclude` (up to
+100 symbols), `listed_only`, `min_average_volume`, `min_days_to_cover`,
+`min_price`, `min_avg_dollar_volume_20d`, `sort_by` and `sort_dir`. Numeric zero
+turns off a filter. Default ordering is short shares descending. Other source
+sorts are days to cover, change percentage and average daily shares; the familiar
+price, daily change, volume, YTD, dollar turnover and borrowing-fee sorts also
+work. Missing numeric values stay last in either direction; symbols break ties.
+Filters and sorting run before the output limit.
+
+FINRA's [public files](https://www.finra.org/finra-data/browse-catalog/equity-short-interest/files)
+cover reported US equity short positions, including funds and OTC. Listed-only
+excludes OTC; it does not promise stock-only coverage. Discovery considers the
+full accepted publication independently of the borrowing-fee screen. Price and
+liquidity enrichment uses the shared bounded background worker and requires
+verified USD contract identity. Coverage counts distinguish covered, pending and
+unavailable candidates. A market-filtered or market-ranked result can therefore
+be a subset while a source ranking still covers the full report.
+
+Short interest is reported twice monthly. Settlement date records the position
+date; fetch time is not publication time. The daemon checks on demand at most
+every six hours, retries failures after 30 minutes and retains the last good
+report in private local state. A failed refresh, receipt older than 48 hours or
+settlement older than 35 days is explicitly stale. Saved stale reports remain
+research evidence, not a claim of current positions.
+
+FINRA's [field definitions](https://www.finra.org/finra-data/browse-catalog/equity-short-interest/glossary)
+use average daily shares over the reporting interval, not the market context's
+20 completed sessions. Published days to cover floors at 1.00; zero-volume rows
+leave it unavailable. Split rows suppress change percentage, while split and
+revision flags remain visible. Borrowing fees retain their separate `fee_as_of`
+clock. Reliable dated free-float data is not available: short interest as a
+percentage of float stays absent, and shares outstanding are never substituted.
+Reported short positions, daily short-sale volume and borrower costs are
+different measures. This screen does not recommend trades or authorize broker
+writes, subscriptions, lending enrollment or risk-policy changes.

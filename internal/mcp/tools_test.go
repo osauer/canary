@@ -43,8 +43,15 @@ func TestParity(t *testing.T) {
 		if cliNames[name] {
 			continue
 		}
-		parent, _, _ := strings.Cut(name, "-")
-		if !cliNames[parent] {
+		// Command parents may themselves contain hyphens (short-interest).
+		hasParent := false
+		for parent := range cliNames {
+			if strings.HasPrefix(name, parent+"-") {
+				hasParent = true
+				break
+			}
+		}
+		if !hasParent {
 			t.Errorf("MCP tool canary_%s has no CLI parent", name)
 		}
 	}

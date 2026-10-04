@@ -2,13 +2,13 @@
 name: canary
 description: Use Canary through the local `canary` CLI for the daily brief,
   detailed regime and portfolio stress, official exchange sessions, account and position detail, historical Edge decision review, named-symbol
-  technical analysis, desk policy and
+  technical analysis, borrowing-fee and short-interest research, desk policy and
   rules, protection proposals, option-exercise opportunities, runtime settings,
   and order status or history. Read first; broker writes require an explicit
   transaction-specific request and the gated CLI path.
 allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
   Bash(canary calendar*) Bash(canary regime*) Bash(canary stress*) Bash(canary brief*) Bash(canary edge*) Bash(canary rules*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*)
-  Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary lending screen*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
+  Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary lending screen*) Bash(canary lending market*) Bash(canary short-interest screen*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
 ---
 
 # Canary
@@ -200,8 +200,10 @@ not trading policy or a liquidity guarantee. Discovery filters apply across the
 full qualifying fee/exclusion universe before the output limit, using only known
 market values. Acquisition is progressive: inspect `coverage` before interpreting
 an empty or partial screen. `covered`, `pending` and `unavailable` partition all
-candidates; `complete` requires every candidate to have the fields needed by the
-query (default price and turnover). Missing YTD does not block price-only filters.
+candidates; `complete` requires every candidate to have the market fields needed
+by active filters or a market-field sort. With neither, coverage measures price
+and turnover. It does not measure FINRA or borrowing-fee completeness. Missing
+YTD does not block price-only filters.
 Desk's own-list view retains its separate named-rate/local filtering path so
 nonbulk evidence is not silently dropped.
 
@@ -223,3 +225,30 @@ Each row also exposes at most seven dated `history` samples for the fee chart.
 Repeated polls of one timestamp never add dates. This history is persisted with
 the daemon's borrow-fee source state; it starts from genuine retained observations,
 not an assumed backfill. Old installations therefore initially know one date.
+
+### Reported short interest
+
+Use `canary short-interest screen --listed-only --min-average-volume 1000000 --json`
+or read-only MCP `canary_short_interest_screen` for FINRA-reported US equity
+short positions, including listed funds. Without `listed_only`, OTC is included.
+This universe is independent of borrowing-fee discoveries. Default sorting is
+`short_interest_shares` descending; free-float percentage is unavailable and
+must not be inferred from shares outstanding or borrower fees.
+
+The CLI/MCP/RPC share `limit` (1–100, default 50), `exclude` (up to 100 symbols),
+`listed_only`, `min_average_volume`, `min_days_to_cover`, `min_price`,
+`min_avg_dollar_volume_20d`, `sort_by` and `sort_dir`; CLI uses hyphenated flags.
+Zero disables numeric filters. Source sort keys include `short_interest_shares`,
+`days_to_cover`, `change_pct` and `average_daily_volume`, alongside the market
+columns and `fee_rate`. Filtering and sorting precede the output limit; missing
+numeric values stay last. Market filters use only covered exact identities;
+inspect candidate/covered/pending/unavailable counts before interpreting results.
+
+Preserve FINRA `settlement_date`, `fetched_at`, source URL and stale status.
+The twice-monthly publication is not live short-sale volume. A failed refresh
+can return the saved report as stale; do not describe it as the latest evidence.
+FINRA average daily shares covers the reporting interval, distinct from market
+20-session dollar turnover. Days to cover floors at 1.00; zero-volume values
+remain missing. Split rows omit change percentage, and split/revision flags
+remain evidence. Borrow fees have an independent `fee_as_of` clock. This is
+research, never an order, enrollment, allocation or lending-yield promise.

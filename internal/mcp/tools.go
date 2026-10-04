@@ -35,6 +35,7 @@ type Tool struct {
 // cli.Commands() to keep the parity test readable; the MCP client rebroadcasts
 // whatever order we send.
 var Tools = []Tool{
+	shortInterestTool(),
 	{Name: "canary_data_health", Title: "Canary Data Health", RPCMethods: []string{rpc.MethodDataHealth}, ReadOnlyHint: new(true), Description: "Read Canary's authoritative provider/service health, receiving data modes, causes and producer clocks. Sources are services and data products, never individual instruments; quote availability and chart coverage stay in their dataset tools. A passive read performs no broker or provider acquisition. Follow next_offset with the returned revision for a consistent complete report. Unknown means unverified, never healthy. Use canary_data_check to request a bounded check, canary_status for service connectivity, and dataset tools for values.", JSONSchema: schemaObject(map[string]json.RawMessage{"offset": json.RawMessage(`{"type":"integer","minimum":0,"description":"Zero-based page offset; default 0. Use the preceding next_offset."}`), "limit": json.RawMessage(`{"type":"integer","minimum":1,"maximum":64,"description":"Maximum sources per bounded page; default 24. Byte limits may return fewer."}`), "revision": schemaString("Report revision from the first page; omit to begin a current report. Expired revisions require restarting pagination.")}, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 		var p rpc.DataHealthParams
 		if err := unmarshalArgs(args, &p); err != nil {

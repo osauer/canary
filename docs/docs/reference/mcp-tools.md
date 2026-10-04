@@ -4,7 +4,25 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**33 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**34 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+
+## `canary_short_interest_screen`
+
+Discover US equities (including listed funds and OTC) with large reported short positions using FINRA's twice-monthly public publication. Filters and sorting apply before limiting results; default ranks short shares, not percent of float. Free float is unavailable. Settlement date is distinct from fetch time; failed refreshes retain stale publication provenance. FINRA days to cover is floored at 1 and average daily shares covers the reporting interval. Optional recent price and 20-session dollar-turnover context is bounded background acquisition with explicit partial coverage, not an all-market liquidity guarantee. Short interest is neither daily short-sale volume nor borrowing cost. Use canary_lending_screen for borrower fees, canary_lending_fees for earned lending income. Read-only; no orders, enrollment, subscriptions or policy changes.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `exclude` | array | no | Case-insensitive symbols to omit, default empty |
+| `limit` | integer | no | Maximum results after filtering and sorting; default 50 |
+| `listed_only` | boolean | no | Exclude OTC rows; listed funds remain included; default false |
+| `min_average_volume` | integer | no | Minimum FINRA reporting-cycle average daily shares, not 20-session volume; default 0 |
+| `min_avg_dollar_volume_20d` | number | no | Minimum covered 20-completed-session average USD turnover; default 0 disables |
+| `min_days_to_cover` | number | no | Minimum FINRA days to cover; published values at or below one floor at 1; default 0 |
+| `min_price` | number | no | Minimum covered USD price; unknown values excluded; default 0 disables |
+| `sort_by` | string | no | Ranking column, default short_interest_shares; missing evidence always last |
+| `sort_dir` | string | no | Sort direction, default desc |
 
 ## `canary_data_health`
 

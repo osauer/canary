@@ -106,6 +106,7 @@ that artifact.
   Fees explain income; they are never added again to broker account P/L.
   Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
 - **What high-fee names are outside my list?** `canary lending screen --min-rate 50 --limit 25 --json`
+- **Which US equities have large reported short positions?** `canary short-interest screen --listed-only --min-average-volume 1000000 --json` ranks FINRA short shares before limiting results. Sort by `days_to_cover` or add the shared price/liquidity filters; market coverage is explicit and free-float percentage remains unavailable. See [source and freshness semantics](internal-docs/design/short-interest-screen.md).
   and MCP `canary_lending_screen` rank the existing IBKR US USD bulk feed.
   Optional exclusions remove familiar names; coverage, source dates and truncation
   stay explicit. This does not establish listing quality, liquidity or lender yield.
