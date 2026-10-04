@@ -31,3 +31,13 @@ func TestShortPortfolioDownloadReadsAsUnprimed(t *testing.T) {
 		t.Fatalf("rulebook positions source = %+v, want pending", state)
 	}
 }
+
+// A held half-dollar option must read its own line's Greeks: the positions
+// lookup key is the connector's market-data key, which keeps 10.5 apart from 10.
+func TestOptionGreeksKeyMatchesConnectorKeyForHalfDollarStrikes(t *testing.T) {
+	leg := rpc.PositionView{Symbol: "synx", SecType: rpc.SecTypeOption, Expiry: "20261120", Strike: 10.5, Right: "c"}
+	want := ibkrlib.OptionMarketDataKey("SYNX", "20261120", "C", 10.5)
+	if got := optionGreeksKey(leg); got != want || got == ibkrlib.OptionMarketDataKey("SYNX", "20261120", "C", 10) {
+		t.Fatalf("held 10.5 call keyed %q, want its own line %q", got, want)
+	}
+}

@@ -1518,12 +1518,13 @@ func (s *Server) fillOptionGreeks(c *ibkrlib.Connector, options []rpc.PositionVi
 	}
 }
 
-// optionGreeksKey builds the same OPRA-style key that
-// stamped by pkg/ibkr's convertIBKRPositions, the canonical wire value)
-// and "OPT" (the IBKR API request-side short form, here as a defensive
-// The original v0.10.0 release had only the "OPT" check and reported
-// greeks_coverage 0/N for every option-bearing account, because
-// belt-and-braces fix.
+// optionGreeksKey builds the same market-data key SubscribeOption uses, by
+// calling ibkrlib.OptionMarketDataKey, so a held leg finds its own line's
+// Greeks. It accepts both "OPTION" (the SecType stamped by pkg/ibkr's
+// convertIBKRPositions, the canonical wire value) and "OPT" (the IBKR API
+// request-side short form) as a belt-and-braces fix: the original v0.10.0
+// release had only the "OPT" check and reported greeks_coverage 0/N for every
+// option-bearing account.
 func optionGreeksKey(p rpc.PositionView) string {
 	if p.SecType != rpc.SecTypeOption && p.SecType != "OPT" {
 		return ""
@@ -1532,7 +1533,7 @@ func optionGreeksKey(p rpc.PositionView) string {
 	if under == "" || len(p.Expiry) < 8 || p.Strike <= 0 || p.Right == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s_%s%s%.0f", under, p.Expiry[2:], strings.ToUpper(p.Right), p.Strike)
+	return ibkrlib.OptionMarketDataKey(under, p.Expiry, p.Right, p.Strike)
 }
 
 // buildPortfolioAggregates rolls per-leg Greeks and currency exposure

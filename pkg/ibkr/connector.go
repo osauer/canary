@@ -5517,7 +5517,10 @@ func (c *Connector) removePreparedOptionSubscription(key string, reqID int) {
 }
 
 // OptionMarketDataKey returns the normalized in-memory cache key used for an
-// from expiryYMD, only its last six digits are retained, and strike is formatted
+// option line: the upper-cased underlying, the last six digits of expiryYMD
+// (dashes ignored), the right, and the strike in its shortest decimal form.
+// Whole-dollar strikes read as before ("100"); a fractional strike keeps its
+// decimals ("102.5"), so it never shares a line with a whole-dollar neighbour.
 func OptionMarketDataKey(underlying, expiryYMD, right string, strike float64) string {
 	upperUnderlying := strings.ToUpper(strings.TrimSpace(underlying))
 	upperRight := strings.ToUpper(strings.TrimSpace(right))
@@ -5525,7 +5528,9 @@ func OptionMarketDataKey(underlying, expiryYMD, right string, strike float64) st
 	if len(expiryKey) > 6 {
 		expiryKey = expiryKey[len(expiryKey)-6:]
 	}
-	return fmt.Sprintf("%s_%s%s%.0f", upperUnderlying, expiryKey, upperRight, strike)
+	// Rounding to 1e-4 first absorbs binary noise in a strike parsed or
+	// computed from a decimal, so one listed strike always maps to one key.
+	return upperUnderlying + "_" + expiryKey + upperRight + strconv.FormatFloat(math.Round(strike*1e4)/1e4, 'f', -1, 64)
 }
 
 func optionMarketDataKeyForClass(underlying, tradingClass, expiryYMD, right string, strike float64) string {
