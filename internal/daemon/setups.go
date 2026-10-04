@@ -94,7 +94,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	// A cached profile is read without the gate. Cold collection is serialized
 	// so one watchlist cannot fan out into hundreds of HMDS reads; the
 	// underlying client retains its own pacing.
-	profile, observed, missing := s.setupProfiles.assemble(key, prior)
+	profile, observed, missing := s.setupProfiles.assemble(key, current.Date, prior)
 	if len(missing) > 0 {
 		// A remembered miss answers without a read until it expires.
 		if reason, ok := s.setupProfiles.miss(contractKey, current.Date, now); ok {
@@ -105,14 +105,14 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		}
 		// Another request may have filled the profile, or failed to, while
 		// this one waited.
-		profile, observed, missing = s.setupProfiles.assemble(key, prior)
+		profile, observed, missing = s.setupProfiles.assemble(key, current.Date, prior)
 		var reason string
 		if len(missing) > 0 {
 			reason, _ = s.setupProfiles.miss(contractKey, current.Date, s.setupClock())
 		}
 		if len(missing) > 0 && reason == "" {
 			var e error
-			profile, observed, e = s.acquireSetupProfile(ctx, c, contract, key, prior, missing)
+			profile, observed, e = s.acquireSetupProfile(ctx, c, contract, key, current.Date, prior, missing)
 			switch {
 			case e == nil:
 				s.setupProfiles.clearMiss(contractKey, current.Date)
@@ -151,7 +151,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 
 // acquireSetupProfile reads only the window sessions the cache lacks, keeps
 // every complete session it received, and reports an incomplete window.
-func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract ibkrlib.Contract, key string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
+func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract ibkrlib.Contract, key, session string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
 	var bars []ibkrlib.HistoricalBar
 	var readErr error
 	for _, r := range setupFetchRanges(missing) {
@@ -174,7 +174,7 @@ func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, cont
 			complete = append(complete, setupProfileSession{session: session, acquired: acquired})
 		}
 	}
-	prior, observed, still := s.setupProfiles.fill(key, window, complete)
+	prior, observed, still := s.setupProfiles.fill(key, session, window, complete)
 	if readErr != nil {
 		return nil, time.Time{}, readErr
 	}

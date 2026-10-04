@@ -18,6 +18,12 @@ import (
 // per new session instead of a full rebuild. A replay (--at) on another
 // session date keeps its own row so it never rewrites the live window.
 //
+// The cache holds max(20, distinct contracts evaluated in the live session)
+// rows, never more than 40. A new row at that size evicts one row, least
+// recently used first among rows whose latest session is not the live one
+// (replays and names not yet evaluated today), then among the rest. A replay
+// row never evicts a live row; it is served without being kept instead.
+//
 // mu guards the rows; gate serializes cold acquisition only, so a cached
 // profile never waits behind another contract's broker reads.
 type setupProfileCache struct {
@@ -28,15 +34,30 @@ type setupProfileCache struct {
 	// session date, so a symbol with a gap in its history is not re-read on
 	// every poll.
 	misses map[setupMissKey]setupProfileMiss
-	// live is the session date of the latest current (non --at) evaluation.
-	live string
+	// live is the session date of the latest current (non --at) evaluation;
+	// today holds the distinct contracts evaluated on it.
+	live  string
+	today map[string]bool
+	// tick orders row use for least-recently-used eviction.
+	tick uint64
 	// waitForTest observes a request blocking on a busy gate.
 	waitForTest func()
 }
 
+// Row bounds: at least setupProfileRowsMin rows, growing with the distinct
+// contracts evaluated in the live session up to setupProfileRowsMax.
+const (
+	setupProfileRowsMin = 20
+	setupProfileRowsMax = 40
+)
+
 // setupProfileRow holds one contract's complete prior sessions by date.
 type setupProfileRow struct {
 	sessions map[string]setupProfileSession
+	// session is the latest session date this row served; used is its last
+	// use on the cache tick.
+	session string
+	used    uint64
 }
 
 // setupProfileSession is one complete comparable prior session and the daemon
@@ -148,24 +169,68 @@ func (p *setupProfileCache) rowKey(contract, session string, historical bool) st
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !historical && session > p.live {
-		p.live = session
+		p.live, p.today = session, nil
 	}
 	if session == p.live {
+		if p.today == nil {
+			p.today = map[string]bool{}
+		}
+		p.today[contract] = true
 		return contract
 	}
 	return contract + "@" + session
 }
 
-// assemble returns the window's sessions in order with their oldest
-// acquisition, or the window sessions the row does not hold.
-func (p *setupProfileCache) assemble(key string, window []setups.Session) ([]setups.Session, time.Time, []setups.Session) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.assembleLocked(key, window)
+// capacity is the row bound for the live session.
+func (p *setupProfileCache) capacity() int {
+	return min(setupProfileRowsMax, max(setupProfileRowsMin, len(p.today)))
 }
 
-func (p *setupProfileCache) assembleLocked(key string, window []setups.Session) ([]setups.Session, time.Time, []setups.Session) {
+// admit makes room for a new row serving session and reports whether it may
+// be kept. At capacity one row is evicted: the least recently used row not
+// serving the live session, else, for a live row only, the least recently
+// used row overall.
+func (p *setupProfileCache) admit(session string) bool {
+	if len(p.rows) < p.capacity() {
+		return true
+	}
+	victim, victimLive := "", false
+	var victimUsed uint64
+	for k, row := range p.rows {
+		live := row.session == p.live
+		if victim == "" || (victimLive && !live) || (victimLive == live && row.used < victimUsed) {
+			victim, victimLive, victimUsed = k, live, row.used
+		}
+	}
+	if victim == "" || (victimLive && session != p.live) {
+		return false
+	}
+	delete(p.rows, victim)
+	return true
+}
+
+// assemble returns the window's sessions in order with their oldest
+// acquisition, or the window sessions the row does not hold. It marks the
+// row used for session.
+func (p *setupProfileCache) assemble(key, session string, window []setups.Session) ([]setups.Session, time.Time, []setups.Session) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	row := p.rows[key]
+	if row != nil {
+		p.touch(row, session)
+	}
+	return assembleSetupRow(row, window)
+}
+
+func (p *setupProfileCache) touch(row *setupProfileRow, session string) {
+	p.tick++
+	row.used = p.tick
+	if session > row.session {
+		row.session = session
+	}
+}
+
+func assembleSetupRow(row *setupProfileRow, window []setups.Session) ([]setups.Session, time.Time, []setups.Session) {
 	prior := make([]setups.Session, 0, len(window))
 	var observed time.Time
 	var missing []setups.Session
@@ -194,27 +259,22 @@ func (p *setupProfileCache) assembleLocked(key string, window []setups.Session) 
 }
 
 // fill stores newly read complete sessions, drops sessions that fell out of
-// the window, and returns the window as assemble would.
-func (p *setupProfileCache) fill(key string, window []setups.Session, complete []setupProfileSession) ([]setups.Session, time.Time, []setups.Session) {
+// the window, and returns the window as assemble would. A row that may not be
+// kept still serves this evaluation.
+func (p *setupProfileCache) fill(key, session string, window []setups.Session, complete []setupProfileSession) ([]setups.Session, time.Time, []setups.Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.rows == nil {
 		p.rows = map[string]*setupProfileRow{}
 	}
 	row := p.rows[key]
-	if row == nil && len(complete) == 0 {
-		return p.assembleLocked(key, window)
-	}
 	if row == nil {
-		if len(p.rows) >= 20 {
-			for k := range p.rows {
-				delete(p.rows, k)
-				break
-			}
-		}
 		row = &setupProfileRow{sessions: map[string]setupProfileSession{}}
-		p.rows[key] = row
+		if len(complete) > 0 && p.admit(session) {
+			p.rows[key] = row
+		}
 	}
+	p.touch(row, session)
 	for _, c := range complete {
 		row.sessions[c.session.Date] = c
 	}
@@ -227,7 +287,7 @@ func (p *setupProfileCache) fill(key string, window []setups.Session, complete [
 			delete(row.sessions, date)
 		}
 	}
-	return p.assembleLocked(key, window)
+	return assembleSetupRow(row, window)
 }
 
 // setupFetchRanges groups sessions (ordered by open) into reads spanning at

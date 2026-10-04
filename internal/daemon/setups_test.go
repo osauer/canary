@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -420,5 +424,124 @@ func TestSetupMissMemoryIsBounded(t *testing.T) {
 	cache.rememberMiss("late", "2026-09-30", "baseline_bars_incomplete", at.Add(setupProfileMissTTL+time.Minute))
 	if len(cache.misses) != 1 {
 		t.Fatalf("expired misses kept: %d", len(cache.misses))
+	}
+}
+
+func TestSetupProfileEvictionPrefersRowsOutsideTheLiveSession(t *testing.T) {
+	live := "2026-09-30"
+	p := setupProfileCache{live: live, today: map[string]bool{}, rows: map[string]*setupProfileRow{}}
+	for i := range 18 {
+		key := fmt.Sprintf("live%02d", i)
+		p.today[key] = true
+		p.rows[key] = &setupProfileRow{session: live, used: uint64(10 + i)}
+	}
+	p.today["live18"], p.today["live19"] = true, true
+	p.rows["stale"] = &setupProfileRow{session: "2026-09-29", used: 30}
+	p.rows["replay"] = &setupProfileRow{session: "2026-09-15", used: 40}
+	// At capacity a live row evicts the least recently used row outside the
+	// live session, however recently live rows were used.
+	if !p.admit(live) || p.rows["stale"] != nil || len(p.rows) != 19 {
+		t.Fatalf("first eviction kept %v", slices.Sorted(maps.Keys(p.rows)))
+	}
+	p.rows["live18"] = &setupProfileRow{session: live, used: 50}
+	if !p.admit(live) || p.rows["replay"] != nil {
+		t.Fatalf("second eviction kept %v", slices.Sorted(maps.Keys(p.rows)))
+	}
+	p.rows["live19"] = &setupProfileRow{session: live, used: 51}
+	// Only live rows remain: a replay is served without being kept, and a
+	// live row past the bound replaces the least recently used live row.
+	if p.admit("2026-09-15") || len(p.rows) != 20 {
+		t.Fatal("a replay evicted a live profile")
+	}
+	if !p.admit(live) || p.rows["live00"] != nil || len(p.rows) != 19 {
+		t.Fatalf("live eviction kept %v", slices.Sorted(maps.Keys(p.rows)))
+	}
+	// The bound follows the distinct contracts evaluated in the live session
+	// up to 40.
+	for i := range 25 {
+		p.today[fmt.Sprintf("extra%02d", i)] = true
+	}
+	if p.capacity() != 40 {
+		t.Fatalf("capacity = %d", p.capacity())
+	}
+	p.today = map[string]bool{"a": true}
+	if p.capacity() != 20 {
+		t.Fatalf("capacity = %d", p.capacity())
+	}
+}
+
+// setupRowSessions maps each cached row's symbol (with an @date suffix for
+// replay rows) to the latest session it served.
+func setupRowSessions(t *testing.T, s *Server) map[string]string {
+	t.Helper()
+	s.setupProfiles.mu.Lock()
+	defer s.setupProfiles.mu.Unlock()
+	out := map[string]string{}
+	for key, row := range s.setupProfiles.rows {
+		raw, suffix, _ := strings.Cut(key, "}@")
+		if suffix != "" {
+			raw += "}"
+			suffix = "@" + suffix
+		}
+		var c rpc.ContractParams
+		if err := json.Unmarshal([]byte(raw), &c); err != nil {
+			t.Fatal(err)
+		}
+		out[c.Symbol+suffix] = row.session
+	}
+	return out
+}
+
+func TestSetupReplaysAndOneOffNamesKeepWatchedProfiles(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	watched := make([]string, 20)
+	for i := range watched {
+		watched[i] = fmt.Sprintf("SYNX%02d", i)
+		mustEvaluateSetup(t, s, watched[i], time.Time{})
+	}
+	// A replay of another session on a watched name is served but not kept:
+	// every row serves the live session.
+	if r := mustEvaluateSetup(t, s, watched[0], time.Date(2026, 9, 15, 10, 17, 0, 0, ny)); r.State != "watching" {
+		t.Fatalf("replay: %+v", r.Reasons)
+	}
+	if rows := setupRowSessions(t, s); len(rows) != 20 {
+		t.Fatalf("replay changed the live rows: %v", rows)
+	}
+	// A one-off live name grows the bound instead of evicting a watched one.
+	mustEvaluateSetup(t, s, "BBB", time.Time{})
+	if rows := setupRowSessions(t, s); len(rows) != 21 {
+		t.Fatalf("one-off name: %v", rows)
+	}
+	before := map[string]int{}
+	for _, name := range watched {
+		mustEvaluateSetup(t, s, name, time.Time{})
+		before[name], _ = src.reads(name)
+	}
+	for _, name := range watched[1:] {
+		if before[name] < 4 || before[name] > 5 {
+			t.Fatalf("%s re-read its window: %d reads", name, before[name])
+		}
+	}
+
+	// Next session: half the watchlist has rolled when a new name arrives at
+	// the bound. The least recently used row outside the live session goes:
+	// yesterday's one-off, not a watched name that has not rolled yet.
+	clock.set(time.Date(2026, 10, 1, 10, 17, 0, 0, ny))
+	for _, name := range watched[:10] {
+		mustEvaluateSetup(t, s, name, time.Time{})
+	}
+	mustEvaluateSetup(t, s, "CCC", time.Time{})
+	rows := setupRowSessions(t, s)
+	if _, ok := rows["BBB"]; ok || len(rows) != 21 {
+		t.Fatalf("eviction after the session change: %v", rows)
+	}
+	for _, name := range watched {
+		mustEvaluateSetup(t, s, name, time.Time{})
+		if after, _ := src.reads(name); after != before[name]+1 {
+			t.Fatalf("%s used %d reads to roll", name, after-before[name])
+		}
 	}
 }
