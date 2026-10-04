@@ -280,3 +280,40 @@ func setupMarkoutMissing(t rpc.SetupMarkoutTarget, reason string, now time.Time)
 	t.Bid, t.Ask, t.BidSize, t.AskSize, t.MarkPrice, t.Markout = nil, nil, nil, nil, nil, nil
 	return t
 }
+
+// handleSetupMarkouts is the read-only markout ledger. It never schedules,
+// captures or reads the broker.
+func (s *Server) handleSetupMarkouts(ctx context.Context, req *rpc.Request) (*rpc.SetupMarkoutsResult, error) {
+	var p rpc.SetupMarkoutsParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	p, err := rpc.NormalizeSetupMarkoutsParams(p)
+	if err != nil {
+		return nil, errBadRequest(err.Error())
+	}
+	since, _ := rpc.SetupMarkoutsSince(p.Since)
+	rt := s.setupMarkouts
+	if rt == nil || rt.store == nil {
+		return nil, fmt.Errorf("setup markout ledger is unavailable")
+	}
+	rows, doc, err := rt.store.list(ctx, setupMarkoutFilter{OrderRef: p.OrderRef, Since: since, Symbol: p.Symbol})
+	if err != nil {
+		return nil, err
+	}
+	out := &rpc.SetupMarkoutsResult{
+		Version: 1, Kind: rpc.SetupMarkoutsKind, AsOf: s.setupMarkoutNow(), Targets: rows,
+		Note: "Entry diagnostic: a displayed quote marked against the actual fill, not a fill, realized profit or accounting. Missing targets are never estimated.",
+		Clock: rpc.SetupMarkoutsClock{
+			TrackingSince: doc.TrackingSince, Pending: len(doc.Pending), MaxPending: setupMarkoutMaxPending,
+			CaptureLeadSeconds: int(setupMarkoutQuoteBudget / time.Second), MaxQuoteAgeSeconds: int(setupMarkoutMaxQuoteAge / time.Second),
+			RegularMinutes: int(setupMarkoutRegularMinutes / time.Minute),
+		},
+	}
+	for _, t := range doc.Pending {
+		if out.Clock.NextTargetAt == nil || t.TargetAt.Before(*out.Clock.NextTargetAt) {
+			out.Clock.NextTargetAt = new(t.TargetAt)
+		}
+	}
+	return out, nil
+}

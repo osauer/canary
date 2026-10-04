@@ -22,8 +22,19 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	expiry := fs.String("expiry", "", "listed option expiry YYYYMMDD")
 	strike := fs.String("strike", "", "owner-selected call strike; requires expiry")
 	jsonOut := fs.Bool("json", false, "emit typed observation evidence")
+	orderRef := fs.String("order-ref", "", "markouts: one Canary order reference")
+	since := fs.String("since", "", "markouts: fills on or after YYYY-MM-DD (New York)")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if fs.NArg() == 1 && fs.Arg(0) == "markouts" {
+		if *specPath != "" || *atText != "" || *expiry != "" || *strike != "" || *conID != 0 {
+			return fail(env, "setups markouts: only --order-ref, --since, --symbol and --json apply")
+		}
+		return runSetupMarkouts(ctx, env, rpc.SetupMarkoutsParams{OrderRef: *orderRef, Since: *since, Symbol: *symbol})
+	}
+	if *orderRef != "" || *since != "" {
+		return fail(env, "order-ref and since apply to setups markouts only")
 	}
 	if fs.NArg() == 1 && fs.Arg(0) == "options" {
 		if *specPath != "" || *atText != "" {
@@ -116,4 +127,21 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	}
 	fmt.Fprintln(env.Stdout, "Observation only. Risk, option feasibility and exact order authority are separate.")
 	return 0
+}
+
+// runSetupMarkouts prints the read-only entry-markout ledger as JSON. Rows are
+// an entry diagnostic, not realized profit.
+func runSetupMarkouts(ctx context.Context, env *Env, p rpc.SetupMarkoutsParams) int {
+	p, err := rpc.NormalizeSetupMarkoutsParams(p)
+	if err != nil {
+		return fail(env, "setups markouts: %v", err)
+	}
+	var out rpc.SetupMarkoutsResult
+	if err := env.Conn.Call(ctx, rpc.MethodSetupsMarkouts, p, &out); err != nil {
+		return fail(env, "setups markouts: %v", err)
+	}
+	if out.Targets == nil {
+		out.Targets = []rpc.SetupMarkoutTarget{}
+	}
+	return printJSON(env, out)
 }

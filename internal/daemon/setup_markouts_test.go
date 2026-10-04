@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -318,5 +319,60 @@ func TestSetupMarkoutOfferNeverBlocksAndRescanRecoversFromTheJournal(t *testing.
 	}
 	if _, ok := rows["exec-manual/t30"]; ok {
 		t.Fatal("rescan scheduled a manual order")
+	}
+}
+
+func TestSetupMarkoutsReadFiltersAndLabelsTheDiagnostic(t *testing.T) {
+	t.Parallel()
+	fillAt := markoutET(t, "2026-10-01 10:00")
+	clock := &markoutTestClock{at: fillAt.Add(time.Second)}
+	s, _ := newMarkoutTestServer(t, filepath.Join(privateTestDir(t), "daemon.db"), clock)
+	first, second := markoutFill(fillAt, "ref-1", "exec-1"), markoutFill(fillAt.Add(24*time.Hour), "ref-2", "exec-2")
+	second.Symbol = "AAA"
+	first.At = clock.at
+	s.scheduleSetupMarkoutFill(t.Context(), first)
+	clock.at = fillAt.Add(24*time.Hour + time.Second)
+	second.At = clock.at
+	s.scheduleSetupMarkoutFill(t.Context(), second)
+	s.sweepSetupMarkouts(t.Context(), clock.at)
+
+	read := func(p rpc.SetupMarkoutsParams) *rpc.SetupMarkoutsResult {
+		t.Helper()
+		raw, _ := json.Marshal(p)
+		out, err := s.handleSetupMarkouts(t.Context(), &rpc.Request{Params: raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	all := read(rpc.SetupMarkoutsParams{})
+	if all.Kind != rpc.SetupMarkoutsKind || len(all.Targets) != 4 || all.Clock.MaxPending != setupMarkoutMaxPending || all.Clock.Pending != 3 {
+		t.Fatalf("ledger = %+v", all)
+	}
+	if all.Clock.NextTargetAt == nil || !all.Clock.NextTargetAt.Equal(markoutET(t, "2026-10-02 10:30")) || all.Clock.TrackingSince.IsZero() {
+		t.Fatalf("schedule clock = %+v", all.Clock)
+	}
+	statuses := map[string]string{}
+	for _, row := range all.Targets {
+		statuses[row.ExecID+"/"+row.Horizon] = row.Status + ":" + row.Reason
+	}
+	if statuses["exec-1/t30"] != "missing:capture_window_missed" || statuses["exec-1/next_close"] != "pending:" || statuses["exec-2/t30"] != "pending:" {
+		t.Fatalf("statuses = %v", statuses)
+	}
+	if got := read(rpc.SetupMarkoutsParams{OrderRef: "ref-2"}); len(got.Targets) != 2 || got.Targets[0].OrderRef != "ref-2" {
+		t.Fatalf("order filter = %+v", got.Targets)
+	}
+	if got := read(rpc.SetupMarkoutsParams{Since: "2026-10-02"}); len(got.Targets) != 2 || got.Targets[0].ExecID != "exec-2" {
+		t.Fatalf("since filter = %+v", got.Targets)
+	}
+	if got := read(rpc.SetupMarkoutsParams{Symbol: "synx"}); len(got.Targets) != 2 || got.Targets[0].Contract.Symbol != "SYNX" {
+		t.Fatalf("symbol filter = %+v", got.Targets)
+	}
+	if got := read(rpc.SetupMarkoutsParams{Symbol: "BBB"}); got.Targets == nil || len(got.Targets) != 0 {
+		t.Fatal("empty ledger is not an empty array")
+	}
+	raw, _ := json.Marshal(rpc.SetupMarkoutsParams{Since: "10/01/2026"})
+	if _, err := s.handleSetupMarkouts(t.Context(), &rpc.Request{Params: raw}); err == nil {
+		t.Fatal("malformed since was accepted")
 	}
 }

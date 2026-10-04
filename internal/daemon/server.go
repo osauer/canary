@@ -2666,6 +2666,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleSetupsEvaluate(ctx, req) })
 	case rpc.MethodSetupsOptions:
 		s.unary(req, enc, func() (any, error) { return s.handleSetupOptions(ctx, req) })
+	case rpc.MethodSetupsMarkouts:
+		s.unary(req, enc, func() (any, error) { return s.handleSetupMarkouts(ctx, req) })
 	case rpc.MethodMacroSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMacroRequest(*req) })
 	case rpc.MethodMarketCalendar:

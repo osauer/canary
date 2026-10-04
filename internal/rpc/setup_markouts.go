@@ -1,6 +1,16 @@
 package rpc
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
+
+// MethodSetupsMarkouts reads scheduled, captured and missing entry markouts.
+const MethodSetupsMarkouts = "setups.markouts"
+
+// SetupMarkoutsKind labels every markout read as an entry diagnostic.
+const SetupMarkoutsKind = "entry_diagnostic"
 
 // Setup markout horizons. T30 is thirty regular-session minutes after the
 // fill on the exchange calendar; NextClose is the scheduled close of the first
@@ -64,4 +74,67 @@ type SetupMarkoutTarget struct {
 	// favours the fill. Commission is not included.
 	Markout  *float64 `json:"markout,omitempty"`
 	Currency string   `json:"currency,omitempty"`
+}
+
+// SetupMarkoutsParams filters the markout read. Since is a YYYY-MM-DD date
+// compared with the fill time at midnight America/New_York.
+type SetupMarkoutsParams struct {
+	OrderRef string `json:"order_ref,omitempty"`
+	Since    string `json:"since,omitempty"`
+	Symbol   string `json:"symbol,omitempty"`
+}
+
+// NormalizeSetupMarkoutsParams trims and validates the read filters.
+func NormalizeSetupMarkoutsParams(p SetupMarkoutsParams) (SetupMarkoutsParams, error) {
+	p.OrderRef = strings.TrimSpace(p.OrderRef)
+	p.Since = strings.TrimSpace(p.Since)
+	p.Symbol = strings.ToUpper(strings.TrimSpace(p.Symbol))
+	if len(p.OrderRef) > 128 || len(p.Symbol) > 32 {
+		return p, fmt.Errorf("order_ref or symbol is too long")
+	}
+	if _, err := SetupMarkoutsSince(p.Since); err != nil {
+		return p, err
+	}
+	return p, nil
+}
+
+// SetupMarkoutsSince resolves Since to its New York midnight; empty is zero.
+func SetupMarkoutsSince(since string) (time.Time, error) {
+	if since == "" {
+		return time.Time{}, nil
+	}
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.Time{}, err
+	}
+	day, err := time.ParseInLocation(time.DateOnly, since, loc)
+	if err != nil || day.Format(time.DateOnly) != since {
+		return time.Time{}, fmt.Errorf("since must be a YYYY-MM-DD date")
+	}
+	return day, nil
+}
+
+// SetupMarkoutsClock describes the capture schedule itself.
+type SetupMarkoutsClock struct {
+	// TrackingSince is when this daemon database began scheduling markouts;
+	// earlier fills are never scheduled or backdated.
+	TrackingSince time.Time `json:"tracking_since"`
+	Pending       int       `json:"pending"`
+	MaxPending    int       `json:"max_pending"`
+	// NextTargetAt is the earliest pending target, when one exists.
+	NextTargetAt       *time.Time `json:"next_target_at,omitempty"`
+	CaptureLeadSeconds int        `json:"capture_lead_seconds"`
+	MaxQuoteAgeSeconds int        `json:"max_quote_age_seconds"`
+	RegularMinutes     int        `json:"regular_minutes"`
+}
+
+// SetupMarkoutsResult is the read-only markout ledger. Kind is always
+// entry_diagnostic: these rows are not realized profit or accounting.
+type SetupMarkoutsResult struct {
+	Version int                  `json:"version"`
+	Kind    string               `json:"kind"`
+	Note    string               `json:"note"`
+	AsOf    time.Time            `json:"as_of"`
+	Clock   SetupMarkoutsClock   `json:"clock"`
+	Targets []SetupMarkoutTarget `json:"targets"`
 }

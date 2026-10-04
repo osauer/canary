@@ -25,7 +25,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary market`](#canary-market) | Markets | Observed quotes, price history and a daily price/breadth/volume tape | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary watchlist`](#canary-watchlist) | Markets | Read and edit the durable owner watchlist; no broker or policy changes | `local` | CLI only |
-| [`canary setups`](#canary-setups) | Markets | Observe volume turns and discover exact standard calls; no trade or policy authority | `read-only` | CLI only |
+| [`canary setups`](#canary-setups) | Markets | Observe volume turns, discover exact standard calls and read entry markouts; no trade or policy authority | `read-only` | CLI only |
 | [`canary calendar`](#canary-calendar) | Markets | Official exchange sessions, holidays, early closes, and coverage bounds | `read-only` | yes |
 | [`canary macro`](#canary-macro) | Markets | Public economic calendar, official publications and source coverage | `read-only` | yes |
 | [`canary regime`](#canary-regime) | Markets | Detailed broad-market regime across volatility, credit, funding, FX, gamma, and breadth | `read-only` | yes |
@@ -267,16 +267,17 @@ canary watchlist replace --spec PATH|- [--json]
 
 ## `canary setups`
 
-Observe volume turns and discover exact standard calls; no trade or policy authority.
+Observe volume turns, discover exact standard calls and read entry markouts; no trade or policy authority.
 
 Guard `read-only`. CLI only, with no MCP tool: owner-configured entry observations ship through CLI and the typed host client first; no model tool or automatic playbook activation.
 
 ```text
 canary setups evaluate --spec PATH|- --symbol SYMBOL [--con-id ID] [--at RFC3339] [--json]
 canary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] --json
+canary setups markouts --json [--order-ref REF] [--since YYYY-MM-DD] [--symbol SYMBOL]
 ```
 
-Subcommands: `evaluate`, `options`.
+Subcommands: `evaluate`, `options`, `markouts`.
 
 **Flags**
 
@@ -288,6 +289,8 @@ Subcommands: `evaluate`, `options`.
 | `--at` | yes | - |
 | `--expiry` | yes | - |
 | `--strike` | yes | - |
+| `--order-ref` | yes | - |
+| `--since` | yes | - |
 | `--json` | no | - |
 
 ## `canary calendar`
