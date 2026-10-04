@@ -18,6 +18,13 @@ because their file identity cannot be established. Unterminated final records
 remain unread until completed. Cursor files are private, atomically replaced,
 and contain counts and digests rather than raw log text.
 
+The daemon writes its process-level fatal output (the runtime's SIGQUIT
+goroutine dump, an unrecovered panic) to `<daemon-log-name>.crash.log` beside
+its log. The monitor scans that file with its own cursor (`-daemon-crash-log`,
+`-daemon-crash-offset`; both derive from the daemon paths by default) and
+reports new content as one ERROR signal naming the first line and the line
+count, never the trace itself. A missing crash log is normal.
+
 Missing logs require attention. `-stale-after=24h` also flags inactive logs as
 **health unverified**, not as proof of a service outage; set a different interval
 or zero to disable this check for deliberately quiet deployments. A clean scan

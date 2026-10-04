@@ -33,23 +33,56 @@ func Open(path string, maxBytes int64) (*Writer, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBytes
 	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := prepare(path, maxBytes); err != nil {
 		return nil, err
-	}
-	if err := os.Chmod(dir, 0o700); err != nil {
-		return nil, err
-	}
-	if info, err := os.Stat(path); err == nil && info.Size() >= maxBytes {
-		// Best-effort: a rename failure leaves the oversized file in place
-		// for the append open below rather than blocking process start.
-		_ = os.Rename(path, path+".1")
 	}
 	w := &Writer{path: path, maxBytes: maxBytes}
 	if err := w.open(); err != nil {
 		return nil, err
 	}
 	return w, nil
+}
+
+// OpenFile applies the same directory, permission and open-time rotation
+// policy as Open but hands back the appending *os.File itself, for a stream
+// that must be a real descriptor rather than an io.Writer: the daemon points
+// file descriptor 2 at its crash log this way so the runtime's own fatal
+// output (a SIGQUIT goroutine dump, an unrecovered panic) has a file of its
+// own. There is no runtime rotation; such a file is written rarely.
+func OpenFile(path string, maxBytes int64) (*os.File, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxBytes
+	}
+	if err := prepare(path, maxBytes); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// prepare creates the 0700 directory and rolls an already oversized file
+// aside before it is opened for appending.
+func prepare(path string, maxBytes int64) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	if info, err := os.Stat(path); err == nil && info.Size() >= maxBytes {
+		// Best-effort: a rename failure leaves the oversized file in place
+		// for the append open below rather than blocking process start.
+		_ = os.Rename(path, path+".1")
+	}
+	return nil
 }
 
 func (w *Writer) open() error {

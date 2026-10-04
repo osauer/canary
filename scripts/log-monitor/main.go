@@ -29,17 +29,22 @@ const (
 )
 
 type options struct {
-	daemonLog        string
-	appLog           string
-	daemonOffset     string
-	appOffset        string
-	daemonMirror     string
-	holdingsStore    string
-	holdingsCache    string
-	maxSignals       int
-	commit           bool
-	staleAfter       time.Duration
-	mirrorStaleAfter time.Duration
+	daemonLog string
+	appLog    string
+	// daemonCrashLog is the daemon's process-level fatal stream (runtime
+	// dumps, panics), kept beside the daemon log. Empty derives it from
+	// daemonLog; its cursor likewise derives from daemonOffset.
+	daemonCrashLog    string
+	daemonCrashOffset string
+	daemonOffset      string
+	appOffset         string
+	daemonMirror      string
+	holdingsStore     string
+	holdingsCache     string
+	maxSignals        int
+	commit            bool
+	staleAfter        time.Duration
+	mirrorStaleAfter  time.Duration
 }
 
 type report struct {
@@ -51,6 +56,9 @@ type report struct {
 	Holdings string    `json:"holdings"`
 	Daemon   logReport `json:"daemon"`
 	App      logReport `json:"app"`
+	// CrashLog names the daemon's crash output file when it exists; new
+	// content there is one ERROR signal on the daemon report.
+	CrashLog string `json:"crash_log,omitempty"`
 }
 
 type logReport struct {
@@ -138,6 +146,8 @@ func main() {
 	opts := options{}
 	flag.StringVar(&opts.daemonLog, "daemon-log", filepath.Join(home, ".local", "state", "ibkr", "ibkr-daemon.log"), "daemon log path")
 	flag.StringVar(&opts.appLog, "app-log", defaultAppLog(home, runtime.GOOS), "app log path (macOS launchd stderr by default)")
+	flag.StringVar(&opts.daemonCrashLog, "daemon-crash-log", "", "daemon crash output path (default: the daemon log's name with a .crash.log suffix, beside it)")
+	flag.StringVar(&opts.daemonCrashOffset, "daemon-crash-offset", "", "crash output private cursor path (default: -daemon-offset with a .crash suffix)")
 	flag.StringVar(&opts.daemonOffset, "daemon-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.offset"), "daemon private cursor path (legacy line offsets are migrated)")
 	flag.StringVar(&opts.appOffset, "app-offset", filepath.Join(home, ".claude", "scheduled-tasks", "ibkr-daemon-log-check.app.offset"), "app private cursor path (legacy line offsets are migrated)")
 	flag.IntVar(&opts.maxSignals, "max-signals", defaultMaxSignals, "maximum signal samples per log")
@@ -175,6 +185,11 @@ func run(opts options, now time.Time) (report, error) {
 	if err != nil {
 		return report{}, fmt.Errorf("scan app log: %w", err)
 	}
+	crashLog, crashOffset := opts.crashPaths()
+	crash, err := scanIncremental(crashLog, crashOffset)
+	if err != nil {
+		return report{}, fmt.Errorf("scan daemon crash log: %w", err)
+	}
 
 	result := report{
 		Version:     reportVersion,
@@ -182,6 +197,27 @@ func run(opts options, now time.Time) (report, error) {
 		Holdings:    held.source,
 		Daemon:      classifyDaemon(daemon, int(^uint(0)>>1)),
 		App:         classifyApp(app, int(^uint(0)>>1)),
+	}
+	if crash.state != "missing" {
+		result.CrashLog = crash.path
+	}
+	// The crash log is the runtime's own output — a goroutine dump, a panic —
+	// so its content is one finding, not a line-by-line classification; the
+	// first line names the cause ("SIGQUIT: quit", "panic: …", "fatal error:
+	// …") and the count says how much landed.
+	if crash.state == "scanned" {
+		first, lines := "", 0
+		for _, line := range crash.lines {
+			if trimmed := strings.TrimSpace(line); trimmed != "" {
+				lines++
+				if first == "" {
+					first = redactMessage(trimmed)
+				}
+			}
+		}
+		if lines > 0 {
+			addSignal(&result.Daemon, "ERROR", "crash_output", "daemon crash output written: "+first, lines)
+		}
 	}
 	applyCoverage(&result.Daemon, daemon, now, opts.staleAfter)
 	applyCoverage(&result.App, app, now, opts.staleAfter)
@@ -206,8 +242,28 @@ func run(opts options, now time.Time) (report, error) {
 				return report{}, fmt.Errorf("write app offset: %w", err)
 			}
 		}
+		if crash.state != "missing" {
+			if err := writeCursor(crashOffset, crash.cursor); err != nil {
+				return report{}, fmt.Errorf("write crash offset: %w", err)
+			}
+		}
 	}
 	return result, nil
+}
+
+// crashPaths resolves the crash log and its cursor, deriving them from the
+// daemon log and cursor when not given: the daemon writes
+// <daemon-log-name>.crash.log beside its log.
+func (o options) crashPaths() (logPath, offsetPath string) {
+	logPath, offsetPath = o.daemonCrashLog, o.daemonCrashOffset
+	if logPath == "" {
+		base := strings.TrimSuffix(filepath.Base(o.daemonLog), ".log")
+		logPath = filepath.Join(filepath.Dir(o.daemonLog), base+".crash.log")
+	}
+	if offsetPath == "" {
+		offsetPath = o.daemonOffset + ".crash"
+	}
+	return logPath, offsetPath
 }
 
 func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
@@ -519,6 +575,13 @@ func safeMessage(line string) string {
 	if message == "" {
 		message = "log signal"
 	}
+	return redactMessage(message)
+}
+
+// redactMessage applies the report's redaction and normalization to free
+// text that is already known to be the message, such as the first line of a
+// runtime crash dump, which carries no slog fields.
+func redactMessage(message string) string {
 	message = accountPattern.ReplaceAllString(message, "[account]")
 	message = sensitiveField.ReplaceAllString(message, "$1=[redacted]")
 	message = symbolPhrase.ReplaceAllString(message, "for [symbol] via")

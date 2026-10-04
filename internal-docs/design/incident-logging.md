@@ -25,6 +25,20 @@ silence incident; an old subscription frame, reconnect, or attempted rebuild
 cannot claim recovery. Frame quality remains separately visible in account
 health.
 
+## Crash output
+
+The daemon's supervisor redirects its stderr into the daemon log. At startup
+the daemon moves file descriptor 2 to `<log name>.crash.log` beside the log
+(`cmd/canary/crash_output.go`, `dial.CrashLogPath`), so the runtime's own
+fatal output — a SIGQUIT goroutine dump, an unrecovered panic, a fatal runtime
+error — has a file of its own and cannot bury the slog stream (the 2026-10-03
+SIGQUIT put 11,817 trace lines into `ibkr-daemon.log`). The slog writer keeps
+its own descriptor. The crash log rotates once at open past 8 MiB and is
+otherwise written only when something is fatally wrong; the log monitor reports
+new content there as one ERROR signal naming the first line and the line
+count. Lines written before the redirect (argument or config rejections) still
+reach the inherited stderr, as before.
+
 ## Authority storage incident
 
 The daemon's authority store (`corestore.Store`) latches fail-closed on a
@@ -128,6 +142,14 @@ Code 200 for a symbol-only stock lookup (no conID on the request) is a
 discovery miss at INFO — screen candidates, warrants and units — while a 200
 for a request that carried a conID stays a warning, because a known identity
 that stops resolving is the stale-cache case worth an operator's attention.
+
+A parser misalignment — the gateway reading a request frame shifted by one
+byte or field — is recognised only by its echo: a parse-fault code (320–323)
+or an explicit parse-exception text that quotes a venue name without its first
+byte as a token of its own (`MART`, `BOE`, `ASDAQ`), or a NumberFormatException
+naming a non-numeric value. That echo logs at ERROR with the suspicious
+outbound frame as context. Any other notice that merely mentions SMART or CBOE
+keeps its ordinary severity (`pkg/ibkr/notice_misalignment.go`).
 
 Data-farm notices (2103/2105/2157 breaks, 2104/2106/2158 recoveries) log the
 transition at INFO. A farm break warns once when it has lasted five minutes

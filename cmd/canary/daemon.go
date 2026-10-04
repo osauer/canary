@@ -59,7 +59,11 @@ func runDaemon(args []string) {
 		socketPath = dial.DefaultSocketPath()
 	}
 
-	logWriter, err := openDaemonLog(*logPath)
+	effectiveLogPath := *logPath
+	if effectiveLogPath == "" {
+		effectiveLogPath = dial.DefaultLogPath()
+	}
+	logWriter, err := openDaemonLog(effectiveLogPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open log: %v\n", err)
 		os.Exit(2)
@@ -69,11 +73,22 @@ func runDaemon(args []string) {
 			_ = c.Close()
 		}
 	}()
+	// The supervisor redirected stderr into the log file; move the
+	// process-level fatal stream (runtime dumps, panics) to its own file so
+	// a single SIGQUIT cannot bury the log, and so the log monitor sees a
+	// crash as one signal. A failure here is reported and tolerated.
+	var crashErr error
+	if effectiveLogPath != "stderr" {
+		_, crashErr = captureCrashOutput(dial.CrashLogPath(effectiveLogPath))
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	logger := daemon.NewLogger(logWriter, resolved.Daemon.LogLevel)
+	if crashErr != nil {
+		logger.Warnf("crash output stays in the daemon log: %v", crashErr)
+	}
 	for _, issue := range configIssues {
 		logger.Warnf("config: %s", issue)
 	}

@@ -75,6 +75,17 @@ func DefaultLogPath() string {
 	return filepath.Join(home, ".local", "state", productidentity.PersistentNamespace, "ibkr-daemon.log")
 }
 
+// CrashLogPath is where the daemon sends its process-level fatal output (the
+// runtime's SIGQUIT goroutine dump, an unrecovered panic): beside the daemon
+// log it describes, named after it with a .crash.log suffix. It is separate
+// from the slog stream so that one dump cannot bury the log — the 2026-10-03
+// SIGQUIT added 11,817 lines to ibkr-daemon.log — and so the log monitor can
+// report "crash output written" as one signal instead of parsing a trace.
+func CrashLogPath(logPath string) string {
+	base := strings.TrimSuffix(filepath.Base(logPath), ".log")
+	return filepath.Join(filepath.Dir(logPath), base+".crash.log")
+}
+
 // DisplayPath renders p for a human-facing hint, abbreviating the home
 // directory to ~. Hints name the path Canary will actually use; spelling the
 // home directory out puts the account name into terminal output and

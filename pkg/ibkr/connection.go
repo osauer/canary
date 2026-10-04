@@ -3583,7 +3583,7 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	// Repeat probes of an entitlement gap the connector has warned about
 	// once are informational.
 	repeatGap := note.code == 354 && noticeCtx.knownEntitlementGap != nil && noticeCtx.knownEntitlementGap(int(note.tickerID), aliasEntry)
-	parserMisalign := strings.Contains(upperMsg, "MART") || strings.Contains(upperMsg, "'BOE") || strings.Contains(upperMsg, "\"BOE") || strings.Contains(upperMsg, " BOE")
+	parserMisalign := noticeSignalsParserMisalignment(note.code, note.message)
 	context := ""
 	if parserMisalign {
 		context = c.parserContext(symbolAlias)

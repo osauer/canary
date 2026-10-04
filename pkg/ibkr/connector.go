@@ -6512,8 +6512,7 @@ func (c *Connector) handleIBKRErrorFrom(origin ConnectorSessionBinding, fields [
 	if symbol != "" && symbol != upperSymbol {
 		symbol = upperSymbol
 	}
-	parserMisalign := strings.Contains(upperMsg, "MART") ||
-		strings.Contains(upperMsg, "'BOE") || strings.Contains(upperMsg, "\"BOE") || strings.Contains(upperMsg, " BOE")
+	parserMisalign := noticeSignalsParserMisalignment(code, rawMsg)
 	if parserMisalign {
 		context := c.parserContext(symbol)
 		if context != "" {
