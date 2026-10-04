@@ -45,6 +45,9 @@ var commandNotes = map[string]string{
 		"Stopping the daemon records a persistent stop intent for its socket. Ordinary CLI, MCP and app requests cannot start it again until `canary restart` clears that intent. MCP servers belong to the AI client that started them and are reported, never signalled.",
 	"settings": "`show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. " +
 		"The keys are listed in the [configuration reference](config.md).",
+	"setups": "`options` reads in three steps: listed expiries; with `--expiry`, up to 21 listed call strikes around the underlying price, which carry no prices (`status: not_requested`); with `--strike`, the exact call. " +
+		"Only that exact call carries a `quote`, read once within 5 seconds on a market-data line opened for this request: `status: quoted` with `bid`, `ask`, `as_of` and `data_type` when both sides are finite and positive, the bid is at most the ask, `as_of` is no more than 60 seconds old, and the broker labelled the data `live`, `delayed`, `frozen` or `delayed-frozen`. " +
+		"Anything else is `status: missing` with no prices. A missing quote never fails the selection, and the order preview still prices any order.",
 }
 
 func main() {

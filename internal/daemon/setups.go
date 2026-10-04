@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -14,33 +13,32 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// Only complete, comparable baseline observations are memoized. This bounded
-// cache is disposable market evidence, not a candidate or execution ledger.
-type setupProfileCache struct {
-	mu   sync.Mutex
-	gate chan struct{}
-	rows map[string]setupProfile
+// setupBarSource is the broker surface a setup evaluation reads. The live
+// connector implements it; daemon tests replace it.
+type setupBarSource interface {
+	CaptureHistoricalSession() (ibkrlib.HistoricalSessionBinding, bool)
+	HistoricalSessionCurrent(ibkrlib.HistoricalSessionBinding) bool
+	ResolveOrderContractForSession(context.Context, ibkrlib.ConnectorSessionBinding, ibkrlib.Contract, time.Duration) (ibkrlib.ResolvedOrderContract, error)
+	FetchSetupBars(context.Context, ibkrlib.Contract, time.Time, time.Time, time.Duration) ([]ibkrlib.HistoricalBar, error)
 }
 
-func (p *setupProfileCache) lock(ctx context.Context) error {
-	p.mu.Lock()
-	if p.gate == nil {
-		p.gate = make(chan struct{}, 1)
+// setupSource returns the test override, else the live connector, else nil.
+func (s *Server) setupSource() setupBarSource {
+	if s.setupSourceForTest != nil {
+		return s.setupSourceForTest
 	}
-	gate := p.gate
-	p.mu.Unlock()
-	select {
-	case gate <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	if c := s.gatewayConnector(); c != nil {
+		return c
 	}
+	return nil
 }
-func (p *setupProfileCache) unlock() { <-p.gate }
 
-type setupProfile struct {
-	prior    []setups.Session
-	observed time.Time
+// setupClock is the daemon clock for setup decisions and acquisition stamps.
+func (s *Server) setupClock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*rpc.SetupResult, error) {
@@ -48,21 +46,43 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	if s.now != nil {
-		now = s.now()
-	}
+	now := s.setupClock()
 	var err error
 	p, err = rpc.NormalizeSetupEvaluateParams(p, now)
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
+	ev := setupCoverageEvent{at: now, contract: p.Contract}
+	r, err := s.evaluateSetup(ctx, p, now, &ev)
+	if err == nil && ev.live {
+		ev.state = setupCoverageState(r)
+		s.recordSetupCoverage(ev)
+	}
+	return r, err
+}
+
+// countingSetupSource counts the historical requests one evaluation issues.
+type countingSetupSource struct {
+	setupBarSource
+	reads *int
+}
+
+func (c countingSetupSource) FetchSetupBars(ctx context.Context, contract ibkrlib.Contract, start, end time.Time, timeout time.Duration) ([]ibkrlib.HistoricalBar, error) {
+	*c.reads++
+	return c.setupBarSource.FetchSetupBars(ctx, contract, start, end, timeout)
+}
+
+// evaluateSetup serves one evaluation and describes it in ev for coverage.
+func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, now time.Time, ev *setupCoverageEvent) (*rpc.SetupResult, error) {
 	at := p.At
 	historical := !at.IsZero()
 	if at.IsZero() {
 		at = now
 	}
 	current, prior, err := setupSessionWindows(at, p.Spec.BaselineSessions)
+	// Coverage counts live evaluations inside a regular session only.
+	ev.session = current
+	ev.live = !historical && !current.Open.IsZero() && !at.Before(current.Open) && at.Before(current.Close)
 	base := setups.Input{Contract: p.Contract, At: at, ObservedAt: now, Historical: historical, Current: current}
 	unavailable := func(reason string) *rpc.SetupResult {
 		r := setups.Evaluate(p.Spec, base)
@@ -72,10 +92,11 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err != nil {
 		return unavailable(err.Error()), nil
 	}
-	c := s.gatewayConnector()
+	var c setupBarSource = s.setupSource()
 	if c == nil {
 		return unavailable("gateway_unavailable"), nil
 	}
+	c = countingSetupSource{setupBarSource: c, reads: &ev.requests}
 	binding, ok := c.CaptureHistoricalSession()
 	if !ok {
 		return unavailable("gateway_unavailable"), nil
@@ -84,7 +105,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := c.ResolveOrderContractForSession(ctx, binding, contract, 10*time.Second)
+	resolved, err := s.resolveSetupContract(ctx, c, binding, contract)
 	if err != nil {
 		return unavailable("contract_resolution_unavailable"), nil
 	}
@@ -93,63 +114,112 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		return unavailable("unsupported_underlying_calendar"), nil
 	}
 	base.Contract = rpc.ContractParams{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange, PrimaryExch: contract.PrimaryExch, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
-	keyBytes, _ := json.Marshal(struct {
-		Contract rpc.ContractParams
-		Date     string
-	}{base.Contract, current.Date})
-	key := string(keyBytes)
-	// Serialize cold profile collection so one watchlist cannot fan out into
-	// hundreds of HMDS reads. The underlying client retains its own pacing.
-	if err := s.setupProfiles.lock(ctx); err != nil {
-		return unavailable("profile_acquisition_cancelled"), nil
-	}
-	if s.setupProfiles.rows == nil {
-		s.setupProfiles.rows = map[string]setupProfile{}
-	}
-	profile, found := s.setupProfiles.rows[key]
-	if !found {
-		bars, e := collectSetupHistory(ctx, prior[0].Open, prior[len(prior)-1].Close, func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
-			return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
-		})
-		if e == nil {
-			profile.prior = attachSetupBars(prior, bars)
-			profile.observed = time.Now()
-			if setupBaselineComplete(profile.prior) {
-				if len(s.setupProfiles.rows) >= 20 {
-					for k := range s.setupProfiles.rows {
-						delete(s.setupProfiles.rows, k)
-						break
-					}
-				}
-				s.setupProfiles.rows[key] = profile
-			} else {
-				e = fmt.Errorf("baseline_bars_incomplete")
+	ev.contract = base.Contract
+	rawKey, _ := json.Marshal(base.Contract)
+	contractKey := string(rawKey)
+	key := s.setupProfiles.rowKey(contractKey, current.Date, historical)
+	// A cached profile is read without the gate. Cold collection is serialized
+	// so one watchlist cannot fan out into hundreds of HMDS reads; the
+	// underlying client retains its own pacing.
+	profile, observed, missing := s.setupProfiles.assemble(key, current.Date, prior)
+	if len(missing) > 0 {
+		// A remembered miss answers without a read until it expires.
+		if reason, ok := s.setupProfiles.miss(contractKey, current.Date, now); ok {
+			return unavailable("baseline_history_unavailable: " + reason), nil
+		}
+		if err := s.setupProfiles.lock(ctx); err != nil {
+			return unavailable("profile_acquisition_cancelled"), nil
+		}
+		// Another request may have filled the profile, or failed to, while
+		// this one waited.
+		profile, observed, missing = s.setupProfiles.assemble(key, current.Date, prior)
+		var reason string
+		if len(missing) > 0 {
+			reason, _ = s.setupProfiles.miss(contractKey, current.Date, s.setupClock())
+		}
+		if len(missing) > 0 && reason == "" {
+			var e error
+			profile, observed, e = s.acquireSetupProfile(ctx, c, contract, key, current.Date, prior, missing)
+			switch {
+			case e == nil:
+				s.setupProfiles.clearMiss(contractKey, current.Date)
+			case ctx.Err() != nil || !c.HistoricalSessionCurrent(binding):
+				// The caller's cancellation or a broker reconnect says nothing
+				// about the history; the next evaluation reads again.
+				reason = e.Error()
+			default:
+				reason = s.setupProfiles.rememberMiss(contractKey, current.Date, e.Error(), s.setupClock())
 			}
 		}
-		if e != nil {
-			s.setupProfiles.unlock()
-			return unavailable("baseline_history_unavailable: " + e.Error()), nil
+		s.setupProfiles.unlock()
+		if reason != "" {
+			return unavailable("baseline_history_unavailable: " + reason), nil
 		}
 	}
-	s.setupProfiles.unlock()
 	if !c.HistoricalSessionCurrent(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
-	bars, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
-	if err != nil {
-		return unavailable("current_history_unavailable: " + err.Error()), nil
+	if historical {
+		bars, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
+		if err != nil {
+			return unavailable("current_history_unavailable: " + err.Error()), nil
+		}
+		base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
+		base.ObservedAt = s.setupClock()
+	} else {
+		// A live evaluation reads the current session at most once per
+		// completed bar. Reused bars reproduce the evaluation at their own
+		// decision and acquisition clocks.
+		bars, _, err := s.liveCurrentBars(ctx, c, binding, contract, contractKey, current, at, observed)
+		if err != nil {
+			return unavailable("current_history_unavailable: " + err.Error()), nil
+		}
+		base.At, base.ObservedAt, base.Current = bars.at, bars.acquired, bars.session
 	}
 	if !c.HistoricalSessionCurrent(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
-	base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
-	base.Prior = profile.prior
-	base.BaselineObservedAt = profile.observed
-	base.ObservedAt = time.Now()
+	base.Prior = profile
+	base.BaselineObservedAt = observed
 	// An explicit historical clock is reconstructed now, never evidence that
 	// these corrected bars were available then. Current reads expire on age.
 	r := setups.Evaluate(p.Spec, base)
 	return &r, nil
+}
+
+// acquireSetupProfile reads only the window sessions the cache lacks, keeps
+// every complete session it received, and reports an incomplete window.
+func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract ibkrlib.Contract, key, session string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
+	var bars []ibkrlib.HistoricalBar
+	var readErr error
+	for _, r := range setupFetchRanges(missing) {
+		got, err := collectSetupHistory(ctx, r[0], r[1], func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
+			return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
+		})
+		if err == nil && len(bars)+len(got) > 2000 {
+			err = fmt.Errorf("setup_history_exceeds_2000_bars")
+		}
+		if err != nil {
+			readErr = err
+			break
+		}
+		bars = append(bars, got...)
+	}
+	acquired := s.setupClock()
+	var complete []setupProfileSession
+	for _, session := range attachSetupBars(missing, bars) {
+		if setups.ValidateSession(session, true) == nil {
+			complete = append(complete, setupProfileSession{session: session, acquired: acquired})
+		}
+	}
+	prior, observed, still := s.setupProfiles.fill(key, session, window, complete)
+	if readErr != nil {
+		return nil, time.Time{}, readErr
+	}
+	if len(still) > 0 {
+		return nil, time.Time{}, fmt.Errorf("baseline_bars_incomplete")
+	}
+	return prior, observed, nil
 }
 
 func setupSessionWindows(at time.Time, count int) (setups.Session, []setups.Session, error) {
@@ -223,12 +293,4 @@ func attachSetupBars(sessions []setups.Session, bars []ibkrlib.HistoricalBar) []
 		}
 	}
 	return out
-}
-func setupBaselineComplete(prior []setups.Session) bool {
-	for _, p := range prior {
-		if setups.ValidateSession(p, true) != nil {
-			return false
-		}
-	}
-	return true
 }

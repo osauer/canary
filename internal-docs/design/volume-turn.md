@@ -1,5 +1,7 @@
 # Intraday volume-turn observation
 
+Updated: 2026-10-04 11:57 CEST (historical-request budget, coverage instrument, resolution reuse)
+
 `canary setups evaluate --spec /private/path/playbook.json --symbol SYNTH --con-id 17 --json`
 evaluates one owner-selected US stock without changing settings, risk policy,
 notifications or broker orders. `--spec -` reads JSON from stdin.
@@ -34,13 +36,14 @@ An early-close session requires comparable early-close history; insufficient
 embedded calendar coverage stays unavailable. Collection is capped at 120
 calendar days and 2,000 bars; it does not infer missing holiday calendars.
 
-At most 20 complete symbol/session profiles remain in a disposable in-memory
-cache; restart discards them. No additional durable bar store or candidate
-ledger is introduced. Current bars are re-read. An exact-contract historical
-profile may survive a broker reconnect within the same process and session date;
-this is retained historical evidence, not a fresh broker-authority claim. Its
-`baseline_observed_at` stays fixed, and a new daily key causes re-acquisition.
-Corrections arriving after that read are not discovered until re-acquisition.
+Baseline profiles and current-session reads live in a disposable in-memory
+cache that restart discards; no durable bar store or candidate ledger is
+introduced. An exact-contract profile may survive a broker reconnect; this is
+retained historical evidence, not a fresh broker-authority claim. Each prior
+session is kept with the time its read completed, and `baseline_observed_at`
+is the oldest acquisition still in use: every baseline bar was read at or
+after it. Corrections arriving after a session's read are not discovered
+while that session stays in the window.
 
 The result supplies the current session chart, the selected spike's 20 baseline
 observations, source clocks and an input hash. Source units are explicitly IBKR
@@ -61,13 +64,79 @@ playbook, enqueue work, choose an option or authorize an order. Desk owns those
 presentation and owner-setting records; existing Canary authority gates remain
 binding when any later exact order is prepared.
 
+## Historical-request budget
+
+IBKR's historical bucket in `pkg/ibkr/ratelimiter.go` holds 60 requests per 10
+minutes, shared with every other historical reader in the daemon. Setup
+evaluation spends it as follows.
+
+- Current session: a live evaluation reads the current session's bars at most
+  once per contract per completed bar. The read is reused until
+  `now >= latest completed bar end + 5 minutes`; if the farm had not yet
+  published a bar that should exist, the next evaluation reads again. A reused
+  read reproduces the evaluation at its own clocks (`evaluated_at`,
+  `observed_at` and the input hash of the evaluation that made the read), so an
+  evaluation on retained bars never claims a fresher observation. Reuse needs
+  the same broker session and a read no older than the paired baseline.
+  Concurrent live evaluations of one contract share one read and its failure.
+  Replays (`--at`) always read and never use or feed this memo.
+- Baseline: profiles are keyed by exact contract, not by date. A new session
+  reuses the held sessions still in its 20-session window, reads only the
+  missing ones in ranges of at most seven days (one request each, still under
+  the 2,000-bar bound) and drops sessions that left the window. The morning
+  roll costs one request per contract; a cold profile costs four or five.
+  Complete sessions from a failed or incomplete read are kept.
+- Negative memo: an incomplete window or a failed baseline read is remembered
+  per contract and session date for 15 minutes; until then evaluations answer
+  `unavailable` without a read, then the next one reads only what is still
+  missing. The reason names the retry time on the daemon clock, rounded up to
+  the minute, for example
+  `baseline_history_unavailable: baseline_bars_incomplete (retry after 10:33)`
+  or `baseline_history_unavailable: <read error> (retry after 10:33)`. A read
+  ended by the caller's cancellation or a broker reconnect is not remembered.
+- Contract identity: the exact underlying resolution (one contract-details
+  request) is remembered per broker session binding, so a watched contract is
+  resolved once per broker session rather than per evaluation; option
+  discovery shares it for its underlying. A binding that is no longer current
+  resolves again, failures are not remembered, and at most 64 resolutions are
+  kept, least recently used first.
+- Cold reads are serialized by one gate; a cached profile is read without it.
+  The cache holds max(20, distinct contracts evaluated in the live session)
+  profiles, at most 40. At that size a new profile evicts the least recently
+  used one whose latest session is not the live session (replays, names not
+  yet evaluated today) before any live one, and a replay never evicts a live
+  profile.
+
+With 20 watched names polled once per completed bar, steady state is 20
+requests per five minutes (40 of the 60 per 10 minutes) plus one baseline
+request per name on its first evaluation of the day; the first poll after a
+restart costs four or five per name and is paced by the bucket.
+
+## Coverage instrument
+
+`canary setups coverage --json [--session YYYY-MM-DD] [--symbol SYMBOL]`
+(RPC `setups.coverage`, `Client.SetupCoverage`) reads, per contract and
+session: `evaluations`, `history_requests`, `states` (`watching`, `pending`,
+`confirmed`, `expired`, or `unavailable:<code>` from the first reason's stable
+code), `slots_covered`, `slots_scheduled` (completed-bar slots since the
+contract's first evaluation) and `first_evaluated_at`/`last_evaluated_at`.
+The session reports `slots_completed`; slot k completes at open + 5k minutes,
+and the bar ending at the close completes outside the session, so a regular
+session has 77 evaluable slots. Only live evaluations inside a regular
+session count. The default session is the newest retained one; `sessions`
+lists all of them. Evaluations update memory only; a background writer keeps
+one `setups_coverage.session.v1` state document per session in daemon.db for
+the newest 30 sessions, so recording never delays an evaluation. It is
+operational evidence, not a signal.
+
 ## Standard-call discovery
 
 `canary setups options --symbol SYNTH --con-id 17 --json` lists up to 64
 current/future expiries; add `--expiry YYYYMMDD` for at most 21 calls around the
-underlying price, then `--strike N` to resolve the exact selected call. Empty
-listings remain JSON arrays. `truncated` discloses a capped display window.
-These are owner-selected reads, not recommendations or order previews.
+underlying price, then `--strike N` to resolve the exact selected call and read
+its one quote. Empty listings remain JSON arrays. `truncated` discloses a capped
+display window. These are owner-selected reads, not recommendations or order
+previews.
 
 Discovery pins the stock ConID and broker session, requests actual security
 definitions with cancellation, and accepts only the SMART standard trading
@@ -82,11 +151,38 @@ standard class/multiplier, local symbol and broker-reported underlying ConID.
 Ambiguous or contradictory identities fail visibly.
 
 The top-level `as_of` is this acquisition's receipt. Call rows have status
-`not_requested`, with optional bid/ask/source clocks omitted: discovery does
-not acquire or release shared option quote lines. Exact selection returns an
-identity; the existing subsequent Canary preview acquires execution evidence
-and owner-confirmed order authority remains mandatory. The typed Go adapter
-is `Client.DiscoverSetupOptions`; no MCP tool is exposed.
+`not_requested`, with optional bid/ask/source clocks omitted, and the expiry
+and strike stages carry no `quote` object: listing does not acquire or release
+option quote lines. Exact selection returns the identity and one `quote` for
+that call; a missing quote is exactly `{"status":"missing"}`:
+
+```json
+{"bid":1.2,"ask":1.35,"as_of":"2026-10-02T15:00:01Z","data_type":"live","status":"quoted"}
+```
+
+The daemon reads it once, within 5 seconds, through its exact-contract quote
+path: a private positive-ConID line on the discovery's own broker session,
+released afterwards, so no shared option line is acquired or cancelled.
+`status` is `quoted` only when bid and ask are both finite and positive,
+bid <= ask, `as_of` is at most 60 seconds old and `data_type` is a
+broker-labelled `live`, `delayed`, `frozen` or `delayed-frozen` mode.
+Anything else is `missing` with bid, ask, `as_of` and `data_type` omitted, so
+no zero is ever emitted as a price. A live quote is dated by its older side's
+receipt; delayed or frozen sides, which IBKR sends without a source time, are
+dated by the read, and `data_type` names their age. A failed read never fails
+the selection; the outcome and the read's duration are logged at debug level.
+The quote is display evidence for choosing a limit: the existing subsequent
+Canary preview acquires execution evidence and owner-confirmed order authority
+remains mandatory. The typed Go adapter is `Client.DiscoverSetupOptions`; no
+MCP tool is exposed.
+
+Why the strike list stays unquoted (updated 2026-10-04 10:54 CEST): the owner
+locked on 2026-10-03 that the strike list carries no prices and that the order
+preview supplies pricing. Pricing the list would hold up to 21 option
+market-data lines, and their wait, on every listing for prices the preview
+reads again. On 2026-10-04 the owner made one narrow extension: a single dated
+quote for the exact selected call, so a premium is visible before a limit is
+typed. The strike list itself stays unquoted.
 
 ## Entry markouts
 
@@ -122,7 +218,7 @@ never waits; queue overflow and every start rescan the journal for fills since
 
 **Capture rule.** Five seconds before the target the worker reads the exact
 contract through the request-owned exact-session quote read used for
-option-exit evidence (never the strike-rounding option key), waiting at most
+option-exit evidence (never the shared SubscribeOption key path), waiting at most
 five seconds for both sides and displayed sizes; one read serves every target
 on the same contract and clock, and at most four reads run at once. A target
 is `captured` only if the quote is live, two-sided, finite, positive and not

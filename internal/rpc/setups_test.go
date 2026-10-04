@@ -39,3 +39,18 @@ func TestSetupContractRejectsUnsupportedRequests(t *testing.T) {
 		t.Fatal(p, err)
 	}
 }
+
+func TestSetupCoverageParamsAcceptOnlyADateAndOneSymbol(t *testing.T) {
+	p, err := NormalizeSetupCoverageParams(SetupCoverageParams{Session: " 2026-09-30 ", Symbol: " aaa "})
+	if err != nil || p != (SetupCoverageParams{Session: "2026-09-30", Symbol: "AAA"}) {
+		t.Fatal(p, err)
+	}
+	if p, err = NormalizeSetupCoverageParams(SetupCoverageParams{Symbol: "  "}); err != nil || p != (SetupCoverageParams{}) {
+		t.Fatal(p, err)
+	}
+	for _, bad := range []SetupCoverageParams{{Session: "2026-9-30"}, {Session: "2026-02-30"}, {Session: "latest"}, {Symbol: "AAA,BBB"}, {Symbol: "SYNΘ"}} {
+		if _, err := NormalizeSetupCoverageParams(bad); err == nil {
+			t.Fatalf("accepted %+v", bad)
+		}
+	}
+}

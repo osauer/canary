@@ -42,3 +42,31 @@ func (c *Client) EvaluateSetup(ctx context.Context, in SetupEvaluateParams) (*Se
 	err = conn.Call(ctx, rpc.MethodSetupsEvaluate, in, &out)
 	return &out, daemonError(err)
 }
+
+// SetupCoverageParams selects one retained session (default: the newest) and
+// optionally one underlying symbol.
+type SetupCoverageParams = rpc.SetupCoverageParams
+
+// SetupCoverageResult is the per-session instrument for live setup
+// evaluations; it is operational evidence, never a signal or authority.
+type SetupCoverageResult = rpc.SetupCoverageResult
+
+// SetupCoverageContract is one contract's live setup evaluations in a session.
+type SetupCoverageContract = rpc.SetupCoverageContract
+
+// SetupCoverage reads how live setup evaluations covered a session's completed
+// five-minute bars and how many historical requests they issued. It needs no
+// gateway and changes nothing.
+func (c *Client) SetupCoverage(ctx context.Context, in SetupCoverageParams) (*SetupCoverageResult, error) {
+	budget, _ := rpc.LookupMethodTiming(rpc.MethodSetupsCoverage)
+	ctx, cancel := context.WithTimeout(ctx, budget.ClientTimeout(5*time.Second))
+	defer cancel()
+	conn, err := c.connect(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	var out SetupCoverageResult
+	err = conn.Call(ctx, rpc.MethodSetupsCoverage, in, &out)
+	return &out, daemonError(err)
+}

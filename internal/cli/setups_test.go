@@ -10,10 +10,11 @@ import (
 )
 
 type setupCLIConn struct {
-	method  string
-	params  rpc.SetupEvaluateParams
-	options rpc.SetupOptionsParams
-	markout rpc.SetupMarkoutsParams
+	method   string
+	params   rpc.SetupEvaluateParams
+	options  rpc.SetupOptionsParams
+	coverage rpc.SetupCoverageParams
+	markout  rpc.SetupMarkoutsParams
 }
 
 func (c *setupCLIConn) Call(_ context.Context, method string, params, out any) error {
@@ -21,6 +22,11 @@ func (c *setupCLIConn) Call(_ context.Context, method string, params, out any) e
 	if method == rpc.MethodSetupsMarkouts {
 		c.markout = params.(rpc.SetupMarkoutsParams)
 		*out.(*rpc.SetupMarkoutsResult) = rpc.SetupMarkoutsResult{Version: 1, Kind: rpc.SetupMarkoutsKind}
+		return nil
+	}
+	if method == rpc.MethodSetupsCoverage {
+		c.coverage = params.(rpc.SetupCoverageParams)
+		*out.(*rpc.SetupCoverageResult) = rpc.SetupCoverageResult{Version: 1, SessionDate: c.coverage.Session, Sessions: []string{}, Contracts: []rpc.SetupCoverageContract{}}
 		return nil
 	}
 	if method == rpc.MethodSetupsOptions {
@@ -106,12 +112,40 @@ func TestSetupMarkoutsCLIIsAReadOnlyEntryDiagnostic(t *testing.T) {
 		{"markouts", "--since", "2026-13-01"},
 		{"markouts", "--con-id", "17"},
 		{"markouts", "--expiry", "20351120"},
+		{"markouts", "--session", "2026-09-30"},
+		{"coverage", "--json", "--order-ref", "ref-1"},
 		{"evaluate", "--spec", "-", "--symbol", "SYNX", "--order-ref", "ref-1"},
 	} {
 		c := &setupCLIConn{}
 		env := &Env{Stdout: new(bytes.Buffer), Stderr: new(bytes.Buffer), Conn: c, Stdin: strings.NewReader(`{"revision":"r1"}`)}
 		if Run(t.Context(), env, "setups", args) == 0 || c.method != "" {
 			t.Fatal("invalid markout read reached daemon", args)
+		}
+	}
+}
+
+func TestSetupCoverageCLIForwardsOnlyItsFilters(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := &setupCLIConn{}
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: c}
+	if code := Run(t.Context(), env, "setups", []string{"coverage", "--json", "--session", "2026-09-30", "--symbol", "aaa"}); code != 0 {
+		t.Fatal(code, stderr.String())
+	}
+	if c.method != rpc.MethodSetupsCoverage || c.coverage != (rpc.SetupCoverageParams{Session: "2026-09-30", Symbol: "AAA"}) || !strings.Contains(stdout.String(), `"contracts": []`) {
+		t.Fatal(c, stdout.String())
+	}
+	for _, args := range [][]string{
+		{"coverage", "--session", "2026-9-30"},
+		{"coverage", "--symbol", "AAA,BBB"},
+		{"coverage", "--con-id", "17"},
+		{"coverage", "--at", "2026-09-30T10:20:00-04:00"},
+		{"evaluate", "--spec", "-", "--symbol", "AAA", "--session", "2026-09-30"},
+		{"options", "--symbol", "AAA", "--con-id", "17", "--session", "2026-09-30"},
+	} {
+		c := &setupCLIConn{}
+		env := &Env{Stdout: new(bytes.Buffer), Stderr: new(bytes.Buffer), Stdin: strings.NewReader(`{"revision":"v1"}`), Conn: c}
+		if Run(t.Context(), env, "setups", args) == 0 || c.method != "" {
+			t.Fatal("invalid coverage request reached daemon", args)
 		}
 	}
 }
