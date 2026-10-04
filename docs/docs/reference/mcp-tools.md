@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**32 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**33 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_data_health`
 
@@ -235,6 +235,16 @@ Call with no arguments after canary_brief for an automatic one-year review of hi
 | `limit` | integer | no | maximum findings; default 3 |
 | `option_id` | string | no | optional opaque option ID returned by a prior canary_edge call |
 | `window` | string | no | optional review override; default 365d |
+
+## `canary_lending_market`
+
+Compare prices and liquidity for 1-100 named USD stocks from the US borrowing feed. Returns cached market context and queues bounded background acquisition, one stock at a time: last completed close or recent trade with feed/date, day change, session shares, 20-completed-session average dollar turnover and YTD completed-close price return excluding dividends. Exact feed contract identity is required. Missing history stays absent; pending rows fill on later reads. Five-minute context receipts; no synchronous per-symbol scan. Use canary_lending_screen to discover names, canary_lending_rates for fees, and canary_market_history for charts. Filters over these values are research, not liquidity guarantees, orders or lending enrollment. Read-only.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `symbols` | array | **yes** | Explicit US borrowing-feed stock symbols, normalized and deduplicated |
 
 ## `canary_lending_screen`
 

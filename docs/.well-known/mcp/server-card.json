@@ -516,6 +516,27 @@
       }
     },
     {
+      "name": "canary_lending_market",
+      "description": "Compare prices and liquidity for 1-100 named USD stocks from the US borrowing feed. Returns cached market context and queues bounded background acquisition, one stock at a time: last completed close or recent trade with feed/date, day change, session shares, 20-completed-session average dollar turnover and YTD completed-close price return excluding dividends. Exact feed contract identity is required. Missing history stays absent; pending rows fill on later reads. Five-minute context receipts; no synchronous per-symbol scan. Use canary_lending_screen to discover names, canary_lending_rates for fees, and canary_market_history for charts. Filters over these values are research, not liquidity guarantees, orders or lending enrollment. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "symbols": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string"
+            },
+            "description": "Explicit US borrowing-feed stock symbols, normalized and deduplicated"
+          }
+        },
+        "required": [
+          "symbols"
+        ]
+      }
+    },
+    {
       "name": "canary_lending_screen",
       "description": "Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Reuses daemon source cadence and backoff; no per-symbol broker scan. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.",
       "inputSchema": {

@@ -32,7 +32,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary stress`](#canary-stress) | Desk | Portfolio stress with margin, exposure, concentration, options, protection, and source evidence | `read-only` | yes |
 | [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
 | [`canary edge`](#canary-edge) | Desk | Automatic decision review with coverage, matched horizons, repeatability, and option position cycles | `read-only` | yes |
-| [`canary lending`](#canary-lending) | Desk | Read lending income, named rates and US fee discovery | `read-only` | yes |
+| [`canary lending`](#canary-lending) | Desk | Read lending income, borrowing fees and stock market context | `read-only` | yes |
 | [`canary rules`](#canary-rules) | Desk | Advisory daily trading rule checklist, hardest breach first, against limits you can set | `read-only` | yes |
 | [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
@@ -409,17 +409,18 @@ canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--
 
 ## `canary lending`
 
-Read lending income, named rates and US fee discovery.
+Read lending income, borrowing fees and stock market context.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary lending screen [--min-rate PERCENT] [--limit N] [--exclude SYMBOL,...] [--json]
+canary lending market --symbols SYMBOL,... [--json]
 canary lending rates --symbols SYMBOL,... [--json]
 canary lending fees [--window 90d|365d] [--from YYYY-MM-DD --to YYYY-MM-DD] [--con-id ID] [--limit N] [--cursor CURSOR] [--fingerprint ID] [--json]
 ```
 
-Subcommands: `fees`, `rates`, `screen`.
+Subcommands: `fees`, `rates`, `screen`, `market`.
 
 **Flags**
 

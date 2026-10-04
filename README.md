@@ -331,3 +331,22 @@ MIT. See [LICENSE](LICENSE).
 Current source provides FX contribution through `canary reporting fx` and the read-only
 `canary_reporting_fx` MCP tool. See [FX contribution and backfill](internal-docs/fx-contribution.md)
 for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantics.
+
+### Lending price and liquidity context
+
+`canary lending market --symbols AAA,BBB --json` and the read-only
+`canary_lending_market` MCP tool return matching cached context for 1–100 explicit
+USD names in the borrowing feed. Missing exact contract IDs stay unavailable.
+The daemon queues at most 150 names, follows requested names for 15 minutes,
+and refreshes one at a time on the background lane, with a 35-second bound and
+five-minute retry/receipt interval. No quote fan-out occurs inside the screen read.
+History reuses the existing durable cache without adding chart-refresh interests.
+
+Rows carry last completed close or a recent actual trade (including delayed-feed
+labels), change from prior close, session share volume, average daily dollar
+turnover over all 20 completed sessions, and completed-close YTD price change
+from the exact prior year-end session. YTD excludes dividends; missing year-end,
+latest session or any volume baseline stays missing. Field dates and pending,
+partial, unavailable and expiry remain explicit. Filters are research preferences,
+not trading policy or a liquidity guarantee. This does not screen liquidity across
+the full borrowing feed; consumers filter their retained rows only.

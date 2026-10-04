@@ -62,3 +62,18 @@ func runLendingScreen(ctx context.Context, env *Env, minRate float64, limit int,
 	fmt.Fprintln(env.Stdout, "Borrower costs, not lending yields. Listing, liquidity and lending allocation are unverified.")
 	return 0
 }
+
+func runLendingMarket(ctx context.Context, env *Env, symbols string) int {
+	p, err := rpc.NormalizeLendingRateSymbols(strings.Split(symbols, ","))
+	if err != nil {
+		return fail(env, "lending market: %v", err)
+	}
+	var result rpc.LendingMarketResult
+	if err := env.Conn.Call(ctx, rpc.MethodLendingMarket, rpc.LendingMarketParams{Symbols: p}, &result); err != nil {
+		return fail(env, "lending market: %v", err)
+	}
+	if err := rpc.ValidateLendingMarketResult(result, p); err != nil {
+		return fail(env, "lending market: %v", err)
+	}
+	return printJSON(env, result)
+}

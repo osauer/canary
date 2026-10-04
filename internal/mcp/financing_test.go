@@ -99,3 +99,27 @@ func TestLendingScreenToolReadOnlyAndScope(t *testing.T) {
 		t.Fatal("wrong RPC boundary")
 	}
 }
+
+func TestLendingMarketToolReadOnlyAndScope(t *testing.T) {
+	want := rpc.LendingMarketResult{Kind: "lending_market", Symbols: []string{"AAA"}, Rows: []rpc.LendingMarketRow{{Symbol: "AAA", Status: "pending"}}}
+	conn, calls := riskToolConn(t, map[string]any{rpc.MethodLendingMarket: want})
+	tool, ok := lookupTool("canary_lending_market")
+	if !ok || tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint {
+		t.Fatal("missing read-only market context")
+	}
+	if _, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"symbols":[]}`)); err == nil {
+		t.Fatal("unbounded empty input accepted")
+	}
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"symbols":["aaa"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got rpc.LendingMarketResult
+	if json.Unmarshal(raw, &got) != nil || !reflect.DeepEqual(got, want) {
+		t.Fatal("market context changed")
+	}
+	_ = conn.Close()
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodLendingMarket}) {
+		t.Fatal("wrong RPC boundary")
+	}
+}

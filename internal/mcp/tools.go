@@ -539,6 +539,31 @@ var Tools = []Tool{
 	},
 
 	{
+		Name: "canary_lending_market", Title: "Canary Lending Stock Context", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodLendingMarket},
+		Description: "Compare prices and liquidity for 1-100 named USD stocks from the US borrowing feed. Returns cached market context and queues bounded background acquisition, one stock at a time: last completed close or recent trade with feed/date, day change, session shares, 20-completed-session average dollar turnover and YTD completed-close price return excluding dividends. Exact feed contract identity is required. Missing history stays absent; pending rows fill on later reads. Five-minute context receipts; no synchronous per-symbol scan. Use canary_lending_screen to discover names, canary_lending_rates for fees, and canary_market_history for charts. Filters over these values are research, not liquidity guarantees, orders or lending enrollment. Read-only.",
+		JSONSchema:  schemaObject(map[string]json.RawMessage{"symbols": json.RawMessage(`{"type":"array","minItems":1,"maxItems":100,"items":{"type":"string"},"description":"Explicit US borrowing-feed stock symbols, normalized and deduplicated"}`)}, []string{"symbols"}),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var p rpc.LendingMarketParams
+			if err := unmarshalArgs(args, &p); err != nil {
+				return nil, err
+			}
+			symbols, err := rpc.NormalizeLendingRateSymbols(p.Symbols)
+			if err != nil {
+				return nil, err
+			}
+			p.Symbols = symbols
+			var result rpc.LendingMarketResult
+			if err := conn.Call(ctx, rpc.MethodLendingMarket, p, &result); err != nil {
+				return nil, err
+			}
+			if err := rpc.ValidateLendingMarketResult(result, symbols); err != nil {
+				return nil, err
+			}
+			return json.Marshal(result)
+		},
+	},
+
+	{
 		Name: "canary_lending_screen", Title: "Canary US Borrow-Fee Discovery", ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodLendingScreen},
 		Description: "Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Reuses daemon source cadence and backoff; no per-symbol broker scan. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.",
 		JSONSchema: schemaObject(map[string]json.RawMessage{

@@ -62,6 +62,7 @@ type Server struct {
 
 	dataHealth    dataHealthState
 	marketData    marketDataCache
+	lendingMarket lendingMarketCache
 	setupProfiles setupProfileCache
 	cfg           *config.Resolved
 	socketPath    string
@@ -1396,6 +1397,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startRulebookCanonicalRefreshLoop(serverCtx)
 	s.startAlertShadowObservationLoops(serverCtx)
 	s.startMarketHistoryRefresh(serverCtx)
+	s.startLendingMarketRefresh(serverCtx)
 	s.startMarketTapeCollection(serverCtx)
 	s.startDataHealthChecks(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
@@ -2690,6 +2692,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleReportingValidate(ctx, req) })
 	case rpc.MethodEdgeSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleEdgeSnapshot(ctx, req) })
+	case rpc.MethodLendingMarket:
+		s.unary(req, enc, func() (any, error) { return s.handleLendingMarket(ctx, req) })
 	case rpc.MethodLendingScreen:
 		s.unary(req, enc, func() (any, error) { return s.handleLendingScreen(ctx, req) })
 	case rpc.MethodFinancingFees:

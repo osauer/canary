@@ -86,3 +86,46 @@ func TestLendingScreenCLIReadOnlyAndFlags(t *testing.T) {
 		t.Fatal("scope or unavailable evidence changed")
 	}
 }
+
+type lendingMarketConn struct {
+	calls    int
+	mismatch bool
+}
+
+func (c *lendingMarketConn) Call(_ context.Context, method string, params, out any) error {
+	c.calls++
+	if method != rpc.MethodLendingMarket {
+		panic("wrong method")
+	}
+	p := params.(rpc.LendingMarketParams)
+	result := rpc.LendingMarketResult{Kind: "lending_market", Symbols: p.Symbols, Rows: []rpc.LendingMarketRow{{Symbol: "AAA", Status: "pending"}}}
+	if c.mismatch {
+		result.Rows[0].Symbol = "BBB"
+	}
+	*out.(*rpc.LendingMarketResult) = result
+	return nil
+}
+func (*lendingMarketConn) Stream(context.Context, string, any, func(json.RawMessage) error) error {
+	return nil
+}
+func TestLendingMarketCLIContract(t *testing.T) {
+	c := &lendingMarketConn{}
+	var out, errs bytes.Buffer
+	env := &Env{Conn: c, Stdout: &out, Stderr: &errs}
+	for _, args := range [][]string{{"market"}, {"market", "--symbols", "AAA", "--limit", "10"}, {"market", "--symbols", "$BAD"}} {
+		if Run(t.Context(), env, "lending", args) == 0 || c.calls != 0 {
+			t.Fatal("invalid scope reached daemon")
+		}
+	}
+	if Run(t.Context(), env, "lending", []string{"market", "--symbols", "aaa", "--json"}) != 0 {
+		t.Fatal(errs.String())
+	}
+	var result rpc.LendingMarketResult
+	if json.Unmarshal(out.Bytes(), &result) != nil || result.Rows[0].Status != "pending" {
+		t.Fatal("pending evidence changed")
+	}
+	c.mismatch = true
+	if Run(t.Context(), env, "lending", []string{"market", "--symbols", "AAA"}) == 0 {
+		t.Fatal("wrong symbol accepted")
+	}
+}

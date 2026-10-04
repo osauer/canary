@@ -37,7 +37,7 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 		}
 		return runLendingScreen(ctx, env, *minRate, *limit, *exclude, *jsonOut)
 	}
-	if fs.NArg() == 1 && fs.Arg(0) == "rates" {
+	if fs.NArg() == 1 && (fs.Arg(0) == "rates" || fs.Arg(0) == "market") {
 		invalid := false
 		fs.Visit(func(f *flag.Flag) {
 			if f.Name != "symbols" && f.Name != "json" {
@@ -45,7 +45,10 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 			}
 		})
 		if invalid {
-			return fail(env, "lending rates: only --symbols and --json are supported")
+			return fail(env, "lending %s: only --symbols and --json are supported", fs.Arg(0))
+		}
+		if fs.Arg(0) == "market" {
+			return runLendingMarket(ctx, env, *symbols)
 		}
 		return runLendingRates(ctx, env, *symbols, *jsonOut)
 	}
@@ -59,7 +62,7 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "--min-rate and --exclude require lending screen")
 	}
 	if *symbols != "" {
-		return fail(env, "lending fees: --symbols requires rates")
+		return fail(env, "lending fees: --symbols requires rates or market")
 	}
 	if fs.NArg() != 0 && (fs.NArg() != 1 || fs.Arg(0) != "fees") {
 		return failUnexpectedArgs(env, fs)
