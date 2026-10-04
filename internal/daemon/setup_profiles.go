@@ -8,9 +8,10 @@ import (
 	"github.com/osauer/canary/v2/internal/setups"
 )
 
-// setupProfileCache holds complete, comparable prior sessions per contract.
-// It is disposable market evidence, not a candidate or execution ledger, and
-// a restart discards it.
+// setupProfileCache holds complete, comparable prior sessions per contract,
+// and the latest current-session read per contract (setup_current.go). It is
+// disposable market evidence, not a candidate or execution ledger, and a
+// restart discards it.
 //
 // A live profile is keyed by exact contract, not by date: when the session
 // moves on, the sessions still inside the new 20-session window are kept and
@@ -40,8 +41,14 @@ type setupProfileCache struct {
 	today map[string]bool
 	// tick orders row use for least-recently-used eviction.
 	tick uint64
-	// waitForTest observes a request blocking on a busy gate.
-	waitForTest func()
+	// current holds the latest current-session read per contract, and
+	// flights the reads in progress (setup_current.go).
+	current map[string]*setupCurrentBars
+	flights map[string]*setupCurrentFlight
+	// waitForTest observes a request blocking on a busy gate;
+	// currentWaitForTest one waiting for another request's current read.
+	waitForTest        func()
+	currentWaitForTest func()
 }
 
 // Row bounds: at least setupProfileRowsMin rows, growing with the distinct

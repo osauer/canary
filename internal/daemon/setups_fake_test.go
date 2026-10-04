@@ -61,6 +61,9 @@ type fakeSetupSource struct {
 	fail map[string]error
 	// volume overrides the synthetic volume of the bar starting at a time.
 	volume map[time.Time]int64
+	// unpublished hides bars starting at or after it, as a lagging
+	// historical farm would.
+	unpublished time.Time
 }
 
 func newFakeSetupSource() *fakeSetupSource {
@@ -90,6 +93,12 @@ func (f *fakeSetupSource) setVolume(start time.Time, volume int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.volume[start.UTC()] = volume
+}
+
+func (f *fakeSetupSource) setUnpublished(from time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unpublished = from
 }
 
 func (f *fakeSetupSource) setFail(symbol string, err error) {
@@ -127,7 +136,7 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 	f.mu.Lock()
 	f.calls = append(f.calls, setupFetchCall{symbol: c.Symbol, start: start, end: end})
 	hold, fail := f.hold[c.Symbol], f.fail[c.Symbol]
-	gaps, volume := maps.Clone(f.gaps), maps.Clone(f.volume)
+	gaps, volume, unpublished := maps.Clone(f.gaps), maps.Clone(f.volume), f.unpublished
 	f.mu.Unlock()
 	if hold != nil {
 		f.entered <- c.Symbol
@@ -151,7 +160,7 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 		if at.Before(start) || local.Weekday() == time.Saturday || local.Weekday() == time.Sunday || minute < 9*60+30 || minute >= 16*60 {
 			continue
 		}
-		if gaps[local.Format("2006-01-02")] && minute == 10*60 {
+		if gaps[local.Format("2006-01-02")] && minute == 10*60 || !unpublished.IsZero() && !at.Before(unpublished) {
 			continue
 		}
 		v, ok := volume[at.UTC()]
@@ -204,6 +213,20 @@ func (f *fakeSetupSource) symbolReads(symbol string) []setupFetchCall {
 		}
 	}
 	return out
+}
+
+// within waits for one value on ch, failing the test instead of hanging when
+// the expected step never happens.
+func within[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+	}
+	t.Fatalf("timed out waiting for %s", what)
+	var zero T
+	return zero
 }
 
 func setupTestServer(src *fakeSetupSource, clock *setupTestClock) *Server {

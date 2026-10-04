@@ -132,17 +132,28 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if !c.HistoricalSessionCurrent(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
-	bars, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
-	if err != nil {
-		return unavailable("current_history_unavailable: " + err.Error()), nil
+	if historical {
+		bars, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
+		if err != nil {
+			return unavailable("current_history_unavailable: " + err.Error()), nil
+		}
+		base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
+		base.ObservedAt = s.setupClock()
+	} else {
+		// A live evaluation reads the current session at most once per
+		// completed bar. Reused bars reproduce the evaluation at their own
+		// decision and acquisition clocks.
+		bars, _, err := s.liveCurrentBars(ctx, c, binding, contract, contractKey, current, at, observed)
+		if err != nil {
+			return unavailable("current_history_unavailable: " + err.Error()), nil
+		}
+		base.At, base.ObservedAt, base.Current = bars.at, bars.acquired, bars.session
 	}
 	if !c.HistoricalSessionCurrent(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
-	base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
 	base.Prior = profile
 	base.BaselineObservedAt = observed
-	base.ObservedAt = s.setupClock()
 	// An explicit historical clock is reconstructed now, never evidence that
 	// these corrected bars were available then. Current reads expire on age.
 	r := setups.Evaluate(p.Spec, base)

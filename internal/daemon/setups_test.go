@@ -112,18 +112,19 @@ func TestSetupCachedProfileDoesNotWaitForColdAcquisition(t *testing.T) {
 	release := src.holdSymbol("BBB")
 	defer release()
 	cold := goEvaluateSetup(t.Context(), s, "BBB")
-	<-src.entered
+	within(t, src.entered, "BBB's cold read")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	r, err := evaluateSetupForTest(ctx, s, "AAA", 0, time.Time{})
 	if err != nil || r.State != "watching" || r.BaselineSessions != 20 {
 		t.Fatalf("cached profile waited behind a cold acquisition: %+v %v", r, err)
 	}
-	if baseline, current = src.reads("AAA"); baseline != 5 || current != 2 {
+	// Same bar: the retained current-session read answers too.
+	if baseline, current = src.reads("AAA"); baseline != 5 || current != 1 {
 		t.Fatalf("cached profile re-read history: baseline=%d current=%d", baseline, current)
 	}
 	release()
-	if got := <-cold; got.err != nil || got.result.State != "watching" {
+	if got := within(t, cold, "BBB's evaluation"); got.err != nil || got.result.State != "watching" {
 		t.Fatalf("cold acquisition: %+v %v", got.result, got.err)
 	}
 }
@@ -138,18 +139,18 @@ func TestSetupColdAcquisitionRechecksCacheAfterGate(t *testing.T) {
 	release := src.holdSymbol("AAA")
 	defer release()
 	first := goEvaluateSetup(t.Context(), s, "AAA")
-	<-src.entered
+	within(t, src.entered, "the first cold read")
 	second := goEvaluateSetup(t.Context(), s, "AAA")
-	<-waiting
+	within(t, waiting, "the second request at the gate")
 	release()
 	for _, ch := range []<-chan setupEvaluation{first, second} {
-		if got := <-ch; got.err != nil || got.result.State != "watching" {
+		if got := within(t, ch, "an evaluation"); got.err != nil || got.result.State != "watching" {
 			t.Fatalf("evaluation: %+v %v", got.result, got.err)
 		}
 	}
 	// The waiter found the profile its predecessor stored instead of
-	// collecting the same twenty sessions again.
-	if baseline, current := src.reads("AAA"); baseline != 5 || current != 2 {
+	// collecting the same twenty sessions again, and shared its current read.
+	if baseline, current := src.reads("AAA"); baseline != 5 || current != 1 {
 		t.Fatalf("duplicate cold acquisition: baseline=%d current=%d", baseline, current)
 	}
 }
@@ -380,9 +381,9 @@ func TestSetupBaselineMissIgnoresCancellationAndReconnect(t *testing.T) {
 		r, err := evaluateSetupForTest(ctx, s, "AAA", 0, time.Time{})
 		done <- setupEvaluation{r, err}
 	}()
-	<-src.entered
+	within(t, src.entered, "the read")
 	cancel()
-	got := <-done
+	got := within(t, done, "the cancelled evaluation")
 	release()
 	if got.err != nil || got.result.State != "unavailable" || got.result.Reasons[0] != "baseline_history_unavailable: context canceled" {
 		t.Fatalf("cancelled read: %+v %v", got.result, got.err)
@@ -543,5 +544,127 @@ func TestSetupReplaysAndOneOffNamesKeepWatchedProfiles(t *testing.T) {
 		if after, _ := src.reads(name); after != before[name]+1 {
 			t.Fatalf("%s used %d reads to roll", name, after-before[name])
 		}
+	}
+}
+
+func TestSetupCurrentBarsAreReadOncePerCompletedBar(t *testing.T) {
+	ny := setupNY(t)
+	first := time.Date(2026, 9, 30, 10, 17, 0, 0, ny)
+	clock := &setupTestClock{t: first}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	r1 := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	// Until the 10:15-10:20 bar completes, the retained read answers with
+	// its own decision and acquisition clocks and the same evidence hash.
+	clock.set(time.Date(2026, 9, 30, 10, 19, 59, 0, ny))
+	r2 := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if _, current := src.reads("AAA"); current != 1 {
+		t.Fatalf("current reads = %d before a new bar completed", current)
+	}
+	if r2.State != "watching" || !r2.EvaluatedAt.Equal(first) || !r2.ObservedAt.Equal(first) || r2.InputHash != r1.InputHash || len(r2.Bars) != 9 {
+		t.Fatalf("reused read: %+v", r2)
+	}
+	second := time.Date(2026, 9, 30, 10, 20, 0, 0, ny)
+	clock.set(second)
+	r3 := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if _, current := src.reads("AAA"); current != 2 || !r3.EvaluatedAt.Equal(second) || len(r3.Bars) != 10 {
+		t.Fatalf("new bar: reads=%d %+v", current, r3)
+	}
+	// A replay always reads and never feeds the live memo.
+	replay := mustEvaluateSetup(t, s, "AAA", time.Date(2026, 9, 30, 10, 18, 0, 0, ny))
+	if _, current := src.reads("AAA"); current != 3 || replay.EvidenceKind != "historical_reconstruction" || len(replay.Bars) != 9 {
+		t.Fatalf("replay: reads=%d %+v", current, replay)
+	}
+	clock.set(time.Date(2026, 9, 30, 10, 21, 0, 0, ny))
+	r5 := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if _, current := src.reads("AAA"); current != 3 || !r5.EvaluatedAt.Equal(second) || r5.EvidenceKind != "current_observation" {
+		t.Fatalf("live read after replay: reads=%d %+v", current, r5)
+	}
+}
+
+func TestSetupCurrentBarsWaitForThePublishedBar(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 20, 5, 0, ny)}
+	src := newFakeSetupSource()
+	src.setUnpublished(time.Date(2026, 9, 30, 10, 15, 0, 0, ny))
+	s := setupTestServer(src, clock)
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); len(r.Bars) != 9 {
+		t.Fatalf("lagging farm: %d bars", len(r.Bars))
+	}
+	// The 10:15-10:20 bar should have completed but was not in the read, so
+	// the next evaluation reads again instead of reusing it.
+	clock.set(time.Date(2026, 9, 30, 10, 20, 40, 0, ny))
+	src.setUnpublished(time.Time{})
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); len(r.Bars) != 10 {
+		t.Fatalf("published bar: %d bars", len(r.Bars))
+	}
+	clock.set(time.Date(2026, 9, 30, 10, 22, 0, 0, ny))
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if _, current := src.reads("AAA"); current != 2 {
+		t.Fatalf("current reads = %d", current)
+	}
+}
+
+func TestSetupCurrentBarsNeverPrecedeTheirBaseline(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	// The profile is rebuilt later in the same bar (as after an eviction): a
+	// read older than the baseline is not reused.
+	s.setupProfiles.mu.Lock()
+	s.setupProfiles.rows = nil
+	s.setupProfiles.mu.Unlock()
+	later := time.Date(2026, 9, 30, 10, 18, 0, 0, ny)
+	clock.set(later)
+	r := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if _, current := src.reads("AAA"); current != 2 || !r.BaselineObservedAt.Equal(later) || r.ObservedAt.Before(r.BaselineObservedAt) {
+		t.Fatalf("current reads=%d baseline=%s observed=%s", current, r.BaselineObservedAt, r.ObservedAt)
+	}
+}
+
+func TestSetupConcurrentLiveEvaluationsShareOneCurrentRead(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	waiting := make(chan struct{}, 1)
+	s.setupProfiles.currentWaitForTest = func() { waiting <- struct{}{} }
+	for _, tc := range []struct {
+		at   time.Time
+		fail error
+	}{
+		{at: time.Date(2026, 9, 30, 10, 20, 30, 0, ny)},
+		{at: time.Date(2026, 9, 30, 10, 25, 30, 0, ny), fail: errors.New("historical data farm timed out")},
+	} {
+		clock.set(tc.at)
+		src.setFail("AAA", tc.fail)
+		_, before := src.reads("AAA")
+		release := src.holdSymbol("AAA")
+		first := goEvaluateSetup(t.Context(), s, "AAA")
+		within(t, src.entered, "the first current read")
+		second := goEvaluateSetup(t.Context(), s, "AAA")
+		within(t, waiting, "the second request waiting for that read")
+		release()
+		for _, ch := range []<-chan setupEvaluation{first, second} {
+			got := within(t, ch, "an evaluation")
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			if tc.fail == nil && (got.result.State != "watching" || !got.result.EvaluatedAt.Equal(tc.at)) {
+				t.Fatalf("shared read: %+v", got.result)
+			}
+			if tc.fail != nil && got.result.Reasons[0] != "current_history_unavailable: historical data farm timed out" {
+				t.Fatalf("shared failure: %+v", got.result.Reasons)
+			}
+		}
+		if _, after := src.reads("AAA"); after != before+1 {
+			t.Fatalf("concurrent evaluations used %d current reads", after-before)
+		}
+		src.mu.Lock()
+		delete(src.hold, "AAA")
+		src.mu.Unlock()
 	}
 }
