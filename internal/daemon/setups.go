@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -40,69 +39,6 @@ func (s *Server) setupClock() time.Time {
 		return s.now()
 	}
 	return time.Now()
-}
-
-// Only complete, comparable baseline observations are memoized. This bounded
-// cache is disposable market evidence, not a candidate or execution ledger.
-// mu guards rows; gate serializes cold acquisition only, so a cached profile
-// never waits behind another contract's broker reads.
-type setupProfileCache struct {
-	mu   sync.Mutex
-	gate chan struct{}
-	rows map[string]setupProfile
-	// waitForTest observes a request blocking on a busy gate.
-	waitForTest func()
-}
-
-func (p *setupProfileCache) lock(ctx context.Context) error {
-	p.mu.Lock()
-	if p.gate == nil {
-		p.gate = make(chan struct{}, 1)
-	}
-	gate, wait := p.gate, p.waitForTest
-	p.mu.Unlock()
-	select {
-	case gate <- struct{}{}:
-		return nil
-	default:
-	}
-	if wait != nil {
-		wait()
-	}
-	select {
-	case gate <- struct{}{}:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-func (p *setupProfileCache) unlock() { <-p.gate }
-
-func (p *setupProfileCache) lookup(key string) (setupProfile, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	profile, ok := p.rows[key]
-	return profile, ok
-}
-
-func (p *setupProfileCache) store(key string, profile setupProfile) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.rows == nil {
-		p.rows = map[string]setupProfile{}
-	}
-	if _, ok := p.rows[key]; !ok && len(p.rows) >= 20 {
-		for k := range p.rows {
-			delete(p.rows, k)
-			break
-		}
-	}
-	p.rows[key] = profile
-}
-
-type setupProfile struct {
-	prior    []setups.Session
-	observed time.Time
 }
 
 func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*rpc.SetupResult, error) {
@@ -152,35 +88,21 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		return unavailable("unsupported_underlying_calendar"), nil
 	}
 	base.Contract = rpc.ContractParams{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange, PrimaryExch: contract.PrimaryExch, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
-	keyBytes, _ := json.Marshal(struct {
-		Contract rpc.ContractParams
-		Date     string
-	}{base.Contract, current.Date})
-	key := string(keyBytes)
+	contractKey, _ := json.Marshal(base.Contract)
+	key := s.setupProfiles.rowKey(string(contractKey), current.Date, historical)
 	// A cached profile is read without the gate. Cold collection is serialized
 	// so one watchlist cannot fan out into hundreds of HMDS reads; the
 	// underlying client retains its own pacing.
-	profile, found := s.setupProfiles.lookup(key)
-	if !found {
+	profile, observed, missing := s.setupProfiles.assemble(key, prior)
+	if len(missing) > 0 {
 		if err := s.setupProfiles.lock(ctx); err != nil {
 			return unavailable("profile_acquisition_cancelled"), nil
 		}
 		// Another request may have filled the profile while this one waited.
-		profile, found = s.setupProfiles.lookup(key)
+		profile, observed, missing = s.setupProfiles.assemble(key, prior)
 		var e error
-		if !found {
-			var bars []ibkrlib.HistoricalBar
-			bars, e = collectSetupHistory(ctx, prior[0].Open, prior[len(prior)-1].Close, func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
-				return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
-			})
-			if e == nil {
-				profile = setupProfile{prior: attachSetupBars(prior, bars), observed: s.setupClock()}
-				if setupBaselineComplete(profile.prior) {
-					s.setupProfiles.store(key, profile)
-				} else {
-					e = fmt.Errorf("baseline_bars_incomplete")
-				}
-			}
+		if len(missing) > 0 {
+			profile, observed, e = s.acquireSetupProfile(ctx, c, contract, key, prior, missing)
 		}
 		s.setupProfiles.unlock()
 		if e != nil {
@@ -198,13 +120,48 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		return unavailable("broker_session_changed"), nil
 	}
 	base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
-	base.Prior = profile.prior
-	base.BaselineObservedAt = profile.observed
+	base.Prior = profile
+	base.BaselineObservedAt = observed
 	base.ObservedAt = s.setupClock()
 	// An explicit historical clock is reconstructed now, never evidence that
 	// these corrected bars were available then. Current reads expire on age.
 	r := setups.Evaluate(p.Spec, base)
 	return &r, nil
+}
+
+// acquireSetupProfile reads only the window sessions the cache lacks, keeps
+// every complete session it received, and reports an incomplete window.
+func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract ibkrlib.Contract, key string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
+	var bars []ibkrlib.HistoricalBar
+	var readErr error
+	for _, r := range setupFetchRanges(missing) {
+		got, err := collectSetupHistory(ctx, r[0], r[1], func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
+			return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
+		})
+		if err == nil && len(bars)+len(got) > 2000 {
+			err = fmt.Errorf("setup_history_exceeds_2000_bars")
+		}
+		if err != nil {
+			readErr = err
+			break
+		}
+		bars = append(bars, got...)
+	}
+	acquired := s.setupClock()
+	var complete []setupProfileSession
+	for _, session := range attachSetupBars(missing, bars) {
+		if setups.ValidateSession(session, true) == nil {
+			complete = append(complete, setupProfileSession{session: session, acquired: acquired})
+		}
+	}
+	prior, observed, still := s.setupProfiles.fill(key, window, complete)
+	if readErr != nil {
+		return nil, time.Time{}, readErr
+	}
+	if len(still) > 0 {
+		return nil, time.Time{}, fmt.Errorf("baseline_bars_incomplete")
+	}
+	return prior, observed, nil
 }
 
 func setupSessionWindows(at time.Time, count int) (setups.Session, []setups.Session, error) {
@@ -278,12 +235,4 @@ func attachSetupBars(sessions []setups.Session, bars []ibkrlib.HistoricalBar) []
 		}
 	}
 	return out
-}
-func setupBaselineComplete(prior []setups.Session) bool {
-	for _, p := range prior {
-		if setups.ValidateSession(p, true) != nil {
-			return false
-		}
-	}
-	return true
 }

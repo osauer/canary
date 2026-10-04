@@ -59,10 +59,12 @@ type fakeSetupSource struct {
 	gaps map[string]bool
 	// fail returns this error for every read of the named symbol.
 	fail map[string]error
+	// volume overrides the synthetic volume of the bar starting at a time.
+	volume map[time.Time]int64
 }
 
 func newFakeSetupSource() *fakeSetupSource {
-	return &fakeSetupSource{hold: map[string]chan struct{}{}, entered: make(chan string, 256), gaps: map[string]bool{}, fail: map[string]error{}}
+	return &fakeSetupSource{hold: map[string]chan struct{}{}, entered: make(chan string, 256), gaps: map[string]bool{}, fail: map[string]error{}, volume: map[time.Time]int64{}}
 }
 
 // holdSymbol blocks every read for symbol until the returned func runs.
@@ -82,6 +84,12 @@ func (f *fakeSetupSource) setGap(date string, gap bool) {
 	} else {
 		delete(f.gaps, date)
 	}
+}
+
+func (f *fakeSetupSource) setVolume(start time.Time, volume int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.volume[start.UTC()] = volume
 }
 
 func (f *fakeSetupSource) setFail(symbol string, err error) {
@@ -119,7 +127,7 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 	f.mu.Lock()
 	f.calls = append(f.calls, setupFetchCall{symbol: c.Symbol, start: start, end: end})
 	hold, fail := f.hold[c.Symbol], f.fail[c.Symbol]
-	gaps := maps.Clone(f.gaps)
+	gaps, volume := maps.Clone(f.gaps), maps.Clone(f.volume)
 	f.mu.Unlock()
 	if hold != nil {
 		f.entered <- c.Symbol
@@ -146,38 +154,52 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 		if gaps[local.Format("2006-01-02")] && minute == 10*60 {
 			continue
 		}
-		out = append(out, ibkr.HistoricalBar{Time: at, Open: 100, High: 101, Low: 99, Close: 100, Volume: 100})
+		v, ok := volume[at.UTC()]
+		if !ok {
+			v = 100
+		}
+		out = append(out, ibkr.HistoricalBar{Time: at, Open: 100, High: 101, Low: 99, Close: 100, Volume: v})
 	}
 	return out, nil
 }
 
-// reads counts recorded reads for symbol, split into baseline and
-// current-session reads by whether a read starts on the session date.
-func (f *fakeSetupSource) reads(symbol, session string) (baseline, current int) {
+// isBaselineRead reports a prior-session read: those end at a 16:00 New York
+// close, while current-session reads end at the decision clock.
+func isBaselineRead(call setupFetchCall) bool {
 	loc, _ := time.LoadLocation("America/New_York")
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, call := range f.calls {
-		if call.symbol != symbol {
-			continue
-		}
-		if call.start.In(loc).Format("2006-01-02") == session {
-			current++
-		} else {
+	end := call.end.In(loc)
+	return end.Hour() == 16 && end.Minute() == 0 && end.Second() == 0
+}
+
+// reads counts the recorded baseline and current-session reads for symbol.
+func (f *fakeSetupSource) reads(symbol string) (baseline, current int) {
+	for _, call := range f.symbolReads(symbol) {
+		if isBaselineRead(call) {
 			baseline++
+		} else {
+			current++
 		}
 	}
 	return baseline, current
 }
 
-// baselineReads returns the recorded baseline reads for symbol.
-func (f *fakeSetupSource) baselineReads(symbol, session string) []setupFetchCall {
-	loc, _ := time.LoadLocation("America/New_York")
+// baselineReads returns the recorded baseline reads for symbol in order.
+func (f *fakeSetupSource) baselineReads(symbol string) []setupFetchCall {
+	var out []setupFetchCall
+	for _, call := range f.symbolReads(symbol) {
+		if isBaselineRead(call) {
+			out = append(out, call)
+		}
+	}
+	return out
+}
+
+func (f *fakeSetupSource) symbolReads(symbol string) []setupFetchCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var out []setupFetchCall
 	for _, call := range f.calls {
-		if call.symbol == symbol && call.start.In(loc).Format("2006-01-02") != session {
+		if call.symbol == symbol {
 			out = append(out, call)
 		}
 	}

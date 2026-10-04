@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/setups"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -96,7 +98,7 @@ func TestSetupCachedProfileDoesNotWaitForColdAcquisition(t *testing.T) {
 	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
 		t.Fatalf("warm-up evaluation: %+v", r)
 	}
-	baseline, current := src.reads("AAA", "2026-09-30")
+	baseline, current := src.reads("AAA")
 	if baseline != 5 || current != 1 {
 		t.Fatalf("cold acquisition reads baseline=%d current=%d", baseline, current)
 	}
@@ -112,7 +114,7 @@ func TestSetupCachedProfileDoesNotWaitForColdAcquisition(t *testing.T) {
 	if err != nil || r.State != "watching" || r.BaselineSessions != 20 {
 		t.Fatalf("cached profile waited behind a cold acquisition: %+v %v", r, err)
 	}
-	if baseline, current = src.reads("AAA", "2026-09-30"); baseline != 5 || current != 2 {
+	if baseline, current = src.reads("AAA"); baseline != 5 || current != 2 {
 		t.Fatalf("cached profile re-read history: baseline=%d current=%d", baseline, current)
 	}
 	release()
@@ -142,7 +144,162 @@ func TestSetupColdAcquisitionRechecksCacheAfterGate(t *testing.T) {
 	}
 	// The waiter found the profile its predecessor stored instead of
 	// collecting the same twenty sessions again.
-	if baseline, current := src.reads("AAA", "2026-09-30"); baseline != 5 || current != 2 {
+	if baseline, current := src.reads("AAA"); baseline != 5 || current != 2 {
 		t.Fatalf("duplicate cold acquisition: baseline=%d current=%d", baseline, current)
+	}
+}
+
+func setupResultJSONWithoutBaselineClock(t *testing.T, r *rpc.SetupResult) string {
+	t.Helper()
+	c := *r
+	c.BaselineObservedAt, c.InputHash = time.Time{}, ""
+	raw, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
+func TestSetupProfileRollsForwardInsteadOfRebuilding(t *testing.T) {
+	ny := setupNY(t)
+	day1 := time.Date(2026, 9, 30, 10, 17, 0, 0, ny)
+	clock := &setupTestClock{t: day1}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" || !r.BaselineObservedAt.Equal(day1) {
+		t.Fatalf("day 1: %+v", r)
+	}
+	if reads := src.baselineReads("AAA"); len(reads) != 5 {
+		t.Fatalf("cold window used %d reads", len(reads))
+	}
+
+	// The next session needs Sep 2..Sep 30; nineteen are held, so only Sep 30
+	// is read and Sep 1 leaves the window.
+	day2 := time.Date(2026, 10, 1, 10, 17, 0, 0, ny)
+	clock.set(day2)
+	spike := time.Date(2026, 10, 1, 10, 5, 0, 0, ny)
+	src.setVolume(spike, 1000)
+	r := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	reads := src.baselineReads("AAA")
+	if len(reads) != 6 || !reads[5].start.Equal(time.Date(2026, 9, 30, 9, 30, 0, 0, ny)) || !reads[5].end.Equal(time.Date(2026, 9, 30, 16, 0, 0, 0, ny)) {
+		t.Fatalf("roll-forward reads: %+v", reads)
+	}
+	if r.State != "confirmed" || len(r.Baseline) != 20 || r.Baseline[0].Date != "2026-09-02" || r.Baseline[19].Date != "2026-09-30" {
+		t.Fatalf("rolled window: %+v", r)
+	}
+	// Nineteen sessions were read on day 1, so the baseline clock stays there.
+	if !r.BaselineObservedAt.Equal(day1) {
+		t.Fatalf("baseline clock %s, want oldest acquisition %s", r.BaselineObservedAt, day1)
+	}
+	// The evaluator receives exactly the evidence a full rebuild would read.
+	fresh := newFakeSetupSource()
+	fresh.setVolume(spike, 1000)
+	cold := mustEvaluateSetup(t, setupTestServer(fresh, clock), "AAA", time.Time{})
+	if got, want := setupResultJSONWithoutBaselineClock(t, r), setupResultJSONWithoutBaselineClock(t, cold); got != want {
+		t.Fatalf("rolled evaluation differs from rebuild:\n%s\n%s", got, want)
+	}
+
+	// After a long weekend the two missing sessions share one read.
+	clock.set(time.Date(2026, 10, 5, 10, 17, 0, 0, ny))
+	if r = mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
+		t.Fatalf("after weekend: %+v", r)
+	}
+	reads = src.baselineReads("AAA")
+	if len(reads) != 7 || !reads[6].start.Equal(time.Date(2026, 10, 1, 9, 30, 0, 0, ny)) || !reads[6].end.Equal(time.Date(2026, 10, 2, 16, 0, 0, 0, ny)) {
+		t.Fatalf("weekend roll reads: %+v", reads)
+	}
+	for _, row := range s.setupProfiles.rows {
+		if len(row.sessions) != 20 {
+			t.Fatalf("row kept %d sessions outside the window", len(row.sessions)-20)
+		}
+		if _, ok := row.sessions["2026-09-02"]; ok {
+			t.Fatal("session outside the window was retained")
+		}
+	}
+}
+
+func TestSetupReplayKeepsItsOwnProfile(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	// A same-session replay has the live window and reads no history.
+	if r := mustEvaluateSetup(t, s, "AAA", time.Date(2026, 9, 30, 10, 5, 0, 0, ny)); r.EvidenceKind != "historical_reconstruction" || r.State != "watching" {
+		t.Fatalf("same-session replay: %+v", r)
+	}
+	if reads := src.baselineReads("AAA"); len(reads) != 5 {
+		t.Fatalf("same-session replay re-read the baseline: %d", len(reads))
+	}
+	// A replay on another session builds its own window and leaves the live
+	// window intact; repeating it reuses the replay window.
+	past := time.Date(2026, 9, 15, 10, 17, 0, 0, ny)
+	var afterReplay int
+	for i := range 2 {
+		if r := mustEvaluateSetup(t, s, "AAA", past); r.State != "watching" || r.SessionDate != "2026-09-15" {
+			t.Fatalf("replay: %+v", r)
+		}
+		baseline, _ := src.reads("AAA")
+		if i == 0 && (baseline-5 < 4 || baseline-5 > 5) {
+			t.Fatalf("replay window used %d reads", baseline-5)
+		}
+		if i == 1 && baseline != afterReplay {
+			t.Fatalf("repeated replay re-read %d sessions", baseline-afterReplay)
+		}
+		afterReplay = baseline
+	}
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if baseline, _ := src.reads("AAA"); baseline != afterReplay {
+		t.Fatalf("live window was rebuilt after a replay: %d reads", baseline-afterReplay)
+	}
+}
+
+func TestSetupFetchRangesAreSingleBoundedReads(t *testing.T) {
+	ny := setupNY(t)
+	_, window, err := setupSessionWindows(time.Date(2026, 9, 30, 10, 17, 0, 0, ny), 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ranges := setupFetchRanges(window)
+	covered := 0
+	for _, r := range ranges {
+		if r[1].Sub(r[0]) > 7*24*time.Hour || !r[1].After(r[0]) {
+			t.Fatalf("range %v exceeds one bounded read", r)
+		}
+		for _, w := range window {
+			if !w.Open.Before(r[0]) && !w.Close.After(r[1]) {
+				covered++
+			}
+		}
+	}
+	if covered != 20 || len(ranges) != 5 {
+		t.Fatalf("ranges %d covered %d sessions", len(ranges), covered)
+	}
+	if got := setupFetchRanges(window[18:]); len(got) != 1 {
+		t.Fatalf("adjacent sessions use %d reads", len(got))
+	}
+	if got := setupFetchRanges([]setups.Session{window[0], window[19]}); len(got) != 2 {
+		t.Fatalf("distant sessions use %d reads", len(got))
+	}
+}
+
+func TestSetupIncompleteWindowKeepsCompleteSessions(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	src.setGap("2026-09-16", true)
+	s := setupTestServer(src, clock)
+	r := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if r.State != "unavailable" || len(r.Reasons) != 1 || r.Reasons[0] != "baseline_history_unavailable: baseline_bars_incomplete" {
+		t.Fatalf("incomplete window: %+v", r.Reasons)
+	}
+	src.setGap("2026-09-16", false)
+	if r = mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
+		t.Fatalf("after repair: %+v", r)
+	}
+	// Only the incomplete session is read again.
+	reads := src.baselineReads("AAA")
+	if len(reads) != 6 || !reads[5].start.Equal(time.Date(2026, 9, 16, 9, 30, 0, 0, ny)) || !reads[5].end.Equal(time.Date(2026, 9, 16, 16, 0, 0, 0, ny)) {
+		t.Fatalf("repair reads: %+v", reads)
 	}
 }
