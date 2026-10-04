@@ -74,7 +74,9 @@ func NormalizeSetupEvaluateParams(p SetupEvaluateParams, now time.Time) (SetupEv
 	if err != nil {
 		return p, err
 	}
-	p.Contract.Symbol = strings.ToUpper(strings.TrimSpace(p.Contract.Symbol))
+	if p.Contract.Symbol, err = normalizeSetupSymbol(p.Contract.Symbol); err != nil {
+		return p, err
+	}
 	if p.Contract.SecType == "" {
 		p.Contract.SecType = "STK"
 	}
@@ -84,14 +86,6 @@ func NormalizeSetupEvaluateParams(p SetupEvaluateParams, now time.Time) (SetupEv
 	if p.Contract.Currency == "" {
 		p.Contract.Currency = "USD"
 	}
-	if p.Contract.Symbol == "" || len(p.Contract.Symbol) > 32 || strings.ContainsAny(p.Contract.Symbol, "\r\n\t, ") {
-		return p, fmt.Errorf("one underlying symbol is required")
-	}
-	for _, r := range p.Contract.Symbol {
-		if r < 33 || r > 126 {
-			return p, fmt.Errorf("underlying symbol must be a printable ASCII token")
-		}
-	}
 	if p.Contract.SecType != "STK" || p.Contract.Currency != "USD" || p.Contract.ConID < 0 || p.Contract.ConID > math.MaxInt32 {
 		return p, fmt.Errorf("setups currently supports US USD stocks only")
 	}
@@ -99,6 +93,20 @@ func NormalizeSetupEvaluateParams(p SetupEvaluateParams, now time.Time) (SetupEv
 		return p, fmt.Errorf("at must be within the preceding year and not in the future")
 	}
 	return p, nil
+}
+
+// normalizeSetupSymbol upper-cases one printable ASCII underlying token.
+func normalizeSetupSymbol(symbol string) (string, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" || len(symbol) > 32 || strings.ContainsAny(symbol, "\r\n\t, ") {
+		return symbol, fmt.Errorf("one underlying symbol is required")
+	}
+	for _, r := range symbol {
+		if r < 33 || r > 126 {
+			return symbol, fmt.Errorf("underlying symbol must be a printable ASCII token")
+		}
+	}
+	return symbol, nil
 }
 
 // SetupBar is a completed five-minute regular-session OHLCV observation.

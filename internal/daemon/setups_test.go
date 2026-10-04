@@ -534,7 +534,7 @@ func TestSetupReplaysAndOneOffNamesKeepWatchedProfiles(t *testing.T) {
 	for _, name := range watched[:10] {
 		mustEvaluateSetup(t, s, name, time.Time{})
 	}
-	mustEvaluateSetup(t, s, "CCC", time.Time{})
+	mustEvaluateSetup(t, s, "SYNX99", time.Time{})
 	rows := setupRowSessions(t, s)
 	if _, ok := rows["BBB"]; ok || len(rows) != 21 {
 		t.Fatalf("eviction after the session change: %v", rows)

@@ -55,3 +55,27 @@ func TestSetupOptionsClientPreservesExactDiscoveryTuple(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupCoverageClientForwardsFiltersWithoutModelTool(t *testing.T) {
+	s := canarytest.Serve(t)
+	want := canary.SetupCoverageParams{Session: "2026-09-30", Symbol: "SYNX"}
+	s.Handle("setups.coverage", func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var got canary.SetupCoverageParams
+		if err := json.Unmarshal(raw, &got); err != nil || got != want {
+			t.Fatalf("coverage request changed: %+v %v", got, err)
+		}
+		return json.Marshal(canary.SetupCoverageResult{Version: 1, SessionDate: got.Session, Sessions: []string{got.Session}, Contracts: []canary.SetupCoverageContract{{Symbol: "SYNX", Evaluations: 3, States: map[string]int{"watching": 3}}}})
+	})
+	c := canary.New(canary.Options{SocketPath: s.SocketPath()})
+	out, err := c.SetupCoverage(t.Context(), want)
+	if err != nil || out.SessionDate != "2026-09-30" || len(out.Contracts) != 1 || out.Contracts[0].States["watching"] != 3 {
+		t.Fatal(out, err)
+	}
+	for _, tool := range canary.Tools() {
+		for _, method := range tool.Methods {
+			if method == "setups.coverage" {
+				t.Fatal("model coverage tool unexpectedly enabled")
+			}
+		}
+	}
+}

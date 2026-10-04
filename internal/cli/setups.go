@@ -21,9 +21,27 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	atText := fs.String("at", "", "past decision time in RFC3339 with timezone; reconstruction only")
 	expiry := fs.String("expiry", "", "listed option expiry YYYYMMDD")
 	strike := fs.String("strike", "", "owner-selected call strike; requires expiry")
+	session := fs.String("session", "", "market session date YYYY-MM-DD; coverage only")
 	jsonOut := fs.Bool("json", false, "emit typed observation evidence")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if fs.NArg() == 1 && fs.Arg(0) == "coverage" {
+		if *specPath != "" || *atText != "" || *expiry != "" || *strike != "" || *conID != 0 {
+			return fail(env, "setups coverage: only --session and --symbol apply")
+		}
+		p, err := rpc.NormalizeSetupCoverageParams(rpc.SetupCoverageParams{Session: *session, Symbol: *symbol})
+		if err != nil {
+			return fail(env, "setups coverage: %v", err)
+		}
+		var out rpc.SetupCoverageResult
+		if err := env.Conn.Call(ctx, rpc.MethodSetupsCoverage, p, &out); err != nil {
+			return fail(env, "setups coverage: %v", err)
+		}
+		return printJSON(env, out)
+	}
+	if *session != "" {
+		return fail(env, "session applies to setups coverage only")
 	}
 	if fs.NArg() == 1 && fs.Arg(0) == "options" {
 		if *specPath != "" || *atText != "" {

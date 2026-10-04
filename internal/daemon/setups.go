@@ -52,12 +52,37 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
+	ev := setupCoverageEvent{at: now, contract: p.Contract}
+	r, err := s.evaluateSetup(ctx, p, now, &ev)
+	if err == nil && ev.live {
+		ev.state = setupCoverageState(r)
+		s.recordSetupCoverage(ev)
+	}
+	return r, err
+}
+
+// countingSetupSource counts the historical requests one evaluation issues.
+type countingSetupSource struct {
+	setupBarSource
+	reads *int
+}
+
+func (c countingSetupSource) FetchSetupBars(ctx context.Context, contract ibkrlib.Contract, start, end time.Time, timeout time.Duration) ([]ibkrlib.HistoricalBar, error) {
+	*c.reads++
+	return c.setupBarSource.FetchSetupBars(ctx, contract, start, end, timeout)
+}
+
+// evaluateSetup serves one evaluation and describes it in ev for coverage.
+func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, now time.Time, ev *setupCoverageEvent) (*rpc.SetupResult, error) {
 	at := p.At
 	historical := !at.IsZero()
 	if at.IsZero() {
 		at = now
 	}
 	current, prior, err := setupSessionWindows(at, p.Spec.BaselineSessions)
+	// Coverage counts live evaluations inside a regular session only.
+	ev.session = current
+	ev.live = !historical && !current.Open.IsZero() && !at.Before(current.Open) && at.Before(current.Close)
 	base := setups.Input{Contract: p.Contract, At: at, ObservedAt: now, Historical: historical, Current: current}
 	unavailable := func(reason string) *rpc.SetupResult {
 		r := setups.Evaluate(p.Spec, base)
@@ -67,10 +92,11 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err != nil {
 		return unavailable(err.Error()), nil
 	}
-	c := s.setupSource()
+	var c setupBarSource = s.setupSource()
 	if c == nil {
 		return unavailable("gateway_unavailable"), nil
 	}
+	c = countingSetupSource{setupBarSource: c, reads: &ev.requests}
 	binding, ok := c.CaptureHistoricalSession()
 	if !ok {
 		return unavailable("gateway_unavailable"), nil
@@ -88,6 +114,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		return unavailable("unsupported_underlying_calendar"), nil
 	}
 	base.Contract = rpc.ContractParams{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange, PrimaryExch: contract.PrimaryExch, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
+	ev.contract = base.Contract
 	rawKey, _ := json.Marshal(base.Contract)
 	contractKey := string(rawKey)
 	key := s.setupProfiles.rowKey(contractKey, current.Date, historical)
