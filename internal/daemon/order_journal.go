@@ -103,6 +103,8 @@ type orderJournalEvent struct {
 	MktCapPrice     float64                  `json:"mkt_cap_price,omitempty"`
 	ExecID          string                   `json:"exec_id,omitempty"`
 	ExecTime        string                   `json:"exec_time,omitempty"`
+	ExecShares      float64                  `json:"exec_shares,omitempty"`
+	ExecSide        string                   `json:"exec_side,omitempty"`
 	ErrorCode       int                      `json:"error_code,omitempty"`
 	SendState       string                   `json:"send_state,omitempty"`
 	AttemptID       string                   `json:"attempt_id,omitempty"`

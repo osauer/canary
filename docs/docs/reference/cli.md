@@ -25,7 +25,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary market`](#canary-market) | Markets | Observed quotes, price history and a daily price/breadth/volume tape | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary watchlist`](#canary-watchlist) | Markets | Read and edit the durable owner watchlist; no broker or policy changes | `local` | CLI only |
-| [`canary setups`](#canary-setups) | Markets | Observe volume turns and discover exact standard calls; no trade or policy authority | `read-only` | CLI only |
+| [`canary setups`](#canary-setups) | Markets | Observe volume turns, discover exact standard calls and read entry markouts; no trade or policy authority | `read-only` | CLI only |
 | [`canary calendar`](#canary-calendar) | Markets | Official exchange sessions, holidays, early closes, and coverage bounds | `read-only` | yes |
 | [`canary macro`](#canary-macro) | Markets | Public economic calendar, official publications and source coverage | `read-only` | yes |
 | [`canary regime`](#canary-regime) | Markets | Detailed broad-market regime across volatility, credit, funding, FX, gamma, and breadth | `read-only` | yes |
@@ -267,7 +267,7 @@ canary watchlist replace --spec PATH|- [--json]
 
 ## `canary setups`
 
-Observe volume turns and discover exact standard calls; no trade or policy authority.
+Observe volume turns, discover exact standard calls and read entry markouts; no trade or policy authority.
 
 `options` reads in three steps: listed expiries; with `--expiry`, up to 21 listed call strikes around the underlying price, which carry no prices (`status: not_requested`); with `--strike`, the exact call. Only that exact call carries a `quote`, read once within 5 seconds on a market-data line opened for this request: `status: quoted` with `bid`, `ask`, `as_of` and `data_type` when both sides are finite and positive, the bid is at most the ask, `as_of` is no more than 60 seconds old, and the broker labelled the data `live`, `delayed`, `frozen` or `delayed-frozen`. Anything else is `status: missing` with no prices. A missing quote never fails the selection, and the order preview still prices any order.
 
@@ -277,9 +277,10 @@ Guard `read-only`. CLI only, with no MCP tool: owner-configured entry observatio
 canary setups evaluate --spec PATH|- --symbol SYMBOL [--con-id ID] [--at RFC3339] [--json]
 canary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] --json
 canary setups coverage --json [--session YYYY-MM-DD] [--symbol SYMBOL]
+canary setups markouts --json [--order-ref REF] [--since YYYY-MM-DD] [--symbol SYMBOL]
 ```
 
-Subcommands: `evaluate`, `options`, `coverage`.
+Subcommands: `evaluate`, `options`, `coverage`, `markouts`.
 
 **Flags**
 
@@ -292,6 +293,8 @@ Subcommands: `evaluate`, `options`, `coverage`.
 | `--expiry` | yes | - |
 | `--strike` | yes | - |
 | `--session` | yes | - |
+| `--order-ref` | yes | - |
+| `--since` | yes | - |
 | `--json` | no | - |
 
 ## `canary calendar`

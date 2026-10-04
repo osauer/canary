@@ -118,6 +118,9 @@ type Server struct {
 	cashLedger       cashLedgerAuthority
 	// dailyPnLObservations keeps an observed same-session feed failure visible
 	dailyPnLObservations dailyPnLObservationAuthority
+	// setupMarkouts schedules and captures post-fill entry markouts for
+	// Canary-placed preview-path fills; nil until daemon.db is bound.
+	setupMarkouts *setupMarkoutRuntime
 	// dailyPnLCloseCaptures pins each scope's account Daily P&L at the
 	// official close, the only figure that may serve as the last completed
 	dailyPnLCloseCaptures dailyPnLCloseCaptureAuthority
@@ -1431,6 +1434,7 @@ func (s *Server) Start(ctx context.Context) error {
 		go s.riskPolicies.Run(serverCtx, s.logger.Infof)
 	}
 	go s.runFlexFetchLoop(serverCtx)
+	go s.runSetupMarkoutLoop(serverCtx)
 	s.startEdgeWorker(serverCtx)
 	s.startFXWorker(serverCtx)
 	s.startStressEvaluationLoop(serverCtx)
@@ -2671,6 +2675,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleSetupOptions(ctx, req) })
 	case rpc.MethodSetupsCoverage:
 		s.unary(req, enc, func() (any, error) { return s.handleSetupsCoverage(ctx, req) })
+	case rpc.MethodSetupsMarkouts:
+		s.unary(req, enc, func() (any, error) { return s.handleSetupMarkouts(ctx, req) })
 	case rpc.MethodMacroSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMacroRequest(*req) })
 	case rpc.MethodMarketCalendar:

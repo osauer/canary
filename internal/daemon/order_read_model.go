@@ -1386,6 +1386,8 @@ func orderJournalEventFromLifecycle(ev ibkrlib.OrderLifecycleEvent, at time.Time
 		out.Status = "Execution"
 		out.Filled = ev.CumQty
 		out.LastFillPrice = ev.Price
+		out.ExecShares = ev.Shares
+		out.ExecSide = ev.ExecutionSide
 		out.AvgFillPrice = ev.AvgFillPrice
 		if out.Quantity > 0 && out.Filled >= out.Quantity-1e-9 {
 			out.Status = "Filled"

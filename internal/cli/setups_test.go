@@ -14,10 +14,16 @@ type setupCLIConn struct {
 	params   rpc.SetupEvaluateParams
 	options  rpc.SetupOptionsParams
 	coverage rpc.SetupCoverageParams
+	markout  rpc.SetupMarkoutsParams
 }
 
 func (c *setupCLIConn) Call(_ context.Context, method string, params, out any) error {
 	c.method = method
+	if method == rpc.MethodSetupsMarkouts {
+		c.markout = params.(rpc.SetupMarkoutsParams)
+		*out.(*rpc.SetupMarkoutsResult) = rpc.SetupMarkoutsResult{Version: 1, Kind: rpc.SetupMarkoutsKind}
+		return nil
+	}
 	if method == rpc.MethodSetupsCoverage {
 		c.coverage = params.(rpc.SetupCoverageParams)
 		*out.(*rpc.SetupCoverageResult) = rpc.SetupCoverageResult{Version: 1, SessionDate: c.coverage.Session, Sessions: []string{}, Contracts: []rpc.SetupCoverageContract{}}
@@ -84,6 +90,36 @@ func TestSetupsCLIForwardsExactContractAndStrictSpec(t *testing.T) {
 		env.Stdin = strings.NewReader(bad)
 		if Run(t.Context(), env, "setups", []string{"evaluate", "--spec", "-", "--symbol", "SYNTH"}) == 0 || c.method != "" {
 			t.Fatal("invalid spec reached daemon")
+		}
+	}
+}
+
+func TestSetupMarkoutsCLIIsAReadOnlyEntryDiagnostic(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := &setupCLIConn{}
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: c}
+	args := []string{"markouts", "--json", "--order-ref", " ref-1 ", "--since", "2026-10-01", "--symbol", "synx"}
+	if code := Run(t.Context(), env, "setups", args); code != 0 {
+		t.Fatal(code, stderr.String())
+	}
+	if c.method != rpc.MethodSetupsMarkouts || c.markout != (rpc.SetupMarkoutsParams{OrderRef: "ref-1", Since: "2026-10-01", Symbol: "SYNX"}) {
+		t.Fatalf("markouts call = %+v", c)
+	}
+	if !strings.Contains(stdout.String(), `"kind": "entry_diagnostic"`) || !strings.Contains(stdout.String(), `"targets": []`) {
+		t.Fatal(stdout.String())
+	}
+	for _, args := range [][]string{
+		{"markouts", "--since", "2026-13-01"},
+		{"markouts", "--con-id", "17"},
+		{"markouts", "--expiry", "20351120"},
+		{"markouts", "--session", "2026-09-30"},
+		{"coverage", "--json", "--order-ref", "ref-1"},
+		{"evaluate", "--spec", "-", "--symbol", "SYNX", "--order-ref", "ref-1"},
+	} {
+		c := &setupCLIConn{}
+		env := &Env{Stdout: new(bytes.Buffer), Stderr: new(bytes.Buffer), Conn: c, Stdin: strings.NewReader(`{"revision":"r1"}`)}
+		if Run(t.Context(), env, "setups", args) == 0 || c.method != "" {
+			t.Fatal("invalid markout read reached daemon", args)
 		}
 	}
 }

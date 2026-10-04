@@ -165,6 +165,7 @@ func (s *Server) appendOrderLifecycleEvent(ev ibkrlib.OrderLifecycleEvent) bool 
 		s.warnf("append order lifecycle event: %v", persistErr)
 		return false
 	}
+	s.offerSetupMarkoutFill(journalEvent)
 	if journalEvent.Source == proposalOrderSource && s.proposalOutcomes != nil && journalEvent.Filled > 0 {
 		var submitted proposalEvent
 		if s.tradeProposals != nil && s.tradeProposals.store != nil {
