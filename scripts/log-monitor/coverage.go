@@ -90,6 +90,17 @@ func trackFamilies(result *logReport, scanned *scannedLog, now time.Time) {
 	today := now.UTC().Format("2006-01-02")
 	changed := map[string]bool{}
 	starts := scanned.cursor.Starts
+	// A cursor reset replays lines the previous cursor had already counted.
+	// Adding them again doubled every replayed day (2026-10-02 showed 3,380
+	// code-300 notices for 1,690 lines); rebuild those days from the replay
+	// instead so a day's bucket always reflects one pass over its lines.
+	if scanned.offsetReset {
+		for _, line := range scanned.lines {
+			if ts, ok := logTime(line); ok && !ts.After(now) {
+				delete(scanned.cursor.Days, ts.UTC().Format("2006-01-02"))
+			}
+		}
+	}
 	for _, line := range scanned.lines {
 		ts, ok := logTime(line)
 		if !ok || ts.After(now) {

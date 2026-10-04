@@ -180,6 +180,18 @@ func fetchTreasury13WeekBill(ctx context.Context) ([]regimeSeriesPoint, error) {
 		}
 		merged = append(merged, res.points...)
 	}
+	// Treasury publishes the current month's file before its first print
+	// lands: on day one it is a well-formed feed with no observations, and
+	// stays so until the first business day's ~16:00 ET publication. That is
+	// not a truncated fetch — the series genuinely ends with the previous
+	// month's last print — so an empty current month merges as empty as long
+	// as the previous month fetched. (2026-10-01 logged the all-or-error
+	// failure 146 times, once per regime read, serving the cached series it
+	// could have refreshed.) A fetch failure, or an empty previous month,
+	// still fails the whole read.
+	if len(errs) == 1 && len(merged) > 0 && errors.Is(errs[0], errTreasuryMonthEmpty) && strings.Contains(errs[0].Error(), "month "+months[1]) {
+		errs = nil
+	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
@@ -259,10 +271,14 @@ func parseTreasury13WeekBillXML(r io.Reader) ([]regimeSeriesPoint, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date.Before(out[j].Date) })
 	if len(out) == 0 {
-		return nil, fmt.Errorf("treasury XML contained no usable 13-week bill observations")
+		return nil, errTreasuryMonthEmpty
 	}
 	return out, nil
 }
+
+// errTreasuryMonthEmpty is a parsed month file that carries no 13-week bill
+// print yet. fetchTreasury13WeekBill tolerates it for the current month only.
+var errTreasuryMonthEmpty = errors.New("treasury XML contained no usable 13-week bill observations")
 
 func fetchCSVSeries(ctx context.Context, endpoint, valueColumn, dateLayout string) ([]regimeSeriesPoint, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

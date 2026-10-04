@@ -239,3 +239,40 @@ func TestMirrorSyncRecordGatesCoverage(t *testing.T) {
 		})
 	}
 }
+
+// Replaying a file after a cursor reset rebuilds the replayed days' family
+// counts; it must not add them on top of the counts the lost cursor had.
+func TestReplayAfterCursorResetDoesNotDoubleCountFamilies(t *testing.T) {
+	opts := testMonitorOptions(t)
+	opts.commit = true
+	now := time.Date(2026, 10, 4, 6, 0, 0, 0, time.UTC)
+	var lines strings.Builder
+	for i := range 5 {
+		ts := time.Date(2026, 10, 2, 7, i, 0, 0, time.UTC)
+		lines.WriteString("time=" + ts.Format(time.RFC3339) + ` level=WARN msg="System notice reqID=1 (SPY OPT) code=300 @ x: Can't find EId"` + "\n")
+	}
+	writeTestFile(t, opts.daemonLog, lines.String())
+	got, err := run(opts, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Daemon.Recurring != nil {
+		t.Fatalf("single day reported as recurring: %+v", got.Daemon.Recurring)
+	}
+	// Invalidate the cursor by rewriting the same lines with one more day.
+	lines.WriteString("time=2026-10-03T07:00:00Z level=WARN msg=\"System notice reqID=2 (SPY OPT) code=300 @ x: Can't find EId\"\n")
+	writeTestFile(t, opts.daemonLog, "time=2026-10-02T06:59:00Z level=INFO msg=prefix-changed\n"+lines.String())
+	got, err = run(opts, now)
+	if err != nil || !got.Daemon.OffsetReset {
+		t.Fatalf("replay not detected: %+v %v", got.Daemon, err)
+	}
+	var trend *familyTrend
+	for i := range got.Daemon.Recurring {
+		if got.Daemon.Recurring[i].Family == "broker_code_300" {
+			trend = &got.Daemon.Recurring[i]
+		}
+	}
+	if trend == nil || trend.Days != 2 || trend.Occurrences != 6 {
+		t.Fatalf("replayed counts = %+v, want 2 days / 6 occurrences", trend)
+	}
+}

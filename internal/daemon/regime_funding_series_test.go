@@ -147,9 +147,12 @@ func TestFetchTreasury13WeekBillAllOrError(t *testing.T) {
 	curDates := []time.Time{curStart.AddDate(0, 0, 1), curStart.AddDate(0, 0, 2)}
 
 	var curMonthMode string // "ok" | "http500" | "empty"
+	prevMonthMode := "ok"   // "ok" | "empty"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		month := r.URL.Query().Get("month")
 		switch {
+		case month == prevMonth && prevMonthMode == "empty":
+			fmt.Fprint(w, "<feed></feed>")
 		case month == prevMonth:
 			fmt.Fprint(w, treasuryFeedXML(prevDates))
 		case month == curMonth && curMonthMode == "ok":
@@ -178,15 +181,32 @@ func TestFetchTreasury13WeekBillAllOrError(t *testing.T) {
 		t.Fatalf("both months ok: series ends %s, want %s", last, curDates[len(curDates)-1])
 	}
 
-	for _, mode := range []string{"http500", "empty"} {
-		curMonthMode = mode
-		points, err = fetchTreasury13WeekBill(context.Background())
-		if err == nil {
-			t.Fatalf("current month %s: got %d points and nil error, want error", mode, len(points))
-		}
-		if !strings.Contains(err.Error(), "month "+curMonth) {
-			t.Fatalf("current month %s: error %q does not name the failed month", mode, err)
-		}
+	curMonthMode = "http500"
+	points, err = fetchTreasury13WeekBill(context.Background())
+	if err == nil {
+		t.Fatalf("current month http500: got %d points and nil error, want error", len(points))
+	}
+	if !strings.Contains(err.Error(), "month "+curMonth) {
+		t.Fatalf("current month http500: error %q does not name the failed month", err)
+	}
+
+	// A current-month file with no print yet is how Treasury publishes the
+	// first days of every month; the series then ends with the previous
+	// month's last print rather than failing the read.
+	curMonthMode = "empty"
+	points, err = fetchTreasury13WeekBill(context.Background())
+	if err != nil {
+		t.Fatalf("empty current month: unexpected error %v", err)
+	}
+	if len(points) != len(prevDates) || !points[len(points)-1].Date.Equal(prevDates[len(prevDates)-1]) {
+		t.Fatalf("empty current month: got %d points ending %v, want the %d previous-month points", len(points), points[len(points)-1].Date, len(prevDates))
+	}
+
+	// The previous month must still fetch and carry prints: an empty previous
+	// month is a truncated feed, and an empty current month cannot excuse it.
+	prevMonthMode = "empty"
+	if _, err = fetchTreasury13WeekBill(context.Background()); err == nil || !strings.Contains(err.Error(), "month "+prevMonth) {
+		t.Fatalf("empty previous month: err=%v, want an error naming %s", err, prevMonth)
 	}
 }
 

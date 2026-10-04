@@ -230,6 +230,15 @@ func (s *Server) cachedFXResolver(c *ibkrlib.Connector) currencyRateResolver {
 			}
 			return rate, true
 		}
+		// Concurrent readers resolve the same pair; when a sibling's live
+		// quote landed while this attempt was failing, the pair is not
+		// degraded — serve the fresh entry and leave the degraded mark alone.
+		// (Without this check every parallel brief read logged "live
+		// resolution failed; serving last-known-good (age 4s)" and flipped
+		// the mark, so the next success logged a recovery that never was.)
+		if rate, _, ok := s.fxRates.get(baseCcy, ccy, fxCacheFreshWindow); ok {
+			return rate, true
+		}
 		rate, age, ok := s.fxRates.get(baseCcy, ccy, fxCacheTTL)
 		if !ok {
 			return 0, false
