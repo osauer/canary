@@ -65,11 +65,17 @@ type Server struct {
 	lendingMarket lendingMarketCache
 	shortInterest shortInterestCache
 	setupProfiles setupProfileCache
+	setupCoverage setupCoverageRecorder
 	cfg           *config.Resolved
 	socketPath    string
 	startedAt     time.Time
 	version       string
 	now           func() time.Time
+	// setupSourceForTest replaces the gateway connector behind setup
+	// evaluations; nil reads the live connector.
+	setupSourceForTest setupBarSource
+	// setupResolutions remembers exact setup underlyings per broker session.
+	setupResolutions setupResolutionCache
 	// backendLink overrides the connector's TWS-to-IBKR link report for tests;
 	// nil reads the current connector.
 	backendLink func() ibkrlib.BackendLinkReport
@@ -1507,6 +1513,7 @@ func (s *Server) Stop() {
 
 	s.stopConnector()
 	s.stopBreadthConnector()
+	s.drainSetupCoverage()
 	if err := s.closeCoreStore(); err != nil {
 		s.warnf("close daemon authority: %v", err)
 	}
@@ -2662,6 +2669,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleSetupsEvaluate(ctx, req) })
 	case rpc.MethodSetupsOptions:
 		s.unary(req, enc, func() (any, error) { return s.handleSetupOptions(ctx, req) })
+	case rpc.MethodSetupsCoverage:
+		s.unary(req, enc, func() (any, error) { return s.handleSetupsCoverage(ctx, req) })
 	case rpc.MethodMacroSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMacroRequest(*req) })
 	case rpc.MethodMarketCalendar:

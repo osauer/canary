@@ -226,7 +226,7 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "watchlist":
 		return []string{rpc.MethodWatchlistList, rpc.MethodWatchlistReplace, rpc.MethodWatchlistAdd, rpc.MethodWatchlistRemove}, ordinaryHeadroom, ordinaryFloor
 	case "setups":
-		return []string{rpc.MethodSetupsEvaluate, rpc.MethodSetupsOptions}, 15 * time.Second, longFloor
+		return []string{rpc.MethodSetupsEvaluate, rpc.MethodSetupsOptions, rpc.MethodSetupsCoverage}, 15 * time.Second, longFloor
 	case "regime":
 		return []string{rpc.MethodRegimeSnapshot}, ordinaryHeadroom, ordinaryFloor
 	case "stress":

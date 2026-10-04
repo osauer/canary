@@ -276,9 +276,10 @@ Guard `read-only`. CLI only, with no MCP tool: owner-configured entry observatio
 ```text
 canary setups evaluate --spec PATH|- --symbol SYMBOL [--con-id ID] [--at RFC3339] [--json]
 canary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] --json
+canary setups coverage --json [--session YYYY-MM-DD] [--symbol SYMBOL]
 ```
 
-Subcommands: `evaluate`, `options`.
+Subcommands: `evaluate`, `options`, `coverage`.
 
 **Flags**
 
@@ -290,6 +291,7 @@ Subcommands: `evaluate`, `options`.
 | `--at` | yes | - |
 | `--expiry` | yes | - |
 | `--strike` | yes | - |
+| `--session` | yes | - |
 | `--json` | no | - |
 
 ## `canary calendar`

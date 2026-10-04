@@ -10,13 +10,19 @@ import (
 )
 
 type setupCLIConn struct {
-	method  string
-	params  rpc.SetupEvaluateParams
-	options rpc.SetupOptionsParams
+	method   string
+	params   rpc.SetupEvaluateParams
+	options  rpc.SetupOptionsParams
+	coverage rpc.SetupCoverageParams
 }
 
 func (c *setupCLIConn) Call(_ context.Context, method string, params, out any) error {
 	c.method = method
+	if method == rpc.MethodSetupsCoverage {
+		c.coverage = params.(rpc.SetupCoverageParams)
+		*out.(*rpc.SetupCoverageResult) = rpc.SetupCoverageResult{Version: 1, SessionDate: c.coverage.Session, Sessions: []string{}, Contracts: []rpc.SetupCoverageContract{}}
+		return nil
+	}
 	if method == rpc.MethodSetupsOptions {
 		c.options = params.(rpc.SetupOptionsParams)
 		*out.(*rpc.SetupOptionsResult) = rpc.SetupOptionsResult{Version: 1, Underlying: c.options.Underlying, Expiries: []rpc.SetupOptionExpiry{}, Calls: []rpc.SetupOptionCall{}}
@@ -78,6 +84,32 @@ func TestSetupsCLIForwardsExactContractAndStrictSpec(t *testing.T) {
 		env.Stdin = strings.NewReader(bad)
 		if Run(t.Context(), env, "setups", []string{"evaluate", "--spec", "-", "--symbol", "SYNTH"}) == 0 || c.method != "" {
 			t.Fatal("invalid spec reached daemon")
+		}
+	}
+}
+
+func TestSetupCoverageCLIForwardsOnlyItsFilters(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	c := &setupCLIConn{}
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: c}
+	if code := Run(t.Context(), env, "setups", []string{"coverage", "--json", "--session", "2026-09-30", "--symbol", "aaa"}); code != 0 {
+		t.Fatal(code, stderr.String())
+	}
+	if c.method != rpc.MethodSetupsCoverage || c.coverage != (rpc.SetupCoverageParams{Session: "2026-09-30", Symbol: "AAA"}) || !strings.Contains(stdout.String(), `"contracts": []`) {
+		t.Fatal(c, stdout.String())
+	}
+	for _, args := range [][]string{
+		{"coverage", "--session", "2026-9-30"},
+		{"coverage", "--symbol", "AAA,BBB"},
+		{"coverage", "--con-id", "17"},
+		{"coverage", "--at", "2026-09-30T10:20:00-04:00"},
+		{"evaluate", "--spec", "-", "--symbol", "AAA", "--session", "2026-09-30"},
+		{"options", "--symbol", "AAA", "--con-id", "17", "--session", "2026-09-30"},
+	} {
+		c := &setupCLIConn{}
+		env := &Env{Stdout: new(bytes.Buffer), Stderr: new(bytes.Buffer), Stdin: strings.NewReader(`{"revision":"v1"}`), Conn: c}
+		if Run(t.Context(), env, "setups", args) == 0 || c.method != "" {
+			t.Fatal("invalid coverage request reached daemon", args)
 		}
 	}
 }
