@@ -38,5 +38,5 @@ func TestAnySupportedMarketOpenUnionsCalendars(t *testing.T) {
 }
 
 func testLogMarketsOpen(at time.Time) bool {
-	return compileGatewaySchedule(at, marketcal.AllMarkets(), 0, 0, at.Add(time.Hour), false).required(at, at)
+	return compileGatewaySchedule(at, marketcal.AllMarkets(), 0, 0, false).required(at, at)
 }

@@ -42,7 +42,7 @@ func TestGatewayScheduleCalendarEdges(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := scheduleTime(t, tc.at)
-			v := compileGatewaySchedule(now, []marketcal.Market{tc.market}, tc.before, tc.after, now.Add(time.Hour), false)
+			v := compileGatewaySchedule(now, []marketcal.Market{tc.market}, tc.before, tc.after, false)
 			if got := v.required(now, now); got != tc.want {
 				t.Fatalf("required=%t want=%t", got, tc.want)
 			}
@@ -52,7 +52,7 @@ func TestGatewayScheduleCalendarEdges(t *testing.T) {
 
 func TestGatewayScheduleUnknownExpiryAndCrossing(t *testing.T) {
 	now := scheduleTime(t, "2026-09-14T13:00:00Z")
-	v := compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity}, 0, 0, now.Add(time.Hour), false)
+	v := compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity}, 0, 0, false)
 	if v.required(now, now) {
 		t.Fatal("before duty")
 	}
@@ -60,7 +60,7 @@ func TestGatewayScheduleUnknownExpiryAndCrossing(t *testing.T) {
 		t.Fatal("crossing opening hidden")
 	}
 	if !v.required(now, now.Add(time.Hour)) {
-		t.Fatal("expired evidence hidden")
+		t.Fatal("interval reaching into the session hidden")
 	}
 	if !v.required(now.Add(-13*time.Hour), now) {
 		t.Fatal("old recovery interval treated known")
@@ -82,7 +82,7 @@ func TestGatewayScheduleQuietEpisodePromotesAndRecovers(t *testing.T) {
 	now := scheduleTime(t, "2026-09-14T13:29:00Z")
 	var out bytes.Buffer
 	s := &Server{cfg: &config.Resolved{Daemon: config.Daemon{LogCalendarMode: "scheduled"}}, logger: NewLogger(&out, "info"), now: func() time.Time { return now }}
-	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity}, 0, 0, now.Add(time.Hour), false))
+	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity}, 0, 0, false))
 	s.logGatewayUnavailable("synthetic unavailable")
 	if strings.Contains(out.String(), "level=WARN") {
 		t.Fatal("quiet incident warned")
@@ -127,7 +127,7 @@ func TestGatewayScheduleDeclarationWinsOverUnsupportedInventory(t *testing.T) {
 	}
 	// Saturday 02:00 CEST with that scope is off duty.
 	now := scheduleTime(t, "2026-10-03T00:00:00Z")
-	v := compileGatewaySchedule(now, markets, 2*time.Hour, 90*time.Minute, now.Add(time.Hour), false)
+	v := compileGatewaySchedule(now, markets, 2*time.Hour, 90*time.Minute, false)
 	if v.required(now, now) {
 		t.Fatal("off-duty weekend outage required")
 	}
@@ -141,8 +141,27 @@ func TestGatewayScheduleWorkerShutdownAndConservativeDefault(t *testing.T) {
 		cancel()
 		s.gatewaySchedule.wg.Wait()
 		now := time.Now()
-		if !s.gatewayLogRequired(now, now) {
-			t.Fatal("missing inventory quieted")
+		if mode == "" {
+			if !s.gatewayLogRequired(now, now) {
+				t.Fatal("conservative mode quieted")
+			}
+			continue
+		}
+		// The scheduled worker publishes the declaration's calendar before it
+		// waits on its ticker, and that calendar alone decides: no connector,
+		// session or inventory is needed for the decision.
+		if s.gatewaySchedule.view.Load() == nil {
+			t.Fatal("scheduled worker published no view before shutdown")
+		}
+		markets := s.cfg.Daemon.GatewayLogMarkets()
+		for _, m := range []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions} {
+			if !slices.Contains(markets, m) {
+				markets = append(markets, m)
+			}
+		}
+		before, after := s.cfg.Daemon.GatewayLogPadding()
+		if want := compileGatewaySchedule(now, markets, before, after, false).required(now, now); s.gatewayLogRequired(now, now) != want {
+			t.Fatalf("scheduled decision = %t, calendar says %t", !want, want)
 		}
 	}
 }
@@ -150,7 +169,7 @@ func TestGatewayScheduleWorkerShutdownAndConservativeDefault(t *testing.T) {
 func BenchmarkGatewayScheduleDecision(b *testing.B) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	s := &Server{cfg: &config.Resolved{Daemon: config.Daemon{LogCalendarMode: "scheduled"}}}
-	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, marketcal.AllMarkets(), 6*time.Hour, 4*time.Hour, now.Add(time.Hour), false))
+	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, marketcal.AllMarkets(), 6*time.Hour, 4*time.Hour, false))
 	b.ReportAllocs()
 	for b.Loop() {
 		s.gatewayLogRequired(now, now)
@@ -160,24 +179,30 @@ func BenchmarkGatewayScheduleDecision(b *testing.B) {
 func TestGatewayScheduleRejectsSuccessorAndObsoletePublication(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	first, second := &ibkrlib.Connector{}, &ibkrlib.Connector{}
-	evidence := gatewayScopeEvidence{connector: first, until: now.Add(time.Hour)}
-	evidence.observeConnector(nil)
-	if evidence.until.IsZero() {
-		t.Fatal("same-scope outage discarded retained scope")
-	}
-	evidence.observeConnector(second)
-	if !evidence.until.IsZero() {
-		t.Fatal("successor inherited quiet permission")
-	}
 	s := &Server{cfg: &config.Resolved{Daemon: config.Daemon{LogCalendarMode: "scheduled"}}, connector: second, connectorEpoch: 2}
-	v := compileGatewaySchedule(now, marketcal.AllMarkets(), 0, 0, now.Add(time.Hour), false)
+	v := compileGatewaySchedule(now, marketcal.AllMarkets(), 0, 0, false)
 	if s.publishGatewaySchedule(first, 1, v) || s.publishGatewaySchedule(second, 1, v) {
 		t.Fatal("obsolete publication accepted")
 	}
 	if !s.gatewayLogRequired(now, now) {
-		t.Fatal("obsolete evidence enabled quieting")
+		t.Fatal("unpublished schedule enabled quieting")
 	}
 	if !s.publishGatewaySchedule(second, 2, v) {
 		t.Fatal("current publication rejected")
+	}
+}
+
+// Scheduled mode quiets an off-duty outage on the declaration alone: a
+// weekend outage with no connector, no session and no inventory is still
+// off duty. Until 2026-10-04 the missing inventory kept every such outage
+// at WARN, which is what the mode was configured to stop.
+func TestGatewayScheduleQuietsWithoutInventoryEvidence(t *testing.T) {
+	now := scheduleTime(t, "2026-10-04T07:30:00Z") // Sunday 09:30 CEST
+	var out bytes.Buffer
+	s := &Server{cfg: &config.Resolved{Daemon: config.Daemon{LogCalendarMode: "scheduled"}}, logger: NewLogger(&out, "info"), now: func() time.Time { return now }}
+	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity}, 2*time.Hour, 90*time.Minute, false))
+	s.logGatewayUnavailable("TWS accepts connections and resets them before the API handshake")
+	if !strings.Contains(out.String(), "level=INFO") || strings.Contains(out.String(), "level=WARN") {
+		t.Fatalf("off-duty outage without inventory not quiet: %s", out.String())
 	}
 }

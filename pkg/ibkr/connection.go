@@ -510,6 +510,11 @@ type reqAliasEntry struct {
 	currency     string
 	localSymbol  string
 	tradingClass string
+	// conID is the exact identity the request carried, zero for a
+	// symbol-only lookup. A "no security definition" for a zero conID is a
+	// discovery miss the requester classifies; for a known conID it is a
+	// stale identity (the cached OKE conId of 2026-09-28) and stays loud.
+	conID int
 }
 
 func (c *Connection) registerReqAlias(reqID int, contract Contract) {
@@ -517,6 +522,7 @@ func (c *Connection) registerReqAlias(reqID int, contract Contract) {
 		return
 	}
 	entry := reqAliasEntry{
+		conID:        contract.ConID,
 		symbol:       strings.ToUpper(contract.Symbol),
 		secType:      strings.ToUpper(contract.SecType),
 		exchange:     strings.ToUpper(contract.Exchange),
@@ -3553,16 +3559,30 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	// stale/zero-value warnings, so the wire echo is debug-grade.
 	indicativeDisclaimer := note.code == 2129
 	definitionProbe := note.code == 200 && (aliasEntry.secType == "OPT" || aliasEntry.secType == "CASH")
-	// Consequences the connector already reports once do not earn a warning
-	// each: cancel echoes while the backend link is broken, and repeat probes
-	// of an entitlement gap it has warned about.
+	// A symbol-only stock lookup that IBKR cannot resolve is a discovery miss
+	// (screen candidates, warrants and units among them: 37 lines on the
+	// morning of 2026-10-04); the requester already classifies it. Only a
+	// known conID that stops resolving is an operator-grade warning.
+	symbolLookupMiss := note.code == 200 && aliasEntry.secType == "STK" && aliasEntry.conID == 0 && aliasEntry.symbol != ""
+	upperMsg := strings.ToUpper(note.message)
+	// Echoes of the connector's own actions carry no new information: 300
+	// answers a cancel for a ticker the gateway no longer holds (1,690 lines
+	// on 2026-10-02 while TWS was connected but not serving), and 162 "query
+	// cancelled" acknowledges the cancel the requester sent on its own
+	// timeout, which the requester has already reported. 162 "no data" is
+	// a verdict the requester records per contract.
 	noticeCtx := c.noticeLogContextSnapshot()
-	cancelEcho := note.code == 300 && noticeCtx.backendLinkDown != nil && noticeCtx.backendLinkDown()
-	if cancelEcho {
+	cancelEcho := note.code == 300
+	if cancelEcho && noticeCtx.backendLinkDown != nil && noticeCtx.backendLinkDown() {
+		// Counted for the backend-restore bookend, which attributes them to
+		// the break; echoes outside one stay in debug uncounted.
 		c.suppressedCancelEchoes.Add(1)
 	}
+	queryCancelled := note.code == 162 && strings.Contains(upperMsg, "QUERY CANCELLED")
+	noDataVerdict := note.code == 162 && strings.Contains(upperMsg, "NO DATA")
+	// Repeat probes of an entitlement gap the connector has warned about
+	// once are informational.
 	repeatGap := note.code == 354 && noticeCtx.knownEntitlementGap != nil && noticeCtx.knownEntitlementGap(int(note.tickerID), aliasEntry)
-	upperMsg := strings.ToUpper(note.message)
 	parserMisalign := strings.Contains(upperMsg, "MART") || strings.Contains(upperMsg, "'BOE") || strings.Contains(upperMsg, "\"BOE") || strings.Contains(upperMsg, " BOE")
 	context := ""
 	if parserMisalign {
@@ -3583,10 +3603,14 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 		switch {
 		case parserMisalign:
 			ibkrLogger.Errorf(format, args...)
-		case definitionProbe, indicativeDisclaimer, cancelEcho:
+		case definitionProbe, indicativeDisclaimer, cancelEcho, queryCancelled:
 			ibkrLogger.Debugf(format, args...)
 		case repeatGap:
 			ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
+		case symbolLookupMiss:
+			ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
+		case noDataVerdict:
+			ibkrLogger.Infof(format, args...)
 		case shouldWarn:
 			ibkrLogger.Warnf(format, args...)
 		default:
@@ -3600,10 +3624,14 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	switch {
 	case parserMisalign:
 		ibkrLogger.Errorf(format, args...)
-	case definitionProbe, cancelEcho:
+	case definitionProbe, cancelEcho, queryCancelled:
 		ibkrLogger.Debugf(format, args...)
 	case repeatGap:
 		ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
+	case symbolLookupMiss:
+		ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
+	case noDataVerdict:
+		ibkrLogger.Infof(format, args...)
 	case shouldWarn:
 		ibkrLogger.Warnf(format, args...)
 	default:

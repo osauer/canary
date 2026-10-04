@@ -44,6 +44,17 @@ type regimeSeriesCache struct {
 	freshFor       time.Duration
 	maxFallbackAge time.Duration
 	warnf          func(format string, args ...any)
+	// failures remembers the open fetch failure per series so a failure
+	// that repeats on every regime read (DTB3 drew 146 identical lines on
+	// 2026-10-01) warns once, again when its text changes, and bookends on
+	// recovery with the attempt count.
+	failures map[string]regimeSeriesFailure
+}
+
+type regimeSeriesFailure struct {
+	text     string
+	since    time.Time
+	attempts int
 }
 
 type regimeSeriesCacheEntry struct {
@@ -59,6 +70,7 @@ func newRegimeSeriesCache(dir string, warnf func(format string, args ...any)) *r
 		freshFor:       regimeSeriesCacheFreshFor,
 		maxFallbackAge: regimeSeriesCacheMaxFallbackAge,
 		warnf:          warnf,
+		failures:       map[string]regimeSeriesFailure{},
 	}
 }
 
@@ -66,6 +78,36 @@ func (c *regimeSeriesCache) warn(format string, args ...any) {
 	if c.warnf != nil {
 		c.warnf(format, args...)
 	}
+}
+
+// noteFailure records a failed fetch and reports whether it repeats the
+// failure already open for the series (same error text).
+func (c *regimeSeriesCache) noteFailure(seriesID string, err error, now time.Time) (repeat bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.failures == nil {
+		c.failures = map[string]regimeSeriesFailure{}
+	}
+	text := err.Error()
+	f, open := c.failures[seriesID]
+	if open && f.text == text {
+		f.attempts++
+		c.failures[seriesID] = f
+		return true
+	}
+	c.failures[seriesID] = regimeSeriesFailure{text: text, since: now, attempts: 1}
+	return false
+}
+
+// clearFailure closes the open failure for a series on a successful fetch.
+func (c *regimeSeriesCache) clearFailure(seriesID string) (attempts int, since time.Time, open bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	f, open := c.failures[seriesID]
+	if open {
+		delete(c.failures, seriesID)
+	}
+	return f.attempts, f.since, open
 }
 
 func (c *regimeSeriesCache) UseCoreStore(store *corestore.Store) error {
@@ -103,14 +145,24 @@ func (c *regimeSeriesCache) fetch(ctx context.Context, seriesID string, fetcher 
 	}
 	points, err := fetcher(ctx, seriesID)
 	if err == nil {
+		if attempts, since, open := c.clearFailure(seriesID); open && attempts > 1 {
+			c.warn("official series %s: fetch recovered after %d failed attempts since %s", seriesID, attempts, since.UTC().Format(time.RFC3339))
+		}
 		return c.put(seriesID, points, now), nil
 	}
+	// The same failure on every read is one incident: warn when it opens or
+	// its text changes, stay quiet while it repeats, and bookend the recovery.
+	repeat := c.noteFailure(seriesID, err, now)
 	if points, ok := c.cachedUsable(seriesID, now, false); ok {
-		latest, _ := latestSeriesPoint(points)
-		c.warn("official series %s: fetch failed (%v); serving cached series ending %s", seriesID, err, latest.Date.Format("2006-01-02"))
+		if !repeat {
+			latest, _ := latestSeriesPoint(points)
+			c.warn("official series %s: fetch failed (%v); serving cached series ending %s (repeats of this failure stay quiet until it changes or recovers)", seriesID, err, latest.Date.Format("2006-01-02"))
+		}
 		return points, nil
 	}
-	c.warn("official series %s: fetch failed (%v); no usable cached fallback", seriesID, err)
+	if !repeat {
+		c.warn("official series %s: fetch failed (%v); no usable cached fallback (repeats of this failure stay quiet until it changes or recovers)", seriesID, err)
+	}
 	return nil, err
 }
 

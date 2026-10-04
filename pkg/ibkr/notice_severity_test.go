@@ -6,8 +6,9 @@ import (
 	"time"
 )
 
-// Cancel echoes (300) drawn while the backend link is broken are debug-grade
-// and counted once; the same echo after the restore warns again.
+// Cancel echoes (300) are debug-grade whenever they arrive; those drawn while
+// the backend link is broken are counted for the restore bookend, those
+// outside a break are not.
 func TestCancelEchoDuringBackendBreakStaysInDebug(t *testing.T) {
 	buf := captureConnectorLogs(t)
 	conn, _ := newReadyWireTestConnection(t)
@@ -25,12 +26,11 @@ func TestCancelEchoDuringBackendBreakStaysInDebug(t *testing.T) {
 	}
 	down = false
 	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNotice(7, 300), epoch)
-	lines := logLines(buf, "code=300")
-	if len(lines) != 1 || !strings.Contains(lines[0], "level=WARN") {
-		t.Fatalf("standalone cancel echo lost its warning: %v", lines)
+	if lines := logLines(buf, "code=300"); len(lines) != 0 {
+		t.Fatalf("standalone cancel echo logged above debug: %v", lines)
 	}
 	if conn.takeSuppressedCancelEchoes() != 0 {
-		t.Fatal("warned echo counted as suppressed")
+		t.Fatal("echo outside a break counted toward the restore bookend")
 	}
 }
 

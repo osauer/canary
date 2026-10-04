@@ -268,7 +268,16 @@ type DataFarmStatus struct {
 	// impairedSince is when the current break began; repeated break notices
 	// keep it while AsOf follows the latest notice.
 	impairedSince time.Time
+	// warned marks a break that has lasted dataFarmBreakAttention and drawn
+	// its one WARN; its recovery then warns too, with the duration.
+	warned bool
 }
+
+// dataFarmBreakAttention is how long a data-farm break lasts before it is
+// worth a WARN. IBKR's maintenance windows flap farms for seconds at a time,
+// two lines per farm per flap (over forty on the weekend morning of
+// 2026-10-04); a break that outlives this is the one that holds requests.
+const dataFarmBreakAttention = 5 * time.Minute
 
 // DataFarmStatuses returns a detached snapshot of tracked farm notices.
 func (c *Connector) DataFarmStatuses() []DataFarmStatus {
@@ -1663,40 +1672,92 @@ func (c *Connector) recordDataFarmNotice(code int, message string, asOf time.Tim
 	}
 	if farmStatusImpaired(farm.Status) {
 		farm.impairedSince = farm.AsOf
-		if had && farmStatusImpaired(prev.Status) && !prev.impairedSince.IsZero() {
-			farm.impairedSince = prev.impairedSince
+		if had && farmStatusImpaired(prev.Status) {
+			if !prev.impairedSince.IsZero() {
+				farm.impairedSince = prev.impairedSince
+			}
+			farm.warned = prev.warned
 		}
 	}
 	c.dataFarms[key] = farm
 	c.dataFarmMu.Unlock()
 	c.logDataFarmTransition(prev, had, farm)
+	c.warnLongDataFarmBreaks(asOf)
 }
 
-// logDataFarmTransition warns once when a data farm breaks and once when it
-// recovers. The notices themselves log at INFO, below a WARN-only production
-// log, so a farm that stopped answering left nothing there but the timeouts
-// of the requests it serves. 1100/1101/1102 already warn through the backend
-// link tracker; 2110 is the one connectivity break that did not.
+// warnLongDataFarmBreaks gives each break that has outlived
+// dataFarmBreakAttention its one WARN. Farm notices arrive on every flap of
+// any farm and the scheduled-mode worker calls it each minute, so a lone
+// long break is noticed within a minute in scheduled mode and on the next
+// notice otherwise; status carries the live state in between.
+func (c *Connector) warnLongDataFarmBreaks(now time.Time) {
+	var long []DataFarmStatus
+	c.dataFarmMu.Lock()
+	for key, farm := range c.dataFarms {
+		if farm.Type == "connectivity" || farm.warned || !farmStatusImpaired(farm.Status) {
+			continue
+		}
+		since := farm.impairedSince
+		if since.IsZero() {
+			since = farm.AsOf
+		}
+		if now.Sub(since) < dataFarmBreakAttention {
+			continue
+		}
+		farm.warned = true
+		c.dataFarms[key] = farm
+		long = append(long, farm)
+	}
+	c.dataFarmMu.Unlock()
+	for _, farm := range long {
+		since := farm.impairedSince
+		if since.IsZero() {
+			since = farm.AsOf
+		}
+		c.logWarn("[cid=%d] IBKR %s has been %s for %s (code %d); requests it serves keep waiting", c.preferredClientID(), dataFarmLabel(farm), farm.Status, now.Sub(since).Round(time.Second), farm.Code)
+	}
+}
+
+func (c *Connector) preferredClientID() int {
+	if c.config != nil {
+		return c.config.PreferredClientID
+	}
+	return 0
+}
+
+func dataFarmLabel(farm DataFarmStatus) string {
+	return strings.ReplaceAll(farm.Type, "_", " ") + " data farm " + farm.Name
+}
+
+// logDataFarmTransition records farm breaks and recoveries at INFO, and warns
+// once for the recovery of a break that lasted dataFarmBreakAttention (or had
+// already warned for lasting it). Short flaps during IBKR's maintenance
+// windows therefore leave no WARN; a farm that stops answering still leaves
+// one WARN while broken (warnLongDataFarmBreaks) and one with the duration
+// when it recovers. 1100/1101/1102 warn through the backend link tracker;
+// 2110 is the one connectivity break that did not.
 func (c *Connector) logDataFarmTransition(prev DataFarmStatus, had bool, farm DataFarmStatus) {
 	wasImpaired := had && farmStatusImpaired(prev.Status)
-	label := strings.ReplaceAll(farm.Type, "_", " ") + " data farm " + farm.Name
-	cid := 0
-	if c.config != nil {
-		cid = c.config.PreferredClientID
-	}
+	label := dataFarmLabel(farm)
+	cid := c.preferredClientID()
 	switch {
 	case farm.Type == "connectivity":
 		if farm.Code == 2110 && !wasImpaired {
 			c.logWarn("[cid=%d] TWS reports its connection to IBKR broken (code 2110)", cid)
 		}
 	case farmStatusImpaired(farm.Status) && !wasImpaired:
-		c.logWarn("[cid=%d] IBKR %s is %s (code %d); requests it serves wait until it recovers", cid, label, farm.Status, farm.Code)
+		c.logInfo("[cid=%d] IBKR %s is %s (code %d); requests it serves wait until it recovers", cid, label, farm.Status, farm.Code)
 	case wasImpaired && !farmStatusImpaired(farm.Status):
 		since := prev.impairedSince
 		if since.IsZero() {
 			since = prev.AsOf
 		}
-		c.logWarn("[cid=%d] IBKR %s recovered (%s, code %d) after %s", cid, label, farm.Status, farm.Code, farm.AsOf.Sub(since).Round(time.Second))
+		outage := farm.AsOf.Sub(since)
+		if prev.warned || outage >= dataFarmBreakAttention {
+			c.logWarn("[cid=%d] IBKR %s recovered (%s, code %d) after %s", cid, label, farm.Status, farm.Code, outage.Round(time.Second))
+		} else {
+			c.logInfo("[cid=%d] IBKR %s recovered (%s, code %d) after %s", cid, label, farm.Status, farm.Code, outage.Round(time.Second))
+		}
 	}
 }
 

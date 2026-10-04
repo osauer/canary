@@ -16,13 +16,20 @@ import (
 // The schedule holds only time intervals, never positions or account identity.
 // One worker compiles embedded calendars; readers do bounded comparisons only.
 type gatewayScheduleView struct {
-	from, until, evidenceUntil time.Time
-	unknown                    bool
-	windows                    []marketcal.Window
+	from, until time.Time
+	unknown     bool
+	windows     []marketcal.Window
 }
 
+// required reports whether an outage over [from, until] touches a duty
+// window. In scheduled mode the operator's declaration is the whole duty
+// statement; no broker-side evidence is needed to quiet an off-duty interval.
+// (Until 2026-10-04 quieting also demanded completed portfolio inventory no
+// older than 24h, which a broker outage, or a restart during one, can never
+// supply, so the weekends and overnight windows the mode exists for stayed
+// at WARN.)
 func (v *gatewayScheduleView) required(from, until time.Time) bool {
-	if v == nil || v.unknown || until.Before(from) || from.Before(v.from) || !until.Before(v.until) || !until.Before(v.evidenceUntil) {
+	if v == nil || v.unknown || until.Before(from) || from.Before(v.from) || !until.Before(v.until) {
 		return true
 	}
 	for _, w := range v.windows {
@@ -48,8 +55,8 @@ func (s *Server) gatewayLogRequired(from, until time.Time) bool {
 	return s.gatewaySchedule.view.Load().required(from, until)
 }
 
-func compileGatewaySchedule(now time.Time, markets []marketcal.Market, before, after time.Duration, evidenceUntil time.Time, unknown bool) *gatewayScheduleView {
-	v := &gatewayScheduleView{from: now.Add(-12 * time.Hour), until: now.Add(12 * time.Hour), evidenceUntil: evidenceUntil, unknown: unknown || len(markets) == 0}
+func compileGatewaySchedule(now time.Time, markets []marketcal.Market, before, after time.Duration, unknown bool) *gatewayScheduleView {
+	v := &gatewayScheduleView{from: now.Add(-12 * time.Hour), until: now.Add(12 * time.Hour), unknown: unknown || len(markets) == 0}
 	if v.unknown {
 		return v
 	}
@@ -127,26 +134,22 @@ func loggingPositionMarket(c ibkrlib.Contract) (marketcal.Market, bool) {
 	}
 }
 
-// gatewayScopeEvidence retains same-scope outage context but never grants a
-// successor connection the predecessor's completed-inventory evidence.
+// gatewayScopeEvidence tracks which connector and session the inventory that
+// widened the duty declaration came from. Inventory can only widen; a new
+// connector or session contributes its own rows and never narrows the scope.
 type gatewayScopeEvidence struct {
 	connector *ibkrlib.Connector
 	session   ibkrlib.ConnectorSessionBinding
-	until     time.Time
 }
 
 func (e *gatewayScopeEvidence) observeConnector(c *ibkrlib.Connector) {
 	if c != nil && c != e.connector {
 		e.connector = c
 		e.session = ibkrlib.ConnectorSessionBinding{}
-		e.until = time.Time{}
 	}
 }
 func (e *gatewayScopeEvidence) observeSession(session ibkrlib.ConnectorSessionBinding) {
-	if session != e.session {
-		e.session = session
-		e.until = time.Time{}
-	}
+	e.session = session
 }
 func (s *Server) publishGatewaySchedule(c *ibkrlib.Connector, epoch uint64, view *gatewayScheduleView) bool {
 	s.mu.Lock()
@@ -183,7 +186,7 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 			defer ticker.Stop()
 			for {
 				now := s.gatewayLogClock()
-				s.gatewaySchedule.view.Store(compileGatewaySchedule(now, markets, before, after, now.Add(12*time.Hour), false))
+				s.gatewaySchedule.view.Store(compileGatewaySchedule(now, markets, before, after, false))
 				select {
 				case <-ctx.Done():
 					return
@@ -208,23 +211,16 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 					evidence.observeSession(session)
 					if p, ok := c.CapturePortfolioProjectionForSession(session); ok {
 						h := p.Health
+						// Only a completed, same-account, uncontested projection
+						// may widen the declaration; a partial or conflicting one
+						// is not inventory evidence.
 						if !h.InitialCompletedAt.IsZero() && h.Account != "" && h.Account == c.AccountID() && h.ScopeConflictAt.IsZero() && h.InvalidPayloadAt.IsZero() {
-							observed := h.LastUpdateAt
-							if observed.Before(h.InitialCompletedAt) {
-								observed = h.InitialCompletedAt
-							}
-							evidence.until = time.Time{}
-							if !observed.After(now) {
-								evidence.until = observed.Add(24 * time.Hour)
-							}
 							for _, row := range p.Positions {
 								if row == nil || row.Position == 0 {
 									continue
 								}
 								markets = widenLoggingMarkets(markets, row.Contract)
 							}
-						} else {
-							evidence.until = time.Time{}
 						}
 					}
 				}
@@ -240,11 +236,10 @@ func (s *Server) startGatewaySchedule(ctx context.Context) {
 			}
 			s.protectionOrderSnapshotMu.Unlock()
 			if compiled == nil || now.Before(compiledAt) || now.Sub(compiledAt) >= time.Hour || previousCount != len(markets) {
-				compiled = compileGatewaySchedule(now, markets, before, after, evidence.until, false)
+				compiled = compileGatewaySchedule(now, markets, before, after, false)
 				compiledAt, previousCount = now, len(markets)
 			}
 			view := *compiled
-			view.evidenceUntil = evidence.until
 			s.publishGatewaySchedule(c, epoch, &view)
 			if c != nil {
 				c.CheckBackendLogRelevance(now)

@@ -228,6 +228,7 @@ func (c *Connector) stopBackendEpisodeTimer() {
 // without fabricating a new loss or altering readiness/recovery state.
 // The daemon calls this at its bounded schedule refresh cadence.
 func (c *Connector) CheckBackendLogRelevance(now time.Time) {
+	c.warnLongDataFarmBreaks(now)
 	c.backendConnMu.Lock()
 	if !c.backendConnDown || c.backendLossWarned || c.backendLogRequired == nil || !c.backendLogRequired(c.backendConnAt, now) {
 		c.backendConnMu.Unlock()

@@ -103,12 +103,38 @@ not automatically narrow the logging scope. API snapshots do not cover every
 manual TWS order; the configured duty declaration is essential, not inferred
 from an empty portfolio.
 
-Completed inventory is required before quieting and retained for at most 24 hours
-from its receipt through a same-scope outage. New connector/session scope must
-provide its own completed inventory. Obsolete workers cannot publish over a
-successor connector. Missing, expired, future-dated, or invalid evidence warns.
-A minute-cadence refresh may take up to one minute to observe new portfolio/order
-scope; it does not participate in trading decisions.
+Quieting needs no inventory evidence: the configured declaration decides on its
+own, and inventory can only widen it. (Until 2026-10-04 quieting also required a
+completed portfolio projection no older than 24 hours from the current
+connector and session. A broker outage, or a daemon restart during one, can
+never supply that, so the weekends and overnight windows the mode exists for
+stayed at WARN — the Sunday 2026-10-04 outage still paged at WARN with the
+opt-in in place.) Only a completed, same-account, uncontested projection widens
+the declaration; a partial or conflicting one is ignored. Obsolete workers
+cannot publish over a successor connector. A minute-cadence refresh may take up
+to one minute to observe new portfolio/order scope; it does not participate in
+trading decisions.
+
+## Wire notice severities
+
+Broker notices that only echo the connector's own actions, or that a requester
+classifies itself, do not warn per notice. Code 300 "Can't find EId" answers a
+cancel for a ticker the gateway no longer holds and is always debug; those
+drawn during a broken backend link are counted and reported once on the
+restore bookend. Code 162 "query cancelled" acknowledges the requester's own
+timeout cancel and is debug; 162 "no data" is a verdict the requester records
+per contract and logs at INFO; other 162 texts (pacing) keep their warning.
+Code 200 for a symbol-only stock lookup (no conID on the request) is a
+discovery miss at INFO — screen candidates, warrants and units — while a 200
+for a request that carried a conID stays a warning, because a known identity
+that stops resolving is the stale-cache case worth an operator's attention.
+
+Data-farm notices (2103/2105/2157 breaks, 2104/2106/2158 recoveries) log the
+transition at INFO. A farm break warns once when it has lasted five minutes
+(checked on the next farm notice of any farm), and the recovery of a break
+that warned, or that lasted at least five minutes, warns once with the
+duration. Short flaps during IBKR's maintenance windows therefore leave no
+WARN. Status keeps the live per-farm state regardless.
 
 Embedded calendars are compiled at most hourly unless the inferred market scope
 changes. One atomic pointer publishes merged intervals; log events perform only
