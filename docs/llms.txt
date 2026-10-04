@@ -1,13 +1,18 @@
 # Canary
 
-Updated: 2026-10-02
+Updated: 2026-10-04
 
-Version 3.16 adds completed-day FX contribution and earned stock-lending
-fee history. CLI and read-only MCP tools expose both; the app shows dated
-loan observations and fees. Cash-sweep reporting separates broker-observed
-settled cash from diagnostic estimates and shows fixed-quantity fees, net
-proceeds and advisory purchase value. An optional Web API ledger reads
-per-currency settlement evidence from an existing session.
+Version 3.17 adds a durable owner watchlist, read-only volume-turn observations,
+standard-call discovery, setup coverage and entry markouts through the CLI and
+typed Go reads. Setup parameters are unvalidated observations, and historical
+reconstruction does not establish what was known at the original decision.
+Markouts use later quotes for qualifying Canary-placed fills, exclude commissions
+and never replace account P/L; missed targets stay missing. These setup tools
+have no MCP surface. Watchlist edits change local preferences only.
+CLI and read-only MCP add indicative borrowing-rate discovery, dated price and
+liquidity context, and FINRA short-interest screens. Borrower costs are not
+lender yields. FINRA positions are twice-monthly reports; percentage of free
+float remains unavailable. Source dates and partial market coverage stay visible.
 The sweep remains off by default. Owner commissioning requires calibrated
 reserves and current native settlement evidence; missing evidence holds the
 sweep. Bills can lose value on an early sale. Installation does not enable
@@ -62,7 +67,8 @@ Use it for:
 The MCP server exposes read-only tools for status, trading status, settings,
 open orders, order history, one-order status, account, positions, option
 strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status and the
-statement performance series, FX contribution and lending fee history, Edge,
+statement performance series, FX contribution, lending fee history, indicative
+borrowing-rate research, market context, FINRA short-interest screens, Edge,
 rules, proposals, opportunities, portfolio allocation, reconciliation status,
 market quotes and price history, exchange sessions, and official macro calendars
 and publications. It has no MCP resources, settings writes, order previews, or

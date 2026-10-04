@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.17.0 — 2026-10-04 21:32 CEST
+
+### What's new
+
+- **Keep one watchlist and inspect volume turns.** A durable owner watchlist holds up to 20 US stock underlyings. Read-only setup evaluation compares completed five-minute bars with comparable prior sessions, exposes missing evidence and supports historical reconstruction.
+- **Research borrowing fees and short interest.** CLI and MCP add named borrowing-rate reads, broader lending discovery, price and liquidity context, and a FINRA short-interest screen. Filters apply before the result limit; source dates, partial coverage and unavailable fields stay visible. Borrower costs are not lender yields, and short interest is twice-monthly reporting, not a live signal.
+- **Review entry prices after a fill.** Canary schedules two quote-based markouts for qualifying stock and option fills it placed through its preview path. The read-only ledger shows captured or missing evidence; these diagnostics exclude commissions and never replace account P/L.
+
+### Added
+
+- `canary setups options` lists standard-call expiries and strikes, then reads one dated quote for the exact call the owner selects. Listings stay unquoted; delayed, frozen and missing quote states remain explicit.
+- `canary setups coverage` reports completed-bar coverage, evaluation states and historical requests across retained sessions. Setup evaluation, options, coverage and markouts are available through CLI and typed Go reads, with no MCP setup tools.
+- Lending screens include retained fee-date history and bounded market enrichment. FINRA screens add reported short shares, days to cover and listed-only filters; percentage of free float remains unavailable.
+
+### Changed
+
+- Setup reads reuse completed-bar observations, roll baseline sessions forward and resolve underlyings once per broker session, reducing repeated broker requests while preserving acquisition clocks and failure states.
+- Known outages and repeated source failures now produce incident and recovery summaries instead of repeated warnings. Crash dumps use a separate log while log monitoring still reports them.
+
+### Fixed
+
+- `canary restart` restores the app service it stopped, including after an earlier daemon restart failed.
+- Fractional option strikes no longer share quotes or Greeks with neighbouring whole-dollar strikes. Fractional-strike quote identifiers now preserve their decimals.
+- Ordinary broker no-data messages containing exchange names no longer appear as parser-corruption errors.
+- Fresh shared FX quotes no longer trigger false degradation warnings, an empty current-month Treasury publication no longer breaks an otherwise available series, and log-monitor cursor recovery no longer double-counts replayed days.
+
+### Upgrade notes
+
+- Setup parameters are observations, not validated trading signals. Historical reconstructions do not prove what was available at the original decision; missed markout targets stay missing and are never backfilled from later quotes.
+- This release adds no broker-write authority or automatic submission. Watchlist edits change local preferences only; standard binaries and MCP remain read-only, and trading builds retain account pins, previews, approvals, journaling, policy and freeze gates.
+
 ## v3.16.1 — 2026-10-03 21:46 CEST
 
 ### What's new

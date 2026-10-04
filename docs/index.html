@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Canary CLI | Oliver Sauer</title>
-  <meta name="description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in v3.16.0. Works with Interactive Brokers.">
+  <meta name="description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. Watchlists, setup observations and borrowing research in v3.17.0. Works with Interactive Brokers.">
   <link rel="canonical" href="https://osauer.dev/canary/">
   <link rel="icon" type="image/png" href="social/canary-icon.png">
   <link rel="preload" href="/assets/fonts/instrument-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -14,13 +14,13 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://osauer.dev/canary/">
   <meta property="og:title" content="Canary CLI | Oliver Sauer">
-  <meta property="og:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in v3.16.0. Works with Interactive Brokers.">
+  <meta property="og:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. Watchlists, setup observations and borrowing research in v3.17.0. Works with Interactive Brokers.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Canary CLI | Oliver Sauer">
-  <meta name="twitter:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. FX contribution and lending observations in v3.16.0. Works with Interactive Brokers.">
+  <meta name="twitter:description" content="Broker evidence and risk rules through an open-source Go CLI and read-only MCP tools. Watchlists, setup observations and borrowing research in v3.17.0. Works with Interactive Brokers.">
   <meta name="twitter:image" content="https://osauer.dev/canary/social/social-preview.png">
   <script type="application/ld+json">
   {
@@ -30,7 +30,7 @@
         "@type": "SoftwareApplication",
         "name": "Canary CLI",
         "url": "https://osauer.dev/canary/",
-        "description": "Open-source Go broker engine with a CLI, read-only MCP tools and risk rules. Version 3.16.0 adds statement-backed FX contribution and lending observations.",
+        "description": "Open-source Go broker engine with a CLI, read-only MCP tools and risk rules. Version 3.17.0 adds watchlists, read-only setup observations, entry diagnostics and borrowing research.",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -38,8 +38,8 @@
         },
         "applicationCategory": "FinanceApplication",
         "operatingSystem": "macOS, Linux, Unix",
-        "softwareVersion": "3.16.0",
-        "dateModified": "2026-10-02",
+        "softwareVersion": "3.17.0",
+        "dateModified": "2026-10-04",
         "downloadUrl": "https://github.com/osauer/canary/releases/latest",
         "codeRepository": "https://github.com/osauer/canary",
         "softwareHelp": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
@@ -362,8 +362,8 @@ canary setup claude-desktop
     <section class="section features" aria-labelledby="features-title">
       <div class="features-head"><p class="kicker">Full features</p><h2 id="features-title">What’s inside.</h2></div>
       <div class="features-grid four">
-      <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, credit spreads, funding, the yen, dealer gamma computed from SPX options, and breadth.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, and borrow availability and fees.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
-      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
+      <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, credit spreads, funding, the yen, dealer gamma computed from SPX options, and breadth.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, and borrow availability and fees.</li><li><b>Borrowing research</b>Indicative fees, dated price and liquidity context, and FINRA short-interest screens. Source coverage stays explicit; borrower costs are not lender yields, and reported short interest is not live.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
+      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Watchlist and setups</b>One owner list, completed-bar volume observations, exact selected-call quotes and coverage reads. Observations grant no trading authority.</li><li><b>Entry markouts</b>Later quote diagnostics for qualifying Canary-placed fills. Missing captures stay missing; commissions and account P&amp;L are separate.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
       <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with liquidity reserves and a reason for every plan.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Trading edition</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
       <div class="feature-group"><h3>Where you use it</h3><ul><li><b>Command line</b>One binary for macOS and Linux. Every command speaks JSON.</li><li><b>AI assistants</b>Read-only MCP tools for Claude and other hosts.</li><li><b>Your phone</b>A paired app with live updates and opt-in notifications.</li><li><b>Go library</b>The TWS protocol, spoken natively in Go, with no vendor SDK.</li></ul></div>
       </div>
