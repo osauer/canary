@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -290,10 +291,11 @@ func TestSetupIncompleteWindowKeepsCompleteSessions(t *testing.T) {
 	src.setGap("2026-09-16", true)
 	s := setupTestServer(src, clock)
 	r := mustEvaluateSetup(t, s, "AAA", time.Time{})
-	if r.State != "unavailable" || len(r.Reasons) != 1 || r.Reasons[0] != "baseline_history_unavailable: baseline_bars_incomplete" {
+	if r.State != "unavailable" || len(r.Reasons) != 1 || r.Reasons[0] != "baseline_history_unavailable: baseline_bars_incomplete (retry after 10:32)" {
 		t.Fatalf("incomplete window: %+v", r.Reasons)
 	}
 	src.setGap("2026-09-16", false)
+	clock.set(time.Date(2026, 9, 30, 10, 32, 0, 0, ny))
 	if r = mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
 		t.Fatalf("after repair: %+v", r)
 	}
@@ -301,5 +303,122 @@ func TestSetupIncompleteWindowKeepsCompleteSessions(t *testing.T) {
 	reads := src.baselineReads("AAA")
 	if len(reads) != 6 || !reads[5].start.Equal(time.Date(2026, 9, 16, 9, 30, 0, 0, ny)) || !reads[5].end.Equal(time.Date(2026, 9, 16, 16, 0, 0, 0, ny)) {
 		t.Fatalf("repair reads: %+v", reads)
+	}
+}
+
+func TestSetupBaselineMissIsRememberedForFifteenMinutes(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 30, 0, ny)}
+	src := newFakeSetupSource()
+	src.setGap("2026-09-16", true)
+	src.setFail("BBB", errors.New("historical data farm returned no data"))
+	s := setupTestServer(src, clock)
+	reason := func(symbol string) string {
+		t.Helper()
+		r := mustEvaluateSetup(t, s, symbol, time.Time{})
+		if r.State != "unavailable" || len(r.Reasons) != 1 {
+			return r.State
+		}
+		return r.Reasons[0]
+	}
+	const incomplete = "baseline_history_unavailable: baseline_bars_incomplete (retry after 10:33)"
+	const failed = "baseline_history_unavailable: historical data farm returned no data (retry after 10:33)"
+	if got := reason("AAA"); got != incomplete {
+		t.Fatalf("incomplete window: %s", got)
+	}
+	if got := reason("BBB"); got != failed {
+		t.Fatalf("failed read: %s", got)
+	}
+	aaa, _ := src.reads("AAA")
+	bbb, _ := src.reads("BBB")
+	// Within fifteen minutes the remembered reason answers without a read,
+	// even after the history was repaired.
+	src.setGap("2026-09-16", false)
+	src.setFail("BBB", nil)
+	for _, at := range []time.Time{time.Date(2026, 9, 30, 10, 20, 0, 0, ny), time.Date(2026, 9, 30, 10, 32, 29, 0, ny)} {
+		clock.set(at)
+		if got := reason("AAA"); got != incomplete {
+			t.Fatalf("remembered incomplete window: %s", got)
+		}
+		if got := reason("BBB"); got != failed {
+			t.Fatalf("remembered failed read: %s", got)
+		}
+	}
+	if a, _ := src.reads("AAA"); a != aaa {
+		t.Fatalf("memo re-read AAA %d times", a-aaa)
+	}
+	if b, _ := src.reads("BBB"); b != bbb {
+		t.Fatalf("memo re-read BBB %d times", b-bbb)
+	}
+	// After expiry the next evaluation reads again: only the incomplete
+	// session for AAA, the whole window for BBB.
+	clock.set(time.Date(2026, 9, 30, 10, 32, 30, 0, ny))
+	if got := reason("AAA"); got != "watching" {
+		t.Fatalf("retry after expiry: %s", got)
+	}
+	if got := reason("BBB"); got != "watching" {
+		t.Fatalf("retry after expiry: %s", got)
+	}
+	if a, _ := src.reads("AAA"); a != aaa+1 {
+		t.Fatalf("AAA retry used %d reads", a-aaa)
+	}
+}
+
+func TestSetupBaselineMissIgnoresCancellationAndReconnect(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	release := src.holdSymbol("AAA")
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan setupEvaluation, 1)
+	go func() {
+		r, err := evaluateSetupForTest(ctx, s, "AAA", 0, time.Time{})
+		done <- setupEvaluation{r, err}
+	}()
+	<-src.entered
+	cancel()
+	got := <-done
+	release()
+	if got.err != nil || got.result.State != "unavailable" || got.result.Reasons[0] != "baseline_history_unavailable: context canceled" {
+		t.Fatalf("cancelled read: %+v %v", got.result, got.err)
+	}
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
+		t.Fatalf("a cancelled caller blocked the next read: %+v", r.Reasons)
+	}
+
+	// A read cut off by a broker reconnect is not a verdict on the history.
+	src.setFail("BBB", errors.New("broker session changed during setup history"))
+	src.mu.Lock()
+	src.stale = true
+	src.mu.Unlock()
+	if r := mustEvaluateSetup(t, s, "BBB", time.Time{}); r.Reasons[0] != "baseline_history_unavailable: broker session changed during setup history" {
+		t.Fatalf("reconnect: %+v", r.Reasons)
+	}
+	src.setFail("BBB", nil)
+	src.mu.Lock()
+	src.stale = false
+	src.mu.Unlock()
+	if r := mustEvaluateSetup(t, s, "BBB", time.Time{}); r.State != "watching" {
+		t.Fatalf("a reconnect blocked the next read: %+v", r.Reasons)
+	}
+}
+
+func TestSetupMissMemoryIsBounded(t *testing.T) {
+	var cache setupProfileCache
+	at := time.Date(2026, 9, 30, 14, 0, 0, 0, time.UTC)
+	for i := range setupProfileMissLimit + 10 {
+		cache.rememberMiss(strconv.Itoa(i), "2026-09-30", "baseline_bars_incomplete", at.Add(time.Duration(i)*time.Millisecond))
+	}
+	if len(cache.misses) != setupProfileMissLimit {
+		t.Fatalf("misses = %d", len(cache.misses))
+	}
+	if _, ok := cache.miss("0", "2026-09-30", at); ok {
+		t.Fatal("oldest miss survived the bound")
+	}
+	// Expired entries are dropped before anything live.
+	cache.rememberMiss("late", "2026-09-30", "baseline_bars_incomplete", at.Add(setupProfileMissTTL+time.Minute))
+	if len(cache.misses) != 1 {
+		t.Fatalf("expired misses kept: %d", len(cache.misses))
 	}
 }

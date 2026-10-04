@@ -88,25 +88,45 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		return unavailable("unsupported_underlying_calendar"), nil
 	}
 	base.Contract = rpc.ContractParams{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange, PrimaryExch: contract.PrimaryExch, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
-	contractKey, _ := json.Marshal(base.Contract)
-	key := s.setupProfiles.rowKey(string(contractKey), current.Date, historical)
+	rawKey, _ := json.Marshal(base.Contract)
+	contractKey := string(rawKey)
+	key := s.setupProfiles.rowKey(contractKey, current.Date, historical)
 	// A cached profile is read without the gate. Cold collection is serialized
 	// so one watchlist cannot fan out into hundreds of HMDS reads; the
 	// underlying client retains its own pacing.
 	profile, observed, missing := s.setupProfiles.assemble(key, prior)
 	if len(missing) > 0 {
+		// A remembered miss answers without a read until it expires.
+		if reason, ok := s.setupProfiles.miss(contractKey, current.Date, now); ok {
+			return unavailable("baseline_history_unavailable: " + reason), nil
+		}
 		if err := s.setupProfiles.lock(ctx); err != nil {
 			return unavailable("profile_acquisition_cancelled"), nil
 		}
-		// Another request may have filled the profile while this one waited.
+		// Another request may have filled the profile, or failed to, while
+		// this one waited.
 		profile, observed, missing = s.setupProfiles.assemble(key, prior)
-		var e error
+		var reason string
 		if len(missing) > 0 {
+			reason, _ = s.setupProfiles.miss(contractKey, current.Date, s.setupClock())
+		}
+		if len(missing) > 0 && reason == "" {
+			var e error
 			profile, observed, e = s.acquireSetupProfile(ctx, c, contract, key, prior, missing)
+			switch {
+			case e == nil:
+				s.setupProfiles.clearMiss(contractKey, current.Date)
+			case ctx.Err() != nil || !c.HistoricalSessionCurrent(binding):
+				// The caller's cancellation or a broker reconnect says nothing
+				// about the history; the next evaluation reads again.
+				reason = e.Error()
+			default:
+				reason = s.setupProfiles.rememberMiss(contractKey, current.Date, e.Error(), s.setupClock())
+			}
 		}
 		s.setupProfiles.unlock()
-		if e != nil {
-			return unavailable("baseline_history_unavailable: " + e.Error()), nil
+		if reason != "" {
+			return unavailable("baseline_history_unavailable: " + reason), nil
 		}
 	}
 	if !c.HistoricalSessionCurrent(binding) {

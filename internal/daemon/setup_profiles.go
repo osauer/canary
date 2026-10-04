@@ -24,6 +24,10 @@ type setupProfileCache struct {
 	mu   sync.Mutex
 	gate chan struct{}
 	rows map[string]*setupProfileRow
+	// misses remembers incomplete or failed baseline reads per contract and
+	// session date, so a symbol with a gap in its history is not re-read on
+	// every poll.
+	misses map[setupMissKey]setupProfileMiss
 	// live is the session date of the latest current (non --at) evaluation.
 	live string
 	// waitForTest observes a request blocking on a busy gate.
@@ -40,6 +44,77 @@ type setupProfileRow struct {
 type setupProfileSession struct {
 	session  setups.Session
 	acquired time.Time
+}
+
+// setupProfileMissTTL is how long an incomplete or failed baseline read is
+// answered from memory before the next evaluation reads again.
+const setupProfileMissTTL = 15 * time.Minute
+
+// setupProfileMissLimit bounds remembered misses; expired ones go first.
+const setupProfileMissLimit = 256
+
+type setupMissKey struct{ contract, session string }
+
+// setupProfileMiss is why a baseline window could not be completed, and when.
+type setupProfileMiss struct {
+	reason string
+	at     time.Time
+}
+
+// text is the miss as a reason detail naming when the next read may happen,
+// on the daemon clock rounded up to the minute.
+func (m setupProfileMiss) text() string {
+	retry := m.at.Add(setupProfileMissTTL)
+	if minute := retry.Truncate(time.Minute); !minute.Equal(retry) {
+		retry = minute.Add(time.Minute)
+	}
+	return m.reason + " (retry after " + retry.Format("15:04") + ")"
+}
+
+// miss returns the remembered reason for contract and session while it is
+// younger than setupProfileMissTTL.
+func (p *setupProfileCache) miss(contract, session string, now time.Time) (string, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	m, ok := p.misses[setupMissKey{contract, session}]
+	if !ok || !now.Before(m.at.Add(setupProfileMissTTL)) {
+		return "", false
+	}
+	return m.text(), true
+}
+
+// rememberMiss records a failed acquisition and returns its reason detail.
+func (p *setupProfileCache) rememberMiss(contract, session, reason string, at time.Time) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.misses == nil {
+		p.misses = map[setupMissKey]setupProfileMiss{}
+	}
+	for k, m := range p.misses {
+		if !at.Before(m.at.Add(setupProfileMissTTL)) {
+			delete(p.misses, k)
+		}
+	}
+	key := setupMissKey{contract, session}
+	if _, ok := p.misses[key]; !ok && len(p.misses) >= setupProfileMissLimit {
+		var oldest setupMissKey
+		var oldestAt time.Time
+		for k, m := range p.misses {
+			if oldestAt.IsZero() || m.at.Before(oldestAt) {
+				oldest, oldestAt = k, m.at
+			}
+		}
+		delete(p.misses, oldest)
+	}
+	m := setupProfileMiss{reason: reason, at: at}
+	p.misses[key] = m
+	return m.text()
+}
+
+func (p *setupProfileCache) clearMiss(contract, session string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.misses, setupMissKey{contract, session})
 }
 
 func (p *setupProfileCache) lock(ctx context.Context) error {
