@@ -269,6 +269,8 @@ canary watchlist replace --spec PATH|- [--json]
 
 Observe volume turns and discover exact standard calls; no trade or policy authority.
 
+`options` reads in three steps: listed expiries; with `--expiry`, up to 21 listed call strikes around the underlying price, which carry no prices (`status: not_requested`); with `--strike`, the exact call. Only that exact call carries a `quote`, read once within 5 seconds on a market-data line opened for this request: `status: quoted` with `bid`, `ask`, `as_of` and `data_type` when both sides are finite and positive, the bid is at most the ask, `as_of` is no more than 60 seconds old, and the broker labelled the data `live`, `delayed`, `frozen` or `delayed-frozen`. Anything else is `status: missing` with no prices. A missing quote never fails the selection, and the order preview still prices any order.
+
 Guard `read-only`. CLI only, with no MCP tool: owner-configured entry observations ship through CLI and the typed host client first; no model tool or automatic playbook activation.
 
 ```text
