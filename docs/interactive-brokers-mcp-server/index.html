@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Interactive Brokers MCP Server | IBKR, TWS & Claude</title>
-  <meta name="description" content="Run Canary as a local Interactive Brokers MCP server for account, portfolio, market, and risk context through IB Gateway or TWS.">
+  <title>Interactive Brokers MCP server | IBKR, TWS & Claude</title>
+  <meta name="description" content="Run Canary as a local Interactive Brokers MCP server. It reads account, portfolio, market and risk context through IB Gateway or TWS.">
   <link rel="canonical" href="https://osauer.dev/canary/interactive-brokers-mcp-server/">
 
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://osauer.dev/canary/interactive-brokers-mcp-server/">
   <meta property="og:title" content="IBKR / Interactive Brokers MCP server">
-  <meta property="og:description" content="Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts for portfolio analysis, risk checks, and trading research.">
+  <meta property="og:description" content="Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed and other MCP hosts for portfolio analysis, risk checks and trading research.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
@@ -26,7 +26,7 @@
       {
         "@type": "TechArticle",
         "headline": "IBKR / Interactive Brokers MCP server for local trading research",
-        "description": "A practical guide to using Canary as a local Interactive Brokers MCP server for Claude Desktop, Claude Code, Cursor, Zed, IB Gateway, TWS, portfolio analysis, risk checks, and market context.",
+        "description": "A practical guide to running Canary as a local Interactive Brokers MCP server with IB Gateway or TWS, for portfolio analysis, risk checks and market context in Claude Desktop, Claude Code, Cursor and Zed.",
         "url": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
         "dateModified": "2026-10-04",
         "author": {
@@ -46,7 +46,7 @@
         "@type": "SoftwareApplication",
         "name": "Canary",
         "url": "https://osauer.dev/canary/",
-        "description": "Canary is a local Interactive Brokers risk system: read-only MCP tools for portfolio evidence, indicative borrowing-rate and FINRA short-interest research, plus a CLI, Go TWS API and paired app. Research retains source dates and coverage; borrower costs are not lender yields.",
+        "description": "Canary is a local risk system for Interactive Brokers, with read-only MCP tools for portfolio data and borrowing and short-interest research, a CLI, a Go TWS API and a paired app. Market data follows your entitlements, and risk controls are advisory.",
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
@@ -76,7 +76,7 @@
             "name": "Which MCP clients can use Canary?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Canary works with Claude Desktop, Claude Code, Cursor, Zed, Continue, and other local stdio MCP hosts."
+              "text": "Canary works with Claude Desktop, Claude Code, Cursor, Zed, Continue and other local stdio MCP hosts."
             }
           },
           {
@@ -84,7 +84,7 @@
             "name": "Does Canary expose trading or order-entry tools?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Not in the standard downloads. The MCP bundle and the plain Canary tarballs are read-only builds with no place, modify, or cancel order tools compiled in. Each release also publishes a clearly marked canary-trading tarball for users who explicitly opt into order management; it ships with warnings and layered safeguards and is never installed by default."
+              "text": "Not in the standard downloads. The MCP bundle and the plain Canary tarballs are read-only builds, compiled without tools to place, modify or cancel orders. Each release also publishes a clearly marked canary-trading tarball for users who explicitly opt into order management. It ships with warnings and layered safeguards and is never installed by default."
             }
           }
         ]
@@ -576,7 +576,7 @@
       <div>
         <p class="eyebrow">IBKR / Interactive Brokers MCP server</p>
         <h1 id="hero-title">A local Interactive Brokers MCP server for trading research</h1>
-        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed, and other MCP hosts. Review account authority, positions, broker-reporting status, retrospective Edge evidence, the daily brief, rulebook, Action Queue, and source quality through read-only tools.</p>
+        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed and other MCP hosts. Read-only tools cover your account and positions, the daily brief, the rulebook, the Action Queue, Edge, FX and lending reports, borrowing and short-interest research and the quality of each source.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#install">Install</a>
           <a class="button" href="https://github.com/osauer/canary">View on GitHub</a>
@@ -611,15 +611,15 @@
           </div>
           <div class="strip-item">
             <strong>IB Gateway or TWS</strong>
-            <span>Uses Interactive Brokers' local API session; no hosted broker layer.</span>
+            <span>Uses your local Interactive Brokers API session, with no hosted broker layer.</span>
           </div>
           <div class="strip-item">
             <strong>Workflow tools</strong>
-            <span>Read-only tools for health, account, positions, option strategies, technical evidence, broker-reporting status, the retrospective Edge review, the brief, rules, proposals, opportunities, settings, readiness, and order-lifecycle reads.</span>
+            <span>Read-only tools for health, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, Edge, the brief, rules, proposals, opportunities, settings, readiness and order history.</span>
           </div>
           <div class="strip-item">
             <strong>Controlled boundary</strong>
-            <span>The MCP server has no resources, settings writes, order previews, or execution tools.</span>
+            <span>The MCP server has no resources, settings writes, order previews or execution tools.</span>
           </div>
         </div>
       </div>
@@ -628,44 +628,54 @@
     <section class="wrap">
       <div class="section-head">
         <h2>What an assistant can do with it.</h2>
-        <p>The MCP server is one adapter over a larger local desk. Canary's daemon evaluates account, statement, market, calendar, event, breadth, gamma, regime, stress, rulebook, proposal, and opportunity inputs. The reduced MCP surface exposes decision-relevant current and retrospective reads without publishing every sensor as a separate tool.</p>
-        <p>Everything flows through your own TWS or IB Gateway session. Coverage follows your IBKR subscriptions, market hours, and upstream source health; unavailable, stale, delayed, and held inputs remain explicit.</p>
+        <p>The MCP server is one adapter over a larger local engine. Canary's daemon evaluates account, statement, market, calendar, event, breadth, gamma, regime, stress, rulebook, proposal and opportunity inputs. MCP keeps to a smaller set of current and retrospective reads that matter for decisions, so not every sensor needs a tool of its own.</p>
+        <p>Everything runs through your own TWS or IB Gateway session. Coverage follows your IBKR subscriptions, market hours and the health of upstream sources. Inputs that are unavailable, stale, delayed or held stay labelled as such.</p>
       </div>
       <div class="grid">
         <article class="card">
           <small>Account</small>
           <h3>Inspect portfolio state</h3>
-          <p>Read net liquidation, cash, margin, buying power, positions, P&amp;L, option legs, Greek coverage, and per-underlying exposure.</p>
+          <p>Read net liquidation, cash, margin, buying power, positions, P&amp;L, option legs, Greek coverage and per-underlying exposure.</p>
         </article>
         <article class="card">
-          <small>Desk brief</small>
-          <h3>Read the current decision surface</h3>
-          <p>Review market/session context, source health, the morning brief, and the converged Action Queue.</p>
+          <small>Brief</small>
+          <h3>Read what needs deciding</h3>
+          <p>Review market and session context, source health, the daily brief and the combined Action Queue.</p>
         </article>
         <article class="card">
           <small>Edge</small>
           <h3>Review broker-confirmed history</h3>
-          <p>Inspect adequately sampled stock and ETF decisions with fixed market context, plus separate broker-reported realized and dated open option evidence.</p>
+          <p>Inspect stock and ETF decisions that have enough samples, against fixed market context. Broker-reported option evidence, realised and dated open, is kept separate.</p>
         </article>
         <article class="card">
           <small>Rules</small>
           <h3>Inspect ranked findings</h3>
-          <p>Read the 19-rule desk verdict and preserve every unknown or degraded input.</p>
+          <p>Read the verdict on all 19 rules, with each unknown or degraded input kept in view.</p>
         </article>
         <article class="card">
           <small>Action Queue</small>
           <h3>Review candidates</h3>
-          <p>Read protection and option-exercise candidates without receiving preview or execution authority.</p>
+          <p>Read protection and option-exercise candidates. The tools grant no preview or execution authority.</p>
         </article>
         <article class="card">
           <small>Technical</small>
-          <h3>Analyze named symbols</h3>
-          <p>Request daily trend, relative strength, ATR, and liquidity evidence for explicitly named stocks or ETFs.</p>
+          <h3>Analyse named symbols</h3>
+          <p>Request daily trend, relative strength, ATR and liquidity evidence for stocks or ETFs you name explicitly.</p>
+        </article>
+        <article class="card">
+          <small>Reporting</small>
+          <h3>Separate the currency effect</h3>
+          <p>Read statement-backed performance, the FX contribution for each period and the net fees your lent shares earned. Missing days stay marked, and lending fees stay out of P&amp;L.</p>
+        </article>
+        <article class="card">
+          <small>Research · v3.17</small>
+          <h3>Screen borrowing and short interest</h3>
+          <p>Compare dated borrowing fees, price and liquidity, and screen FINRA’s twice-monthly short-interest report. Borrowing fees are a cost to borrowers, not a lender’s yield.</p>
         </article>
         <article class="card">
           <small>Lifecycle</small>
           <h3>Read observed order state</h3>
-          <p>Inspect open and historical local journal state without placing, changing, or cancelling an order.</p>
+          <p>Inspect open and past orders in the local journal. Nothing here places, changes or cancels an order.</p>
         </article>
       </div>
     </section>
@@ -674,7 +684,7 @@
       <div>
         <div class="section-head">
           <h2>What it does not expose.</h2>
-          <p>The boundary is simple: the MCP server has read-only tools and no resources, settings writes, previews, or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained opt-in CLI and app order management; MCP remains read-only.</p>
+          <p>The MCP server offers read-only tools and nothing else. It has no resources, settings writes, previews or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained, opt-in order management in the CLI and app. MCP stays read-only.</p>
         </div>
       </div>
       <ul class="list negative">
@@ -690,10 +700,10 @@
       <div>
         <div class="section-head">
           <h2>Install for Claude Desktop or shell.</h2>
-          <p>Use the MCPB for Claude Desktop. Use the shell install for Cursor, Continue, Zed, terminal workflows, or other local MCP hosts.</p>
+          <p>Claude Desktop takes the MCPB. For Cursor, Continue, Zed, the terminal or any other local MCP host, use the shell install.</p>
         </div>
         <p><a class="button primary" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download MCPB for Claude Desktop</a></p>
-        <p>Open the <code>.mcpb</code> file with Claude Desktop, drag it into Claude Desktop, or install it from Claude Desktop settings. Requires IB Gateway 10.37+ or TWS running locally and an IBKR Pro account with TWS API access.</p>
+        <p>Open the <code>.mcpb</code> file with Claude Desktop, drag it into the app or install it from its settings. You need IB Gateway 10.37+ or TWS running locally and an IBKR Pro account with TWS API access.</p>
       </div>
       <div class="terminal">
         <div class="terminal-bar">
@@ -712,7 +722,7 @@ canary setup claude-desktop</code></pre>
       <div>
         <div class="section-head">
           <h2>Generic MCP config.</h2>
-          <p>For Cursor, Continue, Zed, or another local MCP host, use an absolute path to the binary. <code>~</code> is not expanded by <code>exec</code>.</p>
+          <p>For Cursor, Continue, Zed or another local MCP host, give the absolute path to the binary. <code>exec</code> does not expand <code>~</code>.</p>
         </div>
       </div>
       <div class="terminal">
@@ -736,29 +746,31 @@ canary setup claude-desktop</code></pre>
     <section class="wrap">
       <div class="section-head">
         <h2>Example questions.</h2>
-        <p>These are the kinds of user requests the MCP descriptions are written to route correctly.</p>
+        <p>The MCP tool descriptions are written to route requests like these to the right tool.</p>
       </div>
       <ul class="list questions">
         <li>What's in my IBKR account?</li>
         <li>Review my portfolio with Claude and rank the risks I should inspect today.</li>
         <li>Show my SPY exposure, including option deltas.</li>
         <li>What does the technical picture for SPY look like?</li>
-        <li>Read today's desk brief and summarize what needs attention.</li>
+        <li>Read today's daily brief and summarise what needs attention.</li>
         <li>Which rulebook findings are failing or unknown right now?</li>
         <li>Are there open protection proposals for my positions?</li>
+        <li>How much did currency moves add to or take from my return this month?</li>
+        <li>Which large US stocks carry the most reported short interest, with at least three days to cover?</li>
       </ul>
     </section>
 
     <section class="wrap">
       <div class="section-head">
         <h2>Useful setup pages.</h2>
-        <p>Start with Claude Desktop if that is where you plan to ask questions. The other pages cover TWS, Gateway, safety, and deeper portfolio-review context.</p>
+        <p>Start with Claude Desktop if that is where you will ask your questions. The other pages cover TWS, IB Gateway, safety and portfolio review in more depth.</p>
       </div>
       <div class="grid">
         <article class="card">
           <small>IBKR MCP</small>
           <h3><a href="../ibkr-mcp/">IBKR MCP server</a></h3>
-          <p>Exact setup notes for the short IBKR MCP query.</p>
+          <p>A short overview of IBKR MCP, with exact setup notes.</p>
         </article>
         <article class="card">
           <small>TWS</small>
@@ -777,18 +789,18 @@ canary setup claude-desktop</code></pre>
         </article>
         <article class="card">
           <small>Claude Code</small>
-          <h3><a href="../best-ibkr-mcp-server-claude-code/">Best IBKR MCP server for Claude Code</a></h3>
-          <p>Compare IBKR MCP servers by local execution, tool coverage, and Claude Code fit.</p>
+          <h3><a href="../best-ibkr-mcp-server-claude-code/">What to look for in an IBKR MCP server for Claude Code</a></h3>
+          <p>Compare IBKR MCP servers by local execution, tool coverage and fit with Claude Code.</p>
         </article>
         <article class="card">
           <small>Claude portfolio review</small>
           <h3><a href="../portfolio-review-with-claude-ibkr/">Portfolio review with Claude and IBKR</a></h3>
-          <p>A prompt-driven review workflow for exposures, option risks, data freshness, and next checks.</p>
+          <p>A prompt-led review of exposures, option risks, data freshness and the next checks to run.</p>
         </article>
         <article class="card">
           <small>Safety</small>
           <h3><a href="../read-only-mcp-server/">Read-only MCP server</a></h3>
-          <p>The local MCP surface exposes account and market data, not trading authority.</p>
+          <p>The local MCP tools expose account and market data, not trading authority.</p>
         </article>
       </div>
     </section>
@@ -797,12 +809,12 @@ canary setup claude-desktop</code></pre>
       <div>
         <div class="section-head">
           <h2>Why local?</h2>
-          <p>Brokerage data is sensitive. <code>canary</code> keeps the broker connection on the machine already running IB Gateway or TWS and exposes a narrow local read-side interface to the AI host.</p>
+          <p>Brokerage data is sensitive. <code>canary</code> keeps the broker connection on the machine that already runs IB Gateway or TWS, and gives the AI host a narrow, local, read-only interface.</p>
         </div>
       </div>
       <ul class="list">
         <li>The daemon auto-discovers standard IB Gateway and TWS ports on loopback.</li>
-        <li>Claude Desktop, Claude Code, Cursor, Zed, and the shell can share one local daemon.</li>
+        <li>Claude Desktop, Claude Code, Cursor, Zed and the shell can share one local daemon.</li>
         <li>The Go library speaks the TWS protocol directly for custom systems.</li>
         <li>Every data command supports JSON for scripting and agent tool wrappers.</li>
       </ul>
@@ -819,11 +831,11 @@ canary setup claude-desktop</code></pre>
         </article>
         <article class="card">
           <h3>Which MCP clients can use it?</h3>
-          <p>Claude Desktop, Claude Code, Cursor, Zed, Continue, and other local stdio MCP hosts can launch it.</p>
+          <p>Claude Desktop, Claude Code, Cursor, Zed, Continue and other local stdio MCP hosts can launch it.</p>
         </article>
         <article class="card">
           <h3>Does it expose trading tools?</h3>
-          <p>Not in the standard downloads: the MCP bundle and the plain <code>canary</code> tarballs are read-only builds with no place, modify, or cancel order tools compiled in. Each release also publishes a clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management. It ships with warnings and layered safeguards.</p>
+          <p>Not in the standard downloads. The MCP bundle and the plain <code>canary</code> tarballs are read-only builds, compiled without tools to place, modify or cancel orders. Each release also publishes a clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management. It ships with warnings and layered safeguards.</p>
         </article>
       </div>
     </section>

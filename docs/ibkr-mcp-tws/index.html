@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IBKR MCP TWS setup | Canary</title>
-  <meta name="description" content="Connect Canary's local MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.">
+  <meta name="description" content="Connect Canary's local IBKR MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.">
   <link rel="canonical" href="https://osauer.dev/canary/ibkr-mcp-tws/">
 
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://osauer.dev/canary/ibkr-mcp-tws/">
   <meta property="og:title" content="IBKR MCP TWS setup | Canary">
-  <meta property="og:description" content="Connect Canary's local MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.">
+  <meta property="og:description" content="Connect Canary's local IBKR MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
@@ -25,7 +25,7 @@
       "url": "https://github.com/osauer"
     },
     "dateModified": "2026-08-27T19:38:00+02:00",
-    "description": "Connect Canary's local MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.",
+    "description": "Connect Canary's local IBKR MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.",
     "headline": "IBKR MCP TWS setup",
     "isPartOf": {
       "@type": "SoftwareApplication",
@@ -51,17 +51,17 @@
   <main class="wrap doc">
 <h1 id="ibkr-mcp-tws-setup">IBKR MCP TWS setup</h1>
 <p>Updated: 2026-08-27 19:38 CEST</p>
-<p><code>canary mcp</code> is a local IBKR MCP TWS bridge: Claude Desktop, Claude Code, Cursor, Zed, Continue, or another stdio MCP host talks to <code>canary mcp</code>, and <code>canary</code> reads account and market data from the Trader Workstation (TWS) API socket on the same machine.</p>
-<p>Beyond the TWS bridge itself, the binary carries the desk functions an individual trader tends to want next to it: a daily desk brief, an advisory 19-rule rulebook, protection proposals, and terminal-side risk policy and statement reconciliation. Market data follows your IBKR subscriptions, real-time where they cover it.</p>
-<p>The same binary also works with IB Gateway. Choose TWS when Trader Workstation is already open for charting, manual supervision, or daily trading context.</p>
-<h2 id="why-this-one-ranks-differently-from-simple-python-bridges">Why this one ranks differently from simple Python bridges</h2>
-<p>Many IBKR MCP search results are small wrappers around a few TWS API calls. <code>canary</code> is broader:</p>
+<p><code>canary mcp</code> is a local IBKR MCP bridge for TWS. Claude Desktop, Claude Code, Cursor, Zed, Continue or another stdio MCP host talks to <code>canary mcp</code>, and <code>canary</code> reads account and market data from the Trader Workstation (TWS) API socket on the same machine.</p>
+<p>Next to the bridge, the binary carries a daily brief, an advisory 19-rule rulebook and protection proposals, the desk functions an individual trader tends to want. Risk policy and statement reconciliation run in the terminal. Market data follows your IBKR subscriptions and is real-time where they cover it.</p>
+<p>The same binary also works with IB Gateway. Choose TWS when Trader Workstation is already open for charting, manual supervision or daily trading context.</p>
+<h2 id="why-this-one-ranks-differently-from-simple-python-bridges">How Canary differs from simple Python IBKR bridges</h2>
+<p>Many IBKR MCP search results are small wrappers around a few TWS API calls. <code>canary</code> covers more ground.</p>
 <ul>
-<li>A single Go binary with a local daemon, CLI, stdio MCP server, Claude Desktop MCPB, Claude Code plugin, and Go TWS protocol library.</li>
-<li>Persistent local connection management instead of reconnecting for every assistant request.</li>
-<li>Read-only tools for status, account, positions, option strategies, technical evidence, broker-reporting status, the retrospective Edge review, the daily brief, rulebook, proposals, opportunities, settings, readiness, and order-lifecycle reads.</li>
-<li>Read-only MCP boundary in the published server: no order placement, order modification, or order cancellation tools.</li>
-<li>JSON-friendly CLI output for non-MCP agent SDKs and shell automation.</li>
+<li>One Go binary with a local daemon, CLI, stdio MCP server, Claude Desktop MCPB, Claude Code plugin and Go TWS protocol library.</li>
+<li>A persistent local connection, so there is no reconnect for every assistant request.</li>
+<li>Read-only tools for status, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, the retrospective Edge review, the daily brief, rulebook, proposals, opportunities, settings, readiness and order-lifecycle reads.</li>
+<li>A read-only boundary in the published MCP server, with no tools for placing, modifying or cancelling orders.</li>
+<li>JSON-friendly CLI output for agent SDKs outside MCP and for shell automation.</li>
 </ul>
 <h2 id="tws-connection-model">TWS connection model</h2>
 <pre><code>Claude / Cursor / Zed / other MCP host
@@ -69,11 +69,11 @@
   -&gt; local canary daemon
   -&gt; Trader Workstation API socket
   -&gt; Interactive Brokers account and market data</code></pre>
-<p><code>canary</code> auto-discovers the standard local API ports, including TWS paper and live ports. You can pin host, port, client ID, account, and TLS settings in local config when auto-discovery is not right for your workstation.</p>
+<p><code>canary</code> finds the standard local API ports on its own, TWS paper and live ports included. If auto-discovery does not suit your workstation, pin the host, port, client ID, account and TLS settings in local config.</p>
 <h2 id="install">Install</h2>
 <p>Claude Desktop users can install the MCP Bundle:</p>
 <pre><code>open https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
-<p>Shell, Cursor, Continue, Zed, and generic MCP hosts can install the binary:</p>
+<p>Shell, Cursor, Continue, Zed and generic MCP hosts can install the binary:</p>
 <pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
 canary status
 canary setup claude-desktop</code></pre>
@@ -91,27 +91,27 @@ canary setup claude-desktop</code></pre>
 <p>In Trader Workstation, enable API socket access:</p>
 <ul>
 <li>Enable ActiveX and Socket Clients.</li>
-<li>Use the configured TWS API port: commonly <code>7497</code> for paper and <code>7496</code> for live.</li>
+<li>Use the configured TWS API port, commonly <code>7497</code> for paper and <code>7496</code> for live.</li>
 <li>Keep TWS running on the same machine as <code>canary</code>.</li>
 </ul>
-<p>The published <code>canary mcp</code> server does not need TWS order entry permissions because it exposes no order-entry tool surface.</p>
+<p>The published <code>canary mcp</code> server needs no TWS order-entry permissions, because it has no order-entry tools.</p>
 <h2 id="what-to-ask-through-mcp">What to ask through MCP</h2>
 <ul>
 <li>&#34;What&#39;s in my IBKR account?&#34;</li>
 <li>&#34;Show my SPY exposure, including option deltas.&#34;</li>
 <li>&#34;What does the technical picture for NVDA look like?&#34;</li>
-<li>&#34;Read today&#39;s desk brief and summarize what needs attention.&#34;</li>
+<li>&#34;Read today&#39;s brief and summarise what needs attention.&#34;</li>
 <li>&#34;Which rulebook findings are failing or unknown right now?&#34;</li>
 <li>&#34;Are there open protection proposals for my positions?&#34;</li>
 </ul>
 <h2 id="tws-or-ib-gateway">TWS or IB Gateway?</h2>
-<p>Use TWS when the desktop platform is already part of your workflow. Use IB Gateway when you want a lighter headless API process. The <code>canary mcp</code> tools are the same in both cases; only the local IBKR process behind the API socket changes.</p>
+<p>Use TWS when the desktop platform is already part of your workflow, and IB Gateway when you want a lighter, headless API process. The <code>canary mcp</code> tools are the same in both cases. Only the local IBKR process behind the API socket changes.</p>
 <h2 id="related-pages">Related pages</h2>
 <ul>
 <li><a href="../ibkr-mcp/index.html">IBKR MCP server</a> for the main MCP setup page.</li>
 <li><a href="../interactive-brokers-mcp-server/index.html">Interactive Brokers MCP server</a> for the broader comparison and setup guide.</li>
 <li><a href="../ib-gateway-mcp/index.html">IB Gateway MCP server</a> for the headless Gateway path.</li>
-<li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for exact tool names, parameters, and descriptions.</li>
+<li><a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for exact tool names, parameters and descriptions.</li>
 </ul>
   </main>
   <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>

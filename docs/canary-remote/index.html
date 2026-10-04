@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canary Remote Access for IBKR</title>
+  <title>Canary remote access for IBKR</title>
   <meta name="description" content="Reach Canary from your phone through an encrypted relay. Pairing, authorisation and your broker session stay on your Mac.">
   <link rel="canonical" href="https://osauer.dev/canary/canary-remote/">
   <link rel="icon" type="image/png" href="../social/canary-icon.png">
 
   <meta property="og:type" content="article">
   <meta property="og:url" content="https://osauer.dev/canary/canary-remote/">
-  <meta property="og:title" content="Canary Remote Access">
-  <meta property="og:description" content="Pair your phone and reach Canary away from home, with control on your Mac.">
+  <meta property="og:title" content="Canary remote access">
+  <meta property="og:description" content="Pair your phone and reach Canary away from home. Control stays on your Mac.">
   <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
   <meta name="twitter:card" content="summary_large_image">
 
@@ -19,13 +19,13 @@
   {
     "@context": "https://schema.org",
     "@type": "TechArticle",
-    "headline": "Canary Remote Access",
+    "headline": "Canary remote access",
     "description": "Reach Canary from your phone through an encrypted relay. Pairing, authorisation and your broker session stay on your Mac.",
     "dateModified": "2026-10-02T11:30:00+02:00",
     "video": {
       "@type": "VideoObject",
       "name": "Poolside",
-      "description": "A 21-second cartoon loop with the Canary theme: the trader is on vacation, the canary keeps watch, and one phone alert arrives. All account data shown is synthetic.",
+      "description": "A 21-second cartoon loop set to the Canary theme. The trader is on holiday, the canary keeps watch and one phone alert arrives. All account data shown is synthetic.",
       "thumbnailUrl": "https://osauer.dev/canary/media/canary-poolside-poster.jpg",
       "contentUrl": "https://osauer.dev/canary/media/canary-poolside.mp4",
       "uploadDate": "2026-08-03",
@@ -408,7 +408,7 @@
     <section class="wrap hero" aria-labelledby="hero-title">
       <div>
         <h1 id="hero-title">Canary on your phone.</h1>
-        <p class="lead">Check your book and alerts away from home. An encrypted relay connects your paired phone to Canary; the app, broker session and authorisation stay on your Mac.</p>
+        <p class="lead">Check your book and alerts away from home. An encrypted relay connects your paired phone to Canary. The app, the broker session and authorisation stay on your Mac.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#start">Start remote mode</a>
           <a class="button" href="#security">Security model</a>
@@ -416,7 +416,7 @@
           <a class="button" href="../feedback/">Give feedback</a>
         </div>
       </div>
-      <video class="phone-shot" controls autoplay muted loop playsinline preload="metadata" poster="../media/canary-poolside-poster.jpg" width="720" height="1280" aria-label="Cartoon loop with theme music, muted until you unmute: a trader floats in a pool while the canary keeps watch, and one phone alert arrives">
+      <video class="phone-shot" controls autoplay muted loop playsinline preload="metadata" poster="../media/canary-poolside-poster.jpg" width="720" height="1280" aria-label="Cartoon loop with theme music, muted until you turn the sound on. A trader floats in a pool while the canary keeps watch, and one phone alert arrives">
         <source src="../media/canary-poolside.mp4" type="video/mp4">
       </video>
     </section>
@@ -424,8 +424,8 @@
     <section class="wrap" aria-labelledby="what-title">
       <div class="section-head">
         <h2 id="what-title">What this adds.</h2>
-        <p>Monitor includes two movements composed by the daemon on your Mac: Review explains the last completed session, and Ready shows today's market, risk-capacity, and desk-readiness evidence. Positions, Edge, Alerts, and Orders own the deeper reads.</p>
-        <p>The remote path keeps the local-first design, but makes the paired PWA reachable from outside your home network.</p>
+        <p>Monitor has two sections, both composed by the daemon on your Mac. Review explains the last completed session. Ready shows the evidence for today's market, risk capacity and desk readiness. Positions, Edge, Alerts and Orders hold the detail.</p>
+        <p>Remote mode keeps the local-first design and makes the paired PWA reachable from outside your home network.</p>
       </div>
       <div class="feature-grid">
         <article class="feature">
@@ -436,7 +436,7 @@
         <article class="feature">
           <small>Local control</small>
           <h3>Your Mac still owns the session</h3>
-          <p>The relay forwards allowed app traffic only. Pairing creation, device grants, sessions, and broker data access remain in the local app process.</p>
+          <p>The relay forwards permitted app traffic and nothing else. New pairings, device grants, sessions and broker data access stay in the local app process.</p>
         </article>
         <article class="feature">
           <small>Personal setup</small>
@@ -462,35 +462,35 @@ canary app pair</code></pre>
         <h2 id="pairing-title">Pair and use it.</h2>
       </div>
       <ol class="steps">
-        <li>Start TWS or IB Gateway locally and make sure <code>canary status</code> is healthy enough for app reads.</li>
-        <li>Run <code>canary app --remote</code>. The app opens an outbound connector to the relay; you do not expose an inbound port on your Mac.</li>
-        <li>Run <code>canary app pair</code> and open the printed URL on the phone. The URL includes a short-lived pairing id, nonce, and relay route.</li>
-        <li>Use Monitor, Positions, Edge, Alerts, and Orders from the PWA; open Settings from the header gear. Market and account values still come from your local IBKR session.</li>
-        <li>For a supervised app host, configure remote mode with <code>canary setup app --remote</code>, reload the LaunchAgent, then use <code>canary restart --app</code> without flag overrides.</li>
+        <li>Start TWS or IB Gateway locally and check that <code>canary status</code> is healthy enough for the app to read.</li>
+        <li>Run <code>canary app --remote</code>. The app opens an outbound connector to the relay, so no inbound port is exposed on your Mac.</li>
+        <li>Run <code>canary app pair</code> and open the printed URL on the phone. The URL carries a short-lived pairing id, a nonce and the relay route.</li>
+        <li>Use Monitor, Positions, Edge, Alerts and Orders in the PWA, and open Settings from the gear in the header. Market and account values still come from your local IBKR session.</li>
+        <li>For a supervised app host, set remote mode with <code>canary setup app --remote</code>, reload the LaunchAgent and then run <code>canary restart --app</code> without overriding flags.</li>
       </ol>
     </section>
 
     <section class="wrap" id="security" aria-labelledby="security-title">
       <div class="section-head">
         <h2 id="security-title">Security model.</h2>
-        <p>Remote access uses TLS-protected transport: the phone connects to the relay over HTTPS, and the Mac connector uses WSS. Network intermediaries between the phone, relay, and Mac connector cannot read the traffic without breaking TLS.</p>
-        <p>Pairing, device authorisation and broker access stay in the local app. The relay terminates TLS, so its operator must be trusted; transport encryption does not make the relay an end-to-end encryption boundary.</p>
+        <p>Remote access runs over TLS. The phone reaches the relay over HTTPS, and the Mac connector uses WSS. Anyone on the network between phone, relay and Mac connector would have to break TLS to read the traffic.</p>
+        <p>Pairing, device authorisation and broker access stay in the local app. The relay terminates TLS, so you must trust its operator. Transport encryption does not make the relay an end-to-end encryption boundary.</p>
       </div>
       <div class="feature-grid">
         <article class="feature">
           <small>Encrypted transit</small>
           <h3>HTTPS and WSS</h3>
-          <p>The default remote origin is <code>https://remote.osauer.dev</code>; the connector URL is upgraded to <code>wss://</code>.</p>
+          <p>The default remote origin is <code>https://remote.osauer.dev</code>, and the connector URL is upgraded to <code>wss://</code>.</p>
         </article>
         <article class="feature">
           <small>Local auth</small>
           <h3>Pairing stays on your Mac</h3>
-          <p>Remote requests cannot create pairing sessions. That local-control action is accepted only from the Mac-side app.</p>
+          <p>Remote requests cannot create pairing sessions. That action is accepted only from the app running on your Mac.</p>
         </article>
         <article class="feature">
           <small>No broker custody</small>
           <h3>No hosted IBKR login</h3>
-          <p>The relay does not receive an IBKR username, password, TWS socket, or hosted broker connection. Your local TWS/Gateway remains the source.</p>
+          <p>The relay does not receive an IBKR username, password, TWS socket or hosted broker connection. Your local TWS or IB Gateway remains the source.</p>
         </article>
       </div>
     </section>
@@ -498,11 +498,11 @@ canary app pair</code></pre>
     <section class="wrap" id="screenshots" aria-labelledby="screenshots-title">
       <div class="section-head">
         <h2 id="screenshots-title">The app in use.</h2>
-        <p>This Canary Edge capture uses the app with synthetic data. It shows the automatic one-year review, 1/5/20-session matrix, and ranked findings without exposing a broker account. Edge describes observed historical outcomes, not a forecast or causal claim.</p>
+        <p>This capture of Canary Edge in the app uses synthetic data. It shows the automatic one-year review, the 1/5/20-session matrix and ranked findings without exposing a broker account. Edge describes historical outcomes. It is an observation, not a forecast or a causal claim.</p>
       </div>
       <div class="screens">
         <figure class="screen">
-          <img src="../social/canary-app-edge.png" width="821" height="684" loading="lazy" alt="Current Canary Edge SPA with synthetic one-year review data, a 1/5/20-session matrix, and ranked findings">
+          <img src="../social/canary-app-edge.png" width="821" height="684" loading="lazy" alt="Canary Edge in the app, with a synthetic one-year review, a 1/5/20-session matrix and ranked findings">
           <figcaption>Canary Edge with synthetic account history</figcaption>
         </figure>
       </div>
