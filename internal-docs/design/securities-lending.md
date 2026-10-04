@@ -140,3 +140,31 @@ implemented source behavior, including empty, partial, stale and unavailable
 states. Live loan/fee mapping, equity attribution and cash-credit reconciliation
 remain separate commissioning work. Enrollment and broker writes are outside
 this feature.
+
+## Broad discovery ownership
+
+The read-only `lending.screen` contract owns filters and ordering before limiting
+results. Desk Discover, CLI and MCP share it. Fee/exclusion candidates cover the
+whole usable US file; market context progressively fills through one background
+worker shared with other research screens. Explicit covered/pending/unavailable
+counts prevent an empty partially acquired screen from becoming a false negative.
+
+Borrow-fee state version 4 adds bounded seven-date history to the same atomic
+source document. Latest and minimum observed rates per source date preserve resets
+without converting repeated polls into distinct dates. Versions 1–3 upgrade using
+only their genuine last-good entry. Identity changes do not inherit persistence.
+Completed-session market fields retain their source dates across disconnected
+sessions; expired intraday quotes fall back to the valid completed close. A new
+completed session invalidates yesterday's projection. Named reads remain available
+for known lists and broker-provided evidence outside the bulk file.
+
+### Persistence upgrade and rollback
+
+Before installing the first version 4 writer, take a private SQLite-consistent
+backup of `daemon.db`. Older binaries use strict decoding and cannot load the
+new borrow-fee document; swapping only the executable is not a valid downgrade.
+A downgrade needs a reviewed migration of this document back to version 3 while
+preserving all other current authority, or normal recovery from the backup.
+Restoring an older whole database after subsequent live activity also rewinds
+other authority and must go through normal reconciliation; do not treat the
+backup as an automatic rollback of a research-only change.

@@ -19,10 +19,11 @@ import (
 const marketEventStateVersion = 1
 
 // marketEventBorrowFeesStateVersion 3 added the lower-bound, unpublished-rate
-// and skipped-row fields. Version 2 documents cannot carry them and load as-is;
-// version 1 documents are migrated.
+// and skipped-row fields. Version 4 adds seven days of distinct source dates.
+// Older documents acquire history only from their genuine last-good observation.
 const (
-	marketEventBorrowFeesStateVersion   = 3
+	marketEventBorrowFeesStateVersion   = 4
+	marketEventBorrowFeesStateVersionV3 = 3
 	marketEventBorrowFeesStateVersionV2 = 2
 )
 
@@ -61,6 +62,7 @@ type marketEventBorrowFeesStateV1 struct {
 }
 
 type marketEventBorrowFeesState struct {
+	Dates       []lendingBorrowDate          `json:"dates,omitempty"`
 	Version     int                          `json:"version"`
 	LastGood    *marketEventBorrowFeeEntry   `json:"last_good,omitempty"`
 	LastAttempt *marketEventBorrowFeeAttempt `json:"last_attempt,omitempty"`
@@ -130,6 +132,7 @@ func (c *marketEventCache) UseCoreStore(store *corestore.Store) error {
 	c.regSHO = regSHO
 	c.halts = halts
 	c.borrowFees = marketEventBorrowFeeLastGood(borrowFees)
+	c.borrowingDates = mergeLendingBorrowDates(borrowFees.Dates, c.borrowFees)
 	c.borrowFeesLastAttempt = cloneBorrowFeeAttempt(borrowFees.LastAttempt)
 	c.borrowFeesRevision = borrowFeesRevision
 	c.borrowFeeFallback = feeRates
@@ -241,18 +244,20 @@ func loadMarketEventBorrowFees(store *corestore.Store) (marketEventBorrowFeesSta
 				return marketEventBorrowFeesState{}, 0, fmt.Errorf("migrate borrow-fees authority: %w", err)
 			}
 			return cloneBorrowFeesState(state), saved.Revision, nil
-		case marketEventBorrowFeesStateVersionV2, marketEventBorrowFeesStateVersion:
+		case marketEventBorrowFeesStateVersionV2, marketEventBorrowFeesStateVersionV3, marketEventBorrowFeesStateVersion:
 			var state marketEventBorrowFeesState
 			if err := decodeStrictMarketEventJSON(doc.JSON, &state); err != nil {
 				return marketEventBorrowFeesState{}, 0, fmt.Errorf("decode borrow-fees v%d authority: %w", header.Version, err)
+			}
+			if state.Version < marketEventBorrowFeesStateVersion && len(state.Dates) > 0 {
+				return marketEventBorrowFeesState{}, 0, errors.New("legacy borrow fees carry version 4 history")
 			}
 			if state.Version == marketEventBorrowFeesStateVersionV2 {
 				if borrowFeeEntryUsesV3Fields(state.LastGood) {
 					return marketEventBorrowFeesState{}, 0, errors.New("validate borrow-fees v2 authority: carries version 3 fields")
 				}
-				// The next persist rewrites the document as version 3.
-				state.Version = marketEventBorrowFeesStateVersion
 			}
+			state.Version = marketEventBorrowFeesStateVersion
 			if err := validateBorrowFeesState(state); err != nil {
 				return marketEventBorrowFeesState{}, 0, fmt.Errorf("validate borrow-fees v%d authority: %w", header.Version, err)
 			}
@@ -315,6 +320,7 @@ func (c *marketEventCache) persistBorrowFeeSuccess(ctx context.Context, entry ma
 	}
 	c.mu.Lock()
 	c.borrowFees = cloneBorrowFeeEntry(entry)
+	c.borrowingDates = mergeLendingBorrowDates(c.borrowingDates, entry)
 	c.borrowFeesLastAttempt = cloneBorrowFeeAttempt(&attempt)
 	c.borrowFeesRevision = revision
 	c.mu.Unlock()
@@ -339,7 +345,13 @@ func (c *marketEventCache) persistBorrowFeeFailure(ctx context.Context, cached m
 }
 
 func (c *marketEventCache) persistBorrowFeeState(ctx context.Context, lastGood *marketEventBorrowFeeEntry, attempt marketEventBorrowFeeAttempt) (int64, error) {
-	state := marketEventBorrowFeesState{Version: marketEventBorrowFeesStateVersion, LastGood: cloneBorrowFeeEntryPtr(lastGood), LastAttempt: cloneBorrowFeeAttempt(&attempt)}
+	c.mu.Lock()
+	dates := cloneLendingBorrowDates(c.borrowingDates)
+	c.mu.Unlock()
+	if attempt.Outcome == marketEventBorrowFeeOutcomeSuccess && lastGood != nil {
+		dates = mergeLendingBorrowDates(dates, *lastGood)
+	}
+	state := marketEventBorrowFeesState{Version: marketEventBorrowFeesStateVersion, LastGood: cloneBorrowFeeEntryPtr(lastGood), LastAttempt: cloneBorrowFeeAttempt(&attempt), Dates: dates}
 	if err := validateBorrowFeesState(state); err != nil {
 		return 0, err
 	}
@@ -448,6 +460,9 @@ func borrowFeeEntryUsesV3Fields(entry *marketEventBorrowFeeEntry) bool {
 }
 
 func validateBorrowFeesState(state marketEventBorrowFeesState) error {
+	if err := validateLendingBorrowDates(state.Dates); err != nil {
+		return err
+	}
 	if state.Version != marketEventBorrowFeesStateVersion {
 		return fmt.Errorf("invalid borrow-fees state version %d", state.Version)
 	}
@@ -490,7 +505,7 @@ func marketEventBorrowFeeLastGood(state marketEventBorrowFeesState) marketEventB
 
 func cloneBorrowFeesState(in marketEventBorrowFeesState) marketEventBorrowFeesState {
 	return marketEventBorrowFeesState{
-		Version: in.Version, LastGood: cloneBorrowFeeEntryPtr(in.LastGood), LastAttempt: cloneBorrowFeeAttempt(in.LastAttempt),
+		Dates: cloneLendingBorrowDates(in.Dates), Version: in.Version, LastGood: cloneBorrowFeeEntryPtr(in.LastGood), LastAttempt: cloneBorrowFeeAttempt(in.LastAttempt),
 	}
 }
 

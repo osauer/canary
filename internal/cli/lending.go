@@ -12,6 +12,11 @@ import (
 func runLending(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "lending")
 	minRate := fs.Float64("min-rate", 50, "discovery minimum annualized borrower percentage; not a risk rule")
+	minPrice := fs.Float64("min-price", 0, "minimum known USD price; applies before result limit")
+	minVolume := fs.Float64("min-avg-dollar-volume-20d", 0, "minimum known 20-session average USD turnover")
+	minDates := fs.Int("min-high-dates", 0, "0-7 distinct high-fee provider dates in seven days, reset by lower rates")
+	sortBy := fs.String("sort-by", "fee_rate", "symbol, price, day_change_pct, volume, avg_dollar_volume_20d, ytd_change_pct, fee_rate or high_dates")
+	sortDir := fs.String("sort-dir", "desc", "asc or desc; absent values always last")
 	exclude := fs.String("exclude", "", "discovery: up to 100 comma-separated symbols to omit")
 	symbols := fs.String("symbols", "", "1-100 comma-separated US stock symbols")
 	window := fs.String("window", "365d", "retained Edge period: 90d or 365d")
@@ -28,14 +33,14 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() == 1 && fs.Arg(0) == "screen" {
 		invalid := false
 		fs.Visit(func(f *flag.Flag) {
-			if f.Name != "min-rate" && f.Name != "exclude" && f.Name != "limit" && f.Name != "json" {
+			if f.Name != "min-rate" && f.Name != "exclude" && f.Name != "limit" && f.Name != "json" && f.Name != "min-price" && f.Name != "min-avg-dollar-volume-20d" && f.Name != "min-high-dates" && f.Name != "sort-by" && f.Name != "sort-dir" {
 				invalid = true
 			}
 		})
 		if invalid {
-			return fail(env, "lending screen: only --min-rate, --exclude, --limit and --json are supported")
+			return fail(env, "lending screen: unsupported option; use price, turnover, source-date, rate, sorting, exclude and limit options")
 		}
-		return runLendingScreen(ctx, env, *minRate, *limit, *exclude, *jsonOut)
+		return runLendingScreen(ctx, env, rpc.LendingScreenParams{MinRate: *minRate, Limit: *limit, MinPrice: *minPrice, MinAvgDollarVolume20D: *minVolume, MinHighDates: *minDates, SortBy: *sortBy, SortDir: *sortDir}, *exclude, *jsonOut)
 	}
 	if fs.NArg() == 1 && (fs.Arg(0) == "rates" || fs.Arg(0) == "market") {
 		invalid := false
@@ -54,12 +59,12 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 	}
 	screenFlag := false
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "min-rate" || f.Name == "exclude" {
+		if f.Name == "min-rate" || f.Name == "exclude" || f.Name == "min-price" || f.Name == "min-avg-dollar-volume-20d" || f.Name == "min-high-dates" || f.Name == "sort-by" || f.Name == "sort-dir" {
 			screenFlag = true
 		}
 	})
 	if screenFlag {
-		return fail(env, "--min-rate and --exclude require lending screen")
+		return fail(env, "discovery filters and sorting require lending screen")
 	}
 	if *symbols != "" {
 		return fail(env, "lending fees: --symbols requires rates or market")

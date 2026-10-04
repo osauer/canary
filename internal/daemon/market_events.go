@@ -130,6 +130,7 @@ type marketEventCache struct {
 	borrowFees                marketEventBorrowFeeEntry
 	borrowFeesLastAttempt     *marketEventBorrowFeeAttempt
 	borrowFeesRevision        int64
+	borrowingDates            []lendingBorrowDate
 	borrowFeeFallback         marketEventFeeRateState
 	borrowFeeFallbackRevision int64
 	borrowFeeFallbackLoadedAt time.Time

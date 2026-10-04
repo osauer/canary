@@ -414,7 +414,7 @@ Read lending income, borrowing fees and stock market context.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary lending screen [--min-rate PERCENT] [--limit N] [--exclude SYMBOL,...] [--json]
+canary lending screen [--min-rate PERCENT] [--min-price USD] [--min-avg-dollar-volume-20d USD] [--min-high-dates N] [--sort-by FIELD] [--sort-dir asc|desc] [--limit N] [--exclude SYMBOL,...] [--json]
 canary lending market --symbols SYMBOL,... [--json]
 canary lending rates --symbols SYMBOL,... [--json]
 canary lending fees [--window 90d|365d] [--from YYYY-MM-DD --to YYYY-MM-DD] [--con-id ID] [--limit N] [--cursor CURSOR] [--fingerprint ID] [--json]
@@ -427,6 +427,11 @@ Subcommands: `fees`, `rates`, `screen`, `market`.
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
 | `--min-rate` | yes | - |
+| `--min-price` | yes | - |
+| `--min-avg-dollar-volume-20d` | yes | - |
+| `--min-high-dates` | yes | - |
+| `--sort-by` | yes | `symbol`, `price`, `day_change_pct`, `volume`, `avg_dollar_volume_20d`, `ytd_change_pct`, `fee_rate`, `high_dates` |
+| `--sort-dir` | yes | `asc`, `desc` |
 | `--exclude` | yes | - |
 | `--symbols` | yes | - |
 | `--window` | yes | `90d`, `365d` |

@@ -337,10 +337,15 @@ for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantic
 `canary lending market --symbols AAA,BBB --json` and the read-only
 `canary_lending_market` MCP tool return matching cached context for 1–100 explicit
 USD names in the borrowing feed. Missing exact contract IDs stay unavailable.
-The daemon queues at most 150 names, follows requested names for 15 minutes,
-and refreshes one at a time on the background lane, with a 35-second bound and
-five-minute retry/receipt interval. No quote fan-out occurs inside the screen read.
-History reuses the existing durable cache without adding chart-refresh interests.
+The daemon admits at most 150 unattempted names per research family, then
+progressively admits more on later reads. A single joined worker rotates families
+and refreshes one name at a time on the background lane (35-second bound).
+Up to 30,000 exact-contract projections are retained while requested, expiring after
+24 hours without interest. Named reads request quotes for 15 minutes; intraday
+receipts expire after five minutes. Completed-session history is reused until the
+next completed session, preserving its actual source dates. Incomplete histories
+retry hourly; failures retry after five minutes. History uses the durable cache
+without adding chart-refresh interests. No quote fan-out occurs in a screen read.
 
 Rows carry last completed close or a recent actual trade (including delayed-feed
 labels), change from prior close, session share volume, average daily dollar
@@ -348,5 +353,30 @@ turnover over all 20 completed sessions, and completed-close YTD price change
 from the exact prior year-end session. YTD excludes dividends; missing year-end,
 latest session or any volume baseline stays missing. Field dates and pending,
 partial, unavailable and expiry remain explicit. Filters are research preferences,
-not trading policy or a liquidity guarantee. This does not screen liquidity across
-the full borrowing feed; consumers filter their retained rows only.
+not trading policy or a liquidity guarantee. Discovery filters apply across the
+full qualifying fee/exclusion universe before the output limit, using only known
+market values. Acquisition is progressive: inspect `coverage` before interpreting
+an empty or partial screen. `covered`, `pending` and `unavailable` partition all
+candidates; `complete` requires every candidate to have the fields needed by the
+query (default price and turnover). Missing YTD does not block price-only filters.
+Desk's own-list view retains its separate named-rate/local filtering path so
+nonbulk evidence is not silently dropped.
+
+### Canonical discovery filters and sorting
+
+```sh
+canary lending screen --min-rate 50 --min-price 5 --min-avg-dollar-volume-20d 10000000 --min-high-dates 3 --sort-by avg_dollar_volume_20d --sort-dir desc --limit 50 --json
+```
+
+CLI flags map directly to MCP/RPC `min_price`, `min_avg_dollar_volume_20d`,
+`min_high_dates`, `sort_by`, and `sort_dir`. Zero disables each optional filter.
+Sort keys are `symbol`, `price`, `day_change_pct`, `volume`,
+`avg_dollar_volume_20d`, `ytd_change_pct`, `fee_rate`, and `high_dates`.
+Missing numeric values stay last in both directions; symbols break ties.
+`high_dates` is the number of distinct provider dates at or above `min_rate`
+within seven UTC source dates, reset by a later lower or unknown observation.
+An intraday dip followed by recovery starts a new streak on that date.
+Each row also exposes at most seven dated `history` samples for the fee chart.
+Repeated polls of one timestamp never add dates. This history is persisted with
+the daemon's borrow-fee source state; it starts from genuine retained observations,
+not an assumed backfill. Old installations therefore initially know one date.

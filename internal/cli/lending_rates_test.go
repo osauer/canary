@@ -73,16 +73,16 @@ func TestLendingScreenCLIReadOnlyAndFlags(t *testing.T) {
 	c := &lendingScreenConn{}
 	var out, errs bytes.Buffer
 	env := &Env{Conn: c, Stdout: &out, Stderr: &errs}
-	for _, args := range [][]string{{"screen", "--limit", "101"}, {"screen", "--symbols", "AAA"}, {"fees", "--min-rate", "50"}, {"screen", "--exclude", "$BAD"}} {
+	for _, args := range [][]string{{"screen", "--limit", "101"}, {"screen", "--symbols", "AAA"}, {"fees", "--min-rate", "50"}, {"screen", "--exclude", "$BAD"}, {"screen", "--min-price", "-1"}, {"rates", "--sort-by", "price"}, {"screen", "--min-high-dates", "8"}, {"screen", "--sort-dir", "sideways"}} {
 		if Run(t.Context(), env, "lending", args) == 0 || c.calls != 0 {
 			t.Fatal("invalid arguments reached daemon")
 		}
 	}
-	if Run(t.Context(), env, "lending", []string{"screen", "--min-rate", "50", "--exclude", "bbb,aaa", "--limit", "10", "--json"}) != 0 {
+	if Run(t.Context(), env, "lending", []string{"screen", "--min-rate", "50", "--exclude", "bbb,aaa", "--limit", "10", "--min-price", "5", "--min-avg-dollar-volume-20d", "10000000", "--min-high-dates", "3", "--sort-by", "avg_dollar_volume_20d", "--sort-dir", "asc", "--json"}) != 0 {
 		t.Fatal(errs.String())
 	}
 	var r rpc.LendingScreenResult
-	if json.Unmarshal(out.Bytes(), &r) != nil || r.Status != "unavailable" || r.Params.Limit != 10 || r.Params.Exclude[0] != "AAA" {
+	if json.Unmarshal(out.Bytes(), &r) != nil || r.Status != "unavailable" || r.Params.Limit != 10 || r.Params.Exclude[0] != "AAA" || r.Params.MinPrice != 5 || r.Params.MinAvgDollarVolume20D != 10000000 || r.Params.MinHighDates != 3 || r.Params.SortBy != "avg_dollar_volume_20d" || r.Params.SortDir != "asc" {
 		t.Fatal("scope or unavailable evidence changed")
 	}
 }

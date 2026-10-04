@@ -29,3 +29,24 @@ func TestLendingScreenBoundsAndUnavailableContract(t *testing.T) {
 		t.Fatal("exclusions changed")
 	}
 }
+
+func TestLendingScreenSortingMissingLastAndBounds(t *testing.T) {
+	for _, p := range []LendingScreenParams{{MinPrice: -1}, {MinAvgDollarVolume20D: math.NaN()}, {MinHighDates: 8}, {SortBy: "made_up"}, {SortDir: "sideways"}} {
+		if _, err := NormalizeLendingScreenParams(p); err == nil {
+			t.Fatal("invalid filter accepted")
+		}
+	}
+	a := LendingScreenRow{Symbol: "AAA", FeeRate: new(60.0), Market: &LendingMarketRow{Price: new(10.0)}}
+	b := LendingScreenRow{Symbol: "BBB", FeeRate: new(70.0)}
+	for _, dir := range []string{"asc", "desc"} {
+		if CompareLendingScreenRows(a, b, LendingScreenParams{SortBy: "price", SortDir: dir}) >= 0 {
+			t.Fatal("missing sorted first")
+		}
+	}
+	if LendingScreenMatchesMarket(nil, LendingScreenParams{MinPrice: 5}) {
+		t.Fatal("unknown price passed")
+	}
+	if !LendingScreenMarketCovered(&LendingMarketRow{Status: "partial", Price: new(10.0)}, LendingScreenParams{MinPrice: 5}) {
+		t.Fatal("unrelated missing YTD blocked price filter coverage")
+	}
+}

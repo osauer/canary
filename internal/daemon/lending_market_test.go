@@ -100,7 +100,7 @@ func TestLendingMarketBoundedInterestIdentityAndExpiry(t *testing.T) {
 		}
 		return r.Rows[0]
 	}
-	if r := read(); r.Status != "unavailable" || len(s.lendingMarket.entries) != lendingMarketCapacity {
+	if r := read(); r.Status != "pending" || len(s.lendingMarket.entries) != lendingMarketCapacity {
 		t.Fatal("capacity was not bounded")
 	}
 	s.lendingMarket.entries["0"] = lendingMarketEntry{until: now.Add(-time.Second)}

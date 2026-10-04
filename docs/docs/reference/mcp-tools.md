@@ -248,7 +248,7 @@ Compare prices and liquidity for 1-100 named USD stocks from the US borrowing fe
 
 ## `canary_lending_screen`
 
-Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Reuses daemon source cadence and backoff; no per-symbol broker scan. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.
+Discover unusually expensive borrowing outside known holdings or a watchlist, ranked by annualized borrower fee in IBKR's US short-stock bulk feed. Applies price, turnover, distinct source-date filters and sorting across fee/exclusion candidates before limiting output. One fair bounded background worker progressively acquires exact-contract market context; reads do not fan out broker requests. Returns market evidence and covered/pending/unavailable counts across the candidate universe. Incomplete coverage is not zero matches. High dates are distinct provider dates within seven days, reset by later lower rates; repeated polls never add dates. Returns bounded rows, company names, source clocks, source health, total/usable/matching counts and truncation. Unavailable source is distinct from no matches. This is not all markets, lender yield, verified listing or liquidity, allocation, earned income or a buy recommendation. Use canary_lending_rates for named symbols and canary_lending_fees for earned income. Read-only; no orders, enrollment or risk-policy changes.
 
 **Parameters:**
 
@@ -256,7 +256,12 @@ Discover unusually expensive borrowing outside known holdings or a watchlist, ra
 |------|------|----------|-------------|
 | `exclude` | array | no | Known symbols to omit, normalized case-insensitively; optional |
 | `limit` | integer | no | Maximum ranked results, default 25; matching count reports omitted results |
+| `min_avg_dollar_volume_20d` | number | no | Minimum known average USD turnover across 20 complete sessions; default 0 disables. |
+| `min_high_dates` | integer | no | Minimum distinct provider dates at min_rate within seven days, reset by a later below-threshold observation; default 0 disables. |
+| `min_price` | number | no | Minimum known USD price; default 0 disables. Applied across candidates before limit; missing evidence excluded. |
 | `min_rate` | number | no | Minimum annualized borrower percentage, default 50; research filter only |
+| `sort_by` | string | no | Field ranked before limiting results; default fee_rate. Missing values stay last. |
+| `sort_dir` | string | no | Sort direction, default desc; symbol breaks numeric ties. |
 
 ## `canary_lending_rates`
 

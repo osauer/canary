@@ -557,10 +557,48 @@
             "maximum": 100,
             "description": "Maximum ranked results, default 25; matching count reports omitted results"
           },
+          "min_avg_dollar_volume_20d": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minimum known average USD turnover across 20 complete sessions; default 0 disables."
+          },
+          "min_high_dates": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 7,
+            "description": "Minimum distinct provider dates at min_rate within seven days, reset by a later below-threshold observation; default 0 disables."
+          },
+          "min_price": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Minimum known USD price; default 0 disables. Applied across candidates before limit; missing evidence excluded."
+          },
           "min_rate": {
             "type": "number",
             "minimum": 0,
             "description": "Minimum annualized borrower percentage, default 50; research filter only"
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "symbol",
+              "price",
+              "day_change_pct",
+              "volume",
+              "avg_dollar_volume_20d",
+              "ytd_change_pct",
+              "fee_rate",
+              "high_dates"
+            ],
+            "description": "Field ranked before limiting results; default fee_rate. Missing values stay last."
+          },
+          "sort_dir": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "Sort direction, default desc; symbol breaks numeric ties."
           }
         }
       }

@@ -36,8 +36,7 @@ func runLendingRates(ctx context.Context, env *Env, symbols string, jsonOut bool
 	return 0
 }
 
-func runLendingScreen(ctx context.Context, env *Env, minRate float64, limit int, exclude string, jsonOut bool) int {
-	p := rpc.LendingScreenParams{MinRate: minRate, Limit: limit}
+func runLendingScreen(ctx context.Context, env *Env, p rpc.LendingScreenParams, exclude string, jsonOut bool) int {
 	if exclude != "" {
 		p.Exclude = strings.Split(exclude, ",")
 	}
@@ -56,6 +55,7 @@ func runLendingScreen(ctx context.Context, env *Env, minRate float64, limit int,
 		return printJSON(env, result)
 	}
 	fmt.Fprintf(env.Stdout, "IBKR US borrowing fees · %s · %d usable / %d USD records · %d matches · %d shown\n", result.Status, result.Usable, result.Total, result.Matching, len(result.Rows))
+	fmt.Fprintf(env.Stdout, "Market coverage: %d/%d covered · %d pending · %d unavailable; filters before limit\n", result.Coverage.Covered, result.Coverage.Candidates, result.Coverage.Pending, result.Coverage.Unavailable)
 	for _, row := range result.Rows {
 		fmt.Fprintf(env.Stdout, "  %s  %.2f%% · %s · %s\n", sanitizeRunText(row.Symbol), *row.FeeRate, sanitizeRunText(row.Name), row.AsOf.Format("2006-01-02 15:04 MST"))
 	}

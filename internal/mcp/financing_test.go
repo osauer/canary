@@ -75,18 +75,18 @@ func TestLendingRatesToolReadOnlyScopeAndUnavailable(t *testing.T) {
 }
 
 func TestLendingScreenToolReadOnlyAndScope(t *testing.T) {
-	want := rpc.LendingScreenResult{Kind: "lending_screen", Universe: "us_short_stock", Status: "unavailable", Params: rpc.LendingScreenParams{MinRate: 50, Limit: 25, Exclude: []string{"AAA"}}}
+	want := rpc.LendingScreenResult{Kind: "lending_screen", Universe: "us_short_stock", Status: "unavailable", Params: rpc.LendingScreenParams{MinRate: 50, Limit: 25, Exclude: []string{"AAA"}, MinPrice: 5, MinAvgDollarVolume20D: 10000000, MinHighDates: 3, SortBy: "price", SortDir: "asc"}}
 	conn, calls := riskToolConn(t, map[string]any{rpc.MethodLendingScreen: want})
 	tool, ok := lookupTool("canary_lending_screen")
 	if !ok || tool.ReadOnlyHint == nil || !*tool.ReadOnlyHint {
 		t.Fatal("missing read-only tool")
 	}
-	for _, args := range []string{`{"limit":101}`, `{"min_rate":-1}`, `{"exclude":["$BAD"]}`} {
+	for _, args := range []string{`{"limit":101}`, `{"min_rate":-1}`, `{"exclude":["$BAD"]}`, `{"min_price":-1}`, `{"min_high_dates":8}`, `{"sort_by":"invented"}`, `{"sort_dir":"sideways"}`} {
 		if _, err := tool.Handler(t.Context(), conn, json.RawMessage(args)); err == nil {
 			t.Fatal("invalid bounds accepted")
 		}
 	}
-	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"exclude":["aaa"]}`))
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"exclude":["aaa"],"min_price":5,"min_avg_dollar_volume_20d":10000000,"min_high_dates":3,"sort_by":"price","sort_dir":"asc"}`))
 	if err != nil {
 		t.Fatal(err)
 	}

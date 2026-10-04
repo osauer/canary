@@ -13,17 +13,23 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-const lendingMarketCapacity = 150
+const lendingMarketCapacity = 30000
+const lendingMarketPendingPerFamily = 150
 const lendingMarketLifetime = 5 * time.Minute
 
 type lendingMarketEntry struct {
 	contract     rpc.ContractParams
 	until, retry time.Time
 	row          rpc.LendingMarketRow
+	daily        rpc.LendingMarketRow
+	family       string
+	quoteUntil   time.Time
+	attempted    time.Time
 }
 type lendingMarketCache struct {
-	mu      sync.Mutex
-	entries map[string]lendingMarketEntry
+	mu         sync.Mutex
+	entries    map[string]lendingMarketEntry
+	lastFamily string
 }
 
 func (s *Server) handleLendingMarket(ctx context.Context, req *rpc.Request) (*rpc.LendingMarketResult, error) {
@@ -40,25 +46,42 @@ func (s *Server) handleLendingMarket(ctx context.Context, req *rpc.Request) (*rp
 	}
 	bulk, health, _ := s.marketEvents.loadBorrowFees(ctx)
 	now := s.now().UTC()
-	usable := borrowFeeFTPPolicyUsable(health) && !bulk.AsOf.IsZero() && !bulk.FetchedAt.After(now) && !bulk.AsOf.After(bulk.FetchedAt) && now.Sub(bulk.AsOf) <= 96*time.Hour
-	out := &rpc.LendingMarketResult{Kind: "lending_market", Symbols: symbols, Rows: []rpc.LendingMarketRow{}}
+	rows := s.lendingMarketRowsForFamily(bulk, health, symbols, now, "named")
+	return &rpc.LendingMarketResult{Kind: "lending_market", Symbols: symbols, Rows: rows}, nil
+}
+
+// lendingMarketRows admits at most a small pending batch per source family.
+// Every candidate still receives a row, so capacity cannot silently erase the
+// wider universe. Later reads replenish admission as the joined worker advances.
+func (s *Server) lendingMarketRows(bulk marketEventBorrowFeeEntry, health rpc.SourceHealth, symbols []string, now time.Time) []rpc.LendingMarketRow {
+	return s.lendingMarketRowsForFamily(bulk, health, symbols, now, "lending")
+}
+func (s *Server) lendingMarketRowsForFamily(bulk marketEventBorrowFeeEntry, health rpc.SourceHealth, symbols []string, now time.Time, family string) []rpc.LendingMarketRow {
+	usable := borrowFeeFTPPolicyUsable(health) && !bulk.AsOf.IsZero() && !bulk.FetchedAt.IsZero() && !bulk.FetchedAt.After(now) && !bulk.AsOf.After(bulk.FetchedAt) && now.Sub(bulk.AsOf) <= 96*time.Hour
+	out := make([]rpc.LendingMarketRow, 0, len(symbols))
 	cache := &s.lendingMarket
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if cache.entries == nil {
 		cache.entries = map[string]lendingMarketEntry{}
 	}
-	for symbol, e := range cache.entries {
+	pending := 0
+	for key, e := range cache.entries {
 		if !now.Before(e.until) {
-			delete(cache.entries, symbol)
+			delete(cache.entries, key)
+			continue
+		}
+		if e.family == family && e.attempted.IsZero() {
+			pending++
 		}
 	}
+	lastDay := lendingCompletedSession(now)
 	for _, symbol := range symbols {
 		rec := bulk.Symbols[symbol]
 		id, _ := strconv.Atoi(rec.ConID)
 		empty := rpc.LendingMarketRow{Symbol: symbol, Status: "unavailable", Detail: "Exact USD stock identity unavailable from borrowing feed."}
 		if !usable || id <= 0 || rec.Symbol != symbol || rec.Currency != "USD" {
-			out.Rows = append(out.Rows, empty)
+			out = append(out, empty)
 			continue
 		}
 		c := rpc.ContractParams{Symbol: symbol, ConID: id, SecType: "STK", Exchange: "SMART", Currency: "USD"}
@@ -68,22 +91,87 @@ func (s *Server) handleLendingMarket(ctx context.Context, req *rpc.Request) (*rp
 			exists = false
 		}
 		if !exists {
-			if len(cache.entries) >= lendingMarketCapacity {
-				empty.Detail = "Market context capacity reached; retry later."
-				out.Rows = append(out.Rows, empty)
+			empty = rpc.LendingMarketRow{Symbol: symbol, Contract: c, Status: "pending", Detail: "Awaiting bounded background market coverage."}
+			if len(cache.entries) >= lendingMarketCapacity || pending >= lendingMarketPendingPerFamily {
+				out = append(out, empty)
 				continue
 			}
-			e = lendingMarketEntry{contract: c, row: rpc.LendingMarketRow{Symbol: symbol, Contract: c, Status: "pending", Detail: "Loading price and daily history."}}
+			e = lendingMarketEntry{contract: c, family: family, row: empty}
+			pending++
 		}
-		e.until = now.Add(15 * time.Minute)
+		e.until = now.Add(24 * time.Hour)
+		if family == "named" {
+			e.quoteUntil = now.Add(15 * time.Minute)
+		}
 		cache.entries[symbol] = e
-		row := e.row
-		if !row.ValidUntil.IsZero() && !now.Before(row.ValidUntil) {
-			row = rpc.LendingMarketRow{Symbol: symbol, Contract: c, Status: "pending", Detail: "Refreshing market context."}
-		}
-		out.Rows = append(out.Rows, row)
+		out = append(out, lendingMarketVisible(e, now, lastDay))
 	}
-	return out, nil
+	return out
+}
+
+func lendingCompletedSession(now time.Time) string {
+	sessions, _ := tapeArchiveCalendar(now.AddDate(0, 0, -10), 12)
+	last := ""
+	for _, session := range sessions {
+		if !session.Close.Add(15 * time.Minute).After(now) {
+			last = session.Date
+		}
+	}
+	return last
+}
+
+func lendingMarketVisible(e lendingMarketEntry, now time.Time, lastDay string) rpc.LendingMarketRow {
+	if !e.row.CheckedAt.After(now) && now.Before(e.row.ValidUntil) && (e.row.Price == nil || e.daily.PriceAt.Format(time.DateOnly) == lastDay) {
+		return e.row
+	}
+	// A fresh receipt validates retained completed-session fields, not a new
+	// trade. Source dates remain unchanged; stale intraday values are discarded.
+	if e.daily.Price != nil && e.daily.PriceAt.Format(time.DateOnly) == lastDay && lastDay != "" {
+		r := e.daily
+		r.CheckedAt = now
+		r.ValidUntil = now.Add(lendingMarketLifetime)
+		return r
+	}
+	return rpc.LendingMarketRow{Symbol: e.contract.Symbol, Contract: e.contract, Status: "pending", Detail: "Refreshing completed-session market context."}
+}
+
+func lendingMarketDue(e lendingMarketEntry, now time.Time, lastDay string) bool {
+	if now.Before(e.retry) {
+		return false
+	}
+	if e.daily.Price == nil || e.daily.PriceAt.Format(time.DateOnly) != lastDay {
+		return true
+	}
+	return now.Before(e.quoteUntil) || (e.daily.Status != "available" && now.Sub(e.attempted) >= time.Hour)
+}
+
+// selectLendingMarket advances fairly across research families and prioritizes
+// never-read candidates over retries within each family.
+func selectLendingMarket(cache *lendingMarketCache, now time.Time, lastDay string) (string, lendingMarketEntry) {
+	families := []string{"lending", "short_interest", "named"}
+	start := slices.Index(families, cache.lastFamily) + 1
+	for offset := range len(families) {
+		family := families[(start+offset)%len(families)]
+		var symbol string
+		var selected lendingMarketEntry
+		for key, e := range cache.entries {
+			if !now.Before(e.until) {
+				delete(cache.entries, key)
+				continue
+			}
+			if e.family != family || !lendingMarketDue(e, now, lastDay) {
+				continue
+			}
+			if symbol == "" || e.attempted.Before(selected.attempted) || (e.attempted.Equal(selected.attempted) && key < symbol) {
+				symbol, selected = key, e
+			}
+		}
+		if symbol != "" {
+			cache.lastFamily = family
+			return symbol, selected
+		}
+	}
+	return "", lendingMarketEntry{}
 }
 
 // One joined, background-priority worker; no fan-out from a screen read.
@@ -100,30 +188,19 @@ func (s *Server) startLendingMarketRefresh(ctx context.Context) {
 			now := s.now().UTC()
 			cache := &s.lendingMarket
 			cache.mu.Lock()
-			var symbol string
-			var selected lendingMarketEntry
-			for key, e := range cache.entries {
-				if !now.Before(e.until) {
-					delete(cache.entries, key)
-					continue
-				}
-				if now.Before(e.retry) {
-					continue
-				}
-				if symbol == "" || e.retry.Before(selected.retry) || (e.retry.Equal(selected.retry) && key < symbol) {
-					symbol, selected = key, e
-				}
-			}
+			symbol, selected := selectLendingMarket(cache, now, lendingCompletedSession(now))
 			cache.mu.Unlock()
 			if symbol == "" {
 				continue
 			}
 			readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), 35*time.Second)
-			row := s.readLendingMarket(readCtx, selected.contract)
+			row, daily := s.readLendingMarketContext(readCtx, selected)
 			cancel()
 			cache.mu.Lock()
 			if current, ok := cache.entries[symbol]; ok && current.contract == selected.contract {
 				current.row = row
+				current.daily = daily
+				current.attempted = s.now().UTC()
 				current.retry = s.now().Add(lendingMarketLifetime)
 				cache.entries[symbol] = current
 			}
@@ -132,15 +209,25 @@ func (s *Server) startLendingMarketRefresh(ctx context.Context) {
 	})
 }
 
-func (s *Server) readLendingMarket(ctx context.Context, c rpc.ContractParams) rpc.LendingMarketRow {
-	// Direct history cache path avoids registering 50 new chart refresh interests.
-	h, _ := s.marketHistoryRequest(ctx, rpc.MarketHistoryParams{Contract: c, Range: "1Y"})
-	var q *rpc.Quote
-	if ctx.Err() == nil {
-		raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: c, TimeoutMs: 1500})
-		q, _ = s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
+func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow) {
+	c := e.contract
+	now := s.now().UTC()
+	daily := e.daily
+	if daily.Price == nil || daily.PriceAt.Format(time.DateOnly) != lendingCompletedSession(now) || (daily.Status != "available" && now.Sub(e.attempted) >= time.Hour) {
+		// The durable history path independently retains bars and reconciles them;
+		// completed-session caching avoids repeated yearly acquisitions per quote.
+		h, _ := s.marketHistoryRequest(ctx, rpc.MarketHistoryParams{Contract: c, Range: "1Y"})
+		daily = projectLendingMarket(c, h, nil, s.now().UTC())
 	}
-	return projectLendingMarket(c, h, q, s.now().UTC())
+	daily.CheckedAt = s.now().UTC()
+	daily.ValidUntil = daily.CheckedAt.Add(lendingMarketLifetime)
+	row := daily
+	if ctx.Err() == nil && now.Before(e.quoteUntil) {
+		raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: c, TimeoutMs: 1500})
+		q, _ := s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
+		row = overlayLendingQuote(daily, c, q, s.now().UTC())
+	}
+	return row, daily
 }
 
 func projectLendingMarket(c rpc.ContractParams, h *rpc.MarketHistoryResult, q *rpc.Quote, now time.Time) rpc.LendingMarketRow {
@@ -207,6 +294,11 @@ func projectLendingMarket(c rpc.ContractParams, h *rpc.MarketHistoryResult, q *r
 			}
 		}
 	}
+	return overlayLendingQuote(out, c, q, now)
+}
+
+func overlayLendingQuote(out rpc.LendingMarketRow, c rpc.ContractParams, q *rpc.Quote, now time.Time) rpc.LendingMarketRow {
+	positive := func(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
 	// Only an actual recent trade replaces the last completed close. Frozen or
 	// bid/ask indications retain the daily fallback and its matching daily volume.
 	if q != nil && q.Contract.SecType == "STK" && q.Contract.ConID == c.ConID && q.Contract.Symbol == c.Symbol && q.Contract.Currency == c.Currency && q.Last != nil && positive(*q.Last) && !q.Stale && !q.TradeAt.IsZero() && !q.TradeAt.After(now) && now.Sub(q.TradeAt) <= 20*time.Minute {
