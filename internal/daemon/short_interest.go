@@ -166,7 +166,7 @@ func (s *Server) handleShortInterestScreen(ctx context.Context, req *rpc.Request
 	for i, row := range candidates {
 		symbols[i] = row.Symbol
 	}
-	contextRows := s.lendingMarketRowsForFamily(bulk, health, symbols, now, "short_interest")
+	contextRows := s.lendingMarketRowsForFamily(bulk, health, symbols, now, "short_interest", symbols[:min(p.Limit, len(symbols))])
 	out.Coverage = rpc.ShortInterestCoverage{Candidates: len(candidates)}
 	for i, row := range candidates {
 		if i < len(contextRows) {
@@ -202,6 +202,16 @@ func (s *Server) handleShortInterestScreen(ctx context.Context, req *rpc.Request
 	out.Truncated = out.Matching > p.Limit
 	if out.Truncated {
 		out.Rows = out.Rows[:p.Limit]
+	}
+	// Keep the actual returned rows responsive after market sorting/filtering;
+	// the earlier source prefix provides discovery progress when none are priced.
+	if len(out.Rows) > 0 {
+		displayed := make([]string, len(out.Rows))
+		for i, row := range out.Rows {
+			displayed[i] = row.Symbol
+		}
+		focus := lendingDisplayedFocus(displayed, symbols, p.Limit)
+		s.lendingMarketRowsForFamily(bulk, health, focus, now, "short_interest", focus)
 	}
 	return out, nil
 }

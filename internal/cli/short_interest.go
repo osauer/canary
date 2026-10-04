@@ -51,6 +51,6 @@ func runShortInterest(ctx context.Context, env *Env, args []string) int {
 		}
 		fmt.Fprintf(env.Stdout, "  %s  %d short shares · %s days to cover · %s\n", sanitizeRunText(row.Symbol), row.ShortInterestShares, days, sanitizeRunText(row.Name))
 	}
-	fmt.Fprintf(env.Stdout, "Market coverage: %d/%d; %d pending, %d unavailable. %s\n", r.Coverage.Covered, r.Coverage.Candidates, r.Coverage.Pending, r.Coverage.Unavailable, r.Detail)
+	fmt.Fprintf(env.Stdout, "Market coverage: %d/%d; %d pending, %d unavailable. Displayed prices load first. %s\n", r.Coverage.Covered, r.Coverage.Candidates, r.Coverage.Pending, r.Coverage.Unavailable, r.Detail)
 	return 0
 }

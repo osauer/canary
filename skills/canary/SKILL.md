@@ -179,8 +179,10 @@ No enrollment, watchlist mutation, policy change or order is authorized.
 
 `canary lending market --symbols AAA,BBB --json` and the read-only
 `canary_lending_market` MCP tool return matching cached context for 1–100 explicit
-USD names in the borrowing feed. Missing exact contract IDs stay unavailable.
-The daemon admits at most 150 unattempted names per research family, then
+USD names in the borrowing feed, or exact identities already resolved for a
+displayed research row. Named reads do not initiate missing-feed resolution;
+without either identity, the row remains unavailable.
+The daemon admits at most 150 background unattempted names per research family, then
 progressively admits more on later reads. A single joined worker rotates families
 and refreshes one name at a time on the background lane (35-second bound).
 Up to 30,000 exact-contract projections are retained while requested, expiring after
@@ -252,3 +254,26 @@ FINRA average daily shares covers the reporting interval, distinct from market
 remain missing. Split rows omit change percentage, and split/revision flags
 remain evidence. Borrow fees have an independent `fee_as_of` clock. This is
 research, never an order, enrollment, allocation or lending-yield promise.
+
+### Displayed research prices
+
+The returned discovery rows receive bounded priority in their displayed order:
+at most 100 names per family, including a source-ranked discovery tail so filters
+do not cancel unresolved candidates, with a 15-minute interest replaced by the next query.
+Three foreground jobs alternate with one available background job, preserving
+broader-universe progress. A newly displayed name can enter even when the 150-name
+background batch is full; changing tabs does not accumulate unresolved jobs.
+
+Displayed short-interest symbols missing from the borrowing file may resolve
+through one session-bound IBKR contract-details request. Only a unique exact
+symbol, positive contract ID, USD stock type and supported US calendar qualify.
+No suffix conversion, guessed common-share substitute or issuer-name matching is
+performed. Non-displayed unmatched names remain unavailable; the full FINRA
+universe does not trigger a contract-resolution scan.
+
+A short daily-history read supplies the dated last completed close first; the
+one-year history then fills remaining liquidity and YTD context. A dated regular close from
+the canonical quote may also supply price. Undated previous-close ticks and old
+last trades never receive an invented current date. Missing or failed yearly
+history preserves matching completed-session price and independently dated fields.
+Borrowing fees remain independent: resolving a price does not create a fee quote.

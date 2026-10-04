@@ -35,7 +35,7 @@ func (s *Server) handleLendingScreen(ctx context.Context, req *rpc.Request) (*rp
 		for _, r := range result.Rows {
 			symbols = append(symbols, r.Symbol)
 		}
-		market := s.lendingMarketRows(bulk, health, symbols, now)
+		market := s.lendingMarketRowsForFamily(bulk, health, symbols, now, "lending", symbols[:min(p.Limit, len(symbols))])
 		s.marketEvents.mu.Lock()
 		dates := mergeLendingBorrowDates(s.marketEvents.borrowingDates, bulk)
 		s.marketEvents.mu.Unlock()
@@ -45,6 +45,14 @@ func (s *Server) handleLendingScreen(ctx context.Context, req *rpc.Request) (*rp
 			result.Rows[i].HighDates = lendingHighDates(dates, result.Rows[i].Symbol, bulk.Symbols[result.Rows[i].Symbol].ConID, p.MinRate, now)
 		}
 		finishLendingScreen(&result, p)
+		if len(result.Rows) > 0 {
+			displayed := make([]string, len(result.Rows))
+			for i, row := range result.Rows {
+				displayed[i] = row.Symbol
+			}
+			focus := lendingDisplayedFocus(displayed, symbols, p.Limit)
+			s.lendingMarketRowsForFamily(bulk, health, focus, now, "lending", focus)
+		}
 	}
 	return &result, nil
 }

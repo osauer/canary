@@ -41,7 +41,7 @@ func TestShortInterestCachedSourceAndFullUniverse(t *testing.T) {
 	s.shortInterest.publication = pub
 	s.shortInterest.failed = false
 	r := read(rpc.ShortInterestScreenParams{Limit: 1})
-	if r.Status != "available" || r.Total != 2 || r.Matching != 2 || r.Rows[0].Symbol != "BBB" || !r.Truncated || r.Coverage.Unavailable != 2 {
+	if r.Status != "available" || r.Total != 2 || r.Matching != 2 || r.Rows[0].Symbol != "BBB" || !r.Truncated || r.Coverage.Unavailable != 1 || r.Coverage.Pending != 1 {
 		t.Fatalf("independent full universe %+v", r)
 	}
 	if r := read(rpc.ShortInterestScreenParams{ListedOnly: true}); r.Matching != 1 || r.Rows[0].Symbol != "AAA" {
