@@ -74,6 +74,8 @@ type Server struct {
 	// setupSourceForTest replaces the gateway connector behind setup
 	// evaluations; nil reads the live connector.
 	setupSourceForTest setupBarSource
+	// setupResolutions remembers exact setup underlyings per broker session.
+	setupResolutions setupResolutionCache
 	// backendLink overrides the connector's TWS-to-IBKR link report for tests;
 	// nil reads the current connector.
 	backendLink func() ibkrlib.BackendLinkReport

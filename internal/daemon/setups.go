@@ -105,7 +105,7 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := c.ResolveOrderContractForSession(ctx, binding, contract, 10*time.Second)
+	resolved, err := s.resolveSetupContract(ctx, c, binding, contract)
 	if err != nil {
 		return unavailable("contract_resolution_unavailable"), nil
 	}

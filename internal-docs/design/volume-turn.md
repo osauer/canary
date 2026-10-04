@@ -1,6 +1,6 @@
 # Intraday volume-turn observation
 
-Updated: 2026-10-04 11:52 CEST (historical-request budget, coverage instrument)
+Updated: 2026-10-04 11:57 CEST (historical-request budget, coverage instrument, resolution reuse)
 
 `canary setups evaluate --spec /private/path/playbook.json --symbol SYNTH --con-id 17 --json`
 evaluates one owner-selected US stock without changing settings, risk policy,
@@ -94,6 +94,12 @@ evaluation spends it as follows.
   `baseline_history_unavailable: baseline_bars_incomplete (retry after 10:33)`
   or `baseline_history_unavailable: <read error> (retry after 10:33)`. A read
   ended by the caller's cancellation or a broker reconnect is not remembered.
+- Contract identity: the exact underlying resolution (one contract-details
+  request) is remembered per broker session binding, so a watched contract is
+  resolved once per broker session rather than per evaluation; option
+  discovery shares it for its underlying. A binding that is no longer current
+  resolves again, failures are not remembered, and at most 64 resolutions are
+  kept, least recently used first.
 - Cold reads are serialized by one gate; a cached profile is read without it.
   The cache holds max(20, distinct contracts evaluated in the live session)
   profiles, at most 40. At that size a new profile evicts the least recently

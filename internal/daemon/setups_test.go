@@ -668,3 +668,38 @@ func TestSetupConcurrentLiveEvaluationsShareOneCurrentRead(t *testing.T) {
 		src.mu.Unlock()
 	}
 }
+
+func TestSetupContractIsResolvedOncePerBrokerSession(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	clock.set(time.Date(2026, 9, 30, 10, 21, 0, 0, ny))
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" || r.Contract.ConID == 0 {
+		t.Fatalf("second evaluation: %+v", r)
+	}
+	if got := src.resolutions(); got != 1 {
+		t.Fatalf("resolutions = %d, want one per broker session", got)
+	}
+	// A binding that is no longer current is never reused, and its entry goes.
+	src.setStale(true)
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.Reasons[0] != "broker_session_changed" {
+		t.Fatalf("stale session: %+v", r.Reasons)
+	}
+	src.setStale(false)
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if got := src.resolutions(); got != 3 {
+		t.Fatalf("resolutions after session change = %d, want 3", got)
+	}
+	// The memo is bounded, least recently used first.
+	for i := range setupResolutionLimit + 6 {
+		if _, err := s.resolveSetupContract(t.Context(), src, ibkr.HistoricalSessionBinding{}, ibkr.Contract{Symbol: fmt.Sprintf("SYNX%02d", i), SecType: "STK", Currency: "USD"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(s.setupResolutions.rows); n != setupResolutionLimit {
+		t.Fatalf("resolution memo holds %d", n)
+	}
+}

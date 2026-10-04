@@ -34,7 +34,7 @@ func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := c.ResolveOrderContractForSession(ctx, binding, requested, 10*time.Second)
+	resolved, err := s.resolveSetupContract(ctx, c, binding, requested)
 	if err != nil {
 		return nil, err
 	}

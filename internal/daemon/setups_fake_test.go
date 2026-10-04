@@ -50,11 +50,12 @@ type setupFetchCall struct {
 // closes are left to the session windows, which never attach bars outside a
 // listed session.
 type fakeSetupSource struct {
-	mu      sync.Mutex
-	calls   []setupFetchCall
-	stale   bool
-	hold    map[string]chan struct{}
-	entered chan string
+	mu       sync.Mutex
+	calls    []setupFetchCall
+	resolves int
+	stale    bool
+	hold     map[string]chan struct{}
+	entered  chan string
 	// gaps removes the 10:00 bar from these session dates.
 	gaps map[string]bool
 	// fail returns this error for every read of the named symbol.
@@ -101,6 +102,18 @@ func (f *fakeSetupSource) setUnpublished(from time.Time) {
 	f.unpublished = from
 }
 
+func (f *fakeSetupSource) resolutions() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.resolves
+}
+
+func (f *fakeSetupSource) setStale(stale bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stale = stale
+}
+
 func (f *fakeSetupSource) setFail(symbol string, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -122,6 +135,9 @@ func (f *fakeSetupSource) HistoricalSessionCurrent(ibkr.HistoricalSessionBinding
 }
 
 func (f *fakeSetupSource) ResolveOrderContractForSession(_ context.Context, _ ibkr.ConnectorSessionBinding, c ibkr.Contract, _ time.Duration) (ibkr.ResolvedOrderContract, error) {
+	f.mu.Lock()
+	f.resolves++
+	f.mu.Unlock()
 	conID := c.ConID
 	if conID == 0 {
 		for _, r := range c.Symbol {
