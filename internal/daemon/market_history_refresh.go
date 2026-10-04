@@ -162,6 +162,12 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	// The connector announces a stalled Gateway once; a line per series would
 	// repeat it on every refresh until the Gateway answers again.
 	if err != nil && !verdict && !errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) {
+		// An unavailable broker is one incident with its own owner (see
+		// logGatewayDependency); a followed series joins it instead of
+		// warning every cycle (30 lines per symbol across the 2026-10-03 night).
+		if errors.Is(err, ibkrlib.ErrIBKRUnavailable) && s.logGatewayDependency("history refresh requires the broker; recorded history remains available") {
+			return
+		}
 		next := "no longer followed"
 		if followed {
 			next = "next attempt after " + current.RetryAt.Format(time.TimeOnly)

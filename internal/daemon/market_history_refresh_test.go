@@ -14,6 +14,49 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
+// A followed series failing on an unavailable broker joins the open gateway
+// or backend-link incident instead of warning every cycle; once the incident
+// closes, the same failure warns again on its own.
+func TestMarketHistoryRefreshJoinsBrokerOutage(t *testing.T) {
+	log := &bytes.Buffer{}
+	s := &Server{logger: NewLogger(log, "warn")}
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1M"}
+	s.rememberMarketHistory(p)
+	key, _, err := marketHistoryIdentity(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+		return nil, fmt.Errorf("%w: TWS resets the handshake", ibkrlib.ErrIBKRUnavailable)
+	}
+	refresh := func() {
+		item := s.marketData.interest[key]
+		item.RetryAt = time.Time{}
+		s.marketData.interest[key] = item
+		s.refreshMarketHistoryInterest(t.Context(), key, unavailable)
+	}
+	s.logGatewayUnavailable("synthetic outage")
+	for range 3 {
+		refresh()
+	}
+	if strings.Contains(log.String(), "market history refresh") {
+		t.Fatalf("series warned behind the open gateway incident: %q", log.String())
+	}
+	s.logGatewayRecovered()
+	log.Reset()
+	down := true
+	s.backendLink = func() ibkrlib.BackendLinkReport { return ibkrlib.BackendLinkReport{Down: down} }
+	refresh()
+	if strings.Contains(log.String(), "market history refresh") {
+		t.Fatalf("series warned behind the backend-link outage: %q", log.String())
+	}
+	down = false
+	refresh()
+	if !strings.Contains(log.String(), "market history refresh SPY 1M: IBKR connection unavailable") {
+		t.Fatalf("standalone broker failure must still warn: %q", log.String())
+	}
+}
+
 func TestMarketHistoryRefreshWaitsOnTheBackgroundLane(t *testing.T) {
 	log := &bytes.Buffer{}
 	s := &Server{logger: NewLogger(log, "info")}
