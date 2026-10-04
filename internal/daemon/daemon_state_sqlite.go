@@ -109,6 +109,11 @@ func (s *Server) bindAuthoritativeDaemonState(ctx context.Context, core *coresto
 	if err := s.bindRulesRegimeStage(ctx, core); err != nil {
 		return err
 	}
+	markouts, err := bindSetupMarkoutStore(ctx, core, s.setupMarkoutNow())
+	if err != nil {
+		return err
+	}
+	s.setupMarkouts = newSetupMarkoutRuntime(markouts)
 	if err := s.bindDecisionStores(ctx, core); err != nil {
 		return err
 	}
