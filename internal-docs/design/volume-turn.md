@@ -65,9 +65,10 @@ binding when any later exact order is prepared.
 
 `canary setups options --symbol SYNTH --con-id 17 --json` lists up to 64
 current/future expiries; add `--expiry YYYYMMDD` for at most 21 calls around the
-underlying price, then `--strike N` to resolve the exact selected call. Empty
-listings remain JSON arrays. `truncated` discloses a capped display window.
-These are owner-selected reads, not recommendations or order previews.
+underlying price, then `--strike N` to resolve the exact selected call and read
+its one quote. Empty listings remain JSON arrays. `truncated` discloses a capped
+display window. These are owner-selected reads, not recommendations or order
+previews.
 
 Discovery pins the stock ConID and broker session, requests actual security
 definitions with cancellation, and accepts only the SMART standard trading
@@ -82,8 +83,35 @@ standard class/multiplier, local symbol and broker-reported underlying ConID.
 Ambiguous or contradictory identities fail visibly.
 
 The top-level `as_of` is this acquisition's receipt. Call rows have status
-`not_requested`, with optional bid/ask/source clocks omitted: discovery does
-not acquire or release shared option quote lines. Exact selection returns an
-identity; the existing subsequent Canary preview acquires execution evidence
-and owner-confirmed order authority remains mandatory. The typed Go adapter
-is `Client.DiscoverSetupOptions`; no MCP tool is exposed.
+`not_requested`, with optional bid/ask/source clocks omitted, and the expiry
+and strike stages carry no `quote` object: listing does not acquire or release
+option quote lines. Exact selection returns the identity and one `quote` for
+that call; a missing quote is exactly `{"status":"missing"}`:
+
+```json
+{"bid":1.2,"ask":1.35,"as_of":"2026-10-02T15:00:01Z","data_type":"live","status":"quoted"}
+```
+
+The daemon reads it once, within 5 seconds, through its exact-contract quote
+path: a private positive-ConID line on the discovery's own broker session,
+released afterwards, so no shared option line is acquired or cancelled.
+`status` is `quoted` only when bid and ask are both finite and positive,
+bid <= ask, `as_of` is at most 60 seconds old and `data_type` is a
+broker-labelled `live`, `delayed`, `frozen` or `delayed-frozen` mode.
+Anything else is `missing` with bid, ask, `as_of` and `data_type` omitted, so
+no zero is ever emitted as a price. A live quote is dated by its older side's
+receipt; delayed or frozen sides, which IBKR sends without a source time, are
+dated by the read, and `data_type` names their age. A failed read never fails
+the selection; the outcome and the read's duration are logged at debug level.
+The quote is display evidence for choosing a limit: the existing subsequent
+Canary preview acquires execution evidence and owner-confirmed order authority
+remains mandatory. The typed Go adapter is `Client.DiscoverSetupOptions`; no
+MCP tool is exposed.
+
+Why the strike list stays unquoted (updated 2026-10-04 10:54 CEST): the owner
+locked on 2026-10-03 that the strike list carries no prices and that the order
+preview supplies pricing. Pricing the list would hold up to 21 option
+market-data lines, and their wait, on every listing for prices the preview
+reads again. On 2026-10-04 the owner made one narrow extension: a single dated
+quote for the exact selected call, so a premium is visible before a limit is
+typed. The strike list itself stays unquoted.

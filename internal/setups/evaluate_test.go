@@ -2,6 +2,7 @@ package setups
 
 import (
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -171,5 +172,111 @@ func TestHistoricalResultDoesNotClaimOriginalAvailability(t *testing.T) {
 	r := Evaluate(spec, in)
 	if r.EvidenceKind != "historical_reconstruction" || !r.FirstAvailableAt.Equal(in.ObservedAt) || r.PolicyChecked {
 		t.Fatal("reconstruction gained authority or backdated availability")
+	}
+}
+
+// sameClock reports whether two optional result clocks name the same instant.
+func sameClock(a, b *time.Time) bool {
+	return a == nil && b == nil || a != nil && b != nil && a.Equal(*b)
+}
+
+// A volume run that keeps clearing the spike multiple is re-anchored on every
+// completed bar: the newest qualifying bar is the spike, so SpikeAt advances
+// bar by bar, and while that bar's close holds or rises against the bar before
+// it, the spike bar is its own first confirmation.
+func TestContinuingRunSelectsNewestQualifyingBarAdvancesSpikeAtAndConfirmsOnTheSpikeBarWhileClosesHoldOrRise(t *testing.T) {
+	spec, in := fixture()
+	// Bars 2-5 each trade 3x their slot mean; closes hold, rise, hold, rise.
+	run := []struct {
+		close float64
+		kind  string
+	}{2: {100, "holding"}, 3: {101, "rising"}, 4: {101, "holding"}, 5: {102, "rising"}}
+	for i := 2; i < len(run); i++ {
+		in.Current.Bars[i].Volume = 300
+		in.Current.Bars[i].Close = run[i].close
+	}
+	var previous time.Time
+	for i := 2; i < len(run); i++ {
+		in.At = in.Current.Bars[i].End
+		in.ObservedAt = in.At
+		r := Evaluate(spec, in)
+		if r.State != "confirmed" || r.SetupMatch == nil || !*r.SetupMatch {
+			t.Fatalf("bar %d: holding or rising run did not confirm: %+v", i, r)
+		}
+		if r.SpikeAt == nil || !r.SpikeAt.Equal(in.Current.Bars[i].End) || !r.SpikeAt.After(previous) {
+			t.Fatalf("bar %d: spike is not the newest qualifying bar or did not advance: %v after %v", i, r.SpikeAt, previous)
+		}
+		if !sameClock(r.FirstConfirmedAt, r.SpikeAt) || r.ConfirmationType != run[i].kind {
+			t.Fatalf("bar %d: first confirmation %v (%s), want the spike bar %v (%s)", i, r.FirstConfirmedAt, r.ConfirmationType, r.SpikeAt, run[i].kind)
+		}
+		if *r.Features.SlotVolume != 300 || !r.Baseline[0].Start.Equal(in.Prior[0].Bars[i].Start) {
+			t.Fatalf("bar %d: features or baseline describe an earlier run bar: %+v %+v", i, r.Features, r.Baseline[0])
+		}
+		previous = *r.SpikeAt
+	}
+}
+
+// Two adjacent down closes inside a continuing run leave each newest spike
+// unconfirmed: the result is pending with SetupMatch false. It is not expired,
+// because the earlier confirmed spike is superseded by the newer observation.
+func TestContinuingRunWithTwoAdjacentDownClosesIsPendingWithSetupMatchFalse(t *testing.T) {
+	spec, in := fixture()
+	// Bars 2-5 each trade 3x their slot mean; closes rise twice, then fall twice.
+	for i, c := range map[int]float64{2: 101, 3: 102, 4: 101, 5: 100} {
+		in.Current.Bars[i].Volume = 300
+		in.Current.Bars[i].Close = c
+	}
+	in.At = in.Current.Bars[3].End
+	in.ObservedAt = in.At
+	if r := Evaluate(spec, in); r.State != "confirmed" || !sameClock(r.FirstConfirmedAt, r.SpikeAt) {
+		t.Fatalf("rising run before the declines did not confirm: %+v", r)
+	}
+	for _, i := range []int{4, 5} {
+		in.At = in.Current.Bars[i].End
+		in.ObservedAt = in.At
+		r := Evaluate(spec, in)
+		if r.State != "pending" || r.SetupMatch == nil || *r.SetupMatch || r.FirstConfirmedAt != nil || r.Reasons[0] != "volume_spike_waiting_for_price" {
+			t.Fatalf("bar %d: down close in a run was not pending with setup_match false: %+v", i, r)
+		}
+		if r.SpikeAt == nil || !r.SpikeAt.Equal(in.Current.Bars[i].End) {
+			t.Fatalf("bar %d: spike is not the newest qualifying bar: %v", i, r.SpikeAt)
+		}
+	}
+}
+
+// A reconstruction a day later, from the same bars and decision clock, must
+// reproduce the live observation's facts. Only the evidence kind and the
+// availability clock differ, by design.
+func TestHistoricalReplayReproducesLiveFactsWhileEvidenceKindAndAvailabilityDiffer(t *testing.T) {
+	spec, live := fixture()
+	live.Current.Bars[2].Volume = 300
+	live.Current.Bars[2].Close = 101
+	live.Current.Bars[3].Close = 101
+	live.Current.Bars[4].Close = 101
+	live.ObservedAt = live.At.Add(time.Second)
+	replay := live
+	replay.Historical = true
+	replay.ObservedAt = live.At.Add(24 * time.Hour)
+	a, b := Evaluate(spec, live), Evaluate(spec, replay)
+	if a.State != "confirmed" || b.State != a.State {
+		t.Fatalf("fixture did not confirm in both evaluations: live %s, replay %s", a.State, b.State)
+	}
+	if !sameClock(a.SpikeAt, b.SpikeAt) || !sameClock(a.FirstConfirmedAt, b.FirstConfirmedAt) || a.ConfirmationType != b.ConfirmationType {
+		t.Fatalf("replay moved the event: live %v/%v/%s, replay %v/%v/%s", a.SpikeAt, a.FirstConfirmedAt, a.ConfirmationType, b.SpikeAt, b.FirstConfirmedAt, b.ConfirmationType)
+	}
+	if !reflect.DeepEqual(a.Features, b.Features) || !reflect.DeepEqual(a.Bars, b.Bars) || !reflect.DeepEqual(a.Baseline, b.Baseline) || !reflect.DeepEqual(a.SetupMatch, b.SetupMatch) {
+		t.Fatal("replay changed features, bars, baseline or setup_match")
+	}
+	if a.EvidenceKind != "current_observation" || b.EvidenceKind != "historical_reconstruction" {
+		t.Fatalf("evidence kinds not distinguished: live %s, replay %s", a.EvidenceKind, b.EvidenceKind)
+	}
+	if !sameClock(a.FirstAvailableAt, &live.ObservedAt) || !sameClock(b.FirstAvailableAt, &replay.ObservedAt) {
+		t.Fatalf("availability not bound to each acquisition: live %v, replay %v", a.FirstAvailableAt, b.FirstAvailableAt)
+	}
+	// InputHash intentionally binds the clocks: At, ObservedAt and Historical
+	// are hashed inputs, so equal facts acquired at different times hash
+	// differently. It is not a facts hash and must not be used as one.
+	if a.InputHash == b.InputHash {
+		t.Fatal("input hash no longer binds the acquisition clocks")
 	}
 }

@@ -487,3 +487,30 @@ func encodeProtoCallbackFrameForTest(msgID int, body []byte) []byte {
 	msg = binary.BigEndian.AppendUint32(msg, uint32(msgID))
 	return append(msg, body...)
 }
+
+// Half-dollar strikes must not share a market-data key with a whole-dollar
+// neighbour: SubscribeOption reuses any line already under the key, so a
+// collision serves one contract's quote as another's.
+func TestOptionMarketDataKeyKeepsHalfDollarStrikesApart(t *testing.T) {
+	if got := OptionMarketDataKey("synx", "20261120", "c", 100); got != "SYNX_261120C100" {
+		t.Fatalf("whole-dollar key changed form: %s", got)
+	}
+	if got := OptionMarketDataKey("SYNX", "2026-11-20", "C", 102.5); got != "SYNX_261120C102.5" {
+		t.Fatalf("half-dollar key = %s", got)
+	}
+	seen := map[string]float64{}
+	for _, strike := range []float64{10, 10.5, 11, 11.5, 12, 12.5, 6.67} {
+		key := optionMarketDataKeyForClass("SYNX", "SYNX", "20261120", "C", strike)
+		if prior, dup := seen[key]; dup {
+			t.Fatalf("strikes %g and %g share market-data key %s", prior, strike, key)
+		}
+		seen[key] = strike
+	}
+	tenth, fifth := 0.1, 0.2 // runtime sum 0.30000000000000004, not the exact constant
+	if OptionMarketDataKey("SYNX", "20261120", "C", tenth+fifth) != OptionMarketDataKey("SYNX", "20261120", "C", 0.3) {
+		t.Fatal("binary noise split one strike across two keys")
+	}
+	if got := optionMarketDataKeyForClass("SYNX", "SYNX1", "20261120", "C", 12.5); got != "SYNX_SYNX1_261120C12.5" {
+		t.Fatalf("classed half-dollar key = %s", got)
+	}
+}

@@ -56,7 +56,30 @@ type SetupOptionCall struct {
 	Status string    `json:"status"`
 }
 
+// Setup option quote statuses. Listed strike rows are not_requested; only the
+// exact selected call carries a quote object, which is quoted or missing.
+const (
+	SetupQuoteQuoted       = "quoted"
+	SetupQuoteMissing      = "missing"
+	SetupQuoteNotRequested = "not_requested"
+)
+
+// SetupOptionQuote is the one dated quote read for the exact selected call.
+// Status is quoted only when bid and ask are both finite and positive, bid is
+// at most ask, AsOf is no older than 60 seconds and DataType is a broker-labelled
+// live, delayed, frozen or delayed-frozen mode. A missing quote carries no
+// prices, so a zero never reads as a premium. It is display evidence for
+// choosing a limit, never an order preview or order authority.
+type SetupOptionQuote struct {
+	Bid      *float64  `json:"bid,omitempty"`
+	Ask      *float64  `json:"ask,omitempty"`
+	AsOf     time.Time `json:"as_of,omitzero"`
+	DataType string    `json:"data_type,omitempty"`
+	Status   string    `json:"status"`
+}
+
 // SetupOptionsResult is bounded discovery evidence, never order authority.
+// Quote is present only with Contract, at the exact-call stage.
 type SetupOptionsResult struct {
 	Version    int                 `json:"version"`
 	Underlying ContractParams      `json:"underlying"`
@@ -65,5 +88,6 @@ type SetupOptionsResult struct {
 	Expiry     string              `json:"expiry,omitempty"`
 	Calls      []SetupOptionCall   `json:"calls"`
 	Contract   *ContractParams     `json:"contract,omitempty"`
+	Quote      *SetupOptionQuote   `json:"quote,omitempty"`
 	Truncated  bool                `json:"truncated,omitempty"`
 }
