@@ -14,12 +14,44 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
+// setupBarSource is the broker surface a setup evaluation reads. The live
+// connector implements it; daemon tests replace it.
+type setupBarSource interface {
+	CaptureHistoricalSession() (ibkrlib.HistoricalSessionBinding, bool)
+	HistoricalSessionCurrent(ibkrlib.HistoricalSessionBinding) bool
+	ResolveOrderContractForSession(context.Context, ibkrlib.ConnectorSessionBinding, ibkrlib.Contract, time.Duration) (ibkrlib.ResolvedOrderContract, error)
+	FetchSetupBars(context.Context, ibkrlib.Contract, time.Time, time.Time, time.Duration) ([]ibkrlib.HistoricalBar, error)
+}
+
+// setupSource returns the test override, else the live connector, else nil.
+func (s *Server) setupSource() setupBarSource {
+	if s.setupSourceForTest != nil {
+		return s.setupSourceForTest
+	}
+	if c := s.gatewayConnector(); c != nil {
+		return c
+	}
+	return nil
+}
+
+// setupClock is the daemon clock for setup decisions and acquisition stamps.
+func (s *Server) setupClock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
 // Only complete, comparable baseline observations are memoized. This bounded
 // cache is disposable market evidence, not a candidate or execution ledger.
+// mu guards rows; gate serializes cold acquisition only, so a cached profile
+// never waits behind another contract's broker reads.
 type setupProfileCache struct {
 	mu   sync.Mutex
 	gate chan struct{}
 	rows map[string]setupProfile
+	// waitForTest observes a request blocking on a busy gate.
+	waitForTest func()
 }
 
 func (p *setupProfileCache) lock(ctx context.Context) error {
@@ -27,8 +59,16 @@ func (p *setupProfileCache) lock(ctx context.Context) error {
 	if p.gate == nil {
 		p.gate = make(chan struct{}, 1)
 	}
-	gate := p.gate
+	gate, wait := p.gate, p.waitForTest
 	p.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		return nil
+	default:
+	}
+	if wait != nil {
+		wait()
+	}
 	select {
 	case gate <- struct{}{}:
 		return nil
@@ -37,6 +77,28 @@ func (p *setupProfileCache) lock(ctx context.Context) error {
 	}
 }
 func (p *setupProfileCache) unlock() { <-p.gate }
+
+func (p *setupProfileCache) lookup(key string) (setupProfile, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	profile, ok := p.rows[key]
+	return profile, ok
+}
+
+func (p *setupProfileCache) store(key string, profile setupProfile) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rows == nil {
+		p.rows = map[string]setupProfile{}
+	}
+	if _, ok := p.rows[key]; !ok && len(p.rows) >= 20 {
+		for k := range p.rows {
+			delete(p.rows, k)
+			break
+		}
+	}
+	p.rows[key] = profile
+}
 
 type setupProfile struct {
 	prior    []setups.Session
@@ -48,10 +110,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	if s.now != nil {
-		now = s.now()
-	}
+	now := s.setupClock()
 	var err error
 	p, err = rpc.NormalizeSetupEvaluateParams(p, now)
 	if err != nil {
@@ -72,7 +131,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	if err != nil {
 		return unavailable(err.Error()), nil
 	}
-	c := s.gatewayConnector()
+	c := s.setupSource()
 	if c == nil {
 		return unavailable("gateway_unavailable"), nil
 	}
@@ -98,40 +157,36 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 		Date     string
 	}{base.Contract, current.Date})
 	key := string(keyBytes)
-	// Serialize cold profile collection so one watchlist cannot fan out into
-	// hundreds of HMDS reads. The underlying client retains its own pacing.
-	if err := s.setupProfiles.lock(ctx); err != nil {
-		return unavailable("profile_acquisition_cancelled"), nil
-	}
-	if s.setupProfiles.rows == nil {
-		s.setupProfiles.rows = map[string]setupProfile{}
-	}
-	profile, found := s.setupProfiles.rows[key]
+	// A cached profile is read without the gate. Cold collection is serialized
+	// so one watchlist cannot fan out into hundreds of HMDS reads; the
+	// underlying client retains its own pacing.
+	profile, found := s.setupProfiles.lookup(key)
 	if !found {
-		bars, e := collectSetupHistory(ctx, prior[0].Open, prior[len(prior)-1].Close, func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
-			return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
-		})
-		if e == nil {
-			profile.prior = attachSetupBars(prior, bars)
-			profile.observed = time.Now()
-			if setupBaselineComplete(profile.prior) {
-				if len(s.setupProfiles.rows) >= 20 {
-					for k := range s.setupProfiles.rows {
-						delete(s.setupProfiles.rows, k)
-						break
-					}
+		if err := s.setupProfiles.lock(ctx); err != nil {
+			return unavailable("profile_acquisition_cancelled"), nil
+		}
+		// Another request may have filled the profile while this one waited.
+		profile, found = s.setupProfiles.lookup(key)
+		var e error
+		if !found {
+			var bars []ibkrlib.HistoricalBar
+			bars, e = collectSetupHistory(ctx, prior[0].Open, prior[len(prior)-1].Close, func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
+				return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
+			})
+			if e == nil {
+				profile = setupProfile{prior: attachSetupBars(prior, bars), observed: s.setupClock()}
+				if setupBaselineComplete(profile.prior) {
+					s.setupProfiles.store(key, profile)
+				} else {
+					e = fmt.Errorf("baseline_bars_incomplete")
 				}
-				s.setupProfiles.rows[key] = profile
-			} else {
-				e = fmt.Errorf("baseline_bars_incomplete")
 			}
 		}
+		s.setupProfiles.unlock()
 		if e != nil {
-			s.setupProfiles.unlock()
 			return unavailable("baseline_history_unavailable: " + e.Error()), nil
 		}
 	}
-	s.setupProfiles.unlock()
 	if !c.HistoricalSessionCurrent(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
@@ -145,7 +200,7 @@ func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*r
 	base.Current = attachSetupBars([]setups.Session{current}, bars)[0]
 	base.Prior = profile.prior
 	base.BaselineObservedAt = profile.observed
-	base.ObservedAt = time.Now()
+	base.ObservedAt = s.setupClock()
 	// An explicit historical clock is reconstructed now, never evidence that
 	// these corrected bars were available then. Current reads expire on age.
 	r := setups.Evaluate(p.Spec, base)

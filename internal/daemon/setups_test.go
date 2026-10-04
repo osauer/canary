@@ -3,9 +3,11 @@ package daemon
 import (
 	"context"
 	"errors"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 	"testing"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/rpc"
+	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestSetupCalendarSelectsTwentyPriorComparableSessions(t *testing.T) {
@@ -69,5 +71,78 @@ func TestSetupProfileWaitHonorsCancellation(t *testing.T) {
 	cancel()
 	if !errors.Is(cache.lock(ctx), context.Canceled) {
 		t.Fatal("cache blocked cancellation")
+	}
+}
+
+type setupEvaluation struct {
+	result *rpc.SetupResult
+	err    error
+}
+
+func goEvaluateSetup(ctx context.Context, s *Server, symbol string) <-chan setupEvaluation {
+	out := make(chan setupEvaluation, 1)
+	go func() {
+		r, err := evaluateSetupForTest(ctx, s, symbol, 0, time.Time{})
+		out <- setupEvaluation{r, err}
+	}()
+	return out
+}
+
+func TestSetupCachedProfileDoesNotWaitForColdAcquisition(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	if r := mustEvaluateSetup(t, s, "AAA", time.Time{}); r.State != "watching" {
+		t.Fatalf("warm-up evaluation: %+v", r)
+	}
+	baseline, current := src.reads("AAA", "2026-09-30")
+	if baseline != 5 || current != 1 {
+		t.Fatalf("cold acquisition reads baseline=%d current=%d", baseline, current)
+	}
+	// BBB's cold acquisition holds the serializing gate while its broker read
+	// is outstanding.
+	release := src.holdSymbol("BBB")
+	defer release()
+	cold := goEvaluateSetup(t.Context(), s, "BBB")
+	<-src.entered
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	r, err := evaluateSetupForTest(ctx, s, "AAA", 0, time.Time{})
+	if err != nil || r.State != "watching" || r.BaselineSessions != 20 {
+		t.Fatalf("cached profile waited behind a cold acquisition: %+v %v", r, err)
+	}
+	if baseline, current = src.reads("AAA", "2026-09-30"); baseline != 5 || current != 2 {
+		t.Fatalf("cached profile re-read history: baseline=%d current=%d", baseline, current)
+	}
+	release()
+	if got := <-cold; got.err != nil || got.result.State != "watching" {
+		t.Fatalf("cold acquisition: %+v %v", got.result, got.err)
+	}
+}
+
+func TestSetupColdAcquisitionRechecksCacheAfterGate(t *testing.T) {
+	ny := setupNY(t)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 10, 17, 0, 0, ny)}
+	src := newFakeSetupSource()
+	s := setupTestServer(src, clock)
+	waiting := make(chan struct{}, 1)
+	s.setupProfiles.waitForTest = func() { waiting <- struct{}{} }
+	release := src.holdSymbol("AAA")
+	defer release()
+	first := goEvaluateSetup(t.Context(), s, "AAA")
+	<-src.entered
+	second := goEvaluateSetup(t.Context(), s, "AAA")
+	<-waiting
+	release()
+	for _, ch := range []<-chan setupEvaluation{first, second} {
+		if got := <-ch; got.err != nil || got.result.State != "watching" {
+			t.Fatalf("evaluation: %+v %v", got.result, got.err)
+		}
+	}
+	// The waiter found the profile its predecessor stored instead of
+	// collecting the same twenty sessions again.
+	if baseline, current := src.reads("AAA", "2026-09-30"); baseline != 5 || current != 2 {
+		t.Fatalf("duplicate cold acquisition: baseline=%d current=%d", baseline, current)
 	}
 }

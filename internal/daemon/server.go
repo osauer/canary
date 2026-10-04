@@ -70,6 +70,9 @@ type Server struct {
 	startedAt     time.Time
 	version       string
 	now           func() time.Time
+	// setupSourceForTest replaces the gateway connector behind setup
+	// evaluations; nil reads the live connector.
+	setupSourceForTest setupBarSource
 	// backendLink overrides the connector's TWS-to-IBKR link report for tests;
 	// nil reads the current connector.
 	backendLink func() ibkrlib.BackendLinkReport
