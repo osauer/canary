@@ -74,6 +74,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 		acct = nil
 	}
 	res.Plausibility = new(s.policyCheckReport(ctx, now, acct, res.Files))
+	res.Effective = s.policyEffectiveView(res.Files, res.Limits)
 	return res, nil
 }
 

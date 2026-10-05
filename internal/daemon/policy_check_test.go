@@ -37,24 +37,27 @@ policy_id = "constitution-test"
 policy_version = 1
 `
 
-// pcSweep is an enabled, active cash sweep with a 10,000 base cap and every
-// currency key written, economic and NLV-proportionate against pcBook.
+// pcSweep is an enabled, active cash sweep on the reserve design: every
+// sizing number written, a cap in force of 9,000 EUR (max_order_notional
+// beats 1% of 200,000), economic and NLV-proportionate against pcBook.
 const pcSweep = `
 [buckets.cash_sweep]
 enabled = true
 mode = "active"
+reserve_floor_base = 10000.0
+reserve_pct_nlv = 5.0
+min_order_notional = 3000.0
+max_order_pct_nlv = 1.0
 max_order_notional = 9000.0
+keep_cash = 4000.0
 
 [buckets.cash_sweep.currency.EUR]
 instruments = ["de_bubill"]
 fallback = "none"
 keep_cash = 6000.0
-min_tranche = 8000.0
 min_maturity_days = 91
 
 [buckets.cash_sweep.currency.USD]
-keep_cash = 4000.0
-min_tranche = 5000.0
 min_maturity_days = 91
 `
 
@@ -177,7 +180,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) { f.protection += "\n[buckets.theta_hygiene]\nmax_dtee = 3\n" }, contains: "refuses protection-policy.toml"},
 		{name: "sweep cap above the trading cap", rule: "cap_above_trading_max", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "max_order_notional = 9000.0\n\n[buckets.cash_sweep.currency.EUR]", "max_order_notional = 15000.0\n\n[buckets.cash_sweep.currency.EUR]")
+				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nkeep_cash")
 			}, contains: "15,000 EUR"},
 		{name: "contract-currency cap above the trading cap at the book's FX rate", rule: "cap_above_trading_max", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
@@ -185,8 +188,16 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "10,800 EUR"},
 		{name: "sweep minimum above the sweep cap", rule: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "min_tranche = 8000.0", "min_tranche = 9500.0")
+				f.protection = replace(f.protection, "min_order_notional = 3000.0", "min_order_notional = 9500.0")
 			}, contains: "no EUR order can be both"},
+		{name: "legacy min_tranche above the sweep cap", rule: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\nmin_tranche = 12000.0\n")
+			}, contains: "from min_tranche"},
+		{name: "percent-of-NLV cap above the trading cap", rule: "cap_above_trading_max", severity: rpc.PolicyCheckError,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.protection = replace(f.protection, "max_order_pct_nlv = 1.0", "max_order_pct_nlv = 6.0")
+			}, contains: "12,000 EUR"},
 		{name: "watch above act", rule: "watch_act_inverted", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.rulebook += "single_name_watch_pct = 45.0\nsingle_name_act_pct = 40.0\n"
@@ -211,12 +222,12 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "can never be placed"},
 		{name: "settlement route ended", rule: "settlement_route_expired", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "keep_cash = 4000.0", "keep_cash = 4000.0\nsettlement_valid_through = 2026-09-01")
+				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\nsettlement_valid_through = 2026-09-01\n")
 			}, contains: "ended on 2026-09-01"},
-		{name: "reserve percentage out of range", rule: "sweep_reserve_key_invalid", severity: rpc.PolicyCheckError,
+		{name: "reserve percentage out of range", rule: "file_refused", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "max_order_notional = 9000.0\n\n[buckets.cash_sweep.currency.EUR]", "max_order_notional = 9000.0\nreserve_pct_nlv = 150.0\n\n[buckets.cash_sweep.currency.EUR]")
-			}, contains: "must be between 0 and 100"},
+				f.protection = replace(f.protection, "reserve_pct_nlv = 5.0", "reserve_pct_nlv = 150.0")
+			}, contains: "reserve_pct_nlv must be a percentage"},
 		{name: "constitution base differs from the account's", rule: "base_currency_mismatch", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, `base_currency = "EUR"`, `base_currency = "USD"`)
@@ -227,7 +238,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "12,000 EUR"},
 		{name: "sweep cap at the trading cap with a USD leg", rule: "cap_without_fx_headroom", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "max_order_notional = 9000.0\n\n[buckets.cash_sweep.currency.EUR]", "max_order_notional = 10000.0\n\n[buckets.cash_sweep.currency.EUR]")
+				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 10000.0\nkeep_cash")
 			}, absent: []string{"cap_above_trading_max"}, contains: "sizes each USD order at the ledger rate"},
 		{name: "trading cap tiny against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.MaxNotional = 3000 }, contains: "1.5% of NLV"},
@@ -237,15 +248,18 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 9000.0", "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 4000.0")
 			}, contains: "into 6 orders"},
-		{name: "cash reserve under 2% of NLV", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
+		{name: "keep_cash under 2% of NLV without the reserve design", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\nreserve_pct_nlv = 5.0\n", "")
 				f.protection = replace(f.protection, "keep_cash = 6000.0", "keep_cash = 1000.0")
 				f.protection = replace(f.protection, "keep_cash = 4000.0", "keep_cash = 0.0")
-			}, contains: "0.5% of NLV"},
-		{name: "reserve floor and percentage under 2% of NLV", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
+			}, contains: "keep_cash across the swept currencies keeps back 1,000 EUR, 0.5% of NLV"},
+		{name: "reserve design under 2% of NLV", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "max_order_notional = 9000.0\n\n[buckets.cash_sweep.currency.EUR]", "max_order_notional = 9000.0\nreserve_floor_base = 1000.0\nreserve_pct_nlv = 1.0\n\n[buckets.cash_sweep.currency.EUR]")
-			}, contains: "the reserve floor and percentage keep back 2,000 EUR"},
+				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\nreserve_pct_nlv = 5.0", "reserve_floor_base = 1000.0\nreserve_pct_nlv = 1.0")
+				f.protection = replace(f.protection, "keep_cash = 6000.0", "keep_cash = 500.0")
+				f.protection = replace(f.protection, "keep_cash = 4000.0", "keep_cash = 0.0")
+			}, contains: "the reserve (2,000 EUR, held in EUR) and keep_cash in the other currencies keep back 2,000 EUR, 1% of NLV"},
 		{name: "declared risk not all above the floor", rule: "protected_floor_vs_equity", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "protected_floor = 120000.0", "protected_floor = 180000.0")
@@ -264,13 +278,14 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "trip on noise"},
 		{name: "sweep minimum below the commission", rule: "sweep_minimum_uneconomic", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "min_tranche = 5000.0\nmin_maturity_days = 91", "min_tranche = 1000.0\nmin_maturity_days = 28")
-			}, contains: "1,000 USD in a 28-day bill"},
+				f.protection = replace(f.protection, "min_order_notional = 3000.0", "min_order_notional = 900.0")
+				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\nmin_maturity_days = 91", "[buckets.cash_sweep.currency.USD]\nmin_maturity_days = 28")
+			}, contains: "1,000 USD (900 EUR, from min_order_notional) in a 28-day bill"},
 		{name: "edited without a version bump", rule: "version_not_bumped", severity: rpc.PolicyCheckWarn,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.FileStatus[PolicyFileRulebook] = "drift" }, contains: "did not rise"},
 		{name: "cash interest assumption expired", rule: "dated_assumption_expired", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "keep_cash = 4000.0", "keep_cash = 4000.0\ncash_interest_rate_upper = 0.01\ncash_interest_valid_through = 2026-09-30")
+				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\ncash_interest_rate_upper = 0.01\ncash_interest_valid_through = 2026-09-30\n")
 			}, contains: "USD cash-interest assumption"},
 		{name: "directional intent expired", rule: "dated_assumption_expired", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
@@ -286,13 +301,13 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "1 of its limits differs from Canary's defaults (option_line_act_pct)"},
 		{name: "trading cap on the compiled default", rule: "compiled_default_in_force", severity: rpc.PolicyCheckInfo,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.TradingCapSource = PolicyCheckCapFromDefault }, contains: "compiled default of 10,000"},
-		{name: "sweep keys on the compiled default", rule: "compiled_default_in_force", severity: rpc.PolicyCheckInfo,
+		{name: "sweep numbers not written", rule: "compiled_default_in_force", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "keep_cash = 4000.0\nmin_tranche = 5000.0\n", "")
-			}, contains: "USD sweep keeps cash"},
+				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\n", "")
+			}, contains: "holds until these numbers are written"},
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "max_order_notional = 9000.0\n\n[buckets.cash_sweep.currency.EUR]", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\n\n[buckets.cash_sweep.currency.EUR]")
+				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")
 			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended"},
 	}
 	covered := map[string]bool{}
@@ -306,6 +321,11 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			got, ok := pcFinding(r, tc.rule)
 			if !ok {
 				t.Fatalf("rule %s did not fire; got %v", tc.rule, pcRules(r))
+			}
+			for _, f := range r.Findings {
+				if f.Rule == tc.rule && strings.Contains(f.Message, tc.contains) {
+					got = f
+				}
 			}
 			if got.Severity != tc.severity {
 				t.Fatalf("severity %s, want %s", got.Severity, tc.severity)

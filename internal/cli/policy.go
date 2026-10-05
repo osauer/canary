@@ -66,7 +66,8 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Start here:")
 	fmt.Fprintln(env.Stdout, "  canary policy show             Show the current capital, drawdown, latch and policy state.")
-	fmt.Fprintln(env.Stdout, "  canary policy show --explain   Also explain every limit and whether it is advisory or enforced.")
+	fmt.Fprintln(env.Stdout, "  canary policy show --explain   Also print every policy and setting in force, with source and meaning.")
+	fmt.Fprintln(env.Stdout, "  canary policy show cash_sweep  Print one file, table or settings group (e.g. rulebook, trading).")
 	fmt.Fprintln(env.Stdout, "  canary policy check            Read the limits against each other and the live book; say what is implausible.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Human-only policy actions (run these yourself in an interactive terminal):")
@@ -91,11 +92,20 @@ func printPolicyActionUsage(env *Env, action string) int {
 	case "show":
 		fmt.Fprintln(env.Stdout, "canary policy show — inspect the effective risk constitution and current state")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Usage: canary policy show [--explain] [--json]")
+		fmt.Fprintln(env.Stdout, "Usage: canary policy show [SECTION] [--explain] [--json]")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "This is read-only. Use --explain to see every limit's plain-English meaning,")
-		fmt.Fprintln(env.Stdout, "source and enforcement class, and every policy file's notes: keys it lacks,")
-		fmt.Fprintln(env.Stdout, "retired keys, pending migrations, and what Canary now recommends.")
+		fmt.Fprintln(env.Stdout, "This is read-only. --explain prints everything that governs behaviour: the risk")
+		fmt.Fprintln(env.Stdout, "constitution, the Rulebook (one value per regime set), the protection policy")
+		fmt.Fprintln(env.Stdout, "(every bucket and cash-sweep currency), the opportunity policy, the [trading]")
+		fmt.Fprintln(env.Stdout, "gates of config.toml and the runtime settings. Each key shows its value in force,")
+		fmt.Fprintln(env.Stdout, "where it comes from (file, default, machine, needs your number, runtime) and its")
+		fmt.Fprintln(env.Stdout, "meaning, plus every policy file's notes: keys it lacks, retired keys, pending")
+		fmt.Fprintln(env.Stdout, "migrations, and what Canary now recommends.")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "SECTION prints one part in full: constitution, rulebook, protection,")
+		fmt.Fprintln(env.Stdout, "opportunity, trading or runtime, or a table such as cash_sweep, trailing_stop,")
+		fmt.Fprintln(env.Stdout, "budget_reduction, authority or regime. --json carries the same rows under")
+		fmt.Fprintln(env.Stdout, "\"effective\" (with SECTION, only the matching part).")
 	case "check":
 		fmt.Fprintln(env.Stdout, "canary policy check — a plausibility read of config.toml and every policy file")
 		fmt.Fprintln(env.Stdout)
@@ -204,13 +214,28 @@ func firstPositionalIndex(args []string) int {
 func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "policy show")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	explain := fs.Bool("explain", false, "show every limit with its plain-English meaning, source, and enforcement class")
+	explain := fs.Bool("explain", false, "print every policy and setting in force: value, source and plain-English meaning")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
+	}
+	if fs.NArg() > 1 {
+		return fail(env, "policy show: name at most one section (try `canary policy show cash_sweep`)")
 	}
 	var res rpc.RiskPolicyResult
 	if err := env.Conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &res); err != nil {
 		return fail(env, "policy: %v", err)
+	}
+	res.Effective = policyEffectiveFor(ctx, env, &res)
+	if section := fs.Arg(0); section != "" {
+		view, ok := filterPolicyEffective(res.Effective, section)
+		if !ok {
+			return fail(env, "policy show: no section or table %q (try one of: %s)", section, policySectionNames(res.Effective))
+		}
+		if *jsonOut {
+			return printJSON(env, view)
+		}
+		renderPolicyEffective(env, view, activePolicyOverrides(res.Overrides))
+		return 0
 	}
 	if *jsonOut {
 		return printJSON(env, res)
@@ -288,21 +313,7 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 	renderPolicyFiles(env, res.Files, *explain)
 
 	if *explain {
-		activeOverride := map[string]rpc.OverrideRecord{}
-		for _, o := range res.Overrides {
-			if o.Active {
-				activeOverride[o.Control] = o
-			}
-		}
-		fmt.Fprintln(env.Stdout, "\nEffective limits:")
-		for _, l := range res.Limits {
-			mark := ""
-			if o, ok := activeOverride[l.Key]; ok {
-				mark = fmt.Sprintf("  [override until %s: %s]", o.ExpiresAt.Local().Format("15:04"), o.Reason)
-			}
-			fmt.Fprintf(env.Stdout, "  %-34s %-14s %-10s %-9s%s\n", l.Key, l.Value, l.Source, l.Enforcement, mark)
-			fmt.Fprintf(env.Stdout, "      %s\n", l.Meaning)
-		}
+		renderPolicyEffective(env, res.Effective, activePolicyOverrides(res.Overrides))
 	}
 
 	if len(res.Overrides) > 0 {
@@ -349,7 +360,23 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 			}
 		}
 	}
+	if !*explain {
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, env.dim("Everything in force, with meanings: canary policy show --explain"))
+	}
 	return 0
+}
+
+// activePolicyOverrides indexes the temporary exceptions still in force by
+// the constitution key they except.
+func activePolicyOverrides(overrides []rpc.OverrideRecord) map[string]rpc.OverrideRecord {
+	out := map[string]rpc.OverrideRecord{}
+	for _, o := range overrides {
+		if o.Active {
+			out[o.Control] = o
+		}
+	}
+	return out
 }
 
 // renderPolicyFiles lists every policy file Canary reads with its status. A

@@ -166,8 +166,49 @@ Plain `canary policy ensure` creates missing templates and previews existing
 files; it does not apply conversions.
 
 `canary policy show` lists every policy file with its status and what waits for
-your number; `--explain` adds each file's notes: keys it lacks, retired keys,
-pending migrations and recommendations.
+your number, and ends by pointing to the full print. `--explain` adds each
+file's notes (keys it lacks, retired keys, pending migrations and
+recommendations) and then prints everything that governs behaviour, one
+section per source:
+
+- **Risk constitution** (`risk-policy.toml`): every limit with its source and
+  enforcement class.
+- **Rulebook** (`rulebook-policy.toml`): every limit grouped by rule family,
+  the regime-conditional limits as one row per key with a value for each
+  regime set (calm, early warning, confirmed), and every rule mode.
+- **Protection policy** (`protection-policy.toml`): authority and every
+  bucket, including the stock/ETF and option trailing stops, the budget
+  governor and the cash sweep with one table per currency (the compiled
+  USD, EUR, GBP and CAD declarations print even without a table).
+- **Opportunity policy** (`opportunity-policy.toml`).
+- **Trading gates**: the `[trading]` keys of `config.toml` with the value in
+  force; a runtime override from `canary settings set` names the
+  `config.toml` value it replaces.
+- **Runtime settings**: every `canary settings` value except gateway identity
+  and observed market-data quality.
+
+Each key prints its value in force with its unit, its source and its meaning,
+taken from the same field descriptions as the
+[configuration reference](../reference/config.md). Sources are `file` (the
+file sets it), `default` (Canary's default applies), `machine` (Canary
+maintains it, such as a bill settlement route, or derives it, such as the
+budget governor's caps under `basis = "rulebook"`), `needs your number` (the
+feature holds until you write it), `unapproved` (a constitution choice not
+yet made), and, for settings, `config`, `runtime` or `build`.
+
+`canary policy show SECTION` prints one part in full: `constitution`,
+`rulebook`, `protection`, `opportunity`, `trading` or `runtime`, or a table
+such as `cash_sweep`, `trailing_stop`, `budget_reduction`, `authority` or
+`regime`.
+
+`--json` carries the same rows under `effective`: `sections[]` (`id`,
+`title`, `path`, `identity`, `status`, `review`, `notes`, `groups`),
+`groups[]` (`id` is the dotted table, `title`, `columns` for the regime sets,
+`notes`, `rows`) and `rows[]` (`key` as the full dotted path, `value`,
+`values` per column, `source`, `file_value` for an overridden
+`config.toml` value, `enforcement`, `meaning`). `effective.origin` is
+`daemon`, or `files` when the CLI read the files because the running daemon
+predates this view. With SECTION, `--json` prints only the matching part.
 
 ## Configure the available controls
 
@@ -193,7 +234,8 @@ canary policy show --json
 
 `--explain` shows units, effective values, input health, drawdown state,
 reconciliation, active exceptions, cadence, referenced model identities, and
-the current content fingerprint. Mutating governance commands under
+the current content fingerprint, followed by every other policy and setting
+in force. Mutating governance commands under
 `canary policy` are human-only actions, not agent configuration shortcuts.
 
 ### Protection and opportunity policies
@@ -279,28 +321,27 @@ rule is one entry.
 | Rule | Severity | Needs the book | What it reports |
 |---|---|---|---|
 | `file_refused` | error | no | Canary's loader refuses a policy file, so the previous policy or Canary's defaults stay in force. |
-| `cap_above_trading_max` | error | no | A bucket's per-order cap (`risk_reduction`, `budget_reduction` in the contract currency at the book's FX rate; `cash_sweep` in base) lets an order exceed `[trading].max_notional`, which the gate always refuses. `bills_exempt_from_trading_max_notional = true` exempts the sweep. |
-| `sweep_minimum_above_cap` | error | no | A sweep currency's minimum order is above the sweep's or the trading cap. |
+| `cap_above_trading_max` | error | no | A bucket's per-order cap lets an order exceed `[trading].max_notional`, which the gate always refuses: `risk_reduction` and `budget_reduction` in the contract currency at the book's FX rate, `cash_sweep` at its cap in force (the larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV). `bills_exempt_from_trading_max_notional = true` makes a sweep cap above the trading cap legitimate. |
+| `sweep_minimum_above_cap` | error | no | A sweep currency's smallest buy (`min_order_notional` in base at the currency's rate, raised by a retired `min_tranche` a legacy file still carries) is above the sweep's cap in force, or above the trading cap without the bill exemption. |
 | `watch_act_inverted` | error | no | A watch level beyond its act level in every pair and regime set (the wrong way round for falling measures: margin headroom, expiry runway), a hedge band minimum above its maximum, or the drawdown warn level above block. |
 | `regime_loosens_under_stress` | error | no | A budget (premium, time value, net exposure) higher, or a hedge band lower, in a worse regime set than in a calmer one. |
 | `order_entry_off_for_active_bucket` | error | no | A bucket is active or pre-authorised while `[trading].mode` disables order entry. |
 | `settlement_route_expired` | error | no | A sweep currency's `settlement_valid_through` has passed, so its bill orders hold. |
-| `sweep_reserve_key_invalid` | error | no | `reserve_floor_base`, `reserve_pct_nlv`, `max_order_pct_nlv` or `bills_exempt_from_trading_max_notional` is out of range or of the wrong type. |
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
 | `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the trading cap, so no exit for it can pass the gate. |
 | `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the trading cap, so an FX move refuses an order sized at the cap. |
 | `order_cap_vs_nlv` | warn | yes | A per-order cap is under 2% or over 50% of NLV. |
 | `order_cap_splits_reduction` | warn | yes | A cap splits a planned trim (issuer act back to watch, premium budget act back to watch) or a whole option-line exit into more than 5 orders. Protective stock stops are exempt from the cap and are not counted. |
-| `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back (`keep_cash` across the swept currencies, or the reserve floor and percentage) is under 2% or over 50% of NLV. |
+| `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
-| `sweep_minimum_uneconomic` | warn | no | The smallest bill order earns less interest over cash to the shortest rung (`min_maturity_days`) than the commission it pays. |
+| `sweep_minimum_uneconomic` | warn | no | The smallest bill buy (as for `sweep_minimum_above_cap`) earns less interest over cash to the shortest rung (`min_maturity_days`) than the commission it pays. |
 | `version_not_bumped` | warn | daemon | A file changed without a higher `policy_version`, so the daemon keeps the old policy. |
 | `dated_assumption_expired` | warn | no | `cash_interest_valid_through` or a directional intent's `expires_at` has passed. |
 | `dated_assumption_expiring` | info | no | One of those dates ends within 14 days. |
 | `file_unreviewed` | info | no | A file still carries the "Canary defaults, not yet reviewed" header; for the Rulebook it names the limits that already differ from the defaults. |
-| `compiled_default_in_force` | info | no | `[trading].max_notional`, or a swept currency's `keep_cash` or `min_tranche`, runs on Canary's compiled default. |
-| `sweep_cap_exempt` | info | no | The sweep's exemption from the trading cap is declared, and whether the cap uses it. |
+| `compiled_default_in_force` | info | no | `[trading].max_notional` runs on Canary's compiled default, or a sweep sizing number is not written, so the sweep holds at `needs_your_number`. |
+| `sweep_cap_exempt` | info | no | `bills_exempt_from_trading_max_notional` is declared, and whether the sweep's cap in force uses it. |
 
 The bounds (2% and 50% of NLV, 5 orders, 2% FX headroom, 14 days) are the
 check's judgement, not limits; nothing enforces them. No policy or config key

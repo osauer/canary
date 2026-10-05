@@ -76,7 +76,7 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "cap_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A bucket's per-order cap lets an order exceed [trading].max_notional, which the gate always refuses, unless a documented exemption covers it.", run: checkCapAboveTradingMax},
 	{id: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "A cash sweep currency's minimum order is above the sweep's or the trading cap, so no order can satisfy both.", run: checkSweepMinimumAboveCap},
+		summary: "A cash sweep currency's smallest buy (min_order_notional, or a retired min_tranche) is above the sweep's cap in force or the trading cap, so no order can satisfy both.", run: checkSweepMinimumAboveCap},
 	{id: "watch_act_inverted", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A watch level sits beyond its act level (or a minimum above its maximum), per regime set and in the constitution's drawdown ladder.", run: checkWatchActInverted},
 	{id: "regime_loosens_under_stress", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
@@ -85,8 +85,6 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "A bucket is active or pre-authorised while [trading].mode disables order entry, so its orders can never be placed.", run: checkOrderEntryOff},
 	{id: "settlement_route_expired", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A sweep currency's settlement_valid_through has passed, so every bill order in it holds.", run: checkSettlementRouteExpired},
-	{id: "sweep_reserve_key_invalid", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "reserve_floor_base, reserve_pct_nlv, max_order_pct_nlv or bills_exempt_from_trading_max_notional is out of range or of the wrong type.", run: checkSweepReserveKeys},
 	{id: "base_currency_mismatch", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "The constitution's base_currency differs from the account's, so capital math refuses every observation.", run: checkBaseCurrencyMismatch},
 	{id: "lot_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
@@ -114,7 +112,7 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "file_unreviewed", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryProvenance,
 		summary: "A policy file still carries the \"Canary defaults, not yet reviewed\" header.", run: checkFileUnreviewed},
 	{id: "compiled_default_in_force", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryProvenance,
-		summary: "A limit nobody wrote runs on Canary's compiled default: [trading].max_notional, a sweep currency's keep_cash or min_tranche.", run: checkCompiledDefaults},
+		summary: "[trading].max_notional runs on Canary's compiled default, or a sweep sizing number is not written, so the sweep holds.", run: checkCompiledDefaults},
 	{id: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "bills_exempt_from_trading_max_notional makes a sweep cap above the trading cap legitimate; reported so the exemption stays visible.", run: checkSweepExempt},
 }
@@ -221,46 +219,52 @@ func checkCapAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 			where = fmt.Sprintf(" (%s at %s per %s)", policyCheckMoney(cp.native, cp.ccy), policyCheckNumber(cp.fx), cp.ccy)
 		}
 		suggest := policyCheckRoundDown(tradingCap / cp.fx)
+		suggestion := fmt.Sprintf("Set the cap to %s, the trading cap in the order's currency rounded down, so every order it sizes can pass the gate; or raise [trading].max_notional yourself if larger orders are intended.",
+			policyCheckMoney(suggest, cp.nativeCcy))
+		if cp.bucket == "cash_sweep" {
+			bound := c.sweepCapBound(cp.base)
+			suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the trading cap up to the sweep's own cap, or bring the cap in force (set by %s) down to %s.", bound, policyCheckMoney(suggest, c.base()))
+			if bound == "max_order_pct_nlv" && c.book != nil {
+				suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the trading cap up to the sweep's own cap, or lower max_order_pct_nlv to %s and max_order_notional to at most %s.",
+					policyCheckNumber(math.Floor(tradingCap/c.book.NetLiquidation*1000)/10), policyCheckMoney(suggest, c.base()))
+			}
+		}
 		out = append(out, policyCheckHit{keys: keys,
 			message: fmt.Sprintf("[buckets.%s] lets one order reach %s%s, above the trading cap of %s: Canary lists such an order as ready and the trading gate refuses it every time.",
 				cp.bucket, policyCheckMoney(cp.base, c.base()), where, policyCheckMoney(tradingCap, c.base())),
-			suggestion: fmt.Sprintf("Set the cap to %s, the trading cap in the order's currency rounded down, so every order it sizes can pass the gate; or raise [trading].max_notional yourself if larger orders are intended.",
-				policyCheckMoney(suggest, cp.nativeCcy))})
+			suggestion: suggestion})
 	}
 	return out
 }
 
 func checkSweepMinimumAboveCap(c *policyCheckContext) []policyCheckHit {
-	s := c.sweep()
-	if s == nil {
+	if c.sweep() == nil {
 		return nil
 	}
 	capBase, capKeys, capOK := c.sweepCapBase()
 	var out []policyCheckHit
 	for _, ccy := range c.sweepCurrencies() {
-		cfg := s.currency(ccy)
-		fx, fxOK := c.fx(ccy)
-		if !fxOK {
-			c.skip(fmt.Sprintf("the %s sweep minimum against the caps: no %s rate without a live account", ccy, ccy))
+		m, ok := c.sweepMinimum(ccy)
+		if !ok {
 			continue
 		}
-		minNative := cashSweepMinimum(s, cfg, fx)
-		minBase := minNative * fx
-		keys := []rpc.PolicyCheckKey{c.sweepCurrencyKey(ccy, "min_tranche", policyCheckMoney(cfg.MinTranche, ccy))}
-		if s.MinOrderNotional > 0 {
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", "min_order_notional", policyCheckMoney(s.MinOrderNotional, c.base())))
+		fix := func(limitBase float64) string {
+			if m.binding == "min_tranche" {
+				return fmt.Sprintf("Delete the retired min_tranche for %s (min_order_notional sets the smallest buy now), or lower it to at most %s.", ccy, policyCheckMoney(policyCheckRoundDown(limitBase/m.fx), ccy))
+			}
+			return fmt.Sprintf("Lower min_order_notional to at most %s.", policyCheckMoney(policyCheckRoundDown(limitBase), c.base()))
 		}
-		if capOK && minBase > capBase*(1+1e-9) {
-			out = append(out, policyCheckHit{keys: append(slices.Clone(keys), capKeys...),
-				message: fmt.Sprintf("The smallest %s sweep order is %s (%s) but the sweep cap allows at most %s: no %s order can be both, so the sweep holds every one.",
-					ccy, policyCheckMoney(minNative, ccy), policyCheckMoney(minBase, c.base()), policyCheckMoney(capBase, c.base()), ccy),
-				suggestion: fmt.Sprintf("Lower min_tranche for %s to at most %s, or raise the sweep cap above %s.", ccy, policyCheckMoney(policyCheckRoundDown(capBase/fx), ccy), policyCheckMoney(minBase, c.base()))})
+		if capOK && m.base > capBase*(1+1e-9) {
+			out = append(out, policyCheckHit{keys: append(slices.Clone(m.keys), capKeys...),
+				message: fmt.Sprintf("The smallest %s sweep buy is %s (%s, from %s) but the sweep's cap in force is %s: no %s order can be both, so the sweep holds every buy.",
+					ccy, policyCheckMoney(m.native, ccy), policyCheckMoney(m.base, c.base()), m.binding, policyCheckMoney(capBase, c.base()), ccy),
+				suggestion: fix(capBase) + fmt.Sprintf(" Or raise the cap above %s.", policyCheckMoney(m.base, c.base()))})
 		}
-		if !c.sweepExempt() && minBase > c.trading.MaxNotional*(1+1e-9) {
-			out = append(out, policyCheckHit{keys: append(slices.Clone(keys), c.tradingCapKey()),
-				message: fmt.Sprintf("The smallest %s sweep order is %s (%s), above the trading cap of %s: the gate refuses every %s sweep order.",
-					ccy, policyCheckMoney(minNative, ccy), policyCheckMoney(minBase, c.base()), policyCheckMoney(c.trading.MaxNotional, c.base()), ccy),
-				suggestion: fmt.Sprintf("Lower min_tranche for %s to at most %s.", ccy, policyCheckMoney(policyCheckRoundDown(c.trading.MaxNotional/fx), ccy))})
+		if !c.sweepExempt() && m.base > c.trading.MaxNotional*(1+1e-9) {
+			out = append(out, policyCheckHit{keys: append(slices.Clone(m.keys), c.tradingCapKey()),
+				message: fmt.Sprintf("The smallest %s sweep buy is %s (%s, from %s), above the trading cap of %s, and bill orders are not exempt: the gate refuses every %s sweep buy.",
+					ccy, policyCheckMoney(m.native, ccy), policyCheckMoney(m.base, c.base()), m.binding, policyCheckMoney(c.trading.MaxNotional, c.base()), ccy),
+				suggestion: fix(c.trading.MaxNotional) + " Or declare bills_exempt_from_trading_max_notional = true."})
 		}
 	}
 	return out
@@ -407,42 +411,6 @@ func checkSettlementRouteExpired(c *policyCheckContext) []policyCheckHit {
 		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.sweepCurrencyKey(ccy, "settlement_valid_through", d)},
 			message:    fmt.Sprintf("The %s settlement route ended on %s, so every %s bill order holds until the date is renewed.", ccy, d, ccy),
 			suggestion: "Delete settlement_valid_through so Canary's maintained route applies, or write a later date you have checked."})
-	}
-	return out
-}
-
-func checkSweepReserveKeys(c *policyCheckContext) []policyCheckHit {
-	var out []policyCheckHit
-	bad := func(key, value, why string) {
-		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.cash_sweep", key, value)}, message: why})
-	}
-	for _, k := range []struct {
-		key      string
-		min, max float64
-		openMin  bool
-	}{{"reserve_floor_base", 0, math.Inf(1), false}, {"reserve_pct_nlv", 0, 100, false}, {"max_order_pct_nlv", 0, 100, true}} {
-		v, present, valid := c.sweepRawNumber(k.key)
-		if !present {
-			continue
-		}
-		raw, _ := c.sweepRaw(k.key)
-		switch {
-		case !valid:
-			bad(k.key, fmt.Sprint(raw), fmt.Sprintf("%s must be a number; the sweep cannot read it.", k.key))
-		case v < k.min || (k.openMin && v == k.min) || v > k.max:
-			rng := fmt.Sprintf("between %s and %s", policyCheckNumber(k.min), policyCheckNumber(k.max))
-			if math.IsInf(k.max, 1) {
-				rng = "zero or more"
-			} else if k.openMin {
-				rng = fmt.Sprintf("above %s and at most %s", policyCheckNumber(k.min), policyCheckNumber(k.max))
-			}
-			bad(k.key, policyCheckNumber(v), fmt.Sprintf("%s is %s; it must be %s.", k.key, policyCheckNumber(v), rng))
-		}
-	}
-	if v, ok := c.sweepRaw("bills_exempt_from_trading_max_notional"); ok {
-		if _, isBool := v.(bool); !isBool {
-			bad("bills_exempt_from_trading_max_notional", fmt.Sprint(v), "bills_exempt_from_trading_max_notional must be true or false.")
-		}
 	}
 	return out
 }
@@ -612,54 +580,74 @@ func checkCashReserveVsNLV(c *policyCheckContext) []policyCheckHit {
 	}
 	nlv, base := c.book.NetLiquidation, c.book.BaseCurrency
 	var keys []rpc.PolicyCheckKey
+	// The reserve design: the largest of reserve_floor_base and
+	// reserve_pct_nlv of NLV (planned needs are 0 today), held in the base
+	// currency, which keeps the larger of its keep_cash and the reserve;
+	// every other currency keeps its own keep_cash.
+	design := s.ReserveFloorBase != nil || s.ReservePctNLV != nil
 	reserve := 0.0
-	floor, floorPresent, floorOK := c.sweepRawNumber("reserve_floor_base")
-	pct, pctPresent, pctOK := c.sweepRawNumber("reserve_pct_nlv")
-	how := ""
-	switch {
-	case (floorPresent && floorOK) || (pctPresent && pctOK):
-		if floorPresent && floorOK {
-			reserve = floor
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_floor_base", policyCheckMoney(floor, base)))
+	if s.ReserveFloorBase != nil {
+		reserve = *s.ReserveFloorBase
+		keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_floor_base", policyCheckMoney(*s.ReserveFloorBase, base)))
+	}
+	if s.ReservePctNLV != nil {
+		reserve = max(reserve, *s.ReservePctNLV/100*nlv)
+		keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_pct_nlv", policyCheckNumber(*s.ReservePctNLV)))
+	}
+	kept, baseSeen := 0.0, false
+	for _, ccy := range c.sweepCurrencies() {
+		fx, ok := c.fx(ccy)
+		kc, written := s.keepCash(ccy)
+		if !ok {
+			continue
 		}
-		if pctPresent && pctOK {
-			reserve = max(reserve, pct/100*nlv)
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_pct_nlv", policyCheckNumber(pct)))
+		if written {
+			keys = append(keys, c.sweepKeepCashKey(ccy, kc))
 		}
-		how = "the reserve floor and percentage keep back"
-	default:
-		for _, ccy := range c.sweepCurrencies() {
-			fx, ok := c.fx(ccy)
-			if !ok {
-				continue
-			}
-			kc := s.currency(ccy).KeepCash
-			reserve += kc * fx
-			keys = append(keys, c.sweepCurrencyKey(ccy, "keep_cash", policyCheckMoney(kc, ccy)))
+		if ccy == base && design {
+			kept += max(kc, reserve)
+			baseSeen = true
+			continue
 		}
-		if s.ReserveCushionEUR != nil {
-			if fx, ok := c.fx("EUR"); ok {
-				reserve += *s.ReserveCushionEUR * fx
-				keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_cushion_eur", policyCheckMoney(*s.ReserveCushionEUR, "EUR")))
-			}
-		}
-		how = "keep_cash across the swept currencies keeps back"
+		kept += kc * fx
+	}
+	if design && !baseSeen {
+		kept += reserve
 	}
 	if len(keys) == 0 {
 		return nil
 	}
-	share := reserve / nlv
+	how := "keep_cash across the swept currencies keeps back"
+	if design {
+		how = fmt.Sprintf("the reserve (%s, held in %s) and keep_cash in the other currencies keep back", policyCheckMoney(reserve, base), base)
+	}
+	share := kept / nlv
 	switch {
 	case share < policyCheckTinyShareNLV:
+		suggestion := fmt.Sprintf("Keep at least %s (2%% of NLV, rounded up) as cash across the currencies you trade.", policyCheckMoney(policyCheckRoundUp(policyCheckTinyShareNLV*nlv), base))
+		if design {
+			suggestion = fmt.Sprintf("Set reserve_pct_nlv to at least 2 (%s at today's NLV), so the reserve follows the book instead of a fixed amount.", policyCheckMoney(policyCheckRoundUp(policyCheckTinyShareNLV*nlv), base))
+		}
 		return []policyCheckHit{{keys: keys,
-			message:    fmt.Sprintf("Together %s %s, %s of NLV (%s): a margin call, an assignment or a settling buy can need more cash than that before a bill matures.", how, policyCheckMoney(reserve, base), policyCheckPct(share), policyCheckMoney(nlv, base)),
-			suggestion: fmt.Sprintf("Keep at least %s (2%% of NLV, rounded up) as cash across the currencies you trade; a fixed amount that ignores NLV drifts out of proportion as the book changes.", policyCheckMoney(policyCheckRoundUp(policyCheckTinyShareNLV*nlv), base))}}
+			message:    fmt.Sprintf("Together %s %s, %s of NLV (%s): a margin call, an assignment or a settling buy can need more cash than that before a bill matures.", how, policyCheckMoney(kept, base), policyCheckPct(share), policyCheckMoney(nlv, base)),
+			suggestion: suggestion}}
 	case share > policyCheckHugeShareNLV:
 		return []policyCheckHit{{keys: keys,
-			message:    fmt.Sprintf("Together %s %s, %s of NLV (%s): the sweep can hardly put any idle cash to work.", how, policyCheckMoney(reserve, base), policyCheckPct(share), policyCheckMoney(nlv, base)),
-			suggestion: fmt.Sprintf("About %s (10%% of NLV) is a common working reserve.", policyCheckMoney(policyCheckRoundUp(0.10*nlv), base))}}
+			message:    fmt.Sprintf("Together %s %s, %s of NLV (%s): the sweep can hardly put any idle cash to work.", how, policyCheckMoney(kept, base), policyCheckPct(share), policyCheckMoney(nlv, base)),
+			suggestion: fmt.Sprintf("About %s (10%% of NLV) is a common working reserve; reserve_pct_nlv = 10 keeps it in step with the book.", policyCheckMoney(policyCheckRoundUp(0.10*nlv), base))}}
 	}
 	return nil
+}
+
+// sweepKeepCashKey names the keep_cash a currency uses: its own table's, or
+// the bucket's.
+func (c *policyCheckContext) sweepKeepCashKey(ccy string, v float64) rpc.PolicyCheckKey {
+	if s := c.sweep(); s != nil {
+		if t, ok := s.Currency[ccy]; ok && t.KeepCash != nil {
+			return c.sweepCurrencyKey(ccy, "keep_cash", policyCheckMoney(v, ccy))
+		}
+	}
+	return c.protectionKey("buckets.cash_sweep", "keep_cash", policyCheckMoney(v, ccy)+" (in "+ccy+")")
 }
 
 // constitutionNumbers returns the floor and declared risk capital when the
@@ -736,18 +724,12 @@ func checkSweepEconomics(c *policyCheckContext) []policyCheckHit {
 			continue
 		}
 		c.assume(a.note)
-		fx, fxOK := c.fx(ccy)
-		minNative := cfg.MinTranche
-		keys := []rpc.PolicyCheckKey{c.sweepCurrencyKey(ccy, "min_tranche", policyCheckMoney(cfg.MinTranche, ccy)), c.sweepCurrencyKey(ccy, "min_maturity_days", fmt.Sprint(cfg.MinMaturityDays))}
-		minKey := "min_tranche"
-		if s.MinOrderNotional > 0 {
-			if !fxOK {
-				c.skip(fmt.Sprintf("min_order_notional in the %s sweep economics: no %s rate without a live account (min_tranche used)", ccy, ccy))
-			} else if m := cashSweepMinimum(s, cfg, fx); m > minNative {
-				minNative, minKey = m, "min_order_notional"
-				keys = append(keys, c.protectionKey("buckets.cash_sweep", "min_order_notional", policyCheckMoney(s.MinOrderNotional, c.base())))
-			}
+		m, ok := c.sweepMinimum(ccy)
+		if !ok {
+			continue
 		}
+		fx, minNative := m.fx, m.native
+		keys := append(slices.Clone(m.keys), c.sweepCurrencyKey(ccy, "min_maturity_days", fmt.Sprint(cfg.MinMaturityDays)))
 		cashRate := 0.0
 		if cfg.CashInterestRateUpper != nil {
 			cashRate = *cfg.CashInterestRateUpper
@@ -758,7 +740,7 @@ func checkSweepEconomics(c *policyCheckContext) []policyCheckHit {
 		net := a.yield - cashRate
 		days := float64(cfg.MinMaturityDays)
 		threshold := a.minCommission
-		if s.MinNetGain > 0 && fxOK {
+		if s.MinNetGain > 0 {
 			threshold += s.MinNetGain / fx
 			keys = append(keys, c.protectionKey("buckets.cash_sweep", "min_net_gain", policyCheckMoney(s.MinNetGain, c.base())))
 		}
@@ -772,11 +754,11 @@ func checkSweepEconomics(c *policyCheckContext) []policyCheckHit {
 		if perUnit > 0 {
 			breakeven := threshold / perUnit
 			want := policyCheckRoundUp(2 * breakeven)
-			suggestion = fmt.Sprintf("Set %s to at least %s, twice the breakeven of %s, so the commission takes at most half the interest to a %d-day bill",
-				minKey, policyCheckMoney(want, ccy), policyCheckMoney(breakeven, ccy), cfg.MinMaturityDays)
-			if minKey == "min_order_notional" && fxOK {
-				suggestion = fmt.Sprintf("Set min_order_notional to at least %s (%s), twice the breakeven of %s, so the commission takes at most half the interest to a %d-day bill",
-					policyCheckMoney(policyCheckRoundUp(want*fx), c.base()), policyCheckMoney(want, ccy), policyCheckMoney(breakeven, ccy), cfg.MinMaturityDays)
+			suggestion = fmt.Sprintf("Set min_order_notional to at least %s (%s), twice the breakeven of %s, so the commission takes at most half the interest to a %d-day bill",
+				policyCheckMoney(policyCheckRoundUp(want*fx), c.base()), policyCheckMoney(want, ccy), policyCheckMoney(breakeven, ccy), cfg.MinMaturityDays)
+			if m.binding == "min_tranche" {
+				suggestion = fmt.Sprintf("The retired min_tranche sets the %s minimum; delete it and set min_order_notional to at least %s (%s), twice the breakeven of %s, so the commission takes at most half the interest to a %d-day bill",
+					ccy, policyCheckMoney(policyCheckRoundUp(want*fx), c.base()), policyCheckMoney(want, ccy), policyCheckMoney(breakeven, ccy), cfg.MinMaturityDays)
 			}
 			if longer := 91.0; days < longer {
 				suggestion += fmt.Sprintf("; or raise min_maturity_days: at %d days the breakeven falls to %s", int(longer), policyCheckMoney(threshold/(net*longer/365-a.pctCommission), ccy))
@@ -784,8 +766,8 @@ func checkSweepEconomics(c *policyCheckContext) []policyCheckHit {
 			suggestion += "."
 		}
 		out = append(out, policyCheckHit{keys: keys,
-			message: fmt.Sprintf("The smallest %s sweep order, %s in a %d-day bill, earns about %s over cash at an assumed %s a year, less than the assumed %s commission: the smallest bill buy the sweep places loses money.",
-				ccy, policyCheckMoney(minNative, ccy), cfg.MinMaturityDays, policyCheckMoney(interest, ccy), policyCheckPct(net), policyCheckMoney(commission, ccy)),
+			message: fmt.Sprintf("The smallest %s sweep buy, %s (%s, from %s) in a %d-day bill, earns about %s over cash at an assumed %s a year, less than the assumed %s commission: the smallest bill buy the sweep places loses money.",
+				ccy, policyCheckMoney(minNative, ccy), policyCheckMoney(m.base, c.base()), m.binding, cfg.MinMaturityDays, policyCheckMoney(interest, ccy), policyCheckPct(net), policyCheckMoney(commission, ccy)),
 			suggestion: suggestion})
 	}
 	return out
@@ -912,22 +894,16 @@ func checkCompiledDefaults(c *policyCheckContext) []policyCheckHit {
 	if s == nil {
 		return out
 	}
-	for _, ccy := range c.sweepCurrencies() {
-		var unwritten []rpc.PolicyCheckKey
-		cfg := s.currency(ccy)
-		for _, k := range []struct {
-			key string
-			v   float64
-		}{{"keep_cash", cfg.KeepCash}, {"min_tranche", cfg.MinTranche}} {
-			if c.protectionMD == nil || !c.protectionMD.IsDefined("buckets", "cash_sweep", "currency", ccy, k.key) {
-				unwritten = append(unwritten, c.sweepCurrencyKey(ccy, k.key, policyCheckMoney(k.v, ccy)))
-			}
+	// Since the reserve design (2026-10-05) a sweep number missing from the
+	// file holds the sweep and is never filled from a compiled default.
+	if missing := s.missingNumbers(); len(missing) > 0 {
+		var keys []rpc.PolicyCheckKey
+		for _, key := range missing {
+			keys = append(keys, c.protectionKey("buckets.cash_sweep", key, "not written"))
 		}
-		if len(unwritten) == 0 {
-			continue
-		}
-		out = append(out, policyCheckHit{keys: unwritten,
-			message: fmt.Sprintf("The %s sweep keeps cash and sizes its smallest order on Canary's compiled defaults, fixed amounts chosen for no particular book.", ccy)})
+		out = append(out, policyCheckHit{keys: keys,
+			message:    "The cash sweep holds until these numbers are written in the policy file; Canary never fills them from its own defaults.",
+			suggestion: "Run canary policy ensure --dry-run, review the plan, then apply it."})
 	}
 	return out
 }
@@ -940,8 +916,16 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 	exempt := c.protectionKey("buckets.cash_sweep", "bills_exempt_from_trading_max_notional", "true")
 	if !ok || capBase <= c.trading.MaxNotional {
 		return []policyCheckHit{{keys: []rpc.PolicyCheckKey{exempt},
-			message: "Bill orders are declared exempt from [trading].max_notional, but the sweep cap is within the trading cap, so the exemption is not used."}}
+			message: "Bill orders are declared exempt from [trading].max_notional, but the sweep's cap in force is within the trading cap, so the exemption is not used."}}
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
-		message: fmt.Sprintf("The sweep cap of %s is above the trading cap of %s; bills_exempt_from_trading_max_notional declares bill orders exempt, so the gap is intended.", policyCheckMoney(capBase, c.base()), policyCheckMoney(c.trading.MaxNotional, c.base()))}}
+		message: fmt.Sprintf("The sweep's cap in force of %s is above the trading cap of %s; bills_exempt_from_trading_max_notional lets bill orders pass the trading cap up to that cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the trading cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(c.trading.MaxNotional, c.base()))}}
+}
+
+// policyCheckDeref reads an optional policy number; an unwritten key reads 0.
+func policyCheckDeref(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }

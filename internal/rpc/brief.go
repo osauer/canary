@@ -1755,6 +1755,10 @@ type RiskPolicyResult struct {
 	// Plausibility is the policy check (`canary policy check`): the values
 	// read against each other, across files and against the live book.
 	Plausibility *PolicyCheckReport `json:"plausibility,omitempty"`
+	// Effective is every key that governs behaviour, grouped by file and
+	// table, with its value in force, source and meaning. Daemons before
+	// this field leave it empty; the CLI then reads the files itself.
+	Effective *PolicyEffectiveView `json:"effective,omitempty"`
 }
 
 // PolicyFileStatus is one policy file as Canary reads it: where it is, its

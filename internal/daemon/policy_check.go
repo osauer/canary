@@ -3,6 +3,7 @@ package daemon
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"maps"
 	"math"
 	"os"
@@ -225,9 +226,6 @@ type policyCheckContext struct {
 	protectionSrc policyCheckSource
 	protection    protectionPolicy
 	protectionMD  *toml.MetaData
-	// protectionRaw is the file as a plain map, for keys this binary does
-	// not decode yet (the forward-compatible cash sweep reserve keys).
-	protectionRaw map[string]any
 
 	opportunitySrc policyCheckSource
 
@@ -280,7 +278,6 @@ func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
 			applyProtectionPolicyDefaults(&p, &md)
 			applyCashSweepDefaults(p.Buckets.CashSweep, &md)
 			c.protection, c.protectionMD = p, &md
-			_, _ = toml.Decode(string(c.protectionSrc.data), &c.protectionRaw)
 		} else {
 			c.protectionSrc.state = policyCheckFileUnreadable
 		}
@@ -394,30 +391,6 @@ func (c *policyCheckContext) sweep() *protectionCashSweepPolicy {
 	return nil
 }
 
-// sweepRaw reads a key of [buckets.cash_sweep] from the raw file, for keys
-// this binary may not decode yet.
-func (c *policyCheckContext) sweepRaw(key string) (any, bool) {
-	buckets, _ := c.protectionRaw["buckets"].(map[string]any)
-	sweep, _ := buckets["cash_sweep"].(map[string]any)
-	v, ok := sweep[key]
-	return v, ok
-}
-
-// sweepRawNumber reads a numeric forward-compatible key.
-func (c *policyCheckContext) sweepRawNumber(key string) (float64, bool, bool) {
-	v, ok := c.sweepRaw(key)
-	if !ok {
-		return 0, false, true
-	}
-	switch x := v.(type) {
-	case int64:
-		return float64(x), true, true
-	case float64:
-		return x, true, !math.IsNaN(x) && !math.IsInf(x, 0)
-	}
-	return 0, true, false
-}
-
 // sweepCurrencies lists the currencies the sweep invests in: every written
 // currency table, the base currency, and every currency the account holds
 // cash in. A currency declared none is left out.
@@ -461,36 +434,86 @@ func (c *policyCheckContext) sweepCurrencyKey(ccy, key, value string) rpc.Policy
 	return rpc.PolicyCheckKey{File: file, Key: "[buckets.cash_sweep.currency." + ccy + "]." + key, Value: value}
 }
 
-// sweepCapBase is the sweep's per-order cap in base currency: the smaller of
-// max_order_notional and, when written and the book is known,
-// max_order_pct_nlv of NLV. ok is false when neither is usable.
+// sweepCapBase is the sweep's per-order cap in force, in base currency, as
+// the sweep sizes it: the larger of max_order_notional and
+// max_order_pct_nlv percent of NLV. Without a live account only
+// max_order_notional is known, and the check says the rest was skipped.
 func (c *policyCheckContext) sweepCapBase() (capBase float64, keys []rpc.PolicyCheckKey, ok bool) {
 	s := c.sweep()
 	if s == nil {
 		return 0, nil, false
 	}
-	capBase = math.Inf(1)
+	capBase = s.MaxOrderNotional
 	if s.MaxOrderNotional > 0 {
-		capBase = s.MaxOrderNotional
 		keys = append(keys, c.protectionKey("buckets.cash_sweep", "max_order_notional", policyCheckMoney(s.MaxOrderNotional, c.base())))
 	}
-	if pct, present, valid := c.sweepRawNumber("max_order_pct_nlv"); present && valid && pct > 0 {
+	if pct := s.MaxOrderPctNLV; pct != nil && *pct > 0 {
+		keys = append(keys, c.protectionKey("buckets.cash_sweep", "max_order_pct_nlv", policyCheckNumber(*pct)))
 		if c.book != nil {
-			capBase = min(capBase, pct/100*c.book.NetLiquidation)
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", "max_order_pct_nlv", policyCheckNumber(pct)))
+			capBase = max(capBase, *pct/100*c.book.NetLiquidation)
 		} else {
-			c.skip("[buckets.cash_sweep].max_order_pct_nlv against the trading cap: no live account to size it")
+			c.skip("the part of the sweep cap that max_order_pct_nlv sets: no live account to size it (max_order_notional alone is compared)")
 		}
 	}
-	return capBase, keys, !math.IsInf(capBase, 1)
+	return capBase, keys, capBase > 0
+}
+
+// sweepCapBound names the key that sets the cap in force.
+func (c *policyCheckContext) sweepCapBound(capBase float64) string {
+	if s := c.sweep(); s != nil && capBase > s.MaxOrderNotional+1e-9 {
+		return "max_order_pct_nlv"
+	}
+	return "max_order_notional"
 }
 
 // sweepExempt reports whether the owner declared bill orders exempt from
-// [trading].max_notional.
+// [trading].max_notional, up to the sweep's cap in force.
 func (c *policyCheckContext) sweepExempt() bool {
-	v, ok := c.sweepRaw("bills_exempt_from_trading_max_notional")
-	b, isBool := v.(bool)
-	return ok && isBool && b
+	return c.sweep().billsExempt()
+}
+
+// policyCheckSweepMinimum is a currency's smallest sweep buy as the sweep
+// sizes it.
+type policyCheckSweepMinimum struct {
+	native, base float64
+	keys         []rpc.PolicyCheckKey
+	// binding is the key that sets it: min_order_notional, or the retired
+	// min_tranche when a legacy file still carries a larger one.
+	binding string
+	fx      float64
+}
+
+// sweepMinimum is the smallest buy in ccy: min_order_notional (base) at the
+// currency's rate, raised by a legacy min_tranche (its own unit) when the
+// file still carries one. ok is false when nothing is written (the sweep
+// holds) or the rate is unknown.
+func (c *policyCheckContext) sweepMinimum(ccy string) (policyCheckSweepMinimum, bool) {
+	s := c.sweep()
+	if s == nil {
+		return policyCheckSweepMinimum{}, false
+	}
+	fx, fxOK := c.fx(ccy)
+	if !fxOK {
+		c.skip(fmt.Sprintf("the %s sweep minimum: no %s rate without a live account", ccy, ccy))
+		return policyCheckSweepMinimum{}, false
+	}
+	cfg := s.currency(ccy)
+	minOrder, tranche := policyCheckDeref(s.MinOrderNotional), policyCheckDeref(cfg.MinTranche)
+	m := policyCheckSweepMinimum{fx: fx, binding: "min_order_notional", native: cashSweepMinimum(tranche, minOrder, fx)}
+	if m.native <= 0 {
+		return policyCheckSweepMinimum{}, false
+	}
+	m.base = m.native * fx
+	if s.MinOrderNotional != nil {
+		m.keys = append(m.keys, c.protectionKey("buckets.cash_sweep", "min_order_notional", policyCheckMoney(minOrder, c.base())))
+	}
+	if cfg.MinTranche != nil {
+		m.keys = append(m.keys, rpc.PolicyCheckKey{File: c.protectionSrc.label + " (retired key)", Key: "[buckets.cash_sweep.currency." + ccy + "].min_tranche", Value: policyCheckMoney(tranche, ccy)})
+		if minOrder <= 0 || tranche > minOrder/fx+1e-9 {
+			m.binding = "min_tranche"
+		}
+	}
+	return m, true
 }
 
 // CheckPolicy runs the whole catalogue and returns the report.
