@@ -28,7 +28,7 @@
         "headline": "IBKR / Interactive Brokers MCP server for local trading research",
         "description": "A practical guide to running Canary as a local Interactive Brokers MCP server with IB Gateway or TWS, for portfolio analysis, risk checks and market context in Claude Desktop, Claude Code, Cursor and Zed.",
         "url": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
-        "dateModified": "2026-10-04",
+        "dateModified": "2026-10-05",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -50,8 +50,8 @@
         "applicationCategory": "FinanceApplication",
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
-        "softwareVersion": "3.17.0",
-        "dateModified": "2026-10-04",
+        "softwareVersion": "3.18.0",
+        "dateModified": "2026-10-05",
         "codeRepository": "https://github.com/osauer/canary",
         "isAccessibleForFree": true,
         "sameAs": [
@@ -576,7 +576,7 @@
       <div>
         <p class="eyebrow">IBKR / Interactive Brokers MCP server</p>
         <h1 id="hero-title">A local Interactive Brokers MCP server for trading research</h1>
-        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed and other MCP hosts. Read-only tools cover your account and positions, the daily brief, the rulebook, the Action Queue, Edge, FX and lending reports, borrowing and short-interest research and the quality of each source.</p>
+        <p class="lead">Connect IB Gateway or TWS to Claude Desktop, Claude Code, Cursor, Zed and other MCP hosts. Read-only tools cover your account and positions, the daily brief, the rulebook, a check that your limits add up, the Action Queue, Edge, FX and lending reports, borrowing and short-interest research and the quality of each source.</p>
         <div class="actions" aria-label="Main actions">
           <a class="button primary" href="#install">Install</a>
           <a class="button" href="https://github.com/osauer/canary">View on GitHub</a>
@@ -615,7 +615,7 @@
           </div>
           <div class="strip-item">
             <strong>Workflow tools</strong>
-            <span>Read-only tools for health, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, Edge, the brief, rules, proposals, opportunities, settings, readiness and order history.</span>
+            <span>Read-only tools for health, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, Edge, the brief, rules, a policy check, proposals, opportunities, settings, readiness and order history.</span>
           </div>
           <div class="strip-item">
             <strong>Controlled boundary</strong>
@@ -650,7 +650,7 @@
         <article class="card">
           <small>Rules</small>
           <h3>Inspect ranked findings</h3>
-          <p>Read the verdict on all 19 rules, with each unknown or degraded input kept in view.</p>
+          <p>Read the verdict on all 19 rules, with each unknown or degraded input kept in view. A policy check reads the limits themselves against each other and the account.</p>
         </article>
         <article class="card">
           <small>Action Queue</small>
@@ -691,6 +691,7 @@
         <li>No MCP tool for placing orders.</li>
         <li>No MCP tool for modifying orders.</li>
         <li>No MCP tool for cancelling orders.</li>
+        <li>No MCP tool for changing your limits or policy files.</li>
         <li>No hosted service with broker credentials.</li>
         <li>No Python bridge or IBKR jar dependency for the bundled binary.</li>
       </ul>
@@ -755,6 +756,7 @@ canary setup claude-desktop</code></pre>
         <li>What does the technical picture for SPY look like?</li>
         <li>Read today's daily brief and summarise what needs attention.</li>
         <li>Which rulebook findings are failing or unknown right now?</li>
+        <li>Do my risk limits make sense for the size of my account?</li>
         <li>Are there open protection proposals for my positions?</li>
         <li>How much did currency moves add to or take from my return this month?</li>
         <li>Which large US stocks carry the most reported short interest, with at least three days to cover?</li>

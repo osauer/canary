@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-08-27T19:38:00+02:00",
+    "dateModified": "2026-10-05T22:11:00+02:00",
     "description": "Connect Canary's local IBKR MCP server to TWS so stdio MCP hosts can read Interactive Brokers account and market context.",
     "headline": "IBKR MCP TWS setup",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="ibkr-mcp-tws-setup">IBKR MCP TWS setup</h1>
-<p>Updated: 2026-08-27 19:38 CEST</p>
+<p>Updated: 2026-10-05 22:11 CEST</p>
 <p><code>canary mcp</code> is a local IBKR MCP bridge for TWS. Claude Desktop, Claude Code, Cursor, Zed, Continue or another stdio MCP host talks to <code>canary mcp</code>, and <code>canary</code> reads account and market data from the Trader Workstation (TWS) API socket on the same machine.</p>
 <p>Next to the bridge, the binary carries a daily brief, an advisory 19-rule rulebook and protection proposals, the desk functions an individual trader tends to want. Risk policy and statement reconciliation run in the terminal. Market data follows your IBKR subscriptions and is real-time where they cover it.</p>
 <p>The same binary also works with IB Gateway. Choose TWS when Trader Workstation is already open for charting, manual supervision or daily trading context.</p>
@@ -59,7 +59,7 @@
 <ul>
 <li>One Go binary with a local daemon, CLI, stdio MCP server, Claude Desktop MCPB, Claude Code plugin and Go TWS protocol library.</li>
 <li>A persistent local connection, so there is no reconnect for every assistant request.</li>
-<li>Read-only tools for status, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, the retrospective Edge review, the daily brief, rulebook, proposals, opportunities, settings, readiness and order-lifecycle reads.</li>
+<li>Read-only tools for status, account, positions, option strategies, technical evidence, broker reporting, FX and lending reports, borrowing and short-interest research, the retrospective Edge review, the daily brief, rulebook, a policy check, proposals, opportunities, settings, readiness and order-lifecycle reads.</li>
 <li>A read-only boundary in the published MCP server, with no tools for placing, modifying or cancelling orders.</li>
 <li>JSON-friendly CLI output for agent SDKs outside MCP and for shell automation.</li>
 </ul>

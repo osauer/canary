@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-08-10T08:25:00+02:00",
+    "dateModified": "2026-10-05T22:11:00+02:00",
     "description": "Use Canary and Claude to review an Interactive Brokers portfolio from the local IB Gateway or TWS session you already run.",
     "headline": "Portfolio review with Claude and IBKR",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="portfolio-review-with-claude-and-ibkr">Portfolio review with Claude and IBKR</h1>
-<p>Updated: 2026-08-10 08:25 CEST</p>
+<p>Updated: 2026-10-05 22:11 CEST</p>
 <p><code>canary mcp</code> lets Claude review an Interactive Brokers portfolio from the local IB Gateway or TWS session you already use. The assistant gets structured account, position, technical, rulebook, source-health, proposal, opportunity and order-lifecycle context, and no execution authority.</p>
 <p>A review can also draw on the discipline tools. <code>canary_rules</code> runs a 19-rule daily checklist over the live book (concentration, premium caps, theta budget, expiry runway, earnings coverage, hedge integrity, margin headroom) and names the offenders. Missing data counts as unknown, never as a pass, so a cold daemon cannot flatter the book. In the terminal, <code>canary policy</code> reports drawdown against a risk policy you wrote yourself, and <code>canary recon</code> checks the daily broker statement against your declared ledger.</p>
 <p>The review stays separate from execution. You collect account and market evidence, name the missing inputs and decide which questions deserve a closer look.</p>
@@ -73,6 +73,7 @@
 <li><code>canary_positions</code> for holdings, option legs, Greeks and per-underlying grouping</li>
 <li><code>canary_technical</code> for daily evidence on explicitly named stocks or ETFs</li>
 <li><code>canary_rules</code> for ranked rulebook findings and unknown inputs</li>
+<li><code>canary_policy_check</code> for whether your limits and policy files add up against each other and the account</li>
 <li><code>canary_proposals</code> and <code>canary_opportunities</code> for read-only Action Queue candidates</li>
 <li><code>canary_reporting_performance</code>, <code>canary_reporting_fx</code> and <code>canary_lending_fees</code> for statement returns, the currency effect and lending income</li>
 <li><code>canary_settings</code>, <code>canary_trading_status</code> and the three order-lifecycle tools for observed state</li>

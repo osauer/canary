@@ -24,7 +24,7 @@
       "name": "Oliver Sauer",
       "url": "https://github.com/osauer"
     },
-    "dateModified": "2026-08-10T08:25:00+02:00",
+    "dateModified": "2026-10-05T22:11:00+02:00",
     "description": "Canary reads Interactive Brokers account and market context. Through MCP, it cannot place, modify, cancel or transmit broker orders.",
     "headline": "Read-only MCP server for Interactive Brokers",
     "isPartOf": {
@@ -50,7 +50,7 @@
   </header>
   <main class="wrap doc">
 <h1 id="read-only-mcp-server-for-interactive-brokers">Read-only MCP server for Interactive Brokers</h1>
-<p>Updated: 2026-08-10 08:25 CEST</p>
+<p>Updated: 2026-10-05 22:11 CEST</p>
 <p><code>canary mcp</code> is a read-only MCP server for Interactive Brokers by design. It gives AI assistants account and market context from IB Gateway or TWS and has no tool to place, modify or cancel an order.</p>
 <p>The read-only boundary makes the rest of the platform workable. Agents hold no order-entry tools, so the daily brief, rulebook, protection proposals and opportunity review can use the daemon&#39;s portfolio and market context without gaining execution authority.</p>
 <p>This page covers the standard downloads, which are the installer, the Claude Desktop bundle and the plain <code>canary</code> tarballs. Releases also publish a separate, clearly marked <code>canary-trading</code> tarball for users who explicitly opt into order management. Nothing on this page applies to that variant, and it is never installed by default.</p>
@@ -63,6 +63,7 @@
 <li>positions, option legs, marks and Greek coverage</li>
 <li>daily technical evidence for named symbols, and the daemon&#39;s market and session context</li>
 <li>rulebook snapshots, plus reads of protection proposals, option-exercise opportunities and platform settings</li>
+<li>a plausibility check of your limits and policy files, which never changes them</li>
 <li>statement performance, FX contribution and the net fees your lent shares earned</li>
 <li>dated borrowing fees, price and liquidity context, and FINRA short-interest screens</li>
 <li>open-order, order-history and order-status journal reads</li>
@@ -72,6 +73,7 @@
 <li>no order placement</li>
 <li>no order modification</li>
 <li>no order cancellation</li>
+<li>no change to your limits, policy files or settings</li>
 <li>no hosted broker credential store</li>
 <li>no remote service sitting between the assistant and IBKR</li>
 </ul>

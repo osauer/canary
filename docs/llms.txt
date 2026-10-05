@@ -1,22 +1,37 @@
 # Canary
 
-Updated: 2026-10-04
+Updated: 2026-10-05
 
-Version 3.17 adds a durable owner watchlist, read-only volume-turn observations,
-standard-call discovery, setup coverage and entry markouts through the CLI and
-typed Go reads. Setup parameters are unvalidated observations, and historical
-reconstruction does not establish what was known at the original decision.
-Markouts use later quotes for qualifying Canary-placed fills, exclude commissions
-and never replace account P/L; missed targets stay missing. These setup tools
-have no MCP surface. Watchlist edits change local preferences only.
-CLI and read-only MCP add indicative borrowing-rate discovery, dated price and
-liquidity context, and FINRA short-interest screens. Borrower costs are not
-lender yields. FINRA positions are twice-monthly reports; percentage of free
-float remains unavailable. Source dates and partial market coverage stay visible.
+Version 3.18 shows every limit in force and checks that the limits add up.
+`canary policy show --explain` prints every limit, policy and runtime setting
+that governs Canary, each with its value, unit, source and meaning, and
+`canary policy show SECTION` prints one part. `canary policy check` reads the
+config, the policy files and, when the daemon is running, the account against
+each other, and names each implausible value with a reason and a suggested
+number. MCP clients get the same report from the read-only `canary_policy_check`
+tool, which never changes a limit. The per-order limits now live in the risk
+constitution, `risk-policy.toml` `[order_limits]`, and the order-value cap scales
+with net liquidation value between an owner-set floor and ceiling. A temporary
+larger cap is one journaled override. The cash sweep's reserve follows net
+liquidation value and planned needs, bill orders keep to a minimum and a maximum
+size, and bill buys wait while any currency is borrowed. The daemon now produces
+the portfolio stress verdict and the position risk flags; the CLI, MCP tools, app
+and Go client show the installed daemon's answer. `canary setups` reads print
+readable output by default (`--json` returns the previous output), and the
+status, market, macro, proposal and data-health views lead with what needs
+attention, with `--json` unchanged. In trading builds a broker-side stop that
+sells no more than a long stock or ETF position is no longer refused by the
+order-value cap or the short-sale check, and a protective stop guard writes on
+its own, but only to shrink or cancel stop orders Canary itself placed when the
+position falls below them. Stops placed by hand are never changed. Existing
+policy files are never rewritten on upgrade; until
+`[order_limits]` is written, trading builds refuse order previews and the sweep
+holds, and `canary policy check` lists what is missing.
 The sweep remains off by default. Owner commissioning requires calibrated
 reserves and current native settlement evidence; missing evidence holds the
-sweep. Bills can lose value on an early sale. Installation does not enable
-automatic submission or grant broker-write permission.
+sweep. Bills can lose value on an early sale. Standard binaries and the MCP
+server remain read-only. Installation does not enable automatic submission or
+grant broker-write permission.
 
 Canary is a local risk desk for a brokerage account: a daemon, shell CLI,
 read-only MCP server, paired app, and a public Go module with a daemon client
@@ -28,6 +43,18 @@ proposals, option-exercise opportunities, and typed source quality. The CLI, MCP
 server, and app are adapters over that authority.
 
 Canary is an independent personal project by Oliver Sauer.
+
+Canary v3.17.0 adds a durable owner watchlist, read-only volume-turn
+observations, standard-call discovery, setup coverage and entry markouts through
+the CLI and typed Go reads. Setup parameters are unvalidated observations, and
+historical reconstruction does not establish what was known at the original
+decision. Markouts use later quotes for qualifying Canary-placed fills, exclude
+commissions and never replace account P/L; missed targets stay missing. These
+setup tools have no MCP surface. Watchlist edits change local preferences only.
+CLI and read-only MCP add indicative borrowing-rate discovery, dated price and
+liquidity context, and FINRA short-interest screens. Borrower costs are not
+lender yields. FINRA positions are twice-monthly reports; percentage of free
+float remains unavailable. Source dates and partial market coverage stay visible.
 
 Canary v3.16.0 adds lending observations to the signed binaries and MCPB.
 The read-only `canary lending fees --json` command and `canary_lending_fees`
@@ -55,8 +82,8 @@ Use it for:
 
 - account, position, daily P&L, exposure, technical, and order-lifecycle reads;
 - the Action Queue and daemon-composed daily brief;
-- the 19-rule desk rulebook, operator-authored risk policy, and Flex-backed
-  reconciliation;
+- the 19-rule desk rulebook, operator-authored risk policy and its plausibility
+  check, and Flex-backed reconciliation;
 - current option-strategy grouping, read-only protection proposals, and
   option-exercise opportunity review;
 - explicit freshness, entitlement, source-health, warning-code, and session
@@ -69,7 +96,8 @@ open orders, order history, one-order status, account, positions, option
 strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status and the
 statement performance series, FX contribution, lending fee history, indicative
 borrowing-rate research, market context, FINRA short-interest screens, Edge,
-rules, proposals, opportunities, portfolio allocation, reconciliation status,
+rules, the policy plausibility check, proposals, opportunities, portfolio
+allocation, reconciliation status,
 market quotes and price history, exchange sessions, and official macro calendars
 and publications. It has no MCP resources, settings writes, order previews, or
 execution tools. Breadth and gamma remain daemon inputs. Use
@@ -80,6 +108,10 @@ Standard downloads cannot place, modify, cancel, or exercise orders. A separate
 opt-in `canary-trading` binary exposes constrained CLI and app order actions with
 fresh confirmation/preflight, account and mode pins, journaling, daemon policy,
 and the runtime freeze gate. Trading builds also support explicitly pre-authorised defensive proposals within the existing policy and execution gates.
+Since v3.18, a protective stop guard in trading builds writes on its own, but
+only shrinks or cancels stop orders Canary itself placed when the position falls
+below them. Stops placed by hand are never changed. A freeze holds a shrink but
+not a cancel, and every other write gate still applies.
 
 Product v3 releases ship as signed binaries, installer output, MCPB, and app
 assets. The public Go module deliberately remains `/v2`; its `@latest` resolves
