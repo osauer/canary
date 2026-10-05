@@ -2563,6 +2563,12 @@ const (
 	// for that exact record and the record is still an authorised intent
 	// (armed, held or sending); every other gate applies unchanged.
 	OrderOriginDaemonOwnerQueued = "daemon-owner-queued"
+	// OrderOriginDaemonProtectiveGuard marks a modify or cancel the daemon's
+	// protective stop guard issues to keep one of Canary's own working sell
+	// stops no larger than the long stock position. The write gate accepts it
+	// only while the guard holds a grant for that exact order and change;
+	// every other gate applies unchanged.
+	OrderOriginDaemonProtectiveGuard = "daemon-protective-guard"
 	// OrderOriginPairedDevice identifies an audited request origin; it does not grant authority by itself.
 	OrderOriginPairedDevice = "human-paired-device"
 

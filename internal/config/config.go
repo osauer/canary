@@ -128,11 +128,11 @@ type Daemon struct {
 type Trading struct {
 	// Mode selects the local order-entry state: "disabled" (default), "paper", or "live".
 	Mode string `toml:"mode"`
-	// MaxNotional caps every equity/ETF order before broker WhatIf; apparent close/reduce orders are not exempt because this client cannot prove that a manual TWS order has not already consumed the exit capacity. Default 10000 in account currency.
+	// MaxNotional caps every equity/ETF order before broker WhatIf, apparent close/reduce orders included, with one exemption: a protective stop (TRAIL, TRAIL LIMIT, STP, STP LMT) that sells at most a long stock/ETF position while the complete broker open-order inventory shows no other working sell that would, with it, exceed the position. The daemon's protective stop guard then shrinks or cancels its own stops after a later sale; while the daemon is down a hand sale is not followed. Default 10000 in account currency.
 	MaxNotional float64 `toml:"max_notional"`
 	// MaxOptionContracts caps every single-leg option order; apparent close/reduce orders are not exempt because account-global working-order authority is incomplete. Default 5.
 	MaxOptionContracts int `toml:"max_option_contracts"`
-	// AllowStockShort permits stock short/opening flip previews when true. Default false.
+	// AllowStockShort permits stock short/opening flip previews when true; an apparent stock sell exit counts as opening a short, except the protective stop exempted under max_notional. Default false.
 	AllowStockShort bool `toml:"allow_stock_short"`
 	// AllowOptionSellToOpen permits option sell-to-open previews when true. Default false.
 	AllowOptionSellToOpen bool `toml:"allow_option_sell_to_open"`

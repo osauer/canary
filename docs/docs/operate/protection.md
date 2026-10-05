@@ -388,6 +388,61 @@ the exact quantity a reduce-modify has to target, and it appears with
 `canary positions` as `reconcile_required` under protection coverage, where a
 stale protective order is deliberately not counted as protection.
 
+For a sell stop Canary placed on a stock or ETF, the protective stop guard
+makes that fix itself (next section). An order placed by hand in TWS is yours:
+Canary reports it and leaves it alone.
+
+## Protective stop exemption and guard
+
+A broker-side stop that protects a whole long stock position is usually larger
+than `[trading].max_notional`, and every apparent stock sell exit is otherwise
+read as opening a short, which needs `allow_stock_short`. A protective stock
+exit is exempt from both:
+
+- a stock or ETF `SELL` stop (`TRAIL`, `TRAIL LIMIT`, `STP`, `STP LMT`);
+- the position is long and the stop sells no more than it holds, so it closes
+  or reduces and never opens or flips;
+- the broker's complete, current open-order list, hand orders in TWS included,
+  shows no other working sell for the same contract that together with this
+  stop would sell more than is held.
+
+If the open-order list cannot be read, the exemption does not apply and
+today's refusal stands. A modify that only lowers the quantity of a working
+stop is exempt on the same terms without the third condition, because it can
+only shrink what is already working. Option orders and every other stock order
+keep both gates and `max_option_contracts` unchanged.
+
+A trailing-stop row that the gates would refuse no longer reads ready. It
+carries `protective_exit_competing_sell` when another working sell already
+covers the shares, `protective_exit_inventory_unavailable` (waiting for the
+broker) when the open orders cannot be read, or
+`protective_exit_exceeds_position` when the stop is larger than the position.
+
+A resting GTC stop outlives a later hand sale, so the exemption comes with a
+guard. On the proposal cadence (30 seconds by default) the daemon compares each
+working sell stop it placed on a stock with the current position: at zero or
+short it cancels the stop; below the stop's remaining quantity it shrinks the
+stop to the whole-share position, keeping the trail amount or percent, the
+current stop price, the limit offset, trigger method, time in force and
+outside-hours flag. It acts only on a current, complete portfolio download for
+the connected account and a complete open-order list, and only when the same
+correction is planned on two passes at least 20 seconds apart, so a partial
+download or an out-of-order fill never moves an order. Each change goes through
+the ordinary modify or cancel path with the origin `daemon-protective-guard`,
+is journaled on the order, and is written to the decision log
+(`protective_stop_guard.shrink` or `.cancel`). The order's
+`position_mismatch` notice stays open until the change lands.
+
+Every write gate still decides. With trading disabled, the broker link down or
+daemon storage unhealthy the guard does nothing and logs the blocker once.
+`trading.freeze` blocks every modify, so a shrink waits while frozen; a cancel
+still goes through, because a freeze never strands an order that needs
+cancelling.
+
+The residual gap: while the daemon is down, a hand sale is not followed, so a
+stop can stay larger than the position until Canary is back and the guard has
+run.
+
 ## Pre-authorised buckets
 
 The protection policy's `[authority].pre_authorised` list is empty by default.

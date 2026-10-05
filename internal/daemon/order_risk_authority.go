@@ -218,7 +218,8 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 		EvidenceAt: portfolioStreamEvidenceAsOf(projection.Health),
 	}
 	// A position-only close/reduce classification does not grant a risk
-	// exemption. reqAllOpenOrders cannot prove future manual-TWS activity for
+	// exemption: reqAllOpenOrders cannot prove future manual-TWS activity. Only
+	// the narrow protective stock exit (protective_exit.go) is excused.
 	// Account base currency is immutable for one concrete broker account and
 	// ExchangeRate=1 inference is never authority for an order cap.
 	account, provenance, err := connector.RequestAccountSummaryWithProvenance(ctx, 3*time.Second)
@@ -523,7 +524,10 @@ func conservativeOrderFXRate(quote rpc.OrderQuoteSnapshot, inverted bool) float6
 	return *quote.Ask
 }
 
-func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority, baseCurrency string) error {
+// validateOrderRiskAuthority applies the trading limits to one order. exit is
+// the broker open-order evidence for the protective stock exit exemption
+// (protective_exit.go); its zero value never exempts.
+func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority, baseCurrency string, exit protectiveExitInventory) error {
 	cfg = cfg.WithDefaults()
 	contractCurrency := strings.ToUpper(strings.TrimSpace(draft.Contract.Currency))
 	baseCurrency = strings.ToUpper(strings.TrimSpace(baseCurrency))
@@ -548,7 +552,11 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 	if strings.EqualFold(draft.Contract.SecType, "OPT") && draft.Quantity > cfg.MaxOptionContracts {
 		return fmt.Errorf("option quantity %d exceeds [trading].max_option_contracts %d", draft.Quantity, cfg.MaxOptionContracts)
 	}
-	if notional.BaseNotional > cfg.MaxNotional {
+	// A protective stock exit that sells at most the long position, with no
+	// competing working sell, passes both the notional cap and the
+	// apparent-exit short re-read (owner decision 2026-10-05 17:36 CEST).
+	protectiveExit := protectiveStockExitExempt(draft, position, exit)
+	if notional.BaseNotional > cfg.MaxNotional && !protectiveExit {
 		return fmt.Errorf("order notional %.2f %s exceeds [trading].max_notional %.2f %s", notional.BaseNotional, baseCurrency, cfg.MaxNotional, baseCurrency)
 	}
 	if draft.StrategyGroup != nil {
@@ -562,10 +570,13 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 		return fmt.Errorf("a bond order that opens or flips a short position is not supported")
 	}
 	riskEffect := position.Effect
-	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) {
+	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) && !protectiveExit {
 		// Incomplete manual-order visibility means the apparent long exit may
 		// arrive after another sell consumed that capacity. Apply the same
-		// explicit short-opening permission as a zero-position sell.
+		// explicit short-opening permission as a zero-position sell. The
+		// protective exit is excused because the complete inventory shows no
+		// competing sell now and the stop guard shrinks or cancels the stop
+		// when a later sale reduces the position.
 		riskEffect = rpc.OrderPositionEffectOpenShort
 	}
 	switch {
@@ -722,7 +733,11 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 			EvidenceAt: s.orderNow(), Source: orderFXSourceIdentity,
 		}
 	}
-	if err := validateOrderRiskAuthority(cfg, draft, current.Impact, signedNotional, current.BaseCurrency); err != nil {
+	// The exemption reads the open-order inventory again at admission: a hand
+	// sale entered after the preview withdraws it. A modify excludes its own
+	// target order.
+	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, current.Impact, payload.Replace)
+	if err := validateOrderRiskAuthority(cfg, draft, current.Impact, signedNotional, current.BaseCurrency, exitInventory); err != nil {
 		return fmt.Errorf("%w: signed preview risk authority is invalid: %v", ErrTradingDisabled, err)
 	}
 	var fxAuthority *orderPreviewBrokerAuthority
@@ -735,7 +750,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if err != nil {
 		return err
 	}
-	if err := validateOrderRiskAuthority(cfg, draft, current.Impact, currentNotional, current.BaseCurrency); err != nil {
+	if err := validateOrderRiskAuthority(cfg, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 	}
 	binding.riskBound = true
@@ -746,6 +761,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	binding.riskBaseCurrency = current.BaseCurrency
 	binding.riskBaseCurrencyProvenance = current.BaseCurrencyProvenance
 	binding.riskNotional = currentNotional
+	binding.riskProtectiveExit = exitInventory
 	return nil
 }
 

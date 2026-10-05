@@ -887,12 +887,13 @@ func latestOrderRequestAt(events []rpc.OrderEvent) time.Time {
 
 // automaticSettlingMachineOrigin reports the origins the settling rule
 // treats as the machine's own: the daemon's pre-authorised scheduler and
-// queued executor, and the agent-origin gated CLI through which Desk places
+// queued executor, its protective stop guard, and the agent-origin gated CLI
+// through which Desk places
 // what the owner authorised. Canary cannot see Desk's receipts, so any
 // agent-origin order counts as the gate's.
 func automaticSettlingMachineOrigin(origin string) bool {
 	switch origin {
-	case rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued, rpc.OrderOriginAgent:
+	case rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued, rpc.OrderOriginAgent, rpc.OrderOriginDaemonProtectiveGuard:
 		return true
 	default:
 		return false

@@ -96,6 +96,14 @@ type Server struct {
 	// right now, under brokerWriteMu; it lets the write gate accept the
 	// daemon-owner-queued origin.
 	queuedGrant atomic.Pointer[queuedWriteGrant]
+	// protectiveStopGuardGrant names the one order the protective stop guard
+	// is cancelling or shrinking right now, under brokerWriteMu; it lets the
+	// write gate accept the daemon-protective-guard origin for that order.
+	protectiveStopGuardGrant atomic.Pointer[protectiveStopGuardWriteGrant]
+	// protectiveStopGuardMu guards protectiveStopGuard, the guard's settle
+	// clock and once-per-reason log memory.
+	protectiveStopGuardMu sync.Mutex
+	protectiveStopGuard   protectiveStopGuardState
 
 	// reduceBasketMu guards reduceBasketDedupe, the short-TTL replay cache for
 	// so a double-tap or client retry can never fan the basket out twice.
@@ -350,6 +358,9 @@ type Server struct {
 	// openOrderInventoryForTest replaces brokerOpenOrderInventory whole in
 	// hermetic tests that have no Connector; production leaves it nil.
 	openOrderInventoryForTest func(ctx context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error)
+	// protectiveStopGuardPositionsForTest replaces the guard's portfolio
+	// projection read in hermetic tests; production leaves it nil.
+	protectiveStopGuardPositionsForTest func(ctx context.Context, scope brokerStateScope) ([]*ibkrlib.RawPosition, bool)
 	// Test-only final-boundary seams. Production leaves these nil. They run
 	orderReconcileBeforeCommit     func()
 	orderReconcileBeforeLatchClear func()

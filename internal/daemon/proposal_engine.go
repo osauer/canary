@@ -191,6 +191,9 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		// send window, arm deadline or window end.
 		e.runAutomaticCycle(ctx)
 		e.runQueuedCycle(ctx)
+		// The protective stop guard keeps Canary's own working sell stops no
+		// larger than the long position they protect.
+		e.server.runProtectiveStopGuard(ctx)
 		wait := proposalRefreshWait(e.cadence, failures)
 		if next, ok := e.queuedWake(e.clock()); ok {
 			wait = min(wait, next)
@@ -704,6 +707,7 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			stockEnabled = e.server.stockProtectionEnabled()
 		}
 		if policy.Buckets.TrailingStop.StockETF.Enabled {
+			var exitBook protectiveExitBook
 			for _, row := range pos.Stocks {
 				trailSizing := e.stockTrailSizing(ctx, policy.Buckets.TrailingStop.StockETF, row, now)
 				if p, ok := trailingStopStockProposal(policy, status, row, sources, now, stockEnabled, e.resolveRowMinTick(row), trailSizing); ok {
@@ -712,6 +716,9 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 					applyMarketEventFlagsToProposal(&p, marketEvents)
 					for _, b := range e.duplicateProtectiveBlockers(ctx, p, pos) {
 						proposalBlock(&p, b.Code, b.Message)
+					}
+					if b, ok := e.protectiveExitRowBlocker(ctx, p, &exitBook); ok {
+						proposalBlockWith(&p, []rpc.TradingBlocker{b})
 					}
 					if !e.isIgnored(scope, p.Key) {
 						out = append(out, p)

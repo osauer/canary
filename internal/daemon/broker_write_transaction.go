@@ -38,9 +38,13 @@ type brokerWriteTransactionBinding struct {
 	riskBaseCurrency              string
 	riskBaseCurrencyProvenance    ibkrlib.AccountBaseCurrencyProvenance
 	riskNotional                  orderNotionalAuthority
-	exerciseBound                 bool
-	exerciseDraft                 rpc.OrderDraft
-	testOnly                      bool
+	// riskProtectiveExit is the open-order evidence the protective stock
+	// exit exemption read at admission; the first-byte guard reuses it with
+	// the re-read position instead of issuing a broker request.
+	riskProtectiveExit protectiveExitInventory
+	exerciseBound      bool
+	exerciseDraft      rpc.OrderDraft
+	testOnly           bool
 }
 
 func (s *Server) currentTradingStatus() rpc.TradingStatus {
@@ -95,6 +99,8 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 		originBlockers = s.daemonPreAuthorisedOriginBlockers()
 	case rpc.OrderOriginDaemonOwnerQueued:
 		originBlockers = s.daemonOwnerQueuedOriginBlockers()
+	case rpc.OrderOriginDaemonProtectiveGuard:
+		originBlockers = s.protectiveStopGuardOriginBlockers()
 	}
 	for _, blocker := range originBlockers {
 		blockers = appendTradingBlockerOnce(blockers, blocker)
@@ -361,7 +367,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 				current.BaseCurrencyProvenance != binding.riskBaseCurrencyProvenance {
 				return fmt.Errorf("%w: portfolio risk authority changed after admission; preview again", ErrTradingDisabled)
 			}
-			if err := validateOrderRiskAuthority(cfg, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency); err != nil {
+			if err := validateOrderRiskAuthority(cfg, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 			}
 		}

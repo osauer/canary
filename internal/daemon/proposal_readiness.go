@@ -30,7 +30,8 @@ const (
 var (
 	readinessFrozenCodes = []string{tradingFrozenBlockerCode, tradingControlsChangedBlockerCode}
 	readinessBrokerCodes = []string{"gateway_unavailable", "gateway_account_unconfirmed", optionQuoteBrokerUnavailable,
-		"account_unavailable", "positions_unavailable", "positions_pending", "account_identity_unscoped", previewBrokerSessionChangedCode}
+		"account_unavailable", "positions_unavailable", "positions_pending", "account_identity_unscoped", previewBrokerSessionChangedCode,
+		protectiveExitInventoryUnavailableCode}
 	readinessHaltCodes    = []string{"market_event_" + rpc.MarketEventHaltRegulatoryOrNews, "market_event_" + rpc.MarketEventLULDPause}
 	readinessSessionCodes = []string{previewMarketClosedCode, "option_rth_closed"}
 	readinessSpreadCodes  = []string{"option_spread_too_wide", "wide_spread", previewBoundedSpreadCode}

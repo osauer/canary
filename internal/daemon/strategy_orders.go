@@ -168,7 +168,7 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 	if err != nil {
 		return nil, err
 	}
-	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency); err != nil {
+	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency, protectiveExitInventory{}); err != nil {
 		return nil, errBadRequest(err.Error())
 	}
 	whatIf, err := s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, previewAuthority)
