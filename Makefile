@@ -346,12 +346,16 @@ gofmt-check: ## Verify tracked / non-gitignored Go files are gofmt'd
 		exit 1; \
 	fi
 
+# The Go analysers below take their package list from go-tracked-packages.sh:
+# what `go list` matches, minus gitignored directories such as tmp/ probes,
+# which `./...` would otherwise include (same scope as gofmt-check).
 vet-check: ## Run go vet (both default and trading-tag builds)
-	go vet ./...
-	go vet -tags trading ./internal/... ./pkg/...
+	pkgs=$$(./scripts/go-tracked-packages.sh ./...) && go vet $$pkgs
+	pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./internal/... ./pkg/...) && go vet -tags trading $$pkgs
 
 staticcheck-check: ## Run staticcheck
-	@tool=$$(go -C tools tool -n staticcheck); "$$tool" -tags trading ./...
+	@pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./...) && \
+		tool=$$(go -C tools tool -n staticcheck) && "$$tool" -tags trading $$pkgs
 
 # govulncheck's verdict is keyed on the dependency set + toolchain + the
 # vulnerability DB — not on local code edits — so re-running it on every
@@ -366,8 +370,9 @@ govulncheck-check: ## Run govulncheck (skipped when deps unchanged and already s
 	if [ "$(GOVULN_FORCE)" != "1" ] && [ -r "$(GOVULN_STAMP)" ] && [ "$$(cat "$(GOVULN_STAMP)")" = "$$depshash $$today" ]; then \
 		echo "govulncheck: deps/toolchain unchanged, already scanned today — skipping (GOVULN_FORCE=1 to force)"; \
 	else \
+		pkgs=$$(./scripts/go-tracked-packages.sh ./...) && \
 		tool=$$(go -C tools tool -n govulncheck) && \
-		"$$tool" ./... && \
+		"$$tool" $$pkgs && \
 		"$$tool" -C tools -tags=tools -scan=module && \
 		(cd scripts/docgen/docs-html && "$$tool" ./...) && \
 		mkdir -p "$$(dirname "$(GOVULN_STAMP)")" && \
@@ -505,21 +510,25 @@ parity-check: ## Verify MCP tool inventory matches the CLI surface
 # if the tool ever grows another routine stderr message, extend the filter
 # explicitly instead of weakening it.
 modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go version)
-	@out=$$(go fix -diff ./...); \
+	@./scripts/go-tracked-packages_test.sh
+	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) || exit 1; \
+	out=$$(go fix -diff $$pkgs); \
 	if [ -n "$$out" ]; then \
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
-	@tool=$$(go -C tools tool -n modernize); \
-	out=$$("$$tool" ./... 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) || exit 1; \
+	tool=$$(go -C tools tool -n modernize); \
+	out=$$("$$tool" $$pkgs 2>&1 1>/dev/null | grep -v '^go: downloading'); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
 
 modernize: ## Apply go fix + modernize rewrites in place
-	go fix ./...
-	@tool=$$(go -C tools tool -n modernize); "$$tool" -fix ./...
+	pkgs=$$(./scripts/go-tracked-packages.sh ./...) && go fix $$pkgs
+	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) && \
+		tool=$$(go -C tools tool -n modernize) && "$$tool" -fix $$pkgs
 
 # Regenerate the docs/reference/*.md pages from their generators. The
 # generators live under scripts/docgen/; each emits one markdown file
