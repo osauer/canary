@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"strings"
 	"testing"
 	"time"
 )
@@ -126,5 +128,64 @@ func TestLendingMarketBoundedInterestIdentityAndExpiry(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("market worker did not join on shutdown")
+	}
+}
+
+// Delisted names that IBKR's short-stock file still lists answer "no security
+// definition" for their conID. The worker asks once per broker session, not
+// every five minutes: on 2026-10-04 each cycle logged a WARN per name, about
+// 200 lines an hour.
+func TestLendingMarketParksAContractTheBrokerDoesNotKnow(t *testing.T) {
+	c, _, now := lendingMarketFixture(t)
+	clock := now
+	s := &Server{now: func() time.Time { return clock }}
+	sessionCurrent := true
+	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
+	s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: now.Add(24 * time.Hour)}}
+	reads := 0
+	read := func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
+		reads++
+		empty := projectLendingMarket(c, nil, nil, clock)
+		return empty, empty, fmt.Errorf("chart: %w", ibkrlib.ErrContractNoDefinition)
+	}
+	visible := func() rpc.LendingMarketRow {
+		return lendingMarketVisible(s.lendingMarket.entries["AAA"], clock, lendingCompletedSession(clock))
+	}
+	s.refreshLendingMarketOnce(t.Context(), read)
+	if row := visible(); reads != 1 || row.Status != "unavailable" || !strings.Contains(row.Detail, "does not recognise") {
+		t.Fatalf("verdict not recorded: reads=%d row=%+v", reads, row)
+	}
+	// The old five-minute retry, then past the floor while the session holds.
+	for _, step := range []time.Duration{lendingMarketLifetime, marketHistoryDefinitionMissFloor} {
+		clock = clock.Add(step + time.Second)
+		s.refreshLendingMarketOnce(t.Context(), read)
+	}
+	if row := visible(); reads != 1 || row.Status != "unavailable" {
+		t.Fatalf("asked again within the broker session: reads=%d row=%+v", reads, row)
+	}
+	sessionCurrent = false
+	clock = clock.Add(marketHistoryDefinitionMissFloor + time.Second)
+	s.refreshLendingMarketOnce(t.Context(), read)
+	if reads != 2 {
+		t.Fatalf("a new broker session did not ask again: reads=%d", reads)
+	}
+}
+
+func TestLendingContractVerdictIsTheBrokersAnswerOnly(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want bool
+	}{
+		{fmt.Errorf("chart: %w", ibkrlib.ErrContractNoDefinition), true},
+		{ibkrlib.ErrSymbolInactive, true},
+		{&ibkrlib.HistoricalRequestError{Code: 162, Message: "Historical Market Data Service error message:Unknown contract"}, true},
+		{&ibkrlib.HistoricalRequestError{Code: 162, Message: "Historical Market Data Service error message:HMDS query returned no data"}, false},
+		{&ibkrlib.HistoricalRequestError{Code: 162, Message: "historical data pacing violation"}, false},
+		{context.DeadlineExceeded, false},
+		{nil, false},
+	} {
+		if got := lendingContractVerdict(tc.err); got != tc.want {
+			t.Errorf("lendingContractVerdict(%v) = %t, want %t", tc.err, got, tc.want)
+		}
 	}
 }

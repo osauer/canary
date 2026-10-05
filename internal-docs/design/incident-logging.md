@@ -161,7 +161,10 @@ WARN. Status keeps the live per-farm state regardless.
 Embedded calendars are compiled at most hourly unless the inferred market scope
 changes. One atomic pointer publishes merged intervals; log events perform only
 bounded timestamp comparisons, with no database, network, timezone, or calendar
-query. Expired views, clock rollback, and missing calendar coverage warn. A
+query. Expired views, clock rollback, and missing calendar coverage warn. The
+declaration is published when the daemon starts and stays published across
+connection attempts: a missing view reads as on duty, and clearing it on every
+dial kept each off-duty failure at WARN (the night of 2026-10-05). A
 quiet incident promotes on the next connection failure when duty begins; an
 ongoing backend outage promotes within the worker's minute cadence even without
 a new broker notice. Recovery considers the entire outage interval.

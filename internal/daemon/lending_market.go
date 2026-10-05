@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,9 @@ type lendingMarketEntry struct {
 	pricePhaseDone bool
 	brokerIdentity bool
 	fullHistoryAt  time.Time
+	// verdict is the broker's answer that it does not know this contract. The
+	// worker stops asking while it holds; see refreshLendingMarketOnce.
+	verdict *marketHistoryDefinitionMiss
 }
 type lendingMarketCache struct {
 	mu            sync.Mutex
@@ -284,39 +288,93 @@ func (s *Server) startLendingMarketRefresh(ctx context.Context) {
 				return
 			case <-ticker.C:
 			}
-			now := s.now().UTC()
-			cache := &s.lendingMarket
-			cache.mu.Lock()
-			symbol, selected := selectLendingMarket(cache, now, lendingCompletedSession(now))
-			cache.mu.Unlock()
-			if symbol == "" {
-				continue
-			}
-			readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), 35*time.Second)
-			row, daily := s.readLendingMarketContext(readCtx, selected)
-			cancel()
-			cache.mu.Lock()
-			if current, ok := cache.entries[symbol]; ok && current.contract == selected.contract {
-				current.row = row
-				current.daily = daily
-				if row.Contract.ConID > 0 {
-					current.contract = row.Contract
-				}
-				phaseOne := now.Before(selected.focusUntil) && !selected.pricePhaseDone
-				current.pricePhaseDone = current.pricePhaseDone || phaseOne
-				if !phaseOne && lendingNeedsHistory(selected, now, lendingCompletedSession(now)) {
-					current.fullHistoryAt = s.now().UTC()
-				}
-				current.attempted = s.now().UTC()
-				current.retry = s.now().Add(lendingMarketLifetime)
-				if phaseOne && daily.Price != nil {
-					current.retry = s.now()
-				}
-				cache.entries[symbol] = current
-			}
-			cache.mu.Unlock()
+			s.refreshLendingMarketOnce(ctx, s.readLendingMarketContext)
 		}
 	})
+}
+
+type lendingMarketReader func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error)
+
+// refreshLendingMarketOnce reads the next due entry. A broker verdict that it
+// does not know the contract parks the entry for the rest of that broker
+// session and at least marketHistoryDefinitionMissFloor: delisted names still
+// listed in IBKR's short-stock file drew a WARN "no security definition" per
+// name every five minutes (about 200 lines an hour on 2026-10-04).
+func (s *Server) refreshLendingMarketOnce(ctx context.Context, read lendingMarketReader) {
+	now := s.now().UTC()
+	cache := &s.lendingMarket
+	cache.mu.Lock()
+	symbol, selected := selectLendingMarket(cache, now, lendingCompletedSession(now))
+	cache.mu.Unlock()
+	if symbol == "" {
+		return
+	}
+	if selected.verdict != nil && s.marketHistoryDefinitionMissHolds(*selected.verdict, now) {
+		cache.mu.Lock()
+		if current, ok := cache.entries[symbol]; ok && current.contract == selected.contract {
+			current.retry = now.Add(marketHistoryDefinitionMissFloor)
+			if current.row.Price == nil {
+				current.row = lendingContractUnknown(current.contract, now, current.retry)
+			}
+			cache.entries[symbol] = current
+		}
+		cache.mu.Unlock()
+		return
+	}
+	readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), 35*time.Second)
+	row, daily, historyErr := read(readCtx, selected)
+	cancel()
+	var verdict *marketHistoryDefinitionMiss
+	if lendingContractVerdict(historyErr) {
+		s.mu.Lock()
+		connector := s.connector
+		s.mu.Unlock()
+		session, _ := connector.CaptureSession()
+		verdict = &marketHistoryDefinitionMiss{At: s.now().UTC(), Connector: connector, Session: session}
+		if row.Price == nil {
+			row = lendingContractUnknown(selected.contract, verdict.At, verdict.At.Add(marketHistoryDefinitionMissFloor))
+		}
+	}
+	cache.mu.Lock()
+	if current, ok := cache.entries[symbol]; ok && current.contract == selected.contract {
+		current.row = row
+		current.daily = daily
+		if row.Contract.ConID > 0 {
+			current.contract = row.Contract
+		}
+		phaseOne := now.Before(selected.focusUntil) && !selected.pricePhaseDone
+		current.pricePhaseDone = current.pricePhaseDone || phaseOne
+		if !phaseOne && lendingNeedsHistory(selected, now, lendingCompletedSession(now)) {
+			current.fullHistoryAt = s.now().UTC()
+		}
+		current.attempted = s.now().UTC()
+		current.retry = s.now().Add(lendingMarketLifetime)
+		if phaseOne && daily.Price != nil {
+			current.retry = s.now()
+		}
+		current.verdict = verdict
+		if verdict != nil {
+			current.retry = verdict.At.Add(marketHistoryDefinitionMissFloor)
+		}
+		cache.entries[symbol] = current
+	}
+	cache.mu.Unlock()
+}
+
+// lendingContractVerdict reports the broker's answer that it does not know a
+// contract, which holds for the broker session: no security definition or an
+// inactive symbol for the exact conID, or the historical service's "Unknown
+// contract" (code 162) for one that did resolve.
+func lendingContractVerdict(err error) bool {
+	if marketHistoryVerdict(err) {
+		return true
+	}
+	hErr, ok := errors.AsType[*ibkrlib.HistoricalRequestError](err)
+	return ok && hErr.Code == 162 && strings.Contains(strings.ToUpper(hErr.Message), "UNKNOWN CONTRACT")
+}
+
+func lendingContractUnknown(c rpc.ContractParams, now, until time.Time) rpc.LendingMarketRow {
+	return rpc.LendingMarketRow{Symbol: c.Symbol, Contract: c, Status: "unavailable", CheckedAt: now, ValidUntil: until, Detail: "IBKR does not recognise this contract; checked again after the broker session changes."}
 }
 
 type lendingIdentityResolver interface {
@@ -348,22 +406,25 @@ func resolveLendingMarketIdentity(ctx context.Context, source rpc.ContractParams
 	return out, nil
 }
 
-func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow) {
+// readLendingMarketContext also returns the history read's error, so the
+// worker can tell a broker verdict on the contract from a transient failure.
+func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
 	c := e.contract
 	now := s.now().UTC()
 	if c.ConID <= 0 {
 		connector := s.gatewayConnector()
 		if connector == nil {
-			return lendingIdentityUnavailable(c, now), rpc.LendingMarketRow{}
+			return lendingIdentityUnavailable(c, now), rpc.LendingMarketRow{}, nil
 		}
 		resolved, err := resolveLendingMarketIdentity(ctx, c, connector)
 		if err != nil {
-			return lendingIdentityUnavailable(c, s.now().UTC()), rpc.LendingMarketRow{}
+			return lendingIdentityUnavailable(c, s.now().UTC()), rpc.LendingMarketRow{}, nil
 		}
 		c = resolved
 	}
 	phaseOne := now.Before(e.focusUntil) && !e.pricePhaseDone
 	daily := e.daily
+	var historyErr error
 	if phaseOne || lendingNeedsHistory(e, now, lendingCompletedSession(now)) {
 		rangeName := "1Y"
 		readCtx := ctx
@@ -372,7 +433,8 @@ func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEn
 			rangeName = "1M"
 			readCtx, cancel = context.WithTimeout(ctx, 8*time.Second)
 		}
-		h, _ := s.marketHistoryRequest(readCtx, rpc.MarketHistoryParams{Contract: c, Range: rangeName})
+		var h *rpc.MarketHistoryResult
+		h, historyErr = s.marketHistoryRequest(readCtx, rpc.MarketHistoryParams{Contract: c, Range: rangeName})
 		cancel()
 		fresh := projectLendingMarket(c, h, nil, s.now().UTC())
 		daily = retainLendingCompletedPrice(daily, fresh, lendingCompletedSession(s.now().UTC()))
@@ -380,7 +442,8 @@ func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEn
 	daily.CheckedAt = s.now().UTC()
 	daily.ValidUntil = daily.CheckedAt.Add(lendingMarketLifetime)
 	row := daily
-	if ctx.Err() == nil && now.Before(e.quoteUntil) {
+	// A contract the broker just disowned is not quoted either.
+	if ctx.Err() == nil && now.Before(e.quoteUntil) && !lendingContractVerdict(historyErr) {
 		raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: c, TimeoutMs: 1500})
 		q, _ := s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
 		row = overlayLendingQuote(daily, c, q, s.now().UTC())
@@ -388,7 +451,7 @@ func (s *Server) readLendingMarketContext(ctx context.Context, e lendingMarketEn
 			daily = row
 		}
 	}
-	return row, daily
+	return row, daily, historyErr
 }
 
 func lendingIdentityUnavailable(c rpc.ContractParams, now time.Time) rpc.LendingMarketRow {

@@ -10,7 +10,8 @@ The report names both input paths and their modification times.
 For investigations, always use `-commit=false` and separate `-daemon-offset`
 and `-app-offset` paths. A dry run never creates or updates cursor state.
 
-Version 2 cursors record file identity, a line checkpoint and content digests.
+Version 2 cursors record file identity (the inode: macOS renumbers volumes at
+boot), a line checkpoint and content digests.
 Replacement and copy/truncate rotation replay the new file and consume the
 unread tail from `.1` when it can be matched. Missing rotation history is a
 coverage warning. Legacy numeric cursors replay both retained files once
