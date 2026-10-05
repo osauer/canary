@@ -1318,7 +1318,8 @@ func orderJournalEventPlacesWithOrigin(ev orderJournalEvent) bool {
 // origin a request did not record.
 func orderOriginForRead(origin string) string {
 	switch origin {
-	case rpc.OrderOriginAgent, rpc.OrderOriginHumanTTY, rpc.OrderOriginPairedDevice, rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued:
+	case rpc.OrderOriginAgent, rpc.OrderOriginHumanTTY, rpc.OrderOriginPairedDevice, rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued,
+		rpc.OrderOriginDaemonProtectiveGuard:
 		return origin
 	default:
 		return ""

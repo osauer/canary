@@ -147,6 +147,9 @@ func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc
 	if err := validateModifyDraft(view, payload.Draft); err != nil {
 		return nil, err
 	}
+	if err := s.protectiveStopGuardGrantCovers(p.Origin, protectiveStopGuardShrink, view, payload.Draft.Quantity); err != nil {
+		return nil, err
+	}
 
 	now := s.orderNow()
 	attemptID, err := randomTokenID()
@@ -247,6 +250,9 @@ func (s *Server) cancelOrderForAction(ctx context.Context, p rpc.OrderCancelPara
 	}
 	if !view.CancelEligible {
 		return nil, errBadRequest("order is not cancel-eligible")
+	}
+	if err := s.protectiveStopGuardGrantCovers(p.Origin, protectiveStopGuardCancel, view, 0); err != nil {
+		return nil, err
 	}
 	if bindingErr != nil {
 		return nil, bindingErr

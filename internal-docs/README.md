@@ -1,6 +1,6 @@
 # Internal docs index
 
-Updated: 2026-09-30 21:25 CEST
+Updated: 2026-10-05 17:56 CEST
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
@@ -24,6 +24,7 @@ and this index needs the fix.
 | [design/alert-regime-production.md](design/alert-regime-production.md) | Source-neutral alert inbox and Web Push delivery |
 | [design/post-trade-truth.md](design/post-trade-truth.md) | Statement-authoritative post-trade reporting |
 | [design/protection-trailing-stop-tif.md](design/protection-trailing-stop-tif.md) | Protection proposal trailing-stop and TIF semantics |
+| [design/protective-stop-guard.md](design/protective-stop-guard.md) | Protective stock exit exemption from the notional and short gates, and the stop guard |
 | [design/regime-calibration.md](design/regime-calibration.md) | Regime indicator calibration and journal contract |
 | [design/regime-input-currency.md](design/regime-input-currency.md) | Regime input currency model (`regime-currency-v1`) |
 | [design/documentation-ia.md](design/documentation-ia.md) | Public handbook information architecture |

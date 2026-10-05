@@ -487,7 +487,12 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err != nil {
 		return nil, previewStageRefusal(previewNotionalUnavailableCode, err)
 	}
-	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency); err != nil {
+	var replaceTarget orderPreviewReplaceTarget
+	if scope == rpc.OrderTokenScopeModify {
+		replaceTarget = replaceTargetFromView(replaceView)
+	}
+	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, position, replaceTarget)
+	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory); err != nil {
 		return nil, refusePreviewCode(previewRiskLimitCode, errBadRequest(err.Error()))
 	}
 	var whatIf rpc.OrderWhatIfResult

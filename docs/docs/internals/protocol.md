@@ -29,7 +29,12 @@ apparent close or reduction. `reqAllOpenOrders` covers API-created orders across
 clients but cannot prove that a manual TWS order has not already consumed exit
 capacity, so sell-side apparent exits also pass the short/sell-to-open gates
 under worst-case exposure. If that blocks a genuine exit, use TWS and then
-refresh and reconcile the daemon.
+refresh and reconcile the daemon. One narrow exemption applies: a stock/ETF
+sell stop that sells at most the long position passes both gates while the
+complete current open-order inventory shows no other working sell that would,
+with it, exceed the position; the daemon's protective stop guard then keeps
+Canary's own stops no larger than the position
+([Protection](../operate/protection.md#protective-stop-exemption-and-guard)).
 
 The account-base unit used by those caps is exact-session authority. A
 completed one-shot account-summary response must identify it through the

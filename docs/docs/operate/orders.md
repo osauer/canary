@@ -48,7 +48,9 @@ Each row of `canary orders open --json`, `orders history` and `order status`
 carries the `origin` journaled with the request that placed it: `agent`,
 `human-tty`, `human-paired-device`, `daemon-preauthorised` or
 `daemon-owner-queued` (a queued authorisation the owner signed). Modify and
-cancel requests keep their own origin on their events. A row without an origin
+cancel requests keep their own origin on their events; the daemon's protective
+stop guard journals `daemon-protective-guard` when it shrinks or cancels one of
+Canary's own stops. A row without an origin
 was not placed through Canary. `canary orders open` also lists, under
 `untracked`, the orders working at the broker that Canary's journal does not
 track, such as orders entered by hand in TWS. They come from the broker's

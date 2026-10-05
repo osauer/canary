@@ -283,7 +283,7 @@ func SettingsKeys() []SettingsKeySpec {
 		},
 		{
 			Key: "trading.limits.max_notional", Kind: SettingsKindFloat, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].max_notional, the notional cap for every equity/ETF order including apparent exits; null falls back to the TOML value.",
+			Doc: "Runtime override of [trading].max_notional, the notional cap for every equity/ETF order including apparent exits, except a protective stop selling at most a long position with no competing working sell (kept no larger than the position by the daemon's stop guard); null falls back to the TOML value.",
 		},
 		{
 			Key: "trading.limits.max_option_contracts", Kind: SettingsKindInt, Class: SettingsClassTradingLimit,
@@ -291,7 +291,7 @@ func SettingsKeys() []SettingsKeySpec {
 		},
 		{
 			Key: "trading.limits.allow_stock_short", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].allow_stock_short; null falls back to the TOML value.",
+			Doc: "Runtime override of [trading].allow_stock_short, which apparent stock sell exits also need unless they are exempt protective stops; null falls back to the TOML value.",
 		},
 		{
 			Key: "trading.limits.allow_option_sell_to_open", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,

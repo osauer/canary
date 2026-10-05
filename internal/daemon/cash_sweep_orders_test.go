@@ -505,10 +505,10 @@ func TestOrderPreviewAdmitsBondOnlyForASweepRow(t *testing.T) {
 	// A bond order that would open a short is refused whatever the config.
 	draft := rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: rpc.ContractParams{SecType: "BOND", Currency: "USD", ConID: 7101}, Quantity: 5}
 	auth := orderNotionalAuthority{QuoteNotional: 5000, ContractCurrency: "USD", BaseNotional: 5000, BaseCurrency: "USD", BasePerContract: 1, EvidenceAt: now, Source: orderFXSourceIdentity}
-	if err := validateOrderRiskAuthority(config.Trading{AllowStockShort: true}, draft, rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}, auth, "USD"); err == nil {
+	if err := validateOrderRiskAuthority(config.Trading{AllowStockShort: true}, draft, rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}, auth, "USD", protectiveExitInventory{}); err == nil {
 		t.Fatal("a bond short passed the risk authority")
 	}
-	if err := validateOrderRiskAuthority(config.Trading{}, draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD"); err != nil {
+	if err := validateOrderRiskAuthority(config.Trading{}, draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD", protectiveExitInventory{}); err != nil {
 		t.Fatalf("a bond reduce was refused: %v", err)
 	}
 }
