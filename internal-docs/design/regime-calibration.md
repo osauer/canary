@@ -174,6 +174,30 @@ failure. Provisional reds no longer:
 - appear in `confirmed_by`,
 - carry `timing: contemporaneous` or `severity: act` in evidence rows.
 
+**Cash veto corroboration is stress-only (2026-10-05 18:50 CEST).** The
+official HY OAS veto on a row-confirmed HYG red could be overridden by *any*
+independent eligible red. Breadth is the other internals-versus-index read and
+binds red on the same "SPY near highs" anchor as the HYG proxy, so the two
+corroborated each other: HYG 2.6% below its 50DMA for 21 sessions with HY OAS
+at 3.10% (fresh, green, 20d widening 0.42 pp) was rescued by a 19-session
+breadth red at 24.7%, and the pair reached `confirmed_stress` with VIX 15.5,
+VIX/VIX3M 0.86 and VVIX at the 9th percentile of its year — the incident's
+"two marginal reds rescued each other" shape, between the two divergence
+reads. `hasIndependentStressRed` now limits the override to an eligible red in
+a cluster that measures stress directly (equity vol, funding, FX carry, dealer
+gamma). With the veto standing, the credit cluster reads yellow, breadth is a
+single eligible red, and the stage is `early_warning`/watch; the same tape
+co-sign paths (SPY ≤ −2.5%, VIX +20%) still confirm from one red. The 2026-08-11
+operator decision stands: an absent or stale cash read never vetoes.
+
+Known residual, not changed here: the HYG 50DMA is built from unadjusted
+`TRADES` closes, so each monthly distribution (≈0.5% of price) steps the price
+below a lagging average. In a flat-spread tape the proxy therefore sits a few
+tenths below its 50DMA by construction, above the 0.25% eligibility floor.
+A dividend-adjusted series (`ADJUSTED_LAST`) or a HYG/IEI duration-matched
+ratio would remove the bias; it changes the measured series and the streak
+history, so it is an operator decision.
+
 ### Per-indicator calibration table
 
 Band boundaries (green/yellow/red) are unchanged in this design — they are

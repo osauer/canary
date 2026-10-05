@@ -1000,7 +1000,7 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 		redEligible(r.Breadth.RegimeIndicatorMeta),
 	}
 	confirmed := append([]string(nil), raw...)
-	if r.HYGSPYDivergence.Band == "red" && creditCashVetoesProxy(r.CreditSpreads, r.AsOf) && !hasIndependentEligibleRed(raw, eligible, RegimeClusterCredit) {
+	if r.HYGSPYDivergence.Band == "red" && creditCashVetoesProxy(r.CreditSpreads, r.AsOf) && !hasIndependentStressRed(raw, eligible, RegimeClusterCredit) {
 		confirmed[RegimeClusterCredit] = "yellow"
 	}
 	if r.USDJPY.Band == "red" && !hasIndependentEligibleRed(raw, eligible, RegimeClusterFX) {
@@ -1057,6 +1057,38 @@ func creditCashVetoesProxy(cs RegimeCreditSpreads, asOf time.Time) bool {
 // gammaRedEligible additionally requires the rankability gate the gamma vote
 func gammaRedEligible(g RegimeGammaZero) bool {
 	return rankableLifecycleGammaBand(g) == "red" && g.Eligibility != nil && g.Eligibility.Eligible
+}
+
+// regimeDivergenceCluster reports the internals-versus-index reads: the HYG
+// proxy (HYG below its 50DMA while SPY sits near its 52-week high) and SPX
+// breadth (members below their 50DMA while the index sits near highs). Both
+// describe narrow leadership, not market stress, and both bind red on the
+// same "SPY near highs" anchor, so one cannot corroborate the other.
+func regimeDivergenceCluster(i int) bool {
+	return i == RegimeClusterCredit || i == RegimeClusterBreadth
+}
+
+// hasIndependentStressRed is the corroboration the cash-credit veto may be
+// overridden by: an eligible red in a cluster that measures stress directly
+// (equity vol, funding, FX carry, dealer gamma). A fresh official HY OAS read
+// that disagrees with the HYG proxy is the direct measurement of the thing
+// the proxy approximates; only a stress cluster can outweigh it. Breadth
+// cannot — 2026-10-05: a 21-session HYG-below-50DMA red with HY OAS at 3.10%
+// (green, fresh) was rescued from the cash veto by a 19-session breadth red,
+// and the pair confirmed "stress" with VIX 15.5, VIX/VIX3M 0.86 and VVIX at
+// the 9th percentile of its year. That is the 2026-06-12 incident's "two
+// marginal reds rescued each other" shape again, this time between the two
+// divergence reads.
+func hasIndependentStressRed(bands []string, eligible []bool, self int) bool {
+	for i, band := range bands {
+		if i == self || regimeDivergenceCluster(i) {
+			continue
+		}
+		if band == "red" && i < len(eligible) && eligible[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func hasIndependentEligibleRed(bands []string, eligible []bool, self int) bool {
