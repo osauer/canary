@@ -90,7 +90,7 @@ func TestRegimeBreadthMissingIsNotMeasuredZero(t *testing.T) {
 		status   string
 		coverage int
 		want     string
-	}{{rpc.RegimeStatusUnavailable, 0, "50dma% unavailable"}, {rpc.RegimeStatusComputing, 0, "50dma% unavailable"}, {rpc.RegimeStatusOK, 500, "50dma% 0.00"}, {rpc.RegimeStatusStale, 500, "50dma% 0.00"}} {
+	}{{rpc.RegimeStatusUnavailable, 0, "unavailable above 50-day average"}, {rpc.RegimeStatusComputing, 0, "unavailable above 50-day average"}, {rpc.RegimeStatusOK, 500, "0.0% above 50-day average"}, {rpc.RegimeStatusStale, 500, "0.0% above 50-day average"}} {
 		var out bytes.Buffer
 		renderRegime(&Env{Stdout: &out}, rpc.RegimeSnapshotResult{Breadth: rpc.RegimeBreadth{Status: tc.status, Envelope: rpc.BreadthSPXResult{Coverage50: tc.coverage}}}, false)
 		if !strings.Contains(out.String(), tc.want) {

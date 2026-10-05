@@ -34,7 +34,7 @@ func TestRenderStatusNamesAPortThatDropsConnections(t *testing.T) {
 		"Next concern   Broker API port accepts connections and drops them before the handshake",
 		"  " + hint,
 	} {
-		if !strings.Contains(got, want) {
+		if !strings.Contains(strings.Join(strings.Fields(got), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Fatalf("status missing %q:\n%s", want, got)
 		}
 	}

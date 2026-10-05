@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/risk"
+	"slices"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -58,32 +59,34 @@ func renderRegime(env *Env, res rpc.RegimeSnapshotResult, explain bool) {
 	} else if !current {
 		verdict = "recorded verdict: " + verdict
 	}
-	riskReadLine(env, "Regime", verdict)
+	tone := monitor.Posture.Tone
+	if !current {
+		tone = ""
+	}
+	riskDisplayLine(env, env.bold("Regime")+"  ", verdict, func(s string) string { return riskTone(env, tone, env.bold(s)) })
+	if current && res.Summary.PunchLine != "" {
+		riskDisplayLine(env, "", res.Summary.PunchLine, nil)
+	}
 	if h := res.AuthorityHealth; h != nil {
 		riskReadLine(env, "Evidence", string(h.Status), strings.ReplaceAll(string(h.FailureCode), "_", " "))
 		if h.LastSuccessAt != nil {
-			riskReadLine(env, "Last successful refresh", h.LastSuccessAt.Local().Format("2 Jan 15:04 MST"))
+			if explain || !current {
+				riskReadLine(env, "Last successful refresh", h.LastSuccessAt.Local().Format("2 Jan 15:04 MST"))
+			}
 		}
 	}
-	riskReadLine(env, "Readiness", res.Lifecycle.Readiness)
+	riskReadLine(env, "Readiness", res.Lifecycle.Readiness, string(res.Lifecycle.Severity))
 	if explain {
 		riskReadLine(env, "Snapshot generated", res.AsOf.Local().Format("2 Jan 15:04 MST"), res.Lifecycle.Stage)
 		riskReadLine(env, "Clusters", res.Summary.Evidence)
 	}
-	fmt.Fprintln(env.Stdout, "\nIndicators")
+	fmt.Fprintln(env.Stdout, "\n"+env.bold("Indicators"))
+	if current {
+		riskDisplayLine(env, "  ", "Green constructive · Amber mixed · Red stressed · — unrated", env.dim)
+	}
+	values := regimeDisplayValues(res)
 	for _, row := range monitor.Indicators {
-		reading := row.Reading
-		if reading == "" {
-			reading = "unavailable"
-		}
-		band := row.Band
-		if !current || row.Status != rpc.RegimeStatusOK {
-			band = ""
-			if reading != "unavailable" {
-				reading = "recorded: " + reading
-			}
-		}
-		riskReadLine(env, "  "+row.Name, reading, row.Status, strings.ReplaceAll(row.FreshnessClass, "_", " "), band)
+		renderRegimeIndicator(env, row, values[row.Name], current, explain)
 		if explain && (!current || row.Status != rpc.RegimeStatusOK) && row.Band != "" {
 			riskReadLine(env, "    Recorded band", row.Band, "not a current rating")
 		}
@@ -179,16 +182,39 @@ func runStress(ctx context.Context, env *Env, args []string) int {
 }
 
 func renderStress(env *Env, res rpc.StressResult, details bool) {
-	riskReadLine(env, "Portfolio stress", strings.ReplaceAll(res.Action, "_", " "), string(res.Severity))
-	riskReadLine(env, "Assessment", res.Summary)
-	riskReadLine(env, "Inputs", res.InputHealth, "market: "+res.MarketConfirmation, "portfolio fit: "+res.PortfolioFit)
+	action := strings.ToUpper(strings.ReplaceAll(nonEmpty(res.Action, "unavailable"), "_", " "))
+	riskDisplayLine(env, env.bold("Portfolio stress")+"  ", action, func(s string) string { return riskTone(env, string(res.Severity), env.bold(s)) })
+	riskDisplayLine(env, "", res.Summary, nil)
+	riskReadLine(env, "Inputs", res.InputHealth, "market confirmation: "+res.MarketConfirmation, "portfolio relevance: "+res.PortfolioFit)
+	rows := slices.Clone(res.Rows)
+	// Rank only the display order. A severe finding does not override the
+	// producer's overall assessment or its confirmation/coverage gates.
+	rank := func(s risk.SignalSeverity) int {
+		switch s {
+		case risk.SeverityUrgent:
+			return 3
+		case risk.SeverityAct:
+			return 2
+		case risk.SeverityWatch:
+			return 1
+		default:
+			return 0
+		}
+	}
+	slices.SortStableFunc(rows, func(a, b rpc.StressRow) int { return rank(b.Severity) - rank(a.Severity) })
+	for _, row := range rows {
+		if row.Title != "Portfolio stress" && rank(row.Severity) > rank(res.Severity) {
+			riskReadLine(env, "Finding levels", "Individual findings exceed the overall rating; see below.")
+			break
+		}
+	}
 	for _, group := range []struct {
 		title   string
 		quality bool
 	}{{"Findings", false}, {"Coverage gaps", true}} {
 		printed := false
-		for i, row := range res.Rows {
-			if i == 0 && row.Title == "Portfolio stress" {
+		for _, row := range rows {
+			if row.Title == "Portfolio stress" {
 				continue
 			}
 			if (row.Direction == risk.DirectionDataQuality) != group.quality {
@@ -198,12 +224,15 @@ func renderStress(env *Env, res rpc.StressResult, details bool) {
 				continue
 			}
 			if !printed {
-				fmt.Fprintln(env.Stdout, "\n"+group.title)
+				fmt.Fprintln(env.Stdout, "\n"+env.bold(group.title))
 				printed = true
 			}
-			riskReadLine(env, "  "+row.Title, string(row.Severity), row.Evidence)
+			badge := strings.ToUpper(nonEmpty(sanitizeRunText(string(row.Severity)), "unknown"))
+			prefix := "  " + riskTone(env, string(row.Severity), fmt.Sprintf("%-7s", badge)) + " "
+			riskDisplayLine(env, prefix, row.Title, env.bold)
+			riskDisplayLine(env, "    ", row.Evidence, nil)
 			if details || !group.quality {
-				riskReadLine(env, "    ", row.Guidance)
+				riskDisplayLine(env, "    ", row.Guidance, env.dim)
 			}
 		}
 	}

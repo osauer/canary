@@ -62,24 +62,24 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	fmt.Fprintf(out, "IBKR Gateway  %s\n", env.statusBadge(apiStatusConcern(res.Verdict.State, res.Verdict.State)))
 	fmt.Fprintln(out)
 
-	statusRow(env, out, "Session", formatSessionValue(env, *res))
-	statusRow(env, out, "Market data", formatMarketDataValue(env, *res))
+	statusHealthRow(env, out, "Session", formatSessionValue(env, *res))
+	statusHealthRow(env, out, "Market data", formatMarketDataValue(env, *res))
 	if len(res.DataFarms) > 0 {
-		statusRow(env, out, "Data farms", env.yellow(formatDataFarmsValue(res.DataFarms)))
+		statusHealthRow(env, out, "Data farms", env.yellow(formatDataFarmsValue(res.DataFarms)))
 	}
 	if len(res.MarketDataAccess) > 0 {
-		statusRow(env, out, "Market access", env.yellow(formatMarketDataAccessValue(res.MarketDataAccess)))
+		statusHealthRow(env, out, "Market access", formatMarketDataAccessStatus(env, res.MarketDataAccess))
 	}
-	statusRow(env, out, "Daemon", formatDaemonValue(*res))
+	statusHealthRow(env, out, "Daemon", formatDaemonValue(*res))
 	switch {
 	case res.Connected:
-		statusRow(env, out, "TWS", formatTWSValue(*res))
+		statusHealthRow(env, out, "TWS", formatTWSValue(*res))
 	case isHandshakeInFlight(*res):
-		statusRow(env, out, "TWS", env.dim("handshake in progress"))
+		statusHealthRow(env, out, "TWS", env.dim("handshake in progress"))
 	case res.GatewayPhase == rpc.GatewayPhasePortRejecting:
-		statusRow(env, out, "TWS", env.red(formatPortRejectionValue(*res)))
+		statusHealthRow(env, out, "TWS", env.red(formatPortRejectionValue(*res)))
 	default:
-		statusRow(env, out, "TWS", env.red("not connected"))
+		statusHealthRow(env, out, "TWS", env.red("not connected"))
 	}
 	if link := res.BackendLink; link != nil && link.Losses > 0 {
 		value := formatBackendLinkValue(*link)
@@ -89,47 +89,53 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		if link.Down || link.Losses > link.LossesInMaintenanceWindow {
 			value = env.yellow(value)
 		}
-		statusRow(env, out, "Backend link", value)
+		statusHealthRow(env, out, "Backend link", value)
 	}
 	if restart := res.GatewayRestart; restart != nil && restart.Source == "operator" {
-		statusRow(env, out, "GW restart", restart.Time+" "+restart.Timezone+" · "+restart.State+" · "+restart.Reason)
+		statusHealthRow(env, out, "GW restart", restart.Time+" "+restart.Timezone+" · "+restart.State+" · "+restart.Reason)
 	}
 	for _, lane := range res.AnswerPath {
 		if lane.State == rpc.AnswerPathStalled {
-			statusRow(env, out, "Answers", env.yellow(formatStalledAnswerPath(lane)))
+			statusHealthRow(env, out, "Answers", env.yellow(formatStalledAnswerPath(lane)))
 		}
 	}
 	if len(res.BackgroundTasks) > 0 {
-		statusRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
+		statusHealthRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
 	}
 	if len(res.Subsystems) > 0 {
-		statusRow(env, out, "Subsystems", formatSubsystemsValue(env, res.Subsystems))
+		statusHealthRow(env, out, "Subsystems", formatSubsystemsValue(env, res.Subsystems))
 	}
 	if res.Trading.Mode != "" {
-		statusRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
+		statusHealthRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
 	}
 	if alerts != nil {
 		if value := formatAlertCoverageValue(env, alerts.Coverage); value != "" {
-			statusRow(env, out, "Alerts", value)
+			statusHealthRow(env, out, "Alerts", value)
 		}
 	}
 	if res.PushDelivery != nil {
-		statusRow(env, out, "Phone push", formatPushDeliveryValue(env, *res.PushDelivery, time.Now()))
+		statusHealthRow(env, out, "Phone push", formatPushDeliveryValue(env, *res.PushDelivery, time.Now()))
 	}
 	if len(res.DataQuality) > 0 {
-		statusRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
+		statusHealthRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
 	}
 	if members := formatMembersValue(res.Members); members != "" {
-		statusRow(env, out, "SPX members", members)
+		statusHealthRow(env, out, "SPX members", members)
 	}
 	if res.DataHealth != nil {
-		statusRow(env, out, "Data health", res.DataHealth.Summary.Label)
+		statusHealthRow(env, out, "Data health", res.DataHealth.Summary.Label)
+		for _, concern := range res.DataHealth.Concerns {
+			if concern.Label != "" && res.Verdict.State != "READY" && (res.Verdict.Reason == concern.Label || strings.HasPrefix(res.Verdict.Reason, concern.Label+" · ")) {
+				continue // The daemon's primary concern is already printed below.
+			}
+			statusHealthRow(env, out, "Source concern", env.yellow(sanitizeRunText(concern.Label)))
+		}
 	}
-	if res.Verdict.Reason != "" {
-		statusRow(env, out, "Next concern", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
+	if res.Verdict.Reason != "" && res.Verdict.State != "READY" {
+		statusHealthRow(env, out, "Next concern", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
 	}
 	if daemonVersionDrift(res.DaemonVersion, cliVersion) {
-		statusRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
+		statusHealthRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
 	}
 
 	if isHandshakeInFlight(*res) {
@@ -150,6 +156,7 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		}
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
+	statusHealthRow(env, out, "Colors", env.dim("Amber = row needs attention; Gateway verdict is separate."))
 	fmt.Fprintln(out)
 }
 
@@ -206,6 +213,16 @@ func formatAlertCoverageValue(env *Env, coverage rpc.AlertCoverage) string {
 
 func statusRow(env *Env, out io.Writer, label, value string) {
 	fmt.Fprintf(out, "%s %s\n", env.dim(fmt.Sprintf("%-14s", label)), value)
+}
+
+func statusHealthRow(env *Env, out io.Writer, label, value string) {
+	for i, line := range wrapVisibleText(value, max(1, briefProseWidth(out)-15)) {
+		prefix := strings.Repeat(" ", 15)
+		if i == 0 {
+			prefix = env.dim(fmt.Sprintf("%-14s", label)) + " "
+		}
+		fmt.Fprintln(out, prefix+line)
+	}
 }
 
 type statusConcernLevel int
@@ -379,7 +396,7 @@ func statusAccountID(res rpc.HealthResult) string {
 func formatStatusAccountMode(env *Env, mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case rpc.AccountModePaper:
-		return env.yellow(env.bold("PAPER"))
+		return env.bold("PAPER")
 	case rpc.AccountModeLive:
 		return "live"
 	case rpc.AccountModeUnknown:
@@ -437,6 +454,23 @@ func formatDataFarmsValue(farms []rpc.DataFarmHealth) string {
 // marketDataAccessNamed bounds how many refused route keys the one-line
 const marketDataAccessNamed = 3
 
+// A received delayed fallback is a delivery mode, not a new access failure.
+// Keep the observation visible without assigning a second health verdict.
+// Missing fallback evidence stays amber, even for an ordinarily delayed index.
+func formatMarketDataAccessStatus(env *Env, items []rpc.MarketDataAccessHealth) string {
+	parts := make([]string, 0, len(items))
+	for _, item := range items {
+		text := sanitizeRunText(formatMarketDataAccessItem(item))
+		if !item.FallbackReceivedAt.IsZero() && (item.FallbackDataType == rpc.MarketDataDelayed || item.FallbackDataType == rpc.MarketDataDelayedFrozen) {
+			text = env.dim("INFO · " + text)
+		} else {
+			text = env.yellow("CHECK · " + text)
+		}
+		parts = append(parts, text)
+	}
+	return strings.Join(parts, "; ")
+}
+
 // formatMarketDataAccessValue renders the route keys the gateway is currently
 // refusing market data for. It reports the observation and the window, never a
 // verdict about the account's entitlements: a name absent from this list was
@@ -463,7 +497,7 @@ func formatMarketDataAccessItem(item rpc.MarketDataAccessHealth) string {
 		name = "unknown"
 	}
 	part := name + " " + marketDataAccessReasonLabel(item.Reason)
-	if item.FallbackDataType == rpc.MarketDataDelayed || item.FallbackDataType == rpc.MarketDataDelayedFrozen {
+	if !item.FallbackReceivedAt.IsZero() && (item.FallbackDataType == rpc.MarketDataDelayed || item.FallbackDataType == rpc.MarketDataDelayedFrozen) {
 		label := "delayed data in use"
 		if item.FallbackDataType == rpc.MarketDataDelayedFrozen {
 			label = "delayed last-session data in use"
@@ -605,7 +639,7 @@ func formatSubsystemsValue(env *Env, subs []rpc.SubsystemHealth) string {
 		}
 		status := s.Status
 		switch s.Status {
-		case "computing", "degraded":
+		case "degraded":
 			status = env.yellow(status)
 		case "unavailable", "error":
 			status = env.red(status)

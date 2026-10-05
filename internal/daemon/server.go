@@ -1695,13 +1695,14 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 				s.mu.Lock()
 				expected := s.connector
 				s.mu.Unlock()
+				// The scheduled view stays published across candidates. Inventory
+				// only widens the declaration, so the last view is never quieter
+				// than the new session's; clearing it here made every failed dial
+				// log at WARN (all night on 2026-10-05).
 				if s.withConnectorEvidencePublication(expected, real, func() {
 					s.endpoint = cand
 					s.lastConnectError = ""
 					s.connector = real
-					if s.cfg != nil && s.cfg.Daemon.LogCalendarMode == "scheduled" {
-						s.gatewaySchedule.view.Store(nil)
-					}
 					s.connectorEpoch++
 				}) {
 					break

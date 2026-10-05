@@ -124,9 +124,13 @@ single proxy red is treated as a yellow watch only when the official cash
 gauge affirmatively disagrees: a recent OAS read (within 5 calendar days)
 that is neither red nor widening 0.50 pp or more over 20 observations. Cash
 that is red, cash that is widening at that pace, an absent or stale official
-read, or another independent red cluster all leave the proxy red standing —
-unknown cash evidence never softens a live warning. The row stays visible
-either way; it just does not get to call broad stress alone.
+read, or an independent red in a cluster that measures stress directly
+(volatility, funding, FX, or gamma) all leave the proxy red standing —
+unknown cash evidence never softens a live warning. A red breadth cluster
+does not count as that corroboration: breadth is the other
+internals-versus-index read and turns red on the same "SPY near highs"
+anchor, so the two would only be confirming each other. The row stays
+visible either way; it just does not get to call broad stress alone.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |

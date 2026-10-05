@@ -151,7 +151,7 @@ func formatTradingStatusValue(env *Env, st rpc.TradingStatus) string {
 		return env.yellow(st.Mode + " " + msg)
 	}
 	if st.Mode == config.TradingModeLive {
-		return env.yellow("live ready")
+		return env.bold("LIVE") + " · ready"
 	}
 	return env.green(st.Mode + " ready")
 }

@@ -64,6 +64,15 @@ func cursorMatches(c logCursor, lines []string) bool {
 		c.Boundary == lineHash(lines[max(0, c.Lines-1):c.Lines])
 }
 
+// sameFileIdentity compares inodes. Cursors written before 2026-10-05 stored
+// "device:inode", and macOS assigns the device number anew at each boot.
+func sameFileIdentity(stored, current string) bool {
+	if _, inode, ok := strings.Cut(stored, ":"); ok {
+		stored = inode
+	}
+	return stored == current
+}
+
 func readLog(path string) ([]string, os.FileInfo, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -119,7 +128,7 @@ func scanIncremental(logPath, offsetPath string) (scannedLog, error) {
 	next := logCursor{Version: 2, Path: path, Identity: identity, Lines: len(all), Prefix: lineHash(all[:min(len(all), 32)]), Boundary: lineHash(all[max(0, len(all)-1):]), Days: previous.Days, Starts: previous.Starts}
 	scanned := scannedLog{state: "unchanged", path: path, modified: info.ModTime(), total: len(all), cursor: next}
 	offset := 0
-	if previous.Version == 2 && previous.Path == path && previous.Identity == identity && cursorMatches(previous, all) {
+	if previous.Version == 2 && previous.Path == path && sameFileIdentity(previous.Identity, identity) && cursorMatches(previous, all) {
 		offset = previous.Lines
 	} else if previous.Version != 0 {
 		scanned.offsetReset = true
@@ -137,7 +146,7 @@ func scanIncremental(logPath, offsetPath string) (scannedLog, error) {
 				return scannedLog{}, readErr
 			}
 			// The digest also handles copy/truncate rotation, whose backup has a new inode.
-			if readErr == nil && cursorMatches(previous, older) && (previous.Identity == fileIdentity(oldInfo) || previous.Lines > 0) {
+			if readErr == nil && cursorMatches(previous, older) && (sameFileIdentity(previous.Identity, fileIdentity(oldInfo)) || previous.Lines > 0) {
 				scanned.lines = append(scanned.lines, older[previous.Lines:]...)
 			} else {
 				scanned.coverage = "log replaced or truncated; unread rotated tail is unavailable"

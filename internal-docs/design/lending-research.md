@@ -49,6 +49,10 @@ USD names in the borrowing feed. Missing exact contract IDs stay unavailable.
 The daemon queues at most 150 names, follows requested names for 15 minutes,
 and refreshes one at a time on the background lane, with a 35-second bound and
 five-minute retry/receipt interval. No quote fan-out occurs inside the screen read.
+A name IBKR does not recognise (no security definition, inactive, or the history
+service's "Unknown contract") shows unavailable and is not asked again until the
+broker session changes, and for at least 30 minutes: delisted names the feed still
+lists otherwise drew a broker WARN every five minutes each.
 History reuses the existing durable cache without adding chart-refresh interests.
 
 Rows carry last completed close or a recent actual trade (including delayed-feed

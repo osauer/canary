@@ -162,23 +162,26 @@ func (s *Server) publishGatewaySchedule(c *ibkrlib.Connector, epoch uint64, view
 }
 
 func (s *Server) startGatewaySchedule(ctx context.Context) {
+	var cfg config.Daemon
+	if s.cfg != nil {
+		cfg = s.cfg.Daemon
+	}
+	markets := cfg.GatewayLogMarkets()
+	always := len(markets) == 0
+	if always {
+		return
+	}
+	// The daemon's automatic gamma/breadth work requires both US calendars.
+	for _, m := range []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions} {
+		if !slices.Contains(markets, m) {
+			markets = append(markets, m)
+		}
+	}
+	before, after := cfg.GatewayLogPadding()
+	// Publish the declaration before the first dial can log against it; a
+	// missing view reads as on duty. The worker refines it from here.
+	s.gatewaySchedule.view.Store(compileGatewaySchedule(s.gatewayLogClock(), markets, before, after, false))
 	s.gatewaySchedule.wg.Go(func() {
-		var cfg config.Daemon
-		if s.cfg != nil {
-			cfg = s.cfg.Daemon
-		}
-		markets := cfg.GatewayLogMarkets()
-		always := len(markets) == 0
-		if always {
-			return
-		}
-		// The daemon's automatic gamma/breadth work requires both US calendars.
-		for _, m := range []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions} {
-			if !slices.Contains(markets, m) {
-				markets = append(markets, m)
-			}
-		}
-		before, after := cfg.GatewayLogPadding()
 		if cfg.LogCalendarMode != "scheduled" {
 			// Conservative mode preserves incident warnings. Its baseline still
 			// promotes repeated backend losses during Asian/other duty windows.

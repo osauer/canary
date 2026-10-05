@@ -43,6 +43,38 @@ func TestRotationConsumesUnreadTailAndEntireReplacement(t *testing.T) {
 	}
 }
 
+// macOS gives the data volume a new device number at each boot. A cursor that
+// differs only there names the same file, so the scan resumes at its
+// checkpoint; on 2026-10-04 and 2026-10-05 a reboot replayed the whole week.
+func TestRebootDeviceRenumberingKeepsTheCursor(t *testing.T) {
+	opts := testMonitorOptions(t)
+	now := time.Now()
+	writeTestFile(t, opts.daemonLog, "level=INFO msg=before\nlevel=ERROR msg=already-reported\n")
+	if _, err := run(opts, now); err != nil {
+		t.Fatal(err)
+	}
+	c, err := readCursor(opts.daemonOffset)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Identity == "" {
+		t.Skip("no file identity on this platform")
+	}
+	// The pre-boot device number, in the form cursors stored until 2026-10-05.
+	c.Identity = "16777233:" + c.Identity
+	if err := writeCursor(opts.daemonOffset, c); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, opts.daemonLog, "level=INFO msg=before\nlevel=ERROR msg=already-reported\nlevel=ERROR msg=new\n")
+	got, err := run(opts, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Daemon.OffsetReset || got.Daemon.NewLines != 1 || len(got.Daemon.Signals) != 1 {
+		t.Fatalf("device renumbering replayed the log: %+v", got.Daemon)
+	}
+}
+
 func TestTruncationMigrationAndPartialRecords(t *testing.T) {
 	opts := testMonitorOptions(t)
 	now := time.Now()

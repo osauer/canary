@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"net"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -204,5 +207,42 @@ func TestGatewayScheduleQuietsWithoutInventoryEvidence(t *testing.T) {
 	s.logGatewayUnavailable("TWS accepts connections and resets them before the API handshake")
 	if !strings.Contains(out.String(), "level=INFO") || strings.Contains(out.String(), "level=WARN") {
 		t.Fatalf("off-duty outage without inventory not quiet: %s", out.String())
+	}
+}
+
+// The real dial loop keeps an off-duty outage quiet. Each candidate attempt
+// used to clear the published view, so the failure logged right after it read
+// "no schedule" and warned every 15 minutes through the night of 2026-10-05.
+func TestGatewayScheduleQuietSurvivesTheDialLoop(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	stubIBKRProcess(t, gatewayProcess)
+	var clock atomic.Int64
+	clock.Store(scheduleTime(t, "2026-10-04T22:24:00Z").UnixNano()) // Monday 00:24 CEST
+	var out lockedBuffer
+	s := newTestServer(t)
+	s.cfg.Gateway.Port = nil
+	s.cfg.Daemon = config.Daemon{LogCalendarMode: "scheduled", LogMarkets: []string{"us_equity"}, LogBeforeOpenMinutes: new(120), LogAfterCloseMinutes: new(90)}
+	s.logger = NewLogger(&out, "info")
+	s.now = func() time.Time { return time.Unix(0, clock.Load()).UTC() }
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	s.startGatewaySchedule(ctx)
+	s.gatewaySchedule.wg.Wait()
+	ep := discover.Endpoint{Host: "127.0.0.1", Port: port, ClientID: 93, PortOrigin: discover.OriginDiscovered}
+	for range 2 {
+		s.connectWithFailover(t.Context(), ep)
+		clock.Add(int64(15*time.Minute + time.Second))
+	}
+	logged := out.String()
+	if strings.Count(logged, "Gateway unavailable") != 2 || strings.Contains(logged, "level=WARN") {
+		t.Fatalf("off-duty dial failures not quiet:\n%s", logged)
+	}
+	if s.gatewaySchedule.view.Load() == nil {
+		t.Fatal("dial loop cleared the published schedule")
 	}
 }
