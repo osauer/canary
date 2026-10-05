@@ -17,7 +17,6 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/stress"
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the
@@ -532,8 +531,6 @@ func mcpToolCallTimeout(name string, args json.RawMessage) time.Duration {
 	case "canary_status":
 		headroom = mcpFastToolHeadroom
 		floor = 0
-	case "canary_stress":
-		floor = stress.FetchTimeout(headroom)
 	case "canary_technical":
 		floor = mcpAnalysisToolFloor
 	}

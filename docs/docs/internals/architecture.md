@@ -64,9 +64,14 @@ refreshable in-memory views do not.
   evaluation. It does no I/O and owns no broker state.
 - `internal/stress` composes the portfolio stress read from typed account,
   position, regime, and market-event inputs. Evaluation is deterministic once
-  its inputs and clock are supplied; the fetch helpers collect those snapshots
-  through the daemon's typed call surface and preserve unavailable or stale
-  evidence rather than filling it in.
+  its inputs and clock are supplied. Only the daemon evaluates: it composes
+  the read from its own handlers, preserving unavailable or stale evidence
+  rather than filling it in, and serves it as `stress.snapshot`. The CLI, MCP,
+  app and the exported Go client read that method and never compute the
+  verdict, so a reader built at an older version cannot disagree with the
+  installed daemon. The same holds for the regime posture and the flagged
+  option legs of the positions risk view (`positions.risk`). A test fails when
+  a reader calls an evaluation function.
 - `internal/edge` is the pure functional core for position replay, fixed-horizon
   decision price impact, option actuals, rollups, findings, coverage, and
   deterministic fingerprints. It performs no I/O and owns no broker state.

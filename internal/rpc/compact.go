@@ -224,23 +224,21 @@ func CompactStressAlert(c *StressResult, positions *PositionsResult) StressAlert
 }
 
 // CompactRegimeMonitor builds the bounded monitor projection from a regime
-// snapshot. A nil input yields an unavailable zero-value result.
+// snapshot. A nil input yields an unavailable zero-value result. It reshapes
+// only: the posture is the daemon's, and a snapshot without one stays without
+// one rather than gaining a posture derived by the reader.
 func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 	if r == nil {
 		return RegimeMonitorResult{}
 	}
 	CompactRegimeSnapshot(r)
-	posture := r.Posture
-	if posture.Label == "" && posture.Tone == "" {
-		posture = BuildRegimePosture(r)
-	}
 	return RegimeMonitorResult{
 		AsOf:            r.AsOf,
 		AuthorityHealth: r.AuthorityHealth,
 		Fingerprint:     r.Fingerprint,
 		Lifecycle:       r.Lifecycle,
 		Summary:         r.Summary,
-		Posture:         posture,
+		Posture:         r.Posture,
 		Composite:       r.Composite,
 		WarningDetails:  r.WarningDetails,
 		DataQuality:     r.DataQuality,

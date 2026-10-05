@@ -18,7 +18,6 @@ import (
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/stress"
 )
 
 var (
@@ -220,7 +219,7 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "account":
 		return []string{rpc.MethodAccountSummary}, ordinaryHeadroom, ordinaryFloor
 	case "positions":
-		return []string{rpc.MethodPositionsList}, ordinaryHeadroom, ordinaryFloor
+		return []string{rpc.MethodPositionsList, rpc.MethodPositionsRisk}, ordinaryHeadroom, ordinaryFloor
 	case "technical":
 		return []string{rpc.MethodTechnical}, 15 * time.Second, longFloor
 	case "watchlist":
@@ -230,7 +229,7 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "regime":
 		return []string{rpc.MethodRegimeSnapshot}, ordinaryHeadroom, ordinaryFloor
 	case "stress":
-		return stress.FetchMethods(), ordinaryHeadroom, stress.FetchTimeout(ordinaryHeadroom)
+		return []string{rpc.MethodStressSnapshot}, ordinaryHeadroom, ordinaryFloor
 	case "brief":
 		return []string{rpc.MethodBriefSnapshot}, 15 * time.Second, longFloor
 	case "rules":

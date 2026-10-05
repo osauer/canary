@@ -2664,6 +2664,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	switch req.Method {
 	case rpc.MethodAccountSummary:
 		s.unary(req, enc, func() (any, error) { return s.handleAccountSummaryRequest(ctx, req) })
+	case rpc.MethodPositionsRisk:
+		s.unary(req, enc, func() (any, error) { return s.handlePositionsRisk(ctx, req) })
 	case rpc.MethodPositionsList:
 		s.unary(req, enc, func() (any, error) { return s.handlePositionsList(ctx, req) })
 	case rpc.MethodPortfolioSnapshot:
@@ -2702,6 +2704,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleGammaZeroSPX(ctx, req) })
 	case rpc.MethodRegimeSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleRegimeSnapshot(ctx, req) })
+	case rpc.MethodStressSnapshot:
+		s.unary(req, enc, func() (any, error) { return s.handleStressSnapshot(ctx, req) })
 	case rpc.MethodAlertCandidates:
 		s.unary(req, enc, func() (any, error) { return s.handleAlertCandidates(ctx, req) })
 	case rpc.MethodAlertStatus:

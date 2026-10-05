@@ -43,6 +43,7 @@ func (t MethodTiming) ClientTimeout(headroom time.Duration) time.Duration {
 var methodTimings = []MethodTiming{
 	{Method: MethodAccountSummary, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodPositionsList, Lifetime: MethodLifetimeUnary, DaemonTimeout: 30 * time.Second},
+	{Method: MethodPositionsRisk, Lifetime: MethodLifetimeUnary, DaemonTimeout: 30 * time.Second},
 	{Method: MethodPortfolioSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
 	{Method: MethodMarketSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
 	{Method: MethodMarketHistory, Lifetime: MethodLifetimeUnary, DaemonTimeout: 35 * time.Second},
@@ -80,6 +81,9 @@ var methodTimings = []MethodTiming{
 	{Method: MethodGammaZeroSPX, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodMacroSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 2 * time.Second},
 	{Method: MethodRegimeSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
+	// The sum of its sequential reads: account, positions, regime, market
+	// events, rules and the account P&L retry.
+	{Method: MethodStressSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 135 * time.Second},
 	{Method: MethodOrderPlace, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodOrderModify, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodOrderCancel, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},

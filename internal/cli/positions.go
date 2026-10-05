@@ -39,6 +39,13 @@ func runPositions(ctx context.Context, env *Env, args []string) int {
 
 	fetchAndRender := func(out io.Writer) int {
 		params := rpc.PositionsListParams{Symbol: *symbol, Type: *typeF}
+		if *jsonOut && *view == rpc.ViewRisk {
+			var risk rpc.PositionsRiskResult
+			if err := env.Conn.Call(ctx, rpc.MethodPositionsRisk, params, &risk); err != nil {
+				return fail(env, "positions: %v", err)
+			}
+			return printJSONTo(env, out, risk)
+		}
 		var res rpc.PositionsResult
 		if err := env.Conn.Call(ctx, rpc.MethodPositionsList, params, &res); err != nil {
 			return fail(env, "positions: %v", err)
@@ -46,9 +53,6 @@ func runPositions(ctx context.Context, env *Env, args []string) int {
 		applySort(res.Stocks, *sortBy)
 		applySort(res.Options, *sortBy)
 		if *jsonOut {
-			if *view == rpc.ViewRisk {
-				return printJSONTo(env, out, rpc.CompactPositionsRisk(&res, 5))
-			}
 			return printJSONTo(env, out, res)
 		}
 		if *by == "underlying" {

@@ -11,7 +11,6 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/stress"
 )
 
 func riskToolConn(t *testing.T, results map[string]any) (*dial.Conn, <-chan []string) {
@@ -83,8 +82,9 @@ func TestRegimeToolRetainsDetailedEvidence(t *testing.T) {
 	}
 }
 
-func TestStressToolReturnsFullSharedAssessment(t *testing.T) {
-	conn, calls := riskToolConn(t, map[string]any{rpc.MethodAccountSummary: rpc.AccountResult{}, rpc.MethodPositionsList: rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "TEST", SecType: "STK", Quantity: 1}}}, rpc.MethodMarketEventsSnapshot: rpc.MarketEventsResult{}, rpc.MethodRegimeSnapshot: rpc.RegimeSnapshotResult{}})
+func TestStressToolReadsTheDaemonAssessment(t *testing.T) {
+	want := rpc.StressResult{Action: "watch", Severity: "watch", Summary: "daemon verdict", InputHealth: "ok", NotExecution: "read-only"}
+	conn, calls := riskToolConn(t, map[string]any{rpc.MethodStressSnapshot: rpc.StressSnapshotResult{Stress: want}})
 	tool, ok := lookupTool("canary_stress")
 	if !ok {
 		t.Fatal("stress missing")
@@ -98,14 +98,15 @@ func TestStressToolReturnsFullSharedAssessment(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = conn.Close()
-	if len(got.Rows) != 11 || len(got.MarketIndicators) != 8 || got.InputHealth == "ok" || got.NotExecution == "" {
-		t.Fatalf("incomplete or falsely healthy assessment: rows=%d indicators=%d health=%q", len(got.Rows), len(got.MarketIndicators), got.InputHealth)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stress tool changed the daemon's verdict: %+v", got)
 	}
-	if !reflect.DeepEqual(<-calls, []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodRulesSnapshot, rpc.MethodAccountSummary}) {
-		t.Fatal("unexpected stress read sequence")
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodStressSnapshot}) {
+		t.Fatal("stress tool must make exactly one daemon read")
 	}
-	if mcpToolCallTimeout("canary_stress", nil) < stress.FetchTimeout(5*time.Second) {
-		t.Fatal("deadline does not cover sequential reads")
+	timing, _ := rpc.LookupMethodTiming(rpc.MethodStressSnapshot)
+	if mcpToolCallTimeout("canary_stress", nil) < timing.ClientTimeout(5*time.Second) {
+		t.Fatal("deadline does not cover the daemon composition")
 	}
 	for _, tool := range (&Server{profile: ProfileMonitor}).visibleTools() {
 		if tool.Name == "canary_regime" || tool.Name == "canary_stress" {
@@ -137,5 +138,29 @@ func TestRegimeMonitorProjectionRetainsUnavailableEligibility(t *testing.T) {
 	_ = json.Unmarshal(expectedRaw, &expected)
 	if !reflect.DeepEqual(got, expected) || !reflect.DeepEqual(<-calls, []string{rpc.MethodRegimeSnapshot}) {
 		t.Fatal("compact MCP adapter changed authority or dispatched invalid inputs")
+	}
+}
+
+func TestPositionsRiskViewReadsTheDaemonFlags(t *testing.T) {
+	want := rpc.PositionsRiskResult{AccountID: "U1234567", OptionHealth: rpc.OptionHealthSummary{LowDTEThresholdDays: 7}}
+	conn, calls := riskToolConn(t, map[string]any{rpc.MethodPositionsRisk: want})
+	tool, ok := lookupTool("canary_positions")
+	if !ok {
+		t.Fatal("positions missing")
+	}
+	raw, err := tool.Handler(t.Context(), conn, json.RawMessage(`{"view":"risk"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got rpc.PositionsRiskResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("risk view changed the daemon's flags: %+v", got)
+	}
+	if !reflect.DeepEqual(<-calls, []string{rpc.MethodPositionsRisk}) {
+		t.Fatal("risk view must read the daemon's positions.risk only")
 	}
 }

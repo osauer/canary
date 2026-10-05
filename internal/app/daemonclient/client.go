@@ -222,7 +222,7 @@ func (c Real) MarketEvents(ctx context.Context, params rpc.MarketEventsParams) (
 	return &out, nil
 }
 
-// Stress fetches the daemon-authored portfolio-stress result over one connection.
+// Stress reads the daemon-composed portfolio-stress result.
 func (c Real) Stress(ctx context.Context) (*rpc.StressResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
@@ -236,19 +236,19 @@ func (c Real) Stress(ctx context.Context) (*rpc.StressResult, error) {
 	return &out, nil
 }
 
-// StressWithRegime fetches one coordinated stress/regime snapshot and compacts
+// StressWithRegime reads the daemon's stress result with the compact regime
+// monitor read it was composed from.
 func (c Real) StressWithRegime(ctx context.Context) (*rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer conn.Close()
-	stressResult, _, regime, err := stress.FetchStressSnapshotWithRegime(ctx, conn)
+	stressResult, monitor, err := stress.FetchStressWithRegimeMonitor(ctx, conn)
 	if err != nil {
 		return nil, nil, err
 	}
-	monitor := rpc.CompactRegimeMonitor(&regime)
-	return &stressResult, &monitor, nil
+	return &stressResult, monitor, nil
 }
 
 // AlertCandidates is an optional capability rather than part of Client so

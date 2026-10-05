@@ -263,7 +263,7 @@ var Tools = []Tool{
 	},
 	{
 		Name:        "canary_positions",
-		RPCMethods:  []string{rpc.MethodPositionsList},
+		RPCMethods:  []string{rpc.MethodPositionsList, rpc.MethodPositionsRisk},
 		Title:       "Canary Positions",
 		Description: "Read held positions and exposure. The `authority` block identifies one concrete account and mode with availability, freshness, and typed reason; stale or unavailable empty rows do not prove an empty book. Held bonds and bills stay in `stocks` with their valuation (sec_type BILL or BOND); the `bonds` section classifies each by `con_id` as `bill`, `bond` or `unresolved` (with a `reason`) and adds maturity, days to maturity, coupon, ISIN/CUSIP and currency.",
 		JSONSchema: schemaObject(map[string]json.RawMessage{
@@ -286,13 +286,17 @@ var Tools = []Tool{
 			if in.View != rpc.ViewFull && in.View != rpc.ViewRisk {
 				return nil, fmt.Errorf("view must be %q or %q (got %q)", rpc.ViewFull, rpc.ViewRisk, in.View)
 			}
-			var res rpc.PositionsResult
 			params := rpc.PositionsListParams{Symbol: in.Symbol, Type: in.Type}
+			if in.View == rpc.ViewRisk {
+				var risk rpc.PositionsRiskResult
+				if err := conn.Call(ctx, rpc.MethodPositionsRisk, params, &risk); err != nil {
+					return nil, err
+				}
+				return json.Marshal(risk)
+			}
+			var res rpc.PositionsResult
 			if err := conn.Call(ctx, rpc.MethodPositionsList, params, &res); err != nil {
 				return nil, err
-			}
-			if in.View == rpc.ViewRisk {
-				return json.Marshal(rpc.CompactPositionsRisk(&res, 5))
 			}
 			return json.Marshal(res)
 		},
@@ -423,7 +427,7 @@ var Tools = []Tool{
 	{
 		Name: "canary_stress", Title: "Canary Portfolio Stress",
 		Description: "Read the full current portfolio-stress assessment: margin, P&L and tape shocks, exposure, concentration, protection coverage, held-name and options risk, market indicators, and source health. Use after canary_brief or for an explicit portfolio-risk question; use canary_regime for the detailed broad-market dashboard. Preserves the same shared assessment used by the app. Missing inputs cannot become healthy zero values. Advisory and read-only; cannot preview or submit orders or change limits.",
-		JSONSchema:  schemaObject(nil, nil), ReadOnlyHint: new(true), RPCMethods: stress.FetchMethods(),
+		JSONSchema:  schemaObject(nil, nil), ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodStressSnapshot},
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var in struct{}
 			if err := unmarshalArgs(args, &in); err != nil {

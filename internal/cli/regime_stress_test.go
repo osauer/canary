@@ -71,12 +71,12 @@ func TestRiskReadsRejectUnsupportedInputsBeforeRPC(t *testing.T) {
 	}
 }
 
-func TestStressReadFailsOnMissingAccountAndSanitizesHumanEvidence(t *testing.T) {
-	conn := &riskReadConn{err: errors.New("account unavailable")}
+func TestStressReadFailsOnDaemonErrorAndSanitizesHumanEvidence(t *testing.T) {
+	conn := &riskReadConn{err: errors.New("account: unavailable")}
 	var out bytes.Buffer
 	env := &Env{Conn: conn, Stdout: &out, Stderr: &out}
-	if Run(t.Context(), env, "stress", []string{"--json"}) == 0 || !reflect.DeepEqual(conn.calls, []string{rpc.MethodAccountSummary}) {
-		t.Fatal("missing account was accepted")
+	if Run(t.Context(), env, "stress", []string{"--json"}) == 0 || !reflect.DeepEqual(conn.calls, []string{rpc.MethodStressSnapshot}) {
+		t.Fatal("a failed daemon stress read was accepted")
 	}
 	out.Reset()
 	renderStress(env, rpc.StressResult{Summary: "unavailable\x1b[2J\nforged", Rows: []rpc.StressRow{{Title: "Margin", Evidence: "unknown"}}, MarketIndicators: []rpc.StressMarketIndicator{{Name: "Funding", Status: "n/a"}}, NotExecution: "Read-only"}, true)

@@ -311,3 +311,10 @@ func TestRegimeAuthorityHealthJSONIsExact(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactRegimeMonitorNeverDerivesAPosture(t *testing.T) {
+	regime := RegimeSnapshotResult{Composite: RegimeComposite{Verdict: "Stress signal present", RedCount: 2}}
+	if got := CompactRegimeMonitor(&regime); got.Posture != (RegimePosture{}) {
+		t.Fatalf("reader derived a posture the daemon did not send: %+v", got.Posture)
+	}
+}

@@ -14,6 +14,7 @@ import (
 const (
 	MethodAccountSummary          = "account.summary"
 	MethodPositionsList           = "positions.list"
+	MethodPositionsRisk           = "positions.risk"
 	MethodQuoteSnapshot           = "quote.snapshot"
 	MethodQuoteSubscribe          = "quote.subscribe"
 	MethodDisplaySubscribe        = "display.subscribe"
@@ -35,6 +36,7 @@ const (
 	MethodBreadthSPX              = "breadth.spx"
 	MethodGammaZeroSPX            = "gamma.zero_spx"
 	MethodRegimeSnapshot          = "regime.snapshot"
+	MethodStressSnapshot          = "stress.snapshot"
 	MethodOrderPlace              = "order.place"
 	MethodOrderModify             = "order.modify"
 	MethodOrderCancel             = "order.cancel"
@@ -1474,6 +1476,21 @@ type RegimeBreadth struct {
 	ValueQuality *Quality `json:"value_quality,omitempty"`
 	// Streak counts consecutive sessions in the current band. See
 	Streak *StreakInfo `json:"streak,omitempty"`
+}
+
+// StressSnapshotParams is the input for MethodStressSnapshot. RegimeMonitor
+// adds the compact regime monitor read in the same composition, so a reader
+// that shows both never pairs a stress verdict with a different regime read.
+type StressSnapshotParams struct {
+	RegimeMonitor bool `json:"regime_monitor,omitempty"`
+}
+
+// StressSnapshotResult is the daemon's portfolio Stress assessment. The
+// daemon composes it, so every reader shows the installed daemon's verdict
+// rather than the one compiled into the reader.
+type StressSnapshotResult struct {
+	Stress        StressResult         `json:"stress"`
+	RegimeMonitor *RegimeMonitorResult `json:"regime_monitor,omitempty"`
 }
 
 // RegimeSnapshotParams is the input for MethodRegimeSnapshot. Empty

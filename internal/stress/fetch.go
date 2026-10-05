@@ -2,10 +2,11 @@
 // position, regime, and market-event inputs.
 //
 // ComputeStress owns deterministic evaluation after its inputs and clock are
-// supplied; it performs no broker writes and owns no runtime state. The Fetch
-// helpers obtain the required snapshots through the daemon's typed call
-// surface, preserve unavailable and stale evidence, and then invoke the same
-// computation.
+// supplied; it performs no broker writes and owns no runtime state. Only the
+// daemon evaluates: Compose gathers the snapshots through the daemon's own
+// handlers and serves the result as MethodStressSnapshot. Readers (CLI, MCP,
+// app, the exported Go client) call FetchStress and never compute a verdict,
+// so a reader built at an older version cannot disagree with the daemon.
 package stress
 
 import (
@@ -15,42 +16,53 @@ import (
 	"time"
 )
 
-// FetchStress reads the three existing snapshots needed by ComputeStress.
-// dial.Conn serializes calls internally, so this stays sequential and avoids
-// hidden socket contention in scheduled MCP runs.
+// FetchStress reads the daemon's portfolio Stress assessment. The daemon
+// composes it (Compose), so a reader compiled at an older version still shows
+// the installed daemon's verdict.
 func FetchStress(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (StressResult, error) {
-	res, _, _, err := FetchStressSnapshotWithRegime(ctx, conn)
-	return res, err
+}) (rpc.StressResult, error) {
+	var out rpc.StressSnapshotResult
+	if err := conn.Call(ctx, rpc.MethodStressSnapshot, rpc.StressSnapshotParams{}, &out); err != nil {
+		return rpc.StressResult{}, err
+	}
+	return out.Stress, nil
 }
 
-// FetchStressSnapshot returns the assessment and its positions input.
-func FetchStressSnapshot(ctx context.Context, conn interface {
+// FetchStressWithRegimeMonitor reads the daemon's Stress assessment together
+// with the compact regime monitor read it was composed from.
+func FetchStressWithRegimeMonitor(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (StressResult, rpc.PositionsResult, error) {
-	res, positions, _, err := FetchStressSnapshotWithRegime(ctx, conn)
-	return res, positions, err
+}) (rpc.StressResult, *rpc.RegimeMonitorResult, error) {
+	var out rpc.StressSnapshotResult
+	if err := conn.Call(ctx, rpc.MethodStressSnapshot, rpc.StressSnapshotParams{RegimeMonitor: true}, &out); err != nil {
+		return rpc.StressResult{}, nil, err
+	}
+	if out.RegimeMonitor == nil {
+		return rpc.StressResult{}, nil, fmt.Errorf("stress: daemon omitted the regime monitor read")
+	}
+	return out.Stress, out.RegimeMonitor, nil
 }
 
-// FetchStressSnapshotWithRegime reads account, positions, regime, and relevant
-// held-name market-event context sequentially, then returns the assessment,
-// positions input, and compacted regime input. Required-source errors abort the call;
+// Compose reads account, positions, regime, and relevant held-name
+// market-event context sequentially through the daemon's own handlers, then
+// returns the assessment and the compacted regime input. Only the daemon calls
+// it; readers use FetchStress. Required-source errors abort the call;
 // market-event failure is retained as unknown source health.
-func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
+func Compose(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
-}) (StressResult, rpc.PositionsResult, rpc.RegimeSnapshotResult, error) {
+}) (rpc.StressResult, rpc.RegimeSnapshotResult, error) {
 	var acct rpc.AccountResult
 	if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &acct); err != nil {
-		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("account: %w", err)
+		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("account: %w", err)
 	}
 	var pos rpc.PositionsResult
 	if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &pos); err != nil {
-		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("positions: %w", err)
+		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("positions: %w", err)
 	}
 	var regime rpc.RegimeSnapshotResult
 	if err := conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &regime); err != nil {
-		return StressResult{}, rpc.PositionsResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
+		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
 	marketEvents := fetchStressMarketEvents(ctx, conn, pos)
 	concentration, netExposure, margin := fetchStressRulebook(ctx, conn)
@@ -62,7 +74,7 @@ func FetchStressSnapshotWithRegime(ctx context.Context, conn interface {
 	}
 	res := ComputeStress(StressInput{Account: acct, Positions: pos, Regime: regime, MarketEvents: marketEvents, Concentration: concentration, NetExposure: netExposure, MarginHeadroom: margin})
 	rpc.CompactRegimeSnapshot(&regime)
-	return res, pos, regime, nil
+	return res, regime, nil
 }
 
 // fetchStressRulebook reads the Rulebook's concentration verdicts (rules 1
@@ -119,21 +131,8 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 	return out
 }
 
-// FetchMethods lists the sequential daemon reads, including the optional P&L
-// retry, so adapter deadlines cover the complete shared assessment.
-func FetchMethods() []string {
+// ComposeMethods lists Compose's sequential reads, including the optional P&L
+// retry; MethodStressSnapshot's daemon deadline must cover all of them.
+func ComposeMethods() []string {
 	return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRegimeSnapshot, rpc.MethodMarketEventsSnapshot, rpc.MethodRulesSnapshot, rpc.MethodAccountSummary}
-}
-
-// FetchTimeout budgets every sequential read with positive transport headroom.
-func FetchTimeout(headroom time.Duration) time.Duration {
-	var total time.Duration
-	for _, method := range FetchMethods() {
-		timing, ok := rpc.LookupMethodTiming(method)
-		if !ok {
-			panic("stress: missing method timing: " + method)
-		}
-		total += timing.ClientTimeout(headroom)
-	}
-	return total
 }
