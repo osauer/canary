@@ -562,6 +562,7 @@ max_order_notional = 50000.0 # largest order: the larger of this
 max_order_pct_nlv = 10.0     #   and this percent of NLV
 keep_cash = 5000.0           # settlement float in each currency's own unit
 bills_exempt_from_trading_max_notional = true
+no_buy_while_borrowed = true # no bill buys while any currency is borrowed
 # tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
 
@@ -647,10 +648,30 @@ base currency at the ledger rate.
   `trading_cap_exempt_up_to_base`, and both preview and submit check it.
   Without the key, the exemption is off.
 
+- **No buys while borrowed.** Owner decision of 2026-10-05 21:24 CEST. With
+  `no_buy_while_borrowed = true`, the sweep buys no bill in any currency while
+  any currency's cash is negative by more than 1 unit of that currency. A
+  negative balance is a margin loan, and its interest usually costs more than
+  a bill earns. Cash here is the same figure as each currency's **cash**: the
+  lower of trade-date and settled cash. Every invest row stays listed,
+  blocked by `currency_borrowed`, for example "USD is borrowed: −26,900 USD;
+  bill buys wait until it is repaid". Repay the debit by converting another
+  currency or depositing; Canary does not convert. Redemptions are not held:
+  selling bills to cover cash is still allowed. A listed currency whose cash
+  cannot be read means the sweep cannot prove that nothing is borrowed, so
+  buys hold with `borrowing_unknown` and the status names the currency. With
+  `false`, buys go ahead and `canary policy check` warns while a currency is
+  borrowed. The status's `borrowing` block carries `state` (`clear`,
+  `borrowed` or `unknown`), `no_buy_while_borrowed`, `holds_buys`,
+  `tolerance_units`, `borrowed` (`currency`, `cash`, `borrowed`,
+  `borrowed_base`), `unknown` (`currency`, `reason`), `message` and
+  `action`; a held currency carries the blocker in `blockers`.
+
 Worked check. NLV 233,000 EUR, EUR cash 70,500, USD cash 6,800, `keep_cash`
 5,000: the reserve is 23,300 EUR (10% of NLV), held in EUR, and EUR invests
 one order of about 47,000 (70,500 − 23,300, under the 50,000 cap). USD free
-cash is 1,800 USD, below 20,000 EUR, so USD stays cash. At NLV 1,200,000 with
+cash is 1,800 USD, below 20,000 EUR, so USD stays cash. With USD cash at
+−26,900 instead, the EUR order is listed but held by `currency_borrowed`. At NLV 1,200,000 with
 1,000,000 cash: reserve 120,000, and orders up to 120,000 each.
 
 The status's `sizing` block and every row's `cash_sweep.sizing` carry the

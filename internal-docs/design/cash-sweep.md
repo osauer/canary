@@ -742,6 +742,50 @@ read from the policy file only.
   1,200,000, bounds, missing keys, unreadable NLV, redemption below the
   minimum, carried shortfall, exemption boundary, ensure).
 
+## No buys while borrowed (2026-10-05 21:33 CEST)
+
+Owner decision of 2026-10-05 21:24 CEST. The sweep judges each currency
+alone and never converts. On 2026-10-05 the account held EUR cash of about
++70,500 and USD cash of about −26,900, a USD margin loan from a stock buy. The
+sweep proposed a 47,000 EUR Bubill buy while the account paid roughly 5–6%
+USD margin interest, far above the bill's roughly 2%. Paying down the loan
+earns more than any bill.
+
+- `[buckets.cash_sweep].no_buy_while_borrowed` (bool) is read from the file
+  only. A missing key is a missing number (`missingNumbers`), so the whole
+  sweep holds at `needs_your_number` naming it. `policy ensure` writes `true`
+  (`cashSweepWrittenDefaults`), and `protectionMaterialisationKey` and
+  `protectionMaterialisationPreserves` cover it.
+- `cashSweepBorrowingFor` reads every currency the status lists (every
+  ledger currency, every currency holding an equivalent) from the band's own
+  ledger: the lower of trade-date cash and the broker's settled cash where
+  observed. A balance below −`CashSweepBorrowedToleranceUnits` (1 unit of the
+  currency's own money, for rounding and fee dust) is borrowed. A listed
+  currency whose cash cannot be read is unknown. A currency the ledger does
+  not list carries no balance.
+- When the key is true and the state is `borrowed` or `unknown`,
+  `cashSweepHoldBorrowedBuys` holds every invest row in every currency. The
+  row stays listed and blocked (`currency_borrowed`, or `borrowing_unknown`
+  when cash is unknown). The blocker names the debit, for example
+  "USD is borrowed: −26,900 USD; bill buys wait until it is repaid". Its action
+  says to convert or deposit, because Canary does not convert. The currency's
+  status reads `hold` with the same blocker in `blockers`. A blocked row is
+  refused by preview and is never automatically eligible.
+- Redemptions are never held: selling a bill to restore cash still helps.
+- The status carries `borrowing`: `state` (`clear`, `borrowed` or `unknown`),
+  `no_buy_while_borrowed`, `holds_buys`, `tolerance_units`, `borrowed`
+  (`currency`, `cash`, `borrowed`, `borrowed_base`), `unknown` (`currency`,
+  `reason`), `message` and `action`.
+- With the key false, buys go ahead, and the status still names the debit.
+  `canary policy check` warns (`sweep_buys_while_borrowed`) when the key is
+  false and the live book shows a currency below −1 unit.
+- Not built: a comparison of the margin rate with the bill yield. The rule
+  is categorical by owner decision. Canary still never converts.
+- Tests: `cash_sweep_borrowing_test.go` (borrowed USD holds the EUR buy,
+  settled debit counts, redemption still sells, unknown cash holds, key false
+  allows, missing key holds and names it) and
+  `TestPolicyEnsureWritesMissingSweepNumbers` (ensure writes the key).
+
 ## Implementation plan
 
 Line references at Canary `a53daed0`.

@@ -104,6 +104,8 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "The protected floor leaves less than the declared risk capital above it, or sits at or above equity.", run: checkProtectedFloor},
 	{id: "declared_risk_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "Declared risk capital is above NLV or under 2% of it.", run: checkDeclaredRisk},
+	{id: "sweep_buys_while_borrowed", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
+		summary: "no_buy_while_borrowed is false while a currency's cash is negative, so the sweep may buy bills while the account pays margin interest.", run: checkSweepBuysWhileBorrowed},
 	{id: "sweep_minimum_uneconomic", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryEconomics,
 		summary: "The sweep's minimum bill order earns less interest to the shortest rung than the commission it pays.", run: checkSweepEconomics},
 	{id: "retired_trading_gate", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryProvenance,
@@ -940,6 +942,28 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
 		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
+}
+
+// checkSweepBuysWhileBorrowed reports a sweep allowed to buy bills while a
+// currency is borrowed (owner decision 2026-10-05 21:24 CEST): margin
+// interest on the debit usually costs more than the bill earns.
+func checkSweepBuysWhileBorrowed(c *policyCheckContext) []policyCheckHit {
+	s := c.sweep()
+	if s == nil || s.NoBuyWhileBorrowed == nil || *s.NoBuyWhileBorrowed || c.book == nil {
+		return nil
+	}
+	var borrowed []string
+	for _, ccy := range slices.Sorted(maps.Keys(c.book.Cash)) {
+		if cash := c.book.Cash[ccy]; finiteProtectionOptionPolicyValue(cash) && cash < -rpc.CashSweepBorrowedToleranceUnits {
+			borrowed = append(borrowed, cashSweepSignedMoney(cash, ccy))
+		}
+	}
+	if len(borrowed) == 0 {
+		return nil
+	}
+	return []policyCheckHit{{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.cash_sweep", "no_buy_while_borrowed", "false")},
+		message:    fmt.Sprintf("The account is borrowing (%s), and no_buy_while_borrowed = false lets the sweep buy bills meanwhile; margin interest on the debit usually costs more than a bill earns.", strings.Join(borrowed, ", ")),
+		suggestion: "Set no_buy_while_borrowed = true in [buckets.cash_sweep] and raise policy_version; repay the debit by converting or depositing (Canary does not convert)."}}
 }
 
 // policyCheckDeref reads an optional policy number; an unwritten key reads 0.

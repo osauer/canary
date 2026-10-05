@@ -771,6 +771,7 @@ func protectionMaterialisationKey(p protectionPolicy) string {
 		cleared := *c
 		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
 		cleared.ReserveFloorBase, cleared.ReservePctNLV, cleared.KeepCash, cleared.BillsExemptFromTradingMaxNotional = nil, nil, nil, nil
+		cleared.NoBuyWhileBorrowed = nil
 		p.Buckets.CashSweep = &cleared
 	}
 	return effectiveProtectionPolicy(p).Key
@@ -794,7 +795,12 @@ func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
 			return false
 		}
 	}
-	return b.BillsExemptFromTradingMaxNotional == nil || (a.BillsExemptFromTradingMaxNotional != nil && *a.BillsExemptFromTradingMaxNotional == *b.BillsExemptFromTradingMaxNotional)
+	for _, f := range [][2]*bool{{b.BillsExemptFromTradingMaxNotional, a.BillsExemptFromTradingMaxNotional}, {b.NoBuyWhileBorrowed, a.NoBuyWhileBorrowed}} {
+		if f[0] != nil && (f[1] == nil || *f[0] != *f[1]) {
+			return false
+		}
+	}
+	return true
 }
 
 // ProtectionPolicyTemplate renders Canary's protection defaults as a complete
@@ -951,6 +957,10 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # up to the sweep's
 # own cap in force; anything else keeps the order cap. Absent means false.
 # bills_exempt_from_trading_max_notional = %s
+# No bill buys while any currency's cash is negative (a margin loan costs more
+# than a bill earns) or a currency's cash is unknown; redemptions still sell.
+# Canary never converts: convert or deposit to repay.
+# no_buy_while_borrowed = %s
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #
@@ -970,7 +980,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # max_maturity_days = %d
 # ladder_rungs = %d
 `, written["reserve_floor_base"], written["reserve_pct_nlv"], written["min_order_notional"], written["max_order_notional"], written["max_order_pct_nlv"], written["keep_cash"],
-		written["bills_exempt_from_trading_max_notional"], eur.Instruments[0], eur.Instruments[1], eur.Fallback, written["keep_cash"], eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
+		written["bills_exempt_from_trading_max_notional"], written["no_buy_while_borrowed"], eur.Instruments[0], eur.Instruments[1], eur.Fallback, written["keep_cash"], eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
 }
 
 // OpportunityPolicyTemplate renders Canary's option-exercise defaults as a

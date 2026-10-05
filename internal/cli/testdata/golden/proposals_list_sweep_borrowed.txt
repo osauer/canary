@@ -1,0 +1,16 @@
+# canary proposals list · COLUMNS=80 · colour off
+Protection proposals
+0 actionable / 0 total · 0 queued for the open
+
+Cash sweep · active · 0 rows · tax reviewed 2026-10-01 · buys held: USD is
+borrowed: −26,900 USD; bill buys wait until it is repaid
+Full risk evidence, sizing and funding: canary proposals list --details
+Review list only; exact preview and submit eligibility remain separate.
+# canary proposals list · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mProtection proposals\x1b[0m
+0 actionable / 0 total · 0 queued for the open
+
+\x1b[1mCash sweep · active · 0 rows · tax reviewed 2026-10-01 · buys held: USD is\x1b[0m
+\x1b[1mborrowed: −26,900 USD; bill buys wait until it is repaid\x1b[0m
+\x1b[2mFull risk evidence, sizing and funding: canary proposals list --details\x1b[0m
+\x1b[2mReview list only; exact preview and submit eligibility remain separate.\x1b[0m

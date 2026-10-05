@@ -183,7 +183,7 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 		}
 		b := p.Buckets.CashSweep
 		if _, ok := b.keepCash("EUR"); ok || b.MinOrderNotional != nil || b.Currency["EUR"].MinTranche != nil ||
-			!slices.Equal(b.missingNumbers(), []string{"max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv"}) || b.billsExempt() {
+			!slices.Equal(b.missingNumbers(), []string{"max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "no_buy_while_borrowed"}) || b.billsExempt() || b.noBuyWhileBorrowed() {
 			t.Fatalf("absent numbers read as values: %+v", b)
 		}
 	})
@@ -360,7 +360,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	}
 	want := []string{"added buckets.cash_sweep.max_order_pct_nlv = 10.0", "added buckets.cash_sweep.min_order_notional = 20000.0",
 		"added buckets.cash_sweep.reserve_floor_base = 10000.0", "added buckets.cash_sweep.reserve_pct_nlv = 10.0", "added buckets.cash_sweep.keep_cash = 5000.0",
-		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "raised policy_version 12 to 13: the sweep sizing numbers above take effect"}
+		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "added buckets.cash_sweep.no_buy_while_borrowed = true", "raised policy_version 12 to 13: the sweep sizing numbers above take effect"}
 	if preview.Action != PolicyFileWouldMigrate || !slices.Equal(preview.Changes, want) || !strings.Contains(preview.Diff, "reserve_pct_nlv = 10.0") {
 		t.Fatalf("dry run = %+v", preview)
 	}
@@ -381,7 +381,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	b := p.Buckets.CashSweep
 	eurKeep, _ := b.keepCash("EUR")
 	usdKeep, usdOK := b.keepCash("USD")
-	if p.PolicyVersion != 13 || b.MaxOrderNotional != 10000 || eurKeep != 6000 || !usdOK || usdKeep != 5000 || len(b.missingNumbers()) != 0 || !b.billsExempt() ||
+	if p.PolicyVersion != 13 || b.MaxOrderNotional != 10000 || eurKeep != 6000 || !usdOK || usdKeep != 5000 || len(b.missingNumbers()) != 0 || !b.billsExempt() || !b.noBuyWhileBorrowed() ||
 		*b.MinOrderNotional != 20000 || *b.ReservePctNLV != 10 || *b.MaxOrderPctNLV != 10 || *b.ReserveFloorBase != 10000 {
 		t.Fatalf("materialised = version %d %+v", p.PolicyVersion, b)
 	}

@@ -104,7 +104,7 @@ func TestCashSweepCompiledDefaultsPerCurrency(t *testing.T) {
 	// An enabled sweep needs every sizing number from the file (owner
 	// decision 2026-10-05 18:35 CEST); compiled values are never read.
 	enabled := &protectionCashSweepPolicy{Enabled: true}
-	if got := enabled.missingNumbers(); !slices.Equal(got, []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv"}) {
+	if got := enabled.missingNumbers(); !slices.Equal(got, []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "no_buy_while_borrowed"}) {
 		t.Fatalf("enabled sweep missing = %v", got)
 	}
 }
@@ -308,7 +308,7 @@ func TestCashSweepPolicyStatusNeedsYourNumber(t *testing.T) {
 	eur := defaultCashSweepCurrency("EUR")
 	eur.ETFSymbol, eur.ETFExchange = "BBB", "IBIS"
 	written := &protectionCashSweepPolicy{Enabled: true, MaxOrderNotional: 1, TaxReviewedAt: "2026-09-30", Currency: map[string]protectionCashSweepCurrency{"EUR": eur},
-		MaxOrderPctNLV: new(10.0), MinOrderNotional: new(1.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(10.0), KeepCash: new(5000.0)}
+		MaxOrderPctNLV: new(10.0), MinOrderNotional: new(1.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(10.0), KeepCash: new(5000.0), NoBuyWhileBorrowed: new(true)}
 	if got := cashSweepNeedsYourNumber(written); got != nil {
 		t.Fatalf("a complete sweep asks for %v", got)
 	}

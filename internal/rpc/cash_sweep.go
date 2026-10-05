@@ -105,7 +105,86 @@ const (
 	// wrong. It holds every submit of the currency's instrument until a
 	// preview checks clean.
 	CashSweepBlockerBillUnitMismatch = "bill_unit_mismatch"
+	// CashSweepBlockerCurrencyBorrowed is on every invest row, in every
+	// currency, while no_buy_while_borrowed is true and a currency's cash is
+	// negative beyond CashSweepBorrowedToleranceUnits (owner decision
+	// 2026-10-05 21:24 CEST): a margin loan costs more than a bill earns.
+	// Redemptions are not blocked.
+	CashSweepBlockerCurrencyBorrowed = "currency_borrowed"
+	// CashSweepBlockerBorrowingUnknown is on every invest row while
+	// no_buy_while_borrowed is true and some currency's cash is unknown, so
+	// the sweep cannot prove nothing is borrowed (fail closed).
+	CashSweepBlockerBorrowingUnknown = "borrowing_unknown"
 )
+
+// Borrowing states on the sweep status: clear (every listed currency's cash
+// is known and none is negative beyond the tolerance), borrowed (at least
+// one is) and unknown (none is proven borrowed, but some currency's cash is
+// unknown).
+const (
+	CashSweepBorrowingClear    = "clear"
+	CashSweepBorrowingBorrowed = "borrowed"
+	CashSweepBorrowingUnknown  = "unknown"
+)
+
+// CashSweepBorrowedToleranceUnits is the debit, in a currency's own unit,
+// below which a negative balance does not count as borrowed (rounding and
+// fee dust).
+const CashSweepBorrowedToleranceUnits = 1.0
+
+// CashSweepBorrowing is the account's borrowing as the sweep reads it from
+// the broker's per-currency ledger cash (the same source as each currency's
+// cash). HoldsBuys is true when no_buy_while_borrowed is true and State is
+// borrowed or unknown: every invest row then carries currency_borrowed or
+// borrowing_unknown. Field names are stable for Desk.
+type CashSweepBorrowing struct {
+	State string `json:"state"`
+	// NoBuyWhileBorrowed is the policy key in force; nil while it is not
+	// written (the sweep then holds at needs_your_number).
+	NoBuyWhileBorrowed *bool                       `json:"no_buy_while_borrowed,omitempty"`
+	HoldsBuys          bool                        `json:"holds_buys"`
+	ToleranceUnits     float64                     `json:"tolerance_units"`
+	Borrowed           []CashSweepBorrowedCurrency `json:"borrowed,omitempty"`
+	Unknown            []CashSweepUnknownCash      `json:"unknown,omitempty"`
+	// Message says the state in words; Action is what the owner can do
+	// (Canary never converts).
+	Message string `json:"message"`
+	Action  string `json:"action,omitempty"`
+}
+
+// CashSweepBorrowedCurrency is one currency with a negative cash balance:
+// Cash is the balance (negative) and Borrowed its absolute value, both in
+// the currency's own unit; BorrowedBase is it at the ledger rate, nil when
+// the rate is unknown.
+type CashSweepBorrowedCurrency struct {
+	Currency     string   `json:"currency"`
+	Cash         float64  `json:"cash"`
+	Borrowed     float64  `json:"borrowed"`
+	BorrowedBase *float64 `json:"borrowed_base,omitempty"`
+}
+
+// CashSweepUnknownCash is one currency whose cash cannot be read, and why.
+type CashSweepUnknownCash struct {
+	Currency string `json:"currency"`
+	Reason   string `json:"reason"`
+}
+
+// CloneCashSweepBorrowing deep-copies borrowing; nil stays nil.
+func CloneCashSweepBorrowing(in *CashSweepBorrowing) *CashSweepBorrowing {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if in.NoBuyWhileBorrowed != nil {
+		out.NoBuyWhileBorrowed = new(*in.NoBuyWhileBorrowed)
+	}
+	out.Borrowed = slices.Clone(in.Borrowed)
+	for i := range out.Borrowed {
+		out.Borrowed[i].BorrowedBase = cloneCashSweepFloat(out.Borrowed[i].BorrowedBase)
+	}
+	out.Unknown = slices.Clone(in.Unknown)
+	return &out
+}
 
 // Bond session sources: the line's liquid or trading hours from its
 // contract details. Assumed labels remain readable in historical snapshots,
@@ -160,7 +239,11 @@ type TradeProposalCashSweepStatus struct {
 	NeedsYourNumber []string `json:"needs_your_number,omitempty"`
 	// Sizing is the reserve and the order bounds in force this generation;
 	// nil while a number is missing or net liquidation value is unreadable.
-	Sizing     *CashSweepSizing                 `json:"sizing,omitempty"`
+	Sizing *CashSweepSizing `json:"sizing,omitempty"`
+	// Borrowing is whether any currency is borrowed (negative cash) and
+	// whether no_buy_while_borrowed holds the sweep's buys; nil while the
+	// sweep is not enabled.
+	Borrowing  *CashSweepBorrowing              `json:"borrowing,omitempty"`
 	Currencies []TradeProposalCashSweepCurrency `json:"currencies"`
 	// Rows counts the proposals the sweep emitted in this generation.
 	Rows int `json:"rows"`
@@ -299,6 +382,10 @@ type TradeProposalCashSweepCurrency struct {
 	// bill could be named (universe_unavailable, instrument_unresolved).
 	Bill     *TradeProposalCashSweepBill `json:"bill,omitempty"`
 	Evidence []string                    `json:"evidence,omitempty"`
+	// Blockers are the typed reasons this currency's buy holds while its
+	// row is still listed (currency_borrowed, borrowing_unknown); the row
+	// carries the same blockers.
+	Blockers []TradingBlocker `json:"blockers,omitempty"`
 }
 
 // CashSweepSettlementProjection explains the Flex-based settlement route.
@@ -516,6 +603,7 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 	out.MaxOrderNotionalBase = cloneCashSweepFloat(in.MaxOrderNotionalBase)
 	out.NeedsYourNumber = slices.Clone(in.NeedsYourNumber)
 	out.Sizing = CloneCashSweepSizing(in.Sizing)
+	out.Borrowing = CloneCashSweepBorrowing(in.Borrowing)
 	out.Currencies = slices.Clone(in.Currencies)
 	for i := range out.Currencies {
 		c := &out.Currencies[i]
@@ -538,6 +626,7 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 		c.Rungs = slices.Clone(c.Rungs)
 		c.Bill = CloneCashSweepBill(c.Bill)
 		c.Evidence = slices.Clone(c.Evidence)
+		c.Blockers = slices.Clone(c.Blockers)
 	}
 	return &out
 }

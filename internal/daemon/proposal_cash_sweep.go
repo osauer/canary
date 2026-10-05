@@ -244,6 +244,8 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 		plan.currencies = append(plan.currencies, cp)
 	}
 	enforceCashSweepFundedReserves(bucket, &plan)
+	plan.status.Borrowing = cashSweepBorrowingFor(bucket, in, ccys)
+	cashSweepHoldBorrowedBuys(&plan)
 	priority, source := cashPriorityEffective(in.OrderingPriority, bucket)
 	plan.status.CurrencyPriority, plan.status.CurrencyPrioritySource = priority, source
 	orderCashSweepCurrenciesByPriority(priority, &plan)
@@ -855,8 +857,10 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 			blockers = append(blockers, rpc.TradingBlocker{Code: rpc.CashSweepStateInstrumentUnresolved,
 				Message: "no bill was confirmed by contract details and a quote this cycle, so there is nothing to order",
 				Action:  "Refresh proposals; the sweep names a bill once one resolves and quotes."})
+			blockers = append(blockers, cp.blockers...)
 			break
 		}
+		blockers = append(blockers, cp.blockers...)
 		conv := cashSweepInstrumentConventions[b.Instrument]
 		block.Bill = rpc.CloneCashSweepBill(b)
 		block.Instrument = b.Instrument

@@ -1015,6 +1015,8 @@ type protectionCashSweepPolicy struct {
 	KeepCash *float64 `toml:"keep_cash" json:"keep_cash,omitempty"`
 	// BillsExemptFromTradingMaxNotional lets a same-currency sweep bill order (BILL or BOND buy or redemption, no conversion) pass the order cap in force of the risk constitution's [order_limits], but only up to the sweep's own order cap in force; anything else keeps the order cap. Absent means false, so the order cap applies (policy ensure writes true).
 	BillsExemptFromTradingMaxNotional *bool `toml:"bills_exempt_from_trading_max_notional" json:"bills_exempt_from_trading_max_notional,omitempty"`
+	// NoBuyWhileBorrowed holds every sweep buy, in every currency, while any currency's cash balance is negative (a margin loan) or a currency's cash is unknown; redemptions still sell. Canary never converts, so the owner repays by converting or depositing. Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes true; owner decision 2026-10-05 21:24 CEST).
+	NoBuyWhileBorrowed *bool `toml:"no_buy_while_borrowed" json:"no_buy_while_borrowed,omitempty"`
 	// MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. Below-benchmark or unavailable benefit never blocks or resizes an order; zero omits the benchmark.
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
@@ -1162,6 +1164,9 @@ func (p *protectionCashSweepPolicy) missingNumbers() []string {
 			out = append(out, f.key)
 		}
 	}
+	if p.NoBuyWhileBorrowed == nil {
+		out = append(out, "no_buy_while_borrowed")
+	}
 	return out
 }
 
@@ -1187,6 +1192,13 @@ func (p *protectionCashSweepPolicy) billsExempt() bool {
 	return p != nil && p.BillsExemptFromTradingMaxNotional != nil && *p.BillsExemptFromTradingMaxNotional
 }
 
+// noBuyWhileBorrowed reports whether the file holds sweep buys while a
+// currency is borrowed. Absent reads false here, but an absent key is a
+// missing number that holds the whole sweep first (missingNumbers).
+func (p *protectionCashSweepPolicy) noBuyWhileBorrowed() bool {
+	return p != nil && p.NoBuyWhileBorrowed != nil && *p.NoBuyWhileBorrowed
+}
+
 // cashSweepWrittenDefault is one number policy ensure writes into an owner
 // file that lacks it. These values are never read at runtime.
 type cashSweepWrittenDefault struct {
@@ -1194,7 +1206,7 @@ type cashSweepWrittenDefault struct {
 }
 
 // cashSweepWrittenDefaults are the owner-approved values (2026-10-05
-// 18:35 CEST) ensure materialises into an existing [buckets.cash_sweep].
+// 18:35 CEST; no_buy_while_borrowed 21:24 CEST) ensure materialises into an existing [buckets.cash_sweep].
 var cashSweepWrittenDefaults = []cashSweepWrittenDefault{
 	{"max_order_notional", "50000.0"},
 	{"max_order_pct_nlv", "10.0"},
@@ -1203,6 +1215,9 @@ var cashSweepWrittenDefaults = []cashSweepWrittenDefault{
 	{"reserve_pct_nlv", "10.0"},
 	{"keep_cash", "5000.0"},
 	{"bills_exempt_from_trading_max_notional", "true"},
+	// Owner decision 2026-10-05 21:24 CEST: no bill buys while any currency
+	// is borrowed.
+	{"no_buy_while_borrowed", "true"},
 }
 
 // declaresETF reports whether etf is an instrument or the fallback.

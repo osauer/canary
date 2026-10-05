@@ -50,6 +50,7 @@ min_order_notional = 3000.0
 max_order_pct_nlv = 1.0
 max_order_notional = 9000.0
 keep_cash = 4000.0
+no_buy_while_borrowed = true
 
 [buckets.cash_sweep.currency.EUR]
 instruments = ["de_bubill"]
@@ -327,6 +328,11 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\n", "")
 			}, contains: "holds until these numbers are written"},
+		{name: "sweep may buy while a currency is borrowed", rule: "sweep_buys_while_borrowed", severity: rpc.PolicyCheckWarn,
+			edit: func(f *pcFiles, in *PolicyCheckInput) {
+				f.protection = replace(f.protection, "no_buy_while_borrowed = true", "no_buy_while_borrowed = false")
+				in.Book.Cash["USD"] = -26900
+			}, contains: "The account is borrowing (−26,900 USD)"},
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")

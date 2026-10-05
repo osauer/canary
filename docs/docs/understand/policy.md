@@ -411,6 +411,7 @@ rule is one entry.
 | `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
+| `sweep_buys_while_borrowed` | warn | yes | `no_buy_while_borrowed = false` while a currency's cash is negative by more than 1 unit, so the sweep may buy bills while the account pays margin interest on the debit. |
 | `sweep_minimum_uneconomic` | warn | no | The smallest bill buy (as for `sweep_minimum_above_cap`) earns less interest over cash to the shortest rung (`min_maturity_days`) than the commission it pays. |
 | `retired_trading_gate` | warn | no | `config.toml` `[trading]` still carries a retired order gate whose value differs from the `[order_limits]` key that decides. |
 | `version_not_bumped` | warn | daemon | A file changed without a higher `policy_version`, so the daemon keeps the old policy. |

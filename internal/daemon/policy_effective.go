@@ -961,4 +961,5 @@ func sentence(s string) string {
 var cashSweepSizingKeys = map[string]bool{
 	"max_order_notional": true, "max_order_pct_nlv": true, "min_order_notional": true,
 	"reserve_floor_base": true, "reserve_pct_nlv": true, "keep_cash": true,
+	"no_buy_while_borrowed": true,
 }

@@ -80,6 +80,7 @@ Loaded from the path in `[auto_trade].policy_file` (default `~/.config/ibkr/poli
 | `[buckets.cash_sweep]` | `min_net_gain` | `float64` | MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. |
 | `[buckets.cash_sweep]` | `min_order_notional` | `*float64` | MinOrderNotional is the smallest sweep buy in base currency: below it nothing is bought. |
 | `[buckets.cash_sweep]` | `mode` | `string` | Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate. |
+| `[buckets.cash_sweep]` | `no_buy_while_borrowed` | `*bool` | NoBuyWhileBorrowed holds every sweep buy, in every currency, while any currency's cash balance is negative (a margin loan) or a currency's cash is unknown; redemptions still sell. |
 | `[buckets.cash_sweep]` | `reserve_cushion_eur` | `*float64` | ReserveCushionEUR is one portfolio-wide cushion. |
 | `[buckets.cash_sweep]` | `reserve_floor_base` | `*float64` | ReserveFloorBase is the least cash, in base currency, the sweep keeps uninvested; the reserve is the largest of it, reserve_pct_nlv of net liquidation value and the cash planned exercises or withdrawals need, and is held in the base currency. |
 | `[buckets.cash_sweep]` | `reserve_pct_nlv` | `*float64` | ReservePctNLV is the share of net liquidation value, in percent, kept as cash (see reserve_floor_base). |

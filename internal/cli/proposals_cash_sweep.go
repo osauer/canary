@@ -67,6 +67,9 @@ func renderCashSweepSection(env *Env, out io.Writer, st *rpc.TradeProposalCashSw
 				fmt.Fprintf(out, "    Reserve: %s\n", st.ReserveReason)
 			}
 		}
+		if b := st.Borrowing; b != nil && b.Action != "" {
+			fmt.Fprintf(out, "    Borrowing: %s\n", b.Action)
+		}
 		for _, c := range st.Currencies {
 			fmt.Fprintf(out, "    %-4s %-24s %s\n", c.Currency, strings.ReplaceAll(c.State, "_", " "), formatCashSweepCurrency(c))
 			for _, line := range formatCashSweepProjection(c.Currency, c.SettlementProjection) {
@@ -122,6 +125,13 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 		parts = append(parts, "tax reviewed "+st.TaxReviewedAt)
 	} else {
 		parts = append(parts, "tax treatment not yet confirmed (advisory)")
+	}
+	if b := st.Borrowing; b != nil && b.State != rpc.CashSweepBorrowingClear {
+		if b.HoldsBuys {
+			parts = append(parts, "buys held: "+b.Message)
+		} else {
+			parts = append(parts, b.Message)
+		}
 	}
 	if len(st.NeedsYourNumber) > 0 {
 		parts = append(parts, "needs your number: "+strings.Join(st.NeedsYourNumber, ", "))
