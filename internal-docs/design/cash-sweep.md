@@ -738,18 +738,17 @@ read from the policy file only.
   `protectionMaterialisationPreserves` proves that nothing else changed.
   `min_tranche` is retired: it is readable, and when written it still raises
   a buy minimum; it is never written.
-- Tests: `cash_sweep_reserve_sizing_test.go` (worked checks at NLV 233,000 and
+- Tests: `cash_sweep_reserve_sizing_test.go` (worked checks at NLV 200,000 and
   1,200,000, bounds, missing keys, unreadable NLV, redemption below the
   minimum, carried shortfall, exemption boundary, ensure).
 
 ## No buys while borrowed (2026-10-05 21:33 CEST)
 
 Owner decision of 2026-10-05 21:24 CEST. The sweep judges each currency
-alone and never converts. On 2026-10-05 the account held EUR cash of about
-+70,500 and USD cash of about −26,900, a USD margin loan from a stock buy. The
-sweep proposed a 47,000 EUR Bubill buy while the account paid roughly 5–6%
-USD margin interest, far above the bill's roughly 2%. Paying down the loan
-earns more than any bill.
+alone and never converts. On 2026-10-05 the account held surplus EUR cash and a
+USD margin loan from a stock buy. The sweep proposed a EUR Bubill buy while
+the account paid USD margin interest far above the bill's yield. Paying down
+the loan earns more than any bill.
 
 - `[buckets.cash_sweep].no_buy_while_borrowed` (bool) is read from the file
   only. A missing key is a missing number (`missingNumbers`), so the whole
@@ -767,7 +766,7 @@ earns more than any bill.
   `cashSweepHoldBorrowedBuys` holds every invest row in every currency. The
   row stays listed and blocked (`currency_borrowed`, or `borrowing_unknown`
   when cash is unknown). The blocker names the debit, for example
-  "USD is borrowed: −26,900 USD; bill buys wait until it is repaid". Its action
+  "USD is borrowed: −20,000 USD; bill buys wait until it is repaid". Its action
   says to convert or deposit, because Canary does not convert. The currency's
   status reads `hold` with the same blocker in `blockers`. A blocked row is
   refused by preview and is never automatically eligible.

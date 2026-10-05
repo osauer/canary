@@ -654,7 +654,7 @@ base currency at the ledger rate.
   negative balance is a margin loan, and its interest usually costs more than
   a bill earns. Cash here is the same figure as each currency's **cash**: the
   lower of trade-date and settled cash. Every invest row stays listed,
-  blocked by `currency_borrowed`, for example "USD is borrowed: −26,900 USD;
+  blocked by `currency_borrowed`, for example "USD is borrowed: −20,000 USD;
   bill buys wait until it is repaid". Repay the debit by converting another
   currency or depositing; Canary does not convert. Redemptions are not held:
   selling bills to cover cash is still allowed. A listed currency whose cash
@@ -667,12 +667,12 @@ base currency at the ledger rate.
   `borrowed_base`), `unknown` (`currency`, `reason`), `message` and
   `action`; a held currency carries the blocker in `blockers`.
 
-Worked check. NLV 233,000 EUR, EUR cash 70,500, USD cash 6,800, `keep_cash`
-5,000: the reserve is 23,300 EUR (10% of NLV), held in EUR, and EUR invests
-one order of about 47,000 (70,500 − 23,300, under the 50,000 cap). USD free
-cash is 1,800 USD, below 20,000 EUR, so USD stays cash. With USD cash at
-−26,900 instead, the EUR order is listed but held by `currency_borrowed`. At NLV 1,200,000 with
-1,000,000 cash: reserve 120,000, and orders up to 120,000 each.
+Worked check. NLV 200,000 EUR, EUR cash 60,000, USD cash 6,000, `keep_cash`
+5,000: the reserve is 20,000 EUR (10% of NLV), held in EUR, and EUR invests
+one order of 40,000 (60,000 − 20,000, under the 50,000 cap). USD free cash
+is 1,000 USD, below 20,000 EUR, so USD stays cash. With USD cash at −20,000
+instead, the EUR order is listed but held by `currency_borrowed`. At NLV
+1,200,000 with 1,000,000 cash: reserve 120,000, and orders up to 120,000 each.
 
 The status's `sizing` block and every row's `cash_sweep.sizing` carry the
 figures, with stable field names: `base_currency`, `net_liquidation_base`,
@@ -685,8 +685,8 @@ figures, with stable field names: `base_currency`, `net_liquidation_base`,
 `trading_max_notional_exempt`. Each currency's status and row carry
 `reserve_held`, the part of the reserve kept in that currency in its own unit.
 `max_order_notional_base` on the status and the row is the cap in force. A row
-detail says it in words, for example "kept as cash: 23300 EUR (10% of NLV
-233000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR
+detail says it in words, for example "kept as cash: 20000 EUR (10% of NLV
+200000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR
 (max_order_notional)".
 
 `canary policy ensure --dry-run` lists each missing sizing key it would add to
