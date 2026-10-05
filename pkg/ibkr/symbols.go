@@ -136,6 +136,13 @@ func classifySymbol(symbol string) (string, string, string, string) {
 	return secType, exchange, currency, primary
 }
 
+// DefaultHistoricalCurrency reports the currency used by the symbol-only daily
+// history route. It describes the request, not an independently observed quote.
+func DefaultHistoricalCurrency(symbol string) string {
+	_, _, currency, _ := classifySymbol(strings.ToUpper(strings.TrimSpace(symbol)))
+	return currency
+}
+
 func optionUnderlyingPrimaryExchangeHint(symbol string) string {
 	secType, _, _, primary := classifySymbol(strings.ToUpper(strings.TrimSpace(symbol)))
 	if secType != "STK" {

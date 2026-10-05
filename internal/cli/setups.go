@@ -32,7 +32,7 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 		if *specPath != "" || *atText != "" || *expiry != "" || *strike != "" || *conID != 0 || *session != "" {
 			return fail(env, "setups markouts: only --order-ref, --since, --symbol and --json apply")
 		}
-		return runSetupMarkouts(ctx, env, rpc.SetupMarkoutsParams{OrderRef: *orderRef, Since: *since, Symbol: *symbol})
+		return runSetupMarkouts(ctx, env, rpc.SetupMarkoutsParams{OrderRef: *orderRef, Since: *since, Symbol: *symbol}, *jsonOut)
 	}
 	if *orderRef != "" || *since != "" {
 		return fail(env, "order-ref and since apply to setups markouts only")
@@ -49,7 +49,11 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 		if err := env.Conn.Call(ctx, rpc.MethodSetupsCoverage, p, &out); err != nil {
 			return fail(env, "setups coverage: %v", err)
 		}
-		return printJSON(env, out)
+		if *jsonOut {
+			return printJSON(env, out)
+		}
+		renderSetupCoverage(env, out)
+		return 0
 	}
 	if *session != "" {
 		return fail(env, "session applies to setups coverage only")
@@ -74,7 +78,11 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 		if err := env.Conn.Call(ctx, rpc.MethodSetupsOptions, p, &out); err != nil {
 			return fail(env, "setups options: %v", err)
 		}
-		return printJSON(env, out)
+		if *jsonOut {
+			return printJSON(env, out)
+		}
+		renderSetupOptions(env, out)
+		return 0
 	}
 	if *expiry != "" || *strike != "" {
 		return fail(env, "expiry and strike apply to setups options only")
@@ -147,9 +155,9 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	return 0
 }
 
-// runSetupMarkouts prints the read-only entry-markout ledger as JSON. Rows are
+// runSetupMarkouts reads the entry-markout ledger. Rows are
 // an entry diagnostic, not realized profit.
-func runSetupMarkouts(ctx context.Context, env *Env, p rpc.SetupMarkoutsParams) int {
+func runSetupMarkouts(ctx context.Context, env *Env, p rpc.SetupMarkoutsParams, jsonOut bool) int {
 	p, err := rpc.NormalizeSetupMarkoutsParams(p)
 	if err != nil {
 		return fail(env, "setups markouts: %v", err)
@@ -161,5 +169,9 @@ func runSetupMarkouts(ctx context.Context, env *Env, p rpc.SetupMarkoutsParams) 
 	if out.Targets == nil {
 		out.Targets = []rpc.SetupMarkoutTarget{}
 	}
-	return printJSON(env, out)
+	if jsonOut {
+		return printJSON(env, out)
+	}
+	renderSetupMarkouts(env, out)
+	return 0
 }

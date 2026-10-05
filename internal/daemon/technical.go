@@ -144,7 +144,27 @@ func (s *Server) handleTechnical(ctx context.Context, req *rpc.Request) (*rpc.Te
 			}
 		}
 	}
+	setTechnicalCurrencies(res, route, routed, benchmark)
 	return res, nil
+}
+
+// The benchmark is always fetched through the symbol-only history route, even
+// when the other rows use an explicit stock route. Keep that distinction visible.
+func setTechnicalCurrencies(res *rpc.TechnicalResult, route rpc.ContractParams, routed bool, benchmark string) {
+	common := ""
+	for i := range res.Rows {
+		row := &res.Rows[i]
+		row.Currency = ibkrlib.DefaultHistoricalCurrency(row.Symbol)
+		if routed && row.Symbol != benchmark {
+			row.Currency = route.Currency
+		}
+		if i == 0 {
+			common = row.Currency
+		} else if row.Currency != common {
+			common = ""
+		}
+	}
+	res.Currency = common
 }
 
 func technicalRoute(p rpc.TechnicalParams) (rpc.ContractParams, bool, error) {

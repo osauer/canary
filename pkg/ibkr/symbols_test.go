@@ -13,3 +13,12 @@ func TestClassifySymbolRoutesTheRussell2000Index(t *testing.T) {
 		t.Fatalf("classifySymbol(NDX) = %s %s, want IND NASDAQ", secType, exchange)
 	}
 }
+
+func TestDefaultHistoricalCurrencyUsesHistoryClassification(t *testing.T) {
+	for _, symbol := range []string{"SPY", "SYNTH", "VIX", "USD.JPY", "EUR/USD"} {
+		_, _, want, _ := classifySymbol(symbol)
+		if got := DefaultHistoricalCurrency(symbol); got != want {
+			t.Fatalf("%s history currency %s, want %s", symbol, got, want)
+		}
+	}
+}

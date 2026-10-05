@@ -55,50 +55,51 @@ func splitSymbols(raw string) []string {
 }
 
 func renderTechnicalText(env *Env, r *rpc.TechnicalResult) int {
-	out := env.Stdout
-	fmt.Fprintln(out)
 	if r == nil {
-		fmt.Fprintln(out, "Technical screen")
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, "  (no rows)")
-		fmt.Fprintln(out)
+		displayLine(env, "Technical screen · no rows", nil)
 		return 0
 	}
-	fmt.Fprintf(out, "Technical screen  ·  benchmark %s  ·  %d-day lookback\n", r.Benchmark, r.LookbackDays)
-	fmt.Fprintln(out)
+	displayLine(env, fmt.Sprintf("Technical screen · %s benchmark · %d-day lookback", r.Benchmark, r.LookbackDays), env.bold)
+	for _, warning := range r.WarningDetails {
+		displayLine(env, "Data: "+warning.Message+" · "+warning.Impact+" · "+warning.Action, env.yellow)
+	}
 	if len(r.Rows) == 0 {
-		fmt.Fprintln(out, "  (no rows)")
-		fmt.Fprintln(out)
-		return 0
+		displayLine(env, "No rows available.", env.dim)
 	}
-	header := fmt.Sprintf("  %-7s %9s %8s %8s %8s %8s %8s %9s %10s %10s %s",
-		"SYMBOL", "PRICE", "50DMA", "200DMA", "200EXT", "RS63", "RS126", "ATR%", "ADV20", "ADV$20", "STATE")
-	fmt.Fprintln(out, env.dim(header))
-	fmt.Fprintln(out, env.dim(strings.Repeat("─", visibleLen(header))))
 	for _, row := range r.Rows {
-		state := row.TrendState
-		if row.DataQuality != "" && row.DataQuality != "ok" {
-			state = row.TrendState + "/" + row.DataQuality
+		fmt.Fprintln(env.Stdout)
+		currency := nonEmpty(row.Currency, nonEmpty(r.Currency, "currency unavailable"))
+		state := nonEmpty(row.TrendState, "unrated")
+		style := env.dim
+		if row.Error != "" || row.DataQuality == "error" {
+			state, style = "error", env.red
+		} else if row.DataQuality != "ok" {
+			state, style = nonEmpty(row.DataQuality, "unverified")+" · recorded "+state, env.yellow
+		} else {
+			switch state {
+			case "uptrend":
+				style = env.green
+			case "broken":
+				style = env.red
+			case "extended", "recovering":
+				style = env.yellow
+			}
 		}
+		displayLine(env, row.Symbol+" · "+strings.ReplaceAll(state, "_", " "), style)
+		displayRow(env, env.Stdout, "Price", strings.TrimSpace(formatTechnicalMoney(row.Price, 0))+" "+currency+" · as of "+nonEmpty(row.PriceAsOf, "unavailable"))
+		displayRow(env, env.Stdout, "Trend", "50-day avg "+strings.TrimSpace(formatTechnicalMoney(row.SMA50, 0))+" · 200-day avg "+strings.TrimSpace(formatTechnicalMoney(row.SMA200, 0)))
+		displayRow(env, env.Stdout, "vs 200-day", strings.TrimSpace(formatTechnicalPct(row.PctAbove200DMA, 0))+" from the long-term average")
+		displayRow(env, env.Stdout, "vs benchmark", displayNumber(row.RS63D, 100, "%+.1f pp")+" / 63 days · "+displayNumber(row.RS126D, 100, "%+.1f pp")+" / 126 days")
+		displayRow(env, env.Stdout, "Daily range", strings.TrimSpace(formatTechnicalPct(row.ATRPct, 0))+" · 14-day average true range / price")
+		displayRow(env, env.Stdout, "Liquidity", strings.TrimSpace(formatTechnicalVolume(row.AvgVolume20D, 0))+" shares/day · "+strings.TrimSpace(formatTechnicalDollarVolume(row.AvgDollarVolume20D, 0))+" "+currency+"/day · 20-day average")
 		if row.Error != "" {
-			state = "error"
+			displayLine(env, "  Error: "+row.Error, env.red)
 		}
-		fmt.Fprintf(out, "  %-7s %9s %8s %8s %8s %8s %8s %9s %10s %10s %s\n",
-			row.Symbol,
-			formatTechnicalMoney(row.Price, 9),
-			formatTechnicalMoney(row.SMA50, 8),
-			formatTechnicalMoney(row.SMA200, 8),
-			formatTechnicalPct(row.PctAbove200DMA, 8),
-			formatTechnicalPct(row.RS63D, 8),
-			formatTechnicalPct(row.RS126D, 8),
-			formatTechnicalPct(row.ATRPct, 9),
-			formatTechnicalVolume(row.AvgVolume20D, 10),
-			formatTechnicalDollarVolume(row.AvgDollarVolume20D, 10),
-			state,
-		)
+		for _, reason := range row.MissingReasons {
+			displayLine(env, "  Missing: "+strings.ReplaceAll(reason, "_", " "), env.yellow)
+		}
 	}
-	fmt.Fprintln(out)
-	fmt.Fprintln(out, env.dim("  RS = symbol return minus benchmark return; percentages are decimal-return fields in JSON."))
+	displayLine(env, "pp = percentage points of return relative to the benchmark. — = unavailable.", env.dim)
 	return 0
 }
 

@@ -131,7 +131,7 @@ func formatTradingMode(env *Env, st rpc.TradingStatus) string {
 		return env.yellow(st.Mode + " blocked")
 	}
 	if st.Mode == config.TradingModeLive {
-		return env.yellow(st.Mode + " ready")
+		return env.bold(st.Mode + " ready")
 	}
 	return env.green(nonEmpty(st.Mode, "unknown") + " ready")
 }

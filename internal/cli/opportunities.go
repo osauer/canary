@@ -192,31 +192,38 @@ func renderOpportunityStatusText(env *Env, st *rpc.OpportunityStatus) {
 
 func renderOpportunitiesText(env *Env, snap *rpc.OpportunitySnapshot) {
 	out := env.Stdout
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "Canary Opportunities  %d actionable / %d total\n", snap.Counts.Actionable, snap.Counts.Total)
-	statusRow(env, out, "Revision", snap.Revision)
-	statusRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
+	displayLine(env, fmt.Sprintf("Canary Opportunities · %d actionable / %d total", snap.Counts.Actionable, snap.Counts.Total), env.bold)
+	displayRow(env, out, "Revision", snap.Revision)
+	displayRow(env, out, "Policy", fmt.Sprintf("%s v%d", snap.PolicyID, snap.PolicyVersion))
 	if snap.Counts.ExpectedGainCurrency != "" {
-		statusRow(env, out, "Expected gain", formatMoneyCcy(snap.Counts.ExpectedGain, snap.Counts.ExpectedGainCurrency))
+		displayRow(env, out, "Expected gain", formatMoneyCcy(snap.Counts.ExpectedGain, snap.Counts.ExpectedGainCurrency))
 	}
-	printTradingBlockers(out, "  ", snap.Blockers)
+	renderDisplayBlockers(env, snap.Blockers)
 	for _, opp := range snap.Opportunities {
-		state := "ready"
-		if len(opp.Blockers) > 0 {
-			state = "blocked"
+		state, style := "ready", env.green
+		if len(opp.Blockers) > 0 || opp.State == rpc.OpportunityStateBlocked {
+			state, style = "blocked", env.yellow
 		}
-		head := fmt.Sprintf("%s  %s  %s %d %s %s %.4g",
-			opp.Key, opp.Bucket, opp.Action, opp.Quantity, opp.Symbol, opp.Contract.Right, opp.Contract.Strike)
-		fmt.Fprintf(out, "  %s  gain=%s  effect=%s  [%s]\n", head, formatMoneyCcy(opp.ExpectedGain, opp.ExpectedGainCurrency), opp.PositionEffect, state)
+		fmt.Fprintln(out)
+		contract := fmt.Sprintf("%s %s %.4g %s", opp.Symbol, opp.Contract.Expiry, opp.Contract.Strike, opp.Contract.Right)
+		displayLine(env, fmt.Sprintf("%s · %s %d contracts · %s", contract, opp.Action, opp.Quantity, state), style)
+		displayRow(env, out, "Opportunity", opp.Key+" · "+opp.Bucket)
+		displayRow(env, out, "Expected gain", formatMoneyCcy(opp.ExpectedGain, opp.ExpectedGainCurrency))
+		displayRow(env, out, "Position effect", opp.PositionEffect)
+		if opp.Reason != "" {
+			displayLine(env, "  "+opp.Reason, nil)
+		}
 		if risk := opportunityPostExerciseRiskSummary(opp); risk != "" {
-			fmt.Fprintf(out, "      post-exercise risk: %s\n", risk)
+			displayRow(env, out, "Post-exercise risk", risk)
 		}
-		for _, d := range opp.Details {
-			fmt.Fprintf(out, "      %s\n", d)
+		for _, detail := range opp.Details {
+			displayLine(env, "  "+detail, nil)
 		}
-		printTradingBlockers(out, "      ", opp.Blockers)
+		renderDisplayBlockers(env, opp.Blockers)
 	}
-	fmt.Fprintln(out)
+	if len(snap.Opportunities) == 0 {
+		displayLine(env, "No opportunities in this snapshot.", nil)
+	}
 }
 
 func renderOpportunityPreviewText(env *Env, res *rpc.OpportunityExercisePreviewResult) {
