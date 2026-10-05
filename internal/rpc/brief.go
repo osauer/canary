@@ -1752,6 +1752,9 @@ type RiskPolicyResult struct {
 	// Files reports every policy file Canary reads: the constitution,
 	// rulebook-policy.toml, protection-policy.toml and opportunity-policy.toml.
 	Files []PolicyFileStatus `json:"files,omitempty"`
+	// Plausibility is the policy check (`canary policy check`): the values
+	// read against each other, across files and against the live book.
+	Plausibility *PolicyCheckReport `json:"plausibility,omitempty"`
 }
 
 // PolicyFileStatus is one policy file as Canary reads it: where it is, its

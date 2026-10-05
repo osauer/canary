@@ -42,6 +42,8 @@ func runPolicy(ctx context.Context, env *Env, args []string) int {
 	switch sub {
 	case "show":
 		return runPolicyShow(ctx, env, args)
+	case "check":
+		return runPolicyCheck(ctx, env, args)
 	case "default":
 		return runPolicyDefault(ctx, env, args)
 	case "ensure":
@@ -65,6 +67,7 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "Start here:")
 	fmt.Fprintln(env.Stdout, "  canary policy show             Show the current capital, drawdown, latch and policy state.")
 	fmt.Fprintln(env.Stdout, "  canary policy show --explain   Also explain every limit and whether it is advisory or enforced.")
+	fmt.Fprintln(env.Stdout, "  canary policy check            Read the limits against each other and the live book; say what is implausible.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Human-only policy actions (run these yourself in an interactive terminal):")
 	fmt.Fprintln(env.Stdout, "  capital-event    Record a provisional deposit/withdrawal, or exceptionally sign off a recon report.")
@@ -93,6 +96,18 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "This is read-only. Use --explain to see every limit's plain-English meaning,")
 		fmt.Fprintln(env.Stdout, "source and enforcement class, and every policy file's notes: keys it lacks,")
 		fmt.Fprintln(env.Stdout, "retired keys, pending migrations, and what Canary now recommends.")
+	case "check":
+		fmt.Fprintln(env.Stdout, "canary policy check — a plausibility read of config.toml and every policy file")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Usage: canary policy check [--offline] [--config PATH] [--json]")
+		fmt.Fprintln(env.Stdout)
+		fmt.Fprintln(env.Stdout, "Read-only. Checks values against each other, across files and, when the daemon")
+		fmt.Fprintln(env.Stdout, "answers, against the live account: a bucket cap the trading gate always refuses,")
+		fmt.Fprintln(env.Stdout, "watch above act, a limit that loosens under stress, caps and reserves tiny or huge")
+		fmt.Fprintln(env.Stdout, "against NLV, a sweep minimum whose interest does not cover the commission, expired")
+		fmt.Fprintln(env.Stdout, "dates and unreviewed defaults. Each finding names its keys, says what is wrong and")
+		fmt.Fprintln(env.Stdout, "suggests a value. --offline checks the files only (no daemon is started). Exits 1")
+		fmt.Fprintln(env.Stdout, "only when a finding is an error; warnings and notes exit 0.")
 	case "ensure":
 		fmt.Fprintln(env.Stdout, "canary policy ensure — write missing defaults and review or apply exact policy conversions")
 		fmt.Fprintln(env.Stdout)
@@ -163,7 +178,7 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "journaled, expires automatically, and is capped by the policy's maximum duration.")
 		fmt.Fprintln(env.Stdout, "It cannot change account pins, preview requirements, trading.freeze or broker-write guardrails.")
 	default:
-		return fail(env, "policy help: unknown action %q (choose show, capital-event, reset-drawdown, correct-peak, override, default or ensure)", action)
+		return fail(env, "policy help: unknown action %q (choose show, check, capital-event, reset-drawdown, correct-peak, override, default or ensure)", action)
 	}
 	return 0
 }

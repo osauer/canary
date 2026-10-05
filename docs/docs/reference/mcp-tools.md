@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**34 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**35 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_short_interest_screen`
 
@@ -316,6 +316,12 @@ Read the desk Rulebook: each rule's verdict against the owner's limits (worst-ca
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `symbol` | string | no | optional underlying symbol (case-insensitive) to narrow per-rule offender lists; an issuer group holding the symbol is kept; portfolio verdicts are unaffected |
+
+## `canary_policy_check`
+
+Read the plausibility check of the owner's config.toml and policy files: values read against each other, across files and against the live book. Use it for 'do my limits make sense', 'why is a ready proposal refused at the trading gate' or before suggesting a policy edit. Each finding carries `severity` (error: an order path that can never work or a contradiction, such as a bucket's max_order_notional above [trading].max_notional or a watch level above its act level; warn: implausible against the book or the economics, such as a per-order cap under 2% or over 50% of NLV, a cash reserve under 2% of NLV, or a sweep minimum whose interest does not cover the commission; info: unreviewed defaults and dates about to end), `keys` (file, key, value), a one-sentence `message` and a `suggestion` with its reasoning. `skipped` names the checks that did not run (no live account, no positions); `assumptions` names every number assumed because no key carries it. Use canary_rules for the verdicts against those limits. Read-only: it never changes a limit; the owner edits the files.
+
+*No parameters.*
 
 ## `canary_proposals`
 
