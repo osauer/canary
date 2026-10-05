@@ -99,6 +99,11 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 	if tr.Mode == config.TradingModeDisabled {
 		return status
 	}
+	if s != nil {
+		// The order limits in force, so every surface states the cap and
+		// how it is bound; missing keys refuse previews, not the status.
+		status.OrderLimits = new(s.orderLimitsInForce(""))
+	}
 
 	add := func(code, message, action string) {
 		status.Blockers = append(status.Blockers, rpc.TradingBlocker{

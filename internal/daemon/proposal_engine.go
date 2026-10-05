@@ -848,6 +848,18 @@ func (e *proposalEngine) generateBook(ctx context.Context, policy protectionPoli
 			proposalBlockWith(&out[i], e.duplicateProtectiveBlockers(ctx, out[i], pos))
 		}
 	}
+	// While [order_limits] misses a key the trading gate refuses every order
+	// preview, so no row reads ready (owner decision 2026-10-05 19:56 CEST).
+	if e != nil && e.server != nil {
+		if limits := e.server.orderLimitsInForce(""); !limits.Complete {
+			b := orderRiskLimitBlocker(limits, orderLimitsIncompleteError(limits))
+			for i := range out {
+				if !out[i].Shadow {
+					proposalBlockWith(&out[i], []rpc.TradingBlocker{b})
+				}
+			}
+		}
+	}
 	return out, suppressions, hedges, budget
 }
 

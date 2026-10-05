@@ -102,7 +102,7 @@ func budgetThetaFixture() (*proposalEngine, protectionPolicy, *rpc.PositionsResu
 	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "EUR"}, Options: []rpc.PositionView{leg}}
 	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 40, 15)
 	policy.Buckets.ThetaHygiene.Enabled = true
-	engine := &proposalEngine{server: &Server{openOrderInventoryForTest: sameContractInventory()}, now: func() time.Time { return now },
+	engine := &proposalEngine{server: withTestOrderLimits(&Server{openOrderInventoryForTest: sameContractInventory()}), now: func() time.Time { return now },
 		budgetInput: func(*rpc.AccountResult, time.Time) budgetGovernorInput { return budgetLatchedInput() }}
 	return engine, policy, pos, now
 }

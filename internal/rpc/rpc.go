@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/risk"
 )
 
 // Daemon method names are stable wire identifiers shared by every adapter.
@@ -2497,11 +2499,16 @@ type TradingStatus struct {
 	// It reports the setting; WriteBlockers and CanWrite carry its effect.
 	Freeze bool `json:"freeze"`
 	// TradingControlGeneration is the platform-settings generation of the
-	// runtime trading controls (freeze, both size caps, stock shorting and
-	// option sell-to-open). It advances on every change to any of them, so a
-	// reader comparing two observations sees a freeze set and lifted in
-	// between even when Freeze reads the same.
+	// runtime trading control, the freeze (the runtime limit overrides it once
+	// also covered are retired). It advances on every change, so a reader
+	// comparing two observations sees a freeze set and lifted in between even
+	// when Freeze reads the same.
 	TradingControlGeneration uint64 `json:"trading_control_generation"`
+	// OrderLimits is the risk constitution's [order_limits] in force: the
+	// order cap every preview and broker send is judged by and how it is
+	// bound, or the missing keys that refuse every preview. Absent while
+	// order entry is disabled.
+	OrderLimits *risk.OrderLimitsInForce `json:"order_limits,omitempty"`
 }
 
 // Order constants are the allowlisted action, order-type, time-in-force,

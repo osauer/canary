@@ -61,11 +61,21 @@ min_maturity_days = 91
 min_maturity_days = 91
 `
 
+// pcConstitution carries complete [order_limits]: against pcBook's 200,000
+// NLV the cap in force is 10,000 EUR (5% of NLV meets the floor).
 const pcConstitution = pcConstitutionHead + `
 [capital]
 base_currency = "EUR"
 protected_floor = 120000.0
 declared_risk_capital = 40000.0
+
+[order_limits]
+max_order_floor_base = 10000.0
+max_order_pct_nlv = 5.0
+max_order_ceiling_base = 100000.0
+max_option_contracts = 5
+allow_stock_short = false
+allow_option_sell_to_open = false
 `
 
 type pcFiles struct {
@@ -121,8 +131,8 @@ max_order_notional = 9000.0
 
 func pcInput(t *testing.T, f pcFiles) PolicyCheckInput {
 	t.Helper()
-	tr := config.Trading{Mode: config.TradingModeLive, MaxNotional: 10000}.WithDefaults()
-	return PolicyCheckInput{Now: pcNow, Files: pcWrite(t, f), ConfigPath: "/x/config.toml", Trading: tr, TradingCapSource: PolicyCheckCapFromConfig,
+	tr := config.Trading{Mode: config.TradingModeLive}.WithDefaults()
+	return PolicyCheckInput{Now: pcNow, Files: pcWrite(t, f), ConfigPath: "/x/config.toml", Trading: tr,
 		Book: pcBook(), FileStatus: map[string]string{}}
 }
 
@@ -241,9 +251,14 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 10000.0\nkeep_cash")
 			}, absent: []string{"cap_above_trading_max"}, contains: "sizes each USD order at the ledger rate"},
 		{name: "trading cap tiny against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
-			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.MaxNotional = 3000 }, contains: "1.5% of NLV"},
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0\nmax_order_pct_nlv = 5.0", "max_order_floor_base = 3000.0\nmax_order_pct_nlv = 1.0")
+			}, contains: "1.5% of NLV"},
 		{name: "trading cap huge against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
-			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.MaxNotional = 150000 }, contains: "more than half the book"},
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0", "max_order_floor_base = 150000.0")
+				f.constitution = replace(f.constitution, "max_order_ceiling_base = 100000.0", "max_order_ceiling_base = 200000.0")
+			}, contains: "more than half the book"},
 		{name: "risk-reduction cap splits a trim", rule: "order_cap_splits_reduction", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 9000.0", "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 4000.0")
@@ -299,8 +314,15 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.rulebook = PolicyUnreviewedMarker + "\n" + f.rulebook + "option_line_act_pct = 15.0\n"
 			}, contains: "1 of its limits differs from Canary's defaults (option_line_act_pct)"},
-		{name: "trading cap on the compiled default", rule: "compiled_default_in_force", severity: rpc.PolicyCheckInfo,
-			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.TradingCapSource = PolicyCheckCapFromDefault }, contains: "compiled default of 10,000"},
+		{name: "an order limit not written", rule: "order_limits_missing", severity: rpc.PolicyCheckError,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.constitution = replace(f.constitution, "max_order_pct_nlv = 5.0\n", "")
+			}, absent: []string{"cap_above_trading_max", "order_cap_vs_nlv"}, contains: "does not write order_limits.max_order_pct_nlv, so the trading gate refuses every order preview"},
+		{name: "no order limits at all", rule: "order_limits_missing", severity: rpc.PolicyCheckError,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) { f.constitution = pcConstitutionHead }, contains: "order_limits.max_order_floor_base, order_limits.max_order_pct_nlv"},
+		{name: "retired trading gate differs", rule: "retired_trading_gate", severity: rpc.PolicyCheckWarn,
+			edit:     func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.MaxNotional = new(12000.0) },
+			contains: "[trading].max_notional = 12,000 EUR is retired and no longer read; [order_limits].max_order_floor_base = 10,000 EUR decides"},
 		{name: "sweep numbers not written", rule: "compiled_default_in_force", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\n", "")
@@ -389,7 +411,9 @@ func TestPolicyCheckAbsentFilesRunDefaults(t *testing.T) {
 			t.Fatalf("%s state %s", f.Policy, f.State)
 		}
 	}
-	if r.Errors != 0 {
+	// Without a constitution there are no order limits, so the trading gate
+	// refuses every order preview: that is the one error the defaults carry.
+	if r.Errors != 1 || !slices.Equal(pcRules(r), []string{"order_limits_missing"}) {
 		t.Fatalf("defaults produced errors: %v", pcRules(r))
 	}
 }

@@ -122,20 +122,23 @@ type Daemon struct {
 	LogAfterCloseMinutes *int `toml:"log_after_close_minutes"`
 }
 
-// Trading holds local order-entry gates for experimental trading builds.
+// Trading holds the local order-entry mode for experimental trading builds.
+// The four per-order gates it once held are retired into risk-policy.toml
+// [order_limits]; their keys stay parseable and are read only by the policy
+// migration and the plausibility check.
 // Stable ibkr releases are read-only; a missing [trading] section resolves to
 // override. TWS / Gateway broker permissions remain the final authority even
 type Trading struct {
 	// Mode selects the local order-entry state: "disabled" (default), "paper", or "live".
 	Mode string `toml:"mode"`
-	// MaxNotional caps every equity/ETF order before broker WhatIf, apparent close/reduce orders included, with one exemption: a protective stop (TRAIL, TRAIL LIMIT, STP, STP LMT) that sells at most a long stock/ETF position while the complete broker open-order inventory shows no other working sell that would, with it, exceed the position. The daemon's protective stop guard then shrinks or cancels its own stops after a later sale; while the daemon is down a hand sale is not followed. Default 10000 in account currency.
-	MaxNotional float64 `toml:"max_notional"`
-	// MaxOptionContracts caps every single-leg option order; apparent close/reduce orders are not exempt because account-global working-order authority is incomplete. Default 5.
-	MaxOptionContracts int `toml:"max_option_contracts"`
-	// AllowStockShort permits stock short/opening flip previews when true; an apparent stock sell exit counts as opening a short, except the protective stop exempted under max_notional. Default false.
-	AllowStockShort bool `toml:"allow_stock_short"`
-	// AllowOptionSellToOpen permits option sell-to-open previews when true. Default false.
-	AllowOptionSellToOpen bool `toml:"allow_option_sell_to_open"`
+	// MaxNotional is retired (owner decision 2026-10-05 19:56 CEST): the per-order notional cap lives in risk-policy.toml [order_limits] as max_order_floor_base, max_order_pct_nlv and max_order_ceiling_base. The key is still parsed so an old file loads, never read for a decision; `canary policy ensure` copies it into [order_limits] as the floor, and `canary policy check` warns while it remains and differs.
+	MaxNotional *float64 `toml:"max_notional"`
+	// MaxOptionContracts is retired (owner decision 2026-10-05 19:56 CEST): risk-policy.toml [order_limits].max_option_contracts decides. Still parsed so an old file loads, never read for a decision; `canary policy ensure` copies it into [order_limits].
+	MaxOptionContracts *int `toml:"max_option_contracts"`
+	// AllowStockShort is retired (owner decision 2026-10-05 19:56 CEST): risk-policy.toml [order_limits].allow_stock_short decides. Still parsed so an old file loads, never read for a decision; `canary policy ensure` copies it into [order_limits].
+	AllowStockShort *bool `toml:"allow_stock_short"`
+	// AllowOptionSellToOpen is retired (owner decision 2026-10-05 19:56 CEST): risk-policy.toml [order_limits].allow_option_sell_to_open decides. Still parsed so an old file loads, never read for a decision; `canary policy ensure` copies it into [order_limits].
+	AllowOptionSellToOpen *bool `toml:"allow_option_sell_to_open"`
 }
 
 // Rulebook configures the owner's Rulebook policy file and operator-owned
@@ -348,12 +351,6 @@ func (o Opportunities) RefreshCadenceDuration() time.Duration {
 func (t Trading) WithDefaults() Trading {
 	if t.Mode == "" {
 		t.Mode = TradingModeDisabled
-	}
-	if t.MaxNotional == 0 {
-		t.MaxNotional = 10000
-	}
-	if t.MaxOptionContracts == 0 {
-		t.MaxOptionContracts = 5
 	}
 	return t
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/risk"
 )
 
@@ -48,11 +50,24 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		changes = append(changes, "use canonical kind "+kind+" (legacy alias remains readable)")
 	}
 	keyOf := effectivePolicyFileKey
-	if k.name == PolicyFileProtection {
+	switch k.name {
+	case PolicyFileProtection:
 		// Writing the cash sweep's missing sizing numbers is the one
 		// protection conversion that changes the policy in force;
 		// migrateProtectionPolicyFile proves it changes nothing else.
 		keyOf = protectionMaterialisationFileKey
+	case PolicyFileConstitution:
+		// Writing the missing [order_limits] keys is the one constitution
+		// conversion that changes the policy in force; every other setting
+		// and every order-limit key already written must stay as it is.
+		keyOf = constitutionMaterialisationFileKey
+		var before, after risk.Constitution
+		if _, err := toml.Decode(string(data), &before); err != nil {
+			return nil, nil, notes, err
+		}
+		if _, err := toml.Decode(string(out), &after); err != nil || !orderLimitsPreserved(before.OrderLimits, after.OrderLimits) {
+			return nil, nil, notes, fmt.Errorf("conversion would change a written [order_limits] key; nothing written: %v", err)
+		}
 	}
 	beforeKey, err := keyOf(k.name, data)
 	if err != nil {
@@ -67,6 +82,9 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		if exactBefore, err := effectivePolicyFileKey(k.name, data); err == nil {
 			if exactAfter, err := effectivePolicyFileKey(k.name, out); err == nil && exactBefore != exactAfter {
 				trailer = "; missing cash sweep numbers written, every other setting verified unchanged."
+				if k.name == PolicyFileConstitution {
+					trailer = "; missing [order_limits] keys written from config.toml [trading] (owner decision 2026-10-05 19:56 CEST), every other setting verified unchanged."
+				}
 			}
 		}
 		out = append(out, []byte("\n# Format/comment migration by Canary "+sanitizeReleaseLabel(release)+trailer+"\n")...)
@@ -105,20 +123,31 @@ func protectionMaterialisationFileKey(_ string, data []byte) (string, error) {
 	return protectionMaterialisationKey(p), nil
 }
 
-func migrateConstitutionPolicyFile(data []byte, _ string) ([]byte, []string, []string, error) {
-	var c risk.Constitution
-	if _, err := toml.Decode(string(data), &c); err != nil {
-		return nil, nil, nil, err
+// migrateConstitutionPolicyFileFrom converts a constitution to schema 2 when
+// its semantics allow, and writes every [order_limits] key it lacks from
+// src, config.toml [trading] as written (owner decision 2026-10-05 19:56
+// CEST), raising policy_version.
+func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead bool) func([]byte, string) ([]byte, []string, []string, error) {
+	return func(data []byte, _ string) ([]byte, []string, []string, error) {
+		var c risk.Constitution
+		if _, err := toml.Decode(string(data), &c); err != nil {
+			return nil, nil, nil, err
+		}
+		doc := parseTOMLDoc(data)
+		var changes, notes []string
+		switch {
+		case !c.Semantics().ProcessReminders:
+			notes = append(notes, "legacy accounting/reminder semantics retained; conversion needs a separate policy decision")
+		case c.SchemaVersion != 2:
+			doc.set("", "schema_version", "2", nil)
+			changes = append(changes, "schema 2 separates format semantics from document revision")
+		}
+		changes = append(changes, migrateConstitutionOrderLimits(doc, c, src, srcRead)...)
+		if len(changes) == 0 {
+			return data, nil, notes, nil
+		}
+		return doc.bytes(), changes, notes, nil
 	}
-	if !c.Semantics().ProcessReminders {
-		return data, nil, []string{"legacy accounting/reminder semantics retained; conversion needs a separate policy decision"}, nil
-	}
-	if c.SchemaVersion == 2 {
-		return data, nil, nil, nil
-	}
-	doc := parseTOMLDoc(data)
-	doc.set("", "schema_version", "2", nil)
-	return doc.bytes(), []string{"schema 2 separates format semantics from document revision"}, nil, nil
 }
 
 func migrateOpportunityPolicyFile(data []byte, _ string) ([]byte, []string, []string, error) {

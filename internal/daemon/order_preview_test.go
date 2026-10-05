@@ -208,7 +208,7 @@ func TestConfirmPreviewTokenForPlaceIsSingleUse(t *testing.T) {
 
 func TestOrderPreviewRejectsMaxNotional(t *testing.T) {
 	t.Parallel()
-	tr := config.Trading{Mode: config.TradingModePaper, MaxNotional: 500}
+	tr := config.Trading{Mode: config.TradingModePaper, MaxNotional: new(500.0)}
 	srv := newOrderPreviewTestServer(t, tr)
 	srv.orderPreviewQuote = fixedPreviewQuote(100, 101)
 	srv.orderPreviewPositionImpact = fixedPreviewPosition(0, 6, rpc.OrderPositionEffectOpen)
@@ -221,8 +221,8 @@ func TestOrderPreviewRejectsMaxNotional(t *testing.T) {
 		LimitPrice: &limit,
 	})
 	var bad *badRequestError
-	if !errors.As(err, &bad) || !strings.Contains(err.Error(), "max_notional") {
-		t.Fatalf("previewOrder err = %v, want max_notional bad request", err)
+	if !errors.As(err, &bad) || !strings.Contains(err.Error(), "exceeds the order cap in force 500 USD") {
+		t.Fatalf("previewOrder err = %v, want an order-cap bad request", err)
 	}
 }
 
@@ -282,8 +282,9 @@ func newOrderPreviewTestServerIn(t *testing.T, trading config.Trading, dir strin
 	if err := signer.bindAuthority(head.AuthorityEpoch, head.SignerGeneration); err != nil {
 		t.Fatalf("bind test signer: %v", err)
 	}
+	limits := testOrderLimitsFromTrading(trading)
 	trading = trading.WithDefaults()
-	return &Server{
+	srv := &Server{
 		cfg: &config.Resolved{
 			Gateway: config.Gateway{Host: "127.0.0.1", Port: new(4002), ClientID: new(31), Account: "DU1234567"},
 			Trading: trading,
@@ -296,6 +297,8 @@ func newOrderPreviewTestServerIn(t *testing.T, trading config.Trading, dir strin
 		gatewayReadyForTrading:   func() bool { return true },
 		gatewayAccountForTrading: func() string { return "DU1234567" },
 	}
+	installTestOrderLimits(srv, limits)
+	return srv
 }
 
 func fixedPreviewQuote(bid, ask float64) func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error) {
@@ -582,7 +585,7 @@ func newOrderReconcileTestServer(t *testing.T, now time.Time) *Server {
 	srv.cfg.Trading.Mode = config.TradingModePaper
 	srv.orderJournal = newTestOrderJournalStore(t, filepath.Join(t.TempDir(), "order-journal.jsonl"))
 	srv.now = func() time.Time { return now }
-	return srv
+	return withTestOrderLimits(srv)
 }
 
 func seedReconcileGhostRow(t *testing.T, srv *Server, ref string, permID int, at time.Time, extra ...orderJournalEvent) {

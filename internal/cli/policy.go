@@ -187,6 +187,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Find the exact control key with `canary policy show --explain`. The exception is")
 		fmt.Fprintln(env.Stdout, "journaled, expires automatically, and is capped by the policy's maximum duration.")
 		fmt.Fprintln(env.Stdout, "It cannot change account pins, preview requirements, trading.freeze or broker-write guardrails.")
+		fmt.Fprintln(env.Stdout, "Of the order limits only order_limits.max_order_floor_base takes an override: it lifts the")
+		fmt.Fprintln(env.Stdout, "floor to max_order_ceiling_base, so the cap in force is the ceiling until the override expires.")
 	default:
 		return fail(env, "policy help: unknown action %q (choose show, check, capital-event, reset-drawdown, correct-peak, override, default or ensure)", action)
 	}
@@ -304,6 +306,13 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		fmt.Fprintf(env.Stdout, "  (%s)\n", r)
 	}
 
+	if l := res.OrderLimits; l != nil {
+		if l.Complete {
+			fmt.Fprintf(env.Stdout, "\nOrder cap in force: %s\n", l.Summary)
+		} else {
+			fmt.Fprintf(env.Stdout, "\nOrder limits: %s\n", l.Summary)
+		}
+	}
 	if len(res.Unapproved) > 0 {
 		fmt.Fprintf(env.Stdout, "\nWaiting on your decisions — these keys are absent from the policy file, so the controls that need them stay off:\n")
 		for _, k := range res.Unapproved {

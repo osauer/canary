@@ -38,7 +38,7 @@ func expiryCallFixture(t *testing.T, dte int, underlying, bid, ask float64) (*pr
 	f.models[row.ConID].Delta = new(0.5)
 	f.models[row.ConID].Underlying = new(underlying)
 	f.prices = map[int]rpc.OrderQuoteSnapshot{row.ConID: unitQuote(now, bid, ask)}
-	engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+	engine := &proposalEngine{server: withTestOrderLimits(&Server{}), optionExitSource: f, now: func() time.Time { return now }}
 	return engine, f, pos, now
 }
 
@@ -180,7 +180,7 @@ func TestOptionExitExpiryCloseNeverSellsProtection(t *testing.T) {
 			case rpc.OptionHedgeEvidenceUnmeasured:
 				f.readErr = context.DeadlineExceeded
 			}
-			engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+			engine := &proposalEngine{server: withTestOrderLimits(&Server{}), optionExitSource: f, now: func() time.Time { return now }}
 			proposals, _, hedges, _ := engine.generateBook(context.Background(), standingOptionExitPolicy(), rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 			if tc.close {
 				if len(proposals) != 1 || proposals[0].Bucket != rpc.TradeProposalBucketOptionExpiryClose || len(hedges) != 0 {

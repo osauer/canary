@@ -38,7 +38,7 @@ func unitFixture(t *testing.T, longBid, longAsk, shortBid, shortAsk float64) (*p
 		t.Fatalf("fixture did not reconstruct a vertical: %+v %+v", pos.Strategies, pos.StrategyIssues)
 	}
 	f.prices = map[int]rpc.OrderQuoteSnapshot{42: unitQuote(now, longBid, longAsk), 43: unitQuote(now, shortBid, shortAsk)}
-	engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+	engine := &proposalEngine{server: withTestOrderLimits(&Server{}), optionExitSource: f, now: func() time.Time { return now }}
 	return engine, f, standingOptionExitPolicy(), pos, now
 }
 
@@ -141,7 +141,7 @@ func TestUnitExitCoversAnAmbiguousUnderlyingAsOneUnit(t *testing.T) {
 		t.Fatalf("fixture is not ambiguous: %+v %+v", pos.Strategies, pos.StrategyIssues)
 	}
 	f.prices = map[int]rpc.OrderQuoteSnapshot{42: unitQuote(now, 0.50, 0.55), 43: unitQuote(now, 0.20, 0.22), 44: unitQuote(now, 0.05, 0.06)}
-	engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+	engine := &proposalEngine{server: withTestOrderLimits(&Server{}), optionExitSource: f, now: func() time.Time { return now }}
 	proposals, _ := engine.generate(context.Background(), standingOptionExitPolicy(), rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 	if len(proposals) != 1 {
 		t.Fatalf("expected one unit row for the ambiguous underlying: %+v", proposals)
@@ -164,7 +164,7 @@ func TestUnitExitKeepsAnUnmeasuredIndexPutSpreadAsProtection(t *testing.T) {
 	}}
 	pos.Strategies, pos.StrategyIssues = strategy.InferPositionStrategies(pos.Options)
 	f.readErr = context.DeadlineExceeded
-	engine := &proposalEngine{server: &Server{}, optionExitSource: f, now: func() time.Time { return now }}
+	engine := &proposalEngine{server: withTestOrderLimits(&Server{}), optionExitSource: f, now: func() time.Time { return now }}
 	proposals, _ := engine.generate(context.Background(), standingOptionExitPolicy(), rpc.ProtectionPolicyStatus{}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, now)
 	if len(proposals) != 0 {
 		t.Fatalf("an unmeasured index put spread produced exit work: %+v", proposals)

@@ -82,8 +82,8 @@ function tradingLimitSummary(limits = {}) {
   const notional = limits.max_notional?.value;
   const optionQty = limits.max_option_contracts?.value;
   const parts = [];
-  // [trading].max_notional is defined in the account currency (see
-  // config.Trading), so label it with the account base, never a fixed USD.
+  // The order cap in force (risk-policy.toml [order_limits]) is stated in
+  // the account currency, so label it with the account base, never a fixed USD.
   if (typeof notional === "number") parts.push(money(notional, accountBaseCurrency(state.snapshot?.account || {})));
   if (typeof optionQty === "number") parts.push(`${optionQty} opt`);
   return parts.join(" / ") || "--";

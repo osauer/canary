@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -20,9 +21,9 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 	t.Parallel()
 	rig := newAutomaticTradingRig(t, `pre_authorised = ["cash_sweep"]`)
 	rig.latched = true
-	// [trading].max_notional binds a sweep order like any other; this order
+	// The order cap in force binds a sweep order like any other; this order
 	// is 54,780 USD.
-	rig.server.cfg.Trading.MaxNotional = 1e6
+	setTestOrderLimits(rig.server, func(o *risk.ConstitutionOrderLimits) { o.MaxOrderFloorBase = new(1e6) })
 	var mu sync.Mutex
 	var contracts []ibkrlib.Contract
 	var orders []ibkrlib.RawOrder

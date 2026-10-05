@@ -14,6 +14,9 @@ const (
 	SettingsSourceConfig   = "config"
 	SettingsSourceBuild    = "build"
 	SettingsSourceObserved = "observed"
+	// SettingsSourcePolicy marks a value read from a policy file, such as
+	// the order limits of risk-policy.toml [order_limits].
+	SettingsSourcePolicy = "policy"
 )
 
 // SettingsBool is a boolean value annotated with access and source authority.
@@ -170,7 +173,11 @@ type PlatformAutoTradeSettings struct {
 	ProposalCadence  SettingsString `json:"proposal_cadence"`
 }
 
-// TradingLimitSettings reports effective safety limits with per-field access
+// TradingLimitSettings reports the order limits in force, read-only and
+// sourced from risk-policy.toml [order_limits] since the owner decision of
+// 2026-10-05 19:56 CEST: MaxNotional is the cap in force, and every Reason
+// says how it is bound or which key is missing. The runtime overrides are
+// retired.
 type TradingLimitSettings struct {
 	MaxNotional           SettingsFloat `json:"max_notional"`
 	MaxOptionContracts    SettingsInt   `json:"max_option_contracts"`
@@ -237,10 +244,6 @@ const (
 	// SettingsClassRuntime keys are runtime-owned. Individual keys may add a
 	// stricter origin policy; trading.freeze is human-terminal-only in every mode.
 	SettingsClassRuntime = "runtime"
-	// SettingsClassTradingLimit keys are writable only while trading limits
-	// are writable (experimental trading build with paper/live mode), and every
-	// write requires a human-terminal origin in every mode.
-	SettingsClassTradingLimit = "trading-limit"
 )
 
 // SettingsKeySpec declares one writable runtime setting.
@@ -280,22 +283,6 @@ func SettingsKeys() []SettingsKeySpec {
 		{
 			Key: "trading.freeze", Kind: SettingsKindBool, Class: SettingsClassRuntime,
 			Doc: "Runtime trading brake: true blocks every new broker write while cancels stay allowed; human-only by policy, and the write origin is audited (default false).",
-		},
-		{
-			Key: "trading.limits.max_notional", Kind: SettingsKindFloat, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].max_notional, the notional cap for every equity/ETF order including apparent exits, except a protective stop selling at most a long position with no competing working sell (kept no larger than the position by the daemon's stop guard); null falls back to the TOML value.",
-		},
-		{
-			Key: "trading.limits.max_option_contracts", Kind: SettingsKindInt, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].max_option_contracts, the quantity cap for every single-leg option order including apparent exits; null falls back to the TOML value.",
-		},
-		{
-			Key: "trading.limits.allow_stock_short", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].allow_stock_short, which apparent stock sell exits also need unless they are exempt protective stops; null falls back to the TOML value.",
-		},
-		{
-			Key: "trading.limits.allow_option_sell_to_open", Kind: SettingsKindBool, Class: SettingsClassTradingLimit,
-			Doc: "Runtime override of [trading].allow_option_sell_to_open; null falls back to the TOML value.",
 		},
 		{
 			Key: "regime.journal.enabled", Kind: SettingsKindBool, Class: SettingsClassRuntime,

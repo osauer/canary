@@ -488,11 +488,11 @@ func cashSweepSaleLimit(held, capUnits int, rules *ibkrlib.BondOrderRules) int {
 }
 
 // cashSweepTradingCapExempt reports whether a draft is a cash sweep bill
-// order exempt from [trading].max_notional: BILL or BOND terms the daemon set
-// from a cash_sweep row whose policy exempts bills (TradingCapExemptUpToBase),
-// a vocabulary bill of the order's own currency (no conversion), a buy that
+// order exempt from the order cap in force ([order_limits]): BILL or BOND
+// terms the daemon set from a cash_sweep row whose policy exempts bills
+// (TradingCapExemptUpToBase), a vocabulary bill of the order's own currency (no conversion), a buy that
 // opens or increases or a sale that reduces or closes, and a base notional
-// within the sweep's cap in force. Anything else keeps the trading cap; an
+// within the sweep's cap in force. Anything else keeps the order cap; an
 // unreadable cap or notional exempts nothing.
 func cashSweepTradingCapExempt(draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority) bool {
 	b := draft.Bond

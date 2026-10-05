@@ -392,6 +392,9 @@ type Server struct {
 	// Advisory/shadow end to end in v1: neither may reach broker-write
 	riskPolicies *riskPolicyManager
 	riskCapital  *riskCapitalStore
+	// orderLimitsNLV is the latest current account reading the order cap
+	// in force scales with ([order_limits], order_limits.go).
+	orderLimitsNLV orderLimitsNLVState
 	// nudges owns only opaque governance occurrence state. Eligibility remains
 	nudges *nudgeStateStore
 	// Test-only deterministic seams. Production leaves all nil.

@@ -1299,6 +1299,12 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 	if !known {
 		return rpc.OverrideRecord{}, fmt.Errorf("override control %q is not a constitution key; safety invariants have no keys and cannot be overridden", control)
 	}
+	// Of the order limits only the floor takes a one-shot override, which
+	// lifts it to the ceiling until it expires: the ceiling, the option cap
+	// and the short and sell-to-open permissions change only by a revision.
+	if strings.HasPrefix(control, risk.OrderLimitsTable+".") && control != risk.OrderLimitFloorOverrideControl {
+		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the order limits only %s takes a one-shot override (it lifts the floor to max_order_ceiling_base); change the others with a policy revision", control, risk.OrderLimitFloorOverrideControl)
+	}
 
 	st.mu.Lock()
 	defer st.mu.Unlock()

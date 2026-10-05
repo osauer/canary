@@ -163,13 +163,14 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		return nil, err
 	}
 	position := positionAuthority.Impact
-	cfg, tradingControlGeneration := s.effectiveTradingControlSnapshot()
+	_, tradingControlGeneration := s.effectiveTradingControlSnapshot()
 	notionalAuthority, err := s.captureOrderNotionalAuthority(ctx, previewAuthority, grossNotional, currency, positionAuthority.BaseCurrency, timeout)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency, protectiveExitInventory{}); err != nil {
-		return nil, errBadRequest(err.Error())
+	limits := s.orderLimitsInForceForPreview(ctx, positionAuthority.BaseCurrency)
+	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, protectiveExitInventory{}); err != nil {
+		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
 	whatIf, err := s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, previewAuthority)
 	if err != nil {
@@ -208,7 +209,7 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		NotionalCurrency: notionalAuthority.ContractCurrency, NotionalBase: notionalAuthority.BaseNotional,
 		BaseCurrency: notionalAuthority.BaseCurrency, FXRate: notionalAuthority.BasePerContract,
 		FXEvidenceAt: notionalAuthority.EvidenceAt, FXDataType: notionalAuthority.DataType, FXSource: notionalAuthority.Source,
-		MaxNotional: cfg.MaxNotional, WhatIf: whatIf, Warnings: warnings, AsOf: now,
+		MaxNotional: limits.CapBase, WhatIf: whatIf, Warnings: warnings, AsOf: now,
 	}, nil
 }
 

@@ -28,8 +28,8 @@ import (
 
 // policyEffectiveInputs is what one view is assembled from: the policies in
 // force (the daemon's managers, or the files when the CLI reads them), the
-// keys each file sets, the trading gates of config.toml and the runtime
-// settings view.
+// keys each file sets, config.toml's [trading] (its mode, and the retired
+// order gates it may still carry) and the runtime settings view.
 type policyEffectiveInputs struct {
 	origin       string
 	files        []rpc.PolicyFileStatus
@@ -49,6 +49,7 @@ func (s *Server) policyEffectiveView(files []rpc.PolicyFileStatus, limits []risk
 	if s == nil {
 		return nil
 	}
+	limits = append(slices.Clone(limits), orderCapInForceLimit(s.orderLimitsInForce("")))
 	in := policyEffectiveInputs{origin: "daemon", files: files, limits: limits}
 	in.rulebook, _ = s.activeRulebookPolicy()
 	if s.protectionPolicies != nil {
@@ -470,45 +471,66 @@ func opportunitySection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 	return sec
 }
 
-// tradingSection prints the [trading] order-entry gates of config.toml with
-// the value in force: a runtime override from `canary settings set` names
-// the config.toml value it replaces.
+// orderCapInForceLimit is the constitution row that states the order cap in
+// force and how it is bound, after the [order_limits] keys it comes from.
+func orderCapInForceLimit(l risk.OrderLimitsInForce) risk.ConstitutionLimit {
+	value := l.Summary
+	if l.Complete {
+		value = risk.FormatOrderMoney(l.CapBase, l.BaseCurrency)
+		if i := strings.Index(l.Summary, " ("); i >= 0 {
+			value += l.Summary[i:]
+		}
+	}
+	return risk.ConstitutionLimit{Key: "order_limits.cap_in_force", Value: value, Source: rpc.PolicySourceInForce, Enforcement: risk.EnforcementHard,
+		Meaning: "The per-order notional cap every order preview and broker send is judged by: min(max_order_ceiling_base, max(max_order_floor_base, max_order_pct_nlv of NLV)), the floor whenever NLV cannot be read currently, the ceiling while a floor override lasts. Protective stock stops within the long position and exempt sweep bills within the sweep's cap pass it."}
+}
+
+// retiredTradingGates are the config.toml [trading] keys that moved to the
+// constitution's [order_limits] (owner decision 2026-10-05 19:56 CEST).
+var retiredTradingGates = []struct{ config, policy string }{
+	{"max_notional", "max_order_floor_base"},
+	{"max_option_contracts", "max_option_contracts"},
+	{"allow_stock_short", "allow_stock_short"},
+	{"allow_option_sell_to_open", "allow_option_sell_to_open"},
+}
+
+// tradingSection prints config.toml's [trading]: the order-entry mode, the
+// runtime freeze, and each retired order gate the file still carries, marked
+// retired with the [order_limits] key that decides instead.
 func tradingSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 	sec := rpc.PolicyEffectiveSection{ID: rpc.PolicySectionTrading, Title: "Trading gates", Path: "config.toml"}
 	file := in.trading.WithDefaults()
 	g := rpc.PolicyEffectiveGroup{ID: "trading", Title: "[trading]"}
-	type leaf struct {
-		key, fileValue string
-		active         *settingsLeaf
-	}
 	var st *rpc.PlatformTradingSettings
 	if in.settings != nil {
 		st = &in.settings.Trading
 	}
-	pick := func(f func(*rpc.PlatformTradingSettings) settingsLeaf) *settingsLeaf {
-		if st == nil {
-			return nil
-		}
-		l := f(st)
-		return &l
+	mode := rpc.PolicyEffectiveRow{Key: "trading.mode", Value: file.Mode, Source: "config", Meaning: sentence(tradingConfigHelp["trading.mode"])}
+	if st != nil {
+		l := leafOf(st.Mode)
+		mode.Value, mode.Source = l.value, l.source
 	}
-	rows := []leaf{
-		{"mode", file.Mode, pick(func(t *rpc.PlatformTradingSettings) settingsLeaf { return leafOf(t.Mode) })},
-		{"max_notional", formatPolicyNumber(file.MaxNotional), pick(func(t *rpc.PlatformTradingSettings) settingsLeaf { return leafOf(t.Limits.MaxNotional) })},
-		{"max_option_contracts", strconv.Itoa(file.MaxOptionContracts), pick(func(t *rpc.PlatformTradingSettings) settingsLeaf { return leafOf(t.Limits.MaxOptionContracts) })},
-		{"allow_stock_short", strconv.FormatBool(file.AllowStockShort), pick(func(t *rpc.PlatformTradingSettings) settingsLeaf { return leafOf(t.Limits.AllowStockShort) })},
-		{"allow_option_sell_to_open", strconv.FormatBool(file.AllowOptionSellToOpen), pick(func(t *rpc.PlatformTradingSettings) settingsLeaf { return leafOf(t.Limits.AllowOptionSellToOpen) })},
+	g.Rows = append(g.Rows, mode)
+	configured := map[string]string{}
+	if v := in.trading.MaxNotional; v != nil {
+		configured["max_notional"] = formatPolicyNumber(*v)
 	}
-	for _, r := range rows {
-		row := rpc.PolicyEffectiveRow{Key: "trading." + r.key, Value: r.fileValue, Source: "config",
-			Meaning: sentence(tradingConfigHelp["trading."+r.key])}
-		if r.active != nil {
-			row.Value, row.Source = r.active.value, r.active.source
-			if r.active.source == rpc.PolicySourceRuntime && r.active.value != r.fileValue {
-				row.FileValue = r.fileValue
-			}
+	if v := in.trading.MaxOptionContracts; v != nil {
+		configured["max_option_contracts"] = strconv.Itoa(*v)
+	}
+	if v := in.trading.AllowStockShort; v != nil {
+		configured["allow_stock_short"] = strconv.FormatBool(*v)
+	}
+	if v := in.trading.AllowOptionSellToOpen; v != nil {
+		configured["allow_option_sell_to_open"] = strconv.FormatBool(*v)
+	}
+	for _, r := range retiredTradingGates {
+		value, ok := configured[r.config]
+		if !ok {
+			continue
 		}
-		g.Rows = append(g.Rows, row)
+		g.Rows = append(g.Rows, rpc.PolicyEffectiveRow{Key: "trading." + r.config, Value: value, Source: rpc.PolicySourceRetired,
+			Meaning: fmt.Sprintf("Retired: never read for a decision; the risk constitution's order_limits.%s decides. Delete it from config.toml once policy ensure has migrated it.", r.policy)})
 	}
 	if st != nil {
 		freeze := leafOf(st.Freeze)

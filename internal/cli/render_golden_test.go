@@ -331,10 +331,11 @@ func goldenSettings() rpc.PlatformSettings {
 	st.Trading.Endpoint = rpc.SettingsString{Value: "127.0.0.1:4002", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
 	st.Trading.Account = rpc.SettingsString{Value: "DU0000000", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
 	st.Trading.MCPTrading = rpc.SettingsString{Value: rpc.TradingMCPDisabled, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
-	st.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 10000, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
-	st.Trading.Limits.MaxOptionContracts = rpc.SettingsInt{Value: 5, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
-	st.Trading.Limits.AllowStockShort = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
-	st.Trading.Limits.AllowOptionSellToOpen = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	limitReason := "risk-policy.toml [order_limits]: 11,690 EUR (5% of NLV 233,800 EUR; [order_limits])"
+	st.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 11690, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
+	st.Trading.Limits.MaxOptionContracts = rpc.SettingsInt{Value: 5, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
+	st.Trading.Limits.AllowStockShort = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
+	st.Trading.Limits.AllowOptionSellToOpen = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
 	st.MarketData.Quality = rpc.PlatformMarketDataQuality{Status: "live", Summary: "all quotes live", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
 	st.Build.Channel = rpc.SettingsString{Value: "release", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceBuild}
 	return st

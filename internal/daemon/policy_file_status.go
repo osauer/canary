@@ -101,11 +101,15 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		if keys := c.UnapprovedKeys(); len(keys) > 0 {
 			row.NeedsYourNumber = append(row.NeedsYourNumber, "capital controls and the rule 18 loss budget: "+strings.Join(keys, ", "))
 		}
+		if keys := c.OrderLimits.MissingKeys(); len(keys) > 0 {
+			row.NeedsYourNumber = append(row.NeedsYourNumber, "order limits (every order preview is refused until written): "+strings.Join(keys, ", "))
+		}
 		if strings.TrimSpace(c.Drawdown.Release) == "" {
 			row.NeedsYourNumber = append(row.NeedsYourNumber, `automatic brake release: off (a latched brake waits for your reset) until you choose drawdown.release`)
 		}
 	} else {
-		row.NeedsYourNumber = append(row.NeedsYourNumber, "capital controls and the rule 18 loss budget: no constitution is loaded")
+		row.NeedsYourNumber = append(row.NeedsYourNumber, "capital controls and the rule 18 loss budget: no constitution is loaded",
+			"order limits: no constitution is loaded, so every order preview is refused")
 	}
 	out = append(out, withDry(row))
 	return out

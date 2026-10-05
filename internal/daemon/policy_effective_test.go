@@ -64,13 +64,13 @@ func syntheticEffectiveView(t *testing.T) *rpc.PolicyEffectiveView {
 		{Policy: PolicyFileRulebook, Path: filepath.Join(dir, "absent-rulebook.toml"), Status: "default"},
 	}
 	settings := &rpc.PlatformSettings{}
-	settings.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 5000, Source: rpc.PolicySourceRuntime, Access: "write"}
+	settings.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 5000, Source: rpc.SettingsSourcePolicy, Access: "read"}
 	settings.Trading.Mode = rpc.SettingsString{Value: "paper", Source: "config", Access: "read"}
 	settings.Trading.Account = rpc.SettingsString{Value: "DU0000000", Source: "config", Access: "read"}
 	in := policyEffectiveInputs{
 		origin: "daemon", files: files, limits: risk.ConstitutionLimits(nil),
 		rulebook: risk.DefaultRulebookPolicy(), protection: &protection, opportunity: &opportunity,
-		trading: config.Trading{Mode: "paper", MaxNotional: 8000}, settings: settings,
+		trading: config.Trading{Mode: "paper", MaxNotional: new(8000.0), MaxOptionContracts: new(3), AllowStockShort: new(true), AllowOptionSellToOpen: new(false)}, settings: settings,
 		definedByKey: definedKeysForFiles(files),
 	}
 	return buildPolicyEffectiveView(in)
@@ -175,9 +175,19 @@ func TestPolicyEffectiveViewAttributesSources(t *testing.T) {
 			t.Errorf("%s = %q (%s), want %q (%s)", key, got.Value, got.Source, want.value, want.source)
 		}
 	}
+	// A retired [trading] gate prints as written, marked retired, with the
+	// [order_limits] key that decides; the settings view no longer overrides
+	// it at runtime.
 	notional := rows["trading:trading.max_notional"]
-	if notional.Value != "5000" || notional.Source != rpc.PolicySourceRuntime || notional.FileValue != "8000" {
-		t.Errorf("runtime override row = %+v, want 5000 over config.toml 8000", notional)
+	if notional.Value != "8000" || notional.Source != rpc.PolicySourceRetired || notional.FileValue != "" ||
+		!strings.Contains(notional.Meaning, "order_limits.max_order_floor_base decides") {
+		t.Errorf("retired max_notional row = %+v, want config.toml's 8000 marked retired", notional)
+	}
+	for _, key := range []string{"order_limits.max_order_floor_base", "order_limits.max_order_pct_nlv", "order_limits.max_order_ceiling_base",
+		"order_limits.max_option_contracts", "order_limits.allow_stock_short", "order_limits.allow_option_sell_to_open"} {
+		if row, ok := rows["constitution:"+key]; !ok || row.Source != rpc.PolicySourceUnapproved || row.Enforcement != risk.EnforcementHard {
+			t.Errorf("%s row = %+v, want an unapproved hard gate", key, row)
+		}
 	}
 	for key := range rows {
 		if strings.Contains(key, "account") || strings.Contains(key, "endpoint") || strings.Contains(key, "client_id") {

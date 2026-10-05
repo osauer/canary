@@ -128,14 +128,14 @@ func policyCheckPositionKind(secType string) string {
 type PolicyCheckInput struct {
 	Now   time.Time
 	Files PolicyFileSet
-	// ConfigPath is the config.toml the trading limits came from.
+	// ConfigPath is the config.toml the trading mode came from.
 	ConfigPath string
-	// Trading is the trading configuration in force: config.toml with its
-	// defaults, and any runtime-settings override applied.
+	// Trading is config.toml's [trading] as written: the mode, and the
+	// retired order gates, which the check compares with [order_limits].
 	Trading config.Trading
-	// TradingCapSource names where [trading].max_notional came from:
-	// config.toml, runtime settings or Canary's compiled default.
-	TradingCapSource string
+	// OrderCapOverride is an active one-shot override of the order floor,
+	// when the daemon reports one; the cap in force is then the ceiling.
+	OrderCapOverride *risk.OrderLimitsOverride
 	// Book is the live account; nil skips every book check, for BookSkipped.
 	Book        *PolicyCheckBook
 	BookSkipped string
@@ -144,27 +144,17 @@ type PolicyCheckInput struct {
 	FileStatus map[string]string
 }
 
-// TradingCapSource labels.
-const (
-	PolicyCheckCapFromConfig  = "config.toml"
-	PolicyCheckCapFromRuntime = "runtime settings"
-	PolicyCheckCapFromDefault = "compiled default"
-)
-
 // PolicyCheckInputFromConfigFile reads config.toml the way the daemon does
-// and resolves the policy paths and the trading limits from it, for a check
+// and resolves the policy paths and the trading mode from it, for a check
 // that runs without a daemon.
 func PolicyCheckInputFromConfigFile(path string) (PolicyCheckInput, error) {
 	if strings.TrimSpace(path) == "" {
 		path = config.DefaultPath()
 	}
-	in := PolicyCheckInput{ConfigPath: path, Trading: config.Trading{}.WithDefaults(), TradingCapSource: PolicyCheckCapFromDefault, Files: PolicyFileSetFor(nil)}
+	in := PolicyCheckInput{ConfigPath: path, Trading: config.Trading{}.WithDefaults(), Files: PolicyFileSetFor(nil)}
 	cfg, _, err := config.LoadForDaemon(path)
 	if err != nil {
 		return in, err
-	}
-	if cfg.Trading.MaxNotional != 0 {
-		in.TradingCapSource = PolicyCheckCapFromConfig
 	}
 	in.Trading = cfg.Trading.WithDefaults()
 	resolved, err := cfg.Resolve()
@@ -214,10 +204,13 @@ func readPolicyCheckSource(policy, path string) policyCheckSource {
 
 // policyCheckContext is what every catalogue entry reads.
 type policyCheckContext struct {
-	now       time.Time
-	trading   config.Trading
-	capSource string
-	config    string
+	now     time.Time
+	trading config.Trading
+	config  string
+	// orderLimits is the constitution's [order_limits] in force against the
+	// book (the floor without one); orderCapOverride lifts the floor.
+	orderLimits      risk.OrderLimitsInForce
+	orderCapOverride *risk.OrderLimitsOverride
 
 	rulebookSrc     policyCheckSource
 	rulebook        risk.RulebookPolicy
@@ -239,7 +232,7 @@ type policyCheckContext struct {
 }
 
 func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
-	c := &policyCheckContext{now: in.Now, trading: in.Trading.WithDefaults(), capSource: cmp.Or(in.TradingCapSource, PolicyCheckCapFromDefault),
+	c := &policyCheckContext{now: in.Now, trading: in.Trading.WithDefaults(), orderCapOverride: in.OrderCapOverride,
 		config: cmp.Or(filepath.Base(in.ConfigPath), "config.toml"), book: in.Book, fileStatus: in.FileStatus}
 	if c.now.IsZero() {
 		c.now = time.Now()
@@ -305,7 +298,35 @@ func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
 	if c.book != nil && !c.book.PositionsKnown {
 		c.skip("the checks that size orders against held positions: the positions read failed")
 	}
+	c.orderLimits = c.evaluateOrderLimits()
 	return c
+}
+
+// evaluateOrderLimits reads [order_limits] the way the trading gate does:
+// against the book's NLV, or at the floor when there is no live account.
+func (c *policyCheckContext) evaluateOrderLimits() risk.OrderLimitsInForce {
+	if c.constitution == nil {
+		why := "no risk constitution could be read"
+		if c.constitutionSrc.state == policyCheckFileAbsent {
+			why = "there is no risk constitution file"
+		}
+		return risk.EvaluateOrderLimits(nil, c.base(), risk.OrderLimitsNLV{}, nil, why)
+	}
+	nlv := risk.OrderLimitsNLV{Unavailable: "no live account to size it"}
+	if c.book != nil && positiveFinite(c.book.NetLiquidation) {
+		nlv = risk.OrderLimitsNLV{Base: c.book.NetLiquidation, AsOf: c.now}
+	}
+	limits := risk.EvaluateOrderLimits(c.constitution.OrderLimits, c.base(), nlv, c.orderCapOverride, "")
+	if limits.Complete && limits.NLVBase == nil && c.orderCapOverride == nil {
+		c.assume("the order cap in force at its floor, max_order_floor_base: no live account to apply max_order_pct_nlv to, which is how the trading gate reads it without a current NLV")
+	}
+	return limits
+}
+
+// orderCap is the order cap in force in base currency; false while
+// [order_limits] is incomplete, when every order preview is refused anyway.
+func (c *policyCheckContext) orderCap() (float64, bool) {
+	return c.orderLimits.CapBase, c.orderLimits.Complete
 }
 
 func (c *policyCheckContext) sources() []policyCheckSource {
@@ -347,16 +368,24 @@ func (c *policyCheckContext) fx(ccy string) (float64, bool) {
 	return r, ok && positiveFinite(r)
 }
 
-// tradingCapKey is the trading cap as a finding key.
+// tradingCapKey is the order cap in force as a finding key.
 func (c *policyCheckContext) tradingCapKey() rpc.PolicyCheckKey {
-	file := c.config
-	switch c.capSource {
-	case PolicyCheckCapFromRuntime:
-		file = "runtime settings"
-	case PolicyCheckCapFromDefault:
-		file = c.config + " (compiled default)"
+	return rpc.PolicyCheckKey{File: c.constitutionSrc.label, Key: "[order_limits] cap in force",
+		Value: policyCheckMoney(c.orderLimits.CapBase, c.base()) + " (" + orderCapBoundPhrase(c.orderLimits) + ")"}
+}
+
+// orderCapBoundPhrase names the term of the formula that sets the cap.
+func orderCapBoundPhrase(l risk.OrderLimitsInForce) string {
+	switch l.CapBound {
+	case risk.OrderCapBoundPctNLV:
+		return policyCheckNumber(l.PctNLV) + "% of NLV"
+	case risk.OrderCapBoundCeiling:
+		return "the ceiling, max_order_ceiling_base"
+	case risk.OrderCapBoundOverride:
+		return "override " + l.OverrideID + ": the ceiling"
+	default:
+		return "the floor, max_order_floor_base"
 	}
-	return rpc.PolicyCheckKey{File: file, Key: "[trading].max_notional", Value: policyCheckMoney(c.trading.MaxNotional, c.base())}
 }
 
 // protectionKey names a protection-policy key.
@@ -467,7 +496,7 @@ func (c *policyCheckContext) sweepCapBound(capBase float64) string {
 }
 
 // sweepExempt reports whether the owner declared bill orders exempt from
-// [trading].max_notional, up to the sweep's cap in force.
+// the order cap in force, up to the sweep's own cap in force.
 func (c *policyCheckContext) sweepExempt() bool {
 	return c.sweep().billsExempt()
 }

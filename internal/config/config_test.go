@@ -41,11 +41,11 @@ func TestLoad_MissingFileGivesFullAuto(t *testing.T) {
 	if res.Trading.Mode != TradingModeDisabled {
 		t.Errorf("trading mode = %q, want %q", res.Trading.Mode, TradingModeDisabled)
 	}
-	if res.Trading.MaxNotional != 10000 {
-		t.Errorf("trading max_notional = %v, want 10000", res.Trading.MaxNotional)
-	}
-	if res.Trading.MaxOptionContracts != 5 {
-		t.Errorf("trading max_option_contracts = %d, want 5", res.Trading.MaxOptionContracts)
+	// The retired order gates have no compiled default: an absent key stays
+	// absent, and only policy ensure writes Canary's values into the
+	// constitution's [order_limits].
+	if res.Trading.MaxNotional != nil || res.Trading.MaxOptionContracts != nil || res.Trading.AllowStockShort != nil || res.Trading.AllowOptionSellToOpen != nil {
+		t.Errorf("retired trading gates = %+v, want all absent", res.Trading)
 	}
 	if !res.AutoTrade.ProposalsEnabledResolved() {
 		t.Error("manual proposals should default enabled")
@@ -144,16 +144,18 @@ reload_interval = "45s"
 	if res.Trading.Mode != TradingModeLive {
 		t.Errorf("Trading.Mode = %q, want %q", res.Trading.Mode, TradingModeLive)
 	}
-	if res.Trading.MaxNotional != 25000 {
+	// Retired keys still parse, so an old file loads and policy ensure can
+	// migrate them; nothing reads them for a decision.
+	if res.Trading.MaxNotional == nil || *res.Trading.MaxNotional != 25000 {
 		t.Errorf("Trading.MaxNotional = %v, want 25000", res.Trading.MaxNotional)
 	}
-	if res.Trading.MaxOptionContracts != 3 {
-		t.Errorf("Trading.MaxOptionContracts = %d, want 3", res.Trading.MaxOptionContracts)
+	if res.Trading.MaxOptionContracts == nil || *res.Trading.MaxOptionContracts != 3 {
+		t.Errorf("Trading.MaxOptionContracts = %v, want 3", res.Trading.MaxOptionContracts)
 	}
-	if !res.Trading.AllowStockShort {
+	if res.Trading.AllowStockShort == nil || !*res.Trading.AllowStockShort {
 		t.Error("Trading.AllowStockShort should parse true")
 	}
-	if !res.Trading.AllowOptionSellToOpen {
+	if res.Trading.AllowOptionSellToOpen == nil || !*res.Trading.AllowOptionSellToOpen {
 		t.Error("Trading.AllowOptionSellToOpen should parse true")
 	}
 	if res.Rulebook.TerminalEvidenceFile != "/tmp/earnings-terminal-evidence.json" {

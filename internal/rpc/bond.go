@@ -245,8 +245,9 @@ type OrderBondTerms struct {
 	FaceValue float64 `json:"face_value,omitempty"`
 	// TradingCapExemptUpToBase is set only by the daemon, for a cash_sweep
 	// row whose policy writes bills_exempt_from_trading_max_notional = true:
-	// the bill order may pass [trading].max_notional up to this base notional
-	// (the sweep's order cap in force), never beyond. Zero exempts nothing.
+	// the bill order may pass the order cap in force ([order_limits]) up to
+	// this base notional (the sweep's order cap in force), never beyond.
+	// Zero exempts nothing.
 	TradingCapExemptUpToBase float64 `json:"trading_cap_exempt_up_to_base,omitempty"`
 }
 

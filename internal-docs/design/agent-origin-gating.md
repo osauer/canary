@@ -55,10 +55,12 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md`.
    capability, gateway/account/client pins, journal availability, freeze state,
    preview tokens, and broker checks.
    **Cancel is freeze-exempt** (strictly risk-reducing); origin still
-   journaled. `trading.freeze` and every trading-limit settings write
-   (`max_notional`, `max_option_contracts`, `allow_stock_short`,
-   `allow_option_sell_to_open`) require a human-terminal origin in disabled,
-   paper, and live modes; agent, missing, and paired-device origins are refused.
+   journaled. `trading.freeze` requires a human-terminal origin in disabled,
+   paper, and live modes; agent, missing, and paired-device origins are
+   refused. The trading-limit settings writes are retired (2026-10-05 20:28
+   CEST): the limits live in the risk constitution's `[order_limits]`, and
+   their one exception, the floor override, is a human-only
+   `canary policy override`.
 4. **MCP**: `canary_order_preview` redacts the raw `preview_token` (returns
    `preview_token_id` only), aligning with the proposal surface's
    `sanitizeProposalPreview`. Closes the mint-over-MCP → redeem-over-Bash

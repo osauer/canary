@@ -74,6 +74,12 @@ type PolicyFileSet struct {
 	Protection   string
 	Opportunity  string
 	Constitution string
+	// OrderGateSource is config.toml [trading] as written: the source policy
+	// ensure writes the constitution's [order_limits] from. It is never read
+	// for a trading decision. OrderGateSourceRead is false when no config was
+	// read, so only compiled values are known.
+	OrderGateSource     config.Trading
+	OrderGateSourceRead bool
 }
 
 // PolicyFileSetFor resolves the policy paths from a daemon config; nil means
@@ -89,6 +95,7 @@ func PolicyFileSetFor(cfg *config.Resolved) PolicyFileSet {
 		set.Rulebook = cfg.Rulebook.PolicyFilePath()
 		set.Protection = cfg.AutoTrade.WithDefaults().PolicyFile
 		set.Opportunity = cfg.Opportunities.WithDefaults().PolicyFile
+		set.OrderGateSource, set.OrderGateSourceRead = cfg.Trading, true
 	}
 	set.Rulebook = expandUserPath(strings.TrimSpace(set.Rulebook))
 	set.Protection = expandUserPath(strings.TrimSpace(set.Protection))
@@ -150,7 +157,9 @@ func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction
 		{PolicyFileRulebook, set.Rulebook, RulebookPolicyTemplate, func(b []byte) error { _, err := parseRulebookPolicy(b); return err }, migrateRulebookPolicyFile},
 		{PolicyFileProtection, set.Protection, ProtectionPolicyTemplate, func(b []byte) error { _, _, err := parseProtectionPolicy(b); return err }, migrateProtectionPolicyFile},
 		{PolicyFileOpportunity, set.Opportunity, OpportunityPolicyTemplate, func(b []byte) error { _, err := parseOpportunityPolicy(b); return err }, migrateOpportunityPolicyFile},
-		{PolicyFileConstitution, set.Constitution, ConstitutionPolicyTemplate, parseConstitutionPolicy, migrateConstitutionPolicyFile},
+		{PolicyFileConstitution, set.Constitution, func(release string) []byte {
+			return constitutionPolicyTemplateFrom(release, set.OrderGateSource, set.OrderGateSourceRead)
+		}, parseConstitutionPolicy, migrateConstitutionPolicyFileFrom(set.OrderGateSource, set.OrderGateSourceRead)},
 	}
 	// Validate the whole reviewed set before any write. Applying a plan never
 	// creates unrelated missing files, and an unknown/stale entry cannot cause
@@ -938,8 +947,9 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # max_order_notional = %s
 # max_order_pct_nlv = %s   # percent of NLV
 # keep_cash = %s   # settlement float in each currency's own unit; a currency table may override it
-# Same-currency bill orders may pass [trading].max_notional up to the sweep's
-# own cap in force; anything else keeps the trading cap. Absent means false.
+# Same-currency bill orders may pass the order cap in force ([order_limits])
+# up to the sweep's
+# own cap in force; anything else keeps the order cap. Absent means false.
 # bills_exempt_from_trading_max_notional = %s
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
@@ -1002,19 +1012,29 @@ func writePolicyComment(b *strings.Builder, text string) {
 	b.WriteString(line + "\n")
 }
 
-// ConstitutionPolicyTemplate renders the risk constitution skeleton. It keeps
-// "no embedded default": every capital number and the automatic brake
-// release are commented placeholders, so each control reads unapproved and
-// its feature reports that it needs your number until you write one. It is
-// written at the constitution schema that accepts every key it lists.
+// ConstitutionPolicyTemplate renders the risk constitution skeleton with the
+// compiled order limits; ensure writes it from config.toml [trading] through
+// constitutionPolicyTemplateFrom.
 func ConstitutionPolicyTemplate(release string) []byte {
+	return constitutionPolicyTemplateFrom(release, config.Trading{}, false)
+}
+
+// constitutionPolicyTemplateFrom renders the risk constitution skeleton. It
+// keeps "no embedded default" for capital: every capital number and the
+// automatic brake release are commented placeholders, so each control reads
+// unapproved and its feature reports that it needs your number until you
+// write one. [order_limits] carries values (owner decision 2026-10-05 19:56
+// CEST): src, config.toml [trading] as written, else the compiled ones. It is
+// written at the constitution schema that accepts every key it lists.
+func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead bool) []byte {
 	rb, pp, sp := risk.DefaultRulebookPolicy(), defaultProtectionPolicy(), risk.DefaultPolicy()
 	var b strings.Builder
 	policyTemplateHeader(&b, "Risk constitution: your capital numbers. Canary has no default for any of them.", release, false,
 		"",
-		"Every key below is a placeholder, not a value: until you write a number, the",
-		"control that needs it reads \"unapproved\" and its feature says it needs your",
-		"number. Nothing else is blocked. Raise policy_version with every edit.",
+		"Every capital key below is a placeholder, not a value: until you write a",
+		"number, the control that needs it reads \"unapproved\" and its feature says it",
+		"needs your number. [order_limits] at the end carries values: the per-order",
+		"gates every order preview is judged by. Raise policy_version with every edit.",
 		"The 0 beside a placeholder marks the slot; it is not a recommendation. Most",
 		"keys reject 0, so a key uncommented without your number fails the load and",
 		"names itself; protected_floor and the two amount tolerances accept 0 as a",
@@ -1079,6 +1099,7 @@ func ConstitutionPolicyTemplate(release string) []byte {
 	} {
 		fmt.Fprintf(&b, "# [inventory.%s]\n# id = %q\n# version = %q\n", pin.name, pin.id, pin.version)
 	}
+	b.WriteString(orderLimitsTemplateBlock(src, srcRead))
 	return []byte(b.String())
 }
 

@@ -6,8 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -254,9 +255,13 @@ func TestCashSweepReserveShortfallCarriesToOtherCurrencies(t *testing.T) {
 }
 
 // Rule 4: the exemption boundary. Only a same-currency sweep bill order
-// within the sweep's cap in force passes [trading].max_notional.
+// within the sweep's cap in force passes the order cap in force, here scaled
+// with the book: 5% of NLV 233,800 EUR is 11,690 EUR.
 func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
-	cfg := config.Trading{MaxNotional: 10000}
+	cfg := risk.EvaluateOrderLimits(testOrderLimitsTable(10000), "EUR", risk.OrderLimitsNLV{Base: 233800, AsOf: time.Now()}, nil, "")
+	if cfg.CapBase != 11690 || cfg.CapBound != risk.OrderCapBoundPctNLV {
+		t.Fatalf("cap in force = %v (%s), want 11690 bound by pct of NLV", cfg.CapBase, cfg.CapBound)
+	}
 	bill := func(ccy, secType, instrument string, cap float64) rpc.OrderDraft {
 		return rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 30, Contract: rpc.ContractParams{ConID: 9, SecType: secType, Currency: ccy},
 			Bond: &rpc.OrderBondTerms{Instrument: instrument, QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100, TradingCapExemptUpToBase: cap}}
@@ -292,14 +297,15 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 			if tc.pass && err != nil {
 				t.Fatalf("refused: %v", err)
 			}
-			if !tc.pass && (err == nil || !strings.Contains(err.Error(), "max_notional") && !strings.Contains(err.Error(), "bond order")) {
+			if !tc.pass && (err == nil || !strings.Contains(err.Error(), "order cap in force 11,690 EUR") && !strings.Contains(err.Error(), "bond order")) {
 				t.Fatalf("admitted or wrong refusal: %v", err)
 			}
 		})
 	}
-	// Below the trading cap nothing needs the exemption.
-	if err := validateOrderRiskAuthority(cfg, stock, open, protectiveExitTestNotional(9000), "EUR", protectiveExitInventory{}); err != nil {
-		t.Fatalf("small stock buy: %v", err)
+	// Below the cap in force nothing needs the exemption: 11,000 EUR passes
+	// the scaled cap though it is above the 10,000 floor.
+	if err := validateOrderRiskAuthority(cfg, stock, open, protectiveExitTestNotional(11000), "EUR", protectiveExitInventory{}); err != nil {
+		t.Fatalf("stock buy within the scaled cap: %v", err)
 	}
 }
 

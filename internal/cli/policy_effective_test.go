@@ -52,7 +52,7 @@ isins = ["DE0000000017", "DE0000000025", "DE0000000033", "DE0000000041", "DE0000
 	}
 	settings := &rpc.PlatformSettings{}
 	settings.Trading.Mode = rpc.SettingsString{Value: "paper", Source: "config", Access: "read"}
-	settings.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 5000, Source: rpc.PolicySourceRuntime, Access: "write"}
+	settings.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 5000, Source: rpc.SettingsSourcePolicy, Access: "read"}
 	limits := risk.ConstitutionLimits(nil)
 	return rpc.RiskPolicyResult{Status: "absent", Limits: limits, Files: files,
 		Effective: daemon.PolicyEffectiveFromFiles(cfg, files, limits, settings)}
@@ -138,7 +138,7 @@ func TestPolicyShowExplainPrintsEveryKeyAligned(t *testing.T) {
 		"    pre_authorised                          none         needs your number",
 		"    max_order_notional                      12,000       file",
 		"    settlement_days                         Canary's maintained route  machine",
-		"    max_notional               5000   runtime override (config.toml 8000)",
+		"    max_notional  8000   retired",
 		"                                  calm  early warning  confirmed",
 		"no table in the file: Canary's compiled declaration for this currency",
 	} {

@@ -62,7 +62,10 @@ func TestAutomaticSubmissionUsesRealGrantDespiteLaterRevisionOrReminderFailure(t
 			rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
 			broker := &brokerCallLog{}
 			broker.install(rig.server)
-			source := strings.Replace(validRiskPolicyV3TOML(), "policy_version = 3", "policy_version = 50", 1)
+			// The rig's account is USD-based: the order limits are stated in
+			// the account base currency or they refuse every order.
+			source := strings.Replace(validRiskPolicyV3TOML(), "policy_version = 3", "policy_version = 50", 1) + testOrderLimitsTOML
+			source = strings.Replace(source, `base_currency = "EUR"`, `base_currency = "USD"`, 1)
 			path := filepath.Join(t.TempDir(), "risk-policy.toml")
 			writePolicyTestFile(t, path, source)
 			manager := newRiskPolicyManager(path, time.Second, rig.server.now)

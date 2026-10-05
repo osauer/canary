@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -331,7 +332,14 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		if cancel {
 			return nil
 		}
-		cfg, currentControlGeneration, frozen, unlock := s.lockEffectiveTradingControlSnapshot()
+		// The order limits are read before the control lease: they come from
+		// the risk constitution and the account reading, not the settings
+		// store the lease guards.
+		var limits risk.OrderLimitsInForce
+		if binding.riskBound {
+			limits = s.orderLimitsInForce(binding.riskBaseCurrency)
+		}
+		_, currentControlGeneration, frozen, unlock := s.lockEffectiveTradingControlSnapshot()
 		leaseMu.Lock()
 		if releaseLease != nil {
 			leaseMu.Unlock()
@@ -367,7 +375,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 				current.BaseCurrencyProvenance != binding.riskBaseCurrencyProvenance {
 				return fmt.Errorf("%w: portfolio risk authority changed after admission; preview again", ErrTradingDisabled)
 			}
-			if err := validateOrderRiskAuthority(cfg, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit); err != nil {
+			if err := validateOrderRiskAuthority(limits, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 			}
 		}

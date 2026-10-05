@@ -2,9 +2,11 @@
 
 You decide how much capital may be at risk, which evidence must be current,
 and when uncertainty requires attention. Today, `canary`'s personal risk policy
-observes, explains, and records those decisions; it does not block or authorize
-an order. Every submission remains a transaction-specific human decision and
-must pass separate, code-owned safety controls.
+observes, explains, and records the capital decisions. One table in it blocks:
+`[order_limits]`, the per-order limits every order preview and broker send must
+pass ([Order limits](#order-limits)). Nothing in the policy authorizes an
+order. Every submission remains a transaction-specific human decision and must
+pass separate, code-owned safety controls.
 
 A local record explains what `canary` observed and decided. Broker confirmations
 and statements establish what actually executed. Missing or unusable evidence
@@ -66,10 +68,10 @@ decision.
 
 | Source of control | Decision owner and source of record | If absent | Effect today | How it changes |
 |---|---|---|---|---|
-| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose every number is a commented placeholder | Material choices remain `unapproved` | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results | Write the numbers you approve and raise `policy_version` |
+| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose every capital number is a commented placeholder and whose `[order_limits]` carries today's per-order limits | Capital choices remain `unapproved`; without a complete `[order_limits]` every order preview is refused | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results; `[order_limits]` is a pre-trade hard gate | Write the numbers you approve and raise `policy_version`; one-shot `canary policy override` for a bounded exception |
 | Rulebook policy | `~/.config/ibkr/policies/rulebook-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift. With no accepted file at startup, compiled defaults apply and the missing template is written | Every limit and mode behind `canary rules` | `canary rules policy set KEY=VALUE`, or edit the file and raise `policy_version` |
 | Protection and opportunity policy | `protection-policy.toml` and `opportunity-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift; protection pre-authorised submission pauses. Startup writes missing templates from embedded defaults, which is not evidence of human approval | Shapes defensive proposals and option-exercise opportunity detection | Review the file, edit it, and raise `policy_version` |
-| Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files | `canary settings set`, Settings UI, or typed API; freeze and trading-limit changes remain human-only |
+| Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files and carry no order limit | `canary settings set`, Settings UI, or typed API; freeze changes remain human-only |
 | Analytical models | Reviewed code and typed contracts | Present in the installed binary | Calculates Rulebook, Regime, Stress, and related results | Reviewed code and release change |
 | Broker safety controls | Explicit human transaction decision plus non-overridable daemon/code checks | The path stays unavailable | Can block a broker write; cannot be weakened by policy or settings | Exact human decision plus reviewed guardrail change where applicable |
 
@@ -214,10 +216,11 @@ predates this view. With SECTION, `--json` prints only the matching part.
 
 ### Personal risk policy
 
-The personal risk policy has no embedded default and no path override. The
-skeleton Canary writes (`canary policy default constitution` prints it) carries
-every material numerical choice commented out, so software cannot invent
-them.
+The personal risk policy has no embedded default for capital and no path
+override. The skeleton Canary writes (`canary policy default constitution`
+prints it) carries every capital choice commented out, so software cannot
+invent them; its `[order_limits]` carries values, written from `config.toml`
+`[trading]` (see [Order limits](#order-limits)).
 
 Its main sections cover capital and the protected floor, drawdown response,
 bounded human exceptions, statement reconciliation, operating cadence, and
@@ -237,6 +240,75 @@ reconciliation, active exceptions, cadence, referenced model identities, and
 the current content fingerprint, followed by every other policy and setting
 in force. Mutating governance commands under
 `canary policy` are human-only actions, not agent configuration shortcuts.
+
+### Order limits
+
+The per-order limits are risk limits and live in the personal risk policy as
+`[order_limits]` (owner decision 2026-10-05 19:56 CEST). Until then they were
+`config.toml` `[trading]` keys with a runtime override in `canary settings`;
+both are retired. Every key is read from the file only: a key the file does not
+write is never filled from a compiled default, and every order preview is then
+refused with the `order_risk_limit` blocker naming the key.
+
+| Key | Meaning | `policy ensure` writes |
+|---|---|---|
+| `max_order_floor_base` | Smallest notional cap in force, account base currency | `[trading].max_notional`, else 10,000 |
+| `max_order_pct_nlv` | Share of net liquidation value that sets the cap between floor and ceiling | 5.0 |
+| `max_order_ceiling_base` | Largest notional cap in force, account base currency | 100,000 |
+| `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 5 |
+| `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
+| `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
+
+The notional cap scales with the book:
+
+```text
+cap in force = min(max_order_ceiling_base, max(max_order_floor_base, max_order_pct_nlv / 100 × NLV))
+```
+
+| NLV | Cap in force | Bound by |
+|---|---|---|
+| 233,800 EUR | 11,690 EUR | 5% of NLV |
+| 150,000 EUR | 10,000 EUR | the floor |
+| 2,500,000 EUR | 100,000 EUR | the ceiling |
+| cannot be read | 10,000 EUR | the floor, flagged |
+
+NLV comes from the last account read for the selected account, in its base
+currency, no older than 15 minutes; a preview reads the account again when the
+reading is older than 5 minutes. An NLV that cannot be read currently binds the
+floor, the smaller cap, and the summary says why. Amounts are in the account
+base currency: a `capital.base_currency` that differs from the account's
+refuses every order. A refusal names the cap in force and how it was bound, for
+example `order notional 12,000 EUR exceeds the order cap in force 11,690 EUR
+(5% of NLV 233,800 EUR; [order_limits])`.
+
+Two exemptions stand against the cap in force: a protective stock stop that
+sells at most the long position with no competing working sell
+([Protection](../operate/protection.md)), and a same-currency sweep bill within
+the sweep's own cap when the protection policy writes
+`bills_exempt_from_trading_max_notional = true`. The option cap, the short and
+sell-to-open permissions and the currency checks have no exemption.
+
+For a time-bounded larger cap, a human grants a one-shot override of the floor:
+
+```sh
+canary policy override --control order_limits.max_order_floor_base --reason "..." --hours 4
+```
+
+It lifts the floor to the ceiling until it expires (at most
+`override.max_duration_hours`), is journaled with the policy fingerprint, and
+cannot exceed the ceiling. The other order limits take no override; change
+them with a revision. `canary policy show [--explain]`, `canary trading status`,
+the settings view (read-only, source `policy`) and the typed `order_limits` of
+`trading.status` and `risk_policy.snapshot` all state the cap in force and how
+it is bound.
+
+`canary policy ensure --dry-run` shows the migration of an existing file: it
+writes each missing key from `config.toml` `[trading]` (the compiled value
+where the key is absent), adds the two scaled-cap keys, raises
+`policy_version`, and backs the file up when the reviewed plan is applied. The
+`[trading]` keys still load so an old `config.toml` stays valid, are never read
+for a decision, print as `retired` in `policy show --explain`, and
+`policy check` warns while one remains with a different value.
 
 ### Protection and opportunity policies
 
@@ -267,7 +339,9 @@ canary settings set <key>=null
 
 `null` removes an override and exposes the underlying config or build default.
 Every typed setting reports its source and whether it is writable. No setting
-can bypass the non-overridable broker controls. See
+can bypass the non-overridable broker controls. The `trading.limits.*` keys are
+retired: the settings view reports the order limits read-only from the policy,
+and setting one is refused with a pointer to [Order limits](#order-limits). See
 [Platform Settings](../../../internal-docs/design/platform-settings.md) for the ownership contract.
 
 ## Read status and commissioning correctly
@@ -302,8 +376,9 @@ canary policy check [--offline] [--config PATH] [--json]
 ```
 
 With a daemon it reads the account (NLV, base currency, cash per currency),
-the positions, the trading cap in force (a runtime-settings override
-included) and each policy manager's status. Without one, or with
+the positions, an active override of the order floor and each policy
+manager's status; the order cap in force is sized from the book's NLV, or at
+its floor without one, as the gate sizes it. Without one, or with
 `--offline`, it runs the file-only checks and lists the book checks it
 skipped. Each finding carries a severity, the keys involved with their file
 and value, one sentence on what is wrong and why, and a suggested value with
@@ -321,26 +396,28 @@ rule is one entry.
 | Rule | Severity | Needs the book | What it reports |
 |---|---|---|---|
 | `file_refused` | error | no | Canary's loader refuses a policy file, so the previous policy or Canary's defaults stay in force. |
-| `cap_above_trading_max` | error | no | A bucket's per-order cap lets an order exceed `[trading].max_notional`, which the gate always refuses: `risk_reduction` and `budget_reduction` in the contract currency at the book's FX rate, `cash_sweep` at its cap in force (the larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV). `bills_exempt_from_trading_max_notional = true` makes a sweep cap above the trading cap legitimate. |
-| `sweep_minimum_above_cap` | error | no | A sweep currency's smallest buy (`min_order_notional` in base at the currency's rate, raised by a retired `min_tranche` a legacy file still carries) is above the sweep's cap in force, or above the trading cap without the bill exemption. |
+| `order_limits_missing` | error | no | The constitution does not write every `[order_limits]` key, or there is no constitution, so the trading gate refuses every order preview. |
+| `cap_above_trading_max` | error | no | A bucket's per-order cap lets an order exceed the order cap in force (`[order_limits]`), which the gate always refuses: `risk_reduction` and `budget_reduction` in the contract currency at the book's FX rate, `cash_sweep` at its cap in force (the larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV). `bills_exempt_from_trading_max_notional = true` makes a sweep cap above the order cap legitimate. |
+| `sweep_minimum_above_cap` | error | no | A sweep currency's smallest buy (`min_order_notional` in base at the currency's rate, raised by a retired `min_tranche` a legacy file still carries) is above the sweep's cap in force, or above the order cap in force without the bill exemption. |
 | `watch_act_inverted` | error | no | A watch level beyond its act level in every pair and regime set (the wrong way round for falling measures: margin headroom, expiry runway), a hedge band minimum above its maximum, or the drawdown warn level above block. |
 | `regime_loosens_under_stress` | error | no | A budget (premium, time value, net exposure) higher, or a hedge band lower, in a worse regime set than in a calmer one. |
 | `order_entry_off_for_active_bucket` | error | no | A bucket is active or pre-authorised while `[trading].mode` disables order entry. |
 | `settlement_route_expired` | error | no | A sweep currency's `settlement_valid_through` has passed, so its bill orders hold. |
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
-| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the trading cap, so no exit for it can pass the gate. |
-| `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the trading cap, so an FX move refuses an order sized at the cap. |
+| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, so no exit for it can pass the gate. |
+| `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the order cap in force, so an FX move refuses an order sized at the cap. |
 | `order_cap_vs_nlv` | warn | yes | A per-order cap is under 2% or over 50% of NLV. |
 | `order_cap_splits_reduction` | warn | yes | A cap splits a planned trim (issuer act back to watch, premium budget act back to watch) or a whole option-line exit into more than 5 orders. Protective stock stops are exempt from the cap and are not counted. |
 | `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
 | `sweep_minimum_uneconomic` | warn | no | The smallest bill buy (as for `sweep_minimum_above_cap`) earns less interest over cash to the shortest rung (`min_maturity_days`) than the commission it pays. |
+| `retired_trading_gate` | warn | no | `config.toml` `[trading]` still carries a retired order gate whose value differs from the `[order_limits]` key that decides. |
 | `version_not_bumped` | warn | daemon | A file changed without a higher `policy_version`, so the daemon keeps the old policy. |
 | `dated_assumption_expired` | warn | no | `cash_interest_valid_through` or a directional intent's `expires_at` has passed. |
 | `dated_assumption_expiring` | info | no | One of those dates ends within 14 days. |
 | `file_unreviewed` | info | no | A file still carries the "Canary defaults, not yet reviewed" header; for the Rulebook it names the limits that already differ from the defaults. |
-| `compiled_default_in_force` | info | no | `[trading].max_notional` runs on Canary's compiled default, or a sweep sizing number is not written, so the sweep holds at `needs_your_number`. |
+| `compiled_default_in_force` | info | no | A sweep sizing number is not written, so the sweep holds at `needs_your_number`. |
 | `sweep_cap_exempt` | info | no | `bills_exempt_from_trading_max_notional` is declared, and whether the sweep's cap in force uses it. |
 
 The bounds (2% and 50% of NLV, 5 orders, 2% FX headroom, 14 days) are the

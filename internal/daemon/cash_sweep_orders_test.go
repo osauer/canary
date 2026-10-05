@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -312,7 +313,7 @@ type sweepPreviewRig struct {
 func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	t.Helper()
 	rig := &sweepPreviewRig{now: now, marginFactor: 1, marginCcy: "USD"}
-	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, MaxNotional: 1e6})
+	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, MaxNotional: new(1e6)})
 	srv.now = func() time.Time { return rig.now }
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
 	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
@@ -432,10 +433,8 @@ func TestCashSweepBondPreviewRefusals(t *testing.T) {
 		"a coupon bond": {func(r *sweepPreviewRig) { r.line.Coupon = 4.25 }, previewContractUnresolvedCode},
 		"no size rules": {func(r *sweepPreviewRig) { r.line.Complete = false }, previewContractUnresolvedCode},
 		"off the grid":  {func(r *sweepPreviewRig) { r.line.MinSize, r.line.SizeIncrement = 100, 100 }, previewBondOrderInvalidCode},
-		"above [trading].max_notional": {func(r *sweepPreviewRig) {
-			tr := r.srv.cfg.Trading
-			tr.MaxNotional = 10000
-			r.srv.cfg = &config.Resolved{Gateway: r.srv.cfg.Gateway, Trading: tr}
+		"above the order cap in force": {func(r *sweepPreviewRig) {
+			setTestOrderLimits(r.srv, func(o *risk.ConstitutionOrderLimits) { o.MaxOrderFloorBase = new(10000.0) })
 		}, previewRiskLimitCode},
 		"a delayed quote": {func(r *sweepPreviewRig) {
 			r.srv.orderPreviewQuote = func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error) {
@@ -505,10 +504,10 @@ func TestOrderPreviewAdmitsBondOnlyForASweepRow(t *testing.T) {
 	// A bond order that would open a short is refused whatever the config.
 	draft := rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: rpc.ContractParams{SecType: "BOND", Currency: "USD", ConID: 7101}, Quantity: 5}
 	auth := orderNotionalAuthority{QuoteNotional: 5000, ContractCurrency: "USD", BaseNotional: 5000, BaseCurrency: "USD", BasePerContract: 1, EvidenceAt: now, Source: orderFXSourceIdentity}
-	if err := validateOrderRiskAuthority(config.Trading{AllowStockShort: true}, draft, rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}, auth, "USD", protectiveExitInventory{}); err == nil {
+	if err := validateOrderRiskAuthority(testOrderLimits(10000, func(o *risk.ConstitutionOrderLimits) { o.AllowStockShort = new(true) }), draft, rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}, auth, "USD", protectiveExitInventory{}); err == nil {
 		t.Fatal("a bond short passed the risk authority")
 	}
-	if err := validateOrderRiskAuthority(config.Trading{}, draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD", protectiveExitInventory{}); err != nil {
+	if err := validateOrderRiskAuthority(testOrderLimits(10000), draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD", protectiveExitInventory{}); err != nil {
 		t.Fatalf("a bond reduce was refused: %v", err)
 	}
 }

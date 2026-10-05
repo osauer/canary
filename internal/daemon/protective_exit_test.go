@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -39,13 +39,14 @@ func protectiveExitTestNotional(base float64) orderNotionalAuthority {
 
 // The exemption boundary: only a stock/ETF sell stop that sells at most the
 // long position, with complete current inventory and no competing sell,
-// passes [trading].max_notional and the apparent-exit short re-read.
+// passes the order cap in force and the apparent-exit short re-read. The cap
+// here scales with the book: 5% of NLV 233,800 EUR is 11,690 EUR.
 func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 	t.Parallel()
 	current := protectiveExitInventory{Current: true}
 	cases := []struct {
 		name     string
-		cfg      config.Trading
+		edit     func(*risk.ConstitutionOrderLimits)
 		draft    rpc.OrderDraft
 		position rpc.OrderPositionImpact
 		notional float64
@@ -61,34 +62,34 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 		{name: "partial stop with a hand sale that fits", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2000),
 			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 2000), notional: 16000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 3000}},
 		{name: "limit sell keeps the notional cap", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "max_notional"},
+			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "small limit sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
 			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 10), notional: 80, inv: current, wantErr: "allow_stock_short"},
 		{name: "flat position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 10),
 			position: protectiveExitTestPosition(0, rpc.OrderActionSell, 10), notional: 80, inv: current, wantErr: "allow_stock_short"},
 		{name: "short position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(-50, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "max_notional"},
+			position: protectiveExitTestPosition(-50, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "quantity above the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5001),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5001), notional: 40868, inv: current, wantErr: "max_notional"},
+			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5001), notional: 40868, inv: current, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "another working sell exceeds the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1}, wantErr: "max_notional"},
+			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1}, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "small stop with a competing sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 100),
 			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 100), notional: 800, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 4901}, wantErr: "allow_stock_short"},
 		{name: "stale inventory fails closed", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{}, wantErr: "max_notional"},
+			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{}, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "a shrink of a working stop passes despite a hand sale", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 3000),
 			position: protectiveExitTestPosition(3000, rpc.OrderActionSell, 3000), notional: 24500, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 2000, ReducesWorkingStop: true}},
 		{name: "buy stop is not an exit of a long", draft: func() rpc.OrderDraft {
 			d := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000)
 			d.Action = rpc.OrderActionBuy
 			return d
-		}(), position: protectiveExitTestPosition(-5000, rpc.OrderActionBuy, 5000), notional: 40860, inv: current, wantErr: "max_notional"},
+		}(), position: protectiveExitTestPosition(-5000, rpc.OrderActionBuy, 5000), notional: 40860, inv: current, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
 		{name: "option sell stop is unaffected", draft: func() rpc.OrderDraft {
 			d := protectiveExitTestDraft("OPT", rpc.OrderTypeTRAIL, 5)
 			d.Contract.Right, d.Contract.Strike, d.Contract.Expiry, d.Contract.Multiplier = "C", 50, "20261120", 100
 			return d
-		}(), position: protectiveExitTestPosition(5, rpc.OrderActionSell, 5), notional: 20000, inv: current, wantErr: "max_notional"},
-		{name: "option contract cap is unaffected", cfg: config.Trading{MaxOptionContracts: 2}, draft: func() rpc.OrderDraft {
+		}(), position: protectiveExitTestPosition(5, rpc.OrderActionSell, 5), notional: 20000, inv: current, wantErr: "order cap in force 11,690 EUR (5% of NLV 233,800 EUR"},
+		{name: "option contract cap is unaffected", edit: func(o *risk.ConstitutionOrderLimits) { o.MaxOptionContracts = new(2) }, draft: func() rpc.OrderDraft {
 			d := protectiveExitTestDraft("OPT", rpc.OrderTypeTRAIL, 5)
 			d.Contract.Right, d.Contract.Strike, d.Contract.Expiry, d.Contract.Multiplier = "C", 50, "20261120", 100
 			return d
@@ -96,7 +97,12 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateOrderRiskAuthority(tc.cfg, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", tc.inv)
+			table := testOrderLimitsTable(10000)
+			if tc.edit != nil {
+				tc.edit(table)
+			}
+			limits := risk.EvaluateOrderLimits(table, "EUR", risk.OrderLimitsNLV{Base: 233800, AsOf: time.Now()}, nil, "")
+			err := validateOrderRiskAuthority(limits, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", tc.inv)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("err = %v, want the protective exit to pass", err)
@@ -202,7 +208,7 @@ func TestTrailingStopRowReadinessFollowsTheExemption(t *testing.T) {
 	}
 	// With allow_stock_short the row reads no exemption blocker: the notional
 	// cap decides at preview from exact FX evidence.
-	if _, ok := protectiveExitProposalBlocker(config.Trading{AllowStockShort: true}, protectiveExitTestRow(), protectiveExitInventory{}); ok {
+	if _, ok := protectiveExitProposalBlocker(true, protectiveExitTestRow(), protectiveExitInventory{}); ok {
 		t.Fatal("allow_stock_short row must not carry an exemption blocker")
 	}
 }

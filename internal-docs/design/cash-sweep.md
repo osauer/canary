@@ -654,7 +654,8 @@ P1, not a new threshold; no new policy number exists.
    on the line's tick from a live two-sided quote read during the preview (a
    buy at the mid rounded down, never below the bid; a sell at the mid
    rounded up, never above the ask), values the order at face × price / 100
-   for `[trading].max_notional` and FX, builds it through
+   for the order cap in force (`[trading].max_notional` until 2026-10-05,
+   the risk constitution's `[order_limits]` since) and FX, builds it through
    `NewBondLimitOrder` (`bond_order_invalid` otherwise), and runs WhatIf.
    Every existing gate still decides: trading mode and freeze, the
    agent/human authority of the submit, position and base-currency

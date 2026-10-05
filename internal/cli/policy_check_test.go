@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,8 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// Synthetic config and protection policy: a sweep cap above the trading cap.
+// Synthetic config, protection policy and constitution: a sweep cap above
+// the order cap in force.
 const policyCheckCLIProtection = `kind = "canary.protection_policy"
 schema_version = 1
 policy_id = "protection-test"
@@ -29,7 +31,26 @@ mode = "shadow"
 max_order_notional = 8000.0
 `
 
-func writePolicyCheckHome(t *testing.T, tradingCap string) string {
+// policyCheckCLIConstitution carries [order_limits] with the floor filled in:
+// 5% of NLV between the floor and a 100,000 ceiling.
+const policyCheckCLIConstitution = `kind = "canary.risk_policy"
+schema_version = 2
+policy_id = "constitution-test"
+policy_version = 1
+
+[capital]
+base_currency = "EUR"
+
+[order_limits]
+max_order_floor_base = %s
+max_order_pct_nlv = 5.0
+max_order_ceiling_base = 100000.0
+max_option_contracts = 5
+allow_stock_short = false
+allow_option_sell_to_open = false
+`
+
+func writePolicyCheckHome(t *testing.T, floor string) string {
 	t.Helper()
 	home := isolatePolicyHome(t)
 	dir := filepath.Join(home, ".config", "ibkr")
@@ -37,7 +58,10 @@ func writePolicyCheckHome(t *testing.T, tradingCap string) string {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(cfg, []byte("[trading]\nmode = \"paper\"\nmax_notional = "+tradingCap+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfg, []byte("[trading]\nmode = \"paper\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "policies", "risk-policy.toml"), fmt.Appendf(nil, policyCheckCLIConstitution, floor), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "policies", "protection-policy.toml"), []byte(policyCheckCLIProtection), 0o600); err != nil {
@@ -84,12 +108,9 @@ func (c *policyCheckConn) Call(_ context.Context, method string, _, out any) err
 		if c.failAcc {
 			return errors.New("gateway unavailable")
 		}
-		*out.(*rpc.AccountResult) = rpc.AccountResult{BaseCurrency: "EUR", NetLiquidation: 100000}
+		*out.(*rpc.AccountResult) = rpc.AccountResult{BaseCurrency: "EUR", NetLiquidation: 120000}
 	case rpc.MethodPositionsList:
 		*out.(*rpc.PositionsResult) = rpc.PositionsResult{}
-	case rpc.MethodSettingsGet:
-		res := out.(*rpc.PlatformSettings)
-		res.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 7000, Source: rpc.SettingsSourceRuntime}
 	case rpc.MethodRiskPolicySnapshot:
 		*out.(*rpc.RiskPolicyResult) = rpc.RiskPolicyResult{Files: []rpc.PolicyFileStatus{{Policy: "protection", Status: "drift"}}}
 	default:
@@ -102,15 +123,16 @@ func (c *policyCheckConn) Stream(context.Context, string, any, func(json.RawMess
 	return errors.New("no stream")
 }
 
-// With a daemon the check reads the book, the runtime trading cap and the
+// With a daemon the check reads the book, sizes the order cap in force from
+// its NLV (5% of 120,000 is 6,000 EUR, above the 5,000 floor) and reads the
 // managers' drift; it never calls a write method.
 func TestPolicyCheckReadsTheLiveBook(t *testing.T) {
-	cfg := writePolicyCheckHome(t, "9000.0")
+	cfg := writePolicyCheckHome(t, "5000.0")
 	conn := &policyCheckConn{}
 	var out bytes.Buffer
 	code := runPolicy(context.Background(), &Env{Stdout: &out, Stderr: &out, Conn: conn}, []string{"check", "--config", cfg})
 	text := out.String()
-	for _, want := range []string{"live book    NLV 100,000 EUR", "[runtime settings]", "version_not_bumped", "ERROR cap_above_trading_max"} {
+	for _, want := range []string{"live book    NLV 120,000 EUR", "6,000 EUR (5% of NLV)", "version_not_bumped", "ERROR cap_above_trading_max"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output lacks %q:\n%s", want, text)
 		}
@@ -120,7 +142,7 @@ func TestPolicyCheckReadsTheLiveBook(t *testing.T) {
 	}
 	for _, m := range conn.methods {
 		switch m {
-		case rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodSettingsGet, rpc.MethodRiskPolicySnapshot:
+		case rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodRiskPolicySnapshot:
 		default:
 			t.Fatalf("unexpected call %s", m)
 		}

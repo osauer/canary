@@ -325,7 +325,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		replaceView = view
 	}
 
-	cfg, tradingControlGeneration := s.effectiveTradingControlSnapshot()
+	_, tradingControlGeneration := s.effectiveTradingControlSnapshot()
 	action, err := normalizeOrderAction(p.Action)
 	if err != nil {
 		return nil, err
@@ -492,8 +492,9 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		replaceTarget = replaceTargetFromView(replaceView)
 	}
 	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, position, replaceTarget)
-	if err := validateOrderRiskAuthority(cfg, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory); err != nil {
-		return nil, refusePreviewCode(previewRiskLimitCode, errBadRequest(err.Error()))
+	limits := s.orderLimitsInForceForPreview(ctx, positionAuthority.BaseCurrency)
+	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory); err != nil {
+		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
 	var whatIf rpc.OrderWhatIfResult
 	if scope == rpc.OrderTokenScopeModify {
@@ -584,7 +585,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	tokenMinted := token != "" && tokenID != ""
 	submitEligible := tokenMinted && whatIf.Status == rpc.OrderWhatIfStatusAccepted && !whatIf.RequiredForSubmit
 
-	maxNotional := cfg.MaxNotional
+	maxNotional := limits.CapBase
 	return &rpc.OrderPreviewResult{
 		PreviewToken:          token,
 		PreviewTokenID:        tokenID,

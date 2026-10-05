@@ -18,6 +18,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -301,6 +302,10 @@ type platformStockProtectionSettingsData struct {
 }
 
 type platformTradingSettingsData struct {
+	// The four limit overrides are retired (owner decision 2026-10-05 19:56
+	// CEST): the order limits are read from risk-policy.toml [order_limits]
+	// only. A stored value still decodes so an old document loads, and is
+	// never read for a decision.
 	MaxNotional           *float64 `json:"max_notional,omitempty"`
 	MaxOptionContracts    *int     `json:"max_option_contracts,omitempty"`
 	AllowStockShort       *bool    `json:"allow_stock_short,omitempty"`
@@ -378,9 +383,9 @@ func (s *platformSettingsStore) snapshot() platformSettingsData {
 	return s.data
 }
 
-// tradingControlGeneration returns the durable generation covering the five
-// runtime controls that can change whether a broker write is permitted:
-// freeze, both size caps, stock shorting, and option sell-to-open. It is a
+// tradingControlGeneration returns the durable generation of the runtime
+// control that can change whether a broker write is permitted: freeze (the
+// four limit overrides it once also covered are retired). It is a
 // store property rather than an RPC revision so wire guards can compare one
 func (s *platformSettingsStore) tradingControlGeneration() uint64 {
 	if s == nil {
@@ -391,30 +396,16 @@ func (s *platformSettingsStore) tradingControlGeneration() uint64 {
 	return s.data.TradingControlGeneration
 }
 
-// tradingControlSnapshot applies the four configurable trading-limit
-// overrides and returns them with the exact generation observed under the
-// same lock. Freeze is intentionally not a config.Trading field, but every
-// freeze change still advances the returned generation so a caller binding
-func (s *platformSettingsStore) tradingControlSnapshot(base config.Trading, applyOverrides bool) (config.Trading, uint64) {
+// tradingControlSnapshot returns base with the exact control generation
+// observed under the same lock. Freeze is intentionally not a config.Trading
+// field, but every freeze change advances the returned generation so a caller
+// binding a preview or admission to it sees the change.
+func (s *platformSettingsStore) tradingControlSnapshot(base config.Trading) (config.Trading, uint64) {
 	if s == nil {
 		return base, 0
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if applyOverrides {
-		if s.data.Trading.MaxNotional != nil {
-			base.MaxNotional = *s.data.Trading.MaxNotional
-		}
-		if s.data.Trading.MaxOptionContracts != nil {
-			base.MaxOptionContracts = *s.data.Trading.MaxOptionContracts
-		}
-		if s.data.Trading.AllowStockShort != nil {
-			base.AllowStockShort = *s.data.Trading.AllowStockShort
-		}
-		if s.data.Trading.AllowOptionSellToOpen != nil {
-			base.AllowOptionSellToOpen = *s.data.Trading.AllowOptionSellToOpen
-		}
-	}
 	return base, s.data.TradingControlGeneration
 }
 
@@ -422,25 +413,11 @@ func (s *platformSettingsStore) tradingControlSnapshot(base config.Trading, appl
 // caller must invoke release after the protected broker send returns. Runtime
 // settings remain fully concurrent while an order waits in pacing; only the
 // final authority check plus frame write/flush excludes a control commit.
-func (s *platformSettingsStore) lockTradingControlSnapshot(base config.Trading, applyOverrides bool) (cfg config.Trading, generation uint64, frozen bool, release func()) {
+func (s *platformSettingsStore) lockTradingControlSnapshot(base config.Trading) (cfg config.Trading, generation uint64, frozen bool, release func()) {
 	if s == nil {
 		return base, 0, false, func() {}
 	}
 	s.mu.RLock()
-	if applyOverrides {
-		if s.data.Trading.MaxNotional != nil {
-			base.MaxNotional = *s.data.Trading.MaxNotional
-		}
-		if s.data.Trading.MaxOptionContracts != nil {
-			base.MaxOptionContracts = *s.data.Trading.MaxOptionContracts
-		}
-		if s.data.Trading.AllowStockShort != nil {
-			base.AllowStockShort = *s.data.Trading.AllowStockShort
-		}
-		if s.data.Trading.AllowOptionSellToOpen != nil {
-			base.AllowOptionSellToOpen = *s.data.Trading.AllowOptionSellToOpen
-		}
-	}
 	frozen = s.data.Trading.Freeze != nil && *s.data.Trading.Freeze
 	return base, s.data.TradingControlGeneration, frozen, s.mu.RUnlock
 }
@@ -563,14 +540,6 @@ func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.
 		value = data.Features.Rulebook.EarningsOverrides
 	case "trading.freeze":
 		value = data.Trading.Freeze
-	case "trading.limits.max_notional":
-		value = data.Trading.MaxNotional
-	case "trading.limits.max_option_contracts":
-		value = data.Trading.MaxOptionContracts
-	case "trading.limits.allow_stock_short":
-		value = data.Trading.AllowStockShort
-	case "trading.limits.allow_option_sell_to_open":
-		value = data.Trading.AllowOptionSellToOpen
 	case "regime.journal.enabled":
 		value = data.Regime.Journal.Enabled
 	case "stress.journal.enabled":
@@ -586,22 +555,10 @@ func canonicalPlatformSettingValue(data platformSettingsData, key string) (json.
 }
 
 func sameTradingControls(a, b platformTradingSettingsData) bool {
-	return sameOptionalFloat64(a.MaxNotional, b.MaxNotional) &&
-		sameOptionalInt(a.MaxOptionContracts, b.MaxOptionContracts) &&
-		sameOptionalBool(a.AllowStockShort, b.AllowStockShort) &&
-		sameOptionalBool(a.AllowOptionSellToOpen, b.AllowOptionSellToOpen) &&
-		sameOptionalBool(a.Freeze, b.Freeze)
+	return sameOptionalBool(a.Freeze, b.Freeze)
 }
 
 func sameOptionalBool(a, b *bool) bool {
-	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
-}
-
-func sameOptionalInt(a, b *int) bool {
-	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
-}
-
-func sameOptionalFloat64(a, b *float64) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
@@ -680,25 +637,20 @@ func (s *Server) applyPlatformSettingsPatch(ctx context.Context, patch map[strin
 	if err != nil {
 		return err
 	}
-	specs := settingsSpecsByKey()
 	for key := range flat {
-		// Freeze and limit authority is terminal-only in every mode. A paired
+		// Freeze authority is terminal-only in every mode. A paired
 		// device is a human broker-write origin, but it is not authorized to
 		// change the controls that govern later writes.
 		if strings.HasPrefix(key, "trading.") && !settingsTradingOriginAuthorized(origin) {
-			return errBadRequest("trading safety settings are terminal-only; use an interactive human terminal to change freeze or limits")
+			return errBadRequest("trading safety settings are terminal-only; use an interactive human terminal to change the freeze")
 		}
 	}
-	limitsWritable, reason := s.tradingLimitWritability()
 	keys := make([]string, 0, len(flat))
 	for key := range flat {
 		keys = append(keys, key)
 	}
 	return s.platformSettings.updateWithAudit(ctx, s.orderNow(), origin, keys, func(next *platformSettingsData) error {
 		for key, raw := range flat {
-			if specs[key].Class == rpc.SettingsClassTradingLimit && !limitsWritable {
-				return errBadRequest("trading.limits is read-only: " + reason)
-			}
 			if err := applySettingsKey(next, key, raw); err != nil {
 				return err
 			}
@@ -741,6 +693,20 @@ func flattenSettingsPatch(patch map[string]json.RawMessage) (map[string]json.Raw
 			if _, ok := specs[path]; ok {
 				flat[path] = raw
 				continue
+			}
+			if retiredTradingLimitSettings[path] {
+				return errBadRequest(retiredTradingLimitMessage(path))
+			}
+			if path == "trading.limits" {
+				// Name the retired key the patch sets, when it sets one.
+				var child map[string]json.RawMessage
+				_ = json.Unmarshal(raw, &child)
+				for _, key := range slices.Sorted(maps.Keys(child)) {
+					if retiredTradingLimitSettings[path+"."+key] {
+						return errBadRequest(retiredTradingLimitMessage(path + "." + key))
+					}
+				}
+				return errBadRequest(retiredTradingLimitMessage(path))
 			}
 			if !prefixes[path] {
 				if prefix == "trading" {
@@ -805,24 +771,6 @@ func applySettingsKey(next *platformSettingsData, key string, raw json.RawMessag
 		return nil
 	case "trading.freeze":
 		return boolField(&next.Trading.Freeze)
-	case "trading.limits.max_notional":
-		v, err := nullableFloat(raw)
-		if err != nil || (v != nil && *v <= 0) {
-			return errBadRequest("trading.limits.max_notional must be a positive number or null")
-		}
-		next.Trading.MaxNotional = v
-		return nil
-	case "trading.limits.max_option_contracts":
-		v, err := nullableInt(raw)
-		if err != nil || (v != nil && *v <= 0) {
-			return errBadRequest("trading.limits.max_option_contracts must be a positive integer or null")
-		}
-		next.Trading.MaxOptionContracts = v
-		return nil
-	case "trading.limits.allow_stock_short":
-		return boolField(&next.Trading.AllowStockShort)
-	case "trading.limits.allow_option_sell_to_open":
-		return boolField(&next.Trading.AllowOptionSellToOpen)
 	case "regime.journal.enabled":
 		return boolField(&next.Regime.Journal.Enabled)
 	case "stress.journal.enabled":
@@ -886,28 +834,6 @@ func nullableBool(raw json.RawMessage) (*bool, error) {
 	return &v, nil
 }
 
-func nullableFloat(raw json.RawMessage) (*float64, error) {
-	if string(bytes.TrimSpace(raw)) == "null" {
-		return nil, nil
-	}
-	var v float64
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, err
-	}
-	return &v, nil
-}
-
-func nullableInt(raw json.RawMessage) (*int, error) {
-	if string(bytes.TrimSpace(raw)) == "null" {
-		return nil, nil
-	}
-	var v int
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return nil, err
-	}
-	return &v, nil
-}
-
 func nullableString(raw json.RawMessage) (*string, error) {
 	if string(bytes.TrimSpace(raw)) == "null" {
 		return nil, nil
@@ -930,13 +856,11 @@ func validDisplayDateFormat(value string) bool {
 
 func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rpc.PlatformSettings {
 	data := s.platformSettings.snapshot()
-	trading := s.effectiveTradingConfig()
 	autoTrade := config.AutoTrade{}.WithDefaults()
 	if s.cfg != nil {
 		autoTrade = s.cfg.AutoTrade.WithDefaults()
 	}
 	status := s.currentTradingStatus()
-	limitsWritable, limitReason := s.tradingLimitWritability()
 	stockProtectionEnabled := true
 	if data.Features.StockProtection.Enabled != nil {
 		stockProtectionEnabled = *data.Features.StockProtection.Enabled
@@ -945,17 +869,7 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 	if data.Features.Rulebook.Enabled != nil {
 		rulebookEnabled = *data.Features.Rulebook.Enabled
 	}
-	limitAccess := rpc.SettingsAccessRead
-	if limitsWritable {
-		limitAccess = rpc.SettingsAccessWrite
-		limitReason = ""
-	}
-	limitSource := func(runtime bool) string {
-		if runtime && limitsWritable {
-			return rpc.SettingsSourceRuntime
-		}
-		return rpc.SettingsSourceConfig
-	}
+	limits := s.orderLimitsInForce("")
 	out := rpc.PlatformSettings{
 		Kind:      "ibkr.platform_settings",
 		CashSweep: s.platformCashSweepSettings(data),
@@ -982,12 +896,7 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 			MCPTrading:           settingsString(status.MCPTrading, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "MCP broker-write controls are not exposed"),
 			LiveOverride:         settingsString(status.LiveOverride, rpc.SettingsAccessRead, rpc.SettingsSourceConfig, `computed from [trading].mode and active blockers; "ready" only on an unblocked live route`),
 			BuildWritesAvailable: settingsBool(orderWritesAvailable, rpc.SettingsAccessRead, rpc.SettingsSourceBuild, "controlled by the Canary build"),
-			Limits: rpc.TradingLimitSettings{
-				MaxNotional:           settingsFloat(trading.MaxNotional, limitAccess, limitSource(data.Trading.MaxNotional != nil), limitReason),
-				MaxOptionContracts:    settingsInt(trading.MaxOptionContracts, limitAccess, limitSource(data.Trading.MaxOptionContracts != nil), limitReason),
-				AllowStockShort:       settingsBool(trading.AllowStockShort, limitAccess, limitSource(data.Trading.AllowStockShort != nil), limitReason),
-				AllowOptionSellToOpen: settingsBool(trading.AllowOptionSellToOpen, limitAccess, limitSource(data.Trading.AllowOptionSellToOpen != nil), limitReason),
-			},
+			Limits:               tradingLimitSettingsFrom(limits),
 		},
 		AutoTrade: rpc.PlatformAutoTradeSettings{
 			ProposalsEnabled: settingsBool(autoTrade.ProposalsEnabledResolved(), rpc.SettingsAccessRead, rpc.SettingsSourceConfig, "set [auto_trade].proposals_enabled in config.toml"),
@@ -1074,18 +983,29 @@ func settingsString(value, access, source, reason string) rpc.SettingsString {
 	return rpc.SettingsString{Value: value, Access: access, Source: source, Reason: reason}
 }
 
-func (s *Server) tradingLimitWritability() (bool, string) {
-	if !orderWritesAvailable {
-		return false, "stable build exposes trading limits as read-only"
+// retiredTradingLimitSettings are the runtime limit overrides retired by the
+// owner decision of 2026-10-05 19:56 CEST.
+var retiredTradingLimitSettings = map[string]bool{
+	"trading.limits.max_notional": true, "trading.limits.max_option_contracts": true,
+	"trading.limits.allow_stock_short": true, "trading.limits.allow_option_sell_to_open": true,
+}
+
+func retiredTradingLimitMessage(key string) string {
+	return key + " is retired: the order limits are read from risk-policy.toml [order_limits] only (edit the file with a higher policy_version); " +
+		"for a time-bounded larger cap use `canary policy override --control " + risk.OrderLimitFloorOverrideControl + " --reason TEXT --hours N`, which lifts the floor to max_order_ceiling_base until it expires"
+}
+
+// tradingLimitSettingsFrom reports the order limits in force as read-only
+// settings sourced from the policy: the notional field carries the cap in
+// force and its reason says how it is bound.
+func tradingLimitSettingsFrom(l risk.OrderLimitsInForce) rpc.TradingLimitSettings {
+	reason := "risk-policy.toml [order_limits]: " + l.Summary
+	return rpc.TradingLimitSettings{
+		MaxNotional:           settingsFloat(l.CapBase, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
+		MaxOptionContracts:    settingsInt(l.MaxOptionContracts, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
+		AllowStockShort:       settingsBool(l.AllowStockShort, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
+		AllowOptionSellToOpen: settingsBool(l.AllowOptionSellToOpen, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
 	}
-	tr := config.Trading{}.WithDefaults()
-	if s != nil && s.cfg != nil {
-		tr = s.cfg.Trading.WithDefaults()
-	}
-	if !tr.OrderEntryEnabled() {
-		return false, `set [trading].mode to "paper" or "live" before editing runtime safety limits`
-	}
-	return true, ""
 }
 
 func (s *Server) effectiveTradingControlSnapshot() (config.Trading, uint64) {
@@ -1096,8 +1016,7 @@ func (s *Server) effectiveTradingControlSnapshot() (config.Trading, uint64) {
 	if s.cfg != nil {
 		tr = s.cfg.Trading.WithDefaults()
 	}
-	writable, _ := s.tradingLimitWritability()
-	return s.platformSettings.tradingControlSnapshot(tr, writable)
+	return s.platformSettings.tradingControlSnapshot(tr)
 }
 
 //lint:ignore U1000 Used by the trading-tagged physical write guard.
@@ -1109,8 +1028,7 @@ func (s *Server) lockEffectiveTradingControlSnapshot() (config.Trading, uint64, 
 	if s.cfg != nil {
 		tr = s.cfg.Trading.WithDefaults()
 	}
-	writable, _ := s.tradingLimitWritability()
-	return s.platformSettings.lockTradingControlSnapshot(tr, writable)
+	return s.platformSettings.lockTradingControlSnapshot(tr)
 }
 
 func (s *Server) effectiveTradingConfig() config.Trading {

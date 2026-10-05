@@ -1759,6 +1759,10 @@ type RiskPolicyResult struct {
 	// table, with its value in force, source and meaning. Daemons before
 	// this field leave it empty; the CLI then reads the files itself.
 	Effective *PolicyEffectiveView `json:"effective,omitempty"`
+	// OrderLimits is the constitution's [order_limits] in force: the cap
+	// every order is judged by and how it is bound (floor, pct_nlv, ceiling
+	// or override), or the keys that are missing.
+	OrderLimits *risk.OrderLimitsInForce `json:"order_limits,omitempty"`
 }
 
 // PolicyFileStatus is one policy file as Canary reads it: where it is, its

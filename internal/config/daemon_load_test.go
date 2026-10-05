@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -75,8 +76,8 @@ func TestLoadForDaemonStartsOnABrokenNonAccountPart(t *testing.T) {
 			}},
 		{name: "order limit of the wrong type", body: strings.Replace(pinnedConfig, "max_notional = 2500", "max_notional = \"2.5k\"", 1), issue: "trading.max_notional",
 			check: func(t *testing.T, cfg *Config) {
-				if cfg.Trading.MaxNotional != 0 {
-					t.Fatalf("max_notional = %v, want the default", cfg.Trading.MaxNotional)
+				if cfg.Trading.MaxNotional != nil {
+					t.Fatalf("max_notional = %v, want it dropped", *cfg.Trading.MaxNotional)
 				}
 			}},
 		{name: "maintenance windows of the wrong type", body: strings.Replace(pinnedConfig, "tls = false", "tls = false\nmaintenance_windows = 3", 1), issue: "gateway.maintenance_windows"},
@@ -90,7 +91,7 @@ func TestLoadForDaemonStartsOnABrokenNonAccountPart(t *testing.T) {
 				t.Fatalf("a broken non-account part stopped the daemon: %v", err)
 			}
 			requirePins(t, cfg)
-			if cfg.Trading.MaxNotional != 2500 && tc.issue != "trading.max_notional" {
+			if tc.issue != "trading.max_notional" && (cfg.Trading.MaxNotional == nil || *cfg.Trading.MaxNotional != 2500) {
 				t.Fatalf("max_notional = %v, want 2500 kept", cfg.Trading.MaxNotional)
 			}
 			found := false
@@ -159,7 +160,7 @@ func TestLoadForDaemonReadsACleanFileAsLoadDoes(t *testing.T) {
 		t.Fatalf("clean file: err %v issues %+v", err, issues)
 	}
 	requirePins(t, cfg)
-	if cfg.Flex != strict.Flex || cfg.Trading != strict.Trading {
+	if cfg.Flex != strict.Flex || !reflect.DeepEqual(cfg.Trading, strict.Trading) {
 		t.Fatalf("daemon load %+v differs from Load %+v", cfg, strict)
 	}
 	if cfg, issues, err := LoadForDaemon(filepath.Join(t.TempDir(), "missing.toml")); err != nil || len(issues) != 0 || cfg == nil {

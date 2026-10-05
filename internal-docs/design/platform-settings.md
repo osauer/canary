@@ -11,8 +11,11 @@ state root). It does not read, mirror, or fall back to
 `platform-settings.json` after SQLite authority attaches. Only user
 preferences owned by Canary belong in this document: feature toggles, the
 `trading.freeze` brake, rulebook earnings overrides, the regime/stress
-forward-collection switches, and optional experimental trading-limit
-overrides.
+forward-collection switches. The trading-limit overrides
+(`trading.limits.*`) are retired since 2026-10-05 20:28 CEST: the order limits
+are the risk constitution's `[order_limits]` (see [Risk constitution](risk-policy.md#order-limits-owner-decision-2026-10-05-1956-cest)).
+A stored override still decodes so an old document loads and is never read;
+setting one is refused with a pointer to the one-shot policy override.
 
 Reviewed exact-contract terminal earnings evidence is not a preference and is
 not writable through `settings.update`. Its optional
@@ -110,7 +113,7 @@ a null symbol value clears that symbol, null on the whole map clears all, and
 unmentioned symbols survive.
 
 `trading.freeze` is the runtime trading brake: `true` blocks every new broker
-write while cancels stay allowed. Freeze and trading-limit changes are
+write while cancels stay allowed. Freeze changes are
 human-only policy in disabled, paper, and live modes: missing, agent, or paired
 device origins are rejected, and accepted human-terminal origins are stamped
 in the atomic audit event.

@@ -6,7 +6,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -15,7 +14,8 @@ import (
 // "exempt with the guard"; see internal-docs/design/protective-stop-guard.md).
 //
 // A broker-side stop that sells at most the long stock position it protects
-// passes both [trading].max_notional and the apparent-exit re-read as a short
+// passes both the order cap in force ([order_limits]) and the apparent-exit
+// re-read as a short
 // open, provided the complete current broker open-order inventory shows no
 // other working sell for the same contract that, together with this one,
 // would sell more than is held. A modify that only lowers the quantity of a
@@ -175,8 +175,7 @@ func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.
 // the exemption cannot apply, the row carries one typed blocker in plain
 // words instead of reading ready. A row the gates would pass anyway, or one
 // that is not a long-stock sell stop, returns false.
-func protectiveExitProposalBlocker(cfg config.Trading, p rpc.TradeProposal, inv protectiveExitInventory) (rpc.TradingBlocker, bool) {
-	cfg = cfg.WithDefaults()
+func protectiveExitProposalBlocker(allowStockShort bool, p rpc.TradeProposal, inv protectiveExitInventory) (rpc.TradingBlocker, bool) {
 	if !strings.EqualFold(strings.TrimSpace(p.Action), rpc.OrderActionSell) || !isProtectiveStopOrderType(p.OrderType) ||
 		!positiveFinite(p.PositionQuantity) || p.Quantity <= 0 {
 		return rpc.TradingBlocker{}, false
@@ -192,8 +191,8 @@ func protectiveExitProposalBlocker(cfg config.Trading, p rpc.TradeProposal, inv 
 	after := before - float64(p.Quantity)
 	draft := rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}
 	position := rpc.OrderPositionImpact{Before: before, After: after, Effect: classifyPositionEffect(before, after)}
-	if protectiveStockExitExempt(draft, position, inv) || cfg.AllowStockShort {
-		// With allow_stock_short the max_notional cap still decides at
+	if protectiveStockExitExempt(draft, position, inv) || allowStockShort {
+		// With allow_stock_short the order cap in force still decides at
 		// preview, from exact-session FX evidence this row does not carry.
 		return rpc.TradingBlocker{}, false
 	}
@@ -235,9 +234,10 @@ func (e *proposalEngine) protectiveExitRowBlocker(ctx context.Context, p rpc.Tra
 	if e == nil || e.server == nil || book == nil || p.Shadow || p.State == rpc.TradeProposalStateBlocked {
 		return rpc.TradingBlocker{}, false
 	}
-	cfg, _ := e.server.effectiveTradingControlSnapshot()
-	if cfg.AllowStockShort || !strings.EqualFold(strings.TrimSpace(p.Action), rpc.OrderActionSell) {
-		return protectiveExitProposalBlocker(cfg, p, protectiveExitInventory{})
+	limits := e.server.orderLimitsInForce("")
+	allowStockShort := limits.Complete && limits.AllowStockShort
+	if allowStockShort || !strings.EqualFold(strings.TrimSpace(p.Action), rpc.OrderActionSell) {
+		return protectiveExitProposalBlocker(allowStockShort, p, protectiveExitInventory{})
 	}
 	if !book.read {
 		book.read = true
@@ -259,5 +259,5 @@ func (e *proposalEngine) protectiveExitRowBlocker(ctx context.Context, p rpc.Tra
 		}
 		inv = protectiveExitInventoryFromSnapshot(book.snapshot, book.scope, rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}, orderPreviewReplaceTarget{})
 	}
-	return protectiveExitProposalBlocker(cfg, p, inv)
+	return protectiveExitProposalBlocker(allowStockShort, p, inv)
 }

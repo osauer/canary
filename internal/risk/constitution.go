@@ -50,6 +50,10 @@ type Constitution struct {
 	Recon     ConstitutionRecon     `toml:"recon" json:"recon"`
 	Cadence   ConstitutionCadence   `toml:"cadence" json:"cadence"`
 	Inventory ConstitutionInventory `toml:"inventory" json:"inventory"`
+	// OrderLimits holds the per-order gates (owner decision 2026-10-05
+	// 19:56 CEST). A pointer, so a policy without the table keeps its
+	// fingerprint; absent means every order preview is refused.
+	OrderLimits *ConstitutionOrderLimits `toml:"order_limits" json:"order_limits,omitempty"`
 }
 
 // ConstitutionCapital anchors the capital authority: an internal protected
@@ -339,7 +343,7 @@ func (c Constitution) Validate() error {
 	if c.Inventory.RequireSignoff != nil && !c.Semantics().ProcessReminders {
 		return fmt.Errorf("inventory.require_signoff requires schema 2 or legacy policy_version >= 4")
 	}
-	return nil
+	return c.OrderLimits.validate()
 }
 
 // loadConstitutionLocation rejects process-local and non-canonical raw input.
@@ -511,35 +515,38 @@ func (c Constitution) FingerprintKey() string {
 			MaxReportAgeDays       *int     `json:"max_report_age_days"`
 		}{c.Recon.AmountTolerancePct, c.Recon.AmountToleranceMin, c.Recon.DateWindowBusinessDays, c.Recon.MaxReportAgeDays}
 		normalized := struct {
-			Kind          string                `json:"kind"`
-			SchemaVersion int                   `json:"schema_version"`
-			PolicyID      string                `json:"policy_id"`
-			PolicyVersion int                   `json:"policy_version"`
-			Capital       ConstitutionCapital   `json:"capital"`
-			Drawdown      ConstitutionDrawdown  `json:"drawdown"`
-			Override      ConstitutionOverride  `json:"override"`
-			Recon         any                   `json:"recon"`
-			Cadence       any                   `json:"cadence"`
-			Inventory     ConstitutionInventory `json:"inventory"`
+			Kind          string                   `json:"kind"`
+			SchemaVersion int                      `json:"schema_version"`
+			PolicyID      string                   `json:"policy_id"`
+			PolicyVersion int                      `json:"policy_version"`
+			Capital       ConstitutionCapital      `json:"capital"`
+			Drawdown      ConstitutionDrawdown     `json:"drawdown"`
+			Override      ConstitutionOverride     `json:"override"`
+			Recon         any                      `json:"recon"`
+			Cadence       any                      `json:"cadence"`
+			Inventory     ConstitutionInventory    `json:"inventory"`
+			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 		}{
 			Kind: base.Kind, SchemaVersion: base.SchemaVersion, PolicyID: base.PolicyID, PolicyVersion: base.PolicyVersion,
 			Capital: base.Capital, Drawdown: base.Drawdown, Override: base.Override, Recon: recon,
-			Cadence: legacyCadence, Inventory: base.Inventory,
+			Cadence: legacyCadence, Inventory: base.Inventory, OrderLimits: c.OrderLimits,
 		}
 		raw, _ = json.Marshal(normalized)
 	} else if c.SchemaVersion != 2 && c.PolicyVersion < 4 {
 		normalized := struct {
-			Kind          string                `json:"kind"`
-			SchemaVersion int                   `json:"schema_version"`
-			PolicyID      string                `json:"policy_id"`
-			PolicyVersion int                   `json:"policy_version"`
-			Capital       ConstitutionCapital   `json:"capital"`
-			Drawdown      ConstitutionDrawdown  `json:"drawdown"`
-			Override      ConstitutionOverride  `json:"override"`
-			Recon         ConstitutionRecon     `json:"recon"`
-			Cadence       any                   `json:"cadence"`
-			Inventory     ConstitutionInventory `json:"inventory"`
+			Kind          string                   `json:"kind"`
+			SchemaVersion int                      `json:"schema_version"`
+			PolicyID      string                   `json:"policy_id"`
+			PolicyVersion int                      `json:"policy_version"`
+			Capital       ConstitutionCapital      `json:"capital"`
+			Drawdown      ConstitutionDrawdown     `json:"drawdown"`
+			Override      ConstitutionOverride     `json:"override"`
+			Recon         ConstitutionRecon        `json:"recon"`
+			Cadence       any                      `json:"cadence"`
+			Inventory     ConstitutionInventory    `json:"inventory"`
+			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 		}{
+			OrderLimits:   c.OrderLimits,
 			Kind:          strings.TrimSpace(c.Kind),
 			SchemaVersion: c.SchemaVersion,
 			PolicyID:      strings.TrimSpace(c.PolicyID),
@@ -554,21 +561,22 @@ func (c Constitution) FingerprintKey() string {
 		raw, _ = json.Marshal(normalized)
 	} else {
 		normalized := struct {
-			Kind          string                `json:"kind"`
-			SchemaVersion int                   `json:"schema_version"`
-			PolicyID      string                `json:"policy_id"`
-			PolicyVersion int                   `json:"policy_version"`
-			Capital       ConstitutionCapital   `json:"capital"`
-			Drawdown      ConstitutionDrawdown  `json:"drawdown"`
-			Override      ConstitutionOverride  `json:"override"`
-			Recon         ConstitutionRecon     `json:"recon"`
-			Cadence       any                   `json:"cadence"`
-			Inventory     ConstitutionInventory `json:"inventory"`
+			Kind          string                   `json:"kind"`
+			SchemaVersion int                      `json:"schema_version"`
+			PolicyID      string                   `json:"policy_id"`
+			PolicyVersion int                      `json:"policy_version"`
+			Capital       ConstitutionCapital      `json:"capital"`
+			Drawdown      ConstitutionDrawdown     `json:"drawdown"`
+			Override      ConstitutionOverride     `json:"override"`
+			Recon         ConstitutionRecon        `json:"recon"`
+			Cadence       any                      `json:"cadence"`
+			Inventory     ConstitutionInventory    `json:"inventory"`
+			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 		}{
 			Kind: strings.TrimSpace(c.Kind), SchemaVersion: c.SchemaVersion,
 			PolicyID: strings.TrimSpace(c.PolicyID), PolicyVersion: c.PolicyVersion,
 			Capital: c.Capital, Drawdown: c.Drawdown, Override: c.Override,
-			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory,
+			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits,
 		}
 		raw, _ = json.Marshal(normalized)
 	}

@@ -123,6 +123,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("override.max_duration_hours", ovhVal, ovhSrc,
 			"Longest lifetime of a one-shot override. Overrides are human-only, name one control, require a reason, are journaled with the policy fingerprint, and expire on their own.", "advisory"),
 	}
+	rows = append(rows, orderLimitRows(c, cur, get, str)...)
 	rTolPVal, rTolPSrc := pct(rTolP)
 	rTolMVal, rTolMSrc := money(rTolM)
 	rDateWVal, rDateWSrc := num(rDateW, "business days")
@@ -221,4 +222,46 @@ func artefactClass(c *Constitution, pick func(*Constitution) string) string {
 		return ""
 	}
 	return pick(c)
+}
+
+// EnforcementHard marks a pre-trade gate: the order limits refuse an order
+// preview outright.
+const EnforcementHard = "hard"
+
+// orderLimitRows renders [order_limits]. A key the file does not write reads
+// unapproved, and every order preview is refused until it is written.
+func orderLimitRows(c *Constitution, cur string, get func(key, value, source, meaning, enforcement string) ConstitutionLimit, str func(bool, func() string) (string, string)) []ConstitutionLimit {
+	var o ConstitutionOrderLimits
+	if c != nil && c.OrderLimits != nil {
+		o = *c.OrderLimits
+	}
+	money := func(v *float64) (string, string) {
+		return str(v != nil, func() string { return FormatOrderMoney(*v, nonEmpty(cur, "base")) })
+	}
+	floorVal, floorSrc := money(o.MaxOrderFloorBase)
+	pctVal, pctSrc := str(o.MaxOrderPctNLV != nil, func() string { return strconv.FormatFloat(*o.MaxOrderPctNLV, 'f', -1, 64) + "% of NLV" })
+	ceilVal, ceilSrc := money(o.MaxOrderCeilingBase)
+	optVal, optSrc := str(o.MaxOptionContracts != nil, func() string { return strconv.Itoa(*o.MaxOptionContracts) + " contracts" })
+	shortVal, shortSrc := str(o.AllowStockShort != nil, func() string { return strconv.FormatBool(*o.AllowStockShort) })
+	stoVal, stoSrc := str(o.AllowOptionSellToOpen != nil, func() string { return strconv.FormatBool(*o.AllowOptionSellToOpen) })
+	row := func(key, value, source, meaning string) ConstitutionLimit {
+		if source == "unapproved" {
+			meaning += " Not written: every order preview is refused until it is."
+		}
+		return get(key, value, source, meaning, EnforcementHard)
+	}
+	return []ConstitutionLimit{
+		row(OrderLimitFloorOverrideControl, floorVal, floorSrc,
+			"Smallest per-order cap in base currency. The cap in force is min(ceiling, max(this, max_order_pct_nlv of NLV)); it is the cap whenever NLV cannot be read. A one-shot override of this key (canary policy override --control order_limits.max_order_floor_base) lifts it to the ceiling until it expires."),
+		row(OrderLimitsTable+"."+OrderLimitMaxOrderPctNLV, pctVal, pctSrc,
+			"Share of net liquidation value that sets the per-order cap between the floor and the ceiling, so the cap follows the size of the book."),
+		row(OrderLimitsTable+"."+OrderLimitMaxOrderCeilingBase, ceilVal, ceilSrc,
+			"Largest per-order cap in base currency, however large the book. Protective stock stops that sell at most the long position, and sweep bills within the sweep's own cap when bills_exempt_from_trading_max_notional is true, pass the cap."),
+		row(OrderLimitsTable+"."+OrderLimitMaxOptionContracts, optVal, optSrc,
+			"Most contracts in one single-leg option order and in each leg of a strategy close; apparent exits are not exempt."),
+		row(OrderLimitsTable+"."+OrderLimitAllowStockShort, shortVal, shortSrc,
+			"Whether a stock or ETF order may open or flip a short. An apparent sell exit counts as opening a short, except an exempt protective stop."),
+		row(OrderLimitsTable+"."+OrderLimitAllowOptionSellToOpen, stoVal, stoSrc,
+			"Whether an option order may sell to open."),
+	}
 }

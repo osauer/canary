@@ -721,7 +721,7 @@ Subcommands: `status`.
 
 Runtime platform preferences and observed read-only state.
 
-`show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` and the trading-limit keys are accepted only from an interactive human terminal, and agent and paired-device origins are rejected. The keys are listed in the [configuration reference](config.md).
+`show` reads. `set` writes a runtime preference, and the write path has its own gate: `trading.freeze` is accepted only from an interactive human terminal (the order limits live in `risk-policy.toml` `[order_limits]`, not in settings), and agent and paired-device origins are rejected. The keys are listed in the [configuration reference](config.md).
 
 Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
 

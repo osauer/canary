@@ -50,6 +50,9 @@ const (
 	PolicySourceUnapproved = "unapproved"
 	// PolicySourceRuntime: a runtime override from `canary settings set`.
 	PolicySourceRuntime = "runtime"
+	// PolicySourceInForce: a value Canary computes from the file's keys and
+	// the live book, such as the order cap in force of [order_limits].
+	PolicySourceInForce = "in_force"
 )
 
 // PolicyEffectiveSection is one file or settings surface.

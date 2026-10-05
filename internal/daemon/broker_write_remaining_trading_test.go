@@ -340,7 +340,7 @@ func protectiveViewForToken(quantity float64) rpc.OrderView {
 
 func TestOrderModifyMismatchAcceptsExactReduceOnly(t *testing.T) {
 	t.Parallel()
-	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, AllowStockShort: true})
+	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, AllowStockShort: new(true)})
 	now := time.Date(2026, 7, 19, 9, 0, 0, 0, time.UTC)
 	srv.now = func() time.Time { return now }
 	seedProtectiveTrailJournal(t, srv, now)

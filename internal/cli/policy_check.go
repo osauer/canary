@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -19,7 +20,7 @@ func runPolicyCheck(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "policy check")
 	jsonOut := fs.Bool("json", false, "emit the report as JSON")
 	offline := fs.Bool("offline", false, "check the files only; do not ask the daemon for the live account")
-	configPath := fs.String("config", "", "config file that names the policy paths and the trading limits (default: the daemon's config)")
+	configPath := fs.String("config", "", "config file that names the policy paths and the trading mode (default: the daemon's config)")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
@@ -28,7 +29,7 @@ func runPolicyCheck(ctx context.Context, env *Env, args []string) int {
 	}
 	in, cfgErr := daemon.PolicyCheckInputFromConfigFile(*configPath)
 	if cfgErr != nil {
-		fmt.Fprintf(env.Stderr, "policy check: config unreadable (%v); using the default policy paths and trading limits\n", cfgErr)
+		fmt.Fprintf(env.Stderr, "policy check: config unreadable (%v); using the default policy paths\n", cfgErr)
 	}
 	in.Now = time.Now()
 	switch {
@@ -54,8 +55,8 @@ func runPolicyCheck(ctx context.Context, env *Env, args []string) int {
 	return code
 }
 
-// policyCheckLiveInputs fills the book, the trading cap in force and the
-// daemon's file statuses from read-only daemon calls. Each one that fails
+// policyCheckLiveInputs fills the book, an active order-floor override and
+// the daemon's file statuses from read-only daemon calls. Each one that fails
 // leaves its checks skipped; none fails the command.
 func policyCheckLiveInputs(ctx context.Context, env *Env, in *daemon.PolicyCheckInput) {
 	var acct rpc.AccountResult
@@ -72,17 +73,14 @@ func policyCheckLiveInputs(ctx context.Context, env *Env, in *daemon.PolicyCheck
 			in.BookSkipped = "the account reported no net liquidation value"
 		}
 	}
-	var settings rpc.PlatformSettings
-	if err := env.Conn.Call(ctx, rpc.MethodSettingsGet, nil, &settings); err == nil {
-		if mn := settings.Trading.Limits.MaxNotional; mn.Value > 0 && mn.Source == rpc.SettingsSourceRuntime {
-			in.Trading.MaxNotional, in.TradingCapSource = mn.Value, daemon.PolicyCheckCapFromRuntime
-		}
-	}
 	var snap rpc.RiskPolicyResult
 	if err := env.Conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &snap); err == nil {
 		in.FileStatus = map[string]string{}
 		for _, f := range snap.Files {
 			in.FileStatus[f.Policy] = f.Status
+		}
+		if l := snap.OrderLimits; l != nil && l.OverrideID != "" {
+			in.OrderCapOverride = &risk.OrderLimitsOverride{ID: l.OverrideID, ExpiresAt: l.OverrideExpiresAt}
 		}
 	}
 }

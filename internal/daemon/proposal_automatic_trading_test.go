@@ -25,7 +25,7 @@ func newAutomaticTradingRig(t *testing.T, authority string) *automaticTestRig {
 	t.Helper()
 	// A protective SELL on a long stock passes the daemon's conservative
 	// short check only with allow_stock_short, as on the desk's own config.
-	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, AllowStockShort: true})
+	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper, AllowStockShort: new(true)})
 	ctx := context.Background()
 	if err := initializeCleanProposalOpportunityAuthority(ctx, srv.coreStore); err != nil {
 		t.Fatalf("initialize clean authority: %v", err)

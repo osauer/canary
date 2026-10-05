@@ -207,7 +207,8 @@ type CashSweepSizing struct {
 	MaxOrderPctNLV       float64 `json:"max_order_pct_nlv"`
 	// TradingMaxNotionalExempt is the policy's
 	// bills_exempt_from_trading_max_notional: a same-currency sweep bill order
-	// may pass [trading].max_notional up to MaxOrderBase, never beyond.
+	// may pass the order cap in force ([order_limits]) up to MaxOrderBase,
+	// never beyond.
 	TradingMaxNotionalExempt bool `json:"trading_max_notional_exempt"`
 }
 

@@ -74,6 +74,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 		acct = nil
 	}
 	res.Plausibility = new(s.policyCheckReport(ctx, now, acct, res.Files))
+	res.OrderLimits = new(s.orderLimitsInForce(""))
 	res.Effective = s.policyEffectiveView(res.Files, res.Limits)
 	return res, nil
 }
@@ -83,15 +84,12 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 const policyCheckPositionsTimeout = 5 * time.Second
 
 // policyCheckReport runs the plausibility check with the daemon's own view:
-// the policy paths and trading limits in force (runtime overrides applied),
+// the policy paths, config.toml's [trading], an active floor override,
 // the account the snapshot already read, a bounded positions read, and each
 // policy manager's status for version drift.
 func (s *Server) policyCheckReport(ctx context.Context, now time.Time, acct *rpc.AccountResult, files []rpc.PolicyFileStatus) rpc.PolicyCheckReport {
-	in := PolicyCheckInput{Now: now, Files: PolicyFileSetFor(s.cfg), Trading: s.effectiveTradingConfig(), TradingCapSource: PolicyCheckCapFromConfig,
-		FileStatus: map[string]string{}}
-	if s.cfg != nil && in.Trading.MaxNotional != s.cfg.Trading.WithDefaults().MaxNotional {
-		in.TradingCapSource = PolicyCheckCapFromRuntime
-	}
+	in := PolicyCheckInput{Now: now, Files: PolicyFileSetFor(s.cfg), Trading: s.effectiveTradingConfig(),
+		OrderCapOverride: s.orderLimitsFloorOverride(s.nowUTC()), FileStatus: map[string]string{}}
 	for _, f := range files {
 		in.FileStatus[f.Policy] = f.Status
 	}

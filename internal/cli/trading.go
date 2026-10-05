@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -75,6 +76,16 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 	}
 	if st.Mode == config.TradingModeLive {
 		statusRow(env, out, "Live override", nonEmpty(st.LiveOverride, rpc.TradingLiveOverrideBlocked))
+	}
+	if l := st.OrderLimits; l != nil {
+		if l.Complete {
+			statusRow(env, out, "Order cap", l.Summary)
+			statusRow(env, out, "Option qty cap", fmt.Sprintf("%d contracts", l.MaxOptionContracts))
+			statusRow(env, out, "Stock short", strconv.FormatBool(l.AllowStockShort))
+			statusRow(env, out, "Option STO", strconv.FormatBool(l.AllowOptionSellToOpen))
+		} else {
+			statusRow(env, out, "Order limits", env.yellow(l.Summary))
+		}
 	}
 	if len(st.Blockers) > 0 {
 		fmt.Fprintln(out)

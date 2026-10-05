@@ -25,7 +25,15 @@ journal, broker, and origin checks; the MCP server is read-only and exposes no
 preview, place, modify, cancel, or exercise tools.
 
 Order caps bind every equity/ETF or single-leg option order, including an
-apparent close or reduction. `reqAllOpenOrders` covers API-created orders across
+apparent close or reduction. They are the risk constitution's `[order_limits]`
+in force (owner decision 2026-10-05 19:56 CEST): the notional cap is
+min(ceiling, max(floor, pct × NLV)) from the last current account reading, the
+floor when NLV cannot be read, and a missing key refuses every preview with
+`order_risk_limit` naming it. `trading.status` and `risk_policy.snapshot` carry
+the typed `order_limits` (`cap_base`, `cap_bound` floor, pct_nlv, ceiling or
+override, `summary`, or `missing`); the settings view reports the limits
+read-only with source `policy`, and the `trading.limits.*` settings keys are
+retired. The preview's `max_notional` echoes the cap in force. `reqAllOpenOrders` covers API-created orders across
 clients but cannot prove that a manual TWS order has not already consumed exit
 capacity, so sell-side apparent exits also pass the short/sell-to-open gates
 under worst-case exposure. If that blocks a genuine exit, use TWS and then
@@ -35,7 +43,7 @@ complete current open-order inventory shows no other working sell that would,
 with it, exceed the position; the daemon's protective stop guard then keeps
 Canary's own stops no larger than the position
 ([Protection](../operate/protection.md#protective-stop-exemption-and-guard)).
-A cash sweep bill order passes `[trading].max_notional` only when the
+A cash sweep bill order passes the order cap in force only when the
 protection policy writes `bills_exempt_from_trading_max_notional = true`, and
 then only up to the sweep's own order cap in force, for a same-currency bill
 with no conversion ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).

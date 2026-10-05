@@ -101,8 +101,8 @@ func TestUnreadableOrderLimitsRunOnDefaultsAndPauseAutomation(t *testing.T) {
 		t.Fatalf("unreadable order limit stopped the daemon: %v", err)
 	}
 	resolved, err := cfg.Resolve()
-	if err != nil || resolved.Trading.MaxNotional != 10000 || resolved.Trading.Mode != config.TradingModePaper {
-		t.Fatalf("resolved trading = %+v (%v), want the default max_notional and the paper pin", resolved.Trading, err)
+	if err != nil || resolved.Trading.MaxNotional != nil || resolved.Trading.Mode != config.TradingModePaper {
+		t.Fatalf("resolved trading = %+v (%v), want the retired max_notional dropped and the paper pin", resolved.Trading, err)
 	}
 
 	rig := newAutomaticTestRig(t, `pre_authorised = ["trailing_stop"]`)

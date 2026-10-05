@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -18,7 +19,7 @@ import (
 func sweepRedemptionCapRig(t *testing.T, cap, limit float64, authority string) (*automaticTestRig, rpc.TradeProposal, *brokerCallLog) {
 	t.Helper()
 	rig := newAutomaticTradingRig(t, authority)
-	rig.server.cfg.Trading.MaxNotional = 1e6
+	setTestOrderLimits(rig.server, func(o *risk.ConstitutionOrderLimits) { o.MaxOrderFloorBase = new(1e6) })
 	broker := &brokerCallLog{}
 	broker.install(rig.server)
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, cap)

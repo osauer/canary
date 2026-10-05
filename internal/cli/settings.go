@@ -104,7 +104,7 @@ func runSettingsSet(ctx context.Context, env *Env, args []string) int {
 
 // settingsPatchWithOrigin stamps the request origin into the settings patch;
 // the daemon pops the reserved "origin" key before validating settings keys
-// and uses it to gate trading-limit writes on live routes.
+// and uses it to gate trading.freeze writes to a human terminal.
 func settingsPatchWithOrigin(patch json.RawMessage, origin string) (json.RawMessage, error) {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(patch, &obj); err != nil {
@@ -284,8 +284,8 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	displayRow(env, out, "MCP trading", nonEmpty(st.Trading.MCPTrading.Value, "disabled"))
 	displayRow(env, out, "Build", st.Build.Channel.Value)
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Trading limits:")
-	displayRow(env, out, "Max notional (every order)", fmt.Sprintf("%.2f (%s)", st.Trading.Limits.MaxNotional.Value, accessSummary(st.Trading.Limits.MaxNotional.Access, st.Trading.Limits.MaxNotional.Source)))
+	fmt.Fprintln(out, "Order limits (risk-policy.toml [order_limits]):")
+	displayRow(env, out, "Order cap in force", orderCapSettingText(st.Trading.Limits.MaxNotional))
 	displayRow(env, out, "Max option qty (every order)", fmt.Sprintf("%d (%s)", st.Trading.Limits.MaxOptionContracts.Value, accessSummary(st.Trading.Limits.MaxOptionContracts.Access, st.Trading.Limits.MaxOptionContracts.Source)))
 	displayRow(env, out, "Apparent exits", "same caps; SELL uses worst-case short/STO gates")
 	displayRow(env, out, "Stock short", formatSettingsBool(env, st.Trading.Limits.AllowStockShort))
@@ -329,4 +329,13 @@ func accessSummary(access, source string) string {
 		return access
 	}
 	return access + "/" + source
+}
+
+// orderCapSettingText renders the order cap in force from its settings leaf:
+// the reason carries the policy's own summary of how it is bound.
+func orderCapSettingText(f rpc.SettingsFloat) string {
+	if reason := strings.TrimSpace(f.Reason); reason != "" {
+		return strings.TrimPrefix(reason, "risk-policy.toml [order_limits]: ")
+	}
+	return fmt.Sprintf("%.2f (%s)", f.Value, accessSummary(f.Access, f.Source))
 }

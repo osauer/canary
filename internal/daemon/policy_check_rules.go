@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,8 +74,10 @@ var policyCheckBillAssumptions = map[string]policyCheckBillAssumption{
 var policyCheckCatalogue = []policyCheckRule{
 	{id: "file_refused", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryProvenance,
 		summary: "Canary's loader refuses a policy file, so the previous policy or Canary's defaults stay in force.", run: checkFileRefused},
+	{id: "order_limits_missing", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryProvenance,
+		summary: "The risk constitution does not write every [order_limits] key, so the trading gate refuses every order preview.", run: checkOrderLimitsMissing},
 	{id: "cap_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "A bucket's per-order cap lets an order exceed [trading].max_notional, which the gate always refuses, unless a documented exemption covers it.", run: checkCapAboveTradingMax},
+		summary: "A bucket's per-order cap lets an order exceed the order cap in force ([order_limits]), which the gate always refuses, unless a documented exemption covers it.", run: checkCapAboveTradingMax},
 	{id: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A cash sweep currency's smallest buy (min_order_notional, or a retired min_tranche) is above the sweep's cap in force or the trading cap, so no order can satisfy both.", run: checkSweepMinimumAboveCap},
 	{id: "watch_act_inverted", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
@@ -88,9 +91,9 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "base_currency_mismatch", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "The constitution's base_currency differs from the account's, so capital math refuses every observation.", run: checkBaseCurrencyMismatch},
 	{id: "lot_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
-		summary: "One unit of a held line is worth more than [trading].max_notional, so no reduction or exit order for it can pass the gate.", run: checkLotAboveTradingMax},
+		summary: "One unit of a held line is worth more than the order cap in force, so no reduction or exit order for it can pass the gate.", run: checkLotAboveTradingMax},
 	{id: "cap_without_fx_headroom", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "A cap sized in another currency sits within 2% of [trading].max_notional, so an FX move makes the gate refuse an order sized at the cap.", run: checkCapFXHeadroom},
+		summary: "A cap sized in another currency sits within 2% of the order cap in force, so an FX move makes the gate refuse an order sized at the cap.", run: checkCapFXHeadroom},
 	{id: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "A per-order cap is under 2% or over 50% of NLV.", run: checkOrderCapVsNLV},
 	{id: "order_cap_splits_reduction", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
@@ -103,6 +106,8 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "Declared risk capital is above NLV or under 2% of it.", run: checkDeclaredRisk},
 	{id: "sweep_minimum_uneconomic", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryEconomics,
 		summary: "The sweep's minimum bill order earns less interest to the shortest rung than the commission it pays.", run: checkSweepEconomics},
+	{id: "retired_trading_gate", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryProvenance,
+		summary: "config.toml [trading] still carries a retired order gate whose value differs from [order_limits], which decides.", run: checkRetiredTradingGates},
 	{id: "version_not_bumped", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryProvenance,
 		summary: "A policy file was edited without a higher policy_version, so the daemon keeps the old policy in force.", run: checkVersionNotBumped},
 	{id: "dated_assumption_expired", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryProvenance,
@@ -112,9 +117,9 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "file_unreviewed", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryProvenance,
 		summary: "A policy file still carries the \"Canary defaults, not yet reviewed\" header.", run: checkFileUnreviewed},
 	{id: "compiled_default_in_force", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryProvenance,
-		summary: "[trading].max_notional runs on Canary's compiled default, or a sweep sizing number is not written, so the sweep holds.", run: checkCompiledDefaults},
+		summary: "A sweep sizing number is not written, so the sweep holds.", run: checkCompiledDefaults},
 	{id: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "bills_exempt_from_trading_max_notional makes a sweep cap above the trading cap legitimate; reported so the exemption stays visible.", run: checkSweepExempt},
+		summary: "bills_exempt_from_trading_max_notional makes a sweep cap above the order cap in force legitimate; reported so the exemption stays visible.", run: checkSweepExempt},
 }
 
 // PolicyCheckRuleIDs lists the catalogue's rule ids in order.
@@ -202,7 +207,10 @@ func (c *policyCheckContext) bucketCaps() []policyCheckCap {
 }
 
 func checkCapAboveTradingMax(c *policyCheckContext) []policyCheckHit {
-	tradingCap := c.trading.MaxNotional
+	tradingCap, ok := c.orderCap()
+	if !ok {
+		return nil
+	}
 	var out []policyCheckHit
 	for _, cp := range c.bucketCaps() {
 		if cp.bucket == "cash_sweep" && c.sweepExempt() {
@@ -219,18 +227,18 @@ func checkCapAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 			where = fmt.Sprintf(" (%s at %s per %s)", policyCheckMoney(cp.native, cp.ccy), policyCheckNumber(cp.fx), cp.ccy)
 		}
 		suggest := policyCheckRoundDown(tradingCap / cp.fx)
-		suggestion := fmt.Sprintf("Set the cap to %s, the trading cap in the order's currency rounded down, so every order it sizes can pass the gate; or raise [trading].max_notional yourself if larger orders are intended.",
+		suggestion := fmt.Sprintf("Set the cap to %s, the order cap in force in the order's currency rounded down, so every order it sizes can pass the gate; or raise [order_limits] max_order_floor_base or max_order_pct_nlv yourself if larger orders are intended.",
 			policyCheckMoney(suggest, cp.nativeCcy))
 		if cp.bucket == "cash_sweep" {
 			bound := c.sweepCapBound(cp.base)
-			suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the trading cap up to the sweep's own cap, or bring the cap in force (set by %s) down to %s.", bound, policyCheckMoney(suggest, c.base()))
+			suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the order cap in force up to the sweep's own cap, or bring the cap in force (set by %s) down to %s.", bound, policyCheckMoney(suggest, c.base()))
 			if bound == "max_order_pct_nlv" && c.book != nil {
-				suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the trading cap up to the sweep's own cap, or lower max_order_pct_nlv to %s and max_order_notional to at most %s.",
+				suggestion = fmt.Sprintf("Either declare bills_exempt_from_trading_max_notional = true, which lets bill orders pass the order cap in force up to the sweep's own cap, or lower max_order_pct_nlv to %s and max_order_notional to at most %s.",
 					policyCheckNumber(math.Floor(tradingCap/c.book.NetLiquidation*1000)/10), policyCheckMoney(suggest, c.base()))
 			}
 		}
 		out = append(out, policyCheckHit{keys: keys,
-			message: fmt.Sprintf("[buckets.%s] lets one order reach %s%s, above the trading cap of %s: Canary lists such an order as ready and the trading gate refuses it every time.",
+			message: fmt.Sprintf("[buckets.%s] lets one order reach %s%s, above the order cap in force of %s: Canary lists such an order as ready and the trading gate refuses it every time.",
 				cp.bucket, policyCheckMoney(cp.base, c.base()), where, policyCheckMoney(tradingCap, c.base())),
 			suggestion: suggestion})
 	}
@@ -260,11 +268,11 @@ func checkSweepMinimumAboveCap(c *policyCheckContext) []policyCheckHit {
 					ccy, policyCheckMoney(m.native, ccy), policyCheckMoney(m.base, c.base()), m.binding, policyCheckMoney(capBase, c.base()), ccy),
 				suggestion: fix(capBase) + fmt.Sprintf(" Or raise the cap above %s.", policyCheckMoney(m.base, c.base()))})
 		}
-		if !c.sweepExempt() && m.base > c.trading.MaxNotional*(1+1e-9) {
+		if tradingCap, ok := c.orderCap(); ok && !c.sweepExempt() && m.base > tradingCap*(1+1e-9) {
 			out = append(out, policyCheckHit{keys: append(slices.Clone(m.keys), c.tradingCapKey()),
-				message: fmt.Sprintf("The smallest %s sweep buy is %s (%s, from %s), above the trading cap of %s, and bill orders are not exempt: the gate refuses every %s sweep buy.",
-					ccy, policyCheckMoney(m.native, ccy), policyCheckMoney(m.base, c.base()), m.binding, policyCheckMoney(c.trading.MaxNotional, c.base()), ccy),
-				suggestion: fix(c.trading.MaxNotional) + " Or declare bills_exempt_from_trading_max_notional = true."})
+				message: fmt.Sprintf("The smallest %s sweep buy is %s (%s, from %s), above the order cap in force of %s, and bill orders are not exempt: the gate refuses every %s sweep buy.",
+					ccy, policyCheckMoney(m.native, ccy), policyCheckMoney(m.base, c.base()), m.binding, policyCheckMoney(tradingCap, c.base()), ccy),
+				suggestion: fix(tradingCap) + " Or declare bills_exempt_from_trading_max_notional = true."})
 		}
 	}
 	return out
@@ -426,7 +434,8 @@ func checkBaseCurrencyMismatch(c *policyCheckContext) []policyCheckHit {
 }
 
 func checkLotAboveTradingMax(c *policyCheckContext) []policyCheckHit {
-	if !c.book.PositionsKnown {
+	tradingCap, ok := c.orderCap()
+	if !c.book.PositionsKnown || !ok {
 		return nil
 	}
 	var out []policyCheckHit
@@ -436,18 +445,21 @@ func checkLotAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 			continue
 		}
 		unit := math.Abs(p.MarketValueBase / p.Quantity)
-		if unit <= c.trading.MaxNotional {
+		if unit <= tradingCap {
 			continue
 		}
 		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.tradingCapKey(), {File: "live account", Key: "one " + p.Currency + " option contract", Value: policyCheckMoney(unit, c.base())}},
-			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the trading cap of %s: no loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(c.trading.MaxNotional, c.base())),
-			suggestion: fmt.Sprintf("Raise [trading].max_notional yourself to at least %s if Canary should be able to exit this line, or plan its exit by hand.", policyCheckMoney(policyCheckRoundUp(unit), c.base()))})
+			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the order cap in force of %s: no loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(tradingCap, c.base())),
+			suggestion: fmt.Sprintf("Raise [order_limits] max_order_floor_base (or max_order_pct_nlv) yourself so the cap in force reaches at least %s if Canary should be able to exit this line, or plan its exit by hand.", policyCheckMoney(policyCheckRoundUp(unit), c.base()))})
 	}
 	return out
 }
 
 func checkCapFXHeadroom(c *policyCheckContext) []policyCheckHit {
-	tradingCap := c.trading.MaxNotional
+	tradingCap, ok := c.orderCap()
+	if !ok {
+		return nil
+	}
 	var out []policyCheckHit
 	for _, cp := range c.bucketCaps() {
 		if cp.bucket == "cash_sweep" && c.sweepExempt() {
@@ -476,9 +488,9 @@ func checkCapFXHeadroom(c *policyCheckContext) []policyCheckHit {
 			how = "sizes each " + strings.Join(foreign, " and ") + " order at the ledger rate"
 		}
 		out = append(out, policyCheckHit{keys: append(slices.Clone(cp.keys), c.tradingCapKey()),
-			message: fmt.Sprintf("[buckets.%s] caps one order at %s, within %s of the trading cap of %s; the bucket %s while the gate converts at the session quote, so an FX move of that size refuses an order sized at the cap.",
+			message: fmt.Sprintf("[buckets.%s] caps one order at %s, within %s of the order cap in force of %s; the bucket %s while the gate converts at the session quote, so an FX move of that size refuses an order sized at the cap.",
 				cp.bucket, policyCheckMoney(cp.base, c.base()), policyCheckPct(policyCheckFXHeadroom), policyCheckMoney(tradingCap, c.base()), how),
-			suggestion: fmt.Sprintf("Set the cap to %s, at most 97%% of the trading cap in the order's currency rounded down, which leaves room for a 3%% FX move.", policyCheckMoney(policyCheckRoundDown(tradingCap*0.97/cp.fx), cp.nativeCcy))})
+			suggestion: fmt.Sprintf("Set the cap to %s, at most 97%% of the order cap in force in the order's currency rounded down, which leaves room for a 3%% FX move.", policyCheckMoney(policyCheckRoundDown(tradingCap*0.97/cp.fx), cp.nativeCcy))})
 	}
 	return out
 }
@@ -492,7 +504,12 @@ func checkOrderCapVsNLV(c *policyCheckContext) []policyCheckHit {
 		fx    float64
 		ccy   string
 	}
-	rows := []capRow{{label: "[trading].max_notional", keys: []rpc.PolicyCheckKey{c.tradingCapKey()}, base: c.trading.MaxNotional, fx: 1, ccy: base}}
+	const orderCapLabel = "The order cap in force ([order_limits])"
+	tradingCap, capOK := c.orderCap()
+	var rows []capRow
+	if capOK {
+		rows = append(rows, capRow{label: orderCapLabel, keys: []rpc.PolicyCheckKey{c.tradingCapKey()}, base: tradingCap, fx: 1, ccy: base})
+	}
 	for _, cp := range c.bucketCaps() {
 		rows = append(rows, capRow{label: "[buckets." + cp.bucket + "]", keys: cp.keys, base: cp.base, fx: cp.fx, ccy: cp.nativeCcy})
 	}
@@ -502,8 +519,8 @@ func checkOrderCapVsNLV(c *policyCheckContext) []policyCheckHit {
 		switch {
 		case share < policyCheckTinyShareNLV:
 			want := policyCheckRoundUp(0.05 * nlv)
-			if r.label != "[trading].max_notional" {
-				want = min(want, c.trading.MaxNotional)
+			if r.label != orderCapLabel && capOK {
+				want = min(want, tradingCap)
 			}
 			out = append(out, policyCheckHit{keys: r.keys,
 				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): a trim of 10%% of the book takes %d orders, each waiting its own cycle and approval.",
@@ -539,7 +556,10 @@ func checkOrderCapSplits(c *policyCheckContext) []policyCheckHit {
 		if n <= policyCheckMaxSplitOrders {
 			return
 		}
-		want := min(policyCheckRoundUp(size/policyCheckMaxSplitOrders), c.trading.MaxNotional)
+		want := policyCheckRoundUp(size / policyCheckMaxSplitOrders)
+		if tradingCap, ok := c.orderCap(); ok {
+			want = min(want, tradingCap)
+		}
 		out = append(out, policyCheckHit{keys: keys,
 			message: fmt.Sprintf("%s splits %s of %s into %d orders of at most %s; each waits its own proposal cycle and approval while the rest of the risk stays on.",
 				label, what, policyCheckMoney(size, base), n, policyCheckMoney(capBase, base)),
@@ -566,9 +586,9 @@ func checkOrderCapSplits(c *policyCheckContext) []policyCheckHit {
 				"[buckets.budget_reduction]", "the cut from the calm premium budget's act level back to watch", cut, cp.base, cp.fx, cp.nativeCcy)
 		}
 	}
-	if c.protection.Buckets.TrailingStop.Options.Enabled {
-		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "[trading].max_notional", "a whole-line exit of the largest option line (option exits are not exempt from the cap)",
-			largest(policyCheckKindOption), c.trading.MaxNotional, 1, base)
+	if tradingCap, ok := c.orderCap(); ok && c.protection.Buckets.TrailingStop.Options.Enabled {
+		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "The order cap in force ([order_limits])", "a whole-line exit of the largest option line (option exits are not exempt from the cap)",
+			largest(policyCheckKindOption), tradingCap, 1, base)
 	}
 	return out
 }
@@ -886,10 +906,6 @@ func rulebookValuesChanged(p risk.RulebookPolicy) []string {
 
 func checkCompiledDefaults(c *policyCheckContext) []policyCheckHit {
 	var out []policyCheckHit
-	if c.capSource == PolicyCheckCapFromDefault {
-		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.tradingCapKey()},
-			message: fmt.Sprintf("[trading].max_notional runs on Canary's compiled default of %s, a fixed amount that does not follow the size of the book.", policyCheckNumber(c.trading.MaxNotional))})
-	}
 	s := c.sweep()
 	if s == nil {
 		return out
@@ -914,12 +930,16 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 	}
 	capBase, keys, ok := c.sweepCapBase()
 	exempt := c.protectionKey("buckets.cash_sweep", "bills_exempt_from_trading_max_notional", "true")
-	if !ok || capBase <= c.trading.MaxNotional {
+	tradingCap, capOK := c.orderCap()
+	if !capOK {
+		return nil
+	}
+	if !ok || capBase <= tradingCap {
 		return []policyCheckHit{{keys: []rpc.PolicyCheckKey{exempt},
-			message: "Bill orders are declared exempt from [trading].max_notional, but the sweep's cap in force is within the trading cap, so the exemption is not used."}}
+			message: "Bill orders are declared exempt from the order cap in force, but the sweep's cap in force is within it, so the exemption is not used."}}
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
-		message: fmt.Sprintf("The sweep's cap in force of %s is above the trading cap of %s; bills_exempt_from_trading_max_notional lets bill orders pass the trading cap up to that cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the trading cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(c.trading.MaxNotional, c.base()))}}
+		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
 }
 
 // policyCheckDeref reads an optional policy number; an unwritten key reads 0.
@@ -928,4 +948,62 @@ func policyCheckDeref(v *float64) float64 {
 		return 0
 	}
 	return *v
+}
+
+// checkOrderLimitsMissing reports an [order_limits] table the trading gate
+// cannot use: a key not written, or no constitution at all.
+func checkOrderLimitsMissing(c *policyCheckContext) []policyCheckHit {
+	l := c.orderLimits
+	if l.Complete {
+		return nil
+	}
+	var keys []rpc.PolicyCheckKey
+	for _, k := range l.Missing {
+		keys = append(keys, rpc.PolicyCheckKey{File: c.constitutionSrc.label, Key: "[order_limits]." + strings.TrimPrefix(k, risk.OrderLimitsTable+"."), Value: "not written"})
+	}
+	why := l.Unavailable
+	if why == "" {
+		why = "risk-policy.toml [order_limits] does not write " + strings.Join(l.Missing, ", ")
+	}
+	return []policyCheckHit{{keys: keys,
+		message:    strings.ToUpper(why[:1]) + why[1:] + ", so the trading gate refuses every order preview.",
+		suggestion: "Run canary policy ensure --dry-run, review the plan (it writes today's effective gates from config.toml and the scaled cap), then apply it."}}
+}
+
+// checkRetiredTradingGates warns while config.toml [trading] still carries a
+// retired order gate whose value differs from [order_limits], which decides.
+func checkRetiredTradingGates(c *policyCheckContext) []policyCheckHit {
+	var o risk.ConstitutionOrderLimits
+	if c.constitution != nil && c.constitution.OrderLimits != nil {
+		o = *c.constitution.OrderLimits
+	}
+	t := c.trading
+	type gate struct {
+		config, policy   string
+		configV, policyV string
+		differs          bool
+	}
+	var gates []gate
+	if t.MaxNotional != nil && o.MaxOrderFloorBase != nil {
+		gates = append(gates, gate{"max_notional", "max_order_floor_base", policyCheckMoney(*t.MaxNotional, c.base()), policyCheckMoney(*o.MaxOrderFloorBase, c.base()), *t.MaxNotional != *o.MaxOrderFloorBase})
+	}
+	if t.MaxOptionContracts != nil && o.MaxOptionContracts != nil {
+		gates = append(gates, gate{"max_option_contracts", "max_option_contracts", strconv.Itoa(*t.MaxOptionContracts), strconv.Itoa(*o.MaxOptionContracts), *t.MaxOptionContracts != *o.MaxOptionContracts})
+	}
+	if t.AllowStockShort != nil && o.AllowStockShort != nil {
+		gates = append(gates, gate{"allow_stock_short", "allow_stock_short", strconv.FormatBool(*t.AllowStockShort), strconv.FormatBool(*o.AllowStockShort), *t.AllowStockShort != *o.AllowStockShort})
+	}
+	if t.AllowOptionSellToOpen != nil && o.AllowOptionSellToOpen != nil {
+		gates = append(gates, gate{"allow_option_sell_to_open", "allow_option_sell_to_open", strconv.FormatBool(*t.AllowOptionSellToOpen), strconv.FormatBool(*o.AllowOptionSellToOpen), *t.AllowOptionSellToOpen != *o.AllowOptionSellToOpen})
+	}
+	var out []policyCheckHit
+	for _, g := range gates {
+		if !g.differs {
+			continue
+		}
+		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{{File: c.config, Key: "[trading]." + g.config, Value: g.configV}, {File: c.constitutionSrc.label, Key: "[order_limits]." + g.policy, Value: g.policyV}},
+			message:    fmt.Sprintf("[trading].%s = %s is retired and no longer read; [order_limits].%s = %s decides. A reader of config.toml sees a limit that is not in force.", g.config, g.configV, g.policy, g.policyV),
+			suggestion: fmt.Sprintf("Delete %s from [trading] in %s; the order limits live in the risk constitution only.", g.config, c.config)})
+	}
+	return out
 }

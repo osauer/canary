@@ -69,6 +69,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 			healthAuthority = finalizeAccountSummarySession(healthResult, healthAuthority,
 				c != nil && c.SessionCurrent(healthBinding) && sameBrokerScope(scope, s.currentBrokerStateScope()))
 			s.observeAccountRPC(healthResult, c, healthBinding)
+			s.recordOrderLimitsNLV(healthResult)
 		}
 	}()
 

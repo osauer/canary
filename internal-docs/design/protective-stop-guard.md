@@ -17,6 +17,10 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md` and
   `ready`; the owner learned at prepare/preview (`order_risk_limit`).
 - **Policy owner and approval:** the owner, 2026-10-05 17:36 CEST, "exempt
   with the guard".
+- **Amendment (2026-10-05 20:28 CEST):** the notional cap and
+  `allow_stock_short` moved to the risk constitution's `[order_limits]`
+  (owner decision 2026-10-05 19:56 CEST); the cap now scales with the book.
+  The exemption is unchanged and applies against the cap in force.
 - **Enforcement class:** pre-trade hard gate (narrowed), plus an automatic
   post-trade correction of Canary's own stops.
 

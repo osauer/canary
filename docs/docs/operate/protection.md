@@ -395,8 +395,10 @@ Canary reports it and leaves it alone.
 ## Protective stop exemption and guard
 
 A broker-side stop that protects a whole long stock position is usually larger
-than `[trading].max_notional`, and every apparent stock sell exit is otherwise
-read as opening a short, which needs `allow_stock_short`. A protective stock
+than the order cap in force (the risk constitution's `[order_limits]`, scaled
+with the book; [Order limits](../understand/policy.md#order-limits)), and every
+apparent stock sell exit is otherwise read as opening a short, which needs
+`[order_limits].allow_stock_short`. A protective stock
 exit is exempt from both:
 
 - a stock or ETF `SELL` stop (`TRAIL`, `TRAIL LIMIT`, `STP`, `STP LMT`);
@@ -410,7 +412,7 @@ If the open-order list cannot be read, the exemption does not apply and
 today's refusal stands. A modify that only lowers the quantity of a working
 stop is exempt on the same terms without the third condition, because it can
 only shrink what is already working. Option orders and every other stock order
-keep both gates and `max_option_contracts` unchanged.
+keep both gates and `[order_limits].max_option_contracts` unchanged.
 
 A trailing-stop row that the gates would refuse no longer reads ready. It
 carries `protective_exit_competing_sell` when another working sell already
@@ -544,7 +546,7 @@ proposal: `canary proposals preview` previews its bill as a limit order of
 the bill's own security type (BILL for a US Treasury bill, BILL or BOND for
 the others; DAY, regular hours) through every gate any proposal meets (trading freeze,
 authority, the bill's session, a live two-sided quote read during the preview,
-`[trading].max_notional` unless the bill exemption applies, broker WhatIf), and it is sent only when you approve
+the order cap in force of `[order_limits]` unless the bill exemption applies, broker WhatIf), and it is sent only when you approve
 it, or by the daemon after the full veto window when you list `cash_sweep`
 under `[authority].pre_authorised`. Your approval of each order is the last
 step.
@@ -636,12 +638,12 @@ base currency at the ledger rate.
   cannot be read, every currency holds with nothing bought or sold, and no row
   carries a trading-cap exemption.
 - **Trading-cap exemption.** With `bills_exempt_from_trading_max_notional =
-  true`, a sweep bill order may pass `[trading].max_notional` up to the
-  sweep's order cap in force, never beyond it. The order must be a BILL or BOND
+  true`, a sweep bill order may pass the order cap in force (`[order_limits]`)
+  up to the sweep's order cap in force, never beyond it. The order must be a BILL or BOND
   buy that opens or increases, or a sale that reduces or closes, of a vocabulary
   bill in the order's own currency, with no conversion. Stocks, ETFs, the
   sweep's fallback ETF, conversions and anything over the sweep's cap keep the
-  trading cap. The row's order terms carry the limit as
+  order cap in force. The row's order terms carry the limit as
   `trading_cap_exempt_up_to_base`, and both preview and submit check it.
   Without the key, the exemption is off.
 

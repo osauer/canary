@@ -1013,7 +1013,7 @@ type protectionCashSweepPolicy struct {
 	ReservePctNLV *float64 `toml:"reserve_pct_nlv" json:"reserve_pct_nlv,omitempty"`
 	// KeepCash is the settlement float kept in every currency's own unit, unless a currency table writes its own keep_cash; it applies on top of the reserve's own floor. Read from this file only: a sweep currency with neither value holds at needs_your_number (policy ensure writes 5000.0).
 	KeepCash *float64 `toml:"keep_cash" json:"keep_cash,omitempty"`
-	// BillsExemptFromTradingMaxNotional lets a same-currency sweep bill order (BILL or BOND buy or redemption, no conversion) pass [trading].max_notional, but only up to the sweep's own order cap in force; anything else keeps the trading cap. Absent means false, so the trading cap applies (policy ensure writes true).
+	// BillsExemptFromTradingMaxNotional lets a same-currency sweep bill order (BILL or BOND buy or redemption, no conversion) pass the order cap in force of the risk constitution's [order_limits], but only up to the sweep's own order cap in force; anything else keeps the order cap. Absent means false, so the order cap applies (policy ensure writes true).
 	BillsExemptFromTradingMaxNotional *bool `toml:"bills_exempt_from_trading_max_notional" json:"bills_exempt_from_trading_max_notional,omitempty"`
 	// MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. Below-benchmark or unavailable benefit never blocks or resizes an order; zero omits the benchmark.
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
@@ -1181,7 +1181,8 @@ func (p *protectionCashSweepPolicy) keepCash(ccy string) (float64, bool) {
 }
 
 // billsExempt reports whether the file exempts the sweep's bill orders from
-// [trading].max_notional within the sweep's own cap; absent is false.
+// the order cap in force ([order_limits]) within the sweep's own cap;
+// absent is false.
 func (p *protectionCashSweepPolicy) billsExempt() bool {
 	return p != nil && p.BillsExemptFromTradingMaxNotional != nil && *p.BillsExemptFromTradingMaxNotional
 }
