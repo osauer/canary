@@ -375,18 +375,18 @@ func goldenProposals() rpc.TradeProposalSnapshot {
 // goldenSweepBorrowed is a sweep whose EUR buy holds because USD is
 // borrowed (no_buy_while_borrowed, 2026-10-05 21:24 CEST).
 func goldenSweepBorrowed() rpc.TradeProposalSnapshot {
-	msg := "USD is borrowed: −26,900 USD; bill buys wait until it is repaid"
+	msg := "USD is borrowed: −20,000 USD; bill buys wait until it is repaid"
 	blocker := rpc.TradingBlocker{Code: rpc.CashSweepBlockerCurrencyBorrowed, Message: msg,
 		Action: "Repay the USD debit by converting another currency or depositing USD; Canary does not convert. Bill buys resume on the next cycle once no currency is below −1 of its own unit. Selling bills to cover cash is still allowed."}
 	return rpc.TradeProposalSnapshot{
 		Revision: "rev-0002", PolicyID: "protection", PolicyVersion: 2, Proposals: []rpc.TradeProposal{},
 		CashSweep: &rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeActive, BaseCurrency: "EUR", TaxReviewed: true, TaxReviewedAt: "2026-10-01",
 			Borrowing: &rpc.CashSweepBorrowing{State: rpc.CashSweepBorrowingBorrowed, NoBuyWhileBorrowed: new(true), HoldsBuys: true, ToleranceUnits: 1,
-				Borrowed: []rpc.CashSweepBorrowedCurrency{{Currency: "USD", Cash: -26900, Borrowed: 26900, BorrowedBase: new(24210.0)}},
+				Borrowed: []rpc.CashSweepBorrowedCurrency{{Currency: "USD", Cash: -20000, Borrowed: 20000, BorrowedBase: new(18000.0)}},
 				Message:  msg, Action: blocker.Action},
 			Currencies: []rpc.TradeProposalCashSweepCurrency{
-				{Currency: "EUR", State: rpc.CashSweepStateHold, Reason: msg, Instruments: []string{"de_bubill"}, KeepCash: 5000, Cash: new(70500.0), Committed: new(0.0), Free: new(47200.0), Blockers: []rpc.TradingBlocker{blocker}},
-				{Currency: "USD", State: rpc.CashSweepStateHold, Reason: "no bill is held to sell", Instruments: []string{"us_tbill"}, KeepCash: 5000, Cash: new(-26900.0), Committed: new(0.0)},
+				{Currency: "EUR", State: rpc.CashSweepStateHold, Reason: msg, Instruments: []string{"de_bubill"}, KeepCash: 5000, Cash: new(60000.0), Committed: new(0.0), Free: new(40000.0), Blockers: []rpc.TradingBlocker{blocker}},
+				{Currency: "USD", State: rpc.CashSweepStateHold, Reason: "no bill is held to sell", Instruments: []string{"us_tbill"}, KeepCash: 5000, Cash: new(-20000.0), Committed: new(0.0)},
 			}},
 	}
 }

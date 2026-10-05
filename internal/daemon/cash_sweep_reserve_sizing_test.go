@@ -43,39 +43,40 @@ func sizedSweepInput(nlv float64, cash map[string]float64) cashSweepInput {
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-6 }
 
-// Worked check A: NLV 233,000 EUR, EUR cash 70,500, USD cash 6,800. The
-// reserve is 23,300 EUR (10% of NLV); EUR invests one order of about 47,000;
-// USD's free cash is below 20,000 base, so USD stays cash.
-func TestCashSweepWorkedCheckBookOf233k(t *testing.T) {
+// Worked check A: NLV 200,000 EUR, EUR cash 60,000, USD cash 6,000. The
+// reserve is 20,000 EUR (10% of NLV); EUR invests one order of 40,000
+// (60,000 − 20,000, under the 50,000 cap); USD's free cash of 1,000 USD is
+// below 20,000 base, so USD stays cash.
+func TestCashSweepWorkedCheckBookOf200k(t *testing.T) {
 	now := cashSweepTestNow()
-	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(233000, map[string]float64{"EUR": 70500, "USD": 6800}), now)
+	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(200000, map[string]float64{"EUR": 60000, "USD": 6000}), now)
 	sz := plan.status.Sizing
-	if sz == nil || !near(sz.ReserveBase, 23300) || sz.ReserveBound != rpc.CashSweepReserveBoundPctNLV || !near(sz.ReservePctNLVBase, 23300) ||
+	if sz == nil || !near(sz.ReserveBase, 20000) || sz.ReserveBound != rpc.CashSweepReserveBoundPctNLV || !near(sz.ReservePctNLVBase, 20000) ||
 		sz.MinOrderBase != 20000 || sz.MaxOrderBase != 50000 || sz.MaxOrderBound != rpc.CashSweepMaxOrderBoundNotional || sz.PlannedNeedsKnown ||
 		sz.PlannedNeedsReason == "" || sz.ReserveShortfallBase != 0 || !sz.TradingMaxNotionalExempt || sz.BaseCurrency != "EUR" {
 		t.Fatalf("sizing = %+v", sz)
 	}
 	eur := cashSweepCurrencyOf(t, plan, "EUR")
-	if eur.side != rpc.CashSweepSideInvest || !near(eur.orderAmount, 47200) || eur.heldToCap || eur.status.ReserveHeld == nil || !near(*eur.status.ReserveHeld, 18300) || eur.status.KeepCash != 5000 {
+	if eur.side != rpc.CashSweepSideInvest || !near(eur.orderAmount, 40000) || eur.heldToCap || eur.status.ReserveHeld == nil || !near(*eur.status.ReserveHeld, 15000) || eur.status.KeepCash != 5000 {
 		t.Fatalf("EUR = %s %v %v (%s)", eur.side, eur.orderAmount, eur.heldToCap, eur.status.Reason)
 	}
 	usd := cashSweepCurrencyOf(t, plan, "USD")
-	if usd.side != "" || usd.status.State != rpc.CashSweepStateHold || !strings.Contains(usd.status.Reason, "smallest order") || !near(usd.free, 1800) {
+	if usd.side != "" || usd.status.State != rpc.CashSweepStateHold || !strings.Contains(usd.status.Reason, "smallest order") || !near(usd.free, 1000) {
 		t.Fatalf("USD = %+v", usd.status)
 	}
 	if plan.status.MaxOrderNotionalBase == nil || *plan.status.MaxOrderNotionalBase != 50000 || plan.status.MinOrderNotionalBase != 20000 {
 		t.Fatalf("status caps = %v %v", plan.status.MaxOrderNotionalBase, plan.status.MinOrderNotionalBase)
 	}
 	eur.bill = &rpc.TradeProposalCashSweepBill{Instrument: cashSweepInstrumentDEBubill, ConID: 77, SecType: "BILL", Maturity: "2026-12-30", QuantityUnit: rpc.BondQuantityUnitFace1, PriceConvention: rpc.BondPriceConventionPer100}
-	eur.units = 47200
+	eur.units = 40000
 	row := cashSweepRow(ownerSizedSweepPolicy(), rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, eur)
 	s := row.CashSweep
-	if s.Sizing == nil || !near(s.Sizing.ReserveBase, 23300) || s.Sizing.ReserveBound != rpc.CashSweepReserveBoundPctNLV || s.MaxOrderNotionalBase != 50000 ||
-		s.MinOrderNotionalBase != 20000 || !near(s.ReserveHeld, 18300) {
+	if s.Sizing == nil || !near(s.Sizing.ReserveBase, 20000) || s.Sizing.ReserveBound != rpc.CashSweepReserveBoundPctNLV || s.MaxOrderNotionalBase != 50000 ||
+		s.MinOrderNotionalBase != 20000 || !near(s.ReserveHeld, 15000) {
 		t.Fatalf("row block = %+v / %+v", s, s.Sizing)
 	}
 	if !slices.ContainsFunc(row.Details, func(d string) bool {
-		return strings.Contains(d, "kept as cash: 23300 EUR (10% of NLV 233000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR (max_order_notional)")
+		return strings.Contains(d, "kept as cash: 20000 EUR (10% of NLV 200000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR (max_order_notional)")
 	}) {
 		t.Fatalf("details = %q", row.Details)
 	}
@@ -114,9 +115,9 @@ func TestCashSweepReserveAndCapBounds(t *testing.T) {
 	}{
 		{"floor above 10% of NLV", 50000, cashSweepPlannedNeeds{}, 10000, rpc.CashSweepReserveBoundFloor, 50000, rpc.CashSweepMaxOrderBoundNotional, false, false},
 		{"10% of NLV above floor", 400000, cashSweepPlannedNeeds{}, 40000, rpc.CashSweepReserveBoundPctNLV, 50000, rpc.CashSweepMaxOrderBoundNotional, false, false},
-		{"planned needs above both", 233000, cashSweepPlannedNeeds{Known: true, Base: 30000}, 30000, rpc.CashSweepReserveBoundPlannedNeeds, 50000, rpc.CashSweepMaxOrderBoundNotional, true, true},
-		{"planned needs below", 233000, cashSweepPlannedNeeds{Known: true, Base: 1000}, 23300, rpc.CashSweepReserveBoundPctNLV, 50000, rpc.CashSweepMaxOrderBoundNotional, true, true},
-		{"nonfinite planned needs add nothing", 233000, cashSweepPlannedNeeds{Known: true, Base: math.Inf(1)}, 23300, rpc.CashSweepReserveBoundPctNLV, 50000, rpc.CashSweepMaxOrderBoundNotional, false, false},
+		{"planned needs above both", 200000, cashSweepPlannedNeeds{Known: true, Base: 30000}, 30000, rpc.CashSweepReserveBoundPlannedNeeds, 50000, rpc.CashSweepMaxOrderBoundNotional, true, true},
+		{"planned needs below", 200000, cashSweepPlannedNeeds{Known: true, Base: 1000}, 20000, rpc.CashSweepReserveBoundPctNLV, 50000, rpc.CashSweepMaxOrderBoundNotional, true, true},
+		{"nonfinite planned needs add nothing", 200000, cashSweepPlannedNeeds{Known: true, Base: math.Inf(1)}, 20000, rpc.CashSweepReserveBoundPctNLV, 50000, rpc.CashSweepMaxOrderBoundNotional, false, false},
 		{"cap lifted by NLV", 600000, cashSweepPlannedNeeds{}, 60000, rpc.CashSweepReserveBoundPctNLV, 60000, rpc.CashSweepMaxOrderBoundPctNLV, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,7 +136,7 @@ func TestCashSweepReserveAndCapBounds(t *testing.T) {
 // key; no compiled value stands in.
 func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 	now := cashSweepTestNow()
-	in := sizedSweepInput(233000, map[string]float64{"EUR": 70500})
+	in := sizedSweepInput(200000, map[string]float64{"EUR": 60000})
 	for _, key := range []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv"} {
 		t.Run(key, func(t *testing.T) {
 			p := ownerSizedSweepPolicy()
@@ -190,10 +191,11 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 }
 
 // Fail closed: a percentage term with no readable NLV holds every currency,
-// with no sizing and no order; with both percentages 0 NLV is not needed.
+// with no sizing and no order; with both percentages 0 NLV is not needed
+// (EUR cash 80,000 less the 10,000 floor is held to the 50,000 cap).
 func TestCashSweepUnreadableNLVHolds(t *testing.T) {
 	now := cashSweepTestNow()
-	in := sizedSweepInput(233000, map[string]float64{"EUR": 70500})
+	in := sizedSweepInput(200000, map[string]float64{"EUR": 80000})
 	in.NLVBase = nil
 	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), in, now)
 	eur := cashSweepCurrencyOf(t, plan, "EUR")
@@ -209,18 +211,18 @@ func TestCashSweepUnreadableNLVHolds(t *testing.T) {
 }
 
 // Rule 2: a redemption restoring the reserve is never held to the minimum:
-// EUR cash 15,000 against a 23,300 reserve sells the 8,300 gap.
+// EUR cash 12,000 against a 20,000 reserve sells the 8,000 gap.
 func TestCashSweepRedemptionBelowMinimumRestoresReserve(t *testing.T) {
-	in := sizedSweepInput(233000, map[string]float64{"EUR": 15000})
+	in := sizedSweepInput(200000, map[string]float64{"EUR": 12000})
 	in.Holdings["EUR"] = eurRedeemInput(50000).Holdings["EUR"]
 	eur := cashSweepCurrencyOf(t, cashSweepPlanFor(ownerSizedSweepPolicy(), in, cashSweepTestNow()), "EUR")
-	if eur.side != rpc.CashSweepSideRedeem || !near(eur.gap, 8300) || !near(eur.orderAmount, 8300) || eur.quantity != int(math.Ceil(8300/0.995)) ||
+	if eur.side != rpc.CashSweepSideRedeem || !near(eur.gap, 8000) || !near(eur.orderAmount, 8000) || eur.quantity != int(math.Ceil(8000/0.995)) ||
 		!strings.Contains(eur.status.Reason, "below the reserve") {
 		t.Fatalf("EUR = %s gap %v amount %v qty %d (%s)", eur.side, eur.gap, eur.orderAmount, eur.quantity, eur.status.Reason)
 	}
-	prop, preview := sweepFeePreview(30000, 8300, 10)
-	prop.CashSweep.Side, prop.CashSweep.MinOrderNotionalBase, prop.CashSweep.MinTranche, prop.CashSweep.RedemptionTarget = rpc.CashSweepSideRedeem, 20000, 0, 8300
-	preview.Draft.Quantity, preview.Draft.LimitPrice = 8300, 100
+	prop, preview := sweepFeePreview(30000, 8000, 10)
+	prop.CashSweep.Side, prop.CashSweep.MinOrderNotionalBase, prop.CashSweep.MinTranche, prop.CashSweep.RedemptionTarget = rpc.CashSweepSideRedeem, 20000, 0, 8000
+	preview.Draft.Quantity, preview.Draft.LimitPrice = 8000, 100
 	if got := cashSweepEconomicsBlockers(prop, preview); hasTradingBlocker(got, "cash_sweep_below_minimum_tranche") {
 		t.Fatalf("a reserve redemption was held to the minimum: %v", got)
 	}
@@ -230,24 +232,24 @@ func TestCashSweepRedemptionBelowMinimumRestoresReserve(t *testing.T) {
 // invest; unknown base cash holds their buys.
 func TestCashSweepReserveShortfallCarriesToOtherCurrencies(t *testing.T) {
 	now := cashSweepTestNow()
-	// EUR 10,000 holds 10,000 of the 23,300 reserve; 13,300 EUR is kept in
-	// USD (14,777.78 USD at 0.9) before USD invests.
-	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(233000, map[string]float64{"EUR": 10000, "USD": 60000}), now)
-	if plan.status.Sizing == nil || !near(plan.status.Sizing.ReserveShortfallBase, 13300) {
+	// EUR 12,000 holds 12,000 of the 20,000 reserve; 8,000 EUR is kept in
+	// USD (8,888.89 USD at 0.9) before USD invests.
+	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(200000, map[string]float64{"EUR": 12000, "USD": 60000}), now)
+	if plan.status.Sizing == nil || !near(plan.status.Sizing.ReserveShortfallBase, 8000) {
 		t.Fatalf("sizing = %+v", plan.status.Sizing)
 	}
 	usd := cashSweepCurrencyOf(t, plan, "USD")
-	carry := 13300 / 0.9
+	carry := 8000 / 0.9
 	if usd.side != rpc.CashSweepSideInvest || usd.status.ReserveHeld == nil || !near(*usd.status.ReserveHeld, carry) || !near(usd.free, 55000-carry) || !near(usd.orderAmount, 55000-carry) {
 		t.Fatalf("USD = %s %v (%s)", usd.side, usd.orderAmount, usd.status.Reason)
 	}
 	// A shortfall the foreign surplus cannot clear above the minimum holds it.
-	plan = cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(233000, map[string]float64{"EUR": 0, "USD": 40000}), now)
+	plan = cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(200000, map[string]float64{"EUR": 0, "USD": 40000}), now)
 	if usd = cashSweepCurrencyOf(t, plan, "USD"); usd.side != "" {
 		t.Fatalf("USD invested past the reserve: %s", usd.status.Reason)
 	}
 	// Base cash unknown: USD cannot show the reserve funded and holds.
-	in := sizedSweepInput(233000, map[string]float64{"USD": 60000})
+	in := sizedSweepInput(200000, map[string]float64{"USD": 60000})
 	usd = cashSweepCurrencyOf(t, cashSweepPlanFor(ownerSizedSweepPolicy(), in, now), "USD")
 	if usd.side != "" || !strings.Contains(usd.status.Reason, "the reserve is held in EUR") {
 		t.Fatalf("USD with unknown EUR cash = %+v", usd.status)

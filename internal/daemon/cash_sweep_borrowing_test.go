@@ -10,10 +10,10 @@ import (
 
 // No bill buys while any currency is borrowed (owner decision 2026-10-05
 // 21:24 CEST). The fixtures mirror the live case with synthetic numbers: EUR
-// cash 70,500 and USD cash −26,900 on a 233,000 EUR book.
+// cash 60,000 and USD cash −20,000 on a 200,000 EUR book.
 
 func borrowedSweepInput(cash map[string]float64) cashSweepInput {
-	return sizedSweepInput(233000, cash)
+	return sizedSweepInput(200000, cash)
 }
 
 func hasBlocker(blockers []rpc.TradingBlocker, code string) bool {
@@ -25,14 +25,14 @@ func hasBlocker(blockers []rpc.TradingBlocker, code string) bool {
 func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := ownerSizedSweepPolicy()
-	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": -26900}), now)
+	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": -20000}), now)
 	b := plan.status.Borrowing
 	if b == nil || b.State != rpc.CashSweepBorrowingBorrowed || !b.HoldsBuys || b.NoBuyWhileBorrowed == nil || !*b.NoBuyWhileBorrowed ||
-		len(b.Borrowed) != 1 || b.Borrowed[0].Currency != "USD" || b.Borrowed[0].Cash != -26900 || b.Borrowed[0].Borrowed != 26900 ||
-		b.Borrowed[0].BorrowedBase == nil || !near(*b.Borrowed[0].BorrowedBase, 24210) || len(b.Unknown) != 0 || b.ToleranceUnits != 1 {
+		len(b.Borrowed) != 1 || b.Borrowed[0].Currency != "USD" || b.Borrowed[0].Cash != -20000 || b.Borrowed[0].Borrowed != 20000 ||
+		b.Borrowed[0].BorrowedBase == nil || !near(*b.Borrowed[0].BorrowedBase, 18000) || len(b.Unknown) != 0 || b.ToleranceUnits != 1 {
 		t.Fatalf("borrowing = %+v", b)
 	}
-	const want = "USD is borrowed: −26,900 USD; bill buys wait until it is repaid"
+	const want = "USD is borrowed: −20,000 USD; bill buys wait until it is repaid"
 	if b.Message != want || !strings.Contains(b.Action, "convert") || !strings.Contains(b.Action, "deposit") || !strings.Contains(b.Action, "Canary does not convert") {
 		t.Fatalf("words = %q / %q", b.Message, b.Action)
 	}
@@ -42,13 +42,13 @@ func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 		t.Fatalf("EUR = %s %+v", eur.side, eur.status)
 	}
 	eur.bill = &rpc.TradeProposalCashSweepBill{Instrument: cashSweepInstrumentDEBubill, ConID: 77, SecType: "BILL", Maturity: "2026-12-30", QuantityUnit: rpc.BondQuantityUnitFace1, PriceConvention: rpc.BondPriceConventionPer100, QuoteFresh: true}
-	eur.units = 47200
+	eur.units = 40000
 	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, eur)
 	if row.State != rpc.TradeProposalStateBlocked || !hasBlocker(row.Blockers, rpc.CashSweepBlockerCurrencyBorrowed) || row.AutomaticEligible() {
 		t.Fatalf("row = %s %+v", row.State, row.Blockers)
 	}
 	// The same row without the debit is an ordinary proposal.
-	clear := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": 6800}), now)
+	clear := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 6000}), now)
 	if c := clear.status.Borrowing; c == nil || c.State != rpc.CashSweepBorrowingClear || c.HoldsBuys || c.Message != "no currency is borrowed" {
 		t.Fatalf("clear = %+v", c)
 	}
@@ -56,7 +56,7 @@ func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 		t.Fatalf("clear EUR = %+v", eur.status)
 	}
 	// A debit within the tolerance is dust, not a loan.
-	dust := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": -0.6}), now)
+	dust := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": -0.6}), now)
 	if dust.status.Borrowing.State != rpc.CashSweepBorrowingClear || cashSweepCurrencyOf(t, dust, "EUR").status.State != rpc.CashSweepStateInvest {
 		t.Fatalf("dust = %+v", dust.status.Borrowing)
 	}
@@ -65,7 +65,7 @@ func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 // A negative settled balance counts even when trade-date cash is positive:
 // the borrowing reads the band's own cash, the lower of the two.
 func TestCashSweepBorrowingReadsSettledCash(t *testing.T) {
-	in := borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": 500})
+	in := borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 500})
 	row := in.Ledger["USD"]
 	row.Settled = new(-12000.0)
 	in.Ledger["USD"] = row
@@ -80,7 +80,7 @@ func TestCashSweepBorrowingReadsSettledCash(t *testing.T) {
 func TestCashSweepBorrowedStillRedeems(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := ownerSizedSweepPolicy()
-	in := borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": -26900})
+	in := borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": -20000})
 	in.Holdings["USD"] = []cashSweepHolding{cashSweepTestBill(801, "USD", cashSweepInstrumentUSTBill, 40, 20)}
 	plan := cashSweepPlanFor(policy, in, now)
 	usd := cashSweepCurrencyOf(t, plan, "USD")
@@ -99,7 +99,7 @@ func TestCashSweepBorrowedStillRedeems(t *testing.T) {
 // Unknown cash in any listed currency cannot prove that nothing is
 // borrowed: buys hold with borrowing_unknown, and the status says which.
 func TestCashSweepUnknownCashHoldsBuys(t *testing.T) {
-	in := borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": 6800})
+	in := borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 6000})
 	in.Ledger["GBP"] = cashSweepLedgerRow{ExchangeRate: 1.15}
 	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), in, cashSweepTestNow())
 	b := plan.status.Borrowing
@@ -118,7 +118,7 @@ func TestCashSweepUnknownCashHoldsBuys(t *testing.T) {
 func TestCashSweepBorrowingKeyFalseAllowsBuys(t *testing.T) {
 	policy := ownerSizedSweepPolicy()
 	policy.Buckets.CashSweep.NoBuyWhileBorrowed = new(false)
-	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": -26900}), cashSweepTestNow())
+	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": -20000}), cashSweepTestNow())
 	b := plan.status.Borrowing
 	if b.State != rpc.CashSweepBorrowingBorrowed || b.HoldsBuys || !strings.Contains(b.Message, "no_buy_while_borrowed = false") {
 		t.Fatalf("borrowing = %+v", b)
@@ -134,7 +134,7 @@ func TestCashSweepBorrowingKeyFalseAllowsBuys(t *testing.T) {
 func TestCashSweepBorrowingKeyMissingHolds(t *testing.T) {
 	policy := ownerSizedSweepPolicy()
 	policy.Buckets.CashSweep.NoBuyWhileBorrowed = nil
-	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 70500, "USD": 6800}), cashSweepTestNow())
+	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 6000}), cashSweepTestNow())
 	if !slices.Contains(plan.status.NeedsYourNumber, "no_buy_while_borrowed") {
 		t.Fatalf("needs = %v", plan.status.NeedsYourNumber)
 	}

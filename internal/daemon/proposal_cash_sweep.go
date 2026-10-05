@@ -960,7 +960,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 }
 
 // cashSweepSizingDetail is the row's one-line account of the reserve and the
-// order bounds, for example "kept as cash: 23,300 EUR (10% of NLV)".
+// order bounds, for example "kept as cash: 20,000 EUR (10% of NLV)".
 func cashSweepSizingDetail(sz rpc.CashSweepSizing) string {
 	var why string
 	switch sz.ReserveBound {

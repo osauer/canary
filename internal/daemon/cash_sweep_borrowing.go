@@ -127,7 +127,7 @@ func cashSweepHoldBorrowedBuys(plan *cashSweepPlan) {
 }
 
 // cashSweepSignedMoney is an amount with thousands separators and a true
-// minus sign, for example "−26,900 USD".
+// minus sign, for example "−20,000 USD".
 func cashSweepSignedMoney(v float64, ccy string) string {
 	text := briefThousands(v, 0)
 	if rest, ok := strings.CutPrefix(text, "-"); ok {
