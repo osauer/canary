@@ -677,6 +677,24 @@ var Tools = []Tool{
 		},
 	},
 	{
+		Name:         "canary_policy_check",
+		RPCMethods:   []string{rpc.MethodRiskPolicySnapshot},
+		Title:        "Canary Policy Plausibility Check",
+		ReadOnlyHint: new(true),
+		Description:  "Read the plausibility check of the owner's config.toml and policy files: values read against each other, across files and against the live book. Use it for 'do my limits make sense', 'why is a ready proposal refused at the trading gate' or before suggesting a policy edit. Each finding carries `severity` (error: an order path that can never work or a contradiction, such as a bucket's max_order_notional above [trading].max_notional or a watch level above its act level; warn: implausible against the book or the economics, such as a per-order cap under 2% or over 50% of NLV, a cash reserve under 2% of NLV, or a sweep minimum whose interest does not cover the commission; info: unreviewed defaults and dates about to end), `keys` (file, key, value), a one-sentence `message` and a `suggestion` with its reasoning. `skipped` names the checks that did not run (no live account, no positions); `assumptions` names every number assumed because no key carries it. Use canary_rules for the verdicts against those limits. Read-only: it never changes a limit; the owner edits the files.",
+		JSONSchema:   schemaObject(nil, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
+			var res rpc.RiskPolicyResult
+			if err := conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &res); err != nil {
+				return nil, err
+			}
+			if res.Plausibility == nil {
+				return nil, fmt.Errorf("the daemon does not report a policy check; restart it after upgrading Canary")
+			}
+			return json.Marshal(res.Plausibility)
+		},
+	},
+	{
 		Name:        "canary_proposals",
 		RPCMethods:  []string{rpc.MethodTradeProposalsSnapshot, rpc.MethodTradeProposalsRefresh},
 		Title:       "Canary Protection Proposals",
@@ -794,7 +812,7 @@ var ExcludedCLI = map[string]string{
 	"update":    "binary-management verb (replaces the canary binary from GitHub releases); not a daemon RPC, must stay user-triggered for trust-boundary reasons",
 	"restart":   "local process-management verb (signals daemon processes); useful for humans and scripts, but not a broker-data MCP tool",
 	"stop":      "local process-management verb (stops the daemon and app the caller is talking through); a tool call that ends order tracking and phone alerts belongs to the human at the terminal",
-	"policy":    "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence",
+	"policy":    "risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence. The read-only plausibility check (policy check) is exposed as canary_policy_check",
 	"recon":     "post-trade reconciliation surface deferred from MCP in phase 3a (internal-docs/design/post-trade-truth.md): dismiss/sign-off are human-only governance acts and the read view ships CLI-first, same posture as `policy`; revisit together with it",
 }
 

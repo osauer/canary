@@ -12,7 +12,8 @@ import (
 )
 
 // RunPolicyLocal runs the policy subcommands that need no daemon: default
-// (print a template) and ensure (write missing files, review/apply conversions).
+// (print a template), ensure (write missing files, review/apply conversions)
+// and check --offline (the file-only plausibility read).
 // The install path runs `canary policy ensure` before any daemon exists.
 func RunPolicyLocal(ctx context.Context, env *Env, args []string) int {
 	sub := ""
@@ -25,16 +26,31 @@ func RunPolicyLocal(ctx context.Context, env *Env, args []string) int {
 		return runPolicyDefault(ctx, env, args)
 	case "ensure":
 		return runPolicyEnsure(ctx, env, args)
+	case "check":
+		return runPolicyCheck(ctx, env, args)
 	default:
 		return fail(env, "policy: %q needs the daemon", sub)
 	}
 }
 
 // PolicyLocalSubcommand reports whether args name a policy subcommand that
-// runs without the daemon.
+// runs without the daemon: default, ensure, and check --offline.
 func PolicyLocalSubcommand(args []string) bool {
 	idx := firstPositionalIndex(args)
-	return idx >= 0 && (args[idx] == "default" || args[idx] == "ensure")
+	if idx < 0 {
+		return false
+	}
+	switch args[idx] {
+	case "default", "ensure":
+		return true
+	case "check":
+		for _, a := range args {
+			if a == "--offline" || a == "-offline" || a == "--offline=true" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runPolicyEnsure writes every missing policy file from Canary's template and

@@ -107,7 +107,7 @@ func main() {
 
 	color := cli.ShouldColor(os.Stdout)
 
-	// `canary policy default|ensure` work on local files only. ensure runs
+	// `canary policy default|ensure|check --offline` work on local files only. ensure runs
 	// from the installer before any daemon exists, so neither may autospawn.
 	if cmd == "policy" && cli.PolicyLocalSubcommand(rest) {
 		env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color, Version: runtimeVersion}
@@ -236,6 +236,9 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "rules":
 		return []string{rpc.MethodRulesSnapshot, rpc.MethodRulesHistory}, ordinaryHeadroom, ordinaryFloor
 	case "policy":
+		if hasInvocationToken(rest, "check") {
+			return []string{rpc.MethodAccountSummary, rpc.MethodPositionsList, rpc.MethodSettingsGet, rpc.MethodRiskPolicySnapshot}, ordinaryHeadroom, ordinaryFloor
+		}
 		return []string{rpc.MethodRiskPolicySnapshot, rpc.MethodRiskPolicyCapitalEvent, rpc.MethodRiskPolicyOverride, rpc.MethodRiskPolicyResetDrawdown, rpc.MethodRiskPolicyCorrectPeak}, ordinaryHeadroom, ordinaryFloor
 	case "recon":
 		return []string{rpc.MethodReconSnapshot, rpc.MethodReconStatus, rpc.MethodReconCheck, rpc.MethodReconBacktest, rpc.MethodReconDismiss, rpc.MethodReconEquity}, ordinaryHeadroom, ordinaryFloor

@@ -511,10 +511,11 @@ Subcommands: `history`, `policy`.
 
 Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes).
 
-Guard `read-only`, with `confirm` subcommands. CLI only, with no MCP tool: risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence.
+Guard `read-only`, with `confirm` subcommands. CLI only, with no MCP tool: risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence. The read-only plausibility check (policy check) is exposed as canary_policy_check.
 
 ```text
 canary policy show [--explain] [--json]
+canary policy check [--offline] [--config PATH] [--json]
 canary policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME] [--note S]
 canary policy capital-event reconcile [--report ID]
 canary policy override --control KEY --reason S --hours N
@@ -530,6 +531,7 @@ canary policy ensure [--dry-run
 | Subcommand | Guard |
 |------------|-------|
 | `show` | `read-only` |
+| `check` | `read-only` |
 | `capital-event` | `confirm` |
 | `override` | `confirm` |
 | `reset-drawdown` | `confirm` |
@@ -554,6 +556,7 @@ canary policy ensure [--dry-run
 | `--dry-run` | no | - |
 | `--apply-plan` | yes | - |
 | `--config` | yes | - |
+| `--offline` | no | - |
 | `--json` | no | - |
 
 ## `canary recon`

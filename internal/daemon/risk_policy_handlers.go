@@ -70,7 +70,45 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 	res.InputHealth = health
 	res.Review = mgr.review
 	res.Files = s.policyFileStatuses(mgr)
+	if acctErr != nil {
+		acct = nil
+	}
+	res.Plausibility = new(s.policyCheckReport(ctx, now, acct, res.Files))
 	return res, nil
+}
+
+// policyCheckPositionsTimeout bounds the positions read the plausibility
+// check adds to the policy snapshot; past it the position checks are skipped.
+const policyCheckPositionsTimeout = 5 * time.Second
+
+// policyCheckReport runs the plausibility check with the daemon's own view:
+// the policy paths and trading limits in force (runtime overrides applied),
+// the account the snapshot already read, a bounded positions read, and each
+// policy manager's status for version drift.
+func (s *Server) policyCheckReport(ctx context.Context, now time.Time, acct *rpc.AccountResult, files []rpc.PolicyFileStatus) rpc.PolicyCheckReport {
+	in := PolicyCheckInput{Now: now, Files: PolicyFileSetFor(s.cfg), Trading: s.effectiveTradingConfig(), TradingCapSource: PolicyCheckCapFromConfig,
+		FileStatus: map[string]string{}}
+	if s.cfg != nil && in.Trading.MaxNotional != s.cfg.Trading.WithDefaults().MaxNotional {
+		in.TradingCapSource = PolicyCheckCapFromRuntime
+	}
+	for _, f := range files {
+		in.FileStatus[f.Policy] = f.Status
+	}
+	if acct == nil {
+		in.BookSkipped = "the account read failed"
+	} else {
+		posCtx, cancel := context.WithTimeout(ctx, policyCheckPositionsTimeout)
+		pos, err := s.handlePositionsList(posCtx, &rpc.Request{})
+		cancel()
+		if err != nil {
+			pos = nil
+		}
+		in.Book = PolicyCheckBookFrom(acct, pos)
+		if in.Book == nil {
+			in.BookSkipped = "the account reported no net liquidation value"
+		}
+	}
+	return CheckPolicy(in)
 }
 
 // riskPolicyInventory compares the constitution's sibling-policy pins with

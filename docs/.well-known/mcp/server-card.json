@@ -755,6 +755,14 @@
       }
     },
     {
+      "name": "canary_policy_check",
+      "description": "Read the plausibility check of the owner's config.toml and policy files: values read against each other, across files and against the live book. Use it for 'do my limits make sense', 'why is a ready proposal refused at the trading gate' or before suggesting a policy edit. Each finding carries `severity` (error: an order path that can never work or a contradiction, such as a bucket's max_order_notional above [trading].max_notional or a watch level above its act level; warn: implausible against the book or the economics, such as a per-order cap under 2% or over 50% of NLV, a cash reserve under 2% of NLV, or a sweep minimum whose interest does not cover the commission; info: unreviewed defaults and dates about to end), `keys` (file, key, value), a one-sentence `message` and a `suggestion` with its reasoning. `skipped` names the checks that did not run (no live account, no positions); `assumptions` names every number assumed because no key carries it. Use canary_rules for the verdicts against those limits. Read-only: it never changes a limit; the owner edits the files.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_proposals",
       "description": "Read daemon-owned protection proposals (trailing stops, theta hygiene, risk reduction) with per-row blockers, and, when the owner enabled it, the cash sweep's same-currency bill buys and redemptions; never previews, submits, or transmits.",
       "inputSchema": {
