@@ -1,0 +1,42 @@
+# canary stress · COLUMNS=80 · colour off
+Portfolio stress  WATCH
+One finding needs review; market stress is unconfirmed.
+Inputs · complete · market confirmation: unconfirmed · portfolio relevance:
+  relevant
+Finding levels · Individual findings exceed the overall rating; see below.
+
+Findings
+  ACT     Concentration
+    SYNA is 30% of net liquidation.
+    Review the position size against the concentration rule.
+  WATCH   Margin headroom
+    Cushion is 40% of net liquidation.
+    Compare the cushion with the margin rule before adding exposure.
+
+Coverage gaps
+  WATCH   Market events
+    Earnings calendar unavailable.
+
+Details · canary stress --details · 1 source notes
+Read-only assessment; it places no orders.
+# canary stress · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mPortfolio stress\x1b[0m  \x1b[33m\x1b[1mWATCH\x1b[0m\x1b[0m
+One finding needs review; market stress is unconfirmed.
+Inputs · complete · market confirmation: unconfirmed · portfolio relevance:
+  relevant
+Finding levels · Individual findings exceed the overall rating; see below.
+
+\x1b[1mFindings\x1b[0m
+  \x1b[31mACT    \x1b[0m \x1b[1mConcentration\x1b[0m
+    SYNA is 30% of net liquidation.
+    \x1b[2mReview the position size against the concentration rule.\x1b[0m
+  \x1b[33mWATCH  \x1b[0m \x1b[1mMargin headroom\x1b[0m
+    Cushion is 40% of net liquidation.
+    \x1b[2mCompare the cushion with the margin rule before adding exposure.\x1b[0m
+
+\x1b[1mCoverage gaps\x1b[0m
+  \x1b[33mWATCH  \x1b[0m \x1b[1mMarket events\x1b[0m
+    Earnings calendar unavailable.
+
+Details · canary stress --details · 1 source notes
+Read-only assessment; it places no orders.

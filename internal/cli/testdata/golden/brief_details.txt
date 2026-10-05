@@ -1,0 +1,38 @@
+# canary brief --details · COLUMNS=80 · colour off
+Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
+
+  Session P&L -$500.00 on the day; one finding needs review.
+
+Review  (since the last close)
+  SYNA -$400.00 and SYNB -$100.00 led the move.
+
+  Policy adherence: 18 pass, 1 watch, 1 act.
+
+Ready  (today)
+  Regime early warning; breadth 60.0% above the 50-day average; US session open.
+
+  Read-only; nothing here places an order.
+
+Degraded inputs
+  reconcile: reconciliation source not configured
+  dealer gamma: dealer gamma model still computing
+  Canary Edge ok No decision to review yet
+# canary brief --details · COLUMNS=80 · colour on, ESC written as \x1b
+Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
+
+  Session P&L -$500.00 on the day; one finding needs review.
+
+Review  (since the last close)
+  SYNA -$400.00 and SYNB -$100.00 led the move.
+
+  Policy adherence: 18 pass, \x1b[33m1 watch\x1b[0m, \x1b[31m1 act\x1b[0m.
+
+Ready  (today)
+  Regime early warning; breadth 60.0% above the 50-day average; US session open.
+
+  Read-only; nothing here places an order.
+
+Degraded inputs
+  reconcile: reconciliation source not configured
+  dealer gamma: dealer gamma model still computing
+  Canary Edge ok No decision to review yet

@@ -1,0 +1,56 @@
+# canary regime · COLUMNS=80 · colour off
+Regime  Watch: one unconfirmed stress signal
+One stress signal is unconfirmed; the other clusters read constructive.
+Evidence · fresh
+Readiness · ready · watch
+
+Indicators
+  Green constructive · Amber mixed · Red stressed · — unrated
+  GREEN  VIX/VIX3M       0.90 30-day / 3-month volatility
+         VIX below VIX3M (contango)
+  AMBER  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
+         VVIX up 10% in five sessions · 2026-09-04
+  GREEN  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+         HYG above its 50-day average
+  GREEN  Credit spreads  HY 3.00% · +0.10 pp / 20d
+         high-yield spreads stable · 2026-09-03
+  GREEN  Funding         20 bp CP minus T-bills · +2 bp / 5 obs
+         funding spread normal · 2026-09-03
+  RED    USD/JPY         145.00 · -3.00% / week
+         yen up 3% in a week
+    Confirmation · not eligible · no second cluster confirms
+  —      Gamma           recorded: unavailable
+         computing · not a current rating
+  GREEN  Breadth         60.0% above 50-day average
+         most members above their 50-day average
+Source issues · 1 reported; see --explain
+
+Details: canary regime --explain
+# canary regime · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mRegime\x1b[0m  \x1b[33m\x1b[1mWatch: one unconfirmed stress signal\x1b[0m\x1b[0m
+One stress signal is unconfirmed; the other clusters read constructive.
+Evidence · fresh
+Readiness · ready · watch
+
+\x1b[1mIndicators\x1b[0m
+  \x1b[2mGreen constructive · Amber mixed · Red stressed · — unrated\x1b[0m
+  \x1b[32mGREEN\x1b[0m  VIX/VIX3M       0.90 30-day / 3-month volatility
+         \x1b[2mVIX below VIX3M (contango)\x1b[0m
+  \x1b[33mAMBER\x1b[0m  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
+         \x1b[2mVVIX up 10% in five sessions · 2026-09-04\x1b[0m
+  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+         \x1b[2mHYG above its 50-day average\x1b[0m
+  \x1b[32mGREEN\x1b[0m  Credit spreads  HY 3.00% · +0.10 pp / 20d
+         \x1b[2mhigh-yield spreads stable · 2026-09-03\x1b[0m
+  \x1b[32mGREEN\x1b[0m  Funding         20 bp CP minus T-bills · +2 bp / 5 obs
+         \x1b[2mfunding spread normal · 2026-09-03\x1b[0m
+  \x1b[31mRED  \x1b[0m  USD/JPY         145.00 · -3.00% / week
+         \x1b[2myen up 3% in a week\x1b[0m
+    Confirmation · not eligible · no second cluster confirms
+  \x1b[2m—    \x1b[0m  Gamma           recorded: unavailable
+         \x1b[2mcomputing · not a current rating\x1b[0m
+  \x1b[32mGREEN\x1b[0m  Breadth         60.0% above 50-day average
+         \x1b[2mmost members above their 50-day average\x1b[0m
+Source issues · 1 reported; see --explain
+
+Details: canary regime --explain

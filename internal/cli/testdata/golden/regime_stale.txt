@@ -1,0 +1,54 @@
+# canary regime · COLUMNS=80 · colour off
+Regime  recorded verdict: Watch: one unconfirmed stress signal
+Evidence · stale · refresh timeout
+Last successful refresh · 5 Sep 12:00 TZ
+Readiness · ready · watch
+
+Indicators
+  —      VIX/VIX3M       recorded: 0.90 30-day / 3-month volatility
+         ok · not a current rating
+  —      VVIX            recorded: 100.0 volatility of VIX · +10.0% / 5 sessions
+         ok · not a current rating · 2026-09-04
+  —      HYG/SPY         recorded: HYG 80.00 · 50-day avg 79.00
+         ok · not a current rating
+  —      Credit spreads  recorded: HY 3.00% · +0.10 pp / 20d
+         ok · not a current rating · 2026-09-03
+  —      Funding         recorded: 20 bp CP minus T-bills · +2 bp / 5 obs
+         ok · not a current rating · 2026-09-03
+  —      USD/JPY         recorded: 145.00 · -3.00% / week
+         ok · not a current rating
+    Confirmation · not eligible · no second cluster confirms
+  —      Gamma           recorded: unavailable
+         computing · not a current rating
+  —      Breadth         recorded: 60.0% above 50-day average
+         ok · not a current rating
+Source issues · 1 reported; see --explain
+
+Details: canary regime --explain
+# canary regime · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mRegime\x1b[0m  \x1b[2m\x1b[1mrecorded verdict: Watch: one unconfirmed stress signal\x1b[0m\x1b[0m
+Evidence · stale · refresh timeout
+Last successful refresh · 5 Sep 12:00 TZ
+Readiness · ready · watch
+
+\x1b[1mIndicators\x1b[0m
+  \x1b[2m—    \x1b[0m  VIX/VIX3M       recorded: 0.90 30-day / 3-month volatility
+         \x1b[2mok · not a current rating\x1b[0m
+  \x1b[2m—    \x1b[0m  VVIX            recorded: 100.0 volatility of VIX · +10.0% / 5 sessions
+         \x1b[2mok · not a current rating · 2026-09-04\x1b[0m
+  \x1b[2m—    \x1b[0m  HYG/SPY         recorded: HYG 80.00 · 50-day avg 79.00
+         \x1b[2mok · not a current rating\x1b[0m
+  \x1b[2m—    \x1b[0m  Credit spreads  recorded: HY 3.00% · +0.10 pp / 20d
+         \x1b[2mok · not a current rating · 2026-09-03\x1b[0m
+  \x1b[2m—    \x1b[0m  Funding         recorded: 20 bp CP minus T-bills · +2 bp / 5 obs
+         \x1b[2mok · not a current rating · 2026-09-03\x1b[0m
+  \x1b[2m—    \x1b[0m  USD/JPY         recorded: 145.00 · -3.00% / week
+         \x1b[2mok · not a current rating\x1b[0m
+    Confirmation · not eligible · no second cluster confirms
+  \x1b[2m—    \x1b[0m  Gamma           recorded: unavailable
+         \x1b[2mcomputing · not a current rating\x1b[0m
+  \x1b[2m—    \x1b[0m  Breadth         recorded: 60.0% above 50-day average
+         \x1b[2mok · not a current rating\x1b[0m
+Source issues · 1 reported; see --explain
+
+Details: canary regime --explain

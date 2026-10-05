@@ -1,0 +1,50 @@
+# canary status · COLUMNS=80 · colour off
+
+IBKR Gateway  ATTENTION
+
+Session        DU0000000 (PAPER) via 127.0.0.1:4002 (tls=false, configured),
+               client 7
+Market data    Delayed ⚠
+Data farms     hmds:ushmds broken (IBKR 2105)
+Market access  CHECK · SYNB not subscribed (IBKR 354, seen 14:00, retry 14:30)
+Daemon         v0.0.0-golden, up 2h0m0s
+TWS            API server 176
+Backend link   restored; 2 losses this session (1 in maintenance windows), last
+               outage 30s, longest 1m30s
+Answers        history connection answers no history since 13:50 · redial at
+               14:05
+Background     computing dealer zero-gamma
+Subsystems     gamma:degraded, breadth:warming 40%, +1 ready
+Trading        paper blocked: market data is delayed
+Data quality   regime degraded: gamma
+SPX members    fixture:2026-09-01, 500 names
+Data health    10 of 12 sources current
+Source concern Delayed quotes for 1 symbol
+Next concern   Historical data farm broken
+Colors         Amber = row needs attention; Gateway verdict is separate.
+
+# canary status · COLUMNS=80 · colour on, ESC written as \x1b
+
+IBKR Gateway  \x1b[33m\x1b[1mATTENTION\x1b[0m\x1b[0m
+
+\x1b[2mSession       \x1b[0m DU0000000 (\x1b[1mPAPER\x1b[0m) via 127.0.0.1:4002 (tls=false, configured),
+               client 7
+\x1b[2mMarket data   \x1b[0m \x1b[33mDelayed ⚠\x1b[0m
+\x1b[2mData farms    \x1b[0m \x1b[33mhmds:ushmds broken (IBKR 2105)\x1b[0m
+\x1b[2mMarket access \x1b[0m \x1b[33mCHECK · SYNB not subscribed (IBKR 354, seen 14:00, retry 14:30)\x1b[0m
+\x1b[2mDaemon        \x1b[0m v0.0.0-golden, up 2h0m0s
+\x1b[2mTWS           \x1b[0m API server 176
+\x1b[2mBackend link  \x1b[0m \x1b[33mrestored; 2 losses this session (1 in maintenance windows), last
+               outage 30s, longest 1m30s\x1b[0m
+\x1b[2mAnswers       \x1b[0m \x1b[33mhistory connection answers no history since 13:50 · redial at
+               14:05\x1b[0m
+\x1b[2mBackground    \x1b[0m computing dealer zero-gamma
+\x1b[2mSubsystems    \x1b[0m gamma:\x1b[33mdegraded\x1b[0m, breadth:\x1b[2mwarming\x1b[0m 40%, \x1b[2m+1 ready\x1b[0m
+\x1b[2mTrading       \x1b[0m \x1b[33mpaper blocked: market data is delayed\x1b[0m
+\x1b[2mData quality  \x1b[0m \x1b[33mregime degraded: gamma\x1b[0m
+\x1b[2mSPX members   \x1b[0m fixture:2026-09-01, 500 names
+\x1b[2mData health   \x1b[0m 10 of 12 sources current
+\x1b[2mSource concern\x1b[0m \x1b[33mDelayed quotes for 1 symbol\x1b[0m
+\x1b[2mNext concern  \x1b[0m \x1b[33mHistorical data farm broken\x1b[0m
+\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; Gateway verdict is separate.\x1b[0m
+

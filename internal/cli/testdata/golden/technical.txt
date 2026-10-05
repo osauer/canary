@@ -1,0 +1,58 @@
+# canary technical SYNA,SYNB,SYNC · COLUMNS=80 · colour off
+Technical screen · SPY benchmark · 420-day lookback
+
+SYNA · uptrend
+Price          100.00 currency unavailable · as of unavailable
+Trend          50-day avg 95.00 · 200-day avg 90.00
+vs 200-day     11.0% from the long-term average
+vs benchmark   +5.0 pp / 63 days · +10.0 pp / 126 days
+Daily range    2.0% · 14-day average true range / price
+Liquidity      1.0M shares/day · 100.0M currency unavailable/day · 20-day
+               average
+
+SYNB · partial · recorded downtrend
+Price          50.00 currency unavailable · as of unavailable
+Trend          50-day avg 55.00 · 200-day avg —
+vs 200-day     — from the long-term average
+vs benchmark   -5.0 pp / 63 days · -10.0 pp / 126 days
+Daily range    4.0% · 14-day average true range / price
+Liquidity      20K shares/day · 1.0M currency unavailable/day · 20-day average
+
+SYNC · error
+Price          — currency unavailable · as of unavailable
+Trend          50-day avg — · 200-day avg —
+vs 200-day     — from the long-term average
+vs benchmark   — / 63 days · — / 126 days
+Daily range    — · 14-day average true range / price
+Liquidity      — shares/day · — currency unavailable/day · 20-day average
+  Error: no historical data
+pp = percentage points of return relative to the benchmark. — = unavailable.
+# canary technical SYNA,SYNB,SYNC · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mTechnical screen · SPY benchmark · 420-day lookback\x1b[0m
+
+\x1b[32mSYNA · uptrend\x1b[0m
+\x1b[2mPrice         \x1b[0m 100.00 currency unavailable · as of unavailable
+\x1b[2mTrend         \x1b[0m 50-day avg 95.00 · 200-day avg 90.00
+\x1b[2mvs 200-day    \x1b[0m 11.0% from the long-term average
+\x1b[2mvs benchmark  \x1b[0m +5.0 pp / 63 days · +10.0 pp / 126 days
+\x1b[2mDaily range   \x1b[0m 2.0% · 14-day average true range / price
+\x1b[2mLiquidity     \x1b[0m 1.0M shares/day · 100.0M currency unavailable/day · 20-day
+               average
+
+\x1b[33mSYNB · partial · recorded downtrend\x1b[0m
+\x1b[2mPrice         \x1b[0m 50.00 currency unavailable · as of unavailable
+\x1b[2mTrend         \x1b[0m 50-day avg 55.00 · 200-day avg —
+\x1b[2mvs 200-day    \x1b[0m — from the long-term average
+\x1b[2mvs benchmark  \x1b[0m -5.0 pp / 63 days · -10.0 pp / 126 days
+\x1b[2mDaily range   \x1b[0m 4.0% · 14-day average true range / price
+\x1b[2mLiquidity     \x1b[0m 20K shares/day · 1.0M currency unavailable/day · 20-day average
+
+\x1b[31mSYNC · error\x1b[0m
+\x1b[2mPrice         \x1b[0m — currency unavailable · as of unavailable
+\x1b[2mTrend         \x1b[0m 50-day avg — · 200-day avg —
+\x1b[2mvs 200-day    \x1b[0m — from the long-term average
+\x1b[2mvs benchmark  \x1b[0m — / 63 days · — / 126 days
+\x1b[2mDaily range   \x1b[0m — · 14-day average true range / price
+\x1b[2mLiquidity     \x1b[0m — shares/day · — currency unavailable/day · 20-day average
+  \x1b[31mError: no historical data\x1b[0m
+\x1b[2mpp = percentage points of return relative to the benchmark. — = unavailable.\x1b[0m

@@ -1,0 +1,20 @@
+# canary proposals list · COLUMNS=80 · colour off
+Protection proposals
+1 actionable / 1 total · 0 queued for the open
+
+SYNA · SELL 100 shares · review
+  ts-SYNA · trailing_stop · TRAIL
+  Trail: trail 8% stop 92.0000
+  long stock without a protective stop
+Full risk evidence, sizing and funding: canary proposals list --details
+Review list only; exact preview and submit eligibility remain separate.
+# canary proposals list · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mProtection proposals\x1b[0m
+1 actionable / 1 total · 0 queued for the open
+
+\x1b[1mSYNA · SELL 100 shares · review\x1b[0m
+  ts-SYNA · trailing_stop · TRAIL
+  Trail: trail 8% stop 92.0000
+  long stock without a protective stop
+\x1b[2mFull risk evidence, sizing and funding: canary proposals list --details\x1b[0m
+\x1b[2mReview list only; exact preview and submit eligibility remain separate.\x1b[0m

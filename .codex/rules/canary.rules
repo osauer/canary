@@ -190,12 +190,20 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = ["make", ["install", "restart-daemon", "smoke", "smoke-fast"]],
-    decision = "prompt",
-    justification = "Installed-daemon and live-gateway targets need a current-turn human decision; headless delegates fail closed and run offline gates only (root AGENTS.md).",
+    pattern = ["make", ["install", "restart-daemon"]],
+    decision = "allow",
+    justification = "Installing and restarting the local daemon after a green gate is standing-authorised owner work (owner, 2026-09-25 and 2026-10-05); the target skips the bounce when the binary is unchanged and the broker hook still gates every command it runs.",
     match = [
         "make install",
         "make restart-daemon",
+    ],
+)
+
+prefix_rule(
+    pattern = ["make", ["smoke", "smoke-fast"]],
+    decision = "prompt",
+    justification = "Live-gateway smoke targets need a current-turn human decision; headless delegates fail closed and run offline gates only (root AGENTS.md).",
+    match = [
         "make smoke",
         "make smoke-fast",
     ],
