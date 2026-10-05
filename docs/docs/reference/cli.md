@@ -35,7 +35,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary short-interest`](#canary-short-interest) | Desk | Screen FINRA short positions across US equities | `read-only` | yes |
 | [`canary lending`](#canary-lending) | Desk | Read lending income, borrowing fees and stock market context | `read-only` | yes |
 | [`canary rules`](#canary-rules) | Desk | Advisory daily trading rule checklist, hardest breach first, against limits you can set | `read-only` | yes |
-| [`canary policy`](#canary-policy) | Desk | Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes) | `confirm` | CLI only |
+| [`canary policy`](#canary-policy) | Desk | Every policy and setting in force, capital/drawdown state, plausibility check, overrides (human-only writes) | `confirm` | CLI only |
 | [`canary recon`](#canary-recon) | Desk | Post-trade reconciliation: broker statement flows vs the declared capital ledger | `confirm` | CLI only |
 | [`canary reporting`](#canary-reporting) | Desk | IBKR statement reporting status and performance series for Recon and Edge | `read-only` | yes |
 | [`canary proposals`](#canary-proposals) | Desk | Daemon-owned close/reduce-only protection proposals | `confirm` | yes |
@@ -510,12 +510,12 @@ Subcommands: `history`, `policy`.
 
 ## `canary policy`
 
-Risk constitution: effective limits, capital/drawdown state, overrides (human-only writes).
+Every policy and setting in force, capital/drawdown state, plausibility check, overrides (human-only writes).
 
 Guard `read-only`, with `confirm` subcommands. CLI only, with no MCP tool: risk-constitution surface deferred from MCP in phase 1 (internal-docs/design/risk-policy.md): its writes are human-only governance acts the daemon rejects from agents, and the read view ships CLI-first; revisit after the phase-2 manual cadence. The read-only plausibility check (policy check) is exposed as canary_policy_check.
 
 ```text
-canary policy show [--explain] [--json]
+canary policy show [SECTION] [--explain] [--json]
 canary policy check [--offline] [--config PATH] [--json]
 canary policy capital-event deposit|withdrawal [--amount F] [--effective-at TIME] [--note S]
 canary policy capital-event reconcile [--report ID]
