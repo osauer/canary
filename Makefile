@@ -580,6 +580,7 @@ docs-html-check: ## Build and verify the complete Pages artifact
 	@go -C scripts/docgen/docs-html test ./...
 	@node scripts/render-architecture.mjs --check
 	@$(MAKE) pages-build
+	@node scripts/copy-lint.mjs --claims-only dist/pages/index.html --skip /reference/ dist/pages
 
 pages-build: ## Build the deployable Pages artifact from tracked sources
 	@rm -rf dist/pages

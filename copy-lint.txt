@@ -1,0 +1,26 @@
+# Public-copy phrases, checked by tools/copy-lint.mjs on the rendered site.
+# [fail] entries fail the build; [warn] entries are reported only.
+# Lower-case substrings; one per line. Added 2026-10-05 20:30 CEST.
+
+[fail]
+# engineering status has no place in marketing copy
+in preview
+build in progress
+work in progress
+coming soon
+preview-labelled
+not yet verified
+
+[warn]
+# AI tells and marketing filler
+seamless
+seamlessly
+robust
+leverage
+unlock
+empower
+cutting-edge
+effortless
+game-changing
+state-of-the-art
+delve

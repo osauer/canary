@@ -1,0 +1,12 @@
+# Figures the public landing page may state, one per line: the phrase as it
+# appears (a lower-case substring is enough), then " — source: " and where it
+# is checked. scripts/copy-lint.mjs fails any landing-page sentence with an
+# unvouched number, amount, "free" or superlative. Keep it short: a claim
+# nobody can check is cut, not listed. Added 2026-10-05 20:45 CEST.
+
+up to 20 — source: internal/rpc/watchlist.go WatchlistLimit = 20
+1, 5 and 20 sessions — source: internal/cli/edge.go horizons []int{1, 5, 20}
+15 idle minutes — source: internal/config/config.go IdleTimeout default 15m
+50- and 200-day averages — source: internal/breadth/spx/types.go WindowSize, WindowSize200
+19-rule — source: internal/risk/rulebook_margin.go (rule 19 is the last rule)
+19 rules — source: internal/risk/rulebook_margin.go (rule 19 is the last rule)
