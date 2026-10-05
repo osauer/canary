@@ -986,8 +986,10 @@ func nonEmptyString(v, fallback string) string {
 // in bills of the same currency and never converts (owner decisions S1–S6,
 // 2026-09-30). It is the one bucket whose rows buy: authority.close_reduce_only
 // stays true, and the carve-out is the typed exception in
-// proposal_cash_sweep.go (decision O1). The order cap has no embedded default
-// (O5); every other number below is the design's compiled default.
+// proposal_cash_sweep.go (decision O1). Every sizing number (reserve, order
+// bounds, keep_cash) is read from the file only; Canary's values exist solely
+// for policy ensure to write (owner decision 2026-10-05 18:35 CEST). Only the
+// instrument declaration and maturity ladder keep compiled defaults.
 type protectionCashSweepPolicy struct {
 	// CurrencyPriority orders eligible native-currency proposals only. Writing
 	// it opts into the calibrated reserve design; it cannot enable FX conversion.
@@ -999,10 +1001,20 @@ type protectionCashSweepPolicy struct {
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// Mode is shadow or active (default shadow): shadow lists and journals rows that preview and submit refuse with shadow_mode; active makes them ordinary proposals under every gate.
 	Mode string `toml:"mode" json:"mode,omitempty"`
-	// MaxOrderNotional caps one sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); no default, and until it is written the sweep reports needs_your_number.
+	// MaxOrderNotional is the fixed part of the largest sweep order, a buy or a redemption, in base currency, compared at the ledger rate (the next cycle sweeps the rest); the cap in force is the larger of it and max_order_pct_nlv of net liquidation value. Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 50000.0).
 	MaxOrderNotional float64 `toml:"max_order_notional" json:"max_order_notional"`
-	// MinOrderNotional is the gross whole-order minimum in account base currency, on both sides. Zero retains the legacy native min_tranche.
-	MinOrderNotional float64 `toml:"min_order_notional" json:"min_order_notional"`
+	// MaxOrderPctNLV is the share of net liquidation value, in percent, that can lift the order cap above max_order_notional (0 leaves the fixed cap alone). Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 10.0).
+	MaxOrderPctNLV *float64 `toml:"max_order_pct_nlv" json:"max_order_pct_nlv,omitempty"`
+	// MinOrderNotional is the smallest sweep buy in base currency: below it nothing is bought. A redemption that restores the reserve or keep_cash is never held to it. Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 20000.0).
+	MinOrderNotional *float64 `toml:"min_order_notional" json:"min_order_notional,omitempty"`
+	// ReserveFloorBase is the least cash, in base currency, the sweep keeps uninvested; the reserve is the largest of it, reserve_pct_nlv of net liquidation value and the cash planned exercises or withdrawals need, and is held in the base currency. Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 10000.0).
+	ReserveFloorBase *float64 `toml:"reserve_floor_base" json:"reserve_floor_base,omitempty"`
+	// ReservePctNLV is the share of net liquidation value, in percent, kept as cash (see reserve_floor_base). Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 10.0).
+	ReservePctNLV *float64 `toml:"reserve_pct_nlv" json:"reserve_pct_nlv,omitempty"`
+	// KeepCash is the settlement float kept in every currency's own unit, unless a currency table writes its own keep_cash; it applies on top of the reserve's own floor. Read from this file only: a sweep currency with neither value holds at needs_your_number (policy ensure writes 5000.0).
+	KeepCash *float64 `toml:"keep_cash" json:"keep_cash,omitempty"`
+	// BillsExemptFromTradingMaxNotional lets a same-currency sweep bill order (BILL or BOND buy or redemption, no conversion) pass [trading].max_notional, but only up to the sweep's own order cap in force; anything else keeps the trading cap. Absent means false, so the trading cap applies (policy ensure writes true).
+	BillsExemptFromTradingMaxNotional *bool `toml:"bills_exempt_from_trading_max_notional" json:"bills_exempt_from_trading_max_notional,omitempty"`
 	// MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. Below-benchmark or unavailable benefit never blocks or resizes an order; zero omits the benchmark.
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
@@ -1020,10 +1032,10 @@ type protectionCashSweepCurrency struct {
 	ETFSymbol string `toml:"etf_symbol" json:"etf_symbol,omitempty"`
 	// ETFExchange is the declared ETF's listing exchange, required with etf_symbol; the pair is resolved to a contract id and matched by it, never by broker text.
 	ETFExchange string `toml:"etf_exchange" json:"etf_exchange,omitempty"`
-	// KeepCash is the settlement float kept as cash in this currency (default 5000): the sweep invests only above it and redeems below it.
-	KeepCash float64 `toml:"keep_cash" json:"keep_cash"`
-	// MinTranche is the legacy native-currency minimum on both sides (default 1000); min_order_notional supplies a portfolio base minimum.
-	MinTranche float64 `toml:"min_tranche" json:"min_tranche"`
+	// KeepCash is this currency's settlement float in its own unit, overriding the bucket's keep_cash: the sweep invests only above it and redeems below it. No compiled default; a sweep currency with neither value holds at needs_your_number.
+	KeepCash *float64 `toml:"keep_cash" json:"keep_cash,omitempty"`
+	// MinTranche is retired in favour of min_order_notional and kept readable: when written it still raises this currency's smallest buy, in its own unit; absent, it adds nothing.
+	MinTranche *float64 `toml:"min_tranche" json:"min_tranche,omitempty"`
 	// CashInterestRateUpper is a conservative annual decimal opportunity-cost bound. Nil is unknown, including when the broker pays no interest.
 	CashInterestRateUpper *float64 `toml:"cash_interest_rate_upper" json:"cash_interest_rate_upper,omitempty"`
 	// CashInterestValidThrough dates the owner-reviewed cash-interest assumption; expiry makes the benefit comparison unavailable without blocking an order.
@@ -1085,7 +1097,7 @@ func cashSweepInstrumentAllowed(instrument, ccy string) bool {
 // defaultCashSweepCurrency is Canary's compiled declaration for ccy (S1, S3,
 // O2, O3): bills where a vocabulary issuer exists, none elsewhere.
 func defaultCashSweepCurrency(ccy string) protectionCashSweepCurrency {
-	c := protectionCashSweepCurrency{KeepCash: 5000, MinTranche: 1000, MinMaturityDays: 28, MaxMaturityDays: 91, LadderRungs: 4}
+	c := protectionCashSweepCurrency{MinMaturityDays: 28, MaxMaturityDays: 91, LadderRungs: 4}
 	switch ccy {
 	case "USD":
 		c.Instruments = []string{cashSweepInstrumentUSTBill}
@@ -1130,11 +1142,66 @@ func (p *protectionCashSweepPolicy) enabled() bool {
 
 // missingNumbers lists the bucket-level numbers an enabled sweep still needs
 // from the owner; every currency holds until they are written.
+//
+// Every sizing number is read from the file only (owner decision
+// 2026-10-05 18:35 CEST): Canary's compiled values exist solely for policy
+// ensure to write them (cashSweepWrittenDefaults).
 func (p *protectionCashSweepPolicy) missingNumbers() []string {
-	if !p.enabled() || p.MaxOrderNotional != 0 {
+	if !p.enabled() {
 		return nil
 	}
-	return []string{"max_order_notional"}
+	var out []string
+	if p.MaxOrderNotional == 0 {
+		out = append(out, "max_order_notional")
+	}
+	for _, f := range []struct {
+		key string
+		v   *float64
+	}{{"max_order_pct_nlv", p.MaxOrderPctNLV}, {"min_order_notional", p.MinOrderNotional}, {"reserve_floor_base", p.ReserveFloorBase}, {"reserve_pct_nlv", p.ReservePctNLV}} {
+		if f.v == nil {
+			out = append(out, f.key)
+		}
+	}
+	return out
+}
+
+// keepCash is ccy's settlement float from the file: its own table's
+// keep_cash, else the bucket's. False when neither is written.
+func (p *protectionCashSweepPolicy) keepCash(ccy string) (float64, bool) {
+	if p == nil {
+		return 0, false
+	}
+	if c, ok := p.Currency[ccy]; ok && c.KeepCash != nil {
+		return *c.KeepCash, true
+	}
+	if p.KeepCash != nil {
+		return *p.KeepCash, true
+	}
+	return 0, false
+}
+
+// billsExempt reports whether the file exempts the sweep's bill orders from
+// [trading].max_notional within the sweep's own cap; absent is false.
+func (p *protectionCashSweepPolicy) billsExempt() bool {
+	return p != nil && p.BillsExemptFromTradingMaxNotional != nil && *p.BillsExemptFromTradingMaxNotional
+}
+
+// cashSweepWrittenDefault is one number policy ensure writes into an owner
+// file that lacks it. These values are never read at runtime.
+type cashSweepWrittenDefault struct {
+	key, value string
+}
+
+// cashSweepWrittenDefaults are the owner-approved values (2026-10-05
+// 18:35 CEST) ensure materialises into an existing [buckets.cash_sweep].
+var cashSweepWrittenDefaults = []cashSweepWrittenDefault{
+	{"max_order_notional", "50000.0"},
+	{"max_order_pct_nlv", "10.0"},
+	{"min_order_notional", "20000.0"},
+	{"reserve_floor_base", "10000.0"},
+	{"reserve_pct_nlv", "10.0"},
+	{"keep_cash", "5000.0"},
+	{"bills_exempt_from_trading_max_notional", "true"},
 }
 
 // declaresETF reports whether etf is an instrument or the fallback.
@@ -1178,12 +1245,6 @@ func applyCashSweepDefaults(p *protectionCashSweepPolicy, md *toml.MetaData) {
 		if !defined("fallback") {
 			c.Fallback = d.Fallback
 		}
-		if !defined("keep_cash") {
-			c.KeepCash = d.KeepCash
-		}
-		if !defined("min_tranche") {
-			c.MinTranche = d.MinTranche
-		}
 		if !defined("min_maturity_days") {
 			c.MinMaturityDays = d.MinMaturityDays
 		}
@@ -1224,8 +1285,18 @@ func validateCashSweepPolicy(prefix string, p *protectionCashSweepPolicy) error 
 	if !finiteProtectionOptionPolicyValue(p.MaxOrderNotional) || p.MaxOrderNotional < 0 {
 		return fmt.Errorf("%s.max_order_notional must be positive", prefix)
 	}
-	if !finiteProtectionOptionPolicyValue(p.MinOrderNotional) || p.MinOrderNotional < 0 || (p.MaxOrderNotional > 0 && p.MinOrderNotional > p.MaxOrderNotional) {
-		return fmt.Errorf("%s.min_order_notional must be nonnegative and no greater than max_order_notional", prefix)
+	for _, f := range []struct {
+		key string
+		v   *float64
+		max float64
+	}{{"min_order_notional", p.MinOrderNotional, math.Inf(1)}, {"reserve_floor_base", p.ReserveFloorBase, math.Inf(1)}, {"keep_cash", p.KeepCash, math.Inf(1)},
+		{"reserve_pct_nlv", p.ReservePctNLV, 100}, {"max_order_pct_nlv", p.MaxOrderPctNLV, 100}} {
+		if f.v != nil && (!finiteProtectionOptionPolicyValue(*f.v) || *f.v < 0 || *f.v > f.max) {
+			if f.max == 100 {
+				return fmt.Errorf("%s.%s must be a percentage from 0 to 100", prefix, f.key)
+			}
+			return fmt.Errorf("%s.%s must be finite and nonnegative", prefix, f.key)
+		}
 	}
 	if !finiteProtectionOptionPolicyValue(p.MinNetGain) || p.MinNetGain < 0 {
 		return fmt.Errorf("%s.min_net_gain must be nonnegative", prefix)
@@ -1283,7 +1354,7 @@ func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency
 			return fmt.Errorf("%s.%s %q must be an exchange code in capitals (letters, digits and dots, at most 12)", prefix, key, value)
 		}
 	}
-	if !finiteProtectionOptionPolicyValue(c.KeepCash) || c.KeepCash < 0 {
+	if c.KeepCash != nil && (!finiteProtectionOptionPolicyValue(*c.KeepCash) || *c.KeepCash < 0) {
 		return fmt.Errorf("%s.keep_cash must not be negative", prefix)
 	}
 	if c.SettlementDays != nil && (*c.SettlementDays < 1 || *c.SettlementDays > 5) {
@@ -1301,7 +1372,7 @@ func validateCashSweepCurrency(prefix, ccy string, c protectionCashSweepCurrency
 	if c.CashInterestValidThrough != "" && !c.CashInterestValidThrough.valid() {
 		return fmt.Errorf("%s.cash_interest_valid_through must be a date", prefix)
 	}
-	if !finiteProtectionOptionPolicyValue(c.MinTranche) || c.MinTranche <= 0 {
+	if c.MinTranche != nil && (!finiteProtectionOptionPolicyValue(*c.MinTranche) || *c.MinTranche <= 0) {
 		return fmt.Errorf("%s.min_tranche must be positive", prefix)
 	}
 	if c.MinMaturityDays < 1 || c.MaxMaturityDays < c.MinMaturityDays || c.MaxMaturityDays > cashSweepMaturityCeilingDays {

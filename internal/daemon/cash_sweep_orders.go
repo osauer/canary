@@ -196,6 +196,9 @@ func cashSweepOrderTerms(prop rpc.TradeProposal) *rpc.OrderBondTerms {
 		terms.Maturity, terms.MaturitySource, terms.CUSIP, terms.ISIN = b.Maturity, b.MaturitySource, b.CUSIP, b.ISIN
 		terms.ResolutionSource = b.ResolutionSource
 	}
+	if s.Sizing != nil && s.Sizing.TradingMaxNotionalExempt && positiveFinite(s.MaxOrderNotionalBase) && cashSweepInstrumentAllowed(s.Instrument, s.Currency) {
+		terms.TradingCapExemptUpToBase = s.MaxOrderNotionalBase
+	}
 	return terms
 }
 
@@ -482,4 +485,34 @@ func cashSweepSaleLimit(held, capUnits int, rules *ibkrlib.BondOrderRules) int {
 	}
 	quantity, _ := cashSweepRedeemUnits(limit, limit, *rules)
 	return quantity
+}
+
+// cashSweepTradingCapExempt reports whether a draft is a cash sweep bill
+// order exempt from [trading].max_notional: BILL or BOND terms the daemon set
+// from a cash_sweep row whose policy exempts bills (TradingCapExemptUpToBase),
+// a vocabulary bill of the order's own currency (no conversion), a buy that
+// opens or increases or a sale that reduces or closes, and a base notional
+// within the sweep's cap in force. Anything else keeps the trading cap; an
+// unreadable cap or notional exempts nothing.
+func cashSweepTradingCapExempt(draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority) bool {
+	b := draft.Bond
+	if b == nil || draft.StrategyGroup != nil || !positiveFinite(b.TradingCapExemptUpToBase) {
+		return false
+	}
+	if !ibkrlib.IsBillOrBond(draft.Contract.SecType) || !cashSweepIsBill(b.Instrument) || !cashSweepInstrumentAllowed(b.Instrument, normCcy(draft.Contract.Currency)) {
+		return false
+	}
+	switch strings.ToUpper(strings.TrimSpace(draft.Action)) {
+	case rpc.OrderActionBuy:
+		if position.Effect != rpc.OrderPositionEffectOpen && position.Effect != rpc.OrderPositionEffectIncrease {
+			return false
+		}
+	case rpc.OrderActionSell:
+		if position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
+			return false
+		}
+	default:
+		return false
+	}
+	return positiveFinite(notional.BaseNotional) && notional.BaseNotional <= b.TradingCapExemptUpToBase+cashSweepMoneyEpsilon
 }

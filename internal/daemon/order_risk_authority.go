@@ -556,7 +556,12 @@ func validateOrderRiskAuthority(cfg config.Trading, draft rpc.OrderDraft, positi
 	// competing working sell, passes both the notional cap and the
 	// apparent-exit short re-read (owner decision 2026-10-05 17:36 CEST).
 	protectiveExit := protectiveStockExitExempt(draft, position, exit)
-	if notional.BaseNotional > cfg.MaxNotional && !protectiveExit {
+	// A same-currency cash sweep bill order passes the notional cap only up
+	// to the sweep's own cap in force, when the protection policy writes
+	// bills_exempt_from_trading_max_notional (owner decision 2026-10-05
+	// 18:35 CEST); every other order keeps [trading].max_notional.
+	sweepBill := cashSweepTradingCapExempt(draft, position, notional)
+	if notional.BaseNotional > cfg.MaxNotional && !protectiveExit && !sweepBill {
 		return fmt.Errorf("order notional %.2f %s exceeds [trading].max_notional %.2f %s", notional.BaseNotional, baseCurrency, cfg.MaxNotional, baseCurrency)
 	}
 	if draft.StrategyGroup != nil {

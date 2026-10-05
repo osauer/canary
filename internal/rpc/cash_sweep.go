@@ -154,11 +154,71 @@ type TradeProposalCashSweepStatus struct {
 	TaxReviewedAt string `json:"tax_reviewed_at,omitempty"`
 	TaxReviewed   bool   `json:"tax_reviewed"`
 	// NeedsYourNumber lists the bucket-level numbers only the owner can
-	// write (max_order_notional).
-	NeedsYourNumber []string                         `json:"needs_your_number,omitempty"`
-	Currencies      []TradeProposalCashSweepCurrency `json:"currencies"`
+	// write and the file lacks (max_order_notional, max_order_pct_nlv,
+	// min_order_notional, reserve_floor_base, reserve_pct_nlv); the sweep
+	// holds until each is written.
+	NeedsYourNumber []string `json:"needs_your_number,omitempty"`
+	// Sizing is the reserve and the order bounds in force this generation;
+	// nil while a number is missing or net liquidation value is unreadable.
+	Sizing     *CashSweepSizing                 `json:"sizing,omitempty"`
+	Currencies []TradeProposalCashSweepCurrency `json:"currencies"`
 	// Rows counts the proposals the sweep emitted in this generation.
 	Rows int `json:"rows"`
+}
+
+// Which term bound the reserve and the largest order (the policy key that
+// supplied the figure in force).
+const (
+	CashSweepReserveBoundFloor        = "reserve_floor_base"
+	CashSweepReserveBoundPctNLV       = "reserve_pct_nlv"
+	CashSweepReserveBoundPlannedNeeds = "planned_needs"
+	CashSweepMaxOrderBoundNotional    = "max_order_notional"
+	CashSweepMaxOrderBoundPctNLV      = "max_order_pct_nlv"
+)
+
+// CashSweepSizing is the sweep's sizing for one generation, in the account's
+// base currency (BaseCurrency). The reserve is kept as cash and never
+// invested: the largest of ReserveFloorBase, ReservePctNLV percent of
+// NetLiquidationBase, and PlannedNeedsBase; ReserveBound names which. It is
+// held in the base currency first; ReserveShortfallBase is the part base cash
+// cannot hold, kept in the other currencies before they invest. A buy is at
+// least MinOrderBase and at most MaxOrderBase, the larger of
+// MaxOrderNotionalBase and MaxOrderPctNLV percent of NetLiquidationBase
+// (MaxOrderBound names which); a redemption is never held to MinOrderBase.
+// Field names are stable for Desk.
+type CashSweepSizing struct {
+	BaseCurrency       string   `json:"base_currency"`
+	NetLiquidationBase *float64 `json:"net_liquidation_base,omitempty"`
+	ReserveBase        float64  `json:"reserve_base"`
+	ReserveBound       string   `json:"reserve_bound"`
+	ReserveFloorBase   float64  `json:"reserve_floor_base"`
+	ReservePctNLV      float64  `json:"reserve_pct_nlv"`
+	ReservePctNLVBase  float64  `json:"reserve_pct_nlv_base"`
+	// PlannedNeedsBase is cash Canary knows planned exercises or withdrawals
+	// need; with PlannedNeedsKnown false it is 0 and PlannedNeedsReason says why.
+	PlannedNeedsBase     float64 `json:"planned_needs_base"`
+	PlannedNeedsKnown    bool    `json:"planned_needs_known"`
+	PlannedNeedsReason   string  `json:"planned_needs_reason,omitempty"`
+	ReserveShortfallBase float64 `json:"reserve_shortfall_base,omitempty"`
+	MinOrderBase         float64 `json:"min_order_base"`
+	MaxOrderBase         float64 `json:"max_order_base"`
+	MaxOrderBound        string  `json:"max_order_bound"`
+	MaxOrderNotionalBase float64 `json:"max_order_notional_base"`
+	MaxOrderPctNLV       float64 `json:"max_order_pct_nlv"`
+	// TradingMaxNotionalExempt is the policy's
+	// bills_exempt_from_trading_max_notional: a same-currency sweep bill order
+	// may pass [trading].max_notional up to MaxOrderBase, never beyond.
+	TradingMaxNotionalExempt bool `json:"trading_max_notional_exempt"`
+}
+
+// CloneCashSweepSizing copies sizing; nil stays nil.
+func CloneCashSweepSizing(in *CashSweepSizing) *CashSweepSizing {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.NetLiquidationBase = cloneCashSweepFloat(in.NetLiquidationBase)
+	return &out
 }
 
 // CashSweepEconomics is optional advice for one exact broker preview. It
@@ -202,8 +262,15 @@ type TradeProposalCashSweepCurrency struct {
 	// NeedsYourNumber names the currency keys only the owner can write. The
 	// EUR fallback ETF's symbol is listed here while bills still plan.
 	NeedsYourNumber []string `json:"needs_your_number,omitempty"`
-	KeepCash        float64  `json:"keep_cash"`
-	MinTranche      float64  `json:"min_tranche"`
+	// KeepCash is the settlement float in force (the file's keep_cash, or the
+	// calibrated reserve when that design is on); MinTranche is the retired
+	// native minimum, 0 unless the file still writes it.
+	KeepCash   float64 `json:"keep_cash"`
+	MinTranche float64 `json:"min_tranche"`
+	// ReserveHeld is the part of the base-currency reserve (Sizing) kept in
+	// this currency, in its own unit: the whole reserve less keep_cash's
+	// overlap for the base currency, the carried shortfall elsewhere.
+	ReserveHeld     *float64 `json:"reserve_held,omitempty"`
 	MinMaturityDays int      `json:"min_maturity_days"`
 	MaxMaturityDays int      `json:"max_maturity_days"`
 	LadderRungs     int      `json:"ladder_rungs"`
@@ -410,11 +477,16 @@ type TradeProposalCashSweep struct {
 	TargetDays      int `json:"target_days,omitempty"`
 	MinMaturityDays int `json:"min_maturity_days,omitempty"`
 	MaxMaturityDays int `json:"max_maturity_days,omitempty"`
-	// HeldToCap marks an invest order max_order_notional held below the free
-	// cash; MaxOrderNotionalBase and ExchangeRate show the conversion.
+	// HeldToCap marks an order the cap held below what the band asked for;
+	// MaxOrderNotionalBase is the cap in force (Sizing.MaxOrderBase) and
+	// ExchangeRate the ledger rate it is converted at.
 	HeldToCap            bool    `json:"held_to_cap,omitempty"`
 	MaxOrderNotionalBase float64 `json:"max_order_notional_base,omitempty"`
 	ExchangeRate         float64 `json:"exchange_rate,omitempty"`
+	// ReserveHeld is the part of the reserve this currency keeps (see the
+	// currency status); Sizing is the generation's reserve and order bounds.
+	ReserveHeld float64          `json:"reserve_held,omitempty"`
+	Sizing      *CashSweepSizing `json:"sizing,omitempty"`
 	// Redeem: the maturity sold (YYYY-MM-DD; empty for the ETF).
 	MaturityDate       string    `json:"maturity_date,omitempty"`
 	MaturitySource     string    `json:"maturity_source,omitempty"`
@@ -442,12 +514,14 @@ func CloneCashSweepStatus(in *TradeProposalCashSweepStatus) *TradeProposalCashSw
 	out.DecisionTrace = CloneCashSweepDecisionTrace(in.DecisionTrace)
 	out.MaxOrderNotionalBase = cloneCashSweepFloat(in.MaxOrderNotionalBase)
 	out.NeedsYourNumber = slices.Clone(in.NeedsYourNumber)
+	out.Sizing = CloneCashSweepSizing(in.Sizing)
 	out.Currencies = slices.Clone(in.Currencies)
 	for i := range out.Currencies {
 		c := &out.Currencies[i]
 		c.BufferAllocation = cloneCashSweepFloat(c.BufferAllocation)
 		c.FundingNeed = cloneCashSweepFloat(c.FundingNeed)
 		c.EffectiveReserve = cloneCashSweepFloat(c.EffectiveReserve)
+		c.ReserveHeld = cloneCashSweepFloat(c.ReserveHeld)
 		c.Instruments = slices.Clone(c.Instruments)
 		c.NeedsYourNumber = slices.Clone(c.NeedsYourNumber)
 		c.ExchangeRate = cloneCashSweepFloat(c.ExchangeRate)
@@ -485,6 +559,7 @@ func CloneProposalCashSweep(in *TradeProposalCashSweep) *TradeProposalCashSweep 
 		out.SettlementDays = new(*in.SettlementDays)
 	}
 	out.Session = CloneBondSession(in.Session)
+	out.Sizing = CloneCashSweepSizing(in.Sizing)
 	return &out
 }
 

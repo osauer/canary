@@ -705,6 +705,42 @@ Not built: ETF resolution by contract id and the fallback's completed-search
 input (the ETF neither invests nor classifies); a spread limit for bills (no
 policy number exists; inventing one needs an owner decision).
 
+## Reserve and order sizing (2026-10-05 18:53 CEST)
+
+Owner decisions of 2026-10-05 18:35 CEST replace the fixed band. The
+1,000 USD minimum had proposed a bill that lost money after IBKR's minimum
+commission. Sizes now scale with the book, and every sizing number is
+read from the policy file only.
+
+- Reserve = max(`reserve_floor_base`, `reserve_pct_nlv` % of NLV, planned
+  needs), held in base first. `keep_cash` remains each currency's settlement
+  float. The base currency keeps max(keep_cash, reserve). A base shortfall is
+  kept in the other currencies, largest free cash first, before they invest. It
+  never makes them sell. Unknown base cash holds their buys.
+- Planned needs reuse recorded commitments only. Working and armed buys are
+  already deducted as committed. No approved-but-unexecuted exercise or
+  announced withdrawal record exists, so the term is 0 with a plain reason
+  (`planned_needs_reason`). `cashSweepPlannedNeeds` is the typed seam a future
+  record would fill.
+- Buy bounds are `min_order_notional` and max(`max_order_notional`,
+  `max_order_pct_nlv` % of NLV). A redemption sells the gap, never held to or
+  raised to the minimum. The preview's minimum check applies to buys only.
+- A percentage above 0 with unreadable NLV holds every currency.
+- `bills_exempt_from_trading_max_notional`: `cashSweepOrderTerms` writes
+  `trading_cap_exempt_up_to_base` (the cap in force) into the daemon-only bond
+  terms. `validateOrderRiskAuthority` exempts a BILL/BOND vocabulary bill of
+  the order's own currency that opens or increases (buy) or reduces or closes
+  (sell), up to that limit, at preview and at submit. Absent is false.
+- Defaults are only written. `cashSweepWrittenDefaults` feeds the template and
+  `policy ensure`, which adds missing keys to an existing
+  `[buckets.cash_sweep]`, backs the file up and raises `policy_version`.
+  `protectionMaterialisationPreserves` proves that nothing else changed.
+  `min_tranche` is retired: it is readable, and when written it still raises
+  a buy minimum; it is never written.
+- Tests: `cash_sweep_reserve_sizing_test.go` (worked checks at NLV 233,000 and
+  1,200,000, bounds, missing keys, unreadable NLV, redemption below the
+  minimum, carried shortfall, exemption boundary, ensure).
+
 ## Implementation plan
 
 Line references at Canary `a53daed0`.

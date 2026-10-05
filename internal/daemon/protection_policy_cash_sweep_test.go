@@ -86,7 +86,7 @@ func TestCashSweepCompiledDefaultsPerCurrency(t *testing.T) {
 	} {
 		c := defaultCashSweepCurrency(ccy)
 		if !slices.Equal(c.Instruments, want.instruments) || c.Fallback != want.fallback || c.MaxMaturityDays != want.maxDays ||
-			c.KeepCash != 5000 || c.MinTranche != 1000 || c.MinMaturityDays != 28 || c.LadderRungs != 4 {
+			c.KeepCash != nil || c.MinTranche != nil || c.MinMaturityDays != 28 || c.LadderRungs != 4 {
 			t.Fatalf("%s default = %+v", ccy, c)
 		}
 		if err := validateCashSweepCurrency("cash_sweep.currency."+ccy, ccy, c); err != nil {
@@ -101,16 +101,18 @@ func TestCashSweepCompiledDefaultsPerCurrency(t *testing.T) {
 	if got := defaultCashSweepCurrency("USD").missingNumbers(); got != nil {
 		t.Fatalf("USD missing = %v", got)
 	}
-	// An enabled sweep without max_order_notional needs that number (O5).
+	// An enabled sweep needs every sizing number from the file (owner
+	// decision 2026-10-05 18:35 CEST); compiled values are never read.
 	enabled := &protectionCashSweepPolicy{Enabled: true}
-	if got := enabled.missingNumbers(); !slices.Equal(got, []string{"max_order_notional"}) {
+	if got := enabled.missingNumbers(); !slices.Equal(got, []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv"}) {
 		t.Fatalf("enabled sweep missing = %v", got)
 	}
 }
 
 // A written currency table keeps what the owner wrote and takes Canary's
-// default for every key it leaves out; tax_reviewed_at reads a TOML date or a
-// quoted one to the same value.
+// instrument and ladder defaults for the keys it leaves out; keep_cash comes
+// from the file only (the currency's own, else the bucket's); tax_reviewed_at
+// reads a TOML date or a quoted one to the same value.
 func TestCashSweepWrittenCurrencyTableFillsDefaults(t *testing.T) {
 	p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + `
 [buckets.cash_sweep]
@@ -136,13 +138,19 @@ ladder_rungs = 2
 		t.Fatalf("bucket = %+v", bucket)
 	}
 	eur := bucket.currency("EUR")
-	if eur.KeepCash != 8000 || !slices.Equal(eur.Instruments, []string{"de_bubill", "fr_btf"}) || eur.Fallback != "etf" || eur.MaxMaturityDays != 182 ||
-		eur.MinMaturityDays != 28 || eur.MinTranche != 1000 || eur.LadderRungs != 4 || eur.missingNumbers() != nil {
+	if eur.KeepCash == nil || *eur.KeepCash != 8000 || !slices.Equal(eur.Instruments, []string{"de_bubill", "fr_btf"}) || eur.Fallback != "etf" || eur.MaxMaturityDays != 182 ||
+		eur.MinMaturityDays != 28 || eur.MinTranche != nil || eur.LadderRungs != 4 || eur.missingNumbers() != nil {
 		t.Fatalf("EUR = %+v", eur)
 	}
 	usd := bucket.currency("USD")
-	if usd.Fallback != "none" || usd.LadderRungs != 2 || usd.KeepCash != 5000 || !slices.Equal(usd.Instruments, []string{"us_tbill"}) {
+	if usd.Fallback != "none" || usd.LadderRungs != 2 || usd.KeepCash != nil || !slices.Equal(usd.Instruments, []string{"us_tbill"}) {
 		t.Fatalf("USD = %+v", usd)
+	}
+	if keep, ok := bucket.keepCash("USD"); ok || keep != 0 {
+		t.Fatalf("USD keep_cash without a written value = %v, %v; want none", keep, ok)
+	}
+	if keep, ok := bucket.keepCash("EUR"); !ok || keep != 8000 {
+		t.Fatalf("EUR keep_cash = %v, %v", keep, ok)
 	}
 	if chf := bucket.currency("CHF"); !slices.Equal(chf.Instruments, []string{"none"}) {
 		t.Fatalf("CHF without a table = %+v", chf)
@@ -222,10 +230,10 @@ func TestCashSweepValidation(t *testing.T) {
 			setSweepCcy(b, "EUR", func(c *protectionCashSweepCurrency) { c.ETFSymbol = "buy all now" })
 		}, "etf_symbol"},
 		"keep_cash negative": {func(b *protectionCashSweepPolicy) {
-			setSweepCcy(b, "USD", func(c *protectionCashSweepCurrency) { c.KeepCash = -1 })
+			setSweepCcy(b, "USD", func(c *protectionCashSweepCurrency) { c.KeepCash = new(-1.0) })
 		}, "keep_cash"},
 		"tranche zero": {func(b *protectionCashSweepPolicy) {
-			setSweepCcy(b, "USD", func(c *protectionCashSweepCurrency) { c.MinTranche = 0 })
+			setSweepCcy(b, "USD", func(c *protectionCashSweepCurrency) { c.MinTranche = new(0.0) })
 		}, "min_tranche"},
 		"min maturity zero": {func(b *protectionCashSweepPolicy) {
 			setSweepCcy(b, "USD", func(c *protectionCashSweepCurrency) { c.MinMaturityDays = 0 })
@@ -292,14 +300,15 @@ func TestCashSweepPolicyStatusNeedsYourNumber(t *testing.T) {
 		t.Fatalf("disabled sweep asks for %v", got)
 	}
 	got := strings.Join(cashSweepNeedsYourNumber(&protectionCashSweepPolicy{Enabled: true, Mode: "active"}), "\n")
-	for _, want := range []string{"max_order_notional", "EUR fallback ETF needs etf_symbol, etf_exchange", "bills still plan", "tax_reviewed_at"} {
+	for _, want := range []string{"max_order_notional", "reserve_pct_nlv", "keep_cash", "EUR fallback ETF needs etf_symbol, etf_exchange", "bills still plan", "tax_reviewed_at"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, got)
 		}
 	}
 	eur := defaultCashSweepCurrency("EUR")
 	eur.ETFSymbol, eur.ETFExchange = "BBB", "IBIS"
-	written := &protectionCashSweepPolicy{Enabled: true, MaxOrderNotional: 1, TaxReviewedAt: "2026-09-30", Currency: map[string]protectionCashSweepCurrency{"EUR": eur}}
+	written := &protectionCashSweepPolicy{Enabled: true, MaxOrderNotional: 1, TaxReviewedAt: "2026-09-30", Currency: map[string]protectionCashSweepCurrency{"EUR": eur},
+		MaxOrderPctNLV: new(10.0), MinOrderNotional: new(1.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(10.0), KeepCash: new(5000.0)}
 	if got := cashSweepNeedsYourNumber(written); got != nil {
 		t.Fatalf("a complete sweep asks for %v", got)
 	}

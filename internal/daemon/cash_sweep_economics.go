@@ -9,11 +9,14 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-func cashSweepMinimum(p *protectionCashSweepPolicy, c protectionCashSweepCurrency, rate float64) float64 {
-	if p != nil && p.MinOrderNotional > 0 && positiveFinite(rate) {
-		return max(c.MinTranche, p.MinOrderNotional/rate)
+// cashSweepMinimum is the smallest buy in a currency's own unit: the base
+// min_order_notional at the ledger rate, raised by a retired min_tranche the
+// file still writes.
+func cashSweepMinimum(tranche, minOrderBase, rate float64) float64 {
+	if minOrderBase > 0 && positiveFinite(rate) {
+		return max(tranche, minOrderBase/rate)
 	}
-	return c.MinTranche
+	return tranche
 }
 
 // Keep actual order safety separate from the advisory benefit estimate.
@@ -36,7 +39,9 @@ func cashSweepEconomicsBlockers(prop rpc.TradeProposal, preview *rpc.OrderPrevie
 	if !positiveFinite(gross) || !positiveFinite(s.ExchangeRate) || !finiteProtectionOptionPolicyValue(s.MinTranche) || s.MinTranche < 0 || !finiteProtectionOptionPolicyValue(s.MinOrderNotionalBase) || s.MinOrderNotionalBase < 0 || math.IsNaN(minimum) || math.IsInf(minimum, 0) {
 		return block("cash_sweep_notional_unknown", "The exact sweep value or minimum is unavailable.")
 	}
-	if gross < minimum-cashSweepMoneyEpsilon {
+	// A redemption restores the reserve or keep_cash and is never held to the
+	// smallest order (owner decision 2026-10-05 18:35 CEST).
+	if s.Side != rpc.CashSweepSideRedeem && gross < minimum-cashSweepMoneyEpsilon {
 		return block("cash_sweep_below_minimum_tranche", "The reviewed order after lot rounding is below the whole-order minimum.")
 	}
 	fee, known := cashSweepFeeUpper(preview, s.Currency)

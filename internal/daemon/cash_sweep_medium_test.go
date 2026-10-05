@@ -10,9 +10,11 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-func TestCashSweepMinimumIsAWholeOrderInBaseOnBothSides(t *testing.T) {
+// The minimum is a whole buy in base; a redemption restores cash and is
+// never held to it (owner decision 2026-10-05 18:35 CEST): it sells the gap.
+func TestCashSweepMinimumIsAWholeBuyInBaseAndNeverHoldsARedemption(t *testing.T) {
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	policy.Buckets.CashSweep.MinOrderNotional = 10000
+	policy.Buckets.CashSweep.MinOrderNotional = new(10000.0)
 	in := cashSweepTestInput(map[string]float64{"USD": 15500, "EUR": 2000})
 	in.Holdings["EUR"] = eurRedeemInput(50000).Holdings["EUR"]
 	plan := cashSweepPlanFor(policy, in, cashSweepTestNow())
@@ -21,8 +23,10 @@ func TestCashSweepMinimumIsAWholeOrderInBaseOnBothSides(t *testing.T) {
 		t.Fatal("10500 USD is below the EUR-equivalent whole-order floor")
 	}
 	eur := cashSweepCurrencyOf(t, plan, "EUR")
-	if eur.side != rpc.CashSweepSideRedeem || float64(eur.quantity)*0.995 < 10000 {
-		t.Fatalf("small cash gap produced a small order: %+v", eur)
+	// keep_cash 5000 less cash 2000: a 3000 gap, sold as such, far below
+	// the 10000 minimum.
+	if eur.side != rpc.CashSweepSideRedeem || eur.orderAmount != 3000 || float64(eur.quantity)*0.995 > 3100 || float64(eur.quantity)*0.995 < 3000 {
+		t.Fatalf("a redemption was held to, or raised to, the minimum: %+v", eur)
 	}
 	prop, preview := sweepFeePreview(30000, 10000, 10)
 	prop.CashSweep.MinOrderNotionalBase = 10000
@@ -36,7 +40,7 @@ func TestCashSweepMinimumIsAWholeOrderInBaseOnBothSides(t *testing.T) {
 	preview.Draft.LimitPrice = 100
 	prop.CashSweep.RedemptionTarget = 10000
 	if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
-		t.Fatalf("fee changed the gross whole-order floor: %v", got)
+		t.Fatalf("a redemption met a blocker: %v", got)
 	}
 	if got := cashSweepEconomicsAdvisory(prop, preview); got.State != "partial_restoration" || got.NetProceeds == nil || *got.NetProceeds != 9990 || got.RemainingGap == nil || *got.RemainingGap != 10 {
 		t.Fatalf("sale fee or remaining target disappeared: %+v", got)
@@ -46,8 +50,8 @@ func TestCashSweepMinimumIsAWholeOrderInBaseOnBothSides(t *testing.T) {
 		t.Fatalf("whole-order floor failed: %v", got)
 	}
 	preview.Draft.LimitPrice = 99.99
-	if got := cashSweepEconomicsBlockers(prop, preview); !hasTradingBlocker(got, "cash_sweep_below_minimum_tranche") {
-		t.Fatalf("sale below gross floor admitted: %v", got)
+	if got := cashSweepEconomicsBlockers(prop, preview); len(got) != 0 {
+		t.Fatalf("a sale below the buy minimum was held: %v", got)
 	}
 	preview.Draft.LimitPrice = 100
 	preview.WhatIf.Margin.Commission, preview.WhatIf.Margin.MinCommission = nil, nil

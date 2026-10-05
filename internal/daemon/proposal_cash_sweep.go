@@ -128,7 +128,27 @@ type cashSweepInput struct {
 	Holdings     map[string][]cashSweepHolding
 	Unclassified map[string]string
 	BillSearch   map[string]cashSweepBillSearch
+	// NLVBase is the account's current net liquidation value in base
+	// currency; nil when it cannot be read.
+	NLVBase *float64
+	// PlannedNeeds is cash Canary knows planned exercises or withdrawals
+	// need (term c of the reserve).
+	PlannedNeeds cashSweepPlannedNeeds
 }
+
+// cashSweepPlannedNeeds is the reserve's third term: base-currency cash that
+// recorded, owner-approved plans will draw. Known false contributes 0 and
+// Reason says why, plainly.
+type cashSweepPlannedNeeds struct {
+	Known  bool
+	Base   float64
+	Reason string
+}
+
+// cashSweepPlannedNeedsUnavailable is why the live engine's term c is 0:
+// Canary holds no record of a planned draw it could count. Committed buys are
+// not added here because they are already deducted from each currency's cash.
+const cashSweepPlannedNeedsUnavailable = "no planned exercises or withdrawals are recorded: an approved exercise goes to the broker at once, and a withdrawal is recorded only after it happens; working and armed buys are already deducted as committed"
 
 // cashSweepCurrencyPlan is one currency's verdict and, for invest or
 // redeem, the order it asks for.
@@ -137,6 +157,15 @@ type cashSweepCurrencyPlan struct {
 	side   string
 	// Band figures, valid once the state is past the unknown posture.
 	cash, committed, free, pending, rate float64
+	// keep is the settlement float in force, bandKeep what the band keeps
+	// (the base currency's reserve included), carry the reserve shortfall
+	// this currency keeps before it invests, and tranche the retired native
+	// minimum (0 unless written).
+	keep, bandKeep, carry, tranche float64
+	keepKnown                      bool
+	// sizing is the generation's reserve and order bounds, shared by every
+	// currency; nil while a number is missing or NLV is unreadable.
+	sizing *rpc.CashSweepSizing
 	// Invest.
 	instrument  string
 	rung        int
@@ -184,14 +213,27 @@ func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time)
 		BaseCurrency: normCcy(in.BaseCurrency), TaxReviewedAt: string(bucket.TaxReviewedAt), TaxReviewed: bucket != nil && bucket.TaxReviewedAt != "",
 		NeedsYourNumber: bucket.missingNumbers(), Currencies: []rpc.TradeProposalCashSweepCurrency{},
 	}}
+	sizing, sizingReason := cashSweepSizingFor(bucket, in)
 	if bucket != nil && bucket.MaxOrderNotional > 0 {
 		plan.status.MaxOrderNotionalBase = new(bucket.MaxOrderNotional)
-		plan.status.MinOrderNotionalBase = bucket.MinOrderNotional
 		plan.status.MinNetGainBase = bucket.MinNetGain
 	}
+	if bucket != nil && bucket.MinOrderNotional != nil {
+		plan.status.MinOrderNotionalBase = *bucket.MinOrderNotional
+	}
+	if sizing != nil {
+		plan.status.MaxOrderNotionalBase = new(sizing.MaxOrderBase)
+	}
 	applyCashSweepReservePolicy(bucket, &in, &plan.status, now)
-	for _, ccy := range cashSweepCurrencies(bucket, in) {
-		cp := cashSweepPlanCurrency(bucket, in, ccy, now)
+	ccys := cashSweepCurrencies(bucket, in)
+	byCcy := map[string]cashSweepCurrencyPlan{}
+	for _, ccy := range ccys {
+		byCcy[ccy] = cashSweepPlanCurrency(bucket, in, ccy, now, sizing, sizingReason, 0)
+	}
+	cashSweepCarryReserve(bucket, in, now, sizing, sizingReason, byCcy)
+	plan.status.Sizing = rpc.CloneCashSweepSizing(sizing)
+	for _, ccy := range ccys {
+		cp := byCcy[ccy]
 		if bucket.reserveDesignEnabled() && plan.status.ReserveState != "ready" {
 			cp.side = ""
 			if cp.status.State == rpc.CashSweepStateInvest || cp.status.State == rpc.CashSweepStateRedeem || cp.status.State == rpc.CashSweepStateHold {
@@ -236,20 +278,33 @@ func cashSweepCurrencies(bucket *protectionCashSweepPolicy, in cashSweepInput) [
 	return slices.Sorted(maps.Keys(set))
 }
 
-func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput, ccy string, now time.Time) cashSweepCurrencyPlan {
+// cashSweepPlanCurrency measures one currency against its band. sizing is
+// the generation's reserve and order bounds (nil while a number is missing
+// or net liquidation value is unreadable, with sizingReason); carry is the
+// base reserve's shortfall, in this currency, kept before it invests.
+func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput, ccy string, now time.Time, sizing *rpc.CashSweepSizing, sizingReason string, carry float64) cashSweepCurrencyPlan {
 	cfg := bucket.currency(ccy)
+	keep, keepKnown := bucket.keepCash(ccy)
+	fileKeep := keep
 	if reserve, ok := in.EffectiveReserves[ccy]; ok {
-		cfg.KeepCash = reserve
+		keep = reserve
+	}
+	tranche := 0.0
+	if cfg.MinTranche != nil {
+		tranche = *cfg.MinTranche
 	}
 	targets := cashSweepRungTargets(cfg.MinMaturityDays, cfg.MaxMaturityDays, cfg.LadderRungs)
-	cp := cashSweepCurrencyPlan{status: rpc.TradeProposalCashSweepCurrency{
+	cp := cashSweepCurrencyPlan{keep: keep, bandKeep: keep, carry: carry, tranche: tranche, keepKnown: keepKnown, sizing: sizing, status: rpc.TradeProposalCashSweepCurrency{
 		Currency: ccy, Instruments: slices.Clone(cfg.Instruments), Fallback: cfg.Fallback,
-		NeedsYourNumber: cfg.missingNumbers(), KeepCash: cfg.KeepCash, MinTranche: cfg.MinTranche,
+		NeedsYourNumber: cfg.missingNumbers(), KeepCash: keep, MinTranche: tranche,
 		MinMaturityDays: cfg.MinMaturityDays, MaxMaturityDays: cfg.MaxMaturityDays, LadderRungs: cfg.LadderRungs,
 	}}
 	st := &cp.status
 	st.WebCashOriginalAsOf, st.SettledSourceKind = in.Ledger[ccy].WebCashOriginalAsOf, in.Ledger[ccy].SettledSourceKind
-	st.KeepCash = bucket.currency(ccy).KeepCash
+	st.KeepCash = fileKeep
+	if !keepKnown {
+		st.NeedsYourNumber = append(st.NeedsYourNumber, "keep_cash")
+	}
 	if reserve, ok := in.EffectiveReserves[ccy]; ok {
 		st.EffectiveReserve, st.BufferAllocation = new(reserve), new(in.BufferAllocations[ccy])
 		st.FundingNeed = new(in.FundingEvidence.FundingNative[ccy])
@@ -292,8 +347,18 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		cp.committed = in.Commitments.ByCurrency[ccy]
 		st.Committed = new(cp.committed)
 	}
+	if sizing != nil && cp.rate > 0 {
+		// The reserve is held in the base currency first (rate 1 there); the
+		// part keep_cash already holds is not kept twice.
+		if ccy == normCcy(sizing.BaseCurrency) {
+			cp.bandKeep = max(keep, sizing.ReserveBase/cp.rate)
+			st.ReserveHeld = new(cp.bandKeep - keep)
+		} else if carry > 0 {
+			st.ReserveHeld = new(carry)
+		}
+	}
 	if st.Cash != nil && st.Committed != nil {
-		cp.free = cp.cash - cp.committed - cfg.KeepCash
+		cp.free = cp.cash - cp.committed - cp.bandKeep - carry
 		st.Free = new(cp.free)
 	}
 	unclassified := nonEmptyString(in.Unclassified[ccy], in.Unclassified[""])
@@ -347,28 +412,140 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 	case len(plannable) == 0:
 		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: %s in [buckets.cash_sweep.currency.%s]; the ETF is the only instrument declared", strings.Join(cfg.missingNumbers(), ", "), ccy)
 		return cp
+	case !keepKnown:
+		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: keep_cash in [buckets.cash_sweep.currency.%s] or [buckets.cash_sweep]; %s holds until you write it", ccy, ccy)
+		return cp
+	case sizing == nil:
+		st.State, st.Reason = rpc.CashSweepStateHold, sizingReason
+		return cp
 	}
 
 	available := cp.cash - cp.committed
+	minimum := cashSweepMinimum(tranche, sizing.MinOrderBase, cp.rate)
 	switch {
 	case in.Settlement.Known && cp.pending > cashSweepMoneyEpsilon:
 		st.State, st.Reason = rpc.CashSweepStateHold, "pending bill-sale proceeds are restoring liquidity; do not reinvest before settlement"
-	case cp.free > cashSweepMinimum(bucket, cfg, cp.rate)+cashSweepMoneyEpsilon:
-		cashSweepPlanInvest(&cp, bucket, cfg, in, targets, faces, plannable)
-	case available+cp.pending < cfg.KeepCash-cashSweepMoneyEpsilon:
-		cashSweepPlanRedeem(&cp, bucket, cfg, holdings, now)
+	case available+cp.pending < cp.bandKeep-cashSweepMoneyEpsilon:
+		cashSweepPlanRedeem(&cp, sizing, cfg, holdings, now)
+	case cp.free > minimum+cashSweepMoneyEpsilon:
+		cashSweepPlanInvest(&cp, sizing, cfg, in, targets, faces, plannable)
 	default:
 		st.State = rpc.CashSweepStateHold
-		st.Reason = fmt.Sprintf("within the band: free cash %s is not above min_tranche %s, and cash less commitments %s is not below keep_cash %s",
-			formatBudgetMoney(cp.free, ccy), formatBudgetMoney(cfg.MinTranche, ccy), formatBudgetMoney(available+cp.pending, ccy), formatBudgetMoney(cfg.KeepCash, ccy))
+		st.Reason = fmt.Sprintf("within the band: free cash %s is not above the smallest order %s (min_order_notional %s), and cash less commitments %s is not below the %s it keeps; the cash stays cash",
+			formatBudgetMoney(cp.free, ccy), formatBudgetMoney(minimum, ccy), formatBudgetMoney(sizing.MinOrderBase, sizing.BaseCurrency), formatBudgetMoney(available+cp.pending, ccy), formatBudgetMoney(cp.bandKeep, ccy))
 	}
 	return cp
+}
+
+// cashSweepSizingFor computes the reserve and the order bounds in base
+// currency from the file's numbers (owner decision 2026-10-05 18:35 CEST).
+// Nil with no reason while a number is missing (the needs_your_number state
+// says which); nil with a reason when a figure they need cannot be read, so
+// the sweep holds rather than guess.
+func cashSweepSizingFor(bucket *protectionCashSweepPolicy, in cashSweepInput) (*rpc.CashSweepSizing, string) {
+	if !bucket.enabled() || len(bucket.missingNumbers()) > 0 {
+		return nil, ""
+	}
+	base := normCcy(in.BaseCurrency)
+	if base == "" {
+		return nil, "the account's base currency is unknown, so the reserve and order bounds cannot be computed; nothing is bought or sold"
+	}
+	sz := &rpc.CashSweepSizing{BaseCurrency: base, ReserveFloorBase: *bucket.ReserveFloorBase, ReservePctNLV: *bucket.ReservePctNLV,
+		MinOrderBase: *bucket.MinOrderNotional, MaxOrderNotionalBase: bucket.MaxOrderNotional, MaxOrderPctNLV: *bucket.MaxOrderPctNLV,
+		TradingMaxNotionalExempt: bucket.billsExempt()}
+	nlv := 0.0
+	if in.NLVBase != nil && positiveFinite(*in.NLVBase) {
+		nlv = *in.NLVBase
+		sz.NetLiquidationBase = new(nlv)
+	} else if sz.ReservePctNLV > 0 || sz.MaxOrderPctNLV > 0 {
+		return nil, "net liquidation value is unavailable, so reserve_pct_nlv and max_order_pct_nlv cannot be applied; the sweep holds: nothing is bought or sold"
+	}
+	sz.ReservePctNLVBase = sz.ReservePctNLV / 100 * nlv
+	sz.ReserveBase, sz.ReserveBound = sz.ReserveFloorBase, rpc.CashSweepReserveBoundFloor
+	if sz.ReservePctNLVBase > sz.ReserveBase+cashSweepMoneyEpsilon {
+		sz.ReserveBase, sz.ReserveBound = sz.ReservePctNLVBase, rpc.CashSweepReserveBoundPctNLV
+	}
+	planned := in.PlannedNeeds
+	switch {
+	case planned.Known && finiteProtectionOptionPolicyValue(planned.Base) && planned.Base >= 0:
+		sz.PlannedNeedsKnown, sz.PlannedNeedsBase = true, planned.Base
+		if planned.Base > sz.ReserveBase+cashSweepMoneyEpsilon {
+			sz.ReserveBase, sz.ReserveBound = planned.Base, rpc.CashSweepReserveBoundPlannedNeeds
+		}
+	case planned.Known:
+		sz.PlannedNeedsReason = "the recorded planned needs are not a finite amount; they add nothing"
+	default:
+		sz.PlannedNeedsReason = nonEmptyString(planned.Reason, cashSweepPlannedNeedsUnavailable)
+	}
+	sz.MaxOrderBase, sz.MaxOrderBound = sz.MaxOrderNotionalBase, rpc.CashSweepMaxOrderBoundNotional
+	if pct := sz.MaxOrderPctNLV / 100 * nlv; pct > sz.MaxOrderBase+cashSweepMoneyEpsilon {
+		sz.MaxOrderBase, sz.MaxOrderBound = pct, rpc.CashSweepMaxOrderBoundPctNLV
+	}
+	return sz, ""
+}
+
+// cashSweepCarryReserve keeps the part of the reserve the base currency
+// cannot hold in the other currencies before they invest: largest free cash
+// (in base) first, each keeping what it can. Unknown base cash holds every
+// other currency's buy, because the reserve cannot then be shown funded. A
+// carried shortfall never makes another currency sell: the base currency
+// redeems its own bills to restore the reserve.
+func cashSweepCarryReserve(bucket *protectionCashSweepPolicy, in cashSweepInput, now time.Time, sizing *rpc.CashSweepSizing, sizingReason string, plans map[string]cashSweepCurrencyPlan) {
+	if sizing == nil || sizing.ReserveBase <= 0 {
+		return
+	}
+	base := normCcy(sizing.BaseCurrency)
+	bp, ok := plans[base]
+	known := ok && bp.status.Cash != nil && bp.status.Committed != nil && bp.rate > 0
+	shortfall := 0.0
+	if known {
+		shortfall = max(0, sizing.ReserveBase-(bp.cash-bp.committed+bp.pending)*bp.rate)
+		sizing.ReserveShortfallBase = shortfall
+	}
+	var others []string
+	for ccy, cp := range plans {
+		if ccy != base && cp.side == rpc.CashSweepSideInvest {
+			others = append(others, ccy)
+		}
+	}
+	slices.SortFunc(others, func(a, b string) int {
+		if c := cmpFloatDesc(plans[a].free*plans[a].rate, plans[b].free*plans[b].rate); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	for _, ccy := range others {
+		cp := plans[ccy]
+		if !known {
+			cp.side = ""
+			cp.status.State = rpc.CashSweepStateHold
+			cp.status.Reason = fmt.Sprintf("the reserve is held in %s, whose cash is not known, so it cannot be shown funded; %s does not invest until it is", base, ccy)
+			plans[ccy] = cp
+			continue
+		}
+		if shortfall <= cashSweepMoneyEpsilon {
+			break
+		}
+		held := min(shortfall, max(0, cp.free*cp.rate))
+		shortfall -= held
+		plans[ccy] = cashSweepPlanCurrency(bucket, in, ccy, now, sizing, sizingReason, held/cp.rate)
+	}
+}
+
+func cmpFloatDesc(a, b float64) int {
+	switch {
+	case a > b:
+		return -1
+	case a < b:
+		return 1
+	}
+	return 0
 }
 
 // cashSweepPlanInvest sizes one buy: the free cash, held to max_order_notional
 // at the ledger rate, into the rung that holds least face value. A held order
 // below min_tranche is no order.
-func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepPolicy, cfg protectionCashSweepCurrency, in cashSweepInput, targets []int, faces []float64, plannable []string) {
+func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, sizing *rpc.CashSweepSizing, cfg protectionCashSweepCurrency, in cashSweepInput, targets []int, faces []float64, plannable []string) {
 	st := &cp.status
 	ccy := st.Currency
 	instrument := plannable[0]
@@ -390,13 +567,14 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 			return
 		}
 	}
-	capCcy := bucket.MaxOrderNotional / cp.rate
+	capCcy := sizing.MaxOrderBase / cp.rate
 	order := min(cp.free, capCcy)
 	cp.heldToCap = capCcy < cp.free-cashSweepMoneyEpsilon
-	if order < cashSweepMinimum(bucket, cfg, cp.rate)-cashSweepMoneyEpsilon {
+	minimum := cashSweepMinimum(cp.tranche, sizing.MinOrderBase, cp.rate)
+	if order < minimum-cashSweepMoneyEpsilon {
 		st.State = rpc.CashSweepStateHold
-		st.Reason = fmt.Sprintf("max_order_notional %s holds one order to %s, below min_tranche %s; nothing is swept",
-			formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(in.BaseCurrency, "base")), formatBudgetMoney(order, ccy), formatBudgetMoney(cfg.MinTranche, ccy))
+		st.Reason = fmt.Sprintf("the order cap %s (%s) holds one order to %s, below the smallest order %s; nothing is swept",
+			formatBudgetMoney(sizing.MaxOrderBase, sizing.BaseCurrency), sizing.MaxOrderBound, formatBudgetMoney(order, ccy), formatBudgetMoney(minimum, ccy))
 		return
 	}
 	cp.side, cp.instrument, cp.orderAmount = rpc.CashSweepSideInvest, instrument, order
@@ -413,10 +591,10 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 	if instrument == cashSweepInstrumentETF {
 		measure = "worth"
 	}
-	st.Reason = fmt.Sprintf("free cash %s is above min_tranche %s: buy %s %s of %s, rung %d (%d days)",
-		formatBudgetMoney(cp.free, ccy), formatBudgetMoney(cfg.MinTranche, ccy), formatBudgetMoney(float64(cp.quantity), ccy), measure, instrument, cp.rung, cp.targetDays)
+	st.Reason = fmt.Sprintf("free cash %s is above the smallest order %s: buy %s %s of %s, rung %d (%d days)",
+		formatBudgetMoney(cp.free, ccy), formatBudgetMoney(minimum, ccy), formatBudgetMoney(float64(cp.quantity), ccy), measure, instrument, cp.rung, cp.targetDays)
 	if cp.heldToCap {
-		st.Reason += "; max_order_notional holds this order, and the next cycle sweeps the rest"
+		st.Reason += fmt.Sprintf("; the order cap %s holds this order, and the next cycle sweeps the rest", formatBudgetMoney(sizing.MaxOrderBase, sizing.BaseCurrency))
 	}
 }
 
@@ -424,11 +602,18 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 // held, to cover the gap below keep_cash, held to max_order_notional at the
 // ledger rate like a buy (the next cycle sells the rest). A held bill that
 // pays out before a sale today would settle makes the sale pointless.
-func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepPolicy, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, now time.Time) {
+//
+// A redemption restores the reserve or keep_cash, so it is never held to the
+// smallest order: it sells what the gap needs, on the bill's size grid.
+func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, sizing *rpc.CashSweepSizing, cfg protectionCashSweepCurrency, holdings []cashSweepHolding, now time.Time) {
 	today := cashSweepDay(now)
 	st := &cp.status
 	ccy := st.Currency
-	cp.gap = cfg.KeepCash - (cp.cash - cp.committed + cp.pending)
+	keepWord := "keep_cash"
+	if cp.bandKeep > cp.keep+cashSweepMoneyEpsilon {
+		keepWord = "the reserve"
+	}
+	cp.gap = cp.bandKeep - (cp.cash - cp.committed + cp.pending)
 	candidates := slices.Clone(holdings)
 	slices.SortStableFunc(candidates, func(a, b cashSweepHolding) int {
 		// Bills first, nearest maturity first; the ETF (zero maturity) last.
@@ -455,8 +640,8 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 	}
 	if pick == nil {
 		st.State = rpc.CashSweepStateHold
-		st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s, and no cash equivalent in %s is held to redeem",
-			formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), ccy)
+		st.Reason = fmt.Sprintf("cash less commitments is below %s %s by %s, and no cash equivalent in %s is held to redeem",
+			keepWord, formatBudgetMoney(cp.bandKeep, ccy), formatBudgetMoney(cp.gap, ccy), ccy)
 		return
 	}
 	if !pick.Maturity.IsZero() {
@@ -468,34 +653,34 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, bucket *protectionCashSweepP
 		}
 		if !pick.Maturity.After(settles) {
 			st.State = rpc.CashSweepStateHold
-			st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s, but a held bill pays out on %s, before a sale today would settle",
-				formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), pick.Maturity.Format(time.DateOnly))
+			st.Reason = fmt.Sprintf("cash less commitments is below %s %s by %s, but a held bill pays out on %s, before a sale today would settle",
+				keepWord, formatBudgetMoney(cp.bandKeep, ccy), formatBudgetMoney(cp.gap, ccy), pick.Maturity.Format(time.DateOnly))
 			return
 		}
 	}
 	held := int(math.Floor(pick.Row.Quantity + 1e-9))
 	unit := pick.MarketValue / pick.Row.Quantity
-	target := max(cp.gap, cashSweepMinimum(bucket, cfg, cp.rate))
+	target := cp.gap
 	needed := min(int(math.Ceil(target/unit-1e-9)), held)
-	cp.capUnits = int(math.Floor(bucket.MaxOrderNotional/cp.rate/unit + 1e-9))
+	cp.capUnits = int(math.Floor(sizing.MaxOrderBase/cp.rate/unit + 1e-9))
 	if cp.capUnits < 1 {
 		st.State = rpc.CashSweepStateHold
-		st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s, but max_order_notional %s holds one sale below one unit worth %s; nothing is sold",
-			formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), formatBudgetMoney(bucket.MaxOrderNotional, "base"), formatBudgetMoney(unit, ccy))
+		st.Reason = fmt.Sprintf("cash less commitments is below %s %s by %s, but the order cap %s holds one sale below one unit worth %s; nothing is sold",
+			keepWord, formatBudgetMoney(cp.bandKeep, ccy), formatBudgetMoney(cp.gap, ccy), formatBudgetMoney(sizing.MaxOrderBase, sizing.BaseCurrency), formatBudgetMoney(unit, ccy))
 		return
 	}
 	cp.heldToCap = cp.capUnits < needed
 	cp.quantity = max(1, min(needed, cp.capUnits))
-	cp.side, cp.instrument, cp.holding, cp.orderAmount = rpc.CashSweepSideRedeem, pick.Instrument, pick, min(target, bucket.MaxOrderNotional/cp.rate)
+	cp.side, cp.instrument, cp.holding, cp.orderAmount = rpc.CashSweepSideRedeem, pick.Instrument, pick, min(target, sizing.MaxOrderBase/cp.rate)
 	st.State = rpc.CashSweepStateRedeem
 	what := "the declared ETF"
 	if !pick.Maturity.IsZero() {
 		what = "the bill maturing " + pick.Maturity.Format(time.DateOnly)
 	}
-	st.Reason = fmt.Sprintf("cash less commitments is below keep_cash %s by %s: sell %d of %d of %s",
-		formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.gap, ccy), cp.quantity, held, what)
+	st.Reason = fmt.Sprintf("cash less commitments is below %s %s by %s: sell %d of %d of %s (a sale that restores cash is never held to the smallest order)",
+		keepWord, formatBudgetMoney(cp.bandKeep, ccy), formatBudgetMoney(cp.gap, ccy), cp.quantity, held, what)
 	if cp.heldToCap {
-		st.Reason += "; max_order_notional holds this sale, and the next cycle sells the rest"
+		st.Reason += "; the order cap holds this sale, and the next cycle sells the rest"
 	}
 }
 
@@ -634,30 +819,35 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan cashSweepPlan, cp cashSweepCurrencyPlan) rpc.TradeProposal {
 	bucket := policy.Buckets.CashSweep
 	cfg := bucket.currency(cp.status.Currency)
-	if cp.status.EffectiveReserve != nil {
-		cfg.KeepCash = *cp.status.EffectiveReserve
+	sizing := cp.sizing
+	if sizing == nil {
+		sizing = &rpc.CashSweepSizing{}
 	}
 	ccy := cp.status.Currency
 	route := cashSweepRouteFor(ccy, cfg, now)
 	block := &rpc.TradeProposalCashSweep{
 		PriorityRank: cp.status.PriorityRank,
 		Mode:         plan.status.Mode, Side: cp.side, Currency: ccy, Instrument: cp.instrument, OrderAmount: cp.orderAmount,
-		Cash: cp.cash, Committed: cp.committed, KeepCash: cfg.KeepCash, Free: cp.free, MinTranche: cfg.MinTranche,
-		MinOrderNotionalBase: bucket.MinOrderNotional, MinNetGainBase: bucket.MinNetGain,
+		Cash: cp.cash, Committed: cp.committed, KeepCash: cp.keep, Free: cp.free, MinTranche: cp.tranche,
+		MinOrderNotionalBase: sizing.MinOrderBase, MinNetGainBase: bucket.MinNetGain,
+		ReserveHeld: cp.bandKeep - cp.keep + cp.carry, Sizing: rpc.CloneCashSweepSizing(cp.sizing),
 		CashInterestRateUpper: cloneFloat64Ptr(cfg.CashInterestRateUpper), CashInterestValidThrough: string(cfg.CashInterestValidThrough),
 		SettlementDays: route.days, SettlementExchange: route.exchange, SettlementValidThrough: route.validThrough, SettlementSource: route.source,
 		Session: rpc.CloneBondSession(cp.session),
 	}
 	var p rpc.TradeProposal
-	details := []string{fmt.Sprintf("cash %s (the lower of trade-date %s and settled %s) · committed %s · keep_cash %s · free %s",
+	details := []string{fmt.Sprintf("cash %s (the lower of trade-date %s and settled %s) · committed %s · keep_cash %s · reserve held here %s · free %s",
 		formatBudgetMoney(cp.cash, ccy), formatBudgetMoney(derefFloat(cp.status.TradeDateCash), ccy), formatBudgetMoney(derefFloat(cp.status.SettledCash), ccy),
-		formatBudgetMoney(cp.committed, ccy), formatBudgetMoney(cfg.KeepCash, ccy), formatBudgetMoney(cp.free, ccy))}
+		formatBudgetMoney(cp.committed, ccy), formatBudgetMoney(cp.keep, ccy), formatBudgetMoney(cp.bandKeep-cp.keep+cp.carry, ccy), formatBudgetMoney(cp.free, ccy))}
+	if cp.sizing != nil {
+		details = append(details, cashSweepSizingDetail(*cp.sizing))
+	}
 	var blockers []rpc.TradingBlocker
 	switch cp.side {
 	case rpc.CashSweepSideInvest:
 		block.Rung, block.TargetDays = cp.rung, cp.targetDays
 		block.MinMaturityDays, block.MaxMaturityDays = cfg.MinMaturityDays, cfg.MaxMaturityDays
-		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
+		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = sizing.MaxOrderBase, cp.rate, cp.heldToCap
 		b := cp.bill
 		if b == nil {
 			p = cashSweepProposal(policy, status, sources, now, cashSweepInvestContract(cfg, ccy, cp.instrument), cashSweepKey(ccy, rpc.CashSweepSideInvest, cp.instrument, 0),
@@ -686,8 +876,8 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		p.Notional = block.EstimatedCost
 		details = append(details, fmt.Sprintf("rung %d of %d targets %d days; the bill must mature in %d–%d days", cp.rung, cfg.LadderRungs, cp.targetDays, cfg.MinMaturityDays, cfg.MaxMaturityDays))
 		if cp.heldToCap {
-			details = append(details, fmt.Sprintf("order held to %s by max_order_notional %s at %.4f; the next cycle sweeps the rest",
-				formatBudgetMoney(cp.orderAmount, ccy), formatBudgetMoney(bucket.MaxOrderNotional, nonEmptyString(plan.status.BaseCurrency, "base")), cp.rate))
+			details = append(details, fmt.Sprintf("order held to %s by the order cap %s (%s) at %.4f; the next cycle sweeps the rest",
+				formatBudgetMoney(cp.orderAmount, ccy), formatBudgetMoney(sizing.MaxOrderBase, nonEmptyString(plan.status.BaseCurrency, "base")), sizing.MaxOrderBound, cp.rate))
 		}
 		quote := "live"
 		if !b.QuoteFresh {
@@ -715,7 +905,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		}
 		block.QuantityUnit = rpc.CashSweepQuantityPosition
 		block.RedemptionTarget = cp.gap
-		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = bucket.MaxOrderNotional, cp.rate, cp.heldToCap
+		block.MaxOrderNotionalBase, block.ExchangeRate, block.HeldToCap = sizing.MaxOrderBase, cp.rate, cp.heldToCap
 		if !h.Maturity.IsZero() {
 			block.MaturityDate = h.Maturity.Format(time.DateOnly)
 			block.MaturitySource, block.MaturitySourceAsOf = h.Bond.MaturitySource, h.Bond.MaturitySourceAsOf
@@ -731,7 +921,7 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		if cp.rules != nil && qty != cp.quantity {
 			details = append(details, fmt.Sprintf("the sale of %d is rounded to %d on the bill's size grid (minimum %d, step %d)", cp.quantity, qty, cp.rules.Minimum(), cp.rules.Step()))
 		}
-		details = append(details, fmt.Sprintf("pending redemptions %s count toward keep_cash until they settle", formatBudgetMoney(cp.pending, ccy)))
+		details = append(details, fmt.Sprintf("pending redemptions %s count toward the cash kept until they settle", formatBudgetMoney(cp.pending, ccy)))
 		blockers = append(blockers, cp.blockers...)
 	}
 	if s := block.Session; s != nil && len(s.Windows) > 0 {
@@ -763,6 +953,30 @@ func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, so
 		p.Blockers = append([]rpc.TradingBlocker{cashSweepShadowBlocker()}, p.Blockers...)
 	}
 	return p
+}
+
+// cashSweepSizingDetail is the row's one-line account of the reserve and the
+// order bounds, for example "kept as cash: 23,300 EUR (10% of NLV)".
+func cashSweepSizingDetail(sz rpc.CashSweepSizing) string {
+	var why string
+	switch sz.ReserveBound {
+	case rpc.CashSweepReserveBoundPctNLV:
+		why = fmt.Sprintf("%s%% of NLV %s", strconv.FormatFloat(sz.ReservePctNLV, 'f', -1, 64), formatBudgetMoney(derefFloat(sz.NetLiquidationBase), sz.BaseCurrency))
+	case rpc.CashSweepReserveBoundPlannedNeeds:
+		why = "planned exercises and withdrawals"
+	default:
+		why = "the reserve floor"
+	}
+	maxWhy := "max_order_notional"
+	if sz.MaxOrderBound == rpc.CashSweepMaxOrderBoundPctNLV {
+		maxWhy = strconv.FormatFloat(sz.MaxOrderPctNLV, 'f', -1, 64) + "% of NLV"
+	}
+	out := fmt.Sprintf("kept as cash: %s (%s), held in %s; orders from %s to %s (%s)",
+		formatBudgetMoney(sz.ReserveBase, sz.BaseCurrency), why, sz.BaseCurrency, formatBudgetMoney(sz.MinOrderBase, sz.BaseCurrency), formatBudgetMoney(sz.MaxOrderBase, sz.BaseCurrency), maxWhy)
+	if !sz.PlannedNeedsKnown {
+		out += "; planned needs add nothing: " + sz.PlannedNeedsReason
+	}
+	return out
 }
 
 // cashSweepSessionSource words where a bill session's hours came from.
@@ -887,12 +1101,24 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 		cashNow = e.server.nowUTC()
 	}
 	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, cashNow)
+	in.NLVBase = cashSweepNLV(acct)
+	in.PlannedNeeds = cashSweepPlannedNeeds{Reason: cashSweepPlannedNeedsUnavailable}
 	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
 	e.attachFlexCashProjections(ctx, policy.Buckets.CashSweep, acct, scope, &in)
 	if policy.Buckets.CashSweep.reserveDesignEnabled() {
 		in.OperationalFunding, in.CalibrationStudies = e.observeCashSweepFunding(acct, pos, scope, in, cashNow)
 	}
 	return in
+}
+
+// cashSweepNLV is the account's net liquidation value in base currency from
+// a current account read for the connected account; nil otherwise.
+func cashSweepNLV(acct *rpc.AccountResult) *float64 {
+	if acct == nil || !currentPortfolioAuthority(acct.Authority) || acct.AccountID != acct.Authority.Scope.AccountID ||
+		acct.Authority.Fields == nil || !acct.Authority.Fields.NetLiquidation || !positiveFinite(acct.NetLiquidation) {
+		return nil
+	}
+	return new(acct.NetLiquidation)
 }
 
 // cashSweepLedger reads cash per currency from a current one-shot account

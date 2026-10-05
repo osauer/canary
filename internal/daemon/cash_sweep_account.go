@@ -244,6 +244,9 @@ func cashSweepNeedsYourNumber(p *protectionCashSweepPolicy) []string {
 	if missing := p.missingNumbers(); len(missing) > 0 {
 		out = append(out, "cash sweep: holds until you write "+strings.Join(missing, ", ")+" in [buckets.cash_sweep]")
 	}
+	if p.KeepCash == nil {
+		out = append(out, "cash sweep: a currency without its own keep_cash holds until you write keep_cash in [buckets.cash_sweep]")
+	}
 	for _, ccy := range slices.Sorted(maps.Keys(p.Currency)) {
 		if missing := p.Currency[ccy].missingNumbers(); len(missing) > 0 {
 			out = append(out, fmt.Sprintf("cash sweep: the %s ETF needs %s in [buckets.cash_sweep.currency.%s]", ccy, strings.Join(missing, ", "), ccy))

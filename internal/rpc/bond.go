@@ -243,6 +243,11 @@ type OrderBondTerms struct {
 	SizeIncrement   float64 `json:"size_increment,omitempty"`
 	// FaceValue is quantity × FacePerUnit, in the contract's currency.
 	FaceValue float64 `json:"face_value,omitempty"`
+	// TradingCapExemptUpToBase is set only by the daemon, for a cash_sweep
+	// row whose policy writes bills_exempt_from_trading_max_notional = true:
+	// the bill order may pass [trading].max_notional up to this base notional
+	// (the sweep's order cap in force), never beyond. Zero exempts nothing.
+	TradingCapExemptUpToBase float64 `json:"trading_cap_exempt_up_to_base,omitempty"`
 }
 
 // CloneOrderBondTerms copies bond terms; nil stays nil.

@@ -148,7 +148,9 @@ func TestProtectionAndConstitutionTemplatesShowEveryKey(t *testing.T) {
 		data []byte
 		skip map[string]bool
 	}{
-		"protection":   {reflect.TypeFor[protectionPolicy](), ProtectionPolicyTemplate("v9.9.9"), nil},
+		// min_tranche is retired in favour of min_order_notional: readable in
+		// an old file, never shown or written.
+		"protection":   {reflect.TypeFor[protectionPolicy](), ProtectionPolicyTemplate("v9.9.9"), map[string]bool{"min_tranche": true}},
 		"constitution": {reflect.TypeFor[risk.Constitution](), ConstitutionPolicyTemplate("v9.9.9"), map[string]bool{"cadence": true}},
 	} {
 		text := string(tc.data)
@@ -180,7 +182,7 @@ func tomlLeafKeys(typ reflect.Type, skip map[string]bool) []string {
 			if f.Type.Kind() == reflect.Slice {
 				out = append(out, tag)
 			}
-			out = append(out, tomlLeafKeys(inner, nil)...)
+			out = append(out, tomlLeafKeys(inner, skip)...)
 			continue
 		}
 		out = append(out, tag)

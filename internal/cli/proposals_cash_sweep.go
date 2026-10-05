@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -102,6 +103,12 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 	if st.Shadow && rows > 0 {
 		parts = append(parts, "listed for observation; preview and submit refuse them")
 	}
+	if sz := st.Sizing; sz != nil {
+		parts = append(parts, "kept as cash "+cashSweepMoney(sz.ReserveBase, sz.BaseCurrency)+" ("+cashSweepReserveBoundWords(sz)+")")
+		if sz.ReserveShortfallBase > 0 {
+			parts = append(parts, cashSweepMoney(sz.ReserveShortfallBase, sz.BaseCurrency)+" of it kept in other currencies")
+		}
+	}
 	if st.MaxOrderNotionalBase != nil {
 		parts = append(parts, "max order "+cashSweepMoney(*st.MaxOrderNotionalBase, st.BaseCurrency))
 	}
@@ -125,6 +132,17 @@ func formatCashSweepStatus(st *rpc.TradeProposalCashSweepStatus, rows int) strin
 	return strings.Join(parts, " · ")
 }
 
+// cashSweepReserveBoundWords names which term bound the reserve.
+func cashSweepReserveBoundWords(sz *rpc.CashSweepSizing) string {
+	switch sz.ReserveBound {
+	case rpc.CashSweepReserveBoundPctNLV:
+		return strconv.FormatFloat(sz.ReservePctNLV, 'f', -1, 64) + "% of NLV"
+	case rpc.CashSweepReserveBoundPlannedNeeds:
+		return "planned exercises and withdrawals"
+	}
+	return "reserve floor"
+}
+
 // formatCashSweepCurrency is one currency's band: the figures it has, the
 // reason, and any number only the owner can write.
 func formatCashSweepCurrency(c rpc.TradeProposalCashSweepCurrency) string {
@@ -139,6 +157,7 @@ func formatCashSweepCurrency(c rpc.TradeProposalCashSweepCurrency) string {
 	money("funding", c.FundingNeed)
 	money("cushion", c.BufferAllocation)
 	money("reserve", c.EffectiveReserve)
+	money("reserve held", c.ReserveHeld)
 	if c.Cash != nil {
 		parts = append(parts, "keep "+cashSweepMoney(c.KeepCash, c.Currency))
 	}

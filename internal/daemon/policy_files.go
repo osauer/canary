@@ -673,21 +673,48 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 }
 
 // migrateProtectionPolicyFile comments out retired keys, naming where each
-// concept went and the value the owner had. It adds no keys: an absent
+// concept went and the value the owner had. It adds no table: an absent
 // protection table has its own meaning (an absent bucket table is disabled),
-// so filling one in could switch a bucket on.
+// so filling one in could switch a bucket on. Into an existing
+// [buckets.cash_sweep] section it writes each missing sizing number at the
+// owner-approved value (cashSweepWrittenDefaults) and raises policy_version,
+// because the sweep reads those numbers from the file only; every value the
+// file already writes is kept (owner decision 2026-10-05 18:35 CEST).
 func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string, []string, error) {
 	before, _, err := parseProtectionPolicy(data)
 	if err != nil {
 		return data, nil, nil, err
 	}
 	var raw map[string]any
-	if _, err := toml.Decode(string(data), &raw); err != nil {
+	md, err := toml.Decode(string(data), &raw)
+	if err != nil {
 		return data, nil, nil, err
 	}
 	flat := flattenTOMLMap(raw)
 	doc := parseTOMLDoc(data)
 	var changes, notes []string
+	materialised := false
+	if md.IsDefined("buckets", "cash_sweep") {
+		var missing []cashSweepWrittenDefault
+		for _, d := range cashSweepWrittenDefaults {
+			if !md.IsDefined("buckets", "cash_sweep", d.key) {
+				missing = append(missing, d)
+			}
+		}
+		switch {
+		case len(missing) == 0:
+		case doc.headerLine("buckets.cash_sweep") < 0:
+			notes = append(notes, "[buckets.cash_sweep] is not a plain section, so its missing sizing numbers were not written; the sweep holds until you write them")
+		default:
+			for _, d := range missing {
+				doc.insert("buckets.cash_sweep", []string{fmt.Sprintf("%s = %s  # written by Canary %s; the sweep reads it from this file only", d.key, d.value, release)})
+				changes = append(changes, fmt.Sprintf("added buckets.cash_sweep.%s = %s", d.key, d.value))
+			}
+			doc.set("", "policy_version", strconv.Itoa(before.PolicyVersion+1), nil)
+			changes = append(changes, fmt.Sprintf("raised policy_version %d to %d: the sweep sizing numbers above take effect", before.PolicyVersion, before.PolicyVersion+1))
+			materialised = true
+		}
+	}
 	keys := make([]string, 0, len(retiredProtectionKeys))
 	for k := range retiredProtectionKeys {
 		keys = append(keys, k)
@@ -718,10 +745,47 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 	if err != nil {
 		return data, nil, notes, fmt.Errorf("migrated file does not parse: %w", err)
 	}
-	if fingerprintProtectionPolicy(before).Key != fingerprintProtectionPolicy(after).Key {
+	if !materialised && fingerprintProtectionPolicy(before).Key != fingerprintProtectionPolicy(after).Key {
 		return data, nil, notes, fmt.Errorf("migration would change the policy in force; nothing written")
 	}
+	if materialised && !protectionMaterialisationPreserves(before, after) {
+		return data, nil, notes, fmt.Errorf("migration would change more than the missing cash sweep numbers; nothing written")
+	}
 	return out, changes, notes, nil
+}
+
+// protectionMaterialisationKey is the effective protection key with the
+// cash sweep's materialisable sizing numbers cleared: a conversion that only
+// writes missing numbers keeps it.
+func protectionMaterialisationKey(p protectionPolicy) string {
+	if c := p.Buckets.CashSweep; c != nil {
+		cleared := *c
+		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
+		cleared.ReserveFloorBase, cleared.ReservePctNLV, cleared.KeepCash, cleared.BillsExemptFromTradingMaxNotional = nil, nil, nil, nil
+		p.Buckets.CashSweep = &cleared
+	}
+	return effectiveProtectionPolicy(p).Key
+}
+
+// protectionMaterialisationPreserves reports whether after differs from
+// before only by cash sweep sizing numbers before did not write.
+func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
+	if protectionMaterialisationKey(before) != protectionMaterialisationKey(after) {
+		return false
+	}
+	b, a := before.Buckets.CashSweep, after.Buckets.CashSweep
+	if b == nil || a == nil {
+		return b == a
+	}
+	if b.MaxOrderNotional != 0 && b.MaxOrderNotional != a.MaxOrderNotional {
+		return false
+	}
+	for _, f := range [][2]*float64{{b.MaxOrderPctNLV, a.MaxOrderPctNLV}, {b.MinOrderNotional, a.MinOrderNotional}, {b.ReserveFloorBase, a.ReserveFloorBase}, {b.ReservePctNLV, a.ReservePctNLV}, {b.KeepCash, a.KeepCash}} {
+		if f[0] != nil && (f[1] == nil || *f[0] != *f[1]) {
+			return false
+		}
+	}
+	return b.BillsExemptFromTradingMaxNotional == nil || (a.BillsExemptFromTradingMaxNotional != nil && *a.BillsExemptFromTradingMaxNotional == *b.BillsExemptFromTradingMaxNotional)
 }
 
 // ProtectionPolicyTemplate renders Canary's protection defaults as a complete
@@ -829,15 +893,21 @@ allow_short_profit_trail = %t
 }
 
 // writeCashSweepTemplate appends the cash sweep as a commented placeholder:
-// the order cap and the tax review are the owner's, so the file Canary
-// writes leaves the sweep off. The EUR block shows the compiled defaults and
-// the owner-approved example fallback ETF (decision O3).
+// the sweep is the owner's to switch on, so the file Canary writes leaves it
+// off. The sizing lines show the values policy ensure writes into an enabled
+// table (cashSweepWrittenDefaults); the EUR block shows the compiled
+// instrument defaults and the owner-approved example fallback ETF (O3).
 func writeCashSweepTemplate(b *strings.Builder) {
 	eur := defaultCashSweepCurrency("EUR")
+	written := map[string]string{}
+	for _, d := range cashSweepWrittenDefaults {
+		written[d.key] = d.value
+	}
 	fmt.Fprintf(b, `
-# Cash sweep: puts cash above keep_cash into bills of the same currency and
-# never converts. max_order_notional is your number, so Canary writes none;
-# until you write it the sweep reports that it needs your number. In active
+# Cash sweep: keeps a reserve as cash and puts the rest into bills of the same
+# currency; it never converts. Every sizing number is read from this file
+# only: a missing one holds the sweep at needs_your_number naming the key, and
+# canary policy ensure writes the values shown below. In active
 # mode a row is an ordinary proposal: its bill order (BILL or BOND, LMT DAY) is
 # previewed under every gate and placed on your approval, or by the daemon
 # after the full veto window when cash_sweep is under pre_authorised. USD bills
@@ -855,8 +925,22 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # reserve_cushion_eur = 10000.0   # ONE total cushion; funding-weighted EUR/USD split
 # These opt into calibrated reserves. Missing funding/stress/exit evidence holds;
 # configuration cannot commission the unfinished reserve observer or authorize FX.
-# max_order_notional = 0.0   # one order, in base currency; owner must choose
-# min_order_notional = 10000.0   # whole-order floor in base, both BUY and net SELL
+# Reserve kept as cash, in base: the largest of reserve_floor_base,
+# reserve_pct_nlv of net liquidation value and cash planned exercises or
+# withdrawals need. It is held in the base currency; what base cash cannot
+# hold is kept in the other currencies before they invest.
+# reserve_floor_base = %s
+# reserve_pct_nlv = %s   # percent of NLV
+# One order, in base: at least min_order_notional (a redemption that restores
+# cash is never held to it), at most the larger of max_order_notional and
+# max_order_pct_nlv of NLV.
+# min_order_notional = %s
+# max_order_notional = %s
+# max_order_pct_nlv = %s   # percent of NLV
+# keep_cash = %s   # settlement float in each currency's own unit; a currency table may override it
+# Same-currency bill orders may pass [trading].max_notional up to the sweep's
+# own cap in force; anything else keeps the trading cap. Absent means false.
+# bills_exempt_from_trading_max_notional = %s
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #
@@ -866,8 +950,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # fallback = %q   # used only after a contract search finds no bill line
 # etf_symbol = "XEON"   # example: a euro money-market ETF on Xetra
 # etf_exchange = "IBIS"   # Xetra
-# keep_cash = %s
-# min_tranche = %s   # legacy native floor; combined with the base floor above
+# keep_cash = %s   # overrides the bucket's keep_cash for EUR
 # cash_interest_rate_upper = 0.0   # EXAMPLE ONLY: review an annual decimal upper bound; missing is unknown
 # cash_interest_valid_through = 2026-01-01   # EXAMPLE ONLY: expires; does not attest today's rate
 # settlement_exchange = "SMART"   # optional override; Canary's route needs no line here
@@ -876,7 +959,8 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # min_maturity_days = %d
 # max_maturity_days = %d
 # ladder_rungs = %d
-`, eur.Instruments[0], eur.Instruments[1], eur.Fallback, tomlFloat(eur.KeepCash), tomlFloat(eur.MinTranche), eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
+`, written["reserve_floor_base"], written["reserve_pct_nlv"], written["min_order_notional"], written["max_order_notional"], written["max_order_pct_nlv"], written["keep_cash"],
+		written["bills_exempt_from_trading_max_notional"], eur.Instruments[0], eur.Instruments[1], eur.Fallback, written["keep_cash"], eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
 }
 
 // OpportunityPolicyTemplate renders Canary's option-exercise defaults as a

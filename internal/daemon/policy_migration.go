@@ -47,16 +47,29 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		out = doc.bytes()
 		changes = append(changes, "use canonical kind "+kind+" (legacy alias remains readable)")
 	}
-	beforeKey, err := effectivePolicyFileKey(k.name, data)
+	keyOf := effectivePolicyFileKey
+	if k.name == PolicyFileProtection {
+		// Writing the cash sweep's missing sizing numbers is the one
+		// protection conversion that changes the policy in force;
+		// migrateProtectionPolicyFile proves it changes nothing else.
+		keyOf = protectionMaterialisationFileKey
+	}
+	beforeKey, err := keyOf(k.name, data)
 	if err != nil {
 		return nil, nil, notes, err
 	}
-	afterKey, err := effectivePolicyFileKey(k.name, out)
+	afterKey, err := keyOf(k.name, out)
 	if err != nil || beforeKey == "" || beforeKey != afterKey {
 		return nil, nil, notes, fmt.Errorf("conversion would change effective %s settings; nothing written: %v", k.name, err)
 	}
 	if len(changes) > 0 && !bytes.Equal(data, out) {
-		out = append(out, []byte("\n# Format/comment migration by Canary "+sanitizeReleaseLabel(release)+"; effective settings verified unchanged.\n")...)
+		trailer := "; effective settings verified unchanged."
+		if exactBefore, err := effectivePolicyFileKey(k.name, data); err == nil {
+			if exactAfter, err := effectivePolicyFileKey(k.name, out); err == nil && exactBefore != exactAfter {
+				trailer = "; missing cash sweep numbers written, every other setting verified unchanged."
+			}
+		}
+		out = append(out, []byte("\n# Format/comment migration by Canary "+sanitizeReleaseLabel(release)+trailer+"\n")...)
 	}
 	return out, changes, notes, nil
 }
@@ -82,6 +95,14 @@ func effectivePolicyFileKey(name string, data []byte) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown policy %q", name)
 	}
+}
+
+func protectionMaterialisationFileKey(_ string, data []byte) (string, error) {
+	p, _, err := parseProtectionPolicy(data)
+	if err != nil {
+		return "", err
+	}
+	return protectionMaterialisationKey(p), nil
 }
 
 func migrateConstitutionPolicyFile(data []byte, _ string) ([]byte, []string, []string, error) {

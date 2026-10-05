@@ -22,7 +22,7 @@ func sweepRedemptionCapRig(t *testing.T, cap, limit float64, authority string) (
 	broker := &brokerCallLog{}
 	broker.install(rig.server)
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, cap)
-	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.MinTranche = 900 })
+	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.MinTranche = new(900.0) })
 	in := eurRedeemInput(10000)
 	maturity := cashSweepDay(rig.now).AddDate(0, 0, 60)
 	in.Holdings["EUR"][0].Maturity = maturity

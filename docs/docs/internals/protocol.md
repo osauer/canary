@@ -35,6 +35,10 @@ complete current open-order inventory shows no other working sell that would,
 with it, exceed the position; the daemon's protective stop guard then keeps
 Canary's own stops no larger than the position
 ([Protection](../operate/protection.md#protective-stop-exemption-and-guard)).
+A cash sweep bill order passes `[trading].max_notional` only when the
+protection policy writes `bills_exempt_from_trading_max_notional = true`, and
+then only up to the sweep's own order cap in force, for a same-currency bill
+with no conversion ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
 
 The account-base unit used by those caps is exact-session authority. A
 completed one-shot account-summary response must identify it through the
