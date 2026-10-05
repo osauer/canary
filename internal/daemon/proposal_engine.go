@@ -573,6 +573,9 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	for i := range proposals {
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
+		if proposals[i].Bucket != rpc.TradeProposalBucketCashSweep {
+			proposals[i].Revision = proposalRowRevision(policyStatus.EffectiveFingerprint, sources, scope, proposals[i])
+		}
 	}
 	// One actionable row per exact contract and side, carrying every reason
 	// (proposal_same_contract.go). It runs once the revision is known, so each
@@ -2319,25 +2322,24 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 	if len(snap.AutoTrade.Blockers) > 0 {
 		return rpc.TradeProposal{}, snap.AutoTrade.Blockers, true
 	}
-	if snap.Revision != revision {
+	prop, ok := servedProposal(snap, key)
+	if !ok {
+		return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "proposal_not_found", Message: "proposal key is not present in the current snapshot"}}, true
+	}
+	// Directional-option exits depend on a current executable bid versus
+	// cost and must always re-evaluate the arm/loss/locked-gain invariants.
+	// The cached fast path remains stock/ETF protective-stop only; every
+	// other row, current or not, takes the revalidating path.
+	if prop.Bucket != rpc.TradeProposalBucketTrailingStop || prop.OptionExit != nil {
+		return rpc.TradeProposal{}, nil, false
+	}
+	if prop.Revision != revision {
 		return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "proposal revision is stale; refresh proposals before preview or submit"}}, true
 	}
-	for _, prop := range snap.Proposals {
-		if prop.Key != key {
-			continue
-		}
-		// Directional-option exits depend on a current executable bid versus
-		// cost and must always re-evaluate the arm/loss/locked-gain invariants.
-		// The cached fast path remains stock/ETF protective-stop only.
-		if prop.Bucket != rpc.TradeProposalBucketTrailingStop || prop.OptionExit != nil {
-			return rpc.TradeProposal{}, nil, false
-		}
-		if len(snap.Blockers) > 0 {
-			return prop, mergeTradingBlockers(snap.Blockers, prop.Blockers), true
-		}
-		return prop, prop.Blockers, true
+	if len(snap.Blockers) > 0 {
+		return prop, mergeTradingBlockers(snap.Blockers, prop.Blockers), true
 	}
-	return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "proposal_not_found", Message: "proposal key is not present in the current snapshot"}}, true
+	return prop, prop.Blockers, true
 }
 
 func (e *proposalEngine) Submit(ctx context.Context, p rpc.TradeProposalSubmitParams) (rpc.TradeProposalSubmitResult, error) {
@@ -2740,15 +2742,19 @@ func (e *proposalEngine) Ignore(p rpc.TradeProposalIgnoreParams) rpc.TradePropos
 	if snap.LoadedFromState || !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, scope) {
 		return refuse("proposal ignore requires a current snapshot for the connected account and mode; refresh proposals")
 	}
-	if snap.Revision == "" || (revision != "" && revision != snap.Revision) {
+	if snap.Revision == "" {
 		return refuse("proposal revision is stale; refresh proposals before ignoring")
 	}
-	if !slices.ContainsFunc(snap.Proposals, func(prop rpc.TradeProposal) bool { return prop.Key == key && prop.Revision == snap.Revision }) {
+	served, ok := servedProposal(snap, key)
+	if ok && revision != "" && revision != served.Revision {
+		return refuse("proposal revision is stale; refresh proposals before ignoring")
+	}
+	if !ok || served.Revision == "" {
 		return refuse("proposal key is not present in the current snapshot")
 	}
 	// An omitted revision means the currently served proposal, never an
 	// arbitrary future key. Persist the revision the dismissal actually saw.
-	revision = snap.Revision
+	revision = served.Revision
 	ev := proposalEvent{At: now, Type: "ignored", Key: key, Revision: revision, Reason: strings.TrimSpace(p.Reason), Message: "proposal ignored",
 		AccountID:   scope.Account,
 		AccountMode: scope.Mode}
@@ -2779,18 +2785,17 @@ func (e *proposalEngine) revalidatedProposal(ctx context.Context, key, revision 
 	if len(snap.AutoTrade.Blockers) > 0 {
 		return rpc.TradeProposal{}, snap.AutoTrade.Blockers, nil
 	}
-	if snap.Revision != revision {
+	prop, ok := servedProposal(snap, key)
+	if !ok {
+		return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "proposal_not_found", Message: "proposal key is not present in the current snapshot"}}, nil
+	}
+	if prop.Revision != revision {
 		return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "proposal revision is stale; refresh proposals before preview or submit"}}, nil
 	}
-	for _, prop := range snap.Proposals {
-		if prop.Key == key {
-			if len(snap.Blockers) > 0 {
-				return prop, mergeTradingBlockers(snap.Blockers, prop.Blockers), nil
-			}
-			return prop, prop.Blockers, nil
-		}
+	if len(snap.Blockers) > 0 {
+		return prop, mergeTradingBlockers(snap.Blockers, prop.Blockers), nil
 	}
-	return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "proposal_not_found", Message: "proposal key is not present in the current snapshot"}}, nil
+	return prop, prop.Blockers, nil
 }
 
 func proposalOrderPreviewParams(prop rpc.TradeProposal, qty, timeoutMs int) rpc.OrderPreviewParams {
@@ -3549,7 +3554,19 @@ func proposalCounts(proposals []rpc.TradeProposal, baseCurrency string) rpc.Trad
 	return out
 }
 
-func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, proposals []rpc.TradeProposal) string {
+// proposalRevisionProjection is what a revision hashes. The list revision
+// fills Proposal with every row's terms; a row revision fills Row with its
+// own, so the two never collide and the list's bytes are unchanged.
+type proposalRevisionProjection struct {
+	Policy   rpc.Fingerprint                     `json:"policy"`
+	Account  string                              `json:"account"`
+	Mode     string                              `json:"mode"`
+	Sources  rpc.TradeProposalSourceFingerprints `json:"sources"`
+	Proposal []string                            `json:"proposal"`
+	Row      []string                            `json:"row,omitempty"`
+}
+
+func newProposalRevisionProjection(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope) proposalRevisionProjection {
 	stableSources := sources
 	if sources.EffectiveRulebook.Key != "" {
 		stableSources.Rulebook = &sources.EffectiveRulebook
@@ -3562,62 +3579,95 @@ func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFin
 	stableSources.Regime = nil
 	stableSources.MarketEvents = nil
 	// Account/mode enter the revision directly: the account and positions
-	projection := struct {
-		Policy   rpc.Fingerprint                     `json:"policy"`
-		Account  string                              `json:"account"`
-		Mode     string                              `json:"mode"`
-		Sources  rpc.TradeProposalSourceFingerprints `json:"sources"`
-		Proposal []string                            `json:"proposal"`
-	}{Policy: policy, Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode)), Sources: stableSources}
-	for _, p := range proposals {
-		projection.Proposal = append(projection.Proposal, p.Key+":"+strconv.Itoa(p.Quantity)+":"+p.PositionEffect)
-		if p.Bucket == rpc.TradeProposalBucketCashSweep && p.CashSweep != nil {
-			// Bind material bill terms and date authority, not routine receipt
-			// times, marks, or the daily days-to-maturity countdown.
-			s := p.CashSweep
-			binding := struct {
-				ConID                                                     int
-				SecType, Exchange, ContractCurrency, Currency, Instrument string
-				Action, Side, QuantityUnit                                string
-				FaceValue                                                 float64
-				BillConID                                                 int
-				BillType, BillInstrument, BillQuantityUnit                string
-				BillSource, CUSIP, ISIN, Maturity, MaturitySource         string
-				ResolutionSource                                          string
-				PriceConvention                                           string
-			}{ConID: p.Contract.ConID, SecType: p.Contract.SecType, Exchange: p.Contract.Exchange,
-				ContractCurrency: p.Contract.Currency, Currency: s.Currency, Instrument: s.Instrument, Action: p.Action,
-				Side: s.Side, QuantityUnit: s.QuantityUnit, FaceValue: s.FaceValue,
-				Maturity: s.MaturityDate, MaturitySource: s.MaturitySource, CUSIP: s.CUSIP, ISIN: s.ISIN, ResolutionSource: s.ResolutionSource}
-			if b := s.Bill; b != nil {
-				binding.BillConID, binding.BillType, binding.BillInstrument = b.ConID, b.SecType, b.Instrument
-				binding.BillQuantityUnit = b.QuantityUnit
-				binding.ResolutionSource = b.ResolutionSource
-				binding.BillSource, binding.CUSIP, binding.ISIN = b.Source, b.CUSIP, b.ISIN
-				binding.Maturity, binding.MaturitySource, binding.PriceConvention = b.Maturity, b.MaturitySource, b.PriceConvention
-			}
-			raw, _ := json.Marshal(binding)
-			projection.Proposal = append(projection.Proposal, "cash-sweep-material-v1:"+string(raw))
-		}
-		if p.OptionExit != nil {
-			// Receipt times/values refresh at preview; scope and resulting role
-			// are semantic revision inputs. Never churn solely on receipt time.
-			binding := p.OptionExit.EconomicRole
-			if p.OptionExit.EconomicEvidence != nil {
-				binding += ":" + p.OptionExit.EconomicEvidence.Scope
-			}
-			// A take shares its trail's key but is another order: a close
-			// now, not a broker trail. Bind the difference, so a review of
-			// one never resolves to the other.
-			if p.OptionExit.Kind == risk.OptionExitActionProfitTake {
-				binding = p.OptionExit.Kind + ":" + binding
-			}
-			projection.Proposal = append(projection.Proposal, binding)
-		}
-	}
-	raw, _ := json.Marshal(projection)
+	return proposalRevisionProjection{Policy: policy, Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode)), Sources: stableSources}
+}
+
+func (p proposalRevisionProjection) hash() string {
+	raw, _ := json.Marshal(p)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func proposalRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, proposals []rpc.TradeProposal) string {
+	projection := newProposalRevisionProjection(policy, sources, scope)
+	for _, p := range proposals {
+		projection.Proposal = append(projection.Proposal, proposalRevisionTerms(p)...)
+	}
+	return projection.hash()
+}
+
+// proposalRowRevision binds one row to its own terms and the shared policy,
+// account and position evidence, so another row's change leaves it standing:
+// a sweep re-sized on a moved net liquidation value, every refresh, must not
+// stale a stop the owner is confirming (one Touch ID round-trip outlasts a
+// refresh cadence). The cash-sweep row keeps the list revision instead
+// (assigned at refresh): its episode chaining and veto window bind the list.
+func proposalRowRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, p rpc.TradeProposal) string {
+	projection := newProposalRevisionProjection(policy, sources, scope)
+	projection.Row = proposalRevisionTerms(p)
+	return projection.hash()
+}
+
+// proposalRevisionTerms are the lines a row contributes to a revision: its
+// key, size and effect, plus the bindings a bucket needs beyond those.
+func proposalRevisionTerms(p rpc.TradeProposal) []string {
+	terms := []string{p.Key + ":" + strconv.Itoa(p.Quantity) + ":" + p.PositionEffect}
+	if p.Bucket == rpc.TradeProposalBucketCashSweep && p.CashSweep != nil {
+		// Bind material bill terms and date authority, not routine receipt
+		// times, marks, or the daily days-to-maturity countdown.
+		s := p.CashSweep
+		binding := struct {
+			ConID                                                     int
+			SecType, Exchange, ContractCurrency, Currency, Instrument string
+			Action, Side, QuantityUnit                                string
+			FaceValue                                                 float64
+			BillConID                                                 int
+			BillType, BillInstrument, BillQuantityUnit                string
+			BillSource, CUSIP, ISIN, Maturity, MaturitySource         string
+			ResolutionSource                                          string
+			PriceConvention                                           string
+		}{ConID: p.Contract.ConID, SecType: p.Contract.SecType, Exchange: p.Contract.Exchange,
+			ContractCurrency: p.Contract.Currency, Currency: s.Currency, Instrument: s.Instrument, Action: p.Action,
+			Side: s.Side, QuantityUnit: s.QuantityUnit, FaceValue: s.FaceValue,
+			Maturity: s.MaturityDate, MaturitySource: s.MaturitySource, CUSIP: s.CUSIP, ISIN: s.ISIN, ResolutionSource: s.ResolutionSource}
+		if b := s.Bill; b != nil {
+			binding.BillConID, binding.BillType, binding.BillInstrument = b.ConID, b.SecType, b.Instrument
+			binding.BillQuantityUnit = b.QuantityUnit
+			binding.ResolutionSource = b.ResolutionSource
+			binding.BillSource, binding.CUSIP, binding.ISIN = b.Source, b.CUSIP, b.ISIN
+			binding.Maturity, binding.MaturitySource, binding.PriceConvention = b.Maturity, b.MaturitySource, b.PriceConvention
+		}
+		raw, _ := json.Marshal(binding)
+		terms = append(terms, "cash-sweep-material-v1:"+string(raw))
+	}
+	if p.OptionExit != nil {
+		// Receipt times/values refresh at preview; scope and resulting role
+		// are semantic revision inputs. Never churn solely on receipt time.
+		binding := p.OptionExit.EconomicRole
+		if p.OptionExit.EconomicEvidence != nil {
+			binding += ":" + p.OptionExit.EconomicEvidence.Scope
+		}
+		// A take shares its trail's key but is another order: a close
+		// now, not a broker trail. Bind the difference, so a review of
+		// one never resolves to the other.
+		if p.OptionExit.Kind == risk.OptionExitActionProfitTake {
+			binding = p.OptionExit.Kind + ":" + binding
+		}
+		terms = append(terms, binding)
+	}
+	return terms
+}
+
+// servedProposal finds the row snap serves under key. A request's revision
+// is checked against that row, never the list, so a neighbour's drift
+// cannot stale it.
+func servedProposal(snap rpc.TradeProposalSnapshot, key string) (rpc.TradeProposal, bool) {
+	for _, prop := range snap.Proposals {
+		if prop.Key == key {
+			return prop, true
+		}
+	}
+	return rpc.TradeProposal{}, false
 }
 
 func proposalKey(bucket string, contract rpc.ContractParams, action string) string {
