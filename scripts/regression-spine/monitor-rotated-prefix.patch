@@ -5,7 +5,7 @@ diff --git a/scripts/log-monitor/cursor.go b/scripts/log-monitor/cursor.go
  	next := logCursor{Version: 2, Path: path, Identity: identity, Lines: len(all), Prefix: lineHash(all[:min(len(all), 32)]), Boundary: lineHash(all[max(0, len(all)-1):]), Days: previous.Days, Starts: previous.Starts}
  	scanned := scannedLog{state: "unchanged", path: path, modified: info.ModTime(), total: len(all), cursor: next}
  	offset := 0
--	if previous.Version == 2 && previous.Path == path && previous.Identity == identity && cursorMatches(previous, all) {
+-	if previous.Version == 2 && previous.Path == path && sameFileIdentity(previous.Identity, identity) && cursorMatches(previous, all) {
 +	if previous.Version == 2 && previous.Lines <= len(all) {
  		offset = previous.Lines
  	} else if previous.Version != 0 {

@@ -96,6 +96,15 @@ func formatPushDeliveryValue(env *Env, status rpc.PushDeliveryStatus, now time.T
 
 func formatPushDeliveryValueIn(env *Env, status rpc.PushDeliveryStatus, now time.Time, loc *time.Location) string {
 	line, ok := pushDeliveryLine(status.Proof, now, loc)
+	// Put the concrete blocker before the historical delivery proof. Keep the
+	// shared proof text intact for app status and detailed diagnostics.
+	if status.Proof.Mode != "none" && status.Proof.ActiveSubscriptions == 0 {
+		line = strings.Replace(line, " · no push subscription", "", 1)
+		if status.Proof.Dispatcher == "unavailable" && status.Proof.DispatcherClass == "no_active_subscription" {
+			line = strings.Replace(line, " · dispatcher unavailable (no_active_subscription)", "", 1)
+		}
+		line = "No push subscription; enable notifications on the phone · " + line
+	}
 	if age := now.Sub(status.ReceivedAt); age > pushReportStaleAfter {
 		line += " · app host last reported " + status.ReceivedAt.In(loc).Format("2006-01-02 15:04")
 		ok = false
