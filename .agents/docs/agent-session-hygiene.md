@@ -1,9 +1,11 @@
 # Agent session hygiene
 
-Last updated: 2026-07-18 18:23 CEST
+Last updated: 2026-10-05 20:15 CEST (historical since this date: the rules it
+explains no longer sit in `AGENTS.md`; the measured numbers remain the
+reference for session cost)
 
-Rationale and measured numbers behind the binding session-hygiene rules in
-`AGENTS.md`. Source: the 2026-06-12 audit of two days of agent sessions in
+Rationale and measured numbers behind the session-hygiene rules that `AGENTS.md`
+carried until 2026-10. Source: the 2026-06-12 audit of two days of agent sessions in
 this repo (~0.77B input tokens deduped, 96% cache reads), with each finding
 adversarially verified against the raw transcripts.
 
