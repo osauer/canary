@@ -79,7 +79,7 @@ func (e *proposalEngine) attachFlexCashProjections(ctx context.Context, bucket *
 		if row.Settled != nil {
 			continue
 		}
-		in.FlexProjections[ccy] = cashSweepFlexProjection(baseline, baselineErr, scope, ccy, row, known, in.Commitments, bucket.currency(ccy).KeepCash)
+		in.FlexProjections[ccy] = cashSweepFlexProjection(baseline, baselineErr, scope, ccy, row, known, in.Commitments, cashSweepKeepOrZero(bucket, ccy))
 	}
 }
 
@@ -153,4 +153,11 @@ func flexCashProjectionEvidence(p *rpc.CashSweepSettlementProjection) []string {
 		out = append(out, fmt.Sprintf("Flex statement %s; estimates are unverified and cannot authorise a sweep", p.StatementDate))
 	}
 	return out
+}
+
+// cashSweepKeepOrZero is ccy's written keep_cash, 0 while none is written
+// (the currency then holds at needs_your_number).
+func cashSweepKeepOrZero(bucket *protectionCashSweepPolicy, ccy string) float64 {
+	keep, _ := bucket.keepCash(ccy)
+	return keep
 }

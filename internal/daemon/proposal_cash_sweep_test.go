@@ -24,9 +24,13 @@ func cashSweepTestNow() time.Time { return time.Date(2026, 9, 30, 14, 0, 0, 0, t
 func cashSweepTestPolicy(mode string, maxOrderNotional float64) protectionPolicy {
 	p := defaultProtectionPolicy()
 	p.PolicyVersion = 9
-	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{}}
+	// Every sizing number is written: no reserve, no base minimum and no
+	// NLV share, so the band is keep_cash 5000 and min_tranche 1000 alone.
+	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{},
+		MinOrderNotional: new(0.0), MaxOrderPctNLV: new(0.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(0.0)}
 	for _, ccy := range []string{"USD", "EUR"} {
 		c := defaultCashSweepCurrency(ccy)
+		c.KeepCash, c.MinTranche = new(5000.0), new(1000.0)
 		c.SettlementDays = new(1)
 		c.SettlementExchange = "SMART"
 		c.SettlementValidThrough = "2027-12-31"
@@ -95,7 +99,8 @@ func TestCashSweepBandEdges(t *testing.T) {
 		{"free equals tranche", 6000, false, rpc.CashSweepStateHold, "", 0},
 		{"free one above tranche", 6001, false, rpc.CashSweepStateInvest, rpc.CashSweepSideInvest, 1001},
 		{"exactly keep_cash", 5000, true, rpc.CashSweepStateHold, "", 0},
-		{"one below keep_cash", 4999, true, rpc.CashSweepStateRedeem, rpc.CashSweepSideRedeem, 2},
+		// A redemption sells the gap, never raised to the minimum.
+		{"one below keep_cash", 4999, true, rpc.CashSweepStateRedeem, rpc.CashSweepSideRedeem, 1},
 		{"below keep_cash, nothing held", 4999, false, rpc.CashSweepStateHold, "", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -227,9 +232,9 @@ func TestCashSweepRungChoice(t *testing.T) {
 	}
 }
 
-// max_order_notional is compared in base currency at the ledger rate: an
-// order above it is held to it, and a cap that holds one order below
-// min_tranche holds the currency.
+// The order cap is compared in base currency at the ledger rate: an order
+// above it is held to it, and a cap that holds one order below the smallest
+// order holds the currency.
 func TestCashSweepMaxOrderNotionalHold(t *testing.T) {
 	now := cashSweepTestNow()
 	in := cashSweepTestInput(map[string]float64{"USD": 60000})
@@ -240,7 +245,7 @@ func TestCashSweepMaxOrderNotionalHold(t *testing.T) {
 	}
 	// 810 EUR is 900 USD, under the 1,000 USD tranche: hold.
 	cp = cashSweepCurrencyOf(t, cashSweepPlanFor(cashSweepTestPolicy(rpc.CashSweepModeShadow, 810), in, now), "USD")
-	if cp.status.State != rpc.CashSweepStateHold || cp.side != "" || !strings.Contains(cp.status.Reason, "below min_tranche") {
+	if cp.status.State != rpc.CashSweepStateHold || cp.side != "" || !strings.Contains(cp.status.Reason, "below the smallest order") {
 		t.Fatalf("capped below tranche = %+v", cp.status)
 	}
 	// No number written: every currency reads needs_your_number with its
@@ -678,7 +683,7 @@ func TestCashSweepInvariantsOverRandomBooks(t *testing.T) {
 			sides[cp.side]++
 			switch cp.side {
 			case rpc.CashSweepSideInvest:
-				if float64(cp.quantity) > cp.free+1e-6 || float64(cp.quantity) < policy.Buckets.CashSweep.currency(ccy).MinTranche-1 {
+				if float64(cp.quantity) > cp.free+1e-6 || float64(cp.quantity) < *policy.Buckets.CashSweep.currency(ccy).MinTranche-1 {
 					t.Fatalf("book %d: planned amount out of bounds: %+v", i, cp.status)
 				}
 				// Resolved at a price either side of par, the order stays in

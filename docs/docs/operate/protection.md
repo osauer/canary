@@ -535,15 +535,16 @@ converts one currency into another. It is the only bucket whose rows buy;
 close-or-reduce check only as a typed exception: a `cash_sweep` buy of the
 row's own resolved bill, a vocabulary instrument in the row's own currency,
 for no more face value than the free cash it was planned against, costing no
-more than that free cash at the preview's limit, and within
-`max_order_notional`. Nothing else is relaxed.
+more than that free cash at the preview's limit, and within the sweep's order
+cap in force. Apart from the trading-cap exemption described under
+[Reserve and order sizing](#reserve-and-order-sizing), nothing else is relaxed.
 
 It is off until you write the table. In `active` mode a row is an ordinary
 proposal: `canary proposals preview` previews its bill as a limit order of
 the bill's own security type (BILL for a US Treasury bill, BILL or BOND for
 the others; DAY, regular hours) through every gate any proposal meets (trading freeze,
 authority, the bill's session, a live two-sided quote read during the preview,
-`[trading].max_notional`, broker WhatIf), and it is sent only when you approve
+`[trading].max_notional` unless the bill exemption applies, broker WhatIf), and it is sent only when you approve
 it, or by the daemon after the full veto window when you list `cash_sweep`
 under `[authority].pre_authorised`. Your approval of each order is the last
 step.
@@ -552,9 +553,20 @@ step.
 [buckets.cash_sweep]
 enabled = true
 mode = "active"              # shadow (default) or active
-max_order_notional = 20000   # one order, in base currency; no default
+reserve_floor_base = 10000.0 # reserve kept as cash: the largest of this,
+reserve_pct_nlv = 10.0       #   this percent of NLV, and planned needs
+min_order_notional = 20000.0 # smallest buy, in base currency
+max_order_notional = 50000.0 # largest order: the larger of this
+max_order_pct_nlv = 10.0     #   and this percent of NLV
+keep_cash = 5000.0           # settlement float in each currency's own unit
+bills_exempt_from_trading_max_notional = true
 # tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
+
+Every sizing number is read from the file only. Canary's own values exist
+solely for `canary policy ensure` to write them; a missing number holds the
+sweep at `needs_your_number`, naming the key, and never falls back to a
+compiled value.
 
 Per currency, in that currency: **cash** is the lower of trade-date cash and
 the broker's observed per-currency settled cash
@@ -570,27 +582,95 @@ or sending queued buys at their finite worst price. An unknown principal or
 commission bound or a nonfinite total holds the sweep. Outstanding buy records
 currently lack fee envelopes, so new sweeps wait while such buys remain.
 A prepared, unarmed queue entry or an
-unapproved proposal never counts, and **free** is
-cash − committed − `keep_cash`. When free exceeds `min_tranche`
-the sweep buys one tranche, held to `max_order_notional` at the ledger rate; a
-cap that holds the order below `min_tranche` holds the currency. Exact buy previews
-also require principal plus the broker's maximum same-currency commission to fit
-free cash. The cap is per order; no aggregate percentage or daily budget exists.
-When cash less
-commitments falls below `keep_cash` it sells the nearest maturity (or the
-declared ETF) to cover the gap, held to `max_order_notional` like a buy (the
-next cycle sells the rest), unless a held bill pays out before a sale today
-would settle; unsettled proceeds of such a sale count toward `keep_cash` so it
-is not sold twice. Otherwise nothing happens.
+unapproved proposal never counts. **Kept** is the currency's `keep_cash` and,
+in the base currency, the reserve (below): the larger of the two. **Free** is
+cash − committed − kept − any reserve shortfall this currency keeps for the base
+currency. When free exceeds the smallest order (`min_order_notional` at the
+ledger rate) the sweep buys one order, held to the order cap in force at the
+ledger rate; a cap that holds the order below the smallest order holds the
+currency. Exact buy previews also require principal plus the broker's maximum
+same-currency commission to fit free cash. The cap is per order; no aggregate
+percentage or daily budget exists. When cash less commitments falls below
+kept it sells the nearest maturity (or the declared ETF) to cover the gap,
+held to the cap like a buy (the next cycle sells the rest), unless a held bill
+pays out before a sale today would settle; unsettled proceeds of such a sale
+count toward kept so it is not sold twice. A sale restores cash, so it is
+never held to, or raised to, the smallest order: it sells what the gap needs on
+the bill's size grid. Otherwise nothing happens.
 
-A currency without its own table follows Canary's default: USD `us_tbill`;
-EUR `de_bubill` and `fr_btf` with an `etf` fallback; GBP `uk_tbill`; CAD
-`ca_tbill`; every other currency `none`, which keeps its cash as cash. Each
-currency defaults to `keep_cash = 5000`, `min_tranche = 1000`, a four-rung
-ladder from `min_maturity_days = 28` to `max_maturity_days = 91` (EUR 182, at
-most 397). The fallback ETF acts only after a completed contract search finds
-no bill line; until you write its `etf_symbol` and `etf_exchange` the status
-names them under `needs_your_number`, and the bills still plan.
+A currency without its own table follows Canary's default declaration: USD
+`us_tbill`; EUR `de_bubill` and `fr_btf` with an `etf` fallback; GBP
+`uk_tbill`; CAD `ca_tbill`; every other currency `none`, which keeps its cash
+as cash. The ladder defaults to four rungs from `min_maturity_days = 28` to
+`max_maturity_days = 91` (EUR 182, at most 397). `keep_cash` has no compiled
+default: a currency table's own value wins, else the bucket's. `min_tranche`
+is retired in favour of `min_order_notional`; an old file that still writes it
+keeps reading, and the value then raises that currency's smallest buy. The
+fallback ETF acts only after a completed contract search finds no bill line;
+until you write its `etf_symbol` and `etf_exchange` the status names them under
+`needs_your_number`, and the bills still plan.
+
+### Reserve and order sizing
+
+Owner decisions of 2026-10-05 18:35 CEST. All figures are in the account's
+base currency at the ledger rate.
+
+- **Reserve kept as cash** is the largest of `reserve_floor_base`,
+  `reserve_pct_nlv` percent of net liquidation value, and the cash planned
+  exercises or withdrawals need. Canary records no planned draw today: an
+  approved exercise goes to the broker at once, and a withdrawal is recorded
+  only after it happens. That term is therefore 0, and the status says so in
+  `planned_needs_reason`. Working and armed buys are not added, because each
+  currency's cash already has them deducted as committed.
+- **Where it is held.** The reserve is held in the base currency first: the
+  base currency keeps the larger of its `keep_cash` and the reserve. The part
+  base cash cannot hold (`reserve_shortfall_base`) is kept in the other
+  currencies before they invest, the largest free cash first. If base cash is
+  unknown, the other currencies do not invest. A shortfall never makes another
+  currency sell; the base currency redeems its own bills to restore the
+  reserve. Every other currency keeps its own `keep_cash`.
+- **Order bounds.** A buy is at least `min_order_notional` and at most the
+  larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV. A
+  sale is never held to the minimum.
+- **Fail closed.** When a percentage is above 0 and net liquidation value
+  cannot be read, every currency holds with nothing bought or sold, and no row
+  carries a trading-cap exemption.
+- **Trading-cap exemption.** With `bills_exempt_from_trading_max_notional =
+  true`, a sweep bill order may pass `[trading].max_notional` up to the
+  sweep's order cap in force, never beyond it. The order must be a BILL or BOND
+  buy that opens or increases, or a sale that reduces or closes, of a vocabulary
+  bill in the order's own currency, with no conversion. Stocks, ETFs, the
+  sweep's fallback ETF, conversions and anything over the sweep's cap keep the
+  trading cap. The row's order terms carry the limit as
+  `trading_cap_exempt_up_to_base`, and both preview and submit check it.
+  Without the key, the exemption is off.
+
+Worked check. NLV 233,000 EUR, EUR cash 70,500, USD cash 6,800, `keep_cash`
+5,000: the reserve is 23,300 EUR (10% of NLV), held in EUR, and EUR invests
+one order of about 47,000 (70,500 − 23,300, under the 50,000 cap). USD free
+cash is 1,800 USD, below 20,000 EUR, so USD stays cash. At NLV 1,200,000 with
+1,000,000 cash: reserve 120,000, and orders up to 120,000 each.
+
+The status's `sizing` block and every row's `cash_sweep.sizing` carry the
+figures, with stable field names: `base_currency`, `net_liquidation_base`,
+`reserve_base`, `reserve_bound` (`reserve_floor_base`, `reserve_pct_nlv` or
+`planned_needs`), `reserve_floor_base`, `reserve_pct_nlv`,
+`reserve_pct_nlv_base`, `planned_needs_base`, `planned_needs_known`,
+`planned_needs_reason`, `reserve_shortfall_base`, `min_order_base`,
+`max_order_base`, `max_order_bound` (`max_order_notional` or
+`max_order_pct_nlv`), `max_order_notional_base`, `max_order_pct_nlv` and
+`trading_max_notional_exempt`. Each currency's status and row carry
+`reserve_held`, the part of the reserve kept in that currency in its own unit.
+`max_order_notional_base` on the status and the row is the cap in force. A row
+detail says it in words, for example "kept as cash: 23300 EUR (10% of NLV
+233000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR
+(max_order_notional)".
+
+`canary policy ensure --dry-run` lists each missing sizing key it would add to
+an existing `[buckets.cash_sweep]` section. Applying the reviewed plan backs
+the file up, writes only the missing keys at the values above, keeps every
+value you wrote, and raises `policy_version` by one. A file without the table
+is left alone, and the sweep stays off.
 
 ```toml
 [buckets.cash_sweep.currency.EUR]
@@ -639,7 +719,7 @@ whole units rounded down to the bill's minimum size and size step, so neither
 its face value nor its cost passes the free cash; a tranche too small for the
 bill's minimum holds the currency and says so. A redemption rounds its sale up
 to the held bill's size step, or down when up would pass the position or
-`max_order_notional`. The row's `cash_sweep`
+the order cap. The row's `cash_sweep`
 block carries `quantity_unit`, `face_value`, `estimated_cost` and the
 `session` its order fills in: the bill's liquid hours from its contract
 details, else assumed weekday hours (US bills 08:00–17:00 New York, Bubills
@@ -680,7 +760,7 @@ reports, with its figures and a state:
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
 | `settlement_unknown` | the broker supplied no per-currency settled cash, or working/armed queued buy commitments have no fixed finite bound; a journal estimate does not clear this state |
 | `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
-| `needs_your_number` | `max_order_notional`, or the symbol of an ETF-only declaration, is not written |
+| `needs_your_number` | a sizing number (`max_order_notional`, `max_order_pct_nlv`, `min_order_notional`, `reserve_floor_base`, `reserve_pct_nlv`, or the currency's `keep_cash`), or the symbol of an ETF-only declaration, is not written; the reason names the key |
 | `universe_unavailable` | no list of bills to choose from (see above) |
 | `instrument_unresolved` | no candidate bill was confirmed by contract details and a quote; `evidence` says why |
 

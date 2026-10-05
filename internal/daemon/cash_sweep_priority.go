@@ -46,7 +46,7 @@ func applyCashSweepReservePolicy(p *protectionCashSweepPolicy, in *cashSweepInpu
 		if in.BaseCurrency == "EUR" && in.LedgerReason == "" && row.Observed {
 			rates[ccy] = row.ExchangeRate
 		}
-		floors[ccy] = p.currency(ccy).KeepCash
+		floors[ccy], _ = p.keepCash(ccy)
 	}
 	in.BufferAllocations, in.EffectiveReserves, st.ReserveReason = risk.CashSweepReserveAllocation(cushion, rates, floors, in.FundingEvidence, now)
 	st.ReserveState = "ready"
