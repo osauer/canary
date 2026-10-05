@@ -70,6 +70,7 @@ func (s *Server) handleRiskPolicySnapshot(ctx context.Context, _ *rpc.Request) (
 	res.InputHealth = health
 	res.Review = mgr.review
 	res.Files = s.policyFileStatuses(mgr)
+	res.Effective = s.policyEffectiveView(res.Files, res.Limits)
 	return res, nil
 }
 

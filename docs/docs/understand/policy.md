@@ -166,8 +166,49 @@ Plain `canary policy ensure` creates missing templates and previews existing
 files; it does not apply conversions.
 
 `canary policy show` lists every policy file with its status and what waits for
-your number; `--explain` adds each file's notes: keys it lacks, retired keys,
-pending migrations and recommendations.
+your number, and ends by pointing to the full print. `--explain` adds each
+file's notes (keys it lacks, retired keys, pending migrations and
+recommendations) and then prints everything that governs behaviour, one
+section per source:
+
+- **Risk constitution** (`risk-policy.toml`): every limit with its source and
+  enforcement class.
+- **Rulebook** (`rulebook-policy.toml`): every limit grouped by rule family,
+  the regime-conditional limits as one row per key with a value for each
+  regime set (calm, early warning, confirmed), and every rule mode.
+- **Protection policy** (`protection-policy.toml`): authority and every
+  bucket, including the stock/ETF and option trailing stops, the budget
+  governor and the cash sweep with one table per currency (the compiled
+  USD, EUR, GBP and CAD declarations print even without a table).
+- **Opportunity policy** (`opportunity-policy.toml`).
+- **Trading gates**: the `[trading]` keys of `config.toml` with the value in
+  force; a runtime override from `canary settings set` names the
+  `config.toml` value it replaces.
+- **Runtime settings**: every `canary settings` value except gateway identity
+  and observed market-data quality.
+
+Each key prints its value in force with its unit, its source and its meaning,
+taken from the same field descriptions as the
+[configuration reference](../reference/config.md). Sources are `file` (the
+file sets it), `default` (Canary's default applies), `machine` (Canary
+maintains it, such as a bill settlement route, or derives it, such as the
+budget governor's caps under `basis = "rulebook"`), `needs your number` (the
+feature holds until you write it), `unapproved` (a constitution choice not
+yet made), and, for settings, `config`, `runtime` or `build`.
+
+`canary policy show SECTION` prints one part in full: `constitution`,
+`rulebook`, `protection`, `opportunity`, `trading` or `runtime`, or a table
+such as `cash_sweep`, `trailing_stop`, `budget_reduction`, `authority` or
+`regime`.
+
+`--json` carries the same rows under `effective`: `sections[]` (`id`,
+`title`, `path`, `identity`, `status`, `review`, `notes`, `groups`),
+`groups[]` (`id` is the dotted table, `title`, `columns` for the regime sets,
+`notes`, `rows`) and `rows[]` (`key` as the full dotted path, `value`,
+`values` per column, `source`, `file_value` for an overridden
+`config.toml` value, `enforcement`, `meaning`). `effective.origin` is
+`daemon`, or `files` when the CLI read the files because the running daemon
+predates this view. With SECTION, `--json` prints only the matching part.
 
 ## Configure the available controls
 
@@ -193,7 +234,8 @@ canary policy show --json
 
 `--explain` shows units, effective values, input health, drawdown state,
 reconciliation, active exceptions, cadence, referenced model identities, and
-the current content fingerprint. Mutating governance commands under
+the current content fingerprint, followed by every other policy and setting
+in force. Mutating governance commands under
 `canary policy` are human-only actions, not agent configuration shortcuts.
 
 ### Protection and opportunity policies

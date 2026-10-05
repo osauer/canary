@@ -1752,6 +1752,10 @@ type RiskPolicyResult struct {
 	// Files reports every policy file Canary reads: the constitution,
 	// rulebook-policy.toml, protection-policy.toml and opportunity-policy.toml.
 	Files []PolicyFileStatus `json:"files,omitempty"`
+	// Effective is every key that governs behaviour, grouped by file and
+	// table, with its value in force, source and meaning. Daemons before
+	// this field leave it empty; the CLI then reads the files itself.
+	Effective *PolicyEffectiveView `json:"effective,omitempty"`
 }
 
 // PolicyFileStatus is one policy file as Canary reads it: where it is, its
