@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -84,6 +85,7 @@ func runProposalsStatus(ctx context.Context, env *Env, args []string) int {
 
 func runProposalsRefresh(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "proposals refresh")
+	details := fs.Bool("details", false, "include full proposal evidence and diagnostics")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -95,12 +97,17 @@ func runProposalsRefresh(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, res)
 	}
-	renderProposalsText(env, &res)
+	if *details {
+		renderProposalsDetailsDisplay(env, &res)
+	} else {
+		renderProposalsSummary(env, &res)
+	}
 	return 0
 }
 
 func runProposalsList(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "proposals list")
+	details := fs.Bool("details", false, "include full proposal evidence and diagnostics")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -112,7 +119,11 @@ func runProposalsList(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, res)
 	}
-	renderProposalsText(env, &res)
+	if *details {
+		renderProposalsDetailsDisplay(env, &res)
+	} else {
+		renderProposalsSummary(env, &res)
+	}
 	return 0
 }
 
@@ -533,6 +544,15 @@ func printTradingBlockers(out io.Writer, indent string, blockers []rpc.TradingBl
 			fmt.Fprintf(out, "%s  action: %s\n", indent, b.Action)
 		}
 	}
+}
+
+func renderProposalsDetailsDisplay(env *Env, snap *rpc.TradeProposalSnapshot) {
+	var buf bytes.Buffer
+	copyEnv := *env
+	copyEnv.Stdout = &buf
+	copyEnv.Color = false
+	renderProposalsText(&copyEnv, snap)
+	displayWrapped(env, buf.String())
 }
 
 func renderProposalsText(env *Env, snap *rpc.TradeProposalSnapshot) {

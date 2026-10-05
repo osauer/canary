@@ -1,0 +1,58 @@
+# canary brief · COLUMNS=80 · colour off
+Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
+
+Review  (since the last close)
+  session P&L ok $ 100,000.00 · day -$ 500.00
+  last session close ok 2026-09-04 $ 250.00
+  Canary Edge ok No decision to review yet
+  by underlying ok SYNA -$ 400.00 · SYNB -$ 100.00
+  policy adherence attention 18 pass · 1 watch · 1 act · 0 unknown
+  proposals ok 1 offered · 0 acted
+  overrides used ok 0
+  capital events ok no capital events
+  reconcile degraded never
+    reconciliation source not configured
+  auto-extend ok —
+  working orders ok 2
+
+Ready  (today)
+  regime ok early_warning · Watch: one unconfirmed stress signal
+  breadth ok 50-DMA 60.0% · 200-DMA 65.0% · coverage 50d 500/500; 200d
+    500/500; 52w 500/500
+  modeled gamma unavailable —
+    dealer gamma model still computing
+  stress attention watch · One finding needs review.
+  session ok US · open
+  capital ok tier normal · 10.0% consumed
+  drawdown latch ok open
+  premium at risk ok $ 1,000.00 · 2.0% of risk capital
+  hedge cost / day ok $ 10.00
+# canary brief · COLUMNS=80 · colour on, ESC written as \x1b
+Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
+
+Review  (since the last close)
+  session P&L ok $ 100,000.00 · day -$ 500.00
+  last session close ok 2026-09-04 $ 250.00
+  Canary Edge ok No decision to review yet
+  by underlying ok SYNA -$ 400.00 · SYNB -$ 100.00
+  policy adherence attention 18 pass · 1 watch · 1 act · 0 unknown
+  proposals ok 1 offered · 0 acted
+  overrides used ok 0
+  capital events ok no capital events
+  reconcile degraded never
+    reconciliation source not configured
+  auto-extend ok —
+  working orders ok 2
+
+Ready  (today)
+  regime ok early_warning · Watch: one unconfirmed stress signal
+  breadth ok 50-DMA 60.0% · 200-DMA 65.0% · coverage 50d 500/500; 200d
+    500/500; 52w 500/500
+  modeled gamma unavailable —
+    dealer gamma model still computing
+  stress attention watch · One finding needs review.
+  session ok US · open
+  capital ok tier normal · 10.0% consumed
+  drawdown latch ok open
+  premium at risk ok $ 1,000.00 · 2.0% of risk capital
+  hedge cost / day ok $ 10.00

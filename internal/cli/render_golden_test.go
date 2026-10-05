@@ -1,0 +1,421 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
+)
+
+// updateGolden rewrites testdata/golden from the current renderer output:
+//
+//	go test ./internal/cli -run TestRenderGolden -update
+//
+// Review the resulting diff like code: every changed byte is a change to what
+// a person reads in the terminal.
+var updateGolden = flag.Bool("update", false, "rewrite internal/cli/testdata/golden from the current renderer output")
+
+const goldenDir = "testdata/golden"
+
+// goldenAt anchors every synthetic timestamp. It is built in the local zone so
+// renderers that print .Local() wall-clock time show the same hours in every
+// zone; goldenText then writes the zone abbreviation as "TZ".
+var goldenAt = time.Date(2026, 9, 5, 14, 0, 0, 0, time.Local)
+
+// goldenConn answers each daemon method with one fixed synthetic result,
+// round-tripped through JSON as the daemon socket delivers it. A method
+// without a result fails, so a renderer that grows a new read shows up here.
+type goldenConn map[string]any
+
+func (c goldenConn) Call(_ context.Context, method string, _ any, out any) error {
+	result, ok := c[method]
+	if !ok {
+		return fmt.Errorf("golden: no synthetic result for %s", method)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
+}
+
+func (goldenConn) Stream(context.Context, string, any, func(json.RawMessage) error) error {
+	return errors.New("golden: unexpected stream")
+}
+
+// renderGoldenCase is one human-readable command output pinned byte for byte.
+type renderGoldenCase struct {
+	name string
+	// argv is the command line after `canary`; Run receives argv[0] and the
+	// rest, exactly as cmd/canary dispatches it.
+	argv []string
+	// conn answers the daemon reads the command makes.
+	conn goldenConn
+	// exit is the command's expected exit code.
+	exit int
+	// render, when set, replaces Run with a direct call to the renderer the
+	// command uses. Only for commands whose fetch derives the result from
+	// several reads rather than serving one typed result.
+	render func(env *Env)
+}
+
+// TestRenderGolden pins the human-readable output of the desk commands at 80
+// columns with colour off and on, so a silent loss of layout, labels or colour
+// fails the gate instead of shipping. Every value is synthetic.
+func TestRenderGolden(t *testing.T) {
+	t.Setenv("COLUMNS", "80")
+	cases := renderGoldenCases()
+	files := map[string]bool{}
+	for _, tc := range cases {
+		files[tc.name+".txt"] = true
+		t.Run(tc.name, func(t *testing.T) {
+			var doc strings.Builder
+			for _, color := range []bool{false, true} {
+				out := renderGolden(t, tc, color)
+				mode := "colour off"
+				if color {
+					mode = `colour on, ESC written as \x1b`
+				} else if strings.Contains(out, "\x1b") {
+					t.Fatalf("colour-off output carries an escape sequence:\n%s", out)
+				}
+				fmt.Fprintf(&doc, "# canary %s · COLUMNS=80 · %s\n", strings.Join(tc.argv, " "), mode)
+				doc.WriteString(goldenText(out))
+			}
+			compareGolden(t, filepath.Join(goldenDir, tc.name+".txt"), doc.String())
+		})
+	}
+	entries, err := os.ReadDir(goldenDir)
+	if err != nil {
+		if *updateGolden {
+			return
+		}
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !files[entry.Name()] {
+			t.Errorf("%s has no case in TestRenderGolden; delete the file or restore the case", filepath.Join(goldenDir, entry.Name()))
+		}
+	}
+}
+
+func renderGolden(t *testing.T, tc renderGoldenCase, color bool) string {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: tc.conn, Color: color}
+	if tc.render != nil {
+		tc.render(env)
+	} else if code := Run(t.Context(), env, tc.argv[0], tc.argv[1:]); code != tc.exit {
+		t.Fatalf("exit %d, want %d; stderr: %s", code, tc.exit, stderr.String())
+	}
+	if stderr.Len() > 0 {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+	return stdout.String()
+}
+
+// goldenText makes a render machine-independent and reviewable: the local zone
+// abbreviation becomes "TZ" and each ESC byte is written as the text \x1b.
+func goldenText(out string) string {
+	if zone := goldenAt.Format("MST"); zone != "" {
+		out = strings.ReplaceAll(out, " "+zone, " TZ")
+	}
+	return strings.ReplaceAll(out, "\x1b", `\x1b`)
+}
+
+func compareGolden(t *testing.T, path, got string) {
+	t.Helper()
+	if *updateGolden {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%v; create it with: go test ./internal/cli -run TestRenderGolden -update", err)
+	}
+	want := string(raw)
+	if got == want {
+		return
+	}
+	wantLines, gotLines := strings.Split(want, "\n"), strings.Split(got, "\n")
+	line := func(lines []string, i int) string {
+		if i < len(lines) {
+			return lines[i]
+		}
+		return "<end of output>"
+	}
+	for i := range max(len(wantLines), len(gotLines)) {
+		if w, g := line(wantLines, i), line(gotLines, i); w != g {
+			t.Fatalf("%s differs at line %d\nwant: %q\n got: %q\nif the change is intended: go test ./internal/cli -run TestRenderGolden -update", path, i+1, w, g)
+		}
+	}
+}
+
+func renderGoldenCases() []renderGoldenCase {
+	fresh := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityFresh, LastSuccessAt: new(goldenAt), LastSuccessAgeSeconds: new(int64(60))}
+	stale := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityStale, LastSuccessAt: new(goldenAt.Add(-2 * time.Hour)), LastSuccessAgeSeconds: new(int64(7200)), FailureCode: rpc.RegimeAuthorityFailureRefreshTimeout}
+	readyTrading := rpc.TradingStatus{Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3}
+	blockedTrading := rpc.TradingStatus{Mode: config.TradingModeLive, Endpoint: "127.0.0.1:4001", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, LiveOverride: rpc.TradingLiveOverrideBlocked, Blocked: true, Freeze: true, TradingControlGeneration: 4,
+		Blockers:      []rpc.TradingBlocker{{Code: "live_override_missing", Message: "live trading needs the live override", Action: "set the live override in config.toml"}},
+		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
+	}
+	return []renderGoldenCase{
+		{name: "regime", argv: []string{"regime"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(fresh)}},
+		{name: "regime_explain", argv: []string{"regime", "--explain"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(fresh)}},
+		{name: "regime_stale", argv: []string{"regime"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(stale)}},
+		// runStress derives its result from account, positions, regime and
+		// rulebook reads; the golden pins the renderer it hands the result to.
+		{name: "stress", argv: []string{"stress"}, render: func(env *Env) { renderStress(env, goldenStress(), false) }},
+		{name: "stress_details", argv: []string{"stress", "--details"}, render: func(env *Env) { renderStress(env, goldenStress(), true) }},
+		{name: "status", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthReady(readyTrading), rpc.MethodAlertCandidates: goldenAlerts(3)}},
+		{name: "status_attention", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthAttention(), rpc.MethodAlertCandidates: goldenAlerts(2)}},
+		{name: "trading_status", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: readyTrading}},
+		{name: "trading_status_blocked", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: blockedTrading}, exit: 1},
+		{name: "settings_show", argv: []string{"settings", "show"}, conn: goldenConn{rpc.MethodSettingsGet: goldenSettings()}},
+		{name: "technical", argv: []string{"technical", "SYNA,SYNB,SYNC"}, conn: goldenConn{rpc.MethodTechnical: goldenTechnical()}},
+		{name: "proposals_list_empty", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: rpc.TradeProposalSnapshot{Revision: "rev-0000", PolicyID: "protection", PolicyVersion: 1, Proposals: []rpc.TradeProposal{}}}},
+		{name: "proposals_list_one", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenProposals()}},
+		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
+		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
+		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
+	}
+}
+
+func goldenRegime(authority rpc.RegimeAuthorityHealth) rpc.RegimeSnapshotResult {
+	thresholds := func(green, yellow, red string) *rpc.RegimeThresholds {
+		return &rpc.RegimeThresholds{Green: green, Yellow: yellow, Red: red}
+	}
+	daily := func(date, source string) *rpc.RegimeAsOfSummary {
+		return &rpc.RegimeAsOfSummary{Label: "close D-1", Date: date, Source: source}
+	}
+	return rpc.RegimeSnapshotResult{
+		AsOf:            goldenAt,
+		AuthorityHealth: &authority,
+		Lifecycle: rpc.LifecycleState{Stage: "early_warning", Severity: "watch", Readiness: "ready",
+			Governors: []rpc.GovernorAction{{Action: "downgrade", From: "confirmed_stress", To: "early_warning", Reason: "pending_backtest_no_tape_cosign"}}},
+		Summary:   rpc.RegimeSummary{Evidence: "1 red, 1 amber, 5 green of 8 clusters", PunchLine: "One stress signal is unconfirmed; the other clusters read constructive."},
+		Posture:   rpc.RegimePosture{Label: "Watch: one unconfirmed stress signal", Tone: rpc.RegimeToneWatch},
+		Composite: rpc.RegimeComposite{Verdict: "Watch: one unconfirmed stress signal", GreenCount: 5, YellowCount: 1, RedCount: 1, RankedCount: 7, UnrankedCount: 1},
+		VIXTermStructure: rpc.RegimeVIXTerm{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "VIX below VIX3M (contango)", AsOf: &rpc.RegimeAsOfSummary{Label: "live", Time: goldenAt, Source: "broker"}, Thresholds: thresholds("below 0.95", "0.95 to 1.05", "above 1.05")},
+			Status:              rpc.RegimeStatusOK, VIX: new(18.0), VIX3M: new(20.0), Ratio: new(0.9),
+		},
+		VolOfVol: rpc.RegimeVolOfVol{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "yellow", BandReason: "VVIX up 10% in five sessions", AsOf: daily("2026-09-04", "Cboe"), Thresholds: &rpc.RegimeThresholds{Green: "5d change below 5%", Yellow: "5d change 5% to 15%", Red: "5d change above 15%", PendingBacktest: true}},
+			Status:              rpc.RegimeStatusOK, Last: new(100.0), Change5D: new(10.0), AsOfDate: "2026-09-04",
+		},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "HYG above its 50-day average", Thresholds: thresholds("HYG above 50-day average", "HYG below average, SPY near high", "HYG below average, SPY falling")},
+			Status:              rpc.RegimeStatusOK, HYGPrice: new(80.0), HYG50DMA: new(79.0), SPYPrice: new(500.0), SPYChangePct: new(0.5),
+		},
+		CreditSpreads: rpc.RegimeCreditSpreads{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "high-yield spreads stable", AsOf: daily("2026-09-03", "FRED")},
+			Status:              rpc.RegimeStatusOK, HYOAS: new(3.0), IGOAS: new(1.0), HYIGSpread: new(2.0), HY20DChange: new(0.1), AsOfDate: "2026-09-03",
+		},
+		FundingStress: rpc.RegimeFundingStress{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "funding spread normal", AsOf: daily("2026-09-03", "FRED")},
+			Status:              rpc.RegimeStatusOK, SpreadBps: new(20.0), Change5Bps: new(2.0), AsOfDate: "2026-09-03",
+		},
+		USDJPY: rpc.RegimeUSDJPY{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "red", BandReason: "yen up 3% in a week", Freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}, Eligibility: &rpc.RegimeEligibility{Reasons: []string{"no second cluster confirms"}}},
+			Status:              rpc.RegimeStatusOK, Symbol: "USD.JPY", Last: new(145.0), WeeklyChange: new(-3.0),
+		},
+		GammaZero: rpc.RegimeGammaZero{Status: rpc.RegimeStatusComputing},
+		Breadth: rpc.RegimeBreadth{
+			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "most members above their 50-day average"},
+			Status:              rpc.RegimeStatusOK, PctAbove50DMA: 60, PctAbove200DMA: new(65.0),
+			Envelope: rpc.BreadthSPXResult{MemberCount: 500, Coverage50: 500, Coverage200: 500, CoverageHighsLows: 500},
+		},
+		WarningDetails: []rpc.RegimeWarning{{Code: "gamma_computing", Message: "Dealer gamma model is still computing."}},
+		SourceHealth:   []rpc.SourceHealth{{Source: "broker", Status: "ok", AsOf: goldenAt, Notes: []string{"live quotes"}}},
+	}
+}
+
+func goldenStress() rpc.StressResult {
+	return rpc.StressResult{
+		AsOf:               goldenAt,
+		Action:             "watch",
+		Severity:           risk.SeverityWatch,
+		Summary:            "One finding needs review; market stress is unconfirmed.",
+		InputHealth:        "complete",
+		MarketConfirmation: "unconfirmed",
+		PortfolioFit:       "relevant",
+		Rows: []rpc.StressRow{
+			{Title: "Portfolio stress", Severity: risk.SeverityWatch, Evidence: "1 act and 1 watch finding across 4 checks."},
+			{Title: "Margin headroom", Direction: risk.DirectionDefensive, Severity: risk.SeverityWatch, Evidence: "Cushion is 40% of net liquidation.", Guidance: "Compare the cushion with the margin rule before adding exposure."},
+			{Title: "Concentration", Direction: risk.DirectionDefensive, Severity: risk.SeverityAct, Evidence: "SYNA is 30% of net liquidation.", Guidance: "Review the position size against the concentration rule."},
+			{Title: "Daily loss", Direction: risk.DirectionDefensive, Severity: risk.SeverityObserve, Evidence: "Down 0.5% on the day.", Guidance: "No action."},
+			{Title: "Market events", Direction: risk.DirectionDataQuality, Severity: risk.SeverityWatch, Evidence: "Earnings calendar unavailable.", Guidance: "Retry once the calendar source recovers."},
+		},
+		MarketIndicators: []rpc.StressMarketIndicator{{Name: "VIX/VIX3M", Status: "green", Reading: "0.90", AsOf: "live", Comment: "contango"}},
+		Warnings:         []string{"market events: calendar source unavailable"},
+		SourceHealth:     []rpc.SourceHealth{{Source: "account", Status: "ok", AsOf: goldenAt}},
+		NotExecution:     "Read-only assessment; it places no orders.",
+	}
+}
+
+func goldenHealthReady(trading rpc.TradingStatus) rpc.HealthResult {
+	return rpc.HealthResult{
+		Verdict:          rpc.HealthVerdict{State: "READY"},
+		DaemonVersion:    "v0.0.0-golden",
+		UptimeSeconds:    7200,
+		Account:          "DU0000000",
+		ConnectedAccount: "DU0000000",
+		AccountMode:      rpc.AccountModePaper,
+		GatewayHost:      "127.0.0.1",
+		GatewayPort:      4002,
+		PortOrigin:       "configured",
+		ClientID:         7,
+		Connected:        true,
+		GatewayPhase:     rpc.GatewayPhaseReady,
+		DataType:         rpc.MarketDataLive,
+		ServerVersion:    176,
+		BackgroundTasks:  []rpc.BackgroundTaskStatus{},
+		Subsystems:       []rpc.SubsystemHealth{{Name: "regime", Status: "ready"}, {Name: "breadth", Status: "ready"}, {Name: "rulebook", Status: "ready"}},
+		Members:          rpc.MembersHealth{Source: "fixture", AsOf: time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), Count: 500, RefreshState: "healthy"},
+		Trading:          trading,
+		DataHealth:       &rpc.DataHealthResult{Summary: rpc.DataHealthSummary{State: "current", Label: "12 of 12 sources current"}},
+	}
+}
+
+func goldenHealthAttention() rpc.HealthResult {
+	res := goldenHealthReady(rpc.TradingStatus{Mode: config.TradingModePaper, MCPTrading: rpc.TradingMCPDisabled, Blocked: true, Blockers: []rpc.TradingBlocker{{Code: "market_data_delayed", Message: "market data is delayed"}}})
+	res.Verdict = rpc.HealthVerdict{State: "ATTENTION", Reason: "Historical data farm broken"}
+	res.DataType = rpc.MarketDataDelayed
+	res.DataFarms = []rpc.DataFarmHealth{{Name: "ushmds", Type: "hmds", Status: "broken", Code: 2105}}
+	res.MarketDataAccess = []rpc.MarketDataAccessHealth{{RouteKey: "SYNB", Symbol: "SYNB", Code: 354, Reason: rpc.MarketDataAccessNotSubscribed, ObservedAt: goldenAt, RetryAt: goldenAt.Add(30 * time.Minute)}}
+	res.BackendLink = &rpc.BackendLinkHealth{Losses: 2, LossesInMaintenanceWindow: 1, LastOutageSeconds: 30, LongestOutageSeconds: 90}
+	res.AnswerPath = []rpc.ConnectionAnswerPath{{Lane: "history", State: rpc.AnswerPathStalled, StalledSince: goldenAt.Add(-10 * time.Minute), RedialDue: goldenAt.Add(5 * time.Minute)}}
+	res.BackgroundTasks = []rpc.BackgroundTaskStatus{{Name: "gamma-zero"}}
+	res.Subsystems = []rpc.SubsystemHealth{{Name: "regime", Status: "ready"}, {Name: "gamma", Status: "degraded", Message: "model inputs partial"}, {Name: "breadth", Status: "warming", Progress: 40}}
+	res.DataQuality = []rpc.DataQualityHealth{{Surface: "regime", Status: "degraded", DegradedClusters: []string{"gamma"}, Summary: "degraded: gamma"}}
+	res.DataHealth = &rpc.DataHealthResult{
+		Summary:  rpc.DataHealthSummary{State: "limited", Label: "10 of 12 sources current"},
+		Concerns: []rpc.DataHealthConcern{{SourceID: "hmds", State: "unavailable", Label: "Historical data farm broken"}, {SourceID: "quotes", State: "limited", Label: "Delayed quotes for 1 symbol"}},
+	}
+	return res
+}
+
+func goldenAlerts(covered int) rpc.AlertCandidateSnapshot {
+	expected := []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceRegime, rpc.AlertSourceRulebook}
+	freshness := rpc.AlertCoverageCurrent
+	if covered < len(expected) {
+		freshness = rpc.AlertCoverageStale
+	}
+	return rpc.AlertCandidateSnapshot{Coverage: rpc.AlertCoverage{Freshness: freshness, ExpectedSources: expected, CoveredSources: expected[:covered]}, Candidates: []rpc.AlertCandidate{}}
+}
+
+func goldenSettings() rpc.PlatformSettings {
+	var st rpc.PlatformSettings
+	st.Display.DateFormat = rpc.SettingsString{Value: rpc.DisplayDateFormatEU, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime}
+	st.Features.StockProtection.Enabled = rpc.SettingsBool{Value: true, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime}
+	st.Features.Rulebook.Enabled = rpc.SettingsBool{Value: true, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceConfig}
+	st.Features.Rulebook.EarningsOverrides = rpc.SettingsStringMap{Value: map[string]string{"SYNA": "2026-10-20"}, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime}
+	st.Trading.Freeze = rpc.SettingsBool{Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime}
+	st.Trading.Mode = rpc.SettingsString{Value: config.TradingModePaper, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.Trading.Endpoint = rpc.SettingsString{Value: "127.0.0.1:4002", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
+	st.Trading.Account = rpc.SettingsString{Value: "DU0000000", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
+	st.Trading.MCPTrading = rpc.SettingsString{Value: rpc.TradingMCPDisabled, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.Trading.Limits.MaxNotional = rpc.SettingsFloat{Value: 10000, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.Trading.Limits.MaxOptionContracts = rpc.SettingsInt{Value: 5, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.Trading.Limits.AllowStockShort = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.Trading.Limits.AllowOptionSellToOpen = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceConfig}
+	st.MarketData.Quality = rpc.PlatformMarketDataQuality{Status: "live", Summary: "all quotes live", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
+	st.Build.Channel = rpc.SettingsString{Value: "release", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceBuild}
+	return st
+}
+
+func goldenTechnical() rpc.TechnicalResult {
+	return rpc.TechnicalResult{Benchmark: "SPY", LookbackDays: 420, AsOf: goldenAt, Rows: []rpc.TechnicalRow{
+		{Symbol: "SYNA", Price: new(100.0), SMA50: new(95.0), SMA200: new(90.0), PctAbove200DMA: new(0.11), RS63D: new(0.05), RS126D: new(0.1), ATRPct: new(0.02), AvgVolume20D: new(int64(1_000_000)), AvgDollarVolume20D: new(100_000_000.0), TrendState: "uptrend", DataQuality: "ok"},
+		{Symbol: "SYNB", Price: new(50.0), SMA50: new(55.0), RS63D: new(-0.05), RS126D: new(-0.1), ATRPct: new(0.04), AvgVolume20D: new(int64(20_000)), AvgDollarVolume20D: new(1_000_000.0), TrendState: "downtrend", DataQuality: "partial"},
+		{Symbol: "SYNC", Error: "no historical data"},
+	}}
+}
+
+func goldenProposals() rpc.TradeProposalSnapshot {
+	return rpc.TradeProposalSnapshot{
+		Revision:      "rev-0001",
+		PolicyID:      "protection",
+		PolicyVersion: 1,
+		Counts:        rpc.TradeProposalCounts{Total: 1, Actionable: 1, TrailingStop: 1},
+		Proposals: []rpc.TradeProposal{{
+			Key: "ts-SYNA", Bucket: rpc.TradeProposalBucketTrailingStop, Action: rpc.OrderActionSell, Quantity: 100, Symbol: "SYNA", SecType: "STK",
+			OrderType: rpc.OrderTypeTRAIL, Trail: &rpc.OrderTrailSpec{OffsetType: "percent", TrailingPercent: new(8.0), InitialStopPrice: 92},
+			TIF: rpc.OrderTIFGTC, Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "STK", Currency: "USD"},
+			Reason:           "long stock without a protective stop",
+			PositionQuantity: 100, PositionMarketValue: 10000, MarketValuePctNLV: new(10.0),
+			PositionDayChangeMoney: new(-200.0), PositionDayChangeCurrency: "USD", PositionDayChangePct: new(-2.0),
+			TrailSizing:        &rpc.TradeProposalTrailSizing{Method: "atr", SelectedBy: "atr", PolicyMinPct: 5, PolicyMaxPct: 12, ChosenPct: 8},
+			ExecutionSemantics: &rpc.TradeProposalExecutionSemantics{ReferenceSide: "bid", ReferencePrice: new(100.0), TriggerMethodLabel: "last", PriceGuarantee: "stop_price_is_not_execution_price"},
+			StopRisk:           &rpc.TradeProposalStopRisk{EstimatedLoss: new(800.0), Currency: "USD", EstimatedLossPctNLV: new(0.8), DistancePct: new(8.0)},
+			Details:            []string{"protects 100 sh of SYNA"},
+		}},
+	}
+}
+
+func goldenBrief(narrative bool) rpc.BriefResult {
+	res := rpc.BriefResult{AsOf: goldenAt, BriefFingerprint: "sha256:0000000000000000000000000000"}
+	review, ready := &res.Review, &res.Ready
+	review.SessionPnL.Status, review.SessionPnL.EquityBase, review.SessionPnL.DailyPnLBase, review.SessionPnL.BaseCurrency = rpc.BriefStatusOK, new(100000.0), new(-500.0), "USD"
+	review.LastSession.Status, review.LastSession.SessionDate, review.LastSession.DailyPnLBase, review.LastSession.BaseCurrency = rpc.BriefStatusOK, "2026-09-04", new(250.0), "USD"
+	review.Edge.Status, review.Edge.State, review.Edge.Headline = rpc.BriefStatusOK, "no_decision", "No decision to review yet"
+	review.Attribution.Status, review.Attribution.Rows = rpc.BriefStatusOK, []rpc.BriefMover{{Symbol: "SYNA", DailyPnLBase: -400}, {Symbol: "SYNB", DailyPnLBase: -100}}
+	review.Rules.Status, review.Rules.Pass, review.Rules.Watch, review.Rules.Act = rpc.BriefStatusAttention, 18, 1, 1
+	review.Proposals.Status, review.Proposals.Offered = rpc.BriefStatusOK, 1
+	review.Overrides.Status = rpc.BriefStatusOK
+	review.CapitalEvents.Status = rpc.BriefStatusOK
+	review.Reconcile.Status, review.Reconcile.Detail = rpc.BriefStatusDegraded, "reconciliation source not configured"
+	review.AutoExtend.Status = rpc.BriefStatusOK
+	review.WorkingOrders.Status, review.WorkingOrders.Count = rpc.BriefStatusOK, new(2)
+	ready.Regime.Status, ready.Regime.Stage, ready.Regime.Verdict = rpc.BriefStatusOK, "early_warning", "Watch: one unconfirmed stress signal"
+	ready.Breadth.Status, ready.Breadth.PctAbove50DMA, ready.Breadth.PctAbove200DMA = rpc.BriefStatusOK, new(60.0), new(65.0)
+	ready.Breadth.MemberCount, ready.Breadth.Coverage50, ready.Breadth.Coverage200, ready.Breadth.CoverageHighsLows = 500, 500, 500, 500
+	ready.Gamma.Status, ready.Gamma.Detail = rpc.BriefStatusUnavailable, "dealer gamma model still computing"
+	ready.Stress.Status, ready.Stress.Action, ready.Stress.Severity, ready.Stress.Summary = rpc.BriefStatusAttention, "watch", "watch", "One finding needs review."
+	ready.Session.Status, ready.Session.Market, ready.Session.State = rpc.BriefStatusOK, "US", "open"
+	ready.Capital.Status, ready.Capital.Tier, ready.Capital.ConsumedPct = rpc.BriefStatusOK, "normal", new(10.0)
+	ready.Latch.Status = rpc.BriefStatusOK
+	ready.PremiumAtRisk.Status, ready.PremiumAtRisk.AmountBase, ready.PremiumAtRisk.BaseCurrency, ready.PremiumAtRisk.PctOfRiskCapital = rpc.BriefStatusOK, new(1000.0), "USD", new(2.0)
+	ready.HedgeCost.Status, ready.HedgeCost.AmountBase, ready.HedgeCost.BaseCurrency = rpc.BriefStatusOK, new(10.0), "USD"
+	ready.Proposals.Status = rpc.BriefStatusOK
+	ready.PolicyDrift.Status = rpc.BriefStatusOK
+	if !narrative {
+		return res
+	}
+	run := func(text, role string) rpc.BriefRun { return rpc.BriefRun{Text: text, Role: role} }
+	res.Narrative = &rpc.BriefNarrative{
+		Overview: &rpc.BriefOverview{
+			Assessment: []rpc.BriefRun{run("Markets read constructive with ", ""), run("one unconfirmed stress signal", rpc.BriefRunRoleWatch), run("; the book needs one review before the open.", "")},
+			Attention: []rpc.BriefParagraph{
+				{Runs: []rpc.BriefRun{run("SYNA concentration is ", ""), run("30.0%", rpc.BriefRunRoleAct), run(" of net liquidation, above the rule's act level; review the position size before adding exposure.", "")}},
+				{Runs: []rpc.BriefRun{run("Portfolio stress: ", ""), run("watch", rpc.BriefRunRoleWatch)}},
+			},
+			Context:  []rpc.BriefParagraph{{Runs: []rpc.BriefRun{run("Breadth ", ""), run("60.0%", rpc.BriefRunRoleFigure), run(" above the 50-day average.", "")}}},
+			Coverage: []rpc.BriefParagraph{{Runs: []rpc.BriefRun{run("Dealer gamma unavailable; the model is still computing.", "")}}},
+		},
+		Lead: []rpc.BriefRun{run("Session P&L ", ""), {Text: "-$500.00", Role: rpc.BriefRunRoleFigure, AccountSensitive: true}, run(" on the day; one finding needs review.", "")},
+		Review: []rpc.BriefParagraph{
+			{Runs: []rpc.BriefRun{run("SYNA ", ""), run("-$400.00", rpc.BriefRunRoleFigure), run(" and SYNB ", ""), run("-$100.00", rpc.BriefRunRoleFigure), run(" led the move.", "")}},
+			{Runs: []rpc.BriefRun{run("Policy adherence: 18 pass, ", ""), run("1 watch", rpc.BriefRunRoleWatch), run(", ", ""), run("1 act", rpc.BriefRunRoleAct), run(".", "")}},
+		},
+		Ready: []rpc.BriefParagraph{{Runs: []rpc.BriefRun{run("Regime early warning; breadth ", ""), run("60.0%", rpc.BriefRunRoleFigure), run(" above the 50-day average; US session open.", "")}}},
+		Coda:  []rpc.BriefRun{run("Read-only; nothing here places an order.", "")},
+	}
+	return res
+}

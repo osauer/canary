@@ -280,6 +280,14 @@ build check test test-pkg test-support test-internal test-daemon test-daemon-def
 
 test: ## Full gate: check + render + historical regressions + pkg, support, and daemon/integration tests (-race), overlapped
 	$(MAKE) $(TEST_MAKEFLAGS) check app-render-check test-pkg test-support test-daemon regression-spine-check
+	$(call gate-stamp,test)
+
+# A gate that passes ends with one line naming the tree it proved, for the
+# completion report to quote verbatim: `gate check at <HEAD>[-dirty] exit 0`.
+# A failing gate never reaches it; make's `***` lines are the failure record.
+define gate-stamp
+@printf 'gate %s at %s exit 0\n' '$(1)' "$$(git describe --always --dirty 2>/dev/null || echo unknown)"
+endef
 
 # Compatibility spelling retained for older contributor and agent workflows.
 # The reduced v3 tree has one canonical repository gate.
@@ -305,6 +313,7 @@ CHECK_TARGETS += build-space-contract-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks (binding pre-commit gate)
 	$(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
+	$(call gate-stamp,check)
 
 product-identity-check: ## Reject retired product/module/site/CLI/MCP identities outside reviewed continuity exceptions
 	@./scripts/check-product-identity.sh
@@ -436,7 +445,7 @@ agent-config-check: hook-behavior-check ## Validate project agent config, hooks,
 		[ "$$read_decision" = allow ] && [ "$$write_decision" = prompt ] && [ "$$human_only_decision" = forbidden ] \
 			&& [ "$$commit_gate_decision" = allow ] && [ "$$offline_gate_decision" = allow ] \
 			&& [ "$$browser_gate_decision" = prompt ] && [ "$$browser_script_decision" = prompt ] && [ "$$full_gate_decision" = prompt ] \
-			&& [ "$$live_gate_decision" = prompt ] && [ "$$smoke_decision" = prompt ] \
+			&& [ "$$live_gate_decision" = allow ] && [ "$$smoke_decision" = prompt ] \
 			&& [ "$$release_decision" = prompt ] || { \
 			echo "execpolicy decisions: read=$$read_decision write=$$write_decision human-only=$$human_only_decision commit-gate=$$commit_gate_decision offline-gate=$$offline_gate_decision browser-gate=$$browser_gate_decision browser-script=$$browser_script_decision full-gate=$$full_gate_decision live-gate=$$live_gate_decision smoke=$$smoke_decision release=$$release_decision" >&2; exit 1; \
 		}; \

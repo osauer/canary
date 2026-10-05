@@ -324,13 +324,14 @@ Public economic calendar, official publications and source coverage.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary macro [--window-start DATE --window-end DATE] [--json]
+canary macro [--window-start DATE --window-end DATE] [--details] [--json]
 ```
 
 **Flags**
 
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
+| `--details` | no | - |
 | `--window-start` | yes | - |
 | `--window-end` | yes | - |
 | `--json` | no | - |
@@ -646,6 +647,7 @@ canary proposals status|refresh|list|preview|prepare|prepared-status|submit|redu
 
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
+| `--details` | no | - |
 | `--quantity` | yes | - |
 | `--timeout` | yes | - |
 | `--fast-path` | no | - |

@@ -1,0 +1,42 @@
+# canary trading status · COLUMNS=80 · colour off
+
+Canary Trading  BLOCKED
+
+Mode           live blocked
+Endpoint       127.0.0.1:4001
+Account        DU0000000 (config)
+Client ID      7 (config)
+MCP trading    disabled
+Capabilities   preview=true write=false
+Freeze         on (generation 4)
+Open orders    0
+Live override  blocked
+
+Blockers:
+  - live_override_missing: live trading needs the live override
+    action: set the live override in config.toml
+
+Write blockers:
+  - trading_frozen: trading.freeze is on; only cancels pass
+
+# canary trading status · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Trading  \x1b[33m\x1b[1mBLOCKED\x1b[0m\x1b[0m
+
+\x1b[2mMode          \x1b[0m \x1b[33mlive blocked\x1b[0m
+\x1b[2mEndpoint      \x1b[0m 127.0.0.1:4001
+\x1b[2mAccount       \x1b[0m DU0000000 (config)
+\x1b[2mClient ID     \x1b[0m 7 (config)
+\x1b[2mMCP trading   \x1b[0m disabled
+\x1b[2mCapabilities  \x1b[0m preview=true write=false
+\x1b[2mFreeze        \x1b[0m \x1b[33mon (generation 4)\x1b[0m
+\x1b[2mOpen orders   \x1b[0m 0
+\x1b[2mLive override \x1b[0m blocked
+
+Blockers:
+  - live_override_missing: live trading needs the live override
+    action: set the live override in config.toml
+
+Write blockers:
+  - trading_frozen: trading.freeze is on; only cancels pass
+

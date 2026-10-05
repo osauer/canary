@@ -1,0 +1,106 @@
+# canary regime --explain · COLUMNS=80 · colour off
+Regime  Watch: one unconfirmed stress signal
+One stress signal is unconfirmed; the other clusters read constructive.
+Evidence · fresh
+Last successful refresh · 5 Sep 14:00 TZ
+Readiness · ready · watch
+Snapshot generated · 5 Sep 14:00 TZ · early_warning
+Clusters · 1 red, 1 amber, 5 green of 8 clusters
+
+Indicators
+  Green constructive · Amber mixed · Red stressed · — unrated
+  GREEN  VIX/VIX3M       0.90 30-day / 3-month volatility
+         VIX below VIX3M (contango)
+    Full reading · ratio 0.90; VIX 18.00; VIX3M 20.00
+    Observed · 5 Sep 14:00 TZ · broker
+    Thresholds · green: below 0.95 · yellow: 0.95 to 1.05 · red: above 1.05
+  AMBER  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
+         VVIX up 10% in five sessions · 2026-09-04
+    Full reading · last 100.00; 5d% 10.00
+    Observed · 2026-09-04 · Cboe
+    Thresholds · green: 5d change below 5% · yellow: 5d change 5% to 15% ·
+      red: 5d change above 15%
+  GREEN  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+         HYG above its 50-day average
+    Full reading · HYG 80.00; SPY 500.00; SPY chg% 0.50
+    Thresholds · green: HYG above 50-day average · yellow: HYG below average,
+      SPY near high · red: HYG below average, SPY falling
+  GREEN  Credit spreads  HY 3.00% · +0.10 pp / 20d
+         high-yield spreads stable · 2026-09-03
+    Full reading · HY 3.00; IG 1.00; HY-IG 2.00
+    Observed · 2026-09-03 · FRED
+  GREEN  Funding         20 bp CP minus T-bills · +2 bp / 5 obs
+         funding spread normal · 2026-09-03
+    Full reading · spread bp 20.00; 5obs bp 2.00
+    Observed · 2026-09-03 · FRED
+  RED    USD/JPY         145.00 · -3.00% / week
+         yen up 3% in a week
+    Full reading · last 145.00; week% -3.00
+    Confirmation · not eligible · no second cluster confirms
+  —      Gamma           recorded: unavailable
+         computing · not a current rating
+    Full reading · computing
+  GREEN  Breadth         60.0% above 50-day average
+         most members above their 50-day average
+    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 50d 500/500; 200d
+      500/500; 52w 500/500
+
+Source diagnostics
+  gamma_computing · Dealer gamma model is still computing.
+Pending backtest · VVIX
+Governor · downgrade · confirmed_stress · early_warning ·
+  pending_backtest_no_tape_cosign
+Source · broker · ok · 2026-09-05 14:00 TZ · live quotes
+# canary regime --explain · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mRegime\x1b[0m  \x1b[33m\x1b[1mWatch: one unconfirmed stress signal\x1b[0m\x1b[0m
+One stress signal is unconfirmed; the other clusters read constructive.
+Evidence · fresh
+Last successful refresh · 5 Sep 14:00 TZ
+Readiness · ready · watch
+Snapshot generated · 5 Sep 14:00 TZ · early_warning
+Clusters · 1 red, 1 amber, 5 green of 8 clusters
+
+\x1b[1mIndicators\x1b[0m
+  \x1b[2mGreen constructive · Amber mixed · Red stressed · — unrated\x1b[0m
+  \x1b[32mGREEN\x1b[0m  VIX/VIX3M       0.90 30-day / 3-month volatility
+         \x1b[2mVIX below VIX3M (contango)\x1b[0m
+    Full reading · ratio 0.90; VIX 18.00; VIX3M 20.00
+    Observed · 5 Sep 14:00 TZ · broker
+    Thresholds · green: below 0.95 · yellow: 0.95 to 1.05 · red: above 1.05
+  \x1b[33mAMBER\x1b[0m  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
+         \x1b[2mVVIX up 10% in five sessions · 2026-09-04\x1b[0m
+    Full reading · last 100.00; 5d% 10.00
+    Observed · 2026-09-04 · Cboe
+    Thresholds · green: 5d change below 5% · yellow: 5d change 5% to 15% ·
+      red: 5d change above 15%
+  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+         \x1b[2mHYG above its 50-day average\x1b[0m
+    Full reading · HYG 80.00; SPY 500.00; SPY chg% 0.50
+    Thresholds · green: HYG above 50-day average · yellow: HYG below average,
+      SPY near high · red: HYG below average, SPY falling
+  \x1b[32mGREEN\x1b[0m  Credit spreads  HY 3.00% · +0.10 pp / 20d
+         \x1b[2mhigh-yield spreads stable · 2026-09-03\x1b[0m
+    Full reading · HY 3.00; IG 1.00; HY-IG 2.00
+    Observed · 2026-09-03 · FRED
+  \x1b[32mGREEN\x1b[0m  Funding         20 bp CP minus T-bills · +2 bp / 5 obs
+         \x1b[2mfunding spread normal · 2026-09-03\x1b[0m
+    Full reading · spread bp 20.00; 5obs bp 2.00
+    Observed · 2026-09-03 · FRED
+  \x1b[31mRED  \x1b[0m  USD/JPY         145.00 · -3.00% / week
+         \x1b[2myen up 3% in a week\x1b[0m
+    Full reading · last 145.00; week% -3.00
+    Confirmation · not eligible · no second cluster confirms
+  \x1b[2m—    \x1b[0m  Gamma           recorded: unavailable
+         \x1b[2mcomputing · not a current rating\x1b[0m
+    Full reading · computing
+  \x1b[32mGREEN\x1b[0m  Breadth         60.0% above 50-day average
+         \x1b[2mmost members above their 50-day average\x1b[0m
+    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 50d 500/500; 200d
+      500/500; 52w 500/500
+
+Source diagnostics
+  gamma_computing · Dealer gamma model is still computing.
+Pending backtest · VVIX
+Governor · downgrade · confirmed_stress · early_warning ·
+  pending_backtest_no_tape_cosign
+Source · broker · ok · 2026-09-05 14:00 TZ · live quotes

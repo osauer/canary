@@ -300,6 +300,7 @@ type TechnicalParams struct {
 // TechnicalRow is one symbol's trend, relative-strength, volatility, and
 type TechnicalRow struct {
 	Symbol              string    `json:"symbol"`
+	Currency            string    `json:"currency,omitempty"`
 	Price               *float64  `json:"price,omitempty"`
 	PriceAsOf           string    `json:"price_as_of,omitempty"`
 	Bars                int       `json:"bars"`

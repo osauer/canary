@@ -271,29 +271,32 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Canary Settings  %s\n", env.statusBadge(settingsVerdict(*st)))
 	fmt.Fprintln(out)
-	statusRow(env, out, "Date format", nonEmpty(st.Display.DateFormat.Value, rpc.DisplayDateFormatUS))
-	statusRow(env, out, "Stock protection", formatSettingsBool(env, st.Features.StockProtection.Enabled))
-	statusRow(env, out, "Rulebook", formatSettingsBool(env, st.Features.Rulebook.Enabled))
+	displayRow(env, out, "Date format", nonEmpty(st.Display.DateFormat.Value, rpc.DisplayDateFormatUS))
+	displayRow(env, out, "Stock protection", formatSettingsBool(env, st.Features.StockProtection.Enabled))
+	displayRow(env, out, "Rulebook", formatSettingsBool(env, st.Features.Rulebook.Enabled))
 	if n := len(st.Features.Rulebook.EarningsOverrides.Value); n > 0 {
-		statusRow(env, out, "Earnings overrides", fmt.Sprintf("%d symbol(s)", n))
+		displayRow(env, out, "Earnings overrides", fmt.Sprintf("%d symbol(s)", n))
 	}
-	statusRow(env, out, "Trading freeze", formatSettingsBool(env, st.Trading.Freeze))
-	statusRow(env, out, "Trading", nonEmpty(st.Trading.Mode.Value, "disabled"))
-	statusRow(env, out, "Endpoint", nonEmpty(st.Trading.Endpoint.Value, "unknown"))
-	statusRow(env, out, "Account", nonEmpty(st.Trading.Account.Value, "unknown"))
-	statusRow(env, out, "MCP trading", nonEmpty(st.Trading.MCPTrading.Value, "disabled"))
-	statusRow(env, out, "Build", st.Build.Channel.Value)
+	displayRow(env, out, "Trading freeze", formatSettingsBool(env, st.Trading.Freeze))
+	displayRow(env, out, "Trading", nonEmpty(st.Trading.Mode.Value, "disabled"))
+	displayRow(env, out, "Endpoint", nonEmpty(st.Trading.Endpoint.Value, "unknown"))
+	displayRow(env, out, "Account", nonEmpty(st.Trading.Account.Value, "unknown"))
+	displayRow(env, out, "MCP trading", nonEmpty(st.Trading.MCPTrading.Value, "disabled"))
+	displayRow(env, out, "Build", st.Build.Channel.Value)
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Trading limits:")
-	statusRow(env, out, "Max notional (every order)", fmt.Sprintf("%.2f (%s)", st.Trading.Limits.MaxNotional.Value, accessSummary(st.Trading.Limits.MaxNotional.Access, st.Trading.Limits.MaxNotional.Source)))
-	statusRow(env, out, "Max option qty (every order)", fmt.Sprintf("%d (%s)", st.Trading.Limits.MaxOptionContracts.Value, accessSummary(st.Trading.Limits.MaxOptionContracts.Access, st.Trading.Limits.MaxOptionContracts.Source)))
-	statusRow(env, out, "Apparent exits", "same caps; SELL uses worst-case short/STO gates")
-	statusRow(env, out, "Stock short", formatSettingsBool(env, st.Trading.Limits.AllowStockShort))
-	statusRow(env, out, "Option STO", formatSettingsBool(env, st.Trading.Limits.AllowOptionSellToOpen))
+	displayRow(env, out, "Max notional (every order)", fmt.Sprintf("%.2f (%s)", st.Trading.Limits.MaxNotional.Value, accessSummary(st.Trading.Limits.MaxNotional.Access, st.Trading.Limits.MaxNotional.Source)))
+	displayRow(env, out, "Max option qty (every order)", fmt.Sprintf("%d (%s)", st.Trading.Limits.MaxOptionContracts.Value, accessSummary(st.Trading.Limits.MaxOptionContracts.Access, st.Trading.Limits.MaxOptionContracts.Source)))
+	displayRow(env, out, "Apparent exits", "same caps; SELL uses worst-case short/STO gates")
+	displayRow(env, out, "Stock short", formatSettingsBool(env, st.Trading.Limits.AllowStockShort))
+	displayRow(env, out, "Option STO", formatSettingsBool(env, st.Trading.Limits.AllowOptionSellToOpen))
 	fmt.Fprintln(out)
-	statusRow(env, out, "Market data", nonEmpty(st.MarketData.Quality.Status, "unknown")+" - "+nonEmpty(st.MarketData.Quality.Summary, "no observation"))
+	displayRow(env, out, "Market data", nonEmpty(st.MarketData.Quality.Status, "unknown")+" - "+nonEmpty(st.MarketData.Quality.Summary, "no observation"))
+	for _, concern := range st.MarketData.Quality.DataQuality {
+		displayLine(env, "  "+concern.Surface+" · "+concern.Status+" · "+concern.Summary, env.yellow)
+	}
 	if st.Build.ExperimentalTradingNote != "" {
-		statusRow(env, out, "Build note", st.Build.ExperimentalTradingNote)
+		displayRow(env, out, "Build note", st.Build.ExperimentalTradingNote)
 	}
 	fmt.Fprintln(out)
 }
@@ -305,18 +308,20 @@ func settingsVerdict(st rpc.PlatformSettings) statusConcern {
 	if !st.Features.StockProtection.Enabled.Value {
 		return statusConcern{Text: "LIMITED", Level: statusConcernNotice}
 	}
-	if st.MarketData.Quality.Status == "degraded" || st.MarketData.Quality.Status == "delayed" {
+	if st.MarketData.Quality.Status == "degraded" {
 		return statusConcern{Text: "DEGRADED", Level: statusConcernWarn}
+	}
+	if st.MarketData.Quality.Status == "delayed" {
+		return statusConcern{Text: "DELAYED DATA", Level: statusConcernNotice}
+	}
+	if st.MarketData.Quality.Status != "ok" {
+		return statusConcern{Text: "DATA UNKNOWN", Level: statusConcernNotice}
 	}
 	return statusConcern{Text: "READY", Level: statusConcernNone}
 }
 
-func formatSettingsBool(env *Env, v rpc.SettingsBool) string {
-	value := fmt.Sprint(v.Value)
-	if v.Access == rpc.SettingsAccessWrite {
-		return env.green(value) + " (" + accessSummary(v.Access, v.Source) + ")"
-	}
-	return value + " (" + accessSummary(v.Access, v.Source) + ")"
+func formatSettingsBool(_ *Env, v rpc.SettingsBool) string {
+	return fmt.Sprint(v.Value) + " (" + accessSummary(v.Access, v.Source) + ")"
 }
 
 func accessSummary(access, source string) string {

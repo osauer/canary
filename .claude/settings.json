@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/ci-status.sh\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

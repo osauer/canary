@@ -1,0 +1,28 @@
+# canary trading status · COLUMNS=80 · colour off
+
+Canary Trading  READY
+
+Mode           paper ready
+Endpoint       127.0.0.1:4002
+Account        DU0000000 (config)
+Client ID      7 (config)
+MCP trading    disabled
+Capabilities   preview=true write=true
+Freeze         off (generation 3)
+Open orders    2
+Last event     order 1 Submitted
+
+# canary trading status · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Trading  \x1b[32m\x1b[1mREADY\x1b[0m\x1b[0m
+
+\x1b[2mMode          \x1b[0m \x1b[32mpaper ready\x1b[0m
+\x1b[2mEndpoint      \x1b[0m 127.0.0.1:4002
+\x1b[2mAccount       \x1b[0m DU0000000 (config)
+\x1b[2mClient ID     \x1b[0m 7 (config)
+\x1b[2mMCP trading   \x1b[0m disabled
+\x1b[2mCapabilities  \x1b[0m preview=true write=true
+\x1b[2mFreeze        \x1b[0m off (generation 3)
+\x1b[2mOpen orders   \x1b[0m 2
+\x1b[2mLast event    \x1b[0m order 1 Submitted
+

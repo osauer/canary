@@ -1,0 +1,34 @@
+# canary brief · COLUMNS=80 · colour off
+Daily brief · 5 Sep 14:00 TZ
+  Markets read constructive with one unconfirmed stress signal; the book needs
+  one review before the open.
+
+Needs review
+  SYNA concentration is 30.0% of net liquidation, above the rule's act level;
+    review the position size before adding exposure.
+  Portfolio stress: watch
+
+Context
+  Breadth 60.0% above the 50-day average.
+
+Coverage gaps
+  Dealer gamma unavailable; the model is still computing.
+
+Details: canary brief --details · Sources: canary status
+# canary brief · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mDaily brief\x1b[0m · 5 Sep 14:00 TZ
+  Markets read constructive with \x1b[33mone unconfirmed stress signal\x1b[0m; the book needs
+  one review before the open.
+
+\x1b[1mNeeds review\x1b[0m
+  SYNA concentration is \x1b[31m30.0%\x1b[0m of net liquidation, above the rule's act level;
+    review the position size before adding exposure.
+  Portfolio stress: \x1b[33mwatch\x1b[0m
+
+\x1b[1mContext\x1b[0m
+  Breadth 60.0% above the 50-day average.
+
+\x1b[1mCoverage gaps\x1b[0m
+  Dealer gamma unavailable; the model is still computing.
+
+\x1b[2mDetails: canary brief --details · Sources: canary status\x1b[0m
