@@ -132,6 +132,9 @@ var methodTimings = []MethodTiming{
 	// bounded like a single prepare or submit.
 	{Method: MethodTradeProposalsPrepareBundle, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodTradeProposalsSubmitBundle, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
+	// A bundle's status reads each conversion's receipt from the order
+	// journal, one read per conversion.
+	{Method: MethodTradeProposalsPreparedBundleStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsVeto, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	// queue_prepare refreshes the proposals like prepare; queue_arm reads the

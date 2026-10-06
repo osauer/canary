@@ -48,6 +48,34 @@ func renderCurrencyLevelingSection(env *Env, out io.Writer, st *rpc.TradeProposa
 	}
 }
 
+// currencyLevelingSendOrder returns the leveling rows with each repayment's
+// conversions in its send order (bundles[].keys), then any row no bundle
+// names in producer order.
+func currencyLevelingSendOrder(st *rpc.TradeProposalCurrencyLevelingStatus, rows []rpc.TradeProposal) []rpc.TradeProposal {
+	if st == nil {
+		return rows
+	}
+	byKey := map[string]rpc.TradeProposal{}
+	for _, p := range rows {
+		byKey[p.Key] = p
+	}
+	out := make([]rpc.TradeProposal, 0, len(rows))
+	for _, b := range st.Bundles {
+		for _, key := range b.Keys {
+			if p, ok := byKey[key]; ok {
+				out = append(out, p)
+				delete(byKey, key)
+			}
+		}
+	}
+	for _, p := range rows {
+		if _, ok := byKey[p.Key]; ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // formatCurrencyLevelingBundle is one repayment's line: the loan, how many
 // conversions one approval sends, and what it saves against what it can
 // cost within the payback window.

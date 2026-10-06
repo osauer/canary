@@ -1165,6 +1165,12 @@ type TradeProposalSubmitParams struct {
 
 // TradeProposalSubmitResult reports the outcome of a gated submission request.
 type TradeProposalSubmitResult struct {
+	// Leg, Key and Outcome name one conversion of a repayment bundle in
+	// send order and what became of it (BundleOutcome*); empty for a single
+	// proposal.
+	Leg            int                        `json:"leg,omitempty"`
+	Key            string                     `json:"key,omitempty"`
+	Outcome        string                     `json:"outcome,omitempty"`
 	Preparation    *TradeProposalPreparation  `json:"preparation,omitempty"`
 	Order          *OrderStatusResult         `json:"order,omitempty"`
 	Accepted       bool                       `json:"accepted"`

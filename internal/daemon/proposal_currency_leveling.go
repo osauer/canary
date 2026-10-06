@@ -591,6 +591,7 @@ func (p *currencyLevelingPlanner) legs(loan string, loanRate, need float64, capp
 		} else {
 			b.Received, b.Spent = float64(qty), float64(qty)*price
 		}
+		b.FundingAfter = payerCash - committed - b.Spent
 		b.ValueBase = b.Received * rate
 		b.SavingBase, b.CostBase = p.saving(b.ValueBase, loanRate-*cashRate), p.cost(b.ValueBase)
 		leg.block, leg.quantity = b, qty
@@ -648,19 +649,32 @@ func (e *proposalEngine) currencyLevelingProposals(ctx context.Context, policy p
 			}
 			continue
 		}
-		b := rows[0].CurrencyLeveling
-		entry := rpc.TradeProposalCurrencyLevelingBundle{ID: b.BundleID, Currency: bundle.currency, PaybackDays: b.PaybackDays}
-		for _, row := range rows {
-			entry.Keys = append(entry.Keys, row.Key)
-			entry.SavingBase += row.CurrencyLeveling.SavingBase
-			entry.CostBase += row.CurrencyLeveling.CostBase
-		}
-		plan.status.Bundles = append(plan.status.Bundles, entry)
+		plan.status.Bundles = append(plan.status.Bundles, currencyLevelingBundleEntry(rows))
 		out = append(out, rows...)
 	}
 	st := plan.status
 	st.Rows = len(out)
 	return out, &st
+}
+
+// currencyLevelingBundleEntry is one loan's served bundle from its rows in
+// send order: the keys, what the conversions save and cost together within
+// the payback window, where the loan lands at the planning prices and the
+// cushion in the loan's unit. Its revision is filled once the rows have
+// theirs (currencyLevelingBundleRevisions).
+func currencyLevelingBundleEntry(rows []rpc.TradeProposal) rpc.TradeProposalCurrencyLevelingBundle {
+	b := rows[0].CurrencyLeveling
+	entry := rpc.TradeProposalCurrencyLevelingBundle{ID: b.BundleID, Currency: b.Currency, PaybackDays: b.PaybackDays, LandsAt: b.Cash}
+	if b.ExchangeRate > 0 {
+		entry.Cushion = b.CushionBase / b.ExchangeRate
+	}
+	for _, row := range rows {
+		entry.Keys = append(entry.Keys, row.Key)
+		entry.SavingBase += row.CurrencyLeveling.SavingBase
+		entry.CostBase += row.CurrencyLeveling.CostBase
+		entry.LandsAt += row.CurrencyLeveling.Received
+	}
+	return entry
 }
 
 // currencyLevelingResolvedPlan plans, resolves every planned pair to its

@@ -2801,6 +2801,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPrepareBundle(ctx, req) })
 	case rpc.MethodTradeProposalsSubmitBundle:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSubmitBundle(ctx, req) })
+	case rpc.MethodTradeProposalsPreparedBundleStatus:
+		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPreparedBundleStatus(ctx, req) })
 	case rpc.MethodTradeProposalsPreview:
 		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPreview(ctx, req) })
 	case rpc.MethodTradeProposalsSubmit:

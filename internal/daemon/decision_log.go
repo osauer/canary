@@ -64,9 +64,12 @@ type decisionIDs struct {
 	Key         string `json:"key,omitempty"`
 	Rev         string `json:"rev,omitempty"`
 	Preparation string `json:"preparation,omitempty"`
-	Queue       string `json:"queue,omitempty"`
-	TokenID     string `json:"token_id,omitempty"`
-	OrderRef    string `json:"order_ref,omitempty"`
+	// Bundle names the prepared bundle a conversion was sent with; the
+	// bundle's record keeps the owner's confirmation.
+	Bundle   string `json:"bundle,omitempty"`
+	Queue    string `json:"queue,omitempty"`
+	TokenID  string `json:"token_id,omitempty"`
+	OrderRef string `json:"order_ref,omitempty"`
 }
 
 // Decision outcomes: an accepted step, a refusal with blockers, and a
@@ -137,6 +140,7 @@ type proposalDecision struct {
 	err         error
 	readiness   *rpc.TradeProposalReadiness
 	preparation string
+	bundle      string
 	tokenID     string
 	orderRef    string
 	mode        string
@@ -157,7 +161,7 @@ func (e *proposalEngine) recordDecision(d proposalDecision) {
 	}
 	ev := decisionEvent{TS: e.clock(), Svc: "canary", Event: "proposal." + d.event, Bucket: d.prop.Bucket, Mode: d.mode,
 		IDs: decisionIDs{Key: nonEmptyString(d.prop.Key, strings.TrimSpace(d.key)), Rev: nonEmptyString(d.prop.Revision, strings.TrimSpace(d.rev)),
-			Preparation: d.preparation, Queue: d.queue, TokenID: d.tokenID, OrderRef: d.orderRef}, Code: d.code, Reason: d.note}
+			Preparation: d.preparation, Bundle: d.bundle, Queue: d.queue, TokenID: d.tokenID, OrderRef: d.orderRef}, Code: d.code, Reason: d.note}
 	if !d.started.IsZero() {
 		ev.Ms = max(time.Since(d.started).Milliseconds(), 0)
 	}
@@ -204,13 +208,19 @@ func (e *proposalEngine) recordDecision(d proposalDecision) {
 // finishSubmit classifies a refused submission and records the decision; it
 // runs once, deferred, for every manual, prepared and automatic submission.
 func (e *proposalEngine) finishSubmit(event string, p rpc.TradeProposalSubmitParams, out *rpc.TradeProposalSubmitResult, err error, started time.Time) {
+	e.finishSubmitIn("", event, p, out, err, started)
+}
+
+// finishSubmitIn is finishSubmit for a conversion sent with the prepared
+// bundle named bundle.
+func (e *proposalEngine) finishSubmitIn(bundle, event string, p rpc.TradeProposalSubmitParams, out *rpc.TradeProposalSubmitResult, err error, started time.Time) {
 	accepted := err == nil && out.Accepted && len(out.Blockers) == 0
 	if !accepted {
 		out.Readiness = e.refusalReadiness(out.Proposal, out.Blockers, err)
 	}
 	d := proposalDecision{event: event, prop: out.Proposal, key: p.Key, rev: p.Revision, accepted: accepted, accept: decisionSubmitted,
 		blockers: out.Blockers, message: out.Message, err: err, readiness: out.Readiness, tokenID: out.PreviewTokenID, orderRef: out.OrderRef,
-		mode: e.decisionMode(out.Preview), started: started}
+		mode: e.decisionMode(out.Preview), started: started, bundle: bundle}
 	if out.Preparation != nil {
 		d.preparation = out.Preparation.ID
 	}

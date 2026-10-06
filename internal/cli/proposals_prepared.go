@@ -30,16 +30,22 @@ func runProposalsPrepare(ctx context.Context, env *Env, args []string) int {
 }
 
 func readPreparedProposalReference(env *Env) (string, error) {
+	return readPrivateReference(env, "prepared proposal reference")
+}
+
+// readPrivateReference reads one private reference, named what, from
+// standard input; a reference never travels in argv.
+func readPrivateReference(env *Env, what string) (string, error) {
 	if env.Stdin == nil {
-		return "", fmt.Errorf("prepared proposal reference requires standard input")
+		return "", fmt.Errorf("%s requires standard input", what)
 	}
 	raw, err := io.ReadAll(io.LimitReader(env.Stdin, 4097))
 	if err != nil || len(raw) > 4096 {
-		return "", fmt.Errorf("cannot read bounded prepared proposal reference")
+		return "", fmt.Errorf("cannot read bounded %s", what)
 	}
 	ref := strings.TrimSpace(string(raw))
 	if ref == "" || strings.ContainsAny(ref, " \t\n\r") {
-		return "", fmt.Errorf("one nonempty prepared proposal reference is required on standard input")
+		return "", fmt.Errorf("one nonempty %s is required on standard input", what)
 	}
 	return ref, nil
 }

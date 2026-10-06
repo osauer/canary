@@ -68,6 +68,8 @@ type renderGoldenCase struct {
 	// command uses. Only for commands whose fetch derives the result from
 	// several reads rather than serving one typed result.
 	render func(env *Env)
+	// stdin is what the command reads from standard input.
+	stdin string
 }
 
 // TestRenderGolden pins the human-readable output of the desk commands at 80
@@ -113,6 +115,9 @@ func renderGolden(t *testing.T, tc renderGoldenCase, color bool) string {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &stderr, Conn: tc.conn, Color: color}
+	if tc.stdin != "" {
+		env.Stdin = strings.NewReader(tc.stdin)
+	}
 	if tc.render != nil {
 		tc.render(env)
 	} else if code := Run(t.Context(), env, tc.argv[0], tc.argv[1:]); code != tc.exit {
@@ -196,6 +201,11 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "proposals_list_leveling_details", argv: []string{"proposals", "list", "--details"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingProposals()}},
 		{name: "proposals_list_leveling_bundle", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingBundleProposals()}},
 		{name: "proposals_list_leveling_bundle_details", argv: []string{"proposals", "list", "--details"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingBundleProposals()}},
+		{name: "proposals_prepare_bundle", argv: []string{"proposals", "prepare-bundle", goldenBundleID, goldenBundleRevision}, conn: goldenConn{rpc.MethodTradeProposalsPrepareBundle: goldenBundlePrepared()}},
+		{name: "proposals_submit_bundle_partly_sent", argv: []string{"proposals", "submit-bundle", "--stdin"}, stdin: goldenBundleSubmitInput,
+			conn: goldenConn{rpc.MethodTradeProposalsSubmitBundle: goldenBundlePartlySent()}},
+		{name: "proposals_bundle_status", argv: []string{"proposals", "bundle-status", "--bundle-ref-stdin"}, stdin: goldenBundleRef,
+			conn: goldenConn{rpc.MethodTradeProposalsPreparedBundleStatus: goldenBundleStatus()}},
 		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
@@ -502,6 +512,80 @@ func goldenLevelingBundleProposals() rpc.TradeProposalSnapshot {
 		// the bundle's send order.
 		Proposals: []rpc.TradeProposal{eur, chf},
 	}
+}
+
+// The leveling repayment of goldenLevelingBundleProposals as the bundle
+// commands see it: prepared with live quotes, then partly sent. Every value
+// is synthetic; the reference and the action id stand in for private ones.
+const (
+	goldenBundleID       = "currency_leveling-bundle:d3dea6a8de0b612f"
+	goldenBundleRevision = "0000000000000000000000000000000b"
+	goldenBundleRef      = "canarypb1.U1lOVEhFVElDLVJFRi0wMQ.U1lOVEhFVElDLVJFRi0wMg"
+	goldenBundleCHF      = "currency_leveling:4d80cd1444744be4"
+	goldenBundleEUR      = "currency_leveling:14b769cd67fdded3"
+)
+
+var goldenBundleSubmitInput = `{"bundle_ref":"` + goldenBundleRef + `","bundle_id":"` + goldenBundleID + `","revision":"` + goldenBundleRevision +
+	`","terms_digest":"sha256:` + strings.Repeat("ab", 32) + `","confirmation":{"desk_action_id":"desk-action-synthetic","credential":"credential-synthetic","envelope":"envelope-synthetic"}}`
+
+func goldenBundleTerms() rpc.LevelingBundleTerms {
+	quoteAt := goldenAt.Add(2 * time.Minute)
+	return rpc.LevelingBundleTerms{Kind: rpc.LevelingBundleTermsKind, Version: rpc.LevelingBundleTermsVersion,
+		AccountID: "DU0000000", AccountMode: "live", Endpoint: "127.0.0.1:4001", ClientID: 7,
+		BundleID: goldenBundleID, Revision: goldenBundleRevision, PreparationID: "U1lOVEhFVElDLVBSRVAtMQ", ExpiresAt: goldenAt.Add(12 * time.Minute),
+		BaseCurrency: "EUR", Currency: "USD", Cash: -20000, CashBase: -17094.02, LoanRate: 0.051, LoanRateThrough: "2026-10-05",
+		TriggerBase: 10000, CushionBase: 250, Cushion: 292.5, LandsAtLeast: 117.12, SavingBase: 59.37, CostBase: 6.86, PaybackDays: 30, OrderCapBase: 50000,
+		Legs: []rpc.LevelingBundleTermsLeg{
+			{Leg: 1, Key: goldenBundleCHF, Revision: "sha256:row-chf", PreparationID: "U1lOVEhFVElDLVBSRVAtMg", DraftFingerprint: "fingerprint-chf", PreviewTokenID: "token-chf",
+				OrderRef: "canary-20260905-140204-00000001", Pair: "USD.CHF", ConID: 12087792, Exchange: "IDEALPRO", Action: rpc.OrderActionBuy, Quantity: 7192,
+				OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: 0.7989, Bid: 0.7987, Ask: 0.7988, QuoteAt: quoteAt, MaxSlippageBP: 2,
+				Currency: "USD", Target: -12728.7, FundingCurrency: "CHF", Allotment: 5766.36, KeepsAtLeast: 254.31, FundingRateThrough: "2026-10-05",
+				Pays: rpc.LevelingBundleAmount{Amount: 5745.69, Currency: "CHF", Bound: rpc.LevelingBundleBoundAtMost}, Receives: rpc.LevelingBundleAmount{Amount: 7192, Currency: "USD", Bound: rpc.LevelingBundleBoundExact},
+				SavingBase: 25.77, CostBase: 2.94},
+			{Leg: 2, Key: goldenBundleEUR, Revision: "sha256:row-eur", PreparationID: "U1lOVEhFVElDLVBSRVAtMw", DraftFingerprint: "fingerprint-eur", PreviewTokenID: "token-eur",
+				OrderRef: "canary-20260905-140204-00000002", Pair: "EUR.USD", ConID: 12087793, Exchange: "IDEALPRO", Action: rpc.OrderActionSell, Quantity: 11049,
+				OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, LimitPrice: 1.1698, Bid: 1.16995, Ask: 1.17005, QuoteAt: quoteAt, MaxSlippageBP: 2,
+				Currency: "USD", Target: -6978.8, FundingCurrency: "EUR", Allotment: 11131.45, KeepsAtLeast: 48951, FundingRate: 0.014, FundingRateThrough: "2026-10-05",
+				Pays: rpc.LevelingBundleAmount{Amount: 11049, Currency: "EUR", Bound: rpc.LevelingBundleBoundExact}, Receives: rpc.LevelingBundleAmount{Amount: 12925.12, Currency: "USD", Bound: rpc.LevelingBundleBoundAtLeast},
+				SavingBase: 33.6, CostBase: 3.92},
+		}}
+}
+
+func goldenBundlePrepared() rpc.TradeProposalPrepareBundleResult {
+	terms := goldenBundleTerms()
+	raw, err := json.Marshal(terms)
+	if err != nil {
+		panic(err)
+	}
+	return rpc.TradeProposalPrepareBundleResult{Accepted: true, BundleID: goldenBundleID, Revision: goldenBundleRevision, BundleRef: goldenBundleRef,
+		ExpiresAt: terms.ExpiresAt, PreparationID: terms.PreparationID, Terms: string(raw), TermsDigest: "sha256:" + strings.Repeat("ab", 32),
+		Legs: []rpc.TradeProposalPreviewResult{{Accepted: true}, {Accepted: true}}, AsOf: goldenAt.Add(2 * time.Minute)}
+}
+
+func goldenBundlePartlySent() rpc.TradeProposalSubmitBundleResult {
+	return rpc.TradeProposalSubmitBundleResult{BundleID: goldenBundleID, Outcome: rpc.BundleOutcomePartlySent, Sent: 1, AsOf: goldenAt.Add(3 * time.Minute),
+		Legs: []rpc.TradeProposalSubmitResult{
+			{Leg: 1, Key: goldenBundleCHF, Outcome: rpc.BundleOutcomeSent, Accepted: true, OrderRef: "canary-20260905-140204-00000001",
+				Proposal: rpc.TradeProposal{Key: goldenBundleCHF, Action: rpc.OrderActionBuy, Quantity: 7192, Symbol: "USD.CHF"}},
+			{Leg: 2, Key: goldenBundleEUR, Outcome: rpc.BundleOutcomeRefused,
+				Proposal: rpc.TradeProposal{Key: goldenBundleEUR, Action: rpc.OrderActionSell, Quantity: 11049, Symbol: "EUR.USD"},
+				Blockers: []rpc.TradingBlocker{{Code: "submit_refused", Message: "Canary refused this conversion while sending it, so it did not reach the broker: trading is frozen"}}},
+		},
+		Blockers: []rpc.TradingBlocker{{Code: "bundle_partly_sent", Message: "conversion 2 of 2 was refused while sending and did not reach the broker; the one before it was sent, and the rest were not sent",
+			Action: "Inspect each conversion's receipt; nothing resends the rest, and the next cycle plans what remains once the ledger shows the fills."}}}
+}
+
+func goldenBundleStatus() rpc.TradeProposalPreparedBundleStatusResult {
+	return rpc.TradeProposalPreparedBundleStatusResult{BundleID: goldenBundleID, Revision: goldenBundleRevision, PreparationID: "U1lOVEhFVElDLVBSRVAtMQ",
+		TermsDigest: "sha256:" + strings.Repeat("ab", 32), ExpiresAt: goldenAt.Add(12 * time.Minute), Outcome: rpc.BundleOutcomePartlySent, Sent: 1,
+		SubmittedAt: goldenAt.Add(3 * time.Minute), AsOf: goldenAt.Add(9 * time.Minute),
+		Legs: []rpc.TradeProposalBundleLeg{
+			{Leg: 1, Key: goldenBundleCHF, Outcome: rpc.BundleOutcomeSent, OrderRef: "canary-20260905-140204-00000001",
+				Preparation: &rpc.TradeProposalPreparation{ID: "U1lOVEhFVElDLVBSRVAtMg", State: "consumed", Consumed: new(true)},
+				Order:       &rpc.OrderStatusResult{Found: true, Order: rpc.OrderView{OrderRef: "canary-20260905-140204-00000001", LifecycleStatus: rpc.OrderLifecycleSubmitted}}},
+			{Leg: 2, Key: goldenBundleEUR, Outcome: rpc.BundleOutcomeRefused, OrderRef: "canary-20260905-140204-00000002",
+				Preparation: &rpc.TradeProposalPreparation{ID: "U1lOVEhFVElDLVBSRVAtMw", State: "prepared", Consumed: new(false)}},
+		}}
 }
 
 func goldenBrief(narrative bool) rpc.BriefResult {

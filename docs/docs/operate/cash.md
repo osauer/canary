@@ -460,15 +460,41 @@ more than its extra commission. What one loan takes is set aside before the
 next is planned, so two repayments never spend the same cash.
 
 **One approval per loan.** A loan's conversions form one repayment, listed
-together and approved as a whole. The daemon's bundle calls
-(`trade.proposals.prepare_bundle`, `trade.proposals.submit_bundle`) preview
-every conversion, then check every one again before sending any, send them
-cheapest currency first and stop at the first refusal. A conversion that is
-one of several refuses a prepare or submit of its own
-(`conversion_bundle_needs_one_approval`). In the trading build you approve a
-repayment of a single conversion like any proposal, with `canary proposals
-submit KEY REVISION`; a repayment of several conversions only through the
-daemon's bundle calls.
+together and approved as a whole. Three commands carry it, and a private
+reference travels only on standard input, never in the command line:
+
+- `canary proposals prepare-bundle BUNDLE_ID REVISION` previews every
+  conversion against a live quote and states the repayment's exact terms:
+  the loan, each conversion's order and limit, what it pays and receives at
+  that limit (exactly, at most or at least), what its payer keeps at least,
+  where the loan lands at least once every conversion fills, and a digest of
+  those terms. It prints them for you to read; with `--json` it also returns
+  the private bundle reference, for the program that sends the repayment.
+  The review lasts ten minutes.
+- `canary proposals submit-bundle --stdin` reads one JSON object,
+  `{bundle_ref, bundle_id, revision, terms_digest, confirmation}`, and sends
+  the repayment once. It refuses other terms than the prepared ones
+  (`prepared_terms_mismatch`) and a reference already used
+  (`prepared_reference_consumed`), checks every conversion again before it
+  sends any, then sends them cheapest currency first and stops at the first
+  that is not sent. Each conversion is reported in send order: `sent`;
+  `refused`, when Canary refused it and it did not reach the broker;
+  `not_sent`, when it was never tried; or `unknown`, when it may have reached
+  the broker. The repayment reads `sent`, `partly_sent`, `not_sent` or
+  `unknown`, with how many conversions were sent. The confirmation is kept
+  with the repayment, for audit only.
+- `canary proposals bundle-status --bundle-ref-stdin` reads what became of a
+  prepared repayment from Canary's records, the order journal included, and
+  sends nothing: `prepared` or `expired` before it was sent, otherwise the
+  outcomes above. It settles an answer lost on its way back.
+
+Nothing resends the rest of a partly sent repayment. Once the ledger shows
+the fills, the next cycle plans what remains as a new repayment, approved
+again. A conversion that is one of several refuses a prepare or submit of
+its own (`conversion_bundle_needs_one_approval`). In the trading build you
+can also approve a repayment of a single conversion like any proposal, with
+`canary proposals submit KEY REVISION`. The MCP tools carry none of the
+repayment commands.
 
 **How it sizes.** Each conversion is sized inside its share of that target at
 both edges of the price bound and takes the middle, keeping the previous
@@ -516,7 +542,10 @@ it; ask your adviser how your conversions are taxed.
 
 `canary proposals list` shows leveling under its own *Currency leveling*
 heading with one line per currency and one per repayment, with what it saves
-and can cost within the window; JSON carries a `currency_leveling` status on
-the snapshot, with its `bundles`, a `currency_leveling` block on each row,
-and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
+and can cost within the window, and each repayment's conversions in the
+order they are sent. JSON carries a `currency_leveling` status on the
+snapshot, with its `bundles` (each with `lands_at`, where the loan lands at
+the planning prices, and `cushion`, both in the loan's own unit), a
+`currency_leveling` block on each row (with `funding_after`, what its payer
+keeps after it), and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
 remove the table, and raise `policy_version` to stop it.

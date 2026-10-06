@@ -136,6 +136,13 @@ type TradeProposalCurrencyLevelingBundle struct {
 	SavingBase  float64  `json:"saving_base"`
 	CostBase    float64  `json:"cost_base"`
 	PaybackDays int      `json:"payback_days"`
+	// LandsAt is where the borrowed currency's trade-date cash lands, in its
+	// own unit, at the planning prices (the conversions' estimates added to
+	// the loan); Cushion is the cushion in the same unit, which the plan
+	// sizes the repayment to stay within. Both are estimates for the card;
+	// the exact bounds at each limit come with the prepared terms.
+	LandsAt float64 `json:"lands_at"`
+	Cushion float64 `json:"cushion"`
 }
 
 // TradeProposalCurrencyLevelingCurrency is one currency's verdict. Cash is
@@ -233,6 +240,9 @@ type TradeProposalCurrencyLeveling struct {
 	// FundingShort is true when the currencies allowed to pay hold less than
 	// the debit; the bundle repays what they can.
 	FundingShort bool `json:"funding_short,omitempty"`
+	// FundingAfter is the funding currency's trade-date cash after this
+	// conversion's estimated spend and what working and armed buys hold.
+	FundingAfter float64 `json:"funding_after"`
 }
 
 // OrderFXTerms are the daemon-internal terms a currency_leveling row's
@@ -307,7 +317,136 @@ func CloneOrderFXTerms(in *OrderFXTerms) *OrderFXTerms {
 const (
 	MethodTradeProposalsPrepareBundle = "trade.proposals.prepare_bundle"
 	MethodTradeProposalsSubmitBundle  = "trade.proposals.submit_bundle"
+	// MethodTradeProposalsPreparedBundleStatus reads what became of a
+	// prepared bundle from Canary's own records; it never sends.
+	MethodTradeProposalsPreparedBundleStatus = "trade.proposals.prepared_bundle_status"
 )
+
+// Bundle outcomes. A conversion is sent, refused (Canary refused it, so it
+// did not reach the broker), not_sent (never attempted: the bundle stopped
+// before it, or never started) or unknown (it may have reached the broker;
+// its outcome is not confirmed). A bundle is sent (every conversion),
+// partly_sent (some, then a refusal), not_sent (none), unknown (a
+// conversion's outcome is not confirmed), and, before any send, prepared or
+// expired.
+const (
+	BundleOutcomeSent       = "sent"
+	BundleOutcomeRefused    = "refused"
+	BundleOutcomeNotSent    = "not_sent"
+	BundleOutcomeUnknown    = "unknown"
+	BundleOutcomePartlySent = "partly_sent"
+	BundleOutcomePrepared   = "prepared"
+	BundleOutcomeExpired    = "expired"
+)
+
+// LevelingBundleTermsKind and LevelingBundleTermsVersion name the exact
+// terms a prepared bundle carries and the owner confirms.
+const (
+	LevelingBundleTermsKind    = "canary.leveling_bundle"
+	LevelingBundleTermsVersion = 1
+)
+
+// LevelingBundleTerms are a prepared bundle's exact terms, what the owner
+// confirms: the broker scope, the bundle and its revision, the loan, the
+// figures at the price limit (pays, receives, what a payer keeps at least,
+// where the loan lands at least) and every conversion's identity in send
+// order. They are compact JSON with the fields in this order (alphabetical);
+// TermsDigest is "sha256:" and the hex SHA-256 of those exact bytes, which a
+// reader must keep verbatim and never re-encode. A reader refuses a field it
+// does not know rather than show the owner less than is signed.
+type LevelingBundleTerms struct {
+	AccountID       string                   `json:"account_id"`
+	AccountMode     string                   `json:"account_mode"`
+	BaseCurrency    string                   `json:"base_currency"`
+	BundleID        string                   `json:"bundle_id"`
+	Cash            float64                  `json:"cash"`
+	CashBase        float64                  `json:"cash_base"`
+	ClientID        int                      `json:"client_id"`
+	CostBase        float64                  `json:"cost_base"`
+	Currency        string                   `json:"currency"`
+	Cushion         float64                  `json:"cushion"`
+	CushionBase     float64                  `json:"cushion_base"`
+	Endpoint        string                   `json:"endpoint"`
+	ExpiresAt       time.Time                `json:"expires_at"`
+	FundingShort    bool                     `json:"funding_short"`
+	HeldToCap       bool                     `json:"held_to_cap"`
+	Kind            string                   `json:"kind"`
+	LandsAtLeast    float64                  `json:"lands_at_least"`
+	Legs            []LevelingBundleTermsLeg `json:"legs"`
+	LoanRate        float64                  `json:"loan_rate"`
+	LoanRateBound   bool                     `json:"loan_rate_bound"`
+	LoanRateThrough string                   `json:"loan_rate_through"`
+	OrderCapBase    float64                  `json:"order_cap_base"`
+	PaybackDays     int                      `json:"payback_days"`
+	PreparationID   string                   `json:"preparation_id"`
+	Revision        string                   `json:"revision"`
+	SavingBase      float64                  `json:"saving_base"`
+	TriggerBase     float64                  `json:"trigger_base"`
+	Version         int                      `json:"version"`
+}
+
+// LevelingBundleTermsLeg is one conversion of the terms: its row, its
+// retained preparation, its order at the limit and the live quote the limit
+// was bounded from, what it pays and receives at that limit, what its payer
+// keeps at least, and its economics.
+type LevelingBundleTermsLeg struct {
+	Action             string               `json:"action"`
+	Allotment          float64              `json:"allotment"`
+	Ask                float64              `json:"ask"`
+	Bid                float64              `json:"bid"`
+	ConID              int                  `json:"con_id"`
+	CostBase           float64              `json:"cost_base"`
+	Currency           string               `json:"currency"`
+	DraftFingerprint   string               `json:"draft_fingerprint"`
+	Exchange           string               `json:"exchange"`
+	FundingCurrency    string               `json:"funding_currency"`
+	FundingRate        float64              `json:"funding_rate"`
+	FundingRateBound   bool                 `json:"funding_rate_bound"`
+	FundingRateThrough string               `json:"funding_rate_through"`
+	KeepsAtLeast       float64              `json:"keeps_at_least"`
+	Key                string               `json:"key"`
+	Leg                int                  `json:"leg"`
+	LimitPrice         float64              `json:"limit_price"`
+	MaxSlippageBP      float64              `json:"max_slippage_bp"`
+	OrderRef           string               `json:"order_ref"`
+	OrderType          string               `json:"order_type"`
+	Pair               string               `json:"pair"`
+	Pays               LevelingBundleAmount `json:"pays"`
+	PreparationID      string               `json:"preparation_id"`
+	PreviewTokenID     string               `json:"preview_token_id"`
+	Quantity           int                  `json:"quantity"`
+	QuoteAt            time.Time            `json:"quote_at"`
+	Receives           LevelingBundleAmount `json:"receives"`
+	Revision           string               `json:"revision"`
+	SavingBase         float64              `json:"saving_base"`
+	Target             float64              `json:"target"`
+	TIF                string               `json:"tif"`
+}
+
+// LevelingBundleAmount is an amount at the price limit: exact, at_most (a
+// buy spends no more) or at_least (a sell receives no less).
+type LevelingBundleAmount struct {
+	Amount   float64 `json:"amount"`
+	Bound    string  `json:"bound"`
+	Currency string  `json:"currency"`
+}
+
+// Amount bounds of LevelingBundleAmount.
+const (
+	LevelingBundleBoundExact   = "exact"
+	LevelingBundleBoundAtMost  = "at_most"
+	LevelingBundleBoundAtLeast = "at_least"
+)
+
+// TradeProposalBundleConfirmation is the owner's confirmation as Desk sends
+// it with a bundle. Canary keeps it with the bundle's one submission, for
+// audit only, and cannot verify it; the conversions' decisions name the
+// bundle.
+type TradeProposalBundleConfirmation struct {
+	DeskActionID string `json:"desk_action_id"`
+	Credential   string `json:"credential"`
+	Envelope     string `json:"envelope"`
+}
 
 // TradeProposalPrepareBundleParams names one bundle as served.
 type TradeProposalPrepareBundleParams struct {
@@ -329,25 +468,77 @@ type TradeProposalPrepareBundleResult struct {
 	Legs      []TradeProposalPreviewResult `json:"legs"`
 	Blockers  []TradingBlocker             `json:"blockers,omitempty"`
 	AsOf      time.Time                    `json:"as_of"`
+	// PreparationID names the retained bundle; Terms are its exact terms
+	// (LevelingBundleTerms, compact JSON) and TermsDigest their digest, set
+	// only when every conversion was prepared. Each leg's preparation (its
+	// id and draft fingerprint) is in the terms.
+	PreparationID string `json:"preparation_id,omitempty"`
+	Terms         string `json:"terms,omitempty"`
+	TermsDigest   string `json:"terms_digest,omitempty"`
 }
 
 // TradeProposalSubmitBundleParams confirms a prepared bundle.
+// TermsDigest is the digest of the terms the owner confirmed; a send whose
+// digest differs from the retained terms' is refused before any check.
 type TradeProposalSubmitBundleParams struct {
-	BundleRef string `json:"bundle_ref"`
-	BundleID  string `json:"bundle_id"`
-	Revision  string `json:"revision"`
-	FastPath  bool   `json:"fast_path,omitempty"`
-	TimeoutMs int    `json:"timeout_ms,omitempty"`
-	Origin    string `json:"origin,omitempty"`
+	BundleRef    string                           `json:"bundle_ref"`
+	BundleID     string                           `json:"bundle_id"`
+	Revision     string                           `json:"revision"`
+	TermsDigest  string                           `json:"terms_digest"`
+	Confirmation *TradeProposalBundleConfirmation `json:"confirmation,omitempty"`
+	FastPath     bool                             `json:"fast_path,omitempty"`
+	TimeoutMs    int                              `json:"timeout_ms,omitempty"`
+	Origin       string                           `json:"origin,omitempty"`
 }
 
-// TradeProposalSubmitBundleResult reports each conversion in send order.
-// Accepted is true only when every conversion was sent and accepted; a
-// conversion after the first refusal is not sent.
+// TradeProposalSubmitBundleResult reports every conversion in send order,
+// each with its Outcome, and the bundle's own Outcome and how many were
+// Sent. Accepted is true only when every conversion was sent; a conversion
+// after the first refusal, or after one whose outcome is unknown, is not
+// sent.
 type TradeProposalSubmitBundleResult struct {
 	Accepted bool                        `json:"accepted"`
 	BundleID string                      `json:"bundle_id"`
+	Outcome  string                      `json:"outcome"`
+	Sent     int                         `json:"sent"`
 	Legs     []TradeProposalSubmitResult `json:"legs"`
 	Blockers []TradingBlocker            `json:"blockers,omitempty"`
 	AsOf     time.Time                   `json:"as_of"`
+}
+
+// TradeProposalPreparedBundleStatusParams names a prepared bundle by its
+// private reference.
+type TradeProposalPreparedBundleStatusParams struct {
+	BundleRef string `json:"bundle_ref"`
+}
+
+// TradeProposalPreparedBundleStatusResult is what became of a prepared
+// bundle, from Canary's own records: its Outcome (BundleOutcome*), how many
+// conversions were Sent, when its one submission started, and each
+// conversion in send order with its outcome, its preparation (state,
+// consumed) and its local order receipt. Message says why an outcome is not
+// settled yet (the bundle is being sent now). It never prepares or sends.
+type TradeProposalPreparedBundleStatusResult struct {
+	BundleID      string                   `json:"bundle_id,omitempty"`
+	Revision      string                   `json:"revision,omitempty"`
+	PreparationID string                   `json:"preparation_id,omitempty"`
+	TermsDigest   string                   `json:"terms_digest,omitempty"`
+	ExpiresAt     time.Time                `json:"expires_at,omitzero"`
+	Outcome       string                   `json:"outcome,omitempty"`
+	Sent          int                      `json:"sent"`
+	SubmittedAt   time.Time                `json:"submitted_at,omitzero"`
+	Message       string                   `json:"message,omitempty"`
+	Legs          []TradeProposalBundleLeg `json:"legs"`
+	Blockers      []TradingBlocker         `json:"blockers,omitempty"`
+	AsOf          time.Time                `json:"as_of"`
+}
+
+// TradeProposalBundleLeg is one conversion's status in a bundle.
+type TradeProposalBundleLeg struct {
+	Leg         int                       `json:"leg"`
+	Key         string                    `json:"key"`
+	Outcome     string                    `json:"outcome"`
+	OrderRef    string                    `json:"order_ref,omitempty"`
+	Preparation *TradeProposalPreparation `json:"preparation,omitempty"`
+	Order       *OrderStatusResult        `json:"order,omitempty"`
 }
