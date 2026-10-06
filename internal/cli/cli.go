@@ -78,6 +78,32 @@ func helpArg(arg string) bool {
 	}
 }
 
+// positionalHelp lists the commands whose handler reads a first argument of
+// `help` as a request for help, and whether `help ACTION` prints that action's
+// help too.
+var positionalHelp = map[string]bool{
+	"policy": true, "recon": true, "reporting": true,
+	"opportunities": false, "order": false, "proposals": false, "settings": false, "strategies": false,
+}
+
+// HelpInvocation reports whether rest asks cmd for help in a form its handler
+// answers without the daemon: a help flag anywhere, `help` alone, or `help
+// ACTION` where the usage offers it (`canary policy help override`).
+// cmd/canary checks it before dialling, so asking for help never starts the
+// daemon.
+func HelpInvocation(cmd string, rest []string) bool {
+	for _, a := range rest {
+		if a == "--help" || a == "-h" || a == "-help" {
+			return true
+		}
+	}
+	if len(rest) == 0 || rest[0] != "help" {
+		return false
+	}
+	withAction, ok := positionalHelp[cmd]
+	return ok && (len(rest) == 1 || withAction && len(rest) == 2)
+}
+
 func printCommandUsage(env *Env, name string) int {
 	fs := flagSet(env, name)
 	fs.Usage()

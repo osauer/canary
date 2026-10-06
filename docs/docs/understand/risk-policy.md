@@ -33,8 +33,8 @@ and `[order_limits]`. The capital placeholders carry no recommendation; the
 `[order_limits]` values are Canary's starting limits and apply until you change
 them. The file opens
 with `# Canary defaults, not yet reviewed.` until you delete that line. A file
-written before `[order_limits]` existed gains the table only through a
-reviewed `canary policy ensure` plan.
+written before `[order_limits]` existed gains the table at the next daemon
+start, after a backup.
 
 Only the envelope is fixed:
 

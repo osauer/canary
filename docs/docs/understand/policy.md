@@ -126,8 +126,9 @@ archived policy content.
 
 Canary creates a documented file for each missing policy. Legacy partial files
 remain readable; omitted rulebook settings still use the documented defaults.
-The installer runs `canary policy ensure`, and the daemon runs the same step
-each time it starts:
+The installer runs `canary policy ensure`, which writes missing files, and the
+daemon runs the same step each time it starts, which also migrates existing
+files:
 
 - **A missing file is written** from Canary's defaults: `rulebook-policy.toml`,
   `protection-policy.toml`, `opportunity-policy.toml` and `risk-policy.toml`
@@ -138,39 +139,31 @@ each time it starts:
   NAME` prints the same file.
 - **Your numbers stay yours.** A new file carries no value for anything only
   you can decide: the constitution's capital numbers, the premium budget governor's
-  caps as a share of risk capital, the cash sweep's sizing numbers
-  (`max_order_notional` among them), the buckets that may submit automatically
-  (`pre_authorised`), and automatic release of a latched drawdown brake. Each
+  caps as a share of risk capital, the buckets that may submit automatically
+  (`pre_authorised`) and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
-  needs your number, one feature at a time; nothing else waits on it. For
-  a `[buckets.cash_sweep]` you already wrote, a reviewed `canary policy ensure`
-  plan proposes the missing sizing numbers, and applying it accepts them
+  needs your number, one feature at a time; nothing else waits on it. The cash
+  sweep stays off until you write its table; the daemon then fills any sizing
+  number you left out at Canary's default
   ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
-- **Existing files stay untouched on startup.** A proposed format conversion
-  shows exact before/after hashes and a local diff. Applying that reviewed plan
-  checks every listed file before writing, preserves its original bytes in an
-  owner-only backup (`<file>.bak-<release>-<time>`), and records provenance.
-  It refuses any conversion that changes effective settings, apart from
-  writing missing `[order_limits]` keys or cash sweep sizing numbers, which
-  raises `policy_version` so the daemon adopts them. Recommendations remain
-  separate owner decisions.
+- **Existing files are migrated in place.** When a release adds keys, the
+  daemon keeps the file's original bytes in an owner-only backup
+  (`<file>.bak-<release>-<time>`), writes each missing key at Canary's default
+  with a comment naming the release, comments out retired keys and logs what it
+  changed. It refuses any change to a setting you wrote, apart from raising
+  `policy_version` when it writes missing `[order_limits]` keys or cash sweep
+  sizing numbers, so the daemon adopts them. Recommendations remain separate
+  owner decisions.
 - **A broken file is left alone.** The running manager retains its last good
   settings and reports the file failure. Protection automation pauses when its
   own authority file is uncertain; manual proposals still pass their existing
   execution gates. File review labels and reminder health grant no permission.
 
-Preview locally, review the diff, then apply only the listed conversions:
-
-```sh
-canary policy ensure --dry-run --json > /private/path/policy-plan.json
-canary policy ensure --apply-plan /private/path/policy-plan.json
-canary policy show --explain
-```
-
-The plan can contain private settings; keep it local with owner-only permissions.
-A changed file, configured path or converter output requires a fresh preview.
-Plain `canary policy ensure` creates missing templates and previews existing
-files; it does not apply conversions.
+Nothing needs running after an upgrade. `canary policy ensure --dry-run` shows
+what the next daemon start will change, and `canary policy show --explain`
+prints the result afterwards. `--apply-plan FILE` applies only the files of a
+saved `--dry-run --json` plan whose hashes still match, ahead of that start; the
+plan can contain private settings, so keep it local with owner-only permissions.
 
 `canary policy show` lists every policy file with its status and what waits for
 your number, and ends by pointing to the full print. `--explain` adds each
@@ -255,9 +248,9 @@ in force. Mutating governance commands under
 The per-order limits are risk limits and live in the personal risk policy as
 `[order_limits]` (owner decision 2026-10-05 19:56 CEST). Until then they were
 `config.toml` `[trading]` keys with a runtime override in `canary settings`;
-both are retired. Every key is read from the file only: a key the file does not
-write is never filled from a compiled default, and every order preview is then
-refused with the `order_risk_limit` blocker naming the key.
+both are retired. The trading gate reads every key from the file only; while
+one is missing every order preview is refused with the `order_risk_limit`
+blocker naming the key, until the next daemon start writes it.
 
 | Key | Meaning | `policy ensure` writes |
 |---|---|---|
@@ -311,10 +304,12 @@ the settings view (read-only, source `policy`) and the typed `order_limits` of
 `trading.status` and `risk_policy.snapshot` all state the cap in force and how
 it is bound.
 
-`canary policy ensure --dry-run` shows the migration of an existing file: it
-writes each missing key from `config.toml` `[trading]` (the compiled value
-where the key is absent), adds the two scaled-cap keys, raises
-`policy_version`, and backs the file up when the reviewed plan is applied. The
+A file written before `[order_limits]` existed gains the table at the next
+daemon start, after a backup: each key from `config.toml` `[trading]` (a
+10,000 floor, 5 option contracts and no shorting or selling to open where a key
+was never set), the two scaled-cap keys and a raised `policy_version`. To return
+to a fixed cap, set `max_order_ceiling_base` equal to `max_order_floor_base` and
+raise `policy_version`. The
 `[trading]` keys still load so an old `config.toml` stays valid, are never read
 for a decision, print as `retired` in `policy show --explain`, and
 `policy check` warns while one remains with a different value.

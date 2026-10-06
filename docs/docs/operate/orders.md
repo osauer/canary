@@ -33,10 +33,8 @@ The per-order limits are the risk policy's `[order_limits]` in
 net liquidation value, an option contract cap and the stock-short and option
 sell-to-open permissions ([Order limits](../understand/policy.md#order-limits)).
 While a key is missing, every order preview is refused with `order_risk_limit`.
-A risk policy written before the table existed gains it through a reviewed
-plan: read it with `canary policy ensure --dry-run`, save it with
-`canary policy ensure --dry-run --json > plan.json`, then run
-`canary policy ensure --apply-plan plan.json`, which backs up each file first. The `[trading]` keys `max_notional`,
+A risk policy written before the table existed gains it at the next daemon
+start, after a backup. The `[trading]` keys `max_notional`,
 `max_option_contracts`, `allow_stock_short` and `allow_option_sell_to_open`
 are retired: they still load but are never read.
 

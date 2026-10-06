@@ -123,7 +123,7 @@ and adds the new keys at their defaults. The daemon
 applies the file within 30 seconds. Hand edits work as well and apply only
 with a higher `policy_version`. A key missing from the file follows Canary's
 default, `canary rules policy` lists it under `not in file`, and the next
-upgrade adds it at that default. A file the daemon cannot read or validate
+daemon start adds it at that default. A file the daemon cannot read or validate
 never replaces the limits in force, and `canary rules` names the problem. A
 deleted file comes back as Canary's template at the next daemon start. Every result says where its limits came from:
 `policy_status` names the baseline or your file, and `policy` carries every

@@ -177,7 +177,7 @@ func orderLimitsIncompleteError(l risk.OrderLimitsInForce) error {
 func orderRiskLimitBlocker(l risk.OrderLimitsInForce, err error) rpc.TradingBlocker {
 	b := rpc.TradingBlocker{Code: previewRiskLimitCode, Message: err.Error()}
 	if !l.Complete {
-		b.Action = "Write the named keys in risk-policy.toml [order_limits] with a higher policy_version (canary policy ensure --dry-run shows the migration); until then no order preview passes."
+		b.Action = "Run canary restart: at start the daemon writes the missing keys from config.toml [trading], else Canary's defaults, after a backup. Or write them in risk-policy.toml [order_limits] with a higher policy_version. Until then no order preview passes."
 	}
 	return b
 }

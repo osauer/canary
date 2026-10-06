@@ -130,6 +130,11 @@ type EnsureOptions struct {
 	DryRun bool
 	// Approved contains exact file digests from a reviewed dry-run plan.
 	Approved map[string]PolicyMigrationApproval
+	// ApplyMigrations applies each file's own migration, with a backup, as
+	// daemon start does: an upgrade writes the defaults a release adds and
+	// the daemon reads them from the file, so nobody runs a plan first
+	// (owner instruction 2026-10-06 06:33 CEST).
+	ApplyMigrations bool
 }
 
 // policyFileKind binds one policy file to its template, parser and migration.
@@ -142,8 +147,8 @@ type policyFileKind struct {
 }
 
 // EnsurePolicyFiles writes every missing policy file from its template and
-// previews conversions of existing files; applying one requires exact reviewed
-// hashes. It never replaces owner settings or touches a file it cannot read: an
+// previews conversions of existing files; it applies one with exact reviewed
+// hashes, or with ApplyMigrations at daemon start. It never replaces owner settings or touches a file it cannot read: an
 // unreadable file keeps the policy in force and is reported, not replaced.
 func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction {
 	if opts.Now.IsZero() {
@@ -246,9 +251,12 @@ func ensurePolicyFile(k policyFileKind, release string, opts EnsureOptions) Poli
 	act.Changes = changes
 	act.BeforeSHA256, act.AfterSHA256 = policyFileDigest(data), policyFileDigest(migrated)
 	act.Diff = policyFileDiff(k.path, data, migrated)
+	if !approved && opts.ApplyMigrations && !opts.DryRun {
+		approval, approved = PolicyMigrationApproval{Path: k.path, BeforeSHA256: act.BeforeSHA256, AfterSHA256: act.AfterSHA256}, true
+	}
 	if opts.DryRun || !approved {
 		act.Action = PolicyFileWouldMigrate
-		act.Notes = append(act.Notes, "review a JSON dry-run plan, then use policy ensure --apply-plan FILE; startup leaves this file untouched")
+		act.Notes = append(act.Notes, "the daemon applies this at its next start, after backing the file up; policy ensure --apply-plan FILE applies a reviewed plan now")
 		return act
 	}
 
@@ -909,7 +917,7 @@ allow_short_profit_trail = %t
 
 // writeCashSweepTemplate appends the cash sweep as a commented placeholder:
 // the sweep is the owner's to switch on, so the file Canary writes leaves it
-// off. The sizing lines show the values policy ensure writes into an enabled
+// off. The sizing lines show the values the ensure step writes into an enabled
 // table (cashSweepWrittenDefaults); the EUR block shows the compiled
 // instrument defaults and the owner-approved example fallback ETF (O3).
 func writeCashSweepTemplate(b *strings.Builder) {
@@ -1135,15 +1143,17 @@ func parseConstitutionPolicy(data []byte) error {
 }
 
 // ensurePolicyFilesOnStart runs the ensure step once per daemon start, logs
-// every action, and makes the file managers reread what it wrote. Start calls
-// it after the SQLite authority is bound, because a reread journals status
-// transitions. A failure is logged and never stops the daemon: an absent or
-// broken file never blocks exits, trims or reads.
+// every action, and makes the file managers reread what it wrote. It writes
+// missing files and applies each existing file's migration after a backup, so
+// an upgrade needs no plan (owner instruction 2026-10-06 06:33 CEST). Start
+// calls it after the SQLite authority is bound, because a reread journals
+// status transitions. A failure is logged and never stops the daemon: an
+// absent or broken file never blocks exits, trims or reads.
 func (s *Server) ensurePolicyFilesOnStart() {
 	if s == nil || !s.ensurePolicyFiles {
 		return
 	}
-	for _, a := range EnsurePolicyFiles(PolicyFileSetFor(s.cfg), EnsureOptions{Release: s.version}) {
+	for _, a := range EnsurePolicyFiles(PolicyFileSetFor(s.cfg), EnsureOptions{Release: s.version, ApplyMigrations: true}) {
 		line := fmt.Sprintf("policy file %s: %s %s", a.Policy, a.Action, a.Path)
 		if a.Backup != "" {
 			line += " (backup " + a.Backup + ")"

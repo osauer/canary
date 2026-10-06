@@ -283,6 +283,46 @@ func TestEnsureMigratesOrderLimitsWithBackupAndVersionBump(t *testing.T) {
 	}
 }
 
+// Daemon start applies each file's migration itself, after a backup: an
+// upgraded install gains [order_limits] and an enabled sweep's new keys
+// without anyone running a plan, and the second start changes nothing
+// (owner instruction 2026-10-06 06:33 CEST).
+func TestDaemonStartWritesTheDefaultsAnUpgradeLacks(t *testing.T) {
+	dir := t.TempDir()
+	constitution := filepath.Join(dir, "risk-policy.toml")
+	protection := filepath.Join(dir, "protection-policy.toml")
+	sweep := string(ProtectionPolicyTemplate("test")) + "\n[buckets.cash_sweep]\nenabled = true\nmode = \"shadow\"\nmax_order_notional = 20000.0\nmin_order_notional = 10000.0\n"
+	for path, data := range map[string]string{constitution: orderLimitsMigrationConstitution, protection: sweep} {
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set := PolicyFileSet{Constitution: constitution, Protection: protection, OrderGateSource: config.Trading{MaxNotional: new(10000.0)}, OrderGateSourceRead: true}
+	start := EnsureOptions{Release: "test", Now: time.Date(2026, 10, 6, 6, 0, 0, 0, time.UTC), ApplyMigrations: true}
+
+	if dry := EnsurePolicyFiles(set, EnsureOptions{Release: "test", DryRun: true, ApplyMigrations: true}); len(dry) != 2 || dry[0].Action != PolicyFileWouldMigrate || dry[1].Action != PolicyFileWouldMigrate {
+		t.Fatalf("a dry run must write nothing: %+v", dry)
+	}
+	for _, a := range EnsurePolicyFiles(set, start) {
+		if a.Action != PolicyFileMigrated || a.Backup == "" {
+			t.Fatalf("start = %+v", a)
+		}
+	}
+	m := newRiskPolicyManager(constitution, time.Second, nil)
+	m.reload()
+	if snap := m.snapshot(); snap.status != rpc.RiskPolicyStatusActive || len(snap.policy.OrderLimits.MissingKeys()) != 0 {
+		t.Fatalf("after start: status %s, order limits %+v", snap.status, snap.policy.OrderLimits)
+	}
+	if data, _ := os.ReadFile(protection); !strings.Contains(string(data), "no_buy_while_borrowed = true") {
+		t.Fatal("the enabled sweep did not gain its new keys")
+	}
+	for _, a := range EnsurePolicyFiles(set, start) {
+		if a.Action != PolicyFileUnchanged {
+			t.Fatalf("second start = %+v", a)
+		}
+	}
+}
+
 // A missing constitution is written with the order limits filled in from
 // config.toml, so a fresh install trades within today's gates.
 func TestConstitutionTemplateCarriesOrderLimits(t *testing.T) {

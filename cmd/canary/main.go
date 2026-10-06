@@ -113,12 +113,11 @@ func main() {
 		os.Exit(cli.RunPolicyLocal(context.Background(), env, rest))
 	}
 
-	// `canary <cmd> --help` should not spawn the daemon — render help and exit.
-	for _, a := range rest {
-		if a == "--help" || a == "-h" || a == "-help" {
-			env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color}
-			os.Exit(cli.Run(context.Background(), env, cmd, rest))
-		}
+	// `canary <cmd> --help` and `canary policy help ACTION` should not spawn
+	// the daemon — render help and exit.
+	if cli.HelpInvocation(cmd, rest) {
+		env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Color: color}
+		os.Exit(cli.Run(context.Background(), env, cmd, rest))
 	}
 
 	// Reject unknown subcommands before autospawn — sparing a dormant

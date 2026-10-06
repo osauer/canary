@@ -14,7 +14,8 @@ import (
 
 // Writing [order_limits] (owner decision 2026-10-05 19:56 CEST). The four
 // per-order gates move from config.toml [trading] into the constitution.
-// policy ensure writes the table from today's effective values: each key
+// The ensure step (daemon start, canary policy ensure) writes the table from
+// today's effective values: each key
 // config.toml sets, else the compiled value [trading] used to fall back to,
 // plus the new scaled-cap keys. The compiled numbers below exist solely to be
 // written into the file; the trading gate reads the file only.

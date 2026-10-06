@@ -530,7 +530,7 @@ func tradingSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 			continue
 		}
 		g.Rows = append(g.Rows, rpc.PolicyEffectiveRow{Key: "trading." + r.config, Value: value, Source: rpc.PolicySourceRetired,
-			Meaning: fmt.Sprintf("Retired: never read for a decision; the risk constitution's order_limits.%s decides. Delete it from config.toml once policy ensure has migrated it.", r.policy)})
+			Meaning: fmt.Sprintf("Retired: never read for a decision; the risk constitution's order_limits.%s decides. Delete it from config.toml once [order_limits] holds the value you want.", r.policy)})
 	}
 	if st != nil {
 		freeze := leafOf(st.Freeze)

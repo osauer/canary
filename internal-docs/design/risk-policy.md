@@ -112,7 +112,8 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
 7. **Migration.** `canary policy ensure` writes each missing key from
    `config.toml` `[trading]` as written (the compiled 10,000 / 5 / false /
    false where a key is absent), plus pct 5.0 and ceiling 100,000, raises
-   `policy_version`, and backs the file up when the reviewed plan is applied;
+   `policy_version`, and backs the file up when daemon start (or a reviewed plan)
+   applies it;
    a written key is never changed. A new constitution file is written with the
    table filled the same way. The `[trading]` keys stay parseable (pointers,
    no compiled default), are never read for a decision, print as `retired` in

@@ -4,37 +4,37 @@ Updated: 2026-10-06
 
 Version 3.18 shows every limit in force and checks that the limits add up.
 `canary policy show --explain` prints every limit, policy and runtime setting
-that governs Canary, each with its value, unit, source and meaning, and
-`canary policy show SECTION` prints one part. `canary policy check` reads the
-config and the policy files against each other and, through the daemon,
-against the live account (`--offline` checks the files alone), and names each
-implausible value with a reason and, where one applies, a suggested fix. MCP
-clients get the same report from the read-only `canary_policy_check` tool,
-which never changes a limit. The per-order limits now live in the risk
-constitution, `risk-policy.toml` `[order_limits]`, and the order-value cap
-scales with net liquidation value between an owner-set floor and ceiling. A
-temporary larger cap is one override that Canary records in its journal. The
-cash sweep's reserve follows net liquidation value and planned needs, each bill
-order stays between a minimum and a maximum size and bill buys wait while any
-currency is borrowed. The daemon now produces the portfolio stress verdict and
-the position risk flags; the CLI, MCP tools, app and Go client show the
-installed daemon's answer. `canary setups coverage`, `options` and `markouts`
-print readable output by default (`--json` returns the previous output), and
-the status, market, macro, proposal and data-health views lead with what needs
-attention. In trading builds the order-value cap and the short-sale check no
-longer refuse a broker-side stop that, with the other working sell orders for
-the same stock or ETF, sells no more than the long position, and a protective
-stop guard writes on its own, but only to shrink or cancel stop orders Canary
-itself placed when the position falls below them. Stops placed by hand are
-never changed. Existing policy files are never rewritten on upgrade. Until
-`[order_limits]` is written, every protection proposal reads blocked and trading
-builds refuse every order preview; until the sweep's new keys are written, the
-sweep holds. `canary policy check` reports the missing order limits.
-The sweep remains off by default. Owner commissioning requires calibrated
-reserves and current native settlement evidence; missing evidence holds the
-sweep. Bills can lose value on an early sale. Standard binaries and the MCP
-server remain read-only. Installation does not enable automatic submission or
-grant broker-write permission.
+that governs Canary, each with its value, unit, source and meaning, and `canary
+policy show SECTION` prints one part. `canary policy check` reads the config and
+the policy files against each other and, through the daemon, against the live
+account (`--offline` checks the files alone), and names each implausible value
+with a reason and, where one applies, a suggested fix. MCP clients get the same
+report from the read-only `canary_policy_check` tool, which never changes a
+limit. The per-order limits now live in the risk constitution,
+`risk-policy.toml` `[order_limits]`, and the order-value cap scales with net
+liquidation value between a floor and ceiling in the policy file. A temporary
+larger cap is one override that Canary records in its journal. The cash sweep's
+reserve follows net liquidation value and planned needs, each bill order stays
+between a minimum and a maximum size and bill buys wait while any currency is
+borrowed. The daemon now produces the portfolio stress verdict and the position
+risk flags; the CLI, MCP tools, app and Go client show the installed daemon's
+answer. `canary setups coverage`, `options` and `markouts` print readable output
+by default (`--json` returns the previous output), and the status, market,
+macro, proposal and data-health views lead with what needs attention. In trading
+builds the order-value cap and the short-sale check no longer refuse a
+broker-side stop that, with the other working sell orders for the same stock or
+ETF, sells no more than the long position, and a protective stop guard writes on
+its own, but only to shrink or cancel stop orders Canary itself placed when the
+position falls below them. Stops placed by hand are never changed. From 3.18.1
+policy files need no action on upgrade: at its first start the daemon backs up
+each file it changes and writes the missing keys. `[order_limits]` takes the
+`[trading]` values as the floor with a 5% of net liquidation scale and a 100,000
+ceiling, so the order cap can rise to 5% of net liquidation value, up to the
+ceiling. The sweep remains off by default. Owner commissioning requires
+calibrated reserves and current native settlement evidence; missing evidence
+holds the sweep. Bills can lose value on an early sale. Standard binaries and
+the MCP server remain read-only. Installation does not enable automatic
+submission or grant broker-write permission.
 
 Canary is a local risk desk for a brokerage account: a daemon, shell CLI,
 read-only MCP server, paired app, and a public Go module with a daemon client

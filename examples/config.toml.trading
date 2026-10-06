@@ -33,14 +33,10 @@ mode = "paper"
 # max_order_floor_base, max_order_pct_nlv, max_order_ceiling_base,
 # max_option_contracts, allow_stock_short and allow_option_sell_to_open.
 # Canary writes that file with the table when it is missing; review the values
-# with `canary policy show order_limits`. A risk-policy.toml written before the
-# table existed gains it only through a reviewed plan:
-#
-#   canary policy ensure --dry-run --json > policy-plan.json
-#   canary policy ensure --apply-plan policy-plan.json
-#
-# Until every key is written, every order preview is refused with
-# order_risk_limit. max_notional, max_option_contracts, allow_stock_short and
+# with `canary policy show order_limits`. A risk-policy.toml written before
+# the table existed gains it at the next daemon start, after a backup, from
+# any retired [trading] keys you still set, else Canary's defaults. Until
+# every key is written, every order preview is refused with order_risk_limit. max_notional, max_option_contracts, allow_stock_short and
 # allow_option_sell_to_open under [trading] are retired: they still load but
 # are never read.
 

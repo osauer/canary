@@ -413,9 +413,9 @@ esac
 # --- policy files ------------------------------------------------------------
 # Canary runs from policy files, never a compiled baseline: write any missing
 # file from Canary's defaults (headed "Canary defaults, not yet reviewed";
-# personal numbers stay commented placeholders) and migrate existing ones in
-# place with a backup, never changing a value you set. Only a release that
-# knows the step runs it (the --help probe never starts a daemon), and a
+# personal numbers stay commented placeholders). The daemon migrates existing
+# ones in place at its next start, after a backup, never changing a setting
+# you wrote. Only a release that knows the step runs it (the --help probe never starts a daemon), and a
 # failure is never fatal: the daemon repeats the step at start.
 if "$canonical" policy ensure --help >/dev/null 2>&1; then
 	step "Checking policy files..."

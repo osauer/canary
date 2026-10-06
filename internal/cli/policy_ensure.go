@@ -61,7 +61,9 @@ func PolicyLocalSubcommand(args []string) bool {
 }
 
 // runPolicyEnsure writes every missing policy file from Canary's template and
-// previews existing files; applying a reviewed plan is separate from startup.
+// previews existing files. The daemon applies their migration at its next
+// start, never the installer, so a running older daemon never reads keys it
+// does not know; --apply-plan applies a reviewed plan now.
 // It never replaces owner settings: an explicitly applied migration backs the
 // file up first, adds new keys at their defaults and comments out retired
 // ones; recommendations are reported, never applied.

@@ -913,15 +913,15 @@ func checkCompiledDefaults(c *policyCheckContext) []policyCheckHit {
 		return out
 	}
 	// Since the reserve design (2026-10-05) a sweep number missing from the
-	// file holds the sweep and is never filled from a compiled default.
+	// file holds the sweep; the ensure step at daemon start writes it.
 	if missing := s.missingNumbers(); len(missing) > 0 {
 		var keys []rpc.PolicyCheckKey
 		for _, key := range missing {
 			keys = append(keys, c.protectionKey("buckets.cash_sweep", key, "not written"))
 		}
 		out = append(out, policyCheckHit{keys: keys,
-			message:    "The cash sweep holds until these numbers are written in the policy file; Canary never fills them from its own defaults.",
-			suggestion: "Run canary policy ensure --dry-run, review the plan, then apply it."})
+			message:    "The cash sweep holds until these numbers are written in the policy file; Canary reads them from the file only.",
+			suggestion: "Run canary restart: at start the daemon writes each absent number at Canary's default after a backup. A number written as 0 counts as missing; write your own value with a higher policy_version."})
 	}
 	return out
 }
@@ -991,7 +991,7 @@ func checkOrderLimitsMissing(c *policyCheckContext) []policyCheckHit {
 	}
 	return []policyCheckHit{{keys: keys,
 		message:    strings.ToUpper(why[:1]) + why[1:] + ", so the trading gate refuses every order preview.",
-		suggestion: "Run canary policy ensure --dry-run, review the plan (it writes today's effective gates from config.toml and the scaled cap), then apply it."}}
+		suggestion: "Run canary restart: at start the daemon writes today's effective gates from config.toml and the scaled cap after a backup. Or write the keys with a higher policy_version."}}
 }
 
 // checkRetiredTradingGates warns while config.toml [trading] still carries a

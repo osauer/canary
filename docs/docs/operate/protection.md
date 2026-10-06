@@ -571,9 +571,9 @@ no_buy_while_borrowed = true # no bill buys while any currency is borrowed
 ```
 
 Every sizing number is read from the file only. Canary's own values exist
-solely for `canary policy ensure` to write them; a missing number holds the
-sweep at `needs_your_number`, naming the key, and never falls back to a
-compiled value.
+solely to be written into it: the daemon writes a missing one at its next
+start, and until then the sweep holds at `needs_your_number`, naming the key,
+and never falls back to a compiled value.
 
 Per currency, in that currency: **cash** is the lower of trade-date cash and
 the broker's observed per-currency settled cash
@@ -693,11 +693,12 @@ detail says it in words, for example "kept as cash: 20000 EUR (10% of NLV
 200000 EUR), held in EUR; orders from 20000 EUR to 50000 EUR
 (max_order_notional)".
 
-`canary policy ensure --dry-run` lists each missing sizing key it would add to
-an existing `[buckets.cash_sweep]` section. Applying the reviewed plan backs
-the file up, writes only the missing keys at the values above, keeps every
-value you wrote, and raises `policy_version` by one. A file without the table
-is left alone, and the sweep stays off.
+At its start the daemon adds each missing sizing key to an existing
+`[buckets.cash_sweep]` section: it backs the file up, writes only the missing
+keys at the values above, keeps every value you wrote and raises
+`policy_version` by one; run `canary policy ensure --dry-run` to list them
+beforehand. A
+file without the table is left alone, and the sweep stays off.
 
 ```toml
 [buckets.cash_sweep.currency.EUR]
