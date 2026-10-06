@@ -42,16 +42,24 @@ func (s *Server) gatewayLogClock() time.Time {
 	return time.Now()
 }
 
-// logGatewayDependency suppresses duplicate symptoms only during an already
-// reported outage: the daemon's own transport incident, or the connector's
-// TWS-to-IBKR backend-link loss, which the connector announces once (1100)
-// and whose restore it reports itself (1101/1102). It never infers an outage
-// from arbitrary text.
+// logGatewayDependency suppresses duplicate symptoms only during an outage
+// another owner reports: the daemon's own transport incident, a dial whose
+// outcome is still pending, or the connector's TWS-to-IBKR backend-link loss,
+// which the connector announces once (1100) and whose restore it reports
+// itself (1101/1102). A pending dial reports its own failure through
+// logGatewayUnavailable; without it, the chart reads of each daemon start
+// warned "IBKR connection unavailable" in the instant before the first
+// connect (24 lines over seven restarts on 2026-10-05). It never infers an
+// outage from arbitrary text.
 func (s *Server) logGatewayDependency(detail string) bool {
 	switch {
 	case s.gatewayLog.Join():
 		if s.logger != nil && s.logger.debugEnabled() {
 			s.logger.Debugf("Gateway dependency unavailable: %s", detail)
+		}
+	case s.gatewayDialPending():
+		if s.logger != nil && s.logger.debugEnabled() {
+			s.logger.Debugf("Gateway dependency awaiting dial: %s", detail)
 		}
 	case s.backendLinkDown():
 		if s.logger != nil && s.logger.debugEnabled() {
@@ -61,6 +69,13 @@ func (s *Server) logGatewayDependency(detail string) bool {
 		return false
 	}
 	return true
+}
+
+// gatewayDialPending reports a connect or reconnect attempt in flight.
+func (s *Server) gatewayDialPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.connectInFlight
 }
 
 // backendLinkDown reads the current connector's backend-link latch without
