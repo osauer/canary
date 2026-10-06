@@ -216,7 +216,7 @@ func levelingBundleTerms(id string, bundle rpc.TradeProposalCurrencyLevelingBund
 	if base == "" || loan.ExchangeRate <= 0 {
 		return t, errors.New("the loan's base currency or ledger rate is unknown")
 	}
-	t.Cushion = levelingCents(loan.CushionBase / loan.ExchangeRate)
+	t.Cushion = levelingCushion(loan.CushionBase, loan.ExchangeRate)
 	lands := loan.Cash
 	var expires time.Time
 	for i, leg := range legs {
@@ -280,6 +280,10 @@ func levelingBundleAmounts(d rpc.OrderDraft, b *rpc.TradeProposalCurrencyLevelin
 	}
 	return pays, receives, fmt.Errorf("%s %s is not a conversion of %s into %s", d.Action, d.Contract.LocalSymbol, b.FundingCurrency, b.Currency)
 }
+
+// levelingCushion is the most the repaid currency may hold, in its own unit:
+// the review says it never ends above it, so it rounds up, against the owner.
+func levelingCushion(base, rate float64) float64 { return levelingCentsUp(base / rate) }
 
 // levelingCents rounds an amount to cents; levelingCentsUp and
 // levelingCentsDown round against the owner, so an amount paid at most never
@@ -350,18 +354,28 @@ func bundleConfirmationBlockers(c *rpc.TradeProposalBundleConfirmation) []rpc.Tr
 // submitted, other terms than the retained ones and an expired review, then
 // records the submission before anything else, checks every conversion,
 // sending nothing until all pass, and sends them in order, stopping at the
-// first that is not sent. It runs inside brokerWriteMu, like every proposal
-// submit.
+// first that is not sent. The checks and sends run inside brokerWriteMu, like
+// every proposal submit; the submission is recorded before it waits for it.
 func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSubmitBundleParams) (rpc.TradeProposalSubmitBundleResult, error) {
-	out := rpc.TradeProposalSubmitBundleResult{BundleID: p.BundleID, Outcome: rpc.BundleOutcomeNotSent, Legs: []rpc.TradeProposalSubmitResult{}, AsOf: e.clock()}
+	// Until Canary knows which bundle this is and that it was never
+	// submitted, the request carries no outcome: the bundle's outcome is the
+	// status read's to say.
+	out := rpc.TradeProposalSubmitBundleResult{BundleID: p.BundleID, Legs: []rpc.TradeProposalSubmitResult{}, AsOf: e.clock()}
 	record, revision, err := e.loadBundle(ctx, p.BundleRef)
 	if err != nil {
-		out.Blockers = preparedBlocker("prepared_reference_unavailable", "The prepared repayment reference cannot be resolved safely; nothing was sent.")
+		out.Blockers = preparedBlocker("prepared_reference_unavailable", "The prepared repayment reference cannot be resolved safely, so this request sent nothing; read the repayment's status before anything else.")
 		return out, nil
 	}
 	consumed := []rpc.TradingBlocker{{Code: "prepared_reference_consumed",
 		Message: "This repayment was already submitted once, and its reference never sends again.",
 		Action:  "Read what it sent with canary proposals bundle-status; never send it again."}}
+	if !record.SubmittedAt.IsZero() {
+		// Whatever the first submission did, and whatever else this request
+		// names, it sent nothing.
+		out.Blockers = consumed
+		return out, nil
+	}
+	out.Outcome = rpc.BundleOutcomeNotSent
 	n := len(record.Keys)
 	legs := make([]rpc.TradeProposalSubmitResult, n)
 	for i := range legs {
@@ -378,11 +392,6 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 		return refused(preparedBlocker("prepared_binding_mismatch", "Bundle id and revision must match the prepared repayment; nothing was sent."))
 	case p.TermsDigest != record.TermsDigest:
 		return refused(preparedBlocker("prepared_terms_mismatch", "The confirmed terms are not the prepared repayment's terms, so nothing was sent; prepare and confirm it again."))
-	case !record.SubmittedAt.IsZero():
-		// Whatever the first submission did, this one sent nothing; the
-		// bundle's outcome is the status read's to say, never this refusal's.
-		out.Outcome, out.Blockers = "", consumed
-		return out, nil
 	case !e.clock().Before(record.ExpiresAt):
 		return refused(preparedBlocker("prepared_reference_expired", "The review expired, so nothing was sent; prepare the repayment again and confirm it again."))
 	}
@@ -404,6 +413,13 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 	revision = saved.Revision
 	e.bundlesSending.Store(record.ID, struct{}{})
 	defer e.bundlesSending.Delete(record.ID)
+	// Only a recorded submission waits for the broker write lock: while it
+	// waits, a status read finds it submitted and being sent, never prepared,
+	// and a second request is refused as consumed.
+	if e.server != nil {
+		e.server.brokerWriteMu.Lock()
+		defer e.server.brokerWriteMu.Unlock()
+	}
 	finish := func(blockers []rpc.TradingBlocker) (rpc.TradeProposalSubmitBundleResult, error) {
 		out.Legs, out.Blockers, out.AsOf = legs, blockers, e.clock()
 		outcomes := make([]string, n)
@@ -712,8 +728,7 @@ func (s *Server) handleTradeProposalsSubmitBundle(ctx context.Context, req *rpc.
 	if s.tradeProposals == nil {
 		return &rpc.TradeProposalSubmitBundleResult{AsOf: s.orderNow(), Blockers: preparedBlocker("proposal_engine_unavailable", "Proposal engine is unavailable.")}, nil
 	}
-	s.brokerWriteMu.Lock()
-	defer s.brokerWriteMu.Unlock()
+	// SubmitBundle records the submission, then takes brokerWriteMu itself.
 	out, err := s.tradeProposals.SubmitBundle(ctx, p)
 	return &out, err
 }

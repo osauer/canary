@@ -243,6 +243,12 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	case "reporting":
 		return []string{rpc.MethodReportingStatus}, ordinaryHeadroom, ordinaryFloor
 	case "proposals":
+		// A repayment's prepare and send run up to 150 s in the daemon, and the
+		// daemon keeps going when the CLI gives up: the CLI waits longer, so its
+		// caller never reads a send still running as finished.
+		if hasInvocationToken(rest, "prepare-bundle", "submit-bundle", "bundle-status") {
+			return []string{rpc.MethodTradeProposalsPrepareBundle, rpc.MethodTradeProposalsSubmitBundle, rpc.MethodTradeProposalsPreparedBundleStatus}, ordinaryHeadroom, ordinaryFloor
+		}
 		if hasInvocationToken(rest, "reduce") && hasInvocationToken(rest, "--portfolio", "-portfolio") {
 			return []string{rpc.MethodTradeProposalsReducePortfolioPreview, rpc.MethodTradeProposalsReducePortfolioSubmit}, 30 * time.Second, ordinaryFloor
 		}

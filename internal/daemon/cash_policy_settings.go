@@ -537,7 +537,7 @@ func cashPolicyFacts(p protectionPolicy, b cashPolicyBook) (map[string]string, r
 	sweep := sections.Sweep
 	if p.preAuthorised(preAuthorisedBucketCashSweep) {
 		sweep.PreAuthorised = true
-		sweep.Authority = "The daemon sends sweep orders itself " + cashPolicyDuration(p.Authority.vetoWindow()) + " after announcing them, because the file pre-authorises the sweep. Change this in the file: [cash] pre_authorised."
+		sweep.Authority = "The daemon sends sweep orders itself " + cashPolicyDuration(p.Authority.vetoWindow()) + " after announcing them, because Canary's protection policy file pre-authorises the sweep. You can change this there (pre_authorised in [cash])."
 	} else {
 		sweep.Authority = "You approve each sweep order."
 	}

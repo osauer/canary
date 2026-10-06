@@ -501,6 +501,10 @@ func TestCashPolicyLegacyLayoutIsReadAndWrittenInPlace(t *testing.T) {
 	if !snap.LegacyLayout || snap.FileState != rpc.CashPolicyFileOK || !snap.Writable || !snap.Sections.Sweep.PreAuthorised {
 		t.Fatalf("legacy snapshot %+v", snap)
 	}
+	if !strings.HasPrefix(snap.Sections.Sweep.Authority, "The daemon sends sweep orders itself ") ||
+		!strings.HasSuffix(snap.Sections.Sweep.Authority, " after announcing them, because Canary's protection policy file pre-authorises the sweep. You can change this there (pre_authorised in [cash]).") {
+		t.Fatalf("sweep authority %q", snap.Sections.Sweep.Authority)
+	}
 	if row, _ := cashPolicySetting(snap, "cash.sweep.max_order_notional"); !cashPolicySame(row.Value, 12000.0) || row.Source != rpc.CashPolicySourceFile {
 		t.Fatalf("legacy value %+v", row)
 	}
@@ -1106,7 +1110,7 @@ func TestCashPolicySizesSayWhatChangesAtTodaysNLV(t *testing.T) {
 func TestCashPolicyConfirmationWindowComesFromTheFile(t *testing.T) {
 	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
 	snap := cashPolicyGet(t, s)
-	if snap.ConfirmationWindowSeconds != 600 || snap.Confirmation != "For 10 minutes after your passkey or companion confirms a save, a further save from the same Desk window that lets no more reach the broker needs no new confirmation. Change this in the file: [cash] confirmation_window." {
+	if snap.ConfirmationWindowSeconds != 600 || snap.Confirmation != "For 10 minutes after your passkey or companion confirms a save, further saves from the same Desk console that let no more reach the broker need no new confirmation. You can change the 10 minutes in Canary's protection policy file (confirmation_window in [cash])." {
 		t.Fatalf("window %d %q", snap.ConfirmationWindowSeconds, snap.Confirmation)
 	}
 	if _, ok := cashPolicySetting(snap, "cash.confirmation_window"); ok {
@@ -1117,7 +1121,7 @@ func TestCashPolicyConfirmationWindowComesFromTheFile(t *testing.T) {
 		t.Fatalf("window change %+v", check.Errors)
 	}
 	none, _, _ := cashPolicyServer(t, strings.Replace(cashPolicyTestFile, "[cash]\nconfirmation_window = \"10m\"\n", "[cash]\n", 1))
-	if snap := cashPolicyGet(t, none); snap.ConfirmationWindowSeconds != 0 || snap.Confirmation != "Every save asks your passkey or companion. Change this in the file: [cash] confirmation_window." {
+	if snap := cashPolicyGet(t, none); snap.ConfirmationWindowSeconds != 0 || snap.Confirmation != "Every save asks your passkey or companion. You can allow a few minutes without asking in Canary's protection policy file (confirmation_window in [cash])." {
 		t.Fatalf("no window %d %q", snap.ConfirmationWindowSeconds, snap.Confirmation)
 	}
 	if saved := cashPolicySave(t, none, map[string]any{"cash.leveling.cushion_base": 300}, "desk-cash-policy-NONE"); !saved.ConfirmedUntil.IsZero() {

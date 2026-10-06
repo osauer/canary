@@ -10,6 +10,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -512,4 +513,109 @@ func TestCurrencyLevelingBundleStatusOutcomes(t *testing.T) {
 			t.Fatalf("status of an unknown reference = %+v", st)
 		}
 	})
+}
+
+// submitBundleRaw sends a submission through the handler and returns its
+// answer, for a goroutine (no t.Fatal off the test's goroutine).
+func submitBundleRaw(rig *automaticTestRig, params rpc.TradeProposalSubmitBundleParams) (*rpc.TradeProposalSubmitBundleResult, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	return rig.server.handleTradeProposalsSubmitBundle(context.Background(), &rpc.Request{Params: raw})
+}
+
+// A submission waiting for the broker write lock is already recorded: a
+// status read while it waits says it is being sent, never prepared, a second
+// request is refused as consumed without waiting, and the conversions go out
+// only once the lock is free (review B1, 2026-10-06).
+func TestCurrencyLevelingBundleStatusWhileWaitingForTheBrokerLock(t *testing.T) {
+	rig, _, bundle, broker, _ := levelingBundleRig(t)
+	prepared := prepareBundle(t, rig, bundle)
+	params := rpc.TradeProposalSubmitBundleParams{BundleRef: prepared.BundleRef, BundleID: bundle.ID, Revision: bundle.Revision, TermsDigest: prepared.TermsDigest,
+		FastPath: true, Origin: rpc.OrderOriginHumanTTY}
+	rig.server.brokerWriteMu.Lock()
+	unlock := sync.OnceFunc(rig.server.brokerWriteMu.Unlock)
+	t.Cleanup(unlock)
+	type answer struct {
+		out *rpc.TradeProposalSubmitBundleResult
+		err error
+	}
+	done := make(chan answer, 1)
+	go func() {
+		out, err := submitBundleRaw(rig, params)
+		done <- answer{out, err}
+	}()
+	var st rpc.TradeProposalPreparedBundleStatusResult
+	for deadline := time.Now().Add(3 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		st = bundleStatus(t, rig, prepared)
+		if !st.SubmittedAt.IsZero() || time.Now().After(deadline) {
+			break
+		}
+	}
+	if st.Outcome != rpc.BundleOutcomeUnknown || st.SubmittedAt.IsZero() || broker.count() != 0 {
+		t.Fatalf("while the submission waits for the broker lock the status reads %q (submitted %v, %d broker calls); want unknown, never prepared", st.Outcome, st.SubmittedAt, broker.count())
+	}
+	if again, err := submitBundleRaw(rig, params); err != nil || again.Outcome != "" || !hasBlockerCode(again.Blockers, "prepared_reference_consumed") {
+		t.Fatalf("a second request while the first waits = %+v, %v", again, err)
+	}
+	unlock()
+	select {
+	case a := <-done:
+		if a.err != nil || a.out.Outcome != rpc.BundleOutcomeSent || a.out.Sent != 2 {
+			t.Fatalf("the waiting submission = %+v, %v", a.out, a.err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the submission never finished after the lock was released")
+	}
+	if st := bundleStatus(t, rig, prepared); st.Outcome != rpc.BundleOutcomeSent {
+		t.Fatalf("status after the send = %q", st.Outcome)
+	}
+}
+
+// A reference already submitted answers consumed with no outcome, whatever
+// else the request names: another terms digest or revision never reads as
+// "nothing was sent" for a bundle that was sent (review M1, 2026-10-06).
+func TestCurrencyLevelingBundleConsumedWinsOverOtherTerms(t *testing.T) {
+	rig, _, bundle, _, _ := levelingBundleRig(t)
+	prepared := prepareBundle(t, rig, bundle)
+	if out := submitBundle(t, rig, prepared, bundle); out.Outcome != rpc.BundleOutcomeSent {
+		t.Fatalf("first submission = %+v", out)
+	}
+	otherTerms := prepared
+	otherTerms.TermsDigest = "sha256:" + strings.Repeat("0", 64)
+	otherRevision := bundle
+	otherRevision.Revision = strings.Repeat("f", 32)
+	for name, out := range map[string]*rpc.TradeProposalSubmitBundleResult{
+		"other terms":    submitBundle(t, rig, otherTerms, bundle),
+		"other revision": submitBundle(t, rig, prepared, otherRevision),
+	} {
+		if out.Outcome != "" || !hasBlockerCode(out.Blockers, "prepared_reference_consumed") {
+			t.Errorf("%s after a sent bundle answers outcome %q, blockers %+v; want no outcome and prepared_reference_consumed", name, out.Outcome, out.Blockers)
+		}
+	}
+}
+
+// A reference Canary cannot read leaves the outcome to the status read: it
+// never answers not_sent for a bundle it cannot see (review M1, 2026-10-06).
+func TestCurrencyLevelingBundleUnreadableReferenceHasNoOutcome(t *testing.T) {
+	rig, _, bundle, _, _ := levelingBundleRig(t)
+	prepared := prepareBundle(t, rig, bundle)
+	prepared.BundleRef = preparedBundlePrefix + ".SyntheticMissingRecord0.SyntheticSecret00000"
+	out := submitBundle(t, rig, prepared, bundle)
+	if out.Outcome != "" || !hasBlockerCode(out.Blockers, "prepared_reference_unavailable") {
+		t.Fatalf("an unreadable reference answers outcome %q, blockers %+v", out.Outcome, out.Blockers)
+	}
+}
+
+// The terms say the repaid currency never ends above the cushion, so the
+// cushion rounds up, never to the nearest cent below it (review 2026-10-06).
+func TestCurrencyLevelingCushionRoundsUp(t *testing.T) {
+	exact := 250 / 0.854715 // 292.4924… USD
+	if got := levelingCushion(250, 0.854715); got != 292.50 || got < exact {
+		t.Fatalf("cushion %v for %v", got, exact)
+	}
+	if got := levelingCushion(250, 250.0/292.5); got != 292.50 {
+		t.Fatalf("an exact cushion moved: %v", got)
+	}
 }

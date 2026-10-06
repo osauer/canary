@@ -276,9 +276,10 @@ func (s *Server) handleCashPolicyCheck(ctx context.Context, req *rpc.Request) (*
 // force means for a save from Desk; the file decides it.
 func cashPolicyConfirmationSentence(window time.Duration) string {
 	if window <= 0 {
-		return "Every save asks your passkey or companion. Change this in the file: [cash] confirmation_window."
+		return "Every save asks your passkey or companion. You can allow a few minutes without asking in Canary's protection policy file (confirmation_window in [cash])."
 	}
-	return "For " + cashPolicyDuration(window) + " after your passkey or companion confirms a save, a further save from the same Desk window that lets no more reach the broker needs no new confirmation. Change this in the file: [cash] confirmation_window."
+	d := cashPolicyDuration(window)
+	return "For " + d + " after your passkey or companion confirms a save, further saves from the same Desk console that let no more reach the broker need no new confirmation. You can change the " + d + " in Canary's protection policy file (confirmation_window in [cash])."
 }
 
 // cashPolicyReliance is owner question 1 as the owner answered it
