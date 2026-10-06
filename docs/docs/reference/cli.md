@@ -617,7 +617,7 @@ Subcommands: `status`, `performance`, `fx`.
 
 Daemon-owned close/reduce-only protection proposals.
 
-Protection proposals are advisory. The daemon can propose a close or a reduce, and only `submit` and `reduce` reach the broker. Each needs an explicit human instruction for that exact order.
+Proposals are advisory. Only `submit`, `submit-bundle` and `reduce` reach the broker; each needs an explicit human instruction for that exact order.
 
 Guard `confirm`. Also available as an MCP tool.
 

@@ -1,6 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 17:18 CEST
+Updated: 2026-10-06 20:58 CEST
 
 Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
 have no currency leveling; this page describes the versions after it.
@@ -31,9 +31,20 @@ veto_window`, shared with protection ([Pre-authorised
 buckets](protection.md#pre-authorised-buckets)). Currency leveling cannot be
 listed: you approve each repayment.
 
-## Changing these from Desk
+A file written before cash management had its own section keeps working:
+Canary reads `[buckets.cash_sweep]` as `[cash.sweep]` and `cash_sweep` in
+`[authority] pre_authorised` as the `[cash]` entry. At its next start the
+daemon moves them, after a backup: it rewrites those headers and that one
+entry, keeps every value and comment and changes no setting. The same start
+writes `[cash.leveling]`, off, into a file without it and raises
+`policy_version` by one; `canary policy ensure --dry-run` shows both
+beforehand. A file that writes the sweep in both places is refused until one
+is removed.
 
-Desk's Settings has a Cash management tab for the same keys: currency
+## Changing cash settings from Desk
+
+Desk, a private project that serves as Canary's console, has a Cash
+management tab in its Settings for the same keys: currency
 leveling's switch, band, cushion, limit from the mid, payback window and each
 currency's `deliberate_carry`, and the cash sweep's switch, mode, reserve,
 order bounds, order step, settlement floats and its two rules. Canary does
@@ -54,14 +65,14 @@ other line stays as it was. Canary backs the file up beside it first
 (`<file>.bak-desk-<UTC time>`), replaces it in one write readable by you
 only, adopts it at once and keeps a receipt of the save.
 
-A save is confirmed with your passkey or the Desk companion. After a save
+You confirm each save with a passkey or in Desk's companion app. After a save
 you confirmed on your device, further saves from the same Desk console
 session need no new confirmation for as long as `[cash]
-confirmation_window` says, unless they change something at the broker. The
-check states what: a feature switched on, `shadow` changed to `active`, a
-rule loosened, a band, reserve or float made smaller, a limit, cushion,
-payback window or order size made larger, or a number written where the file
-had none (a feature that waited for it can then act). Such a save always
+confirmation_window` says, unless they let more reach the broker. The
+check names each: a feature switched on, `shadow` changed to `active`, a rule loosened,
+a band, reserve, smallest buy or float made smaller, a limit, cushion,
+payback window or largest order made larger, or a setting a feature waits
+for written where the file had none. Such a save always
 needs your device. Sizes that depend on NLV or the order cap in force say
 what they come to at today's NLV, and why when that does not change today.
 
@@ -78,30 +89,21 @@ until 14:15 CEST"), and accepts the reliance only on a save it recorded with
 a fresh confirmation by the same credential; relying on it never moves the
 end.
 
-Some keys stay in the file: `[cash] pre_authorised` and
-`confirmation_window`, `currency_priority`
-(Risk → Cash sets the priority), `reserve_cushion_eur`, `min_net_gain`,
-`tax_reviewed_at` and every per-currency key but the two above, including
-the ISIN lists and the fallback ETF. While the file pre-authorises the sweep,
-switching it on or changing it to `active` from Desk says first that the
-daemon will then send the sweep's orders itself after the veto window, and
-how large each may be at today's NLV.
+Some keys stay in the file: `[cash]` `pre_authorised` and
+`confirmation_window`; `[cash.sweep]` `currency_priority` (the runtime
+setting `cash_sweep.currency_priority` overrides it), `reserve_cushion_eur`,
+`min_net_gain` and `tax_reviewed_at`; and every per-currency key but
+`keep_cash` and `deliberate_carry`, including the ISIN lists and the fallback
+ETF. While the file pre-authorises the sweep, a save that leaves the sweep
+on, `active` and with all its numbers says first that the daemon will then
+send the sweep's orders itself after the veto window, and how large each may
+be at today's NLV.
 
 Desk saves only a file Canary runs as written, or one with a higher
 `policy_version` it is about to adopt. A file edited without raising
 `policy_version`, a file Canary refuses and a missing file are shown
 read-only until you fix them. A file that changed since Desk read it is not
 overwritten: Desk shows what changed and asks you to check again.
-
-A file written before cash management had its own section keeps working:
-Canary reads `[buckets.cash_sweep]` as `[cash.sweep]` and `cash_sweep` in
-`[authority] pre_authorised` as the `[cash]` entry. At its next start the
-daemon moves them, after a backup: it rewrites those headers and that one
-entry, keeps every value and comment and changes no setting. The same start
-writes `[cash.leveling]`, off, into a file without it and raises
-`policy_version` by one; `canary policy ensure --dry-run` shows both
-beforehand. A file that writes the sweep in both places is refused until one
-is removed.
 
 ## Cash sweep
 
@@ -461,9 +463,12 @@ next is planned, so two repayments never spend the same cash.
 
 **One approval per loan.** A loan's conversions form one repayment, listed
 together and approved as a whole. Three commands carry it, and a private
-reference travels only on standard input, never in the command line:
+reference, which can send the repayment once, never appears in a command
+line:
 
-- `canary proposals prepare-bundle BUNDLE_ID REVISION` previews every
+- `canary proposals prepare-bundle BUNDLE_ID REVISION` (both are in
+  `canary proposals list --json`, as `currency_leveling.bundles[].id` and
+  `.revision`) previews every
   conversion against a live quote and states the repayment's exact terms:
   the loan, each conversion's order and limit, what it pays and receives at
   that limit (exactly, at most or at least), what its payer keeps at least,
@@ -471,9 +476,10 @@ reference travels only on standard input, never in the command line:
   those terms. It prints them for you to read; with `--json` it also returns
   the private bundle reference, for the program that sends the repayment.
   The review lasts ten minutes.
-- `canary proposals submit-bundle --stdin` reads one JSON object,
-  `{bundle_ref, bundle_id, revision, terms_digest, confirmation}`, and sends
-  the repayment once. It refuses other terms than the prepared ones
+- In the trading build, `canary proposals submit-bundle --stdin` reads one
+  JSON object, `{bundle_ref, bundle_id, revision, terms_digest,
+  confirmation}` (`confirmation` is optional), and sends the repayment
+  once. It refuses other terms than the prepared ones
   (`prepared_terms_mismatch`) and a reference already used
   (`prepared_reference_consumed`), checks every conversion again before it
   sends any, then sends them cheapest currency first and stops at the first
@@ -486,7 +492,7 @@ reference travels only on standard input, never in the command line:
 - `canary proposals bundle-status --bundle-ref-stdin` reads what became of a
   prepared repayment from Canary's records, the order journal included, and
   sends nothing: `prepared` or `expired` before it was sent, otherwise the
-  outcomes above. It settles an answer lost on its way back.
+  outcomes above. Run it when submit-bundle's answer did not arrive.
 
 Nothing resends the rest of a partly sent repayment. Once the ledger shows
 the fills, the next cycle plans what remains as a new repayment, approved
