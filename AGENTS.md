@@ -37,7 +37,9 @@ start. Pin it in `go.mod`/`go.sum`; prove major migrations and adapter replaceme
 Ordinary builds must not upgrade dependencies.
 
 Use `make help` for targets. Run `make test` for Go/runtime changes;
-`make check` before commits. For Markdown-only edits, run
+`make check` before commits. On the operator machine a pre-commit hook
+(`scripts/pre-commit`) also runs the account-data gate on each commit's staged
+content; fix what it names. For Markdown-only edits, run
 `make account-data-check product-identity-check` plus applicable documentation
 gates. Before deleting safety tests, run `make regression-spine-check`.
 Live smoke is for affected broker integration, not routine docs/UI work.

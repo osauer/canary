@@ -63,11 +63,11 @@ done
 
 # 4) No compiled executables in the index (Mach-O / ELF magic). A stray
 #    and other checked-in assets pass — only executable container magic
-#    fails. Size-gated so the magic sniff touches a handful of files.
-bins=$(printf '%s\n' "$files" | while IFS= read -r f; do
+#    fails. Size-gated so the magic sniff touches a handful of files; one
+#    wc sizes them all (a summary "total" line is no file and drops out).
+bins=$(printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 wc -c 2>/dev/null |
+	awk '$1 > 65536 { sub(/^ *[0-9]+ /, ""); print }' | while IFS= read -r f; do
 	[ -f "$f" ] || continue
-	size=$(wc -c <"$f" | tr -d ' ')
-	[ "$size" -gt 65536 ] || continue
 	case $(od -An -N4 -tx1 "$f" | tr -d ' \n') in
 	(cffaedfe | cefaedfe | feedface | feedfacf | cafebabe | bebafeca | 7f454c46) printf '%s\n' "$f" ;;
 	esac
@@ -106,7 +106,7 @@ elif [ "$flex" -eq 0 ]; then
 else
 	# Rows read day|symbol|underlying: an option contributes its underlying,
 	# and an IBKR class suffix ("BRK B") keeps its root.
-	out=$(store "WITH pos AS (SELECT account_key AS a, substr(json_extract(raw_json, '\$.ReportDate'), 1, 10) AS d,
+	out=$(store "WITH pos AS MATERIALIZED (SELECT account_key AS a, substr(json_extract(raw_json, '\$.ReportDate'), 1, 10) AS d,
 		json_extract(raw_json, '\$.Symbol') AS s, json_extract(raw_json, '\$.UnderlyingSymbol') AS u
 		FROM statement_records WHERE record_kind = 'position')
 		SELECT d, s, u FROM pos WHERE d = (SELECT max(d) FROM pos AS p WHERE p.a = pos.a)") || out=

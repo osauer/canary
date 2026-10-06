@@ -57,6 +57,13 @@ expect "fixture.bin contains 1 non-placeholder IBKR account ID occurrence(s)"
 withheld "$probe_upper"
 git -C "$repo" rm --quiet --cached fixture.bin
 
+# A tracked executable over the 64 KiB size gate fails.
+{ printf '\317\372\355\376'; head -c 70000 /dev/zero; } >"$repo/tool"
+git -C "$repo" add tool
+! gate || fail "a tracked Mach-O executable was accepted"
+expect "compiled executable(s) tracked"
+git -C "$repo" rm --quiet --cached tool
+
 # Holdings. No store and no cache is a contributor machine: skip, loudly;
 # the money check skips silently.
 gate || fail "tree without private holdings data was rejected"
@@ -105,6 +112,19 @@ stage CHANGELOG.md '# Changelog
 ! gate || fail "an unreleased changelog section naming a holding was accepted"
 expect "CHANGELOG.md names a current holding on line(s) 4"
 git -C "$repo" checkout --quiet HEAD -- CHANGELOG.md
+
+# The pre-commit hook runs the gate on exactly what is committed.
+cp "$repo_root/scripts/pre-commit" "$repo/scripts/"
+git -C "$repo" config core.hooksPath .git/hooks
+mkdir -p "$repo/.git/hooks"
+ln -s ../../scripts/pre-commit "$repo/.git/hooks/pre-commit"
+stage fixture.txt "commit $probe_upper"
+! git -C "$repo" commit --quiet -m leak >"$out" 2>&1 || fail "the pre-commit hook let a non-placeholder ID through"
+expect "the account-data gate blocked this commit"
+withheld "$probe_upper"
+stage fixture.txt 'safe fixture DU1234567'
+git -C "$repo" commit --quiet -m clean >"$out" 2>&1 || fail "the pre-commit hook blocked a clean commit"
+rm "$repo/.git/hooks/pre-commit"
 
 # The daemon store's latest Flex position report per account is the
 # denylist, adjusted option roots and their underlyings included; closed

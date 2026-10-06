@@ -1,0 +1,14 @@
+#!/bin/sh
+# Git pre-commit hook: run the account-data gate on exactly what is being
+# committed. The gate reads the index, so `make check` before `git add`
+# never sees new edits; at commit time the index is the commit. Every
+# worktree on the operator machine uses the main repository's hooks
+# directory, where this script is linked (owner's instruction, 2026-10-06
+# 08:11 CEST):
+#   ln -s ../../scripts/pre-commit "$(git rev-parse --git-common-dir)/hooks/pre-commit"
+# Fix the lines it names; never bypass it with --no-verify.
+gate="$(git rev-parse --show-toplevel)/scripts/check-no-account-data.sh"
+[ -x "$gate" ] || exit 0
+"$gate" >/dev/null && exit 0
+echo "pre-commit: the account-data gate blocked this commit; fix the lines named above" >&2
+exit 1
