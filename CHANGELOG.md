@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.18.1 — 2026-10-06 06:57 CEST
+
+### What's new
+
+- **Policy files need no action on upgrade.** When it starts, the daemon now writes the policy keys a release adds, after backing up each file it changes, so the 3.18 order limits and cash-sweep sizing reach an upgraded install without a reviewed plan.
+
+### Changed
+
+- Daemon start migrates existing policy files in place: it backs up each file it changes, writes missing keys at their defaults, comments out retired keys and keeps every setting you wrote. It also applies the format conversions earlier releases left optional. `canary policy ensure` still writes only missing files, and `--dry-run` previews the migration.
+
+### Fixed
+
+- After a restart, 3.18.0 kept serving its last saved protection proposals instead of refreshing them. Every refresh failed with "proposal state is malformed", and `canary status` showed proposals degraded.
+- After upgrading from 3.17, protection proposals no longer read blocked and order previews are no longer refused with `order_risk_limit` until a reviewed policy plan is applied.
+- `canary policy help ACTION`, `canary recon help ACTION`, `canary reporting help` and a bare `help` such as `canary order help` no longer start the daemon just to print help.
+
+### Upgrade notes
+
+- From 3.17 or earlier, or 3.18.0 without the plan applied, the first start of 3.18.1 writes `[order_limits]` into `risk-policy.toml`. Your `max_notional` becomes the floor, `max_order_floor_base` (10,000 if you never set it), with a 5% of net liquidation scale and a 100,000 base-currency ceiling, so your order cap can rise to 5% of net liquidation value, up to the ceiling. To return to a fixed cap, set `max_order_ceiling_base` equal to `max_order_floor_base` and raise `policy_version`.
+- An existing cash sweep gains its sizing defaults, including `no_buy_while_borrowed = true` and `bills_exempt_from_trading_max_notional = true`. The second lets a same-currency bill order exceed the order cap, up to the sweep's own cap: the larger of `max_order_notional` (written as 50,000) and `max_order_pct_nlv` (written as 10%) of net liquidation value. Each backup sits beside its file as `<file>.bak-<release>-<time>`.
+- A daemon older than 3.18.0 cannot read protection proposals saved by 3.18.1.
+- Standard binaries and the MCP server remain read-only.
+
 ## v3.18.0 — 2026-10-06 06:09 CEST
 
 ### What's new
