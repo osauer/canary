@@ -132,16 +132,23 @@ func TestLendingMarketBoundedInterestIdentityAndExpiry(t *testing.T) {
 }
 
 // Delisted names that IBKR's short-stock file still lists answer "no security
-// definition" for their conID. The worker asks once per broker session, not
-// every five minutes: on 2026-10-04 each cycle logged a WARN per name, about
-// 200 lines an hour.
+// definition" for their conID. On 2026-10-04 the worker asked every five
+// minutes, a WARN per name, about 200 lines an hour; on 2026-10-06 it still
+// asked once per broker session, 52 lines over five reconnects and restarts.
+// The verdict on a conID now outlives both and lapses after a month.
 func TestLendingMarketParksAContractTheBrokerDoesNotKnow(t *testing.T) {
 	c, _, now := lendingMarketFixture(t)
 	clock := now
-	s := &Server{now: func() time.Time { return clock }}
+	store := openAlertRegistryTestStore(t, alertRegistryTestPath(t))
+	t.Cleanup(func() { _ = store.Close() })
 	sessionCurrent := true
-	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
-	s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: now.Add(24 * time.Hour)}}
+	newServer := func() *Server {
+		s := &Server{coreStore: store, now: func() time.Time { return clock }}
+		s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
+		s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: clock.Add(24 * time.Hour)}}
+		return s
+	}
+	s := newServer()
 	reads := 0
 	read := func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
 		reads++
@@ -155,13 +162,53 @@ func TestLendingMarketParksAContractTheBrokerDoesNotKnow(t *testing.T) {
 	if row := visible(); reads != 1 || row.Status != "unavailable" || !strings.Contains(row.Detail, "does not recognise") {
 		t.Fatalf("verdict not recorded: reads=%d row=%+v", reads, row)
 	}
-	// The old five-minute retry, then past the floor while the session holds.
+	// The old five-minute retry, past the session floor, then a new session.
 	for _, step := range []time.Duration{lendingMarketLifetime, marketHistoryDefinitionMissFloor} {
 		clock = clock.Add(step + time.Second)
 		s.refreshLendingMarketOnce(t.Context(), read)
 	}
+	sessionCurrent = false
+	clock = clock.Add(marketHistoryDefinitionMissFloor + time.Second)
+	s.refreshLendingMarketOnce(t.Context(), read)
 	if row := visible(); reads != 1 || row.Status != "unavailable" {
-		t.Fatalf("asked again within the broker session: reads=%d row=%+v", reads, row)
+		t.Fatalf("asked again after a broker session change: reads=%d row=%+v", reads, row)
+	}
+	// A daemon restart reads the verdict back from the store.
+	s = newServer()
+	clock = clock.Add(time.Hour)
+	s.refreshLendingMarketOnce(t.Context(), read)
+	if row := visible(); reads != 1 || row.Status != "unavailable" {
+		t.Fatalf("asked again after a restart: reads=%d row=%+v", reads, row)
+	}
+	clock = now.Add(lendingContractVerdictMemory + time.Second)
+	s.lendingMarket.entries["AAA"] = lendingMarketEntry{contract: c, family: "lending", until: clock.Add(24 * time.Hour)}
+	s.refreshLendingMarketOnce(t.Context(), read)
+	if reads != 2 {
+		t.Fatalf("a lapsed verdict did not ask again: reads=%d", reads)
+	}
+}
+
+// A contract the worker knows only by symbol has no conID to remember; its
+// verdict holds for the broker session alone.
+func TestLendingMarketVerdictWithoutConIDHoldsForTheSession(t *testing.T) {
+	c, _, now := lendingMarketFixture(t)
+	c.ConID = 0
+	clock := now
+	s := &Server{now: func() time.Time { return clock }}
+	sessionCurrent := true
+	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
+	s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: now.Add(24 * time.Hour), focusFamily: "lending", focusUntil: now.Add(2 * time.Hour)}}
+	reads := 0
+	read := func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
+		reads++
+		empty := projectLendingMarket(c, nil, nil, clock)
+		return empty, empty, fmt.Errorf("chart: %w", ibkrlib.ErrContractNoDefinition)
+	}
+	s.refreshLendingMarketOnce(t.Context(), read)
+	clock = clock.Add(marketHistoryDefinitionMissFloor + time.Second)
+	s.refreshLendingMarketOnce(t.Context(), read)
+	if reads != 1 || len(s.lendingMarket.verdicts) != 0 {
+		t.Fatalf("session verdict: reads=%d verdicts=%d", reads, len(s.lendingMarket.verdicts))
 	}
 	sessionCurrent = false
 	clock = clock.Add(marketHistoryDefinitionMissFloor + time.Second)

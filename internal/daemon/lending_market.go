@@ -42,6 +42,9 @@ type lendingMarketCache struct {
 	entries       map[string]lendingMarketEntry
 	lastFamily    string
 	foregroundRun int
+	// verdicts holds, per conID, when IBKR answered that it does not know the
+	// contract; nil until loadLendingContractVerdicts has run.
+	verdicts map[int]time.Time
 }
 
 func (s *Server) handleLendingMarket(ctx context.Context, req *rpc.Request) (*rpc.LendingMarketResult, error) {
@@ -296,23 +299,30 @@ func (s *Server) startLendingMarketRefresh(ctx context.Context) {
 type lendingMarketReader func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error)
 
 // refreshLendingMarketOnce reads the next due entry. A broker verdict that it
-// does not know the contract parks the entry for the rest of that broker
-// session and at least marketHistoryDefinitionMissFloor: delisted names still
-// listed in IBKR's short-stock file drew a WARN "no security definition" per
-// name every five minutes (about 200 lines an hour on 2026-10-04).
+// does not know the contract parks the entry: delisted names still listed in
+// IBKR's short-stock file drew a WARN "no security definition" per name every
+// five minutes (about 200 lines an hour on 2026-10-04). A verdict on a conID
+// holds for lendingContractVerdictMemory across sessions and restarts; one on
+// a contract without a conID holds for the broker session and at least
+// marketHistoryDefinitionMissFloor.
 func (s *Server) refreshLendingMarketOnce(ctx context.Context, read lendingMarketReader) {
+	s.loadLendingContractVerdicts()
 	now := s.now().UTC()
 	cache := &s.lendingMarket
 	cache.mu.Lock()
 	symbol, selected := selectLendingMarket(cache, now, lendingCompletedSession(now))
+	verdictUntil, disowned := cache.verdictUntil(selected.contract.ConID, now)
 	cache.mu.Unlock()
 	if symbol == "" {
 		return
 	}
-	if selected.verdict != nil && s.marketHistoryDefinitionMissHolds(*selected.verdict, now) {
+	if disowned || selected.verdict != nil && s.marketHistoryDefinitionMissHolds(*selected.verdict, now) {
 		cache.mu.Lock()
 		if current, ok := cache.entries[symbol]; ok && current.contract == selected.contract {
 			current.retry = now.Add(marketHistoryDefinitionMissFloor)
+			if disowned {
+				current.retry = verdictUntil
+			}
 			if current.row.Price == nil {
 				current.row = lendingContractUnknown(current.contract, now, current.retry)
 			}
@@ -358,7 +368,14 @@ func (s *Server) refreshLendingMarketOnce(ctx context.Context, read lendingMarke
 		}
 		cache.entries[symbol] = current
 	}
+	record := verdict != nil && selected.contract.ConID > 0
+	if record {
+		cache.verdicts[selected.contract.ConID] = verdict.At
+	}
 	cache.mu.Unlock()
+	if record {
+		s.persistLendingContractVerdicts(ctx, verdict.At)
+	}
 }
 
 // lendingContractVerdict reports the broker's answer that it does not know a
@@ -374,7 +391,7 @@ func lendingContractVerdict(err error) bool {
 }
 
 func lendingContractUnknown(c rpc.ContractParams, now, until time.Time) rpc.LendingMarketRow {
-	return rpc.LendingMarketRow{Symbol: c.Symbol, Contract: c, Status: "unavailable", CheckedAt: now, ValidUntil: until, Detail: "IBKR does not recognise this contract; checked again after the broker session changes."}
+	return rpc.LendingMarketRow{Symbol: c.Symbol, Contract: c, Status: "unavailable", CheckedAt: now, ValidUntil: until, Detail: "IBKR does not recognise this contract."}
 }
 
 type lendingIdentityResolver interface {
