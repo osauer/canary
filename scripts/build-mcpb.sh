@@ -166,7 +166,11 @@ cmp -s "$bundle" "$stable_bundle" || {
 unpack_dir="$(mktemp -d)"
 trap 'rm -rf "$unpack_dir"' EXIT
 mcpb unpack "$bundle" "$unpack_dir" >/dev/null
-wrapped_version="$("$unpack_dir/server/canary" version | head -n1)"
+# Read the whole output, then keep line one: `| head -n1` under pipefail fails
+# the build with SIGPIPE whenever head exits before `canary version` has
+# written its later lines (v3.18.1, 2026-10-06).
+wrapped_out="$("$unpack_dir/server/canary" version)"
+wrapped_version="${wrapped_out%%$'\n'*}"
 case "$wrapped_version" in
     "canary $version"*|"canary  $version"*|"Canary CLI  $version"*) ;;
     *)

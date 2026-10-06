@@ -213,8 +213,8 @@ if [[ $LAST_CMD_EXIT -ne 0 ]]; then
     echo "$LAST_CMD_OUTPUT" >&2
     exit 1
 fi
-data_type="$(echo "$LAST_CMD_OUTPUT" | grep -o '"data_type": *"[^"]*"' | head -1 | sed 's/.*"\(.*\)"/\1/')"
-quote_quality="$(echo "$LAST_CMD_OUTPUT" | grep -o '"quote_quality": *"[^"]*"' | head -1 | sed 's/.*"\(.*\)"/\1/')"
+data_type="$(echo "$LAST_CMD_OUTPUT" | grep -o '"data_type": *"[^"]*"' | sed -n '1s/.*"\(.*\)"/\1/p')"
+quote_quality="$(echo "$LAST_CMD_OUTPUT" | grep -o '"quote_quality": *"[^"]*"' | sed -n '1s/.*"\(.*\)"/\1/p')"
 off_hours=0
 if grep -q '"code": *"off_hours_quote"' <<<"$LAST_CMD_OUTPUT"; then
     off_hours=1
