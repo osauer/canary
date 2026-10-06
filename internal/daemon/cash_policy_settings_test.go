@@ -1,0 +1,884 @@
+package daemon
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
+)
+
+// Cash policy settings: policy.cash.get, check and apply over a temporary
+// protection policy file with synthetic values. No test reads an owner file:
+// the server has no config, so the check reads the protection file alone.
+
+const cashPolicyTestFile = `kind = "canary.protection_policy"
+schema_version = 1
+policy_id = "protection-test"
+policy_version = 14
+
+[authority]
+close_reduce_only = true
+auto_submit = false
+veto_window = "30m"
+
+[buckets.trailing_stop]
+enabled = true
+
+# Cash management, as the owner keeps it.
+[cash.sweep]  # my sweep
+enabled = true
+mode = "shadow"
+reserve_floor_base = 10000.0
+reserve_pct_nlv = 10.0
+min_order_notional = 20000.0
+max_order_notional = 50000.0  # chosen after the review
+max_order_pct_nlv = 10.0
+order_step_base = 1000.0  # written by Canary v9.9.9; the sweep reads it from this file only
+keep_cash = 5000.0
+bills_exempt_from_trading_max_notional = true
+no_buy_while_borrowed = true
+
+[cash.sweep.currency.GBP]
+keep_cash = 8000.0
+
+# Currency leveling: repays a borrowed currency.
+[cash.leveling]
+enabled = false
+trigger_base = 10000.0
+cushion_base = 250.0
+max_slippage_bp = 2.0
+payback_days = 30
+`
+
+var cashPolicyTestNow = time.Date(2026, 10, 6, 12, 5, 0, 0, time.UTC)
+
+// cashPolicyTestBook is a synthetic account: EUR base, NLV 200,000, EUR
+// cash 60,000, USD borrowed 20,000 at 0.855 EUR per USD, an order cap of
+// 25,000 EUR, rates read to 3 Oct 2026.
+func cashPolicyTestBook() cashPolicyBook {
+	return cashPolicyBook{at: cashPolicyTestNow, base: "EUR", nlv: 200000,
+		cash: map[string]float64{"EUR": 60000, "USD": -20000}, fx: map[string]float64{"EUR": 1, "USD": 0.855}, orderCap: 25000,
+		rates: map[string]currencyLevelingRate{
+			"EUR": {Cash: new(0.014), CashThrough: "2026-10-03"},
+			"USD": {Loan: new(0.051), LoanThrough: "2026-10-03", Cash: new(0.033), CashThrough: "2026-09-12"},
+		},
+		ratesThrough: "2026-10-03",
+		check: &PolicyCheckBook{BaseCurrency: "EUR", NetLiquidation: 200000, AsOf: cashPolicyTestNow,
+			Cash: map[string]float64{"EUR": 60000, "USD": -20000}, FXToBase: map[string]float64{"EUR": 1, "USD": 0.855}}}
+}
+
+func cashPolicyServer(t *testing.T, file string) (*Server, string, *corestore.Store) {
+	t.Helper()
+	dir := privateTestDir(t)
+	path := filepath.Join(dir, "protection-policy.toml")
+	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	core, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(dir, "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = core.Close() })
+	m := newProtectionPolicyManager(path, false, 0, func() time.Time { return cashPolicyTestNow })
+	m.reload()
+	s := &Server{protectionPolicies: m, coreStore: core, now: func() time.Time { return cashPolicyTestNow }}
+	s.cashPolicyBookForTest = cashPolicyTestBook
+	return s, path, core
+}
+
+func cashPolicyGet(t *testing.T, s *Server) *rpc.CashPolicySnapshot {
+	t.Helper()
+	out, err := s.handleCashPolicyGet(t.Context(), &rpc.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func cashPolicyCheck(t *testing.T, s *Server, revision string, changes map[string]any) *rpc.CashPolicyCheckResult {
+	t.Helper()
+	raw := map[string]json.RawMessage{}
+	for k, v := range changes {
+		raw[k], _ = json.Marshal(v)
+	}
+	params, _ := json.Marshal(rpc.CashPolicyCheckRequest{ExpectedRevision: revision, Changes: raw})
+	out, err := s.handleCashPolicyCheck(t.Context(), &rpc.Request{Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func cashPolicyConfirmation() *rpc.CashPolicyConfirmation {
+	return &rpc.CashPolicyConfirmation{DeskActionID: "7f3c2a90deadbeef", Credential: "companion:key-1", Envelope: `{"credential":"companion","signature":"synthetic"}`}
+}
+
+func cashPolicyApply(s *Server, terms, digest, id string, confirmation *rpc.CashPolicyConfirmation, origin string) (*rpc.CashPolicyApplyResult, error) {
+	params, _ := json.Marshal(rpc.CashPolicyApplyRequest{Terms: terms, Digest: digest, RequestID: id, Confirmation: confirmation, Origin: origin})
+	return s.handleCashPolicyApply(context.Background(), &rpc.Request{Params: params})
+}
+
+// cashPolicySave checks and applies changes, failing the test on any error.
+func cashPolicySave(t *testing.T, s *Server, changes map[string]any, id string) *rpc.CashPolicyApplyResult {
+	t.Helper()
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, changes)
+	if check.Conflict || len(check.Errors) > 0 || check.Digest == "" {
+		t.Fatalf("check %+v", check)
+	}
+	out, err := cashPolicyApply(s, check.Terms, check.Digest, id, cashPolicyConfirmation(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func cashPolicySetting(snap *rpc.CashPolicySnapshot, key string) (rpc.CashPolicySetting, bool) {
+	i := slices.IndexFunc(snap.Settings, func(s rpc.CashPolicySetting) bool { return s.Key == key })
+	if i < 0 {
+		return rpc.CashPolicySetting{}, false
+	}
+	return snap.Settings[i], true
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestCashPolicyGetReportsEveryKeyWithSourceDefaultBoundsAndHelp(t *testing.T) {
+	file := strings.Replace(cashPolicyTestFile, "order_step_base = 1000.0  # written by Canary v9.9.9; the sweep reads it from this file only\n", "", 1)
+	file = strings.Replace(file, "bills_exempt_from_trading_max_notional = true\n", "", 1)
+	s, path, _ := cashPolicyServer(t, file)
+	snap := cashPolicyGet(t, s)
+	if snap.FileState != rpc.CashPolicyFileOK || !snap.Writable || snap.PolicyVersion != 14 || snap.InForceVersion != 14 || snap.Path != path || !strings.HasPrefix(snap.Revision, "sha256:") {
+		t.Fatalf("snapshot head %+v", snap)
+	}
+	if snap.BaseCurrency != "EUR" || !snap.Sections.Leveling.Present || !snap.Sections.Sweep.Present {
+		t.Fatalf("sections %+v", snap.Sections)
+	}
+	// Every key in scope, for every listed currency: EUR (base), GBP (a
+	// table) and USD (ledger).
+	var want []string
+	for _, sp := range cashPolicySpecs {
+		if !sp.perCurrency {
+			want = append(want, sp.key(""))
+			continue
+		}
+		for _, ccy := range []string{"EUR", "GBP", "USD"} {
+			want = append(want, sp.key(ccy))
+		}
+	}
+	var got []string
+	for _, row := range snap.Settings {
+		got = append(got, row.Key)
+		if row.Label == "" || row.Help == "" || row.Type == "" || row.Section == "" {
+			t.Errorf("%s lacks its label, help, type or section: %+v", row.Key, row)
+		}
+	}
+	slices.Sort(want)
+	slices.Sort(got)
+	if !slices.Equal(want, got) {
+		t.Fatalf("keys\n got %v\nwant %v", got, want)
+	}
+	for _, c := range []struct {
+		key     string
+		value   any
+		source  string
+		def     any
+		min     *float64
+		max     *float64
+		exclude bool
+		reset   bool
+	}{
+		{"cash.leveling.enabled", false, rpc.CashPolicySourceFile, false, nil, nil, false, false},
+		{"cash.leveling.trigger_base", 10000.0, rpc.CashPolicySourceFile, 10000.0, new(0.0), nil, true, true},
+		{"cash.leveling.payback_days", 30, rpc.CashPolicySourceFile, 30, new(1.0), new(365.0), false, true},
+		{"cash.leveling.max_slippage_bp", 2.0, rpc.CashPolicySourceFile, 2.0, new(0.0), new(100.0), true, true},
+		{"cash.leveling.currency.USD.deliberate_carry", false, rpc.CashPolicySourceCanaryDefault, false, nil, nil, false, false},
+		{"cash.sweep.mode", rpc.CashSweepModeShadow, rpc.CashPolicySourceFile, rpc.CashSweepModeShadow, nil, nil, false, false},
+		{"cash.sweep.max_order_notional", 50000.0, rpc.CashPolicySourceFile, 50000.0, new(0.0), nil, true, true},
+		{"cash.sweep.reserve_pct_nlv", 10.0, rpc.CashPolicySourceFile, 10.0, new(0.0), new(100.0), false, true},
+		// The builder note: order_step_base unwritten is not written, never a default.
+		{"cash.sweep.order_step_base", nil, rpc.CashPolicySourceNotWritten, 1000.0, new(0.0), nil, false, true},
+		// Absent reads off; Canary writes true.
+		{"cash.sweep.bills_exempt_from_trading_max_notional", false, rpc.CashPolicySourceCanaryDefault, true, nil, nil, false, true},
+		{"cash.sweep.currency.GBP.keep_cash", 8000.0, rpc.CashPolicySourceFile, nil, new(0.0), nil, false, false},
+		{"cash.sweep.currency.USD.keep_cash", nil, rpc.CashPolicySourceCanaryDefault, nil, new(0.0), nil, false, false},
+	} {
+		row, ok := cashPolicySetting(snap, c.key)
+		if !ok {
+			t.Fatalf("%s missing", c.key)
+		}
+		if !cashPolicySame(row.Value, c.value) || row.Source != c.source || !cashPolicySame(row.Default, c.def) || row.MinExclusive != c.exclude || row.Reset != c.reset {
+			t.Errorf("%s = %+v", c.key, row)
+		}
+		if (c.min == nil) != (row.Min == nil) || c.min != nil && *c.min != *row.Min || (c.max == nil) != (row.Max == nil) || c.max != nil && *c.max != *row.Max {
+			t.Errorf("%s bounds min %v max %v", c.key, row.Min, row.Max)
+		}
+	}
+	if row, _ := cashPolicySetting(snap, "cash.sweep.mode"); !slices.Equal(row.Choices, []string{"shadow", "active"}) || !slices.Equal(row.ChoiceLabels, []string{"Observe only", "Propose orders"}) {
+		t.Fatalf("mode choices %+v", row)
+	}
+	if row, _ := cashPolicySetting(snap, "cash.sweep.currency.GBP.keep_cash"); !row.Removable || row.Unit != rpc.CashPolicyUnitOwn {
+		t.Fatalf("per-currency float %+v", row)
+	}
+	// Facts from the synthetic book.
+	for key, want := range map[string]string{
+		"cash.leveling.trigger_base":                        "About 11,700 USD. USD is borrowed beyond it now.",
+		"cash.leveling.cushion_base":                        "About 290 USD.",
+		"cash.sweep.reserve_floor_base":                     "Now 20,000 EUR: 10% of NLV.",
+		"cash.sweep.max_order_notional":                     "Now 20,000 to 50,000 EUR per order.",
+		"cash.sweep.no_buy_while_borrowed":                  "USD is borrowed now, so bill buys wait.",
+		"cash.sweep.bills_exempt_from_trading_max_notional": "Order cap in force: 25,000 EUR.",
+	} {
+		if row, _ := cashPolicySetting(snap, key); row.Fact != want {
+			t.Errorf("%s fact %q, want %q", key, row.Fact, want)
+		}
+	}
+	if snap.Sections.Leveling.Fact != "Interest rates from the broker's statements, to 3 Oct 2026." ||
+		snap.Sections.Leveling.Cap != "One repayment at most 25,000 EUR: the order cap in force." ||
+		snap.Sections.Sweep.Authority != "You approve each sweep order." || snap.Sections.Sweep.PreAuthorised {
+		t.Fatalf("section facts %+v", snap.Sections)
+	}
+	usd := snap.Currencies[slices.IndexFunc(snap.Currencies, func(c rpc.CashPolicyCurrency) bool { return c.Currency == "USD" })]
+	if !usd.Pair || usd.Cash == nil || *usd.Cash != -20000 || usd.LoanRate == nil || *usd.LoanRate != 0.051 || usd.Buys != "US Treasury bills" {
+		t.Fatalf("USD row %+v", usd)
+	}
+	if gbp := snap.Currencies[slices.IndexFunc(snap.Currencies, func(c rpc.CashPolicyCurrency) bool { return c.Currency == "GBP" })]; gbp.Buys != "UK Treasury bills · No bills listed: add ISINs in the file" {
+		t.Fatalf("GBP buys %q", gbp.Buys)
+	}
+	if snap.Currencies[0].Currency != "EUR" {
+		t.Fatalf("base currency not first: %+v", snap.Currencies)
+	}
+	for _, f := range snap.Findings {
+		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
+			t.Fatalf("finding %+v", f)
+		}
+	}
+}
+
+func TestCashPolicySaveWritesOnlyTheChangedLinesWithProvenanceAndBackup(t *testing.T) {
+	s, path, core := cashPolicyServer(t, cashPolicyTestFile)
+	before := readFile(t, path)
+	head, _ := core.AuthorityHead(t.Context())
+	out := cashPolicySave(t, s, map[string]any{
+		"cash.leveling.trigger_base":    5000,
+		"cash.sweep.max_order_notional": 80000,
+		"cash.sweep.order_step_base":    500,
+	}, "desk-cash-policy-1")
+	if out.SavedVersion != 15 || !out.InForce || out.Replay || out.RequestID != "desk-cash-policy-1" || out.PolicyVersion != 15 || out.InForceVersion != 15 || out.FileState != rpc.CashPolicyFileOK {
+		t.Fatalf("result %+v", out)
+	}
+	after := readFile(t, path)
+	stamp := "2026-10-06 14:05 CEST"
+	confirmed := "confirmed in the companion (action 7f3c2a90)"
+	want := strings.NewReplacer(
+		"policy_version = 14\n", "policy_version = 15  # raised in Desk "+stamp+"\n",
+		"trigger_base = 10000.0\n", "trigger_base = 5000.0  # set in Desk "+stamp+", "+confirmed+"; was 10000.0\n",
+		// The owner's comment stays; the provenance goes above the key.
+		"max_order_notional = 50000.0  # chosen after the review\n", "# max_order_notional set in Desk "+stamp+", "+confirmed+"; was 50000.0\nmax_order_notional = 80000.0  # chosen after the review\n",
+		// Canary's own comment is replaced.
+		"order_step_base = 1000.0  # written by Canary v9.9.9; the sweep reads it from this file only\n", "order_step_base = 500.0  # set in Desk "+stamp+", "+confirmed+"; was 1000.0\n",
+	).Replace(before)
+	if after != want {
+		t.Fatalf("file after save:\n%s\nwant:\n%s", after, want)
+	}
+	p, _, err := parseProtectionPolicy([]byte(after))
+	if err != nil || *p.Cash.Leveling.TriggerBase != 5000 || p.Cash.Sweep.MaxOrderNotional != 80000 || *p.Cash.Sweep.OrderStepBase != 500 || p.PolicyVersion != 15 {
+		t.Fatalf("saved file reads %+v %v", p.Cash, err)
+	}
+	if active, _ := s.protectionPolicies.Active(); active.PolicyVersion != 15 || *active.Cash.Leveling.TriggerBase != 5000 {
+		t.Fatal("the reload in the same call did not adopt the save")
+	}
+	backups, _ := filepath.Glob(path + ".bak-desk-*")
+	if len(backups) != 1 || readFile(t, backups[0]) != before {
+		t.Fatalf("backup %v", backups)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+		t.Fatalf("file mode %v", info.Mode())
+	}
+	event, found, err := core.GetEvent(t.Context(), daemonStateScope, cashPolicyEventKey("desk-cash-policy-1"))
+	var receipt cashPolicyReceipt
+	if err != nil || !found || event.Type != cashPolicyReceiptType || event.Origin != rpc.OrderOriginAgent || json.Unmarshal(event.PayloadJSON, &receipt) != nil {
+		t.Fatalf("receipt %+v %v %v", event, found, err)
+	}
+	if receipt.SavedVersion != 15 || receipt.FromVersion != 14 || receipt.DeskActionID != "7f3c2a90deadbeef" || receipt.Credential != "companion:key-1" ||
+		!cashPolicySame(receipt.Before["cash.leveling.trigger_base"], 10000.0) || receipt.Backup != backups[0] || receipt.Envelope == "" {
+		t.Fatalf("receipt %+v", receipt)
+	}
+	if next, _ := core.AuthorityHead(t.Context()); next == head {
+		t.Fatal("the save recorded no receipt")
+	}
+}
+
+func TestCashPolicyResetWritesCanaryDefaultsAndLeavesSwitchesAndEntries(t *testing.T) {
+	file := strings.NewReplacer("trigger_base = 10000.0", "trigger_base = 7000.0", "payback_days = 30", "payback_days = 60",
+		"min_order_notional = 20000.0", "min_order_notional = 15000.0", "no_buy_while_borrowed = true", "no_buy_while_borrowed = false").Replace(cashPolicyTestFile)
+	s, path, _ := cashPolicyServer(t, file)
+	snap := cashPolicyGet(t, s)
+	// What Desk's Reset fills: each section's keys flagged reset, at Canary's value.
+	changes := map[string]any{}
+	for _, row := range snap.Settings {
+		if row.Reset {
+			changes[row.Key] = row.Default
+		}
+	}
+	out := cashPolicySave(t, s, changes, "desk-reset-1")
+	if out.SavedVersion != 15 {
+		t.Fatalf("result %+v", out)
+	}
+	p, _, err := parseProtectionPolicy([]byte(readFile(t, path)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *p.Cash.Leveling.TriggerBase != 10000 || *p.Cash.Leveling.PaybackDays != 30 || *p.Cash.Sweep.MinOrderNotional != 20000 || !*p.Cash.Sweep.NoBuyWhileBorrowed {
+		t.Fatalf("reset did not write Canary's values: %+v %+v", p.Cash.Leveling, p.Cash.Sweep)
+	}
+	if p.Cash.Leveling.Enabled || !p.Cash.Sweep.Enabled || p.Cash.Sweep.Mode != "shadow" || *p.Cash.Sweep.Currency["GBP"].KeepCash != 8000 {
+		t.Fatal("reset touched a switch, the mode or a per-currency entry")
+	}
+}
+
+// Owner question 4: Reset restores Canary's written numbers and rules only.
+func TestCashPolicyResetCoversNumbersAndRulesOnly(t *testing.T) {
+	var got []string
+	for _, sp := range cashPolicySpecs {
+		if sp.reset() {
+			got = append(got, sp.key(""))
+		}
+	}
+	want := []string{"cash.leveling.trigger_base", "cash.leveling.cushion_base", "cash.leveling.max_slippage_bp", "cash.leveling.payback_days",
+		"cash.sweep.reserve_floor_base", "cash.sweep.reserve_pct_nlv", "cash.sweep.min_order_notional", "cash.sweep.max_order_notional",
+		"cash.sweep.max_order_pct_nlv", "cash.sweep.no_buy_while_borrowed", "cash.sweep.bills_exempt_from_trading_max_notional",
+		"cash.sweep.order_step_base", "cash.sweep.keep_cash"}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("reset covers %v, want %v", got, want)
+	}
+}
+
+func TestCashPolicyValidationErrorsComePerFieldAndWriteNothing(t *testing.T) {
+	s, path, core := cashPolicyServer(t, cashPolicyTestFile)
+	before := readFile(t, path)
+	head, _ := core.AuthorityHead(t.Context())
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{
+		"cash.leveling.payback_days":        400,
+		"cash.leveling.trigger_base":        -1,
+		"cash.leveling.max_slippage_bp":     150,
+		"cash.sweep.max_order_notional":     0,
+		"cash.sweep.reserve_pct_nlv":        120,
+		"cash.sweep.mode":                   "fast",
+		"cash.sweep.enabled":                "yes",
+		"cash.sweep.currency.GBP.keep_cash": -5,
+	})
+	want := map[string]string{
+		"cash.leveling.payback_days":        "Must be from 1 to 365 days.",
+		"cash.leveling.trigger_base":        "Must be finite and nonnegative.",
+		"cash.leveling.max_slippage_bp":     "Must be at most 100 basis points.",
+		"cash.sweep.max_order_notional":     "Must be more than 0: Canary reads 0 as not written.",
+		"cash.sweep.reserve_pct_nlv":        "Must be a percentage from 0 to 100.",
+		"cash.sweep.mode":                   "Must be Observe only or Propose orders.",
+		"cash.sweep.enabled":                "Must be on or off.",
+		"cash.sweep.currency.GBP.keep_cash": "Must not be negative.",
+	}
+	for key, msg := range want {
+		if check.Errors[key] != msg {
+			t.Errorf("%s error %q, want %q", key, check.Errors[key], msg)
+		}
+	}
+	if check.Digest != "" || check.Terms != "" {
+		t.Fatal("a draft with errors got terms")
+	}
+	if whole := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.payback_days": 2.5}); whole.Errors["cash.leveling.payback_days"] != "Must be a whole number of days." {
+		t.Fatalf("whole days %v", whole.Errors)
+	}
+	// Terms Canary never issued for an invalid value are refused at apply too.
+	terms, digest := cashPolicyTermsFor(snap.Revision, []cashPolicyEdit{{key: "cash.leveling.payback_days", raw: json.RawMessage("400")}})
+	if _, err := cashPolicyApply(s, terms, digest, "desk-invalid", cashPolicyConfirmation(), ""); rpcCode(err) != rpc.CodePolicyInvalid {
+		t.Fatalf("invalid apply %v", err)
+	}
+	if readFile(t, path) != before {
+		t.Fatal("a refused draft wrote the file")
+	}
+	if after, _ := core.AuthorityHead(t.Context()); after != head {
+		t.Fatal("a refused draft recorded a receipt")
+	}
+	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 0 {
+		t.Fatalf("a refused draft wrote a backup %v", backups)
+	}
+}
+
+func rpcCode(err error) string {
+	if e, ok := err.(*rpc.Error); ok {
+		return e.Code
+	}
+	if err != nil {
+		return "other: " + err.Error()
+	}
+	return ""
+}
+
+func TestCashPolicyStaleRevisionIsAConflictAndWritesNothing(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.trigger_base": 5000})
+	// The owner edits the file by hand between the check and the save.
+	edited := strings.Replace(cashPolicyTestFile, "cushion_base = 250.0", "cushion_base = 300.0", 1)
+	edited = strings.Replace(edited, "policy_version = 14", "policy_version = 15", 1)
+	if err := os.WriteFile(path, []byte(edited), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if again := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.trigger_base": 5000}); !again.Conflict || len(again.Changes) != 0 {
+		t.Fatalf("stale check %+v", again)
+	}
+	if _, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-stale", cashPolicyConfirmation(), ""); rpcCode(err) != rpc.CodeSettingsConflict {
+		t.Fatalf("stale apply %v", err)
+	}
+	if readFile(t, path) != edited {
+		t.Fatal("a stale save wrote the file")
+	}
+}
+
+func TestCashPolicyRepeatedRequestIDIsIdempotent(t *testing.T) {
+	s, path, core := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.cushion_base": 400})
+	first, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-once", cashPolicyConfirmation(), "")
+	if err != nil || first.Replay || first.SavedVersion != 15 {
+		t.Fatalf("first %+v %v", first, err)
+	}
+	saved := readFile(t, path)
+	head, _ := core.AuthorityHead(t.Context())
+	again, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-once", cashPolicyConfirmation(), "")
+	if err != nil || !again.Replay || again.SavedVersion != 15 || !again.InForce {
+		t.Fatalf("retry %+v %v", again, err)
+	}
+	if readFile(t, path) != saved {
+		t.Fatal("a retried request wrote the file again")
+	}
+	if after, _ := core.AuthorityHead(t.Context()); after != head {
+		t.Fatal("a retried request recorded another receipt")
+	}
+	if backups, _ := filepath.Glob(path + ".bak-desk-*"); len(backups) != 1 {
+		t.Fatalf("a retried request wrote another backup %v", backups)
+	}
+	// The same id with other terms is refused.
+	other := cashPolicyCheck(t, s, again.Revision, map[string]any{"cash.leveling.cushion_base": 500})
+	if _, err := cashPolicyApply(s, other.Terms, other.Digest, "desk-once", cashPolicyConfirmation(), ""); rpcCode(err) != rpc.CodeRequestReused {
+		t.Fatalf("reused id %v", err)
+	}
+	if readFile(t, path) != saved {
+		t.Fatal("a reused request id wrote the file")
+	}
+}
+
+// The legacy layout reads, and a save edits the sweep where the file keeps
+// it, so the sweep is never written twice.
+func TestCashPolicyLegacyLayoutIsReadAndWrittenInPlace(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, strings.Replace(legacyCashFile, "policy_id = \"protection-test\"", "policy_id = \"protection-test\"", 1))
+	snap := cashPolicyGet(t, s)
+	if !snap.LegacyLayout || snap.FileState != rpc.CashPolicyFileOK || !snap.Writable || !snap.Sections.Sweep.PreAuthorised {
+		t.Fatalf("legacy snapshot %+v", snap)
+	}
+	if row, _ := cashPolicySetting(snap, "cash.sweep.max_order_notional"); !cashPolicySame(row.Value, 12000.0) || row.Source != rpc.CashPolicySourceFile {
+		t.Fatalf("legacy value %+v", row)
+	}
+	if row, _ := cashPolicySetting(snap, "cash.sweep.currency.EUR.keep_cash"); !cashPolicySame(row.Value, 6000.0) || row.Source != rpc.CashPolicySourceFile {
+		t.Fatalf("legacy currency value %+v", row)
+	}
+	cashPolicySave(t, s, map[string]any{"cash.sweep.max_order_notional": 15000, "cash.sweep.currency.USD.keep_cash": 3000, "cash.sweep.enabled": false}, "desk-legacy")
+	text := readFile(t, path)
+	if strings.Contains(text, "[cash.sweep") {
+		t.Fatalf("a save wrote the sweep a second time:\n%s", text)
+	}
+	for _, want := range []string{"max_order_notional = 15000.0  # set in Desk", "[buckets.cash_sweep.currency.USD]\nkeep_cash = 3000.0  # set in Desk", "enabled = false  # set in Desk"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("legacy save lacks %q:\n%s", want, text)
+		}
+	}
+	p, _, err := parseProtectionPolicy([]byte(text))
+	if err != nil || p.Cash.Sweep.MaxOrderNotional != 15000 || *p.Cash.Sweep.Currency["USD"].KeepCash != 3000 || p.Cash.Sweep.Enabled {
+		t.Fatalf("legacy save reads %+v %v", p.Cash.Sweep, err)
+	}
+}
+
+func TestCashPolicyRefusesAnOriginThatIsNotAllowed(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	before := readFile(t, path)
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.trigger_base": 12000})
+	for _, origin := range []string{rpc.OrderOriginHumanTTY, rpc.OrderOriginPairedDevice, rpc.OrderOriginDaemonPreAuthorised, rpc.OrderOriginDaemonOwnerQueued, "mcp"} {
+		_, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-origin-1", cashPolicyConfirmation(), origin)
+		if err == nil || !strings.Contains(err.Error(), "only from Desk's console") {
+			t.Fatalf("origin %q: %v", origin, err)
+		}
+	}
+	if readFile(t, path) != before {
+		t.Fatal("a refused origin wrote the file")
+	}
+	if _, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-agent", cashPolicyConfirmation(), rpc.OrderOriginAgent); err != nil {
+		t.Fatalf("agent origin with confirmation: %v", err)
+	}
+}
+
+// Owner question 1: every save needs the owner's confirmation, including
+// one that only narrows what can happen.
+func TestCashPolicyApplyNeedsConfirmationEvenToNarrow(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	before := readFile(t, path)
+	snap := cashPolicyGet(t, s)
+	narrow := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.trigger_base": 20000, "cash.sweep.enabled": false})
+	if len(narrow.Consequences) != 0 {
+		t.Fatalf("a narrowing draft stated consequences %v", narrow.Consequences)
+	}
+	for _, c := range []*rpc.CashPolicyConfirmation{nil, {DeskActionID: "a1"}, {DeskActionID: "a1", Credential: "passkey:x"}} {
+		if _, err := cashPolicyApply(s, narrow.Terms, narrow.Digest, "desk-narrow", c, ""); rpcCode(err) != rpc.CodeConfirmationRequired {
+			t.Fatalf("confirmation %+v: %v", c, err)
+		}
+	}
+	if !cashPolicyNeedsConfirmation(nil) || readFile(t, path) != before {
+		t.Fatal("a save without confirmation wrote the file")
+	}
+}
+
+// Owner questions 2 and 6: pre-authorisation, bill lists, the ETF fallback
+// and tax_reviewed_at stay in the file.
+func TestCashPolicyScopeLeavesPreAuthorisationAndBillListsInTheFile(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	keys := []string{"cash.pre_authorised", "cash.sweep.currency.EUR.isins", "cash.sweep.currency.EUR.fallback", "cash.sweep.currency.EUR.etf_symbol",
+		"cash.sweep.tax_reviewed_at", "cash.sweep.currency_priority", "cash.sweep.reserve_cushion_eur", "cash.sweep.min_net_gain", "authority.veto_window"}
+	changes := map[string]any{}
+	for _, key := range keys {
+		if _, ok := cashPolicySetting(snap, key); ok {
+			t.Fatalf("%s is on the screen", key)
+		}
+		changes[key] = "x"
+	}
+	check := cashPolicyCheck(t, s, snap.Revision, changes)
+	for _, key := range keys {
+		if check.Errors[key] != "Desk cannot change this setting; change it in the file." {
+			t.Fatalf("%s: %q", key, check.Errors[key])
+		}
+	}
+	// Terms naming a key out of scope are refused at apply too.
+	terms, digest := cashPolicyTermsFor(snap.Revision, []cashPolicyEdit{{key: "cash.pre_authorised", raw: json.RawMessage(`["cash_sweep"]`)}})
+	if _, err := cashPolicyApply(s, terms, digest, "desk-scope", cashPolicyConfirmation(), ""); rpcCode(err) != rpc.CodePolicyInvalid {
+		t.Fatalf("out-of-scope apply %v", err)
+	}
+}
+
+// Owner question 3: while the file pre-authorises the sweep, Desk cannot
+// switch it on or move it to active; off and shadow are always allowed.
+func TestCashPolicySweepRaiseStaysInTheFileWhilePreAuthorised(t *testing.T) {
+	file := strings.Replace(cashPolicyTestFile, "# Cash management, as the owner keeps it.\n", "[cash]\npre_authorised = [\"cash_sweep\"]\n\n", 1)
+	file = strings.Replace(file, "enabled = true\nmode = \"shadow\"", "enabled = false\nmode = \"shadow\"", 1)
+	s, _, _ := cashPolicyServer(t, file)
+	snap := cashPolicyGet(t, s)
+	if !snap.Sections.Sweep.PreAuthorised || !strings.Contains(snap.Sections.Sweep.Authority, "The daemon sends sweep orders itself 30 minutes after announcing them") {
+		t.Fatalf("authority %+v", snap.Sections.Sweep)
+	}
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.enabled": true, "cash.sweep.mode": "active"})
+	if !strings.Contains(check.Errors["cash.sweep.enabled"], "Switch it on in the file") || !strings.Contains(check.Errors["cash.sweep.mode"], "Change it to active in the file") {
+		t.Fatalf("raise allowed: %v", check.Errors)
+	}
+	if ok := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.reserve_floor_base": 12000}); len(ok.Errors) != 0 || ok.Digest == "" {
+		t.Fatalf("a number change under pre-authorisation: %+v", ok)
+	}
+	// An active, pre-authorised sweep may still be switched off or back to shadow.
+	active := strings.Replace(file, "enabled = false\nmode = \"shadow\"", "enabled = true\nmode = \"active\"", 1)
+	s2, _, _ := cashPolicyServer(t, active)
+	snap2 := cashPolicyGet(t, s2)
+	for _, change := range []map[string]any{{"cash.sweep.enabled": false}, {"cash.sweep.mode": "shadow"}} {
+		if c := cashPolicyCheck(t, s2, snap2.Revision, change); len(c.Errors) != 0 || c.Digest == "" {
+			t.Fatalf("%v refused: %+v", change, c)
+		}
+	}
+	raise := cashPolicyCheck(t, s2, snap2.Revision, map[string]any{"cash.sweep.max_order_notional": 60000})
+	if len(raise.Consequences) != 1 || !strings.Contains(raise.Consequences[0], "The daemon sends sweep orders itself, 30 minutes after announcing them.") {
+		t.Fatalf("pre-authorised consequence %v", raise.Consequences)
+	}
+}
+
+func TestCashPolicyRefusesAFileCanaryDoesNotRunAsWritten(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	// Edited by hand without raising policy_version: drift.
+	drift := strings.Replace(cashPolicyTestFile, "cushion_base = 250.0", "cushion_base = 300.0", 1)
+	if err := os.WriteFile(path, []byte(drift), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap := cashPolicyGet(t, s)
+	if snap.FileState != rpc.CashPolicyFileDrift || snap.Writable || !strings.Contains(snap.Message, "without raising policy_version") {
+		t.Fatalf("drift snapshot %+v", snap)
+	}
+	if row, _ := cashPolicySetting(snap, "cash.leveling.cushion_base"); !cashPolicySame(row.Value, 250.0) {
+		t.Fatalf("a drifted file shows %v, not the value Canary runs", row.Value)
+	}
+	params, _ := json.Marshal(rpc.CashPolicyCheckRequest{ExpectedRevision: snap.Revision, Changes: map[string]json.RawMessage{"cash.leveling.trigger_base": json.RawMessage("5000")}})
+	if _, err := s.handleCashPolicyCheck(t.Context(), &rpc.Request{Params: params}); rpcCode(err) != rpc.CodePolicyUnwritable {
+		t.Fatalf("drift check %v", err)
+	}
+	terms, digest := cashPolicyTermsFor(snap.Revision, []cashPolicyEdit{{key: "cash.leveling.trigger_base", raw: json.RawMessage("5000")}})
+	if _, err := cashPolicyApply(s, terms, digest, "desk-drift", cashPolicyConfirmation(), ""); rpcCode(err) != rpc.CodePolicyUnwritable {
+		t.Fatalf("drift apply %v", err)
+	}
+	if readFile(t, path) != drift {
+		t.Fatal("a drifted file was written")
+	}
+	// Refused and missing files are read-only too.
+	if err := os.WriteFile(path, []byte("kind = \"canary.protection_policy\"\nunknown_key = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if snap := cashPolicyGet(t, s); snap.FileState != rpc.CashPolicyFileRefused || snap.Writable || snap.Message == "" {
+		t.Fatalf("refused snapshot %+v", snap)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if snap := cashPolicyGet(t, s); snap.FileState != rpc.CashPolicyFileMissing || snap.Writable {
+		t.Fatalf("missing snapshot %+v", snap)
+	}
+}
+
+func TestCashPolicyNewTablesRemovalsAndDeliberateCarry(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	cashPolicySave(t, s, map[string]any{"cash.leveling.currency.USD.deliberate_carry": true, "cash.sweep.currency.GBP.keep_cash": nil}, "desk-tables-1")
+	text := readFile(t, path)
+	stamp := "2026-10-06 14:05 CEST, confirmed in the companion (action 7f3c2a90)"
+	for _, want := range []string{
+		// A new table goes after its parent's block.
+		"payback_days = 30\n\n[cash.leveling.currency.USD]\ndeliberate_carry = true  # set in Desk " + stamp + "; was not in the file\n",
+		// A cleared float leaves a note in its place.
+		"[cash.sweep.currency.GBP]\n# keep_cash removed in Desk " + stamp + "; was 8000.0\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("file lacks %q:\n%s", want, text)
+		}
+	}
+	snap := cashPolicyGet(t, s)
+	if row, _ := cashPolicySetting(snap, "cash.sweep.currency.GBP.keep_cash"); row.Value != nil || row.Source != rpc.CashPolicySourceCanaryDefault {
+		t.Fatalf("cleared float reads %+v", row)
+	}
+	// Unticking writes false, so the change stays on record.
+	cashPolicySave(t, s, map[string]any{"cash.leveling.currency.USD.deliberate_carry": false}, "desk-tables-2")
+	text = readFile(t, path)
+	if !strings.Contains(text, "deliberate_carry = false  # set in Desk") || strings.Count(text, "[cash.leveling.currency.USD]") != 1 {
+		t.Fatalf("untick:\n%s", text)
+	}
+	if p, _, err := parseProtectionPolicy([]byte(text)); err != nil || p.PolicyVersion != 16 {
+		t.Fatalf("after two saves %v %v", p.PolicyVersion, err)
+	}
+}
+
+// Switching a feature on from a file without its table writes the whole
+// table from the draft.
+func TestCashPolicySwitchingTheSweepOnWritesItsTable(t *testing.T) {
+	start := cashPolicyTestFile[:strings.Index(cashPolicyTestFile, "# Cash management")] + cashPolicyTestFile[strings.Index(cashPolicyTestFile, "# Currency leveling"):]
+	s, path, _ := cashPolicyServer(t, start)
+	snap := cashPolicyGet(t, s)
+	if snap.Sections.Sweep.Present {
+		t.Fatal("no sweep table, but present")
+	}
+	changes := map[string]any{"cash.sweep.enabled": true, "cash.sweep.mode": "shadow"}
+	for _, row := range snap.Settings {
+		if row.Section == rpc.CashPolicySectionSweep && row.Currency == "" && row.Source != rpc.CashPolicySourceFile && row.Default != nil && row.Key != "cash.sweep.enabled" && row.Key != "cash.sweep.mode" {
+			changes[row.Key] = row.Default
+		}
+	}
+	check := cashPolicyCheck(t, s, snap.Revision, changes)
+	if len(check.Errors) != 0 || len(check.Consequences) == 0 || !strings.Contains(check.Consequences[0], "Observe only") {
+		t.Fatalf("switch-on check %+v", check)
+	}
+	if _, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-sweep-on", cashPolicyConfirmation(), ""); err != nil {
+		t.Fatal(err)
+	}
+	p, _, err := parseProtectionPolicy([]byte(readFile(t, path)))
+	if err != nil || !p.Cash.Sweep.enabled() || len(p.Cash.Sweep.missingNumbers()) != 0 || p.Cash.Sweep.effectiveMode() != rpc.CashSweepModeShadow {
+		t.Fatalf("switched-on sweep %+v %v", p.Cash.Sweep, err)
+	}
+	if !strings.Contains(readFile(t, path), "payback_days = 30\n\n[cash.sweep]\nenabled = true  # set in Desk") {
+		t.Fatalf("new sweep table placement:\n%s", readFile(t, path))
+	}
+}
+
+func TestCashPolicyConsequencesNameWhatLetsMoreReachTheBroker(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{
+		"cash.leveling.enabled":                             true,
+		"cash.leveling.trigger_base":                        5000,
+		"cash.sweep.mode":                                   "active",
+		"cash.sweep.no_buy_while_borrowed":                  false,
+		"cash.sweep.max_order_notional":                     40000,
+		"cash.sweep.currency.GBP.keep_cash":                 2000,
+		"cash.sweep.reserve_floor_base":                     5000,
+		"cash.sweep.bills_exempt_from_trading_max_notional": false,
+	})
+	want := []string{
+		"Currency leveling starts proposing conversions for loans beyond 5,000 EUR. Each repayment waits for your approval.",
+		"Leveling repays loans from 5,000 EUR instead of 10,000 EUR.",
+		"Sweep rows become proposals you can approve.",
+		"The sweep keeps at least 5,000 EUR as cash instead of 10,000 EUR.",
+		"Bill buys may go ahead while a currency is borrowed.",
+		"GBP keeps 2,000 GBP as settlement float instead of 8,000 GBP.",
+	}
+	if !slices.Equal(check.Consequences, want) {
+		t.Fatalf("consequences\n got %q\nwant %q", check.Consequences, want)
+	}
+	if check.SavedVersion != 15 || check.PolicyVersion != 14 || len(check.Changes) != 8 || check.Facts["cash.leveling.trigger_base"] != "About 5,800 USD. USD is borrowed beyond it now." {
+		t.Fatalf("check %+v", check)
+	}
+	texts := map[string][2]string{}
+	for _, c := range check.Changes {
+		texts[c.Key] = [2]string{c.FromText, c.ToText}
+		if c.Key == "cash.sweep.currency.GBP.keep_cash" && (!cashPolicySame(c.From, 8000.0) || c.FromSource != rpc.CashPolicySourceFile || c.Label != "Settlement float" || c.Currency != "GBP") {
+			t.Fatalf("change %+v", c)
+		}
+	}
+	for key, want := range map[string][2]string{
+		"cash.leveling.enabled":                             {"Off", "On"},
+		"cash.leveling.trigger_base":                        {"10,000 EUR", "5,000 EUR"},
+		"cash.sweep.mode":                                   {"Observe only", "Propose orders"},
+		"cash.sweep.currency.GBP.keep_cash":                 {"8,000 GBP", "2,000 GBP"},
+		"cash.sweep.bills_exempt_from_trading_max_notional": {"On", "Off"},
+	} {
+		if texts[key] != want {
+			t.Errorf("%s reads %q, want %q", key, texts[key], want)
+		}
+	}
+	// A change that changes nothing is dropped; writing a built-in value the
+	// file leaves out changes nothing either.
+	if none := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.leveling.trigger_base": 10000, "cash.leveling.currency.USD.deliberate_carry": false}); len(none.Changes) != 0 || none.Digest != "" {
+		t.Fatalf("no-op draft %+v", none)
+	}
+}
+
+func TestCashPolicyTermsAreCanonicalAndBoundToTheirDigest(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	before := readFile(t, path)
+	snap := cashPolicyGet(t, s)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.keep_cash": 4000, "cash.leveling.payback_days": 45})
+	want := `{"changes":{"cash.leveling.payback_days":45,"cash.sweep.keep_cash":4000},"expected_revision":"` + snap.Revision + `","kind":"canary.cash_policy_change","version":1}`
+	if check.Terms != want || check.Digest != cashPolicyDigest([]byte(want)) {
+		t.Fatalf("terms %s", check.Terms)
+	}
+	for _, c := range []struct{ terms, digest string }{
+		{check.Terms, cashPolicyDigest([]byte("other"))},
+		{strings.Replace(check.Terms, `"version":1`, `"version": 1`, 1), cashPolicyDigest([]byte(strings.Replace(check.Terms, `"version":1`, `"version": 1`, 1)))},
+		{strings.Replace(check.Terms, `4000`, `3000`, 1), check.Digest},
+	} {
+		if _, err := cashPolicyApply(s, c.terms, c.digest, "desk-terms", cashPolicyConfirmation(), ""); rpcCode(err) == "" || !strings.HasPrefix(rpcCode(err), "other: ") {
+			t.Fatalf("altered terms %q: %v", c.terms, err)
+		}
+	}
+	if readFile(t, path) != before {
+		t.Fatal("altered terms wrote the file")
+	}
+}
+
+func TestCashPolicyMethodsKeepTheirCodesAtTheDaemonWire(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	dispatch := func(method, params string) rpc.Response {
+		t.Helper()
+		var out bytes.Buffer
+		s.dispatch(t.Context(), &rpc.Request{ID: "wire-cash-policy", Method: method, Params: json.RawMessage(params)}, json.NewEncoder(&out), bufio.NewReader(strings.NewReader("")))
+		var response rpc.Response
+		if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+			t.Fatalf("dispatch %s: %s: %v", method, out.Bytes(), err)
+		}
+		return response
+	}
+	get := dispatch(rpc.MethodCashPolicyGet, `{}`)
+	var snap rpc.CashPolicySnapshot
+	if !get.Ok || json.Unmarshal(get.Result, &snap) != nil || snap.Revision == "" {
+		t.Fatalf("get %+v", get)
+	}
+	check := dispatch(rpc.MethodCashPolicyCheck, `{"expected_revision":"`+snap.Revision+`","changes":{"cash.leveling.trigger_base":5000}}`)
+	var result rpc.CashPolicyCheckResult
+	if !check.Ok || json.Unmarshal(check.Result, &result) != nil || result.Digest == "" {
+		t.Fatalf("check %+v", check)
+	}
+	termsJSON, _ := json.Marshal(result.Terms)
+	noConfirmation := dispatch(rpc.MethodCashPolicyApply, `{"terms":`+string(termsJSON)+`,"digest":"`+result.Digest+`","request_id":"wire-1"}`)
+	if noConfirmation.Ok || noConfirmation.Error == nil || noConfirmation.Error.Code != rpc.CodeConfirmationRequired {
+		t.Fatalf("no confirmation %+v", noConfirmation)
+	}
+	unknown := dispatch(rpc.MethodCashPolicyCheck, `{"expected_revision":"x","changes":{},"extra":1}`)
+	if unknown.Ok || unknown.Error.Code != rpc.CodeBadRequest {
+		t.Fatalf("unknown field %+v", unknown)
+	}
+	if err := os.WriteFile(path, []byte(strings.Replace(cashPolicyTestFile, "policy_version = 14", "policy_version = 15", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := dispatch(rpc.MethodCashPolicyApply, `{"terms":`+string(termsJSON)+`,"digest":"`+result.Digest+`","request_id":"wire-2","confirmation":{"desk_action_id":"a1","credential":"passkey:x","envelope":"{}"}}`)
+	if stale.Ok || stale.Error.Code != rpc.CodeSettingsConflict {
+		t.Fatalf("stale %+v", stale)
+	}
+}
+
+// A file that is ahead of the policy in force is written at its own version
+// plus one, and the reload adopts it.
+func TestCashPolicyWritesAFileAheadOfThePolicyInForce(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	if err := os.WriteFile(path, []byte(strings.Replace(cashPolicyTestFile, "policy_version = 14", "policy_version = 15", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snap := cashPolicyGet(t, s)
+	if snap.FileState != rpc.CashPolicyFileAhead || !snap.Writable || snap.PolicyVersion != 15 || snap.InForceVersion != 14 {
+		t.Fatalf("ahead %+v", snap)
+	}
+	out := cashPolicySave(t, s, map[string]any{"cash.leveling.trigger_base": 9000}, "desk-ahead")
+	if out.SavedVersion != 16 || !out.InForce || out.InForceVersion != 16 {
+		t.Fatalf("ahead save %+v", out)
+	}
+}
+
+func TestCashPolicyTOMLDocAddsTablesAfterTheirFamily(t *testing.T) {
+	doc := parseTOMLDoc([]byte("a = 1\n\n[cash]\npre_authorised = []\n\n# Leveling\n[cash.leveling]\nenabled = false\n# a trailing comment\n\n[other]\nx = 1\n"))
+	doc.addTable("cash.sweep")
+	doc.insert("cash.sweep", []string{"enabled = true"})
+	want := "a = 1\n\n[cash]\npre_authorised = []\n\n# Leveling\n[cash.leveling]\nenabled = false\n\n[cash.sweep]\nenabled = true\n\n# a trailing comment\n\n[other]\nx = 1\n"
+	if string(doc.bytes()) != want {
+		t.Fatalf("got\n%s\nwant\n%s", doc.bytes(), want)
+	}
+	if !canaryWrote("# written by Canary v3; read from this file only") || !canaryWrote("# set in Desk 2026-10-06 14:05 CEST") || canaryWrote("# my own note") {
+		t.Fatal("canaryWrote")
+	}
+}
+
+// The findings are Canary's policy check over the file, or over the draft,
+// kept for the rules that name a cash key.
+func TestCashPolicyFindingsAreThePolicyCheckOnTheFileAndTheDraft(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, strings.Replace(cashPolicyTestFile, "no_buy_while_borrowed = true", "no_buy_while_borrowed = false", 1))
+	snap := cashPolicyGet(t, s)
+	i := slices.IndexFunc(snap.Findings, func(f rpc.CashPolicyFinding) bool { return f.Rule == "sweep_buys_while_borrowed" })
+	if i < 0 || snap.Findings[i].Severity != rpc.PolicyCheckWarn || !slices.Contains(snap.Findings[i].Keys, "cash.sweep.no_buy_while_borrowed") || !strings.Contains(snap.Findings[i].Text, "USD") {
+		t.Fatalf("findings %+v", snap.Findings)
+	}
+	// The draft that restores the rule clears the finding.
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.no_buy_while_borrowed": true})
+	if slices.ContainsFunc(check.Findings, func(f rpc.CashPolicyFinding) bool { return f.Rule == "sweep_buys_while_borrowed" }) {
+		t.Fatalf("draft findings %+v", check.Findings)
+	}
+	for _, f := range append(snap.Findings, check.Findings...) {
+		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
+			t.Fatalf("finding outside the cash rules %+v", f)
+		}
+	}
+}

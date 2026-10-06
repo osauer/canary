@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -358,6 +359,11 @@ type Server struct {
 	strategyLineage       map[string]rpc.StrategyOrderDraft
 	// orderSnapshotFn is the open-order snapshot seam for the reconcile
 	orderSnapshotFn func(context.Context) (ibkrlib.OpenOrderSnapshot, error)
+	// cashPolicyCache keeps the cash settings facts' live inputs briefly;
+	// cashPolicyBookForTest replaces them.
+	cashPolicyCache       cashPolicyBookCache
+	cashPolicyBookForTest func() cashPolicyBook
+
 	// openOrderInventoryForTest replaces brokerOpenOrderInventory whole in
 	// hermetic tests that have no Connector; production leaves it nil.
 	openOrderInventoryForTest func(ctx context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error)
@@ -2843,6 +2849,12 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
 	case rpc.MethodCashSweepPrioritySet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPrioritySet(ctx, req) })
+	case rpc.MethodCashPolicyGet:
+		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyGet(ctx, req) })
+	case rpc.MethodCashPolicyCheck:
+		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyCheck(ctx, req) })
+	case rpc.MethodCashPolicyApply:
+		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyApply(ctx, req) })
 	case rpc.MethodSettingsGet:
 		s.unary(req, enc, func() (any, error) { return s.handleSettingsGet() })
 	case rpc.MethodSettingsUpdate:
@@ -2920,7 +2932,8 @@ func classifyError(err error) (string, string) {
 	var mdAbsent *ibkrlib.MarketDataAbsenceError
 	var regimeUnavailable *regimeSnapshotCacheUnavailableError
 	switch {
-	case errors.As(err, &settingsConflict) && (settingsConflict.Code == rpc.CodeSettingsConflict || settingsConflict.Code == rpc.CodeWatchlistConflict):
+	case errors.As(err, &settingsConflict) && slices.Contains([]string{rpc.CodeSettingsConflict, rpc.CodeWatchlistConflict,
+		rpc.CodePolicyInvalid, rpc.CodePolicyUnwritable, rpc.CodeConfirmationRequired, rpc.CodeRequestReused}, settingsConflict.Code):
 		return settingsConflict.Code, settingsConflict.Message
 	case errors.As(err, &regimeUnavailable):
 		return rpc.CodeRegimeUnavailable, regimeUnavailable.Error()

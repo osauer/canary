@@ -1,6 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 14:12 CEST
+Updated: 2026-10-06 14:52 CEST
 
 Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
 have no currency leveling; this page describes the versions after it.
@@ -30,6 +30,47 @@ the sweep's order cap in force; the window is the one in `[authority]
 veto_window`, shared with protection ([Pre-authorised
 buckets](protection.md#pre-authorised-buckets)). Currency leveling cannot be
 listed: you approve each repayment.
+
+## Changing these from Desk
+
+Desk's Settings has a Cash management tab for the same keys: currency
+leveling's switch, band, cushion, limit from the mid, payback window and each
+currency's `deliberate_carry`, and the cash sweep's switch, mode, reserve,
+order bounds, order step, settlement floats and its two rules. Canary does
+the reading, the checking and the writing; Desk never writes the file itself.
+
+A save writes only the keys it changes and raises `policy_version` by one.
+Each changed line records the save, for example:
+
+```toml
+policy_version = 15  # raised in Desk 2026-10-06 14:05 CEST
+trigger_base = 5000.0  # set in Desk 2026-10-06 14:05 CEST, confirmed in the companion (action 7f3c2a90); was 10000.0
+```
+
+A comment Canary wrote on that line is replaced; a comment you wrote stays,
+and the record goes on its own line above the key. A cleared per-currency
+float leaves `# keep_cash removed in Desk …; was 8000.0` in its place. Every
+other line stays as it was. Canary backs the file up beside it first
+(`<file>.bak-desk-<UTC time>`), replaces it in one write readable by you
+only, adopts it at once and keeps a receipt of the save.
+
+Every save needs your confirmation with your passkey or the Desk companion,
+including one that only narrows what can happen. The check before it states
+what changes at the broker: a feature switched on, `shadow` changed to
+`active`, a rule loosened, or a size, reserve or band made larger.
+
+Some keys stay in the file: `[cash] pre_authorised`, `currency_priority`
+(Risk → Cash sets the priority), `reserve_cushion_eur`, `min_net_gain`,
+`tax_reviewed_at` and every per-currency key but the two above, including
+the ISIN lists and the fallback ETF. While the file pre-authorises the sweep,
+Desk cannot switch it on or change it to `active`; make that change in the
+file. Switching it off or back to `shadow` from Desk is always allowed.
+
+Desk saves only a file Canary runs as written, or one with a higher
+`policy_version` it is about to adopt. A file edited without raising
+`policy_version`, a file Canary refuses and a missing file are shown
+read-only until you fix them. A file that changed since Desk read it is not
+overwritten: Desk shows what changed and asks you to check again.
 
 A file written before cash management had its own section keeps working:
 Canary reads `[buckets.cash_sweep]` as `[cash.sweep]` and `cash_sweep` in

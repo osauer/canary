@@ -89,6 +89,28 @@ state. Reusing an ID with changed terms fails. Retrying an old ID returns its
 saved revision plus the current settings; it never reapplies the old choice.
 Cash/funding readiness remains a separate proposal observation.
 
+## Cash policy settings
+
+Added 2026-10-06 14:52 CEST. `policy.cash.get`, `policy.cash.check` and
+`policy.cash.apply` edit the protection policy file's `[cash.leveling]` and
+`[cash.sweep]` keys for Desk's Settings → Cash management
+(docs/docs/operate/cash.md, "Changing these from Desk"). Like the priority
+RPCs they are outside every catalogue: not in MCP, the CLI or an agent grant.
+Get returns each key in scope with its value, source (`file`,
+`canary_default`, `not_written`), written default, bounds, help and facts; the
+revision is the hash of the file's bytes. Check runs the loader's validation
+on the draft and returns canonical terms and their digest; it writes nothing.
+Apply takes those terms with Desk's device confirmation (Desk action id,
+credential, envelope; audited, not verifiable here), audits its origin as
+agent and refuses every other origin. Under the protection policy manager's
+file lock it rechecks the receipt, the revision and the validation, writes
+only the changed lines with their provenance after a backup, raises
+`policy_version` by one, reloads, and records a `cash_policy_saved` receipt in
+the event table. A retried request id with the same digest writes nothing; with
+other terms it fails `request_reused`. The receipt follows the write: when it
+cannot be recorded the call fails, and the file's provenance still names the
+save.
+
 ## Policy
 
 `display.date_format` is presentation-only and defaults to `us`. The closed

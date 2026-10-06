@@ -342,6 +342,10 @@ type protectionPolicyManager struct {
 	// start) the next valid file is adopted whatever its policy_version, so a
 	// repaired file is never held back as drift behind the embedded default.
 	fileAdopted bool
+	// fileMu serialises a reread with policy.cash.apply's write, so a reread
+	// that read the file before a save can never publish it after the save
+	// and misreport the saved file as drift.
+	fileMu sync.Mutex
 }
 
 func (s *Server) installProtectionPolicyManager() {
@@ -406,6 +410,20 @@ func (m *protectionPolicyManager) reload() {
 	if m == nil {
 		return
 	}
+	m.fileMu.Lock()
+	defer m.fileMu.Unlock()
+	m.reloadHeld()
+}
+
+// adoptedFromFile reports whether the policy in force came from the file.
+func (m *protectionPolicyManager) adoptedFromFile() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.fileAdopted
+}
+
+// reloadHeld rereads the file; the caller holds fileMu.
+func (m *protectionPolicyManager) reloadHeld() {
 	now := time.Now().UTC()
 	if m.now != nil {
 		now = m.now().UTC()

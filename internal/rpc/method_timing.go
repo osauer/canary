@@ -70,6 +70,11 @@ var methodTimings = []MethodTiming{
 	{Method: MethodWatchlistAdd, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodWatchlistRemove, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodCashSweepPrioritySet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	// The cash policy reads include the account read (10s) and the
+	// statements the interest rates come from.
+	{Method: MethodCashPolicyGet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
+	{Method: MethodCashPolicyCheck, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
+	{Method: MethodCashPolicyApply, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodSettingsGet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodSettingsUpdate, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodOrdersOpen, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
