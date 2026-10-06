@@ -53,37 +53,37 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 		inv      protectiveExitInventory
 		wantErr  string
 	}{
-		{name: "whole-position trailing stop passes both gates", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: current},
-		{name: "trail limit is a stop", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAILLIMIT, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: current},
+		{name: "whole-position trailing stop passes both gates", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: current},
+		{name: "trail limit is a stop", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAILLIMIT, 4000),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: current},
 		{name: "ETF stop", draft: protectiveExitTestDraft("ETF", rpc.OrderTypeTRAIL, 300),
 			position: protectiveExitTestPosition(300, rpc.OrderActionSell, 300), notional: 25000, inv: current},
 		{name: "partial stop with a hand sale that fits", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 2000), notional: 16000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 3000}},
-		{name: "limit sell keeps the notional cap", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 2000), notional: 15000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 2000}},
+		{name: "limit sell keeps the notional cap", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 4000),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "small limit sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 10), notional: 80, inv: current, wantErr: "allow_stock_short"},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 10), notional: 75, inv: current, wantErr: "allow_stock_short"},
 		{name: "flat position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 10),
-			position: protectiveExitTestPosition(0, rpc.OrderActionSell, 10), notional: 80, inv: current, wantErr: "allow_stock_short"},
-		{name: "short position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(-50, rpc.OrderActionSell, 5000), notional: 40860, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
-		{name: "quantity above the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5001),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5001), notional: 40868, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
-		{name: "another working sell exceeds the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+			position: protectiveExitTestPosition(0, rpc.OrderActionSell, 10), notional: 75, inv: current, wantErr: "allow_stock_short"},
+		{name: "short position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
+			position: protectiveExitTestPosition(-50, rpc.OrderActionSell, 4000), notional: 30000, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+		{name: "quantity above the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4001),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4001), notional: 30007.5, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+		{name: "another working sell exceeds the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "small stop with a competing sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 100),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 100), notional: 800, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 4901}, wantErr: "allow_stock_short"},
-		{name: "stale inventory fails closed", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000),
-			position: protectiveExitTestPosition(5000, rpc.OrderActionSell, 5000), notional: 40860, inv: protectiveExitInventory{}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 100), notional: 750, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 3901}, wantErr: "allow_stock_short"},
+		{name: "stale inventory fails closed", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: protectiveExitInventory{}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "a shrink of a working stop passes despite a hand sale", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 3000),
-			position: protectiveExitTestPosition(3000, rpc.OrderActionSell, 3000), notional: 24500, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 2000, ReducesWorkingStop: true}},
+			position: protectiveExitTestPosition(3000, rpc.OrderActionSell, 3000), notional: 22500, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1000, ReducesWorkingStop: true}},
 		{name: "buy stop is not an exit of a long", draft: func() rpc.OrderDraft {
-			d := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 5000)
+			d := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000)
 			d.Action = rpc.OrderActionBuy
 			return d
-		}(), position: protectiveExitTestPosition(-5000, rpc.OrderActionBuy, 5000), notional: 40860, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+		}(), position: protectiveExitTestPosition(-4000, rpc.OrderActionBuy, 4000), notional: 30000, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "option sell stop is unaffected", draft: func() rpc.OrderDraft {
 			d := protectiveExitTestDraft("OPT", rpc.OrderTypeTRAIL, 5)
 			d.Contract.Right, d.Contract.Strike, d.Contract.Expiry, d.Contract.Multiplier = "C", 50, "20261120", 100
@@ -131,28 +131,28 @@ func TestProtectiveExitInventoryCountsCompetingSells(t *testing.T) {
 	filled := protectiveExitTestOrder(0, 7004, rpc.OrderActionSell, rpc.OrderTypeLMT, 50)
 	filled.Status, filled.Filled, filled.Remaining = "Filled", 50, 0
 	snapshot := ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: time.Now(), Orders: []ibkrlib.OrderLifecycleEvent{
-		protectiveExitTestOrder(11, 7000, rpc.OrderActionSell, rpc.OrderTypeTRAIL, 5000), // the replace target
+		protectiveExitTestOrder(11, 7000, rpc.OrderActionSell, rpc.OrderTypeTRAIL, 4000), // the replace target
 		protectiveExitTestOrder(0, 7001, rpc.OrderActionSell, rpc.OrderTypeLMT, 1200),    // a hand sale in TWS
 		protectiveExitTestOrder(0, 7005, rpc.OrderActionBuy, rpc.OrderTypeLMT, 300),
 		other, foreign, filled,
 	}}
-	draft := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 3800)
+	draft := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2800)
 	inv := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
 	if !inv.Current || inv.OtherWorkingSell != 1200 || !inv.ReducesWorkingStop {
 		t.Fatalf("modify inventory = %+v, want current, 1200 competing, a reduction of the working stop", inv)
 	}
 	place := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
-	if place.OtherWorkingSell != 6200 || place.ReducesWorkingStop {
-		t.Fatalf("place inventory = %+v, want 6200 competing and no reduction", place)
+	if place.OtherWorkingSell != 5200 || place.ReducesWorkingStop {
+		t.Fatalf("place inventory = %+v, want 5200 competing and no reduction", place)
 	}
 }
 
 func protectiveExitTestRow() rpc.TradeProposal {
 	return rpc.TradeProposal{Key: "trailing_stop:synthetic", Revision: "sha256:synthetic", State: rpc.TradeProposalStateGenerated,
-		Bucket: rpc.TradeProposalBucketTrailingStop, Symbol: "SYNA", SecType: "STK", Action: rpc.OrderActionSell, Quantity: 5000,
-		PositionQuantity: 5000, PositionEffect: rpc.OrderPositionEffectClose, OrderType: rpc.OrderTypeTRAIL, TIF: rpc.OrderTIFGTC,
+		Bucket: rpc.TradeProposalBucketTrailingStop, Symbol: "SYNA", SecType: "STK", Action: rpc.OrderActionSell, Quantity: 4000,
+		PositionQuantity: 4000, PositionEffect: rpc.OrderPositionEffectClose, OrderType: rpc.OrderTypeTRAIL, TIF: rpc.OrderTIFGTC,
 		Contract: rpc.ContractParams{ConID: 5001, Symbol: "SYNA", SecType: "STK", Exchange: "SMART", Currency: "EUR"},
-		Trail:    &rpc.OrderTrailSpec{OffsetType: rpc.OrderTrailOffsetPercent, TrailingPercent: new(8.0), InitialStopPrice: 7.5}}
+		Trail:    &rpc.OrderTrailSpec{OffsetType: rpc.OrderTrailOffsetPercent, TrailingPercent: new(8.0), InitialStopPrice: 6.9}}
 }
 
 // A trailing-stop row no longer reads ready when its placement would be
