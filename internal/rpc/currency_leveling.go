@@ -469,12 +469,14 @@ type TradeProposalPrepareBundleResult struct {
 	Blockers  []TradingBlocker             `json:"blockers,omitempty"`
 	AsOf      time.Time                    `json:"as_of"`
 	// PreparationID names the retained bundle; Terms are its exact terms
-	// (LevelingBundleTerms, compact JSON) and TermsDigest their digest, set
-	// only when every conversion was prepared. Each leg's preparation (its
-	// id and draft fingerprint) is in the terms.
-	PreparationID string `json:"preparation_id,omitempty"`
-	Terms         string `json:"terms,omitempty"`
-	TermsDigest   string `json:"terms_digest,omitempty"`
+	// (LevelingBundleTerms, compact JSON) and TermsDigest their digest, and
+	// Preparations each conversion's retained preparation in send order
+	// (state prepared, not consumed), all set only when every conversion was
+	// prepared.
+	PreparationID string                     `json:"preparation_id,omitempty"`
+	Terms         string                     `json:"terms,omitempty"`
+	TermsDigest   string                     `json:"terms_digest,omitempty"`
+	Preparations  []TradeProposalPreparation `json:"preparations,omitempty"`
 }
 
 // TradeProposalSubmitBundleParams confirms a prepared bundle.

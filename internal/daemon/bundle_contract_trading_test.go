@@ -111,7 +111,9 @@ func normaliseBundleContract(t *testing.T, prepared rpc.TradeProposalPrepareBund
 		t.Fatal(err)
 	}
 	id := func(n byte) string { return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{n}, 16)) }
-	replace := []string{prepared.BundleRef, "canarypb1." + id(0xb1) + "." + id(0xb2), terms.PreparationID, id(0xb0)}
+	// The reference names its record, as Canary's does: its first part is
+	// the bundle's preparation id.
+	replace := []string{prepared.BundleRef, "canarypb1." + id(0xb0) + "." + id(0xb2), terms.PreparationID, id(0xb0)}
 	for i, leg := range terms.Legs {
 		n := byte(i + 1)
 		replace = append(replace, leg.PreparationID, id(0xa0+n), leg.PreviewTokenID, id(0xc0+n),

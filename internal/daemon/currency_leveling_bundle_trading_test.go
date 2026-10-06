@@ -330,6 +330,17 @@ func TestCurrencyLevelingBundleTermsAreExact(t *testing.T) {
 		strings.Count(string(raw), preparedProposalPrefix+".") != 0 {
 		t.Fatal("a private reference is in the terms or a conversion's result")
 	}
+	if len(prepared.Preparations) != len(terms.Legs) {
+		t.Fatalf("preparations = %+v", prepared.Preparations)
+	}
+	for i, prep := range prepared.Preparations {
+		if prep.ID != terms.Legs[i].PreparationID || prep.DraftFingerprint != terms.Legs[i].DraftFingerprint || prep.State != "prepared" || prep.Consumed == nil || *prep.Consumed {
+			t.Fatalf("preparation %d = %+v", i+1, prep)
+		}
+	}
+	if !strings.HasPrefix(prepared.BundleRef, preparedBundlePrefix+"."+prepared.PreparationID+".") {
+		t.Fatal("the reference does not name its record")
+	}
 	if terms.Kind != rpc.LevelingBundleTermsKind || terms.Version != 1 || terms.BundleID != bundle.ID || terms.Revision != bundle.Revision ||
 		terms.PreparationID != prepared.PreparationID || terms.BaseCurrency != "EUR" || terms.Currency != "USD" || len(terms.Legs) != len(rows) ||
 		!terms.ExpiresAt.Equal(prepared.ExpiresAt) || terms.AccountID == "" || terms.AccountMode == "" {
@@ -384,6 +395,12 @@ func TestCurrencyLevelingBundleKeepsTheConfirmation(t *testing.T) {
 	out, err := rig.server.handleTradeProposalsSubmitBundle(t.Context(), &rpc.Request{Params: raw})
 	if err != nil || !out.Accepted || out.Outcome != rpc.BundleOutcomeSent || out.Sent != 2 {
 		t.Fatalf("submit = %+v, %v", out, err)
+	}
+	// Each receipt names its conversion: the row, its token and its order.
+	for i, leg := range out.Legs {
+		if leg.Proposal.Key != bundle.Keys[i] || leg.PreviewTokenID == "" || leg.Preview == nil || leg.OrderRef == "" || leg.Place == nil || leg.Place.PreviewTokenID != leg.PreviewTokenID {
+			t.Fatalf("leg %d receipt = %+v", i+1, leg)
+		}
 	}
 	record, _, err := rig.engine.loadBundle(t.Context(), prepared.BundleRef)
 	if err != nil || record.Confirmation == nil || *record.Confirmation != *confirmation || record.Origin != rpc.OrderOriginAgent ||
@@ -454,6 +471,10 @@ func TestCurrencyLevelingBundleStatusOutcomes(t *testing.T) {
 		out := submitBundle(t, rig, prepared, bundle)
 		if out.Outcome != rpc.BundleOutcomeNotSent || out.Sent != 0 || !slices.Equal(legOutcomes(out.Legs), []string{rpc.BundleOutcomeRefused, rpc.BundleOutcomeNotSent}) {
 			t.Fatalf("submit = %+v", out)
+		}
+		// The conversion never sent still names itself, as it was checked.
+		if second := out.Legs[1]; second.Proposal.Key != bundle.Keys[1] || second.PreviewTokenID == "" || second.Accepted || second.Message == "" {
+			t.Fatalf("not sent leg = %+v", second)
 		}
 		if st := bundleStatus(t, rig, prepared); st.Outcome != rpc.BundleOutcomeNotSent || st.Sent != 0 {
 			t.Fatalf("status = %+v", st)

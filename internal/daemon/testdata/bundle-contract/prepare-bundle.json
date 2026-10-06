@@ -2,7 +2,7 @@
   "accepted": true,
   "bundle_id": "currency_leveling-bundle:d3dea6a8de0b612f",
   "revision": "10ddc64e58da7a120079ca5f6a33af97",
-  "bundle_ref": "canarypb1.sbGxsbGxsbGxsbGxsbGxsQ.srKysrKysrKysrKysrKysg",
+  "bundle_ref": "canarypb1.sLCwsLCwsLCwsLCwsLCwsA.srKysrKysrKysrKysrKysg",
   "expires_at": "2026-05-28T08:55:00Z",
   "legs": [
     {
@@ -327,5 +327,25 @@
   "as_of": "2026-05-28T08:45:00Z",
   "preparation_id": "sLCwsLCwsLCwsLCwsLCwsA",
   "terms": "{\"account_id\":\"DU1234567\",\"account_mode\":\"paper\",\"base_currency\":\"EUR\",\"bundle_id\":\"currency_leveling-bundle:d3dea6a8de0b612f\",\"cash\":-14000,\"cash_base\":-11965.81,\"client_id\":31,\"cost_base\":5.830324786324786,\"currency\":\"USD\",\"cushion\":292.5,\"cushion_base\":250,\"endpoint\":\"127.0.0.1:4002\",\"expires_at\":\"2026-05-28T08:55:00Z\",\"funding_short\":false,\"held_to_cap\":false,\"kind\":\"canary.leveling_bundle\",\"lands_at_least\":106.21,\"legs\":[{\"action\":\"BUY\",\"allotment\":5766.355140186915,\"ask\":0.7988,\"bid\":0.7987,\"con_id\":12087792,\"cost_base\":2.936923076923077,\"currency\":\"USD\",\"draft_fingerprint\":\"d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1\",\"exchange\":\"IDEALPRO\",\"funding_currency\":\"CHF\",\"funding_rate\":0,\"funding_rate_bound\":false,\"funding_rate_through\":\"2026-10-05\",\"keeps_at_least\":263.09,\"key\":\"currency_leveling:4d80cd1444744be4\",\"leg\":1,\"limit_price\":0.7989,\"max_slippage_bp\":2,\"order_ref\":\"canary-synthetic-order-1\",\"order_type\":\"LMT\",\"pair\":\"USD.CHF\",\"pays\":{\"amount\":5736.91,\"bound\":\"at_most\",\"currency\":\"CHF\"},\"preparation_id\":\"oaGhoaGhoaGhoaGhoaGhoQ\",\"preview_token_id\":\"wcHBwcHBwcHBwcHBwcHBwQ\",\"quantity\":7181,\"quote_at\":\"2026-05-28T08:45:00Z\",\"receives\":{\"amount\":7181,\"bound\":\"exact\",\"currency\":\"USD\"},\"revision\":\"sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789\",\"saving_base\":25.727502634351946,\"target\":-6706.467915525315,\"tif\":\"DAY\"},{\"action\":\"SELL\",\"allotment\":5983.220264195231,\"ask\":1.17005,\"bid\":1.16995,\"con_id\":12087793,\"cost_base\":2.8934017094017093,\"currency\":\"USD\",\"draft_fingerprint\":\"d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2\",\"exchange\":\"IDEALPRO\",\"funding_currency\":\"EUR\",\"funding_rate\":0.014,\"funding_rate_bound\":false,\"funding_rate_through\":\"2026-10-05\",\"keeps_at_least\":54080,\"key\":\"currency_leveling:14b769cd67fdded3\",\"leg\":2,\"limit_price\":1.1698,\"max_slippage_bp\":2,\"order_ref\":\"canary-synthetic-order-2\",\"order_type\":\"LMT\",\"pair\":\"EUR.USD\",\"pays\":{\"amount\":5920,\"bound\":\"exact\",\"currency\":\"EUR\"},\"preparation_id\":\"oqKioqKioqKioqKioqKiog\",\"preview_token_id\":\"wsLCwsLCwsLCwsLCwsLCwg\",\"quantity\":5920,\"quote_at\":\"2026-05-28T08:45:00Z\",\"receives\":{\"amount\":6925.21,\"bound\":\"at_least\",\"currency\":\"USD\"},\"revision\":\"sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789\",\"saving_base\":18.003287671232876,\"target\":-7001.032084474685,\"tif\":\"DAY\"}],\"loan_rate\":0.051,\"loan_rate_bound\":false,\"loan_rate_through\":\"2026-10-05\",\"order_cap_base\":50000,\"payback_days\":30,\"preparation_id\":\"sLCwsLCwsLCwsLCwsLCwsA\",\"revision\":\"10ddc64e58da7a120079ca5f6a33af97\",\"saving_base\":43.73079030558482,\"trigger_base\":10000,\"version\":1}",
-  "terms_digest": "sha256:4d4d5f452f41d9d1aa9a02f19688fb06c4507ca2382fc54c14da4986d4f4eb69"
+  "terms_digest": "sha256:4d4d5f452f41d9d1aa9a02f19688fb06c4507ca2382fc54c14da4986d4f4eb69",
+  "preparations": [
+    {
+      "id": "oaGhoaGhoaGhoaGhoaGhoQ",
+      "key": "currency_leveling:4d80cd1444744be4",
+      "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+      "draft_fingerprint": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+      "expires_at": "2026-05-28T08:55:00Z",
+      "state": "prepared",
+      "consumed": false
+    },
+    {
+      "id": "oqKioqKioqKioqKioqKiog",
+      "key": "currency_leveling:14b769cd67fdded3",
+      "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+      "draft_fingerprint": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+      "expires_at": "2026-05-28T08:55:00Z",
+      "state": "prepared",
+      "consumed": false
+    }
+  ]
 }

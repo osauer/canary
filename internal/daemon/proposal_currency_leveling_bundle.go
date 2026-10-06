@@ -181,6 +181,9 @@ func (e *proposalEngine) PrepareBundle(ctx context.Context, p rpc.TradeProposalP
 	}
 	out.Accepted, out.BundleRef, out.ExpiresAt, out.AsOf = true, reference, record.ExpiresAt, e.clock()
 	out.PreparationID, out.Terms, out.TermsDigest = record.ID, record.Terms, record.TermsDigest
+	for _, res := range prepared {
+		out.Preparations = append(out.Preparations, *res.Preparation)
+	}
 	return out, nil
 }
 
@@ -437,12 +440,26 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 		notSent(0, "Not sent: the repayment's conversions changed.")
 		return finish(preparedBlocker("prepared_proposal_changed", "The repayment's conversions changed, so nothing was sent; prepare and confirm it again."))
 	}
+	// checkedLeg keeps a conversion that passed its checks with what the
+	// check found: its proposal, sanitised preview and token id, which its
+	// receipt carries whether or not it is sent.
 	type checkedLeg struct {
 		params rpc.TradeProposalSubmitParams
 		record preparedProposalRecord
 		prop   rpc.TradeProposal
+		out    rpc.TradeProposalSubmitResult
 	}
 	checked := make([]checkedLeg, 0, n)
+	// unsent lists the conversions from the i-th on as not sent, those that
+	// passed their checks with what the check found.
+	unsent := func(from int, why string) {
+		for j := from; j < len(checked); j++ {
+			leg := checked[j].out
+			leg.Leg, leg.Key, leg.Outcome, leg.Accepted, leg.Message, leg.AsOf = j+1, record.Keys[j], rpc.BundleOutcomeNotSent, false, why, e.clock()
+			legs[j] = leg
+		}
+		notSent(from, why)
+	}
 	for i, row := range rows {
 		started := time.Now()
 		leg := rpc.TradeProposalSubmitResult{Leg: i + 1, Key: record.Keys[i], AsOf: e.clock()}
@@ -454,7 +471,7 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 			var prop rpc.TradeProposal
 			prop, ok, err = e.preparedSubmitCheck(ctx, params, rec, &leg, nil)
 			if ok {
-				checked = append(checked, checkedLeg{params: params, record: rec, prop: prop})
+				checked = append(checked, checkedLeg{params: params, record: rec, prop: prop, out: leg})
 				continue
 			}
 		} else {
@@ -466,8 +483,8 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 		}
 		leg.Leg, leg.Key, leg.Outcome = i+1, record.Keys[i], rpc.BundleOutcomeRefused
 		e.finishSubmitIn(record.ID, "submit_bundle", params, &leg, err, started)
+		unsent(0, fmt.Sprintf("Not sent: conversion %d of the repayment did not pass its checks, so none was sent.", i+1))
 		legs[i] = leg
-		notSent(0, fmt.Sprintf("Not sent: conversion %d of the repayment did not pass its checks, so none was sent.", i+1))
 		return finish([]rpc.TradingBlocker{{Code: "bundle_conversion_refused",
 			Message: fmt.Sprintf("conversion %d of %d did not pass its checks, so nothing was sent; its own blockers say why", i+1, n),
 			Action:  "Refresh proposals and prepare the repayment again."}})
@@ -475,7 +492,8 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 	for i := range checked {
 		started := time.Now()
 		c := &checked[i]
-		leg := rpc.TradeProposalSubmitResult{AsOf: e.clock()}
+		leg := c.out
+		leg.AsOf = e.clock()
 		placeErr := e.preparedSubmitPlace(ctx, c.params, c.record, c.prop, &leg)
 		leg.Leg, leg.Key = i+1, record.Keys[i]
 		leg.Outcome = e.bundleLegOutcome(leg, placeErr, c.record.Preview.PreviewTokenID)
@@ -497,7 +515,7 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 		case rpc.BundleOutcomeSent:
 			continue
 		case rpc.BundleOutcomeRefused:
-			notSent(i+1, fmt.Sprintf("Not sent: Canary stopped at conversion %d, which it refused.", i+1))
+			unsent(i+1, fmt.Sprintf("Not sent: Canary stopped at conversion %d, which it refused.", i+1))
 			if i == 0 {
 				return finish([]rpc.TradingBlocker{{Code: "bundle_not_sent",
 					Message: fmt.Sprintf("conversion 1 of %d was refused while sending, so nothing was sent; its own blockers say why", n),
@@ -507,7 +525,7 @@ func (e *proposalEngine) SubmitBundle(ctx context.Context, p rpc.TradeProposalSu
 				Message: fmt.Sprintf("conversion %d of %d was refused while sending and did not reach the broker; %s, and the rest were not sent", i+1, n, levelingSentBefore(i)),
 				Action:  "Inspect each conversion's receipt; nothing resends the rest, and the next cycle plans what remains once the ledger shows the fills."}})
 		default:
-			notSent(i+1, fmt.Sprintf("Not sent: Canary stopped at conversion %d, whose outcome is not confirmed.", i+1))
+			unsent(i+1, fmt.Sprintf("Not sent: Canary stopped at conversion %d, whose outcome is not confirmed.", i+1))
 			sent := "nothing before it was sent"
 			if i > 0 {
 				sent = levelingSentBefore(i)
