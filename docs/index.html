@@ -110,7 +110,7 @@
       <article>
         <span class="number" aria-hidden="true">04</span>
         <h2>Orders within your limits</h2>
-        <p>The opt-in trading edition sends the orders you confirm or pre-authorise by rule. Standard downloads are read-only.</p>
+        <p>The opt-in trading edition sends the orders you confirm or pre-authorise by rule, and shrinks or cancels its own stops when you hold fewer shares. Standard downloads are read-only.</p>
       </article>
     </section>
     <section class="wrap section install-row" id="install" aria-labelledby="install-title">
@@ -198,21 +198,21 @@ canary setup claude-desktop
     </section>
 
     <details class="wrap deep-dive ">
-      <summary><span>Check that your limits add up</span><small>Every rule in force, and order limits that follow the account · v3.18</small></summary>
+      <summary><span>Check that your limits add up</span><small>Every limit in force, and order limits that follow the account · v3.18</small></summary>
     <section class="section split cash-feature" aria-labelledby="policy-title">
       <div>
         <p class="kicker">Policy check</p>
         <h2 id="policy-title">Limits that fit<br>the account.</h2>
-        <p>Canary acts on numbers you set, from rule thresholds to order sizes and cash reserves. It now prints every one in force with its source and meaning, and reads them against each other and against your account. Each value that does not fit gets a reason and a suggested number.</p>
+        <p>Canary acts on numbers you set, from rule thresholds to order sizes and cash reserves. It now prints every one in force with its source and meaning, and reads them against each other and against your account. Each value that does not fit gets a reason and, where one applies, a suggested fix.</p>
         <p>Order limits follow the account. The cap on a single order’s value moves with the account’s worth (its net liquidation value), between a floor and a ceiling you set. A temporary larger cap takes one override, which Canary records in its journal.</p>
-        <p>In trading builds, a protective stop held at the broker is no longer refused by that cap or by the short-sale check, as long as it sells no more than the stock or ETF you hold. When you hold fewer shares than one of Canary’s own stops would sell, Canary shrinks or cancels that stop.</p>
+        <p>In trading builds, a protective stop is no longer refused by that cap or by the short-sale check, as long as it sells no more than the stock or ETF you hold, counting your other working sell orders. When you hold fewer shares than one of Canary’s own stops would sell, Canary shrinks or cancels that stop on its own.</p>
         <p class="note">The check only reads; you change a limit by editing your files. Stops you placed by hand are never changed, and standard downloads stay read-only.</p>
         <a class="text-link" href="docs/understand/policy.html#check-a-policy-for-plausibility">How the policy check works<span class="arrow" aria-hidden="true">→</span></a>
       </div>
       <div class="cash-story">
         <ol class="cash-flow" aria-label="Canary policy commands">
-          <li><span class="kicker">01 · Show</span><b>Every rule in force</b><p><code>canary policy show --explain</code> lists each limit, policy and setting with its value, unit and source. Add a section name to print one part.</p></li>
-          <li><span class="kicker">02 · Check</span><b>What does not add up</b><p><code>canary policy check</code> reads your config, policy files and account against each other, and suggests a number for each implausible value.</p></li>
+          <li><span class="kicker">01 · Show</span><b>Every limit in force</b><p><code>canary policy show --explain</code> lists each limit, policy and setting with its value, unit and source. Add a section name to print one part.</p></li>
+          <li><span class="kicker">02 · Check</span><b>What does not add up</b><p><code>canary policy check</code> reads your config, policy files and account against each other, explains each implausible value and suggests a fix where one applies.</p></li>
           <li><span class="kicker">03 · Ask</span><b>The same report for your assistant</b><p><code>canary_policy_check</code> gives MCP clients the same check. It reads and cannot change a limit.</p></li>
         </ol>
       </div>
@@ -266,7 +266,7 @@ canary setup claude-desktop
         <p class="kicker">Cash sweep</p>
         <h2 id="sweep-title">Idle cash,<br>under your rules.</h2>
         <p>Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments and a cash reserve ahead of new purchases, and the reserve now follows the account’s net liquidation value and planned needs.</p>
-        <p>Before any purchase, the plan shows the bill’s order minimum, the fee bounds and the estimated gain after spread, fees and the cash interest you give up. Each purchase stays between a minimum and a maximum size, so a small one no longer loses its interest to the commission. You choose which currency comes first.</p>
+        <p>Before any purchase, the plan shows the bill’s order minimum, the fee bounds and the estimated gain after spread, fees and the cash interest you give up. Each purchase stays between a minimum and a maximum size, so none is too small to earn back its commission. You choose which currency comes first.</p>
         <p>Desk shows the plan; Canary checks the cash, bill, price, fees and authority. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.</p>
         <p class="note">Off by default. Commissioning needs a calibrated policy and current settlement evidence. Bills can lose value if sold before maturity.</p>
         <a class="text-link" href="docs/operate/protection.html#cash-sweep">Read the sweep controls<span class="arrow" aria-hidden="true">→</span></a>

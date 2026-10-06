@@ -2,14 +2,14 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.18.0 — 2026-10-06 05:45 CEST
+## v3.18.0 — 2026-10-06 06:09 CEST
 
 ### What's new
 
-- **See every rule in force and check that it adds up.** `canary policy show --explain` prints every limit, policy and runtime setting in force with its value, unit, source and meaning. `canary policy check` tests your config, your policy files and, when the daemon is running, your account against each other, and names each implausible value with a reason and a suggested number. MCP clients get the same report from `canary_policy_check`.
-- **Order limits that follow the account.** The per-order limits now live in the risk constitution, `risk-policy.toml` `[order_limits]`, and the order-value cap scales with net liquidation value between a floor and a ceiling you set. A temporary larger cap is one journaled override.
-- **A cash sweep sized from the book.** The cash kept back follows net liquidation value and planned needs, bill orders respect a minimum and a maximum size so a small purchase no longer loses its interest to the commission, and bill buys wait while any currency is borrowed instead of earning less than the margin interest it costs.
-- **Protective stops that can be placed and stay the right size.** In trading builds, a broker-side stop that sells no more than a long stock or ETF position is no longer refused by the order-value cap or the short-sale check, and Canary shrinks or cancels its own working stops when the position falls below them.
+- **See every limit in force and check that it adds up.** `canary policy show --explain` prints every limit, policy and runtime setting in force with its value, unit, source and meaning. `canary policy check` reads your config and policy files against each other and, through the daemon, against your live account (`--offline` checks the files alone), and names each implausible value with a reason and, where one applies, a suggested fix. MCP clients get the same report from `canary_policy_check`.
+- **Order limits that follow the account.** The per-order limits now live in the risk constitution, `risk-policy.toml`, under `[order_limits]`. The order-value cap scales with net liquidation value between a floor and a ceiling you set, and a temporary larger cap is one override that Canary records in its journal.
+- **A cash sweep sized from the account.** The cash kept back follows net liquidation value and planned needs, and each bill order stays between a minimum and a maximum size, so none is too small to earn back its commission. Bill buys wait while any currency is borrowed, because a bill earns less than the margin interest on the loan.
+- **Protective stops that can be placed and stay the right size.** In trading builds, the order-value cap and the short-sale check (which treats any stock sale as a possible short) no longer refuse a broker-side stop that, with your other working sell orders for the same stock or ETF, sells no more than you hold. When you hold fewer shares than one of Canary's own stops would sell, Canary shrinks or cancels that stop on its own.
 
 ### Added
 
@@ -19,28 +19,34 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Changed
 
-- The order gates `max_notional`, `max_option_contracts`, `allow_stock_short` and `allow_option_sell_to_open` are read from `risk-policy.toml` `[order_limits]` only. The same keys under `[trading]` in `config.toml` still parse but no longer apply, and `canary policy check` warns while they differ.
-- `canary setups` and its `coverage`, `options` and `markouts` reads print readable output instead of JSON; `--json` returns the previous output.
-- Status, market, macro, proposal and data-health views fit ordinary terminal widths and lead with what needs attention; `--details` keeps the complete evidence and `--json` is unchanged.
+- The order gates move from `config.toml` `[trading]` to `risk-policy.toml` `[order_limits]`. `max_notional` becomes `max_order_floor_base`, beside `max_order_pct_nlv` and `max_order_ceiling_base`; `max_option_contracts`, `allow_stock_short` and `allow_option_sell_to_open` keep their names. The `[trading]` keys still parse but no longer apply, and `canary policy check` warns while they differ.
+- `canary setups coverage`, `options` and `markouts` print readable output instead of JSON; `--json` returns the previous output.
+- Status, market, macro, proposal and data-health views fit ordinary terminal widths and lead with what needs attention. `canary macro --details` and `canary proposals list --details` keep the complete evidence, data health keeps every source row and `--json` is unchanged.
 - The daemon now produces the portfolio stress verdict and the position risk flags. The CLI, MCP tools, app and Go client show the installed daemon's answer instead of computing their own.
+
+### Deprecated
+
+- The cash sweep's per-currency `min_tranche`, in favour of `min_order_notional`. A written `min_tranche` still raises that currency's smallest buy until you delete it.
 
 ### Removed
 
-- The runtime settings `trading.limits.*`. A time-bounded larger cap is now `canary policy override --control order_limits.max_order_floor_base`.
-- The cash sweep's `min_tranche`, replaced by `min_order_notional`.
+- The runtime settings `trading.limits.*`. For a temporary larger cap, `canary policy override --control order_limits.max_order_floor_base --reason TEXT --hours N` lifts the cap to `max_order_ceiling_base` until it expires; it needs `[override].max_duration_hours` in `risk-policy.toml`.
 
 ### Fixed
 
-- The regime no longer reports confirmed stress when the high-yield bond fund and market breadth trail a rising index while the official credit spread is fresh and calm. Only a red reading from volatility, funding, currency carry or dealer gamma can now overrule that spread.
-- Confirming a trailing stop no longer fails as stale when another proposal, such as a cash-sweep order re-sized as account value moves, changes between review and submit.
+- The regime no longer reports confirmed stress when a high-yield bond fund (HYG) and market breadth trail a rising index while the official credit spread is fresh and calm. Only a red reading from volatility, funding, currency carry or dealer gamma can now overrule that spread.
+- Confirming a prepared proposal such as a trailing stop no longer fails as stale when another proposal changes between review and submit, for example a cash-sweep order re-sized as account value moves.
 - Trailing-stop proposals no longer read ready when the order gates would refuse them; they name the reason, such as a competing sell, missing order data or a quantity above the position.
-- After a restart of the Mac, the log monitor no longer reports old log lines as new. Scheduled quiet mode holds through an overnight gateway outage, and names delisted from the broker's short-stock list no longer log warnings every few minutes.
+- After a restart of the Mac, the log monitor no longer reports old log lines as new. Logging stays quiet through a scheduled overnight gateway outage, and delisted names still on the broker's short-stock list no longer log warnings every few minutes.
 - `canary order --help`, `canary policy default --help` and `canary policy ensure --help` print their usage instead of an error or a bare list of flags.
 
 ### Upgrade notes
 
-- Existing policy files are never rewritten on upgrade. Run `canary policy ensure --dry-run --json > plan.json`, review the plan, then run `canary policy ensure --apply-plan plan.json`. The plan backs up each file it changes, adds `[order_limits]` to `risk-policy.toml` from your current `[trading]` values with a 5% of net liquidation scale and a 100,000 base-currency ceiling, and, if you use the cash sweep, adds its new sizing keys with `no_buy_while_borrowed = true`. Until then, trading builds refuse order previews with `order_risk_limit`, `canary policy check` reports the missing order limits as an error, and a configured cash sweep holds at `needs_your_number`.
-- In trading builds the protective stop guard writes to the broker on its own. It only shrinks or cancels stock sell stops that Canary placed, after two checks at least 20 seconds apart on current position and order data; stops placed by hand are reported and never changed. A freeze holds a shrink but not a cancel, and every other write gate still applies. A trailing-stop review prepared before the upgrade needs preparing again.
+- Existing policy files are not rewritten on upgrade. Read the proposed changes with `canary policy ensure --dry-run`, save them with `canary policy ensure --dry-run --json > plan.json`, then run `canary policy ensure --apply-plan plan.json`, which backs up each file first. The plan adds `[order_limits]` to `risk-policy.toml`: your current `max_notional` becomes the floor, with a 5% of net liquidation scale and a 100,000 base-currency ceiling (or your current cap, if higher). Applying it can raise your order cap to 5% of net liquidation value, up to the ceiling.
+- For an existing cash sweep the plan also adds the new sizing keys with `no_buy_while_borrowed = true` and `bills_exempt_from_trading_max_notional = true`. The second lets a same-currency bill order exceed the order cap, up to the sweep's own cap: the larger of its `max_order_notional` and `max_order_pct_nlv` of net liquidation value.
+- Until the plan is applied, every protection proposal reads blocked and trading builds refuse every order preview with `order_risk_limit`. A configured cash sweep holds at `needs_your_number`, and `canary policy check` reports the missing order limits as an error.
+- In trading builds the protective stop guard writes to the broker on its own. It only shrinks or cancels stock and ETF sell stops that Canary placed, after two checks at least 20 seconds apart on current position and order data; stops placed by hand are reported and never changed. It has no separate switch: trading mode and every other write gate apply as for any order, and a freeze holds a shrink but lets a cancel through.
+- A proposal you prepared with `canary proposals prepare` before the upgrade must be prepared again.
 - Standard binaries and the MCP server remain read-only.
 
 ## v3.17.0 — 2026-10-04 21:32 CEST

@@ -29,7 +29,9 @@ When no file exists, the installer and each daemon start write a skeleton
 there, and `canary policy default constitution` prints the same file. Every
 capital key arrives commented out, the base currency and the `[inventory]`
 pins included; the only values filled in are the structural envelope below
-and `[order_limits]`. Nothing in that file is a recommendation, and it opens
+and `[order_limits]`. The capital placeholders carry no recommendation; the
+`[order_limits]` values are Canary's starting limits and apply until you change
+them. The file opens
 with `# Canary defaults, not yet reviewed.` until you delete that line. A file
 written before `[order_limits]` existed gains the table only through a
 reviewed `canary policy ensure` plan.
@@ -43,8 +45,8 @@ policy_id = "risk-constitution"
 policy_version = 1
 ```
 
-`kind` must be `canary.risk_policy` (the legacy `ibkr.risk_policy` still
-reads) and `schema_version` 2 (schema 1 still reads; see
+`kind` is `canary.risk_policy` and `schema_version` 2; files with the legacy
+`ibkr.risk_policy` kind or schema 1 still read (see
 [Identity, revisions and permission](policy.md#identity-revisions-and-permission)).
 `policy_id` is any non-empty identity string and `policy_version` any positive
 integer you raise on each revision.
@@ -59,7 +61,7 @@ integer you raise on each revision.
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
-| `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, and whether an order may open a stock short or sell an option to open. Every order preview and broker send must pass them ([Order limits](policy.md#order-limits)) |
+| `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, and whether an order may open a stock short or sell an option to open. Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
 sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,

@@ -325,7 +325,7 @@ Interactive Brokers Group, Inc. or its affiliates. `pkg/ibkr` redistributes no
 Interactive Brokers code, libraries, jars, or market data. Nothing here is
 investment advice.
 
-Canary is a private project of Oliver Sauer, unaffiliated with any employer.
+Canary is a private project of Oliver Sauer.
 
 MIT. See [LICENSE](LICENSE).
 

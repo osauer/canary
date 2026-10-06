@@ -30,12 +30,13 @@ paper and live sessions. An explicitly pinned endpoint must also match.
 
 The per-order limits are the risk policy's `[order_limits]` in
 `~/.config/ibkr/policies/risk-policy.toml`: a notional cap that scales with
-net liquidation value, an option contract cap, and the stock-short and option
+net liquidation value, an option contract cap and the stock-short and option
 sell-to-open permissions ([Order limits](../understand/policy.md#order-limits)).
 While a key is missing, every order preview is refused with `order_risk_limit`.
 A risk policy written before the table existed gains it through a reviewed
-plan: `canary policy ensure --dry-run --json`, then
-`canary policy ensure --apply-plan FILE`. The `[trading]` keys `max_notional`,
+plan: read it with `canary policy ensure --dry-run`, save it with
+`canary policy ensure --dry-run --json > plan.json`, then run
+`canary policy ensure --apply-plan plan.json`, which backs up each file first. The `[trading]` keys `max_notional`,
 `max_option_contracts`, `allow_stock_short` and `allow_option_sell_to_open`
 are retired: they still load but are never read.
 
@@ -48,7 +49,7 @@ evidence, not authority for a new transaction.
 Keep an inactive example at `~/.config/ibkr/config.toml.trading`; the daemon does
 not load it until the `.trading` suffix is removed. Before activating it, verify
 the pins and start with a paper session. `canary trading status` reports the
-current boundary and the order cap in force but cannot authorize a trade. Its
+current boundary and the order cap in force but cannot authorise a trade. Its
 `freeze` field mirrors `trading.freeze` in every mode, and
 `trading_control_generation` advances with every change to the freeze, so two
 readings show a freeze that was set and lifted in between.

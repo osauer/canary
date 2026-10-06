@@ -293,7 +293,7 @@ overdue.
 
 Stress asks whether the current broad-market state is relevant to the portfolio
 actually held. It combines five daemon-owned inputs: account, positions, the
-exact published Regime result, market events for held names, and the
+exact published Regime result, market events for held names and the
 Rulebook's current result. It does not
 fetch a second market view, and it never treats the portfolio's own losses as
 confirmation of a broad market event. Concentration (rules 1 and 16), net

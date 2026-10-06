@@ -136,15 +136,15 @@ each time it starts:
   `# Canary defaults, not yet reviewed.` and every surface reports it as
   `default, unreviewed` until you delete that line. `canary policy default
   NAME` prints the same file.
-- **Your numbers stay yours.** Canary writes no value for anything only you can
-  decide: the constitution's capital numbers, the premium budget governor's
+- **Your numbers stay yours.** A new file carries no value for anything only
+  you can decide: the constitution's capital numbers, the premium budget governor's
   caps as a share of risk capital, the cash sweep's sizing numbers
   (`max_order_notional` among them), the buckets that may submit automatically
   (`pre_authorised`), and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
-  needs your number, one feature at a time; nothing else waits on it. A
-  reviewed `canary policy ensure` plan adds the missing sizing numbers to a
-  `[buckets.cash_sweep]` you already wrote
+  needs your number, one feature at a time; nothing else waits on it. For
+  a `[buckets.cash_sweep]` you already wrote, a reviewed `canary policy ensure`
+  plan proposes the missing sizing numbers, and applying it accepts them
   ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
 - **Existing files stay untouched on startup.** A proposed format conversion
   shows exact before/after hashes and a local diff. Applying that reviewed plan

@@ -12,28 +12,37 @@ Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG
 The per-order limits move from `config.toml` `[trading]` to the risk
 constitution's [`[order_limits]`](../understand/policy.md#order-limits), and
 the order-value cap now scales with net liquidation value between a floor and a
-ceiling. The `[trading]` keys still parse but no longer apply, and the runtime
-`trading.limits.*` settings are retired. The cash sweep's `min_tranche` is
-retired too; `min_order_notional` replaces it.
+ceiling. `max_notional` becomes `max_order_floor_base`; the other three keys
+keep their names. The `[trading]` keys still parse but no longer apply, and the
+runtime `trading.limits.*` settings are retired. The cash sweep's `min_tranche`
+is deprecated in favour of `min_order_notional`; a written one still raises
+that currency's smallest buy until you delete it.
 
 Existing files are not rewritten at startup. Until `risk-policy.toml` has an
-`[order_limits]` table, a trading build refuses every order preview with
-`order_risk_limit`, and a configured cash sweep holds at `needs_your_number`
-until its new sizing keys and `no_buy_while_borrowed` are written. Save
-`canary policy ensure --dry-run --json` locally, review it, then run
-`canary policy ensure --apply-plan FILE`. Unlike earlier conversions, this one
-writes new limits: `[order_limits]` takes your current `[trading]` values
-(Canary's compiled default where a key was absent) with a 5% of net
-liquidation scale and a 100,000 base-currency ceiling, and an existing sweep
-table gains the sizing defaults with `no_buy_while_borrowed = true`. Review the
-numbers in the plan before you apply it;
+`[order_limits]` table, every protection proposal reads blocked and a trading
+build refuses every order preview with `order_risk_limit`; a configured cash
+sweep holds at `needs_your_number` until its new sizing keys and
+`no_buy_while_borrowed` are written. Read the proposed changes with
+`canary policy ensure --dry-run`, save them with
+`canary policy ensure --dry-run --json > plan.json`, then run
+`canary policy ensure --apply-plan plan.json`, which backs up each file first.
+
+Unlike earlier conversions, this one writes new limits. `[order_limits]` takes
+your current `max_notional` as the floor (Canary's compiled default where the
+key was absent), a 5% of net liquidation scale and a 100,000 base-currency
+ceiling, or your current cap if that is higher. Applying it can raise your
+order cap to 5% of net liquidation value, up to the ceiling. An existing sweep
+table gains the sizing defaults with `no_buy_while_borrowed = true` and
+`bills_exempt_from_trading_max_notional = true`; the second lets a
+same-currency bill order exceed the order cap, up to the sweep's own cap.
+Review the numbers in the plan before you apply it;
 [`canary policy check`](../understand/policy.md#check-a-policy-for-plausibility)
 then reads them against each other and against the account.
 
-In trading builds the protective stop guard shrinks or cancels stock sell
-stops that Canary placed when the position falls below them; stops placed by
-hand are reported and never changed. A trailing-stop review prepared before the
-upgrade needs preparing again.
+In trading builds the protective stop guard shrinks or cancels stock and ETF
+sell stops that Canary placed when the position falls below them; stops placed
+by hand are reported and never changed. A proposal you prepared with
+`canary proposals prepare` before the upgrade must be prepared again.
 
 ## Moving to 3.16
 
