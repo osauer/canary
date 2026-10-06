@@ -188,6 +188,11 @@ func parseStructRows(path, root string) ([]tomlField, error) {
 			if len(f.Names) == 0 || f.Tag == nil {
 				continue
 			}
+			// A Legacy field reads an old location that policy ensure moves;
+			// the reference lists only where a key belongs now.
+			if strings.HasPrefix(f.Names[0].Name, "Legacy") {
+				continue
+			}
 			tag := reflect.StructTag(strings.Trim(f.Tag.Value, "`"))
 			name := stripOmit(tag.Get("toml"))
 			if name == "" {

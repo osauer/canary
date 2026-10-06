@@ -14,7 +14,7 @@ import (
 // never held to it (owner decision 2026-10-05 18:35 CEST): it sells the gap.
 func TestCashSweepMinimumIsAWholeBuyInBaseAndNeverHoldsARedemption(t *testing.T) {
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	policy.Buckets.CashSweep.MinOrderNotional = new(10000.0)
+	policy.Cash.Sweep.MinOrderNotional = new(10000.0)
 	in := cashSweepTestInput(map[string]float64{"USD": 15500, "EUR": 2000})
 	in.Holdings["EUR"] = eurRedeemInput(50000).Holdings["EUR"]
 	plan := cashSweepPlanFor(policy, in, cashSweepTestNow())

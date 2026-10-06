@@ -25,7 +25,7 @@ policy_version = 1
 close_reduce_only = true
 auto_submit = false
 
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 mode = "shadow"
 max_order_notional = 8000.0

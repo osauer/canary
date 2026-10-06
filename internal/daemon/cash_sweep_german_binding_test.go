@@ -36,8 +36,8 @@ func TestCashSweepGermanRequestBoundCandidateAndReview(t *testing.T) {
 	now := cashSweepTestNow()
 	src, line := syntheticGermanBoundSource(now)
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
-	policy.Buckets.CashSweep.Currency = map[string]protectionCashSweepCurrency{}
-	policy.Buckets.CashSweep.Currency["EUR"] = protectionCashSweepCurrency{Instruments: []string{cashSweepInstrumentDEBubill}, ISINs: []string{synthDEBill}, KeepCash: new(5000.0), MinTranche: new(1000.0), MinMaturityDays: 28, MaxMaturityDays: 182, LadderRungs: 4}
+	policy.Cash.Sweep.Currency = map[string]protectionCashSweepCurrency{}
+	policy.Cash.Sweep.Currency["EUR"] = protectionCashSweepCurrency{Instruments: []string{cashSweepInstrumentDEBubill}, ISINs: []string{synthDEBill}, KeepCash: new(5000.0), MinTranche: new(1000.0), MinMaturityDays: 28, MaxMaturityDays: 182, LadderRungs: 4}
 	plan, byCCY := planAndResolve(t, policy, cashSweepTestInput(map[string]float64{"EUR": 60000}), src)
 	cp := byCCY["EUR"]
 	if cp.side != rpc.CashSweepSideInvest || cp.bill == nil || cp.bill.ISIN != synthDEBill || cp.bill.Maturity != src.issuer.MaturityDate.Format(time.DateOnly) || cp.bill.ResolutionSource != cashSweepResolutionRequestBound || cp.bill.MaturitySource != rpc.CashSweepMaturitySourceGermanIssuer {

@@ -27,7 +27,7 @@ func observedSweepFundingInput(cash map[string]float64) cashSweepInput {
 func TestCashSweepPriorityProtectsNativeCashAndDefaultsUSDFirst(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 100000)
-	policy.Buckets.CashSweep.ReserveCushionEUR = new(10000.)
+	policy.Cash.Sweep.ReserveCushionEUR = new(10000.)
 	in := observedSweepFundingInput(map[string]float64{"EUR": 50000, "USD": 50000})
 	in.FundingEvidence = sweepFundingFixture(now)
 	plan := cashSweepPlanFor(policy, in, now)
@@ -47,7 +47,7 @@ func TestCashSweepPriorityProtectsNativeCashAndDefaultsUSDFirst(t *testing.T) {
 		t.Fatal("cushion duplicated")
 	}
 	for _, mode := range []string{rpc.CashSweepPriorityUSDFirst, rpc.CashSweepPriorityBalanced, rpc.CashSweepPriorityEURFirst} {
-		policy.Buckets.CashSweep.CurrencyPriority = mode
+		policy.Cash.Sweep.CurrencyPriority = mode
 		p := cashSweepPlanFor(policy, in, now)
 		want := "EUR" // largest native surplus in EUR-equivalent terms for Balanced
 		if mode == rpc.CashSweepPriorityUSDFirst {
@@ -71,7 +71,7 @@ func TestCashSweepReserveOptInMissingEvidenceHoldsAndRetainsCashGap(t *testing.T
 	if legacy.status.ReserveState != "" || legacy.currencies[0].side == "" {
 		t.Fatal("existing policy changed")
 	}
-	policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
+	policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
 	plan := cashSweepPlanFor(policy, in, cashSweepTestNow())
 	if plan.status.ReserveState != "unavailable" || !strings.Contains(plan.status.ReserveReason, "reserve_calibration_required") {
 		t.Fatal(plan.status)
@@ -86,8 +86,8 @@ func TestCashSweepReserveOptInMissingEvidenceHoldsAndRetainsCashGap(t *testing.T
 	if plan.currencies[0].status.State != rpc.CashSweepStateSettlementUnknown {
 		t.Fatal("reserve hid cash-coverage gap", plan.status)
 	}
-	policy.Buckets.CashSweep.CurrencyPriority = "convert_eur_to_usd"
-	if err := validateCashSweepPolicy("cash_sweep", policy.Buckets.CashSweep); err == nil {
+	policy.Cash.Sweep.CurrencyPriority = "convert_eur_to_usd"
+	if err := validateCashSweepPolicy("cash_sweep", policy.Cash.Sweep); err == nil {
 		t.Fatal("fourth mode accepted")
 	}
 }
@@ -95,7 +95,7 @@ func TestCashSweepReserveOptInMissingEvidenceHoldsAndRetainsCashGap(t *testing.T
 func TestCashSweepPriorityLiquidityRestorationFirst(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
+	policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
 	in := observedSweepFundingInput(map[string]float64{"EUR": 1000, "USD": 50000})
 	in.FundingEvidence = sweepFundingFixture(now)
 	in.Holdings["EUR"] = []cashSweepHolding{cashSweepTestBill(801, "EUR", "de_bubill", 10, 60)}
@@ -108,7 +108,7 @@ func TestCashSweepPriorityLiquidityRestorationFirst(t *testing.T) {
 func TestCashSweepInvestmentRequiresEveryNativeReserveActuallyFunded(t *testing.T) {
 	now := cashSweepTestNow()
 	p := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	p.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
+	p.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
 	in := observedSweepFundingInput(map[string]float64{"EUR": 50000, "USD": 1000})
 	in.FundingEvidence = sweepFundingFixture(now)
 	in.Holdings["USD"] = []cashSweepHolding{cashSweepTestBill(801, "USD", "us_tbill", 40, 60)}

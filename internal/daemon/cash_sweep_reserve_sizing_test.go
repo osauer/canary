@@ -24,7 +24,7 @@ import (
 // 5,000.
 func ownerSizedSweepPolicy() protectionPolicy {
 	p := cashSweepTestPolicy(rpc.CashSweepModeActive, 50000)
-	b := p.Buckets.CashSweep
+	b := p.Cash.Sweep
 	b.ReserveFloorBase, b.ReservePctNLV = new(10000.0), new(10.0)
 	b.MinOrderNotional, b.MaxOrderPctNLV = new(20000.0), new(10.0)
 	b.BillsExemptFromTradingMaxNotional = new(true)
@@ -125,7 +125,7 @@ func TestCashSweepReserveAndCapBounds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			in := sizedSweepInput(tc.nlv, map[string]float64{"EUR": 1000})
 			in.PlannedNeeds = tc.planned
-			sz, reason := cashSweepSizingFor(ownerSizedSweepPolicy().Buckets.CashSweep, in)
+			sz, reason := cashSweepSizingFor(ownerSizedSweepPolicy().Cash.Sweep, in)
 			if sz == nil || reason != "" || !near(sz.ReserveBase, tc.reserve) || sz.ReserveBound != tc.bound || !near(sz.MaxOrderBase, tc.maxOrder) || sz.MaxOrderBound != tc.maxBound ||
 				sz.PlannedNeedsKnown != tc.plannedKnown || (sz.PlannedNeedsReason == "") != tc.plannedReasonEmpty {
 				t.Fatalf("sizing = %+v (%s)", sz, reason)
@@ -142,7 +142,7 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 	for _, key := range []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "order_step_base"} {
 		t.Run(key, func(t *testing.T) {
 			p := ownerSizedSweepPolicy()
-			b := p.Buckets.CashSweep
+			b := p.Cash.Sweep
 			switch key {
 			case "max_order_notional":
 				b.MaxOrderNotional = 0
@@ -167,26 +167,26 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 	}
 	t.Run("keep_cash", func(t *testing.T) {
 		p := ownerSizedSweepPolicy()
-		eurTable := p.Buckets.CashSweep.Currency["EUR"]
+		eurTable := p.Cash.Sweep.Currency["EUR"]
 		eurTable.KeepCash = nil
-		p.Buckets.CashSweep.Currency["EUR"] = eurTable
+		p.Cash.Sweep.Currency["EUR"] = eurTable
 		eur := cashSweepCurrencyOf(t, cashSweepPlanFor(p, in, now), "EUR")
 		if eur.side != "" || eur.status.State != rpc.CashSweepStateNeedsYourNumber || !strings.Contains(eur.status.Reason, "keep_cash") || !slices.Contains(eur.status.NeedsYourNumber, "keep_cash") {
 			t.Fatalf("missing keep_cash: %+v", eur.status)
 		}
 		// The bucket's keep_cash serves every currency without its own.
-		p.Buckets.CashSweep.KeepCash = new(7000.0)
+		p.Cash.Sweep.KeepCash = new(7000.0)
 		eur = cashSweepCurrencyOf(t, cashSweepPlanFor(p, in, now), "EUR")
 		if eur.side != rpc.CashSweepSideInvest || eur.status.KeepCash != 7000 {
 			t.Fatalf("bucket keep_cash: %+v", eur.status)
 		}
 	})
 	t.Run("parse keeps absent numbers absent", func(t *testing.T) {
-		p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep]\nenabled = true\nmax_order_notional = 10000\n[buckets.cash_sweep.currency.EUR]\nfallback = \"none\"\n"))
+		p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep]\nenabled = true\nmax_order_notional = 10000\n[cash.sweep.currency.EUR]\nfallback = \"none\"\n"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		b := p.Buckets.CashSweep
+		b := p.Cash.Sweep
 		if _, ok := b.keepCash("EUR"); ok || b.MinOrderNotional != nil || b.Currency["EUR"].MinTranche != nil ||
 			!slices.Equal(b.missingNumbers(), []string{"max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "order_step_base", "no_buy_while_borrowed"}) || b.billsExempt() || b.noBuyWhileBorrowed() {
 			t.Fatalf("absent numbers read as values: %+v", b)
@@ -207,7 +207,7 @@ func TestCashSweepUnreadableNLVHolds(t *testing.T) {
 		t.Fatalf("unreadable NLV = %+v", eur.status)
 	}
 	p := ownerSizedSweepPolicy()
-	p.Buckets.CashSweep.ReservePctNLV, p.Buckets.CashSweep.MaxOrderPctNLV = new(0.0), new(0.0)
+	p.Cash.Sweep.ReservePctNLV, p.Cash.Sweep.MaxOrderPctNLV = new(0.0), new(0.0)
 	plan = cashSweepPlanFor(p, in, now)
 	if eur = cashSweepCurrencyOf(t, plan, "EUR"); plan.status.Sizing == nil || eur.side != rpc.CashSweepSideInvest || !near(eur.orderAmount, 50000) {
 		t.Fatalf("fixed-only sizing = %+v (%s)", plan.status.Sizing, eur.status.Reason)
@@ -344,12 +344,12 @@ profile = "theta-priority-mvp"
 close_reduce_only = true
 auto_submit = false
 
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 mode = "active"
 max_order_notional = 10000
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 fallback = "none"
 keep_cash = 6000
 `
@@ -366,9 +366,9 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 			preview = a
 		}
 	}
-	want := []string{"added buckets.cash_sweep.max_order_pct_nlv = 10.0", "added buckets.cash_sweep.min_order_notional = 20000.0",
-		"added buckets.cash_sweep.reserve_floor_base = 10000.0", "added buckets.cash_sweep.reserve_pct_nlv = 10.0", "added buckets.cash_sweep.order_step_base = 1000.0", "added buckets.cash_sweep.keep_cash = 5000.0",
-		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "added buckets.cash_sweep.no_buy_while_borrowed = true", "added [buckets.currency_leveling] with enabled = false",
+	want := []string{"added cash.sweep.max_order_pct_nlv = 10.0", "added cash.sweep.min_order_notional = 20000.0",
+		"added cash.sweep.reserve_floor_base = 10000.0", "added cash.sweep.reserve_pct_nlv = 10.0", "added cash.sweep.order_step_base = 1000.0", "added cash.sweep.keep_cash = 5000.0",
+		"added cash.sweep.bills_exempt_from_trading_max_notional = true", "added cash.sweep.no_buy_while_borrowed = true", "added [cash.leveling] with enabled = false",
 		"raised policy_version 12 to 13: the keys above take effect"}
 	if preview.Action != PolicyFileWouldMigrate || !slices.Equal(preview.Changes, want) || !strings.Contains(preview.Diff, "reserve_pct_nlv = 10.0") {
 		t.Fatalf("dry run = %+v", preview)
@@ -387,7 +387,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := p.Buckets.CashSweep
+	b := p.Cash.Sweep
 	eurKeep, _ := b.keepCash("EUR")
 	usdKeep, usdOK := b.keepCash("USD")
 	if p.PolicyVersion != 13 || b.MaxOrderNotional != 10000 || eurKeep != 6000 || !usdOK || usdKeep != 5000 || len(b.missingNumbers()) != 0 || !b.billsExempt() || !b.noBuyWhileBorrowed() ||
@@ -402,10 +402,10 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	}
 	// No sweep table: nothing of the sweep is added, and it stays off; only
 	// the currency leveling table is written, off.
-	writePolicyTestFile(t, set.Protection, strings.Split(ownerLikeSweepProtection, "[buckets.cash_sweep]")[0])
+	writePolicyTestFile(t, set.Protection, strings.Split(ownerLikeSweepProtection, "[cash.sweep]")[0])
 	for _, a := range EnsurePolicyFiles(set, EnsureOptions{Release: "test", DryRun: true}) {
 		if a.Policy == PolicyFileProtection && (slices.ContainsFunc(a.Changes, func(c string) bool { return strings.Contains(c, "cash_sweep") }) ||
-			!slices.Contains(a.Changes, "added [buckets.currency_leveling] with enabled = false")) {
+			!slices.Contains(a.Changes, "added [cash.leveling] with enabled = false")) {
 			t.Fatalf("absent sweep table = %+v", a)
 		}
 	}
@@ -419,21 +419,21 @@ func TestProtectionMaterialisationPreservesOwnerValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	after := before
-	sweep := *before.Buckets.CashSweep
+	sweep := *before.Cash.Sweep
 	sweep.MinOrderNotional, sweep.KeepCash = new(20000.0), new(5000.0)
-	after.Buckets.CashSweep = &sweep
+	after.Cash.Sweep = &sweep
 	if !protectionMaterialisationPreserves(before, after) {
 		t.Fatal("writing missing numbers refused")
 	}
 	changed := sweep
 	changed.MaxOrderNotional = 50000
-	after.Buckets.CashSweep = &changed
+	after.Cash.Sweep = &changed
 	if protectionMaterialisationPreserves(before, after) {
 		t.Fatal("an owner value changed")
 	}
 	other := sweep
 	other.Mode = "shadow"
-	after.Buckets.CashSweep = &other
+	after.Cash.Sweep = &other
 	if protectionMaterialisationPreserves(before, after) {
 		t.Fatal("a non-sizing value changed")
 	}

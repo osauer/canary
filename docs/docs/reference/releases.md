@@ -63,7 +63,7 @@ separately from advisory purchase value. `min_net_gain` remains readable but
 is advisory; missing cash-interest assumptions no longer block an order.
 
 Existing private policy settings are unchanged. The sweep stays off by default;
-review the [sweep controls](../operate/protection.md#cash-sweep) and commission
+review the [sweep controls](../operate/cash.md#cash-sweep) and commission
 each bill route before activation. Installation grants no broker-write authority.
 
 ## Moving to 3.15

@@ -117,7 +117,7 @@ func TestCashSweepUnknownCashHoldsBuys(t *testing.T) {
 // the debit so Desk can show it.
 func TestCashSweepBorrowingKeyFalseAllowsBuys(t *testing.T) {
 	policy := ownerSizedSweepPolicy()
-	policy.Buckets.CashSweep.NoBuyWhileBorrowed = new(false)
+	policy.Cash.Sweep.NoBuyWhileBorrowed = new(false)
 	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": -20000}), cashSweepTestNow())
 	b := plan.status.Borrowing
 	if b.State != rpc.CashSweepBorrowingBorrowed || b.HoldsBuys || !strings.Contains(b.Message, "no_buy_while_borrowed = false") {
@@ -133,7 +133,7 @@ func TestCashSweepBorrowingKeyFalseAllowsBuys(t *testing.T) {
 // it, like every other number read from the file only.
 func TestCashSweepBorrowingKeyMissingHolds(t *testing.T) {
 	policy := ownerSizedSweepPolicy()
-	policy.Buckets.CashSweep.NoBuyWhileBorrowed = nil
+	policy.Cash.Sweep.NoBuyWhileBorrowed = nil
 	plan := cashSweepPlanFor(policy, borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 6000}), cashSweepTestNow())
 	if !slices.Contains(plan.status.NeedsYourNumber, "no_buy_while_borrowed") {
 		t.Fatalf("needs = %v", plan.status.NeedsYourNumber)
@@ -145,7 +145,7 @@ func TestCashSweepBorrowingKeyMissingHolds(t *testing.T) {
 	if b := plan.status.Borrowing; b == nil || b.NoBuyWhileBorrowed != nil {
 		t.Fatalf("borrowing = %+v", b)
 	}
-	if needs := cashSweepNeedsYourNumber(policy.Buckets.CashSweep); !slices.ContainsFunc(needs, func(s string) bool { return strings.Contains(s, "no_buy_while_borrowed") }) {
+	if needs := cashSweepNeedsYourNumber(policy.Cash.Sweep); !slices.ContainsFunc(needs, func(s string) bool { return strings.Contains(s, "no_buy_while_borrowed") }) {
 		t.Fatalf("policy status needs = %v", needs)
 	}
 }

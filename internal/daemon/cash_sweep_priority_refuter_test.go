@@ -16,7 +16,7 @@ import (
 func TestCashSweepRefuterMissingConfiguredNativeCashCannotDisappear(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
+	policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
 	in := observedSweepFundingInput(map[string]float64{"EUR": 50000})
 	in.FundingEvidence = sweepFundingFixture(now)
 	in.FundingEvidence.FundingNative["USD"] = 0
@@ -31,7 +31,7 @@ func TestCashSweepRefuterEveryNativeReserveMustBeCertifiedAndFunded(t *testing.T
 		t.Run(kind, func(t *testing.T) {
 			now := cashSweepTestNow()
 			policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-			policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
+			policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
 			in := observedSweepFundingInput(map[string]float64{"EUR": 50000, "USD": 50000})
 			in.FundingEvidence = sweepFundingFixture(now)
 			row := in.Ledger["USD"]

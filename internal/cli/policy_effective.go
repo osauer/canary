@@ -30,6 +30,9 @@ const (
 var policySectionAliases = map[string]string{
 	"risk": rpc.PolicySectionConstitution, "risk-policy": rpc.PolicySectionConstitution,
 	"rules": rpc.PolicySectionRulebook, "settings": rpc.PolicySectionRuntime, "config": rpc.PolicySectionTrading,
+	// The cash sweep and currency leveling live in [cash] (2026-10-06); the
+	// bucket names still find them.
+	"cash_sweep": "cash.sweep", "currency_leveling": "cash.leveling",
 }
 
 // policyEffectiveFor returns the daemon's view, or reads the files itself
@@ -47,7 +50,7 @@ func policyEffectiveFor(ctx context.Context, env *Env, res *rpc.RiskPolicyResult
 }
 
 // filterPolicyEffective keeps the sections, or the groups within them, that
-// name matches: a section id or alias, or a table such as cash_sweep,
+// name matches: a section id or alias, or a table such as cash, cash.sweep,
 // trailing_stop or budget_reduction (its sub-tables included).
 func filterPolicyEffective(view *rpc.PolicyEffectiveView, name string) (*rpc.PolicyEffectiveView, bool) {
 	name = strings.ToLower(strings.TrimSpace(name))
@@ -81,7 +84,7 @@ func policySectionNames(view *rpc.PolicyEffectiveView) string {
 	for _, sec := range view.Sections {
 		names = append(names, sec.ID)
 	}
-	for _, extra := range []string{"cash_sweep", "currency_leveling", "trailing_stop", "budget_reduction", "authority", "regime"} {
+	for _, extra := range []string{"cash", "cash.sweep", "cash.leveling", "trailing_stop", "budget_reduction", "authority", "regime"} {
 		if !slices.Contains(names, extra) {
 			names = append(names, extra)
 		}

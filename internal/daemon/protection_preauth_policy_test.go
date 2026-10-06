@@ -47,11 +47,11 @@ func TestPreAuthorisedPolicyParsesListAndWindow(t *testing.T) {
 	}
 	policy := read.policy
 	for _, bucket := range []string{"trailing_stop", "option_loss_exit", "option_profit_trail", "budget_reduction"} {
-		if !policy.Authority.preAuthorised(bucket) {
+		if !policy.preAuthorised(bucket) {
 			t.Fatalf("bucket %s not pre-authorised after parse", bucket)
 		}
 	}
-	if policy.Authority.preAuthorised("theta_hygiene") || policy.Authority.preAuthorised("") {
+	if policy.preAuthorised("theta_hygiene") || policy.preAuthorised("") {
 		t.Fatal("a bucket outside the list reads as pre-authorised")
 	}
 	if got := policy.Authority.vetoWindow(); got != 45*time.Minute {
@@ -141,13 +141,13 @@ func TestPreAuthorisedListChangeIsAPolicyRevision(t *testing.T) {
 	write(preAuthPolicyTOML(`pre_authorised = ["trailing_stop"]`, 1))
 	m.reload()
 	active, st := m.Active()
-	if st.Status != rpc.ProtectionPolicyStatusDrift || active.Authority.preAuthorised("trailing_stop") {
+	if st.Status != rpc.ProtectionPolicyStatusDrift || active.preAuthorised("trailing_stop") {
 		t.Fatalf("same-version edit adopted: status=%q active=%v", st.Status, active.Authority.PreAuthorised)
 	}
 	write(preAuthPolicyTOML(`pre_authorised = ["trailing_stop"]`, 2))
 	m.reload()
 	active, st = m.Active()
-	if st.Status != rpc.ProtectionPolicyStatusActive || !active.Authority.preAuthorised("trailing_stop") || st.PolicyVersion != 2 {
+	if st.Status != rpc.ProtectionPolicyStatusActive || !active.preAuthorised("trailing_stop") || st.PolicyVersion != 2 {
 		t.Fatalf("version bump not adopted: status=%q version=%d active=%v", st.Status, st.PolicyVersion, active.Authority.PreAuthorised)
 	}
 	if st.Fingerprint.Key == before.Fingerprint.Key {

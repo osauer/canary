@@ -24,7 +24,7 @@ auto_submit = false
 // commented placeholder, a nil table leaves the fingerprint alone, and a
 // written table without enabled is present, disabled and in shadow.
 func TestCashSweepAbsentFromDefaultAndDisabledByDefault(t *testing.T) {
-	if defaultProtectionPolicy().Buckets.CashSweep != nil {
+	if defaultProtectionPolicy().Cash.Sweep != nil {
 		t.Fatal("embedded default carries a cash_sweep table")
 	}
 	raw, err := DefaultPolicyTOML("protection")
@@ -36,27 +36,27 @@ func TestCashSweepAbsentFromDefaultAndDisabledByDefault(t *testing.T) {
 			t.Fatalf("canary policy default protection writes the sweep live: %q", line)
 		}
 	}
-	for _, want := range []string{"# [buckets.cash_sweep]", "# [buckets.cash_sweep.currency.EUR]", "# max_order_notional = 0.0", "# max_maturity_days = 182", "# min_maturity_days = 28"} {
+	for _, want := range []string{"# [cash.sweep]", "# [cash.sweep.currency.EUR]", "# max_order_notional = 0.0", "# max_maturity_days = 182", "# min_maturity_days = 28"} {
 		if !strings.Contains(string(raw), want) {
 			t.Fatalf("the template does not show %q:\n%s", want, raw)
 		}
 	}
 	parsed, _, err := parseProtectionPolicy(raw)
-	if err != nil || parsed.Buckets.CashSweep != nil {
-		t.Fatalf("template parses to sweep %+v, err %v", parsed.Buckets.CashSweep, err)
+	if err != nil || parsed.Cash.Sweep != nil {
+		t.Fatalf("template parses to sweep %+v, err %v", parsed.Cash.Sweep, err)
 	}
 	before := fingerprintProtectionPolicy(defaultProtectionPolicy())
 	withNil := defaultProtectionPolicy()
-	withNil.Buckets.CashSweep = nil
+	withNil.Cash.Sweep = nil
 	if fingerprintProtectionPolicy(withNil).Key != before.Key {
 		t.Fatal("nil cash_sweep changed the protection policy fingerprint")
 	}
 
-	p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep]\nmax_order_notional = 20000\n"))
+	p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep]\nmax_order_notional = 20000\n"))
 	if err != nil {
 		t.Fatalf("table without enabled must load: %v", err)
 	}
-	bucket := p.Buckets.CashSweep
+	bucket := p.Cash.Sweep
 	if bucket == nil || bucket.enabled() || bucket.effectiveMode() != rpc.CashSweepModeShadow || bucket.missingNumbers() != nil {
 		t.Fatalf("written table = %+v; want present, disabled, shadow", bucket)
 	}
@@ -115,25 +115,25 @@ func TestCashSweepCompiledDefaultsPerCurrency(t *testing.T) {
 // reads a TOML date or a quoted one to the same value.
 func TestCashSweepWrittenCurrencyTableFillsDefaults(t *testing.T) {
 	p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + `
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 mode = "Active"
 max_order_notional = 25000
 tax_reviewed_at = 2026-09-30
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 keep_cash = 8000
 etf_symbol = "BBB"
 etf_exchange = "IBIS"
 
-[buckets.cash_sweep.currency.USD]
+[cash.sweep.currency.USD]
 fallback = "none"
 ladder_rungs = 2
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	bucket := p.Buckets.CashSweep
+	bucket := p.Cash.Sweep
 	if bucket.effectiveMode() != rpc.CashSweepModeActive || bucket.TaxReviewedAt != "2026-09-30" || bucket.MaxOrderNotional != 25000 {
 		t.Fatalf("bucket = %+v", bucket)
 	}
@@ -156,20 +156,20 @@ ladder_rungs = 2
 		t.Fatalf("CHF without a table = %+v", chf)
 	}
 
-	quoted, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep]\ntax_reviewed_at = \"2026-09-30\"\n"))
-	if err != nil || quoted.Buckets.CashSweep.TaxReviewedAt != "2026-09-30" {
-		t.Fatalf("quoted date = %+v, err %v", quoted.Buckets.CashSweep, err)
+	quoted, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep]\ntax_reviewed_at = \"2026-09-30\"\n"))
+	if err != nil || quoted.Cash.Sweep.TaxReviewedAt != "2026-09-30" {
+		t.Fatalf("quoted date = %+v, err %v", quoted.Cash.Sweep, err)
 	}
 	if fingerprintProtectionPolicy(quoted).Key == "" {
 		t.Fatal("no fingerprint")
 	}
 	for _, bad := range []string{"tax_reviewed_at = 2026-09-30T10:00:00Z", "tax_reviewed_at = \"30.09.2026\"", "tax_reviewed_at = 20260930"} {
-		if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep]\n" + bad + "\n")); err == nil {
+		if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep]\n" + bad + "\n")); err == nil {
 			t.Fatalf("%s accepted", bad)
 		}
 	}
 	// A misspelt key is refused like any other protection key.
-	if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep.currency.USD]\nkeep_cahs = 1\n")); err == nil || !strings.Contains(err.Error(), "keep_cahs") {
+	if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep.currency.USD]\nkeep_cahs = 1\n")); err == nil || !strings.Contains(err.Error(), "keep_cahs") {
 		t.Fatalf("misspelt key: %v", err)
 	}
 }
@@ -179,7 +179,7 @@ ladder_rungs = 2
 func TestCashSweepValidation(t *testing.T) {
 	base := func() protectionPolicy {
 		p := defaultProtectionPolicy()
-		p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, MaxOrderNotional: 25000, Currency: map[string]protectionCashSweepCurrency{
+		p.Cash.Sweep = &protectionCashSweepPolicy{Enabled: true, MaxOrderNotional: 25000, Currency: map[string]protectionCashSweepCurrency{
 			"USD": defaultCashSweepCurrency("USD"), "EUR": defaultCashSweepCurrency("EUR"),
 		}}
 		return p
@@ -250,7 +250,7 @@ func TestCashSweepValidation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			p := base()
-			tc.change(p.Buckets.CashSweep)
+			tc.change(p.Cash.Sweep)
 			err := validateProtectionPolicy(p)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want mention of %q", err, tc.want)
@@ -259,14 +259,14 @@ func TestCashSweepValidation(t *testing.T) {
 	}
 	// Disabled: a malformed written value is still refused.
 	disabled := base()
-	disabled.Buckets.CashSweep.Enabled = false
-	setSweepCcy(disabled.Buckets.CashSweep, "USD", func(c *protectionCashSweepCurrency) { c.MaxMaturityDays = 500 })
+	disabled.Cash.Sweep.Enabled = false
+	setSweepCcy(disabled.Cash.Sweep, "USD", func(c *protectionCashSweepCurrency) { c.MaxMaturityDays = 500 })
 	if err := validateProtectionPolicy(disabled); err == nil {
 		t.Fatal("malformed maturity accepted while disabled")
 	}
 	// The ETF may be a primary instrument of any currency.
 	etf := base()
-	setSweepCcy(etf.Buckets.CashSweep, "CHF", func(c *protectionCashSweepCurrency) {
+	setSweepCcy(etf.Cash.Sweep, "CHF", func(c *protectionCashSweepCurrency) {
 		c.Instruments, c.ETFSymbol, c.ETFExchange = []string{"etf"}, "AAA", "EBS"
 	})
 	if err := validateProtectionPolicy(etf); err != nil {

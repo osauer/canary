@@ -2888,6 +2888,43 @@ func selectedProposalQty(prop rpc.TradeProposal, requested int) int {
 	return max(1, min(requested, prop.MaxQuantity))
 }
 
+// cashAdmission is a cash row's typed bounds, checked against its preview.
+type cashAdmission interface {
+	previewBlockers(preview *rpc.OrderPreviewResult) []rpc.TradingBlocker
+}
+
+// cashAuthorityAdmission returns the typed bounds the [cash] authority admits
+// prop under: a currency_leveling conversion, whose effect on the pair says
+// nothing about a currency balance, or a cash_sweep bill buy, which still
+// spends cash when it covers a short, so its reserve and fee checks always
+// run. Anything else is not a cash admission.
+func cashAuthorityAdmission(prop rpc.TradeProposal) (cashAdmission, bool) {
+	if x, ok := currencyLevelingReduceException(prop); ok {
+		return x, true
+	}
+	if x, ok := cashSweepOpenException(prop); ok {
+		return x, true
+	}
+	return nil, false
+}
+
+// closeReduceBlockers is protection's check: the row and its preview close or
+// reduce a position, and a conversion is never protection.
+func closeReduceBlockers(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
+	var out []rpc.TradingBlocker
+	if !proposalCloseReduceEffect(prop.PositionEffect) {
+		out = append(out, rpc.TradingBlocker{Code: "proposal_effect_not_close_reduce", Message: fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), Action: "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation."})
+	}
+	switch {
+	case strings.EqualFold(preview.Draft.Contract.SecType, "CASH") || strings.EqualFold(prop.SecType, "CASH"):
+		out = append(out, rpc.TradingBlocker{Code: "preview_effect_not_close_reduce", Message: "a conversion passes only as a currency_leveling row inside its bounds, under the [cash] authority", Action: "Refresh proposals and preview a currency_leveling row."})
+	case proposalCloseReduceEffect(preview.Position.Effect):
+	default:
+		out = append(out, rpc.TradingBlocker{Code: "preview_effect_not_close_reduce", Message: fmt.Sprintf("preview effect %q is not close/reduce", preview.Position.Effect), Action: "Refresh positions and preview again; proposal submit cannot open, increase, or flip exposure."})
+	}
+	return out
+}
+
 func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
 	var blockers []rpc.TradingBlocker
 	add := func(code, message, action string) {
@@ -2897,35 +2934,19 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		add("proposal_preview_missing", "proposal preview result is unavailable", "Refresh and preview the proposal again before submit.")
 		return blockers
 	}
-	// The cash sweep's typed exception (decision O1) and currency leveling's
-	// (owner decision 2026-10-05 22:02 CEST) are the only ways past the
-	// close/reduce check; cash_sweep_orders.go and currency_leveling_orders.go
-	// bound them.
-	sweepException, excepted := cashSweepOpenException(prop)
-	levelingException, leveling := currencyLevelingReduceException(prop)
-	if !proposalCloseReduceEffect(prop.PositionEffect) && !excepted {
-		add("proposal_effect_not_close_reduce", fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation.")
-	}
-	switch {
-	case leveling:
-		// A conversion's effect on the pair says nothing about a currency
-		// balance: only the exception's ledger bounds admit it, never the
-		// preview's position effect.
-		for _, b := range levelingException.previewBlockers(preview) {
+	// Protection is close-or-reduce only. A cash row the [cash] authority
+	// admits, the sweep's bill buy (decision O1) or a leveling conversion
+	// (owner decision 2026-10-05 22:02 CEST), is judged by its own typed
+	// bounds instead (cash_sweep_orders.go, currency_leveling_orders.go);
+	// everything else, a sweep redemption included, by close/reduce.
+	if admitted, ok := cashAuthorityAdmission(prop); ok {
+		for _, b := range admitted.previewBlockers(preview) {
 			add(b.Code, b.Message, b.Action)
 		}
-	case strings.EqualFold(preview.Draft.Contract.SecType, "CASH") || strings.EqualFold(prop.SecType, "CASH"):
-		add("preview_effect_not_close_reduce", "a conversion passes the close/reduce check only as a currency_leveling row inside its bounds", "Refresh proposals and preview a currency_leveling row.")
-	case excepted:
-		// A buy still spends cash when it covers a short. Always validate the
-		// typed sweep exception before generic close/reduce admission; a drift
-		// from its planned long-bill effect cannot skip the reserve/fee checks.
-		for _, b := range sweepException.previewBlockers(preview) {
+	} else {
+		for _, b := range closeReduceBlockers(prop, preview) {
 			add(b.Code, b.Message, b.Action)
 		}
-	case proposalCloseReduceEffect(preview.Position.Effect):
-	default:
-		add("preview_effect_not_close_reduce", fmt.Sprintf("preview effect %q is not close/reduce", preview.Position.Effect), "Refresh positions and preview again; proposal submit cannot open, increase, or flip exposure.")
 	}
 	// BOND is admitted for a cash_sweep row's own bill only, and a bill buy
 	// only while the broker's WhatIf agrees with its assumed unit.
@@ -3917,7 +3938,7 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
 	}
 	if s.tradeProposals != nil {
 		if active, ok := s.tradeProposals.automaticPolicy(); ok {
-			out.PreAuthorised = append([]string(nil), active.Authority.PreAuthorised...)
+			out.PreAuthorised = append(append([]string(nil), active.Authority.PreAuthorised...), active.Cash.PreAuthorised...)
 			out.VetoWindow = active.Authority.vetoWindow().String()
 		}
 		scope := s.tradeProposals.currentScope()

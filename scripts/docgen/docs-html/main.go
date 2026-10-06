@@ -213,6 +213,14 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
+		Source:      "docs/docs/operate/cash.md",
+		Section:     "operate",
+		NavTitle:    "Cash management",
+		Summary:     "The cash sweep and currency leveling: their own policy section, their own authority, and how each order is bounded.",
+		Description: "How Canary's cash sweep buys same-currency bills with idle cash and how currency leveling repays a borrowed currency, under the policy's own [cash] section and authority.",
+		Status:      statusPublished,
+	},
+	{
 		Source:      "docs/docs/operate/reconciliation.md",
 		Section:     "operate",
 		NavTitle:    "Reconciliation",

@@ -153,7 +153,7 @@ func TestCashSweepPriorityConcurrentCASAndNarrowValidation(t *testing.T) {
 
 func TestRuntimeCashPriorityOnlyReordersWithoutReserveOptIn(t *testing.T) {
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9)
-	if policy.Buckets.CashSweep.reserveDesignEnabled() {
+	if policy.Cash.Sweep.reserveDesignEnabled() {
 		t.Fatal("fixture already opted in")
 	}
 	in := cashSweepTestInput(map[string]float64{"USD": 60000, "EUR": 40000})
@@ -161,7 +161,7 @@ func TestRuntimeCashPriorityOnlyReordersWithoutReserveOptIn(t *testing.T) {
 	for _, priority := range []string{"usd_first", "balanced", "eur_first"} {
 		in.OrderingPriority = &priority
 		plan := cashSweepPlanFor(policy, in, cashSweepTestNow())
-		if policy.Buckets.CashSweep.reserveDesignEnabled() || policy.Buckets.CashSweep.CurrencyPriority != "" || plan.status.ReserveState != "" || plan.status.ReserveCushionEUR != nil {
+		if policy.Cash.Sweep.reserveDesignEnabled() || policy.Cash.Sweep.CurrencyPriority != "" || plan.status.ReserveState != "" || plan.status.ReserveCushionEUR != nil {
 			t.Fatal("ordering opted into reserve design", priority)
 		}
 		if plan.status.CurrencyPriority != priority || plan.status.CurrencyPrioritySource != "runtime" {
@@ -180,7 +180,7 @@ func TestRuntimeCashPriorityOnlyReordersWithoutReserveOptIn(t *testing.T) {
 	if got := cashSweepPlanFor(policy, in, cashSweepTestNow()).currencies[0].status.Currency; got != "EUR" {
 		t.Fatal("ordering override unused", got)
 	}
-	policy.Buckets.CashSweep.CurrencyPriority = "usd_first"
+	policy.Cash.Sweep.CurrencyPriority = "usd_first"
 	plan := cashSweepPlanFor(policy, in, cashSweepTestNow())
 	if plan.status.ReserveState != "unavailable" || !strings.HasPrefix(plan.status.ReserveReason, "reserve_calibration_required:") {
 		t.Fatal("override bypassed opted-in reserve hold")

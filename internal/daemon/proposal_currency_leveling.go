@@ -623,7 +623,7 @@ func currencyLevelingMoney(v float64, ccy string, signed bool) string {
 // currencyLevelingProposals plans and builds the bucket's rows; nil while
 // the table is absent or disabled.
 func (e *proposalEngine) currencyLevelingProposals(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, *rpc.TradeProposalCurrencyLevelingStatus) {
-	bucket := policy.Buckets.CurrencyLeveling
+	bucket := policy.Cash.Leveling
 	if !bucket.enabled() {
 		return nil, nil
 	}

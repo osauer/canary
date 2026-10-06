@@ -41,7 +41,7 @@ policy_version = 1
 // sizing number written, a cap in force of 9,000 EUR (max_order_notional
 // beats 1% of 200,000), economic and NLV-proportionate against pcBook.
 const pcSweep = `
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 mode = "active"
 reserve_floor_base = 10000.0
@@ -53,19 +53,19 @@ keep_cash = 4000.0
 order_step_base = 1000.0
 no_buy_while_borrowed = true
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 instruments = ["de_bubill"]
 fallback = "none"
 keep_cash = 6000.0
 min_maturity_days = 91
 
-[buckets.cash_sweep.currency.USD]
+[cash.sweep.currency.USD]
 min_maturity_days = 91
 `
 
 // pcLeveling is enabled currency leveling at the written defaults.
 const pcLeveling = `
-[buckets.currency_leveling]
+[cash.leveling]
 enabled = true
 trigger_base = 10000.0
 cushion_base = 250.0
@@ -213,7 +213,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "no EUR order can be both"},
 		{name: "legacy min_tranche above the sweep cap", rule: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\nmin_tranche = 12000.0\n")
+				f.protection = replace(f.protection, "[cash.sweep.currency.USD]\n", "[cash.sweep.currency.USD]\nmin_tranche = 12000.0\n")
 			}, contains: "from min_tranche"},
 		{name: "percent-of-NLV cap above the trading cap", rule: "cap_above_trading_max", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
@@ -242,12 +242,12 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "active sweep with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "can never be placed"},
 		{name: "active currency leveling with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
-			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "[buckets.currency_leveling] enabled = true"},
+			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "[cash.leveling] enabled = true"},
 		{name: "a debit inside the leveling band", rule: "leveling_debit_inside_band", severity: rpc.PolicyCheckWarn,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Book.Cash["USD"] = -3000 }, contains: "inside the 10,000 EUR band"},
 		{name: "settlement route ended", rule: "settlement_route_expired", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\nsettlement_valid_through = 2026-09-01\n")
+				f.protection = replace(f.protection, "[cash.sweep.currency.USD]\n", "[cash.sweep.currency.USD]\nsettlement_valid_through = 2026-09-01\n")
 			}, contains: "ended on 2026-09-01"},
 		{name: "reserve percentage out of range", rule: "file_refused", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
@@ -309,13 +309,13 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "sweep minimum below the commission", rule: "sweep_minimum_uneconomic", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "min_order_notional = 3000.0", "min_order_notional = 900.0")
-				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\nmin_maturity_days = 91", "[buckets.cash_sweep.currency.USD]\nmin_maturity_days = 28")
+				f.protection = replace(f.protection, "[cash.sweep.currency.USD]\nmin_maturity_days = 91", "[cash.sweep.currency.USD]\nmin_maturity_days = 28")
 			}, contains: "1,000 USD (900 EUR, from min_order_notional) in a 28-day bill"},
 		{name: "edited without a version bump", rule: "version_not_bumped", severity: rpc.PolicyCheckWarn,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.FileStatus[PolicyFileRulebook] = "drift" }, contains: "did not rise"},
 		{name: "cash interest assumption expired", rule: "dated_assumption_expired", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
-				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\ncash_interest_rate_upper = 0.01\ncash_interest_valid_through = 2026-09-30\n")
+				f.protection = replace(f.protection, "[cash.sweep.currency.USD]\n", "[cash.sweep.currency.USD]\ncash_interest_rate_upper = 0.01\ncash_interest_valid_through = 2026-09-30\n")
 			}, contains: "USD cash-interest assumption"},
 		{name: "directional intent expired", rule: "dated_assumption_expired", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {

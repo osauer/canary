@@ -387,16 +387,19 @@ func checkOrderEntryOff(c *policyCheckContext) []policyCheckHit {
 	}
 	var active []string
 	if s := c.sweep(); s != nil && s.effectiveMode() == rpc.CashSweepModeActive {
-		active = append(active, "[buckets.cash_sweep] mode = active")
+		active = append(active, "[cash.sweep] mode = active")
 	}
 	if b := c.protection.Buckets.BudgetReduction; b.enabled() && b.effectiveMode() == rpc.BudgetReductionModeActive {
 		active = append(active, "[buckets.budget_reduction] mode = active")
 	}
-	if l := c.protection.Buckets.CurrencyLeveling; l.enabled() {
-		active = append(active, "[buckets.currency_leveling] enabled = true")
+	if l := c.protection.Cash.Leveling; l.enabled() {
+		active = append(active, "[cash.leveling] enabled = true")
 	}
 	if pre := c.protection.Authority.PreAuthorised; len(pre) > 0 {
 		active = append(active, "[authority].pre_authorised = "+strings.Join(pre, ", "))
+	}
+	if pre := c.protection.Cash.PreAuthorised; len(pre) > 0 {
+		active = append(active, "[cash].pre_authorised = "+strings.Join(pre, ", "))
 	}
 	if len(active) == 0 {
 		return nil
@@ -615,11 +618,11 @@ func checkCashReserveVsNLV(c *policyCheckContext) []policyCheckHit {
 	reserve := 0.0
 	if s.ReserveFloorBase != nil {
 		reserve = *s.ReserveFloorBase
-		keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_floor_base", policyCheckMoney(*s.ReserveFloorBase, base)))
+		keys = append(keys, c.protectionKey("cash.sweep", "reserve_floor_base", policyCheckMoney(*s.ReserveFloorBase, base)))
 	}
 	if s.ReservePctNLV != nil {
 		reserve = max(reserve, *s.ReservePctNLV/100*nlv)
-		keys = append(keys, c.protectionKey("buckets.cash_sweep", "reserve_pct_nlv", policyCheckNumber(*s.ReservePctNLV)))
+		keys = append(keys, c.protectionKey("cash.sweep", "reserve_pct_nlv", policyCheckNumber(*s.ReservePctNLV)))
 	}
 	kept, baseSeen := 0.0, false
 	for _, ccy := range c.sweepCurrencies() {
@@ -674,7 +677,7 @@ func (c *policyCheckContext) sweepKeepCashKey(ccy string, v float64) rpc.PolicyC
 			return c.sweepCurrencyKey(ccy, "keep_cash", policyCheckMoney(v, ccy))
 		}
 	}
-	return c.protectionKey("buckets.cash_sweep", "keep_cash", policyCheckMoney(v, ccy)+" (in "+ccy+")")
+	return c.protectionKey("cash.sweep", "keep_cash", policyCheckMoney(v, ccy)+" (in "+ccy+")")
 }
 
 // constitutionNumbers returns the floor and declared risk capital when the
@@ -769,7 +772,7 @@ func checkSweepEconomics(c *policyCheckContext) []policyCheckHit {
 		threshold := a.minCommission
 		if s.MinNetGain > 0 {
 			threshold += s.MinNetGain / fx
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", "min_net_gain", policyCheckMoney(s.MinNetGain, c.base())))
+			keys = append(keys, c.protectionKey("cash.sweep", "min_net_gain", policyCheckMoney(s.MinNetGain, c.base())))
 		}
 		commission := max(a.minCommission, a.pctCommission*minNative)
 		interest := minNative * net * days / 365
@@ -822,7 +825,7 @@ type policyCheckDated struct {
 
 func (c *policyCheckContext) datedAssumptions() []policyCheckDated {
 	var out []policyCheckDated
-	if s := c.protection.Buckets.CashSweep; s != nil {
+	if s := c.protection.Cash.Sweep; s != nil {
 		for _, ccy := range slices.Sorted(maps.Keys(s.Currency)) {
 			d := string(s.Currency[ccy].CashInterestValidThrough)
 			t, err := time.ParseInLocation(time.DateOnly, d, c.now.Location())
@@ -922,7 +925,7 @@ func checkCompiledDefaults(c *policyCheckContext) []policyCheckHit {
 	if missing := s.missingNumbers(); len(missing) > 0 {
 		var keys []rpc.PolicyCheckKey
 		for _, key := range missing {
-			keys = append(keys, c.protectionKey("buckets.cash_sweep", key, "not written"))
+			keys = append(keys, c.protectionKey("cash.sweep", key, "not written"))
 		}
 		out = append(out, policyCheckHit{keys: keys,
 			message:    "The cash sweep holds until these numbers are written in the policy file; Canary reads them from the file only.",
@@ -936,7 +939,7 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 		return nil
 	}
 	capBase, keys, ok := c.sweepCapBase()
-	exempt := c.protectionKey("buckets.cash_sweep", "bills_exempt_from_trading_max_notional", "true")
+	exempt := c.protectionKey("cash.sweep", "bills_exempt_from_trading_max_notional", "true")
 	tradingCap, capOK := c.orderCap()
 	if !capOK {
 		return nil
@@ -966,9 +969,9 @@ func checkSweepBuysWhileBorrowed(c *policyCheckContext) []policyCheckHit {
 	if len(borrowed) == 0 {
 		return nil
 	}
-	return []policyCheckHit{{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.cash_sweep", "no_buy_while_borrowed", "false")},
+	return []policyCheckHit{{keys: []rpc.PolicyCheckKey{c.protectionKey("cash.sweep", "no_buy_while_borrowed", "false")},
 		message:    fmt.Sprintf("The account is borrowing (%s), and no_buy_while_borrowed = false lets the sweep buy bills meanwhile; margin interest on the debit usually costs more than a bill earns.", strings.Join(borrowed, ", ")),
-		suggestion: "Set no_buy_while_borrowed = true in [buckets.cash_sweep] and raise policy_version; repay the debit by converting or depositing (the sweep never converts)."}}
+		suggestion: "Set no_buy_while_borrowed = true in [cash.sweep] and raise policy_version; repay the debit by converting or depositing (the sweep never converts)."}}
 }
 
 // policyCheckDeref reads an optional policy number; an unwritten key reads 0.
@@ -1042,7 +1045,7 @@ func checkRetiredTradingGates(c *policyCheckContext) []policyCheckHit {
 // no_buy_while_borrowed holds the sweep's bill buys for any debit beyond one
 // unit, nothing is proposed to clear it.
 func checkLevelingDebitInsideBand(c *policyCheckContext) []policyCheckHit {
-	l := c.protection.Buckets.CurrencyLeveling
+	l := c.protection.Cash.Leveling
 	if !l.enabled() || l.TriggerBase == nil || c.book == nil {
 		return nil
 	}
@@ -1061,7 +1064,7 @@ func checkLevelingDebitInsideBand(c *policyCheckContext) []policyCheckHit {
 		if debit > *l.TriggerBase {
 			continue
 		}
-		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.currency_leveling", "trigger_base", policyCheckNumber(*l.TriggerBase))},
+		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.protectionKey("cash.leveling", "trigger_base", policyCheckNumber(*l.TriggerBase))},
 			message: fmt.Sprintf("%s cash is %s (%s), inside the %s band: leveling does not convert it, so it stays a margin loan and pays debit interest.%s",
 				ccy, policyCheckMoney(cash, ccy), policyCheckMoney(-debit, c.base()), policyCheckMoney(*l.TriggerBase, c.base()), sweepHolds),
 			suggestion: fmt.Sprintf("Convert it yourself, lower trigger_base below %s, or set deliberate_carry = true for %s if you keep it borrowed on purpose.", policyCheckMoney(policyCheckRoundDown(debit), c.base()), ccy)})

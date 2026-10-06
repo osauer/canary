@@ -23,14 +23,14 @@ func sweepRedemptionCapRig(t *testing.T, cap, limit float64, authority string) (
 	broker := &brokerCallLog{}
 	broker.install(rig.server)
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, cap)
-	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.MinTranche = new(900.0) })
+	setSweepCcy(policy.Cash.Sweep, "EUR", func(c *protectionCashSweepCurrency) { c.MinTranche = new(900.0) })
 	in := eurRedeemInput(10000)
 	maturity := cashSweepDay(rig.now).AddDate(0, 0, 60)
 	in.Holdings["EUR"][0].Maturity = maturity
 	line := synthBondLine(7401, synthDEBill2, "EUR", maturity)
 	src := &fakeBillSource{heldLines: map[int][]ibkrlib.BondContractDetails{7401: {line}}}
 	plan := cashSweepPlanFor(policy, in, rig.now)
-	cashSweepResolveBills(t.Context(), src, policy.Buckets.CashSweep, &plan, rig.now)
+	cashSweepResolveBills(t.Context(), src, policy.Cash.Sweep, &plan, rig.now)
 	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, rig.now, plan, cashSweepCurrencyOf(t, plan, "EUR"))
 	if row.Quantity != 1000 || row.MaxQuantity != 1000 || len(row.Blockers) != 0 {
 		t.Fatalf("fixture redemption = %d/%d blockers %v", row.Quantity, row.MaxQuantity, row.Blockers)

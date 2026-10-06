@@ -27,7 +27,7 @@ func cashSweepTestPolicy(mode string, maxOrderNotional float64) protectionPolicy
 	// Every sizing number is written: no reserve, no base minimum, no NLV
 	// share and no order grid, so the band is keep_cash 5000 and min_tranche
 	// 1000 alone.
-	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{},
+	p.Cash.Sweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{},
 		MinOrderNotional: new(0.0), MaxOrderPctNLV: new(0.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(0.0), OrderStepBase: new(0.0), NoBuyWhileBorrowed: new(true)}
 	for _, ccy := range []string{"USD", "EUR"} {
 		c := defaultCashSweepCurrency(ccy)
@@ -35,7 +35,7 @@ func cashSweepTestPolicy(mode string, maxOrderNotional float64) protectionPolicy
 		c.SettlementDays = new(1)
 		c.SettlementExchange = "SMART"
 		c.SettlementValidThrough = "2027-12-31"
-		p.Buckets.CashSweep.Currency[ccy] = c
+		p.Cash.Sweep.Currency[ccy] = c
 	}
 	return p
 }
@@ -282,7 +282,7 @@ func TestCashSweepEURFallbackOnlyAfterAnEmptySearch(t *testing.T) {
 	if cp := cashSweepCurrencyOf(t, cashSweepPlanFor(policy, in, now), "EUR"); cp.status.State != rpc.CashSweepStateHold || cp.side != "" {
 		t.Fatalf("empty search without a symbol = %+v", cp.status)
 	}
-	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.ETFSymbol, c.ETFExchange = "BBB", "IBIS" })
+	setSweepCcy(policy.Cash.Sweep, "EUR", func(c *protectionCashSweepCurrency) { c.ETFSymbol, c.ETFExchange = "BBB", "IBIS" })
 	for _, tc := range []struct {
 		search     map[string]cashSweepBillSearch
 		instrument string
@@ -301,7 +301,7 @@ func TestCashSweepEURFallbackOnlyAfterAnEmptySearch(t *testing.T) {
 			// The ETF is matched by contract id, which Canary does not
 			// resolve: resolution leaves no row and says why.
 			plan := cashSweepPlanFor(policy, in, now)
-			cashSweepResolveBills(context.Background(), &fakeBillSource{}, policy.Buckets.CashSweep, &plan, now)
+			cashSweepResolveBills(context.Background(), &fakeBillSource{}, policy.Cash.Sweep, &plan, now)
 			etf := cashSweepCurrencyOf(t, plan, "EUR")
 			if etf.side != "" || etf.status.State != rpc.CashSweepStateInstrumentUnresolved || !strings.Contains(etf.status.Reason, "ETF") {
 				t.Fatalf("ETF invest = %+v", etf.status)
@@ -311,7 +311,7 @@ func TestCashSweepEURFallbackOnlyAfterAnEmptySearch(t *testing.T) {
 	// An ETF declared as the only instrument without its symbol holds the
 	// currency with needs_your_number.
 	usdETF := cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9)
-	setSweepCcy(usdETF.Buckets.CashSweep, "USD", func(c *protectionCashSweepCurrency) { c.Instruments = []string{"etf"} })
+	setSweepCcy(usdETF.Cash.Sweep, "USD", func(c *protectionCashSweepCurrency) { c.Instruments = []string{"etf"} })
 	if cp := cashSweepCurrencyOf(t, cashSweepPlanFor(usdETF, cashSweepTestInput(map[string]float64{"USD": 60000}), now), "USD"); cp.status.State != rpc.CashSweepStateNeedsYourNumber {
 		t.Fatalf("ETF-only without symbol = %+v", cp.status)
 	}
@@ -339,8 +339,8 @@ func TestCashSweepUnknownPostureGeneratesNothing(t *testing.T) {
 			in := cashSweepTestInput(map[string]float64{"USD": 60000})
 			tc.change(&in)
 			if tc.name == "ledger unavailable" {
-				setSweepCcy(policy.Buckets.CashSweep, "USD", func(*protectionCashSweepCurrency) {})
-				defer func() { policy.Buckets.CashSweep.Currency = nil }()
+				setSweepCcy(policy.Cash.Sweep, "USD", func(*protectionCashSweepCurrency) {})
+				defer func() { policy.Cash.Sweep.Currency = nil }()
 			}
 			plan := cashSweepPlanFor(policy, in, now)
 			cp := cashSweepCurrencyOf(t, plan, "USD")
@@ -440,8 +440,8 @@ func TestCashSweepResolvedRowsAreOrdinaryProposals(t *testing.T) {
 		{rpc.CashSweepModeActive, "2026-09-30", nil},
 	} {
 		policy := cashSweepTestPolicy(tc.mode, 1e9)
-		policy.Buckets.CashSweep.TaxReviewedAt = policyDate(tc.tax)
-		setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) { c.ISINs = []string{synthDEBill} })
+		policy.Cash.Sweep.TaxReviewedAt = policyDate(tc.tax)
+		setSweepCcy(policy.Cash.Sweep, "EUR", func(c *protectionCashSweepCurrency) { c.ISINs = []string{synthDEBill} })
 		src := usBillSource(now)
 		src.byID[synthDEBill] = []ibkrlib.BondContractDetails{synthBondLine(7301, synthDEBill, "EUR", cashSweepDay(now).AddDate(0, 0, 40))}
 		src.quotes[7301] = synthLiveQuote(99.8)
@@ -523,7 +523,7 @@ func TestCashSweepShadowRowRefusedByPreviewAndSubmit(t *testing.T) {
 		},
 	}
 	preview, err := engine.Preview(context.Background(), rpc.TradeProposalPreviewParams{Key: row.Key, Revision: row.Revision})
-	if err != nil || preview.Accepted || len(preview.Blockers) != 1 || preview.Blockers[0].Code != "shadow_mode" || !strings.Contains(preview.Blockers[0].Action, "[buckets.cash_sweep]") {
+	if err != nil || preview.Accepted || len(preview.Blockers) != 1 || preview.Blockers[0].Code != "shadow_mode" || !strings.Contains(preview.Blockers[0].Action, "[cash.sweep]") {
 		t.Fatalf("preview = %+v err %v", preview, err)
 	}
 	for _, fastPath := range []bool{false, true} {
@@ -684,7 +684,7 @@ func TestCashSweepInvariantsOverRandomBooks(t *testing.T) {
 			sides[cp.side]++
 			switch cp.side {
 			case rpc.CashSweepSideInvest:
-				if float64(cp.quantity) > cp.free+1e-6 || float64(cp.quantity) < *policy.Buckets.CashSweep.currency(ccy).MinTranche-1 {
+				if float64(cp.quantity) > cp.free+1e-6 || float64(cp.quantity) < *policy.Cash.Sweep.currency(ccy).MinTranche-1 {
 					t.Fatalf("book %d: planned amount out of bounds: %+v", i, cp.status)
 				}
 				// Resolved at a price either side of par, the order stays in
@@ -700,7 +700,7 @@ func TestCashSweepInvariantsOverRandomBooks(t *testing.T) {
 				cost := face * *resolved.bill.Price / 100
 				if row.Contract.Currency != ccy || !cashSweepInstrumentAllowed(cp.instrument, ccy) || cp.instrument == "none" || row.Quantity < 1 ||
 					face > cp.free+1e-6 || cost > cp.free+1e-6 || resolved.rules.CheckQuantity(row.Quantity) != nil ||
-					cp.targetDays < 28 || cp.targetDays > policy.Buckets.CashSweep.currency(ccy).MaxMaturityDays {
+					cp.targetDays < 28 || cp.targetDays > policy.Cash.Sweep.currency(ccy).MaxMaturityDays {
 					t.Fatalf("book %d: invest row out of bounds: %+v / %+v", i, row, cp.status)
 				}
 				if _, ok := cashSweepOpenException(row); !ok {
@@ -852,8 +852,8 @@ func TestCashSweepEngineGateCountsAndClone(t *testing.T) {
 	// Enabled without a current account: every declared currency reads
 	// cash_unavailable and nothing is generated.
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 1e9)
-	delete(policy.Buckets.CashSweep.Currency, "EUR")
-	setSweepCcy(policy.Buckets.CashSweep, "USD", func(*protectionCashSweepCurrency) {})
+	delete(policy.Cash.Sweep.Currency, "EUR")
+	setSweepCcy(policy.Cash.Sweep, "USD", func(*protectionCashSweepCurrency) {})
 	rows, st := engine.cashSweepProposals(context.Background(), policy, rpc.ProtectionPolicyStatus{}, nil, nil, rpc.TradeProposalSourceFingerprints{}, brokerStateScope{}, now)
 	if rows != nil || st == nil || st.Reason == "" || len(st.Currencies) != 1 || st.Currencies[0].State != rpc.CashSweepStateCashUnavailable || st.Rows != 0 {
 		t.Fatalf("no account = %+v rows %v", st, rows)
@@ -921,7 +921,7 @@ func TestCashSweepRevisionBindsWholeOrderUnits(t *testing.T) {
 	stop := rpc.TradeProposal{Key: "trailing_stop:1", Bucket: rpc.TradeProposalBucketTrailingStop, Quantity: 100, PositionEffect: rpc.OrderPositionEffectClose}
 	revision := func(cash float64) string {
 		plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": cash}), now)
-		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 		rows := []rpc.TradeProposal{stop}
 		for _, cp := range plan.currencies {
 			if cp.side != "" {

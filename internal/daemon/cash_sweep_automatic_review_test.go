@@ -12,7 +12,7 @@ func reviewSweepRow(t *testing.T, now time.Time, cash float64) rpc.TradeProposal
 	t.Helper()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
 	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": cash}), now)
-	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 	return cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cashSweepCurrencyOf(t, plan, "USD"))
 }
 

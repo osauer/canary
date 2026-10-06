@@ -272,17 +272,29 @@ func TestCashSweepReadinessReadsTheBillSession(t *testing.T) {
 	}
 }
 
-// cash_sweep joins the pre-authorised vocabulary: a sweep row maps to it,
-// the policy accepts it, and its notice has its own copy with no "now"
-// variant, since a sweep row always waits the full window.
+// cash_sweep is pre-authorised under its own [cash] authority (owner
+// decision 2026-10-06 06:08 CEST): a sweep row maps to it, a file written
+// before the move that lists it in [authority] still reads as the [cash]
+// entry, and its notice has its own copy with no "now" variant, since a sweep
+// row always waits the full window.
 func TestCashSweepPreAuthorisedVocabulary(t *testing.T) {
-	if !validPreAuthorisedBucket("cash_sweep") || automaticBucketFor(rpc.TradeProposal{Bucket: rpc.TradeProposalBucketCashSweep}) != preAuthorisedBucketCashSweep {
-		t.Fatal("cash_sweep is not pre-authorisable")
+	if validPreAuthorisedBucket("cash_sweep") || automaticBucketFor(rpc.TradeProposal{Bucket: rpc.TradeProposalBucketCashSweep}) != preAuthorisedBucketCashSweep {
+		t.Fatal("cash_sweep is in the protection vocabulary, or its rows do not map to it")
 	}
 	m := writePreAuthPolicy(t, preAuthPolicyTOML(`pre_authorised = ["cash_sweep"]`, 1))
 	read, err := m.loadPolicy()
-	if err != nil || !read.policy.Authority.preAuthorised("cash_sweep") {
-		t.Fatalf("policy = %+v err %v", read.policy.Authority, err)
+	if err != nil || !read.policy.preAuthorised("cash_sweep") || slices.Contains(read.policy.Authority.PreAuthorised, "cash_sweep") ||
+		!slices.Equal(read.policy.Cash.PreAuthorised, []string{"cash_sweep"}) {
+		t.Fatalf("legacy listing: authority %+v cash %+v err %v", read.policy.Authority, read.policy.Cash.PreAuthorised, err)
+	}
+	m = writePreAuthPolicy(t, preAuthPolicyTOML("pre_authorised = [\"trailing_stop\"]\n\n[cash]\npre_authorised = [\"cash_sweep\"]", 1))
+	if read, err = m.loadPolicy(); err != nil || !read.policy.preAuthorised("cash_sweep") || !read.policy.preAuthorised("trailing_stop") {
+		t.Fatalf("[cash] listing: authority %+v cash %+v err %v", read.policy.Authority, read.policy.Cash.PreAuthorised, err)
+	}
+	for _, bad := range []string{"currency_leveling", "trailing_stop"} {
+		if _, _, err := parseProtectionPolicy([]byte(pcProtectionHead + "\n[cash]\npre_authorised = [\"" + bad + "\"]\n")); err == nil {
+			t.Fatalf("[cash] pre_authorised accepted %q", bad)
+		}
 	}
 	for _, latched := range []bool{false, true} {
 		if code := alertProtectionAutomaticPresentationCode(automaticNoticeKey{Bucket: preAuthorisedBucketCashSweep, Latched: latched}); code != rpc.AlertPresentationProtectionAutoCashSweep {
@@ -317,7 +329,7 @@ func newSweepPreviewRig(t *testing.T, now time.Time) *sweepPreviewRig {
 	srv.now = func() time.Time { return rig.now }
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
 	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
-	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 	rig.row = cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cashSweepCurrencyOf(t, plan, "USD"))
 	rig.row.Revision = "rev-sweep"
 	if rig.row.Contract.ConID != 7101 || rig.row.Quantity != 55 || len(rig.row.Blockers) != 0 {

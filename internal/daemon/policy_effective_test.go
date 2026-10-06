@@ -38,11 +38,11 @@ enabled = true
 basis = "rulebook"
 max_order_notional = 2500.0
 
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 max_order_notional = 12000.0
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 instruments = ["de_bubill"]
 fallback = "etf"
 `
@@ -156,13 +156,13 @@ func TestPolicyEffectiveViewAttributesSources(t *testing.T) {
 		"protection:authority.pre_authorised":                              {"none", rpc.PolicySourceNeedsYourNumber},
 		"protection:buckets.budget_reduction.mode":                         {"shadow", rpc.PolicySourceDefault},
 		"protection:buckets.budget_reduction.per_line_pct_of_risk_capital": {"10% NLV (Rulebook)", rpc.PolicySourceMachine},
-		"protection:buckets.cash_sweep.max_order_notional":                 {"12,000", rpc.PolicySourceFile},
-		"protection:buckets.cash_sweep.tax_reviewed_at":                    {"—", rpc.PolicySourceNeedsYourNumber},
-		"protection:buckets.cash_sweep.currency.EUR.instruments":           {"de_bubill", rpc.PolicySourceFile},
-		"protection:buckets.cash_sweep.currency.EUR.etf_symbol":            {"—", rpc.PolicySourceNeedsYourNumber},
-		"protection:buckets.cash_sweep.currency.EUR.max_maturity_days":     {"182 days", rpc.PolicySourceDefault},
-		"protection:buckets.cash_sweep.currency.EUR.settlement_days":       {"Canary's maintained route", rpc.PolicySourceMachine},
-		"protection:buckets.cash_sweep.currency.USD.instruments":           {"us_tbill", rpc.PolicySourceDefault},
+		"protection:cash.sweep.max_order_notional":                         {"12,000", rpc.PolicySourceFile},
+		"protection:cash.sweep.tax_reviewed_at":                            {"—", rpc.PolicySourceNeedsYourNumber},
+		"protection:cash.sweep.currency.EUR.instruments":                   {"de_bubill", rpc.PolicySourceFile},
+		"protection:cash.sweep.currency.EUR.etf_symbol":                    {"—", rpc.PolicySourceNeedsYourNumber},
+		"protection:cash.sweep.currency.EUR.max_maturity_days":             {"182 days", rpc.PolicySourceDefault},
+		"protection:cash.sweep.currency.EUR.settlement_days":               {"Canary's maintained route", rpc.PolicySourceMachine},
+		"protection:cash.sweep.currency.USD.instruments":                   {"us_tbill", rpc.PolicySourceDefault},
 		"rulebook:regime_*.premium_budget_watch_pct":                       {"25% / 20% / 15%", rpc.PolicySourceDefault},
 		"trading:trading.mode":                                             {"paper", "config"},
 	} {
@@ -201,12 +201,12 @@ func TestPolicyEffectiveViewAttributesSources(t *testing.T) {
 
 func TestDefinedTOMLKeysFlattensTables(t *testing.T) {
 	got := definedTOMLKeys([]byte(syntheticProtectionPolicy))
-	for _, key := range []string{"kind", "authority", "authority.auto_submit", "buckets.cash_sweep.currency.EUR.fallback"} {
+	for _, key := range []string{"kind", "authority", "authority.auto_submit", "cash.sweep.currency.EUR.fallback"} {
 		if !got[key] {
 			t.Errorf("%s not defined in %v", key, got)
 		}
 	}
-	if got["buckets.cash_sweep.currency.EUR.keep_cash"] {
+	if got["cash.sweep.currency.EUR.keep_cash"] {
 		t.Error("an absent key reads as defined")
 	}
 }

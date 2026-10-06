@@ -39,6 +39,27 @@ type protectionPolicy struct {
 
 	Authority protectionPolicyAuthority `toml:"authority" json:"authority"`
 	Buckets   protectionPolicyBuckets   `toml:"buckets" json:"buckets"`
+	// Cash is cash management, the [cash] section: the cash sweep and
+	// currency leveling under their own authority, outside the protection
+	// buckets.
+	Cash protectionCashPolicy `toml:"cash" json:"cash,omitzero"`
+}
+
+// Cash management (owner decision 2026-10-06 06:08 CEST, "Now, on this
+// branch": both move together and protection becomes strictly
+// close-or-reduce). The cash sweep and currency leveling buy bills and
+// convert currencies; neither protects a position, so they live in their own
+// [cash] section with their own authority. A cash row's order is admitted by
+// its own typed bounds (a sweep bill, a leveling conversion), never as an
+// exception to authority.close_reduce_only. One veto window,
+// [authority] veto_window, serves every pre-authorised row.
+type protectionCashPolicy struct {
+	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to its max_order_notional. currency_leveling is never pre-authorised. Empty by default.
+	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
+	// Sweep is the cash sweep, [cash.sweep]; an absent table is off.
+	Sweep *protectionCashSweepPolicy `toml:"sweep" json:"sweep,omitempty"`
+	// Leveling is currency leveling, [cash.leveling]; an absent table is off.
+	Leveling *protectionCurrencyLevelingPolicy `toml:"leveling" json:"leveling,omitempty"`
 }
 
 type protectionPolicyAuthority struct {
@@ -46,14 +67,14 @@ type protectionPolicyAuthority struct {
 	CloseReduceOnly bool `toml:"close_reduce_only" json:"close_reduce_only"`
 	// AutoSubmit would let proposals submit themselves; must be false — proposals are advisory and every broker write stays behind the gated order path.
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
-	// PreAuthorised lists the buckets whose unblocked proposals the daemon
-	// places itself after recording an alert and the veto window (owner
-	// decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
-	// option_loss_exit, option_profit_trail, budget_reduction, cash_sweep
-	// (the sweep's bill buys and redemptions, always after the full window,
-	// each held to its max_order_notional). Empty by default, so nothing
-	// submits itself until the owner lists a bucket and bumps
-	// policy_version.
+	// PreAuthorised lists the protection buckets whose unblocked proposals
+	// the daemon places itself after recording an alert and the veto window
+	// (owner decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
+	// option_loss_exit, option_profit_trail, budget_reduction. The cash
+	// sweep's pre-authorisation lives in [cash] pre_authorised; a file
+	// written before cash management moved there may still list cash_sweep
+	// here, which is read as the [cash] entry. Empty by default, so nothing
+	// submits itself until the owner lists a bucket and bumps policy_version.
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
 	// VetoWindow is how long a pre-authorised proposal waits between its
 	// notice and its submission; default 30m, minimum 5m. A latched
@@ -74,8 +95,8 @@ const (
 	// listing it before that bucket exists authorises nothing.
 	preAuthorisedBucketBudgetReduction = "budget_reduction"
 	// preAuthorisedBucketCashSweep names the cash sweep's rows (bill buys
-	// and redemptions); each is NeverSkipVeto and held to the bucket's
-	// max_order_notional.
+	// and redemptions) in [cash] pre_authorised; each is NeverSkipVeto and
+	// held to the bucket's max_order_notional.
 	preAuthorisedBucketCashSweep = "cash_sweep"
 
 	defaultVetoWindow = 30 * time.Minute
@@ -85,8 +106,7 @@ const (
 func validPreAuthorisedBucket(name string) bool {
 	switch name {
 	case preAuthorisedBucketTrailingStop, preAuthorisedBucketOptionLossExit,
-		preAuthorisedBucketOptionProfitTrail, preAuthorisedBucketBudgetReduction,
-		preAuthorisedBucketCashSweep:
+		preAuthorisedBucketOptionProfitTrail, preAuthorisedBucketBudgetReduction:
 		return true
 	default:
 		return false
@@ -97,6 +117,16 @@ func validPreAuthorisedBucket(name string) bool {
 // submission. The empty name (a proposal outside the vocabulary) never is.
 func (a protectionPolicyAuthority) preAuthorised(bucket string) bool {
 	return bucket != "" && slices.Contains(a.PreAuthorised, bucket)
+}
+
+// preAuthorised reports whether the owner listed bucket for daemon
+// submission under the authority that governs it: [cash] for the cash
+// sweep, [authority] for every protection bucket.
+func (p protectionPolicy) preAuthorised(bucket string) bool {
+	if bucket == preAuthorisedBucketCashSweep {
+		return slices.Contains(p.Cash.PreAuthorised, bucket)
+	}
+	return p.Authority.preAuthorised(bucket)
 }
 
 // vetoWindow resolves the configured window; validateProtectionPolicy has
@@ -120,12 +150,8 @@ type protectionPolicyBuckets struct {
 	// embedded default does not carry it, and a policy file written before it
 	// existed keeps its fingerprint byte-for-byte.
 	BudgetReduction *protectionBudgetPolicy `toml:"budget_reduction" json:"budget_reduction,omitempty"`
-	// CashSweep is a pointer for the same reason: the embedded default does
-	// not carry it, and a file without it keeps its fingerprint.
-	CashSweep *protectionCashSweepPolicy `toml:"cash_sweep" json:"cash_sweep,omitempty"`
-	// CurrencyLeveling is a pointer for the same reason: a file without it
-	// keeps its fingerprint, and an absent table is off.
-	CurrencyLeveling *protectionCurrencyLevelingPolicy `toml:"currency_leveling" json:"currency_leveling,omitempty"`
+	// LegacyCashSweep reads [buckets.cash_sweep] from a file written before cash management moved to [cash.sweep]; parsing moves it there and policy ensure rewrites the file. Never serialised.
+	LegacyCashSweep *protectionCashSweepPolicy `toml:"cash_sweep" json:"-"`
 }
 
 // protectionBudgetPolicy is the options premium budget governor. It reduces
@@ -508,13 +534,40 @@ func parseProtectionPolicy(data []byte) (protectionPolicy, []string, error) {
 	if len(unknown) > 0 {
 		return protectionPolicy{}, nil, fmt.Errorf("unknown protection policy key(s): %s", strings.Join(unknown, ", "))
 	}
+	if err := adoptLegacyCashPolicy(&p); err != nil {
+		return protectionPolicy{}, nil, err
+	}
 	applyProtectionPolicyDefaults(&p, &md)
-	applyCashSweepDefaults(p.Buckets.CashSweep, &md)
+	applyCashSweepDefaults(p.Cash.Sweep, &md)
 	if err := validateProtectionPolicy(p); err != nil {
 		return protectionPolicy{}, nil, err
 	}
 	slices.Sort(retired)
 	return p, retired, nil
+}
+
+// adoptLegacyCashPolicy moves what a file written before cash management
+// moved to [cash] still carries: [buckets.cash_sweep] becomes [cash.sweep]
+// and cash_sweep in [authority] pre_authorised becomes a [cash]
+// pre_authorised entry. A file that writes the sweep in both places is
+// refused: Canary cannot tell which the owner meant.
+func adoptLegacyCashPolicy(p *protectionPolicy) error {
+	if legacy := p.Buckets.LegacyCashSweep; legacy != nil {
+		if p.Cash.Sweep != nil {
+			return fmt.Errorf("the cash sweep is written twice, as [buckets.cash_sweep] and [cash.sweep]; keep [cash.sweep] (canary policy ensure moves the old table)")
+		}
+		p.Cash.Sweep, p.Buckets.LegacyCashSweep = legacy, nil
+	}
+	if i := slices.Index(p.Authority.PreAuthorised, preAuthorisedBucketCashSweep); i >= 0 {
+		p.Authority.PreAuthorised = slices.Delete(slices.Clone(p.Authority.PreAuthorised), i, i+1)
+		if len(p.Authority.PreAuthorised) == 0 {
+			p.Authority.PreAuthorised = nil
+		}
+		if !slices.Contains(p.Cash.PreAuthorised, preAuthorisedBucketCashSweep) {
+			p.Cash.PreAuthorised = append(slices.Clone(p.Cash.PreAuthorised), preAuthorisedBucketCashSweep)
+		}
+	}
+	return nil
 }
 
 func defaultProtectionPolicy() protectionPolicy {
@@ -568,8 +621,8 @@ func defaultProtectionPolicy() protectionPolicy {
 					AllowShortProfitTrail: false,
 				},
 			},
-			CurrencyLeveling: defaultCurrencyLevelingPolicy(),
 		},
+		Cash: protectionCashPolicy{Leveling: defaultCurrencyLevelingPolicy()},
 	}
 }
 
@@ -672,10 +725,18 @@ func validateProtectionPolicy(p protectionPolicy) error {
 	}
 	for i, bucket := range p.Authority.PreAuthorised {
 		if !validPreAuthorisedBucket(bucket) {
-			return fmt.Errorf("protection policy authority.pre_authorised[%d] %q is not a pre-authorisable bucket; use trailing_stop, option_loss_exit, option_profit_trail, budget_reduction or cash_sweep", i, bucket)
+			return fmt.Errorf("protection policy authority.pre_authorised[%d] %q is not a pre-authorisable bucket; use trailing_stop, option_loss_exit, option_profit_trail or budget_reduction (the cash sweep is pre-authorised in [cash])", i, bucket)
 		}
 		if slices.Contains(p.Authority.PreAuthorised[:i], bucket) {
 			return fmt.Errorf("protection policy authority.pre_authorised lists %q twice", bucket)
+		}
+	}
+	for i, bucket := range p.Cash.PreAuthorised {
+		if bucket != preAuthorisedBucketCashSweep {
+			return fmt.Errorf("protection policy cash.pre_authorised[%d] %q is not a pre-authorisable cash bucket; only cash_sweep can be (currency leveling is approved by you, never pre-authorised)", i, bucket)
+		}
+		if slices.Contains(p.Cash.PreAuthorised[:i], bucket) {
+			return fmt.Errorf("protection policy cash.pre_authorised lists %q twice", bucket)
 		}
 	}
 	if raw := strings.TrimSpace(p.Authority.VetoWindow); raw != "" {
@@ -725,10 +786,10 @@ func validateProtectionPolicy(p protectionPolicy) error {
 	if err := validateBudgetPolicy("budget_reduction", p.Buckets.BudgetReduction); err != nil {
 		return err
 	}
-	if err := validateCashSweepPolicy("cash_sweep", p.Buckets.CashSweep); err != nil {
+	if err := validateCashSweepPolicy("cash.sweep", p.Cash.Sweep); err != nil {
 		return err
 	}
-	if err := validateCurrencyLevelingPolicy("currency_leveling", p.Buckets.CurrencyLeveling); err != nil {
+	if err := validateCurrencyLevelingPolicy("cash.leveling", p.Cash.Leveling); err != nil {
 		return err
 	}
 	return nil
@@ -951,6 +1012,7 @@ func fingerprintProtectionPolicy(p protectionPolicy) rpc.Fingerprint {
 		Profile       string                    `json:"profile"`
 		Authority     protectionPolicyAuthority `json:"authority"`
 		Buckets       protectionPolicyBuckets   `json:"buckets"`
+		Cash          protectionCashPolicy      `json:"cash,omitzero"`
 	}{
 		Kind:          strings.TrimSpace(p.Kind),
 		SchemaVersion: p.SchemaVersion,
@@ -959,6 +1021,7 @@ func fingerprintProtectionPolicy(p protectionPolicy) rpc.Fingerprint {
 		Profile:       strings.TrimSpace(p.Profile),
 		Authority:     p.Authority,
 		Buckets:       p.Buckets,
+		Cash:          p.Cash,
 	}
 	raw, _ := json.Marshal(normalized)
 	sum := sha256.Sum256(raw)
@@ -989,11 +1052,11 @@ func nonEmptyString(v, fallback string) string {
 	return fallback
 }
 
-// The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work
-// in bills of the same currency and never converts (owner decisions S1–S6,
-// 2026-09-30). It is the one bucket whose rows buy: authority.close_reduce_only
-// stays true, and the carve-out is the typed exception in
-// proposal_cash_sweep.go (decision O1). Every sizing number (reserve, order
+// The cash sweep (internal-docs/design/cash-sweep.md), [cash.sweep], puts
+// idle cash to work in bills of the same currency and never converts (owner
+// decisions S1–S6, 2026-09-30). Its rows buy under the [cash] authority: a
+// bill order is admitted by the sweep's typed bounds in
+// proposal_cash_sweep.go (decision O1), not by close/reduce. Every sizing number (reserve, order
 // bounds, keep_cash) is read from the file only; Canary's values exist solely
 // for policy ensure to write (owner decision 2026-10-05 18:35 CEST). Only the
 // instrument declaration and maturity ladder keep compiled defaults.
@@ -1030,7 +1093,7 @@ type protectionCashSweepPolicy struct {
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
 	TaxReviewedAt policyDate `toml:"tax_reviewed_at" json:"tax_reviewed_at,omitempty"`
-	// Currency holds one table per ISO currency code, as [buckets.cash_sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
+	// Currency holds one table per ISO currency code, as [cash.sweep.currency.USD]; a currency without a table follows Canary's compiled default: USD us_tbill, EUR de_bubill and fr_btf with an etf fallback, GBP uk_tbill, CAD ca_tbill, any other none.
 	Currency map[string]protectionCashSweepCurrency `toml:"currency" json:"currency,omitempty"`
 }
 
@@ -1067,16 +1130,17 @@ type protectionCashSweepCurrency struct {
 	ISINs []string `toml:"isins" json:"isins,omitempty"`
 }
 
-// Currency leveling (internal-docs/design/currency-leveling.md). Owner
-// decisions 2026-10-05 21:28 and 22:02 CEST, the settings walk-through of
-// 2026-10-06 05:44–06:15 CEST and the several-currency plan confirmed
-// 2026-10-06 07:11 CEST: off by default, every row live once on (no shadow
-// mode), six settings; interest rates come from the broker's statements, not
-// from this file. Every number is read from the policy file only; Canary's
-// values exist solely for policy ensure to write them, and a missing one holds
-// every currency at needs_your_number. One loan's conversions together are
-// held to the order cap in force ([order_limits]). Pre-authorisation is out of
-// scope: currency_leveling is not in the pre_authorised vocabulary.
+// Currency leveling (internal-docs/design/currency-leveling.md),
+// [cash.leveling]. Owner decisions 2026-10-05 21:28 and 22:02 CEST, the
+// settings walk-through of 2026-10-06 05:44–06:15 CEST and the
+// several-currency plan confirmed 2026-10-06 07:11 CEST: off by default,
+// every row live once on (no shadow mode), six settings; interest rates come
+// from the broker's statements, not from this file. Every number is read from
+// the policy file only; Canary's values exist solely for policy ensure to
+// write them, and a missing one holds every currency at needs_your_number.
+// One loan's conversions together are held to the order cap in force
+// ([order_limits]). Pre-authorisation is out of scope: [cash] pre_authorised
+// refuses currency_leveling.
 type protectionCurrencyLevelingPolicy struct {
 	// Enabled turns currency leveling on (default false; policy ensure writes the table with enabled = false): each borrowed currency then gets a conversion proposal you approve, never one sent on its own.
 	Enabled bool `toml:"enabled" json:"enabled"`
@@ -1088,7 +1152,7 @@ type protectionCurrencyLevelingPolicy struct {
 	MaxSlippageBP *float64 `toml:"max_slippage_bp" json:"max_slippage_bp,omitempty"`
 	// PaybackDays is how many days a conversion has to earn back its worst-case cost (the commission bound plus the slippage bound) in interest saved, at the rates in the broker's statements: a conversion that would not is not proposed, and between ways to repay a loan the one that saves the most within these days wins. From 1 to 365. Read from this file only (policy ensure writes 30).
 	PaybackDays *int `toml:"payback_days" json:"payback_days,omitempty"`
-	// Currency holds one table per ISO currency code, as [buckets.currency_leveling.currency.USD]; a currency without a table is levelled.
+	// Currency holds one table per ISO currency code, as [cash.leveling.currency.USD]; a currency without a table is levelled.
 	Currency map[string]protectionCurrencyLevelingCurrency `toml:"currency" json:"currency,omitempty"`
 }
 
@@ -1246,7 +1310,7 @@ type cashSweepWrittenDefault struct {
 
 // cashSweepWrittenDefaults are the owner-approved values (2026-10-05
 // 18:35 CEST; no_buy_while_borrowed 21:24 CEST; order_step_base 2026-10-06
-// 08:22 CEST) ensure materialises into an existing [buckets.cash_sweep].
+// 08:22 CEST) ensure materialises into an existing [cash.sweep].
 var cashSweepWrittenDefaults = []cashSweepWrittenDefault{
 	{"max_order_notional", "50000.0"},
 	{"max_order_pct_nlv", "10.0"},
@@ -1285,6 +1349,13 @@ func (c protectionCashSweepCurrency) missingNumbers() []string {
 	return out
 }
 
+// cashSweepCurrencyDefined reports whether the file writes the sweep's
+// currency key, at [cash.sweep.currency.<CCY>] or the legacy
+// [buckets.cash_sweep.currency.<CCY>].
+func cashSweepCurrencyDefined(md *toml.MetaData, ccy, key string) bool {
+	return md != nil && (md.IsDefined("cash", "sweep", "currency", ccy, key) || md.IsDefined("buckets", "cash_sweep", "currency", ccy, key))
+}
+
 // applyCashSweepDefaults fills the keys a written currency table leaves out
 // from that currency's compiled default. An absent table stays absent: it
 // follows the compiled default at evaluation and keeps the file's
@@ -1296,7 +1367,7 @@ func applyCashSweepDefaults(p *protectionCashSweepPolicy, md *toml.MetaData) {
 	for ccy, c := range p.Currency {
 		d := defaultCashSweepCurrency(ccy)
 		defined := func(key string) bool {
-			return md != nil && md.IsDefined("buckets", "cash_sweep", "currency", ccy, key)
+			return cashSweepCurrencyDefined(md, ccy, key)
 		}
 		if !defined("instruments") {
 			c.Instruments = d.Instruments

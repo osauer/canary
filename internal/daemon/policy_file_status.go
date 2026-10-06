@@ -67,8 +67,8 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		if st.AutomationPaused {
 			row.Notes = append(row.Notes, "pre-authorised submission is paused until the file reads cleanly; reduce-only proposals continue")
 		}
-		if len(p.Authority.PreAuthorised) == 0 {
-			row.NeedsYourNumber = append(row.NeedsYourNumber, "automatic submission: off until you list reduce-only buckets under [authority].pre_authorised")
+		if len(p.Authority.PreAuthorised) == 0 && len(p.Cash.PreAuthorised) == 0 {
+			row.NeedsYourNumber = append(row.NeedsYourNumber, "automatic submission: off until you list reduce-only buckets under [authority].pre_authorised or the cash sweep under [cash].pre_authorised")
 		}
 		switch budget := p.Buckets.BudgetReduction; {
 		case budget == nil:
@@ -78,8 +78,8 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		case budget.enabled() && budget.basis() == rpc.BudgetBasisDeclaredRiskCapital && (mgr.policy == nil || mgr.policy.Capital.DeclaredRiskCapital == nil):
 			row.NeedsYourNumber = append(row.NeedsYourNumber, "premium budget governor: needs capital.declared_risk_capital in risk-policy.toml")
 		}
-		row.NeedsYourNumber = append(row.NeedsYourNumber, cashSweepNeedsYourNumber(p.Buckets.CashSweep)...)
-		row.NeedsYourNumber = append(row.NeedsYourNumber, currencyLevelingNeedsYourNumber(p.Buckets.CurrencyLeveling)...)
+		row.NeedsYourNumber = append(row.NeedsYourNumber, cashSweepNeedsYourNumber(p.Cash.Sweep)...)
+		row.NeedsYourNumber = append(row.NeedsYourNumber, currencyLevelingNeedsYourNumber(p.Cash.Leveling)...)
 		out = append(out, withDry(row))
 	}
 

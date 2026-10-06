@@ -235,7 +235,7 @@ func (s *Server) cashSweepWantsUSBills() bool {
 		return false
 	}
 	policy, _ := s.protectionPolicies.Active()
-	bucket := policy.Buckets.CashSweep
+	bucket := policy.Cash.Sweep
 	return bucket.enabled() && slices.Contains(bucket.currency("USD").Instruments, cashSweepInstrumentUSTBill)
 }
 

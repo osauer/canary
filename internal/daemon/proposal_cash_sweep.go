@@ -36,7 +36,7 @@ import (
 // them (cash_sweep_orders.go): an active row is an ordinary proposal whose
 // BOND LMT DAY order is previewed under every existing gate and submitted on
 // the owner's approval, or by the daemon after the full veto window when the
-// owner lists cash_sweep under [authority].pre_authorised. Settled cash comes
+// owner lists cash_sweep under [cash] pre_authorised. Settled cash comes
 // from the broker's per-currency $LEDGER SettledCash field. The order journal
 // carries an unverified estimate only; without the broker observation the
 // sweep holds. The tax review is advisory (owner decision
@@ -202,7 +202,7 @@ const cashSweepMoneyEpsilon = 1e-6
 // cashSweepPlanFor measures every listed currency against the band. It
 // generates no proposals.
 func cashSweepPlanFor(policy protectionPolicy, in cashSweepInput, now time.Time) cashSweepPlan {
-	bucket := policy.Buckets.CashSweep
+	bucket := policy.Cash.Sweep
 	mode := bucket.effectiveMode()
 	plan := cashSweepPlan{status: rpc.TradeProposalCashSweepStatus{
 		OperationalFunding: risk.CloneCashSweepOperationalObservation(in.OperationalFunding),
@@ -409,13 +409,13 @@ func cashSweepPlanCurrency(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		st.State, st.Reason = rpc.CashSweepStateEquivalentsUnclassified, unclassified
 		return cp
 	case len(bucket.missingNumbers()) > 0:
-		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, "needs your number: "+strings.Join(bucket.missingNumbers(), ", ")+" in [buckets.cash_sweep]; the sweep holds until you write it"
+		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, "needs your number: "+strings.Join(bucket.missingNumbers(), ", ")+" in [cash.sweep]; the sweep holds until you write it"
 		return cp
 	case len(plannable) == 0:
-		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: %s in [buckets.cash_sweep.currency.%s]; the ETF is the only instrument declared", strings.Join(cfg.missingNumbers(), ", "), ccy)
+		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: %s in [cash.sweep.currency.%s]; the ETF is the only instrument declared", strings.Join(cfg.missingNumbers(), ", "), ccy)
 		return cp
 	case !keepKnown:
-		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: keep_cash in [buckets.cash_sweep.currency.%s] or [buckets.cash_sweep]; %s holds until you write it", ccy, ccy)
+		st.State, st.Reason = rpc.CashSweepStateNeedsYourNumber, fmt.Sprintf("needs your number: keep_cash in [cash.sweep.currency.%s] or [cash.sweep]; %s holds until you write it", ccy, ccy)
 		return cp
 	case sizing == nil:
 		st.State, st.Reason = rpc.CashSweepStateHold, sizingReason
@@ -800,13 +800,13 @@ func cashSweepSettlementWindowStart(now time.Time) time.Time {
 // cashSweepProposals is the bucket's generation: the typed status and its
 // rows. Nil, nil while the bucket is not enabled.
 func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, *rpc.TradeProposalCashSweepStatus) {
-	if !policy.Buckets.CashSweep.enabled() {
+	if !policy.Cash.Sweep.enabled() {
 		return nil, nil
 	}
 	plan := cashSweepPlanFor(policy, e.cashSweepInput(ctx, policy, acct, pos, scope, now), now)
 	// An invest row exists only for a bill confirmed by contract details and
 	// a quote and sized on its grid; a redemption reads its held bill's grid.
-	cashSweepResolveBills(ctx, e.cashSweepBillSourceFor(), policy.Buckets.CashSweep, &plan, now)
+	cashSweepResolveBills(ctx, e.cashSweepBillSourceFor(), policy.Cash.Sweep, &plan, now)
 	var out []rpc.TradeProposal
 	for _, cp := range plan.currencies {
 		if cp.side == "" || (cp.side == rpc.CashSweepSideInvest && cp.bill == nil) {
@@ -823,7 +823,7 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 	st.Rows = len(out)
 	if err := e.persistCashSweepTrace(ctx, policy, sources, scope, now, &st); err != nil {
 		st.TraceState = "unavailable"
-		if policy.Buckets.CashSweep.reserveDesignEnabled() {
+		if policy.Cash.Sweep.reserveDesignEnabled() {
 			out, st.Rows = nil, 0
 			st.Reason = "decision_trace_unavailable: sweep held until SQLite audit is available"
 			for i := range st.Currencies {
@@ -839,7 +839,7 @@ func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protecti
 // redemption sells the held equivalent in the position's unit. A row built
 // without resolution (no bill) is blocked: there is nothing to order.
 func cashSweepRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan cashSweepPlan, cp cashSweepCurrencyPlan) rpc.TradeProposal {
-	bucket := policy.Buckets.CashSweep
+	bucket := policy.Cash.Sweep
 	cfg := bucket.currency(cp.status.Currency)
 	sizing := cp.sizing
 	if sizing == nil {
@@ -1072,7 +1072,7 @@ func cashSweepShadowBlocker() rpc.TradingBlocker {
 	return rpc.TradingBlocker{
 		Code:    "shadow_mode",
 		Message: "the cash sweep runs in shadow mode; this row is listed for observation and cannot be previewed or submitted",
-		Action:  "Set mode = \"active\" under [buckets.cash_sweep] and bump policy_version to make these rows ordinary proposals.",
+		Action:  "Set mode = \"active\" under [cash.sweep] and bump policy_version to make these rows ordinary proposals.",
 	}
 }
 
@@ -1115,7 +1115,7 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 		in.PlanningSessionEpoch = e.server.connectorEpoch
 		e.server.mu.Unlock()
 	}
-	in.Holdings, in.Unclassified = cashSweepClassify(policy.Buckets.CashSweep, pos)
+	in.Holdings, in.Unclassified = cashSweepClassify(policy.Cash.Sweep, pos)
 	in.Settlement = e.cashSweepSettlement(scope, now)
 	in.Commitments = e.cashSweepCommitments(ctx, scope)
 	// Broker reads can finish after the refresh's planning timestamp. Check
@@ -1128,8 +1128,8 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 	in.NLVBase = cashSweepNLV(acct)
 	in.PlannedNeeds = cashSweepPlannedNeeds{Reason: cashSweepPlannedNeedsUnavailable}
 	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
-	e.attachFlexCashProjections(ctx, policy.Buckets.CashSweep, acct, scope, &in)
-	if policy.Buckets.CashSweep.reserveDesignEnabled() {
+	e.attachFlexCashProjections(ctx, policy.Cash.Sweep, acct, scope, &in)
+	if policy.Cash.Sweep.reserveDesignEnabled() {
 		in.OperationalFunding, in.CalibrationStudies = e.observeCashSweepFunding(acct, pos, scope, in, cashNow)
 	}
 	return in

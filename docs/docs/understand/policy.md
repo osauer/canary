@@ -145,7 +145,10 @@ files:
   needs your number, one feature at a time; nothing else waits on it. The cash
   sweep stays off until you write its table; the daemon then fills any sizing
   number you left out at Canary's default
-  ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
+  ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
+  A file that still writes the older `[buckets.cash_sweep]` reads the same, and
+  the daemon moves it to `[cash.sweep]` without changing a setting
+  ([Cash management](../operate/cash.md)).
 - **Existing files are migrated in place.** When a release adds keys, the
   daemon keeps the file's original bytes in an owner-only backup
   (`<file>.bak-<release>-<time>`), writes each missing key at Canary's default

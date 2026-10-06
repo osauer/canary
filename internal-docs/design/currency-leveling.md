@@ -87,7 +87,7 @@ hand.
   force of `[order_limits]`; the next cycle repays the rest. The band says
   only when a loan is worth repaying; whether a conversion is worth its cost
   is the payback test.
-- `deliberate_carry = true` in `[buckets.currency_leveling.currency.<CCY>]`
+- `deliberate_carry = true` in `[cash.leveling.currency.<CCY>]`
   leaves that currency negative on purpose; it is never repaid and never
   pays.
 - Pair: IDEALPRO's conventional major pair (`canonicalOrderFXContract`: EUR,
@@ -377,7 +377,8 @@ keep no tax setting in Canary.
 
 ## Policy
 
-`[buckets.currency_leveling]` in `protection-policy.toml`. `policy ensure`
+`[cash.leveling]` in `protection-policy.toml`, under the `[cash]` section
+and its authority (owner decision 2026-10-06 06:08 CEST). `policy ensure`
 writes the whole table, off, into a file without it, or the missing numbers
 into an existing table, and raises `policy_version`. Values are read from
 the file only:

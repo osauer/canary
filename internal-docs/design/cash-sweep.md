@@ -1,10 +1,15 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-10-02
+Updated: 2026-10-06 08:36 CEST
 Status: Phase B installed (daemon v3.14.0-33, d819dfc4); post-install proof
 step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
 symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
 answered (false, F2); the remaining proof steps are in progress.
+
+Since 2026-10-06 (owner decision 06:08 CEST) the sweep lives in its own
+`[cash.sweep]` section under the `[cash]` authority, and its pre-authorisation
+in `[cash] pre_authorised`; Canary still reads the older `[buckets.cash_sweep]`
+and `policy ensure` moves it. Keys below use the current place.
 
 The [current order controls](cash-sweep-controls.md) supersede the earlier
 assumed-hours, gross-redemption and pending-fee limitations below. On 2026-10-02,
@@ -27,7 +32,7 @@ the tax review becomes advisory, and `instrument_support_required` is
 retired. Technical blockers that stop a malformed order (no live quote, a
 size or price off the bill's grid, a closed session) are not gates and stay.
 The mode default stays `shadow` in code; `mode = "active"` is the owner's
-line to write, and so is `cash_sweep` under `pre_authorised`.
+line to write, and so is `cash_sweep` under `[cash] pre_authorised`.
 
 Currency leveling (2026-10-05 22:23 CEST): the sweep still never converts;
 the separate `currency_leveling` bucket repays a borrowed currency
@@ -171,7 +176,7 @@ and no cash reserve remains to trip.
 
 | Concept | Authoritative source | Typed field/contract | Freshness/finality | Fallback or blocker |
 |---|---|---|---|---|
-| Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[buckets.cash_sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
+| Numbers, instruments, mode | protection policy file | `protectionCashSweepPolicy`, `[cash.sweep.currency.<CCY>]` | hot reload, version bump | absent or disabled ⇒ silent |
 | Cash per currency | `$LEDGER:ALL` CashBalance | `rpc.CurrencyExposure.CashCcy` + `CashObserved`; the base row in `AccountResult.BaseCurrencyLedger` | per account refresh (one-shot request only) | `cash_unavailable` |
 | Settled cash | TWS `SettledCashByDate` schedule from the account-value stream (its low, admitted when it ends at current trade-date cash), a per-currency ledger observation, or configured authenticated Web API ledger | `rpc.CurrencyExposure.SettledCashSchedule` / `.SettledCashCcy` / `.WebCash`, `cashSweepLedgerRow.Settled`; `settled_cash_source: broker` | per account refresh; the schedule reconciles with that refresh's trade-date cash and planning rechecks the fill frontier; Web reads shared at most 15s and source time bounded to 1m | `settlement_unknown`; held schedules, stale/session-mismatched/pre-fill receipts and journal estimates never admit orders |
 | Optional historical settled-cash baseline | accepted active-query Flex Cash Report | `flexCashBaseline`, `CashSweepSettlementProjection`; optional manifest independent of Recon/Edge | latest completed New York reporting day; exact statement/account/currency dates; accepted inventory hashes rechecked | diagnostic held/unavailable only; same-generation ambiguity and missing/invalid fields hold; complete baseline obligations and intraday activity remain unproved |
@@ -294,7 +299,7 @@ design, not a new threshold.
    served where positions are read (the brief's cash row, rule 14's notes and
    the sweep status).
 8. **Opt-in surfaces.** The brief's `cash` row and rule 14's notes appear only
-   while `[buckets.cash_sweep]` is enabled, so nobody else's brief or Rulebook
+   while `[cash.sweep]` is enabled, so nobody else's brief or Rulebook
    changes.
 9. **One rung** targets `max_maturity_days`.
 
@@ -747,7 +752,7 @@ read from the policy file only.
   (sell), up to that limit, at preview and at submit. Absent is false.
 - Defaults are only written. `cashSweepWrittenDefaults` feeds the template and
   `policy ensure`, which adds missing keys to an existing
-  `[buckets.cash_sweep]`, backs the file up and raises `policy_version`.
+  `[cash.sweep]`, backs the file up and raises `policy_version`.
   `protectionMaterialisationPreserves` proves that nothing else changed.
   `min_tranche` is retired: it is readable, and when written it still raises
   a buy minimum; it is never written.
@@ -763,7 +768,7 @@ USD margin loan from a stock buy. The sweep proposed a EUR Bubill buy while
 the account paid USD margin interest far above the bill's yield. Paying down
 the loan earns more than any bill.
 
-- `[buckets.cash_sweep].no_buy_while_borrowed` (bool) is read from the file
+- `[cash.sweep].no_buy_while_borrowed` (bool) is read from the file
   only. A missing key is a missing number (`missingNumbers`), so the whole
   sweep holds at `needs_your_number` naming it. `policy ensure` writes `true`
   (`cashSweepWrittenDefaults`), and `protectionMaterialisationKey` and

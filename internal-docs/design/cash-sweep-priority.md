@@ -4,13 +4,18 @@ Owner decisions, 2026-10-02: use existing USD cash; do not propose or execute
 EUR-to-USD conversions. Allocate one configurable EUR-equivalent 10,000 cushion
 across native currencies. Funding allocation is delegated to engineering.
 
+Since 2026-10-06 (owner decision 06:08 CEST) the sweep lives in its own
+`[cash.sweep]` section under the `[cash]` authority, and its pre-authorisation
+in `[cash] pre_authorised`; Canary still reads the older `[buckets.cash_sweep]`
+and `policy ensure` moves it. Keys below use the current place.
+
 ## Small configuration
 
 Write these in the existing versioned protection policy, using its normal
 review/version/fingerprint flow. Installing source never changes private policy.
 
 ```toml
-[buckets.cash_sweep]
+[cash.sweep]
 currency_priority = "usd_first"
 reserve_cushion_eur = 10000.0
 ```

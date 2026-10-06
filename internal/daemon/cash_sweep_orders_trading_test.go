@@ -37,7 +37,7 @@ func TestCashSweepPreAuthorisedBuySubmitsAfterTheWindowAndTheSession(t *testing.
 	now := rig.now
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
 	plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
-	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+	cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 	row := cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cashSweepCurrencyOf(t, plan, "USD"))
 	if row.Contract.ConID != 7101 || row.Quantity != 55 || !row.AutomaticEligible() {
 		t.Fatalf("fixture row = %+v", row)

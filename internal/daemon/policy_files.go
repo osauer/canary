@@ -690,13 +690,17 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 }
 
 // migrateProtectionPolicyFile comments out retired keys, naming where each
-// concept went and the value the owner had. It adds no table: an absent
-// protection table has its own meaning (an absent bucket table is disabled),
-// so filling one in could switch a bucket on. Into an existing
-// [buckets.cash_sweep] section it writes each missing sizing number at the
-// owner-approved value (cashSweepWrittenDefaults) and raises policy_version,
-// because the sweep reads those numbers from the file only; every value the
-// file already writes is kept (owner decision 2026-10-05 18:35 CEST).
+// concept went and the value the owner had. It adds no protection table: an
+// absent protection table has its own meaning (an absent bucket table is
+// disabled), so filling one in could switch a bucket on. It moves cash
+// management to [cash] (owner decision 2026-10-06 06:08 CEST): the
+// [buckets.cash_sweep] tables become [cash.sweep], and cash_sweep in
+// [authority] pre_authorised becomes a [cash] pre_authorised entry, which
+// changes no setting. Into an existing [cash.sweep] section it writes each
+// missing sizing number at the owner-approved value (cashSweepWrittenDefaults)
+// and raises policy_version, because the sweep reads those numbers from the
+// file only; every value the file already writes is kept (owner decision
+// 2026-10-05 18:35 CEST).
 func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string, []string, error) {
 	before, _, err := parseProtectionPolicy(data)
 	if err != nil {
@@ -707,25 +711,34 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 	if err != nil {
 		return data, nil, nil, err
 	}
-	flat := flattenTOMLMap(raw)
 	doc := parseTOMLDoc(data)
 	var changes, notes []string
+	moved, movedNotes := moveLegacyCashTables(doc, md, raw, release)
+	changes, notes = append(changes, moved...), append(notes, movedNotes...)
+	if len(moved) > 0 {
+		// What follows writes at the new place: read the moved document.
+		raw = nil
+		if md, err = toml.Decode(string(doc.bytes()), &raw); err != nil {
+			return data, nil, notes, fmt.Errorf("moved file does not parse: %w", err)
+		}
+	}
+	flat := flattenTOMLMap(raw)
 	materialised := false
-	if md.IsDefined("buckets", "cash_sweep") {
+	if md.IsDefined("cash", "sweep") {
 		var missing []cashSweepWrittenDefault
 		for _, d := range cashSweepWrittenDefaults {
-			if !md.IsDefined("buckets", "cash_sweep", d.key) {
+			if !md.IsDefined("cash", "sweep", d.key) {
 				missing = append(missing, d)
 			}
 		}
 		switch {
 		case len(missing) == 0:
-		case doc.headerLine("buckets.cash_sweep") < 0:
-			notes = append(notes, "[buckets.cash_sweep] is not a plain section, so its missing sizing numbers were not written; the sweep holds until you write them")
+		case doc.headerLine("cash.sweep") < 0:
+			notes = append(notes, "[cash.sweep] is not a plain section, so its missing sizing numbers were not written; the sweep holds until you write them")
 		default:
 			for _, d := range missing {
-				doc.insert("buckets.cash_sweep", []string{fmt.Sprintf("%s = %s  # written by Canary %s; the sweep reads it from this file only", d.key, d.value, release)})
-				changes = append(changes, fmt.Sprintf("added buckets.cash_sweep.%s = %s", d.key, d.value))
+				doc.insert("cash.sweep", []string{fmt.Sprintf("%s = %s  # written by Canary %s; the sweep reads it from this file only", d.key, d.value, release)})
+				changes = append(changes, fmt.Sprintf("added cash.sweep.%s = %s", d.key, d.value))
 			}
 			materialised = true
 		}
@@ -780,18 +793,73 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 	return out, changes, notes, nil
 }
 
+// moveLegacyCashTables moves what a file written before cash management moved
+// to [cash] still carries: the [buckets.cash_sweep] headers become
+// [cash.sweep], keys and comments moving with them, and cash_sweep in
+// [authority] pre_authorised becomes a [cash] pre_authorised entry. The
+// policy in force is the same before and after (parsing reads the legacy
+// places the same way), so policy_version stays. A legacy table written as
+// dotted keys or an inline table is left in place with a note; it still
+// reads.
+func moveLegacyCashTables(doc *tomlDoc, md toml.MetaData, raw map[string]any, release string) (changes, notes []string) {
+	if md.IsDefined("buckets", "cash_sweep") {
+		if doc.headerLine("buckets.cash_sweep") >= 0 && doc.renameTable("buckets.cash_sweep", "cash.sweep") {
+			changes = append(changes, "moved [buckets.cash_sweep] to [cash.sweep]: cash management has its own section")
+		} else {
+			notes = append(notes, "[buckets.cash_sweep] is not a plain section, so it was not moved to [cash.sweep]; it still reads, and you can move it by hand")
+		}
+	}
+	authority, _ := raw["authority"].(map[string]any)
+	listed, _ := authority["pre_authorised"].([]any)
+	var keep []string
+	found := false
+	for _, v := range listed {
+		name, _ := v.(string)
+		if name == preAuthorisedBucketCashSweep {
+			found = true
+			continue
+		}
+		keep = append(keep, name)
+	}
+	if !found {
+		return changes, notes
+	}
+	if _, ok := doc.find("authority", "pre_authorised"); !ok {
+		notes = append(notes, "cash_sweep in [authority] pre_authorised is not a plain line, so it was not moved to [cash]; it still reads as the [cash] entry")
+		return changes, notes
+	}
+	cash, _ := raw["cash"].(map[string]any)
+	var cashList []string
+	for _, v := range func() []any { l, _ := cash["pre_authorised"].([]any); return l }() {
+		if name, ok := v.(string); ok {
+			cashList = append(cashList, name)
+		}
+	}
+	if keep == nil {
+		keep = []string{}
+	}
+	doc.set("authority", "pre_authorised", tomlLiteral(keep), nil)
+	if !slices.Contains(cashList, preAuthorisedBucketCashSweep) {
+		cashList = append(cashList, preAuthorisedBucketCashSweep)
+		comment := []string{"# The cash sweep's pre-authorisation, moved from [authority] by Canary " + release + "."}
+		doc.set("cash", "pre_authorised", tomlLiteral(cashList), comment)
+	}
+	changes = append(changes, "moved cash_sweep from [authority] pre_authorised to [cash] pre_authorised: the cash sweep has its own authority")
+	return changes, notes
+}
+
 // protectionMaterialisationKey is the effective protection key with the
 // cash sweep's materialisable sizing numbers and the currency leveling table
 // cleared: a conversion that only writes missing numbers keeps it, and
 // protectionMaterialisationPreserves checks the leveling table key by key.
 func protectionMaterialisationKey(p protectionPolicy) string {
-	p.Buckets.CurrencyLeveling = nil
-	if c := p.Buckets.CashSweep; c != nil {
+	p.Cash.Leveling = nil
+	if c := p.Cash.Sweep; c != nil {
 		cleared := *c
 		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
 		cleared.ReserveFloorBase, cleared.ReservePctNLV, cleared.KeepCash, cleared.BillsExemptFromTradingMaxNotional = nil, nil, nil, nil
 		cleared.NoBuyWhileBorrowed, cleared.OrderStepBase = nil, nil
-		p.Buckets.CashSweep = &cleared
+		p.Cash.Sweep = &cleared
 	}
 	return effectiveProtectionPolicy(p).Key
 }
@@ -801,10 +869,10 @@ func protectionMaterialisationKey(p protectionPolicy) string {
 // currency leveling keys policy ensure writes.
 func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
 	if protectionMaterialisationKey(before) != protectionMaterialisationKey(after) ||
-		!currencyLevelingMaterialisationPreserves(before.Buckets.CurrencyLeveling, after.Buckets.CurrencyLeveling) {
+		!currencyLevelingMaterialisationPreserves(before.Cash.Leveling, after.Cash.Leveling) {
 		return false
 	}
-	b, a := before.Buckets.CashSweep, after.Buckets.CashSweep
+	b, a := before.Cash.Sweep, after.Cash.Sweep
 	if b == nil || a == nil {
 		return b == a
 	}
@@ -844,11 +912,11 @@ func ProtectionPolicyTemplate(release string) []byte {
 close_reduce_only = true
 auto_submit = false
 # Automatic submission is yours to decide, so Canary writes no value. List the
-# buckets the daemon may place itself after a notice and a veto window, then
-# raise policy_version. Choices: trailing_stop, option_loss_exit,
-# option_profit_trail, budget_reduction, cash_sweep (the sweep's bill buys and
-# redemptions: always the full window, each held to its max_order_notional).
-# pre_authorised = []   # for example ["trailing_stop", "cash_sweep"]
+# protection buckets the daemon may place itself after a notice and a veto
+# window, then raise policy_version. Choices: trailing_stop, option_loss_exit,
+# option_profit_trail, budget_reduction. The cash sweep is pre-authorised in
+# [cash] below; the veto window here serves both.
+# pre_authorised = []   # for example ["trailing_stop"]
 # veto_window = "30m"
 
 `)
@@ -924,6 +992,16 @@ allow_short_profit_trail = %t
 # per_line_pct_of_risk_capital = 0.0
 # max_order_notional = 0.0
 `)
+	b.WriteString(`
+# Cash management: the cash sweep and currency leveling buy bills and convert
+# currencies under this section's own authority, not as protection;
+# protection above stays close-or-reduce only. List cash_sweep to let the
+# daemon place the sweep's bill orders itself after the full veto window
+# ([authority] veto_window), each held to its max_order_notional, then raise
+# policy_version. Currency leveling is always yours to approve.
+# [cash]
+# pre_authorised = []   # for example ["cash_sweep"]
+`)
 	writeCashSweepTemplate(&b)
 	writeCurrencyLevelingTemplate(&b)
 	return []byte(b.String())
@@ -947,7 +1025,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # canary policy ensure writes the values shown below. In active
 # mode a row is an ordinary proposal: its bill order (BILL or BOND, LMT DAY) is
 # previewed under every gate and placed on your approval, or by the daemon
-# after the full veto window when cash_sweep is under pre_authorised. USD bills
+# after the full veto window when cash_sweep is in [cash] pre_authorised. USD bills
 # come from TreasuryDirect's public list; EUR, GBP and CAD bills from the
 # isins you list. A currency without its own table follows Canary's default:
 # USD us_tbill; EUR de_bubill and fr_btf with an etf fallback; GBP uk_tbill;
@@ -955,7 +1033,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # maintained route (SMART; USD T+1, EUR T+2 and T+1 for trades from
 # 2027-10-11); settlement_exchange and settlement_days in a currency table
 # override it, and settlement_valid_through only ends an override on a date.
-# [buckets.cash_sweep]
+# [cash.sweep]
 # enabled = false
 # mode = "shadow"   # shadow lists and journals; active stages the orders
 # currency_priority = "usd_first"   # usd_first | balanced | eur_first; existing native cash only
@@ -987,7 +1065,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #
-# [buckets.cash_sweep.currency.EUR]
+# [cash.sweep.currency.EUR]
 # instruments = [%q, %q]
 # isins = []   # the EUR bills the sweep may buy, by ISIN (DE… de_bubill, FR… fr_btf); empty reads universe_unavailable
 # fallback = %q   # used only after a contract search finds no bill line

@@ -64,13 +64,13 @@ func cashPriorityEffective(override *string, policy *protectionCashSweepPolicy) 
 
 func (s *Server) platformCashSweepSettings(data platformSettingsData) rpc.PlatformCashSweepSettings {
 	policy, _ := s.protectionPolicies.Active()
-	value, source := cashPriorityEffective(data.CashSweep.CurrencyPriority, policy.Buckets.CashSweep)
+	value, source := cashPriorityEffective(data.CashSweep.CurrencyPriority, policy.Cash.Sweep)
 	return rpc.PlatformCashSweepSettings{CurrencyPriority: settingsString(value, rpc.SettingsAccessWrite, source, "ordering only; reserve policy, cash readiness and execution authority are unchanged")}
 }
 
 func (s *Server) cashPreferencesLocked() rpc.CashSweepPreferences {
 	policy, _ := s.protectionPolicies.Active()
-	value, source := cashPriorityEffective(s.platformSettings.data.CashSweep.CurrencyPriority, policy.Buckets.CashSweep)
+	value, source := cashPriorityEffective(s.platformSettings.data.CashSweep.CurrencyPriority, policy.Cash.Sweep)
 	var configured *string
 	if s.platformSettings.data.CashSweep.CurrencyPriority != nil {
 		value := *s.platformSettings.data.CashSweep.CurrencyPriority

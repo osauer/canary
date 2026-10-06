@@ -20,7 +20,7 @@ import (
 // or BOND (the line's own type) LMT DAY orders priced per 100 of face on the line's minimum tick, previewed
 // through every gate an ordinary proposal meets (freeze, authority, session,
 // quote freshness, WhatIf) and submitted only on the owner's approval, or,
-// when the owner lists cash_sweep under [authority].pre_authorised, by the
+// when the owner lists cash_sweep under [cash] pre_authorised, by the
 // daemon after the full veto window.
 
 // bondSessionMarket names a bond line's session in readiness; it is no

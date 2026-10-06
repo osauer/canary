@@ -177,6 +177,28 @@ func (d *tomlDoc) insert(table string, lines []string) {
 	d.lines = append(d.lines[:at], append(append([]string{}, lines...), d.lines[at:]...)...)
 }
 
+// renameTable renames the [from] header and every [from.sub] header to [to]
+// and [to.sub], keeping indentation and a trailing comment; it reports
+// whether any header changed. Keys move with their headers, so values and
+// comments stay byte for byte.
+func (d *tomlDoc) renameTable(from, to string) bool {
+	changed := false
+	for i, line := range d.lines {
+		m := tomlHeaderRe.FindStringSubmatch(line)
+		if m == nil || (m[1] != from && !strings.HasPrefix(m[1], from+".")) {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		comment := ""
+		if m[2] != "" {
+			comment = "  " + m[2]
+		}
+		d.lines[i] = indent + "[" + to + m[1][len(from):] + "]" + comment
+		changed = true
+	}
+	return changed
+}
+
 // commentOut turns table.key's lines into comments with a note.
 func (d *tomlDoc) commentOut(table, key, note string) bool {
 	s, ok := d.find(table, key)

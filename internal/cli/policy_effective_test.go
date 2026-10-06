@@ -36,11 +36,11 @@ policy_version = 2
 close_reduce_only = true
 auto_submit = false
 
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 max_order_notional = 12000.0
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 instruments = ["de_bubill"]
 isins = ["DE0000000017", "DE0000000025", "DE0000000033", "DE0000000041", "DE0000000058"]
 `)
@@ -164,7 +164,7 @@ func TestPolicyShowDefaultPointsToExplain(t *testing.T) {
 func TestPolicyShowSectionFilters(t *testing.T) {
 	res := syntheticPolicyResult(t)
 	screen := runPolicyShowFor(t, res, "cash_sweep")
-	if !strings.Contains(screen, "[buckets.cash_sweep.currency.EUR]") || strings.Contains(screen, "Rulebook") || strings.Contains(screen, "Capital:") {
+	if !strings.Contains(screen, "[cash.sweep.currency.EUR]") || strings.Contains(screen, "Rulebook") || strings.Contains(screen, "Capital:") {
 		t.Fatalf("cash_sweep filter:\n%s", screen)
 	}
 	var view rpc.PolicyEffectiveView
@@ -176,7 +176,7 @@ func TestPolicyShowSectionFilters(t *testing.T) {
 	}
 	var stderr bytes.Buffer
 	env := &Env{Conn: &riskReadConn{result: res}, Stdout: &bytes.Buffer{}, Stderr: &stderr}
-	if Run(t.Context(), env, "policy", []string{"show", "nope"}) == 0 || !strings.Contains(stderr.String(), "cash_sweep") {
+	if Run(t.Context(), env, "policy", []string{"show", "nope"}) == 0 || !strings.Contains(stderr.String(), "cash.sweep") {
 		t.Fatalf("unknown section accepted: %s", stderr.String())
 	}
 }

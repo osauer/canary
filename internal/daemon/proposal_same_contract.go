@@ -304,12 +304,12 @@ func sameContractRule(p rpc.TradeProposal) string {
 // already ended.
 func (e *proposalEngine) sameContractChannels() func(rpc.TradeProposal) sameContractChannel {
 	policy, ok := e.automaticPolicy()
-	if !ok || len(policy.Authority.PreAuthorised) == 0 {
+	if !ok || len(policy.Authority.PreAuthorised) == 0 && len(policy.Cash.PreAuthorised) == 0 {
 		return func(rpc.TradeProposal) sameContractChannel { return sameContractManual }
 	}
 	attached := e.automatic.attached()
 	return func(p rpc.TradeProposal) sameContractChannel {
-		if !policy.Authority.preAuthorised(automaticBucketFor(p)) {
+		if !policy.preAuthorised(automaticBucketFor(p)) {
 			return sameContractManual
 		}
 		if !attached {

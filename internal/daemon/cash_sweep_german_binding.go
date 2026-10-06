@@ -171,7 +171,7 @@ func (s *Server) heldGermanBinding(ctx context.Context, row rpc.PositionView, no
 		return cashSweepBillCandidate{}, fmt.Errorf("no German bill policy is active")
 	}
 	policy, _ := s.protectionPolicies.Active()
-	bucket := policy.Buckets.CashSweep
+	bucket := policy.Cash.Sweep
 	if !bucket.enabled() {
 		return cashSweepBillCandidate{}, fmt.Errorf("cash sweep is disabled")
 	}

@@ -131,7 +131,7 @@ func (s *Server) daemonPreAuthorisedOriginBlockers() []rpc.TradingBlocker {
 	if status.Status != rpc.ProtectionPolicyStatusActive && status.Status != rpc.ProtectionPolicyStatusDefault {
 		return []rpc.TradingBlocker{{Code: "policy_" + status.Status, Message: nonEmptyString(status.Message, "protection policy is not active"), Action: "Fix the protection policy file and bump policy_version."}}
 	}
-	if !policy.Authority.preAuthorised(grant.Bucket) {
+	if !policy.preAuthorised(grant.Bucket) {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not listed under [authority].pre_authorised in the active protection policy", grant.Bucket), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
 	}
 	return nil

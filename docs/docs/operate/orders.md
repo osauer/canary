@@ -9,7 +9,7 @@ The separate opt-in trading binary exposes these actions:
   tokenized draft path (`canary order preview` → `place`/`modify`);
 - submit or reduce a daemon-owned close/reduce protection proposal;
 - submit a cash sweep proposal, which buys a same-currency bill with idle cash
-  or sells one ([Cash sweep](protection.md#cash-sweep));
+  or sells one ([Cash sweep](cash.md#cash-sweep));
 - exercise an eligible held option when the action reduces or closes risk;
 - close or reduce a grouped option strategy as one combo; and
 - cancel a Canary-owned order.

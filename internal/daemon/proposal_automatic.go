@@ -533,7 +533,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				reason = proposalBlockedReason(snap, prop)
 			case queued[rec.Key]:
 				reason = automaticQueuedReason
-			case policyOK && !policy.Authority.preAuthorised(rec.Bucket):
+			case policyOK && !policy.preAuthorised(rec.Bucket):
 				reason = "bucket is no longer pre-authorised by the active policy"
 			case !policyOK:
 				reason = "protection policy is not active"
@@ -551,7 +551,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 		}
 		for _, prop := range snap.Proposals {
 			bucket := automaticBucketFor(prop)
-			if !policy.Authority.preAuthorised(bucket) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
+			if !policy.preAuthorised(bucket) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 				continue
 			}
 			if _, exists := records[automaticRecordKey(prop.Key, prop.Revision)]; exists {
@@ -593,7 +593,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 func (e *proposalEngine) automaticWillCreate(snap rpc.TradeProposalSnapshot, policy protectionPolicy) bool {
 	queued := e.queuedLiveKeys(snap.Proposals)
 	for _, prop := range snap.Proposals {
-		if !policy.Authority.preAuthorised(automaticBucketFor(prop)) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
+		if !policy.preAuthorised(automaticBucketFor(prop)) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 			continue
 		}
 		if _, exists := e.automatic.get(prop.Key, prop.Revision); !exists {
@@ -1136,7 +1136,7 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 		return []rpc.TradingBlocker{{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}}
 	}
 	policy, ok := e.automaticPolicy()
-	if !ok || !policy.Authority.preAuthorised(bucket) {
+	if !ok || !policy.preAuthorised(bucket) {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not pre-authorised by the active protection policy", nonEmptyString(bucket, prop.Bucket)), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
 	}
 	return nil
@@ -1348,7 +1348,7 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 				return nil
 			}
 			bucket := automaticBucketFor(*served)
-			if !policyOK || !policy.Authority.preAuthorised(bucket) {
+			if !policyOK || !policy.preAuthorised(bucket) {
 				result = rpc.TradeProposalVetoResult{Accepted: false, Key: key, Revision: served.Revision, Message: "this proposal's bucket is not pre-authorised; nothing submits itself, so there is nothing to veto", AsOf: now}
 				return nil
 			}
@@ -1400,7 +1400,7 @@ func (e *proposalEngine) decorateAutomatic(snap *rpc.TradeProposalSnapshot) {
 	for i := range snap.Proposals {
 		prop := &snap.Proposals[i]
 		bucket := automaticBucketFor(*prop)
-		pre := policyOK && policy.Authority.preAuthorised(bucket)
+		pre := policyOK && policy.preAuthorised(bucket)
 		if rec, ok := e.automatic.get(prop.Key, prop.Revision); ok {
 			prop.Automatic = rec.view(pre, now)
 			continue

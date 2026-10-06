@@ -20,7 +20,7 @@ func TestRowRevisionStandsWhenAnotherRowMoves(t *testing.T) {
 	sources := rpc.TradeProposalSourceFingerprints{Positions: &rpc.Fingerprint{Version: "positions-fp-v1", Key: "sha256:a"}}
 	rows := func(cash float64) []rpc.TradeProposal {
 		plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": cash}), now)
-		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 		out := []rpc.TradeProposal{{Key: "trailing_stop:1", Bucket: rpc.TradeProposalBucketTrailingStop, Quantity: 100, PositionEffect: rpc.OrderPositionEffectClose}}
 		for _, cp := range plan.currencies {
 			if cp.side != "" {

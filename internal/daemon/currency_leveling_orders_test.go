@@ -36,7 +36,7 @@ func levelingRows(t *testing.T, in currencyLevelingInput, loan string) []rpc.Tra
 	var rows []rpc.TradeProposal
 	for _, leg := range resolved.legs {
 		leg.block.BundleID = id
-		row := currencyLevelingRow(protectionPolicy{Buckets: protectionPolicyBuckets{CurrencyLeveling: p}}, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{},
+		row := currencyLevelingRow(protectionPolicy{Cash: protectionCashPolicy{Leveling: p}}, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{},
 			time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC), plan.status, resolved, leg)
 		row.Revision = "rev-level-" + leg.block.FundingCurrency
 		rows = append(rows, row)
@@ -479,7 +479,7 @@ func TestCurrencyLevelingEngineRowsCountsAndClone(t *testing.T) {
 		t.Fatal("the written table, off, generated leveling output")
 	}
 	policy := defaultProtectionPolicy()
-	policy.Buckets.CurrencyLeveling = levelingPolicy()
+	policy.Cash.Leveling = levelingPolicy()
 	rows, st := (&proposalEngine{}).currencyLevelingProposals(ctx, policy, rpc.ProtectionPolicyStatus{}, nil, rpc.TradeProposalSourceFingerprints{}, scope, now)
 	if rows != nil || st == nil || st.Reason == "" || st.Rows != 0 {
 		t.Fatalf("no account = %+v rows %v", st, rows)

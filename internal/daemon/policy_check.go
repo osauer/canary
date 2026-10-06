@@ -269,7 +269,7 @@ func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
 		md, err := toml.Decode(string(c.protectionSrc.data), &p)
 		if err == nil {
 			applyProtectionPolicyDefaults(&p, &md)
-			applyCashSweepDefaults(p.Buckets.CashSweep, &md)
+			applyCashSweepDefaults(p.Cash.Sweep, &md)
 			c.protection, c.protectionMD = p, &md
 		} else {
 			c.protectionSrc.state = policyCheckFileUnreadable
@@ -414,7 +414,7 @@ func (c *policyCheckContext) constitutionKey(table, key, value string) rpc.Polic
 
 // sweep returns the cash sweep table when it is present and enabled.
 func (c *policyCheckContext) sweep() *protectionCashSweepPolicy {
-	if s := c.protection.Buckets.CashSweep; s.enabled() {
+	if s := c.protection.Cash.Sweep; s.enabled() {
 		return s
 	}
 	return nil
@@ -457,10 +457,10 @@ func (c *policyCheckContext) sweepCurrencies() []string {
 // default when the file does not write it.
 func (c *policyCheckContext) sweepCurrencyKey(ccy, key, value string) rpc.PolicyCheckKey {
 	file := c.protectionSrc.label
-	if c.protectionMD == nil || !c.protectionMD.IsDefined("buckets", "cash_sweep", "currency", ccy, key) {
+	if !cashSweepCurrencyDefined(c.protectionMD, ccy, key) {
 		file += " (compiled default)"
 	}
-	return rpc.PolicyCheckKey{File: file, Key: "[buckets.cash_sweep.currency." + ccy + "]." + key, Value: value}
+	return rpc.PolicyCheckKey{File: file, Key: "[cash.sweep.currency." + ccy + "]." + key, Value: value}
 }
 
 // sweepCapBase is the sweep's per-order cap in force, in base currency, as
@@ -474,10 +474,10 @@ func (c *policyCheckContext) sweepCapBase() (capBase float64, keys []rpc.PolicyC
 	}
 	capBase = s.MaxOrderNotional
 	if s.MaxOrderNotional > 0 {
-		keys = append(keys, c.protectionKey("buckets.cash_sweep", "max_order_notional", policyCheckMoney(s.MaxOrderNotional, c.base())))
+		keys = append(keys, c.protectionKey("cash.sweep", "max_order_notional", policyCheckMoney(s.MaxOrderNotional, c.base())))
 	}
 	if pct := s.MaxOrderPctNLV; pct != nil && *pct > 0 {
-		keys = append(keys, c.protectionKey("buckets.cash_sweep", "max_order_pct_nlv", policyCheckNumber(*pct)))
+		keys = append(keys, c.protectionKey("cash.sweep", "max_order_pct_nlv", policyCheckNumber(*pct)))
 		if c.book != nil {
 			capBase = max(capBase, *pct/100*c.book.NetLiquidation)
 		} else {
@@ -534,10 +534,10 @@ func (c *policyCheckContext) sweepMinimum(ccy string) (policyCheckSweepMinimum, 
 	}
 	m.base = m.native * fx
 	if s.MinOrderNotional != nil {
-		m.keys = append(m.keys, c.protectionKey("buckets.cash_sweep", "min_order_notional", policyCheckMoney(minOrder, c.base())))
+		m.keys = append(m.keys, c.protectionKey("cash.sweep", "min_order_notional", policyCheckMoney(minOrder, c.base())))
 	}
 	if cfg.MinTranche != nil {
-		m.keys = append(m.keys, rpc.PolicyCheckKey{File: c.protectionSrc.label + " (retired key)", Key: "[buckets.cash_sweep.currency." + ccy + "].min_tranche", Value: policyCheckMoney(tranche, ccy)})
+		m.keys = append(m.keys, rpc.PolicyCheckKey{File: c.protectionSrc.label + " (retired key)", Key: "[cash.sweep.currency." + ccy + "].min_tranche", Value: policyCheckMoney(tranche, ccy)})
 		if minOrder <= 0 || tranche > minOrder/fx+1e-9 {
 			m.binding = "min_tranche"
 		}

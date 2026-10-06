@@ -154,7 +154,7 @@ func planAndResolve(t *testing.T, policy protectionPolicy, in cashSweepInput, sr
 	t.Helper()
 	now := cashSweepTestNow()
 	plan := cashSweepPlanFor(policy, in, now)
-	cashSweepResolveBills(context.Background(), src, policy.Buckets.CashSweep, &plan, now)
+	cashSweepResolveBills(context.Background(), src, policy.Cash.Sweep, &plan, now)
 	byCcy := map[string]cashSweepCurrencyPlan{}
 	for i, cp := range plan.currencies {
 		if st := plan.status.Currencies[i]; st.Currency != cp.status.Currency || st.State != cp.status.State || st.Reason != cp.status.Reason ||
@@ -635,7 +635,7 @@ func TestCashSweepResolvesListedEURBills(t *testing.T) {
 		t.Fatalf("no isins = %+v", eur.status)
 	}
 
-	setSweepCcy(policy.Buckets.CashSweep, "EUR", func(c *protectionCashSweepCurrency) {
+	setSweepCcy(policy.Cash.Sweep, "EUR", func(c *protectionCashSweepCurrency) {
 		c.ISINs = []string{synthDEBill2, synthFRBill, synthDEBill}
 	})
 	src := &fakeBillSource{byID: map[string][]ibkrlib.BondContractDetails{
@@ -675,29 +675,29 @@ func TestCashSweepResolvesListedEURBills(t *testing.T) {
 // once each, and never for USD.
 func TestCashSweepISINValidation(t *testing.T) {
 	p, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + `
-[buckets.cash_sweep]
+[cash.sweep]
 enabled = true
 
-[buckets.cash_sweep.currency.EUR]
+[cash.sweep.currency.EUR]
 isins = ["` + synthDEBill + `", "` + synthFRBill + `"]
 `))
-	if err != nil || !slices.Equal(p.Buckets.CashSweep.currency("EUR").ISINs, []string{synthDEBill, synthFRBill}) {
-		t.Fatalf("isins = %+v err %v", p.Buckets.CashSweep, err)
+	if err != nil || !slices.Equal(p.Cash.Sweep.currency("EUR").ISINs, []string{synthDEBill, synthFRBill}) {
+		t.Fatalf("isins = %+v err %v", p.Cash.Sweep, err)
 	}
 	for name, tc := range map[string]struct{ table, want string }{
-		"bad check digit":   {"[buckets.cash_sweep.currency.EUR]\nisins = [\"DE000BU0ZZ18\"]\n", "not an ISIN"},
-		"another currency":  {"[buckets.cash_sweep.currency.EUR]\nisins = [\"" + synthGBBill + "\"]\n", "not a bill of an instrument declared for EUR"},
-		"undeclared issuer": {"[buckets.cash_sweep.currency.EUR]\ninstruments = [\"de_bubill\"]\nfallback = \"none\"\nisins = [\"" + synthFRBill + "\"]\n", "declared for EUR"},
-		"duplicate":         {"[buckets.cash_sweep.currency.EUR]\nisins = [\"" + synthDEBill + "\", \"" + synthDEBill + "\"]\n", "twice"},
-		"usd":               {"[buckets.cash_sweep.currency.USD]\nisins = [\"US912797ZZ37\"]\n", "TreasuryDirect"},
+		"bad check digit":   {"[cash.sweep.currency.EUR]\nisins = [\"DE000BU0ZZ18\"]\n", "not an ISIN"},
+		"another currency":  {"[cash.sweep.currency.EUR]\nisins = [\"" + synthGBBill + "\"]\n", "not a bill of an instrument declared for EUR"},
+		"undeclared issuer": {"[cash.sweep.currency.EUR]\ninstruments = [\"de_bubill\"]\nfallback = \"none\"\nisins = [\"" + synthFRBill + "\"]\n", "declared for EUR"},
+		"duplicate":         {"[cash.sweep.currency.EUR]\nisins = [\"" + synthDEBill + "\", \"" + synthDEBill + "\"]\n", "twice"},
+		"usd":               {"[cash.sweep.currency.USD]\nisins = [\"US912797ZZ37\"]\n", "TreasuryDirect"},
 	} {
-		if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep]\nenabled = true\n" + tc.table)); err == nil || !strings.Contains(err.Error(), tc.want) {
+		if _, _, err := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep]\nenabled = true\n" + tc.table)); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("%s: err = %v", name, err)
 		}
 	}
 	// An absent list keeps an existing file's fingerprint.
-	without, _, _ := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep.currency.EUR]\nkeep_cash = 8000\n"))
-	empty, _, _ := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[buckets.cash_sweep.currency.EUR]\nkeep_cash = 8000\nisins = []\n"))
+	without, _, _ := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep.currency.EUR]\nkeep_cash = 8000\n"))
+	empty, _, _ := parseProtectionPolicy([]byte(cashSweepPolicyHead + "[cash.sweep.currency.EUR]\nkeep_cash = 8000\nisins = []\n"))
 	if fingerprintProtectionPolicy(without).Key != fingerprintProtectionPolicy(empty).Key {
 		t.Fatal("an empty isins list changed the fingerprint")
 	}

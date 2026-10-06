@@ -164,7 +164,7 @@ func (s *Server) cashLikeByCurrency(acct *rpc.AccountResult, pos *rpc.PositionsR
 		return nil, "", false
 	}
 	policy, _ := s.protectionPolicies.Active()
-	bucket := policy.Buckets.CashSweep
+	bucket := policy.Cash.Sweep
 	if !bucket.enabled() {
 		return nil, "", false
 	}
@@ -242,21 +242,21 @@ func cashSweepNeedsYourNumber(p *protectionCashSweepPolicy) []string {
 	}
 	var out []string
 	if missing := p.missingNumbers(); len(missing) > 0 {
-		out = append(out, "cash sweep: holds until you write "+strings.Join(missing, ", ")+" in [buckets.cash_sweep]")
+		out = append(out, "cash sweep: holds until you write "+strings.Join(missing, ", ")+" in [cash.sweep]")
 	}
 	if p.KeepCash == nil {
-		out = append(out, "cash sweep: a currency without its own keep_cash holds until you write keep_cash in [buckets.cash_sweep]")
+		out = append(out, "cash sweep: a currency without its own keep_cash holds until you write keep_cash in [cash.sweep]")
 	}
 	for _, ccy := range slices.Sorted(maps.Keys(p.Currency)) {
 		if missing := p.Currency[ccy].missingNumbers(); len(missing) > 0 {
-			out = append(out, fmt.Sprintf("cash sweep: the %s ETF needs %s in [buckets.cash_sweep.currency.%s]", ccy, strings.Join(missing, ", "), ccy))
+			out = append(out, fmt.Sprintf("cash sweep: the %s ETF needs %s in [cash.sweep.currency.%s]", ccy, strings.Join(missing, ", "), ccy))
 		}
 	}
 	if _, written := p.Currency["EUR"]; !written {
-		out = append(out, "cash sweep: the EUR fallback ETF needs etf_symbol, etf_exchange in [buckets.cash_sweep.currency.EUR]; bills still plan")
+		out = append(out, "cash sweep: the EUR fallback ETF needs etf_symbol, etf_exchange in [cash.sweep.currency.EUR]; bills still plan")
 	}
 	if p.TaxReviewedAt == "" {
-		out = append(out, "cash sweep: tax treatment not yet confirmed; write tax_reviewed_at in [buckets.cash_sweep] once reviewed (advisory, blocks nothing)")
+		out = append(out, "cash sweep: tax treatment not yet confirmed; write tax_reviewed_at in [cash.sweep] once reviewed (advisory, blocks nothing)")
 	}
 	return out
 }

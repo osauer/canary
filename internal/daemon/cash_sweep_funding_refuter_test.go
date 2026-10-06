@@ -219,7 +219,7 @@ func TestFundingRefuterOptionStudyPreservesMissingAndInvalidSources(t *testing.T
 func TestFundingRefuterCompleteStudyDoesNotAuthorizeSweeping(t *testing.T) {
 	now := cashSweepTestNow()
 	policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 100000)
-	policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
+	policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityEURFirst
 	in := observedSweepFundingInput(map[string]float64{"EUR": 50000, "USD": 50000})
 	in.FundingEvidence = nil
 	observation := risk.ObserveCashSweepOperationalFunding(fundingRefuterCallInput())

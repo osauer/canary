@@ -173,7 +173,7 @@ func TestCurrencyLevelingWorkedExample(t *testing.T) {
 		t.Fatalf("EUR = %+v, want it to pay", eur)
 	}
 	resolved := levelingResolved(*bundle)
-	row := currencyLevelingRow(protectionPolicy{Buckets: protectionPolicyBuckets{CurrencyLeveling: levelingPolicy()}}, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{},
+	row := currencyLevelingRow(protectionPolicy{Cash: protectionCashPolicy{Leveling: levelingPolicy()}}, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{},
 		time.Date(2026, 10, 5, 19, 28, 0, 0, time.UTC), plan.status, resolved, resolved.legs[0])
 	if want := "Convert 17,219 EUR into about 20,146 USD: USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; this brings it to about +146 USD"; row.Reason != want {
 		t.Fatalf("reason = %q\nwant      %q", row.Reason, want)
@@ -536,7 +536,7 @@ func TestCurrencyLevelingPolicyValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A key the table no longer has is refused, so a stale file says so.
-	if _, _, err := parseProtectionPolicy([]byte(pcProtectionHead + "\n[buckets.currency_leveling]\nenabled = true\nmode = \"active\"\n")); err == nil {
+	if _, _, err := parseProtectionPolicy([]byte(pcProtectionHead + "\n[cash.leveling]\nenabled = true\nmode = \"active\"\n")); err == nil {
 		t.Fatal("a removed key was accepted")
 	}
 }
@@ -544,29 +544,29 @@ func TestCurrencyLevelingPolicyValidation(t *testing.T) {
 // policy ensure writes payback_days into a table that lacks it, leaving every
 // value the owner wrote as it was (owner decision 2026-10-06 07:11 CEST).
 func TestCurrencyLevelingEnsureWritesPaybackDays(t *testing.T) {
-	file := pcProtectionHead + "\n[buckets.currency_leveling]\nenabled = true\ntrigger_base = 12000.0\ncushion_base = 250.0\nmax_slippage_bp = 2.0\n"
+	file := pcProtectionHead + "\n[cash.leveling]\nenabled = true\ntrigger_base = 12000.0\ncushion_base = 250.0\nmax_slippage_bp = 2.0\n"
 	before, _, err := parseProtectionPolicy([]byte(file))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if missing := before.Buckets.CurrencyLeveling.missingNumbers(); strings.Join(missing, ",") != "payback_days" {
+	if missing := before.Cash.Leveling.missingNumbers(); strings.Join(missing, ",") != "payback_days" {
 		t.Fatalf("missing = %v, want payback_days", missing)
 	}
 	out, changes, _, err := migrateProtectionPolicyFile([]byte(file), "v9.9.9")
-	if err != nil || !slices.Contains(changes, "added buckets.currency_leveling.payback_days = 30") {
+	if err != nil || !slices.Contains(changes, "added cash.leveling.payback_days = 30") {
 		t.Fatalf("changes = %v, %v", changes, err)
 	}
 	after, _, err := parseProtectionPolicy(out)
-	l := after.Buckets.CurrencyLeveling
+	l := after.Cash.Leveling
 	if err != nil || l == nil || l.PaybackDays == nil || *l.PaybackDays != 30 || *l.TriggerBase != 12000 || !l.Enabled || len(l.missingNumbers()) != 0 {
 		t.Fatalf("after ensure = %+v, %v", l, err)
 	}
-	if !currencyLevelingMaterialisationPreserves(before.Buckets.CurrencyLeveling, l) {
+	if !currencyLevelingMaterialisationPreserves(before.Cash.Leveling, l) {
 		t.Fatal("ensure changed a value the owner wrote")
 	}
 	changed := *l
 	changed.PaybackDays = new(31)
-	if currencyLevelingMaterialisationPreserves(before.Buckets.CurrencyLeveling, &changed) {
+	if currencyLevelingMaterialisationPreserves(before.Cash.Leveling, &changed) {
 		t.Fatal("a payback_days other than the written default passed as materialisation")
 	}
 }

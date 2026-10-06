@@ -132,35 +132,35 @@ func writeCurrencyLevelingTemplate(b *strings.Builder) {
 # conversions together are held to the order cap in force; never
 # pre-authorised. Every number is read from this file only: a missing one
 # holds leveling at needs_your_number.
-[buckets.currency_leveling]
+[cash.leveling]
 `)
 	for _, d := range currencyLevelingWrittenDefaults {
 		fmt.Fprintf(b, "%s = %s\n", d.key, d.value)
 	}
 	b.WriteString(`# A currency you keep negative on purpose, for example a funding leg:
-# [buckets.currency_leveling.currency.USD]
+# [cash.leveling.currency.USD]
 # deliberate_carry = true
 `)
 }
 
 // materialiseCurrencyLeveling writes the table into an owner file: the
 // whole table, off, when the file has none; into an existing plain
-// [buckets.currency_leveling] section only the keys it leaves out (an
+// [cash.leveling] section only the keys it leaves out (an
 // unwritten enabled already reads false, so writing it switches nothing on).
 func materialiseCurrencyLeveling(doc *tomlDoc, md toml.MetaData, release string) (changes, notes []string) {
-	const table = "buckets.currency_leveling"
+	const table = "cash.leveling"
 	comment := "  # written by Canary " + release + "; currency leveling reads it from this file only"
-	if !md.IsDefined("buckets", "currency_leveling") {
+	if !md.IsDefined("cash", "leveling") {
 		lines := []string{"# Currency leveling, written off by Canary " + release + ": set enabled = true to start it."}
 		for _, d := range currencyLevelingWrittenDefaults {
 			lines = append(lines, d.key+" = "+d.value)
 		}
 		doc.insert(table, lines)
-		return []string{"added [buckets.currency_leveling] with enabled = false"}, nil
+		return []string{"added [cash.leveling] with enabled = false"}, nil
 	}
 	var missing []cashSweepWrittenDefault
 	for _, d := range currencyLevelingWrittenDefaults {
-		if !md.IsDefined("buckets", "currency_leveling", d.key) {
+		if !md.IsDefined("cash", "leveling", d.key) {
 			missing = append(missing, d)
 		}
 	}
@@ -168,11 +168,11 @@ func materialiseCurrencyLeveling(doc *tomlDoc, md toml.MetaData, release string)
 	case len(missing) == 0:
 		return nil, nil
 	case doc.headerLine(table) < 0:
-		return nil, []string{"[buckets.currency_leveling] is not a plain section, so its missing keys were not written; leveling holds until you write them"}
+		return nil, []string{"[cash.leveling] is not a plain section, so its missing keys were not written; leveling holds until you write them"}
 	}
 	for _, d := range missing {
 		doc.insert(table, []string{d.key + " = " + d.value + comment})
-		changes = append(changes, fmt.Sprintf("added buckets.currency_leveling.%s = %s", d.key, d.value))
+		changes = append(changes, fmt.Sprintf("added cash.leveling.%s = %s", d.key, d.value))
 	}
 	return changes, nil
 }
@@ -220,7 +220,7 @@ func currencyLevelingMaterialisationPreserves(before, after *protectionCurrencyL
 // for nothing.
 func currencyLevelingNeedsYourNumber(p *protectionCurrencyLevelingPolicy) []string {
 	if missing := p.missingNumbers(); len(missing) > 0 {
-		return []string{"currency leveling: holds until you write " + strings.Join(missing, ", ") + " in [buckets.currency_leveling]"}
+		return []string{"currency leveling: holds until you write " + strings.Join(missing, ", ") + " in [cash.leveling]"}
 	}
 	return nil
 }

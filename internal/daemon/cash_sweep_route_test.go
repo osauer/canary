@@ -86,14 +86,14 @@ func TestCashSweepRowsWithoutSettlementLinesUseTheDefaultRoute(t *testing.T) {
 	now := cashSweepTestNow()
 	row := func(mutate func(*protectionCashSweepCurrency)) rpc.TradeProposal {
 		policy := cashSweepTestPolicy(rpc.CashSweepModeActive, 1e9)
-		usd := policy.Buckets.CashSweep.Currency["USD"]
+		usd := policy.Cash.Sweep.Currency["USD"]
 		usd.SettlementDays, usd.SettlementExchange, usd.SettlementValidThrough = nil, "", ""
 		if mutate != nil {
 			mutate(&usd)
 		}
-		policy.Buckets.CashSweep.Currency["USD"] = usd
+		policy.Cash.Sweep.Currency["USD"] = usd
 		plan := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"USD": 60000}), now)
-		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Buckets.CashSweep, &plan, now)
+		cashSweepResolveBills(context.Background(), usBillSource(now), policy.Cash.Sweep, &plan, now)
 		return cashSweepRow(policy, rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, now, plan, cashSweepCurrencyOf(t, plan, "USD"))
 	}
 	got := row(nil)

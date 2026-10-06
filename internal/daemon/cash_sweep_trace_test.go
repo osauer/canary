@@ -18,7 +18,7 @@ func TestCashSweepTraceDurableDedupeAndReturnTransition(t *testing.T) {
 	}
 	engine := &proposalEngine{store: &proposalStore{core: core}}
 	policy := cashSweepTestPolicy(rpc.CashSweepModeShadow, 100000)
-	policy.Buckets.CashSweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
+	policy.Cash.Sweep.CurrencyPriority = rpc.CashSweepPriorityUSDFirst
 	scope := brokerStateScope{Account: "UTEST", Mode: "paper"}
 	now := time.Now().UTC()
 	status := cashSweepPlanFor(policy, cashSweepTestInput(map[string]float64{"EUR": 10000, "USD": 20000}), now).status

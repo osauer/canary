@@ -226,7 +226,7 @@ func cashSweepResolveCurrency(ctx context.Context, src cashSweepBillSource, cfg 
 		}
 	} else {
 		if len(cfg.ISINs) == 0 {
-			fail(rpc.CashSweepStateUniverseUnavailable, fmt.Sprintf("no isins are listed in [buckets.cash_sweep.currency.%s]; list the %s bills the sweep may buy", ccy, ccy), nil)
+			fail(rpc.CashSweepStateUniverseUnavailable, fmt.Sprintf("no isins are listed in [cash.sweep.currency.%s]; list the %s bills the sweep may buy", ccy, ccy), nil)
 			return
 		}
 		plannable := cashSweepPlannable(cfg)
