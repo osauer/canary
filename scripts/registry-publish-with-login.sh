@@ -10,8 +10,13 @@ server_json="${2:?server.json path required}"
 auto_login="${MCP_REGISTRY_AUTO_LOGIN:-1}"
 login_method="${MCP_REGISTRY_LOGIN_METHOD:-github}"
 server_name="io.github.osauer/canary"
-verify_attempts=3
-verify_interval_seconds=10
+# The registry serves a new version only once its read side catches up with the
+# write: at once for v3.18.0, about three minutes after publish for v3.18.1
+# (2026-10-06), which a 40-second check reported as a failed publication. Wait
+# as long as registry-publish-verify-first.sh does.
+verify_interval_seconds=15
+verify_wait_seconds=420
+verify_attempts=$((verify_wait_seconds / verify_interval_seconds + 1))
 
 if [[ ! -f "$server_json" || -L "$server_json" ]]; then
     echo "registry-publish: missing $server_json" >&2

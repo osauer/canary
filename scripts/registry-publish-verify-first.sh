@@ -24,8 +24,12 @@ fi
 
 expected_version="${release_version#v}"
 server_name="io.github.osauer/canary"
+# Long enough for the Actions workflow to start and publish (about a minute)
+# plus the registry's read-after-write lag (about three minutes for v3.18.1,
+# 2026-10-06), so a slow registry never sends the release to a device code.
+# registry-publish-with-login.sh waits as long after its own publish.
 interval_seconds=15
-wait_seconds=240
+wait_seconds=420
 max_attempts=$((wait_seconds / interval_seconds + 1))
 registry_query_state=""
 
@@ -311,7 +315,7 @@ fi
 # again so publisher stderr, local command behavior, and eventual consistency
 # cannot promote an absent or wrong Canary version into release success.
 post_attempt=1
-post_attempts=3
+post_attempts=$max_attempts
 while [[ "$post_attempt" -le "$post_attempts" ]]; do
     if query_exact_registry; then
         echo "registry-publish: local fallback published exact version $expected_version; post-publish registry verification succeeded."
