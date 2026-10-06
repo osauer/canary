@@ -9,8 +9,8 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-# Private holdings data comes only from the synthetic fixtures below, never
-# from this machine's daemon store or cache.
+# Private holdings and money data come only from the synthetic fixtures
+# below, never from this machine's daemon store or cache.
 export XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
 out="$test_root/out"
 gate() { (cd "$repo" && ./scripts/check-no-account-data.sh) >"$out" 2>&1; }
@@ -20,7 +20,7 @@ fail() {
 	exit 1
 }
 expect() { grep -Fq -- "$1" "$out" || fail "output lacks: $1"; }
-withheld() { ! grep -qw -- "$1" "$out" || fail "failure output disclosed held ticker $1"; }
+withheld() { ! grep -qw -- "$1" "$out" || fail "failure output disclosed $1"; }
 stage() {
 	printf '%s\n' "$2" >"$repo/$1"
 	git -C "$repo" add "$1"
@@ -57,9 +57,11 @@ expect "fixture.bin contains 1 non-placeholder IBKR account ID occurrence(s)"
 withheld "$probe_upper"
 git -C "$repo" rm --quiet --cached fixture.bin
 
-# Holdings. No store and no cache is a contributor machine: skip, loudly.
+# Holdings. No store and no cache is a contributor machine: skip, loudly;
+# the money check skips silently.
 gate || fail "tree without private holdings data was rejected"
 expect "holdings check SKIPPED"
+! grep -q money "$out" || fail "the money check spoke without private data"
 
 # A synthetic denylist injected through the private cache. Matching is
 # whole-token and case-sensitive; a single letter and Canary's own market
@@ -117,7 +119,8 @@ store() {
 	rm -f "$db"
 	mkdir -p "${db%/*}"
 	sqlite3 "$db" "CREATE TABLE statement_files (file_key TEXT);
-		CREATE TABLE statement_records (record_kind TEXT, account_key TEXT, raw_json TEXT); $1"
+		CREATE TABLE statement_records (record_kind TEXT, account_key TEXT, raw_json TEXT);
+		CREATE TABLE state_documents (kind TEXT, document_json TEXT); $1"
 }
 pos() { printf "INSERT INTO statement_records VALUES ('%s', '%s', '%s');" "$1" "$2" "$3"; }
 store "INSERT INTO statement_files VALUES ('flex');
@@ -144,11 +147,137 @@ stage fixture.txt 'safe fixture DU1234567'
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed holdings grep passed"
 expect "git grep failed"
 
-# An unreadable store falls back to the cache; without one it fails.
+# Money figures from the daemon store: the latest live risk-capital NLV per
+# account and the live proposal snapshot's cash rows. The synthetic book:
+# NLV 618,034.27; cash 314,159.26 (settled 298,765.43), -271,828.18
+# (borrowed) and 7,153.86; two balances below four significant digits. A
+# paper book and an older document of the same account are not the live
+# book; a store without a live book says so.
+doc() { printf "INSERT INTO state_documents VALUES ('%s', '%s');" "$1" "$2"; }
+nlv() { printf '{"state":{"account_id":"%s","account_mode":"%s","last_equity_base":%s,"last_equity_as_of":"%s"}}' "$@"; }
+book="$(doc risk_capital "$(nlv A live 618034.27 2026-02-02T10:00:00Z)")
+	$(doc risk_capital "$(nlv A live 123987.65 2026-01-15T10:00:00Z)")
+	$(doc risk_capital "$(nlv P paper 864197.53 2026-02-02T10:00:00Z)")"
+cash='{"account_mode":"live","cash_sweep":{"currencies":[{"currency":"EUR","cash":314159.26,"settled_cash":298765.43},
+	{"currency":"USD","cash":-271828.18},{"currency":"GBP","cash":7153.86},{"currency":"CHF","cash":950.25},{"currency":"HKD","cash":40000}]}}'
+gap='{"account_mode":"live","cash_sweep":{"currencies":[{"currency":"EUR","state":"cash_unavailable"}]}}'
+no_nlv='{"state":{"account_id":"A","account_mode":"live","last_equity_as_of":"2026-02-02T10:00:00Z"}}'
+store "$(doc risk_capital "$(nlv P paper 864197.53 2026-02-02T10:00:00Z)")"
 stage fixture.txt 'safe fixture DU1234567'
+gate || fail "a store without a live book was rejected"
+expect "money check SKIPPED — the daemon store holds no live net liquidation value"
+store "$book $(doc trade_proposals_current "$cash")"
+gate || fail "the live book was rejected on a clean tree"
+expect "money figures checked against the daemon store, NLV as of 2026-02-02"
+
+# Each row is staged alone; a flagged row fails without echoing a figure.
+# Without origin/main every file is unpublished, so rounded spellings
+# within 2% apply (605,700 to 630,300 for the NLV). Round numbers, a figure
+# inside a longer number, colours and hashes pass.
+while IFS= read -r row; do
+	want=${row%%: *} text=${row#*: }
+	stage money.md "$text"
+	if gate </dev/null; then got=pass; else got=flag; fi
+	[ "$got" = "$want" ] || fail "money row wanted $want, got $got: $text"
+	[ "$want" = flag ] || continue
+	expect "money.md names a money figure of the live book on line(s) 1"
+	for digits in $(printf '%s\n' "$text" | grep -oE '[0-9]{3,}'); do withheld "$digits"; done
+done <<'EOF'
+flag: NLV 618,034.27 EUR
+flag: 618,034.27 EUR is the book
+flag: 618k book
+flag: NLV 618.034,27 EUR
+flag: "net_liquidation": 618034.27,
+flag: {"equity":[0,618034.27]}
+flag: 2025-12-31,618034.27,EUR
+flag: nlv := 618_034.27
+flag: NetLiquidation: 618_000,
+flag: a book of €618,034
+flag: NLV 618034 EUR
+flag: about 618,000 EUR
+flag: about 618.000 EUR
+flag: roughly 618K
+flag: func TestSweepBookOf618k(t *testing.T) {
+flag: after a 2% fall, 605,700
+flag: after a 2% rise, 630,300
+flag: a 629.8k book
+flag: EUR cash 314,159.26
+flag: | EUR | 314.159,26 |
+flag: Cash: new(314159.3),
+flag: EUR cash of about 314,200
+flag: EUR 314.2k
+flag: settled EUR 298,765.43
+flag: USD is borrowed: −271,828.18 USD
+flag: "USD": -271800,
+flag: about 272k USD
+flag: GBP 7,153.86
+flag: GBP 7.154
+pass: an older 123,987 and a paper 864,197 are not the live book
+pass: 1,618,034 is another number
+pass: a ratio of 0.618034
+pass: 618,034,270 shares
+pass: colour #618034
+pass: digest a618034f
+pass: 618km away
+pass: after a 2% fall, 605,600
+pass: after a 2% rise, 630,400
+pass: about 620,000 or 630k
+pass: build 7153 passed
+pass: a constant of 7.1534
+pass: CHF 950.25 and HKD 40,000
+EOF
+
+# Published files are judged on whole units only: a rounded figure already
+# on origin/main passes until its file changes, a whole one never does.
+stage sized.md 'sized for 630,300'
+git -C "$repo" commit --quiet -m sized
+git -C "$repo" update-ref refs/remotes/origin/main HEAD
+gate || fail "a published rounded figure in an unchanged file was flagged"
+stage sized.md 'sized for 630,300 again'
+! gate || fail "a rounded figure in a changed file was accepted"
+expect "sized.md names a money figure of the live book on line(s) 1"
+git -C "$repo" checkout --quiet HEAD -- sized.md
+stage whole.md 'NLV 618,034'
+git -C "$repo" commit --quiet -m whole
+git -C "$repo" update-ref refs/remotes/origin/main HEAD
+! gate || fail "a published whole figure was accepted"
+expect "whole.md names a money figure of the live book on line(s) 1"
+git -C "$repo" rm --quiet sized.md whole.md
+git -C "$repo" commit --quiet -m unpublish
+git -C "$repo" update-ref -d refs/remotes/origin/main
+
+# Released CHANGELOG sections are out of scope here too.
+stage CHANGELOG.md '# Changelog
+
+## v1.1.0 — 2026-02-01 00:00 CET
+- Sized against a 618k book.
+
+## v1.0.0 — 2026-01-01 00:00 CET
+- Held ZQXW at NLV 618,034.'
+! gate || fail "an unreleased changelog section naming a money figure was accepted"
+grep -qx 'check-no-account-data: CHANGELOG.md names a money figure of the live book on line(s) 4' "$out" ||
+	fail "only the unreleased changelog line should be named"
+git -C "$repo" checkout --quiet HEAD -- CHANGELOG.md
+
+# A failed money grep fails the check; a live account without an NLV means
+# the query no longer matches the store: fail rather than skip. A snapshot
+# without cash (sweep off, ledger catching up after a fill) leaves cash
+# unchecked and says so.
+! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed money grep passed"
+expect "git grep failed; the money check did not run"
+store "$(doc risk_capital "$no_nlv")"
+! gate || fail "a live book without a readable NLV was accepted"
+expect "fix the money query here"
+store "$book $(doc trade_proposals_current "$gap")"
+gate || fail "a cash ledger gap failed the gate"
+expect "cash balances not checked"
+
+# An unreadable store falls back to the holdings cache; the money check has
+# no cache and fails, as does the holdings check without its cache.
 printf 'not a database\n' >"$db"
-gate || fail "an unreadable store with a cache was rejected"
+! gate || fail "an unreadable store passed the money check"
 expect "holdings checked against the private cache (cannot read the daemon store at"
+expect "cannot read money figures from the daemon store"
 rm -f "$cache"
 ! gate || fail "an unreadable store without a cache skipped the check"
 expect "never skips the holdings check"

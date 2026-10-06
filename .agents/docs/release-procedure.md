@@ -187,8 +187,9 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   is **pixel-blind**. Every image in the diff gets eyeballed and is treated as
   a leak until proven fixture-only (DU1234567 / DU0000000); held-name symbols
   are account data too. On the operator machine it also rejects current
-  holdings named in text, the new CHANGELOG section included. Screenshots
-  are the historical leak vector.
+  holdings and the live book's net liquidation value and cash balances
+  (exact, grouped, rounded or k-suffixed) named in text, the new CHANGELOG
+  section included. Screenshots are the historical leak vector.
 - AI-tell pass over all public-facing copy in the diff (changelog, site).
 - Nothing staged, no commit message, and no report may contain raw account
   ids, balances, or order references.
