@@ -439,7 +439,7 @@ func (s *Server) drawdownBlockLatched(scope brokerStateScope) bool {
 
 // proposalUnblocked reports whether prop, as served in snap, may be acted on:
 // the snapshot carries no blockers of its own, the row is generated rather
-// than blocked, and it belongs to the served revision.
+// than blocked, and snap serves that key at that row revision.
 func proposalUnblocked(snap rpc.TradeProposalSnapshot, prop rpc.TradeProposal) bool {
 	if len(snap.Blockers) > 0 || snap.LoadedFromState {
 		return false
@@ -447,7 +447,8 @@ func proposalUnblocked(snap rpc.TradeProposalSnapshot, prop rpc.TradeProposal) b
 	if prop.State == rpc.TradeProposalStateBlocked || !prop.AutomaticEligible() {
 		return false
 	}
-	return prop.Revision != "" && prop.Revision == snap.Revision
+	served, ok := servedProposal(snap, prop.Key)
+	return ok && prop.Revision != "" && prop.Revision == served.Revision
 }
 
 func proposalBlockedReason(snap rpc.TradeProposalSnapshot, prop rpc.TradeProposal) string {

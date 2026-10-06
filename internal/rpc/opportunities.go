@@ -491,7 +491,9 @@ type TradeProposalSnapshot struct {
 	Kind          string    `json:"kind"`
 	SchemaVersion string    `json:"schema_version"`
 	AsOf          time.Time `json:"as_of"`
-	Revision      string    `json:"revision"`
+	// Revision binds the whole list. Preview, submit and ignore take a row's
+	// own revision (TradeProposal.Revision), which a neighbour's change leaves standing.
+	Revision string `json:"revision"`
 	// EffectiveRevision proves equivalence when an existing public revision is retained across a fingerprint-format upgrade.
 	EffectiveRevision          string                          `json:"effective_revision,omitempty"`
 	AccountID                  string                          `json:"account_id,omitempty"`
@@ -783,7 +785,10 @@ type TradeProposalCounts struct {
 // TradeProposal is an advisory action bound to a key and revision. It is not a
 // preview token or submit authorization.
 type TradeProposal struct {
-	Key                string                           `json:"key"`
+	Key string `json:"key"`
+	// Revision binds this row's key, size, effect and bucket bindings with the
+	// policy, account and position evidence; a neighbour's change leaves it
+	// standing. A cash-sweep row carries the list revision instead.
 	Revision           string                           `json:"revision"`
 	State              string                           `json:"state"`
 	Bucket             string                           `json:"bucket"`

@@ -114,13 +114,11 @@ func (r *automaticTestRig) newEngine() *proposalEngine {
 	e.revalidateForTest = func(_ context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
 		r.count(&r.revalidations)
 		snap := e.Snapshot(false)
-		if snap.Revision != revision {
-			return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "stale"}}, nil
-		}
-		for _, prop := range snap.Proposals {
-			if prop.Key == key {
-				return prop, prop.Blockers, nil
+		if prop, ok := servedProposal(snap, key); ok {
+			if prop.Revision != revision {
+				return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "stale"}}, nil
 			}
+			return prop, prop.Blockers, nil
 		}
 		return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "proposal_not_found", Message: "gone"}}, nil
 	}

@@ -345,8 +345,10 @@ trading is a guess about the reopening print. Recent flags that are no longer
 active stay visible as context and do not block.
 
 Other rows block because the evidence is not good enough. A stale option-exit
-quote raises `fresh_option_quote_required`. A revision older than the current
-snapshot raises `stale_revision`. A time-in-force that drifted between the
+quote raises `fresh_option_quote_required`. A revision older than that row's
+current one raises `stale_revision`; each row carries its own revision, so a
+neighbour that moved (a cash sweep re-sized on net liquidation value, say)
+leaves a reviewed stop current. A time-in-force that drifted between the
 proposal and its preview raises `tif_drift`, and a quantity beyond the position
 raises `quantity_outside_position`. The row stays visible with its reason
 attached rather than quietly disappearing.
