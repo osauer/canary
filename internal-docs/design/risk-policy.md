@@ -77,7 +77,7 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
    `max_order_ceiling_base` (base currency, percent, base currency),
    `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`.
    Cap in force = min(ceiling, max(floor, pct / 100 × NLV)). Worked check:
-   NLV 233,800 EUR gives 11,690 (pct binds); 150,000 gives 10,000 (floor);
+   NLV 240,000 EUR gives 12,000 (pct binds); 150,000 gives 10,000 (floor);
    2,500,000 gives 100,000 (ceiling); NLV unreadable gives 10,000 (floor,
    flagged in the summary and the refusal).
 2. **Read from the file only.** Compiled numbers exist solely to be written

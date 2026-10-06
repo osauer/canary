@@ -267,7 +267,7 @@ cap in force = min(max_order_ceiling_base, max(max_order_floor_base, max_order_p
 
 | NLV | Cap in force | Bound by |
 |---|---|---|
-| 233,800 EUR | 11,690 EUR | 5% of NLV |
+| 240,000 EUR | 12,000 EUR | 5% of NLV |
 | 150,000 EUR | 10,000 EUR | the floor |
 | 2,500,000 EUR | 100,000 EUR | the ceiling |
 | cannot be read | 10,000 EUR | the floor, flagged |
@@ -278,8 +278,8 @@ reading is older than 5 minutes. An NLV that cannot be read currently binds the
 floor, the smaller cap, and the summary says why. Amounts are in the account
 base currency: a `capital.base_currency` that differs from the account's
 refuses every order. A refusal names the cap in force and how it was bound, for
-example `order notional 12,000 EUR exceeds the order cap in force 11,690 EUR
-(5% of NLV 233,800 EUR; [order_limits])`.
+example `order notional 15,000 EUR exceeds the order cap in force 12,000 EUR
+(5% of NLV 240,000 EUR; [order_limits])`.
 
 Two exemptions stand against the cap in force: a protective stock stop that
 sells at most the long position with no competing working sell
