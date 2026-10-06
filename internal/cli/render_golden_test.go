@@ -427,7 +427,7 @@ func goldenLevelingProposals() rpc.TradeProposalSnapshot {
 			Details: []string{
 				"USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701); the repayment lands it between 0 and +293 USD (cushion 250 EUR), never above",
 				"EUR trade-date cash +60,000 EUR funds it; this conversion may spend at most 17,347 EUR of it and leaves it about +42,781 EUR",
-				"SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+				"SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the target",
 				"the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 52 EUR and costs at most 5 EUR",
 				"the loan's conversions together are held to the order cap in force, 50,000 EUR; FX spot settles in two days and the margin interest stops on the settled balance",
 				"you approve each conversion; leveling is never pre-authorised",
@@ -465,7 +465,7 @@ func goldenLevelingBundleProposals() rpc.TradeProposalSnapshot {
 		"Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +119 USD",
 		append(append(common(
 			"CHF trade-date cash +6,000 CHF funds it; this conversion may spend at most 5,766 CHF of it and leaves it about +255 CHF",
-			"BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+			"BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the target",
 			"the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 26 EUR and costs at most 3 EUR"), tail...),
 			"conversion 1 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together", "you approve the repayment as a whole; leveling is never pre-authorised"),
 		rpc.TradeProposalCurrencyLeveling{Leg: 1, FundingCurrency: "CHF", Pair: "USD.CHF", PairSymbol: "USD", PairCurrency: "CHF", Target: -12728.7, Received: 7192, FundingCash: 6000,
@@ -474,7 +474,7 @@ func goldenLevelingBundleProposals() rpc.TradeProposalSnapshot {
 		"Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +119 USD",
 		append(append(common(
 			"EUR trade-date cash +60,000 EUR funds it; this conversion may spend at most 11,131 EUR of it and leaves it about +48,951 EUR",
-			"SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+			"SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the target",
 			"the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 34 EUR and costs at most 4 EUR"), tail...),
 			"conversion 2 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together", "you approve the repayment as a whole; leveling is never pre-authorised"),
 		rpc.TradeProposalCurrencyLeveling{Leg: 2, FundingCurrency: "EUR", Pair: "EUR.USD", PairSymbol: "EUR", PairCurrency: "USD", Target: -6978.8, Received: 12927.33, FundingCash: 60000,

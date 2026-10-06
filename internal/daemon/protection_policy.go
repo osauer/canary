@@ -54,7 +54,7 @@ type protectionPolicy struct {
 // exception to authority.close_reduce_only. One veto window,
 // [authority] veto_window, serves every pre-authorised row.
 type protectionCashPolicy struct {
-	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to its max_order_notional. currency_leveling is never pre-authorised. Empty by default.
+	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to the sweep's order cap in force. currency_leveling is never pre-authorised. Empty by default.
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
 	// Sweep is the cash sweep, [cash.sweep]; an absent table is off.
 	Sweep *protectionCashSweepPolicy `toml:"sweep" json:"sweep,omitempty"`
@@ -96,7 +96,7 @@ const (
 	preAuthorisedBucketBudgetReduction = "budget_reduction"
 	// preAuthorisedBucketCashSweep names the cash sweep's rows (bill buys
 	// and redemptions) in [cash] pre_authorised; each is NeverSkipVeto and
-	// held to the bucket's max_order_notional.
+	// held to the sweep's order cap in force.
 	preAuthorisedBucketCashSweep = "cash_sweep"
 
 	defaultVetoWindow = 30 * time.Minute
@@ -1142,7 +1142,7 @@ type protectionCashSweepCurrency struct {
 // ([order_limits]). Pre-authorisation is out of scope: [cash] pre_authorised
 // refuses currency_leveling.
 type protectionCurrencyLevelingPolicy struct {
-	// Enabled turns currency leveling on (default false; policy ensure writes the table with enabled = false): each borrowed currency then gets a conversion proposal you approve, never one sent on its own.
+	// Enabled turns currency leveling on (default false; policy ensure writes the table with enabled = false): each currency borrowed beyond trigger_base then gets a proposal you approve, never one sent on its own.
 	Enabled bool `toml:"enabled" json:"enabled"`
 	// TriggerBase is the band, in base currency at the ledger rate: a currency is repaid only when its trade-date cash is below minus this amount; a smaller loan is left alone. Read from this file only: until it is written leveling holds at needs_your_number (policy ensure writes 10000.0).
 	TriggerBase *float64 `toml:"trigger_base" json:"trigger_base,omitempty"`

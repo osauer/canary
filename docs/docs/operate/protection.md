@@ -534,8 +534,9 @@ as recovered while it waits; it recovers only when the record is submitted,
 vetoed, or superseded.
 
 The daemon persists submission intent before the broker call and reconciles
-it against its journal after restart. Installing or updating the binary does
-not edit policy, enable buckets, or clear freeze.
+it against its journal after restart. Installing or updating the binary
+enables no bucket and clears no freeze; the daemon's next start migrates the
+policy file after a backup.
 
 ## Cash management
 

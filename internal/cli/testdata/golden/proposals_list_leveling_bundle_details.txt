@@ -28,7 +28,7 @@ Risk ticket TIF DAY
       BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 26 EUR and costs at most 3 EUR
@@ -51,7 +51,7 @@ Risk ticket TIF DAY
       SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 34 EUR and costs at most 4 EUR
@@ -92,7 +92,7 @@ Risk ticket TIF DAY
       BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 26 EUR and costs at most 3 EUR
@@ -115,7 +115,7 @@ Risk ticket TIF DAY
       SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 34 EUR and costs at most 4 EUR

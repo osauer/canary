@@ -186,7 +186,7 @@ type TradeProposalCurrencyLeveling struct {
 	BalanceSource   string `json:"balance_source"`
 	// Cash is the borrowed currency's trade-date cash (negative); Target the
 	// most this conversion alone may bring it to (Cash plus its share of the
-	// band; the whole bundle never passes the cushion); Received what the
+	// target; the whole bundle never passes the cushion); Received what the
 	// conversion brings in.
 	Cash     float64 `json:"cash"`
 	Target   float64 `json:"target"`

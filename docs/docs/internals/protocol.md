@@ -46,7 +46,7 @@ Canary's own stops no larger than the position
 A cash sweep bill order passes the order cap in force only when the
 protection policy writes `bills_exempt_from_trading_max_notional = true`, and
 then only up to the sweep's own order cap in force, for a same-currency bill
-with no conversion ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
+with no conversion ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
 
 The account-base unit used by those caps is exact-session authority. A
 completed one-shot account-summary response must identify it through the

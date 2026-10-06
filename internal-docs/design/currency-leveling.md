@@ -180,7 +180,7 @@ fill, a conversion working, the order cap unreadable):
    for the next cycle.
 7. What a loan takes is deducted from its payers before the next loan. Each
    row carries its allotment, and preview and submit check the conversion
-   against it (what it brings in within the loan's share of the band, what
+   against it (what it brings in within the loan's share of the target, what
    it spends within the payer's allotment). Rows approved in any order
    cannot overdraw a payer; this removes the defect.
 8. Each conversion is sized as today, inside its share of the safe band at
@@ -227,7 +227,7 @@ fill, a conversion working, the order cap unreadable):
   no conversion sees a sibling as already working. After sending, the bucket
   holds as before until the conversions finish and the ledger is newer than
   the fills; the next cycle plans what remains. A partly sent bundle is safe:
-  each conversion stays within its own allotment and share of the band.
+  each conversion stays within its own allotment and share of the target.
 - A conversion that is one of several refuses a prepare, prepared submit or
   fast-path submit of its own (`conversion_bundle_needs_one_approval`); a
   plain preview stays allowed, to inspect it.
@@ -312,7 +312,7 @@ currency does not. The status shows which currency pays.
   larger than the policy cushion, an allotment no larger than the funding
   currency's free cash. At preview, prepare and submit it checks the draft
   against the row's terms, at the live quote's far side: the conversion can
-  bring in no more than its share of the band (`conversion_beyond_target`),
+  bring in no more than its share of the target (`conversion_beyond_target`),
   spends no more than its allotment (`conversion_funding_short`), and is the
   row's order on the row's contract within the slippage bound
   (`conversion_terms_drift`). The pair's own position effect is ignored: it
@@ -344,7 +344,7 @@ currency does not. The status shows which currency pays.
 | A quantity that follows every ledger-rate update churns the row's revision | The quantity is kept while it stays inside the safe band |
 | Leveling becomes an automatic money mover | Never pre-authorised or queued; each repayment is approved by the owner |
 | Two rows approved in any order overdraw a currency both spend | What one loan takes is set aside before the next is planned; each row carries its allotment and the exception refuses a spend beyond it |
-| A repayment of several conversions lands in part | Every conversion's checks run before any is sent; a later refusal leaves earlier ones inside their own share of the band and allotment, and the next cycle plans the rest |
+| A repayment of several conversions lands in part | Every conversion's checks run before any is sent; a later refusal leaves earlier ones inside their own share of the target and allotment, and the next cycle plans the rest |
 | Selling a currency that earns more than the loan costs | A currency pays only while its cash rate is below the loan rate, and a conversion must earn back its worst-case cost within `payback_days` |
 | Rates stale or wrong | Read from the broker's own statements; each rate shows its last day; only the last 180 days count; an unmeasured side stands in from the other side in the safe direction; without statements leveling holds |
 

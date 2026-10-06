@@ -26,7 +26,7 @@ Risk ticket TIF DAY
       SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 52 EUR and costs at most 5 EUR
@@ -63,7 +63,7 @@ Risk ticket TIF DAY
       SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from
       the ledger rates; the preview reads a live bid and ask and sends a limit
       at most 2 bp from the mid, which can bring in no more than this
-      conversion's share of the band
+      conversion's share of the target
       the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
       broker's statements to 2026-10-05; within 30 days this conversion saves
       about 52 EUR and costs at most 5 EUR

@@ -521,7 +521,7 @@ func (p *currencyLevelingPlanner) candidate(loanRate, need float64, subset []str
 }
 
 // legs sizes the chosen combination's conversions and deducts each one's
-// allotment from its payer. Each conversion gets its share of the band: its
+// allotment from its payer. Each conversion gets its share of the target: its
 // planned value plus a share of half the cushion as its ceiling, minus the
 // same as its floor, so the bundle lands between zero and the cushion and
 // never above, whatever order its conversions fill in.
@@ -908,7 +908,7 @@ func currencyLevelingRow(policy protectionPolicy, status rpc.ProtectionPolicySta
 			b.Currency, currencyLevelingMoney(b.Cash, b.Currency, true), currencyLevelingMoney(b.Cash*b.ExchangeRate, base, true), strconv.FormatFloat(b.ExchangeRate, 'f', 6, 64),
 			currencyLevelingMoney(b.CushionBase/b.ExchangeRate, b.Currency, true), currencyLevelingMoney(b.CushionBase, base, false)),
 		funding + fmt.Sprintf("; this conversion may spend at most %s of it and leaves it about %s", currencyLevelingMoney(b.Allotment, b.FundingCurrency, false), currencyLevelingMoney(b.FundingCash-b.Spent, b.FundingCurrency, true)),
-		fmt.Sprintf("%s %s %s on IDEALPRO (contract %d), sized at %s from the ledger rates; the preview reads a live bid and ask and sends a limit at most %s bp from the mid, which can bring in no more than this conversion's share of the band",
+		fmt.Sprintf("%s %s %s on IDEALPRO (contract %d), sized at %s from the ledger rates; the preview reads a live bid and ask and sends a limit at most %s bp from the mid, which can bring in no more than this conversion's share of the target",
 			leg.action, briefThousands(float64(leg.quantity), 0), b.Pair, leg.contract.ConID, strconv.FormatFloat(b.PlanningPrice, 'f', 5, 64), strconv.FormatFloat(b.MaxSlippageBP, 'f', -1, 64)),
 		currencyLevelingRatesLine(b, base),
 		fmt.Sprintf("the loan's conversions together are held to the order cap in force, %s; FX spot settles in two days and the margin interest stops on the settled balance", currencyLevelingMoney(b.OrderCapBase, base, false)),

@@ -23,7 +23,7 @@ import (
 // prepared-submit check first, with nothing sent, then sends them in order,
 // cheapest payer first, and stops at the first refusal. A partly sent bundle
 // is safe: each conversion stays within its own allotment and share of the
-// band, and the next cycle plans what remains once the ledger shows the
+// target, and the next cycle plans what remains once the ledger shows the
 // fills. The bundle never widens a gate: each conversion is still one order
 // under every check a single prepared submit runs.
 

@@ -227,7 +227,7 @@ The policy keeps a reserve as cash in the base currency and a per-currency
 `keep_cash`, subtracts commitments, requires `min_order_notional` for a buy and
 caps each order's principal at the larger of `max_order_notional` and
 `max_order_pct_nlv` of net liquidation value, in the account's base currency
-([Reserve and order sizing](protection.md#reserve-and-order-sizing)). It has
+([Reserve and order sizing](cash.md#reserve-and-order-sizing)). It has
 no aggregate, daily or cycle budget.
 Repeated separately authorised orders may therefore deploy almost all eligible
 free cash down to the reserve and sizing residual. Those additional limits are

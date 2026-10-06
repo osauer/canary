@@ -997,7 +997,7 @@ allow_short_profit_trail = %t
 # currencies under this section's own authority, not as protection;
 # protection above stays close-or-reduce only. List cash_sweep to let the
 # daemon place the sweep's bill orders itself after the full veto window
-# ([authority] veto_window), each held to its max_order_notional, then raise
+# ([authority] veto_window), each held to the sweep's order cap in force, then raise
 # policy_version. Currency leveling is always yours to approve.
 # [cash]
 # pre_authorised = []   # for example ["cash_sweep"]

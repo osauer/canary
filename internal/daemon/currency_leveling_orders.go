@@ -22,7 +22,7 @@ import (
 // the preview reads a live two-sided quote on its own broker session and
 // bounds the limit to max_slippage_bp from the mid, and the second typed
 // exception to authority.close_reduce_only admits the order only while it
-// brings the borrowed currency back no further than its share of the band
+// brings the borrowed currency back no further than its share of the target
 // and spends no more of the funding currency than its allotment.
 // Every other gate stays: trading mode and freeze, account pins, the order
 // cap in force of [order_limits], WhatIf, the token and the journal, and the
@@ -222,7 +222,7 @@ func currencyLevelingSingleApprovalBlockers(prop rpc.TradeProposal) []rpc.Tradin
 // balance. The order's position effect on the pair says nothing about a
 // currency balance, so the exception judges the conversion against the
 // ledger terms the row was planned from: the borrowed currency's trade-date
-// cash and this conversion's share of the band, and its allotment of the
+// cash and this conversion's share of the target, and its allotment of the
 // funding currency. It is typed so it cannot widen by accident: every other
 // bucket, instrument, venue, side or size stays close-or-reduce only.
 type currencyLevelingException struct {
@@ -265,7 +265,7 @@ func currencyLevelingReduceException(prop rpc.TradeProposal) (currencyLevelingEx
 	case !positiveFinite(b.ExchangeRate) || !positiveFinite(b.MaxSlippageBP) || b.MaxSlippageBP > currencyLevelingMaxSlippageBP:
 		return none, false
 	case b.Target > b.CushionBase/b.ExchangeRate+cashSweepMoneyEpsilon:
-		// A share of the band never reaches past the policy cushion.
+		// A share of the target never reaches past the policy cushion.
 		return none, false
 	case b.Legs < 1 || b.Leg < 1 || b.Leg > b.Legs:
 		return none, false
@@ -286,7 +286,7 @@ func currencyLevelingReduceException(prop rpc.TradeProposal) (currencyLevelingEx
 // own pair, side and venue, a LMT DAY order within the planned quantity,
 // its limit inside the slippage bound of the quote it was priced from, and,
 // at that quote's far side, no more of the borrowed currency than its share
-// of the band and no more of the funding currency than its allotment.
+// of the target and no more of the funding currency than its allotment.
 func (x currencyLevelingException) previewBlockers(preview *rpc.OrderPreviewResult) []rpc.TradingBlocker {
 	if preview == nil {
 		return []rpc.TradingBlocker{{Code: "proposal_preview_missing", Message: "proposal preview result is unavailable"}}
@@ -326,7 +326,7 @@ func (x currencyLevelingException) previewBlockers(preview *rpc.OrderPreviewResu
 	var out []rpc.TradingBlocker
 	if x.Cash+received > x.Target+cashSweepMoneyEpsilon {
 		out = append(out, rpc.TradingBlocker{Code: rpc.CurrencyLevelingBlockerBeyondTarget,
-			Message: fmt.Sprintf("at the quote's far side the conversion brings in up to %s, taking %s to %s, above its share of the band, %s",
+			Message: fmt.Sprintf("at the quote's far side the conversion brings in up to %s, taking %s to %s, above its share of the target, %s",
 				currencyLevelingMoney(received, x.Currency, false), x.Currency, currencyLevelingMoney(x.Cash+received, x.Currency, true), currencyLevelingMoney(x.Target, x.Currency, true)),
 			Action: "Refresh proposals; the next cycle sizes the conversion at the current rate."})
 	}

@@ -160,7 +160,7 @@ func TestCurrencyLevelingWorkedExample(t *testing.T) {
 	if leg.quantity != 17219 {
 		t.Fatalf("quantity = %d EUR, want 17219", leg.quantity)
 	}
-	// A single conversion's share of the band is the whole band: it may
+	// A single conversion's share of the target is the whole band: it may
 	// bring USD to the cushion, 250 EUR = 292.50 USD, never above.
 	if math.Abs(b.Target-292.5) > 1e-6 {
 		t.Fatalf("target %.4f, want 292.50: the whole cushion for a single conversion", b.Target)

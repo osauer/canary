@@ -10,6 +10,8 @@ The separate opt-in trading binary exposes these actions:
 - submit or reduce a daemon-owned close/reduce protection proposal;
 - submit a cash sweep proposal, which buys a same-currency bill with idle cash
   or sells one ([Cash sweep](cash.md#cash-sweep));
+- submit a currency leveling conversion, which repays a borrowed currency
+  ([Currency leveling](cash.md#currency-leveling));
 - exercise an eligible held option when the action reduces or closes risk;
 - close or reduce a grouped option strategy as one combo; and
 - cancel a Canary-owned order.

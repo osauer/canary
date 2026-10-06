@@ -154,9 +154,9 @@ files:
   (`<file>.bak-<release>-<time>`), writes each missing key at Canary's default
   with a comment naming the release, comments out retired keys and logs what it
   changed. It refuses any change to a setting you wrote, apart from raising
-  `policy_version` when it writes missing `[order_limits]` keys or cash sweep
-  sizing numbers, so the daemon adopts them. Recommendations remain separate
-  owner decisions.
+  `policy_version` when it writes missing `[order_limits]` keys, cash sweep
+  sizing numbers or the `[cash.leveling]` table, so the daemon adopts them.
+  Recommendations remain separate owner decisions.
 - **A broken file is left alone.** The running manager retains its last good
   settings and reports the file failure. Protection automation pauses when its
   own authority file is uncertain; manual proposals still pass their existing
