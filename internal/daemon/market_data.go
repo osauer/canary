@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"sync"
@@ -266,7 +267,11 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 	}
 	for _, b := range bars {
 		if b.Time.IsZero() || b.Time.After(now.Add(time.Minute)) || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
-			return nil, errors.New("invalid historical observation")
+			at := b.Time.UTC().Format(time.RFC3339)
+			if interval == "1 day" {
+				at = b.Time.UTC().Format(time.DateOnly)
+			}
+			return nil, fmt.Errorf("invalid historical observation %s: open %g high %g low %g close %g volume %d", at, b.Open, b.High, b.Low, b.Close, b.Volume)
 		}
 		cutoff := result.RequestedStart
 		if interval == "1 day" {

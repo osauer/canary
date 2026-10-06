@@ -70,6 +70,25 @@ func TestMarketHistoryUnsupportedVenueKeepsRollingWindow(t *testing.T) {
 	}
 }
 
+// A refused bar must name itself: the refusal is logged on every refresh, and
+// "invalid historical observation" alone could not tell a broker no-trade
+// placeholder from a corrupt bar (MOTS 1Y, 2026-10-06).
+func TestMarketHistoryRefusalNamesTheObservation(t *testing.T) {
+	now := time.Date(2026, 10, 6, 13, 0, 0, 0, time.UTC)
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1Y"}
+	_, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
+		c.ConID, c.PrimaryExch = 123456, "PINK"
+		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+			{Time: time.Date(2026, 1, 14, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002, Volume: 100},
+			{Time: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC), Open: 0, High: 0.0001, Low: 0, Close: 0, Volume: 0},
+		}}, nil
+	})
+	want := "invalid historical observation 2026-01-15: open 0 high 0.0001 low 0 close 0 volume 0"
+	if err == nil || err.Error() != want {
+		t.Fatalf("refusal = %v, want %q", err, want)
+	}
+}
+
 func TestMarketHistoryCannotTurnDailyBarsIntoIntraday(t *testing.T) {
 	for _, r := range []string{"", "All", "1S", "unbounded"} {
 		if _, _, err := marketHistoryWindow(r, time.Now()); err == nil {
