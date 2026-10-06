@@ -1,10 +1,39 @@
 # Releases and support
 
-Updated: 2026-10-02
+Updated: 2026-10-06
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
+
+## Moving to 3.18
+
+Review the [full changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md).
+The per-order limits move from `config.toml` `[trading]` to the risk
+constitution's [`[order_limits]`](../understand/policy.md#order-limits), and
+the order-value cap now scales with net liquidation value between a floor and a
+ceiling. The `[trading]` keys still parse but no longer apply, and the runtime
+`trading.limits.*` settings are retired. The cash sweep's `min_tranche` is
+retired too; `min_order_notional` replaces it.
+
+Existing files are not rewritten at startup. Until `risk-policy.toml` has an
+`[order_limits]` table, a trading build refuses every order preview with
+`order_risk_limit`, and a configured cash sweep holds at `needs_your_number`
+until its new sizing keys and `no_buy_while_borrowed` are written. Save
+`canary policy ensure --dry-run --json` locally, review it, then run
+`canary policy ensure --apply-plan FILE`. Unlike earlier conversions, this one
+writes new limits: `[order_limits]` takes your current `[trading]` values
+(Canary's compiled default where a key was absent) with a 5% of net
+liquidation scale and a 100,000 base-currency ceiling, and an existing sweep
+table gains the sizing defaults with `no_buy_while_borrowed = true`. Review the
+numbers in the plan before you apply it;
+[`canary policy check`](../understand/policy.md#check-a-policy-for-plausibility)
+then reads them against each other and against the account.
+
+In trading builds the protective stop guard shrinks or cancels stock sell
+stops that Canary placed when the position falls below them; stops placed by
+hand are reported and never changed. A trailing-stop review prepared before the
+upgrade needs preparing again.
 
 ## Moving to 3.16
 
