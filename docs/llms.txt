@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-10-05
+Updated: 2026-10-06
 
 Version 3.18 shows every limit in force and checks that the limits add up.
 `canary policy show --explain` prints every limit, policy and runtime setting

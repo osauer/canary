@@ -1,11 +1,11 @@
 {
   "name": "canary",
   "title": "Canary MCP Server",
-  "description": "Canary's read-only MCP source catalogue for Interactive Brokers: daily brief, portfolio and market evidence, broker reporting, reconciled FX contribution, earned stock-lending fees, indicative borrowing-rate and FINRA short-interest research, Edge review, rules and action discovery. This catalogue follows main; new tools may precede the latest signed binary or MCP Bundle.",
+  "description": "Canary's read-only MCP source catalogue for Interactive Brokers: daily brief, portfolio and market evidence, broker reporting, reconciled FX contribution, earned stock-lending fees, indicative borrowing-rate and FINRA short-interest research, Edge review, rules, policy plausibility checks and action discovery. This catalogue follows main; new tools may precede the latest signed binary or MCP Bundle.",
   "homepage": "https://osauer.dev/canary/",
   "repository": "https://github.com/osauer/canary",
   "license": "MIT",
-  "version": "3.17.0",
+  "version": "3.18.0",
   "transport": {
     "type": "stdio",
     "command": "canary",
@@ -48,7 +48,8 @@
     "completed-day FX contribution reads",
     "earned stock-lending fee history and report coverage reads",
     "indicative borrowing-rate discovery and dated market context reads",
-    "FINRA short-interest research with source dates and coverage"
+    "FINRA short-interest research with source dates and coverage",
+    "policy and settings plausibility checks against the live book"
   ],
   "safety": {
     "order_entry_surface": false,
