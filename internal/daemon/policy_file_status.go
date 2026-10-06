@@ -79,6 +79,7 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 			row.NeedsYourNumber = append(row.NeedsYourNumber, "premium budget governor: needs capital.declared_risk_capital in risk-policy.toml")
 		}
 		row.NeedsYourNumber = append(row.NeedsYourNumber, cashSweepNeedsYourNumber(p.Buckets.CashSweep)...)
+		row.NeedsYourNumber = append(row.NeedsYourNumber, currencyLevelingNeedsYourNumber(p.Buckets.CurrencyLeveling)...)
 		out = append(out, withDry(row))
 	}
 

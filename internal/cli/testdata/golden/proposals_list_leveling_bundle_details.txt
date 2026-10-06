@@ -1,0 +1,128 @@
+# canary proposals list --details · COLUMNS=80 · colour off
+
+Canary Protection Proposals 2 actionable / 2 total
+Revision rev-0003
+Policy protection v2
+Theta/day 0.00
+
+  Currency leveling 2 rows · each repayment needs your approval · band €
+  10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion
+  pays back within 30 days · one repayment at most € 50,000.00 (order cap in
+  force) · interest rates from the broker's statements to 2026-10-05
+    CHF pays CHF pays about 6,147 EUR of the USD loan, earning 0.00% a year
+    EUR pays EUR pays about 11,049 EUR of the USD loan, earning 1.40% a year
+    USD convert USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+    EUR band, costing 5.10% a year; 2 conversions follow, approved together
+    Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days
+    · costs at most € 6.86
+  currency_leveling:4d80cd1444744be4 currency_leveling BUY 7192 USD.CHF LMT
+  Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
+  −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
+  +119 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      CHF trade-date cash +6,000 CHF funds it; this conversion may spend at most
+      5,766 CHF of it and leaves it about +255 CHF
+      BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 26 EUR and costs at most 3 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      conversion 1 of 2 repaying the USD loan, cheapest currency first; the 2
+      are approved and sent together
+      you approve the repayment as a whole; leveling is never pre-authorised
+  currency_leveling:14b769cd67fdded3 currency_leveling SELL 11049 EUR.USD LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      EUR trade-date cash +60,000 EUR funds it; this conversion may spend at
+      most 11,131 EUR of it and leaves it about +48,951 EUR
+      SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 34 EUR and costs at most 4 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      conversion 2 of 2 repaying the USD loan, cheapest currency first; the 2
+      are approved and sent together
+      you approve the repayment as a whole; leveling is never pre-authorised
+
+# canary proposals list --details · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Protection Proposals 2 actionable / 2 total
+Revision rev-0003
+Policy protection v2
+Theta/day 0.00
+
+  Currency leveling 2 rows · each repayment needs your approval · band €
+  10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion
+  pays back within 30 days · one repayment at most € 50,000.00 (order cap in
+  force) · interest rates from the broker's statements to 2026-10-05
+    CHF pays CHF pays about 6,147 EUR of the USD loan, earning 0.00% a year
+    EUR pays EUR pays about 11,049 EUR of the USD loan, earning 1.40% a year
+    USD convert USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+    EUR band, costing 5.10% a year; 2 conversions follow, approved together
+    Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days
+    · costs at most € 6.86
+  currency_leveling:4d80cd1444744be4 currency_leveling BUY 7192 USD.CHF LMT
+  Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
+  −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
+  +119 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      CHF trade-date cash +6,000 CHF funds it; this conversion may spend at most
+      5,766 CHF of it and leaves it about +255 CHF
+      BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 26 EUR and costs at most 3 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      conversion 1 of 2 repaying the USD loan, cheapest currency first; the 2
+      are approved and sent together
+      you approve the repayment as a whole; leveling is never pre-authorised
+  currency_leveling:14b769cd67fdded3 currency_leveling SELL 11049 EUR.USD LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      EUR trade-date cash +60,000 EUR funds it; this conversion may spend at
+      most 11,131 EUR of it and leaves it about +48,951 EUR
+      SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 34 EUR and costs at most 4 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      conversion 2 of 2 repaying the USD loan, cheapest currency first; the 2
+      are approved and sent together
+      you approve the repayment as a whole; leveling is never pre-authorised
+

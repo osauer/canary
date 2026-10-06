@@ -192,6 +192,10 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "proposals_list_one", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenProposals()}},
 		{name: "proposals_list_sweep_borrowed", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenSweepBorrowed()}},
 		{name: "proposals_list_sweep_borrowed_details", argv: []string{"proposals", "list", "--details"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenSweepBorrowed()}},
+		{name: "proposals_list_leveling", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingProposals()}},
+		{name: "proposals_list_leveling_details", argv: []string{"proposals", "list", "--details"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingProposals()}},
+		{name: "proposals_list_leveling_bundle", argv: []string{"proposals", "list"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingBundleProposals()}},
+		{name: "proposals_list_leveling_bundle_details", argv: []string{"proposals", "list", "--details"}, conn: goldenConn{rpc.MethodTradeProposalsSnapshot: goldenLevelingBundleProposals()}},
 		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
@@ -377,7 +381,7 @@ func goldenProposals() rpc.TradeProposalSnapshot {
 func goldenSweepBorrowed() rpc.TradeProposalSnapshot {
 	msg := "USD is borrowed: −20,000 USD; bill buys wait until it is repaid"
 	blocker := rpc.TradingBlocker{Code: rpc.CashSweepBlockerCurrencyBorrowed, Message: msg,
-		Action: "Repay the USD debit by converting another currency or depositing USD; Canary does not convert. Bill buys resume on the next cycle once no currency is below −1 of its own unit. Selling bills to cover cash is still allowed."}
+		Action: "Repay the USD debit by converting another currency or depositing USD; the sweep never converts. Bill buys resume on the next cycle once no currency is below −1 of its own unit. Selling bills to cover cash is still allowed."}
 	return rpc.TradeProposalSnapshot{
 		Revision: "rev-0002", PolicyID: "protection", PolicyVersion: 2, Proposals: []rpc.TradeProposal{},
 		CashSweep: &rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeActive, BaseCurrency: "EUR", TaxReviewed: true, TaxReviewedAt: "2026-10-01",
@@ -388,6 +392,115 @@ func goldenSweepBorrowed() rpc.TradeProposalSnapshot {
 				{Currency: "EUR", State: rpc.CashSweepStateHold, Reason: msg, Instruments: []string{"de_bubill"}, KeepCash: 5000, Cash: new(60000.0), Committed: new(0.0), Free: new(40000.0), Blockers: []rpc.TradingBlocker{blocker}},
 				{Currency: "USD", State: rpc.CashSweepStateHold, Reason: "no bill is held to sell", Instruments: []string{"us_tbill"}, KeepCash: 5000, Cash: new(-20000.0), Committed: new(0.0)},
 			}},
+	}
+}
+
+// goldenLevelingProposals is a synthetic book (none of it is an account's):
+// EUR cash +60,000, USD cash −20,000 at an illustrative EUR.USD of 1.17,
+// illustrative statement rates (USD loan 5.1%, EUR cash 1.4%), leveling on
+// with the values policy ensure writes and an order cap in force of 50,000
+// EUR. The text is the planner's own output for that book.
+func goldenLevelingProposals() rpc.TradeProposalSnapshot {
+	rate := 1 / 1.17
+	return rpc.TradeProposalSnapshot{
+		Revision: "rev-0002", PolicyID: "protection", PolicyVersion: 2,
+		Counts: rpc.TradeProposalCounts{Total: 1, Actionable: 1, CurrencyLeveling: 1},
+		CurrencyLeveling: &rpc.TradeProposalCurrencyLevelingStatus{
+			BaseCurrency: "EUR", BalanceSource: rpc.CurrencyLevelingBalanceTradeDate,
+			TriggerBase: new(10000.0), CushionBase: new(250.0), MaxSlippageBP: new(2.0), PaybackDays: new(30), OrderCapBase: new(50000.0), Rows: 1,
+			RatesSource: rpc.CurrencyLevelingRatesBrokerStatements, RatesThrough: "2026-10-05",
+			Currencies: []rpc.TradeProposalCurrencyLevelingCurrency{
+				{Currency: "EUR", State: rpc.CurrencyLevelingStatePays, Role: rpc.CurrencyLevelingRolePayer, Reason: "EUR pays about 17,219 EUR of the USD loan, earning 1.40% a year",
+					Cash: new(60000.0), CashBase: new(60000.0), ExchangeRate: new(1.0), CashRate: new(0.014), CashRateThrough: "2026-10-05", SpendableBase: new(59750.0), PaysBase: 17219},
+				{Currency: "USD", State: rpc.CurrencyLevelingStateConvert, Role: rpc.CurrencyLevelingRoleLoan, Cash: new(-20000.0), CashBase: new(-20000 * rate), ExchangeRate: new(rate),
+					LoanRate: new(0.051), LoanRateThrough: "2026-10-05",
+					Reason: "USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000 EUR band, costing 5.10% a year; a conversion follows"},
+			},
+			Bundles: []rpc.TradeProposalCurrencyLevelingBundle{{ID: "currency_leveling-bundle:a97d3c8b4a62526b", Currency: "USD", Keys: []string{"currency_leveling:ddbbabdee052f853"},
+				Revision: "0000000000000000000000000000000a", SavingBase: 52.36, CostBase: 5.15, PaybackDays: 30}},
+		},
+		Proposals: []rpc.TradeProposal{{
+			Key: "currency_leveling:ddbbabdee052f853", Bucket: rpc.TradeProposalBucketCurrencyLeveling, Symbol: "EUR.USD", SecType: "CASH",
+			Action: rpc.OrderActionSell, Quantity: 17219, MaxQuantity: 17219, PositionEffect: rpc.OrderPositionEffectReduce, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay,
+			Contract: rpc.ContractParams{ConID: 12087792, Symbol: "EUR", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "EUR.USD", MinTick: 0.00005},
+			Reason:   "Convert 17,219 EUR into about 20,146 USD: USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; this brings it to about +146 USD",
+			Details: []string{
+				"USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701); the repayment lands it between 0 and +293 USD (cushion 250 EUR), never above",
+				"EUR trade-date cash +60,000 EUR funds it; this conversion may spend at most 17,347 EUR of it and leaves it about +42,781 EUR",
+				"SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+				"the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 52 EUR and costs at most 5 EUR",
+				"the loan's conversions together are held to the order cap in force, 50,000 EUR; FX spot settles in two days and the margin interest stops on the settled balance",
+				"you approve each conversion; leveling is never pre-authorised",
+			},
+			NeverSkipVeto: true,
+			CurrencyLeveling: &rpc.TradeProposalCurrencyLeveling{BundleID: "currency_leveling-bundle:a97d3c8b4a62526b", Leg: 1, Legs: 1,
+				Currency: "USD", FundingCurrency: "EUR", Pair: "EUR.USD", PairSymbol: "EUR", PairCurrency: "USD",
+				BalanceSource: rpc.CurrencyLevelingBalanceTradeDate, Cash: -20000, Target: 292.5, Received: 20146.23, FundingCash: 60000, Allotment: 17347.49, Spent: 17219, ExchangeRate: rate, PlanningPrice: 1.17,
+				ValueBase: 17219, TriggerBase: 10000, CushionBase: 250, MaxSlippageBP: 2, OrderCapBase: 50000,
+				LoanRate: 0.051, LoanRateThrough: "2026-10-05", FundingRate: 0.014, FundingRateThrough: "2026-10-05", PaybackDays: 30, SavingBase: 52.36, CostBase: 5.15},
+		}},
+	}
+}
+
+// goldenLevelingBundleProposals is the same loan beside CHF cash +6,000 at an
+// illustrative 0%: CHF pays first, EUR the rest, one approval for both. The
+// text is the planner's own output for that book.
+func goldenLevelingBundleProposals() rpc.TradeProposalSnapshot {
+	rate := 1 / 1.17
+	const bundle = "currency_leveling-bundle:d3dea6a8de0b612f"
+	leg := func(key, symbol, action string, qty, conID int, contract rpc.ContractParams, reason string, details []string, b rpc.TradeProposalCurrencyLeveling) rpc.TradeProposal {
+		b.BundleID, b.Legs, b.Currency, b.BalanceSource, b.Cash, b.ExchangeRate = bundle, 2, "USD", rpc.CurrencyLevelingBalanceTradeDate, -20000, rate
+		b.TriggerBase, b.CushionBase, b.MaxSlippageBP, b.OrderCapBase, b.LoanRate, b.LoanRateThrough, b.FundingRateThrough, b.PaybackDays = 10000, 250, 2, 50000, 0.051, "2026-10-05", "2026-10-05", 30
+		contract.ConID, contract.SecType, contract.Exchange, contract.MinTick = conID, "CASH", "IDEALPRO", 0.00005
+		return rpc.TradeProposal{Key: key, Bucket: rpc.TradeProposalBucketCurrencyLeveling, Symbol: symbol, SecType: "CASH", Action: action, Quantity: qty, MaxQuantity: qty,
+			PositionEffect: rpc.OrderPositionEffectReduce, OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, Contract: contract, Reason: reason, Details: details, NeverSkipVeto: true, CurrencyLeveling: &b}
+	}
+	common := func(own ...string) []string {
+		return append([]string{"USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701); the repayment lands it between 0 and +293 USD (cushion 250 EUR), never above"}, own...)
+	}
+	tail := []string{
+		"the loan's conversions together are held to the order cap in force, 50,000 EUR; FX spot settles in two days and the margin interest stops on the settled balance",
+	}
+	chf := leg("currency_leveling:4d80cd1444744be4", "USD.CHF", rpc.OrderActionBuy, 7192, 12087792, rpc.ContractParams{Symbol: "USD", Currency: "CHF", LocalSymbol: "USD.CHF"},
+		"Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +119 USD",
+		append(append(common(
+			"CHF trade-date cash +6,000 CHF funds it; this conversion may spend at most 5,766 CHF of it and leaves it about +255 CHF",
+			"BUY 7,192 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+			"the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 26 EUR and costs at most 3 EUR"), tail...),
+			"conversion 1 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together", "you approve the repayment as a whole; leveling is never pre-authorised"),
+		rpc.TradeProposalCurrencyLeveling{Leg: 1, FundingCurrency: "CHF", Pair: "USD.CHF", PairSymbol: "USD", PairCurrency: "CHF", Target: -12728.7, Received: 7192, FundingCash: 6000,
+			Allotment: 5766.36, Spent: 5744.87, PlanningPrice: 0.79879, ValueBase: 6147.01, SavingBase: 25.77, CostBase: 2.94})
+	eur := leg("currency_leveling:14b769cd67fdded3", "EUR.USD", rpc.OrderActionSell, 11049, 12087793, rpc.ContractParams{Symbol: "EUR", Currency: "USD", LocalSymbol: "EUR.USD"},
+		"Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +119 USD",
+		append(append(common(
+			"EUR trade-date cash +60,000 EUR funds it; this conversion may spend at most 11,131 EUR of it and leaves it about +48,951 EUR",
+			"SELL 11,049 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the band",
+			"the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 34 EUR and costs at most 4 EUR"), tail...),
+			"conversion 2 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together", "you approve the repayment as a whole; leveling is never pre-authorised"),
+		rpc.TradeProposalCurrencyLeveling{Leg: 2, FundingCurrency: "EUR", Pair: "EUR.USD", PairSymbol: "EUR", PairCurrency: "USD", Target: -6978.8, Received: 12927.33, FundingCash: 60000,
+			Allotment: 11131.45, Spent: 11049, PlanningPrice: 1.17, ValueBase: 11049, FundingRate: 0.014, SavingBase: 33.6, CostBase: 3.92})
+	return rpc.TradeProposalSnapshot{
+		Revision: "rev-0003", PolicyID: "protection", PolicyVersion: 2,
+		Counts: rpc.TradeProposalCounts{Total: 2, Actionable: 2, CurrencyLeveling: 2},
+		CurrencyLeveling: &rpc.TradeProposalCurrencyLevelingStatus{
+			BaseCurrency: "EUR", BalanceSource: rpc.CurrencyLevelingBalanceTradeDate,
+			TriggerBase: new(10000.0), CushionBase: new(250.0), MaxSlippageBP: new(2.0), PaybackDays: new(30), OrderCapBase: new(50000.0), Rows: 2,
+			RatesSource: rpc.CurrencyLevelingRatesBrokerStatements, RatesThrough: "2026-10-05",
+			Currencies: []rpc.TradeProposalCurrencyLevelingCurrency{
+				{Currency: "CHF", State: rpc.CurrencyLevelingStatePays, Role: rpc.CurrencyLevelingRolePayer, Reason: "CHF pays about 6,147 EUR of the USD loan, earning 0.00% a year",
+					Cash: new(6000.0), CashBase: new(6420.0), ExchangeRate: new(1.07), CashRate: new(0.0), CashRateThrough: "2026-10-05", SpendableBase: new(6170.0), PaysBase: 6147.01},
+				{Currency: "EUR", State: rpc.CurrencyLevelingStatePays, Role: rpc.CurrencyLevelingRolePayer, Reason: "EUR pays about 11,049 EUR of the USD loan, earning 1.40% a year",
+					Cash: new(60000.0), CashBase: new(60000.0), ExchangeRate: new(1.0), CashRate: new(0.014), CashRateThrough: "2026-10-05", SpendableBase: new(59750.0), PaysBase: 11049},
+				{Currency: "USD", State: rpc.CurrencyLevelingStateConvert, Role: rpc.CurrencyLevelingRoleLoan, Cash: new(-20000.0), CashBase: new(-20000 * rate), ExchangeRate: new(rate),
+					LoanRate: new(0.051), LoanRateThrough: "2026-10-05",
+					Reason: "USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000 EUR band, costing 5.10% a year; 2 conversions follow, approved together"},
+			},
+			Bundles: []rpc.TradeProposalCurrencyLevelingBundle{{ID: bundle, Currency: "USD", Keys: []string{chf.Key, eur.Key},
+				Revision: "0000000000000000000000000000000b", SavingBase: 59.37, CostBase: 6.86, PaybackDays: 30}},
+		},
+		// The engine serves rows by score and key; the section prints them in
+		// the bundle's send order.
+		Proposals: []rpc.TradeProposal{eur, chf},
 	}
 }
 

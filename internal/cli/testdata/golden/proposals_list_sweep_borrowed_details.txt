@@ -8,7 +8,7 @@ Theta/day 0.00
   Cash sweep active · 0 rows · tax reviewed 2026-10-01 · buys held: USD is
   borrowed: −20,000 USD; bill buys wait until it is repaid
     Borrowing: Repay the USD debit by converting another currency or depositing
-    USD; Canary does not convert. Bill buys resume on the next cycle once no
+    USD; the sweep never converts. Bill buys resume on the next cycle once no
     currency is below −1 of its own unit. Selling bills to cover cash is still
     allowed.
     EUR hold cash € 60,000.00 · committed € 0.00 · keep € 5,000.00 · free €
@@ -26,7 +26,7 @@ Theta/day 0.00
   Cash sweep active · 0 rows · tax reviewed 2026-10-01 · buys held: USD is
   borrowed: −20,000 USD; bill buys wait until it is repaid
     Borrowing: Repay the USD debit by converting another currency or depositing
-    USD; Canary does not convert. Bill buys resume on the next cycle once no
+    USD; the sweep never converts. Bill buys resume on the next cycle once no
     currency is below −1 of its own unit. Selling bills to cover cash is still
     allowed.
     EUR hold cash € 60,000.00 · committed € 0.00 · keep € 5,000.00 · free €

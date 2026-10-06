@@ -1,0 +1,74 @@
+# canary proposals list --details · COLUMNS=80 · colour off
+
+Canary Protection Proposals 1 actionable / 1 total
+Revision rev-0002
+Policy protection v2
+Theta/day 0.00
+
+  Currency leveling 1 row · each repayment needs your approval · band €
+  10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion
+  pays back within 30 days · one repayment at most € 50,000.00 (order cap in
+  force) · interest rates from the broker's statements to 2026-10-05
+    EUR pays EUR pays about 17,219 EUR of the USD loan, earning 1.40% a year
+    USD convert USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+    EUR band, costing 5.10% a year; a conversion follows
+    Repay USD: 1 conversion, one approval · saves about € 52.36 within 30 days ·
+    costs at most € 5.15
+  currency_leveling:ddbbabdee052f853 currency_leveling SELL 17219 EUR.USD LMT
+  Convert 17,219 EUR into about 20,146 USD: USD cash is −20,000 USD, a margin
+  loan beyond the 10,000 EUR band; this brings it to about +146 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      EUR trade-date cash +60,000 EUR funds it; this conversion may spend at
+      most 17,347 EUR of it and leaves it about +42,781 EUR
+      SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 52 EUR and costs at most 5 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      you approve each conversion; leveling is never pre-authorised
+
+# canary proposals list --details · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Protection Proposals 1 actionable / 1 total
+Revision rev-0002
+Policy protection v2
+Theta/day 0.00
+
+  Currency leveling 1 row · each repayment needs your approval · band €
+  10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion
+  pays back within 30 days · one repayment at most € 50,000.00 (order cap in
+  force) · interest rates from the broker's statements to 2026-10-05
+    EUR pays EUR pays about 17,219 EUR of the USD loan, earning 1.40% a year
+    USD convert USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+    EUR band, costing 5.10% a year; a conversion follows
+    Repay USD: 1 conversion, one approval · saves about € 52.36 within 30 days ·
+    costs at most € 5.15
+  currency_leveling:ddbbabdee052f853 currency_leveling SELL 17219 EUR.USD LMT
+  Convert 17,219 EUR into about 20,146 USD: USD cash is −20,000 USD, a margin
+  loan beyond the 10,000 EUR band; this brings it to about +146 USD [ready]
+Risk ticket TIF DAY
+      USD trade-date cash −20,000 USD (−17,094 EUR at the ledger rate 0.854701);
+      the repayment lands it between 0 and +293 USD (cushion 250 EUR), never
+      above
+      EUR trade-date cash +60,000 EUR funds it; this conversion may spend at
+      most 17,347 EUR of it and leaves it about +42,781 EUR
+      SELL 17,219 EUR.USD on IDEALPRO (contract 12087792), sized at 1.17000 from
+      the ledger rates; the preview reads a live bid and ask and sends a limit
+      at most 2 bp from the mid, which can bring in no more than this
+      conversion's share of the band
+      the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the
+      broker's statements to 2026-10-05; within 30 days this conversion saves
+      about 52 EUR and costs at most 5 EUR
+      the loan's conversions together are held to the order cap in force, 50,000
+      EUR; FX spot settles in two days and the margin interest stops on the
+      settled balance
+      you approve each conversion; leveling is never pre-authorised
+

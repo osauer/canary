@@ -28,11 +28,17 @@ type preparedProposalRecord struct {
 }
 
 // Prepare retains the successful existing preview; it never places an order.
+// A conversion that is one of several repaying a loan is prepared only with
+// its bundle (prepareBundle).
 func (e *proposalEngine) Prepare(ctx context.Context, p rpc.TradeProposalPreviewParams) (rpc.TradeProposalPrepareResult, error) {
+	return e.prepare(ctx, p, currencyLevelingSingleApprovalBlockers)
+}
+
+func (e *proposalEngine) prepare(ctx context.Context, p rpc.TradeProposalPreviewParams, gate func(rpc.TradeProposal) []rpc.TradingBlocker) (rpc.TradeProposalPrepareResult, error) {
 	started := time.Now()
 	p.FastPath = false // A backend preparation always resolves current evidence.
 	var out rpc.TradeProposalPrepareResult
-	preview, err := e.preview(ctx, p, func(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) error {
+	preview, err := e.preview(ctx, p, gate, func(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) error {
 		ref, preparation, err := e.retainPreparation(ctx, prop, preview)
 		if err != nil {
 			return err
@@ -128,11 +134,27 @@ func parsePreparedReference(reference string) (string, error) {
 }
 
 func (e *proposalEngine) loadPreparation(ctx context.Context, reference string) (preparedProposalRecord, error) {
-	var record preparedProposalRecord
 	id, err := parsePreparedReference(reference)
+	if err != nil {
+		return preparedProposalRecord{}, err
+	}
+	record, err := e.loadPreparationRecord(ctx, id)
 	if err != nil {
 		return record, err
 	}
+	digest := sha256.Sum256([]byte(reference))
+	if subtle.ConstantTimeCompare(record.ReferenceHash[:], digest[:]) != 1 {
+		return preparedProposalRecord{}, fmt.Errorf("prepared proposal reference is unavailable")
+	}
+	return record, nil
+}
+
+// loadPreparationRecord reads a preparation by its ID and checks its own
+// bindings. Only a caller that has already proven a reference may use it: a
+// prepared bundle names its conversions' preparations by ID behind its own
+// reference.
+func (e *proposalEngine) loadPreparationRecord(ctx context.Context, id string) (preparedProposalRecord, error) {
+	var record preparedProposalRecord
 	store, err := e.preparationAuthority()
 	if err != nil {
 		return record, err
@@ -147,8 +169,7 @@ func (e *proposalEngine) loadPreparation(ctx context.Context, reference string) 
 	if err := json.Unmarshal(doc.JSON, &record); err != nil {
 		return record, fmt.Errorf("prepared proposal record is unreadable")
 	}
-	digest := sha256.Sum256([]byte(reference))
-	if record.Version != 1 || record.Preparation.ID != id || subtle.ConstantTimeCompare(record.ReferenceHash[:], digest[:]) != 1 {
+	if record.Version != 1 || record.Preparation.ID != id {
 		return preparedProposalRecord{}, fmt.Errorf("prepared proposal reference is unavailable")
 	}
 	fingerprint, err := preparedDraftFingerprint(record.Preview.Draft)
@@ -237,92 +258,104 @@ func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposal
 		out.Blockers = preparedBlocker("prepared_reference_unavailable", "The prepared proposal reference cannot be resolved safely.")
 		return out, nil
 	}
+	prop, ok, err := e.preparedSubmitCheck(ctx, p, record, &out, currencyLevelingSingleApprovalBlockers)
+	if !ok {
+		return out, err
+	}
+	e.preparedSubmitPlace(ctx, p, record, prop, &out)
+	return out, nil
+}
+
+// preparedSubmitCheck runs every gate a prepared submit passes before it
+// places: binding, durable state, configuration, the current proposal's terms
+// and every safety, netting and token check. It fills out and reports false
+// when any refuses. gate, when set, refuses the current row first.
+func (e *proposalEngine) preparedSubmitCheck(ctx context.Context, p rpc.TradeProposalSubmitParams, record preparedProposalRecord, out *rpc.TradeProposalSubmitResult, gate func(rpc.TradeProposal) []rpc.TradingBlocker) (rpc.TradeProposal, bool, error) {
+	refuse := func(blockers []rpc.TradingBlocker) (rpc.TradeProposal, bool, error) {
+		out.Blockers = blockers
+		return rpc.TradeProposal{}, false, nil
+	}
 	if p.Key != record.Preparation.Key || p.Revision != record.Preparation.Revision || p.Quantity != 0 {
-		out.Blockers = preparedBlocker("prepared_binding_mismatch", "Key and revision must match the prepared proposal, without a quantity override.")
-		return out, nil
+		return refuse(preparedBlocker("prepared_binding_mismatch", "Key and revision must match the prepared proposal, without a quantity override."))
 	}
 	receipt := e.preparedStatus(ctx, record)
 	out.Preparation, out.Order, out.Blockers = receipt.Preparation, receipt.Order, receipt.Blockers
 	if receipt.Preparation != nil {
 		out.Proposal, out.Preview, out.PreviewTokenID = record.Proposal, sanitizeProposalPreviewForProposal(&record.Preview, record.Proposal), record.Preview.PreviewTokenID
 	}
-	if receipt.Preparation == nil || len(receipt.Blockers) > 0 {
-		return out, nil
-	}
-	if receipt.Preparation.State == "consumed" {
-		out.Blockers = preparedBlocker("prepared_reference_consumed", "This reference is already consumed; inspect its order receipt instead of resending.")
-		return out, nil
-	}
-	if receipt.Preparation.State == "expired" {
-		out.Blockers = preparedBlocker("prepared_reference_expired", "Prepare a new preview and obtain a new confirmation.")
-		return out, nil
-	}
-	if receipt.Preparation.State != "prepared" {
-		out.Blockers = preparedBlocker("prepared_reference_unavailable", "The prepared proposal is unavailable.")
-		return out, nil
+	switch {
+	case receipt.Preparation == nil || len(receipt.Blockers) > 0:
+		return rpc.TradeProposal{}, false, nil
+	case receipt.Preparation.State == "consumed":
+		return refuse(preparedBlocker("prepared_reference_consumed", "This reference is already consumed; inspect its order receipt instead of resending."))
+	case receipt.Preparation.State == "expired":
+		return refuse(preparedBlocker("prepared_reference_expired", "Prepare a new preview and obtain a new confirmation."))
+	case receipt.Preparation.State != "prepared":
+		return refuse(preparedBlocker("prepared_reference_unavailable", "The prepared proposal is unavailable."))
 	}
 	out.Proposal, out.Preview, out.PreviewTokenID = record.Proposal, sanitizeProposalPreviewForProposal(&record.Preview, record.Proposal), record.Preview.PreviewTokenID
 	if !e.server.cfg.AutoTrade.WithDefaults().FastPathEnabledResolved() || !p.FastPath {
-		out.Blockers = preparedBlocker("fast_path_disabled", "Proposal submit remains disabled by its existing configuration or request gate.")
-		return out, nil
+		return refuse(preparedBlocker("fast_path_disabled", "Proposal submit remains disabled by its existing configuration or request gate."))
 	}
 	if blockers := e.server.proposalSubmitWriteBlockers(p.Origin); len(blockers) > 0 {
-		out.Blockers = blockers
-		return out, nil
+		return refuse(blockers)
 	}
 	prop, blockers, err := e.resolveProposal(ctx, p.Key, p.Revision)
 	if err != nil || len(blockers) > 0 {
 		out.Blockers = blockers
-		return out, err
+		return rpc.TradeProposal{}, false, err
 	}
 	if prop.Key != record.Preparation.Key || prop.Revision != record.Preparation.Revision {
-		out.Blockers = preparedBlocker("stale_revision", "The current proposal no longer matches the prepared revision.")
-		return out, nil
+		return refuse(preparedBlocker("stale_revision", "The current proposal no longer matches the prepared revision."))
+	}
+	if gate != nil {
+		if blockers := gate(prop); len(blockers) > 0 {
+			return refuse(blockers)
+		}
 	}
 	originalTerms, originalErr := json.Marshal(proposalOrderPreviewParams(record.Proposal, record.Preview.Draft.Quantity, 0))
 	currentTerms, currentErr := json.Marshal(proposalOrderPreviewParams(prop, record.Preview.Draft.Quantity, 0))
 	if originalErr != nil || currentErr != nil || !bytes.Equal(originalTerms, currentTerms) || prop.Quantity != record.Proposal.Quantity {
-		out.Blockers = preparedBlocker("prepared_proposal_changed", "The current proposal terms differ from the reviewed proposal; prepare and confirm again.")
-		return out, nil
+		return refuse(preparedBlocker("prepared_proposal_changed", "The current proposal terms differ from the reviewed proposal; prepare and confirm again."))
 	}
 	for _, check := range [][]rpc.TradingBlocker{shadowProposalBlockers(prop), unitProposalOrderBlockers(prop), cashSweepCurrentEvidenceBlockers(prop, e.clock()), proposalPreviewSafetyBlockers(prop, &record.Preview)} {
 		if len(check) > 0 {
-			out.Blockers = check
-			return out, nil
+			return refuse(check)
 		}
 	}
 	if blockers := e.duplicateProtectiveBlockers(ctx, prop); len(blockers) > 0 {
-		out.Blockers = blockers
-		return out, nil
+		return refuse(blockers)
 	}
 	if blockers := e.queuedIntentGateBlockers(prop, nil); len(blockers) > 0 {
-		out.Blockers = blockers
-		return out, nil
+		return refuse(blockers)
 	}
 	if blockers := e.checkOptionExitEconomics(ctx, prop, &record.Preview, false); len(blockers) > 0 {
-		out.Blockers = blockers
-		return out, nil
+		return refuse(blockers)
 	}
 	payload, err := e.server.verifyPreviewTokenForPlace(record.Preview.PreviewToken)
 	if err != nil {
-		out.Blockers = preparedBlocker("prepared_preview_invalid", "The original preview no longer passes its token, scope or eligibility gates.")
-		return out, nil
+		return refuse(preparedBlocker("prepared_preview_invalid", "The original preview no longer passes its token, scope or eligibility gates."))
 	}
 	fingerprint, err := preparedDraftFingerprint(payload.Draft)
 	if err != nil || payload.TokenID != record.Preview.PreviewTokenID || fingerprint != record.Preparation.DraftFingerprint {
-		out.Blockers = preparedBlocker("prepared_binding_mismatch", "The retained token does not describe the reviewed draft.")
-		return out, nil
+		return refuse(preparedBlocker("prepared_binding_mismatch", "The retained token does not describe the reviewed draft."))
 	}
+	return prop, true, nil
+}
+
+// preparedSubmitPlace sends a checked preparation through its original
+// preview token and records the receipt in out.
+func (e *proposalEngine) preparedSubmitPlace(ctx context.Context, p rpc.TradeProposalSubmitParams, record preparedProposalRecord, prop rpc.TradeProposal, out *rpc.TradeProposalSubmitResult) {
 	place, placeErr := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: record.Preview.PreviewToken, TimeoutMs: p.TimeoutMs, Origin: p.Origin})
-	receipt = e.preparedStatus(ctx, record)
+	receipt := e.preparedStatus(ctx, record)
 	out.Preparation, out.Order, out.Blockers, out.AsOf = receipt.Preparation, receipt.Order, receipt.Blockers, e.clock()
 	if placeErr != nil {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "submit_failed", Message: "Submission did not return a confirmed result; inspect the durable preparation/order receipt before any further action."})
-		return out, nil
+		return
 	}
 	if place == nil {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "submit_unavailable", Message: "Submission returned no result; inspect the durable receipt."})
-		return out, nil
+		return
 	}
 	out.Accepted, out.Place, out.OrderRef, out.Message = place.Accepted, place, place.OrderRef, place.Message
 	e.appendEvent(proposalEventForProposal("submitted", prop, e.clock(), record.Preview.PreviewTokenID, place.OrderRef, "prepared proposal submitted through its original preview"))
@@ -331,7 +364,6 @@ func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposal
 			e.server.warnf("trade proposal outcomes: append prepared submitted mark: %v", err)
 		}
 	}
-	return out, nil
 }
 
 func (s *Server) handleTradeProposalsPrepare(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPrepareResult, error) {

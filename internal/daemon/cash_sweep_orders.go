@@ -123,6 +123,10 @@ func (e *proposalEngine) proposalSessionAt(prop rpc.TradeProposal, at time.Time,
 	if prop.Bucket == rpc.TradeProposalBucketCashSweep && ibkrlib.IsBillOrBond(prop.Contract.SecType) {
 		return bondSessionMarket, marketcal.Session{}, true, false
 	}
+	if prop.Bucket == rpc.TradeProposalBucketCurrencyLeveling && strings.EqualFold(prop.Contract.SecType, "CASH") {
+		session, known = idealproSessionAt(at)
+		return idealproSessionMarket, session, true, known
+	}
 	market, hasMarket = quoteSessionMarketForContract(prop.Contract)
 	if !hasMarket {
 		return "", marketcal.Session{}, false, false

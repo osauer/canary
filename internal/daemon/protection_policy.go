@@ -123,6 +123,9 @@ type protectionPolicyBuckets struct {
 	// CashSweep is a pointer for the same reason: the embedded default does
 	// not carry it, and a file without it keeps its fingerprint.
 	CashSweep *protectionCashSweepPolicy `toml:"cash_sweep" json:"cash_sweep,omitempty"`
+	// CurrencyLeveling is a pointer for the same reason: a file without it
+	// keeps its fingerprint, and an absent table is off.
+	CurrencyLeveling *protectionCurrencyLevelingPolicy `toml:"currency_leveling" json:"currency_leveling,omitempty"`
 }
 
 // protectionBudgetPolicy is the options premium budget governor. It reduces
@@ -565,6 +568,7 @@ func defaultProtectionPolicy() protectionPolicy {
 					AllowShortProfitTrail: false,
 				},
 			},
+			CurrencyLeveling: defaultCurrencyLevelingPolicy(),
 		},
 	}
 }
@@ -722,6 +726,9 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		return err
 	}
 	if err := validateCashSweepPolicy("cash_sweep", p.Buckets.CashSweep); err != nil {
+		return err
+	}
+	if err := validateCurrencyLevelingPolicy("currency_leveling", p.Buckets.CurrencyLeveling); err != nil {
 		return err
 	}
 	return nil
@@ -1058,6 +1065,36 @@ type protectionCashSweepCurrency struct {
 	LadderRungs int `toml:"ladder_rungs" json:"ladder_rungs"`
 	// ISINs lists the bills the sweep may buy in EUR, GBP or CAD by ISIN (default empty, which reads universe_unavailable), each of a declared bill instrument: DE de_bubill, FR fr_btf, GB uk_tbill, CA ca_tbill; USD bills come from TreasuryDirect's list instead.
 	ISINs []string `toml:"isins" json:"isins,omitempty"`
+}
+
+// Currency leveling (internal-docs/design/currency-leveling.md). Owner
+// decisions 2026-10-05 21:28 and 22:02 CEST, the settings walk-through of
+// 2026-10-06 05:44–06:15 CEST and the several-currency plan confirmed
+// 2026-10-06 07:11 CEST: off by default, every row live once on (no shadow
+// mode), six settings; interest rates come from the broker's statements, not
+// from this file. Every number is read from the policy file only; Canary's
+// values exist solely for policy ensure to write them, and a missing one holds
+// every currency at needs_your_number. One loan's conversions together are
+// held to the order cap in force ([order_limits]). Pre-authorisation is out of
+// scope: currency_leveling is not in the pre_authorised vocabulary.
+type protectionCurrencyLevelingPolicy struct {
+	// Enabled turns currency leveling on (default false; policy ensure writes the table with enabled = false): each borrowed currency then gets a conversion proposal you approve, never one sent on its own.
+	Enabled bool `toml:"enabled" json:"enabled"`
+	// TriggerBase is the band, in base currency at the ledger rate: a currency is repaid only when its trade-date cash is below minus this amount; a smaller loan is left alone. Read from this file only: until it is written leveling holds at needs_your_number (policy ensure writes 10000.0).
+	TriggerBase *float64 `toml:"trigger_base" json:"trigger_base,omitempty"`
+	// CushionBase is the positive balance, in base currency at the ledger rate, a repaid loan lands at most (between zero and this, never above), and the balance a currency that pays keeps. Read from this file only (policy ensure writes 250.0).
+	CushionBase *float64 `toml:"cushion_base" json:"cushion_base,omitempty"`
+	// MaxSlippageBP bounds the limit price, in basis points from the live IDEALPRO mid, against the conversion: the preview sends a limit at the mid moved by this much, and holds when the quote is not live and two-sided or its touch already lies beyond it. It is also the price part of a conversion's worst-case cost in the payback test. Read from this file only (policy ensure writes 2.0).
+	MaxSlippageBP *float64 `toml:"max_slippage_bp" json:"max_slippage_bp,omitempty"`
+	// PaybackDays is how many days a conversion has to earn back its worst-case cost (the commission bound plus the slippage bound) in interest saved, at the rates in the broker's statements: a conversion that would not is not proposed, and between ways to repay a loan the one that saves the most within these days wins. From 1 to 365. Read from this file only (policy ensure writes 30).
+	PaybackDays *int `toml:"payback_days" json:"payback_days,omitempty"`
+	// Currency holds one table per ISO currency code, as [buckets.currency_leveling.currency.USD]; a currency without a table is levelled.
+	Currency map[string]protectionCurrencyLevelingCurrency `toml:"currency" json:"currency,omitempty"`
+}
+
+type protectionCurrencyLevelingCurrency struct {
+	// DeliberateCarry leaves this currency negative on purpose: leveling never repays it or spends from it, whatever the debit (default false).
+	DeliberateCarry bool `toml:"deliberate_carry" json:"deliberate_carry"`
 }
 
 // The closed instrument vocabulary. A bill instrument belongs to exactly one

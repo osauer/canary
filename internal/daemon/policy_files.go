@@ -727,10 +727,19 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 				doc.insert("buckets.cash_sweep", []string{fmt.Sprintf("%s = %s  # written by Canary %s; the sweep reads it from this file only", d.key, d.value, release)})
 				changes = append(changes, fmt.Sprintf("added buckets.cash_sweep.%s = %s", d.key, d.value))
 			}
-			doc.set("", "policy_version", strconv.Itoa(before.PolicyVersion+1), nil)
-			changes = append(changes, fmt.Sprintf("raised policy_version %d to %d: the sweep sizing numbers above take effect", before.PolicyVersion, before.PolicyVersion+1))
 			materialised = true
 		}
+	}
+	levelingChanges, levelingNotes := materialiseCurrencyLeveling(doc, md, release)
+	changes, notes = append(changes, levelingChanges...), append(notes, levelingNotes...)
+	if materialised || len(levelingChanges) > 0 {
+		what := "the sweep sizing numbers above take effect"
+		if len(levelingChanges) > 0 {
+			what = "the keys above take effect"
+		}
+		doc.set("", "policy_version", strconv.Itoa(before.PolicyVersion+1), nil)
+		changes = append(changes, fmt.Sprintf("raised policy_version %d to %d: %s", before.PolicyVersion, before.PolicyVersion+1, what))
+		materialised = true
 	}
 	keys := make([]string, 0, len(retiredProtectionKeys))
 	for k := range retiredProtectionKeys {
@@ -766,15 +775,17 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 		return data, nil, notes, fmt.Errorf("migration would change the policy in force; nothing written")
 	}
 	if materialised && !protectionMaterialisationPreserves(before, after) {
-		return data, nil, notes, fmt.Errorf("migration would change more than the missing cash sweep numbers; nothing written")
+		return data, nil, notes, fmt.Errorf("migration would change more than the missing cash sweep and currency leveling numbers; nothing written")
 	}
 	return out, changes, notes, nil
 }
 
 // protectionMaterialisationKey is the effective protection key with the
-// cash sweep's materialisable sizing numbers cleared: a conversion that only
-// writes missing numbers keeps it.
+// cash sweep's materialisable sizing numbers and the currency leveling table
+// cleared: a conversion that only writes missing numbers keeps it, and
+// protectionMaterialisationPreserves checks the leveling table key by key.
 func protectionMaterialisationKey(p protectionPolicy) string {
+	p.Buckets.CurrencyLeveling = nil
 	if c := p.Buckets.CashSweep; c != nil {
 		cleared := *c
 		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
@@ -786,9 +797,11 @@ func protectionMaterialisationKey(p protectionPolicy) string {
 }
 
 // protectionMaterialisationPreserves reports whether after differs from
-// before only by cash sweep sizing numbers before did not write.
+// before only by cash sweep sizing numbers before did not write and the
+// currency leveling keys policy ensure writes.
 func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
-	if protectionMaterialisationKey(before) != protectionMaterialisationKey(after) {
+	if protectionMaterialisationKey(before) != protectionMaterialisationKey(after) ||
+		!currencyLevelingMaterialisationPreserves(before.Buckets.CurrencyLeveling, after.Buckets.CurrencyLeveling) {
 		return false
 	}
 	b, a := before.Buckets.CashSweep, after.Buckets.CashSweep
@@ -912,6 +925,7 @@ allow_short_profit_trail = %t
 # max_order_notional = 0.0
 `)
 	writeCashSweepTemplate(&b)
+	writeCurrencyLevelingTemplate(&b)
 	return []byte(b.String())
 }
 

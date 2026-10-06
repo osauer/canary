@@ -123,6 +123,10 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTradeProposalsPrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodTradeProposalsPreparedStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsSubmit, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	// A bundle prepares or sends up to five conversions in one call, each
+	// bounded like a single prepare or submit.
+	{Method: MethodTradeProposalsPrepareBundle, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
+	{Method: MethodTradeProposalsSubmitBundle, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsVeto, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	// queue_prepare refreshes the proposals like prepare; queue_arm reads the

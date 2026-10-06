@@ -525,6 +525,10 @@ type TradeProposalSnapshot struct {
 	// currency, the band figures and why it invests, redeems, holds or
 	// generates nothing. Absent while the bucket is not enabled.
 	CashSweep *TradeProposalCashSweepStatus `json:"cash_sweep,omitempty"`
+	// CurrencyLeveling is currency leveling's typed status for this
+	// generation: per currency, the trade-date cash and why it converts,
+	// holds or stays. Absent while the bucket is not enabled.
+	CurrencyLeveling *TradeProposalCurrencyLevelingStatus `json:"currency_leveling,omitempty"`
 }
 
 // Budget governor states. The first four explain an empty generation; the
@@ -780,6 +784,9 @@ type TradeProposalCounts struct {
 	// generated in shadow mode. Both are in Total, never in Actionable.
 	CashSweep       int `json:"cash_sweep,omitempty"`
 	CashSweepShadow int `json:"cash_sweep_shadow,omitempty"`
+	// CurrencyLeveling counts the conversion rows; they are in Total, and in
+	// Actionable while unblocked.
+	CurrencyLeveling int `json:"currency_leveling,omitempty"`
 }
 
 // TradeProposal is an advisory action bound to a key and revision. It is not a
@@ -880,6 +887,9 @@ type TradeProposal struct {
 	// CashSweep is the cash sweep's arithmetic for a cash_sweep row; nil on
 	// every other bucket.
 	CashSweep *TradeProposalCashSweep `json:"cash_sweep,omitempty"`
+	// CurrencyLeveling is a conversion row's arithmetic for a
+	// currency_leveling row; nil on every other bucket.
+	CurrencyLeveling *TradeProposalCurrencyLeveling `json:"currency_leveling,omitempty"`
 }
 
 // TradeProposalCoverage is another bucket's requirement on the same exact

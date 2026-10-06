@@ -405,7 +405,7 @@ rule is one entry.
 | `sweep_minimum_above_cap` | error | no | A sweep currency's smallest buy (`min_order_notional` in base at the currency's rate, raised by a retired `min_tranche` a legacy file still carries) is above the sweep's cap in force, or above the order cap in force without the bill exemption. |
 | `watch_act_inverted` | error | no | A watch level beyond its act level in every pair and regime set (the wrong way round for falling measures: margin headroom, expiry runway), a hedge band minimum above its maximum, or the drawdown warn level above block. |
 | `regime_loosens_under_stress` | error | no | A budget (premium, time value, net exposure) higher, or a hedge band lower, in a worse regime set than in a calmer one. |
-| `order_entry_off_for_active_bucket` | error | no | A bucket is active or pre-authorised while `[trading].mode` disables order entry. |
+| `order_entry_off_for_active_bucket` | error | no | A bucket (cash sweep, budget governor, currency leveling) is active or pre-authorised while `[trading].mode` disables order entry. |
 | `settlement_route_expired` | error | no | A sweep currency's `settlement_valid_through` has passed, so its bill orders hold. |
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
 | `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, so no exit for it can pass the gate. |
@@ -416,6 +416,7 @@ rule is one entry.
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
 | `sweep_buys_while_borrowed` | warn | yes | `no_buy_while_borrowed = false` while a currency's cash is negative by more than 1 unit, so the sweep may buy bills while the account pays margin interest on the debit. |
+| `leveling_debit_inside_band` | warn | yes | A currency is borrowed (by more than 1 unit) but within currency leveling's `trigger_base`, so leveling leaves that margin loan in place; with `no_buy_while_borrowed`, the sweep's bill buys wait meanwhile. |
 | `sweep_minimum_uneconomic` | warn | no | The smallest bill buy (as for `sweep_minimum_above_cap`) earns less interest over cash to the shortest rung (`min_maturity_days`) than the commission it pays. |
 | `retired_trading_gate` | warn | no | `config.toml` `[trading]` still carries a retired order gate whose value differs from the `[order_limits]` key that decides. |
 | `version_not_bumped` | warn | daemon | A file changed without a higher `policy_version`, so the daemon keeps the old policy. |

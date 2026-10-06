@@ -440,7 +440,10 @@ func TestEnsurePolicyFilesUpgradesAnOwnerLikeSet(t *testing.T) {
 	}
 	migrated := readPolicyTestFile(t, set.Protection)
 	after, _, err := parseProtectionPolicy(migrated)
-	if err != nil || !sameEffectivePolicy(effectiveProtectionPolicy(before), effectiveProtectionPolicy(after)) || after.PolicyVersion != before.PolicyVersion {
+	// The one setting ensure adds is the currency leveling table, off (owner
+	// decisions 2026-10-05 21:28 and 22:02 CEST), which raises policy_version.
+	if err != nil || protectionMaterialisationKey(before) != protectionMaterialisationKey(after) || before.Buckets.CurrencyLeveling != nil ||
+		after.Buckets.CurrencyLeveling == nil || after.Buckets.CurrencyLeveling.enabled() || after.PolicyVersion != before.PolicyVersion+1 {
 		t.Fatal("conversion changed settings")
 	}
 	if !strings.Contains(string(migrated), "Format/comment migration by Canary v9.9.9") {
@@ -623,6 +626,12 @@ func TestProtectionMigrationLeavesARetiredKeyItCannotEditAlone(t *testing.T) {
 	}
 	inline := strings.Replace(strings.Replace(ownerLikeProtection, block, "", 1), "[buckets.theta_hygiene]",
 		"[buckets]\nrisk_reduction = { enabled = true, single_name_target_pct_nlv = 22.0, max_order_notional = 12000.0 }\n\n[buckets.theta_hygiene]", 1)
+	// A complete currency leveling table, so the retired key is the only
+	// thing the step could touch.
+	inline += "\n[buckets.currency_leveling]\n"
+	for _, d := range currencyLevelingWrittenDefaults {
+		inline += d.key + " = " + d.value + "\n"
+	}
 	if _, _, err := parseProtectionPolicy([]byte(inline)); err != nil {
 		t.Fatalf("inline retired key must load: %v", err)
 	}

@@ -88,7 +88,7 @@ func cashSweepBorrowingWords(b *rpc.CashSweepBorrowing) (string, string) {
 			them = "they are"
 		}
 		return msg + "; bill buys wait until " + them + " repaid",
-			fmt.Sprintf("Repay the %s debit by converting another currency or depositing %s; Canary does not convert. Bill buys resume on the next cycle once no currency is below −%s of its own unit. Selling bills to cover cash is still allowed.",
+			fmt.Sprintf("Repay the %s debit by converting another currency or depositing %s; the sweep never converts. Bill buys resume on the next cycle once no currency is below −%s of its own unit. Selling bills to cover cash is still allowed.",
 				strings.Join(debitCcys, " and "), strings.Join(debitCcys, " or "), briefThousands(b.ToleranceUnits, 0))
 	case rpc.CashSweepBorrowingUnknown:
 		msg := "the cash of " + strings.Join(unknown, ", ") + " cannot be read, so the sweep cannot prove that no currency is borrowed"

@@ -1,0 +1,56 @@
+# canary proposals list · COLUMNS=80 · colour off
+Protection proposals
+2 actionable / 2 total · 0 queued for the open
+
+Currency leveling · 2 rows · each repayment needs your approval · band €
+10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion pays
+back within 30 days · one repayment at most € 50,000.00 (order cap in force) ·
+interest rates from the broker's statements to 2026-10-05
+  CHF pays · CHF pays about 6,147 EUR of the USD loan, earning 0.00% a year
+  EUR pays · EUR pays about 11,049 EUR of the USD loan, earning 1.40% a year
+  USD convert · USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+  EUR band, costing 5.10% a year; 2 conversions follow, approved together
+  Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days ·
+  costs at most € 6.86
+
+EUR.USD · SELL 11049 EUR · review
+  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD
+
+USD.CHF · BUY 7192 USD · review
+  currency_leveling:4d80cd1444744be4 · currency_leveling · LMT
+  Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
+  −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
+  +119 USD
+Full risk evidence, sizing and funding: canary proposals list --details
+Review list only; exact preview and submit eligibility remain separate.
+# canary proposals list · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mProtection proposals\x1b[0m
+2 actionable / 2 total · 0 queued for the open
+
+\x1b[1mCurrency leveling · 2 rows · each repayment needs your approval · band €\x1b[0m
+\x1b[1m10,000.00 · cushion € 250.00 · limit within 2 bp of the mid · a conversion pays\x1b[0m
+\x1b[1mback within 30 days · one repayment at most € 50,000.00 (order cap in force) ·\x1b[0m
+\x1b[1minterest rates from the broker's statements to 2026-10-05\x1b[0m
+  CHF pays · CHF pays about 6,147 EUR of the USD loan, earning 0.00% a year
+  EUR pays · EUR pays about 11,049 EUR of the USD loan, earning 1.40% a year
+  USD convert · USD is borrowed: −20,000 USD (−17,094 EUR), beyond the 10,000
+  EUR band, costing 5.10% a year; 2 conversions follow, approved together
+  Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days ·
+  costs at most € 6.86
+
+\x1b[1mEUR.USD · SELL 11049 EUR · review\x1b[0m
+  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD
+
+\x1b[1mUSD.CHF · BUY 7192 USD · review\x1b[0m
+  currency_leveling:4d80cd1444744be4 · currency_leveling · LMT
+  Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
+  −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
+  +119 USD
+\x1b[2mFull risk evidence, sizing and funding: canary proposals list --details\x1b[0m
+\x1b[2mReview list only; exact preview and submit eligibility remain separate.\x1b[0m

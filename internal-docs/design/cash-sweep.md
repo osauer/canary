@@ -29,6 +29,13 @@ size or price off the bill's grid, a closed session) are not gates and stay.
 The mode default stays `shadow` in code; `mode = "active"` is the owner's
 line to write, and so is `cash_sweep` under `pre_authorised`.
 
+Currency leveling (2026-10-05 22:23 CEST): the sweep still never converts;
+the separate `currency_leveling` bucket repays a borrowed currency
+([currency-leveling.md](currency-leveling.md)). Since then a working CASH
+order of either side, not only a buy, makes every currency's commitments
+unknown (`cashSweepCommitmentsFrom`), so the sweep holds while a conversion
+works: a sell of EUR.USD spends EUR the sweep would otherwise invest.
+
 ## Decision
 
 - Goal: idle cash earns a near-risk-free return in its own currency. Protected:
@@ -773,7 +780,8 @@ the loan earns more than any bill.
   row stays listed and blocked (`currency_borrowed`, or `borrowing_unknown`
   when cash is unknown). The blocker names the debit, for example
   "USD is borrowed: −20,000 USD; bill buys wait until it is repaid". Its action
-  says to convert or deposit, because Canary does not convert. The currency's
+  says to convert or deposit, because the sweep never converts (currency
+  leveling, when on, proposes a conversion beyond its band). The currency's
   status reads `hold` with the same blocker in `blockers`. A blocked row is
   refused by preview and is never automatically eligible.
 - Redemptions are never held: selling a bill to restore cash still helps.

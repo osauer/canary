@@ -54,6 +54,14 @@ type proposalEngine struct {
 	refreshFailSince  time.Time
 	refreshFailCodes  []string
 	trailVolCache     map[string]cachedStockTrailVolatility
+	// levelingPairs caches currency leveling's resolved IDEALPRO pairs
+	// (contract id and tick) for the daemon's life; a pair's contract id
+	// never changes.
+	levelingPairs currencyLevelingPairs
+	// levelingRates keeps the interest rates measured from the broker's
+	// statements for an hour; levelingRatesForTest replaces the read in tests.
+	levelingRates        currencyLevelingRatesCache
+	levelingRatesForTest func(now time.Time) (map[string]currencyLevelingRate, string, string)
 	// kick wakes Run for an immediate refresh (gateway reconnect). Lazily
 	// need no extra setup. Buffered: senders never block.
 	kick chan struct{}
@@ -313,7 +321,7 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	// stays scoped, including budget/cash status with no generated proposals.
 	// Only genuinely unscoped shells without financial evidence pass through.
 	bound := strings.TrimSpace(snap.AccountID) != "" || strings.TrimSpace(snap.AccountMode) != ""
-	if bound || len(snap.Proposals) > 0 || snap.CashSweep != nil || snap.BudgetReduction != nil || len(snap.OptionHedges) > 0 {
+	if bound || len(snap.Proposals) > 0 || snap.CashSweep != nil || snap.CurrencyLeveling != nil || snap.BudgetReduction != nil || len(snap.OptionHedges) > 0 {
 		scope := e.currentScope()
 		if blockers := proposalScopeBlockers(snap.AccountID, snap.AccountMode, scope); len(blockers) > 0 {
 			shell := emptyProposalSnapshot(e.clock())
@@ -540,6 +548,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	proposals, thetaSuppressions, hedges, budget := e.generateBook(ctx, policy, policyStatus, acct, pos, sources, marketEvents, scope, now)
 	sweepRows, sweep := e.cashSweepProposals(ctx, policy, policyStatus, acct, pos, sources, scope, now)
 	proposals = append(proposals, sweepRows...)
+	levelingRows, leveling := e.currencyLevelingProposals(ctx, policy, policyStatus, acct, sources, scope, now)
+	proposals = append(proposals, levelingRows...)
 	slices.SortStableFunc(proposals, func(a, b rpc.TradeProposal) int {
 		if a.Score > b.Score {
 			return -1
@@ -582,6 +592,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	// pre-authorised row is judged by its own automatic record; coverage
 	// changes no key, quantity or effect, so the revision stands.
 	e.mergeSameContract(proposals)
+	// A leveling bundle's revision binds its rows' revisions, known only now.
+	currencyLevelingBundleRevisions(leveling, proposals)
 	snap := rpc.TradeProposalSnapshot{
 		Kind:                       rpc.TradeProposalSnapshotKind,
 		SchemaVersion:              rpc.TradeProposalSnapshotSchemaVersion,
@@ -607,6 +619,8 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 	snap.Counts.OptionHedges = len(hedges)
 	snap.CashSweep = sweep
 	snap.Counts.CashSweep, snap.Counts.CashSweepShadow = cashSweepCounts(proposals)
+	snap.CurrencyLeveling = leveling
+	snap.Counts.CurrencyLeveling = currencyLevelingCounts(proposals)
 	return e.installScoped(snap, scope, show, thetaSuppressions)
 }
 
@@ -2172,7 +2186,7 @@ func marketEventBlockProposal(prop *rpc.TradeProposal, flag rpc.MarketEventFlag,
 
 func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreviewParams) (rpc.TradeProposalPreviewResult, error) {
 	started := time.Now()
-	out, err := e.preview(ctx, p, nil)
+	out, err := e.preview(ctx, p, nil, nil)
 	d := proposalDecision{event: "preview", prop: out.Proposal, key: p.Key, rev: p.Revision, accepted: out.Accepted, accept: decisionPreviewed,
 		blockers: out.Blockers, err: err, readiness: out.Readiness, tokenID: out.PreviewTokenID, mode: e.decisionMode(out.Preview), started: started}
 	if out.Preview != nil {
@@ -2183,8 +2197,9 @@ func (e *proposalEngine) Preview(ctx context.Context, p rpc.TradeProposalPreview
 }
 
 // preview classifies every refusal it returns: Readiness is set whenever the
-// result is not accepted.
-func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreviewParams, retain func(rpc.TradeProposal, *rpc.OrderPreviewResult) error) (out rpc.TradeProposalPreviewResult, err error) {
+// result is not accepted. gate, when set, refuses the resolved row before any
+// broker call.
+func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreviewParams, gate func(rpc.TradeProposal) []rpc.TradingBlocker, retain func(rpc.TradeProposal, *rpc.OrderPreviewResult) error) (out rpc.TradeProposalPreviewResult, err error) {
 	defer func() {
 		if !out.Accepted {
 			out.Readiness = e.refusalReadiness(out.Proposal, out.Blockers, err)
@@ -2204,6 +2219,12 @@ func (e *proposalEngine) preview(ctx context.Context, p rpc.TradeProposalPreview
 	if blockers := shadowProposalBlockers(prop); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+	}
+	if gate != nil {
+		if blockers := gate(prop); len(blockers) > 0 {
+			e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+			return rpc.TradeProposalPreviewResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+		}
 	}
 	if blockers := unitProposalOrderBlockers(prop); len(blockers) > 0 {
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
@@ -2382,6 +2403,11 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
+	// A conversion that is part of a bundle is only ever sent with it.
+	if blockers := currencyLevelingSingleApprovalBlockers(prop); len(blockers) > 0 {
+		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, nil)
+		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
+	}
 	if opts.automatic {
 		// The daemon's own submission always revalidates; it never uses the
 		// cached fast path, and the fast-path toggle (a one-confirm UX
@@ -2507,6 +2533,15 @@ func closeReduceQuantity(position float64) (int, float64) {
 func (e *proposalEngine) duplicateProtectiveBlockers(ctx context.Context, p rpc.TradeProposal, currentPositions ...*rpc.PositionsResult) []rpc.TradingBlocker {
 	if e == nil || e.server == nil {
 		return nil
+	}
+	if p.Bucket == rpc.TradeProposalBucketCurrencyLeveling {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		if blockers := e.liveIntentBlockers(p); len(blockers) > 0 {
+			return blockers
+		}
+		return e.currencyLevelingOrderBlockers(ctx, p, len(currentPositions) == 0)
 	}
 	optionExit := proposalIsOptionExit(p)
 	// A sweep row nets like a reduction: an order already working (or sent
@@ -2809,7 +2844,7 @@ func proposalOrderPreviewParams(prop rpc.TradeProposal, qty, timeoutMs int) rpc.
 	}
 	trail := cloneTrailSpec(prop.Trail)
 	return rpc.OrderPreviewParams{Action: prop.Action, Contract: prop.Contract, Quantity: qty, OrderType: orderType, Trail: trail, TriggerMethod: proposalTriggerMethod(prop), Strategy: strategy, TIF: proposalTIF(prop), OutsideRTH: prop.OutsideRTH, TimeoutMs: timeoutMs, Source: proposalOrderSource,
-		Bond: cashSweepOrderTerms(prop)}
+		Bond: cashSweepOrderTerms(prop), FX: currencyLevelingOrderTerms(prop)}
 }
 
 // proposalTIF normalizes a proposal's TIF for preview params and the
@@ -2862,13 +2897,25 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 		add("proposal_preview_missing", "proposal preview result is unavailable", "Refresh and preview the proposal again before submit.")
 		return blockers
 	}
-	// The cash sweep's typed exception (decision O1) is the only way past the
-	// close/reduce check; cash_sweep_orders.go bounds it.
+	// The cash sweep's typed exception (decision O1) and currency leveling's
+	// (owner decision 2026-10-05 22:02 CEST) are the only ways past the
+	// close/reduce check; cash_sweep_orders.go and currency_leveling_orders.go
+	// bound them.
 	sweepException, excepted := cashSweepOpenException(prop)
+	levelingException, leveling := currencyLevelingReduceException(prop)
 	if !proposalCloseReduceEffect(prop.PositionEffect) && !excepted {
 		add("proposal_effect_not_close_reduce", fmt.Sprintf("proposal effect %q is not close/reduce", prop.PositionEffect), "Refresh proposals so the daemon can rebuild a close/reduce-only recommendation.")
 	}
 	switch {
+	case leveling:
+		// A conversion's effect on the pair says nothing about a currency
+		// balance: only the exception's ledger bounds admit it, never the
+		// preview's position effect.
+		for _, b := range levelingException.previewBlockers(preview) {
+			add(b.Code, b.Message, b.Action)
+		}
+	case strings.EqualFold(preview.Draft.Contract.SecType, "CASH") || strings.EqualFold(prop.SecType, "CASH"):
+		add("preview_effect_not_close_reduce", "a conversion passes the close/reduce check only as a currency_leveling row inside its bounds", "Refresh proposals and preview a currency_leveling row.")
 	case excepted:
 		// A buy still spends cash when it covers a short. Always validate the
 		// typed sweep exception before generic close/reduce admission; a drift
@@ -2882,8 +2929,8 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 	}
 	// BOND is admitted for a cash_sweep row's own bill only, and a bill buy
 	// only while the broker's WhatIf agrees with its assumed unit.
-	if !(proposalSupportedSecType(prop.SecType) && proposalSupportedSecType(preview.Draft.Contract.SecType)) && !cashSweepBondAdmitted(prop, preview) {
-		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders, and BOND only for a cash_sweep row's own bill", "Use a manual workflow for unsupported instruments.")
+	if !(proposalSupportedSecType(prop.SecType) && proposalSupportedSecType(preview.Draft.Contract.SecType)) && !cashSweepBondAdmitted(prop, preview) && !currencyLevelingAdmitted(prop, preview) {
+		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders, BOND only for a cash_sweep row's own bill and CASH only for a currency_leveling row's own conversion", "Use a manual workflow for unsupported instruments.")
 	}
 	if b, mismatch, _ := cashSweepBillUnitCheck(prop, preview); mismatch {
 		add(b.Code, b.Message, b.Action)
@@ -3746,9 +3793,11 @@ func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapsh
 		out.Proposals[i].Budget = cloneProposalBudget(in.Proposals[i].Budget)
 		out.Proposals[i].Covers = append([]rpc.TradeProposalCoverage(nil), in.Proposals[i].Covers...)
 		out.Proposals[i].CashSweep = rpc.CloneProposalCashSweep(in.Proposals[i].CashSweep)
+		out.Proposals[i].CurrencyLeveling = rpc.CloneProposalCurrencyLeveling(in.Proposals[i].CurrencyLeveling)
 	}
 	out.BudgetReduction = cloneBudgetStatus(in.BudgetReduction)
 	out.CashSweep = rpc.CloneCashSweepStatus(in.CashSweep)
+	out.CurrencyLeveling = rpc.CloneCurrencyLevelingStatus(in.CurrencyLeveling)
 	out.Blockers = append([]rpc.TradingBlocker(nil), in.Blockers...)
 	if in.MarketEvents != nil {
 		events := *in.MarketEvents

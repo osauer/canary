@@ -1390,10 +1390,19 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		cashSweepUnacknowledgedBuyGuard(&out, orders, scope, evidence[0])
 	}
 	for _, o := range orders {
-		if !brokerOrderWorking(o) || !strings.EqualFold(strings.TrimSpace(o.Action), rpc.OrderActionBuy) {
+		if !brokerOrderWorking(o) {
 			continue
 		}
 		if account := strings.TrimSpace(o.Account); account != "" && !strings.EqualFold(account, strings.TrimSpace(scope.Account)) {
+			continue
+		}
+		// A conversion moves cash between currencies whichever its side: a
+		// working sell of EUR.USD spends EUR as surely as a buy spends USD.
+		if strings.EqualFold(strings.TrimSpace(o.SecType), "CASH") {
+			out.Unknown[""] = "a currency conversion is working at the broker, so committed cash is unknown until it fills or is cancelled"
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(o.Action), rpc.OrderActionBuy) {
 			continue
 		}
 		ccy := normCcy(o.Currency)
@@ -1414,8 +1423,8 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 		bounded := orderType == "LMT" || orderType == "STP LMT"
 		multiplier, multiplierOK := cashSweepMultiplier(secType, o.Multiplier, ccy)
 		switch {
-		case ccy == "" || secType == "CASH":
-			out.Unknown[""] = "a working buy order carries no single currency (or converts one), so committed cash is unknown"
+		case ccy == "":
+			out.Unknown[""] = "a working buy order carries no single currency, so committed cash is unknown"
 		case cashSweepBondSecType(secType) && !multiplierOK:
 			out.Unknown[ccy] = fmt.Sprintf("a working bond buy in %s has no bill convention to value it, so committed cash is unknown", ccy)
 		case !bounded || !positiveFinite(price) || !positiveFinite(remaining) || !multiplierOK:

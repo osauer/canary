@@ -363,7 +363,19 @@ func protectionSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 		}
 	}
 	sweep.Currency = currencies
-	p.Buckets.BudgetReduction, p.Buckets.CashSweep = &budget, &sweep
+	leveling := protectionCurrencyLevelingPolicy{}
+	if p.Buckets.CurrencyLeveling != nil {
+		leveling = *p.Buckets.CurrencyLeveling
+	}
+	levelingCurrencies := map[string]protectionCurrencyLevelingCurrency{}
+	maps.Copy(levelingCurrencies, leveling.Currency)
+	for _, ccy := range currencyLevelingDisplayCurrencies {
+		if _, ok := levelingCurrencies[ccy]; !ok {
+			levelingCurrencies[ccy] = protectionCurrencyLevelingCurrency{}
+		}
+	}
+	leveling.Currency = levelingCurrencies
+	p.Buckets.BudgetReduction, p.Buckets.CashSweep, p.Buckets.CurrencyLeveling = &budget, &sweep, &leveling
 
 	w := newPolicyWalker(protectionPolicyHelp, defined)
 	w.walk(reflect.ValueOf(p), "", "")
@@ -409,6 +421,9 @@ func protectionSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 	for _, k := range in.protection.Buckets.CashSweep.missingNumbers() {
 		needs["buckets.cash_sweep."+k] = true
 	}
+	for _, k := range in.protection.Buckets.CurrencyLeveling.missingNumbers() {
+		needs["buckets.currency_leveling."+k] = true
+	}
 	if in.protection.Buckets.CashSweep.enabled() {
 		if sweep.TaxReviewedAt == "" {
 			needs["buckets.cash_sweep.tax_reviewed_at"] = true
@@ -449,6 +464,10 @@ func protectionSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 					row.Source = rpc.PolicySourceNotWritten
 				}
 			}
+			// Leveling reads its numbers from the file only, like the sweep.
+			if g.ID == "buckets.currency_leveling" && !defined[row.Key] && currencyLevelingNumberKey(leaf) && row.Source == rpc.PolicySourceDefault {
+				row.Source = rpc.PolicySourceNotWritten
+			}
 		}
 		switch {
 		case g.ID == "buckets.budget_reduction" && in.protection.Buckets.BudgetReduction == nil:
@@ -457,6 +476,10 @@ func protectionSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 			g.Notes = append(g.Notes, "not in the file: the cash sweep is off until you write [buckets.cash_sweep]")
 		case strings.HasPrefix(g.ID, "buckets.cash_sweep.currency.") && !defined[g.ID]:
 			g.Notes = append(g.Notes, "no table in the file: Canary's compiled declaration for this currency applies")
+		case g.ID == "buckets.currency_leveling" && in.protection.Buckets.CurrencyLeveling == nil:
+			g.Notes = append(g.Notes, "not in the file: currency leveling is off; canary policy ensure writes the table, off")
+		case strings.HasPrefix(g.ID, "buckets.currency_leveling.currency.") && !defined[g.ID]:
+			g.Notes = append(g.Notes, "no table in the file: this currency is levelled when it is borrowed beyond the band")
 		}
 	}
 	sec.Groups = w.groups

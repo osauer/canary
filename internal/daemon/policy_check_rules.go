@@ -106,6 +106,8 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "Declared risk capital is above NLV or under 2% of it.", run: checkDeclaredRisk},
 	{id: "sweep_buys_while_borrowed", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "no_buy_while_borrowed is false while a currency's cash is negative, so the sweep may buy bills while the account pays margin interest.", run: checkSweepBuysWhileBorrowed},
+	{id: "leveling_debit_inside_band", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
+		summary: "A currency is borrowed within currency leveling's trigger_base, so leveling leaves the margin loan in place while no_buy_while_borrowed may hold the sweep's bill buys.", run: checkLevelingDebitInsideBand},
 	{id: "sweep_minimum_uneconomic", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryEconomics,
 		summary: "The sweep's minimum bill order earns less interest to the shortest rung than the commission it pays.", run: checkSweepEconomics},
 	{id: "retired_trading_gate", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryProvenance,
@@ -389,6 +391,9 @@ func checkOrderEntryOff(c *policyCheckContext) []policyCheckHit {
 	}
 	if b := c.protection.Buckets.BudgetReduction; b.enabled() && b.effectiveMode() == rpc.BudgetReductionModeActive {
 		active = append(active, "[buckets.budget_reduction] mode = active")
+	}
+	if l := c.protection.Buckets.CurrencyLeveling; l.enabled() {
+		active = append(active, "[buckets.currency_leveling] enabled = true")
 	}
 	if pre := c.protection.Authority.PreAuthorised; len(pre) > 0 {
 		active = append(active, "[authority].pre_authorised = "+strings.Join(pre, ", "))
@@ -963,7 +968,7 @@ func checkSweepBuysWhileBorrowed(c *policyCheckContext) []policyCheckHit {
 	}
 	return []policyCheckHit{{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.cash_sweep", "no_buy_while_borrowed", "false")},
 		message:    fmt.Sprintf("The account is borrowing (%s), and no_buy_while_borrowed = false lets the sweep buy bills meanwhile; margin interest on the debit usually costs more than a bill earns.", strings.Join(borrowed, ", ")),
-		suggestion: "Set no_buy_while_borrowed = true in [buckets.cash_sweep] and raise policy_version; repay the debit by converting or depositing (Canary does not convert)."}}
+		suggestion: "Set no_buy_while_borrowed = true in [buckets.cash_sweep] and raise policy_version; repay the debit by converting or depositing (the sweep never converts)."}}
 }
 
 // policyCheckDeref reads an optional policy number; an unwritten key reads 0.
@@ -1028,6 +1033,38 @@ func checkRetiredTradingGates(c *policyCheckContext) []policyCheckHit {
 		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{{File: c.config, Key: "[trading]." + g.config, Value: g.configV}, {File: c.constitutionSrc.label, Key: "[order_limits]." + g.policy, Value: g.policyV}},
 			message:    fmt.Sprintf("[trading].%s = %s is retired and no longer read; [order_limits].%s = %s decides. A reader of config.toml sees a limit that is not in force.", g.config, g.configV, g.policy, g.policyV),
 			suggestion: fmt.Sprintf("Delete %s from [trading] in %s; the order limits live in the risk constitution only.", g.config, c.config)})
+	}
+	return out
+}
+
+// checkLevelingDebitInsideBand reports a margin loan leveling leaves alone
+// because it sits inside the band: it keeps paying debit interest, and while
+// no_buy_while_borrowed holds the sweep's bill buys for any debit beyond one
+// unit, nothing is proposed to clear it.
+func checkLevelingDebitInsideBand(c *policyCheckContext) []policyCheckHit {
+	l := c.protection.Buckets.CurrencyLeveling
+	if !l.enabled() || l.TriggerBase == nil || c.book == nil {
+		return nil
+	}
+	sweepHolds := ""
+	if s := c.sweep(); s.enabled() && s.noBuyWhileBorrowed() {
+		sweepHolds = " Meanwhile no_buy_while_borrowed holds the sweep's bill buys."
+	}
+	var out []policyCheckHit
+	for _, ccy := range slices.Sorted(maps.Keys(c.book.Cash)) {
+		cash := c.book.Cash[ccy]
+		rate, ok := c.fx(ccy)
+		if !ok || l.deliberateCarry(ccy) || !finiteProtectionOptionPolicyValue(cash) || cash >= -rpc.CashSweepBorrowedToleranceUnits {
+			continue
+		}
+		debit := -cash * rate
+		if debit > *l.TriggerBase {
+			continue
+		}
+		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.protectionKey("buckets.currency_leveling", "trigger_base", policyCheckNumber(*l.TriggerBase))},
+			message: fmt.Sprintf("%s cash is %s (%s), inside the %s band: leveling does not convert it, so it stays a margin loan and pays debit interest.%s",
+				ccy, policyCheckMoney(cash, ccy), policyCheckMoney(-debit, c.base()), policyCheckMoney(*l.TriggerBase, c.base()), sweepHolds),
+			suggestion: fmt.Sprintf("Convert it yourself, lower trigger_base below %s, or set deliberate_carry = true for %s if you keep it borrowed on purpose.", policyCheckMoney(policyCheckRoundDown(debit), c.base()), ccy)})
 	}
 	return out
 }

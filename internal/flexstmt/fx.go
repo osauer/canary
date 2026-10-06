@@ -23,6 +23,12 @@ type FXSnapshot struct {
 	// Calendar reports identify lending days to acquire first, so missing
 	// native evidence is discovered before the rest of a long backfill.
 	LendingDays []string
+	// InterestAccrued is each currency's broker interest accrued on the
+	// statement's day (credit positive, debit negative) and SettledEnd its
+	// ending settled cash. Both are read for every single-day statement,
+	// independent of the attribution gates above; a currency whose row is
+	// absent, duplicated or unreadable is left out, never read as zero.
+	InterestAccrued, SettledEnd map[string]float64
 }
 
 type fxNode struct {
@@ -87,10 +93,46 @@ func parseFXSnapshots(ctx context.Context, data []byte, statements []Statement) 
 			f.Reason = "daily_statement_required"
 			continue
 		}
+		readInterestEvidence(raw, *st, f)
 		if err := buildFXSnapshot(raw, *st, f); err != nil {
 			f.Reason = err.Error()
 		}
 	}
+}
+
+// readInterestEvidence keeps, per currency, the day's interest accrual and
+// ending settled cash: what an interest rate is measured from. A row for
+// another account or day, or a currency seen twice, is left out.
+func readInterestEvidence(raw fxRawStatement, st Statement, f *FXSnapshot) {
+	f.InterestAccrued, f.SettledEnd = map[string]float64{}, map[string]float64{}
+	read := func(section *fxSection, key string, into map[string]float64) {
+		if section == nil {
+			return
+		}
+		seen := map[string]bool{}
+		for _, row := range section.Rows {
+			c := strings.ToUpper(row.text("currency"))
+			if c == "" || c == "BASE_SUMMARY" || row.text("model") != "" {
+				continue
+			}
+			if a := row.text("accountId"); a != "" && a != st.AccountID {
+				continue
+			}
+			if to, err := parseFlexDate(row.text("toDate")); err == nil && !to.Equal(st.ToDate) {
+				continue
+			}
+			v, err := row.number(key)
+			if err != nil || seen[c] {
+				delete(into, c)
+				seen[c] = true
+				continue
+			}
+			seen[c] = true
+			into[c] = v
+		}
+	}
+	read(raw.Interest, "interestAccrued", f.InterestAccrued)
+	read(raw.Cash, "endingSettledCash", f.SettledEnd)
 }
 
 func buildFXSnapshot(raw fxRawStatement, st Statement, f *FXSnapshot) error {

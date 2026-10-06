@@ -55,6 +55,56 @@ func TestFXSnapshotEvidence(t *testing.T) {
 	})
 }
 
+// TestFXInterestEvidence: the day's accrual and settled cash per currency are
+// read even when the attribution gates refuse the day; an ambiguous or
+// foreign row is left out, never read as zero.
+func TestFXInterestEvidence(t *testing.T) {
+	withUSD := strings.Replace(fxSynthetic, "</InterestAccruals>",
+		`<InterestAccrualsCurrency currency="USD" fromDate="20261001" toDate="20261001" startingAccrualBalance="0" endingAccrualBalance="-2.8" interestAccrued="-2.8" accrualReversal="0" fxTranslation="0"/></InterestAccruals>`, 1)
+	withUSD = strings.Replace(withUSD, "</CashReport>",
+		`<CashReportCurrency currency="USD" fromDate="20261001" toDate="20261001" startingCash="-20000" endingCash="-20000" endingSettledCash="-20000" salesTax="0" slbStartingCashCollateral="0" slbEndingCashCollateral="0" slbNetSecuritiesLentActivity="0"/></CashReport>`, 1)
+	tests := []struct {
+		name, source     string
+		accrued, settled map[string]float64
+	}{
+		{"read", withUSD, map[string]float64{"EUR": 0, "USD": -2.8}, map[string]float64{"EUR": 100, "USD": -20000}},
+		{"refused day still read", strings.Replace(withUSD, "<Transfers/>", `<Transfers><Transfer currency="EUR" date="20261001"/></Transfers>`, 1),
+			map[string]float64{"EUR": 0, "USD": -2.8}, map[string]float64{"EUR": 100, "USD": -20000}},
+		{"unreadable settled cash left out", strings.Replace(withUSD, `endingSettledCash="-20000"`, `endingSettledCash="n/a"`, 1),
+			map[string]float64{"EUR": 0, "USD": -2.8}, map[string]float64{"EUR": 100}},
+		{"foreign account left out", strings.Replace(withUSD, `<InterestAccrualsCurrency currency="USD"`, `<InterestAccrualsCurrency accountId="U-OTHER" currency="USD"`, 1),
+			map[string]float64{"EUR": 0}, map[string]float64{"EUR": 100, "USD": -20000}},
+		{"duplicate currency left out", strings.Replace(withUSD, "</InterestAccruals>",
+			`<InterestAccrualsCurrency currency="USD" fromDate="20261001" toDate="20261001" interestAccrued="-1"/></InterestAccruals>`, 1),
+			map[string]float64{"EUR": 0}, map[string]float64{"EUR": 100, "USD": -20000}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows, err := Parse([]byte(tt.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f := rows[0].FX
+			if f == nil {
+				t.Fatal("no FX snapshot")
+			}
+			if len(f.InterestAccrued) != len(tt.accrued) || len(f.SettledEnd) != len(tt.settled) {
+				t.Fatalf("accrued %v settled %v, want %v %v", f.InterestAccrued, f.SettledEnd, tt.accrued, tt.settled)
+			}
+			for c, v := range tt.accrued {
+				if got, ok := f.InterestAccrued[c]; !ok || got != v {
+					t.Fatalf("accrued[%s] = %v, want %v", c, got, v)
+				}
+			}
+			for c, v := range tt.settled {
+				if got, ok := f.SettledEnd[c]; !ok || got != v {
+					t.Fatalf("settled[%s] = %v, want %v", c, got, v)
+				}
+			}
+		})
+	}
+}
+
 func TestFXNativeLendingCollateralPair(t *testing.T) {
 	source := strings.Replace(fxSynthetic, `slbCashCollateral="0"`, `slbCashCollateral="100"`, 1)
 	source = strings.Replace(source, `slbDirectSecuritiesLent="0"`, `slbDirectSecuritiesLent="-100"`, 1)

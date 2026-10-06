@@ -160,8 +160,8 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	}
 
 	secType := strings.ToUpper(order.SecType)
-	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" && !IsBillOrBond(secType) {
-		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG/BILL/BOND only")
+	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" && secType != "CASH" && !IsBillOrBond(secType) {
+		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG/BILL/BOND/CASH only")
 	}
 	orderType := strings.ToUpper(strings.TrimSpace(order.OrderType))
 	if orderType != "LMT" && orderType != "TRAIL" && orderType != "TRAIL LIMIT" {
@@ -177,6 +177,22 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 		}
 		if err := validateBondOrder(order); err != nil {
 			return fmt.Errorf("protobuf placeOrder %s: %w", secType, err)
+		}
+	}
+	if secType == "CASH" {
+		// A currency conversion: LMT DAY on IDEALPRO in the regular order
+		// shape, nothing else.
+		if orderType != "LMT" {
+			return unsupportedPlaceOrderProtoValue("orderType", order.OrderType, "LMT only for CASH")
+		}
+		if tif := strings.ToUpper(strings.TrimSpace(order.TIF)); tif != "DAY" {
+			return unsupportedPlaceOrderProtoValue("tif", order.TIF, "DAY only for CASH")
+		}
+		if !strings.EqualFold(strings.TrimSpace(order.Exchange), "IDEALPRO") {
+			return unsupportedPlaceOrderProtoValue("exchange", order.Exchange, "IDEALPRO only for CASH")
+		}
+		if order.OutsideRth {
+			return unsupportedPlaceOrderProtoField("outsideRth")
 		}
 	}
 	if err := validatePlaceOrderTriggerMethod(orderType, order.TriggerMethod); err != nil {

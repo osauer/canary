@@ -23,20 +23,41 @@ func renderProposalsSummary(env *Env, snap *rpc.TradeProposalSnapshot) {
 	if budget := formatProposalBudgetStatus(snap.BudgetReduction); budget != "" {
 		displayRow(env, env.Stdout, "Budget", budget)
 	}
-	// Preserve producer order and keep the cash sweep distinct from protection.
-	sweepCount := 0
-	for _, p := range snap.Proposals {
-		if p.Bucket == rpc.TradeProposalBucketCashSweep {
-			sweepCount++
+	// Preserve producer order and keep the cash sweep and currency leveling
+	// distinct from protection: protection first, then each under its own
+	// heading.
+	group := func(p rpc.TradeProposal) int {
+		switch p.Bucket {
+		case rpc.TradeProposalBucketCashSweep:
+			return 1
+		case rpc.TradeProposalBucketCurrencyLeveling:
+			return 2
 		}
+		return 0
 	}
-	for _, sweep := range []bool{false, true} {
-		if sweep && (snap.CashSweep != nil || sweepCount > 0) {
+	var groupRows [3]int
+	for _, p := range snap.Proposals {
+		groupRows[group(p)]++
+	}
+	for g := range 3 {
+		switch {
+		case g == 1 && (snap.CashSweep != nil || groupRows[1] > 0):
 			fmt.Fprintln(env.Stdout)
-			displayLine(env, "Cash sweep · "+formatCashSweepStatus(snap.CashSweep, sweepCount), env.bold)
+			displayLine(env, "Cash sweep · "+formatCashSweepStatus(snap.CashSweep, groupRows[1]), env.bold)
+		case g == 2 && (snap.CurrencyLeveling != nil || groupRows[2] > 0):
+			fmt.Fprintln(env.Stdout)
+			displayLine(env, "Currency leveling · "+formatCurrencyLevelingStatus(snap.CurrencyLeveling, groupRows[2]), env.bold)
+			if st := snap.CurrencyLeveling; st != nil {
+				for _, c := range st.Currencies {
+					displayLine(env, fmt.Sprintf("  %s %s · %s", c.Currency, strings.ReplaceAll(c.State, "_", " "), formatCurrencyLevelingCurrency(c)), nil)
+				}
+				for _, b := range st.Bundles {
+					displayLine(env, "  "+formatCurrencyLevelingBundle(b, st.BaseCurrency), nil)
+				}
+			}
 		}
 		for _, p := range snap.Proposals {
-			if (p.Bucket == rpc.TradeProposalBucketCashSweep) != sweep {
+			if group(p) != g {
 				continue
 			}
 			state, style := "review", env.bold
@@ -59,6 +80,9 @@ func renderProposalsSummary(env *Env, snap *rpc.TradeProposalSnapshot) {
 			}
 			if p.CashSweep != nil {
 				unit = nonEmpty(p.CashSweep.QuantityUnit, unit)
+			}
+			if p.CurrencyLeveling != nil {
+				unit = nonEmpty(p.CurrencyLeveling.PairSymbol, unit)
 			}
 			displayLine(env, fmt.Sprintf("%s · %s %d %s · %s", nonEmpty(queuedContractLabel(p.Contract), p.Symbol), p.Action, p.Quantity, unit, state), style)
 			displayLine(env, "  "+p.Key+" · "+p.Bucket+" · "+p.OrderType, nil)

@@ -63,6 +63,15 @@ min_maturity_days = 91
 min_maturity_days = 91
 `
 
+// pcLeveling is enabled currency leveling at the written defaults.
+const pcLeveling = `
+[buckets.currency_leveling]
+enabled = true
+trigger_base = 10000.0
+cushion_base = 250.0
+max_slippage_bp = 2.0
+`
+
 // pcConstitution carries complete [order_limits]: against pcBook's 200,000
 // NLV the cap in force is 10,000 EUR (5% of NLV meets the floor).
 const pcConstitution = pcConstitutionHead + `
@@ -128,7 +137,7 @@ func pcClean() pcFiles {
 [buckets.risk_reduction]
 enabled = true
 max_order_notional = 9000.0
-` + pcSweep, constitution: pcConstitution}
+` + pcSweep + pcLeveling, constitution: pcConstitution}
 }
 
 func pcInput(t *testing.T, f pcFiles) PolicyCheckInput {
@@ -232,6 +241,10 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, contains: "hedge_band_min_pct is lower in [regime_early_warning]"},
 		{name: "active sweep with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "can never be placed"},
+		{name: "active currency leveling with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
+			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "[buckets.currency_leveling] enabled = true"},
+		{name: "a debit inside the leveling band", rule: "leveling_debit_inside_band", severity: rpc.PolicyCheckWarn,
+			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Book.Cash["USD"] = -3000 }, contains: "inside the 10,000 EUR band"},
 		{name: "settlement route ended", rule: "settlement_route_expired", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "[buckets.cash_sweep.currency.USD]\n", "[buckets.cash_sweep.currency.USD]\nsettlement_valid_through = 2026-09-01\n")

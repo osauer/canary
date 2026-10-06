@@ -343,11 +343,25 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 			return nil, err
 		}
 	}
+	isFX := strings.EqualFold(contract.SecType, "CASH")
+	switch {
+	case isFX:
+		if err := validatePreviewFXParams(p, scope == rpc.OrderTokenScopeModify); err != nil {
+			return nil, err
+		}
+	case p.FX != nil:
+		return nil, errBadRequest("conversion terms apply to a CASH preview only")
+	}
 	if scope == rpc.OrderTokenScopeModify {
 		contract = modifyContractForView(replaceView, contract)
 	}
 	if err := s.previewMarketClosedRefusal(contract, p.OrderType, p.Strategy, p.LimitPrice, p.Trail, s.orderNow()); err != nil {
 		return nil, err
+	}
+	if isFX {
+		if err := currencyLevelingSessionRefusal(s.orderNow()); err != nil {
+			return nil, err
+		}
 	}
 	timeout := orderPreviewTimeout(p.TimeoutMs)
 	previewAuthority, err := s.captureOrderPreviewBrokerAuthority()
@@ -418,14 +432,26 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		triggerMethod = replaceView.TriggerMethod
 	}
 
-	quote, err := s.fetchPreviewQuoteBound(ctx, contract, timeout, previewAuthority)
+	var quote rpc.OrderQuoteSnapshot
+	if isFX {
+		quote, err = s.fetchPreviewFXQuote(ctx, previewAuthority, contract, timeout)
+	} else {
+		quote, err = s.fetchPreviewQuoteBound(ctx, contract, timeout, previewAuthority)
+	}
 	if err != nil {
 		return nil, previewStageRefusal(previewQuoteUnavailableCode, err)
 	}
 	var strategy string
 	var limit, notionalPrice float64
 	var trail *rpc.OrderTrailSpec
+	var fxTerms *rpc.OrderFXTerms
 	switch {
+	case isFX:
+		strategy = rpc.OrderStrategyBoundedLimit
+		limit, err = fxBoundedLimitPrice(action, contract.MinTick, quote, p.FX.MaxSlippageBP)
+		notionalPrice = limit
+		fxTerms = rpc.CloneOrderFXTerms(p.FX)
+		fxTerms.Bid, fxTerms.Ask = cloneFloat64Ptr(quote.Bid), cloneFloat64Ptr(quote.Ask)
 	case isBond:
 		strategy = rpc.OrderStrategyPatientLimit
 		limit, err = bondPatientLimitPrice(action, contract.MinTick, quote)
@@ -471,6 +497,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		OpenClose:     orderOpenCloseForEffect(position.Effect),
 		Source:        strings.TrimSpace(p.Source),
 		Bond:          bondTerms,
+		FX:            fxTerms,
 	}
 	if scope == rpc.OrderTokenScopeModify {
 		if err := validateModifyDraft(replaceView, draft); err != nil {
@@ -932,6 +959,10 @@ func normalizePreviewContract(in rpc.ContractParams) (rpc.ContractParams, error)
 	case ibkrlib.SecTypeBond, ibkrlib.SecTypeBill:
 		// Admitted only with a cash_sweep row's bill terms (previewOrder).
 		return normalizePreviewBondContract(in)
+	case "CASH":
+		// Admitted only with a currency_leveling row's conversion terms
+		// (previewOrder).
+		return normalizePreviewFXContract(in)
 	default:
 		return rpc.ContractParams{}, errBadRequest("order preview supports STK/ETF/OPT contracts only")
 	}

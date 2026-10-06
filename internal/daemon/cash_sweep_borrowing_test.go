@@ -33,7 +33,7 @@ func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 		t.Fatalf("borrowing = %+v", b)
 	}
 	const want = "USD is borrowed: −20,000 USD; bill buys wait until it is repaid"
-	if b.Message != want || !strings.Contains(b.Action, "convert") || !strings.Contains(b.Action, "deposit") || !strings.Contains(b.Action, "Canary does not convert") {
+	if b.Message != want || !strings.Contains(b.Action, "convert") || !strings.Contains(b.Action, "deposit") || !strings.Contains(b.Action, "the sweep never converts") {
 		t.Fatalf("words = %q / %q", b.Message, b.Action)
 	}
 	eur := cashSweepCurrencyOf(t, plan, "EUR")

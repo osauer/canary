@@ -2708,6 +2708,10 @@ type OrderPreviewParams struct {
 	// Bond is daemon-internal: a cash_sweep row's bill conventions. A BOND
 	// preview without it is refused, so no RPC caller can preview a bond.
 	Bond *OrderBondTerms `json:"-"`
+	// FX is daemon-internal: a currency_leveling row's conversion terms. A
+	// CASH preview without them is refused, so no RPC caller can preview a
+	// conversion.
+	FX *OrderFXTerms `json:"-"`
 }
 
 // OrderBoundedLimit bounds a limit priced from the live quote: Concession of
@@ -2776,6 +2780,9 @@ type OrderDraft struct {
 	StrategyGroup *StrategyOrderDraft `json:"strategy_group,omitempty"`
 	// Bond carries a BOND draft's conventions and grid; nil otherwise.
 	Bond *OrderBondTerms `json:"bond,omitempty"`
+	// FX carries a CASH draft's conversion terms and the live bid and ask
+	// its limit was bounded from; nil otherwise.
+	FX *OrderFXTerms `json:"fx,omitempty"`
 }
 
 // OrderTrailSpec is the canonical broker-side trailing-stop intent. Percent

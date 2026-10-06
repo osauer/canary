@@ -81,7 +81,7 @@ func policySectionNames(view *rpc.PolicyEffectiveView) string {
 	for _, sec := range view.Sections {
 		names = append(names, sec.ID)
 	}
-	for _, extra := range []string{"cash_sweep", "trailing_stop", "budget_reduction", "authority", "regime"} {
+	for _, extra := range []string{"cash_sweep", "currency_leveling", "trailing_stop", "budget_reduction", "authority", "regime"} {
 		if !slices.Contains(names, extra) {
 			names = append(names, extra)
 		}

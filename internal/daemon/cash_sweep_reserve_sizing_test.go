@@ -368,7 +368,8 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	}
 	want := []string{"added buckets.cash_sweep.max_order_pct_nlv = 10.0", "added buckets.cash_sweep.min_order_notional = 20000.0",
 		"added buckets.cash_sweep.reserve_floor_base = 10000.0", "added buckets.cash_sweep.reserve_pct_nlv = 10.0", "added buckets.cash_sweep.order_step_base = 1000.0", "added buckets.cash_sweep.keep_cash = 5000.0",
-		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "added buckets.cash_sweep.no_buy_while_borrowed = true", "raised policy_version 12 to 13: the sweep sizing numbers above take effect"}
+		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "added buckets.cash_sweep.no_buy_while_borrowed = true", "added [buckets.currency_leveling] with enabled = false",
+		"raised policy_version 12 to 13: the keys above take effect"}
 	if preview.Action != PolicyFileWouldMigrate || !slices.Equal(preview.Changes, want) || !strings.Contains(preview.Diff, "reserve_pct_nlv = 10.0") {
 		t.Fatalf("dry run = %+v", preview)
 	}
@@ -399,10 +400,12 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 			t.Fatalf("second pass = %+v", a)
 		}
 	}
-	// No sweep table: nothing is added, and the sweep stays off.
+	// No sweep table: nothing of the sweep is added, and it stays off; only
+	// the currency leveling table is written, off.
 	writePolicyTestFile(t, set.Protection, strings.Split(ownerLikeSweepProtection, "[buckets.cash_sweep]")[0])
 	for _, a := range EnsurePolicyFiles(set, EnsureOptions{Release: "test", DryRun: true}) {
-		if a.Policy == PolicyFileProtection && a.Action != PolicyFileUnchanged {
+		if a.Policy == PolicyFileProtection && (slices.ContainsFunc(a.Changes, func(c string) bool { return strings.Contains(c, "cash_sweep") }) ||
+			!slices.Contains(a.Changes, "added [buckets.currency_leveling] with enabled = false")) {
 			t.Fatalf("absent sweep table = %+v", a)
 		}
 	}

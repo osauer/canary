@@ -1,18 +1,19 @@
 # Protection and risk reduction
 
-Updated: 2026-09-30 21:23 CEST
+Updated: 2026-10-06 08:11 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
 fresh preview; optional pre-authorised buckets let the daemon schedule
 close/reduce actions, and the cash sweep's bill orders, under an owner-edited
 policy. Installing Canary does not
-enable that automation.
+enable that automation. Currency leveling's conversions are never
+scheduled: you approve each repayment.
 
 A blocked proposal row is normally the system refusing to act on evidence it
 cannot trust, not a fault to work around. Canary exposes only constrained
-close/reduce actions here, plus the cash sweep's bill buys; use TWS for an
-unmodeled emergency exit.
+close/reduce actions here, plus the cash sweep's bill buys and currency
+leveling's conversions; use TWS for an unmodeled emergency exit.
 
 ## What each command does
 
@@ -35,15 +36,17 @@ path fails closed anyway: the daemon's write handler is compiled out behind the
 
 The daemon owns generation. It rebuilds the set from current positions, the
 protection policy, and market-event context, and every row it emits closes or
-reduces, except a [cash sweep](#cash-sweep) buy of a same-currency bill, a
-typed exception described there. The submit path checks that twice, once against the proposal's own
+reduces, except a [cash sweep](#cash-sweep) buy of a same-currency bill and a
+[currency leveling](#currency-leveling) conversion that repays a borrowed
+currency, two typed exceptions described there. The submit path checks that twice, once against the proposal's own
 position effect and once against the preview's, and blocks on either. A
 protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
 Six buckets generate protection rows, enabled through the protection policy
-(a seventh, the [cash sweep](#cash-sweep), puts idle cash into bills):
+(a seventh, the [cash sweep](#cash-sweep), puts idle cash into bills, and an
+eighth, [currency leveling](#currency-leveling), repays a borrowed currency):
 
 - **Trailing stop** places a broker-side trail against a stock or ETF. Its
   time-in-force is a policy decision, DAY by default, and a DAY
@@ -454,7 +457,8 @@ run.
 The protection policy's `[authority].pre_authorised` list is empty by default.
 Only an explicit owner policy edit and version bump enable the named buckets:
 `trailing_stop`, `option_loss_exit`, `option_profit_trail`, `budget_reduction`,
-or `cash_sweep` (the sweep's bill buys and redemptions).
+or `cash_sweep` (the sweep's bill buys and redemptions). `currency_leveling`
+cannot be listed: every conversion waits for your approval.
 `auto_submit` remains false; it is not the switch for this scoped scheduler.
 Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
 and broker eligibility gates still apply to every submission.
@@ -590,7 +594,9 @@ or sending queued buys at their finite worst price. An unknown principal or
 commission bound or a nonfinite total holds the sweep. Outstanding buy records
 currently lack fee envelopes, so new sweeps wait while such buys remain.
 A prepared, unarmed queue entry or an
-unapproved proposal never counts. **Kept** is the currency's `keep_cash` and,
+unapproved proposal never counts. A currency conversion of either side
+working at the broker makes every currency's commitments unknown, so the
+sweep holds until it fills or is cancelled. **Kept** is the currency's `keep_cash` and,
 in the base currency, the reserve (below): the larger of the two. **Free** is
 cash − committed − kept − any reserve shortfall this currency keeps for the base
 currency. When free exceeds the smallest order (`min_order_notional` at the
@@ -668,7 +674,9 @@ base currency at the ledger rate.
   lower of trade-date and settled cash. Every invest row stays listed,
   blocked by `currency_borrowed`, for example "USD is borrowed: −20,000 USD;
   bill buys wait until it is repaid". Repay the debit by converting another
-  currency or depositing; Canary does not convert. Redemptions are not held:
+  currency or depositing; the sweep never converts, and
+  [currency leveling](#currency-leveling), when on, proposes the conversion
+  for a debit beyond its band. Redemptions are not held:
   selling bills to cover cash is still allowed. A listed currency whose cash
   cannot be read means the sweep cannot prove that nothing is borrowed, so
   buys hold with `borrowing_unknown` and the status names the currency. With
@@ -817,3 +825,131 @@ their sum per currency) and rule 14's
 evidence gains the same figures; the rule's own figure is unchanged, because
 the sweep never converts. Set `enabled = false`, or remove the table, to stop
 it: rows leave on the next refresh and held bills mature to cash.
+
+## Currency leveling
+
+A currency whose cash is negative is a margin loan: IBKR charges debit
+interest on it and never converts on its own. Currency leveling repays such
+a loan back to between zero and a small cushion, never further, from the
+currencies whose cash earns least, and only from a currency whose cash earns
+less than the loan costs. The cash sweep still never converts; leveling is
+its own bucket.
+
+`authority.close_reduce_only` stays `true`. A conversion passes the
+close-or-reduce check only as a second typed exception: a
+`currency_leveling` row's own pair, contract and side, on IDEALPRO, that
+reduces a negative currency balance and, at the live quote's far side,
+brings in no more than its share of the band and spends no more than its
+allotment of the paying currency.
+
+It is off until you switch it on. `canary policy ensure` writes the table,
+off; once you set `enabled = true`, each repayment is an ordinary proposal:
+its conversions preview as CASH limit DAY orders on IDEALPRO through every
+gate any proposal meets, and they are sent only when you approve the
+repayment. Leveling is never pre-authorised.
+
+```toml
+[buckets.currency_leveling]
+enabled = false
+trigger_base = 10000.0  # the band: repay only below minus this, in base currency
+cushion_base = 250.0    # land at most this far above zero; a paying currency keeps this much
+max_slippage_bp = 2.0   # limit at most this far from the live mid
+payback_days = 30       # a conversion must earn back its worst-case cost within this many days
+
+[buckets.currency_leveling.currency.USD]
+deliberate_carry = true  # keep USD negative on purpose; never repaid, never pays
+```
+
+Every number is read from the file only: a missing one holds leveling at
+`needs your number`, naming the key.
+
+**Which cash.** Leveling reads each currency's trade-date cash from the
+broker's ledger, not the sweep's lower of trade-date and settled cash. A
+conversion changes trade-date cash at once, while settled cash follows two
+days later, so planning on settled cash would propose the same conversion
+again until it settles.
+
+**Interest rates.** What each currency costs and earns comes from the
+broker's own daily statements, which Canary already keeps for currency
+reporting; there is no rate setting. A loan rate is the interest charged over
+the currency's last ten statement days with a negative settled balance, a
+cash rate the interest paid over its last ten days with a positive one, each
+divided by balance times calendar days and annualised over 365 days; only
+the last 180 days count, and each rate shows the last day it read. A
+currency not borrowed lately takes its cash rate as the floor of what its
+loan costs; one that held no cash lately takes its loan rate as the ceiling
+of what its cash earns. A cash rate is a blend: IBKR pays nothing on the
+first slice of a balance. Without the statements, leveling holds and says so.
+
+**Which loan, and who pays.** Loans are repaid in order of their rate,
+dearest first: when cash runs short, each unit of it saves most where the
+loan costs most. A currency may pay a loan only when its cash earns less
+than the loan costs, and only down to its cushion; cash the sweep keeps back
+counts. Every conversion must earn back its worst-case cost, IBKR's
+commission (at least USD 2) plus the slippage bound, in interest saved within
+`payback_days`. Of the ways to repay a loan from the currencies allowed to
+pay, leveling takes the one that repays it in full and saves the most within
+that window: the cheapest currency that covers the loan alone, or several,
+cheapest first, when a cheaper one cannot cover it alone and the split saves
+more than its extra commission. What one loan takes is set aside before the
+next is planned, so two repayments never spend the same cash.
+
+**One approval per loan.** A loan's conversions form one repayment, listed
+together and approved as a whole. The daemon's bundle calls
+(`trade.proposals.prepare_bundle`, `trade.proposals.submit_bundle`) preview
+every conversion, then check every one again before sending any, send them
+cheapest currency first and stop at the first refusal. A conversion that is
+one of several refuses a prepare or submit of its own
+(`conversion_bundle_needs_one_approval`); a repayment of a single conversion
+is approved like any proposal.
+
+**How it sizes.** Each conversion is sized inside its share of the band at
+both edges of the price bound and takes the middle, keeping the previous
+size while it stays inside, so an ordinary rate move does not change the
+order. A repayment's conversions together are held to the order cap in force
+of `[order_limits]`, and the next cycle repays the rest. Each row names the
+pair's exact contract, and its key binds it.
+
+**When it holds.** A currency holds, with the reason on its line, while its
+cash is unavailable; while the ledger is older than a fill Canary saw; while
+the broker's open-order list cannot be read; while a conversion in either
+currency works at the broker or waits for its acknowledgement; while the
+order cap in force or the interest rates cannot be read; while no currency
+may pay (each earns at least what the loan costs, holds no more than its
+cushion, or has a buy whose cost has no bound); while no conversion pays
+back within the window; while the pair's contract cannot be resolved; and
+for a currency you mark `deliberate_carry`. A currency with no pair Canary
+trades (outside EUR, GBP, AUD, NZD, USD, CAD, CHF and JPY) holds too.
+
+**How the preview prices it.** IDEALPRO trades from Sunday 17:15 to Friday
+17:00 New York time with a break from 17:00 to 17:15; outside those hours
+the preview refuses with `market_closed` before reading a quote, and the
+row's readiness says when it opens. The preview reads a live bid and ask on
+its own broker session and sends a limit `max_slippage_bp` from the mid,
+toward the mid on the pair's tick. A delayed, stale, one-sided or crossed
+quote refuses; a market wider than the bound refuses with
+`fx_spread_beyond_bound`, so no fill is worse than the bound. A preview,
+prepared submit or submit refuses with `conversion_beyond_target`,
+`conversion_funding_short`, `conversion_terms_drift` or
+`conversion_already_working` when the conversion has left its bounds since
+the row was built.
+
+**Beside the cash sweep.** A conversion of either side working at the broker
+holds the sweep, because it moves cash between currencies the sweep counts.
+A debit inside the band stays, and with `no_buy_while_borrowed` the sweep's
+bill buys wait until it is repaid; `canary policy check` names such a debit
+(`leveling_debit_inside_band`).
+
+**Tax.** Each conversion is a foreign-exchange transaction in a base-currency
+account. Repaying a borrowed currency from the base currency buys that
+currency and spends it at once; paying from a foreign currency you hold, or
+selling one to repay a borrowed base currency, can realise a gain or loss.
+Each repayment names the currency that pays. Canary keeps no tax setting for
+it; ask your adviser how your conversions are taxed.
+
+`canary proposals list` shows leveling under its own *Currency leveling*
+heading with one line per currency and one per repayment, with what it saves
+and can cost within the window; JSON carries a `currency_leveling` status on
+the snapshot, with its `bundles`, a `currency_leveling` block on each row,
+and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
+remove the table, to stop it.
