@@ -79,6 +79,9 @@ type Server struct {
 	// backendLink overrides the connector's TWS-to-IBKR link report for tests;
 	// nil reads the current connector.
 	backendLink func() ibkrlib.BackendLinkReport
+	// historicalFarmOutage overrides the connector's announced bar-farm
+	// outage for tests; nil reads the current connector.
+	historicalFarmOutage func() bool
 	// marketDataMemory carries the retired connector's entitlement memory to its
 	// successor so a reconnect does not re-probe a known gap at warning level.
 	// Guarded by mu.

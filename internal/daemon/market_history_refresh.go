@@ -161,7 +161,8 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	}
 	// The connector announces a stalled Gateway once; a line per series would
 	// repeat it on every refresh until the Gateway answers again.
-	if err != nil && !verdict && !errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) {
+	// A bar farm broken past its attention threshold is announced the same way.
+	if err != nil && !verdict && !errors.Is(err, ibkrlib.ErrHistoricalServiceStalled) && !(errors.Is(err, context.DeadlineExceeded) && s.historicalBarFarmOutage()) {
 		// An unavailable broker is one incident with its own owner (see
 		// logGatewayDependency); a followed series joins it instead of
 		// warning every cycle (30 lines per symbol across the 2026-10-03 night).
