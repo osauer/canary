@@ -253,10 +253,23 @@ type CashPolicyApplyRequest struct {
 // CashPolicyConfirmation names the Desk action the owner confirmed, the
 // credential that confirmed it (passkey:<id> or companion:<key id>) and the
 // signed envelope, kept for audit only.
+//
+// A save may instead rely on an earlier save the owner's device confirmed in
+// the same Desk console session, inside Desk's window, when it lets no more
+// reach the broker (owner decision 2026-10-06 15:31 CEST). On a save the
+// device confirmed, ConfirmedUntil is the end of the window that confirmation
+// opens. On a save that relies on one, ConfirmedBy names the earlier save's
+// request id and ConfirmedUntil repeats that window's end; Credential is the
+// earlier save's credential and Envelope Desk's record of the reliance.
+// Canary accepts it only for a save with no consequence at the broker, before
+// ConfirmedUntil, and only on a save it recorded with a fresh confirmation by
+// the same credential and the same window end.
 type CashPolicyConfirmation struct {
-	DeskActionID string `json:"desk_action_id"`
-	Credential   string `json:"credential"`
-	Envelope     string `json:"envelope"`
+	DeskActionID   string    `json:"desk_action_id"`
+	Credential     string    `json:"credential"`
+	Envelope       string    `json:"envelope"`
+	ConfirmedBy    string    `json:"confirmed_by,omitempty"`
+	ConfirmedUntil time.Time `json:"confirmed_until,omitzero"`
 }
 
 // CashPolicyApplyResult is the snapshot after a save, with the receipt's

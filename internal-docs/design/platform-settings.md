@@ -100,9 +100,15 @@ Get returns each key in scope with its value, source (`file`,
 `canary_default`, `not_written`), written default, bounds, help and facts; the
 revision is the hash of the file's bytes. Check runs the loader's validation
 on the draft and returns canonical terms and their digest; it writes nothing.
-Apply takes those terms with Desk's device confirmation (Desk action id,
+Apply takes those terms with a confirmation reference (Desk action id,
 credential, envelope; audited, not verifiable here), audits its origin as
-agent and refuses every other origin. Under the protection policy manager's
+agent and refuses every other origin. A reference may rely on an earlier save
+instead of the device (`confirmed_by`, `confirmed_until`; owner decision
+2026-10-06 15:31 CEST): Canary accepts it only for a save with no consequence
+at the broker, before `confirmed_until`, and only on a save it recorded with a
+fresh confirmation by the same credential that declared that same
+`confirmed_until`; Desk owns the window and binds it to its console session. The receipt and the provenance comment name the save
+relied on. Under the protection policy manager's
 file lock it rechecks the receipt, the revision and the validation, writes
 only the changed lines with their provenance after a backup, raises
 `policy_version` by one, reloads, and records a `cash_policy_saved` receipt in

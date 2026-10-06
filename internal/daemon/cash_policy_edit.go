@@ -72,10 +72,6 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 		case !defined && (to == nil || (sp.absent == rpc.CashPolicySourceCanaryDefault && cashPolicySame(sp.builtin, to))):
 			continue
 		}
-		if msg := cashPolicyPreAuthorisedRaise(r.file, sp, from, to); msg != "" {
-			d.errors[key] = msg
-			continue
-		}
 		source := sp.absent
 		if defined {
 			source = rpc.CashPolicySourceFile
@@ -385,16 +381,51 @@ func cashPolicyKeepCash(p protectionPolicy, ccy string) any {
 	return nil
 }
 
+// cashPolicyDaemonSends reports whether the daemon places the sweep's
+// orders itself: the file pre-authorises the sweep, and it is on and active.
+func cashPolicyDaemonSends(p protectionPolicy) bool {
+	return p.preAuthorised(preAuthorisedBucketCashSweep) && p.Cash.Sweep.enabled() && p.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive
+}
+
+// cashPolicyDaemonSendsSentence says that the daemon will send the sweep's
+// orders itself and how large each may be: the sweep's cap in force at
+// today's NLV, held to the order cap in force unless bills are exempt.
+func cashPolicyDaemonSendsSentence(p protectionPolicy, b cashPolicyBook) string {
+	s := p.Cash.Sweep
+	text := "The daemon will send sweep orders itself, " + cashPolicyDuration(p.Authority.vetoWindow()) + " after announcing them"
+	if s.MaxOrderNotional <= 0 {
+		return text + ", once the sweep's numbers are in the file."
+	}
+	top, pct := s.MaxOrderNotional, policyCheckDeref(s.MaxOrderPctNLV)
+	if pct > 0 && b.nlv <= 0 {
+		return text + ", up to " + cashPolicyMoney(top, b.base) + " each, more as NLV grows."
+	}
+	top = max(top, pct/100*b.nlv)
+	if !s.billsExempt() && b.orderCapReason == "" && b.orderCap > 0 {
+		top = min(top, b.orderCap)
+	}
+	if pct > 0 {
+		return text + ", up to " + cashPolicyMoney(top, b.base) + " each at today's NLV."
+	}
+	return text + ", up to " + cashPolicyMoney(top, b.base) + " each."
+}
+
 // cashPolicyConsequences states, for each change that lets more reach the
 // broker, what changes there: a feature switched on, shadow changed to
 // active, a rule loosened, a size, reserve or band made larger. A number
-// written where none was is not a direction. While the file pre-authorises an
-// active sweep, a sweep change says that the daemon sends its orders itself.
+// written where none was is not a direction. When the draft makes the daemon
+// send the sweep's orders itself (the file pre-authorises the sweep), that
+// comes first (owner decision 2026-10-06 15:31 CEST); while it already does,
+// each sweep change says so.
 func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEdit, b cashPolicyBook) []string {
 	out := []string{}
 	money := func(v any) string { f, _ := cashPolicyNumber(v); return cashPolicyMoney(f, b.base) }
 	num := func(v any) string { f, _ := cashPolicyNumber(v); return policyCheckNumber(f) }
-	daemonSends := after.preAuthorised(preAuthorisedBucketCashSweep) && after.Cash.Sweep.enabled() && after.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive
+	startsSending := !cashPolicyDaemonSends(before) && cashPolicyDaemonSends(after)
+	daemonSends := cashPolicyDaemonSends(before) && cashPolicyDaemonSends(after)
+	if startsSending {
+		out = append(out, cashPolicyDaemonSendsSentence(after, b))
+	}
 	for _, e := range edits {
 		from, to := e.from, e.to
 		if e.spec.section == rpc.CashPolicySectionSweep && e.spec.perCurrency {
@@ -420,12 +451,18 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 			text = "A conversion may take " + num(to) + " days to pay back instead of " + num(from) + "."
 		case "cash.sweep.enabled":
 			text = "The cash sweep starts in Observe only: it lists the bills it would buy and sends no order."
-			if after.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive {
+			switch {
+			case startsSending:
+				continue
+			case after.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive:
 				text = "The cash sweep starts proposing bill orders for you to approve."
 			}
 		case "cash.sweep.mode":
 			text = "Sweep rows become proposals you can approve."
-			if !after.Cash.Sweep.enabled() {
+			switch {
+			case startsSending:
+				continue
+			case !after.Cash.Sweep.enabled():
 				text = "Once the sweep is on, its rows become proposals you can approve."
 			}
 		case "cash.sweep.reserve_floor_base":

@@ -24,14 +24,17 @@ import (
 // catalogue: Desk's console reaches them after the owner's device confirms each
 // save; no MCP tool, CLI command or agent grant does.
 //
-// The owner questions of the design (2026-10-06 14:02 CEST) are decided for
-// this build, each in one place:
-//  1. every save needs the owner's confirmation, including one that only
-//     narrows what can happen (cashPolicyNeedsConfirmation);
+// The owner answered the design's questions (2026-10-06 15:31 CEST); each
+// answer lives in one place:
+//  1. a save needs a confirmation reference: the owner's device, or an
+//     earlier save the device confirmed in the same Desk console session
+//     inside Desk's window; a save that lets more reach the broker always
+//     needs the device (cashPolicyReliance);
 //  2. [cash] pre_authorised stays file-only: it is not in cashPolicySpecs;
-//  3. while the file pre-authorises the sweep, a save cannot switch the sweep
-//     on or move it to active; switching it off or to shadow is always allowed
-//     (cashPolicyPreAuthorisedRaise);
+//  3. while the file pre-authorises the sweep, a save may still switch the
+//     sweep on or move it to active; the first consequence then says that
+//     the daemon sends the sweep's orders itself after the veto window, and
+//     the cap in force (cashPolicyDaemonSends);
 //  4. Reset restores Canary's written numbers and rules only, never a switch,
 //     the mode or a per-currency entry (cashPolicySpec.reset);
 //  6. bill ISIN lists, the ETF fallback and tax_reviewed_at stay in the file:
@@ -369,25 +372,6 @@ func cashPolicySpecFor(key string) (cashPolicySpec, string, bool) {
 // capital letters.
 func cashPolicyCurrencyCode(ccy string) bool {
 	return len(ccy) == 3 && strings.IndexFunc(ccy, func(r rune) bool { return r < 'A' || r > 'Z' }) < 0
-}
-
-// cashPolicyPreAuthorisedRaise is owner question 3, decided more
-// conservatively than the design proposed (2026-10-06): while the file
-// pre-authorises the cash sweep, the daemon sends its orders itself, so a
-// save from Desk may not switch the sweep on or move it from shadow to
-// active; the owner makes that change in the file. Switching it off or back
-// to shadow is always allowed. It returns Canary's sentence, or "".
-func cashPolicyPreAuthorisedRaise(p protectionPolicy, sp cashPolicySpec, from, to any) string {
-	if sp.section != rpc.CashPolicySectionSweep || !p.preAuthorised(preAuthorisedBucketCashSweep) {
-		return ""
-	}
-	switch {
-	case sp.leaf == "enabled" && cashPolicyTurnsOn(from, to):
-		return "The file pre-authorises the cash sweep, so the daemon would send its orders itself. Switch it on in the file: [cash] pre_authorised."
-	case sp.leaf == "mode" && to == rpc.CashSweepModeActive && from != rpc.CashSweepModeActive:
-		return "The file pre-authorises the cash sweep, so the daemon would send its orders itself. Change it to active in the file: [cash] pre_authorised."
-	}
-	return ""
 }
 
 // cashPolicyBook is what the facts are worked out from: the account's base

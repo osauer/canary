@@ -118,8 +118,11 @@ func cashPolicyCheck(t *testing.T, s *Server, revision string, changes map[strin
 	return out
 }
 
+// cashPolicyConfirmation is a fresh device confirmation, which opens Desk's
+// ten-minute window for later saves to rely on.
 func cashPolicyConfirmation() *rpc.CashPolicyConfirmation {
-	return &rpc.CashPolicyConfirmation{DeskActionID: "7f3c2a90deadbeef", Credential: "companion:key-1", Envelope: `{"credential":"companion","signature":"synthetic"}`}
+	return &rpc.CashPolicyConfirmation{DeskActionID: "7f3c2a90deadbeef", Credential: "companion:key-1", Envelope: `{"credential":"companion","signature":"synthetic"}`,
+		ConfirmedUntil: cashPolicyTestNow.Add(10 * time.Minute)}
 }
 
 func cashPolicyApply(s *Server, terms, digest, id string, confirmation *rpc.CashPolicyConfirmation, origin string) (*rpc.CashPolicyApplyResult, error) {
@@ -537,9 +540,9 @@ func TestCashPolicyRefusesAnOriginThatIsNotAllowed(t *testing.T) {
 	}
 }
 
-// Owner question 1: every save needs the owner's confirmation, including
-// one that only narrows what can happen.
-func TestCashPolicyApplyNeedsConfirmationEvenToNarrow(t *testing.T) {
+// Owner question 1 (2026-10-06 15:31 CEST): every save carries a
+// confirmation reference; nothing is written without one.
+func TestCashPolicyApplyNeedsAConfirmationReferenceOnEverySave(t *testing.T) {
 	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
 	before := readFile(t, path)
 	snap := cashPolicyGet(t, s)
@@ -552,8 +555,85 @@ func TestCashPolicyApplyNeedsConfirmationEvenToNarrow(t *testing.T) {
 			t.Fatalf("confirmation %+v: %v", c, err)
 		}
 	}
-	if !cashPolicyNeedsConfirmation(nil) || readFile(t, path) != before {
-		t.Fatal("a save without confirmation wrote the file")
+	if readFile(t, path) != before {
+		t.Fatal("a save without a confirmation reference wrote the file")
+	}
+}
+
+// Owner question 1 (2026-10-06 15:31 CEST: "Cache the decision for 5 or 10
+// minutes, if not serious concerns"): a save may rely on an earlier save the
+// device confirmed, inside the window Desk states, unless it lets more reach
+// the broker. Canary checks the reliance against its own receipt.
+func TestCashPolicySaveMayRelyOnAnEarlierDeviceConfirmation(t *testing.T) {
+	s, path, core := cashPolicyServer(t, cashPolicyTestFile)
+	first := cashPolicySave(t, s, map[string]any{"cash.leveling.cushion_base": 300}, "desk-cash-policy-FIRST")
+	until := cashPolicyTestNow.Add(10 * time.Minute)
+	relying := func(id string) *rpc.CashPolicyConfirmation {
+		c := cashPolicyConfirmation()
+		c.DeskActionID, c.Envelope = id, `{"credential":"cached","confirmed_by":"desk-cash-policy-FIRST"}`
+		c.ConfirmedBy, c.ConfirmedUntil = "desk-cash-policy-FIRST", until
+		return c
+	}
+	narrow := cashPolicyCheck(t, s, first.Revision, map[string]any{"cash.leveling.trigger_base": 12000})
+	if len(narrow.Consequences) != 0 {
+		t.Fatalf("narrowing draft has consequences %v", narrow.Consequences)
+	}
+	saved, err := cashPolicyApply(s, narrow.Terms, narrow.Digest, "desk-cash-policy-SECOND", relying("8a1b2c3d4e5f"), "")
+	if err != nil || saved.SavedVersion != 16 {
+		t.Fatalf("relying save %+v %v", saved, err)
+	}
+	if !strings.Contains(readFile(t, path), "trigger_base = 12000.0  # set in Desk 2026-10-06 14:05 CEST, relying on the companion's confirmation of action 7f3c2a90 until 14:15 CEST (action 8a1b2c3d); was 10000.0") {
+		t.Fatalf("relying provenance:\n%s", readFile(t, path))
+	}
+	event, _, _ := core.GetEvent(t.Context(), daemonStateScope, cashPolicyEventKey("desk-cash-policy-SECOND"))
+	var receipt cashPolicyReceipt
+	if json.Unmarshal(event.PayloadJSON, &receipt) != nil || receipt.ConfirmedBy != "desk-cash-policy-FIRST" || !receipt.ConfirmedUntil.Equal(until) {
+		t.Fatalf("relying receipt %+v", receipt)
+	}
+	written := readFile(t, path)
+	for name, c := range map[string]struct {
+		changes      map[string]any
+		confirmation *rpc.CashPolicyConfirmation
+		words        string
+	}{
+		// The serious concern: a save that lets more reach the broker needs the device.
+		"widening": {map[string]any{"cash.leveling.enabled": true}, relying("w1"), "lets more reach the broker"},
+		"expired": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
+			c := relying("e1")
+			c.ConfirmedUntil = cashPolicyTestNow
+			return c
+		}(), "has expired"},
+		"unknown save": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
+			c := relying("u1")
+			c.ConfirmedBy = "desk-cash-policy-NONE"
+			return c
+		}(), "holds no save"},
+		"chained": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
+			c := relying("c1")
+			c.ConfirmedBy = "desk-cash-policy-SECOND"
+			return c
+		}(), "not confirmed on your device"},
+		"another credential": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
+			c := relying("o1")
+			c.Credential = "passkey:other"
+			return c
+		}(), "not confirmed on your device"},
+		// Relying never extends the window the device-confirmed save opened.
+		"a later end": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
+			c := relying("l1")
+			c.ConfirmedUntil = until.Add(time.Minute)
+			return c
+		}(), "opened no window ending then"},
+	} {
+		snap := cashPolicyGet(t, s)
+		check := cashPolicyCheck(t, s, snap.Revision, c.changes)
+		_, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-cash-policy-"+strings.ReplaceAll(name, " ", "-"), c.confirmation, "")
+		if rpcCode(err) != rpc.CodeConfirmationRequired || !strings.Contains(err.Error(), c.words) {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if readFile(t, path) != written {
+			t.Fatalf("%s wrote the file", name)
+		}
 	}
 }
 
@@ -584,9 +664,11 @@ func TestCashPolicyScopeLeavesPreAuthorisationAndBillListsInTheFile(t *testing.T
 	}
 }
 
-// Owner question 3: while the file pre-authorises the sweep, Desk cannot
-// switch it on or move it to active; off and shadow are always allowed.
-func TestCashPolicySweepRaiseStaysInTheFileWhilePreAuthorised(t *testing.T) {
+// Owner question 3 (2026-10-06 15:31 CEST): while the file pre-authorises
+// the sweep, a save may switch it on and move it to active; the first
+// consequence says that the daemon then sends the orders itself, after the
+// veto window, and the cap in force.
+func TestCashPolicyRaisingAPreAuthorisedSweepSaysTheDaemonSendsFirst(t *testing.T) {
 	file := strings.Replace(cashPolicyTestFile, "# Cash management, as the owner keeps it.\n", "[cash]\npre_authorised = [\"cash_sweep\"]\n\n", 1)
 	file = strings.Replace(file, "enabled = true\nmode = \"shadow\"", "enabled = false\nmode = \"shadow\"", 1)
 	s, _, _ := cashPolicyServer(t, file)
@@ -594,23 +676,36 @@ func TestCashPolicySweepRaiseStaysInTheFileWhilePreAuthorised(t *testing.T) {
 	if !snap.Sections.Sweep.PreAuthorised || !strings.Contains(snap.Sections.Sweep.Authority, "The daemon sends sweep orders itself 30 minutes after announcing them") {
 		t.Fatalf("authority %+v", snap.Sections.Sweep)
 	}
-	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.enabled": true, "cash.sweep.mode": "active"})
-	if !strings.Contains(check.Errors["cash.sweep.enabled"], "Switch it on in the file") || !strings.Contains(check.Errors["cash.sweep.mode"], "Change it to active in the file") {
-		t.Fatalf("raise allowed: %v", check.Errors)
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.enabled": true, "cash.sweep.mode": "active", "cash.sweep.max_order_notional": 60000})
+	// The synthetic NLV is 200,000: 10% is 20,000, below 60,000; bills are exempt from the 25,000 order cap.
+	if len(check.Errors) != 0 || check.Digest == "" || len(check.Consequences) == 0 ||
+		check.Consequences[0] != "The daemon will send sweep orders itself, 30 minutes after announcing them, up to 60,000 EUR each at today's NLV." {
+		t.Fatalf("raise %+v", check)
 	}
-	if ok := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.sweep.reserve_floor_base": 12000}); len(ok.Errors) != 0 || ok.Digest == "" {
-		t.Fatalf("a number change under pre-authorisation: %+v", ok)
-	}
-	// An active, pre-authorised sweep may still be switched off or back to shadow.
-	active := strings.Replace(file, "enabled = false\nmode = \"shadow\"", "enabled = true\nmode = \"active\"", 1)
-	s2, _, _ := cashPolicyServer(t, active)
-	snap2 := cashPolicyGet(t, s2)
-	for _, change := range []map[string]any{{"cash.sweep.enabled": false}, {"cash.sweep.mode": "shadow"}} {
-		if c := cashPolicyCheck(t, s2, snap2.Revision, change); len(c.Errors) != 0 || c.Digest == "" {
-			t.Fatalf("%v refused: %+v", change, c)
+	for _, c := range check.Consequences[1:] {
+		if strings.Contains(c, "proposals you can approve") || strings.Contains(c, "Observe only") {
+			t.Fatalf("a sentence says the owner approves what the daemon sends: %q", c)
 		}
 	}
-	raise := cashPolicyCheck(t, s2, snap2.Revision, map[string]any{"cash.sweep.max_order_notional": 60000})
+	// Without the bill exemption each order is held to the order cap in force.
+	noExempt := strings.Replace(file, "bills_exempt_from_trading_max_notional = true", "bills_exempt_from_trading_max_notional = false", 1)
+	s2, _, _ := cashPolicyServer(t, noExempt)
+	snap2 := cashPolicyGet(t, s2)
+	if c := cashPolicyCheck(t, s2, snap2.Revision, map[string]any{"cash.sweep.enabled": true, "cash.sweep.mode": "active"}); len(c.Consequences) == 0 ||
+		c.Consequences[0] != "The daemon will send sweep orders itself, 30 minutes after announcing them, up to 25,000 EUR each at today's NLV." {
+		t.Fatalf("held to the order cap %+v", c.Consequences)
+	}
+	// An active, pre-authorised sweep may be switched off or back to shadow,
+	// and a larger order there says that the daemon sends it.
+	active := strings.Replace(file, "enabled = false\nmode = \"shadow\"", "enabled = true\nmode = \"active\"", 1)
+	s3, _, _ := cashPolicyServer(t, active)
+	snap3 := cashPolicyGet(t, s3)
+	for _, change := range []map[string]any{{"cash.sweep.enabled": false}, {"cash.sweep.mode": "shadow"}} {
+		if c := cashPolicyCheck(t, s3, snap3.Revision, change); len(c.Errors) != 0 || c.Digest == "" || len(c.Consequences) != 0 {
+			t.Fatalf("%v: %+v", change, c)
+		}
+	}
+	raise := cashPolicyCheck(t, s3, snap3.Revision, map[string]any{"cash.sweep.max_order_notional": 60000})
 	if len(raise.Consequences) != 1 || !strings.Contains(raise.Consequences[0], "The daemon sends sweep orders itself, 30 minutes after announcing them.") {
 		t.Fatalf("pre-authorised consequence %v", raise.Consequences)
 	}

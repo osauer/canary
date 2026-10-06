@@ -1,6 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 14:52 CEST
+Updated: 2026-10-06 15:59 CEST
 
 Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
 have no currency leveling; this page describes the versions after it.
@@ -54,17 +54,25 @@ other line stays as it was. Canary backs the file up beside it first
 (`<file>.bak-desk-<UTC time>`), replaces it in one write readable by you
 only, adopts it at once and keeps a receipt of the save.
 
-Every save needs your confirmation with your passkey or the Desk companion,
-including one that only narrows what can happen. The check before it states
-what changes at the broker: a feature switched on, `shadow` changed to
-`active`, a rule loosened, or a size, reserve or band made larger.
+A save is confirmed with your passkey or the Desk companion. After a save
+you confirmed on your device, further saves from the same Desk console
+session within ten minutes need no new confirmation, unless they change
+something at the broker: the check states what, for example a feature
+switched on, `shadow` changed to `active`, a rule loosened, or a size,
+reserve or band made larger, and such a save always needs your device. Canary
+records which confirmation each save relied on, in its receipt and in the
+comment on each changed line ("relying on your passkey confirmation of
+action 7f3c2a90 until 14:15 CEST"), and accepts the reliance only on a save it
+recorded with a fresh confirmation by the same credential, until the end that
+save's confirmation set; relying on it never moves that end.
 
 Some keys stay in the file: `[cash] pre_authorised`, `currency_priority`
 (Risk → Cash sets the priority), `reserve_cushion_eur`, `min_net_gain`,
 `tax_reviewed_at` and every per-currency key but the two above, including
 the ISIN lists and the fallback ETF. While the file pre-authorises the sweep,
-Desk cannot switch it on or change it to `active`; make that change in the
-file. Switching it off or back to `shadow` from Desk is always allowed.
+switching it on or changing it to `active` from Desk says first that the
+daemon will then send the sweep's orders itself after the veto window, and
+how large each may be at today's NLV.
 
 Desk saves only a file Canary runs as written, or one with a higher
 `policy_version` it is about to adopt. A file edited without raising

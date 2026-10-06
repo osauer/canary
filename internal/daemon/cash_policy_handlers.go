@@ -269,11 +269,49 @@ func (s *Server) handleCashPolicyCheck(ctx context.Context, req *rpc.Request) (*
 	return out, nil
 }
 
-// cashPolicyNeedsConfirmation is owner question 1, decided 2026-10-06:
-// every save needs the owner's device confirmation, including one that only
-// narrows what can happen. Deciding which changes are safe without it would
-// itself be a policy decision.
-func cashPolicyNeedsConfirmation(map[string]json.RawMessage) bool { return true }
+// cashPolicyReliance is owner question 1 as the owner answered it
+// (2026-10-06 15:31 CEST: "Cache the decision for 5 or 10 minutes, if not
+// serious concerns"). Every save carries a confirmation reference. One that
+// relies on an earlier save, rather than on the owner's device now, is
+// accepted only when the save lets no more reach the broker (any consequence
+// is the serious concern and needs the device), before the window ends, and
+// when Canary recorded that earlier save confirmed freshly by the same
+// credential, opening a window with that same end. Desk owns the window's
+// length and binds it to its console session; Canary binds each reliance to
+// the end the device-confirmed save declared, so relying never extends it. It
+// returns the earlier save's receipt, nil for a fresh confirmation, or
+// Canary's refusal.
+func (s *Server) cashPolicyReliance(ctx context.Context, c *rpc.CashPolicyConfirmation, consequences int, now time.Time) (*cashPolicyReceipt, error) {
+	if c.ConfirmedBy == "" {
+		return nil, nil
+	}
+	refuse := func(why string) error {
+		return &rpc.Error{Code: rpc.CodeConfirmationRequired, Message: why + " Confirm on your device; nothing was written."}
+	}
+	switch {
+	case consequences > 0:
+		return nil, refuse("This save lets more reach the broker, so it needs a fresh confirmation.")
+	case !now.Before(c.ConfirmedUntil):
+		return nil, refuse("The confirmation this save relies on has expired.")
+	case !cashPriorityRequestID.MatchString(c.ConfirmedBy):
+		return nil, refuse("This save names no save it can rely on.")
+	}
+	event, found, err := s.coreStore.GetEvent(ctx, daemonStateScope, cashPolicyEventKey(c.ConfirmedBy))
+	if err != nil {
+		return nil, fmt.Errorf("cash policy receipt unavailable")
+	}
+	var earlier cashPolicyReceipt
+	if !found || event.Type != cashPolicyReceiptType || decodeStrictPlatformSettingsJSON(event.PayloadJSON, &earlier) != nil || earlier.RequestID != c.ConfirmedBy {
+		return nil, refuse("Canary holds no save this one can rely on.")
+	}
+	if earlier.ConfirmedBy != "" || earlier.Credential != c.Credential || event.OccurredAt.After(now) {
+		return nil, refuse("The save this one relies on was not confirmed on your device by the same credential.")
+	}
+	if earlier.ConfirmedUntil.IsZero() || !earlier.ConfirmedUntil.Equal(c.ConfirmedUntil) {
+		return nil, refuse("The save this one relies on opened no window ending then.")
+	}
+	return &earlier, nil
+}
 
 // cashPolicyOriginAllowed reports whether origin may save cash policy: only
 // Desk's console, which stamps no human origin and carries the owner's device
@@ -287,7 +325,8 @@ func cashPolicyOriginAllowed(origin string) bool {
 // cashPolicyReceipt is one save's receipt: the terms and their digest, each
 // changed key's value before, the version written, the revision of the bytes
 // written, the backup, and the owner's confirmation as Desk sent it (kept for
-// audit only; Canary cannot verify its signature).
+// audit only; Canary cannot verify its signature), with the earlier save it
+// relied on and that reliance's end, when it did.
 type cashPolicyReceipt struct {
 	Version         int            `json:"version"`
 	RequestID       string         `json:"request_id"`
@@ -301,6 +340,8 @@ type cashPolicyReceipt struct {
 	DeskActionID    string         `json:"desk_action_id"`
 	Credential      string         `json:"credential"`
 	Envelope        string         `json:"envelope"`
+	ConfirmedBy     string         `json:"confirmed_by,omitempty"`
+	ConfirmedUntil  time.Time      `json:"confirmed_until,omitzero"`
 }
 
 func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*rpc.CashPolicyApplyResult, error) {
@@ -321,7 +362,8 @@ func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*
 	if in.Digest != cashPolicyDigest([]byte(in.Terms)) {
 		return nil, errBadRequest("the digest does not match the terms")
 	}
-	if c := in.Confirmation; cashPolicyNeedsConfirmation(terms.Changes) && (c == nil || strings.TrimSpace(c.DeskActionID) == "" || strings.TrimSpace(c.Credential) == "" || strings.TrimSpace(c.Envelope) == "") {
+	// Every save carries a confirmation reference (cashPolicyReliance).
+	if c := in.Confirmation; c == nil || strings.TrimSpace(c.DeskActionID) == "" || strings.TrimSpace(c.Credential) == "" || strings.TrimSpace(c.Envelope) == "" {
 		return nil, &rpc.Error{Code: rpc.CodeConfirmationRequired, Message: "A save needs your confirmation on your device; nothing was written."}
 	}
 	m := s.protectionPolicies
@@ -390,7 +432,11 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 		return 0, false, errBadRequest("the terms are not what Canary's check of this file returns")
 	}
 	now := s.nowUTC()
-	note := &cashPolicyNote{at: cashPolicyStamp(now), confirmed: cashPolicyConfirmedBy(in.Confirmation)}
+	relied, err := s.cashPolicyReliance(ctx, in.Confirmation, len(cashPolicyConsequences(r.file, d.policy, d.edits, cashPolicyBook{})), now)
+	if err != nil {
+		return 0, false, err
+	}
+	note := &cashPolicyNote{at: cashPolicyStamp(now), confirmed: cashPolicyConfirmedBy(in.Confirmation, relied)}
 	out, err := editCashPolicyFile(r.data, d.edits, r.file.PolicyVersion, note)
 	if err != nil {
 		return 0, false, err
@@ -420,7 +466,7 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 	}
 	receipt := cashPolicyReceipt{Version: 1, RequestID: in.RequestID, Terms: in.Terms, Digest: in.Digest, Before: before, FromVersion: r.file.PolicyVersion,
 		SavedVersion: after.PolicyVersion, WrittenRevision: cashPolicyDigest(out), Backup: backup, DeskActionID: in.Confirmation.DeskActionID,
-		Credential: in.Confirmation.Credential, Envelope: in.Confirmation.Envelope}
+		Credential: in.Confirmation.Credential, Envelope: in.Confirmation.Envelope, ConfirmedBy: in.Confirmation.ConfirmedBy, ConfirmedUntil: in.Confirmation.ConfirmedUntil}
 	raw, _ := json.Marshal(receipt)
 	input := corestore.EventInput{ScopeKey: daemonStateScope, EventKey: eventKey, Type: cashPolicyReceiptType, Action: coreEventActionUpdate,
 		Origin: rpc.OrderOriginAgent, OccurredAt: now, PayloadJSON: raw}
@@ -470,23 +516,42 @@ func cashPolicyStamp(t time.Time) string {
 }
 
 // cashPolicyConfirmedBy names how the owner confirmed a save, with the
-// start of Desk's action id, for the provenance comment.
-func cashPolicyConfirmedBy(c *rpc.CashPolicyConfirmation) string {
-	how := "confirmed on your device"
+// start of Desk's action id, for the provenance comment; a save that relied
+// on an earlier confirmation names that save's action and the reliance's end.
+func cashPolicyConfirmedBy(c *rpc.CashPolicyConfirmation, relied *cashPolicyReceipt) string {
+	how, earlier := "confirmed on your device", "your device's confirmation"
 	switch {
 	case strings.HasPrefix(c.Credential, "passkey"):
-		how = "confirmed with your passkey"
+		how, earlier = "confirmed with your passkey", "your passkey confirmation"
 	case strings.HasPrefix(c.Credential, "companion"):
-		how = "confirmed in the companion"
+		how, earlier = "confirmed in the companion", "the companion's confirmation"
 	}
-	var id strings.Builder
-	for _, r := range c.DeskActionID {
-		if id.Len() == 8 {
+	if relied != nil {
+		return "relying on " + earlier + " of action " + cashPolicyShortID(relied.DeskActionID) + " until " + cashPolicyClock(c.ConfirmedUntil) +
+			" (action " + cashPolicyShortID(c.DeskActionID) + ")"
+	}
+	return how + " (action " + cashPolicyShortID(c.DeskActionID) + ")"
+}
+
+// cashPolicyShortID is the start of a Desk action id, for a comment.
+func cashPolicyShortID(id string) string {
+	var out strings.Builder
+	for _, r := range id {
+		if out.Len() == 8 {
 			break
 		}
 		if r < 128 && (r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '-') {
-			id.WriteRune(r)
+			out.WriteRune(r)
 		}
 	}
-	return how + " (action " + id.String() + ")"
+	return out.String()
+}
+
+// cashPolicyClock is a time of day in Europe/Berlin, 14:15 CEST.
+func cashPolicyClock(t time.Time) string {
+	loc, err := time.LoadLocation("Europe/Berlin")
+	if err != nil {
+		return t.UTC().Format("15:04 UTC")
+	}
+	return t.In(loc).Format("15:04 MST")
 }
