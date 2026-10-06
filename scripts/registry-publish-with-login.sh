@@ -142,8 +142,11 @@ published_already() {
 registry_exact_once() {
     local response
 
-    if ! response="$(curl -fsS --connect-timeout 5 --max-time 10 "$registry_url" 2>/dev/null)"; then
-        echo "registry-publish: exact registry query failed" >&2
+    # Name curl's error (it carries the HTTP status) and retry the transient
+    # ones (429, 5xx, timeouts): a bare "query failed" hid whether the runner
+    # saw a lag, a block or a rate limit.
+    if ! response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 5 --max-time 10 "$registry_url" 2>"$work/curl.err")"; then
+        echo "registry-publish: exact registry query failed: $(tr '\n' ' ' <"$work/curl.err")" >&2
         return 1
     fi
     if ! printf '%s' "$response" | python3 -c '

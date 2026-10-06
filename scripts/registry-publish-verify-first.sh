@@ -32,6 +32,7 @@ interval_seconds=15
 wait_seconds=420
 max_attempts=$((wait_seconds / interval_seconds + 1))
 registry_query_state=""
+registry_query_error=""
 
 for command in curl python3; do
     if ! command -v "$command" >/dev/null 2>&1; then
@@ -162,7 +163,9 @@ query_exact_registry() {
     local response
 
     registry_query_state="unavailable"
-    if ! response="$(curl -fsS --connect-timeout 5 --max-time 10 "$registry_url" 2>/dev/null)"; then
+    registry_query_error=""
+    if ! response="$(curl -fsS --retry 2 --retry-delay 3 --connect-timeout 5 --max-time 10 "$registry_url" 2>"$work/curl.err")"; then
+        registry_query_error="$(tr '\n' ' ' <"$work/curl.err")"
         return 1
     fi
     registry_query_state="malformed"
@@ -274,7 +277,7 @@ while [[ "$attempt" -le "$max_attempts" ]]; do
             echo "registry-publish: poll $attempt/$max_attempts: exact registry record was malformed or mismatched; retrying"
             ;;
         *)
-            echo "registry-publish: poll $attempt/$max_attempts: registry query failed; retrying"
+            echo "registry-publish: poll $attempt/$max_attempts: registry query failed: ${registry_query_error:-no response}; retrying"
             ;;
         esac
     fi
@@ -326,7 +329,7 @@ while [[ "$post_attempt" -le "$post_attempts" ]]; do
         echo "registry-publish: post-publish poll $post_attempt/$post_attempts: exact registry record was malformed or mismatched" >&2
         ;;
     *)
-        echo "registry-publish: post-publish poll $post_attempt/$post_attempts: registry query failed" >&2
+        echo "registry-publish: post-publish poll $post_attempt/$post_attempts: registry query failed: ${registry_query_error:-no response}" >&2
         ;;
     esac
     if [[ "$post_attempt" -lt "$post_attempts" ]]; then
