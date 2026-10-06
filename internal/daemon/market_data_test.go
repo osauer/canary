@@ -89,6 +89,25 @@ func TestMarketHistoryRefusalNamesTheObservation(t *testing.T) {
 	}
 }
 
+// IBKR answers a sparse OTC 1Y read with sessions older than the window. The
+// MOTS 1Y read refused a year of valid bars for a 2024-12-05 bar with a zero
+// close (2026-10-06), a bar the window drops unshown.
+func TestMarketHistoryIgnoresPricesBeforeTheWindow(t *testing.T) {
+	now := time.Date(2026, 10, 6, 13, 0, 0, 0, time.UTC)
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1Y"}
+	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
+		c.ConID, c.PrimaryExch = 123456, "PINK"
+		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+			{Time: time.Date(2024, 12, 5, 0, 0, 0, 0, time.UTC), Open: 0.0001, High: 0.0001, Low: 0, Close: 0, Volume: 250},
+			{Time: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002, Volume: 250},
+			{Time: time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002},
+		}}, nil
+	})
+	if err != nil || len(got.Points) != 2 || !got.Points[0].At.Equal(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)) {
+		t.Fatalf("pre-window bar decided the window: %+v %v", got, err)
+	}
+}
+
 func TestMarketHistoryCannotTurnDailyBarsIntoIntraday(t *testing.T) {
 	for _, r := range []string{"", "All", "1S", "unbounded"} {
 		if _, _, err := marketHistoryWindow(r, time.Now()); err == nil {

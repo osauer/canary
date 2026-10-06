@@ -266,19 +266,23 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 		return nil, errors.New("history exceeds bounded series size")
 	}
 	for _, b := range bars {
-		if b.Time.IsZero() || b.Time.After(now.Add(time.Minute)) || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
+		cutoff := result.RequestedStart
+		if interval == "1 day" {
+			cutoff = time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC)
+		}
+		// A bad clock refuses the response; a bad price refuses it only inside
+		// the window. IBKR answers a sparse OTC read with older sessions, and
+		// one zero close from 2024 refused a year of valid MOTS bars.
+		invalidTime := b.Time.IsZero() || b.Time.After(now.Add(time.Minute))
+		if !invalidTime && b.Time.Before(cutoff) {
+			continue
+		}
+		if invalidTime || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
 			at := b.Time.UTC().Format(time.RFC3339)
 			if interval == "1 day" {
 				at = b.Time.UTC().Format(time.DateOnly)
 			}
 			return nil, fmt.Errorf("invalid historical observation %s: open %g high %g low %g close %g volume %d", at, b.Open, b.High, b.Low, b.Close, b.Volume)
-		}
-		cutoff := result.RequestedStart
-		if interval == "1 day" {
-			cutoff = time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC)
-		}
-		if b.Time.Before(cutoff) {
-			continue
 		}
 		point := rpc.MarketHistoryPoint{At: b.Time, Value: b.Close}
 		if validHistoryRange(b.Open, b.High, b.Low, b.Close) {
