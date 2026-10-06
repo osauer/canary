@@ -240,7 +240,7 @@ func printSettingsSetUsage(env *Env) {
 		fmt.Fprintf(env.Stdout, "  - %s\n      %s\n", display, spec.Doc)
 	}
 	fmt.Fprintln(env.Stdout)
-	fmt.Fprintln(env.Stdout, "Values are true, false, null, a number, or the documented closed string set.")
+	fmt.Fprintln(env.Stdout, "Values are true, false, null, or the documented closed string set.")
 	fmt.Fprintln(env.Stdout, "Date format takes us, eu, us_weekday, or eu_weekday. Earnings overrides take")
 	fmt.Fprintln(env.Stdout, "YYYY-MM-DD (optional Tamc/Tbmo suffix), null to clear one symbol, or")
 	fmt.Fprintln(env.Stdout, "null on the bare earnings_overrides key to clear all of them.")

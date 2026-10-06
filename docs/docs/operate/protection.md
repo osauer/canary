@@ -166,11 +166,12 @@ Without a current Rulebook result no line relieves anything, the ranking
 starts at time value, and the status says `ranking_without_rulebook`. Every
 row names the cap that selected it, the measured line and total, the excess,
 its place in the order and the order used, under `budget` in JSON and on a
-`Budget:` line in the text. `max_order_notional` bounds one order exactly as
-`risk_reduction.max_order_notional` does; the next cycle measures what is
-left. A stale mark blocks the row with `fresh_option_quote_required`; a leg of
-a multi-leg unit is measured but routes to the strategy workflow. Rows are
-close or reduce only, like every proposal.
+`Budget:` line in `canary proposals list --details`. `max_order_notional`
+bounds one order exactly as `risk_reduction.max_order_notional` does; the next
+cycle measures what is left. A stale mark blocks the row with
+`fresh_option_quote_required`; a leg of a multi-leg unit is measured but
+routes to the strategy workflow. Rows are close or reduce only, like every
+proposal.
 
 **The whole fix in one place.** The `budget_reduction` status lists up to
 three `candidates`, the ranked lines with their contract, contracts held,
@@ -179,10 +180,11 @@ P&L and a one-line `why` ("offends 2 open rules; 50% time value; unrealised
 −500"), and the `plan`: every order the measurement needs, each with its
 `rank`, `contract`, `contracts`, `raises_base` and `cycle` (1 for this
 refresh, 2 and later for what `max_order_notional` holds back). `canary
-proposals list` prints both under the Budget header. Every governor row adds
-three detail lines: its place in the plan, the other open rules the sale
-relieves, and the next two candidates with their `why`. Ignoring a row takes
-its line out of the plan: the next refresh moves to the next candidate.
+proposals list --details` prints both under the Budget header, and every
+governor row there adds three detail lines: its place in the plan, the other
+open rules the sale relieves, and the next two candidates with their `why`.
+Ignoring a row takes its line out of the plan: the next refresh moves to the
+next candidate.
 
 **Measured against the Rulebook instead.** `basis = "rulebook"` replaces the
 two caps with limits you already keep in the Rulebook policy, as shares of NLV:
@@ -230,14 +232,14 @@ carries one detail line saying so:
 declared-risk-capital basis measures your own caps and reads no review state.
 
 **Shadow first.** In `mode = "shadow"` the rows are generated, journaled in
-the snapshot with `shadow: true`, and listed by `canary proposals list` under
-a *Shadow (budget reduction)* heading of their own, so you can read what the
-rule would have done beside what you did. `preview` and `submit` refuse them
-with `shadow_mode`, and the pre-authorisation scheduler skips them: a row is
-eligible for automatic placement only when `AutomaticEligible()` holds, which
-a shadow row never does. `counts.budget_reduction` and
-`counts.budget_reduction_shadow` report the rows; shadow rows are never
-`actionable`.
+the snapshot with `shadow: true`, marked shadow in `canary proposals list` and
+listed by `--details` under a *Shadow (budget reduction)* heading of their
+own, so you can read what the rule would have done beside what you did.
+`preview` and `submit` refuse them with `shadow_mode`, and the
+pre-authorisation scheduler skips them: a row is eligible for automatic
+placement only when `AutomaticEligible()` holds, which a shadow row never
+does. `counts.budget_reduction` and `counts.budget_reduction_shadow` report
+the rows; shadow rows are never `actionable`.
 
 **Activating.** Set `mode = "active"` and bump `policy_version`. The rows
 become ordinary proposals under every existing gate (preview, WhatIf, the
@@ -785,13 +787,14 @@ reports, with its figures and a state:
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
 | `settlement_unknown` | the broker supplied no per-currency settled cash, or working/armed queued buy commitments have no fixed finite bound; a journal estimate does not clear this state |
 | `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
-| `needs_your_number` | a sizing number (`max_order_notional`, `max_order_pct_nlv`, `min_order_notional`, `reserve_floor_base`, `reserve_pct_nlv`, or the currency's `keep_cash`), or the symbol of an ETF-only declaration, is not written; the reason names the key |
+| `needs_your_number` | a sizing number (`max_order_notional`, `max_order_pct_nlv`, `min_order_notional`, `reserve_floor_base`, `reserve_pct_nlv`, or the currency's `keep_cash`), `no_buy_while_borrowed`, or the symbol of an ETF-only declaration, is not written; the reason names the key |
 | `universe_unavailable` | no list of bills to choose from (see above) |
 | `instrument_unresolved` | no candidate bill was confirmed by contract details and a quote; `evidence` says why |
 
-`canary proposals list` shows the sweep under its own *Cash sweep* heading
-with one band line per currency; JSON carries a `cash_sweep` block on each
-row, and `counts.cash_sweep` and `counts.cash_sweep_shadow` count the rows.
+`canary proposals list` shows the sweep under its own *Cash sweep* heading,
+and `--details` adds one band line per currency; JSON carries a `cash_sweep`
+block on each row, and `counts.cash_sweep` and `counts.cash_sweep_shadow`
+count the rows.
 An invest row's key names its bill, so a preview or submit buys the bill you
 saw, never another one a later cycle names. Every row carries
 `never_skip_veto`. `mode = "active"` makes the rows ordinary proposals under

@@ -275,9 +275,9 @@ Guard `read-only`. CLI only, with no MCP tool: owner-configured entry observatio
 
 ```text
 canary setups evaluate --spec PATH|- --symbol SYMBOL [--con-id ID] [--at RFC3339] [--json]
-canary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] --json
-canary setups coverage --json [--session YYYY-MM-DD] [--symbol SYMBOL]
-canary setups markouts --json [--order-ref REF] [--since YYYY-MM-DD] [--symbol SYMBOL]
+canary setups options --symbol SYMBOL --con-id ID [--expiry YYYYMMDD] [--strike N] [--json]
+canary setups coverage [--session YYYY-MM-DD] [--symbol SYMBOL] [--json]
+canary setups markouts [--order-ref REF] [--since YYYY-MM-DD] [--symbol SYMBOL] [--json]
 ```
 
 Subcommands: `evaluate`, `options`, `coverage`, `markouts`.
@@ -523,8 +523,7 @@ canary policy override --control KEY --reason S --hours N
 canary policy reset-drawdown --reason S
 canary policy correct-peak (--from-statements|--peak F) --reason S
 canary policy default rulebook|protection|opportunity|constitution
-canary policy ensure [--dry-run
---apply-plan FILE] [--json]
+canary policy ensure [--dry-run|--apply-plan FILE] [--config PATH] [--json]
 ```
 
 **Subcommands**
@@ -727,7 +726,7 @@ Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
 
 ```text
 canary settings show [--json]
-canary settings set <supported-key>=true|false|null|number
+canary settings set <supported-key>=<value> [--json]
 ```
 
 **Subcommands**

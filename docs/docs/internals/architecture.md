@@ -58,10 +58,12 @@ refreshable in-memory views do not.
   connectors, the external-source clients, refreshable views, schedulers,
   `daemon.db`, risk-capital runtime state, daily Flex ingestion, and
   post-trade reconciliation.
-- `internal/risk` is the pure evaluation library behind advisory verdicts:
-  thresholds and fingerprints, stress signal types, option math, the daily
-  [trading rulebook](../../../internal-docs/design/trading-rulebook.md), and risk-constitution
-  evaluation. It does no I/O and owns no broker state.
+- `internal/risk` is the pure evaluation library behind advisory verdicts and
+  the per-order limits: thresholds and fingerprints, stress signal types,
+  option math, the daily
+  [trading rulebook](../../../internal-docs/design/trading-rulebook.md), and
+  risk-constitution evaluation, `[order_limits]` included. It does no I/O and
+  owns no broker state.
 - `internal/stress` composes the portfolio stress read from typed account,
   position, regime, and market-event inputs. Evaluation is deterministic once
   its inputs and clock are supplied. Only the daemon evaluates: it composes
@@ -209,7 +211,7 @@ durability and upgrade mechanics, and current recovery limits.
 
 | Class | Default location | Owner and representative contents |
 |---|---|---|
-| Operator configuration | `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`; policy defaults under `~/.config/ibkr/policies/` | Gateway/account/client pins, daemon/trading settings, protection/opportunity policy, the operator-authored `risk-policy.toml`, the optional private terminal-evidence import path, and the separate `flex-token` secret. The installer and each daemon start write any missing policy file from Canary's template and leave existing ones untouched; an explicitly reviewed conversion keeps a backup and preserves effective settings. The risk policy has no embedded default: its template holds placeholders only, and missing approval stays unapproved. |
+| Operator configuration | `$XDG_CONFIG_HOME/ibkr/config.toml`, falling back to `~/.config/ibkr/config.toml`; policy defaults under `~/.config/ibkr/policies/` | Gateway/account/client pins, daemon/trading settings, protection/opportunity policy, the operator-authored `risk-policy.toml`, the optional private terminal-evidence import path, and the separate `flex-token` secret. The installer and each daemon start write any missing policy file from Canary's template and leave existing ones untouched; an explicitly reviewed conversion keeps a backup and preserves effective settings, apart from writing missing `[order_limits]` keys and cash sweep sizing numbers. The risk policy has no embedded capital default: its template holds a placeholder for every capital number, and missing approval stays unapproved; its `[order_limits]` carries values. |
 | Daemon durable authority | `$XDG_STATE_HOME/ibkr/daemon.db` (SQLite, WAL), falling back to `~/.local/state/ibkr/daemon.db` | Sole live daemon authority for platform settings, risk-capital and governance state, the last-good Regime publication and projection receipt, source-neutral alert episodes, trading readiness, orders and token tombstones, proposals and opportunities, decision/event history, retained observations, and statement projections. It is not delete-safe and never falls back to legacy files. |
 | Original broker evidence | `$XDG_STATE_HOME/ibkr/statements/flex-*.xml` | Immutable retained Flex statements. New filenames carry only an opaque query fingerprint; pre-fingerprint XML is preserved but cannot certify a configured query until refetched. SQLite scopes the current inventory and immutable file/equity/typed-record/coverage versions by query generation, and stores explicit per-period position snapshots; it does not replace the XML evidence claim. |
 | Recovery artifacts | `$XDG_STATE_HOME/ibkr/backups/`, `$XDG_STATE_HOME/ibkr/legacy-sealed/<cutover-id>/`, and `$XDG_STATE_HOME/ibkr/daemon.db.head` | Verified database backups, hashed pre-cutover artifacts, and the external monotonic-head watermark. They are recovery and anti-rollback material only, never normal read fallbacks or dual-write targets. |
@@ -409,7 +411,8 @@ is no external metrics stack and no tracing.
   and stress decisions, proposal outcomes, capital events, and risk-policy
   governance. Mutable documents use compare-and-swap revisions, while coupled
   state/event changes share one transaction. `canary brief` and the CLI history
-  commands compose or query this typed daemon authority directly.
+  commands read this typed daemon authority directly and compose no verdict of
+  their own.
 
 ## Reference map
 

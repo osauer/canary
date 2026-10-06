@@ -100,22 +100,22 @@ that artifact.
   opens/adds/trims/exits with leaving the prior position unchanged over 1, 5,
   and 20 sessions, and reports broker-recorded option P/L separately. It does
   not infer intent, recommend a trade, or claim causation.
-- **What did stock lending earn?** Current source adds dated shares-lent
-  annotations and `canary lending fees --json`, with customer net fees,
-  expandable history and explicit report coverage. IBKR controls participation.
+- **What did stock lending earn?** Dated shares-lent annotations and
+  `canary lending fees --json` provide customer net fees, expandable history
+  and explicit report coverage. IBKR controls participation.
   Fees explain income; they are never added again to broker account P/L.
   Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
 - **What high-fee names are outside my list?** `canary lending screen --min-rate 50 --limit 25 --json`
-- **Which US equities have large reported short positions?** `canary short-interest screen --listed-only --min-average-volume 1000000 --json` ranks FINRA short shares before limiting results. Sort by `days_to_cover` or add the shared price/liquidity filters; market coverage is explicit and free-float percentage remains unavailable. See [source and freshness semantics](internal-docs/design/short-interest-screen.md).
   and MCP `canary_lending_screen` rank the existing IBKR US USD bulk feed.
   Optional exclusions remove familiar names; coverage, source dates and truncation
   stay explicit. This does not establish listing quality, liquidity or lender yield.
+- **Which US equities have large reported short positions?** `canary short-interest screen --listed-only --min-average-volume 1000000 --json` ranks FINRA short shares before limiting results. Sort by `days_to_cover` or add the shared price/liquidity filters; market coverage is explicit and free-float percentage remains unavailable. See [source and freshness semantics](internal-docs/design/short-interest-screen.md).
 - **Where are borrowing fees unusually high?** `canary lending rates --symbols AAA,BBB --json`
   and MCP `canary_lending_rates` read dated indicative borrower costs for an explicit
   US-stock universe. Preserve missing data, source age and numeric scale. These
   rates are research inputs, not your lending yield or a buy recommendation.
   See [lending research](docs/docs/understand/edge.md#lending-research-and-borrowing-rates).
-- **How much did exchange rates contribute?** Current source adds `canary reporting fx --json`, which
+- **How much did exchange rates contribute?** `canary reporting fx --json`
   reads completed daily valuation effects across investments, currency cash
   and accrued interest, with missing days retained. This differs from realised
   currency-lot P/L in IBKR's Forex P/L Details. See
@@ -329,7 +329,7 @@ Canary is a private project of Oliver Sauer, unaffiliated with any employer.
 
 MIT. See [LICENSE](LICENSE).
 
-Current source provides FX contribution through `canary reporting fx` and the read-only
+FX contribution is available through `canary reporting fx` and the read-only
 `canary_reporting_fx` MCP tool. See [FX contribution and backfill](internal-docs/fx-contribution.md)
 for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantics.
 
@@ -347,7 +347,9 @@ Up to 30,000 exact-contract projections are retained while requested, expiring a
 24 hours without interest. Named reads request quotes for 15 minutes; intraday
 receipts expire after five minutes. Completed-session history is reused until the
 next completed session, preserving its actual source dates. Incomplete histories
-retry hourly; failures retry after five minutes. History uses the durable cache
+retry hourly; failures retry after five minutes, except that a name IBKR does
+not recognise as a contract reads unavailable and waits at least 30 minutes
+and until the broker session changes. History uses the durable cache
 without adding chart-refresh interests. No quote fan-out occurs in a screen read.
 
 Rows carry last completed close or a recent actual trade (including delayed-feed

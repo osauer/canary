@@ -1,6 +1,6 @@
 # Alerts and notifications
 
-Updated: 2026-07-25 20:23 CEST
+Updated: 2026-10-06 05:45 CEST
 
 An alert is a daemon-owned fact with a lifecycle. The daemon decides whether a condition exists, how serious it is, and whether it opened, escalated, or recovered. The paired app records that decision, decides whether your chosen notification level permits a push, and owns every delivery attempt and receipt. The app never recomputes severity, dwell, escalation, or recovery.
 
@@ -21,8 +21,8 @@ Recovered occurrences do not remain as a user-facing history. An episode held
 privately because a rule now lacks a required input is also omitted: it is
 neither a current alert nor a cleared condition.
 
-The CLI has no alerts or stress command. `canary brief` and `canary rules` carry
-the decision-relevant facts as rows.
+The CLI has no alerts command. `canary brief` and `canary rules` carry the
+decision-relevant facts as rows.
 
 Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.
 

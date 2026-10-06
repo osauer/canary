@@ -399,7 +399,7 @@ if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+rules[[:space:]]+policy[[:sp
 fi
 
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+settings[[:space:]]+set([[:space:]]|$)'; then
-  block "Runtime settings writes, including trading.freeze and trading limit changes, must be run by the user from an interactive session."
+  block "Runtime settings writes, including trading.freeze, must be run by the user from an interactive session."
 fi
 
 if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+daemon[[:space:]]+(purge|reset|wipe)([[:space:]]|$)'; then

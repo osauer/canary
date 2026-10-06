@@ -120,8 +120,8 @@ Unknown values never become zero.
 The diagnostic estimate subtracts observed purchase principal from baseline settled
 cash, also bounded by current TWS cash after excluding observed sale proceeds.
 Exact fees remain unknown. Sale credits stay excluded until a
-later confirmed baseline. Commitments and the reserve reduce estimated free
-cash. Purchases are conservatively counted from the start of the report day in
+later confirmed baseline. Commitments and the currency's `keep_cash` reduce
+estimated free cash. Purchases are conservatively counted from the start of the report day in
 New York: neither its date nor its timezone-less generation label proves an
 exact intraday cutoff.
 
@@ -223,9 +223,12 @@ It verifies units, access and commissions; preview tokens do not authorise
 submission. Missing settlement evidence, an empty owner ISIN list, unavailable
 quotes or session evidence remain holds.
 
-The policy keeps a per-currency `keep_cash`, subtracts commitments, requires
-`min_tranche` and caps each order's principal with `max_order_notional` in the
-account's base currency. It has no overall percentage, daily or cycle budget.
+The policy keeps a reserve as cash in the base currency and a per-currency
+`keep_cash`, subtracts commitments, requires `min_order_notional` for a buy and
+caps each order's principal at the larger of `max_order_notional` and
+`max_order_pct_nlv` of net liquidation value, in the account's base currency
+([Reserve and order sizing](protection.md#reserve-and-order-sizing)). It has
+no aggregate, daily or cycle budget.
 Repeated separately authorised orders may therefore deploy almost all eligible
 free cash down to the reserve and sizing residual. Those additional limits are
 owner decisions, not values Canary chooses.
@@ -263,9 +266,10 @@ calendar or a date beyond the calendars' published coverage holds the route; a
 weekday guess never authorizes an order. Each sweep row names its route and
 `settlement_source`.
 
-`min_order_notional` bounds the complete order in account base currency, on both
-sides, using gross principal for both purchases and liquidity sales.
-`max_order_notional` also bounds principal. Broker lots and the reviewed
+`min_order_notional` bounds a purchase's gross principal in account base
+currency; a liquidity sale is never held to it. The order cap (the larger of
+`max_order_notional` and `max_order_pct_nlv` of net liquidation value) bounds
+principal on both sides. Broker lots and the reviewed
 price still need to fit those bounds. A failed cash or whole-order check holds
 the reviewed quantity; a different quantity needs a new review.
 

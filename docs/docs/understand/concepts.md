@@ -1,6 +1,6 @@
 # Concepts
 
-Updated: 2026-09-17
+Updated: 2026-10-05 22:20 CEST
 
 What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. [Sensors](sensors.md) owns authority, freshness, last-good behavior, and the safe checks; the [regime dashboard contract](../internals/regime-dashboard.md) owns methodology.
 
@@ -125,7 +125,7 @@ A protective stop is only protective while it matches the position. Sell part of
 
 The daemon treats that state as critical. The paired app shows the row in red with the consequence spelled out, one push notification goes to the phone, and the row offers a single fix that reduces the stop to the quantity still held.
 
-That fix runs through the normal preview and confirm flow. The daemon re-reads the live position at both steps and refuses when position evidence is missing or has moved. Nothing is adjusted automatically.
+That fix runs through the normal preview and confirm flow. The daemon re-reads the live position at both steps and refuses when position evidence is missing or has moved. For a sell stop Canary itself placed on a stock or ETF, the daemon's protective stop guard makes the same fix on its own when trading is enabled: it shrinks the stop to the position, or cancels it at zero, through the ordinary modify and cancel gates ([Protection](../operate/protection.md#protective-stop-exemption-and-guard)). An order placed by hand in TWS is reported and never adjusted.
 
 The order journal underneath heals itself. After every reconnect, and every 30 minutes, the daemon asks the broker for its actual open-order list; journaled orders the broker no longer reports are closed locally as `closed_reconciled`. A cancel or fill that happened while the daemon was offline can no longer leave a stale "open" row behind.
 

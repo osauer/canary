@@ -85,12 +85,13 @@ flush-error behavior until an equivalent supplier implementation is proven.
 
 ## What the project will not accept
 
-- **Weakened trading guardrails.** Freeze, limits, the preview-only MCP order
-  surface, the gated write path, and the never-a-false-pass rule in the
+- **Weakened trading guardrails.** Freeze, limits, the read-only MCP surface,
+  the gated write path, and the never-a-false-pass rule in the
   rulebook are policy, not implementation detail. Changes there need a
   discussion about the policy first.
 - **Default risk numbers in code.** The risk constitution has no embedded
-  defaults on purpose. A missing decision stays `unapproved` rather than
+  defaults on purpose. A missing capital decision stays `unapproved`, and a
+  missing `[order_limits]` key refuses every order preview, rather than
   silently becoming a number somebody did not choose.
 - **Stale data presented as fresh.** Sensors degrade to `unknown` and fail
   closed. A change that makes a degraded reading look clean will be rejected

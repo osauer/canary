@@ -16,6 +16,18 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
+// `canary order --help` prints the command's help rather than failing as an
+// unknown subcommand.
+func TestRunOrderHelpPrintsUsage(t *testing.T) {
+	t.Parallel()
+	for _, arg := range []string{"--help", "-h", "help"} {
+		var out, errb bytes.Buffer
+		if code := Run(context.Background(), &Env{Stdout: &out, Stderr: &errb}, "order", []string{arg}); code != 0 || !strings.HasPrefix(out.String(), "canary order — ") {
+			t.Errorf("%s: exit %d, stdout %q, stderr %q", arg, code, out.String(), errb.String())
+		}
+	}
+}
+
 func TestRenderOrderPreviewShowsTokenAndSubmitEligibility(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer

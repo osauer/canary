@@ -1,6 +1,6 @@
 # Reconciliation
 
-Updated: 2026-08-04 22:57 CEST
+Updated: 2026-10-06 05:45 CEST
 
 `canary recon` matches the external cash flows on your IBKR Flex statements
 against the capital events you declared. The statement is the broker's record.
@@ -24,8 +24,10 @@ that moved because the market did. Declaring a loss as a withdrawal is the one
 channel that could understate drawdown, and it lands here as a `ledger_only`
 exception.
 
-`canary recon` is CLI-only and advisory. It has no MCP tool, and nothing on this
-page touches submit eligibility, freeze, pins, or any order path.
+`canary recon` is advisory. Its report and dismissals are CLI-only; the
+read-only MCP tool `canary_recon_status` reports acquisition and
+reconciliation status. Nothing on this page touches submit eligibility,
+freeze, pins, or any order path.
 
 ## Running it
 
@@ -109,9 +111,11 @@ statement line is a reason to act.
 
 ## What is automatic and what is not
 
-Most of the loop runs without you. The daemon makes its first Flex fetch attempt
+Most of the loop runs without you. The daemon checks for a new Flex statement
 at 06:30 Europe/Berlin on each local calendar day and retries a temporary
-failure every 30 minutes. Every ingest regenerates the report from the retained
+failure every 30 minutes. IBKR publishes a statement only for a US session
+day, so after a weekend or a US holiday the check finds nothing due and makes
+no broker call. Every ingest regenerates the report from the retained
 files, so the result is deterministic and the report id pins its content.
 
 A newly opened drawdown latch is provisional: Canary has seen the drop but not

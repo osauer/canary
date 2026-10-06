@@ -15,7 +15,8 @@ import (
 // governance acts (exceptional capital events, one-shot overrides, and
 // drawdown repair) — the daemon accepts them from human origins only,
 // so agent sessions can read this surface but never operate it. No verb
-// here touches broker writes, freeze, or trading limits.
+// here touches broker writes or freeze; the only order limit it reaches is
+// the one-shot override of order_limits.max_order_floor_base.
 func runPolicy(ctx context.Context, env *Env, args []string) int {
 	if len(args) == 1 && helpArg(args[0]) {
 		printPolicyUsage(env)
@@ -77,7 +78,7 @@ func printPolicyUsage(env *Env) {
 	fmt.Fprintln(env.Stdout, "  override         Grant one named policy control a temporary, journaled exception.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Local actions (no daemon needed):")
-	fmt.Fprintln(env.Stdout, "  default          Print Canary's default file for rulebook, protection, opportunity or constitution (placeholders only).")
+	fmt.Fprintln(env.Stdout, "  default          Print Canary's default file for rulebook, protection, opportunity or constitution (personal numbers as placeholders).")
 	fmt.Fprintln(env.Stdout, "  ensure           Write missing defaults and preview existing files; --dry-run --json creates a plan, --apply-plan FILE applies a reviewed plan.")
 	fmt.Fprintln(env.Stdout)
 	fmt.Fprintln(env.Stdout, "Usually let retained broker statements account for deposits and withdrawals. A qualifying clean")
@@ -95,17 +96,19 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Usage: canary policy show [SECTION] [--explain] [--json]")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "This is read-only. --explain prints everything that governs behaviour: the risk")
-		fmt.Fprintln(env.Stdout, "constitution, the Rulebook (one value per regime set), the protection policy")
-		fmt.Fprintln(env.Stdout, "(every bucket and cash-sweep currency), the opportunity policy, the [trading]")
-		fmt.Fprintln(env.Stdout, "gates of config.toml and the runtime settings. Each key shows its value in force,")
-		fmt.Fprintln(env.Stdout, "where it comes from (file, default, machine, needs your number, runtime) and its")
-		fmt.Fprintln(env.Stdout, "meaning, plus every policy file's notes: keys it lacks, retired keys, pending")
-		fmt.Fprintln(env.Stdout, "migrations, and what Canary now recommends.")
+		fmt.Fprintln(env.Stdout, "constitution with its [order_limits] and the order cap in force, the Rulebook")
+		fmt.Fprintln(env.Stdout, "(one value per regime set), the protection policy (every bucket and cash-sweep")
+		fmt.Fprintln(env.Stdout, "currency), the opportunity policy, config.toml's [trading] (order-entry mode,")
+		fmt.Fprintln(env.Stdout, "freeze and any retired order gate) and the runtime settings. Each key shows its")
+		fmt.Fprintln(env.Stdout, "value in force, where it comes from (file, default, machine, needs your number,")
+		fmt.Fprintln(env.Stdout, "not written, unapproved, retired, in force, runtime) and its meaning, plus")
+		fmt.Fprintln(env.Stdout, "every policy file's notes: keys it lacks, retired keys, pending migrations, and")
+		fmt.Fprintln(env.Stdout, "what Canary now recommends.")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "SECTION prints one part in full: constitution, rulebook, protection,")
-		fmt.Fprintln(env.Stdout, "opportunity, trading or runtime, or a table such as cash_sweep, trailing_stop,")
-		fmt.Fprintln(env.Stdout, "budget_reduction, authority or regime. --json carries the same rows under")
-		fmt.Fprintln(env.Stdout, "\"effective\" (with SECTION, only the matching part).")
+		fmt.Fprintln(env.Stdout, "opportunity, trading or runtime, or a table such as order_limits, cash_sweep,")
+		fmt.Fprintln(env.Stdout, "trailing_stop, budget_reduction, authority or regime. --json carries the same")
+		fmt.Fprintln(env.Stdout, "rows under \"effective\" (with SECTION, only the matching part).")
 	case "check":
 		fmt.Fprintln(env.Stdout, "canary policy check — a plausibility read of config.toml and every policy file")
 		fmt.Fprintln(env.Stdout)
@@ -128,7 +131,9 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "yet reviewed\". Personal numbers and automation switches are placeholders only.")
 		fmt.Fprintln(env.Stdout, "Startup leaves existing files untouched. Review --dry-run --json output locally,")
 		fmt.Fprintln(env.Stdout, "then --apply-plan FILE verifies exact hashes, backs up and converts listed files.")
-		fmt.Fprintln(env.Stdout, "Effective settings must stay equal; recommendations require a separate decision.")
+		fmt.Fprintln(env.Stdout, "Effective settings must stay equal, except that missing [order_limits] keys and")
+		fmt.Fprintln(env.Stdout, "missing cash-sweep sizing numbers are written and policy_version is raised so")
+		fmt.Fprintln(env.Stdout, "the daemon adopts them; recommendations require a separate decision.")
 		fmt.Fprintln(env.Stdout, "No daemon is needed.")
 	case "default":
 		fmt.Fprintln(env.Stdout, "canary policy default — print Canary's default file for one policy")
@@ -136,7 +141,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Usage: canary policy default rulebook|protection|opportunity|constitution")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "Prints the same commented template Canary writes when the file is missing.")
-		fmt.Fprintln(env.Stdout, "The constitution template carries placeholders only. No daemon is needed.")
+		fmt.Fprintln(env.Stdout, "The constitution template carries placeholders only, apart from its")
+		fmt.Fprintln(env.Stdout, "[order_limits] values. No daemon is needed.")
 	case "capital-event":
 		fmt.Fprintln(env.Stdout, "canary policy capital-event — record exceptional capital or reconciliation evidence")
 		fmt.Fprintln(env.Stdout)

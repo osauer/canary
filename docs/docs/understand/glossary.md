@@ -5,9 +5,10 @@ this system uses and links to the page where the term does real work; where the
 wider industry uses a word differently, the entry says so.
 
 - **Advisory:** guidance that records and explains without blocking or
-  submitting an order. The personal risk policy, the Rulebook's 19 checks
-  (16 discipline rules and 3 concentration watches), and protection proposals
-  are all advisory today. See
+  submitting an order. The personal risk policy (apart from its
+  `[order_limits]`, which every order preview must pass), the Rulebook's 19
+  checks (16 discipline rules and 3 concentration watches), and protection
+  proposals outside a pre-authorised bucket are all advisory today. See
   [Trading policy](policy.md).
 - **Agent origin:** the classification an adapter stamps on a broker-write
   request. Any agent marker in the environment, or a non-TTY stdin, classifies
@@ -35,8 +36,9 @@ wider industry uses a word differently, the entry says so.
   describing what was actually executed. It is a separate source from the local
   decision record. See [Trading policy](policy.md).
 - **Buying power:** the gateway's figure for how much you could buy. It is
-  never the risk budget here; sizing and the drawdown ladder key off declared
-  risk capital instead. See [Trading policy](policy.md).
+  never the risk budget here: the drawdown ladder and the premium budget
+  governor key off declared risk capital, and the per-order cap scales with
+  net liquidation value. See [Trading policy](policy.md).
 - **Capital event:** an operator-declared deposit, withdrawal, or reconcile
   fact journaled against the risk policy. Adjusted equity subtracts cumulative
   declared flows, so a deposit does not create a fake peak and a withdrawal

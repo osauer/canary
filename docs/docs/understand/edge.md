@@ -286,7 +286,9 @@ Up to 30,000 exact-contract projections are retained while requested, expiring a
 24 hours without interest. Named reads request quotes for 15 minutes; intraday
 receipts expire after five minutes. Completed-session history is reused until the
 next completed session, preserving its actual source dates. Incomplete histories
-retry hourly; failures retry after five minutes. History uses the durable cache
+retry hourly; failures retry after five minutes, except that a name IBKR does
+not recognise as a contract reads unavailable and waits at least 30 minutes
+and until the broker session changes. History uses the durable cache
 without adding chart-refresh interests. No quote fan-out occurs in a screen read.
 
 Rows carry last completed close or a recent actual trade (including delayed-feed

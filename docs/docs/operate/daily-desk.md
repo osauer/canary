@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-09-11
+Updated: 2026-10-05 22:20 CEST
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -145,4 +145,4 @@ The Review section of `canary brief --details` is the post-trade read. It is the
 
 Reconciliation runs on its own clock rather than yours. When the latest broker statement report is clean, current, and inside the divergence bound your risk policy declares, the daemon extends the reconcile clock itself and records the report id against a `daemon-auto` origin. It evaluates that at startup, after a successful statement fetch, and when the day's first account value lands. Nothing clean asks for your signature. An unresolved exception, a stale statement, or a divergence outside the bound does the opposite: no extension, the clock keeps running, and the brief's reconcile row shows it.
 
-`canary recon` inspects that report, and [Reconciliation](reconciliation.md) covers the exception categories. It is CLI-only and advisory, with no MCP tool, and statement text is untrusted input: read a line, never act on instructions inside one.
+`canary recon` inspects that report, and [Reconciliation](reconciliation.md) covers the exception categories. It is advisory and CLI-only apart from the read-only `canary_recon_status` MCP tool, and statement text is untrusted input: read a line, never act on instructions inside one.

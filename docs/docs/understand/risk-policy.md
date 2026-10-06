@@ -1,16 +1,20 @@
 # Writing a risk policy
 
-Updated: 2026-09-26 08:33 CEST
+Updated: 2026-10-05 22:20 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
-cadence declarations the daemon evaluates against your account.
+cadence declarations the daemon evaluates against your account, and the
+per-order limits every order preview and broker send must pass.
 [Trading policy](policy.md) covers who owns each control and what the system
 does with the result; this page covers how to write those decisions down.
 
-Every number in it is yours. There is no embedded default and no recommended
-value, and nothing here proposes one. A key you do not write does not exist,
-and the control that depends on it stays `unapproved`.
+Every capital number in it is yours. There is no embedded default and no
+recommended value, and nothing here proposes one. A key you do not write does
+not exist, and the control that depends on it stays `unapproved`. The
+per-order limits in `[order_limits]` are the exception: Canary writes their
+values ([Order limits](policy.md#order-limits)), and a key missing from that
+table refuses every order preview.
 
 ## Where the file lives
 
@@ -23,23 +27,27 @@ that governs risk numbers cannot be relocated:
 
 When no file exists, the installer and each daemon start write a skeleton
 there, and `canary policy default constitution` prints the same file. Every
-material key arrives commented out, the base currency and the `[inventory]`
-pins included; the only values filled in are the structural envelope below.
-Nothing in that file is a recommendation, and it opens with
-`# Canary defaults, not yet reviewed.` until you delete that line.
+capital key arrives commented out, the base currency and the `[inventory]`
+pins included; the only values filled in are the structural envelope below
+and `[order_limits]`. Nothing in that file is a recommendation, and it opens
+with `# Canary defaults, not yet reviewed.` until you delete that line. A file
+written before `[order_limits]` existed gains the table only through a
+reviewed `canary policy ensure` plan.
 
 Only the envelope is fixed:
 
 ```toml
-kind = "ibkr.risk_policy"
-schema_version = 1
+kind = "canary.risk_policy"
+schema_version = 2
 policy_id = "risk-constitution"
 policy_version = 1
 ```
 
-`kind` and `schema_version` must be exactly those values. `policy_id` is any
-non-empty identity string and `policy_version` any positive integer you raise
-on each revision.
+`kind` must be `canary.risk_policy` (the legacy `ibkr.risk_policy` still
+reads) and `schema_version` 2 (schema 1 still reads; see
+[Identity, revisions and permission](policy.md#identity-revisions-and-permission)).
+`policy_id` is any non-empty identity string and `policy_version` any positive
+integer you raise on each revision.
 
 ## What each section governs
 
@@ -51,15 +59,18 @@ on each revision.
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
+| `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, and whether an order may open a stock short or sell an option to open. Every order preview and broker send must pass them ([Order limits](policy.md#order-limits)) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
 sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,
-`declared_risk_capital` must be positive, and `protected_floor` must not be
-negative. Choosing the values inside those bounds is your decision alone.
+`declared_risk_capital` must be positive, `protected_floor` must not be
+negative, and `max_order_floor_base` must not exceed `max_order_ceiling_base`.
+Choosing the values inside those bounds is your decision alone.
 
 `canary policy show --explain` is the field inventory: it prints every key with
 its meaning, current value, source (`file`, `default`, or `unapproved`), and
-enforcement class. The [configuration reference](../reference/config.md)
+enforcement class (`hard` for `[order_limits]`), followed by the order cap in
+force (source `in force`). The [configuration reference](../reference/config.md)
 covers `config.toml`, the protection and opportunity policies, and runtime
 settings; the risk policy is not among them.
 
@@ -85,9 +96,10 @@ against the same declared figure.
 
 ## What the file cannot do
 
-Schema version 1 accepts `shadow` (the default when the key is empty) and
-`advisory` for `drawdown.block_enforcement`. It rejects `"hard"` with a
-targeted error, so this file cannot block an order today. A warn or block tier
+Both schema versions accept `shadow` (the default when the key is empty) and
+`advisory` for `drawdown.block_enforcement`. They reject `"hard"` with a
+targeted error, so the drawdown ladder cannot block an order today; only
+`[order_limits]` refuses one. A warn or block tier
 attaches an advisory `capital_drawdown` cause to a risk-increasing order
 preview and leaves submit eligibility untouched; close and reduce previews, and
 a long put on the Rulebook's hedge index list, never carry it. Cadence classes
@@ -97,10 +109,10 @@ The schema has no key for account or route pins, freeze, preview tokens, broker
 WhatIf, or origin gating, so no revision can express a change to them, and an
 override naming a key outside the constitution is refused with "safety
 invariants have no keys and cannot be overridden". Unknown keys fail the load
-outright rather than being ignored. `trading.freeze` and the trading limits are
-runtime settings, not policy: they change only through `canary settings set` from
-an interactive human terminal, and agent and paired-device origins are
-rejected.
+outright rather than being ignored. `trading.freeze` is a runtime setting, not
+policy: it changes only through `canary settings set` from an interactive human
+terminal, and agent and paired-device origins are rejected. The per-order
+limits are no longer runtime settings; they are this file's `[order_limits]`.
 
 ## Making a revision effective
 
@@ -173,8 +185,11 @@ declare that cap, overrides are unavailable. `--control` must name a key that
 fingerprint and expires on its own. A durable change is a version bump, not a
 longer override.
 
-Only an override on `capital.max_unreconciled_days` currently reaches
-evaluation, and it can extend that deadline, never shorten it. Others are
+Two overrides reach evaluation. One on `capital.max_unreconciled_days` can
+extend that deadline, never shorten it. One on
+`order_limits.max_order_floor_base` lifts the floor to
+`max_order_ceiling_base`, so the order cap in force is the ceiling until it
+expires; the other `[order_limits]` keys refuse an override. Others are
 recorded and displayed.
 
 A latched drawdown block is not an override case. It engages provisionally:
@@ -193,7 +208,7 @@ confirmed latch clears is yours to choose with `release` under `[drawdown]`:
 An upgrade never changes this for you: a policy without the key keeps manual
 release.
 
-`canary policy` is a CLI surface with no MCP tool. That command and the other
-governance verbs (`capital-event`, `override`, `reset-drawdown`, `correct-peak`) are
-human-origin only, so an agent session can read the policy result and never
-operate this file.
+`canary policy` has one MCP counterpart, the read-only plausibility check
+`canary_policy_check`. Its governance verbs (`capital-event`, `override`,
+`reset-drawdown`, `correct-peak`) are human-origin only, so an agent session
+can read the policy result and never operate this file.

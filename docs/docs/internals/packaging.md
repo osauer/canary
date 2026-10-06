@@ -1,6 +1,6 @@
 # Packaging and distribution
 
-Updated: 2026-08-10 08:25 CEST
+Updated: 2026-10-06 05:45 CEST
 
 Canary ships as a Claude Code plugin, a Claude Desktop `.mcpb` bundle, and a
 separately installed binary. This page covers what each package contains and
@@ -25,8 +25,11 @@ The description used in listings:
 - The plugin/skill does not ship the binary; users install `canary` separately.
 - The MCP server exposes only the canonical read-only tool registry, with no resources, previews,
   settings writes, or broker actions. Standard binaries compile out broker
-  writes. The opt-in trading binary retains only constrained CLI/app order
-  actions, still bound by fresh confirmation/preflight and daemon safety gates.
+  writes. The opt-in trading binary retains only constrained order actions,
+  all bound by the daemon's safety gates: CLI/app actions with fresh
+  confirmation or preflight, protection orders the owner pre-authorised or
+  queued, and the protective stop guard, which shrinks or cancels Canary's own
+  stock stops to match the position.
 - Trading builds ship on every release as a separately named artifact. They are experimental, as-is, and outside the stable read-only channel. Do not promote them through MCP marketplaces until the execution, approval, and safety metadata are reviewed for that channel.
 - Data returned by MCP tools can include account-sensitive balances, positions, and P&L.
 

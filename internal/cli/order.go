@@ -22,6 +22,9 @@ func runOrder(ctx context.Context, env *Env, args []string) int {
 	}
 	subIdx := orderSubcommandIndex(args)
 	if subIdx < 0 {
+		if len(args) == 1 && helpArg(args[0]) {
+			return printCommandUsage(env, "order")
+		}
 		return fail(env, "order: unknown subcommand (preview, status, place, modify, cancel)")
 	}
 	sub := args[subIdx]

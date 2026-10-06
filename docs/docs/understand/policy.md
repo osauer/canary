@@ -138,17 +138,22 @@ each time it starts:
   NAME` prints the same file.
 - **Your numbers stay yours.** Canary writes no value for anything only you can
   decide: the constitution's capital numbers, the premium budget governor's
-  caps as a share of risk capital, the cash sweep's order cap
-  (`max_order_notional`), the buckets that may submit automatically
+  caps as a share of risk capital, the cash sweep's sizing numbers
+  (`max_order_notional` among them), the buckets that may submit automatically
   (`pre_authorised`), and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
-  needs your number, one feature at a time; nothing else waits on it.
+  needs your number, one feature at a time; nothing else waits on it. A
+  reviewed `canary policy ensure` plan adds the missing sizing numbers to a
+  `[buckets.cash_sweep]` you already wrote
+  ([Reserve and order sizing](../operate/protection.md#reserve-and-order-sizing)).
 - **Existing files stay untouched on startup.** A proposed format conversion
   shows exact before/after hashes and a local diff. Applying that reviewed plan
   checks every listed file before writing, preserves its original bytes in an
   owner-only backup (`<file>.bak-<release>-<time>`), and records provenance.
-  It refuses any conversion that changes effective settings. Recommendations
-  remain separate owner decisions.
+  It refuses any conversion that changes effective settings, apart from
+  writing missing `[order_limits]` keys or cash sweep sizing numbers, which
+  raises `policy_version` so the daemon adopts them. Recommendations remain
+  separate owner decisions.
 - **A broken file is left alone.** The running manager retains its last good
   settings and reports the file failure. Protection automation pauses when its
   own authority file is uncertain; manual proposals still pass their existing
@@ -183,9 +188,10 @@ section per source:
   governor and the cash sweep with one table per currency (the compiled
   USD, EUR, GBP and CAD declarations print even without a table).
 - **Opportunity policy** (`opportunity-policy.toml`).
-- **Trading gates**: the `[trading]` keys of `config.toml` with the value in
-  force; a runtime override from `canary settings set` names the
-  `config.toml` value it replaces.
+- **Trading gates** (`config.toml` `[trading]`): the order-entry mode and the
+  runtime freeze with the value in force, and each retired order gate the file
+  still carries, marked `retired` with the `[order_limits]` key that decides
+  instead.
 - **Runtime settings**: every `canary settings` value except gateway identity
   and observed market-data quality.
 
@@ -195,13 +201,16 @@ taken from the same field descriptions as the
 file sets it), `default` (Canary's default applies), `machine` (Canary
 maintains it, such as a bill settlement route, or derives it, such as the
 budget governor's caps under `basis = "rulebook"`), `needs your number` (the
-feature holds until you write it), `unapproved` (a constitution choice not
-yet made), and, for settings, `config`, `runtime` or `build`.
+feature holds until you write it), `not written` (a cash sweep sizing number
+the file lacks, never filled from a default), `unapproved` (a constitution
+choice not yet made), `retired` (a key an old file still carries, with no
+effect), `in force` (the order cap Canary computes from `[order_limits]` and
+the book), and, for settings, `config`, `runtime` or `build`.
 
 `canary policy show SECTION` prints one part in full: `constitution`,
 `rulebook`, `protection`, `opportunity`, `trading` or `runtime`, or a table
-such as `cash_sweep`, `trailing_stop`, `budget_reduction`, `authority` or
-`regime`.
+such as `order_limits`, `cash_sweep`, `trailing_stop`, `budget_reduction`,
+`authority` or `regime`.
 
 `--json` carries the same rows under `effective`: `sections[]` (`id`,
 `title`, `path`, `identity`, `status`, `review`, `notes`, `groups`),
@@ -354,7 +363,7 @@ These words describe different facts:
 | Valid | The file matches its schema and internal rules. |
 | Active | The running daemon is using that version now. |
 | Commissioned | The complete evidence, evaluator, reporting, and operator path has been proven for its intended use. |
-| Enforced | The result actually constrains a path. The personal risk policy is advisory/shadow today; separate broker controls are enforced. |
+| Enforced | The result actually constrains a path. The personal risk policy is advisory/shadow today except `[order_limits]`, which every order preview and broker send must pass; separate broker controls are enforced. |
 | Delivered | A result reached its intended surface or alert channel. An evaluator can be active while delivery is inactive. |
 
 Do not infer enforcement or delivery merely because a schema, evaluator, or UI

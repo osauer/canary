@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/daemon"
@@ -20,6 +21,12 @@ func RunPolicyLocal(ctx context.Context, env *Env, args []string) int {
 	if idx := firstPositionalIndex(args); idx >= 0 {
 		sub = args[idx]
 		args = append(append([]string{}, args[:idx]...), args[idx+1:]...)
+	}
+	// cmd/canary routes these here before its generic --help path, so the
+	// action's own help, with the effects `canary policy --help` promises, is
+	// printed here rather than a bare flag list.
+	if slices.ContainsFunc(args, helpArg) {
+		return printPolicyActionUsage(env, sub)
 	}
 	switch sub {
 	case "default":

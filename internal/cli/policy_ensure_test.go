@@ -68,6 +68,19 @@ func TestPolicyEnsureWritesMissingFilesWithoutADaemon(t *testing.T) {
 	}
 }
 
+// `canary policy default|ensure|check --offline --help` reach RunPolicyLocal
+// before cmd/canary's generic help path; each prints the action's own help.
+func TestPolicyLocalHelpPrintsTheActionHelp(t *testing.T) {
+	isolatePolicyHome(t)
+	for _, args := range [][]string{{"ensure", "--help"}, {"default", "-h"}, {"check", "--offline", "--help"}} {
+		var out, errb bytes.Buffer
+		code := RunPolicyLocal(context.Background(), &Env{Stdout: &out, Stderr: &errb}, args)
+		if want := "canary policy " + args[0] + " — "; code != 0 || !strings.HasPrefix(out.String(), want) {
+			t.Errorf("%v: exit %d, stdout %q, stderr %q; want exit 0 and %q", args, code, out.String(), errb.String(), want)
+		}
+	}
+}
+
 // A config file that does not parse never stops the ensure step: it says so
 // and uses the default policy paths.
 func TestPolicyEnsureSurvivesABrokenConfig(t *testing.T) {
