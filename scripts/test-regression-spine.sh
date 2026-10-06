@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Prove that the compact current test spine still detects selected historical
-# production regressions. Each case archives committed HEAD, overlays only the
+# production regressions. Each case extracts committed HEAD, overlays only the
 # focused spine, applies the current equivalent of one historical bug, and
 # requires the named test to fail for the expected reason. No live Gateway is
 # involved.
@@ -70,13 +70,18 @@ fi
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/canary-regression-spine.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT HUP INT TERM
+# Archive the candidate once, to a file. Piped into bsdtar, git archive can die
+# of SIGPIPE: tar exits at the end-of-archive records while the writer still
+# holds trailing padding, and pipefail turns that into a failed gate.
+candidate_tar="$test_root/candidate.tar"
+git -C "$repo_root" archive -o "$candidate_tar" "$candidate"
 killed=0
 while IFS=$'\t' read -r id fix mutation_patch package test_name expected_failure extra; do
 	case "$id" in "" | \#*) continue ;; esac
 	case_root="$test_root/$id"
 	log_file="$test_root/$id.log"
 	mkdir -p "$case_root"
-	git -C "$repo_root" archive "$candidate" | tar -xf - -C "$case_root"
+	tar -xf "$candidate_tar" -C "$case_root"
 
 	# The focused spine can be uncommitted while it is first introduced. Overlay
 	# only that file; all other tests and production stay at the same committed
