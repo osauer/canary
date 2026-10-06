@@ -268,7 +268,8 @@ const (
 // least MinOrderBase and at most MaxOrderBase, the larger of
 // MaxOrderNotionalBase and MaxOrderPctNLV percent of NetLiquidationBase
 // (MaxOrderBound names which); a redemption is never held to MinOrderBase.
-// Field names are stable for Desk.
+// Every order is sized on the OrderStepBase grid. Field names are stable for
+// Desk.
 type CashSweepSizing struct {
 	BaseCurrency       string   `json:"base_currency"`
 	NetLiquidationBase *float64 `json:"net_liquidation_base,omitempty"`
@@ -288,6 +289,8 @@ type CashSweepSizing struct {
 	MaxOrderBound        string  `json:"max_order_bound"`
 	MaxOrderNotionalBase float64 `json:"max_order_notional_base"`
 	MaxOrderPctNLV       float64 `json:"max_order_pct_nlv"`
+	// OrderStepBase is the order grid: a buy rounds down to it, a redemption up.
+	OrderStepBase float64 `json:"order_step_base"`
 	// TradingMaxNotionalExempt is the policy's
 	// bills_exempt_from_trading_max_notional: a same-currency sweep bill order
 	// may pass the order cap in force ([order_limits]) up to MaxOrderBase,

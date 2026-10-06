@@ -50,6 +50,7 @@ min_order_notional = 3000.0
 max_order_pct_nlv = 1.0
 max_order_notional = 9000.0
 keep_cash = 4000.0
+order_step_base = 1000.0
 no_buy_while_borrowed = true
 
 [buckets.cash_sweep.currency.EUR]

@@ -1011,6 +1011,8 @@ type protectionCashSweepPolicy struct {
 	ReserveFloorBase *float64 `toml:"reserve_floor_base" json:"reserve_floor_base,omitempty"`
 	// ReservePctNLV is the share of net liquidation value, in percent, kept as cash (see reserve_floor_base). Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 10.0).
 	ReservePctNLV *float64 `toml:"reserve_pct_nlv" json:"reserve_pct_nlv,omitempty"`
+	// OrderStepBase is the money grid, in base currency, every sweep order is sized on: a buy rounds its amount down to a whole step and a redemption rounds its target up, so the quantity changes only when free cash crosses a step, not with every move of net liquidation value that the reserve and the order cap follow (0 means no grid). Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes 1000.0; owner decision 2026-10-06 08:22 CEST).
+	OrderStepBase *float64 `toml:"order_step_base" json:"order_step_base,omitempty"`
 	// KeepCash is the settlement float kept in every currency's own unit, unless a currency table writes its own keep_cash; it applies on top of the reserve's own floor. Read from this file only: a sweep currency with neither value holds at needs_your_number (policy ensure writes 5000.0).
 	KeepCash *float64 `toml:"keep_cash" json:"keep_cash,omitempty"`
 	// BillsExemptFromTradingMaxNotional lets a same-currency sweep bill order (BILL or BOND buy or redemption, no conversion) pass the order cap in force of the risk constitution's [order_limits], but only up to the sweep's own order cap in force; anything else keeps the order cap. Absent means false, so the order cap applies (policy ensure writes true).
@@ -1159,7 +1161,7 @@ func (p *protectionCashSweepPolicy) missingNumbers() []string {
 	for _, f := range []struct {
 		key string
 		v   *float64
-	}{{"max_order_pct_nlv", p.MaxOrderPctNLV}, {"min_order_notional", p.MinOrderNotional}, {"reserve_floor_base", p.ReserveFloorBase}, {"reserve_pct_nlv", p.ReservePctNLV}} {
+	}{{"max_order_pct_nlv", p.MaxOrderPctNLV}, {"min_order_notional", p.MinOrderNotional}, {"reserve_floor_base", p.ReserveFloorBase}, {"reserve_pct_nlv", p.ReservePctNLV}, {"order_step_base", p.OrderStepBase}} {
 		if f.v == nil {
 			out = append(out, f.key)
 		}
@@ -1206,13 +1208,17 @@ type cashSweepWrittenDefault struct {
 }
 
 // cashSweepWrittenDefaults are the owner-approved values (2026-10-05
-// 18:35 CEST; no_buy_while_borrowed 21:24 CEST) ensure materialises into an existing [buckets.cash_sweep].
+// 18:35 CEST; no_buy_while_borrowed 21:24 CEST; order_step_base 2026-10-06
+// 08:22 CEST) ensure materialises into an existing [buckets.cash_sweep].
 var cashSweepWrittenDefaults = []cashSweepWrittenDefault{
 	{"max_order_notional", "50000.0"},
 	{"max_order_pct_nlv", "10.0"},
 	{"min_order_notional", "20000.0"},
 	{"reserve_floor_base", "10000.0"},
 	{"reserve_pct_nlv", "10.0"},
+	// Owner decision 2026-10-06 08:22 CEST: size every sweep order on a
+	// 1,000 base-currency grid.
+	{"order_step_base", "1000.0"},
 	{"keep_cash", "5000.0"},
 	{"bills_exempt_from_trading_max_notional", "true"},
 	// Owner decision 2026-10-05 21:24 CEST: no bill buys while any currency
@@ -1305,7 +1311,7 @@ func validateCashSweepPolicy(prefix string, p *protectionCashSweepPolicy) error 
 		key string
 		v   *float64
 		max float64
-	}{{"min_order_notional", p.MinOrderNotional, math.Inf(1)}, {"reserve_floor_base", p.ReserveFloorBase, math.Inf(1)}, {"keep_cash", p.KeepCash, math.Inf(1)},
+	}{{"min_order_notional", p.MinOrderNotional, math.Inf(1)}, {"reserve_floor_base", p.ReserveFloorBase, math.Inf(1)}, {"keep_cash", p.KeepCash, math.Inf(1)}, {"order_step_base", p.OrderStepBase, math.Inf(1)},
 		{"reserve_pct_nlv", p.ReservePctNLV, 100}, {"max_order_pct_nlv", p.MaxOrderPctNLV, 100}} {
 		if f.v != nil && (!finiteProtectionOptionPolicyValue(*f.v) || *f.v < 0 || *f.v > f.max) {
 			if f.max == 100 {

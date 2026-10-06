@@ -726,6 +726,12 @@ read from the policy file only.
 - Buy bounds are `min_order_notional` and max(`max_order_notional`,
   `max_order_pct_nlv` % of NLV). A redemption sells the gap, never held to or
   raised to the minimum. The preview's minimum check applies to buys only.
+- Order grid (owner decision 2026-10-06 08:22 CEST): `cashSweepOnStep` puts
+  a buy amount down and a redemption target up on `order_step_base` (base,
+  converted at the ledger rate; 0 means no grid). The NLV-following reserve
+  and cap otherwise moved the quantity every 30 s refresh, which churned the
+  row's revision, staled hand approvals and restarted pre-authorised veto
+  windows.
 - A percentage above 0 with unreadable NLV holds every currency.
 - `bills_exempt_from_trading_max_notional`: `cashSweepOrderTerms` writes
   `trading_cap_exempt_up_to_base` (the cap in force) into the daemon-only bond

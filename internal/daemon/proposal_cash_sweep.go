@@ -454,7 +454,7 @@ func cashSweepSizingFor(bucket *protectionCashSweepPolicy, in cashSweepInput) (*
 	}
 	sz := &rpc.CashSweepSizing{BaseCurrency: base, ReserveFloorBase: *bucket.ReserveFloorBase, ReservePctNLV: *bucket.ReservePctNLV,
 		MinOrderBase: *bucket.MinOrderNotional, MaxOrderNotionalBase: bucket.MaxOrderNotional, MaxOrderPctNLV: *bucket.MaxOrderPctNLV,
-		TradingMaxNotionalExempt: bucket.billsExempt()}
+		OrderStepBase: *bucket.OrderStepBase, TradingMaxNotionalExempt: bucket.billsExempt()}
 	nlv := 0.0
 	if in.NLVBase != nil && positiveFinite(*in.NLVBase) {
 		nlv = *in.NLVBase
@@ -570,11 +570,16 @@ func cashSweepPlanInvest(cp *cashSweepCurrencyPlan, sizing *rpc.CashSweepSizing,
 		}
 	}
 	capCcy := sizing.MaxOrderBase / cp.rate
-	order := min(cp.free, capCcy)
+	order := cashSweepOnStep(min(cp.free, capCcy), sizing.OrderStepBase/cp.rate, false)
 	cp.heldToCap = capCcy < cp.free-cashSweepMoneyEpsilon
 	minimum := cashSweepMinimum(cp.tranche, sizing.MinOrderBase, cp.rate)
 	if order < minimum-cashSweepMoneyEpsilon {
 		st.State = rpc.CashSweepStateHold
+		if !cp.heldToCap {
+			st.Reason = fmt.Sprintf("free cash %s rounds down to %s on the order grid of %s, below the smallest order %s; nothing is swept",
+				formatBudgetMoney(cp.free, ccy), formatBudgetMoney(order, ccy), formatBudgetMoney(sizing.OrderStepBase, sizing.BaseCurrency), formatBudgetMoney(minimum, ccy))
+			return
+		}
 		st.Reason = fmt.Sprintf("the order cap %s (%s) holds one order to %s, below the smallest order %s; nothing is swept",
 			formatBudgetMoney(sizing.MaxOrderBase, sizing.BaseCurrency), sizing.MaxOrderBound, formatBudgetMoney(order, ccy), formatBudgetMoney(minimum, ccy))
 		return
@@ -662,7 +667,7 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, sizing *rpc.CashSweepSizing,
 	}
 	held := int(math.Floor(pick.Row.Quantity + 1e-9))
 	unit := pick.MarketValue / pick.Row.Quantity
-	target := cp.gap
+	target := cashSweepOnStep(cp.gap, sizing.OrderStepBase/cp.rate, true)
 	needed := min(int(math.Ceil(target/unit-1e-9)), held)
 	cp.capUnits = int(math.Floor(sizing.MaxOrderBase/cp.rate/unit + 1e-9))
 	if cp.capUnits < 1 {
@@ -684,6 +689,21 @@ func cashSweepPlanRedeem(cp *cashSweepCurrencyPlan, sizing *rpc.CashSweepSizing,
 	if cp.heldToCap {
 		st.Reason += "; the order cap holds this sale, and the next cycle sells the rest"
 	}
+}
+
+// cashSweepOnStep puts a sweep amount on the order grid (order_step_base,
+// converted to the currency): down for a buy, up for a redemption, so the
+// quantity holds while net liquidation value moves the reserve and the cap
+// (owner decision 2026-10-06 08:22 CEST). A step <= 0, or an amount or step
+// that is not finite, leaves the amount unchanged.
+func cashSweepOnStep(amount, step float64, up bool) float64 {
+	if !positiveFinite(step) || !finiteProtectionOptionPolicyValue(amount) {
+		return amount
+	}
+	if up {
+		return math.Ceil(amount/step-1e-9) * step
+	}
+	return math.Floor(amount/step+1e-9) * step
 }
 
 // cashSweepPlannable lists the declared instruments the sweep can plan with:

@@ -20,13 +20,15 @@ import (
 // number comes from the file.
 
 // ownerSizedSweepPolicy writes the owner's numbers: floor 10,000, 10% of
-// NLV, orders 20,000 to max(50,000, 10% of NLV), keep_cash 5,000.
+// NLV, orders 20,000 to max(50,000, 10% of NLV) on a 1,000 grid, keep_cash
+// 5,000.
 func ownerSizedSweepPolicy() protectionPolicy {
 	p := cashSweepTestPolicy(rpc.CashSweepModeActive, 50000)
 	b := p.Buckets.CashSweep
 	b.ReserveFloorBase, b.ReservePctNLV = new(10000.0), new(10.0)
 	b.MinOrderNotional, b.MaxOrderPctNLV = new(20000.0), new(10.0)
 	b.BillsExemptFromTradingMaxNotional = new(true)
+	b.OrderStepBase = new(1000.0)
 	for ccy, c := range b.Currency {
 		c.MinTranche = nil
 		b.Currency[ccy] = c
@@ -137,7 +139,7 @@ func TestCashSweepReserveAndCapBounds(t *testing.T) {
 func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 	now := cashSweepTestNow()
 	in := sizedSweepInput(200000, map[string]float64{"EUR": 60000})
-	for _, key := range []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv"} {
+	for _, key := range []string{"max_order_notional", "max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "order_step_base"} {
 		t.Run(key, func(t *testing.T) {
 			p := ownerSizedSweepPolicy()
 			b := p.Buckets.CashSweep
@@ -152,6 +154,8 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 				b.ReserveFloorBase = nil
 			case "reserve_pct_nlv":
 				b.ReservePctNLV = nil
+			case "order_step_base":
+				b.OrderStepBase = nil
 			}
 			plan := cashSweepPlanFor(p, in, now)
 			eur := cashSweepCurrencyOf(t, plan, "EUR")
@@ -184,7 +188,7 @@ func TestCashSweepMissingNumberHoldsNamingTheKey(t *testing.T) {
 		}
 		b := p.Buckets.CashSweep
 		if _, ok := b.keepCash("EUR"); ok || b.MinOrderNotional != nil || b.Currency["EUR"].MinTranche != nil ||
-			!slices.Equal(b.missingNumbers(), []string{"max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "no_buy_while_borrowed"}) || b.billsExempt() || b.noBuyWhileBorrowed() {
+			!slices.Equal(b.missingNumbers(), []string{"max_order_pct_nlv", "min_order_notional", "reserve_floor_base", "reserve_pct_nlv", "order_step_base", "no_buy_while_borrowed"}) || b.billsExempt() || b.noBuyWhileBorrowed() {
 			t.Fatalf("absent numbers read as values: %+v", b)
 		}
 	})
@@ -233,14 +237,16 @@ func TestCashSweepRedemptionBelowMinimumRestoresReserve(t *testing.T) {
 func TestCashSweepReserveShortfallCarriesToOtherCurrencies(t *testing.T) {
 	now := cashSweepTestNow()
 	// EUR 12,000 holds 12,000 of the 20,000 reserve; 8,000 EUR is kept in
-	// USD (8,888.89 USD at 0.9) before USD invests.
+	// USD (8,888.89 USD at 0.9) before USD invests, and the buy rounds down
+	// to the 1,000 EUR grid (1,111.11 USD steps).
 	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(200000, map[string]float64{"EUR": 12000, "USD": 60000}), now)
 	if plan.status.Sizing == nil || !near(plan.status.Sizing.ReserveShortfallBase, 8000) {
 		t.Fatalf("sizing = %+v", plan.status.Sizing)
 	}
 	usd := cashSweepCurrencyOf(t, plan, "USD")
-	carry := 8000 / 0.9
-	if usd.side != rpc.CashSweepSideInvest || usd.status.ReserveHeld == nil || !near(*usd.status.ReserveHeld, carry) || !near(usd.free, 55000-carry) || !near(usd.orderAmount, 55000-carry) {
+	carry, step := 8000/0.9, 1000/0.9
+	if usd.side != rpc.CashSweepSideInvest || usd.status.ReserveHeld == nil || !near(*usd.status.ReserveHeld, carry) || !near(usd.free, 55000-carry) ||
+		!near(usd.orderAmount, math.Floor((55000-carry)/step)*step) {
 		t.Fatalf("USD = %s %v (%s)", usd.side, usd.orderAmount, usd.status.Reason)
 	}
 	// A shortfall the foreign surplus cannot clear above the minimum holds it.
@@ -361,7 +367,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 		}
 	}
 	want := []string{"added buckets.cash_sweep.max_order_pct_nlv = 10.0", "added buckets.cash_sweep.min_order_notional = 20000.0",
-		"added buckets.cash_sweep.reserve_floor_base = 10000.0", "added buckets.cash_sweep.reserve_pct_nlv = 10.0", "added buckets.cash_sweep.keep_cash = 5000.0",
+		"added buckets.cash_sweep.reserve_floor_base = 10000.0", "added buckets.cash_sweep.reserve_pct_nlv = 10.0", "added buckets.cash_sweep.order_step_base = 1000.0", "added buckets.cash_sweep.keep_cash = 5000.0",
 		"added buckets.cash_sweep.bills_exempt_from_trading_max_notional = true", "added buckets.cash_sweep.no_buy_while_borrowed = true", "raised policy_version 12 to 13: the sweep sizing numbers above take effect"}
 	if preview.Action != PolicyFileWouldMigrate || !slices.Equal(preview.Changes, want) || !strings.Contains(preview.Diff, "reserve_pct_nlv = 10.0") {
 		t.Fatalf("dry run = %+v", preview)
@@ -384,7 +390,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	eurKeep, _ := b.keepCash("EUR")
 	usdKeep, usdOK := b.keepCash("USD")
 	if p.PolicyVersion != 13 || b.MaxOrderNotional != 10000 || eurKeep != 6000 || !usdOK || usdKeep != 5000 || len(b.missingNumbers()) != 0 || !b.billsExempt() || !b.noBuyWhileBorrowed() ||
-		*b.MinOrderNotional != 20000 || *b.ReservePctNLV != 10 || *b.MaxOrderPctNLV != 10 || *b.ReserveFloorBase != 10000 {
+		*b.MinOrderNotional != 20000 || *b.ReservePctNLV != 10 || *b.MaxOrderPctNLV != 10 || *b.ReserveFloorBase != 10000 || *b.OrderStepBase != 1000 {
 		t.Fatalf("materialised = version %d %+v", p.PolicyVersion, b)
 	}
 	// A second pass has nothing to add.
@@ -427,5 +433,54 @@ func TestProtectionMaterialisationPreservesOwnerValues(t *testing.T) {
 	after.Buckets.CashSweep = &other
 	if protectionMaterialisationPreserves(before, after) {
 		t.Fatal("a non-sizing value changed")
+	}
+}
+
+// The order grid (owner decision 2026-10-06 08:22 CEST): a buy rounds down
+// to order_step_base and a redemption target rounds up; no step, or a
+// nonfinite amount, leaves the amount alone.
+func TestCashSweepOnStep(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		amount, step float64
+		up           bool
+		want         float64
+	}{
+		{"buy rounds down", 40500, 1000, false, 40000},
+		{"redemption rounds up", 8200, 1000, true, 9000},
+		{"on the grid down", 40000, 1000, false, 40000},
+		{"on the grid up", 8000, 1000, true, 8000},
+		{"zero step", 40500, 0, false, 40500},
+		{"negative step", 8200, -1000, true, 8200},
+		{"below one step", 600, 1000, false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cashSweepOnStep(tc.amount, tc.step, tc.up); !near(got, tc.want) {
+				t.Fatalf("cashSweepOnStep(%v, %v, %v) = %v, want %v", tc.amount, tc.step, tc.up, got, tc.want)
+			}
+		})
+	}
+	if got := cashSweepOnStep(math.Inf(1), 1000, false); !math.IsInf(got, 1) {
+		t.Fatalf("nonfinite amount = %v", got)
+	}
+}
+
+// A small NLV move shifts the reserve and free cash but not the order: with
+// NLV 200,000 and EUR cash 60,500 the reserve is 20,000, free 40,500 and the
+// buy 40,000; at NLV 200,300 free is 40,470 and the buy is still 40,000.
+func TestCashSweepOrderGridHoldsQuantityAcrossSmallNLVMoves(t *testing.T) {
+	now := cashSweepTestNow()
+	for _, tc := range []struct {
+		nlv, reserve, free float64
+	}{{200000, 20000, 40500}, {200300, 20030, 40470}} {
+		plan := cashSweepPlanFor(ownerSizedSweepPolicy(), sizedSweepInput(tc.nlv, map[string]float64{"EUR": 60500}), now)
+		sz := plan.status.Sizing
+		if sz == nil || sz.OrderStepBase != 1000 || !near(sz.ReserveBase, tc.reserve) {
+			t.Fatalf("NLV %v sizing = %+v", tc.nlv, sz)
+		}
+		eur := cashSweepCurrencyOf(t, plan, "EUR")
+		if eur.side != rpc.CashSweepSideInvest || !near(eur.free, tc.free) || !near(eur.orderAmount, 40000) || eur.quantity != 40000 {
+			t.Fatalf("NLV %v: EUR = %s free %v amount %v qty %d (%s)", tc.nlv, eur.side, eur.free, eur.orderAmount, eur.quantity, eur.status.Reason)
+		}
 	}
 }

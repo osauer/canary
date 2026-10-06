@@ -24,10 +24,11 @@ func cashSweepTestNow() time.Time { return time.Date(2026, 9, 30, 14, 0, 0, 0, t
 func cashSweepTestPolicy(mode string, maxOrderNotional float64) protectionPolicy {
 	p := defaultProtectionPolicy()
 	p.PolicyVersion = 9
-	// Every sizing number is written: no reserve, no base minimum and no
-	// NLV share, so the band is keep_cash 5000 and min_tranche 1000 alone.
+	// Every sizing number is written: no reserve, no base minimum, no NLV
+	// share and no order grid, so the band is keep_cash 5000 and min_tranche
+	// 1000 alone.
 	p.Buckets.CashSweep = &protectionCashSweepPolicy{Enabled: true, Mode: mode, MaxOrderNotional: maxOrderNotional, Currency: map[string]protectionCashSweepCurrency{},
-		MinOrderNotional: new(0.0), MaxOrderPctNLV: new(0.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(0.0), NoBuyWhileBorrowed: new(true)}
+		MinOrderNotional: new(0.0), MaxOrderPctNLV: new(0.0), ReserveFloorBase: new(0.0), ReservePctNLV: new(0.0), OrderStepBase: new(0.0), NoBuyWhileBorrowed: new(true)}
 	for _, ccy := range []string{"USD", "EUR"} {
 		c := defaultCashSweepCurrency(ccy)
 		c.KeepCash, c.MinTranche = new(5000.0), new(1000.0)

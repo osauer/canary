@@ -564,6 +564,7 @@ reserve_pct_nlv = 10.0       #   this percent of NLV, and planned needs
 min_order_notional = 20000.0 # smallest buy, in base currency
 max_order_notional = 50000.0 # largest order: the larger of this
 max_order_pct_nlv = 10.0     #   and this percent of NLV
+order_step_base = 1000.0     # order grid: buys round down, redemptions up
 keep_cash = 5000.0           # settlement float in each currency's own unit
 bills_exempt_from_trading_max_notional = true
 no_buy_while_borrowed = true # no bill buys while any currency is borrowed
@@ -639,6 +640,13 @@ base currency at the ledger rate.
 - **Order bounds.** A buy is at least `min_order_notional` and at most the
   larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV. A
   sale is never held to the minimum.
+- **Order grid.** Every order is sized on a grid of `order_step_base`
+  (1,000 in base currency, converted at the ledger rate): a buy rounds its
+  amount down to a whole step, a redemption rounds its target up. The reserve
+  and the order cap follow net liquidation value, so without the grid the
+  quantity would change on every refresh and an approval would go stale; with
+  it the quantity changes only when free cash crosses a step, about a 10,000
+  move in NLV at 10% (owner decision 2026-10-06 08:22 CEST).
 - **Fail closed.** When a percentage is above 0 and net liquidation value
   cannot be read, every currency holds with nothing bought or sold, and no row
   carries a trading-cap exemption.
@@ -685,8 +693,8 @@ figures, with stable field names: `base_currency`, `net_liquidation_base`,
 `reserve_pct_nlv_base`, `planned_needs_base`, `planned_needs_known`,
 `planned_needs_reason`, `reserve_shortfall_base`, `min_order_base`,
 `max_order_base`, `max_order_bound` (`max_order_notional` or
-`max_order_pct_nlv`), `max_order_notional_base`, `max_order_pct_nlv` and
-`trading_max_notional_exempt`. Each currency's status and row carry
+`max_order_pct_nlv`), `max_order_notional_base`, `max_order_pct_nlv`,
+`order_step_base` and `trading_max_notional_exempt`. Each currency's status and row carry
 `reserve_held`, the part of the reserve kept in that currency in its own unit.
 `max_order_notional_base` on the status and the row is the cap in force. A row
 detail says it in words, for example "kept as cash: 20000 EUR (10% of NLV
@@ -788,7 +796,7 @@ reports, with its figures and a state:
 | `cash_unavailable` | no current ledger cash for the currency (never read as zero) |
 | `settlement_unknown` | the broker supplied no per-currency settled cash, or working/armed queued buy commitments have no fixed finite bound; a journal estimate does not clear this state |
 | `equivalents_unclassified` | a bond or bill holding whose contract details cannot be read, or a declared-ETF holding |
-| `needs_your_number` | a sizing number (`max_order_notional`, `max_order_pct_nlv`, `min_order_notional`, `reserve_floor_base`, `reserve_pct_nlv`, or the currency's `keep_cash`), `no_buy_while_borrowed`, or the symbol of an ETF-only declaration, is not written; the reason names the key |
+| `needs_your_number` | a sizing number (`max_order_notional`, `max_order_pct_nlv`, `min_order_notional`, `reserve_floor_base`, `reserve_pct_nlv`, `order_step_base`, or the currency's `keep_cash`), `no_buy_while_borrowed`, or the symbol of an ETF-only declaration, is not written; the reason names the key |
 | `universe_unavailable` | no list of bills to choose from (see above) |
 | `instrument_unresolved` | no candidate bill was confirmed by contract details and a quote; `evidence` says why |
 

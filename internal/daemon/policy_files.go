@@ -779,7 +779,7 @@ func protectionMaterialisationKey(p protectionPolicy) string {
 		cleared := *c
 		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
 		cleared.ReserveFloorBase, cleared.ReservePctNLV, cleared.KeepCash, cleared.BillsExemptFromTradingMaxNotional = nil, nil, nil, nil
-		cleared.NoBuyWhileBorrowed = nil
+		cleared.NoBuyWhileBorrowed, cleared.OrderStepBase = nil, nil
 		p.Buckets.CashSweep = &cleared
 	}
 	return effectiveProtectionPolicy(p).Key
@@ -798,7 +798,7 @@ func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
 	if b.MaxOrderNotional != 0 && b.MaxOrderNotional != a.MaxOrderNotional {
 		return false
 	}
-	for _, f := range [][2]*float64{{b.MaxOrderPctNLV, a.MaxOrderPctNLV}, {b.MinOrderNotional, a.MinOrderNotional}, {b.ReserveFloorBase, a.ReserveFloorBase}, {b.ReservePctNLV, a.ReservePctNLV}, {b.KeepCash, a.KeepCash}} {
+	for _, f := range [][2]*float64{{b.MaxOrderPctNLV, a.MaxOrderPctNLV}, {b.MinOrderNotional, a.MinOrderNotional}, {b.ReserveFloorBase, a.ReserveFloorBase}, {b.ReservePctNLV, a.ReservePctNLV}, {b.OrderStepBase, a.OrderStepBase}, {b.KeepCash, a.KeepCash}} {
 		if f[0] != nil && (f[1] == nil || *f[0] != *f[1]) {
 			return false
 		}
@@ -960,6 +960,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # min_order_notional = %s
 # max_order_notional = %s
 # max_order_pct_nlv = %s   # percent of NLV
+# order_step_base = %s   # grid in base: buys round down, redemptions up
 # keep_cash = %s   # settlement float in each currency's own unit; a currency table may override it
 # Same-currency bill orders may pass the order cap in force ([order_limits])
 # up to the sweep's
@@ -987,7 +988,7 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # min_maturity_days = %d
 # max_maturity_days = %d
 # ladder_rungs = %d
-`, written["reserve_floor_base"], written["reserve_pct_nlv"], written["min_order_notional"], written["max_order_notional"], written["max_order_pct_nlv"], written["keep_cash"],
+`, written["reserve_floor_base"], written["reserve_pct_nlv"], written["min_order_notional"], written["max_order_notional"], written["max_order_pct_nlv"], written["order_step_base"], written["keep_cash"],
 		written["bills_exempt_from_trading_max_notional"], written["no_buy_while_borrowed"], eur.Instruments[0], eur.Instruments[1], eur.Fallback, written["keep_cash"], eur.MinMaturityDays, eur.MaxMaturityDays, eur.LadderRungs)
 }
 
