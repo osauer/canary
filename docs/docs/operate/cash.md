@@ -1,6 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 15:59 CEST
+Updated: 2026-10-06 17:18 CEST
 
 Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
 have no currency leveling; this page describes the versions after it.
@@ -56,17 +56,30 @@ only, adopts it at once and keeps a receipt of the save.
 
 A save is confirmed with your passkey or the Desk companion. After a save
 you confirmed on your device, further saves from the same Desk console
-session within ten minutes need no new confirmation, unless they change
-something at the broker: the check states what, for example a feature
-switched on, `shadow` changed to `active`, a rule loosened, or a size,
-reserve or band made larger, and such a save always needs your device. Canary
-records which confirmation each save relied on, in its receipt and in the
-comment on each changed line ("relying on your passkey confirmation of
-action 7f3c2a90 until 14:15 CEST"), and accepts the reliance only on a save it
-recorded with a fresh confirmation by the same credential, until the end that
-save's confirmation set; relying on it never moves that end.
+session need no new confirmation for as long as `[cash]
+confirmation_window` says, unless they change something at the broker. The
+check states what: a feature switched on, `shadow` changed to `active`, a
+rule loosened, a band, reserve or float made smaller, a limit, cushion,
+payback window or order size made larger, or a number written where the file
+had none (a feature that waited for it can then act). Such a save always
+needs your device. Sizes that depend on NLV or the order cap in force say
+what they come to at today's NLV, and why when that does not change today.
 
-Some keys stay in the file: `[cash] pre_authorised`, `currency_priority`
+`confirmation_window` lives in the file only: Desk shows it and cannot
+change it. Canary writes `confirmation_window = "10m"` into a file without
+it at the daemon's next start, after a backup, with the owner's decision
+beside it, and raises `policy_version`; `"0s"` asks your device for every
+save. Canary works out each window itself, from its receipt of the save you
+confirmed and the `confirmation_window` in force when a later save relies on
+it, so a shorter window in the file ends a reliance sooner. Canary records
+which confirmation each save relied on, in its receipt and in the comment on
+each changed line ("relying on your passkey confirmation of action 7f3c2a90
+until 14:15 CEST"), and accepts the reliance only on a save it recorded with
+a fresh confirmation by the same credential; relying on it never moves the
+end.
+
+Some keys stay in the file: `[cash] pre_authorised` and
+`confirmation_window`, `currency_priority`
 (Risk → Cash sets the priority), `reserve_cushion_eur`, `min_net_gain`,
 `tax_reviewed_at` and every per-currency key but the two above, including
 the ISIN lists and the fallback ETF. While the file pre-authorises the sweep,

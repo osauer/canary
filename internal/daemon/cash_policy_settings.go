@@ -28,8 +28,10 @@ import (
 // answer lives in one place:
 //  1. a save needs a confirmation reference: the owner's device, or an
 //     earlier save the device confirmed in the same Desk console session
-//     inside Desk's window; a save that lets more reach the broker always
-//     needs the device (cashPolicyReliance);
+//     inside [cash] confirmation_window, which is file-only (review decision
+//     2026-10-06 16:56 CEST); a save that lets more reach the broker always
+//     needs the device (cashPolicyReliance), and so does writing a number the
+//     file had none of (cashPolicyConsequences);
 //  2. [cash] pre_authorised stays file-only: it is not in cashPolicySpecs;
 //  3. while the file pre-authorises the sweep, a save may still switch the
 //     sweep on or move it to active; the first consequence then says that
@@ -786,16 +788,23 @@ func cashPolicyDay(day string) string {
 	return t.Format("2 Jan 2006")
 }
 
-// cashPolicyDuration renders a veto window in words.
+// cashPolicyDuration renders a veto window or a confirmation window in words.
 func cashPolicyDuration(d time.Duration) string {
+	unit := func(n int, one string) string {
+		if n == 1 {
+			return "1 " + one
+		}
+		return strconv.Itoa(n) + " " + one + "s"
+	}
 	switch {
 	case d%time.Hour == 0 && d >= time.Hour:
-		if d == time.Hour {
-			return "1 hour"
-		}
-		return strconv.Itoa(int(d/time.Hour)) + " hours"
+		return unit(int(d/time.Hour), "hour")
+	case d < time.Minute:
+		return unit(int(math.Round(d.Seconds())), "second")
+	case d%time.Minute == 0:
+		return unit(int(d/time.Minute), "minute")
 	default:
-		return strconv.Itoa(int(math.Round(d.Minutes()))) + " minutes"
+		return shortDuration(d)
 	}
 }
 

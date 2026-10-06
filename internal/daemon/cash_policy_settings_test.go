@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,6 +35,9 @@ veto_window = "30m"
 enabled = true
 
 # Cash management, as the owner keeps it.
+[cash]
+confirmation_window = "10m"
+
 [cash.sweep]  # my sweep
 enabled = true
 mode = "shadow"
@@ -118,11 +122,9 @@ func cashPolicyCheck(t *testing.T, s *Server, revision string, changes map[strin
 	return out
 }
 
-// cashPolicyConfirmation is a fresh device confirmation, which opens Desk's
-// ten-minute window for later saves to rely on.
+// cashPolicyConfirmation is a fresh device confirmation.
 func cashPolicyConfirmation() *rpc.CashPolicyConfirmation {
-	return &rpc.CashPolicyConfirmation{DeskActionID: "7f3c2a90deadbeef", Credential: "companion:key-1", Envelope: `{"credential":"companion","signature":"synthetic"}`,
-		ConfirmedUntil: cashPolicyTestNow.Add(10 * time.Minute)}
+	return &rpc.CashPolicyConfirmation{DeskActionID: "7f3c2a90deadbeef", Credential: "companion:key-1", Envelope: `{"credential":"companion","signature":"synthetic"}`}
 }
 
 func cashPolicyApply(s *Server, terms, digest, id string, confirmation *rpc.CashPolicyConfirmation, origin string) (*rpc.CashPolicyApplyResult, error) {
@@ -561,28 +563,34 @@ func TestCashPolicyApplyNeedsAConfirmationReferenceOnEverySave(t *testing.T) {
 }
 
 // Owner question 1 (2026-10-06 15:31 CEST: "Cache the decision for 5 or 10
-// minutes, if not serious concerns"): a save may rely on an earlier save the
-// device confirmed, inside the window Desk states, unless it lets more reach
-// the broker. Canary checks the reliance against its own receipt.
+// minutes, if not serious concerns"), with the window in the file (review
+// finding C2, 2026-10-06 16:56 CEST): a save may rely on an earlier save the
+// device confirmed, unless it lets more reach the broker, inside the window
+// Canary works out itself from its receipt and [cash] confirmation_window in
+// force at the relying save.
 func TestCashPolicySaveMayRelyOnAnEarlierDeviceConfirmation(t *testing.T) {
 	s, path, core := cashPolicyServer(t, cashPolicyTestFile)
 	first := cashPolicySave(t, s, map[string]any{"cash.leveling.cushion_base": 300}, "desk-cash-policy-FIRST")
 	until := cashPolicyTestNow.Add(10 * time.Minute)
+	if !first.ConfirmedUntil.Equal(until) {
+		t.Fatalf("the device-confirmed save opens a window to %v, want %v", first.ConfirmedUntil, until)
+	}
 	relying := func(id string) *rpc.CashPolicyConfirmation {
 		c := cashPolicyConfirmation()
-		c.DeskActionID, c.Envelope = id, `{"credential":"cached","confirmed_by":"desk-cash-policy-FIRST"}`
-		c.ConfirmedBy, c.ConfirmedUntil = "desk-cash-policy-FIRST", until
+		c.DeskActionID, c.Envelope, c.ConfirmedBy = id, `{"credential":"relied","confirmed_by":"desk-cash-policy-FIRST"}`, "desk-cash-policy-FIRST"
 		return c
 	}
+	at := func(d time.Duration) { s.now = func() time.Time { return cashPolicyTestNow.Add(d) } }
+	at(2 * time.Minute)
 	narrow := cashPolicyCheck(t, s, first.Revision, map[string]any{"cash.leveling.trigger_base": 12000})
 	if len(narrow.Consequences) != 0 {
 		t.Fatalf("narrowing draft has consequences %v", narrow.Consequences)
 	}
 	saved, err := cashPolicyApply(s, narrow.Terms, narrow.Digest, "desk-cash-policy-SECOND", relying("8a1b2c3d4e5f"), "")
-	if err != nil || saved.SavedVersion != 16 {
+	if err != nil || saved.SavedVersion != 16 || !saved.ConfirmedUntil.Equal(until) {
 		t.Fatalf("relying save %+v %v", saved, err)
 	}
-	if !strings.Contains(readFile(t, path), "trigger_base = 12000.0  # set in Desk 2026-10-06 14:05 CEST, relying on the companion's confirmation of action 7f3c2a90 until 14:15 CEST (action 8a1b2c3d); was 10000.0") {
+	if !strings.Contains(readFile(t, path), "trigger_base = 12000.0  # set in Desk 2026-10-06 14:07 CEST, relying on the companion's confirmation of action 7f3c2a90 until 14:15 CEST (action 8a1b2c3d); was 10000.0") {
 		t.Fatalf("relying provenance:\n%s", readFile(t, path))
 	}
 	event, _, _ := core.GetEvent(t.Context(), daemonStateScope, cashPolicyEventKey("desk-cash-policy-SECOND"))
@@ -590,50 +598,51 @@ func TestCashPolicySaveMayRelyOnAnEarlierDeviceConfirmation(t *testing.T) {
 	if json.Unmarshal(event.PayloadJSON, &receipt) != nil || receipt.ConfirmedBy != "desk-cash-policy-FIRST" || !receipt.ConfirmedUntil.Equal(until) {
 		t.Fatalf("relying receipt %+v", receipt)
 	}
-	written := readFile(t, path)
-	for name, c := range map[string]struct {
-		changes      map[string]any
-		confirmation *rpc.CashPolicyConfirmation
-		words        string
-	}{
-		// The serious concern: a save that lets more reach the broker needs the device.
-		"widening": {map[string]any{"cash.leveling.enabled": true}, relying("w1"), "lets more reach the broker"},
-		"expired": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
-			c := relying("e1")
-			c.ConfirmedUntil = cashPolicyTestNow
-			return c
-		}(), "has expired"},
-		"unknown save": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
-			c := relying("u1")
-			c.ConfirmedBy = "desk-cash-policy-NONE"
-			return c
-		}(), "holds no save"},
-		"chained": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
-			c := relying("c1")
-			c.ConfirmedBy = "desk-cash-policy-SECOND"
-			return c
-		}(), "not confirmed on your device"},
-		"another credential": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
-			c := relying("o1")
-			c.Credential = "passkey:other"
-			return c
-		}(), "not confirmed on your device"},
-		// Relying never extends the window the device-confirmed save opened.
-		"a later end": {map[string]any{"cash.leveling.trigger_base": 13000}, func() *rpc.CashPolicyConfirmation {
-			c := relying("l1")
-			c.ConfirmedUntil = until.Add(time.Minute)
-			return c
-		}(), "opened no window ending then"},
-	} {
+	// A retry of the relying save answers with the same receipt and end.
+	if again, err := cashPolicyApply(s, narrow.Terms, narrow.Digest, "desk-cash-policy-SECOND", relying("8a1b2c3d4e5f"), ""); err != nil || !again.Replay || !again.ConfirmedUntil.Equal(until) {
+		t.Fatalf("replay %+v %v", again, err)
+	}
+	refused := func(name string, changes map[string]any, c *rpc.CashPolicyConfirmation, words string) {
+		t.Helper()
+		written := readFile(t, path)
 		snap := cashPolicyGet(t, s)
-		check := cashPolicyCheck(t, s, snap.Revision, c.changes)
-		_, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-cash-policy-"+strings.ReplaceAll(name, " ", "-"), c.confirmation, "")
-		if rpcCode(err) != rpc.CodeConfirmationRequired || !strings.Contains(err.Error(), c.words) {
+		check := cashPolicyCheck(t, s, snap.Revision, changes)
+		_, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-cash-policy-"+strings.ReplaceAll(name, " ", "-"), c, "")
+		if rpcCode(err) != rpc.CodeConfirmationRequired || !strings.Contains(err.Error(), words) {
 			t.Fatalf("%s: %v", name, err)
 		}
 		if readFile(t, path) != written {
 			t.Fatalf("%s wrote the file", name)
 		}
+	}
+	// The serious concern: a save that lets more reach the broker needs the device.
+	refused("widening", map[string]any{"cash.leveling.enabled": true}, relying("w1"), "lets more reach the broker")
+	unknown := relying("u1")
+	unknown.ConfirmedBy = "desk-cash-policy-NONE"
+	refused("unknown save", map[string]any{"cash.leveling.trigger_base": 13000}, unknown, "holds no save")
+	chained := relying("c1")
+	chained.ConfirmedBy = "desk-cash-policy-SECOND"
+	refused("chained", map[string]any{"cash.leveling.trigger_base": 13000}, chained, "not confirmed on your device")
+	other := relying("o1")
+	other.Credential = "passkey:other"
+	refused("another credential", map[string]any{"cash.leveling.trigger_base": 13000}, other, "not confirmed on your device")
+	// The window ends ten minutes after the device-confirmed save's receipt.
+	at(10 * time.Minute)
+	refused("expired", map[string]any{"cash.leveling.trigger_base": 13000}, relying("e1"), "ended at 14:15 CEST")
+	// The window in force at the relying save decides: a shorter one in the
+	// file ends the reliance sooner, and 0s ends it.
+	for _, window := range []struct{ value, words string }{{`"1m"`, "ended at 14:06 CEST"}, {`"0s"`, "confirmation_window is 0s"}} {
+		at(2 * time.Minute)
+		text := readFile(t, path)
+		text = strings.Replace(text, `confirmation_window = "10m"`, "confirmation_window = "+window.value, 1)
+		text = strings.Replace(text, "confirmation_window = \"1m\"", "confirmation_window = "+window.value, 1)
+		version := cashPolicyGet(t, s).PolicyVersion
+		text = strings.Replace(text, fmt.Sprintf("policy_version = %d", version), fmt.Sprintf("policy_version = %d", version+1), 1)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		s.protectionPolicies.reload()
+		refused("window "+strings.Trim(window.value, `"`), map[string]any{"cash.leveling.trigger_base": 13000}, relying("x1"), window.words)
 	}
 }
 
@@ -669,7 +678,7 @@ func TestCashPolicyScopeLeavesPreAuthorisationAndBillListsInTheFile(t *testing.T
 // consequence says that the daemon then sends the orders itself, after the
 // veto window, and the cap in force.
 func TestCashPolicyRaisingAPreAuthorisedSweepSaysTheDaemonSendsFirst(t *testing.T) {
-	file := strings.Replace(cashPolicyTestFile, "# Cash management, as the owner keeps it.\n", "[cash]\npre_authorised = [\"cash_sweep\"]\n\n", 1)
+	file := strings.Replace(cashPolicyTestFile, "[cash]\n", "[cash]\npre_authorised = [\"cash_sweep\"]\n", 1)
 	file = strings.Replace(file, "enabled = true\nmode = \"shadow\"", "enabled = false\nmode = \"shadow\"", 1)
 	s, _, _ := cashPolicyServer(t, file)
 	snap := cashPolicyGet(t, s)
@@ -829,7 +838,8 @@ func TestCashPolicyConsequencesNameWhatLetsMoreReachTheBroker(t *testing.T) {
 		"Currency leveling starts proposing conversions for loans beyond 5,000 EUR. Each repayment waits for your approval.",
 		"Leveling repays loans from 5,000 EUR instead of 10,000 EUR.",
 		"Sweep rows become proposals you can approve.",
-		"The sweep keeps at least 5,000 EUR as cash instead of 10,000 EUR.",
+		// The share of NLV sets the reserve today (review finding C3).
+		"At today's NLV the reserve kept as cash stays 20,000 EUR: 10% of NLV sets it, so the change matters only if NLV falls.",
 		"Bill buys may go ahead while a currency is borrowed.",
 		"GBP keeps 2,000 GBP as settlement float instead of 8,000 GBP.",
 	}
@@ -975,5 +985,190 @@ func TestCashPolicyFindingsAreThePolicyCheckOnTheFileAndTheDraft(t *testing.T) {
 		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
 			t.Fatalf("finding outside the cash rules %+v", f)
 		}
+	}
+}
+
+// Review finding C1 (2026-10-06 16:56 CEST): a number written where the file
+// had none is always a consequence, worded as what then happens. A sweep that
+// is pre-authorised, on and active but lacks a number holds; writing it lets
+// the daemon send orders, so a relying save is refused.
+func TestCashPolicyWritingANumberTheFileLackedIsAConsequence(t *testing.T) {
+	preAuthorised := strings.Replace(cashPolicyTestFile, "[cash]\n", "[cash]\npre_authorised = [\"cash_sweep\"]\n", 1)
+	preAuthorised = strings.Replace(preAuthorised, "enabled = true\nmode = \"shadow\"", "enabled = true\nmode = \"active\"", 1)
+	for _, c := range []struct {
+		line, key string
+		value     any
+		first     string
+	}{
+		{"max_order_notional = 50000.0  # chosen after the review\n", "cash.sweep.max_order_notional", 60000,
+			"The daemon will send sweep orders itself, 30 minutes after announcing them, up to 60,000 EUR each at today's NLV."},
+		{"min_order_notional = 20000.0\n", "cash.sweep.min_order_notional", 20000,
+			"The daemon will send sweep orders itself, 30 minutes after announcing them, up to 50,000 EUR each at today's NLV."},
+		{"reserve_floor_base = 10000.0\n", "cash.sweep.reserve_floor_base", 10000,
+			"The daemon will send sweep orders itself, 30 minutes after announcing them, up to 50,000 EUR each at today's NLV."},
+	} {
+		t.Run(c.key, func(t *testing.T) {
+			file := strings.Replace(preAuthorised, c.line, "", 1)
+			s, path, _ := cashPolicyServer(t, file)
+			first := cashPolicySave(t, s, map[string]any{"cash.leveling.cushion_base": 300}, "desk-cash-policy-FIRST")
+			check := cashPolicyCheck(t, s, first.Revision, map[string]any{c.key: c.value})
+			if len(check.Errors) != 0 || check.Digest == "" || len(check.Consequences) == 0 || check.Consequences[0] != c.first {
+				t.Fatalf("writing %s: %+v", c.key, check)
+			}
+			written := readFile(t, path)
+			relying := cashPolicyConfirmation()
+			relying.DeskActionID, relying.ConfirmedBy = "8a1b2c3d", "desk-cash-policy-FIRST"
+			if _, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-cash-policy-SECOND", relying, ""); rpcCode(err) != rpc.CodeConfirmationRequired ||
+				!strings.Contains(err.Error(), "lets more reach the broker") {
+				t.Fatalf("a relying save unblocked the sweep: %v", err)
+			}
+			if readFile(t, path) != written {
+				t.Fatal("the refused save wrote the file")
+			}
+		})
+	}
+	// Without pre-authorisation the sweep proposes; with more missing it still
+	// waits; leveling that lacks its band can then propose.
+	active := strings.Replace(cashPolicyTestFile, "enabled = true\nmode = \"shadow\"", "enabled = true\nmode = \"active\"", 1)
+	lacking := strings.Replace(active, "max_order_notional = 50000.0  # chosen after the review\n", "", 1)
+	levelingOn := strings.Replace(cashPolicyTestFile, "[cash.leveling]\nenabled = false\ntrigger_base = 10000.0\n", "[cash.leveling]\nenabled = true\n", 1)
+	for _, c := range []struct {
+		name, file string
+		changes    map[string]any
+		want       string
+	}{
+		{"sweep proposes", lacking, map[string]any{"cash.sweep.max_order_notional": 60000},
+			"The sweep can now propose bill orders for you to approve: the file had no largest order."},
+		{"sweep still waits", strings.Replace(lacking, "min_order_notional = 20000.0\n", "", 1), map[string]any{"cash.sweep.max_order_notional": 60000},
+			"The file gets the sweep's largest order; the sweep still waits for its smallest buy."},
+		{"sweep off", strings.Replace(lacking, "enabled = true\nmode = \"active\"", "enabled = false\nmode = \"active\"", 1), map[string]any{"cash.sweep.max_order_notional": 60000},
+			"The sweep can now work once you switch it on: the file had no largest order."},
+		{"leveling proposes", levelingOn, map[string]any{"cash.leveling.trigger_base": 10000},
+			"Leveling can now propose conversions for you to approve: the file had no band."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, _, _ := cashPolicyServer(t, c.file)
+			check := cashPolicyCheck(t, s, cashPolicyGet(t, s).Revision, c.changes)
+			if len(check.Errors) != 0 || !slices.Contains(check.Consequences, c.want) {
+				t.Fatalf("%s: %+v", c.name, check)
+			}
+		})
+	}
+}
+
+// Review finding C3 (2026-10-06 16:56 CEST): a size that depends on NLV or
+// the order cap in force says what it comes to at today's NLV, and why when
+// that does not change today; the save stays a widening either way.
+func TestCashPolicySizesSayWhatChangesAtTodaysNLV(t *testing.T) {
+	// The synthetic NLV is 200,000 and the order cap in force 25,000.
+	for _, c := range []struct {
+		name    string
+		replace [2]string
+		book    func(*cashPolicyBook)
+		changes map[string]any
+		want    string
+	}{
+		{"fixed amount sets it", [2]string{}, nil, map[string]any{"cash.sweep.max_order_notional": 80000},
+			"At today's NLV the largest sweep order rises from 50,000 EUR to 80,000 EUR."},
+		{"share sets it", [2]string{"max_order_pct_nlv = 10.0", "max_order_pct_nlv = 50.0"}, nil, map[string]any{"cash.sweep.max_order_notional": 80000},
+			"At today's NLV the largest sweep order stays 100,000 EUR: 50% of NLV sets it, so the change matters only if NLV falls."},
+		{"cap holds it", [2]string{"bills_exempt_from_trading_max_notional = true", "bills_exempt_from_trading_max_notional = false"}, nil, map[string]any{"cash.sweep.max_order_notional": 80000},
+			"At today's NLV the largest sweep order stays 25,000 EUR: the order cap in force holds it, so the change matters only if that cap rises or bills may pass it."},
+		{"larger share", [2]string{}, nil, map[string]any{"cash.sweep.max_order_pct_nlv": 40},
+			"At today's NLV the largest sweep order rises from 50,000 EUR to 80,000 EUR."},
+		{"smaller reserve share", [2]string{}, nil, map[string]any{"cash.sweep.reserve_pct_nlv": 2},
+			"At today's NLV the reserve kept as cash falls from 20,000 EUR to 10,000 EUR."},
+		{"bills pass the cap", [2]string{"bills_exempt_from_trading_max_notional = true", "bills_exempt_from_trading_max_notional = false"}, nil,
+			map[string]any{"cash.sweep.bills_exempt_from_trading_max_notional": true},
+			"Bill orders may pass the order cap in force of 25,000 EUR: at today's NLV the largest sweep order rises from 25,000 EUR to 50,000 EUR."},
+		{"NLV unknown", [2]string{}, func(b *cashPolicyBook) { b.nlv = 0 }, map[string]any{"cash.sweep.max_order_notional": 80000},
+			"The largest sweep order's fixed amount rises from 50,000 EUR to 80,000 EUR; what that comes to today is unknown, because NLV cannot be read now."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			file := cashPolicyTestFile
+			if c.replace[0] != "" {
+				file = strings.Replace(file, c.replace[0], c.replace[1], 1)
+			}
+			s, _, _ := cashPolicyServer(t, file)
+			if c.book != nil {
+				s.cashPolicyBookForTest = func() cashPolicyBook { b := cashPolicyTestBook(); c.book(&b); return b }
+			}
+			check := cashPolicyCheck(t, s, cashPolicyGet(t, s).Revision, c.changes)
+			if len(check.Errors) != 0 || !slices.Equal(check.Consequences, []string{c.want}) {
+				t.Fatalf("%s:\n got %q\nwant %q", c.name, check.Consequences, c.want)
+			}
+		})
+	}
+}
+
+// Review finding C2 (2026-10-06 16:56 CEST): the window is [cash]
+// confirmation_window, read from the file only and shown read-only.
+func TestCashPolicyConfirmationWindowComesFromTheFile(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	if snap.ConfirmationWindowSeconds != 600 || snap.Confirmation != "For 10 minutes after your passkey or companion confirms a save, a further save from the same Desk window that lets no more reach the broker needs no new confirmation. Change this in the file: [cash] confirmation_window." {
+		t.Fatalf("window %d %q", snap.ConfirmationWindowSeconds, snap.Confirmation)
+	}
+	if _, ok := cashPolicySetting(snap, "cash.confirmation_window"); ok {
+		t.Fatal("the window is on the screen as a setting Desk could change")
+	}
+	check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"cash.confirmation_window": "1h"})
+	if check.Errors["cash.confirmation_window"] != "Desk cannot change this setting; change it in the file." {
+		t.Fatalf("window change %+v", check.Errors)
+	}
+	none, _, _ := cashPolicyServer(t, strings.Replace(cashPolicyTestFile, "[cash]\nconfirmation_window = \"10m\"\n", "[cash]\n", 1))
+	if snap := cashPolicyGet(t, none); snap.ConfirmationWindowSeconds != 0 || snap.Confirmation != "Every save asks your passkey or companion. Change this in the file: [cash] confirmation_window." {
+		t.Fatalf("no window %d %q", snap.ConfirmationWindowSeconds, snap.Confirmation)
+	}
+	if saved := cashPolicySave(t, none, map[string]any{"cash.leveling.cushion_base": 300}, "desk-cash-policy-NONE"); !saved.ConfirmedUntil.IsZero() {
+		t.Fatalf("a save opened a window of 0s: %v", saved.ConfirmedUntil)
+	}
+	for value, ok := range map[string]bool{`"10m"`: true, `"0s"`: true, `"90s"`: true, `"-1m"`: false, `"soon"`: false, `10`: false} {
+		_, _, err := parseProtectionPolicy([]byte(strings.Replace(cashPolicyTestFile, `confirmation_window = "10m"`, "confirmation_window = "+value, 1)))
+		if (err == nil) != ok {
+			t.Errorf("confirmation_window = %s: %v", value, err)
+		}
+	}
+}
+
+// The startup migration writes the owner's window where a file has none,
+// with the decision beside it, and raises policy_version for it.
+func TestProtectionMigrationWritesTheConfirmationWindow(t *testing.T) {
+	for name, file := range map[string]string{
+		"into [cash]":     strings.Replace(cashPolicyTestFile, "[cash]\nconfirmation_window = \"10m\"\n", "[cash]\npre_authorised = []\n", 1),
+		"a new [cash]":    strings.Replace(cashPolicyTestFile, "[cash]\nconfirmation_window = \"10m\"\n\n", "", 1),
+		"kept as written": strings.Replace(cashPolicyTestFile, `confirmation_window = "10m"`, `confirmation_window = "0s"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			before, _, err := parseProtectionPolicy([]byte(file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, changes, notes, err := migrateProtectionPolicyFile([]byte(file), "v9.9.9")
+			if err != nil || len(notes) != 0 {
+				t.Fatalf("migration %v %v", err, notes)
+			}
+			after, _, err := parseProtectionPolicy(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name == "kept as written" {
+				if len(changes) != 0 || after.Cash.ConfirmationWindow != "0s" {
+					t.Fatalf("an owner's window was rewritten: %v", changes)
+				}
+				return
+			}
+			text := string(out)
+			if after.Cash.ConfirmationWindow != "10m" || after.PolicyVersion != before.PolicyVersion+1 ||
+				!strings.Contains(text, "Owner decision 2026-10-06 15:31\n# CEST: \"Cache the decision for 5 or 10 minutes, if not serious concerns\".\nconfirmation_window = \"10m\"  # written by Canary v9.9.9") {
+				t.Fatalf("%s: %v\n%s", name, changes, text)
+			}
+			if name == "a new [cash]" && strings.Index(text, "[cash]\n") > strings.Index(text, "# Cash management, as the owner keeps it.") {
+				t.Fatalf("the new [cash] is not above the cash tables and their comments:\n%s", text)
+			}
+			if again, changes, _, err := migrateProtectionPolicyFile(out, "v9.9.9"); err != nil || len(changes) != 0 || string(again) != text {
+				t.Fatalf("a second ensure changed %v (%v)", changes, err)
+			}
+		})
 	}
 }

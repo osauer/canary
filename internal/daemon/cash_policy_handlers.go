@@ -198,6 +198,8 @@ func (s *Server) cashPolicySnapshot(ctx context.Context, r cashPolicyRead) rpc.C
 		PolicyVersion: r.file.PolicyVersion, InForceVersion: r.inForce.PolicyVersion, Writable: r.writable(), AsOf: b.at, BaseCurrency: b.base,
 		Sections: sections, Settings: cashPolicySettingsFor(view, defined, currencies, facts), Currencies: cashPolicyCurrencyRows(view, b, currencies),
 		RatesThrough: b.ratesThrough, Findings: []rpc.CashPolicyFinding{}}
+	window := r.inForce.Cash.confirmationWindow()
+	out.ConfirmationWindowSeconds, out.Confirmation = int64(window/time.Second), cashPolicyConfirmationSentence(window)
 	if r.writable() {
 		out.Findings = s.cashPolicyFindingsFor(r.path, r.data, b)
 		if !s.cashPolicyReceiptsReady() {
@@ -266,7 +268,17 @@ func (s *Server) handleCashPolicyCheck(ctx context.Context, req *rpc.Request) (*
 	out.Findings = s.cashPolicyFindingsFor(r.path, d.data, b)
 	out.SavedVersion = r.file.PolicyVersion + 1
 	out.Terms, out.Digest = cashPolicyTermsFor(r.revision, d.edits)
+	out.BaseCurrency = b.base
 	return out, nil
+}
+
+// cashPolicyConfirmationSentence says what [cash] confirmation_window in
+// force means for a save from Desk; the file decides it.
+func cashPolicyConfirmationSentence(window time.Duration) string {
+	if window <= 0 {
+		return "Every save asks your passkey or companion. Change this in the file: [cash] confirmation_window."
+	}
+	return "For " + cashPolicyDuration(window) + " after your passkey or companion confirms a save, a further save from the same Desk window that lets no more reach the broker needs no new confirmation. Change this in the file: [cash] confirmation_window."
 }
 
 // cashPolicyReliance is owner question 1 as the owner answered it
@@ -274,43 +286,43 @@ func (s *Server) handleCashPolicyCheck(ctx context.Context, req *rpc.Request) (*
 // serious concerns"). Every save carries a confirmation reference. One that
 // relies on an earlier save, rather than on the owner's device now, is
 // accepted only when the save lets no more reach the broker (any consequence
-// is the serious concern and needs the device), before the window ends, and
-// when Canary recorded that earlier save confirmed freshly by the same
-// credential, opening a window with that same end. Desk owns the window's
-// length and binds it to its console session; Canary binds each reliance to
-// the end the device-confirmed save declared, so relying never extends it. It
-// returns the earlier save's receipt, nil for a fresh confirmation, or
-// Canary's refusal.
-func (s *Server) cashPolicyReliance(ctx context.Context, c *rpc.CashPolicyConfirmation, consequences int, now time.Time) (*cashPolicyReceipt, error) {
+// is the serious concern and needs the device), when Canary recorded that
+// earlier save confirmed freshly by the same credential, and inside the
+// window Canary works out itself: the earlier receipt's time plus [cash]
+// confirmation_window in force now. Desk binds the reliance to its console
+// session. It returns the earlier save's receipt and the window's end, nil
+// for a fresh confirmation, or Canary's refusal.
+func (s *Server) cashPolicyReliance(ctx context.Context, c *rpc.CashPolicyConfirmation, consequences int, window time.Duration, now time.Time) (*cashPolicyReceipt, time.Time, error) {
 	if c.ConfirmedBy == "" {
-		return nil, nil
+		return nil, time.Time{}, nil
 	}
 	refuse := func(why string) error {
 		return &rpc.Error{Code: rpc.CodeConfirmationRequired, Message: why + " Confirm on your device; nothing was written."}
 	}
 	switch {
 	case consequences > 0:
-		return nil, refuse("This save lets more reach the broker, so it needs a fresh confirmation.")
-	case !now.Before(c.ConfirmedUntil):
-		return nil, refuse("The confirmation this save relies on has expired.")
+		return nil, time.Time{}, refuse("This save lets more reach the broker, so it needs a fresh confirmation.")
+	case window <= 0:
+		return nil, time.Time{}, refuse("[cash] confirmation_window is 0s, so every save needs a fresh confirmation.")
 	case !cashPriorityRequestID.MatchString(c.ConfirmedBy):
-		return nil, refuse("This save names no save it can rely on.")
+		return nil, time.Time{}, refuse("This save names no save it can rely on.")
 	}
 	event, found, err := s.coreStore.GetEvent(ctx, daemonStateScope, cashPolicyEventKey(c.ConfirmedBy))
 	if err != nil {
-		return nil, fmt.Errorf("cash policy receipt unavailable")
+		return nil, time.Time{}, fmt.Errorf("cash policy receipt unavailable")
 	}
 	var earlier cashPolicyReceipt
 	if !found || event.Type != cashPolicyReceiptType || decodeStrictPlatformSettingsJSON(event.PayloadJSON, &earlier) != nil || earlier.RequestID != c.ConfirmedBy {
-		return nil, refuse("Canary holds no save this one can rely on.")
+		return nil, time.Time{}, refuse("Canary holds no save this one can rely on.")
 	}
 	if earlier.ConfirmedBy != "" || earlier.Credential != c.Credential || event.OccurredAt.After(now) {
-		return nil, refuse("The save this one relies on was not confirmed on your device by the same credential.")
+		return nil, time.Time{}, refuse("The save this one relies on was not confirmed on your device by the same credential.")
 	}
-	if earlier.ConfirmedUntil.IsZero() || !earlier.ConfirmedUntil.Equal(c.ConfirmedUntil) {
-		return nil, refuse("The save this one relies on opened no window ending then.")
+	until := event.OccurredAt.Add(window)
+	if !now.Before(until) {
+		return nil, time.Time{}, refuse("The confirmation this save relies on ended at " + cashPolicyClock(until) + ".")
 	}
-	return &earlier, nil
+	return &earlier, until, nil
 }
 
 // cashPolicyOriginAllowed reports whether origin may save cash policy: only
@@ -326,7 +338,10 @@ func cashPolicyOriginAllowed(origin string) bool {
 // changed key's value before, the version written, the revision of the bytes
 // written, the backup, and the owner's confirmation as Desk sent it (kept for
 // audit only; Canary cannot verify its signature), with the earlier save it
-// relied on and that reliance's end, when it did.
+// relied on, when it did. ConfirmedUntil is the end of the window the save
+// relied on, or for a fresh confirmation the end of the window it opened at
+// the window in force then (later reliances use the window in force at
+// their own time).
 type cashPolicyReceipt struct {
 	Version         int            `json:"version"`
 	RequestID       string         `json:"request_id"`
@@ -373,7 +388,7 @@ func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*
 	if !s.cashPolicyReceiptsReady() {
 		return nil, &rpc.Error{Code: rpc.CodePolicyUnwritable, Message: "Canary's state store is unavailable, so a save could not be recorded; nothing was written."}
 	}
-	saved, replay, err := s.applyCashPolicy(ctx, m, in, terms)
+	receipt, replay, err := s.applyCashPolicy(ctx, m, in, terms)
 	if err != nil {
 		return nil, err
 	}
@@ -382,8 +397,8 @@ func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*
 		return nil, err
 	}
 	active, _ := m.Active()
-	out := &rpc.CashPolicyApplyResult{CashPolicySnapshot: s.cashPolicySnapshot(ctx, r), RequestID: in.RequestID, SavedVersion: saved,
-		InForce: active.PolicyVersion >= saved, Replay: replay}
+	out := &rpc.CashPolicyApplyResult{CashPolicySnapshot: s.cashPolicySnapshot(ctx, r), RequestID: in.RequestID, SavedVersion: receipt.SavedVersion,
+		InForce: active.PolicyVersion >= receipt.SavedVersion, Replay: replay, ConfirmedUntil: receipt.ConfirmedUntil}
 	return out, nil
 }
 
@@ -391,34 +406,35 @@ func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*
 // runs between the read, the write and the reload: it checks the receipt,
 // the revision and the loader's validation again, writes the changed lines
 // with their provenance after a backup, reloads the manager and records the
-// receipt. A retried request with the same terms writes nothing.
-func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager, in rpc.CashPolicyApplyRequest, terms cashPolicyTerms) (saved int, replay bool, err error) {
+// receipt. A retried request with the same terms writes nothing and answers
+// with its receipt.
+func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager, in rpc.CashPolicyApplyRequest, terms cashPolicyTerms) (cashPolicyReceipt, bool, error) {
 	m.fileMu.Lock()
 	defer m.fileMu.Unlock()
 	eventKey := cashPolicyEventKey(in.RequestID)
 	event, found, err := s.coreStore.GetEvent(ctx, daemonStateScope, eventKey)
 	if err != nil {
-		return 0, false, fmt.Errorf("cash policy receipt unavailable")
+		return cashPolicyReceipt{}, false, fmt.Errorf("cash policy receipt unavailable")
 	}
 	if found {
 		var receipt cashPolicyReceipt
 		if event.Type != cashPolicyReceiptType || decodeStrictPlatformSettingsJSON(event.PayloadJSON, &receipt) != nil || receipt.Version != 1 || receipt.RequestID != in.RequestID {
-			return 0, false, fmt.Errorf("invalid cash policy receipt")
+			return cashPolicyReceipt{}, false, fmt.Errorf("invalid cash policy receipt")
 		}
 		if receipt.Digest != in.Digest {
-			return 0, false, &rpc.Error{Code: rpc.CodeRequestReused, Message: "This request id already saved other changes; nothing was written."}
+			return cashPolicyReceipt{}, false, &rpc.Error{Code: rpc.CodeRequestReused, Message: "This request id already saved other changes; nothing was written."}
 		}
-		return receipt.SavedVersion, true, nil
+		return receipt, true, nil
 	}
 	r, err := s.readCashPolicy()
 	if err != nil {
-		return 0, false, err
+		return cashPolicyReceipt{}, false, err
 	}
 	if r.revision != terms.ExpectedRevision {
-		return 0, false, &rpc.Error{Code: rpc.CodeSettingsConflict, Message: "The policy file changed since it was read; nothing was written."}
+		return cashPolicyReceipt{}, false, &rpc.Error{Code: rpc.CodeSettingsConflict, Message: "The policy file changed since it was read; nothing was written."}
 	}
 	if !r.writable() {
-		return 0, false, &rpc.Error{Code: rpc.CodePolicyUnwritable, Message: cashPolicyMessage(r.message, "") + " Nothing was written."}
+		return cashPolicyReceipt{}, false, &rpc.Error{Code: rpc.CodePolicyUnwritable, Message: cashPolicyMessage(r.message, "") + " Nothing was written."}
 	}
 	d := planCashPolicyDraft(r, terms.Changes)
 	if len(d.errors) > 0 {
@@ -426,34 +442,38 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 		for _, key := range slices.Sorted(maps.Keys(d.errors)) {
 			parts = append(parts, strings.TrimSpace(key+" "+d.errors[key]))
 		}
-		return 0, false, &rpc.Error{Code: rpc.CodePolicyInvalid, Message: strings.Join(parts, "; ")}
+		return cashPolicyReceipt{}, false, &rpc.Error{Code: rpc.CodePolicyInvalid, Message: strings.Join(parts, "; ")}
 	}
 	if again, _ := cashPolicyTermsFor(r.revision, d.edits); again != in.Terms {
-		return 0, false, errBadRequest("the terms are not what Canary's check of this file returns")
+		return cashPolicyReceipt{}, false, errBadRequest("the terms are not what Canary's check of this file returns")
 	}
 	now := s.nowUTC()
-	relied, err := s.cashPolicyReliance(ctx, in.Confirmation, len(cashPolicyConsequences(r.file, d.policy, d.edits, cashPolicyBook{})), now)
+	window := r.inForce.Cash.confirmationWindow()
+	relied, until, err := s.cashPolicyReliance(ctx, in.Confirmation, len(cashPolicyConsequences(r.file, d.policy, d.edits, cashPolicyBook{})), window, now)
 	if err != nil {
-		return 0, false, err
+		return cashPolicyReceipt{}, false, err
 	}
-	note := &cashPolicyNote{at: cashPolicyStamp(now), confirmed: cashPolicyConfirmedBy(in.Confirmation, relied)}
+	if relied == nil && window > 0 {
+		until = now.Add(window)
+	}
+	note := &cashPolicyNote{at: cashPolicyStamp(now), confirmed: cashPolicyConfirmedBy(in.Confirmation, relied, until)}
 	out, err := editCashPolicyFile(r.data, d.edits, r.file.PolicyVersion, note)
 	if err != nil {
-		return 0, false, err
+		return cashPolicyReceipt{}, false, err
 	}
 	after, _, err := parseProtectionPolicy(out)
 	if err != nil {
-		return 0, false, fmt.Errorf("the saved file would not parse; nothing written: %w", err)
+		return cashPolicyReceipt{}, false, fmt.Errorf("the saved file would not parse; nothing written: %w", err)
 	}
 	if err := verifyCashPolicyEdit(r.file, after, d.edits); err != nil {
-		return 0, false, fmt.Errorf("the saved file would not say what the changes mean (%v); nothing written", err)
+		return cashPolicyReceipt{}, false, fmt.Errorf("the saved file would not say what the changes mean (%v); nothing written", err)
 	}
 	backup, err := writeCashPolicyBackup(r.path, r.data, now)
 	if err != nil {
-		return 0, false, fmt.Errorf("backup before saving: %w; nothing written", err)
+		return cashPolicyReceipt{}, false, fmt.Errorf("backup before saving: %w; nothing written", err)
 	}
 	if err := writePrivateFile(r.path, out); err != nil {
-		return 0, false, fmt.Errorf("write %s: %w", r.path, err)
+		return cashPolicyReceipt{}, false, fmt.Errorf("write %s: %w", r.path, err)
 	}
 	m.reloadHeld()
 	before := map[string]any{}
@@ -466,7 +486,7 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 	}
 	receipt := cashPolicyReceipt{Version: 1, RequestID: in.RequestID, Terms: in.Terms, Digest: in.Digest, Before: before, FromVersion: r.file.PolicyVersion,
 		SavedVersion: after.PolicyVersion, WrittenRevision: cashPolicyDigest(out), Backup: backup, DeskActionID: in.Confirmation.DeskActionID,
-		Credential: in.Confirmation.Credential, Envelope: in.Confirmation.Envelope, ConfirmedBy: in.Confirmation.ConfirmedBy, ConfirmedUntil: in.Confirmation.ConfirmedUntil}
+		Credential: in.Confirmation.Credential, Envelope: in.Confirmation.Envelope, ConfirmedBy: in.Confirmation.ConfirmedBy, ConfirmedUntil: until}
 	raw, _ := json.Marshal(receipt)
 	input := corestore.EventInput{ScopeKey: daemonStateScope, EventKey: eventKey, Type: cashPolicyReceiptType, Action: coreEventActionUpdate,
 		Origin: rpc.OrderOriginAgent, OccurredAt: now, PayloadJSON: raw}
@@ -475,9 +495,9 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 	receiptCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if _, err := s.coreStore.AppendEvents(receiptCtx, []corestore.EventInput{input}); err != nil {
-		return 0, false, fmt.Errorf("saved as policy_version %d, but its receipt could not be recorded: %v", after.PolicyVersion, err)
+		return cashPolicyReceipt{}, false, fmt.Errorf("saved as policy_version %d, but its receipt could not be recorded: %v", after.PolicyVersion, err)
 	}
-	return after.PolicyVersion, false, nil
+	return receipt, false, nil
 }
 
 // cashPolicyEventKey names a request's receipt in the event table.
@@ -517,8 +537,8 @@ func cashPolicyStamp(t time.Time) string {
 
 // cashPolicyConfirmedBy names how the owner confirmed a save, with the
 // start of Desk's action id, for the provenance comment; a save that relied
-// on an earlier confirmation names that save's action and the reliance's end.
-func cashPolicyConfirmedBy(c *rpc.CashPolicyConfirmation, relied *cashPolicyReceipt) string {
+// on an earlier confirmation names that save's action and the window's end.
+func cashPolicyConfirmedBy(c *rpc.CashPolicyConfirmation, relied *cashPolicyReceipt, until time.Time) string {
 	how, earlier := "confirmed on your device", "your device's confirmation"
 	switch {
 	case strings.HasPrefix(c.Credential, "passkey"):
@@ -527,7 +547,7 @@ func cashPolicyConfirmedBy(c *rpc.CashPolicyConfirmation, relied *cashPolicyRece
 		how, earlier = "confirmed in the companion", "the companion's confirmation"
 	}
 	if relied != nil {
-		return "relying on " + earlier + " of action " + cashPolicyShortID(relied.DeskActionID) + " until " + cashPolicyClock(c.ConfirmedUntil) +
+		return "relying on " + earlier + " of action " + cashPolicyShortID(relied.DeskActionID) + " until " + cashPolicyClock(until) +
 			" (action " + cashPolicyShortID(c.DeskActionID) + ")"
 	}
 	return how + " (action " + cashPolicyShortID(c.DeskActionID) + ")"

@@ -382,9 +382,11 @@ func cashPolicyKeepCash(p protectionPolicy, ccy string) any {
 }
 
 // cashPolicyDaemonSends reports whether the daemon places the sweep's
-// orders itself: the file pre-authorises the sweep, and it is on and active.
+// orders itself: the file pre-authorises the sweep, it is on and active, and
+// it has every number it reads from the file (until then it holds).
 func cashPolicyDaemonSends(p protectionPolicy) bool {
-	return p.preAuthorised(preAuthorisedBucketCashSweep) && p.Cash.Sweep.enabled() && p.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive
+	return p.preAuthorised(preAuthorisedBucketCashSweep) && p.Cash.Sweep.enabled() && p.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive &&
+		len(p.Cash.Sweep.missingNumbers()) == 0
 }
 
 // cashPolicyDaemonSendsSentence says that the daemon will send the sweep's
@@ -393,30 +395,118 @@ func cashPolicyDaemonSends(p protectionPolicy) bool {
 func cashPolicyDaemonSendsSentence(p protectionPolicy, b cashPolicyBook) string {
 	s := p.Cash.Sweep
 	text := "The daemon will send sweep orders itself, " + cashPolicyDuration(p.Authority.vetoWindow()) + " after announcing them"
-	if s.MaxOrderNotional <= 0 {
+	top, _, ok := cashPolicyLargestOrder(s, b)
+	switch {
+	case s.MaxOrderNotional <= 0:
 		return text + ", once the sweep's numbers are in the file."
-	}
-	top, pct := s.MaxOrderNotional, policyCheckDeref(s.MaxOrderPctNLV)
-	if pct > 0 && b.nlv <= 0 {
-		return text + ", up to " + cashPolicyMoney(top, b.base) + " each, more as NLV grows."
-	}
-	top = max(top, pct/100*b.nlv)
-	if !s.billsExempt() && b.orderCapReason == "" && b.orderCap > 0 {
-		top = min(top, b.orderCap)
-	}
-	if pct > 0 {
+	case !ok:
+		return text + ", up to " + cashPolicyMoney(s.MaxOrderNotional, b.base) + " each, more as NLV grows."
+	case policyCheckDeref(s.MaxOrderPctNLV) > 0:
 		return text + ", up to " + cashPolicyMoney(top, b.base) + " each at today's NLV."
 	}
 	return text + ", up to " + cashPolicyMoney(top, b.base) + " each."
 }
 
-// cashPolicyConsequences states, for each change that lets more reach the
-// broker, what changes there: a feature switched on, shadow changed to
-// active, a rule loosened, a size, reserve or band made larger. A number
-// written where none was is not a direction. When the draft makes the daemon
-// send the sweep's orders itself (the file pre-authorises the sweep), that
-// comes first (owner decision 2026-10-06 15:31 CEST); while it already does,
-// each sweep change says so.
+// cashPolicyLargestOrder is the sweep's largest order at today's NLV under
+// the order cap in force: the larger of the fixed amount and the share of
+// NLV, held to the order cap unless bills are exempt from it. Bound names
+// what sets it (fixed, share or cap); ok is false without the fixed amount,
+// or when a share applies and NLV cannot be read.
+func cashPolicyLargestOrder(s *protectionCashSweepPolicy, b cashPolicyBook) (top float64, bound string, ok bool) {
+	if s == nil || s.MaxOrderNotional <= 0 {
+		return 0, "", false
+	}
+	top, bound = s.MaxOrderNotional, "fixed"
+	if pct := policyCheckDeref(s.MaxOrderPctNLV); pct > 0 {
+		if b.nlv <= 0 {
+			return 0, "", false
+		}
+		if share := pct / 100 * b.nlv; share > top {
+			top, bound = share, "share"
+		}
+	}
+	if !s.billsExempt() && b.orderCapReason == "" && b.orderCap > 0 && b.orderCap < top {
+		top, bound = b.orderCap, "cap"
+	}
+	return top, bound, true
+}
+
+// cashPolicyReserve is the sweep's reserve at today's NLV: the larger of the
+// amount and the share of NLV. Bound names what sets it (amount or share);
+// ok is false when a share applies and NLV cannot be read.
+func cashPolicyReserve(s *protectionCashSweepPolicy, b cashPolicyBook) (reserve float64, bound string, ok bool) {
+	if s == nil || (s.ReserveFloorBase == nil && s.ReservePctNLV == nil) {
+		return 0, "", false
+	}
+	reserve, bound = policyCheckDeref(s.ReserveFloorBase), "amount"
+	if pct := policyCheckDeref(s.ReservePctNLV); pct > 0 {
+		if b.nlv <= 0 {
+			return 0, "", false
+		}
+		if share := pct / 100 * b.nlv; share > reserve {
+			reserve, bound = share, "share"
+		}
+	}
+	return reserve, bound, true
+}
+
+// cashPolicyNouns names each number a feature reads from the file only, for
+// a sentence about the file not having it.
+var cashPolicyNouns = map[string]string{
+	"trigger_base": "band", "cushion_base": "cushion", "max_slippage_bp": "limit from the mid", "payback_days": "payback window",
+	"reserve_floor_base": "reserve amount", "reserve_pct_nlv": "reserve share of NLV", "min_order_notional": "smallest buy",
+	"max_order_notional": "largest order", "max_order_pct_nlv": "largest order's share of NLV", "no_buy_while_borrowed": "rule on borrowed currencies",
+	"order_step_base": "order step", "keep_cash": "common settlement float",
+}
+
+func cashPolicyNounList(keys []string) string {
+	var names []string
+	for _, k := range keys {
+		if n, ok := cashPolicyNouns[k]; ok {
+			names = append(names, n)
+		} else {
+			names = append(names, k)
+		}
+	}
+	return cashPolicyList(names)
+}
+
+// cashPolicyMissing lists what a feature still needs from the file before it
+// does anything, as if it were on: the numbers it reads from the file only.
+// The sweep's common settlement float counts: a currency without its own
+// waits for it.
+func cashPolicyMissing(p protectionPolicy, section string) []string {
+	if section == rpc.CashPolicySectionLeveling {
+		l := protectionCurrencyLevelingPolicy{}
+		if p.Cash.Leveling != nil {
+			l = *p.Cash.Leveling
+		}
+		l.Enabled = true
+		return l.missingNumbers()
+	}
+	s := protectionCashSweepPolicy{}
+	if p.Cash.Sweep != nil {
+		s = *p.Cash.Sweep
+	}
+	s.Enabled = true
+	missing := s.missingNumbers()
+	if s.KeepCash == nil {
+		missing = append(missing, "keep_cash")
+	}
+	return missing
+}
+
+// cashPolicyConsequences states what changes at the broker, one sentence
+// for each change that lets more reach it: a feature switched on, shadow
+// changed to active, a rule loosened, a band, reserve or float made smaller,
+// a limit, cushion, payback window or order size made larger, and any number
+// written where the file had none (a feature that waited for it can then
+// act). Sizes that depend on NLV or the order cap in force say what they come
+// to at today's NLV, and when that does not change today, why. When the
+// draft makes the daemon send the sweep's orders itself (the file
+// pre-authorises the sweep), that comes first (owner decision 2026-10-06
+// 15:31 CEST); while it already does, each sweep change says so. Whether a
+// change has a sentence never depends on the book: only the wording does.
 func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEdit, b cashPolicyBook) []string {
 	out := []string{}
 	money := func(v any) string { f, _ := cashPolicyNumber(v); return cashPolicyMoney(f, b.base) }
@@ -426,10 +516,39 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 	if startsSending {
 		out = append(out, cashPolicyDaemonSendsSentence(after, b))
 	}
+	switchedOn := map[string]bool{}
+	written := map[string][]string{}
+	for _, e := range edits {
+		if !e.spec.perCurrency && e.spec.leaf == "enabled" && cashPolicyTurnsOn(e.from, e.to) {
+			switchedOn[e.spec.section] = true
+		}
+	}
 	for _, e := range edits {
 		from, to := e.from, e.to
 		if e.spec.section == rpc.CashPolicySectionSweep && e.spec.perCurrency {
 			from, to = cashPolicyKeepCash(before, e.ccy), cashPolicyKeepCash(after, e.ccy)
+		}
+		if from == nil && to != nil {
+			key := e.spec.leaf
+			if e.spec.perCurrency {
+				key = e.ccy + " settlement float"
+			}
+			written[e.spec.section] = append(written[e.spec.section], key)
+		}
+	}
+	said := map[string]bool{}
+	for _, e := range edits {
+		from, to := e.from, e.to
+		if e.spec.section == rpc.CashPolicySectionSweep && e.spec.perCurrency {
+			from, to = cashPolicyKeepCash(before, e.ccy), cashPolicyKeepCash(after, e.ccy)
+		}
+		section := e.spec.section
+		if from == nil && to != nil && !said[section] {
+			said[section] = true
+			covered := switchedOn[section] || (section == rpc.CashPolicySectionSweep && startsSending)
+			if text := cashPolicyWrittenSentence(before, after, section, written[section], covered); text != "" {
+				out = append(out, text)
+			}
 		}
 		if e.spec.more == nil || !e.spec.more(from, to) {
 			continue
@@ -441,6 +560,9 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 			if t := after.Cash.Leveling.TriggerBase; t != nil {
 				text = "Currency leveling starts proposing conversions for loans beyond " + cashPolicyMoney(*t, b.base) + ". Each repayment waits for your approval."
 			}
+			if missing := cashPolicyMissing(after, section); len(missing) > 0 {
+				text = "Currency leveling is switched on and waits until the file has its " + cashPolicyNounList(missing) + "."
+			}
 		case "cash.leveling.trigger_base":
 			text = "Leveling repays loans from " + money(to) + " instead of " + money(from) + "."
 		case "cash.leveling.cushion_base":
@@ -451,34 +573,37 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 			text = "A conversion may take " + num(to) + " days to pay back instead of " + num(from) + "."
 		case "cash.sweep.enabled":
 			text = "The cash sweep starts in Observe only: it lists the bills it would buy and sends no order."
-			switch {
+			switch missing := cashPolicyMissing(after, section); {
 			case startsSending:
 				continue
+			case len(missing) > 0:
+				text = "The cash sweep is switched on and waits until the file has its " + cashPolicyNounList(missing) + "."
 			case after.Cash.Sweep.effectiveMode() == rpc.CashSweepModeActive:
 				text = "The cash sweep starts proposing bill orders for you to approve."
 			}
 		case "cash.sweep.mode":
 			text = "Sweep rows become proposals you can approve."
-			switch {
+			switch missing := cashPolicyMissing(after, section); {
 			case startsSending:
 				continue
 			case !after.Cash.Sweep.enabled():
 				text = "Once the sweep is on, its rows become proposals you can approve."
+			case after.preAuthorised(preAuthorisedBucketCashSweep) && len(after.Cash.Sweep.missingNumbers()) > 0:
+				text = "Once the file has the sweep's " + cashPolicyNounList(after.Cash.Sweep.missingNumbers()) + ", the daemon will send sweep orders itself, " +
+					cashPolicyDuration(after.Authority.vetoWindow()) + " after announcing them."
+			case len(missing) > 0:
+				text = "Once the file has the sweep's " + cashPolicyNounList(missing) + ", its rows become proposals you can approve."
 			}
-		case "cash.sweep.reserve_floor_base":
-			text = "The sweep keeps at least " + money(to) + " as cash instead of " + money(from) + "."
-		case "cash.sweep.reserve_pct_nlv":
-			text = "The sweep keeps " + num(to) + "% of NLV as cash instead of " + num(from) + "%."
+		case "cash.sweep.reserve_floor_base", "cash.sweep.reserve_pct_nlv":
+			text = cashPolicyReserveSentence(before.Cash.Sweep, after.Cash.Sweep, e.key, from, to, b)
 		case "cash.sweep.min_order_notional":
 			text = "The smallest bill buy falls from " + money(from) + " to " + money(to) + "."
-		case "cash.sweep.max_order_notional":
-			text = "The largest sweep order rises from " + money(from) + " to " + money(to) + "."
-		case "cash.sweep.max_order_pct_nlv":
-			text = "The largest sweep order rises from " + num(from) + "% to " + num(to) + "% of NLV."
+		case "cash.sweep.max_order_notional", "cash.sweep.max_order_pct_nlv":
+			text = cashPolicyLargestOrderSentence(before.Cash.Sweep, after.Cash.Sweep, e.key, from, to, b)
 		case "cash.sweep.no_buy_while_borrowed":
 			text = "Bill buys may go ahead while a currency is borrowed."
 		case "cash.sweep.bills_exempt_from_trading_max_notional":
-			text = "Bill orders may pass the order cap in force, up to the sweep's largest order."
+			text = cashPolicyExemptSentence(before.Cash.Sweep, after.Cash.Sweep, b)
 		case "cash.sweep.keep_cash":
 			text = "The settlement float falls from " + num(from) + " to " + num(to) + " in each currency's own unit."
 		default:
@@ -494,12 +619,118 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 		if text == "" {
 			continue
 		}
-		if daemonSends && e.spec.section == rpc.CashPolicySectionSweep {
+		if daemonSends && section == rpc.CashPolicySectionSweep {
 			text += " The daemon sends sweep orders itself, " + cashPolicyDuration(after.Authority.vetoWindow()) + " after announcing them."
 		}
 		out = append(out, text)
 	}
 	return out
+}
+
+// cashPolicyWrittenSentence says what writing numbers the file had none of
+// means for a feature: it can then act, or it still waits for others. A
+// feature switched on in the same save, or a sweep the daemon starts to send
+// for, already has its sentence; the numbers are in the change list.
+func cashPolicyWrittenSentence(before, after protectionPolicy, section string, written []string, covered bool) string {
+	if covered {
+		return ""
+	}
+	missingBefore, missingAfter := cashPolicyMissing(before, section), cashPolicyMissing(after, section)
+	feature, act := "The sweep", "work once you switch it on"
+	if section == rpc.CashPolicySectionLeveling {
+		feature = "Leveling"
+		if after.Cash.Leveling.enabled() {
+			act = "propose conversions for you to approve"
+		}
+	} else if s := after.Cash.Sweep; s.enabled() {
+		act = "list the bills it would buy; it sends no order"
+		if s.effectiveMode() == rpc.CashSweepModeActive {
+			act = "propose bill orders for you to approve"
+		}
+	}
+	whose := "the sweep's"
+	if section == rpc.CashPolicySectionLeveling {
+		whose = "leveling's"
+	}
+	switch {
+	case len(missingAfter) > 0:
+		return "The file gets " + whose + " " + cashPolicyNounList(written) + "; " + strings.ToLower(feature[:1]) + feature[1:] + " still waits for its " + cashPolicyNounList(missingAfter) + "."
+	case len(missingBefore) > 0:
+		return feature + " can now " + act + ": the file had no " + cashPolicyNounList(written) + "."
+	}
+	return feature + " now uses the " + cashPolicyNounList(written) + " written here; the file had none."
+}
+
+// cashPolicyLargestOrderSentence says what a larger fixed amount or share
+// does to the sweep's largest order at today's NLV under the cap in force,
+// and why when nothing changes today.
+func cashPolicyLargestOrderSentence(before, after *protectionCashSweepPolicy, key string, from, to any, b cashPolicyBook) string {
+	was, _, okBefore := cashPolicyLargestOrder(before, b)
+	now, bound, okAfter := cashPolicyLargestOrder(after, b)
+	if !okBefore || !okAfter {
+		if key == "cash.sweep.max_order_pct_nlv" {
+			f, _ := cashPolicyNumber(from)
+			t, _ := cashPolicyNumber(to)
+			return "The largest sweep order's share rises from " + policyCheckNumber(f) + "% to " + policyCheckNumber(t) + "% of NLV; what that comes to today is unknown, because NLV cannot be read now."
+		}
+		f, _ := cashPolicyNumber(from)
+		t, _ := cashPolicyNumber(to)
+		return "The largest sweep order's fixed amount rises from " + cashPolicyMoney(f, b.base) + " to " + cashPolicyMoney(t, b.base) + "; what that comes to today is unknown, because NLV cannot be read now."
+	}
+	if now > was {
+		return "At today's NLV the largest sweep order rises from " + cashPolicyMoney(was, b.base) + " to " + cashPolicyMoney(now, b.base) + "."
+	}
+	why := "the fixed amount sets it, so the change matters only if NLV grows"
+	switch bound {
+	case "share":
+		why = policyCheckNumber(policyCheckDeref(after.MaxOrderPctNLV)) + "% of NLV sets it, so the change matters only if NLV falls"
+	case "cap":
+		why = "the order cap in force holds it, so the change matters only if that cap rises or bills may pass it"
+	}
+	return "At today's NLV the largest sweep order stays " + cashPolicyMoney(now, b.base) + ": " + why + "."
+}
+
+// cashPolicyReserveSentence says what a smaller amount or share does to the
+// reserve at today's NLV, and why when nothing changes today.
+func cashPolicyReserveSentence(before, after *protectionCashSweepPolicy, key string, from, to any, b cashPolicyBook) string {
+	was, _, okBefore := cashPolicyReserve(before, b)
+	now, bound, okAfter := cashPolicyReserve(after, b)
+	f, _ := cashPolicyNumber(from)
+	t, _ := cashPolicyNumber(to)
+	if !okBefore || !okAfter {
+		if key == "cash.sweep.reserve_pct_nlv" {
+			return "The reserve's share falls from " + policyCheckNumber(f) + "% to " + policyCheckNumber(t) + "% of NLV; what that comes to today is unknown, because NLV cannot be read now."
+		}
+		return "The reserve's amount falls from " + cashPolicyMoney(f, b.base) + " to " + cashPolicyMoney(t, b.base) + "; what that comes to today is unknown, because NLV cannot be read now."
+	}
+	if now < was {
+		return "At today's NLV the reserve kept as cash falls from " + cashPolicyMoney(was, b.base) + " to " + cashPolicyMoney(now, b.base) + "."
+	}
+	why := "the amount sets it, so the change matters only if NLV grows"
+	if bound == "share" {
+		why = policyCheckNumber(policyCheckDeref(after.ReservePctNLV)) + "% of NLV sets it, so the change matters only if NLV falls"
+	}
+	return "At today's NLV the reserve kept as cash stays " + cashPolicyMoney(now, b.base) + ": " + why + "."
+}
+
+// cashPolicyExemptSentence says what letting bill orders pass the order cap
+// in force does to the largest order at today's NLV.
+func cashPolicyExemptSentence(before, after *protectionCashSweepPolicy, b cashPolicyBook) string {
+	text := "Bill orders may pass the order cap in force, up to the sweep's largest order."
+	if b.orderCapReason != "" || b.orderCap <= 0 {
+		return text
+	}
+	was, _, okBefore := cashPolicyLargestOrder(before, b)
+	now, _, okAfter := cashPolicyLargestOrder(after, b)
+	switch {
+	case !okBefore || !okAfter:
+		return text
+	case now > was:
+		return "Bill orders may pass the order cap in force of " + cashPolicyMoney(b.orderCap, b.base) + ": at today's NLV the largest sweep order rises from " +
+			cashPolicyMoney(was, b.base) + " to " + cashPolicyMoney(now, b.base) + "."
+	}
+	return "Bill orders may pass the order cap in force of " + cashPolicyMoney(b.orderCap, b.base) + "; at today's NLV the largest sweep order, " +
+		cashPolicyMoney(now, b.base) + ", is within it already, so nothing changes today."
 }
 
 // cashPolicyTermsKind names the terms a check returns and apply takes.

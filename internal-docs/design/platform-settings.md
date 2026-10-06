@@ -103,11 +103,14 @@ on the draft and returns canonical terms and their digest; it writes nothing.
 Apply takes those terms with a confirmation reference (Desk action id,
 credential, envelope; audited, not verifiable here), audits its origin as
 agent and refuses every other origin. A reference may rely on an earlier save
-instead of the device (`confirmed_by`, `confirmed_until`; owner decision
-2026-10-06 15:31 CEST): Canary accepts it only for a save with no consequence
-at the broker, before `confirmed_until`, and only on a save it recorded with a
-fresh confirmation by the same credential that declared that same
-`confirmed_until`; Desk owns the window and binds it to its console session. The receipt and the provenance comment name the save
+instead of the device (`confirmed_by`; owner decision 2026-10-06 15:31 CEST):
+Canary accepts it only for a save with no consequence at the broker, only on a
+save it recorded with a fresh confirmation by the same credential, and only
+inside the window it works out itself: that receipt's time plus `[cash]
+confirmation_window` in force now (file-only, written as `"10m"` by the
+startup migration; `"0s"` refuses every reliance). Desk binds the reliance to
+its console session; the apply result returns the window's end
+(`confirmed_until`). The receipt and the provenance comment name the save
 relied on. Under the protection policy manager's
 file lock it rechecks the receipt, the revision and the validation, writes
 only the changed lines with their provenance after a backup, raises

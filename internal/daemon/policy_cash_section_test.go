@@ -104,8 +104,15 @@ func TestCashSectionEnsureMovesTheLegacyLayoutOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fingerprintProtectionPolicy(before) != fingerprintProtectionPolicy(after) || after.PolicyVersion != before.PolicyVersion {
-		t.Fatal("moving the cash tables changed the policy in force or its version")
+	// The move changes nothing; the same step writes the owner's
+	// confirmation window into the moved [cash] and raises the version for it.
+	if after.Cash.ConfirmationWindow != cashConfirmationWindowWritten || after.PolicyVersion != before.PolicyVersion+1 ||
+		!slices.Contains(changes, `added cash.confirmation_window = "10m"`) {
+		t.Fatalf("the window was not written into the moved [cash]: %v\n%s", changes, text)
+	}
+	after.Cash.ConfirmationWindow, after.PolicyVersion = "", before.PolicyVersion
+	if fingerprintProtectionPolicy(before) != fingerprintProtectionPolicy(after) {
+		t.Fatal("moving the cash tables changed the policy in force")
 	}
 	again, changes, _, err := migrateProtectionPolicyFile(out, "v9.9.9")
 	if err != nil || len(changes) != 0 || string(again) != text {

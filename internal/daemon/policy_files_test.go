@@ -632,6 +632,7 @@ func TestProtectionMigrationLeavesARetiredKeyItCannotEditAlone(t *testing.T) {
 	for _, d := range currencyLevelingWrittenDefaults {
 		inline += d.key + " = " + d.value + "\n"
 	}
+	inline += "\n[cash]\nconfirmation_window = \"10m\"\n"
 	if _, _, err := parseProtectionPolicy([]byte(inline)); err != nil {
 		t.Fatalf("inline retired key must load: %v", err)
 	}

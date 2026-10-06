@@ -116,6 +116,14 @@ type CashPolicySnapshot struct {
 	// RatesThrough is the latest statement day the interest rates read.
 	RatesThrough string              `json:"rates_through,omitempty"`
 	Findings     []CashPolicyFinding `json:"findings"`
+	// ConfirmationWindowSeconds is [cash] confirmation_window in force, in
+	// seconds: how long after a save the owner's device confirmed a further
+	// save from the same Desk console session may rely on that confirmation,
+	// when it lets no more reach the broker; 0 means every save asks the
+	// device. It is file-only (owner decision 2026-10-06 15:31 CEST), and
+	// Confirmation is Canary's sentence for it.
+	ConfirmationWindowSeconds int64  `json:"confirmation_window_seconds"`
+	Confirmation              string `json:"confirmation"`
 }
 
 // CashPolicySections carries what each section shows besides its settings.
@@ -128,8 +136,8 @@ type CashPolicySections struct {
 // table. Fact is the line under the header; Authority says who sends the
 // feature's orders; Cap states the order cap in force that bounds them.
 // PreAuthorised reports that [cash] pre_authorised lists the feature, so the
-// daemon sends its orders itself after the veto window; while it does, the
-// screen cannot switch the feature on or raise its mode (the file decides).
+// daemon sends its orders itself after the veto window once it is on and
+// active; a save that makes it do so says that first.
 type CashPolicySection struct {
 	Present       bool   `json:"present"`
 	Fact          string `json:"fact,omitempty"`
@@ -219,6 +227,9 @@ type CashPolicyCheckResult struct {
 	SavedVersion  int    `json:"saved_version,omitempty"`
 	Terms         string `json:"terms,omitempty"`
 	Digest        string `json:"digest,omitempty"`
+	// BaseCurrency names the unit of every base-currency value in Changes,
+	// so a reviewer can word a value itself from From and To.
+	BaseCurrency string `json:"base_currency,omitempty"`
 }
 
 // CashPolicyChange is one changed key: its value in the file now (nil when
@@ -255,30 +266,32 @@ type CashPolicyApplyRequest struct {
 // signed envelope, kept for audit only.
 //
 // A save may instead rely on an earlier save the owner's device confirmed in
-// the same Desk console session, inside Desk's window, when it lets no more
-// reach the broker (owner decision 2026-10-06 15:31 CEST). On a save the
-// device confirmed, ConfirmedUntil is the end of the window that confirmation
-// opens. On a save that relies on one, ConfirmedBy names the earlier save's
-// request id and ConfirmedUntil repeats that window's end; Credential is the
-// earlier save's credential and Envelope Desk's record of the reliance.
-// Canary accepts it only for a save with no consequence at the broker, before
-// ConfirmedUntil, and only on a save it recorded with a fresh confirmation by
-// the same credential and the same window end.
+// the same Desk console session, when it lets no more reach the broker (owner
+// decision 2026-10-06 15:31 CEST): ConfirmedBy names the earlier save's
+// request id, Credential is the earlier save's credential and Envelope Desk's
+// record of the reliance. Canary works out the window itself: the earlier
+// save's receipt time plus [cash] confirmation_window in force now. It
+// accepts the reliance only for a save with no consequence at the broker,
+// inside that window, and only on a save it recorded with a fresh
+// confirmation by the same credential.
 type CashPolicyConfirmation struct {
-	DeskActionID   string    `json:"desk_action_id"`
-	Credential     string    `json:"credential"`
-	Envelope       string    `json:"envelope"`
-	ConfirmedBy    string    `json:"confirmed_by,omitempty"`
-	ConfirmedUntil time.Time `json:"confirmed_until,omitzero"`
+	DeskActionID string `json:"desk_action_id"`
+	Credential   string `json:"credential"`
+	Envelope     string `json:"envelope"`
+	ConfirmedBy  string `json:"confirmed_by,omitempty"`
 }
 
 // CashPolicyApplyResult is the snapshot after a save, with the receipt's
 // request id, the version written, whether Canary runs it, and whether this
-// was a retry of a saved request (nothing written again).
+// was a retry of a saved request (nothing written again). ConfirmedUntil is,
+// for a save the device confirmed, when the window it opens ends at the
+// window in force now (zero when the window is 0s), and for a save that
+// relied on an earlier one, the end of the window it relied on.
 type CashPolicyApplyResult struct {
 	CashPolicySnapshot
-	RequestID    string `json:"request_id"`
-	SavedVersion int    `json:"saved_version"`
-	InForce      bool   `json:"in_force"`
-	Replay       bool   `json:"replay"`
+	RequestID      string    `json:"request_id"`
+	SavedVersion   int       `json:"saved_version"`
+	InForce        bool      `json:"in_force"`
+	Replay         bool      `json:"replay"`
+	ConfirmedUntil time.Time `json:"confirmed_until,omitzero"`
 }
