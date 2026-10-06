@@ -304,8 +304,14 @@ func proposalAuthoritySnapshotValid(snap rpc.TradeProposalSnapshot) bool {
 		snap.AsOf.IsZero() || !proposalSnapshotPersistable(snap) {
 		return false
 	}
+	// Each row carries its own revision (proposalRowRevision); only the
+	// cash-sweep row shares the list's. A row is malformed without a key or
+	// a revision, never for differing from the list.
 	for _, proposal := range snap.Proposals {
-		if strings.TrimSpace(proposal.Key) == "" || proposal.Revision != snap.Revision {
+		if strings.TrimSpace(proposal.Key) == "" || strings.TrimSpace(proposal.Revision) == "" {
+			return false
+		}
+		if proposal.Bucket == rpc.TradeProposalBucketCashSweep && proposal.Revision != snap.Revision {
 			return false
 		}
 	}
