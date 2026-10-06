@@ -44,7 +44,9 @@ RESTART_TIMEOUT ?= 15s
 CLAUDE_DIR ?= $(HOME)/.claude
 CLAUDE_PLUGIN_ID ?= canary@canary
 CLAUDE_PLUGIN_MARKETPLACE ?= $(CURDIR)
-SKILL_DIR  ?= $(CLAUDE_DIR)/skills/canary
+# Retired Claude standalone copy; install-skill removes it because the plugin
+# ships the same skill and a second copy listed it twice.
+LEGACY_CLAUDE_SKILL_DIR := $(CLAUDE_DIR)/skills/canary
 CODEX_DIR  ?= $(HOME)/.codex
 CODEX_SKILL_DIR ?= $(CODEX_DIR)/skills/canary
 SKILL_SRC  ?= skills/canary
@@ -691,16 +693,18 @@ test-daemon: trading-package-scope-check ## Run internal/... and hermetic integr
 	$(MAKE) test-daemon-default
 	$(MAKE) test-daemon-trading
 
-# Install the standalone skill bundle directly under global agent skill roots.
+# Install the standalone skill bundle under the Codex skill root. Claude Code
+# gets the same SKILL.md from the plugin, so no Claude copy is installed.
 # Dogfood path only — end users get the skill via `/plugin install canary`.
 # Idempotent: re-running updates files in place.
-install-skill: build ## Install SKILL.md to global Claude/Codex skill dirs (dogfood path)
-	install -d $(SKILL_DIR)
-	install -m 0644 $(SKILL_SRC)/SKILL.md $(SKILL_DIR)/SKILL.md
+install-skill: build ## Install SKILL.md to the global Codex skill dir and refresh the Claude plugin (dogfood path)
 	install -d $(CODEX_SKILL_DIR)
 	install -m 0644 $(SKILL_SRC)/SKILL.md $(CODEX_SKILL_DIR)/SKILL.md
-	@echo "Installed skill to $(SKILL_DIR)"
 	@echo "Installed skill to $(CODEX_SKILL_DIR)"
+	@if [ -d "$(LEGACY_CLAUDE_SKILL_DIR)" ]; then \
+		rm -rf "$(LEGACY_CLAUDE_SKILL_DIR)"; \
+		echo "Removed retired Claude skill copy $(LEGACY_CLAUDE_SKILL_DIR)"; \
+	fi
 	@echo
 	@echo "Prefer the plugin install path for end users:"
 	@echo "  /plugin marketplace add osauer/canary"
@@ -711,7 +715,7 @@ install-skill: build ## Install SKILL.md to global Claude/Codex skill dirs (dogf
 	@echo "grants the read patterns when the skill is active)."
 	@if command -v claude >/dev/null 2>&1; then \
 		echo; \
-		echo "Refreshing the Claude Code plugin from this checkout so MCP tools/hooks update too..."; \
+		echo "Refreshing the Claude Code plugin from this checkout so the skill, MCP tools and hooks update..."; \
 		$(MAKE) --no-print-directory install-plugin-refresh; \
 	else \
 		echo; \
@@ -731,9 +735,9 @@ install-plugin-refresh:
 	@echo "Installed Claude Code plugin $(CLAUDE_PLUGIN_ID) from $(CLAUDE_PLUGIN_MARKETPLACE)"
 	@echo "Restart Claude Code or run /reload-plugins to load plugin MCP servers."
 
-uninstall-skill: ## Remove the dogfood skill install from global Claude/Codex skill dirs
-	rm -rf $(SKILL_DIR)
+uninstall-skill: ## Remove the dogfood skill install from the global Codex skill dir
 	rm -rf $(CODEX_SKILL_DIR)
+	rm -rf $(LEGACY_CLAUDE_SKILL_DIR)
 
 clean: ## Remove bin/ and dist/
 	rm -rf bin dist
