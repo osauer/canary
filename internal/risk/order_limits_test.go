@@ -24,7 +24,7 @@ func TestEvaluateOrderLimitsWorkedCheck(t *testing.T) {
 		bound   string
 		summary string
 	}{
-		{"pct binds", OrderLimitsNLV{Base: 233800, AsOf: asOf}, 11690, OrderCapBoundPctNLV, "11,690 EUR (5% of NLV 233,800 EUR; [order_limits])"},
+		{"pct binds", OrderLimitsNLV{Base: 240000, AsOf: asOf}, 12000, OrderCapBoundPctNLV, "12,000 EUR (5% of NLV 240,000 EUR; [order_limits])"},
 		{"floor binds", OrderLimitsNLV{Base: 150000, AsOf: asOf}, 10000, OrderCapBoundFloor, "10,000 EUR (the floor; 5% of NLV 150,000 EUR is 7,500 EUR; [order_limits])"},
 		{"ceiling binds", OrderLimitsNLV{Base: 2500000, AsOf: asOf}, 100000, OrderCapBoundCeiling, "100,000 EUR (the ceiling; 5% of NLV 2,500,000 EUR would be 125,000 EUR; [order_limits])"},
 		{"NLV unreadable fails toward the floor", OrderLimitsNLV{Unavailable: "no current account reading of net liquidation value"}, 10000, OrderCapBoundFloor,
@@ -50,7 +50,7 @@ func TestEvaluateOrderLimitsWorkedCheck(t *testing.T) {
 func TestEvaluateOrderLimitsMissingKeyFailsClosed(t *testing.T) {
 	table := ownerOrderLimits()
 	table.MaxOrderPctNLV = nil
-	got := EvaluateOrderLimits(table, "EUR", OrderLimitsNLV{Base: 233800, AsOf: time.Now()}, nil, "")
+	got := EvaluateOrderLimits(table, "EUR", OrderLimitsNLV{Base: 240000, AsOf: time.Now()}, nil, "")
 	if got.Complete || got.CapBase != 0 || len(got.Missing) != 1 || got.Missing[0] != "order_limits.max_order_pct_nlv" ||
 		!strings.Contains(got.Summary, "does not write order_limits.max_order_pct_nlv; every order preview is refused") {
 		t.Fatalf("limits = %+v, want incomplete naming max_order_pct_nlv", got)
@@ -128,7 +128,7 @@ func TestOrderLimitRowsMarkMissingKeys(t *testing.T) {
 }
 
 func TestFormatOrderMoney(t *testing.T) {
-	for v, want := range map[float64]string{11690: "11,690 EUR", 2500000: "2,500,000 EUR", 999.5: "999.50 EUR", 0: "0 EUR"} {
+	for v, want := range map[float64]string{12000: "12,000 EUR", 2500000: "2,500,000 EUR", 999.5: "999.50 EUR", 0: "0 EUR"} {
 		if got := FormatOrderMoney(v, "EUR"); got != want {
 			t.Errorf("FormatOrderMoney(%v) = %q, want %q", v, got, want)
 		}

@@ -228,7 +228,7 @@ func EvaluateOrderLimits(o *ConstitutionOrderLimits, baseCurrency string, nlv Or
 }
 
 // FormatOrderMoney renders an amount with thousands separators, whole units
-// when the cents are zero: 11690 EUR reads "11,690 EUR".
+// when the cents are zero: 12000 EUR reads "12,000 EUR".
 func FormatOrderMoney(v float64, ccy string) string {
 	neg := v < 0
 	v = math.Abs(v)

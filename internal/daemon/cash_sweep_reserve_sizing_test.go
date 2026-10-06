@@ -258,11 +258,11 @@ func TestCashSweepReserveShortfallCarriesToOtherCurrencies(t *testing.T) {
 
 // Rule 4: the exemption boundary. Only a same-currency sweep bill order
 // within the sweep's cap in force passes the order cap in force, here scaled
-// with the book: 5% of NLV 233,800 EUR is 11,690 EUR.
+// with the book: 5% of NLV 240,000 EUR is 12,000 EUR.
 func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
-	cfg := risk.EvaluateOrderLimits(testOrderLimitsTable(10000), "EUR", risk.OrderLimitsNLV{Base: 233800, AsOf: time.Now()}, nil, "")
-	if cfg.CapBase != 11690 || cfg.CapBound != risk.OrderCapBoundPctNLV {
-		t.Fatalf("cap in force = %v (%s), want 11690 bound by pct of NLV", cfg.CapBase, cfg.CapBound)
+	cfg := risk.EvaluateOrderLimits(testOrderLimitsTable(10000), "EUR", risk.OrderLimitsNLV{Base: 240000, AsOf: time.Now()}, nil, "")
+	if cfg.CapBase != 12000 || cfg.CapBound != risk.OrderCapBoundPctNLV {
+		t.Fatalf("cap in force = %v (%s), want 12000 bound by pct of NLV", cfg.CapBase, cfg.CapBound)
 	}
 	bill := func(ccy, secType, instrument string, cap float64) rpc.OrderDraft {
 		return rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 30, Contract: rpc.ContractParams{ConID: 9, SecType: secType, Currency: ccy},
@@ -299,7 +299,7 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 			if tc.pass && err != nil {
 				t.Fatalf("refused: %v", err)
 			}
-			if !tc.pass && (err == nil || !strings.Contains(err.Error(), "order cap in force 11,690 EUR") && !strings.Contains(err.Error(), "bond order")) {
+			if !tc.pass && (err == nil || !strings.Contains(err.Error(), "order cap in force 12,000 EUR") && !strings.Contains(err.Error(), "bond order")) {
 				t.Fatalf("admitted or wrong refusal: %v", err)
 			}
 		})

@@ -14,7 +14,7 @@ MCP trading    disabled
 Build          release
 
 Order limits (risk-policy.toml [order_limits]):
-Order cap in force 11,690 EUR (5% of NLV 233,800 EUR; [order_limits])
+Order cap in force 12,000 EUR (5% of NLV 240,000 EUR; [order_limits])
 Max option qty (every order) 5 (read/policy)
 Apparent exits same caps; SELL uses worst-case short/STO gates
 Stock short    false (read/policy)
@@ -38,7 +38,7 @@ Canary Settings  \x1b[2m\x1b[1mDATA UNKNOWN\x1b[0m\x1b[0m
 \x1b[2mBuild         \x1b[0m release
 
 Order limits (risk-policy.toml [order_limits]):
-\x1b[2mOrder cap in force\x1b[0m 11,690 EUR (5% of NLV 233,800 EUR; [order_limits])
+\x1b[2mOrder cap in force\x1b[0m 12,000 EUR (5% of NLV 240,000 EUR; [order_limits])
 \x1b[2mMax option qty (every order)\x1b[0m 5 (read/policy)
 \x1b[2mApparent exits\x1b[0m same caps; SELL uses worst-case short/STO gates
 \x1b[2mStock short   \x1b[0m false (read/policy)

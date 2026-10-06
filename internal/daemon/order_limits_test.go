@@ -81,15 +81,15 @@ func TestOrderLimitsInForceScalesWithTheAccountReading(t *testing.T) {
 		t.Fatalf("before any reading = %+v, want the floor flagged", l)
 	}
 	account := srv.currentBrokerStateScope().Account
-	srv.recordOrderLimitsNLV(orderLimitsTestAccount(account, 233800, "EUR", now))
-	if l := srv.orderLimitsInForce("EUR"); l.CapBase != 11690 || l.CapBound != risk.OrderCapBoundPctNLV {
-		t.Fatalf("NLV 233,800 = %+v, want 11,690 bound by 5%% of NLV", l)
+	srv.recordOrderLimitsNLV(orderLimitsTestAccount(account, 240000, "EUR", now))
+	if l := srv.orderLimitsInForce("EUR"); l.CapBase != 12000 || l.CapBound != risk.OrderCapBoundPctNLV {
+		t.Fatalf("NLV 240,000 = %+v, want 12,000 bound by 5%% of NLV", l)
 	}
 	if l := srv.orderLimitsInForce("USD"); l.CapBase != 10000 || !strings.Contains(l.NLVUnavailable, "not the base currency USD") {
 		t.Fatalf("another base currency = %+v, want the floor", l)
 	}
 	srv.recordOrderLimitsNLV(orderLimitsTestAccount("DU9999999", 2500000, "EUR", now))
-	if l := srv.orderLimitsInForce("EUR"); l.CapBase != 11690 {
+	if l := srv.orderLimitsInForce("EUR"); l.CapBase != 12000 {
 		t.Fatalf("another account's reading changed the cap: %+v", l)
 	}
 	stale := now.Add(orderLimitsNLVMaxAge + time.Minute)
