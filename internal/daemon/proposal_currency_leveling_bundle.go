@@ -199,6 +199,10 @@ func levelingBundleDigest(raw []byte) string {
 // (pays, receives, what the payer keeps, where the loan lands). Every figure
 // is copied from Canary's rows and previews or bounded from them, rounded
 // against the owner: an amount paid up, an amount received or kept down.
+// The planner's own figures (saving, cost, target, allotment) are rounded to
+// cents too, so the terms and their digest read the same on every machine: a
+// full-precision float can differ in its last bit between arm64, which fuses
+// multiply-adds, and amd64.
 func levelingBundleTerms(id string, bundle rpc.TradeProposalCurrencyLevelingBundle, base string, legs []rpc.TradeProposalPrepareResult) (rpc.LevelingBundleTerms, error) {
 	var t rpc.LevelingBundleTerms
 	if len(legs) == 0 || legs[0].Preview == nil || legs[0].Proposal.CurrencyLeveling == nil {
@@ -211,7 +215,7 @@ func levelingBundleTerms(id string, bundle rpc.TradeProposalCurrencyLevelingBund
 		Currency: loan.Currency, Cash: loan.Cash, CashBase: levelingCents(loan.Cash * loan.ExchangeRate),
 		LoanRate: loan.LoanRate, LoanRateThrough: loan.LoanRateThrough, LoanRateBound: loan.LoanRateBound,
 		TriggerBase: loan.TriggerBase, CushionBase: loan.CushionBase, OrderCapBase: loan.OrderCapBase,
-		SavingBase: bundle.SavingBase, CostBase: bundle.CostBase, PaybackDays: bundle.PaybackDays,
+		SavingBase: levelingCentsDown(bundle.SavingBase), CostBase: levelingCentsUp(bundle.CostBase), PaybackDays: bundle.PaybackDays,
 		HeldToCap: loan.HeldToCap, FundingShort: loan.FundingShort, Legs: make([]rpc.LevelingBundleTermsLeg, 0, len(legs))}
 	if base == "" || loan.ExchangeRate <= 0 {
 		return t, errors.New("the loan's base currency or ledger rate is unknown")
@@ -250,10 +254,10 @@ func levelingBundleTerms(id string, bundle rpc.TradeProposalCurrencyLevelingBund
 			PreparationID: prep.ID, DraftFingerprint: prep.DraftFingerprint, PreviewTokenID: pv.PreviewTokenID, OrderRef: d.OrderRef,
 			Pair: b.Pair, ConID: d.Contract.ConID, Exchange: d.Contract.Exchange, Action: d.Action, Quantity: d.Quantity,
 			OrderType: d.OrderType, TIF: d.TIF, LimitPrice: d.LimitPrice, Bid: *d.FX.Bid, Ask: *d.FX.Ask, QuoteAt: quoteAt.UTC().Truncate(time.Second),
-			MaxSlippageBP: b.MaxSlippageBP, Currency: b.Currency, Target: b.Target, FundingCurrency: b.FundingCurrency, Allotment: b.Allotment,
+			MaxSlippageBP: b.MaxSlippageBP, Currency: b.Currency, Target: levelingCents(b.Target), FundingCurrency: b.FundingCurrency, Allotment: levelingCentsDown(b.Allotment),
 			KeepsAtLeast: levelingCentsDown(b.FundingCash - b.FundingCommitted - pays.Amount),
 			FundingRate:  b.FundingRate, FundingRateThrough: b.FundingRateThrough, FundingRateBound: b.FundingRateBound,
-			Pays: pays, Receives: receives, SavingBase: b.SavingBase, CostBase: b.CostBase})
+			Pays: pays, Receives: receives, SavingBase: levelingCentsDown(b.SavingBase), CostBase: levelingCentsUp(b.CostBase)})
 		if expires.IsZero() || prep.ExpiresAt.Before(expires) {
 			expires = prep.ExpiresAt
 		}

@@ -593,7 +593,9 @@ func (p *currencyLevelingPlanner) legs(loan string, loanRate, need float64, capp
 		}
 		b.FundingAfter = payerCash - committed - b.Spent
 		b.ValueBase = b.Received * rate
-		b.SavingBase, b.CostBase = p.saving(b.ValueBase, loanRate-*cashRate), p.cost(b.ValueBase)
+		// Published in cents, saving down and cost up: a full-precision float can
+		// differ in its last bit between machines, and the rows feed signed terms.
+		b.SavingBase, b.CostBase = levelingCentsDown(p.saving(b.ValueBase, loanRate-*cashRate)), levelingCentsUp(p.cost(b.ValueBase))
 		leg.block, leg.quantity = b, qty
 		bundle.legs = append(bundle.legs, leg)
 	}

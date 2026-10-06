@@ -235,8 +235,8 @@
           "funding_rate": 0,
           "funding_rate_through": "2026-10-05",
           "payback_days": 30,
-          "saving_base": 25.727502634351946,
-          "cost_base": 2.936923076923077,
+          "saving_base": 25.72,
+          "cost_base": 2.94,
           "funding_after": 263.91884335809664
         }
       },
@@ -594,8 +594,8 @@
           "funding_rate": 0.014,
           "funding_rate_through": "2026-10-05",
           "payback_days": 30,
-          "saving_base": 18.003287671232876,
-          "cost_base": 2.8934017094017093,
+          "saving_base": 18,
+          "cost_base": 2.9,
           "funding_after": 54080
         }
       },
