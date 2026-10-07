@@ -18,6 +18,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -34,14 +35,32 @@ type cashPolicyEdit struct {
 	raw        json.RawMessage
 }
 
-// cashPolicyDraft is a draft checked against one read of the file: the
+// cashPolicyDraft is a draft checked against one read of the files: the
 // changes that change something, the errors per key ("" for one that names
-// no key), and, when there are none, the policy as Canary would read it.
+// no key), and, when there are none, the policies as Canary would read them:
+// the protection policy and its bytes, and the constitution and its bytes
+// (the read ones when no order-limit key changes).
 type cashPolicyDraft struct {
-	edits  []cashPolicyEdit
-	errors map[string]string
-	policy protectionPolicy
-	data   []byte
+	edits        []cashPolicyEdit
+	errors       map[string]string
+	policy       protectionPolicy
+	data         []byte
+	constitution *risk.Constitution
+	conData      []byte
+}
+
+// state is the draft as the settings read it.
+func (d cashPolicyDraft) state() cashPolicyState {
+	return cashPolicyState{p: d.policy, c: d.constitution}
+}
+
+// cashEdits and capEdits split the edits by file.
+func (d cashPolicyDraft) cashEdits() []cashPolicyEdit {
+	return slices.DeleteFunc(slices.Clone(d.edits), func(e cashPolicyEdit) bool { return e.spec.section == rpc.CashPolicySectionOrderLimits })
+}
+
+func (d cashPolicyDraft) capEdits() []cashPolicyEdit {
+	return slices.DeleteFunc(slices.Clone(d.edits), func(e cashPolicyEdit) bool { return e.spec.section != rpc.CashPolicySectionOrderLimits })
 }
 
 // planCashPolicyDraft checks a draft against the file: each key must be in
@@ -49,10 +68,14 @@ type cashPolicyDraft struct {
 // question 3's rule applies, and the loader's own validation runs on each
 // change alone and then on all of them together. Nothing is written.
 func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) cashPolicyDraft {
-	d := cashPolicyDraft{errors: map[string]string{}, policy: r.file, data: r.data}
+	st := r.view()
+	// Without a cap edit the draft's constitution is the one in view (the
+	// policy in force while the file is not writable), so the stance after a
+	// cash-only change reads as the screen does.
+	d := cashPolicyDraft{errors: map[string]string{}, policy: r.file, data: r.data, constitution: st.c, conData: r.con.data}
 	for _, key := range slices.Sorted(maps.Keys(changes)) {
 		sp, ccy, ok := cashPolicySpecFor(key)
-		if !ok {
+		if !ok || (sp.section == rpc.CashPolicySectionOrderLimits && (!r.con.present || r.con.file == nil)) {
 			d.errors[key] = "Desk cannot change this setting; change it in the file."
 			continue
 		}
@@ -62,7 +85,10 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 			continue
 		}
 		defined := r.defined[key]
-		from := sp.effective(r.file, ccy)
+		if sp.section == rpc.CashPolicySectionOrderLimits {
+			defined = r.con.defined[key]
+		}
+		from := sp.effective(st, ccy)
 		if !defined {
 			from = sp.builtin
 		}
@@ -78,6 +104,17 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 		}
 		raw, _ := json.Marshal(to)
 		e := cashPolicyEdit{key: key, spec: sp, ccy: ccy, from: from, fromSource: source, to: to, raw: raw}
+		if sp.section == rpc.CashPolicySectionOrderLimits {
+			if out, err := editConstitutionFile(r.con.data, []cashPolicyEdit{e}, r.con.file.PolicyVersion, nil); err != nil {
+				d.errors[key] = cashPolicyMessage(err.Error(), key)
+				continue
+			} else if _, err := parseConstitutionFile(out); err != nil {
+				d.errors[key] = cashPolicyMessage(err.Error(), key)
+				continue
+			}
+			d.edits = append(d.edits, e)
+			continue
+		}
 		if out, err := editCashPolicyFile(r.data, []cashPolicyEdit{e}, r.file.PolicyVersion, nil); err != nil {
 			d.errors[key] = cashPolicyMessage(err.Error(), key)
 			continue
@@ -102,7 +139,34 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 		}
 		return strings.Compare(a.ccy, b.ccy)
 	})
-	out, err := editCashPolicyFile(r.data, d.edits, r.file.PolicyVersion, nil)
+	if caps := d.capEdits(); len(caps) > 0 {
+		out, err := editConstitutionFile(r.con.data, caps, r.con.file.PolicyVersion, nil)
+		if err != nil {
+			d.errors[""] = cashPolicyMessage(err.Error(), "")
+			return d
+		}
+		after, err := parseConstitutionFile(out)
+		if err != nil {
+			key := ""
+			for _, e := range caps {
+				if strings.HasPrefix(err.Error(), e.key) {
+					key = e.key
+				}
+			}
+			d.errors[key] = cashPolicyMessage(err.Error(), key)
+			return d
+		}
+		if err := verifyConstitutionEdit(r.con.file, after, caps); err != nil {
+			d.errors[""] = "Canary cannot write these changes alone: " + err.Error() + "."
+			return d
+		}
+		d.constitution, d.conData = after, out
+	}
+	cash := d.cashEdits()
+	if len(cash) == 0 {
+		return d
+	}
+	out, err := editCashPolicyFile(r.data, cash, r.file.PolicyVersion, nil)
 	if err != nil {
 		d.errors[""] = cashPolicyMessage(err.Error(), "")
 		return d
@@ -110,7 +174,7 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 	after, _, err := parseProtectionPolicy(out)
 	if err != nil {
 		key := ""
-		for _, e := range d.edits {
+		for _, e := range cash {
 			if strings.HasPrefix(err.Error(), e.key) {
 				key = e.key
 			}
@@ -118,12 +182,103 @@ func planCashPolicyDraft(r cashPolicyRead, changes map[string]json.RawMessage) c
 		d.errors[key] = cashPolicyMessage(err.Error(), key)
 		return d
 	}
-	if err := verifyCashPolicyEdit(r.file, after, d.edits); err != nil {
+	if err := verifyCashPolicyEdit(r.file, after, cash); err != nil {
 		d.errors[""] = "Canary cannot write these changes alone: " + err.Error() + "."
 		return d
 	}
 	d.policy, d.data = after, out
 	return d
+}
+
+// parseConstitutionFile reads a constitution the way the risk policy
+// manager does: strictly, then validated.
+func parseConstitutionFile(data []byte) (*risk.Constitution, error) {
+	var c risk.Constitution
+	md, err := toml.Decode(string(data), &c)
+	if err != nil {
+		return nil, fmt.Errorf("parse: %w", err)
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		keys := make([]string, len(undecoded))
+		for i, k := range undecoded {
+			keys[i] = k.String()
+		}
+		return nil, fmt.Errorf("unknown risk policy key(s): %s", strings.Join(keys, ", "))
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// editConstitutionFile writes order-limit edits into the constitution's
+// bytes and raises policy_version to version+1, changing only the lines it
+// names, as editCashPolicyFile does. The table must be in the file: Canary
+// writes it at its start, and Desk never creates it.
+func editConstitutionFile(data []byte, edits []cashPolicyEdit, version int, note *cashPolicyNote) ([]byte, error) {
+	if _, err := toml.Decode(string(data), &map[string]any{}); err != nil {
+		return nil, err
+	}
+	doc := parseTOMLDoc(data)
+	if doc.headerLine(risk.OrderLimitsTable) < 0 {
+		return nil, fmt.Errorf("%w: risk-policy.toml has no [%s] table yet; Canary writes it at its next start", errCashPolicyUnwritable, risk.OrderLimitsTable)
+	}
+	for _, e := range edits {
+		if e.to == nil {
+			return nil, fmt.Errorf("%s cannot be left empty", e.key)
+		}
+		doc.setNoted(risk.OrderLimitsTable, e.spec.leaf, e.literal(), note.set)
+	}
+	doc.setNoted("", "policy_version", strconv.Itoa(version+1), note.raised)
+	return doc.bytes(), nil
+}
+
+// verifyConstitutionEdit proves a written constitution says what the edits
+// meant and nothing else: each edited key reads its new value, every other
+// [order_limits] key reads as before, everything outside the table is
+// unchanged, and policy_version is one higher.
+func verifyConstitutionEdit(before, after *risk.Constitution, edits []cashPolicyEdit) error {
+	if before == nil || after == nil {
+		return errors.New("the constitution could not be read")
+	}
+	if after.PolicyVersion != before.PolicyVersion+1 {
+		return fmt.Errorf("policy_version reads %d, not %d", after.PolicyVersion, before.PolicyVersion+1)
+	}
+	if before.OrderLimits == nil || after.OrderLimits == nil {
+		return errors.New("[order_limits] is missing")
+	}
+	edited := map[string]bool{}
+	for _, e := range edits {
+		edited[e.key] = true
+		got, set := e.spec.get(cashPolicyState{c: after}, "")
+		if !set || !cashPolicySame(got, e.to) {
+			return fmt.Errorf("%s reads %v, not %v", e.key, got, e.to)
+		}
+	}
+	rest := *after.OrderLimits
+	for _, key := range []string{risk.OrderLimitMaxOrderFloorBase, risk.OrderLimitMaxOrderPctNLV, risk.OrderLimitMaxOptionContracts} {
+		if !edited[risk.OrderLimitsTable+"."+key] {
+			continue
+		}
+		switch key {
+		case risk.OrderLimitMaxOrderFloorBase:
+			rest.MaxOrderFloorBase = before.OrderLimits.MaxOrderFloorBase
+		case risk.OrderLimitMaxOrderPctNLV:
+			rest.MaxOrderPctNLV = before.OrderLimits.MaxOrderPctNLV
+		case risk.OrderLimitMaxOptionContracts:
+			rest.MaxOptionContracts = before.OrderLimits.MaxOptionContracts
+		}
+	}
+	if !reflect.DeepEqual(rest, *before.OrderLimits) {
+		return errors.New("an [order_limits] key changed, and no change named it")
+	}
+	a, b := *after, *before
+	a.OrderLimits, b.OrderLimits = nil, nil
+	a.PolicyVersion = b.PolicyVersion
+	if a.FingerprintKey() != b.FingerprintKey() {
+		return errors.New("a setting outside [order_limits] changed")
+	}
+	return nil
 }
 
 // decode reads one draft value as the key's type. Bounds are the loader's;
@@ -157,7 +312,10 @@ func (sp cashPolicySpec) decode(raw json.RawMessage) (any, string) {
 	}
 	if sp.typ == rpc.CashPolicyTypeInteger {
 		if v != math.Trunc(v) || math.Abs(v) > 1e9 {
-			return nil, "Must be a whole number of days."
+			if sp.unit == rpc.CashPolicyUnitDays {
+				return nil, "Must be a whole number of days."
+			}
+			return nil, "Must be a whole number."
 		}
 		return int(v), ""
 	}
@@ -203,13 +361,16 @@ func cashPolicyMessage(msg, key string) string {
 type cashPolicyNote struct {
 	at        string
 	confirmed string
+	// preset names the preset the save lands on (" from the Cautious
+	// preset"), empty for a custom save.
+	preset string
 }
 
 func (n *cashPolicyNote) set(was string, present bool) string {
 	if n == nil {
 		return ""
 	}
-	text := "set in Desk " + n.at + ", " + n.confirmed
+	text := "set in Desk " + n.at + n.preset + ", " + n.confirmed
 	if !present {
 		return text + "; was not in the file"
 	}
@@ -303,7 +464,7 @@ func verifyCashPolicyEdit(before, after protectionPolicy, edits []cashPolicyEdit
 	edited := map[string]bool{}
 	for _, e := range edits {
 		edited[e.key] = true
-		got, set := e.spec.get(after, e.ccy)
+		got, set := e.spec.get(cashPolicyState{p: after}, e.ccy)
 		switch {
 		case e.to == nil && set:
 			return fmt.Errorf("%s still reads %v", e.key, got)
@@ -325,12 +486,15 @@ func verifyCashPolicyEdit(before, after protectionPolicy, edits []cashPolicyEdit
 		}
 	}
 	for _, sp := range cashPolicySpecs {
+		if sp.section == rpc.CashPolicySectionOrderLimits {
+			continue
+		}
 		ccys := []string{""}
 		if sp.perCurrency {
 			ccys = slices.Sorted(maps.Keys(currencies))
 		}
 		for _, ccy := range ccys {
-			if key := sp.key(ccy); !edited[key] && !cashPolicySame(sp.effective(before, ccy), sp.effective(after, ccy)) {
+			if key := sp.key(ccy); !edited[key] && !cashPolicySame(sp.effective(cashPolicyState{p: before}, ccy), sp.effective(cashPolicyState{p: after}, ccy)) {
 				return fmt.Errorf("%s changed, and no change named it", key)
 			}
 		}
@@ -507,8 +671,15 @@ func cashPolicyMissing(p protectionPolicy, section string) []string {
 // pre-authorises the sweep), that comes first (owner decision 2026-10-06
 // 15:31 CEST); while it already does, each sweep change says so. Whether a
 // change has a sentence never depends on the book: only the wording does.
-func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEdit, b cashPolicyBook) []string {
+func cashPolicyConsequences(beforeState, afterState cashPolicyState, edits []cashPolicyEdit, b cashPolicyBook) []string {
+	before, after := beforeState.p, afterState.p
 	out := []string{}
+	// One sentence per quantity (D5): the reserve pair and the order cap's
+	// floor and share each describe one quantity, so the second key of a
+	// pair adds no second sentence.
+	quantity := map[string]string{"cash.sweep.reserve_floor_base": "reserve", "cash.sweep.reserve_pct_nlv": "reserve",
+		"order_limits.max_order_floor_base": "order cap", "order_limits.max_order_pct_nlv": "order cap"}
+	saidQuantity := map[string]bool{}
 	money := func(v any) string { f, _ := cashPolicyNumber(v); return cashPolicyMoney(f, b.base) }
 	num := func(v any) string { f, _ := cashPolicyNumber(v); return policyCheckNumber(f) }
 	startsSending := !cashPolicyDaemonSends(before) && cashPolicyDaemonSends(after)
@@ -552,6 +723,12 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 		}
 		if e.spec.more == nil || !e.spec.more(from, to) {
 			continue
+		}
+		if q := quantity[e.key]; q != "" {
+			if saidQuantity[q] {
+				continue
+			}
+			saidQuantity[q] = true
 		}
 		var text string
 		switch e.key {
@@ -606,6 +783,12 @@ func cashPolicyConsequences(before, after protectionPolicy, edits []cashPolicyEd
 			text = cashPolicyExemptSentence(before.Cash.Sweep, after.Cash.Sweep, b)
 		case "cash.sweep.keep_cash":
 			text = "The settlement float falls from " + num(from) + " to " + num(to) + " in each currency's own unit."
+		case "order_limits.max_order_floor_base", "order_limits.max_order_pct_nlv":
+			text = cashPolicyOrderCapSentence(beforeState.c, afterState.c, e.key, from, to, b)
+		case "order_limits.max_option_contracts":
+			f, _ := cashPolicyNumber(from)
+			t, _ := cashPolicyNumber(to)
+			text = "An opening option order may hold up to " + cashPolicyPresetContracts(int(t)) + " instead of " + cashPolicyPresetContracts(int(f)) + "; a delta-reducing exit is not held to it."
 		default:
 			switch {
 			case e.spec.leaf == "deliberate_carry":
@@ -688,6 +871,41 @@ func cashPolicyLargestOrderSentence(before, after *protectionCashSweepPolicy, ke
 		why = "the order cap in force holds it, so the change matters only if that cap rises or bills may pass it"
 	}
 	return "At today's NLV the largest sweep order stays " + cashPolicyMoney(now, b.base) + ": " + why + "."
+}
+
+// cashPolicyOrderCapSentence says what a larger floor or share does to the
+// order cap on new orders at today's NLV under the file's ceiling, and why
+// when nothing changes today. Delta-reducing exits are not held to the cap,
+// so the sentence speaks of new orders.
+func cashPolicyOrderCapSentence(before, after *risk.Constitution, key string, from, to any, b cashPolicyBook) string {
+	f, _ := cashPolicyNumber(from)
+	t, _ := cashPolicyNumber(to)
+	var was, now float64
+	okBefore, okAfter := false, false
+	if before != nil {
+		was, okBefore = cashPolicyOrderCapAt(before.OrderLimits, b.nlv)
+	}
+	if after != nil {
+		now, okAfter = cashPolicyOrderCapAt(after.OrderLimits, b.nlv)
+	}
+	if b.nlv <= 0 || !okBefore || !okAfter {
+		if key == "order_limits.max_order_pct_nlv" {
+			return "The order cap's share rises from " + policyCheckNumber(f) + "% to " + policyCheckNumber(t) + "% of NLV; what that comes to today is unknown, because NLV cannot be read now, so the floor applies meanwhile."
+		}
+		return "The order cap's floor rises from " + cashPolicyMoney(f, b.base) + " to " + cashPolicyMoney(t, b.base) + ": the cap on new orders while NLV cannot be read."
+	}
+	if now > was {
+		return "At today's NLV the order cap on new orders rises from " + cashPolicyMoney(was, b.base) + " to " + cashPolicyMoney(now, b.base) + "."
+	}
+	why := "the floor sets it, so the change matters only if NLV grows"
+	o := after.OrderLimits
+	switch {
+	case o.MaxOrderCeilingBase != nil && now >= *o.MaxOrderCeilingBase:
+		why = "the " + cashPolicyMoney(*o.MaxOrderCeilingBase, b.base) + " ceiling holds it"
+	case o.MaxOrderPctNLV != nil && o.MaxOrderFloorBase != nil && *o.MaxOrderPctNLV/100*b.nlv > *o.MaxOrderFloorBase:
+		why = policyCheckNumber(*o.MaxOrderPctNLV) + "% of NLV sets it, so the change matters only if NLV falls"
+	}
+	return "At today's NLV the order cap on new orders stays " + cashPolicyMoney(now, b.base) + ": " + why + "."
 }
 
 // cashPolicyReserveSentence says what a smaller amount or share does to the

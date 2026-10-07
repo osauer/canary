@@ -106,8 +106,18 @@ labels and whole units), and the snapshot carries that sentence in place of
 the CLI text (2026-10-07). Check runs the loader's validation
 on the draft and returns canonical terms and their digest; it writes nothing.
 Apply takes those terms with a confirmation reference (Desk action id,
-credential, envelope; audited, not verifiable here), audits its origin as
-agent and refuses every other origin. A reference may rely on an earlier save
+credential, envelope), audits its origin as agent and refuses every other
+origin. Since 2026-10-07 (owner decisions 08:30 and 08:33 CEST) the methods
+also edit the risk constitution's `[order_limits]` floor, share and option
+contracts as `order_limits.<key>` changes, derive the risk preset from both
+files (`preset`, `presets`, `restore` on get; `preset_from`, `preset_to`,
+`device_required` on check), name both files' bytes in the revision, and
+verify the owner's device confirmation themselves for any cap change against
+the constitution's `[desk_device]`; a save that changes a cap and carries no
+verifiable confirmation fails `confirmation_unverifiable`. The constitution is
+written first; a failure after it is a partial save (`partial`); each
+constitution revision is journaled as a governance event. Details:
+risk-policy.md, "Presets and Desk's order-cap saves". A reference may rely on an earlier save
 instead of the device (`confirmed_by`; owner decision 2026-10-06 15:31 CEST):
 Canary accepts it only for a save with no consequence at the broker, only on a
 save it recorded with a fresh confirmation by the same credential, and only

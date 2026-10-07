@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v2/internal/dial"
 )
 
 // RunPolicyLocal runs the policy subcommands that need no daemon: default
@@ -84,6 +86,17 @@ func runPolicyEnsure(_ context.Context, env *Env, args []string) int {
 	}
 	approved := map[string]daemon.PolicyMigrationApproval{}
 	if *applyPlan != "" {
+		// A running daemon rereads the policy files and writes them for a
+		// save from Desk; an out-of-process write under it would race both.
+		// The daemon's own instance lock is the mutex.
+		release, err := daemon.TryInstanceLock(dial.DefaultSocketPath())
+		if errors.Is(err, daemon.ErrAlreadyRunning) {
+			return fail(env, "policy ensure: a Canary daemon is running and owns the policy files; it migrates them itself at its next start (canary restart), or stop it first (canary stop)")
+		}
+		if err != nil {
+			return fail(env, "policy ensure: cannot take the daemon's lock to apply the plan: %v", err)
+		}
+		defer release()
 		file, err := os.Open(*applyPlan)
 		if err != nil {
 			return fail(env, "policy ensure: read reviewed plan: %v", err)

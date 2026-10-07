@@ -44,6 +44,11 @@ type riskPolicyManager struct {
 	// placeholder template.
 	review       string
 	onTransition func(prev, next string, c *risk.Constitution)
+	// fileMu serialises a reread with policy.cash.apply's write of the
+	// constitution (cash_policy_handlers.go), so a reread that read the file
+	// before a save can never publish it after the save and misreport the
+	// saved file as drift. reload holds it over the read and the adoption.
+	fileMu sync.Mutex
 }
 
 func (s *Server) installRiskPolicyManager() {
@@ -133,6 +138,14 @@ func (m *riskPolicyManager) reload() {
 	if m == nil {
 		return
 	}
+	m.fileMu.Lock()
+	defer m.fileMu.Unlock()
+	m.reloadHeld()
+}
+
+// reloadHeld is reload for a caller that already holds fileMu: the write
+// path reloads the file it just wrote without releasing the lock.
+func (m *riskPolicyManager) reloadHeld() {
 	now := m.now().UTC()
 	policy, review, err := m.loadPolicy()
 

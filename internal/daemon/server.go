@@ -363,6 +363,9 @@ type Server struct {
 	// cashPolicyBookForTest replaces them.
 	cashPolicyCache       cashPolicyBookCache
 	cashPolicyBookForTest func() cashPolicyBook
+	// cashPolicyWriteFault, in tests, fails the protection file's write of a
+	// two-file save after the constitution was written.
+	cashPolicyWriteFault func(path string) error
 
 	// openOrderInventoryForTest replaces brokerOpenOrderInventory whole in
 	// hermetic tests that have no Connector; production leaves it nil.

@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -124,5 +125,33 @@ func TestPolicyScreensMarkUnreviewedFilesAndMissingNumbers(t *testing.T) {
 	if !strings.Contains(s, "default, unreviewed") || !strings.Contains(s, "needs your number: automatic submission") ||
 		!strings.Contains(s, "error (default, unreviewed)") || strings.Contains(s, "a note") {
 		t.Fatalf("policy files:\n%s", s)
+	}
+}
+
+// `canary policy ensure --apply-plan` writes policy files out of process, so
+// it takes the daemon's instance lock and refuses while a daemon holds it:
+// a running daemon rereads the files and writes them for a save from Desk
+// (design 2026-10-07 §7.2).
+func TestPolicyEnsureApplyPlanRefusesWhileADaemonRuns(t *testing.T) {
+	home := isolatePolicyHome(t)
+	t.Setenv("CANARY_SOCKET", filepath.Join(home, "run", "ibkr.sock"))
+	plan := filepath.Join(home, "plan.json")
+	if err := os.WriteFile(plan, []byte(`{"actions":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := daemon.TryInstanceLock(dial.DefaultSocketPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := RunPolicyLocal(context.Background(), &Env{Stdout: &out, Stderr: &errb, Version: "v9.9.9"}, []string{"ensure", "--apply-plan", plan})
+	if code != 1 || !strings.Contains(errb.String(), "a Canary daemon is running and owns the policy files") {
+		t.Fatalf("with the lock held: exit %d\n%s%s", code, out.String(), errb.String())
+	}
+	release()
+	errb.Reset()
+	code = RunPolicyLocal(context.Background(), &Env{Stdout: &out, Stderr: &errb, Version: "v9.9.9"}, []string{"ensure", "--apply-plan", plan})
+	if code != 1 || !strings.Contains(errb.String(), "plan contains no reviewed conversion") {
+		t.Fatalf("with the lock free the plan itself is read: exit %d\n%s", code, errb.String())
 	}
 }

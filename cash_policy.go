@@ -32,12 +32,52 @@ type CashPolicyConfirmation = rpc.CashPolicyConfirmation
 // CashPolicyApplyResult is the snapshot after a save, with its receipt.
 type CashPolicyApplyResult = rpc.CashPolicyApplyResult
 
+// CashPolicyFile is one policy file's state in a CashPolicySnapshot: the
+// protection file's fields on the snapshot itself, the risk constitution's
+// under Constitution.
+type CashPolicyFile = rpc.CashPolicyFile
+
+// CashPolicyPreset is the stance the files' values derive to.
+type CashPolicyPreset = rpc.CashPolicyPreset
+
+// CashPolicyPresetOption is one preset the owner may apply, with its values
+// and what they come to at today's NLV.
+type CashPolicyPresetOption = rpc.CashPolicyPresetOption
+
+// CashPolicyPresetFacts is what a preset comes to at today's NLV.
+type CashPolicyPresetFacts = rpc.CashPolicyPresetFacts
+
+// CashPolicyRestore offers the owner's own values back after a preset
+// replaced them.
+type CashPolicyRestore = rpc.CashPolicyRestore
+
+// CashPolicyDevice says which of the owner's credentials Canary verifies
+// itself.
+type CashPolicyDevice = rpc.CashPolicyDevice
+
+// CashPolicyPartial reports a two-file save that stopped after its first
+// file.
+type CashPolicyPartial = rpc.CashPolicyPartial
+
+// Preset ids a CashPolicyPreset carries.
+const (
+	CashPolicyPresetCautious   = rpc.CashPolicyPresetCautious
+	CashPolicyPresetBalanced   = rpc.CashPolicyPresetBalanced
+	CashPolicyPresetAggressive = rpc.CashPolicyPresetAggressive
+	CashPolicyPresetCustom     = rpc.CashPolicyPresetCustom
+)
+
+// CashPolicySectionOrderLimits is the section of the order cap settings,
+// which live in the risk constitution.
+const CashPolicySectionOrderLimits = rpc.CashPolicySectionOrderLimits
+
 // Error codes a cash policy save reports besides CodeSettingsConflict.
 const (
-	CodePolicyInvalid        = rpc.CodePolicyInvalid
-	CodePolicyUnwritable     = rpc.CodePolicyUnwritable
-	CodeConfirmationRequired = rpc.CodeConfirmationRequired
-	CodeRequestReused        = rpc.CodeRequestReused
+	CodePolicyInvalid            = rpc.CodePolicyInvalid
+	CodePolicyUnwritable         = rpc.CodePolicyUnwritable
+	CodeConfirmationRequired     = rpc.CodeConfirmationRequired
+	CodeConfirmationUnverifiable = rpc.CodeConfirmationUnverifiable
+	CodeRequestReused            = rpc.CodeRequestReused
 )
 
 // CashPolicy reads the cash management settings. Like the methods below it is

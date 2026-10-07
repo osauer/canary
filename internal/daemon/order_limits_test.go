@@ -208,7 +208,7 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	}
 	c := decodeTestConstitution(t, out)
 	o := c.OrderLimits
-	if c.PolicyVersion != 6 || o == nil || *o.MaxOrderFloorBase != 12000 || *o.MaxOrderPctNLV != 5 || *o.MaxOrderCeilingBase != 100000 ||
+	if c.PolicyVersion != 6 || o == nil || *o.MaxOrderFloorBase != 12000 || *o.MaxOrderPctNLV != 10 || *o.MaxOrderCeilingBase != 100000 ||
 		*o.MaxOptionContracts != 3 || !*o.AllowStockShort || *o.AllowOptionSellToOpen || *o.MaxBondMaturityYears != 30 {
 		t.Fatalf("explicit source migrated to v%d %+v", c.PolicyVersion, o)
 	}
@@ -226,7 +226,7 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	o = decodeTestConstitution(t, out).OrderLimits
-	if *o.MaxOrderFloorBase != 10000 || *o.MaxOptionContracts != 5 || *o.AllowStockShort || *o.AllowOptionSellToOpen ||
+	if *o.MaxOrderFloorBase != 10000 || *o.MaxOptionContracts != 10 || *o.AllowStockShort || *o.AllowOptionSellToOpen ||
 		!strings.Contains(strings.Join(changes, "\n"), "max_order_floor_base = 10000.0 (Canary's compiled default; config.toml [trading] does not set max_notional)") {
 		t.Fatalf("compiled-default source migrated to %+v, changes %v", o, changes)
 	}
@@ -353,7 +353,7 @@ func TestDaemonStartWritesTheDefaultsAnUpgradeLacks(t *testing.T) {
 // config.toml, so a fresh install trades within today's gates.
 func TestConstitutionTemplateCarriesOrderLimits(t *testing.T) {
 	c := decodeTestConstitution(t, constitutionPolicyTemplateFrom("test", config.Trading{MaxNotional: new(7000.0)}, true))
-	if o := c.OrderLimits; o == nil || len(o.MissingKeys()) != 0 || *o.MaxOrderFloorBase != 7000 || *o.MaxOrderPctNLV != 5 || *o.MaxOrderCeilingBase != 100000 {
+	if o := c.OrderLimits; o == nil || len(o.MissingKeys()) != 0 || *o.MaxOrderFloorBase != 7000 || *o.MaxOrderPctNLV != 10 || *o.MaxOrderCeilingBase != 100000 {
 		t.Fatalf("template order limits = %+v", c.OrderLimits)
 	}
 	if len(c.UnapprovedKeys()) == 0 {
