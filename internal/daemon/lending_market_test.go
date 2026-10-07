@@ -199,8 +199,13 @@ func TestLendingMarketVerdictWithoutConIDHoldsForTheSession(t *testing.T) {
 	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
 	s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: now.Add(24 * time.Hour), focusFamily: "lending", focusUntil: now.Add(2 * time.Hour)}}
 	reads := 0
-	read := func(context.Context, lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
+	read := func(ctx context.Context, _ lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {
 		reads++
+		// The worker records the verdict itself, so the broker's echo of it
+		// must not log as a warning per delisted name.
+		if !ibkrlib.DefinitionMissClassified(ctx) {
+			t.Error("lending read does not mark its definition misses as classified")
+		}
 		empty := projectLendingMarket(c, nil, nil, clock)
 		return empty, empty, fmt.Errorf("chart: %w", ibkrlib.ErrContractNoDefinition)
 	}

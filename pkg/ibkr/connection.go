@@ -515,21 +515,26 @@ type reqAliasEntry struct {
 	// discovery miss the requester classifies; for a known conID it is a
 	// stale identity (the cached OKE conId of 2026-09-28) and stays loud.
 	conID int
+	// callerClassifiesMiss marks a request sent under
+	// WithDefinitionMissClassified: its requester records a "no security
+	// definition" answer itself, so the echo is INFO even for a known conID.
+	callerClassifiesMiss bool
 }
 
-func (c *Connection) registerReqAlias(reqID int, contract Contract) {
+func (c *Connection) registerReqAlias(ctx context.Context, reqID int, contract Contract) {
 	if reqID <= 0 || contract.Symbol == "" {
 		return
 	}
 	entry := reqAliasEntry{
-		conID:        contract.ConID,
-		symbol:       strings.ToUpper(contract.Symbol),
-		secType:      strings.ToUpper(contract.SecType),
-		exchange:     strings.ToUpper(contract.Exchange),
-		primaryExch:  strings.ToUpper(contract.PrimaryExch),
-		currency:     strings.ToUpper(contract.Currency),
-		localSymbol:  contract.LocalSymbol,
-		tradingClass: contract.TradingClass,
+		callerClassifiesMiss: DefinitionMissClassified(ctx),
+		conID:                contract.ConID,
+		symbol:               strings.ToUpper(contract.Symbol),
+		secType:              strings.ToUpper(contract.SecType),
+		exchange:             strings.ToUpper(contract.Exchange),
+		primaryExch:          strings.ToUpper(contract.PrimaryExch),
+		currency:             strings.ToUpper(contract.Currency),
+		localSymbol:          contract.LocalSymbol,
+		tradingClass:         contract.TradingClass,
 	}
 	c.aliasMu.Lock()
 	c.reqAlias[reqID] = entry
@@ -3564,6 +3569,8 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	// morning of 2026-10-04); the requester already classifies it. Only a
 	// known conID that stops resolving is an operator-grade warning.
 	symbolLookupMiss := note.code == 200 && aliasEntry.secType == "STK" && aliasEntry.conID == 0 && aliasEntry.symbol != ""
+	// A requester that marked its context records the verdict itself.
+	classifiedMiss := note.code == 200 && aliasEntry.callerClassifiesMiss
 	upperMsg := strings.ToUpper(note.message)
 	// Echoes of the connector's own actions carry no new information: 300
 	// answers a cancel for a ticker the gateway no longer holds (1,690 lines
@@ -3607,6 +3614,8 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 			ibkrLogger.Debugf(format, args...)
 		case repeatGap:
 			ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
+		case classifiedMiss:
+			ibkrLogger.Infof(format+" (the requester records this verdict)", args...)
 		case symbolLookupMiss:
 			ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
 		case noDataVerdict:
@@ -3628,6 +3637,8 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 		ibkrLogger.Debugf(format, args...)
 	case repeatGap:
 		ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
+	case classifiedMiss:
+		ibkrLogger.Infof(format+" (the requester records this verdict)", args...)
 	case symbolLookupMiss:
 		ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
 	case noDataVerdict:
@@ -4614,7 +4625,7 @@ func (c *Connection) RequestContractDetails(contract Contract) (int, error) {
 }
 
 func (c *Connection) sendContractDetailsRequest(contract Contract, reqID int) error {
-	return c.sendMessage(c.contractDetailsRequestMessage(contract, reqID))
+	return c.sendMessage(c.contractDetailsRequestMessage(context.Background(), contract, reqID))
 }
 
 // sendContractDetailsRequestContext is sendContractDetailsRequest with
@@ -4623,15 +4634,15 @@ func (c *Connection) sendContractDetailsRequest(contract Contract, reqID int) er
 // background-tagged fan-out rides the limiter's background lane instead of
 // pre-booking the message bucket ahead of interactive reads.
 func (c *Connection) sendContractDetailsRequestContext(ctx context.Context, contract Contract, reqID int) error {
-	return c.sendMessageWithTypeContext(ctx, c.contractDetailsRequestMessage(contract, reqID), RequestTypeGeneral)
+	return c.sendMessageWithTypeContext(ctx, c.contractDetailsRequestMessage(ctx, contract, reqID), RequestTypeGeneral)
 }
 
 func (c *Connection) sendContractDetailsRequestForEpoch(ctx context.Context, contract Contract, reqID int, epoch uint64) error {
-	return c.sendMessageWithTypeContextForEpoch(ctx, c.contractDetailsRequestMessage(contract, reqID), RequestTypeGeneral, epoch, true)
+	return c.sendMessageWithTypeContextForEpoch(ctx, c.contractDetailsRequestMessage(ctx, contract, reqID), RequestTypeGeneral, epoch, true)
 }
 
-func (c *Connection) contractDetailsRequestMessage(contract Contract, reqID int) []byte {
-	c.registerReqAlias(reqID, contract)
+func (c *Connection) contractDetailsRequestMessage(ctx context.Context, contract Contract, reqID int) []byte {
+	c.registerReqAlias(ctx, reqID, contract)
 
 	// Handle strike field: IB API expects empty string (not "0") for non-option contracts
 	strikeField := ""
@@ -5468,7 +5479,7 @@ func (c *Connection) requestMarketDataWithContract(ctx context.Context, contract
 
 	// Copy the contract to avoid caller mutations affecting queued send.
 	contractCopy := contract
-	c.registerReqAlias(reqID, contractCopy)
+	c.registerReqAlias(ctx, reqID, contractCopy)
 
 	fields := c.buildReqMktDataFields(contractCopy, reqID, genericTicks, snapshot, regulatorySnap)
 	msg := c.encodeMsg(fields...)
@@ -5540,7 +5551,7 @@ func (c *Connection) requestMarketDataWithContractForEpochMode(ctx context.Conte
 		return 0, err
 	}
 	contractCopy := contract
-	c.registerReqAlias(reqID, contractCopy)
+	c.registerReqAlias(ctx, reqID, contractCopy)
 	msg := c.encodeMsg(c.buildReqMktDataFields(contractCopy, reqID, genericTicks, snapshot, regulatorySnap)...)
 	if err := c.acquireMarketDataSlot(ctx, reqID, "epoch_quote"); err != nil {
 		return 0, fmt.Errorf("market data subscription limit reached: %w", err)

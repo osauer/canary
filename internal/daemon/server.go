@@ -87,6 +87,8 @@ type Server struct {
 	// successor so a reconnect does not re-probe a known gap at warning level.
 	// Guarded by mu.
 	marketDataMemory ibkrlib.MarketDataMemory
+	// entitlementGapsLoaded is set once loadEntitlementGaps has run. Guarded by mu.
+	entitlementGapsLoaded bool
 
 	// brokerWriteMu serializes the check-then-act sections of every broker
 	// races, not a throughput concern. Cancel stays outside so a protective
@@ -1420,8 +1422,10 @@ func (s *Server) Start(ctx context.Context) error {
 	defer s.closeListener()
 
 	s.startedAt = time.Now()
-	s.logger.Infof("canary daemon %s listening on %s (gateway=%s:%d, clientID=%d)",
-		s.version, s.socketPath, ep.Host, ep.Port, ep.ClientID)
+	// A lifecycle marker (internal/loglevel): it reaches the log at any level,
+	// so a log check can tell which build wrote the lines that follow.
+	s.logger.Infof("canary daemon serving %s (build %s) on %s (gateway=%s:%d, clientID=%d)",
+		s.version, buildRevision(), s.socketPath, ep.Host, ep.Port, ep.ClientID)
 	s.evaluateRiskPolicyV3Reconciliation()
 	// Skip the connect goroutine when discovery already failed — there's
 	// and no attempt in flight, starts reconnectFlow, and races the initial
@@ -1707,6 +1711,7 @@ func (s *Server) connectWithFailover(ctx context.Context, primary discover.Endpo
 		// Publish the candidate so handlers / status see the port the
 		// production (buildAttempter returns *ibkrlib.Connector); test
 		if real, ok := a.(*ibkrlib.Connector); ok {
+			s.loadEntitlementGaps()
 			s.mu.Lock()
 			memory := s.marketDataMemory
 			s.mu.Unlock()
@@ -2384,6 +2389,7 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 		s.mu.Lock()
 		s.marketDataMemory = memory
 		s.mu.Unlock()
+		s.persistEntitlementGaps(memory)
 		if err := old.Stop(); err != nil {
 			s.logger.Warnf("Reconnect: stop old connector: %v", err)
 		}
@@ -2506,6 +2512,7 @@ func (s *Server) stopConnector() {
 		s.mu.Lock()
 		s.marketDataMemory = memory
 		s.mu.Unlock()
+		s.persistEntitlementGaps(memory)
 	}
 	s.withConnectorEvidencePublication(c, nil, func() {
 		s.connector = nil
