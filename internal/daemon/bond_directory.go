@@ -334,6 +334,7 @@ func bondClassOf(line ibkrlib.BondContractDetails) string {
 // bondContractView is the wire view of a line; today dates days to maturity.
 func bondContractView(line ibkrlib.BondContractDetails, today time.Time) rpc.BondContract {
 	out := rpc.BondContract{ConID: line.ConID, Symbol: line.Symbol, SecType: line.SecType, ISIN: line.ISIN(), CUSIP: line.CUSIP(), Issuer: nonEmptyString(line.LongName, line.DescAppend), Ratings: strings.TrimSpace(line.Ratings),
+		TradingClass: strings.TrimSpace(line.TradingClass), MarketName: strings.TrimSpace(line.MarketName),
 		Class: bondClassOf(line), Currency: line.Currency, Exchange: line.Exchange, PriceConvention: rpc.BondPriceConventionPer100}
 	if maturity, ok := line.MaturityDate(); ok {
 		out.Maturity = maturity.Format(time.DateOnly)
