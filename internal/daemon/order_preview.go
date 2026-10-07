@@ -520,7 +520,8 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, position, replaceTarget)
 	limits := s.orderLimitsInForceForPreview(ctx, positionAuthority.BaseCurrency)
-	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory); err != nil {
+	deltaEvidence := s.captureDeltaReductionEvidence(ctx, status, draft, position, limits, notionalAuthority)
+	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
 	var whatIf rpc.OrderWhatIfResult

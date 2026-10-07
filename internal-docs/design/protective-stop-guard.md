@@ -1,6 +1,6 @@
 # Protective stop exemption and guard
 
-Updated: 2026-10-05 17:56 CEST
+Updated: 2026-10-07 08:42 CEST
 Status: implemented
 
 Contract per `.agents/docs/daemon-cli-trading-contract.md` and
@@ -21,6 +21,13 @@ Contract per `.agents/docs/daemon-cli-trading-contract.md` and
   `allow_stock_short` moved to the risk constitution's `[order_limits]`
   (owner decision 2026-10-05 19:56 CEST); the cap now scales with the book.
   The exemption is unchanged and applies against the cap in force.
+- **Amendment (2026-10-07 08:42 CEST):** the delta-reducing exit exemption
+  (risk-policy.md, "Delta-reducing exits", owner decision 2026-10-07 08:13
+  CEST) stands beside this one; an order passes the notional cap when either
+  applies. This exemption is not folded into it: it reads the open-order
+  inventory rather than deltas, it also excuses the short re-read, and it
+  admits an over-hedged stock's stop that the delta rule would not. Its
+  behaviour is unchanged.
 - **Enforcement class:** pre-trade hard gate (narrowed), plus an automatic
   post-trade correction of Canary's own stops.
 

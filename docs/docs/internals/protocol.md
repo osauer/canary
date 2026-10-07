@@ -1,6 +1,6 @@
 # TWS wire protocol
 
-Updated: 2026-08-09
+Updated: 2026-10-07 08:40 CEST
 
 `pkg/ibkr` is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
@@ -25,7 +25,8 @@ journal, broker, and origin checks; the MCP server is read-only and exposes no
 preview, place, modify, cancel, or exercise tools.
 
 Order caps bind every equity/ETF or single-leg option order, including an
-apparent close or reduction. They are the risk constitution's `[order_limits]`
+apparent close or reduction that does not lower its underlying's absolute
+delta. They are the risk constitution's `[order_limits]`
 in force (owner decision 2026-10-05 19:56 CEST): the notional cap is
 min(ceiling, max(floor, pct × NLV)) from the last current account reading, the
 floor when NLV cannot be read, and a missing key refuses every preview with
@@ -47,6 +48,13 @@ A cash sweep bill order passes the order cap in force only when the
 protection policy writes `bills_exempt_from_trading_max_notional = true`, and
 then only up to the sweep's own order cap in force, for a same-currency bill
 with no conversion ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
+A close or reduction that lowers the absolute net delta of its underlying
+passes the notional cap and the option-contract cap (owner decision 2026-10-07
+08:13 CEST): the daemon measures the underlying's legs with the position
+deltas its risk verdicts use, at preview and again at admission, and the
+first-byte guard reuses the admission reading; an unknown or stale delta keeps
+the caps, and the short and sell-to-open re-reads are unchanged
+([Order limits](../understand/policy.md#order-limits)).
 
 The account-base unit used by those caps is exact-session authority. A
 completed one-shot account-summary response must identify it through the

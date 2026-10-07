@@ -287,12 +287,32 @@ refuses every order. A refusal names the cap in force and how it was bound, for
 example `order notional 15,000 EUR exceeds the order cap in force 12,000 EUR
 (5% of NLV 240,000 EUR; [order_limits])`.
 
-Two exemptions stand against the cap in force: a protective stock stop that
-sells at most the long position with no competing working sell
-([Protection](../operate/protection.md)), and a same-currency sweep bill within
-the sweep's own cap when the protection policy writes
-`bills_exempt_from_trading_max_notional = true`. The option cap, the short and
-sell-to-open permissions and the currency checks have no exemption.
+Three exemptions stand against the cap in force. A protective stock stop that
+sells at most the long position with no competing working sell passes the
+notional cap and the short re-read ([Protection](../operate/protection.md)). A
+same-currency sweep bill within the sweep's own cap passes the notional cap
+when the protection policy writes `bills_exempt_from_trading_max_notional =
+true`. And an order that reduces delta passes both the notional cap and the
+option cap (owner decision 2026-10-07 08:13 CEST: "tighter order cap must not
+block exits if they reduce delta"): it only closes or shrinks a position you
+hold, never opening, adding or flipping to the other side, and it lowers the
+absolute net delta of its underlying, measured with the same position deltas
+Canary's risk verdicts use (shares at their mark, option contracts at their
+delta, multiplier and model spot, all in the account base currency). A hand
+exit, an option buy-to-close or sell-to-close, a strategy close, a reduction
+proposal or a budget-governor cut above the cap therefore passes when it
+lowers that delta. Closing a long put or buying back a short call that hedges
+a long stock raises the stock's absolute delta, so it keeps the cap; so does
+any order whose underlying has a leg with a stale quote or no delta, spot or
+FX rate, because an unknown delta never exempts. The refusal then says why,
+for example `order notional 15,000 EUR exceeds the order cap in force 12,000
+EUR (5% of NLV 240,000 EUR; [order_limits]); the exit does not lower the
+absolute delta of SYNA (69,000 EUR before, 99,000 EUR after), so the cap
+applies`. Bills, bonds and conversions carry no equity delta and never
+qualify. The short and sell-to-open permissions and the currency checks have
+no exemption: a stock exit above the cap still needs
+`allow_stock_short` and an option sell-to-close still needs
+`allow_option_sell_to_open`, exactly as below the cap.
 
 For a time-bounded larger cap, a human grants a one-shot override of the floor:
 
@@ -405,17 +425,17 @@ rule is one entry.
 |---|---|---|---|
 | `file_refused` | error | no | Canary's loader refuses a policy file, so the previous policy or Canary's defaults stay in force. |
 | `order_limits_missing` | error | no | The constitution does not write every `[order_limits]` key, or there is no constitution, so the trading gate refuses every order preview. |
-| `cap_above_trading_max` | error | no | A bucket's per-order cap lets an order exceed the order cap in force (`[order_limits]`), which the gate always refuses: `risk_reduction` and `budget_reduction` in the contract currency at the book's FX rate, `cash_sweep` at its cap in force (the larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV). `bills_exempt_from_trading_max_notional = true` makes a sweep cap above the order cap legitimate. |
+| `cap_above_trading_max` | error | no | The cash sweep's cap in force (the larger of `max_order_notional` and `max_order_pct_nlv` percent of NLV) lets a bill order exceed the order cap in force (`[order_limits]`), which the gate always refuses. `bills_exempt_from_trading_max_notional = true` makes that gap legitimate. The reduction buckets are reported by `reduction_cap_above_order_cap` instead, because their rows pass the gate as delta-reducing exits. |
 | `sweep_minimum_above_cap` | error | no | A sweep currency's smallest buy (`min_order_notional` in base at the currency's rate, raised by a retired `min_tranche` a legacy file still carries) is above the sweep's cap in force, or above the order cap in force without the bill exemption. |
 | `watch_act_inverted` | error | no | A watch level beyond its act level in every pair and regime set (the wrong way round for falling measures: margin headroom, expiry runway), a hedge band minimum above its maximum, or the drawdown warn level above block. |
 | `regime_loosens_under_stress` | error | no | A budget (premium, time value, net exposure) higher, or a hedge band lower, in a worse regime set than in a calmer one. |
 | `order_entry_off_for_active_bucket` | error | no | A bucket (cash sweep, budget governor, currency leveling) is active or pre-authorised while `[trading].mode` disables order entry. |
 | `settlement_route_expired` | error | no | A sweep currency's `settlement_valid_through` has passed, so its bill orders hold. |
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
-| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, so no exit for it can pass the gate. |
+| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, and closing it would not lower its underlying's absolute delta (a hedge leg) or that delta cannot be measured, so no exit for it can pass the gate. A line whose close lowers the delta is exempt from the cap and not reported. |
 | `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the order cap in force, so an FX move refuses an order sized at the cap. |
 | `order_cap_vs_nlv` | warn | yes | A per-order cap is under 2% or over 50% of NLV. |
-| `order_cap_splits_reduction` | warn | yes | A cap splits a planned trim (issuer act back to watch, premium budget act back to watch) or a whole option-line exit into more than 5 orders. Protective stock stops are exempt from the cap and are not counted. |
+| `order_cap_splits_reduction` | warn | yes | A bucket's cap splits a planned trim (issuer act back to watch, premium budget act back to watch) into more than 5 orders, or the order cap in force splits a whole option-line exit it still binds (one whose exit does not lower, or cannot be shown to lower, its underlying's absolute delta) into more than 5. Delta-reducing exits and protective stock stops are exempt from the order cap and are not counted. |
 | `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
@@ -429,6 +449,7 @@ rule is one entry.
 | `file_unreviewed` | info | no | A file still carries the "Canary defaults, not yet reviewed" header; for the Rulebook it names the limits that already differ from the defaults. |
 | `compiled_default_in_force` | info | no | A sweep sizing number is not written, so the sweep holds at `needs_your_number`. |
 | `sweep_cap_exempt` | info | no | `bills_exempt_from_trading_max_notional` is declared, and whether the sweep's cap in force uses it. |
+| `reduction_cap_above_order_cap` | info | no | A `risk_reduction` or `budget_reduction` cap is above the order cap in force (in the contract currency at the book's FX rate). Its rows pass the gate only as delta-reducing exits; a row that does not lower its underlying's absolute delta, or whose delta cannot be measured, is refused at the order cap. Reported so the condition stays visible. |
 
 The bounds (2% and 50% of NLV, 5 orders, 2% FX headroom, 14 days) are the
 check's judgement, not limits; nothing enforces them. No policy or config key

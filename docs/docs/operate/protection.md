@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-10-06 08:36 CEST
+Updated: 2026-10-07 08:40 CEST
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -416,8 +416,12 @@ exit is exempt from both:
 If the open-order list cannot be read, the exemption does not apply and
 today's refusal stands. A modify that only lowers the quantity of a working
 stop is exempt on the same terms without the third condition, because it can
-only shrink what is already working. Option orders and every other stock order
-keep both gates and `[order_limits].max_option_contracts` unchanged.
+only shrink what is already working. Every other order keeps the short
+re-read. The notional cap and `[order_limits].max_option_contracts` also pass
+any close or reduction that lowers its underlying's absolute delta, a stock
+sale, an option close or a strategy close alike (owner decision 2026-10-07
+08:13 CEST; [Order limits](../understand/policy.md#order-limits)); an order
+whose delta cannot be measured keeps both caps.
 
 A trailing-stop row that the gates would refuse no longer reads ready. It
 carries `protective_exit_competing_sell` when another working sell already

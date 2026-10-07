@@ -1,9 +1,10 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-10-05 20:28 CEST
+Updated: 2026-10-07 08:42 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); 2026-10-05 adds
 [order_limits], the one pre-trade hard gate in this file (see Order limits
-below); v2 adds
+below); 2026-10-07 adds the delta-reducing exit exemption to its two caps
+(see Delta-reducing exits below); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
 statement-authoritative flows and the clean-report auto-extend. Interview
 decisions approved by the operator on 2026-07-12; every numerical threshold
@@ -97,10 +98,12 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
    The blocker code stays `order_risk_limit`; refusals name the cap in force
    and how it is bound. Proposal readiness, the plausibility rules and the
    protective-exit readiness use the same evaluation.
-5. **Exemptions unchanged, against the cap in force.** Protective stock stops
-   within the long position (protective-stop-guard.md) and same-currency sweep
-   bills within the sweep's own cap when `bills_exempt_from_trading_max_notional`
-   is true (cash-sweep.md).
+5. **Exemptions, against the cap in force.** Protective stock stops within
+   the long position (protective-stop-guard.md), same-currency sweep bills
+   within the sweep's own cap when `bills_exempt_from_trading_max_notional`
+   is true (cash-sweep.md), and, since 2026-10-07, closes and reductions that
+   lower the absolute net delta of their underlying, which also pass
+   `max_option_contracts` (Delta-reducing exits below).
 6. **Exception path.** The runtime override is replaced by the one-shot
    override (decision 6 above): `canary policy override --control
    order_limits.max_order_floor_base --reason ... --hours N` lifts the floor to
@@ -135,6 +138,7 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
 | Net market exposure: the whole book's signed stock-equivalent exposure with hedges, and its regime-banded watch and act levels | `rulebook-policy.toml` (Rulebook rule 15, amendments 16 and 17 of the Rulebook design) | `risk.RulebookPolicy` regime sets, `RulesResult` row 15, `StressPortfolioSummary.NetExposure` | `canary rules`, `canary rules policy`, stress exposure row and `net_delta_high` | the stress read defines no net-exposure measure or level of its own; it takes rule 15's verdict (an act under the confirmed regime set is urgent); without a rule 15 measurement the exposure row is a data-quality watch |
 | Margin headroom: the broker's excess liquidity as a share of NLV (the worse of current and look-ahead), and its watch and act levels | `rulebook-policy.toml` (Rulebook rule 19, amendments 18 and 19 of the Rulebook design) | `risk.RulebookPolicy` margin-headroom keys, `RulesResult` row 19, `StressPortfolioSummary.MarginHeadroom` | `canary rules`, `canary rules policy`, stress margin row and `margin_cushion_low` | the stress read defines no margin-cushion level of its own; it takes rule 19's verdict (watch is a watch, act an act); without a rule 19 measurement the margin row is a data-quality watch |
 | Per-order limits: notional cap floor, NLV share and ceiling, option contracts, stock short and option sell-to-open permissions | `risk-policy.toml` `[order_limits]` (no embedded default) | `risk.ConstitutionOrderLimits`, `risk.OrderLimitsInForce` | `canary policy show [--explain]`, `canary trading status`, settings view (read-only) | missing key or file ⇒ every order preview refused (`order_risk_limit` naming the key); NLV not current ⇒ floor |
+| Delta-reducing exit: the underlying's signed net dollar delta before an order and per unit of each contract it touches, in base currency | one current `positions.list` read of the order's account, with the deltas the daemon's verdicts use (`positionDollarDelta`, `positionBaseRate`) | `deltaReductionEvidence` (daemon-internal; `measureDeltaReduction`, `deltaReducingExit`) | the refusal text of `order_risk_limit`; `policy check` rules `lot_above_trading_max`, `order_cap_splits_reduction`, `reduction_cap_above_order_cap` | positions not current, another account, a stale row, a leg without delta, spot or FX rate, or a contract not held ⇒ not measured ⇒ the caps apply and the refusal says why |
 | Schema, validation, evaluation, explain text | code | `internal/risk/constitution*.go` | all | n/a |
 | Policy identity | manager | `rpc.RiskPolicyResult.PolicyFingerprint` (`risk-constitution-fp-v1`) | policy show, journals | absent |
 | Adjusted peak, drawdown tier, latch, flows, overrides | daemon runtime state | daemon.db `risk_capital` state document plus `capital_events` | policy show | unseeded ⇒ tier `unknown`; storage failure ⇒ unavailable |
@@ -187,6 +191,89 @@ two hours, two-hourly through the first day, then six-hourly) that stops
 when retained coverage reaches the latch day; it honors the fetch state's
 own failure and pacing schedule.
 
+## Delta-reducing exits (owner decision 2026-10-07 08:13 CEST)
+
+The owner's decision: "tighter order cap must not block exits if they reduce
+delta. That's a (design-)bug". Before it, `validateOrderRiskAuthority` held
+every stock, ETF and option order, apparent exits included, to the notional
+cap in force and every option order to `max_option_contracts`, excusing only
+the protective stock stop and the sweep bill; a hand exit, an option close, a
+strategy close, a reduction proposal or a budget-governor cut above either cap
+was refused or had to be split, and a tighter cap made that worse. Implemented
+2026-10-07 (`internal/daemon/delta_reduction.go`).
+
+1. **The rule.** An order passes the notional cap and the option-contract cap
+   when it reduces delta: it only closes or shrinks an existing position (it
+   never opens a position, never adds to one, never flips to the other side),
+   and it lowers the absolute net delta of its underlying, measured with the
+   same position deltas Canary already uses for its daemon-side risk verdicts.
+   If any delta the test needs is unknown or stale, the order does not qualify
+   and the cap applies (fail closed).
+2. **The measure.** `positionDollarDelta` (handlers.go), which rule 15's net
+   exposure (`mapRuleNames` → `GroupDollarDeltaBase`) and the portfolio reduce
+   sweep (`netPortfolioDollarDelta`) already read: shares × mark for a stock
+   or ETF, delta × contracts × multiplier × model spot (else previous close)
+   for an option, converted to base with `positionBaseRate`. The underlying
+   is the order's contract symbol; its legs are every held equity row that
+   quotes as a stock and every option row with that symbol. Bills, bonds and
+   conversions carry no equity delta and are neither legs nor candidates. No
+   second kind of delta is computed.
+3. **The test.** `measureDeltaReduction` reads one `positions.list` result of
+   the order's own account and mode (`currentPortfolioAuthority`), sums the
+   legs' base dollar deltas into the net before, and keeps the per-unit
+   delta and held quantity of each contract the order touches.
+   `deltaReducingExit` then applies the order's quantity change (every leg of
+   a strategy combo) and passes when |after| < |before|; the measured held
+   quantity must equal the exact position evidence the order was judged
+   against. Any stale row, missing delta, spot or FX rate, non-current or
+   other-account read, duplicate or unheld contract leaves the evidence not
+   current, and the refusal names the reason.
+4. **Enforcement points.** Preview (`previewOrder`, `previewStrategyOrder`)
+   and admission (`bindPreviewOrderRiskAuthority`) each read the positions
+   when, and only when, the order is a close or reduction that a cap would
+   otherwise refuse (`captureDeltaReductionEvidence`); any other order reads
+   nothing. The first-byte wire guard reuses the admission reading with the
+   re-read position and issues no broker request, as it does for the
+   protective exit. The strategy path lifts the per-leg contract cap the same
+   way. Proposal rows are not re-judged: reduce, sweep, governor and
+   risk-reduction rows all go through the preview.
+5. **Unchanged.** Freeze, account and route pins, previews and WhatIf, the
+   sell-as-short re-read (`allow_stock_short`) and the sell-to-open re-read
+   (`allow_option_sell_to_open`), origin gating, owner approval, the drawdown
+   brake, sell-only and the governor. The protective stock exit keeps its own
+   exemption: it reads the open-order inventory, not deltas, also passes the
+   short re-read, and admits an over-hedged stock's stop that this rule would
+   not, so it is not a special case and was not folded in. The sweep bill
+   exemption is unchanged.
+6. **What still bounds cost and risk.** A qualifying order can only shrink a
+   line the book carries, so its worst case is that whole line in one order
+   instead of several: the preview prices it from a live quote inside the
+   strategy's limit (nothing goes out at market), the broker WhatIf must
+   accept it, the position and the measurement are read again at admission,
+   the wire guard re-checks the position, and the owner approves each order.
+   What remains is the price impact of one large exit against its limit,
+   which the owner accepts by approving a preview that shows the whole
+   quantity.
+7. **Policy check.** `lot_above_trading_max` now reports an option line above
+   the cap only when its single-contract close would not lower the
+   underlying's absolute delta or the delta cannot be measured (the book
+   carries `Underlying` and `DollarDeltaBase` per line, from the same
+   measure); `order_cap_splits_reduction` counts a whole option-line exit only
+   when the cap still binds it; `cap_above_trading_max` keeps the cash sweep
+   and hands `risk_reduction` and `budget_reduction` to the new info rule
+   `reduction_cap_above_order_cap`, which says that such a bucket's rows pass
+   only as delta-reducing exits.
+8. **Open owner questions**, recorded, not decided here. (a) The rule is per
+   underlying: closing a long index put lowers the index's own absolute
+   delta and passes, though at book level it removes a hedge; rule 15's net
+   exposure still watches that. (b) Bills and bonds carry no equity delta,
+   so a bond or bill sale above the cap keeps it (fail closed) unless the
+   sweep bill exemption covers it; whether a bond sale should pass as a
+   risk-reducing exit is open. (c) A stock exit above the cap now passes the
+   cap but still needs `allow_stock_short`, and an option sell-to-close
+   still needs `allow_option_sell_to_open`, so with both false the owner's
+   large exits remain refused by the re-reads, not by the caps.
+
 ## Safety invariants
 
 - Account/route/client pins, WhatIf, preview tokens, journal integrity,
@@ -218,6 +305,7 @@ internal/daemon/recon_auto_extend.go   v3 clean-report auto-extend (startup + po
 internal/risk/order_limits.go          [order_limits] schema, validation, cap in force
 internal/daemon/order_limits.go        NLV reading, limits in force, floor override, blocker
 internal/daemon/order_limits_policy_file.go  policy ensure writes [order_limits]
+internal/daemon/delta_reduction.go     delta-reducing exit exemption: candidate, measurement, decision
 internal/cli/policy.go                 canary policy show/capital-event/override/reset-drawdown/correct-peak
 internal/daemon/policy_files.go        operator template (all material keys commented out),
                                        written when the file is missing; `canary policy default constitution`

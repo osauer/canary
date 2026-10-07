@@ -102,7 +102,7 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 				tc.edit(table)
 			}
 			limits := risk.EvaluateOrderLimits(table, "EUR", risk.OrderLimitsNLV{Base: 240000, AsOf: time.Now()}, nil, "")
-			err := validateOrderRiskAuthority(limits, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", tc.inv)
+			err := validateOrderRiskAuthority(limits, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", tc.inv, deltaReductionEvidence{})
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Fatalf("err = %v, want the protective exit to pass", err)

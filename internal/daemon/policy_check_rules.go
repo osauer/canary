@@ -77,7 +77,7 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "order_limits_missing", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryProvenance,
 		summary: "The risk constitution does not write every [order_limits] key, so the trading gate refuses every order preview.", run: checkOrderLimitsMissing},
 	{id: "cap_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
-		summary: "A bucket's per-order cap lets an order exceed the order cap in force ([order_limits]), which the gate always refuses, unless a documented exemption covers it.", run: checkCapAboveTradingMax},
+		summary: "The cash sweep's per-order cap lets a bill order exceed the order cap in force ([order_limits]), which the gate always refuses unless the bill exemption covers it; the reduction buckets are reported by reduction_cap_above_order_cap instead.", run: checkCapAboveTradingMax},
 	{id: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A cash sweep currency's smallest buy (min_order_notional, or a retired min_tranche) is above the sweep's cap in force or the trading cap, so no order can satisfy both.", run: checkSweepMinimumAboveCap},
 	{id: "watch_act_inverted", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryContradiction,
@@ -91,13 +91,13 @@ var policyCheckCatalogue = []policyCheckRule{
 	{id: "base_currency_mismatch", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "The constitution's base_currency differs from the account's, so capital math refuses every observation.", run: checkBaseCurrencyMismatch},
 	{id: "lot_above_trading_max", severity: rpc.PolicyCheckError, category: rpc.PolicyCheckCategoryBook, needsBook: true,
-		summary: "One unit of a held line is worth more than the order cap in force, so no reduction or exit order for it can pass the gate.", run: checkLotAboveTradingMax},
+		summary: "One contract of a held option line is worth more than the order cap in force and closing it would not lower, or cannot be shown to lower, its underlying's absolute delta, so no reduction or exit order for it can pass the gate.", run: checkLotAboveTradingMax},
 	{id: "cap_without_fx_headroom", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A cap sized in another currency sits within 2% of the order cap in force, so an FX move makes the gate refuse an order sized at the cap.", run: checkCapFXHeadroom},
 	{id: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "A per-order cap is under 2% or over 50% of NLV.", run: checkOrderCapVsNLV},
 	{id: "order_cap_splits_reduction", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
-		summary: "A per-order cap splits a planned reduction or a whole-line exit into more than 5 orders.", run: checkOrderCapSplits},
+		summary: "A bucket's per-order cap splits a planned reduction, or the order cap in force splits a whole option-line exit it still binds, into more than 5 orders.", run: checkOrderCapSplits},
 	{id: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "The cash the sweep keeps back is under 2% or over 50% of NLV.", run: checkCashReserveVsNLV},
 	{id: "protected_floor_vs_equity", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
@@ -124,6 +124,26 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "A sweep sizing number is not written, so the sweep holds.", run: checkCompiledDefaults},
 	{id: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "bills_exempt_from_trading_max_notional makes a sweep cap above the order cap in force legitimate; reported so the exemption stays visible.", run: checkSweepExempt},
+	{id: "reduction_cap_above_order_cap", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryContradiction,
+		summary: "A reduction bucket's per-order cap is above the order cap in force; its rows pass the gate only as delta-reducing exits, and a row that does not lower its underlying's absolute delta, or whose delta cannot be measured, is refused at the order cap. Reported so the condition stays visible.", run: checkReductionCapAboveOrderCap},
+}
+
+// reductionBucket names the buckets whose every row closes or shrinks a
+// held line, so the delta-reducing exit exemption (delta_reduction.go) can
+// carry a row above the order cap in force.
+func reductionBucket(bucket string) bool {
+	return bucket == "risk_reduction" || bucket == "budget_reduction"
+}
+
+// capWhere says how a bucket cap in another currency was read in base.
+func (c *policyCheckContext) capWhere(cp policyCheckCap) string {
+	switch {
+	case cp.assumedBase:
+		return " (read as base currency: no held line shows the order currency)"
+	case cp.ccy != c.base():
+		return fmt.Sprintf(" (%s at %s per %s)", policyCheckMoney(cp.native, cp.ccy), policyCheckNumber(cp.fx), cp.ccy)
+	}
+	return ""
 }
 
 // PolicyCheckRuleIDs lists the catalogue's rule ids in order.
@@ -217,19 +237,17 @@ func checkCapAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 	}
 	var out []policyCheckHit
 	for _, cp := range c.bucketCaps() {
-		if cp.bucket == "cash_sweep" && c.sweepExempt() {
+		// A reduction bucket's rows may pass the cap as delta-reducing exits
+		// (owner decision 2026-10-07 08:13 CEST); checkReductionCapAboveOrderCap
+		// reports them.
+		if (cp.bucket == "cash_sweep" && c.sweepExempt()) || reductionBucket(cp.bucket) {
 			continue
 		}
 		if cp.base <= tradingCap*(1+1e-9) {
 			continue
 		}
 		keys := append(slices.Clone(cp.keys), c.tradingCapKey())
-		where := ""
-		if cp.assumedBase {
-			where = " (read as base currency: no held line shows the order currency)"
-		} else if cp.ccy != c.base() {
-			where = fmt.Sprintf(" (%s at %s per %s)", policyCheckMoney(cp.native, cp.ccy), policyCheckNumber(cp.fx), cp.ccy)
-		}
+		where := c.capWhere(cp)
 		suggest := policyCheckRoundDown(tradingCap / cp.fx)
 		suggestion := fmt.Sprintf("Set the cap to %s, the order cap in force in the order's currency rounded down, so every order it sizes can pass the gate; or raise [order_limits] max_order_floor_base or max_order_pct_nlv yourself if larger orders are intended.",
 			policyCheckMoney(suggest, cp.nativeCcy))
@@ -245,6 +263,31 @@ func checkCapAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 			message: fmt.Sprintf("[buckets.%s] lets one order reach %s%s, above the order cap in force of %s: Canary lists such an order as ready and the trading gate refuses it every time.",
 				cp.bucket, policyCheckMoney(cp.base, c.base()), where, policyCheckMoney(tradingCap, c.base())),
 			suggestion: suggestion})
+	}
+	return out
+}
+
+// checkReductionCapAboveOrderCap reports a risk_reduction or budget_reduction
+// cap above the order cap in force. Such a row is not refused outright: the
+// gate admits a close or reduction above the order cap when it lowers the
+// absolute net delta of its underlying (owner decision 2026-10-07 08:13 CEST,
+// delta_reduction.go), and refuses one that does not, or whose delta cannot
+// be measured. The owner sees the condition the bucket relies on.
+func checkReductionCapAboveOrderCap(c *policyCheckContext) []policyCheckHit {
+	tradingCap, ok := c.orderCap()
+	if !ok {
+		return nil
+	}
+	var out []policyCheckHit
+	for _, cp := range c.bucketCaps() {
+		if !reductionBucket(cp.bucket) || cp.base <= tradingCap*(1+1e-9) {
+			continue
+		}
+		out = append(out, policyCheckHit{keys: append(slices.Clone(cp.keys), c.tradingCapKey()),
+			message: fmt.Sprintf("[buckets.%s] lets one order reach %s%s, above the order cap in force of %s: the gate admits such an order only when it lowers the absolute delta of its underlying; a row that does not (a hedge leg), or whose delta cannot be measured, is refused at the order cap.",
+				cp.bucket, policyCheckMoney(cp.base, c.base()), c.capWhere(cp), policyCheckMoney(tradingCap, c.base())),
+			suggestion: fmt.Sprintf("Keep the cap if one order per reduction is intended; set it to %s, the order cap in force in the order's currency rounded down, if every row must pass the gate whatever its delta.",
+				policyCheckMoney(policyCheckRoundDown(tradingCap/cp.fx), cp.nativeCcy))})
 	}
 	return out
 }
@@ -458,8 +501,20 @@ func checkLotAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 		if unit <= tradingCap {
 			continue
 		}
+		// The gate admits a close that lowers the underlying's absolute delta
+		// whatever its size (owner decision 2026-10-07 08:13 CEST); a line
+		// whose single-contract close does not, or cannot be measured, stays
+		// unexitable through Canary.
+		lowers, known := c.book.exitLowersAbsoluteDelta(p, 1)
+		if known && lowers {
+			continue
+		}
+		why := fmt.Sprintf("closing it would not lower the absolute delta of %s, so the exemption for delta-reducing exits does not apply", p.Underlying)
+		if !known {
+			why = "its delta, or that of another line on its underlying, cannot be measured, so the exemption for delta-reducing exits cannot apply"
+		}
 		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.tradingCapKey(), {File: "live account", Key: "one " + p.Currency + " option contract", Value: policyCheckMoney(unit, c.base())}},
-			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the order cap in force of %s: no loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(tradingCap, c.base())),
+			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the order cap in force of %s, and %s: no loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(tradingCap, c.base()), why),
 			suggestion: fmt.Sprintf("Raise [order_limits] max_order_floor_base (or max_order_pct_nlv) yourself so the cap in force reaches at least %s if Canary should be able to exit this line, or plan its exit by hand.", policyCheckMoney(policyCheckRoundUp(unit), c.base()))})
 	}
 	return out
@@ -532,9 +587,15 @@ func checkOrderCapVsNLV(c *policyCheckContext) []policyCheckHit {
 			if r.label != orderCapLabel && capOK {
 				want = min(want, tradingCap)
 			}
+			what := "a trim of 10% of the book"
+			if r.label == orderCapLabel {
+				// A delta-reducing exit passes the order cap whatever its size;
+				// an order that opens or adds is held to it.
+				what = "an order that opens or adds 10% of the book"
+			}
 			out = append(out, policyCheckHit{keys: r.keys,
-				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): a trim of 10%% of the book takes %d orders, each waiting its own cycle and approval.",
-					r.label, policyCheckMoney(r.base, base), policyCheckPct(share), policyCheckMoney(nlv, base), int(math.Ceil(0.10*nlv/r.base))),
+				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): %s takes %d orders, each waiting its own cycle and approval.",
+					r.label, policyCheckMoney(r.base, base), policyCheckPct(share), policyCheckMoney(nlv, base), what, int(math.Ceil(0.10*nlv/r.base))),
 				suggestion: fmt.Sprintf("About %s (5%% of NLV, no more than the trading cap), so a typical trim fits in two orders.", policyCheckMoney(policyCheckRoundDown(want/r.fx), r.ccy))})
 		case share > policyCheckHugeShareNLV:
 			out = append(out, policyCheckHit{keys: r.keys,
@@ -597,8 +658,22 @@ func checkOrderCapSplits(c *policyCheckContext) []policyCheckHit {
 		}
 	}
 	if tradingCap, ok := c.orderCap(); ok && c.protection.Buckets.TrailingStop.Options.Enabled {
-		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "The order cap in force ([order_limits])", "a whole-line exit of the largest option line (option exits are not exempt from the cap)",
-			largest(policyCheckKindOption), tradingCap, 1, base)
+		// A whole-line exit that lowers the underlying's absolute delta passes
+		// the order cap whatever its size (owner decision 2026-10-07 08:13
+		// CEST); the cap still splits an exit that does not, or whose delta
+		// cannot be measured.
+		capped := 0.0
+		for _, p := range c.book.Positions {
+			if p.Kind != policyCheckKindOption || p.Quantity == 0 {
+				continue
+			}
+			if lowers, known := c.book.exitLowersAbsoluteDelta(p, math.Abs(p.Quantity)); known && lowers {
+				continue
+			}
+			capped = max(capped, math.Abs(p.MarketValueBase))
+		}
+		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "The order cap in force ([order_limits])", "a whole-line exit of the largest option line the cap still binds (its exit does not lower, or cannot be shown to lower, the underlying's absolute delta)",
+			capped, tradingCap, 1, base)
 	}
 	return out
 }

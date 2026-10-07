@@ -502,14 +502,17 @@ type Server struct {
 	orderFXRateForTest           func(context.Context, string, string, time.Duration) (float64, time.Time, error)
 	orderContractResolverForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
 	orderBondDetailsForTest      func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
-	orderPreviewWhatIf           func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
-	orderWritesEnabled           func() bool
-	gatewayReadyForTrading       func() bool
-	gatewayAccountForTrading     func() string
-	orderReserveBrokerID         func(context.Context) (int, error)
-	orderPlaceBroker             func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error
-	orderCancelBroker            func(context.Context, int) error
-	optionExerciseBroker         func(context.Context, ibkrlib.OptionExerciseRequest) error
+	// orderDeltaPositionsForTest replaces the positions read the
+	// delta-reducing exit exemption measures its underlying from.
+	orderDeltaPositionsForTest func(context.Context) (*rpc.PositionsResult, error)
+	orderPreviewWhatIf         func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
+	orderWritesEnabled         func() bool
+	gatewayReadyForTrading     func() bool
+	gatewayAccountForTrading   func() string
+	orderReserveBrokerID       func(context.Context) (int, error)
+	orderPlaceBroker           func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error
+	orderCancelBroker          func(context.Context, int) error
+	optionExerciseBroker       func(context.Context, ibkrlib.OptionExerciseRequest) error
 	// orderWriteBindingForTest and orderWriteBeforeBrokerSend are deterministic
 	// nil; broker writes then require a real ready Connector session.
 	orderWriteBindingForTest        func(rpc.TradingStatus) (*ibkrlib.Connector, uint64, ibkrlib.ConnectorSessionBinding, brokerStateScope)

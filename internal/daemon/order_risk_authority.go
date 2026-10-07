@@ -526,9 +526,11 @@ func conservativeOrderFXRate(quote rpc.OrderQuoteSnapshot, inverted bool) float6
 
 // validateOrderRiskAuthority applies the order limits in force (risk-policy
 // [order_limits]) to one order. exit is the broker open-order evidence for
-// the protective stock exit exemption (protective_exit.go); its zero value
-// never exempts. Limits that are not complete refuse every order.
-func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority, baseCurrency string, exit protectiveExitInventory) error {
+// the protective stock exit exemption (protective_exit.go); delta is the
+// underlying's delta measurement for the delta-reducing exit exemption
+// (delta_reduction.go). Either zero value never exempts. Limits that are not
+// complete refuse every order.
+func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority, baseCurrency string, exit protectiveExitInventory, delta deltaReductionEvidence) error {
 	if !limits.Complete {
 		return orderLimitsIncompleteError(limits)
 	}
@@ -555,8 +557,14 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	if math.Abs(wantBase-notional.BaseNotional) > max(1e-8, math.Abs(wantBase)*1e-9) {
 		return fmt.Errorf("order base notional does not match typed FX evidence")
 	}
-	if strings.EqualFold(draft.Contract.SecType, "OPT") && draft.Quantity > limits.MaxOptionContracts {
-		return fmt.Errorf("option quantity %d exceeds the option cap in force of %d contracts ([order_limits].max_option_contracts)", draft.Quantity, limits.MaxOptionContracts)
+	// A close or reduction that lowers the absolute net delta of its
+	// underlying passes the option-contract cap and the notional cap (owner
+	// decision 2026-10-07 08:13 CEST; the rule, its measurement and what
+	// still bounds it: delta_reduction.go). An unknown or stale delta never
+	// exempts, and the refusal then says why.
+	deltaExempt, deltaWhy := deltaReducingExit(draft, position, delta)
+	if strings.EqualFold(draft.Contract.SecType, "OPT") && draft.Quantity > limits.MaxOptionContracts && !deltaExempt {
+		return fmt.Errorf("option quantity %d exceeds the option cap in force of %d contracts ([order_limits].max_option_contracts)%s", draft.Quantity, limits.MaxOptionContracts, deltaWhy)
 	}
 	// A protective stock exit that sells at most the long position, with no
 	// competing working sell, passes both the notional cap and the
@@ -567,11 +575,11 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	// bills_exempt_from_trading_max_notional (owner decision 2026-10-05
 	// 18:35 CEST); every other order keeps the order cap in force.
 	sweepBill := cashSweepTradingCapExempt(draft, position, notional)
-	if notional.BaseNotional > limits.CapBase && !protectiveExit && !sweepBill {
-		return fmt.Errorf("order notional %s exceeds the order cap in force %s", risk.FormatOrderMoney(notional.BaseNotional, baseCurrency), limits.Summary)
+	if notional.BaseNotional > limits.CapBase && !protectiveExit && !sweepBill && !deltaExempt {
+		return fmt.Errorf("order notional %s exceeds the order cap in force %s%s", risk.FormatOrderMoney(notional.BaseNotional, baseCurrency), limits.Summary, deltaWhy)
 	}
 	if draft.StrategyGroup != nil {
-		if err := validateStrategyReductionDraft(draft, position, limits.MaxOptionContracts); err != nil {
+		if err := validateStrategyReductionDraft(draft, position, limits.MaxOptionContracts, deltaExempt); err != nil {
 			return err
 		}
 		return nil
@@ -599,7 +607,10 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	return nil
 }
 
-func validateStrategyReductionDraft(draft rpc.OrderDraft, position rpc.OrderPositionImpact, maxOptionContracts int) error {
+// validateStrategyReductionDraft holds a strategy close or reduction to its
+// shape and each leg to the option-contract cap; capExempt lifts the per-leg
+// cap for a delta-reducing exit (delta_reduction.go), nothing else.
+func validateStrategyReductionDraft(draft rpc.OrderDraft, position rpc.OrderPositionImpact, maxOptionContracts int, capExempt bool) error {
 	group := draft.StrategyGroup
 	if group == nil || !group.GuaranteedCombo || len(group.Legs) < 2 || draft.Contract.SecType != "BAG" || draft.Action != rpc.OrderActionSell || draft.Quantity != group.Units {
 		return fmt.Errorf("strategy order is not one guaranteed proportional combo")
@@ -609,7 +620,7 @@ func validateStrategyReductionDraft(draft rpc.OrderDraft, position rpc.OrderPosi
 	}
 	for _, leg := range group.Legs {
 		wantQuantity := absOrderRatio(leg.Ratio) * group.Units
-		if wantQuantity <= 0 || leg.Quantity != wantQuantity || leg.Quantity > maxOptionContracts || !strings.EqualFold(leg.Contract.SecType, "OPT") {
+		if wantQuantity <= 0 || leg.Quantity != wantQuantity || (leg.Quantity > maxOptionContracts && !capExempt) || !strings.EqualFold(leg.Contract.SecType, "OPT") {
 			return fmt.Errorf("strategy leg %d violates the proportional option quantity limit", leg.Contract.ConID)
 		}
 		if math.Abs(leg.After) > math.Abs(leg.Before)+1e-9 || (leg.Before != 0 && leg.After != 0 && math.Signbit(leg.After) != math.Signbit(leg.Before)) {
@@ -744,12 +755,16 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 			EvidenceAt: s.orderNow(), Source: orderFXSourceIdentity,
 		}
 	}
-	// The exemption reads the open-order inventory again at admission: a hand
-	// sale entered after the preview withdraws it. A modify excludes its own
-	// target order.
+	// The exemptions read their evidence again at admission: a hand sale
+	// entered after the preview withdraws the protective exit, and the
+	// underlying's delta is measured from the positions as they are now. A
+	// modify excludes its own target order. The delta is read against the
+	// signed notional; a cap that binds only after FX drift at admission
+	// asks for a new preview, as every other drift does.
 	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, current.Impact, payload.Replace)
 	limits := s.orderLimitsInForce(current.BaseCurrency)
-	if err := validateOrderRiskAuthority(limits, draft, current.Impact, signedNotional, current.BaseCurrency, exitInventory); err != nil {
+	deltaEvidence := s.captureDeltaReductionEvidence(ctx, status, draft, current.Impact, limits, signedNotional)
+	if err := validateOrderRiskAuthority(limits, draft, current.Impact, signedNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: signed preview risk authority is invalid: %v", ErrTradingDisabled, err)
 	}
 	var fxAuthority *orderPreviewBrokerAuthority
@@ -762,7 +777,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if err != nil {
 		return err
 	}
-	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory); err != nil {
+	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 	}
 	binding.riskBound = true
@@ -774,6 +789,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	binding.riskBaseCurrencyProvenance = current.BaseCurrencyProvenance
 	binding.riskNotional = currentNotional
 	binding.riskProtectiveExit = exitInventory
+	binding.riskDeltaReduction = deltaEvidence
 	return nil
 }
 

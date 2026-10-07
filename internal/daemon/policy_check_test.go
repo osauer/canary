@@ -132,6 +132,17 @@ func pcBook() *PolicyCheckBook {
 
 var pcNow = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 
+// pcDeltaPositions is a measured SYNA book: 100 shares long (delta +30,000
+// EUR) and one option contract worth 12,000 EUR, above the 10,000 EUR cap in
+// force, carrying optionDelta: +9,000 for a long call whose close lowers the
+// absolute delta, −9,000 for a long put whose close raises it.
+func pcDeltaPositions(optionDelta float64) []PolicyCheckPosition {
+	return []PolicyCheckPosition{
+		{Kind: policyCheckKindStock, Currency: "USD", Quantity: 100, MarketValueBase: 30000, Underlying: "SYNA", DollarDeltaBase: new(30000.0)},
+		{Kind: policyCheckKindOption, Currency: "USD", Quantity: 1, MarketValueBase: 12000, Underlying: "SYNA", DollarDeltaBase: new(optionDelta)},
+	}
+}
+
 func pcClean() pcFiles {
 	return pcFiles{rulebook: pcRulebookHead, protection: pcProtectionHead + `
 [buckets.risk_reduction]
@@ -203,10 +214,18 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nkeep_cash")
 			}, contains: "15,000 EUR"},
-		{name: "contract-currency cap above the trading cap at the book's FX rate", rule: "cap_above_trading_max", severity: rpc.PolicyCheckError,
+		{name: "reduction cap above the trading cap relies on delta-reducing exits", rule: "reduction_cap_above_order_cap", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 9000.0", "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 12000.0")
-			}, contains: "10,800 EUR"},
+			}, absent: []string{"cap_above_trading_max"}, contains: "10,800 EUR (12,000 USD at 0.9 per USD), above the order cap in force of 10,000 EUR: the gate admits such an order only when it lowers the absolute delta"},
+		{name: "an option line above the cap whose close lowers the delta is exitable", rule: "reduction_cap_above_order_cap", severity: rpc.PolicyCheckInfo,
+			edit: func(f *pcFiles, in *PolicyCheckInput) {
+				f.protection = replace(f.protection, "max_order_notional = 9000.0\n"+pcSweep, "max_order_notional = 12000.0\n"+pcSweep)
+				in.Book.Positions = pcDeltaPositions(9000)
+			}, absent: []string{"lot_above_trading_max"}, contains: "10,800 EUR"},
+		{name: "an option line above the cap that hedges the stock stays unexitable", rule: "lot_above_trading_max", severity: rpc.PolicyCheckError,
+			edit:     func(_ *pcFiles, in *PolicyCheckInput) { in.Book.Positions = pcDeltaPositions(-9000) },
+			contains: "and closing it would not lower the absolute delta of SYNA, so the exemption for delta-reducing exits does not apply"},
 		{name: "sweep minimum above the sweep cap", rule: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "min_order_notional = 3000.0", "min_order_notional = 9500.0")
@@ -278,6 +297,22 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 9000.0", "[buckets.risk_reduction]\nenabled = true\nmax_order_notional = 4000.0")
 			}, contains: "into 6 orders"},
+		{name: "the order cap splits only an option-line exit it still binds", rule: "order_cap_splits_reduction", severity: rpc.PolicyCheckWarn,
+			edit: func(f *pcFiles, in *PolicyCheckInput) {
+				f.protection += "\n[buckets.trailing_stop.options]\nenabled = true\nlimit_offset_abs = 0.05\n"
+				// SYNA: 1,000 shares (+100,000) hedged by 6 puts (−54,000);
+				// closing the puts raises the absolute delta, so the cap splits
+				// that 72,000 EUR line into 8 orders. SYNB: 1,000 shares
+				// (+100,000) and 10 long calls (+60,000); closing the calls
+				// lowers it, so the larger 90,000 EUR line passes the cap
+				// whole and is not counted.
+				in.Book.Positions = []PolicyCheckPosition{
+					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, Underlying: "SYNA", DollarDeltaBase: new(100000.0)},
+					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 6, MarketValueBase: 72000, Underlying: "SYNA", DollarDeltaBase: new(-54000.0)},
+					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, Underlying: "SYNB", DollarDeltaBase: new(100000.0)},
+					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 10, MarketValueBase: 90000, Underlying: "SYNB", DollarDeltaBase: new(60000.0)},
+				}
+			}, contains: "the cap still binds (its exit does not lower, or cannot be shown to lower, the underlying's absolute delta) of 72,000 EUR into 8 orders"},
 		{name: "keep_cash under 2% of NLV without the reserve design", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\nreserve_pct_nlv = 5.0\n", "")
@@ -452,14 +487,38 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 	acct := &rpc.AccountResult{BaseCurrency: "EUR", NetLiquidation: 100000,
 		BaseCurrencyLedger: &rpc.CurrencyExposure{Currency: "EUR", CashCcy: 7000, CashObserved: true},
 		CurrencyExposure:   []rpc.CurrencyExposure{{Currency: "USD", CashCcy: 2000, CashObserved: true, ExchangeRate: 0.9}}}
-	pos := &rpc.PositionsResult{Stocks: []rpc.PositionView{{SecType: "STOCK", Currency: "USD", Quantity: 10, MarketValueBase: &mv}},
-		Options: []rpc.PositionView{{SecType: "OPTION", Currency: "USD", Quantity: 1, MarketValue: 1000}}}
+	spot := 90.0
+	delta := 0.5
+	pos := &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "syna", SecType: "STOCK", Currency: "USD", Quantity: 10, Mark: 90, MarketValueBase: &mv}},
+		Options: []rpc.PositionView{
+			{Symbol: "SYNA", SecType: "OPTION", Currency: "USD", Quantity: 1, MarketValue: 1000, Delta: &delta, Underlying: &spot},
+			{Symbol: "SYNA", SecType: "OPTION", Currency: "USD", Quantity: 2, MarketValue: 1000},
+		}}
 	b := PolicyCheckBookFrom(acct, pos)
 	if b == nil || b.Cash["EUR"] != 7000 || b.Cash["USD"] != 2000 || b.FXToBase["USD"] != 0.9 {
 		t.Fatalf("book %+v", b)
 	}
-	if len(b.Positions) != 2 || b.Positions[1].MarketValueBase != 900 {
+	if len(b.Positions) != 3 || b.Positions[1].MarketValueBase != 900 {
 		t.Fatalf("positions %+v", b.Positions)
+	}
+	// The deltas the daemon's risk verdicts use, in base at the account's
+	// rate: 10 shares × 90 × 0.9, and 0.5 × 1 contract × 100 × 90 × 0.9; a
+	// row without a delta stays unmeasured.
+	if p := b.Positions[0]; p.Underlying != "SYNA" || p.DollarDeltaBase == nil || *p.DollarDeltaBase != 810 {
+		t.Fatalf("stock delta %+v", p)
+	}
+	if p := b.Positions[1]; p.Underlying != "SYNA" || p.DollarDeltaBase == nil || *p.DollarDeltaBase != 4050 {
+		t.Fatalf("option delta %+v", p)
+	}
+	if p := b.Positions[2]; p.DollarDeltaBase != nil {
+		t.Fatalf("an option without a delta was measured: %+v", p)
+	}
+	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); known || lowers {
+		t.Fatal("an underlying with an unmeasured line must read unknown")
+	}
+	b.Positions = b.Positions[:2]
+	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); !known || !lowers {
+		t.Fatal("closing the long call on a net-long underlying must lower its absolute delta")
 	}
 	if PolicyCheckBookFrom(&rpc.AccountResult{BaseCurrency: "EUR"}, nil) != nil {
 		t.Fatal("a zero-NLV account made a book")

@@ -33,7 +33,7 @@ func TestOrderLimitsFailClosedAndIgnoreRetiredConfig(t *testing.T) {
 	draft, open, notional := orderLimitsTestStockBuy(5000)
 
 	limits := srv.orderLimitsInForce("EUR")
-	err := validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{})
+	err := validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{}, deltaReductionEvidence{})
 	if limits.Complete || err == nil || !strings.Contains(err.Error(), "no risk policy is loaded") {
 		t.Fatalf("no policy: limits %+v err %v, want every order refused", limits, err)
 	}
@@ -42,7 +42,7 @@ func TestOrderLimitsFailClosedAndIgnoreRetiredConfig(t *testing.T) {
 	table.MaxOrderFloorBase = nil
 	installTestOrderLimits(srv, table)
 	limits = srv.orderLimitsInForce("EUR")
-	err = validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{})
+	err = validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{}, deltaReductionEvidence{})
 	if err == nil || !strings.Contains(err.Error(), "does not write order_limits.max_order_floor_base") {
 		t.Fatalf("missing floor: err %v, want a refusal naming the key", err)
 	}
@@ -54,12 +54,12 @@ func TestOrderLimitsFailClosedAndIgnoreRetiredConfig(t *testing.T) {
 	installTestOrderLimits(srv, testOrderLimitsTable(10000))
 	limits = srv.orderLimitsInForce("EUR")
 	draft, open, notional = orderLimitsTestStockBuy(20000)
-	if err := validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{}); err == nil ||
+	if err := validateOrderRiskAuthority(limits, draft, open, notional, "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err == nil ||
 		!strings.Contains(err.Error(), "order notional 20,000 EUR exceeds the order cap in force 10,000 EUR (the floor") {
 		t.Fatalf("retired max_notional = 1e9 must not lift the cap: %v", err)
 	}
 	short := rpc.OrderDraft{Action: rpc.OrderActionSell, Quantity: 10, Contract: rpc.ContractParams{Symbol: "SYN", SecType: "STK", Currency: "EUR"}}
-	if err := validateOrderRiskAuthority(limits, short, rpc.OrderPositionImpact{Before: 0, After: -10, Effect: rpc.OrderPositionEffectOpenShort}, protectiveExitTestNotional(800), "EUR", protectiveExitInventory{}); err == nil ||
+	if err := validateOrderRiskAuthority(limits, short, rpc.OrderPositionImpact{Before: 0, After: -10, Effect: rpc.OrderPositionEffectOpenShort}, protectiveExitTestNotional(800), "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err == nil ||
 		!strings.Contains(err.Error(), "[order_limits].allow_stock_short") {
 		t.Fatalf("retired allow_stock_short = true must not permit a short: %v", err)
 	}
@@ -138,11 +138,11 @@ func TestOrderLimitsFloorOverride(t *testing.T) {
 		t.Fatalf("with the override = %+v, want the ceiling", l)
 	}
 	draft, open, notional := orderLimitsTestStockBuy(60000)
-	if err := validateOrderRiskAuthority(l, draft, open, notional, "EUR", protectiveExitInventory{}); err != nil {
+	if err := validateOrderRiskAuthority(l, draft, open, notional, "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err != nil {
 		t.Fatalf("an order within the lifted cap: %v", err)
 	}
 	draft, open, notional = orderLimitsTestStockBuy(100001)
-	if err := validateOrderRiskAuthority(l, draft, open, notional, "EUR", protectiveExitInventory{}); err == nil {
+	if err := validateOrderRiskAuthority(l, draft, open, notional, "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err == nil {
 		t.Fatal("the override lifted the cap beyond the ceiling")
 	}
 	clock = rec.ExpiresAt.Add(time.Second)

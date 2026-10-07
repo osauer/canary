@@ -43,6 +43,10 @@ type brokerWriteTransactionBinding struct {
 	// exit exemption read at admission; the first-byte guard reuses it with
 	// the re-read position instead of issuing a broker request.
 	riskProtectiveExit protectiveExitInventory
+	// riskDeltaReduction is the underlying's delta measurement the
+	// delta-reducing exit exemption read at admission; the first-byte guard
+	// reuses it the same way.
+	riskDeltaReduction deltaReductionEvidence
 	exerciseBound      bool
 	exerciseDraft      rpc.OrderDraft
 	testOnly           bool
@@ -375,7 +379,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 				current.BaseCurrencyProvenance != binding.riskBaseCurrencyProvenance {
 				return fmt.Errorf("%w: portfolio risk authority changed after admission; preview again", ErrTradingDisabled)
 			}
-			if err := validateOrderRiskAuthority(limits, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit); err != nil {
+			if err := validateOrderRiskAuthority(limits, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit, binding.riskDeltaReduction); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 			}
 		}

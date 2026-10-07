@@ -50,11 +50,11 @@ func TestValidateStrategyReductionDraftRequiresEveryLegToReduce(t *testing.T) {
 		},
 	}
 	position := rpc.OrderPositionImpact{Before: 2, After: 1, Effect: rpc.OrderPositionEffectReduce}
-	if err := validateStrategyReductionDraft(draft, position, 10); err != nil {
+	if err := validateStrategyReductionDraft(draft, position, 10, false); err != nil {
 		t.Fatalf("valid reduction rejected: %v", err)
 	}
 	draft.StrategyGroup.Legs[1].After = -3
-	if err := validateStrategyReductionDraft(draft, position, 10); err == nil {
+	if err := validateStrategyReductionDraft(draft, position, 10, false); err == nil {
 		t.Fatal("strategy accepted a leg that increased the position")
 	}
 }

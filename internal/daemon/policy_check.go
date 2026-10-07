@@ -54,6 +54,38 @@ type PolicyCheckPosition struct {
 	Currency        string
 	Quantity        float64
 	MarketValueBase float64
+	// Underlying is the symbol whose delta the line belongs to: the stock's
+	// own, or the option's underlying. It groups the lines the delta-reducing
+	// exit exemption (delta_reduction.go) sums.
+	Underlying string
+	// DollarDeltaBase is the line's signed dollar delta in base currency as
+	// the daemon's risk verdicts measure it (positionDollarDelta); nil when
+	// the row is stale or lacks a delta, spot or FX rate.
+	DollarDeltaBase *float64
+}
+
+// exitLowersAbsoluteDelta reports whether closing units of line p would
+// lower the absolute net delta of its underlying, as the trading gate
+// measures it for the delta-reducing exit exemption, and whether that can be
+// known at all: every line of the underlying needs a delta, else the gate
+// fails closed and so does this.
+func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64) (lowers, known bool) {
+	if b == nil || p.Underlying == "" || p.DollarDeltaBase == nil || p.Quantity == 0 || units <= 0 {
+		return false, false
+	}
+	net := 0.0
+	for _, q := range b.Positions {
+		if q.Underlying != p.Underlying {
+			continue
+		}
+		if q.DollarDeltaBase == nil {
+			return false, false
+		}
+		net += *q.DollarDeltaBase
+	}
+	// Closing moves the quantity toward zero by units.
+	after := net - math.Copysign(units, p.Quantity)*(*p.DollarDeltaBase/p.Quantity)
+	return lowersAbsoluteDelta(net, after), true
 }
 
 // Position kinds the book checks distinguish.
@@ -108,7 +140,17 @@ func PolicyCheckBookFrom(acct *rpc.AccountResult, pos *rpc.PositionsResult) *Pol
 			default:
 				continue
 			}
-			b.Positions = append(b.Positions, PolicyCheckPosition{Kind: kind, Currency: ccy, Quantity: row.Quantity, MarketValueBase: mv})
+			p := PolicyCheckPosition{Kind: kind, Currency: ccy, Quantity: row.Quantity, MarketValueBase: mv, Underlying: strings.ToUpper(strings.TrimSpace(row.Symbol))}
+			if dd, ok := positionDollarDelta(row, kind == policyCheckKindOption); ok && !row.Stale {
+				rate, ok := positionBaseRate(row, base)
+				if !ok {
+					rate, ok = b.FXToBase[ccy], positiveFinite(b.FXToBase[ccy])
+				}
+				if ok {
+					p.DollarDeltaBase = new(dd * rate)
+				}
+			}
+			b.Positions = append(b.Positions, p)
 		}
 	}
 	return b

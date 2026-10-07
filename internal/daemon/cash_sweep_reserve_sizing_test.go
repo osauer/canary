@@ -301,7 +301,7 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 		{"buy that does not open", bill("EUR", "BILL", cashSweepInstrumentDEBubill, 50000), rpc.OrderPositionImpact{Before: -10, After: 20, Effect: rpc.OrderPositionEffectFlip}, 30000, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateOrderRiskAuthority(cfg, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", protectiveExitInventory{})
+			err := validateOrderRiskAuthority(cfg, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", protectiveExitInventory{}, deltaReductionEvidence{})
 			if tc.pass && err != nil {
 				t.Fatalf("refused: %v", err)
 			}
@@ -312,7 +312,7 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 	}
 	// Below the cap in force nothing needs the exemption: 11,000 EUR passes
 	// the scaled cap though it is above the 10,000 floor.
-	if err := validateOrderRiskAuthority(cfg, stock, open, protectiveExitTestNotional(11000), "EUR", protectiveExitInventory{}); err != nil {
+	if err := validateOrderRiskAuthority(cfg, stock, open, protectiveExitTestNotional(11000), "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err != nil {
 		t.Fatalf("stock buy within the scaled cap: %v", err)
 	}
 }
