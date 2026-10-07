@@ -1,6 +1,6 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-10-07 08:42 CEST
+Updated: 2026-10-07 20:33 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); 2026-10-05 adds
 [order_limits], the one pre-trade hard gate in this file (see Order limits
 below); 2026-10-07 adds the delta-reducing exit exemption to its two caps
@@ -351,11 +351,14 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    not seen it yet, by session order id and client id
    (`openOrderSnapshotEventMatches`), so it is not counted twice. The broker
    reports no legs for a working combo (BAG): a combo Canary placed names
-   its legs in the journal (`journalInventory.legsOf`) and counts only
-   against those legs, so a put-spread close beside Canary's own working
-   call-spread close passes; a hand combo counts against every option leg of
-   the underlying whatever the exit's direction, its units a lower bound
-   (`workingOrderIdentity.competesWith`). The journal is folded whole for
+   its legs in the journal (`journalInventory.legsOf`) and counts remaining
+   combo units times each leg's absolute ratio, in that leg's actual order
+   direction. An unrelated leg or a known opposite-side leg does not compete.
+   A hand combo with unknown legs or a relevant leg with an invalid ratio
+   or direction cannot prove remaining capacity: every affected option exit
+   keeps its cap (`workingOrderIdentity.competesWith`). Combo units alone
+   are only a lower bound and cannot prove that two exits fit the held line.
+   The journal is folded whole for
    this read, as every other order read does; there is no bounded
    open-orders read model to serve it and none was added for this alone. The refusal reads "another working
    order already sells 700 of the 1,000 SYNB shares you hold; with this one,

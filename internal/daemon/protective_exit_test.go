@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -186,23 +187,22 @@ func TestProtectiveExitInventoryFollowsTheOrdersDirection(t *testing.T) {
 		t.Fatalf("combo inventory = %+v, want per-leg counts in each leg's direction (calls sold: 0; puts bought back: 3 on the contract plus the hand buy without a ConID)", inv)
 	}
 
-	// A working combo close (BAG) reports no legs, so its units count against
-	// every option leg of its underlying whatever the exit's direction, as a
-	// lower bound; it never counts against the stock.
+	// A working combo with unknown legs cannot establish option capacity:
+	// its units do not bound its per-leg quantities. It does not affect stock.
 	bag := protectiveExitTestOrder(0, 8005, rpc.OrderActionSell, rpc.OrderTypeLMT, 2)
 	bag.SecType, bag.ConID, bag.Symbol = "BAG", 0, "SYNB"
 	snapshot.Orders = append(snapshot.Orders, bag)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 6 {
-		t.Fatalf("buy-back inventory with a working combo = %+v, want 4 + 2 units of the combo", inv)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); !math.IsNaN(inv.OtherWorkingSameSide) {
+		t.Fatalf("buy-back inventory with an unknown combo = %+v, want unproven capacity", inv)
 	}
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 2 {
-		t.Fatalf("sell inventory with a working combo = %+v, want the combo's 2 units", inv)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); !math.IsNaN(inv.OtherWorkingSameSide) {
+		t.Fatalf("sell inventory with an unknown combo = %+v, want unproven capacity", inv)
 	}
 	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("stock inventory with a working combo = %+v, want the combo not to count against the stock", inv)
 	}
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, combo, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 2 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 6 {
-		t.Fatalf("combo inventory with a working combo = %+v, want the combo's units on every leg", inv)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, combo, orderPreviewReplaceTarget{}); !math.IsNaN(inv.OtherWorkingSameSideByLeg[deltaTestLongCalls]) || !math.IsNaN(inv.OtherWorkingSameSideByLeg[deltaTestShortPuts]) {
+		t.Fatalf("combo inventory with an unknown combo = %+v, want unproven capacity on every leg", inv)
 	}
 }
 
@@ -291,8 +291,10 @@ func TestProtectiveExitInventoryPairsCanarysOwnRows(t *testing.T) {
 
 	// A call-spread close Canary placed after the snapshot: its legs are known.
 	journal := journalInventory{
-		views:     []rpc.OrderView{view("combo-calls", 2001, "BAG", rpc.OrderActionSell, 0, 2, asOf.Add(time.Second))},
-		legsByRef: map[string]map[int]struct{}{"combo-calls": {deltaTestLongCalls: {}, deltaTestShortCalls: {}}},
+		views: []rpc.OrderView{view("combo-calls", 2001, "BAG", rpc.OrderActionSell, 0, 2, asOf.Add(time.Second))},
+		legsByRef: map[string]map[int]rpc.StrategyOrderLeg{"combo-calls": {
+			deltaTestLongCalls: {Ratio: 1, Action: rpc.OrderActionSell}, deltaTestShortCalls: {Ratio: -1, Action: rpc.OrderActionBuy},
+		}},
 	}
 	if inv := protectiveExitInventoryFromSnapshot(empty, journal, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("a put buy-back beside Canary's call-spread close = %+v, want nothing competing", inv)

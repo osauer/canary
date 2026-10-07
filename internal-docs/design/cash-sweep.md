@@ -1,6 +1,6 @@
 # Cash sweep (idle cash into same-currency bills)
 
-Updated: 2026-10-06 08:36 CEST
+Updated: 2026-10-07 20:33 CEST
 Status: Phase B installed (daemon v3.14.0-33, d819dfc4); post-install proof
 step 1 passed on 2026-09-30 at d819dfc4: a US bill resolved as BILL by
 symbol with a live quote (see "Post-install findings", F1, F3 and F4). A4
@@ -94,8 +94,14 @@ and no cash reserve remains to trip.
   at `settlement_unknown`. `committed` is working BUY
   orders with a fixed finite limit plus authorised (armed, held or sending)
   queued orders at their finite worst price. Unknown bounds or nonfinite
-  totals hold the sweep. Outstanding buys lack fee envelopes and therefore hold
-  new sweeps; exact BUY previews require principal plus a same-currency broker
+  totals hold the sweep. A working bond buy reserves its remaining principal
+  plus the full accrued-interest bound from the exact current durable send or
+  modification attempt, including after a partial fill. The same bound and
+  unacknowledged-buy guard apply to currency leveling. Missing, external,
+  mismatched or old bond terms hold the currency; the security type alone
+  cannot prove zero coupon. Approved sweep bills retain their daemon-issued
+  zero-coupon instrument terms. Outstanding buys without exact durable fee
+  envelopes hold new sweeps; exact BUY previews require principal plus a same-currency broker
   maximum-fee reservation to fit `free = cash − committed − keep_cash`;
   `cash_like = cash + cash equivalents` when both are known.
 - Historical Flex cash: optional Cash Report rows supply a baseline from accepted

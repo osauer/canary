@@ -771,7 +771,17 @@ func (e *proposalEngine) currencyLevelingInput(ctx context.Context, acct *rpc.Ac
 		return in
 	}
 	in.Working = currencyLevelingWorkingFrom(snapshot.Orders, scope)
-	in.Committed, in.CommittedUnknown = currencyLevelingCommitted(snapshot.Orders, e.queued.list(), scope)
+	events, err := e.server.orderJournal.LoadEvents(0)
+	if err != nil {
+		in.CommittedUnknown = map[string]string{"": "durable working-order evidence is unavailable, so committed cash is unknown"}
+		return in
+	}
+	e.server.mu.Lock()
+	ep := e.server.endpoint
+	e.server.mu.Unlock()
+	endpoint := e.server.tradingStatus(ep).Endpoint
+	in.Committed, in.CommittedUnknown = currencyLevelingCommitted(snapshot.Orders, e.queued.list(), scope,
+		cashSweepFeeEvidence{Events: events, Now: now, Endpoint: endpoint})
 	return in
 }
 
@@ -852,15 +862,19 @@ func currencyLevelingWorkingFrom(orders []ibkrlib.OrderLifecycleEvent, scope bro
 	return out
 }
 
-// currencyLevelingCommitted is the principal working buy orders and armed
-// queued buys hold per currency: what a conversion must leave in its
+// currencyLevelingCommitted is the principal and bond accrued interest that
+// working buy orders and armed queued buys hold per currency: what a conversion must leave in its
 // funding currency so those buys do not turn it into a new debit. A buy
 // without a fixed price bound makes its currency unknown. Commissions are
 // small beside the cushion and are not counted, unlike the sweep's
 // fee-inclusive commitments, which would hold leveling behind every resting
 // buy whose fee bound Canary did not record.
-func currencyLevelingCommitted(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope) (map[string]float64, map[string]string) {
+func currencyLevelingCommitted(orders []ibkrlib.OrderLifecycleEvent, queued []queuedAuthRecord, scope brokerStateScope, evidence ...cashSweepFeeEvidence) (map[string]float64, map[string]string) {
 	committed, unknown := map[string]float64{}, map[string]string{}
+	if len(evidence) == 1 {
+		out := cashSweepCommitments{Unknown: unknown}
+		cashSweepUnacknowledgedBuyGuard(&out, orders, scope, evidence[0])
+	}
 	add := func(ccy, secType string, quantity, price float64, multiplier int, bounded bool) {
 		mult, ok := cashSweepMultiplier(secType, multiplier, ccy)
 		amount := quantity * price * mult
@@ -881,6 +895,16 @@ func currencyLevelingCommitted(orders []ibkrlib.OrderLifecycleEvent, queued []qu
 		if account := strings.TrimSpace(o.Account); account != "" && !strings.EqualFold(account, strings.TrimSpace(scope.Account)) {
 			continue
 		}
+		if cashSweepBondSecType(secType) {
+			ccy := normCcy(o.Currency)
+			amount, known := cashSweepWorkingBondCommitment(o, scope, evidence)
+			if !known || ccy == "" || !positiveFinite(committed[ccy]+amount) {
+				unknown[ccy] = "a working bond buy has no current bound for its principal and accrued interest, so committed cash is unknown"
+			} else {
+				committed[ccy] += amount
+			}
+			continue
+		}
 		remaining := o.Remaining
 		if remaining <= 0 {
 			remaining = o.TotalQuantity - o.Filled
@@ -890,6 +914,10 @@ func currencyLevelingCommitted(orders []ibkrlib.OrderLifecycleEvent, queued []qu
 	}
 	for _, rec := range queued {
 		if !rec.liveIntent() || !sameBrokerScope(rec.scope(), scope) || !strings.EqualFold(rec.Terms.Action, rpc.OrderActionBuy) {
+			continue
+		}
+		if cashSweepBondSecType(rec.Terms.Contract.SecType) {
+			unknown[normCcy(nonEmptyString(rec.Terms.Currency, rec.Terms.Contract.Currency))] = "an armed bond buy has no bound for accrued interest, so committed cash is unknown"
 			continue
 		}
 		add(normCcy(nonEmptyString(rec.Terms.Currency, rec.Terms.Contract.Currency)), strings.ToUpper(strings.TrimSpace(rec.Terms.Contract.SecType)),

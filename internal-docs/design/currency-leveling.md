@@ -1,6 +1,6 @@
 # Currency leveling (repay a borrowed currency by converting)
 
-Updated: 2026-10-06 18:40 CEST
+Updated: 2026-10-07 20:33 CEST
 Status: built on branch `currency-auto-level`, including the plan for
 several currencies, not merged, not installed. Nothing has been previewed or
 sent at the broker. The commands Desk's one-approval repayment card calls
@@ -81,7 +81,8 @@ hand.
   than the loan costs, cheapest first, chosen by what they save within
   `payback_days` after costs. A paying currency spends at most its trade-date
   cash less what working buy orders and armed queued buys already hold of it
-  (principal at their fixed limit; a buy without a price bound holds) less
+  (principal at their fixed limit plus a bond's signed accrued-interest
+  bound; a buy without a price bound holds) less
   the cushion it keeps. Each conversion carries its allotment of that cash;
   what one loan takes is set aside before the next. Leveling never borrows
   one currency to repay another.

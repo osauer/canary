@@ -113,6 +113,7 @@ type orderJournalEvent struct {
 	SendDisposition ibkrlib.SendDisposition  `json:"send_disposition,omitempty"`
 	Message         string                   `json:"message,omitempty"`
 	StrategyGroup   *rpc.StrategyOrderDraft  `json:"strategy_group,omitempty"`
+	Bond            *rpc.OrderBondTerms      `json:"bond,omitempty"`
 	FeeUpper        *float64                 `json:"fee_upper,omitempty"`
 	FeeCurrency     string                   `json:"fee_currency,omitempty"`
 
