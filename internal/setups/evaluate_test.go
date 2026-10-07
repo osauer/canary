@@ -280,3 +280,149 @@ func TestHistoricalReplayReproducesLiveFactsWhileEvidenceKindAndAvailabilityDiff
 		t.Fatal("input hash no longer binds the acquisition clocks")
 	}
 }
+
+// withTrades gives every bar of every session the same trade count.
+func withTrades(in *Input, current, prior int64) {
+	for i := range in.Current.Bars {
+		in.Current.Bars[i].Trades = new(current)
+	}
+	for s := range in.Prior {
+		for i := range in.Prior[s].Bars {
+			in.Prior[s].Bars[i].Trades = new(prior)
+		}
+	}
+}
+
+func TestTraceReadsEachBarCloseAsEvaluateWould(t *testing.T) {
+	spec, in := fixture()
+	in.Current.Bars[2].Volume = 300 // 3.0× the slot mean of 100
+	in.Current.Bars[2].Close = 99   // the spike bar falls
+	in.Current.Bars[3].Close = 99   // the next bar holds
+	in.Current.Bars[4].Close = 98   // then falls: the event ends
+	in.At = in.Current.Bars[4].End
+	in.ObservedAt = in.At
+	r := Evaluate(spec, in)
+	// Bar 1 reads as bar 0 did, so the trace holds four steps.
+	want := []struct {
+		bar           int
+		state, reason string
+	}{
+		{0, "watching", "no_volume_spike"},
+		{2, "pending", "volume_spike_waiting_for_price"},
+		{3, "confirmed", "volume_spike_price_holding"},
+		{4, "expired", "price_declined_after_confirmation"},
+	}
+	if len(r.Trace) != len(want) {
+		t.Fatalf("trace has %d steps, want %d: %+v", len(r.Trace), len(want), r.Trace)
+	}
+	for i, w := range want {
+		if step := r.Trace[i]; !step.End.Equal(in.Current.Bars[w.bar].End) || step.State != w.state || step.Reason != w.reason {
+			t.Fatalf("trace[%d] = %+v, want bar %d %s/%s", i, step, w.bar, w.state, w.reason)
+		}
+	}
+	// Every bar reads as the latest step at or before it, and that matches a
+	// reconstruction at the bar's close.
+	for k := range 5 {
+		var step rpc.SetupTraceStep
+		for _, s := range r.Trace {
+			if !s.End.After(in.Current.Bars[k].End) {
+				step = s
+			}
+		}
+		at := in
+		at.At, at.ObservedAt, at.Historical = in.Current.Bars[k].End, in.Current.Bars[k].End, true
+		if e := Evaluate(spec, at); e.State != step.State || e.Reasons[0] != step.Reason {
+			t.Fatalf("bar %d reads %s/%s; Evaluate says %s/%v", k, step.State, step.Reason, e.State, e.Reasons)
+		}
+	}
+	if r.Trace[2].SpikeAt == nil || !r.Trace[2].SpikeAt.Equal(in.Current.Bars[2].End) || r.Trace[2].FirstConfirmedAt == nil || !r.Trace[2].FirstConfirmedAt.Equal(in.Current.Bars[3].End) || r.Trace[2].ConfirmationType != "holding" {
+		t.Fatalf("confirmed step lost its spike or confirmation: %+v", r.Trace[2])
+	}
+	if r.Trace[0].SpikeAt != nil {
+		t.Fatal("a step before the spike names one")
+	}
+}
+
+func TestQuietDayTraceIsOneStep(t *testing.T) {
+	spec, in := fixture()
+	in.At = in.Current.Bars[76].End
+	in.ObservedAt = in.At
+	if r := Evaluate(spec, in); len(r.Trace) != 1 || r.Trace[0].State != "watching" {
+		t.Fatalf("quiet day trace: %+v", r.Trace)
+	}
+}
+
+func TestUsualCoversTheWholeSessionFromPriorSessionsOnly(t *testing.T) {
+	spec, in := fixture()
+	withTrades(&in, 20, 10)
+	in.Prior[0].Bars[40].Volume = 2100 // slot 40 mean: (19×100 + 2100) / 20 = 200
+	in.Prior[3].Bars[41].Trades = nil  // one session without a count: slot 41 trades unknown
+	r := Evaluate(spec, in)
+	if len(r.Usual) != 78 || !r.Usual[77].End.Equal(in.Current.Close) {
+		t.Fatalf("usual covers %d slots", len(r.Usual))
+	}
+	if r.Usual[40].Volume != 200 || r.Usual[0].Volume != 100 || r.Usual[0].Trades == nil || *r.Usual[0].Trades != 10 {
+		t.Fatalf("wrong slot means: %+v %+v", r.Usual[0], r.Usual[40])
+	}
+	if r.Usual[41].Trades != nil {
+		t.Fatal("a slot missing one session's count must not average the rest")
+	}
+	in.Current.Bars[60].Volume = 999999 // today's later bar is not input
+	if again := Evaluate(spec, in); again.Usual[60].Volume != r.Usual[60].Volume {
+		t.Fatal("today's future bar changed the usual profile")
+	}
+}
+
+func TestTradeSizeComparesTheLatestHourWithItsUsualSlots(t *testing.T) {
+	spec, in := fixture()
+	withTrades(&in, 20, 10) // today 100/20 = 5 per trade; usual 100/10 = 10
+	r := Evaluate(spec, in)
+	if r.Features.TradeSize == nil || *r.Features.TradeSize != 5 || r.Features.TradeSizeUsual == nil || *r.Features.TradeSizeUsual != 10 || r.Features.TradeSizeBars != 5 {
+		t.Fatalf("five completed bars: %+v", r.Features)
+	}
+	in.At = in.Current.Bars[20].End
+	in.ObservedAt = in.At
+	if r = Evaluate(spec, in); r.Features.TradeSizeBars != 12 {
+		t.Fatalf("window must stop at an hour, got %d bars", r.Features.TradeSizeBars)
+	}
+	in.Current.Bars[18].Trades = nil
+	if r = Evaluate(spec, in); r.Features.TradeSize != nil || r.Features.TradeSizeUsual != nil || r.Features.TradeSizeBars != 0 {
+		t.Fatal("a bar without a count must leave trade size unknown")
+	}
+	_, plain := fixture()
+	if r = Evaluate(spec, plain); r.Features.TradeSize != nil {
+		t.Fatal("bars without counts produced a trade size")
+	}
+}
+
+func TestRecentSessionsAreTheLatestFourInHours(t *testing.T) {
+	spec, in := fixture()
+	withTrades(&in, 20, 10)
+	r := Evaluate(spec, in)
+	if len(r.RecentSessions) != 4 {
+		t.Fatalf("got %d recent sessions", len(r.RecentSessions))
+	}
+	last := in.Prior[len(in.Prior)-1]
+	got := r.RecentSessions[3]
+	if got.Date != last.Date || r.RecentSessions[0].Date != in.Prior[16].Date {
+		t.Fatalf("recent sessions out of order: %s … %s", r.RecentSessions[0].Date, got.Date)
+	}
+	// 78 five-minute bars: six full hours and a closing half hour.
+	if len(got.Bars) != 7 || got.Bars[0].Volume != 1200 || got.Bars[6].Volume != 600 || !got.Bars[6].End.Equal(last.Close) || *got.Bars[0].Trades != 120 {
+		t.Fatalf("wrong hourly bars: %d, %+v, %+v", len(got.Bars), got.Bars[0], got.Bars[6])
+	}
+	in.Prior[19].Bars[3].Trades = nil
+	if r = Evaluate(spec, in); r.RecentSessions[3].Bars[0].Trades != nil || r.RecentSessions[3].Bars[1].Trades == nil {
+		t.Fatal("only the hour missing a count should lose its trades")
+	}
+}
+
+func TestTradeCountsAreHashedFacts(t *testing.T) {
+	spec, in := fixture()
+	withTrades(&in, 20, 10)
+	a := Evaluate(spec, in)
+	in.Current.Bars[1].Trades = new(int64(21))
+	if b := Evaluate(spec, in); a.InputHash == b.InputHash {
+		t.Fatal("a changed trade count kept the input hash")
+	}
+}

@@ -288,9 +288,18 @@ func attachSetupBars(sessions []setups.Session, bars []ibkrlib.HistoricalBar) []
 		for _, b := range bars {
 			end := b.Time.Add(5 * time.Minute)
 			if !b.Time.Before(out[i].Open) && !end.After(out[i].Close) {
-				out[i].Bars = append(out[i].Bars, rpc.SetupBar{Start: b.Time, End: end, Open: b.Open, High: b.High, Low: b.Low, Close: b.Close, Volume: b.Volume})
+				out[i].Bars = append(out[i].Bars, rpc.SetupBar{Start: b.Time, End: end, Open: b.Open, High: b.High, Low: b.Low, Close: b.Close, Volume: b.Volume, Trades: setupBarTrades(b)})
 			}
 		}
 	}
 	return out
+}
+
+// setupBarTrades is IBKR's trade count for a bar. The decoder reads an absent
+// count as zero, so zero with volume is unknown; IBKR sends -1 for none.
+func setupBarTrades(b ibkrlib.HistoricalBar) *int64 {
+	if b.BarCount < 0 || b.BarCount == 0 && b.Volume > 0 {
+		return nil
+	}
+	return new(int64(b.BarCount))
 }

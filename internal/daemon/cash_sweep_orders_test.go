@@ -213,9 +213,9 @@ func TestCashSweepRedemptionOnTheBillsGrid(t *testing.T) {
 	}
 }
 
-// Working bond buys and bond fills are valued at their currency's bill
-// convention (per 100 × face per unit); a bill sale counts as a pending
-// redemption; a bond in a currency without a convention stays unknown.
+// A working bond buy needs its exact durable terms; currency alone cannot
+// prove its accrued interest. Fill estimates remain diagnostic, valued at
+// the currency's convention; a bill sale counts as a pending redemption.
 func TestCashSweepValuesBondOrdersAndFills(t *testing.T) {
 	scope := brokerStateScope{Account: "DU1234567", Mode: "paper"}
 	orders := []ibkrlib.OrderLifecycleEvent{
@@ -224,7 +224,7 @@ func TestCashSweepValuesBondOrdersAndFills(t *testing.T) {
 		{Type: ibkrlib.OrderLifecycleEventOpenOrder, Account: "DU1234567", SecType: "BOND", Currency: "CHF", Action: rpc.OrderActionBuy, OrderType: "LMT", TotalQuantity: 5000, Remaining: 5000, LimitPrice: 99.8, Status: "Submitted"},
 	}
 	got := cashSweepCommitmentsFrom(orders, nil, scope)
-	if math.Abs(got.ByCurrency["USD"]-9950) > 1e-9 || math.Abs(got.ByCurrency["EUR"]-4990) > 1e-9 || got.Unknown["CHF"] == "" || !strings.Contains(got.Unknown["USD"], "commission") || got.Unknown[""] == "" {
+	if len(got.ByCurrency) != 0 || got.Unknown["CHF"] == "" || !strings.Contains(got.Unknown["USD"], "accrued interest") || !strings.Contains(got.Unknown["EUR"], "accrued interest") || got.Unknown[""] == "" {
 		t.Fatalf("commitments = %+v", got)
 	}
 	now := cashSweepTestNow()

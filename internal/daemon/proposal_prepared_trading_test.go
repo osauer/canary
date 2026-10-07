@@ -40,6 +40,19 @@ func preparedTestRig(t *testing.T) (*automaticTestRig, rpc.TradeProposalPrepareR
 	return rig, prepared, broker, previews
 }
 
+// waitRulesRegimeKick returns once no background regime-stage refresh is in
+// flight, so a test may change state that refresh reads.
+func waitRulesRegimeKick(t *testing.T, s *Server) {
+	t.Helper()
+	deadline := time.Now().Add(rulesRegimeKickTimeout + 5*time.Second)
+	for s.rulesRegimeKickBusy.Load() {
+		if time.Now().After(deadline) {
+			t.Fatal("background regime refresh still running")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func preparedSubmit(t *testing.T, rig *automaticTestRig, p rpc.TradeProposalPrepareResult) *rpc.TradeProposalSubmitResult {
 	t.Helper()
 	raw, err := json.Marshal(rpc.TradeProposalSubmitParams{PreparedRef: p.PreparedRef, Key: p.Proposal.Key, Revision: p.Proposal.Revision, FastPath: true, Origin: rpc.OrderOriginHumanTTY})
@@ -163,8 +176,13 @@ func TestPreparedProposalRefusalsNeverCreateAnotherPreview(t *testing.T) {
 			case "quantity":
 				params.Quantity = 1
 			case "scope":
+				// The preview kicked a background regime refresh that reads the
+				// configured account; production never rewrites it after Start.
+				waitRulesRegimeKick(t, rig.server)
 				rig.server.cfg.Gateway.Account = "DU7654321"
+				rig.server.mu.Lock()
 				rig.server.endpoint.Account = "DU7654321"
+				rig.server.mu.Unlock()
 			case "expiry":
 				rig.advance(11 * time.Minute)
 			case "freeze":

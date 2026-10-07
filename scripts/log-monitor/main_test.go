@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -325,5 +326,27 @@ func TestHoldingsFallBackToTheGateCache(t *testing.T) {
 	}
 	if got := loadHoldings(filepath.Join(dir, "missing.db"), filepath.Join(dir, "missing")); got.available() || got.mask("SYNTHQ") != "SYNTHQ" {
 		t.Fatalf("no source = %+v, want unavailable", got)
+	}
+}
+
+// The daemon's start marker names its build, so a check can tell lines from a
+// replaced build; a notice the daemon logged at INFO is its own verdict that
+// the line is routine and never pages.
+func TestDaemonBuildsAndInfoNoticesStayQuiet(t *testing.T) {
+	got := classifyDaemon(scannedLog{state: "scanned", lines: []string{
+		`time=2026-10-07T09:16:09+02:00 level=INFO msg="canary daemon serving v3.17.0 (build d59b6bf3) on /tmp/canary.sock (gateway=127.0.0.1:7496, clientID=15)"`,
+		`time=2026-10-07T09:16:10+02:00 level=INFO msg="Connected to IB Gateway 127.0.0.1:7496 (clientID=15, tls=false)"`,
+		`time=2026-10-07T09:20:00+02:00 level=INFO msg="[IBKR cid=15] System notice reqID=7 (AAA.OLD STK) code=200 @ 2026-10-07T07:20:00Z: No security definition has been found for the request (the requester records this verdict)" component=IBKR`,
+		`time=2026-10-07T09:21:00+02:00 level=INFO msg="[IBKR cid=15] System notice reqID=8 (NDX IND) code=354: Requested market data is not subscribed (known entitlement gap; repeat probe)" component=IBKR`,
+		`time=2026-10-07T10:00:00+02:00 level=INFO msg="canary daemon serving v3.17.0 (build 0a1b2c3d+modified) on /tmp/canary.sock (gateway=127.0.0.1:7496, clientID=15)"`,
+	}}, defaultMaxSignals)
+	if len(got.Signals) != 0 {
+		t.Fatalf("routine lines signalled: %+v", got.Signals)
+	}
+	if want := []string{"d59b6bf3", "0a1b2c3d+modified"}; !slices.Equal(got.Builds, want) {
+		t.Fatalf("builds = %v, want %v", got.Builds, want)
+	}
+	if got.Families["lifecycle"] != 3 || got.Families["broker_code_200_no_definition"] != 1 || got.Families["broker_code_354"] != 1 {
+		t.Fatalf("families = %v", got.Families)
 	}
 }

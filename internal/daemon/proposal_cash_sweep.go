@@ -1441,6 +1441,14 @@ func cashSweepCommitmentsFrom(orders []ibkrlib.OrderLifecycleEvent, queued []que
 			out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no price bound, so the cash it commits is unknown", ccy)
 		default:
 			amount := remaining * price * multiplier
+			if cashSweepBondSecType(secType) {
+				var known bool
+				amount, known = cashSweepWorkingBondCommitment(o, scope, evidence)
+				if !known {
+					out.Unknown[ccy] = "a working bond buy has no current bound for its principal and accrued interest, so committed cash is unknown"
+					continue
+				}
+			}
 			if !positiveFinite(amount) {
 				out.Unknown[ccy] = fmt.Sprintf("a working buy order in %s has no finite cash commitment", ccy)
 				continue

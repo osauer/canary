@@ -110,6 +110,8 @@ func normalizeSetupSymbol(symbol string) (string, error) {
 }
 
 // SetupBar is a completed five-minute regular-session OHLCV observation.
+// Trades is IBKR's trade count for the bar, absent when the source did not
+// report one; volume divided by trades is the bar's average trade size.
 type SetupBar struct {
 	Start  time.Time `json:"start"`
 	End    time.Time `json:"end"`
@@ -118,6 +120,37 @@ type SetupBar struct {
 	Low    float64   `json:"low"`
 	Close  float64   `json:"close"`
 	Volume int64     `json:"volume"`
+	Trades *int64    `json:"trades,omitempty"`
+}
+
+// SetupUsual is one clock slot's mean across the comparable prior sessions:
+// what that time of day usually looks like. Trades is absent unless every
+// prior session reported a trade count for the slot.
+type SetupUsual struct {
+	End    time.Time `json:"end"`
+	Volume float64   `json:"volume"`
+	Trades *float64  `json:"trades,omitempty"`
+}
+
+// SetupTraceStep is the rule's reading at the close of a completed bar where
+// it changed, reconstructed from the bars this evaluation holds; it holds for
+// every later bar until the next step. It shows how the state developed; it is
+// not evidence that a later-corrected bar was known.
+type SetupTraceStep struct {
+	End              time.Time  `json:"end"`
+	State            string     `json:"state"`
+	Reason           string     `json:"reason"`
+	SpikeAt          *time.Time `json:"spike_at,omitempty"`
+	FirstConfirmedAt *time.Time `json:"first_confirmed_at,omitempty"`
+	ConfirmationType string     `json:"confirmation_type,omitempty"`
+}
+
+// SetupRecentSession is one of the latest comparable prior sessions in hourly
+// bars, aggregated from the baseline's own five-minute bars: the days before
+// today, with no extra broker read.
+type SetupRecentSession struct {
+	Date string     `json:"date"`
+	Bars []SetupBar `json:"bars"`
 }
 
 // SetupBaseline is the actual same-slot observation from one comparable session.
@@ -129,11 +162,17 @@ type SetupBaseline struct {
 }
 
 // SetupFeatures preserves measured values independently of activation and policy.
+// TradeSize is the average trade over the latest TradeSizeBars completed bars
+// (at most an hour) and TradeSizeUsual the same clock slots' usual average;
+// both are absent when any bar or slot lacks a trade count.
 type SetupFeatures struct {
 	SlotVolume     *int64   `json:"slot_volume,omitempty"`
 	SlotAverage    *float64 `json:"slot_average,omitempty"`
 	SpikeMultiple  *float64 `json:"spike_multiple,omitempty"`
 	PriceChangePct *float64 `json:"price_change_pct,omitempty"`
+	TradeSize      *float64 `json:"trade_size,omitempty"`
+	TradeSizeUsual *float64 `json:"trade_size_usual,omitempty"`
+	TradeSizeBars  int      `json:"trade_size_bars,omitempty"`
 }
 
 // SetupResult is dated observation evidence, never option or order authority.
@@ -158,8 +197,13 @@ type SetupResult struct {
 	Features           SetupFeatures   `json:"features"`
 	Bars               []SetupBar      `json:"bars"`
 	Baseline           []SetupBaseline `json:"baseline"`
-	InputHash          string          `json:"input_hash"`
-	PriceBasis         string          `json:"price_basis"`
-	VolumeBasis        string          `json:"volume_basis"`
-	PolicyChecked      bool            `json:"policy_checked"`
+	// Usual covers every slot of today's session, ahead of the latest bar
+	// too: it comes from prior sessions, never from today's later bars.
+	Usual          []SetupUsual         `json:"usual,omitempty"`
+	Trace          []SetupTraceStep     `json:"trace,omitempty"`
+	RecentSessions []SetupRecentSession `json:"recent_sessions,omitempty"`
+	InputHash      string               `json:"input_hash"`
+	PriceBasis     string               `json:"price_basis"`
+	VolumeBasis    string               `json:"volume_basis"`
+	PolicyChecked  bool                 `json:"policy_checked"`
 }

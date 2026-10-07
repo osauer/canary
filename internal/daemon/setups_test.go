@@ -703,3 +703,21 @@ func TestSetupContractIsResolvedOncePerBrokerSession(t *testing.T) {
 		t.Fatalf("resolution memo holds %d", n)
 	}
 }
+
+func TestSetupBarsCarryIBKRTradeCounts(t *testing.T) {
+	at, _ := time.Parse(time.RFC3339, "2026-09-30T09:30:00-04:00")
+	session := setups.Session{Date: "2026-09-30", Open: at, Close: at.Add(390 * time.Minute)}
+	bar := func(minute, volume int64, count int) ibkr.HistoricalBar {
+		return ibkr.HistoricalBar{Time: at.Add(time.Duration(minute) * time.Minute), Open: 10, High: 10, Low: 10, Close: 10, Volume: volume, BarCount: count}
+	}
+	got := attachSetupBars([]setups.Session{session}, []ibkr.HistoricalBar{bar(0, 500, 37), bar(5, 0, 0), bar(10, 500, 0), bar(15, 500, -1)})[0].Bars
+	if len(got) != 4 || got[0].Trades == nil || *got[0].Trades != 37 {
+		t.Fatalf("reported count lost: %+v", got)
+	}
+	if got[1].Trades == nil || *got[1].Trades != 0 {
+		t.Fatal("a bar without volume or trades is a known zero")
+	}
+	if got[2].Trades != nil || got[3].Trades != nil {
+		t.Fatal("a missing count must stay unknown, never zero trades with volume")
+	}
+}

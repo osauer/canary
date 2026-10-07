@@ -580,6 +580,7 @@ func orderJournalEventForDraft(draft rpc.OrderDraft, eventType string, status rp
 		Trail:           cloneTrailSpec(draft.Trail),
 		OpenClose:       draft.OpenClose,
 		StrategyGroup:   draft.StrategyGroup,
+		Bond:            rpc.CloneOrderBondTerms(draft.Bond),
 		Source:          draft.Source,
 	}
 }

@@ -603,7 +603,10 @@ func deltaReducingExit(draft rpc.OrderDraft, position rpc.OrderPositionImpact, e
 	for _, change := range changes {
 		other := inv.otherWorkingSameSide(change.ConID)
 		qty := math.Abs(change.After - change.Before)
-		if math.IsNaN(other) || math.IsInf(other, 0) || other < 0 || other+qty > math.Abs(change.Before)+1e-9 {
+		if math.IsNaN(other) || math.IsInf(other, 0) || other < 0 {
+			return false, "; Canary cannot determine how much another working order would trade on this line, so it cannot rule out an exit beyond the held quantity; the cap still applies"
+		}
+		if other+qty > math.Abs(change.Before)+1e-9 {
 			return false, "; " + competingExitClause(change, other)
 		}
 	}

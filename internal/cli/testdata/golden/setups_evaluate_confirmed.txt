@@ -1,0 +1,22 @@
+# canary setups evaluate · COLUMNS=80 · colour off
+Entry setup · SYNTH · confirmed
+Rule · volume_turn_v1 · synthetic-3
+Evidence · current_observation · 2026-09-30T14:20:20Z
+Volume spike · 2026-09-30T14:15:00Z
+Activity · 3.40× same-slot mean across 20 comparable sessions
+Average trade · 74 units against 129 usual over the latest 12 bars
+First price confirmation · 2026-09-30T14:20:00Z · rising
+Evidence deadline · 2026-09-30T14:26:00Z
+Reason · volume_spike_price_rising
+Observation only. Risk, option feasibility and exact order authority are separate.
+# canary setups evaluate · COLUMNS=80 · colour on, ESC written as \x1b
+Entry setup · SYNTH · confirmed
+Rule · volume_turn_v1 · synthetic-3
+Evidence · current_observation · 2026-09-30T14:20:20Z
+Volume spike · 2026-09-30T14:15:00Z
+Activity · 3.40× same-slot mean across 20 comparable sessions
+Average trade · 74 units against 129 usual over the latest 12 bars
+First price confirmation · 2026-09-30T14:20:00Z · rising
+Evidence deadline · 2026-09-30T14:26:00Z
+Reason · volume_spike_price_rising
+Observation only. Risk, option feasibility and exact order authority are separate.

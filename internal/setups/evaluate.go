@@ -94,66 +94,58 @@ func Evaluate(spec rpc.SetupSpec, in Input) rpc.SetupResult {
 	}{r.Spec, frozen})
 	sum := sha256.Sum256(b)
 	r.InputHash = hex.EncodeToString(sum[:])
-	r.SetupMatch = new(false)
-	r.State = "watching"
-	r.Reasons = []string{"no_volume_spike"}
-	// Select the newest spike, retaining its own response history. A later
-	// recovery never revives an invalidated spike; another spike is a new event.
-	spike := -1
-	for i, bar := range r.Bars {
-		avg := slotAverage(in.Prior, i)
-		if avg <= 0 {
+	avgs := make([]float64, len(r.Bars))
+	for i := range r.Bars {
+		if avgs[i] = slotAverage(in.Prior, i); avgs[i] <= 0 {
 			return unknown("baseline_slot_volume_unavailable")
 		}
-		if avg > 0 && float64(bar.Volume)/avg >= r.Spec.SpikeMultiple {
-			spike = i
-		}
 	}
-	if spike < 0 {
-		return r
-	}
-	bar := r.Bars[spike]
-	r.SpikeAt = new(bar.End)
-	avg := slotAverage(in.Prior, spike)
-	multiple := float64(bar.Volume) / avg
-	r.Features = rpc.SetupFeatures{SlotVolume: new(bar.Volume), SlotAverage: new(avg), SpikeMultiple: new(multiple)}
-	for _, p := range in.Prior {
-		b := p.Bars[spike]
-		r.Baseline = append(r.Baseline, rpc.SetupBaseline{Date: p.Date, Start: b.Start, End: b.End, Volume: b.Volume})
-	}
-	r.State = "pending"
-	r.Reasons = []string{"volume_spike_waiting_for_price"}
-	confirmed := -1
-	for i := spike; i < len(r.Bars) && i <= spike+r.Spec.ResponseBars; i++ {
-		if i == 0 {
+	r.Usual = usualProfile(in.Current, in.Prior)
+	r.RecentSessions = recentSessions(in.Prior, recentSessionCount)
+	r.Features.TradeSize, r.Features.TradeSizeUsual, r.Features.TradeSizeBars = recentTradeSize(r.Bars, r.Usual)
+	// The trace keeps only the bars where the reading changed; each step holds
+	// until the next, so a quiet day is one step.
+	var last verdict
+	for k := range r.Bars {
+		v := decide(r.Spec, r.Bars[:k+1], avgs, r.Bars[k].End, in.Current.Close)
+		if k > 0 && v.state == last.state && v.reason == last.reason && v.spike == last.spike && v.confirmed == last.confirmed {
 			continue
 		}
-		if confirmed < 0 && r.Bars[i].Close >= r.Bars[i-1].Close {
-			confirmed = i
-			r.FirstConfirmedAt = new(r.Bars[i].End)
-			r.ConfirmationType = "holding"
-			if r.Bars[i].Close > r.Bars[i-1].Close {
-				r.ConfirmationType = "rising"
-			}
+		last = v
+		step := rpc.SetupTraceStep{End: r.Bars[k].End, State: v.state, Reason: v.reason, ConfirmationType: v.confirmation}
+		if v.spike >= 0 {
+			step.SpikeAt = new(r.Bars[v.spike].End)
 		}
-		if confirmed >= 0 && r.Bars[i].Close < r.Bars[i-1].Close {
-			r.State = "expired"
-			r.Reasons = []string{"price_declined_after_confirmation"}
-			return r
+		if v.confirmed >= 0 {
+			step.FirstConfirmedAt = new(r.Bars[v.confirmed].End)
 		}
+		r.Trace = append(r.Trace, step)
 	}
-	hardEnd := bar.End.Add(time.Duration(r.Spec.ResponseBars+1) * 5 * time.Minute)
-	if hardEnd.After(in.Current.Close) {
-		hardEnd = in.Current.Close
+	v := decide(r.Spec, r.Bars, avgs, in.At, in.Current.Close)
+	r.SetupMatch = new(false)
+	r.State, r.Reasons = v.state, []string{v.reason}
+	if v.spike < 0 {
+		return r
 	}
-	if !in.At.Before(hardEnd) || len(r.Bars)-1 > spike+r.Spec.ResponseBars {
-		r.State = "expired"
-		r.Reasons = []string{"response_window_expired"}
+	// Select the newest spike, retaining its own response history. A later
+	// recovery never revives an invalidated spike; another spike is a new event.
+	bar := r.Bars[v.spike]
+	r.SpikeAt = new(bar.End)
+	r.Features.SlotVolume, r.Features.SlotAverage, r.Features.SpikeMultiple = new(bar.Volume), new(avgs[v.spike]), new(float64(bar.Volume)/avgs[v.spike])
+	for _, p := range in.Prior {
+		b := p.Bars[v.spike]
+		r.Baseline = append(r.Baseline, rpc.SetupBaseline{Date: p.Date, Start: b.Start, End: b.End, Volume: b.Volume})
+	}
+	if v.confirmed >= 0 {
+		r.FirstConfirmedAt = new(r.Bars[v.confirmed].End)
+		r.ConfirmationType = v.confirmation
+	}
+	if v.state == "expired" {
 		return r
 	}
 	valid := latest.End.Add(6 * time.Minute)
-	if valid.After(hardEnd) {
-		valid = hardEnd
+	if valid.After(v.hardEnd) {
+		valid = v.hardEnd
 	}
 	r.ValidUntil = &valid
 	if !in.Historical && !in.ObservedAt.Before(valid) {
@@ -161,18 +153,156 @@ func Evaluate(spec rpc.SetupSpec, in Input) rpc.SetupResult {
 		r.Reasons = []string{"acquisition_missed_deadline"}
 		return r
 	}
-	if confirmed >= 0 {
-		r.State = "confirmed"
+	if v.state == "confirmed" {
 		r.SetupMatch = new(true)
 		r.FirstAvailableAt = new(in.ObservedAt)
-		change := (r.Bars[confirmed].Close/r.Bars[confirmed-1].Close - 1) * 100
+		change := (r.Bars[v.confirmed].Close/r.Bars[v.confirmed-1].Close - 1) * 100
 		if math.IsNaN(change) || math.IsInf(change, 0) {
 			return unknown("price_change_not_finite")
 		}
 		r.Features.PriceChangePct = &change
-		r.Reasons = []string{"volume_spike_price_" + r.ConfirmationType}
 	}
 	return r
+}
+
+// verdict is the rule's reading of completed bars at one decision clock,
+// before acquisition deadlines: Evaluate adds those, and the trace reads
+// each bar's close without them.
+type verdict struct {
+	state, reason, confirmation string
+	spike, confirmed            int
+	hardEnd                     time.Time
+}
+
+// decide applies volume_turn_v1 to bars completed by at. avgs holds each
+// slot's comparable-session mean volume, all positive.
+func decide(spec rpc.SetupSpec, bars []rpc.SetupBar, avgs []float64, at, sessionClose time.Time) verdict {
+	v := verdict{state: "watching", reason: "no_volume_spike", spike: -1, confirmed: -1}
+	for i, bar := range bars {
+		if float64(bar.Volume)/avgs[i] >= spec.SpikeMultiple {
+			v.spike = i
+		}
+	}
+	if v.spike < 0 {
+		return v
+	}
+	v.state, v.reason = "pending", "volume_spike_waiting_for_price"
+	for i := v.spike; i < len(bars) && i <= v.spike+spec.ResponseBars; i++ {
+		if i == 0 {
+			continue
+		}
+		if v.confirmed < 0 && bars[i].Close >= bars[i-1].Close {
+			v.confirmed, v.confirmation = i, "holding"
+			if bars[i].Close > bars[i-1].Close {
+				v.confirmation = "rising"
+			}
+		}
+		if v.confirmed >= 0 && bars[i].Close < bars[i-1].Close {
+			v.state, v.reason = "expired", "price_declined_after_confirmation"
+			return v
+		}
+	}
+	v.hardEnd = bars[v.spike].End.Add(time.Duration(spec.ResponseBars+1) * 5 * time.Minute)
+	if v.hardEnd.After(sessionClose) {
+		v.hardEnd = sessionClose
+	}
+	if !at.Before(v.hardEnd) || len(bars)-1 > v.spike+spec.ResponseBars {
+		v.state, v.reason = "expired", "response_window_expired"
+		return v
+	}
+	if v.confirmed >= 0 {
+		v.state, v.reason = "confirmed", "volume_spike_price_"+v.confirmation
+	}
+	return v
+}
+
+// recentSessionCount is how many of the latest prior sessions travel as
+// hourly bars: with today, the five sessions a buildup is read across.
+const recentSessionCount = 4
+
+// usualProfile is each slot's comparable-session mean for today's whole
+// session. Prior sessions are complete and the same length as today's.
+func usualProfile(current Session, prior []Session) []rpc.SetupUsual {
+	slots := int(current.Close.Sub(current.Open) / (5 * time.Minute))
+	out := make([]rpc.SetupUsual, 0, slots)
+	for i := range slots {
+		u := rpc.SetupUsual{End: current.Open.Add(time.Duration(i+1) * 5 * time.Minute)}
+		var volume, trades float64
+		counted := true
+		for _, p := range prior {
+			volume += float64(p.Bars[i].Volume)
+			if p.Bars[i].Trades == nil {
+				counted = false
+			} else {
+				trades += float64(*p.Bars[i].Trades)
+			}
+		}
+		u.Volume = volume / float64(len(prior))
+		if counted {
+			u.Trades = new(trades / float64(len(prior)))
+		}
+		out = append(out, u)
+	}
+	return out
+}
+
+// recentSessions aggregates the latest n prior sessions into hourly bars from
+// the open; a short final hour keeps its own end.
+func recentSessions(prior []Session, n int) []rpc.SetupRecentSession {
+	var out []rpc.SetupRecentSession
+	for _, p := range prior[max(0, len(prior)-n):] {
+		s := rpc.SetupRecentSession{Date: p.Date}
+		for start := 0; start < len(p.Bars); start += 12 {
+			s.Bars = append(s.Bars, aggregateBars(p.Bars[start:min(start+12, len(p.Bars))]))
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// aggregateBars joins consecutive bars into one; Trades is absent when any
+// part lacks a count.
+func aggregateBars(bars []rpc.SetupBar) rpc.SetupBar {
+	out := rpc.SetupBar{Start: bars[0].Start, End: bars[len(bars)-1].End, Open: bars[0].Open, High: bars[0].High, Low: bars[0].Low, Close: bars[len(bars)-1].Close}
+	var trades int64
+	counted := true
+	for _, b := range bars {
+		out.High, out.Low = max(out.High, b.High), min(out.Low, b.Low)
+		out.Volume += b.Volume
+		if b.Trades == nil {
+			counted = false
+		} else {
+			trades += *b.Trades
+		}
+	}
+	if counted {
+		out.Trades = new(trades)
+	}
+	return out
+}
+
+// recentTradeSize is the average trade over the latest hour of completed bars
+// and the usual average trade for the same slots, as total volume over total
+// trades. Any missing or zero count leaves both unknown.
+func recentTradeSize(bars []rpc.SetupBar, usual []rpc.SetupUsual) (*float64, *float64, int) {
+	n := min(12, len(bars))
+	if n == 0 || len(usual) < len(bars) {
+		return nil, nil, 0
+	}
+	var volume, trades, usualVolume, usualTrades float64
+	for i := len(bars) - n; i < len(bars); i++ {
+		if bars[i].Trades == nil || usual[i].Trades == nil {
+			return nil, nil, 0
+		}
+		volume += float64(bars[i].Volume)
+		trades += float64(*bars[i].Trades)
+		usualVolume += usual[i].Volume
+		usualTrades += *usual[i].Trades
+	}
+	if trades <= 0 || usualTrades <= 0 {
+		return nil, nil, 0
+	}
+	return new(volume / trades), new(usualVolume / usualTrades), n
 }
 
 func slotAverage(prior []Session, slot int) float64 {

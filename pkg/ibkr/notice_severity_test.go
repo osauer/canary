@@ -82,6 +82,13 @@ func TestConnectorEntitlementGapMemoryAndHandover(t *testing.T) {
 	if successor.marketDataAbsenceFor("NDX") == nil {
 		t.Fatal("successor lost the absence window")
 	}
+	// A new process gets the warned gaps alone, as the daemon records them:
+	// the gap stays INFO, the subscription is asked again.
+	restarted := newConn()
+	restarted.InheritMarketDataMemory(MarketDataMemory{}.WithEntitlementGaps(c.ExportMarketDataMemory().EntitlementGaps()))
+	if !restarted.knownEntitlementGap(11, alias) || restarted.marketDataAbsenceFor("NDX") != nil {
+		t.Fatal("restart seed: want the gap known and the subscription re-probed")
+	}
 	now = now.Add(marketDataAbsenceRetry)
 	if successor.marketDataAbsenceFor("NDX") != nil {
 		t.Fatal("absence window outlived its retry")

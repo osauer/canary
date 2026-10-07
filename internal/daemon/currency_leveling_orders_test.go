@@ -420,7 +420,7 @@ func TestCurrencyLevelingCommitmentsAndWorkingOrders(t *testing.T) {
 		working(ibkrlib.OrderLifecycleEvent{SecType: "CASH", Symbol: "EUR", Currency: "CHF", Action: "BUY", TotalQuantity: 1000, Remaining: 1000, Account: "U9999999"}),
 	}
 	committed, unknown := currencyLevelingCommitted(orders, nil, scope)
-	if committed["EUR"] <= 0 || unknown["USD"] == "" || committed["GBP"] != 0 || unknown["GBP"] != "" {
+	if committed["EUR"] != 0 || unknown["EUR"] == "" || unknown["USD"] == "" || committed["GBP"] != 0 || unknown["GBP"] != "" {
 		t.Fatalf("committed %+v unknown %+v", committed, unknown)
 	}
 	w := currencyLevelingWorkingFrom(orders, scope)

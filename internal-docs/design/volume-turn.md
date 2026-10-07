@@ -50,6 +50,28 @@ observations, source clocks and an input hash. Source units are explicitly IBKR
 historical trade volume; the ratio does not claim signed buying pressure, and
 historical corrections cannot become evidence known at the original decision.
 
+Added 2026-10-06 21:40 CEST so a reader can chart and inspect the evidence
+without recalculating it; none of it changes the rule or its state:
+
+- `bars[].trades` is IBKR's trade count for the bar (the TRADES bar count the
+  decoder already reads). A count IBKR did not report, or zero with volume, is
+  absent rather than zero.
+- `usual[]` is every slot of today's session with its 20-session mean `volume`
+  and, when all 20 sessions reported counts, mean `trades`. It runs ahead of the
+  latest bar because it comes from prior sessions only.
+- `features.trade_size` and `trade_size_usual` are total volume over total trades
+  for the latest hour of completed bars (`trade_size_bars`, at most 12) and for
+  the same slots' usual. It is a measurement, not a claim about who traded.
+- `trace[]` is the rule's state, reason, spike and first confirmation as they
+  read at a completed bar's close, reconstructed from this evaluation's bars
+  without acquisition deadlines. Only bars where the reading changed are listed;
+  each step holds until the next, so a quiet day is one step. It shows how the
+  state developed; it never certifies that a later-corrected bar was known then.
+- `recent_sessions[]` is the latest four baseline sessions in hourly bars from
+  the open, aggregated from bars the profile already holds: no extra broker read.
+
+Trade counts enter the input hash with the bars they belong to.
+
 The next expected bar plus a 60-second acquisition grace bounds validity, never
 beyond the close of the first bar outside the response window. Missed refreshes
 expire actionability. `setup_match` is nullable and independent of policy;

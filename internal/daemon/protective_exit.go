@@ -129,9 +129,9 @@ type workingOrderIdentity struct {
 	SecType, Symbol, Action string
 	ConID                   int
 	Remaining               float64
-	// Legs are the option contracts of a combo (BAG) order the journal
-	// knows; nil for a hand combo, which then counts against every leg.
-	Legs map[int]struct{}
+	// Legs retain each contract's ratio and actual order direction. A nil
+	// map means the combo's per-contract quantity is unknown.
+	Legs map[int]rpc.StrategyOrderLeg
 }
 
 // journalInventory is Canary's own order rows for the competing-order count:
@@ -139,12 +139,12 @@ type workingOrderIdentity struct {
 // reference and by session order id.
 type journalInventory struct {
 	views         []rpc.OrderView
-	legsByRef     map[string]map[int]struct{}
-	legsByOrderID map[int]map[int]struct{}
+	legsByRef     map[string]map[int]rpc.StrategyOrderLeg
+	legsByOrderID map[int]map[int]rpc.StrategyOrderLeg
 }
 
 // legsOf is the combo legs the journal knows for a row, or nil.
-func (j journalInventory) legsOf(view *rpc.OrderView) map[int]struct{} {
+func (j journalInventory) legsOf(view *rpc.OrderView) map[int]rpc.StrategyOrderLeg {
 	if view == nil {
 		return nil
 	}
@@ -205,21 +205,27 @@ func (w workingOrderIdentity) sameContract(contract rpc.ContractParams) bool {
 
 // competesWith is the quantity the working order holds against an exit of
 // contract in direction action: its remaining quantity when it is the same
-// contract in the same direction, or when it is a combo (BAG) on the
-// option's underlying whatever its direction, because a working combo close
-// touches every leg of its unit, so its units are a lower bound on each leg.
-// A combo Canary placed names its legs in the journal and counts only
-// against those; a hand combo, whose legs the broker does not report, counts
-// against every option leg of the underlying. Zero otherwise.
+// contract in the same direction. A known combo (BAG) contributes its
+// remaining units times the matching leg's ratio, in that leg's direction.
+// Unknown combo legs cannot establish capacity; NaN keeps the exemption
+// unavailable for any option on the underlying. Zero otherwise.
 func (w workingOrderIdentity) competesWith(contract rpc.ContractParams, action string) float64 {
 	if strings.EqualFold(contract.SecType, "OPT") && strings.EqualFold(strings.TrimSpace(w.SecType), "BAG") &&
 		strings.EqualFold(strings.TrimSpace(w.Symbol), strings.TrimSpace(contract.Symbol)) {
-		if w.Legs != nil {
-			if _, leg := w.Legs[contract.ConID]; !leg {
-				return 0
-			}
+		if w.Legs == nil {
+			return math.NaN()
 		}
-		return w.Remaining
+		leg, ok := w.Legs[contract.ConID]
+		if !ok {
+			return 0
+		}
+		if leg.Ratio == 0 || (leg.Action != rpc.OrderActionBuy && leg.Action != rpc.OrderActionSell) {
+			return math.NaN()
+		}
+		if !strings.EqualFold(leg.Action, strings.TrimSpace(action)) {
+			return 0
+		}
+		return w.Remaining * math.Abs(float64(leg.Ratio))
 	}
 	if !w.sameContract(contract) || !strings.EqualFold(strings.TrimSpace(w.Action), strings.TrimSpace(action)) {
 		return 0
@@ -246,8 +252,8 @@ func brokerOrderIsTarget(order ibkrlib.OrderLifecycleEvent, target orderPreviewR
 // protectiveExitInventoryFromSnapshot reads one complete snapshot, with
 // Canary's own journal rows, for the exemptions: the other working orders
 // in the draft's direction on its contract, or on each leg of a strategy
-// combo in that leg's direction, a working combo on an option's underlying
-// counting against every leg. target is the zero value for a new placement.
+// combo in that leg's direction. An unknown combo on the underlying leaves
+// option capacity unproven. target is the zero value for a new placement.
 //
 // The snapshot is served from a cache for up to
 // protectionOrderSnapshotRefreshEvery, and nothing refreshes it when Canary
@@ -325,14 +331,14 @@ func (s *Server) journalOrderViewsForInventory() (journalInventory, bool) {
 	if err != nil {
 		return journalInventory{}, false
 	}
-	j := journalInventory{views: buildOrderViews(events), legsByRef: map[string]map[int]struct{}{}, legsByOrderID: map[int]map[int]struct{}{}}
+	j := journalInventory{views: buildOrderViews(events), legsByRef: map[string]map[int]rpc.StrategyOrderLeg{}, legsByOrderID: map[int]map[int]rpc.StrategyOrderLeg{}}
 	for _, event := range events {
 		if event.StrategyGroup == nil || len(event.StrategyGroup.Legs) == 0 {
 			continue
 		}
-		legs := make(map[int]struct{}, len(event.StrategyGroup.Legs))
+		legs := make(map[int]rpc.StrategyOrderLeg, len(event.StrategyGroup.Legs))
 		for _, leg := range event.StrategyGroup.Legs {
-			legs[leg.Contract.ConID] = struct{}{}
+			legs[leg.Contract.ConID] = leg
 		}
 		if event.OrderRef != "" {
 			j.legsByRef[event.OrderRef] = legs

@@ -71,6 +71,9 @@ type logReport struct {
 	Informational int            `json:"informational"`
 	OffsetReset   bool           `json:"offset_reset,omitempty"`
 	Families      map[string]int `json:"families,omitempty"`
+	// Builds lists, in order, the daemon builds whose start marker falls in
+	// the window, so a line can be told apart from a build already replaced.
+	Builds []string `json:"builds,omitempty"`
 	// Signals holds the max-signals highest-ranked distinct signals —
 	// severity first, then occurrence count — never arrival order, so an
 	// escalating loop outranks a one-off stale quote no matter which the
@@ -286,10 +289,17 @@ func classifyDaemon(scanned scannedLog, maxSignals int) logReport {
 		case isDaemonLifecycle(trimmed):
 			result.Families["lifecycle"]++
 			result.Informational++
+			if build := daemonBuild(trimmed); build != "" && !slices.Contains(result.Builds, build) {
+				result.Builds = append(result.Builds, build)
+			}
 		case daemonNoticeFamily(trimmed) != "":
 			family := daemonNoticeFamily(trimmed)
 			result.Families[family]++
-			if family == "broker_code_2129_indicative" && severity(trimmed) != "ERROR" {
+			if level := severity(trimmed); level != "WARN" && level != "ERROR" {
+				// The daemon already judged this notice routine (a known
+				// entitlement gap, a verdict its requester records).
+				result.Informational++
+			} else if family == "broker_code_2129_indicative" && severity(trimmed) != "ERROR" {
 				result.KnownBenign++
 			} else {
 				level := "WARN"
@@ -650,8 +660,21 @@ func isRequestCompleted(line string) bool {
 	return strings.Contains(line, "Request completed")
 }
 
+// isDaemonLifecycle covers the process start marker, which names the build,
+// and the broker-session markers. Restart-loop detection keys on the session
+// marker alone (isDaemonStart), so a start is not counted twice.
 func isDaemonLifecycle(line string) bool {
-	return isDaemonStart(line) || strings.Contains(line, "IBKR connector stopped")
+	return isDaemonStart(line) || strings.Contains(line, "canary daemon serving") || strings.Contains(line, "IBKR connector stopped")
+}
+
+var daemonBuildPattern = regexp.MustCompile(`canary daemon serving \S+ \(build ([^)\s]+)\)`)
+
+// daemonBuild returns the build a daemon start marker names, or "".
+func daemonBuild(line string) string {
+	if match := daemonBuildPattern.FindStringSubmatch(line); len(match) == 2 {
+		return match[1]
+	}
+	return ""
 }
 
 func isDaemonStart(line string) bool {
