@@ -228,7 +228,9 @@ premium budget since Rulebook amendment 17; its measure reads no cash.
   above free cash (in face and in cost) or off the bill's grid; no
   invest/redeem alternation on unchanged inputs; absent from `canary policy
   default protection`; shadow refused by preview and submit; an unresolved
-  row never `AutomaticEligible()`; no RPC caller can preview a BOND.
+  row never `AutomaticEligible()`; no RPC caller can author bond terms (since
+  2026-10-06 a bond named by identifier is previewed with terms the daemon
+  builds, [bond-orders.md](bond-orders.md)).
 - Adversarial: ETF symbol and exchange are policy data matched by ConID; no
   broker text enters a decision.
 - Parity: CLI text, JSON `cash_sweep`, MCP `canary_proposals`, SPA blocker path.

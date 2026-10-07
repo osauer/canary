@@ -128,6 +128,23 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
    floor/pct_nlv/ceiling/override, NLV used or why not, summary, missing
    keys); the explain view prints the keys and an `order_limits.cap_in_force`
    row; the settings view reports the limits read-only with source `policy`.
+9. **Bond maturity (owner decision 2026-10-06 20:17 CEST, "30 years";
+   decision B2 of bond-orders.md).** `max_bond_maturity_years`, an integer in
+   [1, 100], is the longest time to maturity a bond or bill buy may have.
+   `OrderLimitsInForce.CheckBondMaturity` refuses a maturity after today's UTC
+   date plus that many years (`time.AddDate`; the limit date itself passes),
+   an unreadable maturity and incomplete limits, naming the key. Sells are
+   never judged by it. While the key is missing only bond and bill buys are
+   refused: `MissingKeysForEveryOrder` leaves it out of the completeness test
+   and `BondMaturityUnset` reports it (owner decision 2026-10-07 08:27 CEST,
+   after the desk settings review found that a key governing only bond buys
+   would otherwise block exits). Daemon start writes 30 into a table that lacks it,
+   after a backup, and raises `policy_version`; a written value is never
+   changed. Its JSON tag omits the key while unset, so a file written before
+   the key existed keeps both fingerprints until the key is written.
+   `trading.status`, `risk_policy.snapshot`, the settings view
+   (`trading.limits.max_bond_maturity_years`, read-only) and the explain view
+   state it.
 
 ## Authority
 

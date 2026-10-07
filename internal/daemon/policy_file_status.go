@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -102,8 +103,11 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		if keys := c.UnapprovedKeys(); len(keys) > 0 {
 			row.NeedsYourNumber = append(row.NeedsYourNumber, "capital controls and the rule 18 loss budget: "+strings.Join(keys, ", "))
 		}
-		if keys := c.OrderLimits.MissingKeys(); len(keys) > 0 {
+		if keys := c.OrderLimits.MissingKeysForEveryOrder(); len(keys) > 0 {
 			row.NeedsYourNumber = append(row.NeedsYourNumber, "order limits (every order preview is refused until written): "+strings.Join(keys, ", "))
+		}
+		if c.OrderLimits == nil || c.OrderLimits.MaxBondMaturityYears == nil {
+			row.NeedsYourNumber = append(row.NeedsYourNumber, "order limits (bond buys are refused until written): "+risk.OrderLimitsTable+"."+risk.OrderLimitMaxBondMaturityYears)
 		}
 		if strings.TrimSpace(c.Drawdown.Release) == "" {
 			row.NeedsYourNumber = append(row.NeedsYourNumber, `automatic brake release: off (a latched brake waits for your reset) until you choose drawdown.release`)

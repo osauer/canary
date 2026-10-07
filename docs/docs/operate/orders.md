@@ -1,12 +1,14 @@
 # Gated orders and the trading build
 
-Updated: 2026-10-05 22:20 CEST
+Updated: 2026-10-06 21:34 CEST
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 The separate opt-in trading binary exposes these actions:
 
 - preview, place, or modify a single-leg stock/ETF or option order through the
   tokenized draft path (`canary order preview` → `place`/`modify`);
+- preview and place a buy or sale of one government or investment-grade bill
+  or bond named by ISIN or CUSIP ([Bond orders](#bond-orders));
 - submit or reduce a daemon-owned close/reduce protection proposal;
 - submit a cash sweep proposal, which buys a same-currency bill with idle cash
   or sells one ([Cash sweep](cash.md#cash-sweep));
@@ -32,9 +34,11 @@ paper and live sessions. An explicitly pinned endpoint must also match.
 
 The per-order limits are the risk policy's `[order_limits]` in
 `~/.config/ibkr/policies/risk-policy.toml`: a notional cap that scales with
-net liquidation value, an option contract cap and the stock-short and option
-sell-to-open permissions ([Order limits](../understand/policy.md#order-limits)).
-While a key is missing, every order preview is refused with `order_risk_limit`.
+net liquidation value, an option contract cap, the stock-short and option
+sell-to-open permissions, and the longest maturity a bond or bill buy may have
+([Order limits](../understand/policy.md#order-limits)).
+While a key is missing, every order preview is refused with `order_risk_limit`;
+a missing `max_bond_maturity_years` refuses bond and bill buys only.
 A risk policy written before the table existed gains it at the next daemon
 start, after a backup. The `[trading]` keys `max_notional`,
 `max_option_contracts`, `allow_stock_short` and `allow_option_sell_to_open`
@@ -53,6 +57,42 @@ current boundary and the order cap in force but cannot authorise a trade. Its
 `freeze` field mirrors `trading.freeze` in every mode, and
 `trading_control_generation` advances with every change to the freeze, so two
 readings show a freeze that was set and lifted in between.
+
+## Bond orders
+
+```text
+canary order preview buy|sell ISIN|CUSIP FACE --type BOND|BILL --currency CCY
+```
+
+`FACE` is the nominal amount in the bond's currency, for example `25000`
+for 25,000 USD of a Treasury note. Canary finds the bond at IBKR, works out
+the order quantity (IBKR counts US bonds in units of 1,000 and EUR, GBP and
+CAD bonds in units of 1), and prices a limit order for the day between the
+live bid and ask, inside the bond's own trading hours. A limit price, trail,
+outside-hours flag or change to a working bond order is not offered; cancel
+the order and preview again instead.
+
+A buy is accepted only when an outside source confirms what the bond is:
+
+| Bond | Confirmed by |
+|---|---|
+| US Treasury bill, note or bond | TreasuryDirect |
+| Any bond on the ECB's daily list of eligible assets: euro-area government bonds and investment-grade corporate, bank and agency bonds | European Central Bank |
+| UK gilt or Treasury bill, Government of Canada bond or bill | OpenFIGI, and the maturity and coupon must match IBKR's own description |
+
+The ECB list only admits bonds rated BBB- or better, so a bond on it counts
+as investment grade. Canary refuses inflation-linked bonds, floating-rate
+notes and asset-backed securities, a bond maturing within seven days, and a
+bond maturing later than `[order_limits] max_bond_maturity_years` allows. A
+US-dollar corporate bond that is not on the ECB list is refused.
+
+The value checked against the order cap is the face times the price per 100,
+plus up to one year of coupon for the accrued interest a buyer pays. The
+preview shows the bond, the source that confirmed it, its maturity and
+coupon, and both parts of the value.
+
+A sale needs no confirmation: it may sell only bonds you hold, never more
+than the held face, and it never opens a short position.
 
 ## Who placed an order
 

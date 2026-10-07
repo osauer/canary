@@ -8,7 +8,6 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Delta-reducing exit exemption (owner decision 2026-10-07 08:13 CEST:
@@ -254,7 +253,7 @@ func lowersAbsoluteDelta(before, after float64) bool {
 // that is no close or reduction never qualifies and carries no reason.
 func deltaReducingExit(draft rpc.OrderDraft, position rpc.OrderPositionImpact, ev deltaReductionEvidence) (bool, string) {
 	if !deltaReductionCandidate(draft, position) {
-		if draft.StrategyGroup == nil && ibkrlib.IsBillOrBond(draft.Contract.SecType) && isRiskReducing(position.Effect) {
+		if bondSaleCandidate(draft, position) {
 			// A bill or bond sale keeps the cap: it carries no equity delta,
 			// so there is nothing for this rule to measure (the sweep bill
 			// exemption, cash_sweep_orders.go, is the one that can apply).

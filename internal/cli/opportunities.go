@@ -239,7 +239,7 @@ func renderOpportunityPreviewText(env *Env, res *rpc.OpportunityExercisePreviewR
 	}
 	statusRow(env, out, "Exercise", opportunityExerciseSummary(res.Opportunity))
 	statusRow(env, out, "Expected gain", formatMoneyCcy(res.Opportunity.ExpectedGain, res.Opportunity.ExpectedGainCurrency))
-	statusRow(env, out, "Position", fmt.Sprintf("%.4g -> %.4g (%s)", res.Opportunity.UnderlyingQuantityBefore, res.Opportunity.UnderlyingQuantityAfter, res.Opportunity.PositionEffect))
+	statusRow(env, out, "Position", formatPositionChange(res.Opportunity.UnderlyingQuantityBefore, res.Opportunity.UnderlyingQuantityAfter, res.Opportunity.PositionEffect))
 	if risk := opportunityPostExerciseRiskSummary(res.Opportunity); risk != "" {
 		statusRow(env, out, "Post-exercise risk", risk)
 	}

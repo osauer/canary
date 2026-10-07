@@ -2705,9 +2705,16 @@ type OrderPreviewParams struct {
 	// Bounded is daemon-internal: the bound a bounded-limit strategy prices
 	// inside. No RPC caller can set it.
 	Bounded *OrderBoundedLimit `json:"-"`
-	// Bond is daemon-internal: a cash_sweep row's bill conventions. A BOND
-	// preview without it is refused, so no RPC caller can preview a bond.
+	// Bond is daemon-internal: a cash_sweep row's bill conventions, or the
+	// terms the daemon builds for BondOrder. No RPC caller can author bond
+	// terms.
 	Bond *OrderBondTerms `json:"-"`
+	// BondOrder asks for one bill or bond by identifier and face amount
+	// (internal-docs/design/bond-orders.md). Contract then carries only the
+	// security type (BOND or BILL) and the currency, and Quantity stays zero:
+	// the daemon resolves the line, the issuer evidence, the order quantity
+	// and the terms.
+	BondOrder *OrderBondRequest `json:"bond_order,omitempty"`
 	// FX is daemon-internal: a currency_leveling row's conversion terms. A
 	// CASH preview without them is refused, so no RPC caller can preview a
 	// conversion.

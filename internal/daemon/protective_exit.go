@@ -116,7 +116,15 @@ func brokerOrderSameStockContract(order ibkrlib.OrderLifecycleEvent, contract rp
 		return false
 	}
 	secType := strings.TrimSpace(order.SecType)
-	return secType == "" || isStockLikeRiskSecType(secType)
+	return secType == "" || isStockLikeRiskSecType(secType) || (ibkrlib.IsBillOrBond(secType) && ibkrlib.IsBillOrBond(contract.SecType))
+}
+
+// bondSaleCandidate is a bill or bond sale that reduces or closes a held
+// line. Its admission needs the open-order inventory: a sale may never sell
+// more than the held face less every other working sale of the line.
+func bondSaleCandidate(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
+	return draft.StrategyGroup == nil && ibkrlib.IsBillOrBond(draft.Contract.SecType) &&
+		strings.EqualFold(strings.TrimSpace(draft.Action), rpc.OrderActionSell) && draft.Quantity > 0 && isRiskReducing(position.Effect)
 }
 
 // brokerOrderIsTarget reports whether order is the replace target itself.
@@ -160,7 +168,7 @@ func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, sco
 // inventory for a protective-exit candidate. A non-candidate, an unavailable
 // inventory or one for another account/mode returns the unavailable value.
 func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, position rpc.OrderPositionImpact, target orderPreviewReplaceTarget) protectiveExitInventory {
-	if s == nil || ctx == nil || !protectiveStockExitCandidate(draft, position) {
+	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position)) {
 		return protectiveExitInventory{}
 	}
 	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, false)

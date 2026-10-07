@@ -751,3 +751,38 @@ func TestLedgerBareSettledCashIsAccountLevel(t *testing.T) {
 		}
 	}
 }
+
+// IBKR sends notice 2130 before the contract details of a factor-priced
+// line, such as an inflation-linked Bund; the line carries it, and a line
+// answered without it does not.
+func TestBondLookupMarksAFactorPricedLine(t *testing.T) {
+	conn, connector, socket, _, _ := newQueuedInstructionReconnectFixture(t)
+	type result struct {
+		lines []BondContractDetails
+		err   error
+	}
+	done := make(chan result, 1)
+	lookup := func(isin string) {
+		lines, err := connector.BondContractDetails(context.Background(), BondContractRequest{IDType: BondIdentifierISIN, ID: isin, Currency: "EUR"}, 2*time.Second)
+		done <- result{lines, err}
+	}
+	go lookup("DE000BU0ZZ19")
+	reqID := waitForHandlerReqID(t, conn, msgBondContractData)
+	waitForBondRequestFrame(t, conn, socket)
+	conn.processMessageAtEpoch(inboundNotice(reqID, 2130, "Warning: SYNTH product is trading on the basis of currency price with factor"), conn.BrokerSessionEpoch())
+	conn.dispatchHandlers(msgBondContractData, syntheticBondFrame(reqID, "880002", "DE000BU0ZZ19", "DE000BU0ZZ19", "EUR", "20270120", "20260722"), conn.BrokerSessionEpoch())
+	prewarmTestEnd(conn, reqID)
+	got := <-done
+	if got.err != nil || len(got.lines) != 1 || !got.lines[0].FactorPriced {
+		t.Fatalf("a line answered with notice 2130 is not marked factor-priced: %+v err %v", got.lines, got.err)
+	}
+
+	go lookup("DE000BU0ZZ19")
+	next := waitForHandlerReqIDAfter(t, conn, msgBondContractData, reqID)
+	conn.dispatchHandlers(msgBondContractData, syntheticBondFrame(next, "880002", "DE000BU0ZZ19", "DE000BU0ZZ19", "EUR", "20270120", "20260722"), conn.BrokerSessionEpoch())
+	prewarmTestEnd(conn, next)
+	got = <-done
+	if got.err != nil || len(got.lines) != 1 || got.lines[0].FactorPriced {
+		t.Fatalf("a line answered without the notice is marked factor-priced: %+v err %v", got.lines, got.err)
+	}
+}
