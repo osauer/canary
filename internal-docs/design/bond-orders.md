@@ -1,6 +1,6 @@
 # Bond orders (government and investment-grade bonds by identifier)
 
-Updated: 2026-10-07 08:27 CEST
+Updated: 2026-10-07 19:45 CEST
 Status: built on branch `bond-trading-feature-8531ae`; not installed. Proof
 pending: one read-only preview per issuer row after install.
 
@@ -37,6 +37,14 @@ This record follows `.agents/docs/daemon-cli-trading-contract.md` and
   missing `[order_limits]` key refuses every preview; the desk settings
   review raised it against the owner's 08:13 ruling that a tighter cap must
   not block delta-reducing exits.
+- B7 (2026-10-07 19:39 CEST): TWS's API precautions for bonds are bypassed
+  ("Bond (Bills) order size ... nominal par value" notice, "Don't display
+  again"; "Bypass negative yield to worst confirmation for API orders":
+  "yes"). Until then TWS held every bond WhatIf behind a modal dialog, and
+  the WhatIf timed out with nothing sent. Canary now makes the negative-yield
+  check itself: a bond or bill buy is refused when its limit price is at
+  least 100 plus the coupon for the years left (code `bond_negative_yield`;
+  exact at a coupon date, close between them), cash sweep bills included.
 - Size: no separate face cap. The order cap in force (`[order_limits]`
   floor, percent of NLV and ceiling) bounds every bond order, as it bounds
   every other order.
@@ -111,7 +119,11 @@ guard, and a sale is refused while that list is unavailable.
    CAN and CTB CAD) and IBKR's line currency when sent. Only USD, EUR, GBP
    and CAD are admitted, the currencies whose IBKR unit is known.
 6. Quantity. One order unit is 1,000 of face in USD and 1 of face in EUR,
-   GBP and CAD (assumption A5 of the cash sweep, unchanged). The face must
+   GBP and CAD (assumption A5 of the cash sweep). USD proven live
+   2026-10-07 19:39 CEST: a WhatIf for 1 unit of a 7-year Treasury at 99.14
+   raised initial margin by 44.33 EUR on a 930.29 EUR order, ratio 0.048;
+   a 1-of-par unit would have moved it by cents. EUR, GBP and CAD wait for
+   an accepted WhatIf in their markets' hours. The face must
    be a whole number of units on the line's size grid. A buy's WhatIf
    initial-margin change must lie within the sweep's unit band (0.005 to 1.2
    of the order's value). The band catches the realistic error, a unit of 1

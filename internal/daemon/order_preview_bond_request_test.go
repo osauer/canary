@@ -513,3 +513,55 @@ func TestBondQuoteContractKeepsItsSymbol(t *testing.T) {
 		t.Fatalf("a stock quote contract %+v differs from its order contract %+v", q, o)
 	}
 }
+
+// TWS's negative yield-to-worst confirmation is bypassed for API orders
+// (owner decision 2026-10-07 19:39 CEST); Canary refuses a buy priced at or
+// above what the bond still pays.
+func TestBondBuyYieldRefusal(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	terms := func(maturity string, coupon *float64) *rpc.OrderBondTerms {
+		return &rpc.OrderBondTerms{Maturity: maturity, Coupon: coupon}
+	}
+	cases := []struct {
+		name   string
+		price  float64
+		terms  *rpc.OrderBondTerms
+		refuse bool
+	}{
+		{"a 7-year 5% note below par", 99.14, terms("2033-09-30", new(5.0)), false},
+		{"a premium bond that still yields", 103, terms("2030-10-07", new(2.0)), false}, // pays 108
+		{"a premium bond at what it pays", 108.1, terms("2030-10-07", new(2.0)), true},
+		{"a bill below par", 99.2, terms("2027-01-05", nil), false},
+		{"a bill at par", 100, terms("2027-01-05", nil), true},
+		{"a zero above par", 100.4, terms("2029-02-15", new(0.0)), true},
+		{"no maturity", 99, terms("", new(3.0)), true},
+	}
+	for _, c := range cases {
+		err := bondBuyYieldRefusal(c.price, c.terms, now)
+		if (err != nil) != c.refuse {
+			t.Errorf("%s: err = %v, refuse %v", c.name, err, c.refuse)
+		}
+		if err != nil && !slices.Contains(refusalCodes(err), previewBondNegativeYieldCode) {
+			t.Errorf("%s: codes %v", c.name, refusalCodes(err))
+		}
+	}
+	// End to end: a zero-coupon Bund quoted above par is refused before WhatIf.
+	rig := newBondRequestRig(t)
+	bund := syntheticISIN(t, "DE000SYN000")
+	rig.line(bund, "EUR", 8901)
+	rig.ecb[bund] = ecbEligibleAsset{ISIN: bund, Type: "AT01", Denomination: "EUR", CouponDefinition: "CD1", IssuerGroup: "IG2", Maturity: rig.now.AddDate(3, 0, 0)}
+	rig.srv.orderPreviewQuote = func(_ context.Context, c rpc.ContractParams, _ time.Duration) (rpc.OrderQuoteSnapshot, error) {
+		bid, ask := 100.20, 100.24
+		return rpc.OrderQuoteSnapshot{Symbol: c.Symbol, Bid: &bid, Ask: &ask, DataType: rpc.MarketDataLive, PriceAt: rig.now, AsOf: rig.now}, nil
+	}
+	if _, err := rig.preview(rpc.OrderActionBuy, bund, "BOND", "EUR", 10000); err == nil || !slices.Contains(refusalCodes(err), previewBondNegativeYieldCode) {
+		t.Fatalf("a negative-yield buy: %v %v", err, refusalCodes(err))
+	}
+	if len(rig.drafts) != 0 {
+		t.Fatal("a negative-yield buy reached the broker's WhatIf")
+	}
+	// A sale is never refused for yield.
+	if _, err := rig.preview(rpc.OrderActionSell, bund, "BOND", "EUR", 10000); err != nil {
+		t.Fatalf("a sale above par: %v %v", err, refusalCodes(err))
+	}
+}
