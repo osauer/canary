@@ -239,8 +239,10 @@ type PolicyCheckInput struct {
 	FileStatus map[string]string
 	// ProtectionData, when set, is read as the protection policy file in
 	// place of the file at Files.Protection: policy.cash.check measures a
-	// draft before anything is written.
-	ProtectionData []byte
+	// draft before anything is written. ConstitutionData does the same for
+	// the risk constitution, so a draft's order caps reach every rule.
+	ProtectionData   []byte
+	ConstitutionData []byte
 }
 
 // PolicyCheckInputFromConfigFile reads config.toml the way the daemon does
@@ -387,6 +389,10 @@ func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
 	}
 
 	c.constitutionSrc = readPolicyCheckSource(PolicyFileConstitution, in.Files.Constitution)
+	if in.ConstitutionData != nil {
+		c.constitutionSrc = policyCheckSource{policy: PolicyFileConstitution, path: in.Files.Constitution, label: filepath.Base(in.Files.Constitution),
+			state: policyCheckFileRead, data: in.ConstitutionData, review: policyFileReview(in.ConstitutionData)}
+	}
 	if c.constitutionSrc.state == policyCheckFileRead {
 		if err := parseConstitutionPolicy(c.constitutionSrc.data); err != nil {
 			c.constitutionSrc.refused = err.Error()

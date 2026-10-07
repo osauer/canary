@@ -1275,6 +1275,18 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 		fmt.Fprintf(&b, "# [inventory.%s]\n# id = %q\n# version = %q\n", pin.name, pin.id, pin.version)
 	}
 	b.WriteString(orderLimitsTemplateBlock(src, srcRead))
+	b.WriteString(`
+# Your device, for saves from Desk (owner decision 2026-10-07 08:33 CEST).
+# Desk's Settings can change the three order-cap keys above only with your
+# passkey or the paired companion, and Canary verifies that confirmation
+# itself against the key pinned here. Paste the line Desk shows for your
+# credential, raise policy_version, and Canary verifies from the next reread;
+# until then a save from Desk cannot change an order cap. One line per
+# credential class: "<credential id>:<base64url of the 65-byte P-256 point>".
+# [desk_device]
+# companion = ""
+# passkey = ""
+`)
 	return []byte(b.String())
 }
 

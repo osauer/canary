@@ -124,7 +124,7 @@ func printPolicyActionUsage(env *Env, action string) int {
 	case "ensure":
 		fmt.Fprintln(env.Stdout, "canary policy ensure — write missing policy files and preview their migration")
 		fmt.Fprintln(env.Stdout)
-		fmt.Fprintln(env.Stdout, "Usage: canary policy ensure [--dry-run | --apply-plan FILE] [--json] [--config PATH]")
+		fmt.Fprintln(env.Stdout, "Usage: canary policy ensure [--dry-run | --apply-plan FILE [--socket PATH]] [--json] [--config PATH]")
 		fmt.Fprintln(env.Stdout)
 		fmt.Fprintln(env.Stdout, "Writes rulebook-policy.toml, protection-policy.toml, opportunity-policy.toml and")
 		fmt.Fprintln(env.Stdout, "risk-policy.toml from Canary's defaults when missing, headed \"Canary defaults, not")
@@ -135,7 +135,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "each with a higher policy_version; retired keys are commented out and every")
 		fmt.Fprintln(env.Stdout, "setting you wrote stays. --dry-run [--json] previews that migration;")
 		fmt.Fprintln(env.Stdout, "--apply-plan FILE applies the files of a reviewed plan now, while their hashes")
-		fmt.Fprintln(env.Stdout, "still match. No daemon is needed.")
+		fmt.Fprintln(env.Stdout, "still match, and refuses while a daemon runs: it takes the daemon's instance lock")
+		fmt.Fprintln(env.Stdout, "(--socket names the daemon's socket, as canary daemon does). No daemon is needed.")
 	case "default":
 		fmt.Fprintln(env.Stdout, "canary policy default — print Canary's default file for one policy")
 		fmt.Fprintln(env.Stdout)

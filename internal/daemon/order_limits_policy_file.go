@@ -21,12 +21,17 @@ import (
 // 2026-10-06 20:17 CEST). The compiled numbers below exist solely to be
 // written into the file; the trading gate reads the file only.
 
-// Compiled order-limit values, for writing only.
+// Compiled order-limit values, for writing only. They are also the Balanced
+// preset by construction (cash_policy_presets.go): owner decision 2026-10-07
+// 08:30 CEST ("Balanced is Canary's defaults", share of NLV 10%, option
+// contracts 10) moved the share from 5.0 and the contracts from 5. A file
+// that already writes its own values keeps them until the owner applies a
+// preset; only a file that lacks the key, or a new file, gets these.
 const (
 	orderLimitsWriteFloorBase   = 10000.0
-	orderLimitsWritePctNLV      = 5.0
+	orderLimitsWritePctNLV      = 10.0 // owner decision 2026-10-07 08:30 CEST; was 5.0
 	orderLimitsWriteCeilingBase = 100000.0
-	orderLimitsWriteOptionQty   = 5
+	orderLimitsWriteOptionQty   = 10 // owner decision 2026-10-07 08:30 CEST; was 5
 	// orderLimitsWriteBondMaturityYears is the owner's answer to decision B2
 	// of internal-docs/design/bond-orders.md (2026-10-06 20:17 CEST, "30
 	// years"): the longest maturity a bond or bill buy may have.
@@ -49,6 +54,7 @@ func orderLimitsWriteValues(src config.Trading, srcRead bool) []orderLimitsWrite
 	}
 	fromConfig := "config.toml [trading].%s"
 	decided := "owner decision 2026-10-05 19:56 CEST"
+	pctDecided := decided + "; 10% since the owner decision 2026-10-07 08:30 CEST (the Balanced preset)"
 	bondDecided := "owner decision 2026-10-06 20:17 CEST"
 
 	floor, floorFrom := orderLimitsWriteFloorBase, fmt.Sprintf(compiled, "max_notional")
@@ -73,7 +79,7 @@ func orderLimitsWriteValues(src config.Trading, srcRead bool) []orderLimitsWrite
 	}
 	return []orderLimitsWriteValue{
 		{risk.OrderLimitMaxOrderFloorBase, tomlFloat(floor), floorFrom},
-		{risk.OrderLimitMaxOrderPctNLV, tomlFloat(orderLimitsWritePctNLV), decided},
+		{risk.OrderLimitMaxOrderPctNLV, tomlFloat(orderLimitsWritePctNLV), pctDecided},
 		{risk.OrderLimitMaxOrderCeilingBase, tomlFloat(ceiling), ceilingFrom},
 		{risk.OrderLimitMaxOptionContracts, strconv.Itoa(option), optionFrom},
 		{risk.OrderLimitAllowStockShort, strconv.FormatBool(short), shortFrom},

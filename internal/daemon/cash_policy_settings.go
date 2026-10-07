@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -128,6 +129,29 @@ var cashPolicySpecs = []cashPolicySpec{
 	{section: rpc.CashPolicySectionSweep, leaf: "keep_cash", perCurrency: true, label: "Settlement float", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitOwn,
 		help: "This currency's own float; leave it empty to use the common one.", min: new(0.0),
 		absent: rpc.CashPolicySourceCanaryDefault, removable: true, more: cashPolicyFalls},
+	// The constitution's [order_limits], the second file (owner decision
+	// 2026-10-07 08:33 CEST). Help is risk.ConstitutionOrderLimits's own
+	// words; the ceiling, the permissions and the bond maturity stay in the
+	// file. A larger cap or count lets more reach the broker; every change,
+	// in either direction, needs the owner's device (cash_policy_handlers.go).
+	{section: rpc.CashPolicySectionOrderLimits, leaf: risk.OrderLimitMaxOrderFloorBase, label: "Order cap, at least", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitBase,
+		help: "The smallest order cap in force: the cap never falls below it however small the book, and it is the cap whenever NLV cannot be read.", min: new(0.0), exclusive: true,
+		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyRises},
+	{section: rpc.CashPolicySectionOrderLimits, leaf: risk.OrderLimitMaxOrderPctNLV, label: "Order cap, share of NLV", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitPctNLV,
+		help: "The share of net liquidation value that sets the order cap between its floor and the 100,000 ceiling; it binds orders that open, add or flip, not delta-reducing exits.", min: new(0.0), exclusive: true, max: new(100.0),
+		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyRises},
+	{section: rpc.CashPolicySectionOrderLimits, leaf: risk.OrderLimitMaxOptionContracts, label: "Option contracts per order, at most", typ: rpc.CashPolicyTypeInteger,
+		help: "Caps the contracts of every single-leg option order and every leg of a strategy close; a delta-reducing exit passes it.", min: new(1.0),
+		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyRises},
+}
+
+// cashPolicyState is what the settings read: the protection policy, which
+// holds the cash sections, and the risk constitution, which holds the order
+// limits; c is nil while no constitution manager runs, and the order limits
+// are then out of scope.
+type cashPolicyState struct {
+	p protectionPolicy
+	c *risk.Constitution
 }
 
 func cashPolicyTurnsOn(from, to any) bool  { return from != true && to == true }
@@ -179,6 +203,9 @@ var cashPolicyWritten = func() map[string]any {
 
 // key names the setting, with ccy for a per-currency one.
 func (sp cashPolicySpec) key(ccy string) string {
+	if sp.section == rpc.CashPolicySectionOrderLimits {
+		return risk.OrderLimitsTable + "." + sp.leaf
+	}
 	if sp.perCurrency {
 		return "cash." + sp.section + ".currency." + ccy + "." + sp.leaf
 	}
@@ -188,6 +215,10 @@ func (sp cashPolicySpec) key(ccy string) string {
 // canary is the value Canary writes for the key: its written default, else
 // the built-in value that applies when the key is left out.
 func (sp cashPolicySpec) canary() any {
+	if sp.section == rpc.CashPolicySectionOrderLimits {
+		p, _ := cashPolicyPresetByID(rpc.CashPolicyPresetBalanced)
+		return p.values[sp.key("")]
+	}
 	if v, ok := cashPolicyWritten[sp.key("")]; ok && !sp.perCurrency {
 		return v
 	}
@@ -198,13 +229,35 @@ func (sp cashPolicySpec) canary() any {
 // key: the numbers and rules Canary writes, never a switch, the sweep's mode
 // or a per-currency entry (owner question 4, 2026-10-06).
 func (sp cashPolicySpec) reset() bool {
+	if sp.section == rpc.CashPolicySectionOrderLimits {
+		return true
+	}
 	_, written := cashPolicyWritten[sp.key("")]
 	return written && !sp.perCurrency && sp.leaf != "enabled"
 }
 
 // get reads the key from a parsed policy: its value, and whether the policy
 // carries one (a table that is present, a pointer that is set).
-func (sp cashPolicySpec) get(p protectionPolicy, ccy string) (any, bool) {
+func (sp cashPolicySpec) get(st cashPolicyState, ccy string) (any, bool) {
+	p := st.p
+	if sp.section == rpc.CashPolicySectionOrderLimits {
+		if st.c == nil || st.c.OrderLimits == nil {
+			return nil, false
+		}
+		o := st.c.OrderLimits
+		switch sp.leaf {
+		case risk.OrderLimitMaxOrderFloorBase:
+			return cashPolicyPtr(o.MaxOrderFloorBase)
+		case risk.OrderLimitMaxOrderPctNLV:
+			return cashPolicyPtr(o.MaxOrderPctNLV)
+		case risk.OrderLimitMaxOptionContracts:
+			if o.MaxOptionContracts == nil {
+				return nil, false
+			}
+			return *o.MaxOptionContracts, true
+		}
+		return nil, false
+	}
 	if sp.section == rpc.CashPolicySectionLeveling {
 		l := p.Cash.Leveling
 		if l == nil {
@@ -289,8 +342,8 @@ func cashPolicyPtr(v *float64) (any, bool) {
 
 // effective is what applies for the key: the policy's value when it carries
 // one, else the built-in value (nil for a key the feature waits for).
-func (sp cashPolicySpec) effective(p protectionPolicy, ccy string) any {
-	if v, ok := sp.get(p, ccy); ok {
+func (sp cashPolicySpec) effective(st cashPolicyState, ccy string) any {
+	if v, ok := sp.get(st, ccy); ok {
 		return v
 	}
 	return sp.builtin
@@ -348,6 +401,14 @@ func (sp cashPolicySpec) fromText(v any, source, base, ccy string) string {
 
 // cashPolicySpecFor parses a dotted key in scope: its spec and currency.
 func cashPolicySpecFor(key string) (cashPolicySpec, string, bool) {
+	if leaf, ok := strings.CutPrefix(key, risk.OrderLimitsTable+"."); ok {
+		for _, sp := range cashPolicySpecs {
+			if sp.section == rpc.CashPolicySectionOrderLimits && sp.leaf == leaf {
+				return sp, "", true
+			}
+		}
+		return cashPolicySpec{}, "", false
+	}
 	for _, section := range []string{rpc.CashPolicySectionLeveling, rpc.CashPolicySectionSweep} {
 		rest, ok := strings.CutPrefix(key, "cash."+section+".")
 		if !ok {
@@ -460,9 +521,13 @@ func (b cashPolicyBook) currencies(p protectionPolicy) []string {
 // cashPolicySettingsFor lists every key in scope for p. defined reports
 // whether the file (or, for a read-only view, the policy in force) writes a
 // key.
-func cashPolicySettingsFor(p protectionPolicy, defined func(key string) bool, currencies []string, facts map[string]string) []rpc.CashPolicySetting {
+func cashPolicySettingsFor(st cashPolicyState, defined func(key string) bool, currencies []string, facts map[string]string) []rpc.CashPolicySetting {
 	var out []rpc.CashPolicySetting
 	for _, sp := range cashPolicySpecs {
+		if sp.section == rpc.CashPolicySectionOrderLimits && st.c == nil {
+			// No constitution manager runs: the order caps are not in scope.
+			continue
+		}
 		ccys := []string{""}
 		if sp.perCurrency {
 			ccys = currencies
@@ -473,7 +538,7 @@ func cashPolicySettingsFor(p protectionPolicy, defined func(key string) bool, cu
 				Choices: sp.choices, ChoiceLabels: sp.choiceNames, Unit: sp.unit, Min: sp.min, MinExclusive: sp.exclusive, Max: sp.max,
 				Default: sp.canary(), Reset: sp.reset(), Removable: sp.removable, Fact: facts[key], Source: sp.absent, Value: sp.builtin}
 			if defined(key) {
-				if v, ok := sp.get(p, ccy); ok {
+				if v, ok := sp.get(st, ccy); ok {
 					row.Value, row.Source = v, rpc.CashPolicySourceFile
 				}
 			}
@@ -486,13 +551,13 @@ func cashPolicySettingsFor(p protectionPolicy, defined func(key string) bool, cu
 // cashPolicyDefinedIn reports what a parsed policy carries, for a view of
 // the policy in force (drift, refused, missing), whose file metadata is not
 // the one Canary runs.
-func cashPolicyDefinedIn(p protectionPolicy) func(string) bool {
+func cashPolicyDefinedIn(st cashPolicyState) func(string) bool {
 	return func(key string) bool {
 		sp, ccy, ok := cashPolicySpecFor(key)
 		if !ok {
 			return false
 		}
-		_, set := sp.get(p, ccy)
+		_, set := sp.get(st, ccy)
 		return set
 	}
 }
@@ -783,11 +848,15 @@ func cashPolicyBuys(c protectionCashSweepCurrency) string {
 // shows, each for the cash keys it names.
 var cashPolicyFindingRules = []string{"sweep_minimum_above_cap", "cap_above_trading_max", "cash_reserve_vs_nlv", "order_cap_vs_nlv",
 	"sweep_buys_while_borrowed", "leveling_debit_inside_band", "sweep_minimum_uneconomic", "order_entry_off_for_active_bucket", "sweep_cap_exempt",
-	"sweep_nothing_to_buy"}
+	"sweep_nothing_to_buy",
+	// The order cap's own rules, since the caps joined the settings (design
+	// §5.2): what the cap in force binds and splits reaches the review.
+	"lot_above_trading_max", "order_cap_splits_reduction", "order_limits_missing", "reduction_cap_above_order_cap"}
 
 // cashPolicyFindings keeps the report's findings of those rules that name a
-// cash key, with the keys as dotted names. A finding's text is the sentence
-// its rule wrote for the screen (Screen), else the CLI text.
+// cash key or an [order_limits] key, with the keys as dotted names. A
+// finding's text is the sentence its rule wrote for the screen (Screen),
+// else the CLI text.
 func cashPolicyFindings(report rpc.PolicyCheckReport) []rpc.CashPolicyFinding {
 	out := []rpc.CashPolicyFinding{}
 	for _, f := range report.Findings {
@@ -797,7 +866,8 @@ func cashPolicyFindings(report rpc.PolicyCheckReport) []rpc.CashPolicyFinding {
 		var keys []string
 		for _, k := range f.Keys {
 			table, leaf, ok := strings.Cut(strings.TrimPrefix(k.Key, "["), "].")
-			if ok && (table == "cash" || strings.HasPrefix(table, "cash.")) && !slices.Contains(keys, table+"."+leaf) {
+			inScope := table == "cash" || strings.HasPrefix(table, "cash.") || table == risk.OrderLimitsTable
+			if ok && inScope && !slices.Contains(keys, table+"."+leaf) {
 				keys = append(keys, table+"."+leaf)
 			}
 		}

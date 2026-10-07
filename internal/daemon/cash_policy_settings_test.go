@@ -181,6 +181,11 @@ func TestCashPolicyGetReportsEveryKeyWithSourceDefaultBoundsAndHelp(t *testing.T
 	// table) and USD (ledger).
 	var want []string
 	for _, sp := range cashPolicySpecs {
+		if sp.section == rpc.CashPolicySectionOrderLimits && snap.Constitution == nil {
+			// No constitution manager runs here: the order caps are out of
+			// scope (cashPolicyServerWithConstitution covers them).
+			continue
+		}
 		if !sp.perCurrency {
 			want = append(want, sp.key(""))
 			continue
@@ -272,7 +277,7 @@ func TestCashPolicyGetReportsEveryKeyWithSourceDefaultBoundsAndHelp(t *testing.T
 		t.Fatalf("base currency not first: %+v", snap.Currencies)
 	}
 	for _, f := range snap.Findings {
-		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
+		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !(strings.HasPrefix(f.Keys[0], "cash.") || strings.HasPrefix(f.Keys[0], "order_limits.")) {
 			t.Fatalf("finding %+v", f)
 		}
 	}
@@ -371,7 +376,8 @@ func TestCashPolicyResetCoversNumbersAndRulesOnly(t *testing.T) {
 	want := []string{"cash.leveling.trigger_base", "cash.leveling.cushion_base", "cash.leveling.max_slippage_bp", "cash.leveling.payback_days",
 		"cash.sweep.reserve_floor_base", "cash.sweep.reserve_pct_nlv", "cash.sweep.min_order_notional", "cash.sweep.max_order_notional",
 		"cash.sweep.max_order_pct_nlv", "cash.sweep.no_buy_while_borrowed", "cash.sweep.bills_exempt_from_trading_max_notional",
-		"cash.sweep.order_step_base", "cash.sweep.keep_cash"}
+		"cash.sweep.order_step_base", "cash.sweep.keep_cash",
+		"order_limits.max_order_floor_base", "order_limits.max_order_pct_nlv", "order_limits.max_option_contracts"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -988,7 +994,7 @@ func TestCashPolicyFindingsAreThePolicyCheckOnTheFileAndTheDraft(t *testing.T) {
 		t.Fatalf("draft findings %+v", check.Findings)
 	}
 	for _, f := range append(snap.Findings, check.Findings...) {
-		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
+		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !(strings.HasPrefix(f.Keys[0], "cash.") || strings.HasPrefix(f.Keys[0], "order_limits.")) {
 			t.Fatalf("finding outside the cash rules %+v", f)
 		}
 	}
@@ -1260,7 +1266,7 @@ func TestCashPolicySizesSayWhatChangesAtTodaysNLV(t *testing.T) {
 func TestCashPolicyConfirmationWindowComesFromTheFile(t *testing.T) {
 	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
 	snap := cashPolicyGet(t, s)
-	if snap.ConfirmationWindowSeconds != 600 || snap.Confirmation != "For 10 minutes after your passkey or companion confirms a save, further saves from the same Desk console that let no more reach the broker need no new confirmation. You can change the 10 minutes in Canary's protection policy file (confirmation_window in [cash])." {
+	if snap.ConfirmationWindowSeconds != 600 || snap.Confirmation != "For 10 minutes after your passkey or companion confirms a save, further saves from the same Desk console that let no more reach the broker need no new confirmation. You can change the 10 minutes in Canary's protection policy file (confirmation_window in [cash]). A change to an order cap always asks your device." {
 		t.Fatalf("window %d %q", snap.ConfirmationWindowSeconds, snap.Confirmation)
 	}
 	if _, ok := cashPolicySetting(snap, "cash.confirmation_window"); ok {

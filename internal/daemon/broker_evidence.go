@@ -485,6 +485,19 @@ func acquireInstanceLock(socketPath string) (*instanceLock, error) {
 	return &instanceLock{path: path, f: f}, nil
 }
 
+// TryInstanceLock takes the daemon's instance lock for a tool that writes
+// the policy files out of process (`canary policy ensure --apply-plan`), so
+// such a write never races a running daemon's reread of a file or a save
+// from Desk (design 2026-10-07 §7.2); release gives it back.
+// ErrAlreadyRunning says a daemon holds it.
+func TryInstanceLock(socketPath string) (release func(), err error) {
+	l, err := acquireInstanceLock(socketPath)
+	if err != nil {
+		return nil, err
+	}
+	return l.Release, nil
+}
+
 // Release unlocks the flock, closes the file, and removes the pidfile.
 // Safe to call multiple times.
 func (l *instanceLock) Release() {

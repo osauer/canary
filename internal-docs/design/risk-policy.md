@@ -113,8 +113,10 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
    to "the ceiling", which the file still bounds. No other `[order_limits]` key
    accepts an override; changing them is a revision.
 7. **Migration.** `canary policy ensure` writes each missing key from
-   `config.toml` `[trading]` as written (the compiled 10,000 / 5 / false /
-   false where a key is absent), plus pct 5.0 and ceiling 100,000, raises
+   `config.toml` `[trading]` as written (the compiled 10,000 / 10 / false /
+   false where a key is absent; the contracts were 5 until the owner decision
+   2026-10-07 08:30 CEST made the compiled values the Balanced preset), plus
+   pct 10.0 (5.0 before that decision) and ceiling 100,000, raises
    `policy_version`, and backs the file up when daemon start (or a reviewed plan)
    applies it;
    a written key is never changed. A new constitution file is written with the
@@ -145,6 +147,79 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
    `trading.status`, `risk_policy.snapshot`, the settings view
    (`trading.limits.max_bond_maturity_years`, read-only) and the explain view
    state it.
+
+## Presets and Desk's order-cap saves (owner decisions 2026-10-07 08:30 and 08:33 CEST)
+
+Design: Desk `output/presets/2026-10-07-presets-design-final.md`. Three
+presets size five keys across two files, the reserve pair of `[cash.sweep]`
+and `max_order_floor_base`, `max_order_pct_nlv`, `max_option_contracts` here:
+Cautious 15,000 / 15% / 5,000 / 5% / 5, Balanced 10,000 / 10% / 10,000 / 10% /
+10, Aggressive 10,000 / 5% / 15,000 / 20% / 100. Balanced is the compiled
+defaults by construction (`cash_policy_presets.go` reads
+`cashSweepWrittenDefaults` and `order_limits_policy_file.go`). The ceiling,
+the permissions and the bond maturity are covered by no preset; `Custom` is
+any override of a covered key, derived by value on every `policy.cash.get`,
+never stored as a label. A fresh desk reads Balanced; while `[cash.sweep]`
+writes neither reserve key the stance follows the caps and the note says the
+sweep is not set up yet.
+
+1. **One write path.** `policy.cash.check` and `policy.cash.apply` take the
+   three cap keys as `order_limits.<key>` changes (platform-settings.md). The
+   constitution is written first, under the risk policy manager's `fileMu`
+   (which `reload` holds too), with a backup, its changed lines' provenance
+   (`set in Desk <time> from the Cautious preset, confirmed …; was …`) and
+   `policy_version` raised by one; the manager reloads it at once. Then the
+   protection file follows under its own lock. A failure after the first
+   write is reported as a partial save (`partial` on the result and the
+   receipt); nothing is rolled back, since old bytes would read as drift. The
+   `canary policy preset` command of the design is not built: Desk is the one
+   path, and the files stay editable by hand.
+2. **Device, verified here.** A change to any cap key, in either direction
+   and with no window, is accepted only with a confirmation Canary verifies
+   itself against `[desk_device]`: the public key of the credential Desk
+   enrolled, pinned by the owner once, by hand, from the line Desk's
+   Settings shows (`companion = "<key id>:<base64url P-256 point>"`, the key
+   id being base64url of the first 16 bytes of the point's SHA-256 as Desk
+   derives it; `passkey = "<credential id>:<point>"`). A malformed line never
+   refuses the constitution: the loader keeps the policy and cap changes are
+   refused with the line's error. The envelope carries the device's signature over Desk's
+   digest, which chains to these exact terms and the review the owner saw
+   (`cash_policy_device.go`); a reliance (`confirmed_by`), an unsigned
+   envelope, an unknown key or a broken chain is refused with
+   `confirmation_unverifiable` and nothing is written. Cash-only saves are
+   verified when the envelope carries a signature and a key is pinned, and
+   kept for audit otherwise, as before. No pairing or key exchange runs
+   between Desk and Canary; the table is in the fingerprint, so changing it
+   is a revision.
+3. **Journal.** Each constitution revision written this way is a governance
+   event in `risk_policy_events`, kind `order_limits_revision`, with the
+   request and Desk action ids, the credential and whether it was verified,
+   the versions, the fingerprint and each cap before and after.
+4. **Consequences.** Each cap key that rises carries one sentence at today's
+   NLV (one per quantity: the floor and the share describe the one cap), so a
+   loosening needs the device by the existing rule as well; a tightening
+   needs it by rule 2. `policy.cash.check` returns `preset_from`,
+   `preset_to` and `device_required`; the terms and the companion's review
+   fields are unchanged (`expected_revision` now names both files' bytes,
+   `<protection digest>+<constitution digest>`).
+5. **Restore.** Receipts carry `preset_before` and `preset_after`; while the
+   files read a preset, `policy.cash.get` serves `restore`, the owner's values
+   before the most recent save from Custom to a preset, withdrawn once the
+   files' revision is not the one Canary's latest save wrote.
+6. **Out-of-process writes.** `canary policy ensure --apply-plan` takes the
+   daemon's instance lock and refuses while a daemon holds it.
+
+What still bounds cost and risk under Aggressive, the only preset that
+loosens: the 100,000 ceiling (and with it the override's reach), unchanged
+under every preset; every other gate (freeze, pins, WhatIf, preview tokens,
+journal integrity, origin gating, the drawdown brake, the Rulebook, sell-only
+and the governor); the owner's approval of every order, a daemon-sent order
+existing only under a pre-authorised bucket, which no preset lists; the
+sweep's own bounds, which no preset covers; and the device for every cap
+change. Worst case at a synthetic 240,000 book: one wrong new order of 48,000
+instead of 24,000, an opening option order of 100 contracts instead of 10,
+idle cash down to 12,000 from 24,000. Delta-reducing exits pass the caps under
+the 08:13 decision, so no preset makes the book less able to cut risk.
 
 ## Authority
 

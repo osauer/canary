@@ -33,6 +33,22 @@ const (
 	CodeConfirmationRequired = "confirmation_required"
 	// CodeRequestReused means the request id already names other terms.
 	CodeRequestReused = "request_reused"
+	// CodeConfirmationUnverifiable means the save changes an [order_limits]
+	// key and Canary could not verify the owner's device confirmation itself:
+	// the constitution pins no key for the credential, or the envelope does
+	// not carry a signature over these exact terms. Nothing was written.
+	CodeConfirmationUnverifiable = "confirmation_unverifiable"
+)
+
+// Preset ids policy.cash.get derives from the files' values (owner decisions
+// 2026-10-07 08:30 CEST). Nothing is stored as a label: a desk whose five
+// covered keys match a preset's table reads that preset, any other reads
+// custom.
+const (
+	CashPolicyPresetCautious   = "cautious"
+	CashPolicyPresetBalanced   = "balanced"
+	CashPolicyPresetAggressive = "aggressive"
+	CashPolicyPresetCustom     = "custom"
 )
 
 // File states of the protection policy file as policy.cash.get reads it.
@@ -84,13 +100,20 @@ const (
 
 	CashPolicySectionLeveling = "leveling"
 	CashPolicySectionSweep    = "sweep"
+	// CashPolicySectionOrderLimits is the risk constitution's [order_limits]
+	// table, the second file these methods edit (owner decision 2026-10-07
+	// 08:33 CEST): the order cap's floor and share of NLV and the option
+	// contracts per order. Every change to it needs the owner's device,
+	// verified by Canary, in both directions.
+	CashPolicySectionOrderLimits = "order_limits"
 )
 
 // CashPolicySnapshot is the cash settings as the daemon reads them: every key
 // in scope with its value, where the value comes from, Canary's written
 // default, its bounds and help, plus the facts that give the numbers meaning.
-// Revision is the hash of the file's bytes: check and apply name it, so a
-// file changed since the read is a conflict.
+// Revision names the bytes of both files, "<protection digest>+<constitution
+// digest>": check and apply name it, so either file changed since the read
+// is a conflict. Desk passes it back unchanged.
 type CashPolicySnapshot struct {
 	Revision string `json:"revision"`
 	Path     string `json:"path"`
@@ -124,12 +147,104 @@ type CashPolicySnapshot struct {
 	// Confirmation is Canary's sentence for it.
 	ConfirmationWindowSeconds int64  `json:"confirmation_window_seconds"`
 	Confirmation              string `json:"confirmation"`
+	// Constitution is the risk-policy.toml side: the file the order_limits
+	// settings live in, in the same terms as the protection file above.
+	// Absent on a Canary that predates the order caps in these settings.
+	Constitution *CashPolicyFile `json:"constitution,omitempty"`
+	// Preset is the stance the files' values derive to; Presets lists every
+	// preset with its values and what they come to at today's NLV; Restore
+	// offers the owner's own values a preset replaced, while it can. All
+	// three are absent on an older Canary.
+	Preset  *CashPolicyPreset        `json:"preset,omitempty"`
+	Presets []CashPolicyPresetOption `json:"presets,omitempty"`
+	Restore *CashPolicyRestore       `json:"restore,omitempty"`
+	// Device says which of the owner's credentials Canary can verify itself
+	// ([desk_device] in the constitution), which every order cap change
+	// needs; Message is Canary's sentence while it can verify none.
+	Device *CashPolicyDevice `json:"device,omitempty"`
+}
+
+// CashPolicyFile is one policy file's state as these methods read it: its
+// path, one of the CashPolicyFile* states with Canary's sentence for any
+// state other than ok, its policy_version against the one in force, and
+// whether a save may write it.
+type CashPolicyFile struct {
+	Path           string `json:"path"`
+	FileState      string `json:"file_state"`
+	Message        string `json:"message,omitempty"`
+	PolicyVersion  int    `json:"policy_version"`
+	InForceVersion int    `json:"in_force_version"`
+	Writable       bool   `json:"writable"`
+}
+
+// CashPolicyPreset is the stance derived from the values in force or in the
+// files: Id is a CashPolicyPreset* id, Label and Explainer its words,
+// Revision the dated preset table the values matched (a later table keeps
+// its predecessors, so a release never relabels a desk custom), and Note
+// what the reader should know: the cash sweep not set up yet (the stance
+// then follows the order caps alone), or a file compared from the policy in
+// force because the file on disk is not the one Canary runs.
+type CashPolicyPreset struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Explainer string `json:"explainer"`
+	Revision  string `json:"revision"`
+	Note      string `json:"note,omitempty"`
+}
+
+// CashPolicyPresetOption is one preset the owner may apply: its five values
+// by key and what they come to at today's NLV.
+type CashPolicyPresetOption struct {
+	ID        string                `json:"id"`
+	Label     string                `json:"label"`
+	Explainer string                `json:"explainer"`
+	Revision  string                `json:"revision"`
+	Values    map[string]any        `json:"values"`
+	Facts     CashPolicyPresetFacts `json:"facts"`
+}
+
+// CashPolicyPresetFacts is what a preset comes to at today's net liquidation
+// value: the reserve kept as cash and the order cap on new orders, each as
+// an amount in base currency and in Canary's words, and the option contracts
+// per order. NLVUnknown is true when NLV cannot be read now; the amounts are
+// then the ones that apply without it (the floors).
+type CashPolicyPresetFacts struct {
+	ReserveBase  float64 `json:"reserve_base"`
+	ReserveText  string  `json:"reserve_text"`
+	OrderCapBase float64 `json:"order_cap_base"`
+	OrderCapText string  `json:"order_cap_text"`
+	Contracts    int     `json:"contracts"`
+	NLVUnknown   bool    `json:"nlv_unknown,omitempty"`
+}
+
+// CashPolicyRestore offers the owner's own values back after a preset
+// replaced them: the values of the covered keys as they stood before the
+// most recent save from custom to a preset (completed, for keys that save
+// left alone, from the preset it applied), the time of that save and the
+// preset. Served only while the files read a preset and no one has changed
+// them since Canary's last save.
+type CashPolicyRestore struct {
+	SavedAt time.Time      `json:"saved_at"`
+	Preset  string         `json:"preset"`
+	Values  map[string]any `json:"values"`
+}
+
+// CashPolicyDevice says which credentials Canary verifies itself, as Desk
+// names them (companion:<key id>, passkey:<credential id>), from the
+// constitution's [desk_device]; Message is Canary's sentence while none is
+// pinned or the table does not parse.
+type CashPolicyDevice struct {
+	Verifiable []string `json:"verifiable"`
+	Message    string   `json:"message,omitempty"`
 }
 
 // CashPolicySections carries what each section shows besides its settings.
 type CashPolicySections struct {
 	Leveling CashPolicySection `json:"leveling"`
 	Sweep    CashPolicySection `json:"sweep"`
+	// OrderLimits is the constitution's [order_limits]: Present while the
+	// table is complete, Fact the order cap in force in Canary's words.
+	OrderLimits CashPolicySection `json:"order_limits"`
 }
 
 // CashPolicySection is one feature's header. Present says the file has its
@@ -230,6 +345,21 @@ type CashPolicyCheckResult struct {
 	// BaseCurrency names the unit of every base-currency value in Changes,
 	// so a reviewer can word a value itself from From and To.
 	BaseCurrency string `json:"base_currency,omitempty"`
+	// PresetFrom and PresetTo are the stance of the files now and of the
+	// checked draft (CashPolicyPreset* ids). They are not part of the terms
+	// or the signed review: the headline Desk shows comes from here.
+	PresetFrom string `json:"preset_from,omitempty"`
+	PresetTo   string `json:"preset_to,omitempty"`
+	// ConstitutionPolicyVersion is risk-policy.toml's version and
+	// ConstitutionSavedVersion the one a save of this draft writes; 0 when
+	// the draft changes no [order_limits] key.
+	ConstitutionPolicyVersion int `json:"constitution_policy_version,omitempty"`
+	ConstitutionSavedVersion  int `json:"constitution_saved_version,omitempty"`
+	// DeviceRequired is true when apply will take only a fresh device
+	// confirmation: the draft has a consequence at the broker, or changes an
+	// [order_limits] key (both directions; Canary verifies the confirmation
+	// itself, so Device in the snapshot must list the credential).
+	DeviceRequired bool `json:"device_required"`
 }
 
 // CashPolicyChange is one changed key: its value in the file now (nil when
@@ -263,7 +393,24 @@ type CashPolicyApplyRequest struct {
 
 // CashPolicyConfirmation names the Desk action the owner confirmed, the
 // credential that confirmed it (passkey:<id> or companion:<key id>) and the
-// signed envelope, kept for audit only.
+// signed envelope. Canary verifies the envelope itself when the constitution
+// pins the credential's key ([desk_device]); a save that changes an
+// [order_limits] key is refused unless it does. Otherwise the envelope is
+// kept for audit, as before.
+//
+// The envelope is JSON. For the companion: {"credential":"companion",
+// "key_id","challenge","signature","review_json"}, where signature is the
+// 64-byte r||s over SHA-256 of "desk-companion-policy-v1\n<desk action
+// id>\n<digest>\n<challenge>", and digest is the hex SHA-256 of
+// "desk-policy-digest-v1\n<action id>\n<terms digest>\n<hex SHA-256 of the
+// terms>\n<terms>\n<review_json>" (the chain the companion itself checks
+// before signing). For the passkey: {"credential":"passkey","credential_id",
+// "authenticator_data","client_data_json","signature","review_json"}, the
+// WebAuthn assertion whose challenge is <32-byte nonce><SHA-256 of
+// "desk-passkey-policy-v1\n<action id>\n<digest>\n" plus the nonce>, the
+// relying party localhost, user verification set, and the DER signature
+// over authenticator data plus the SHA-256 of client data. Binary values are
+// unpadded base64url. The terms are the request's own.
 //
 // A save may instead rely on an earlier save the owner's device confirmed in
 // the same Desk console session, when it lets no more reach the broker (owner
@@ -294,4 +441,22 @@ type CashPolicyApplyResult struct {
 	InForce        bool      `json:"in_force"`
 	Replay         bool      `json:"replay"`
 	ConfirmedUntil time.Time `json:"confirmed_until,omitzero"`
+	// ConstitutionSavedVersion is the risk-policy.toml version written, 0
+	// when the save changed no [order_limits] key. Verified names the
+	// credential whose signature Canary verified itself, empty for a save it
+	// kept for audit only. Partial is set when the constitution was written
+	// and the protection file was not: the save is half done, and the files
+	// read custom by value.
+	ConstitutionSavedVersion int                `json:"constitution_saved_version,omitempty"`
+	Verified                 string             `json:"verified,omitempty"`
+	Partial                  *CashPolicyPartial `json:"partial,omitempty"`
+}
+
+// CashPolicyPartial reports a two-file save that stopped after its first
+// file: Saved names the section written (order_limits), NotSaved the one not
+// written (cash) and Reason why, in Canary's words.
+type CashPolicyPartial struct {
+	Saved    string `json:"saved"`
+	NotSaved string `json:"not_saved"`
+	Reason   string `json:"reason"`
 }

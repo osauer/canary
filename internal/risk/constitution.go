@@ -1,7 +1,10 @@
 package risk
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -54,6 +57,89 @@ type Constitution struct {
 	// 19:56 CEST). A pointer, so a policy without the table keeps its
 	// fingerprint; absent means every order preview is refused.
 	OrderLimits *ConstitutionOrderLimits `toml:"order_limits" json:"order_limits,omitempty"`
+	// DeskDevice pins the owner's device credential Desk enrolled, so Canary
+	// verifies a Desk save's device confirmation itself before it changes
+	// [order_limits] (owner decision 2026-10-07 08:33 CEST; daemon
+	// cash_policy_device.go). The owner writes it once, by hand, from the
+	// key Desk shows; it is the trust anchor, so it is in the fingerprint
+	// and a change to it is a revision. A pointer: absent keeps every
+	// existing fingerprint.
+	DeskDevice *ConstitutionDeskDevice `toml:"desk_device" json:"desk_device,omitempty"`
+}
+
+// ConstitutionDeskDevice is the [desk_device] table: the public key of the
+// credential Desk enrolled for the owner, one per credential class, each as
+// "<credential id>:<base64url of the uncompressed 65-byte P-256 point>".
+// Companion is the paired macOS companion's Secure Enclave key, whose id is
+// the first 16 bytes of the point's SHA-256 in unpadded base64url, as Desk
+// derives it (execution_companion.go companionKeyID); Passkey is the owner's
+// passkey, under WebAuthn's credential id (base64url). A line that does not
+// parse never refuses the constitution: the loader keeps the policy, and
+// policy.cash.get and apply report the line as unverifiable instead.
+type ConstitutionDeskDevice struct {
+	Companion string `toml:"companion" json:"companion,omitempty"`
+	Passkey   string `toml:"passkey" json:"passkey,omitempty"`
+}
+
+// DeskDeviceKey is one pinned credential: its class, its id and its key.
+type DeskDeviceKey struct {
+	Class string
+	ID    string
+	Key   *ecdsa.PublicKey
+}
+
+// Credential names the key as Desk names the credential that confirmed a
+// save: companion:<key id> or passkey:<credential id>.
+func (k DeskDeviceKey) Credential() string { return k.Class + ":" + k.ID }
+
+// Keys parses every pinned credential; a nil table has none.
+func (d *ConstitutionDeskDevice) Keys() ([]DeskDeviceKey, error) {
+	if d == nil {
+		return nil, nil
+	}
+	var out []DeskDeviceKey
+	for _, entry := range []struct{ class, value string }{{"companion", d.Companion}, {"passkey", d.Passkey}} {
+		if strings.TrimSpace(entry.value) == "" {
+			continue
+		}
+		k, err := ParseDeskDeviceKey(entry.class, entry.value)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+// ParseDeskDeviceKey reads "<id>:<base64url point>" for one credential
+// class. The id is 1 to 128 characters of base64url or hex; the point is the
+// uncompressed X9.62 encoding of a P-256 public key (65 bytes, 0x04 first).
+// A companion id must be the first 16 bytes of the point's SHA-256 in
+// unpadded base64url, as Desk derives it, so a pasted key and id cannot
+// disagree.
+func ParseDeskDeviceKey(class, value string) (DeskDeviceKey, error) {
+	key := "desk_device." + class
+	id, point, ok := strings.Cut(strings.TrimSpace(value), ":")
+	if !ok || id == "" || len(id) > 128 || strings.ContainsFunc(id, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	}) {
+		return DeskDeviceKey{}, fmt.Errorf("%s must be \"<credential id>:<base64url public key>\"", key)
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(point, "="))
+	if err != nil || len(raw) != 65 || raw[0] != 4 {
+		return DeskDeviceKey{}, fmt.Errorf("%s must carry the uncompressed 65-byte P-256 point in base64url", key)
+	}
+	pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), raw)
+	if err != nil {
+		return DeskDeviceKey{}, fmt.Errorf("%s is not a point on P-256", key)
+	}
+	if class == "companion" {
+		sum := sha256.Sum256(raw)
+		if id != base64.RawURLEncoding.EncodeToString(sum[:16]) {
+			return DeskDeviceKey{}, fmt.Errorf("%s: the key id is not the one Desk derives from this key (the first 16 bytes of its SHA-256, in base64url)", key)
+		}
+	}
+	return DeskDeviceKey{Class: class, ID: id, Key: pub}, nil
 }
 
 // ConstitutionCapital anchors the capital authority: an internal protected
@@ -526,10 +612,11 @@ func (c Constitution) FingerprintKey() string {
 			Cadence       any                      `json:"cadence"`
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
+			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
 		}{
 			Kind: base.Kind, SchemaVersion: base.SchemaVersion, PolicyID: base.PolicyID, PolicyVersion: base.PolicyVersion,
 			Capital: base.Capital, Drawdown: base.Drawdown, Override: base.Override, Recon: recon,
-			Cadence: legacyCadence, Inventory: base.Inventory, OrderLimits: c.OrderLimits,
+			Cadence: legacyCadence, Inventory: base.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice,
 		}
 		raw, _ = json.Marshal(normalized)
 	} else if c.SchemaVersion != 2 && c.PolicyVersion < 4 {
@@ -545,8 +632,10 @@ func (c Constitution) FingerprintKey() string {
 			Cadence       any                      `json:"cadence"`
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
+			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
 		}{
 			OrderLimits:   c.OrderLimits,
+			DeskDevice:    c.DeskDevice,
 			Kind:          strings.TrimSpace(c.Kind),
 			SchemaVersion: c.SchemaVersion,
 			PolicyID:      strings.TrimSpace(c.PolicyID),
@@ -572,11 +661,12 @@ func (c Constitution) FingerprintKey() string {
 			Cadence       any                      `json:"cadence"`
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
+			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
 		}{
 			Kind: strings.TrimSpace(c.Kind), SchemaVersion: c.SchemaVersion,
 			PolicyID: strings.TrimSpace(c.PolicyID), PolicyVersion: c.PolicyVersion,
 			Capital: c.Capital, Drawdown: c.Drawdown, Override: c.Override,
-			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits,
+			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice,
 		}
 		raw, _ = json.Marshal(normalized)
 	}
