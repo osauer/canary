@@ -195,7 +195,7 @@ func formatAlertCoverageValue(env *Env, coverage rpc.AlertCoverage) string {
 	missing := make([]string, 0, total)
 	for _, source := range coverage.ExpectedSources {
 		if _, ok := covered[source]; !ok {
-			missing = append(missing, string(source))
+			missing = append(missing, alertSourceLabel(source))
 		}
 	}
 	if len(missing) == 0 && coverage.Freshness == rpc.AlertCoverageCurrent {
@@ -209,6 +209,16 @@ func formatAlertCoverageValue(env *Env, coverage rpc.AlertCoverage) string {
 		value += " — missing: " + strings.Join(missing, ", ")
 	}
 	return env.yellow(value)
+}
+
+// alertSourceLabel names an alert source for a reader. The stress source keeps
+// the wire value "canary" (internal/risk/alert_candidate.go), which says
+// nothing on a status line; the others read as words.
+func alertSourceLabel(source rpc.AlertSource) string {
+	if source == rpc.AlertSourceStress {
+		return "stress"
+	}
+	return strings.ReplaceAll(string(source), "_", " ")
 }
 
 func statusRow(env *Env, out io.Writer, label, value string) {

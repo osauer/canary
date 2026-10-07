@@ -169,6 +169,17 @@ func TestRenderStatusAlertCoverageRow(t *testing.T) {
 		t.Fatalf("partial alert coverage row missing:\n%s", stdout.String())
 	}
 
+	stress := &rpc.AlertCandidateSnapshot{Coverage: rpc.AlertCoverage{
+		State: rpc.AlertCoveragePartial, Freshness: rpc.AlertCoverageCurrent,
+		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceStress, rpc.AlertSourceOrderIntegrity, rpc.AlertSourceRulebook},
+		CoveredSources:  []rpc.AlertSource{rpc.AlertSourceRulebook},
+	}}
+	stdout.Reset()
+	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, base(), stress)
+	if !strings.Contains(stdout.String(), "Alerts         1/3 sources covered — missing: stress, order integrity") {
+		t.Fatalf("missing sources are not named for a reader:\n%s", stdout.String())
+	}
+
 	complete := &rpc.AlertCandidateSnapshot{Coverage: rpc.AlertCoverage{
 		State: rpc.AlertCoverageComplete, Freshness: rpc.AlertCoverageCurrent,
 		ExpectedSources: []rpc.AlertSource{rpc.AlertSourceRulebook},
