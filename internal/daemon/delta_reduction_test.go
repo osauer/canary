@@ -514,10 +514,10 @@ func TestDeltaRuleKeepsTheCapForAnUncoveredShortLeg(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "option cap in force of 5 contracts") || !strings.Contains(err.Error(), "this sale would leave 2 short calls on SYNB uncovered, so the order cap applies") {
 		t.Fatalf("selling the long leg of a spread on its own: %v, want the cap with the uncovered calls named", err)
 	}
-	draft, position := deltaTestStrategyDraft(8, deltaTestLeg(deltaTestLongCalls, 1, rpc.OrderActionSell, 8, 12), deltaTestLeg(deltaTestShortCalls, -1, rpc.OrderActionBuy, 8, -8))
+	draft, _ := deltaTestStrategyDraft(8, deltaTestLeg(deltaTestLongCalls, 1, rpc.OrderActionSell, 8, 12), deltaTestLeg(deltaTestShortCalls, -1, rpc.OrderActionBuy, 8, -8))
 	draft.StrategyGroup.Operation, draft.StrategyGroup.UnitsBefore, draft.StrategyGroup.UnitsAfter = rpc.StrategyOperationReduce, 12, 4
 	draft.Quantity = 8
-	position = rpc.OrderPositionImpact{Before: 12, After: 4, Effect: rpc.OrderPositionEffectReduce}
+	position := rpc.OrderPositionImpact{Before: 12, After: 4, Effect: rpc.OrderPositionEffectReduce}
 	if err := deltaTestGate(spread, draft, position, 20000); err != nil {
 		t.Fatalf("closing the spread as one combo must pass: %v", err)
 	}
