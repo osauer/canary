@@ -193,6 +193,41 @@ func (s *Server) admitBondBuy(ctx context.Context, req previewBondRequest, line 
 	return nil
 }
 
+// previewBondNegativeYieldCode refuses a bond buy that yields nothing.
+const previewBondNegativeYieldCode = "bond_negative_yield"
+
+// bondBuyYieldRefusal refuses a bill or bond buy whose limit price leaves a
+// yield to maturity of zero or less: the price is at least what the bond
+// still pays, 100 at redemption plus its coupon for the years left. Coupon
+// net of accrued interest is taken to accrue evenly, so the test is exact at
+// a coupon date and close between them. TWS's own negative yield-to-worst
+// confirmation is bypassed for API orders (owner decision 2026-10-07 19:39
+// CEST), so Canary makes the check for every bond buy, cash sweep bills
+// included. A bill without a coupon reads coupon zero.
+func bondBuyYieldRefusal(price float64, terms *rpc.OrderBondTerms, now time.Time) error {
+	if terms == nil {
+		return nil
+	}
+	maturity, err := time.Parse(time.DateOnly, strings.TrimSpace(terms.Maturity))
+	if err != nil {
+		message := fmt.Sprintf("the bond's maturity %q is unknown, so its yield at %s per 100 cannot be checked", terms.Maturity, strconv.FormatFloat(price, 'f', -1, 64))
+		return refusePreviewCode(previewBondNegativeYieldCode, errBadRequest(message))
+	}
+	coupon := 0.0
+	if terms.Coupon != nil {
+		coupon = *terms.Coupon
+	}
+	years := maturity.Sub(cashSweepDay(now)).Hours() / 24 / 365.25
+	pays := 100 + coupon*max(years, 0)
+	if price < pays {
+		return nil
+	}
+	message := fmt.Sprintf("at %s per 100 the bond yields nothing or less to maturity: it still pays at most %s per 100 (redemption plus a %s%% coupon for %.1f years)",
+		strconv.FormatFloat(price, 'f', -1, 64), strconv.FormatFloat(math.Round(pays*1000)/1000, 'f', -1, 64), strconv.FormatFloat(coupon, 'f', -1, 64), years)
+	return refusePreview(errBadRequest(message), rpc.TradingBlocker{Code: previewBondNegativeYieldCode, Message: message,
+		Action: "Canary does not buy a bond that yields nothing; TWS's own check is bypassed for API orders."})
+}
+
 // bondRequestIdentity binds the named identifier to the line: the line's
 // ISIN or CUSIP must be the one asked, and no identifier channel the broker
 // sent may name another.
