@@ -242,7 +242,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "active sweep with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "can never be placed"},
 		{name: "active currency leveling with order entry off", rule: "order_entry_off_for_active_bucket", severity: rpc.PolicyCheckError,
-			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "[cash.leveling] enabled = true"},
+			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled }, contains: "[cash.leveling].enabled = true"},
 		{name: "a debit inside the leveling band", rule: "leveling_debit_inside_band", severity: rpc.PolicyCheckWarn,
 			edit: func(_ *pcFiles, in *PolicyCheckInput) { in.Book.Cash["USD"] = -3000 }, contains: "inside the 10,000 EUR band"},
 		{name: "settlement route ended", rule: "settlement_route_expired", severity: rpc.PolicyCheckError,
@@ -363,6 +363,15 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			got, ok := pcFinding(r, tc.rule)
 			if !ok {
 				t.Fatalf("rule %s did not fire; got %v", tc.rule, pcRules(r))
+			}
+			// The Settings screen reads a cash key as [table].leaf; any
+			// other spelling of a cash key is dropped there unseen.
+			for _, f := range r.Findings {
+				for _, k := range f.Keys {
+					if strings.HasPrefix(k.Key, "[cash") && !strings.Contains(k.Key, "].") {
+						t.Errorf("rule %s names a cash key the Settings screen cannot read: %q", f.Rule, k.Key)
+					}
+				}
 			}
 			for _, f := range r.Findings {
 				if f.Rule == tc.rule && strings.Contains(f.Message, tc.contains) {

@@ -222,6 +222,130 @@ func (d *tomlDoc) remove(table, key string) bool {
 	return true
 }
 
+// valueText returns table.key's value as written, without its comment, and
+// its trailing comment ("# …"), for a single-line value.
+func (d *tomlDoc) valueText(s tomlKeySpan) (value, comment string) {
+	line := d.lines[s.start]
+	rest := line[strings.Index(line, "=")+1:]
+	stripped := tomlStripComment(rest)
+	if s.end == s.start+1 {
+		comment = strings.TrimSpace(rest[len(stripped):])
+	}
+	return strings.TrimSpace(stripped), comment
+}
+
+// setNoted writes table.key = value and records why: a trailing comment
+// that Canary wrote (canaryWrote) is replaced by note, an owner's trailing
+// comment stays and note goes on its own line above the key (replacing a
+// note Canary put there before for the same key), and a key the table
+// lacks is added with note as its trailing comment. An empty note writes the
+// value alone and keeps the line's comment. It returns the value the line
+// held before, as written, and whether the key was there.
+func (d *tomlDoc) setNoted(table, key, value string, note func(was string, present bool) string) (was string, present bool) {
+	s, ok := d.find(table, key)
+	if !ok {
+		line := tomlBareKey(key) + " = " + value
+		if text := note("", false); text != "" {
+			line += "  # " + text
+		}
+		d.insert(table, []string{line})
+		return "", false
+	}
+	was, comment := d.valueText(s)
+	line := d.lines[s.start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	replacement := []string{indent + tomlBareKey(key) + " = " + value}
+	text := note(was, true)
+	start := s.start
+	switch {
+	case text == "":
+		if comment != "" {
+			replacement[0] += "  " + comment
+		}
+	case comment == "" || canaryWrote(comment):
+		replacement[0] += "  # " + text
+	default:
+		replacement[0] += "  " + comment
+		above := indent + "# " + key + " " + text
+		if start > 0 && strings.HasPrefix(strings.TrimSpace(d.lines[start-1]), "# "+key+" set in Desk ") {
+			start--
+		}
+		replacement = append([]string{above}, replacement...)
+	}
+	d.lines = append(d.lines[:start], append(replacement, d.lines[s.end:]...)...)
+	return was, true
+}
+
+// removeNoted replaces table.key's lines with one comment line naming the
+// removal, the value it held and the owner's own trailing comment, if any.
+func (d *tomlDoc) removeNoted(table, key string, note func(was string) string) bool {
+	s, ok := d.find(table, key)
+	if !ok {
+		return false
+	}
+	was, comment := d.valueText(s)
+	line := d.lines[s.start]
+	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+	text := indent + "# " + key + " " + note(was)
+	if comment != "" && !canaryWrote(comment) {
+		text += "  " + comment
+	}
+	d.lines = append(d.lines[:s.start], append([]string{text}, d.lines[s.end:]...)...)
+	return true
+}
+
+// canaryWrote reports whether a trailing comment is one Canary writes:
+// provenance it can replace, never the owner's words.
+func canaryWrote(comment string) bool {
+	text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(comment), "#"))
+	for _, prefix := range []string{"written by Canary", "added by Canary", "set in Desk", "raised in Desk"} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// addTable writes an empty [table] after its family: after the last table
+// named for its nearest ancestor that the file has (a.b.c goes after the
+// last [a.b] or [a.b.*] table, else the last [a] or [a.*]), else at the end
+// of the file. A blank line separates it from its neighbours.
+func (d *tomlDoc) addTable(table string) {
+	at := len(d.lines)
+	for parent := table; ; {
+		i := strings.LastIndex(parent, ".")
+		if i < 0 {
+			break
+		}
+		parent = parent[:i]
+		last := -1
+		for j, line := range d.lines {
+			if m := tomlHeaderRe.FindStringSubmatch(line); m != nil && (m[1] == parent || strings.HasPrefix(m[1], parent+".")) {
+				last = j
+			}
+		}
+		if last < 0 {
+			continue
+		}
+		header := tomlHeaderRe.FindStringSubmatch(d.lines[last])[1]
+		at = last + 1
+		for _, s := range d.spans() {
+			if s.table == header && s.end > at {
+				at = s.end
+			}
+		}
+		break
+	}
+	block := []string{"[" + table + "]"}
+	if at > 0 && strings.TrimSpace(d.lines[at-1]) != "" {
+		block = append([]string{""}, block...)
+	}
+	if at < len(d.lines) && strings.TrimSpace(d.lines[at]) != "" {
+		block = append(block, "")
+	}
+	d.lines = append(d.lines[:at], append(block, d.lines[at:]...)...)
+}
+
 var tomlBareKeyRe = regexp.MustCompile(`^[A-Za-z0-9_\-]+$`)
 
 // tomlBareKey quotes a key that is not a TOML bare key.

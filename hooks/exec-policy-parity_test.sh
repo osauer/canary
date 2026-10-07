@@ -65,6 +65,7 @@ run_cli_case order-place canary prompt order place --preview-token TOKEN --json
 run_cli_case order-modify canary prompt order modify ORDER_ID --preview-token TOKEN --json
 run_cli_case strategies-close canary prompt strategies close STRAT_ID sha256:abc --json
 run_cli_case opportunity-exercise canary prompt opportunities exercise KEY REVISION --json
+run_cli_case proposals-submit-bundle canary prompt proposals submit-bundle --stdin --json
 
 # Runtime settings, freeze, and limit writes remain human-only.
 run_cli_case rules-policy-set canary forbidden rules policy set regime_calm.premium_budget_watch_pct=20

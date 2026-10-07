@@ -1,0 +1,351 @@
+{
+  "accepted": true,
+  "bundle_id": "currency_leveling-bundle:d3dea6a8de0b612f",
+  "revision": "10ddc64e58da7a120079ca5f6a33af97",
+  "bundle_ref": "canarypb1.sLCwsLCwsLCwsLCwsLCwsA.srKysrKysrKysrKysrKysg",
+  "expires_at": "2026-05-28T08:55:00Z",
+  "legs": [
+    {
+      "accepted": true,
+      "proposal": {
+        "key": "currency_leveling:4d80cd1444744be4",
+        "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+        "state": "generated",
+        "bucket": "currency_leveling",
+        "rank": 1,
+        "symbol": "USD.CHF",
+        "sec_type": "CASH",
+        "action": "BUY",
+        "quantity": 7181,
+        "max_quantity": 7181,
+        "position_quantity": 0,
+        "position_effect": "reduce",
+        "order_type": "LMT",
+        "tif": "DAY",
+        "outside_rth": false,
+        "contract": {
+          "con_id": 12087792,
+          "symbol": "USD",
+          "sec_type": "CASH",
+          "exchange": "IDEALPRO",
+          "currency": "CHF",
+          "local_symbol": "USD.CHF",
+          "min_tick": 0.00005
+        },
+        "reason": "Convert 5,736 CHF into about 7,181 USD (1 of 2 for the USD loan): USD cash is −14,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +107 USD",
+        "details": [
+          "USD trade-date cash −14,000 USD (−11,966 EUR at the ledger rate 0.854701); the repayment lands it between 0 and +293 USD (cushion 250 EUR), never above",
+          "CHF trade-date cash +6,000 CHF funds it; this conversion may spend at most 5,766 CHF of it and leaves it about +264 CHF",
+          "BUY 7,181 USD.CHF on IDEALPRO (contract 12087792), sized at 0.79879 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the target",
+          "the USD loan costs 5.10% a year and CHF cash earns 0.00%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 26 EUR and costs at most 3 EUR",
+          "the loan's conversions together are held to the order cap in force, 50,000 EUR; FX spot settles in two days and the margin interest stops on the settled balance",
+          "conversion 1 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together",
+          "you approve the repayment as a whole; leveling is never pre-authorised"
+        ],
+        "created_at": "2026-10-05T14:00:00Z",
+        "never_skip_veto": true,
+        "readiness": {
+          "code": "ready",
+          "market": "idealpro",
+          "market_label": "IDEALPRO FX",
+          "session_state": "open",
+          "opens_at": "2026-05-27T21:15:00Z",
+          "queueable": false,
+          "as_of": "2026-05-28T08:45:00Z"
+        },
+        "currency_leveling": {
+          "bundle_id": "currency_leveling-bundle:d3dea6a8de0b612f",
+          "leg": 1,
+          "legs": 2,
+          "currency": "USD",
+          "funding_currency": "CHF",
+          "pair": "USD.CHF",
+          "pair_symbol": "USD",
+          "pair_currency": "CHF",
+          "balance_source": "trade_date",
+          "cash": -14000,
+          "target": -6706.467915525315,
+          "received": 7181,
+          "funding_cash": 6000,
+          "allotment": 5766.355140186915,
+          "spent": 5736.081156641903,
+          "exchange_rate": 0.8547008547008547,
+          "planning_price": 0.7987858455148173,
+          "value_base": 6137.606837606837,
+          "trigger_base": 10000,
+          "cushion_base": 250,
+          "max_slippage_bp": 2,
+          "order_cap_base": 50000,
+          "loan_rate": 0.051,
+          "loan_rate_through": "2026-10-05",
+          "funding_rate": 0,
+          "funding_rate_through": "2026-10-05",
+          "payback_days": 30,
+          "saving_base": 25.72,
+          "cost_base": 2.94,
+          "funding_after": 263.91884335809664
+        }
+      },
+      "preview_token_id": "wcHBwcHBwcHBwcHBwcHBwQ",
+      "preview_token_expires_at": "2026-05-28T08:55:00Z",
+      "submit_eligible": true,
+      "preview": {
+        "preview_token_id": "wcHBwcHBwcHBwcHBwcHBwQ",
+        "preview_token_scope": "place",
+        "preview_token_expires_at": "2026-05-28T08:55:00Z",
+        "token_minted": true,
+        "submit_eligible": true,
+        "mode": "paper",
+        "account": "DU1234567",
+        "endpoint": "127.0.0.1:4002",
+        "client_id": 31,
+        "draft": {
+          "action": "BUY",
+          "contract": {
+            "con_id": 12087792,
+            "symbol": "USD",
+            "sec_type": "CASH",
+            "exchange": "IDEALPRO",
+            "currency": "CHF",
+            "local_symbol": "USD.CHF",
+            "min_tick": 0.00005
+          },
+          "quantity": 7181,
+          "order_type": "LMT",
+          "limit_price": 0.7989,
+          "tif": "DAY",
+          "outside_rth": false,
+          "strategy": "bounded-limit",
+          "order_ref": "canary-synthetic-order-1",
+          "open_close": "O",
+          "source": "trade_proposals",
+          "fx": {
+            "currency": "USD",
+            "funding_currency": "CHF",
+            "cash": -14000,
+            "target": -6706.467915525315,
+            "funding_cash": 5766.355140186915,
+            "max_slippage_bp": 2,
+            "bid": 0.7987,
+            "ask": 0.7988
+          }
+        },
+        "quote": {
+          "symbol": "USD",
+          "bid": 0.7987,
+          "ask": 0.7988,
+          "data_type": "live",
+          "price_at": "2026-05-28T08:45:00Z",
+          "as_of": "2026-05-28T08:45:00Z"
+        },
+        "position": {
+          "before": 0,
+          "after": 0,
+          "effect": "open_short"
+        },
+        "notional": 5736.900900000001,
+        "max_notional": 10000,
+        "what_if": {
+          "status": "accepted",
+          "required_for_submit": false,
+          "available": true
+        },
+        "warnings": [
+          {
+            "code": "rulebook_unavailable",
+            "scope": "rulebook",
+            "severity": "warning",
+            "message": "The canonical Rulebook evaluation is unavailable or incomplete for this broker scope.",
+            "impact": "Rulebook causes may be missing from this advisory preview; submit eligibility is unaffected.",
+            "action": "Resolve the reported account, portfolio, earnings, regime, or tape input gap and preview again."
+          }
+        ],
+        "as_of": "2026-05-28T08:45:00Z"
+      },
+      "as_of": "2026-05-28T08:45:00Z"
+    },
+    {
+      "accepted": true,
+      "proposal": {
+        "key": "currency_leveling:14b769cd67fdded3",
+        "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+        "state": "generated",
+        "bucket": "currency_leveling",
+        "rank": 2,
+        "symbol": "EUR.USD",
+        "sec_type": "CASH",
+        "action": "SELL",
+        "quantity": 5920,
+        "max_quantity": 5920,
+        "position_quantity": 0,
+        "position_effect": "reduce",
+        "order_type": "LMT",
+        "tif": "DAY",
+        "outside_rth": false,
+        "contract": {
+          "con_id": 12087793,
+          "symbol": "EUR",
+          "sec_type": "CASH",
+          "exchange": "IDEALPRO",
+          "currency": "USD",
+          "local_symbol": "EUR.USD",
+          "min_tick": 0.00005
+        },
+        "reason": "Convert 5,920 EUR into about 6,926 USD (2 of 2 for the USD loan): USD cash is −14,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about +107 USD",
+        "details": [
+          "USD trade-date cash −14,000 USD (−11,966 EUR at the ledger rate 0.854701); the repayment lands it between 0 and +293 USD (cushion 250 EUR), never above",
+          "EUR trade-date cash +60,000 EUR funds it; this conversion may spend at most 5,983 EUR of it and leaves it about +54,080 EUR",
+          "SELL 5,920 EUR.USD on IDEALPRO (contract 12087793), sized at 1.17000 from the ledger rates; the preview reads a live bid and ask and sends a limit at most 2 bp from the mid, which can bring in no more than this conversion's share of the target",
+          "the USD loan costs 5.10% a year and EUR cash earns 1.40%, from the broker's statements to 2026-10-05; within 30 days this conversion saves about 18 EUR and costs at most 3 EUR",
+          "the loan's conversions together are held to the order cap in force, 50,000 EUR; FX spot settles in two days and the margin interest stops on the settled balance",
+          "conversion 2 of 2 repaying the USD loan, cheapest currency first; the 2 are approved and sent together",
+          "you approve the repayment as a whole; leveling is never pre-authorised"
+        ],
+        "created_at": "2026-10-05T14:00:00Z",
+        "never_skip_veto": true,
+        "readiness": {
+          "code": "ready",
+          "market": "idealpro",
+          "market_label": "IDEALPRO FX",
+          "session_state": "open",
+          "opens_at": "2026-05-27T21:15:00Z",
+          "queueable": false,
+          "as_of": "2026-05-28T08:45:00Z"
+        },
+        "currency_leveling": {
+          "bundle_id": "currency_leveling-bundle:d3dea6a8de0b612f",
+          "leg": 2,
+          "legs": 2,
+          "currency": "USD",
+          "funding_currency": "EUR",
+          "pair": "EUR.USD",
+          "pair_symbol": "EUR",
+          "pair_currency": "USD",
+          "balance_source": "trade_date",
+          "cash": -14000,
+          "target": -7001.032084474685,
+          "received": 6926.400000000001,
+          "funding_cash": 60000,
+          "allotment": 5983.220264195231,
+          "spent": 5920,
+          "exchange_rate": 0.8547008547008547,
+          "planning_price": 1.1700000000000002,
+          "value_base": 5920,
+          "trigger_base": 10000,
+          "cushion_base": 250,
+          "max_slippage_bp": 2,
+          "order_cap_base": 50000,
+          "loan_rate": 0.051,
+          "loan_rate_through": "2026-10-05",
+          "funding_rate": 0.014,
+          "funding_rate_through": "2026-10-05",
+          "payback_days": 30,
+          "saving_base": 18,
+          "cost_base": 2.9,
+          "funding_after": 54080
+        }
+      },
+      "preview_token_id": "wsLCwsLCwsLCwsLCwsLCwg",
+      "preview_token_expires_at": "2026-05-28T08:55:00Z",
+      "submit_eligible": true,
+      "preview": {
+        "preview_token_id": "wsLCwsLCwsLCwsLCwsLCwg",
+        "preview_token_scope": "place",
+        "preview_token_expires_at": "2026-05-28T08:55:00Z",
+        "token_minted": true,
+        "submit_eligible": true,
+        "mode": "paper",
+        "account": "DU1234567",
+        "endpoint": "127.0.0.1:4002",
+        "client_id": 31,
+        "draft": {
+          "action": "SELL",
+          "contract": {
+            "con_id": 12087793,
+            "symbol": "EUR",
+            "sec_type": "CASH",
+            "exchange": "IDEALPRO",
+            "currency": "USD",
+            "local_symbol": "EUR.USD",
+            "min_tick": 0.00005
+          },
+          "quantity": 5920,
+          "order_type": "LMT",
+          "limit_price": 1.1698,
+          "tif": "DAY",
+          "outside_rth": false,
+          "strategy": "bounded-limit",
+          "order_ref": "canary-synthetic-order-2",
+          "open_close": "O",
+          "source": "trade_proposals",
+          "fx": {
+            "currency": "USD",
+            "funding_currency": "EUR",
+            "cash": -14000,
+            "target": -7001.032084474685,
+            "funding_cash": 5983.220264195231,
+            "max_slippage_bp": 2,
+            "bid": 1.16995,
+            "ask": 1.17005
+          }
+        },
+        "quote": {
+          "symbol": "EUR",
+          "bid": 1.16995,
+          "ask": 1.17005,
+          "data_type": "live",
+          "price_at": "2026-05-28T08:45:00Z",
+          "as_of": "2026-05-28T08:45:00Z"
+        },
+        "position": {
+          "before": 0,
+          "after": 0,
+          "effect": "open_short"
+        },
+        "notional": 6925.215999999999,
+        "max_notional": 10000,
+        "what_if": {
+          "status": "accepted",
+          "required_for_submit": false,
+          "available": true
+        },
+        "warnings": [
+          {
+            "code": "rulebook_unavailable",
+            "scope": "rulebook",
+            "severity": "warning",
+            "message": "The canonical Rulebook evaluation is unavailable or incomplete for this broker scope.",
+            "impact": "Rulebook causes may be missing from this advisory preview; submit eligibility is unaffected.",
+            "action": "Resolve the reported account, portfolio, earnings, regime, or tape input gap and preview again."
+          }
+        ],
+        "as_of": "2026-05-28T08:45:00Z"
+      },
+      "as_of": "2026-05-28T08:45:00Z"
+    }
+  ],
+  "as_of": "2026-05-28T08:45:00Z",
+  "preparation_id": "sLCwsLCwsLCwsLCwsLCwsA",
+  "terms": "{\"account_id\":\"DU1234567\",\"account_mode\":\"paper\",\"base_currency\":\"EUR\",\"bundle_id\":\"currency_leveling-bundle:d3dea6a8de0b612f\",\"cash\":-14000,\"cash_base\":-11965.81,\"client_id\":31,\"cost_base\":5.84,\"currency\":\"USD\",\"cushion\":292.5,\"cushion_base\":250,\"endpoint\":\"127.0.0.1:4002\",\"expires_at\":\"2026-05-28T08:55:00Z\",\"funding_short\":false,\"held_to_cap\":false,\"kind\":\"canary.leveling_bundle\",\"lands_at_least\":106.21,\"legs\":[{\"action\":\"BUY\",\"allotment\":5766.35,\"ask\":0.7988,\"bid\":0.7987,\"con_id\":12087792,\"cost_base\":2.94,\"currency\":\"USD\",\"draft_fingerprint\":\"d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1\",\"exchange\":\"IDEALPRO\",\"funding_currency\":\"CHF\",\"funding_rate\":0,\"funding_rate_bound\":false,\"funding_rate_through\":\"2026-10-05\",\"keeps_at_least\":263.09,\"key\":\"currency_leveling:4d80cd1444744be4\",\"leg\":1,\"limit_price\":0.7989,\"max_slippage_bp\":2,\"order_ref\":\"canary-synthetic-order-1\",\"order_type\":\"LMT\",\"pair\":\"USD.CHF\",\"pays\":{\"amount\":5736.91,\"bound\":\"at_most\",\"currency\":\"CHF\"},\"preparation_id\":\"oaGhoaGhoaGhoaGhoaGhoQ\",\"preview_token_id\":\"wcHBwcHBwcHBwcHBwcHBwQ\",\"quantity\":7181,\"quote_at\":\"2026-05-28T08:45:00Z\",\"receives\":{\"amount\":7181,\"bound\":\"exact\",\"currency\":\"USD\"},\"revision\":\"sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789\",\"saving_base\":25.72,\"target\":-6706.47,\"tif\":\"DAY\"},{\"action\":\"SELL\",\"allotment\":5983.22,\"ask\":1.17005,\"bid\":1.16995,\"con_id\":12087793,\"cost_base\":2.9,\"currency\":\"USD\",\"draft_fingerprint\":\"d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2\",\"exchange\":\"IDEALPRO\",\"funding_currency\":\"EUR\",\"funding_rate\":0.014,\"funding_rate_bound\":false,\"funding_rate_through\":\"2026-10-05\",\"keeps_at_least\":54080,\"key\":\"currency_leveling:14b769cd67fdded3\",\"leg\":2,\"limit_price\":1.1698,\"max_slippage_bp\":2,\"order_ref\":\"canary-synthetic-order-2\",\"order_type\":\"LMT\",\"pair\":\"EUR.USD\",\"pays\":{\"amount\":5920,\"bound\":\"exact\",\"currency\":\"EUR\"},\"preparation_id\":\"oqKioqKioqKioqKioqKiog\",\"preview_token_id\":\"wsLCwsLCwsLCwsLCwsLCwg\",\"quantity\":5920,\"quote_at\":\"2026-05-28T08:45:00Z\",\"receives\":{\"amount\":6925.21,\"bound\":\"at_least\",\"currency\":\"USD\"},\"revision\":\"sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789\",\"saving_base\":18,\"target\":-7001.03,\"tif\":\"DAY\"}],\"loan_rate\":0.051,\"loan_rate_bound\":false,\"loan_rate_through\":\"2026-10-05\",\"order_cap_base\":50000,\"payback_days\":30,\"preparation_id\":\"sLCwsLCwsLCwsLCwsLCwsA\",\"revision\":\"10ddc64e58da7a120079ca5f6a33af97\",\"saving_base\":43.72,\"trigger_base\":10000,\"version\":1}",
+  "terms_digest": "sha256:b120c11059b3ffe21dedb61a84b75d34ed81c1fbdcc58f4c10d547c93607533a",
+  "preparations": [
+    {
+      "id": "oaGhoaGhoaGhoaGhoaGhoQ",
+      "key": "currency_leveling:4d80cd1444744be4",
+      "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+      "draft_fingerprint": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+      "expires_at": "2026-05-28T08:55:00Z",
+      "state": "prepared",
+      "consumed": false
+    },
+    {
+      "id": "oqKioqKioqKioqKioqKiog",
+      "key": "currency_leveling:14b769cd67fdded3",
+      "revision": "sha256:a824b026d9276cc7f0eb11426b33e13eb661c746821a397b2efe67337882e789",
+      "draft_fingerprint": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+      "expires_at": "2026-05-28T08:55:00Z",
+      "state": "prepared",
+      "consumed": false
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 14:12 CEST
+Updated: 2026-10-06 20:58 CEST
 
 Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
 have no currency leveling; this page describes the versions after it.
@@ -40,6 +40,70 @@ writes `[cash.leveling]`, off, into a file without it and raises
 `policy_version` by one; `canary policy ensure --dry-run` shows both
 beforehand. A file that writes the sweep in both places is refused until one
 is removed.
+
+## Changing cash settings from Desk
+
+Desk, a private project that serves as Canary's console, has a Cash
+management tab in its Settings for the same keys: currency
+leveling's switch, band, cushion, limit from the mid, payback window and each
+currency's `deliberate_carry`, and the cash sweep's switch, mode, reserve,
+order bounds, order step, settlement floats and its two rules. Canary does
+the reading, the checking and the writing; Desk never writes the file itself.
+
+A save writes only the keys it changes and raises `policy_version` by one.
+Each changed line records the save, for example:
+
+```toml
+policy_version = 15  # raised in Desk 2026-10-06 14:05 CEST
+trigger_base = 5000.0  # set in Desk 2026-10-06 14:05 CEST, confirmed in the companion (action 7f3c2a90); was 10000.0
+```
+
+A comment Canary wrote on that line is replaced; a comment you wrote stays,
+and the record goes on its own line above the key. A cleared per-currency
+float leaves `# keep_cash removed in Desk …; was 8000.0` in its place. Every
+other line stays as it was. Canary backs the file up beside it first
+(`<file>.bak-desk-<UTC time>`), replaces it in one write readable by you
+only, adopts it at once and keeps a receipt of the save.
+
+You confirm each save with a passkey or in Desk's companion app. After a save
+you confirmed on your device, further saves from the same Desk console
+session need no new confirmation for as long as `[cash]
+confirmation_window` says, unless they let more reach the broker. The
+check names each: a feature switched on, `shadow` changed to `active`, a rule loosened,
+a band, reserve, smallest buy or float made smaller, a limit, cushion,
+payback window or largest order made larger, or a setting a feature waits
+for written where the file had none. Such a save always
+needs your device. Sizes that depend on NLV or the order cap in force say
+what they come to at today's NLV, and why when that does not change today.
+
+`confirmation_window` lives in the file only: Desk shows it and cannot
+change it. Canary writes `confirmation_window = "10m"` into a file without
+it at the daemon's next start, after a backup, with the owner's decision
+beside it, and raises `policy_version`; `"0s"` asks your device for every
+save. Canary works out each window itself, from its receipt of the save you
+confirmed and the `confirmation_window` in force when a later save relies on
+it, so a shorter window in the file ends a reliance sooner. Canary records
+which confirmation each save relied on, in its receipt and in the comment on
+each changed line ("relying on your passkey confirmation of action 7f3c2a90
+until 14:15 CEST"), and accepts the reliance only on a save it recorded with
+a fresh confirmation by the same credential; relying on it never moves the
+end.
+
+Some keys stay in the file: `[cash]` `pre_authorised` and
+`confirmation_window`; `[cash.sweep]` `currency_priority` (the runtime
+setting `cash_sweep.currency_priority` overrides it), `reserve_cushion_eur`,
+`min_net_gain` and `tax_reviewed_at`; and every per-currency key but
+`keep_cash` and `deliberate_carry`, including the ISIN lists and the fallback
+ETF. While the file pre-authorises the sweep, a save that leaves the sweep
+on, `active` and with all its numbers says first that the daemon will then
+send the sweep's orders itself after the veto window, and how large each may
+be at today's NLV.
+
+Desk saves only a file Canary runs as written, or one with a higher
+`policy_version` it is about to adopt. A file edited without raising
+`policy_version`, a file Canary refuses and a missing file are shown
+read-only until you fix them. A file that changed since Desk read it is not
+overwritten: Desk shows what changed and asks you to check again.
 
 ## Cash sweep
 
@@ -398,15 +462,45 @@ more than its extra commission. What one loan takes is set aside before the
 next is planned, so two repayments never spend the same cash.
 
 **One approval per loan.** A loan's conversions form one repayment, listed
-together and approved as a whole. The daemon's bundle calls
-(`trade.proposals.prepare_bundle`, `trade.proposals.submit_bundle`) preview
-every conversion, then check every one again before sending any, send them
-cheapest currency first and stop at the first refusal. A conversion that is
-one of several refuses a prepare or submit of its own
-(`conversion_bundle_needs_one_approval`). In the trading build you approve a
-repayment of a single conversion like any proposal, with `canary proposals
-submit KEY REVISION`; a repayment of several conversions only through the
-daemon's bundle calls.
+together and approved as a whole. Three commands carry it, and a private
+reference, which can send the repayment once, never appears in a command
+line:
+
+- `canary proposals prepare-bundle BUNDLE_ID REVISION` (both are in
+  `canary proposals list --json`, as `currency_leveling.bundles[].id` and
+  `.revision`) previews every
+  conversion against a live quote and states the repayment's exact terms:
+  the loan, each conversion's order and limit, what it pays and receives at
+  that limit (exactly, at most or at least), what its payer keeps at least,
+  where the loan lands at least once every conversion fills, and a digest of
+  those terms. It prints them for you to read; with `--json` it also returns
+  the private bundle reference, for the program that sends the repayment.
+  The review lasts ten minutes.
+- In the trading build, `canary proposals submit-bundle --stdin` reads one
+  JSON object, `{bundle_ref, bundle_id, revision, terms_digest,
+  confirmation}` (`confirmation` is optional), and sends the repayment
+  once. It refuses other terms than the prepared ones
+  (`prepared_terms_mismatch`) and a reference already used
+  (`prepared_reference_consumed`), checks every conversion again before it
+  sends any, then sends them cheapest currency first and stops at the first
+  that is not sent. Each conversion is reported in send order: `sent`;
+  `refused`, when Canary refused it and it did not reach the broker;
+  `not_sent`, when it was never tried; or `unknown`, when it may have reached
+  the broker. The repayment reads `sent`, `partly_sent`, `not_sent` or
+  `unknown`, with how many conversions were sent. The confirmation is kept
+  with the repayment, for audit only.
+- `canary proposals bundle-status --bundle-ref-stdin` reads what became of a
+  prepared repayment from Canary's records, the order journal included, and
+  sends nothing: `prepared` or `expired` before it was sent, otherwise the
+  outcomes above. Run it when submit-bundle's answer did not arrive.
+
+Nothing resends the rest of a partly sent repayment. Once the ledger shows
+the fills, the next cycle plans what remains as a new repayment, approved
+again. A conversion that is one of several refuses a prepare or submit of
+its own (`conversion_bundle_needs_one_approval`). In the trading build you
+can also approve a repayment of a single conversion like any proposal, with
+`canary proposals submit KEY REVISION`. The MCP tools carry none of the
+repayment commands.
 
 **How it sizes.** Each conversion is sized inside its share of that target at
 both edges of the price bound and takes the middle, keeping the previous
@@ -454,7 +548,10 @@ it; ask your adviser how your conversions are taxed.
 
 `canary proposals list` shows leveling under its own *Currency leveling*
 heading with one line per currency and one per repayment, with what it saves
-and can cost within the window; JSON carries a `currency_leveling` status on
-the snapshot, with its `bundles`, a `currency_leveling` block on each row,
-and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
+and can cost within the window, and each repayment's conversions in the
+order they are sent. JSON carries a `currency_leveling` status on the
+snapshot, with its `bundles` (each with `lands_at`, where the loan lands at
+the planning prices, and `cushion`, both in the loan's own unit), a
+`currency_leveling` block on each row (with `funding_after`, what its payer
+keeps after it), and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
 remove the table, and raise `policy_version` to stop it.

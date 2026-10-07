@@ -262,7 +262,7 @@ func (e *proposalEngine) submitPrepared(ctx context.Context, p rpc.TradeProposal
 	if !ok {
 		return out, err
 	}
-	e.preparedSubmitPlace(ctx, p, record, prop, &out)
+	_ = e.preparedSubmitPlace(ctx, p, record, prop, &out)
 	return out, nil
 }
 
@@ -344,18 +344,19 @@ func (e *proposalEngine) preparedSubmitCheck(ctx context.Context, p rpc.TradePro
 }
 
 // preparedSubmitPlace sends a checked preparation through its original
-// preview token and records the receipt in out.
-func (e *proposalEngine) preparedSubmitPlace(ctx context.Context, p rpc.TradeProposalSubmitParams, record preparedProposalRecord, prop rpc.TradeProposal, out *rpc.TradeProposalSubmitResult) {
+// preview token and records the receipt in out; it returns the place call's
+// error, which a bundle classifies (bundleLegOutcome).
+func (e *proposalEngine) preparedSubmitPlace(ctx context.Context, p rpc.TradeProposalSubmitParams, record preparedProposalRecord, prop rpc.TradeProposal, out *rpc.TradeProposalSubmitResult) error {
 	place, placeErr := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: record.Preview.PreviewToken, TimeoutMs: p.TimeoutMs, Origin: p.Origin})
 	receipt := e.preparedStatus(ctx, record)
 	out.Preparation, out.Order, out.Blockers, out.AsOf = receipt.Preparation, receipt.Order, receipt.Blockers, e.clock()
 	if placeErr != nil {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "submit_failed", Message: "Submission did not return a confirmed result; inspect the durable preparation/order receipt before any further action."})
-		return
+		return placeErr
 	}
 	if place == nil {
 		out.Blockers = append(out.Blockers, rpc.TradingBlocker{Code: "submit_unavailable", Message: "Submission returned no result; inspect the durable receipt."})
-		return
+		return nil
 	}
 	out.Accepted, out.Place, out.OrderRef, out.Message = place.Accepted, place, place.OrderRef, place.Message
 	e.appendEvent(proposalEventForProposal("submitted", prop, e.clock(), record.Preview.PreviewTokenID, place.OrderRef, "prepared proposal submitted through its original preview"))
@@ -364,6 +365,7 @@ func (e *proposalEngine) preparedSubmitPlace(ctx context.Context, p rpc.TradePro
 			e.server.warnf("trade proposal outcomes: append prepared submitted mark: %v", err)
 		}
 	}
+	return nil
 }
 
 func (s *Server) handleTradeProposalsPrepare(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPrepareResult, error) {

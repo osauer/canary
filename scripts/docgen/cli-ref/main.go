@@ -35,8 +35,8 @@ var commandNotes = map[string]string{
 	"purge": "`canary purge SYMBOL`, `canary purge --all`, and `purge execute` close live positions through the broker. " +
 		"They carry the same gate as `canary order`: an explicit human instruction for that exact action, in that moment. " +
 		"`dry-run`, `status`, and `monitor` only read.",
-	"proposals": "Protection proposals are advisory. The daemon can propose a close or a reduce, and only `submit` and `reduce` reach the broker. " +
-		"Each needs an explicit human instruction for that exact order.",
+	"proposals": "Proposals are advisory. Only `submit`, `submit-bundle` and `reduce` reach the broker; " +
+		"each needs an explicit human instruction for that exact order.",
 	"opportunities": "Opportunity detection is advisory. Only `exercise` reaches the broker, and it needs an explicit human instruction for that exact action.",
 	"trading":       "`status` reads the local trading gate and its blockers.",
 	"stop": "Stopping is local process management: it signals the daemon and the app on this machine and reaches no broker. Orders already working stay at the broker, but nothing local watches them until the daemon runs again — no fills or cancels in the journal, no protection proposals, no phone alerts. " +

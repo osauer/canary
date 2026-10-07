@@ -13,17 +13,17 @@ interest rates from the broker's statements to 2026-10-05
   Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days ·
   costs at most € 6.86
 
-EUR.USD · SELL 11049 EUR · review
-  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
-  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
-  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
-  about +119 USD
-
 USD.CHF · BUY 7192 USD · review
   currency_leveling:4d80cd1444744be4 · currency_leveling · LMT
   Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
   −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
   +119 USD
+
+EUR.USD · SELL 11049 EUR · review
+  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD
 Full risk evidence, sizing and funding: canary proposals list --details
 Review list only; exact preview and submit eligibility remain separate.
 # canary proposals list · COLUMNS=80 · colour on, ESC written as \x1b
@@ -41,16 +41,16 @@ Review list only; exact preview and submit eligibility remain separate.
   Repay USD: 2 conversions, one approval · saves about € 59.37 within 30 days ·
   costs at most € 6.86
 
-\x1b[1mEUR.USD · SELL 11049 EUR · review\x1b[0m
-  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
-  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
-  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
-  about +119 USD
-
 \x1b[1mUSD.CHF · BUY 7192 USD · review\x1b[0m
   currency_leveling:4d80cd1444744be4 · currency_leveling · LMT
   Convert 5,745 CHF into about 7,192 USD (1 of 2 for the USD loan): USD cash is
   −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to about
   +119 USD
+
+\x1b[1mEUR.USD · SELL 11049 EUR · review\x1b[0m
+  currency_leveling:14b769cd67fdded3 · currency_leveling · LMT
+  Convert 11,049 EUR into about 12,927 USD (2 of 2 for the USD loan): USD cash
+  is −20,000 USD, a margin loan beyond the 10,000 EUR band; the 2 bring it to
+  about +119 USD
 \x1b[2mFull risk evidence, sizing and funding: canary proposals list --details\x1b[0m
 \x1b[2mReview list only; exact preview and submit eligibility remain separate.\x1b[0m

@@ -1,10 +1,12 @@
 # Currency leveling (repay a borrowed currency by converting)
 
-Updated: 2026-10-06 08:12 CEST
+Updated: 2026-10-06 18:40 CEST
 Status: built on branch `currency-auto-level`, including the plan for
 several currencies, not merged, not installed. Nothing has been previewed or
-sent at the broker. Desk's one-approval card for a repayment of several
-conversions is a Desk change, not built.
+sent at the broker. The commands Desk's one-approval repayment card calls
+(`proposals prepare-bundle`, `submit-bundle`, `bundle-status`) are built on
+the `cash-settings` branch with the card, not merged; proof pending: the
+first real repayment.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It records the
 owner's decisions and creates none.
@@ -220,7 +222,8 @@ fill, a conversion working, the order cap unreadable):
   prepares every conversion through the ordinary prepare path and retains
   their preparations behind one private reference (`canarypb1.…`, like a
   prepared proposal's, never logged or sent to a browser).
-  `trade.proposals.submit_bundle`, under the broker write lock, runs every
+  `trade.proposals.submit_bundle` records the submission, then, under the
+  broker write lock, runs every
   conversion's full prepared-submit check first with nothing sent, then
   sends them through their original preview tokens, cheapest payer first,
   and stops at the first refusal. Because every check runs before any send,
@@ -231,9 +234,47 @@ fill, a conversion working, the order cap unreadable):
 - A conversion that is one of several refuses a prepare, prepared submit or
   fast-path submit of its own (`conversion_bundle_needs_one_approval`); a
   plain preview stays allowed, to inspect it.
-- Desk shows a bundle as one card with one approval and calls the two bundle
-  methods; that is a Desk change outside this repository. Until it ships, a
-  bundle of several waits in Desk; Canary's own snapshot lists it.
+- The prepared bundle carries its exact terms (`canary.leveling_bundle`,
+  version 1): the broker scope, the loan, every conversion's identity (key,
+  revision, preparation, draft fingerprint, preview token id, order
+  reference, contract, side, quantity, limit and the quote it was bounded
+  from) and the figures at each limit, rounded against the owner: what it
+  pays (at most, for a buy) and receives (at least, for a sell), what its
+  payer keeps at least, where the loan lands at least, and the cushion it
+  never ends above (rounded up). Their digest is of
+  the exact bytes; `submit_bundle` refuses another (`prepared_terms_mismatch`)
+  before any check.
+- A reference is used once. `submit_bundle` records its submission, with the
+  owner's confirmation for audit only, before it checks anything again and
+  before it waits for the broker write lock, so a second call is refused as
+  `prepared_reference_consumed`, with no outcome, whatever the first did and
+  whatever else the second names. A reference Canary cannot read answers
+  `prepared_reference_unavailable`, also with no outcome: the status read
+  says what the bundle did. Before review B1 and M1 (fixed 2026-10-06 21:08
+  CEST) other terms after a sent bundle, or an unreadable reference, answered
+  `not_sent`, and a submission waiting for the lock was not yet recorded.
+- Every conversion is reported in send order with its outcome, which the
+  order journal proves: `sent`; `refused` when nothing reached the broker
+  (the place was refused before its attempt was staged, or failed with
+  nothing written); `not_sent` when it was never tried; `unknown` when the
+  attempt may have reached the broker. The bundle reads `sent`,
+  `partly_sent`, `not_sent` or `unknown`, with the count sent, and stops after
+  a conversion that is not sent. Until 2026-10-06 18:40 CEST a transport
+  failure read as refused, a first refusal read as partly sent, and a second
+  submission read "nothing was sent".
+- `trade.proposals.prepared_bundle_status` reads the same outcomes back from
+  the bundle's record, each conversion's preparation and the order journal,
+  and sends nothing; a bundle being sent, or waiting for the broker write
+  lock, reads `unknown` with why, never `prepared`.
+- Desk reaches the broker only through the CLI: `canary proposals
+  prepare-bundle`, `submit-bundle --stdin` and `bundle-status
+  --bundle-ref-stdin`. None is an MCP tool or in an agent grant; the broker
+  hook treats `submit-bundle` as a write. The CLI waits for them longer than
+  the daemon's 150 s, so its caller never reads a send still running as
+  finished.
+- Desk shows every leveling repayment, one conversion or several, only as
+  its repayment card with one approval (owner answer 2026-10-06 18:00 CEST);
+  Canary keeps its single path for a one-conversion repayment.
 
 ### Settings after the change
 

@@ -153,6 +153,7 @@ func TestPolicyEffectiveViewAttributesSources(t *testing.T) {
 		"protection:buckets.theta_hygiene.max_spread_pct_of_mid":           {"25%", rpc.PolicySourceFile},
 		"protection:buckets.trailing_stop.stock_etf.default_pct":           {"9%", rpc.PolicySourceFile},
 		"protection:authority.veto_window":                                 {"30m", rpc.PolicySourceDefault},
+		"protection:cash.confirmation_window":                              {"0s", rpc.PolicySourceDefault},
 		"protection:authority.pre_authorised":                              {"none", rpc.PolicySourceNeedsYourNumber},
 		"protection:buckets.budget_reduction.mode":                         {"shadow", rpc.PolicySourceDefault},
 		"protection:buckets.budget_reduction.per_line_pct_of_risk_capital": {"10% NLV (Rulebook)", rpc.PolicySourceMachine},

@@ -700,7 +700,9 @@ func migrateRulebookPolicyFile(data []byte, release string) ([]byte, []string, [
 // missing sizing number at the owner-approved value (cashSweepWrittenDefaults)
 // and raises policy_version, because the sweep reads those numbers from the
 // file only; every value the file already writes is kept (owner decision
-// 2026-10-05 18:35 CEST).
+// 2026-10-05 18:35 CEST). A file without [cash] confirmation_window gets the
+// owner's 10 minutes (owner decision 2026-10-06 15:31 CEST), with
+// policy_version raised the same way.
 func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string, []string, error) {
 	before, _, err := parseProtectionPolicy(data)
 	if err != nil {
@@ -745,6 +747,11 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 	}
 	levelingChanges, levelingNotes := materialiseCurrencyLeveling(doc, md, release)
 	changes, notes = append(changes, levelingChanges...), append(notes, levelingNotes...)
+	windowChanges, windowNotes := materialiseCashConfirmationWindow(doc, md, release)
+	changes, notes = append(changes, windowChanges...), append(notes, windowNotes...)
+	if len(windowChanges) > 0 {
+		levelingChanges = append(levelingChanges, windowChanges...)
+	}
 	if materialised || len(levelingChanges) > 0 {
 		what := "the sweep sizing numbers above take effect"
 		if len(levelingChanges) > 0 {
@@ -791,6 +798,56 @@ func migrateProtectionPolicyFile(data []byte, release string) ([]byte, []string,
 		return data, nil, notes, fmt.Errorf("migration would change more than the missing cash sweep and currency leveling numbers; nothing written")
 	}
 	return out, changes, notes, nil
+}
+
+// cashConfirmationWindowLines is [cash] confirmation_window as Canary writes
+// it, with the owner's decision beside it (owner question 1 of the cash
+// settings design, answered 2026-10-06 15:31 CEST).
+func cashConfirmationWindowLines(release string) []string {
+	return []string{
+		"# How long, after you confirm a save from Desk's Settings on your passkey or",
+		"# companion, a further save from the same Desk console may rely on that",
+		"# confirmation. A save that lets more reach the broker always asks your",
+		"# device, and \"0s\" asks it for every save. Owner decision 2026-10-06 15:31",
+		"# CEST: \"Cache the decision for 5 or 10 minutes, if not serious concerns\".",
+		"confirmation_window = " + strconv.Quote(cashConfirmationWindowWritten) + "  # written by Canary " + sanitizeReleaseLabel(release),
+	}
+}
+
+// materialiseCashConfirmationWindow writes [cash] confirmation_window into a
+// file that has none, so an upgraded install relies on the device's
+// confirmation the way the owner decided without a step of its own. Until it
+// is written, every save from Desk asks the device. A new [cash] table goes
+// before the first [cash.*] table, with the comments above it.
+func materialiseCashConfirmationWindow(doc *tomlDoc, md toml.MetaData, release string) (changes, notes []string) {
+	if md.IsDefined("cash", "confirmation_window") {
+		return nil, nil
+	}
+	if _, inline := doc.find("", "cash"); inline {
+		return nil, []string{"[cash] is not a plain section, so confirmation_window was not written; every cash settings save from Desk asks your device until you write it"}
+	}
+	lines := cashConfirmationWindowLines(release)
+	if doc.headerLine("cash") >= 0 {
+		doc.insert("cash", lines)
+		return []string{"added cash.confirmation_window = " + strconv.Quote(cashConfirmationWindowWritten)}, nil
+	}
+	at := -1
+	for i, line := range doc.lines {
+		if m := tomlHeaderRe.FindStringSubmatch(line); m != nil && strings.HasPrefix(m[1], "cash.") {
+			at = i
+			break
+		}
+	}
+	if at < 0 {
+		doc.insert("cash", lines)
+		return []string{"added [cash] with confirmation_window = " + strconv.Quote(cashConfirmationWindowWritten)}, nil
+	}
+	for at > 0 && strings.HasPrefix(strings.TrimSpace(doc.lines[at-1]), "#") {
+		at--
+	}
+	block := append(append([]string{"[cash]"}, lines...), "")
+	doc.lines = append(doc.lines[:at], append(block, doc.lines[at:]...)...)
+	return []string{"added [cash] with confirmation_window = " + strconv.Quote(cashConfirmationWindowWritten)}, nil
 }
 
 // moveLegacyCashTables moves what a file written before cash management moved
@@ -849,11 +906,12 @@ func moveLegacyCashTables(doc *tomlDoc, md toml.MetaData, raw map[string]any, re
 }
 
 // protectionMaterialisationKey is the effective protection key with the
-// cash sweep's materialisable sizing numbers and the currency leveling table
-// cleared: a conversion that only writes missing numbers keeps it, and
-// protectionMaterialisationPreserves checks the leveling table key by key.
+// cash sweep's materialisable sizing numbers, the currency leveling table and
+// [cash] confirmation_window cleared: a conversion that only writes missing
+// numbers keeps it, and protectionMaterialisationPreserves checks those key by
+// key.
 func protectionMaterialisationKey(p protectionPolicy) string {
-	p.Cash.Leveling = nil
+	p.Cash.Leveling, p.Cash.ConfirmationWindow = nil, ""
 	if c := p.Cash.Sweep; c != nil {
 		cleared := *c
 		cleared.MaxOrderNotional, cleared.MaxOrderPctNLV, cleared.MinOrderNotional = 0, nil, nil
@@ -865,11 +923,16 @@ func protectionMaterialisationKey(p protectionPolicy) string {
 }
 
 // protectionMaterialisationPreserves reports whether after differs from
-// before only by cash sweep sizing numbers before did not write and the
-// currency leveling keys policy ensure writes.
+// before only by cash sweep sizing numbers before did not write, the
+// currency leveling keys policy ensure writes and the confirmation_window
+// Canary writes where there was none.
 func protectionMaterialisationPreserves(before, after protectionPolicy) bool {
 	if protectionMaterialisationKey(before) != protectionMaterialisationKey(after) ||
 		!currencyLevelingMaterialisationPreserves(before.Cash.Leveling, after.Cash.Leveling) {
+		return false
+	}
+	switch b, a := before.Cash.ConfirmationWindow, after.Cash.ConfirmationWindow; {
+	case b != "" && a != b, b == "" && a != "" && a != cashConfirmationWindowWritten:
 		return false
 	}
 	b, a := before.Cash.Sweep, after.Cash.Sweep
@@ -999,9 +1062,10 @@ allow_short_profit_trail = %t
 # daemon place the sweep's bill orders itself after the full veto window
 # ([authority] veto_window), each held to the sweep's order cap in force, then raise
 # policy_version. Currency leveling is always yours to approve.
-# [cash]
+[cash]
 # pre_authorised = []   # for example ["cash_sweep"]
 `)
+	b.WriteString(strings.Join(cashConfirmationWindowLines(release), "\n") + "\n\n")
 	writeCashSweepTemplate(&b)
 	writeCurrencyLevelingTemplate(&b)
 	return []byte(b.String())

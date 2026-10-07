@@ -387,13 +387,13 @@ func checkOrderEntryOff(c *policyCheckContext) []policyCheckHit {
 	}
 	var active []string
 	if s := c.sweep(); s != nil && s.effectiveMode() == rpc.CashSweepModeActive {
-		active = append(active, "[cash.sweep] mode = active")
+		active = append(active, "[cash.sweep].mode = active")
 	}
 	if b := c.protection.Buckets.BudgetReduction; b.enabled() && b.effectiveMode() == rpc.BudgetReductionModeActive {
-		active = append(active, "[buckets.budget_reduction] mode = active")
+		active = append(active, "[buckets.budget_reduction].mode = active")
 	}
 	if l := c.protection.Cash.Leveling; l.enabled() {
-		active = append(active, "[cash.leveling] enabled = true")
+		active = append(active, "[cash.leveling].enabled = true")
 	}
 	if pre := c.protection.Authority.PreAuthorised; len(pre) > 0 {
 		active = append(active, "[authority].pre_authorised = "+strings.Join(pre, ", "))

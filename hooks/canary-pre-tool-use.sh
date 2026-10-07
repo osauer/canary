@@ -364,7 +364,7 @@ allow_broker_write_or_block() {
 }
 
 broker_write_command() {
-  has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+(preview|submit|ignore|request-stop)([[:space:]]|$)' ||
+  has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+(preview|submit|submit-bundle|ignore|request-stop)([[:space:]]|$)' ||
     {
       has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+proposals[[:space:]]+reduce([[:space:]]|$)' &&
 		has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'
@@ -417,7 +417,10 @@ if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+orders([[:space:]]|$)'; then
   exit 0
 fi
 
-if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(order[[:space:]]+status|trading[[:space:]]+status|proposals[[:space:]]+(status|refresh|list)|opportunities[[:space:]]+(status|refresh|list))([[:space:]]|$)'; then
+# A leveling repayment's prepare-bundle and bundle-status only read: the
+# first prepares and states the terms, the second reads Canary's records.
+# submit-bundle is the bundle's one broker write (broker_write_command).
+if has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(order[[:space:]]+status|trading[[:space:]]+status|proposals[[:space:]]+(status|refresh|list|prepare-bundle|bundle-status)|opportunities[[:space:]]+(status|refresh|list))([[:space:]]|$)'; then
   exit 0
 fi
 

@@ -84,6 +84,25 @@ func TestNoTradingTools(t *testing.T) {
 	}
 }
 
+// The cash policy methods write the owner's protection policy file; only
+// Desk's console reaches them, after the owner's device confirms a save. No
+// tool may declare or call them.
+func TestNoTradingToolsReachCashPolicy(t *testing.T) {
+	for _, tool := range Tools {
+		methods := append(slices.Clone(tool.RPCMethods), mcpToolMethodsForCall(tool.Name, nil)...)
+		for _, method := range methods {
+			if strings.HasPrefix(method, "policy.cash.") {
+				t.Errorf("%s reaches %s", tool.Name, method)
+			}
+		}
+	}
+	for _, method := range []string{rpc.MethodCashPolicyGet, rpc.MethodCashPolicyCheck, rpc.MethodCashPolicyApply} {
+		if _, ok := rpc.LookupMethodTiming(method); !ok {
+			t.Errorf("%s has no timing", method)
+		}
+	}
+}
+
 func TestDeskDiscoveryToolsStayReadOnly(t *testing.T) {
 	for _, name := range []string{"canary_proposals", "canary_opportunities"} {
 		tool, ok := lookupTool(name)

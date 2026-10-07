@@ -56,6 +56,8 @@ type protectionPolicy struct {
 type protectionCashPolicy struct {
 	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to the sweep's order cap in force. currency_leveling is never pre-authorised. Empty by default.
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
+	// ConfirmationWindow is how long, after you confirm a cash settings save from Desk on your passkey or companion, a further save from the same Desk console session may rely on that confirmation instead of asking your device again, as a duration (Canary writes "10m"; "0s" or no value always asks your device); a save that lets more reach the broker always asks your device. Read from this file only: Desk shows it and cannot change it. Canary writes "10m" (owner decision 2026-10-06 15:31 CEST).
+	ConfirmationWindow string `toml:"confirmation_window" json:"confirmation_window,omitempty"`
 	// Sweep is the cash sweep, [cash.sweep]; an absent table is off.
 	Sweep *protectionCashSweepPolicy `toml:"sweep" json:"sweep,omitempty"`
 	// Leveling is currency leveling, [cash.leveling]; an absent table is off.
@@ -127,6 +129,25 @@ func (p protectionPolicy) preAuthorised(bucket string) bool {
 		return slices.Contains(p.Cash.PreAuthorised, bucket)
 	}
 	return p.Authority.preAuthorised(bucket)
+}
+
+// cashConfirmationWindowWritten is the confirmation_window Canary writes into
+// [cash]: the owner's answer to the cash settings design's question 1
+// (2026-10-06 15:31 CEST, "Cache the decision for 5 or 10 minutes, if not
+// serious concerns"). It is never read at runtime: the window in force is the
+// file's, and a file without one asks the device for every save.
+const cashConfirmationWindowWritten = "10m"
+
+// confirmationWindow is [cash] confirmation_window in force: how long a cash
+// settings save may rely on the device's confirmation of an earlier one.
+// No value, or one validateProtectionPolicy refused, is 0: every save asks
+// the device.
+func (c protectionCashPolicy) confirmationWindow() time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(c.ConfirmationWindow))
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
 }
 
 // vetoWindow resolves the configured window; validateProtectionPolicy has
@@ -342,6 +363,10 @@ type protectionPolicyManager struct {
 	// start) the next valid file is adopted whatever its policy_version, so a
 	// repaired file is never held back as drift behind the embedded default.
 	fileAdopted bool
+	// fileMu serialises a reread with policy.cash.apply's write, so a reread
+	// that read the file before a save can never publish it after the save
+	// and misreport the saved file as drift.
+	fileMu sync.Mutex
 }
 
 func (s *Server) installProtectionPolicyManager() {
@@ -406,6 +431,20 @@ func (m *protectionPolicyManager) reload() {
 	if m == nil {
 		return
 	}
+	m.fileMu.Lock()
+	defer m.fileMu.Unlock()
+	m.reloadHeld()
+}
+
+// adoptedFromFile reports whether the policy in force came from the file.
+func (m *protectionPolicyManager) adoptedFromFile() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.fileAdopted
+}
+
+// reloadHeld rereads the file; the caller holds fileMu.
+func (m *protectionPolicyManager) reloadHeld() {
 	now := time.Now().UTC()
 	if m.now != nil {
 		now = m.now().UTC()
@@ -622,7 +661,7 @@ func defaultProtectionPolicy() protectionPolicy {
 				},
 			},
 		},
-		Cash: protectionCashPolicy{Leveling: defaultCurrencyLevelingPolicy()},
+		Cash: protectionCashPolicy{ConfirmationWindow: cashConfirmationWindowWritten, Leveling: defaultCurrencyLevelingPolicy()},
 	}
 }
 
@@ -737,6 +776,15 @@ func validateProtectionPolicy(p protectionPolicy) error {
 		}
 		if slices.Contains(p.Cash.PreAuthorised[:i], bucket) {
 			return fmt.Errorf("protection policy cash.pre_authorised lists %q twice", bucket)
+		}
+	}
+	if raw := strings.TrimSpace(p.Cash.ConfirmationWindow); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return fmt.Errorf("protection policy cash.confirmation_window %q is not a duration such as \"10m\" or \"0s\": %w", p.Cash.ConfirmationWindow, err)
+		}
+		if d < 0 {
+			return fmt.Errorf("protection policy cash.confirmation_window %s is negative; \"0s\" asks your device for every save", d)
 		}
 	}
 	if raw := strings.TrimSpace(p.Authority.VetoWindow); raw != "" {
