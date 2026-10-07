@@ -253,7 +253,10 @@ The per-order limits are risk limits and live in the personal risk policy as
 `config.toml` `[trading]` keys with a runtime override in `canary settings`;
 both are retired. The trading gate reads every key from the file only; while
 one is missing every order preview is refused with the `order_risk_limit`
-blocker naming the key, until the next daemon start writes it.
+blocker naming the key, until the next daemon start writes it. The one
+exception is `max_bond_maturity_years`: while it is missing only bond and bill
+buys are refused, so it never blocks an exit, a stop or any other order
+(owner decision 2026-10-07 08:27 CEST).
 
 | Key | Meaning | `policy ensure` writes |
 |---|---|---|
@@ -263,6 +266,7 @@ blocker naming the key, until the next daemon start writes it.
 | `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 5 |
 | `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
 | `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
+| `max_bond_maturity_years` | Longest time to maturity, in whole years from today, a bond or bill buy may have (1 to 100) | 30 |
 
 The notional cap scales with the book:
 
@@ -291,7 +295,15 @@ sells at most the long position with no competing working sell
 ([Protection](../operate/protection.md)), and a same-currency sweep bill within
 the sweep's own cap when the protection policy writes
 `bills_exempt_from_trading_max_notional = true`. The option cap, the short and
-sell-to-open permissions and the currency checks have no exemption.
+sell-to-open permissions, the bond maturity limit and the currency checks have
+no exemption.
+
+The bond maturity limit (owner decision 2026-10-06 20:17 CEST) counts whole
+years from today's UTC date: with 30 written, a buy on 2026-10-06 may mature on
+or before 2056-10-06, and a bond maturing a day later is refused, for example
+`the bond matures 2056-10-07, beyond the 30-year limit in force (2056-10-06;
+[order_limits].max_bond_maturity_years)`. A maturity Canary cannot read is
+refused too. Selling a bond you hold is never limited by it.
 
 For a time-bounded larger cap, a human grants a one-shot override of the floor:
 
@@ -310,7 +322,9 @@ it is bound.
 A file written before `[order_limits]` existed gains the table at the next
 daemon start, after a backup: each key from `config.toml` `[trading]` (a
 10,000 floor, 5 option contracts and no shorting or selling to open where a key
-was never set), the two scaled-cap keys and a raised `policy_version`. To return
+was never set), the two scaled-cap keys, `max_bond_maturity_years = 30` and a
+raised `policy_version`. A table written before `max_bond_maturity_years`
+existed gains that key alone, 30, the same way. To return
 to a fixed cap, set `max_order_ceiling_base` equal to `max_order_floor_base` and
 raise `policy_version`. The
 `[trading]` keys still load so an old `config.toml` stays valid, are never read

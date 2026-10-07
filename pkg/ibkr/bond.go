@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -71,8 +72,12 @@ type BondContractDetails struct {
 	CUSIPField string
 	Coupon     float64
 	// Maturity is YYYYMMDD; IssueDate is as sent (YYYYMMDD when present).
-	Maturity   string
-	IssueDate  string
+	Maturity  string
+	IssueDate string
+	// Ratings is the frame's ratings field as sent; IBKR documents it as
+	// not delivered for bonds, so it is kept to show what arrives, never
+	// read for a decision.
+	Ratings    string
 	BondType   string
 	CouponType string
 	DescAppend string
@@ -93,6 +98,11 @@ type BondContractDetails struct {
 	MinSize        float64
 	SizeIncrement  float64
 	Complete       bool
+	// FactorPriced is set when IBKR answered the request with notice 2130
+	// ("trading on the basis of currency price with factor"): the line's
+	// price applies to a factored principal, as on an inflation-linked
+	// bond, so face × price / 100 is not its value.
+	FactorPriced bool
 }
 
 // ISIN is the contract's ISIN when the broker named one: the secIdList
@@ -665,8 +675,12 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 	attempt.ReqID = reqID
 	frames := &bondFrameLog{}
 	defer func() { attempt.Frames, attempt.FramesOmitted = frames.snapshot() }()
+	var factorPriced atomic.Bool
 	record := func(f BondLookupFrame) {
 		frames.add(f)
+		if f.Kind == BondFrameError && isBondFactorNotice(f.Code, f.Note) {
+			factorPriced.Store(true)
+		}
 		if f.contract() && !f.Line {
 			c.logWarn("bond lookup reqID %d (%s): %s", reqID, form.label, f)
 			return
@@ -774,11 +788,28 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 			if len(out) == 0 {
 				return nil, attempt, fmt.Errorf("%w: %s", ErrBondContractNotFound, frames.emptyNote())
 			}
+			if factorPriced.Load() {
+				for i := range out {
+					out[i].FactorPriced = true
+				}
+			}
 			return out, attempt, nil
 		case <-fetchCtx.Done():
 			return nil, attempt, fetchCtx.Err()
 		}
 	}
+}
+
+// bondFactorNoticeCode is the notice IBKR sends with the contract details
+// of a factor-priced line (live read 2026-10-06 of an inflation-linked
+// Bund: "Warning: DBRI product is trading on the basis of currency price
+// with factor").
+const bondFactorNoticeCode = 2130
+
+// isBondFactorNotice reports whether a notice on a bond request says the
+// line is factor-priced: its code, or, should IBKR renumber it, its text.
+func isBondFactorNotice(code int, text string) bool {
+	return code == bondFactorNoticeCode || strings.Contains(strings.ToLower(text), "price with factor")
 }
 
 // Bond yield tick types. IBKR sends a bond's yields as price ticks: 50–52

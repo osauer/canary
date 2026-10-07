@@ -1000,11 +1000,17 @@ func retiredTradingLimitMessage(key string) string {
 // force and its reason says how it is bound.
 func tradingLimitSettingsFrom(l risk.OrderLimitsInForce) rpc.TradingLimitSettings {
 	reason := "risk-policy.toml [order_limits]: " + l.Summary
+	optionUnset := slices.Contains(l.Missing, risk.OrderLimitsTable+"."+risk.OrderLimitMaxOptionContracts)
+	options := settingsInt(l.MaxOptionContracts, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason)
+	options.Unset = optionUnset
+	bond := settingsInt(l.MaxBondMaturityYears, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason)
+	bond.Unset = l.BondMaturityUnset
 	return rpc.TradingLimitSettings{
 		MaxNotional:           settingsFloat(l.CapBase, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
-		MaxOptionContracts:    settingsInt(l.MaxOptionContracts, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
+		MaxOptionContracts:    options,
 		AllowStockShort:       settingsBool(l.AllowStockShort, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
 		AllowOptionSellToOpen: settingsBool(l.AllowOptionSellToOpen, rpc.SettingsAccessRead, rpc.SettingsSourcePolicy, reason),
+		MaxBondMaturityYears:  bond,
 	}
 }
 

@@ -61,12 +61,13 @@ integer you raise on each revision.
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
-| `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, and whether an order may open a stock short or sell an option to open. Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
+| `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`, `max_bond_maturity_years` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, whether an order may open a stock short or sell an option to open, and the longest maturity a bond or bill buy may have. Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
 sit in `(0, 100]`, `warn_consumed_pct` must be below `block_consumed_pct`,
 `declared_risk_capital` must be positive, `protected_floor` must not be
-negative, and `max_order_floor_base` must not exceed `max_order_ceiling_base`.
+negative, `max_order_floor_base` must not exceed `max_order_ceiling_base`, and
+`max_bond_maturity_years` must lie between 1 and 100.
 Choosing the values inside those bounds is your decision alone.
 
 `canary policy show --explain` is the field inventory: it prints every key with

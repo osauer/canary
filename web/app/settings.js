@@ -81,21 +81,26 @@ function tradingStatusSettingsLabel(trading = {}, status = {}) {
 function tradingLimitSummary(limits = {}) {
   const notional = limits.max_notional?.value;
   const optionQty = limits.max_option_contracts?.value;
+  const bondYears = limits.max_bond_maturity_years?.value;
   const parts = [];
   // The order cap in force (risk-policy.toml [order_limits]) is stated in
   // the account currency, so label it with the account base, never a fixed USD.
   if (typeof notional === "number") parts.push(money(notional, accountBaseCurrency(state.snapshot?.account || {})));
-  if (typeof optionQty === "number") parts.push(`${optionQty} opt`);
+  if (limits.max_option_contracts?.unset) parts.push("options not set");
+  else if (typeof optionQty === "number") parts.push(`${optionQty} opt`);
+  // "30y bond" reads as a position; the limit reads as a bound on bonds.
+  if (limits.max_bond_maturity_years?.unset) parts.push("bonds not set");
+  else if (typeof bondYears === "number" && bondYears > 0) parts.push(`bonds ≤ ${bondYears} years`);
   return parts.join(" / ") || "--";
 }
 
 // The meta line says what the figures ARE before saying who may change them:
 // a bare "€10,000.00 / 5 opt" reads as an unexplained number otherwise.
 function tradingLimitMeta(limits = {}) {
-  const fields = [limits.max_notional, limits.max_option_contracts, limits.allow_stock_short, limits.allow_option_sell_to_open].filter(Boolean);
+  const fields = [limits.max_notional, limits.max_option_contracts, limits.allow_stock_short, limits.allow_option_sell_to_open, limits.max_bond_maturity_years].filter(Boolean);
   const writable = fields.some((field) => field.access === "write");
   const firstReason = fields.map((field) => field.reason).find(Boolean);
-  const meaning = "Per-order caps: notional / option contracts";
+  const meaning = "Per-order caps: notional / option contracts / bond maturity (buys)";
   if (writable) return `${meaning} · runtime overrides writable`;
   return firstReason ? `${meaning} · ${firstReason}` : `${meaning} · config/build controlled`;
 }

@@ -11,6 +11,11 @@ Capabilities   preview=true write=true
 Freeze         off (generation 3)
 Open orders    2
 Last event     order 1 Submitted
+Order cap      12,000 EUR (5% of NLV 240,000 EUR; [order_limits])
+Option qty cap 5 contracts
+Stock short    false
+Option STO     false
+Bond maturity, buys at most 30 years
 
 # canary trading status · COLUMNS=80 · colour on, ESC written as \x1b
 
@@ -25,4 +30,9 @@ Canary Trading  \x1b[32m\x1b[1mREADY\x1b[0m\x1b[0m
 \x1b[2mFreeze        \x1b[0m off (generation 3)
 \x1b[2mOpen orders   \x1b[0m 2
 \x1b[2mLast event    \x1b[0m order 1 Submitted
+\x1b[2mOrder cap     \x1b[0m 12,000 EUR (5% of NLV 240,000 EUR; [order_limits])
+\x1b[2mOption qty cap\x1b[0m 5 contracts
+\x1b[2mStock short   \x1b[0m false
+\x1b[2mOption STO    \x1b[0m false
+\x1b[2mBond maturity, buys\x1b[0m at most 30 years
 

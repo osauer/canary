@@ -87,6 +87,7 @@ max_order_ceiling_base = 100000.0
 max_option_contracts = 5
 allow_stock_short = false
 allow_option_sell_to_open = false
+max_bond_maturity_years = 30
 `
 
 type pcFiles struct {

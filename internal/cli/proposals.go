@@ -882,7 +882,7 @@ func renderProposalOrderPreview(env *Env, out io.Writer, p *rpc.TradeProposalOrd
 	}
 	statusRow(env, out, "Draft", formatOrderDraftSummary(p.Draft))
 	statusRow(env, out, "Notional", fmt.Sprintf("%.2f", p.Notional))
-	statusRow(env, out, "Position", fmt.Sprintf("%.4g -> %.4g (%s)", p.Position.Before, p.Position.After, p.Position.Effect))
+	statusRow(env, out, "Position", formatPositionChange(p.Position.Before, p.Position.After, p.Position.Effect))
 	statusRow(env, out, "Quote", formatOrderPreviewQuote(p.Quote))
 	renderProtectionRiskFields(env, out, p.Draft.Trail, p.Draft.TIF, p.Draft.Contract.Currency, p.ExecutionSemantics, p.StopRisk, nil)
 	statusRow(env, out, "WhatIf", fmt.Sprintf("%s (required=%v)", p.WhatIf.Status, p.WhatIf.RequiredForSubmit))

@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -71,13 +73,25 @@ func runOrderPreview(ctx context.Context, env *Env, args []string) int {
 	market := fs.String("market", "", "stock market routing shortcut: us (default) or de")
 	exchange := fs.String("exchange", "", "IBKR stock exchange/venue override (e.g. SMART, IBIS)")
 	primary := fs.String("primary", "", "IBKR stock primary-exchange hint when routing through SMART")
-	currency := fs.String("currency", "", "stock quote/order currency override (e.g. USD, EUR)")
+	currency := fs.String("currency", "", "stock quote/order currency override (e.g. USD, EUR); required for a bond")
+	secType := fs.String("type", "", "BOND or BILL: name a bond by ISIN or CUSIP and give its face amount instead of a quantity")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
 	rest := fs.Args()
 	if len(rest) > 0 && rest[0] == "preview" {
 		rest = rest[1:]
+	}
+	if t := strings.ToUpper(strings.TrimSpace(*secType)); t != "" {
+		var stockFlags []string
+		fs.Visit(func(f *flag.Flag) {
+			switch f.Name {
+			case "type", "currency", "json", "timeout", "strategy":
+			default:
+				stockFlags = append(stockFlags, "--"+f.Name)
+			}
+		})
+		return runBondOrderPreview(ctx, env, t, rest, *currency, *strategy, *timeout, *jsonOut, stockFlags)
 	}
 	if len(rest) != 3 && len(rest) != 6 {
 		return fail(env, "order preview: usage is `canary order preview buy|sell SYMBOL QTY` or `canary order preview buy|sell SYMBOL YYYYMMDD C|P STRIKE QTY`")
@@ -185,6 +199,44 @@ func runOrderPreview(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "order preview: %v", err)
 	}
 	if *jsonOut {
+		return printJSON(env, res)
+	}
+	renderOrderPreviewText(env, &res)
+	return 0
+}
+
+// runBondOrderPreview previews a bill or bond named by ISIN or CUSIP with a
+// face amount in its currency (internal-docs/design/bond-orders.md). The
+// daemon resolves the line, admits a buy on issuer evidence and prices a
+// patient limit; the CLI only names the bond.
+func runBondOrderPreview(ctx context.Context, env *Env, secType string, rest []string, currency, strategy string, timeout time.Duration, jsonOut bool, stockFlags []string) int {
+	const usage = "order preview: usage is `canary order preview buy|sell ISIN|CUSIP FACE --type BOND|BILL --currency CCY`"
+	switch {
+	case secType != "BOND" && secType != "BILL":
+		return fail(env, "order preview: --type is BOND or BILL")
+	case len(rest) != 3:
+		return fail(env, usage)
+	case len(stockFlags) > 0:
+		return fail(env, "order preview: %s do not apply to a bond; a bond order is a patient limit in the bond's own session", strings.Join(stockFlags, ", "))
+	case strings.TrimSpace(currency) == "":
+		return fail(env, "order preview: a bond order needs the bond's currency (--currency USD, EUR, GBP or CAD)")
+	}
+	face, err := strconv.ParseFloat(strings.ReplaceAll(rest[2], ",", ""), 64)
+	if err != nil || face <= 0 || math.IsInf(face, 0) {
+		return fail(env, "order preview: the face amount must be a positive number in the bond's currency")
+	}
+	params := rpc.OrderPreviewParams{
+		Action:    strings.ToUpper(strings.TrimSpace(rest[0])),
+		Contract:  rpc.ContractParams{SecType: secType, Currency: strings.ToUpper(strings.TrimSpace(currency))},
+		BondOrder: &rpc.OrderBondRequest{Identifier: strings.ToUpper(strings.TrimSpace(rest[1])), Face: face},
+		Strategy:  strings.TrimSpace(strategy),
+		TimeoutMs: int(timeout.Milliseconds()),
+	}
+	var res rpc.OrderPreviewResult
+	if err := env.Conn.Call(ctx, rpc.MethodOrderPreview, params, &res); err != nil {
+		return fail(env, "order preview: %v", err)
+	}
+	if jsonOut {
 		return printJSON(env, res)
 	}
 	renderOrderPreviewText(env, &res)
@@ -312,15 +364,20 @@ func renderOrderPreviewText(env *Env, res *rpc.OrderPreviewResult) {
 	statusRow(env, out, "Endpoint", fmt.Sprintf("%s client %d", res.Endpoint, res.ClientID))
 	statusRow(env, out, "Draft", formatOrderDraftSummary(res.Draft))
 	statusRow(env, out, "Strategy", res.Draft.Strategy)
-	notional := fmt.Sprintf("%.2f", res.Notional)
-	if res.NotionalCurrency != "" {
-		notional += " " + res.NotionalCurrency
+	if b := res.Draft.Bond; b != nil {
+		statusRow(env, out, "Bond", formatOrderBondIdentity(b))
+		statusRow(env, out, "Value", formatOrderBondValue(res.Draft))
+	}
+	// One figure, one format: the house money format, as in the Value row.
+	notional := risk.FormatOrderMoney(res.Notional, res.NotionalCurrency)
+	if b := res.Draft.Bond; b != nil && b.AccruedBound > 0 {
+		notional += " (price plus the most accrued interest; what the order cap checks)"
 	}
 	statusRow(env, out, "Notional", notional)
 	if res.BaseCurrency != "" {
-		statusRow(env, out, "Notional (base)", fmt.Sprintf("%.2f %s", res.NotionalBase, res.BaseCurrency))
+		statusRow(env, out, "Notional (base)", risk.FormatOrderMoney(res.NotionalBase, res.BaseCurrency))
 	}
-	statusRow(env, out, "Position", fmt.Sprintf("%.4g -> %.4g (%s)", res.Position.Before, res.Position.After, res.Position.Effect))
+	statusRow(env, out, "Position", formatPositionChange(res.Position.Before, res.Position.After, res.Position.Effect))
 	statusRow(env, out, "Quote", formatOrderPreviewQuote(res.Quote))
 	statusRow(env, out, "WhatIf", fmt.Sprintf("%s (required=%v)", res.WhatIf.Status, res.WhatIf.RequiredForSubmit))
 	statusRow(env, out, "Token minted", fmt.Sprint(res.TokenMinted))
@@ -372,6 +429,72 @@ func renderOrderModifyText(env *Env, res *rpc.OrderModifyResult) {
 		statusRow(env, out, "Message", res.Message)
 	}
 	fmt.Fprintln(out)
+}
+
+// orderBondEvidenceWords says in words which source admitted a bond buy.
+var orderBondEvidenceWords = map[string]string{
+	"treasurydirect":      "confirmed by TreasuryDirect",
+	"ecb_eligible_assets": "on the ECB eligible list",
+	"openfigi":            "confirmed by OpenFIGI and IBKR",
+}
+
+// formatOrderBondIdentity names a bond order's line and, for a buy, the
+// issuer evidence that admitted it: "Synthetic Republic · government, on
+// the ECB eligible list (6 Oct 2026) · matures 2036-02-15 · coupon 2.5%".
+func formatOrderBondIdentity(b *rpc.OrderBondTerms) string {
+	var parts []string
+	if id := nonEmpty(b.ISIN, b.CUSIP); id != "" {
+		parts = append(parts, id)
+	}
+	if b.Issuer != "" {
+		parts = append(parts, b.Issuer)
+	}
+	if b.IssuerClass != "" {
+		class := strings.ReplaceAll(b.IssuerClass, "_", " ")
+		if source := orderBondEvidenceWords[b.EvidenceSource]; source != "" {
+			class += ", " + source
+		} else if b.EvidenceSource != "" {
+			class += ", per " + b.EvidenceSource
+		}
+		if !b.EvidenceAsOf.IsZero() {
+			class += " (" + b.EvidenceAsOf.UTC().Format("2 Jan 2006") + ")"
+		}
+		parts = append(parts, class)
+	}
+	if b.Maturity != "" {
+		parts = append(parts, "matures "+b.Maturity)
+	}
+	if b.Coupon != nil {
+		parts = append(parts, "coupon "+strconv.FormatFloat(*b.Coupon, 'f', -1, 64)+"%")
+	}
+	return strings.Join(parts, " · ")
+}
+
+// formatOrderBondValue states a bond order in face and price per 100, with a
+// buy's bound on accrued interest: "25,000 USD face at 98.42 per 100 =
+// 24,605 USD, plus accrued interest up to 1,250 USD".
+func formatOrderBondValue(d rpc.OrderDraft) string {
+	b, ccy := d.Bond, d.Contract.Currency
+	face := nonZero(b.FaceValue, float64(d.Quantity)*b.FacePerUnit)
+	clean := face * d.LimitPrice / 100
+	out := fmt.Sprintf("%s face at %s per 100 = %s", risk.FormatOrderMoney(face, ccy), strconv.FormatFloat(d.LimitPrice, 'f', -1, 64), risk.FormatOrderMoney(clean, ccy))
+	if b.AccruedBound > 0 {
+		out += ", plus accrued interest up to " + risk.FormatOrderMoney(b.AccruedBound, ccy)
+	}
+	return out
+}
+
+// formatPositionChange renders a before -> after position with every digit:
+// a bond's face quantity of 10,000 must not read "1e+04".
+func formatPositionChange(before, after float64, effect string) string {
+	return fmt.Sprintf("%s -> %s (%s)", strconv.FormatFloat(before, 'f', -1, 64), strconv.FormatFloat(after, 'f', -1, 64), effect)
+}
+
+func nonZero(v, fallback float64) float64 {
+	if v != 0 {
+		return v
+	}
+	return fallback
 }
 
 func formatOrderDraftSummary(draft rpc.OrderDraft) string {

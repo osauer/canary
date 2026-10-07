@@ -775,6 +775,7 @@ Guard `read-only`, with `confirm` subcommands. Also available as an MCP tool.
 
 ```text
 canary order preview buy|sell SYMBOL QTY [--limit PRICE|--order-type TRAIL --trail-percent PCT] [--json]
+canary order preview buy|sell ISIN|CUSIP FACE --type BOND|BILL --currency CCY [--json]
 canary order status ID [--json]
 canary order place --preview-token TOKEN [--json]
 canary order modify ID --preview-token TOKEN [--json]
@@ -811,6 +812,7 @@ canary order cancel ID [--json]
 | `--exchange` | yes | - |
 | `--primary` | yes | - |
 | `--currency` | yes | - |
+| `--type` | yes | `BOND`, `BILL` |
 | `--preview-token` | yes | - |
 | `--json` | no | - |
 

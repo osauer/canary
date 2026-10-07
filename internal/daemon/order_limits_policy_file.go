@@ -17,7 +17,8 @@ import (
 // The ensure step (daemon start, canary policy ensure) writes the table from
 // today's effective values: each key
 // config.toml sets, else the compiled value [trading] used to fall back to,
-// plus the new scaled-cap keys. The compiled numbers below exist solely to be
+// plus the new scaled-cap keys and the bond maturity limit (owner decision
+// 2026-10-06 20:17 CEST). The compiled numbers below exist solely to be
 // written into the file; the trading gate reads the file only.
 
 // Compiled order-limit values, for writing only.
@@ -26,6 +27,10 @@ const (
 	orderLimitsWritePctNLV      = 5.0
 	orderLimitsWriteCeilingBase = 100000.0
 	orderLimitsWriteOptionQty   = 5
+	// orderLimitsWriteBondMaturityYears is the owner's answer to decision B2
+	// of internal-docs/design/bond-orders.md (2026-10-06 20:17 CEST, "30
+	// years"): the longest maturity a bond or bill buy may have.
+	orderLimitsWriteBondMaturityYears = 30
 )
 
 // orderLimitsWriteValue is one [order_limits] key with the value policy
@@ -44,6 +49,7 @@ func orderLimitsWriteValues(src config.Trading, srcRead bool) []orderLimitsWrite
 	}
 	fromConfig := "config.toml [trading].%s"
 	decided := "owner decision 2026-10-05 19:56 CEST"
+	bondDecided := "owner decision 2026-10-06 20:17 CEST"
 
 	floor, floorFrom := orderLimitsWriteFloorBase, fmt.Sprintf(compiled, "max_notional")
 	if v := src.MaxNotional; v != nil && *v > 0 && !math.IsInf(*v, 0) && !math.IsNaN(*v) {
@@ -72,6 +78,7 @@ func orderLimitsWriteValues(src config.Trading, srcRead bool) []orderLimitsWrite
 		{risk.OrderLimitMaxOptionContracts, strconv.Itoa(option), optionFrom},
 		{risk.OrderLimitAllowStockShort, strconv.FormatBool(short), shortFrom},
 		{risk.OrderLimitAllowOptionSellToOpen, strconv.FormatBool(sto), stoFrom},
+		{risk.OrderLimitMaxBondMaturityYears, strconv.Itoa(orderLimitsWriteBondMaturityYears), bondDecided},
 	}
 }
 
@@ -83,7 +90,8 @@ var orderLimitsTableComment = []string{
 	"# and is the floor whenever NLV cannot be read. Amounts are in the account",
 	"# base currency. A missing key refuses every order preview. A one-shot",
 	"# `canary policy override --control order_limits.max_order_floor_base` lifts",
-	"# the floor to the ceiling until it expires.",
+	"# the floor to the ceiling until it expires. max_bond_maturity_years is the",
+	"# longest maturity, in whole years from today, a bond or bill buy may have.",
 }
 
 // orderLimitsTemplateBlock renders the [order_limits] table of a new
@@ -158,5 +166,6 @@ func orderLimitsPreserved(before, after *risk.ConstitutionOrderLimits) bool {
 	sameB := func(a, b *bool) bool { return a == nil || (b != nil && *a == *b) }
 	return sameF(before.MaxOrderFloorBase, after.MaxOrderFloorBase) && sameF(before.MaxOrderPctNLV, after.MaxOrderPctNLV) &&
 		sameF(before.MaxOrderCeilingBase, after.MaxOrderCeilingBase) && sameI(before.MaxOptionContracts, after.MaxOptionContracts) &&
-		sameB(before.AllowStockShort, after.AllowStockShort) && sameB(before.AllowOptionSellToOpen, after.AllowOptionSellToOpen)
+		sameB(before.AllowStockShort, after.AllowStockShort) && sameB(before.AllowOptionSellToOpen, after.AllowOptionSellToOpen) &&
+		sameI(before.MaxBondMaturityYears, after.MaxBondMaturityYears)
 }

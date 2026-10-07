@@ -30,6 +30,9 @@ type cashSweepBonds struct {
 	// source replaces the bill source the proposal engine reads; nil reads
 	// the daemon's own (tests set it).
 	source cashSweepBillSource
+	// evidence holds the issuer sources a user bond buy is admitted by
+	// (bond_evidence.go).
+	evidence *bondEvidenceSources
 }
 
 const (
@@ -220,7 +223,9 @@ func (s *Server) bondSupport() *cashSweepBonds {
 				if c == nil {
 					return nil, nil, ibkrlib.ErrIBKRUnavailable
 				}
-				return c.BondContractDetailsTraced(ctx, r, bondDetailsWait)
+				lines, trace, err := c.BondContractDetailsTraced(ctx, r, bondDetailsWait)
+				s.bondEvidenceSupport().noteFactorPriced(lines)
+				return lines, trace, err
 			},
 			quote: func(ctx context.Context, line ibkrlib.BondContractDetails) (rpc.BondQuote, error) {
 				return s.quoteBondLine(ctx, line, bondQuoteTimeout)
@@ -328,7 +333,7 @@ func bondClassOf(line ibkrlib.BondContractDetails) string {
 
 // bondContractView is the wire view of a line; today dates days to maturity.
 func bondContractView(line ibkrlib.BondContractDetails, today time.Time) rpc.BondContract {
-	out := rpc.BondContract{ConID: line.ConID, Symbol: line.Symbol, SecType: line.SecType, ISIN: line.ISIN(), CUSIP: line.CUSIP(), Issuer: nonEmptyString(line.LongName, line.DescAppend),
+	out := rpc.BondContract{ConID: line.ConID, Symbol: line.Symbol, SecType: line.SecType, ISIN: line.ISIN(), CUSIP: line.CUSIP(), Issuer: nonEmptyString(line.LongName, line.DescAppend), Ratings: strings.TrimSpace(line.Ratings),
 		Class: bondClassOf(line), Currency: line.Currency, Exchange: line.Exchange, PriceConvention: rpc.BondPriceConventionPer100}
 	if maturity, ok := line.MaturityDate(); ok {
 		out.Maturity = maturity.Format(time.DateOnly)

@@ -75,7 +75,7 @@ func TestRenderOrderPreviewShowsTokenAndSubmitEligibility(t *testing.T) {
 		"Submit eligible false",
 		"WhatIf         unavailable (required=true)",
 		"Token ID       tok_123",
-		"Notional       1001.20 USD",
+		"Notional       1,001.20 USD",
 		"Notional (base) 921.10 EUR",
 	} {
 		if !strings.Contains(got, want) {

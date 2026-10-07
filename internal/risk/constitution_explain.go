@@ -244,6 +244,7 @@ func orderLimitRows(c *Constitution, cur string, get func(key, value, source, me
 	optVal, optSrc := str(o.MaxOptionContracts != nil, func() string { return strconv.Itoa(*o.MaxOptionContracts) + " contracts" })
 	shortVal, shortSrc := str(o.AllowStockShort != nil, func() string { return strconv.FormatBool(*o.AllowStockShort) })
 	stoVal, stoSrc := str(o.AllowOptionSellToOpen != nil, func() string { return strconv.FormatBool(*o.AllowOptionSellToOpen) })
+	bondVal, bondSrc := str(o.MaxBondMaturityYears != nil, func() string { return strconv.Itoa(*o.MaxBondMaturityYears) + " years" })
 	row := func(key, value, source, meaning string) ConstitutionLimit {
 		if source == "unapproved" {
 			meaning += " Not written: every order preview is refused until it is."
@@ -263,5 +264,7 @@ func orderLimitRows(c *Constitution, cur string, get func(key, value, source, me
 			"Whether a stock or ETF order may open or flip a short. An apparent sell exit counts as opening a short, except an exempt protective stop."),
 		row(OrderLimitsTable+"."+OrderLimitAllowOptionSellToOpen, stoVal, stoSrc,
 			"Whether an option order may sell to open."),
+		row(OrderLimitsTable+"."+OrderLimitMaxBondMaturityYears, bondVal, bondSrc,
+			"Longest time to maturity, in whole years from today, a bond or bill buy may have; a buy maturing later is refused. Sells are never limited by it."),
 	}
 }
