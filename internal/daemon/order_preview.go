@@ -497,6 +497,11 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		// A buy named by identifier also pays accrued interest, bounded by
 		// one year of coupon (zero on a sweep row and on a sale).
 		notional = bondOrderNotional(p.Quantity, bondTerms, limit) + bondTerms.AccruedBound
+		if action == rpc.OrderActionBuy {
+			if err := bondBuyYieldRefusal(limit, bondTerms, s.orderNow()); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	now := time.Now().UTC()

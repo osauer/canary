@@ -58,7 +58,12 @@ type BondContract struct {
 	Issuer  string `json:"issuer,omitempty"`
 	// Ratings is IBKR's ratings field as sent, when it sends one; shown, never
 	// read for a decision.
-	Ratings        string   `json:"ratings,omitempty"`
+	Ratings string `json:"ratings,omitempty"`
+	// TradingClass and MarketName are IBKR's as sent: the only fields that
+	// may carry IBKR's own symbol for a bond, whose symbol field arrives
+	// empty. Shown, never read for a decision.
+	TradingClass   string   `json:"trading_class,omitempty"`
+	MarketName     string   `json:"market_name,omitempty"`
 	Class          string   `json:"class"`
 	Currency       string   `json:"currency"`
 	Exchange       string   `json:"exchange,omitempty"`
