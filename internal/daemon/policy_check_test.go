@@ -39,7 +39,8 @@ policy_version = 1
 
 // pcSweep is an enabled, active cash sweep on the reserve design: every
 // sizing number written, a cap in force of 9,000 EUR (max_order_notional
-// beats 1% of 200,000), economic and NLV-proportionate against pcBook.
+// beats 1% of 200,000), economic and NLV-proportionate against pcBook, with
+// one synthetic EUR bill listed so the sweep has something to buy.
 const pcSweep = `
 [cash.sweep]
 enabled = true
@@ -56,6 +57,7 @@ no_buy_while_borrowed = true
 [cash.sweep.currency.EUR]
 instruments = ["de_bubill"]
 fallback = "none"
+isins = ["` + synthDEBill + `"]
 keep_cash = 6000.0
 min_maturity_days = 91
 
@@ -351,7 +353,11 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")
-			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended"},
+			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "That is intended: bills may pass the order cap"},
+		{name: "a sweep currency with no bills listed and no usable ETF", rule: "sweep_nothing_to_buy", severity: rpc.PolicyCheckWarn,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.protection = replace(f.protection, "isins = [\""+synthDEBill+"\"]\n", "")
+			}, contains: "EUR has nothing to buy"},
 	}
 	covered := map[string]bool{}
 	for _, tc := range cases {
@@ -472,6 +478,63 @@ func TestPolicyCheckNumberFormatting(t *testing.T) {
 		if got := policyCheckNumber(v); got != want {
 			t.Errorf("policyCheckNumber(%v) = %q, want %q", v, got, want)
 		}
+	}
+}
+
+// Where a rule's CLI text names file keys and cents, the finding carries the
+// sentence the Settings screen shows instead (Screen): the screen's labels,
+// whole units in the screen's money format, and what the owner can do there.
+// The CLI message keeps its words, and cashPolicyFindings prefers the
+// sentence.
+func TestPolicyCheckScreenSentencesReachTheSettingsScreen(t *testing.T) {
+	exempt := func(f *pcFiles) {
+		f.protection = strings.Replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash", 1)
+	}
+	for _, tc := range []struct {
+		name, rule string
+		edit       func(*pcFiles, *PolicyCheckInput)
+		screen     string
+		// cli is a fragment the CLI message keeps.
+		cli string
+	}{
+		{"exemption used, whole units", "sweep_cap_exempt", func(f *pcFiles, in *PolicyCheckInput) { exempt(f); in.Book.NetLiquidation = 255559 },
+			"Bill orders may go up to 15,000 EUR; all other sweep and leveling orders stay within the 12,778 EUR order cap.", "That is intended: bills may pass the order cap"},
+		{"exemption not used", "sweep_cap_exempt", func(f *pcFiles, _ *PolicyCheckInput) {
+			f.protection = strings.Replace(f.protection, "no_buy_while_borrowed = true\n", "no_buy_while_borrowed = true\nbills_exempt_from_trading_max_notional = true\n", 1)
+		}, "The sweep's largest order is within the order cap now, so this switch changes nothing.", "the exemption is not used"},
+		{"order entry off for the sweep and leveling", "order_entry_off_for_active_bucket", func(_ *pcFiles, in *PolicyCheckInput) { in.Trading.Mode = config.TradingModeDisabled },
+			"Order entry is off in Canary, so sweep orders and leveling repayments can never be placed. Set Orders to Observe only and switch Currency leveling off, or turn order entry on.", "can never be placed"},
+		{"order entry off for the sweep alone", "order_entry_off_for_active_bucket", func(f *pcFiles, in *PolicyCheckInput) {
+			in.Trading.Mode = config.TradingModeDisabled
+			f.protection = strings.Replace(f.protection, pcLeveling, "", 1)
+		}, "Order entry is off in Canary, so sweep orders can never be placed. Set Orders to Observe only, or turn order entry on.", "[cash.sweep].mode = active"},
+		// A currency kept as cash on purpose is no gap.
+		{"nothing to buy in one currency", "sweep_nothing_to_buy", func(f *pcFiles, _ *PolicyCheckInput) {
+			f.protection = strings.Replace(f.protection, "isins = [\""+synthDEBill+"\"]\n", "", 1) + "\n[cash.sweep.currency.GBP]\ninstruments = [\"none\"]\n"
+		}, "Nothing to buy in EUR: the policy file lists no bills or fallback ETF for it, so it stays in cash.", "no isins are listed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := pcClean()
+			in := pcInput(t, f)
+			tc.edit(&f, &in)
+			in.Files = pcWrite(t, f)
+			r := CheckPolicy(in)
+			got, ok := pcFinding(r, tc.rule)
+			if !ok {
+				t.Fatalf("rule %s did not fire; got %v", tc.rule, pcRules(r))
+			}
+			if got.Screen != tc.screen {
+				t.Fatalf("screen sentence %q, want %q", got.Screen, tc.screen)
+			}
+			if !strings.Contains(got.Message, tc.cli) {
+				t.Fatalf("CLI message %q lost %q", got.Message, tc.cli)
+			}
+			shown := cashPolicyFindings(r)
+			i := slices.IndexFunc(shown, func(x rpc.CashPolicyFinding) bool { return x.Rule == tc.rule })
+			if i < 0 || shown[i].Text != tc.screen {
+				t.Fatalf("the settings screen reads %+v, want %q", shown, tc.screen)
+			}
+		})
 	}
 }
 

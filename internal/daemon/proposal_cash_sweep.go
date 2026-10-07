@@ -1115,7 +1115,6 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 		in.PlanningSessionEpoch = e.server.connectorEpoch
 		e.server.mu.Unlock()
 	}
-	in.Holdings, in.Unclassified = cashSweepClassify(policy.Cash.Sweep, pos)
 	in.Settlement = e.cashSweepSettlement(scope, now)
 	in.Commitments = e.cashSweepCommitments(ctx, scope)
 	// Broker reads can finish after the refresh's planning timestamp. Check
@@ -1124,7 +1123,7 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 	if e.server != nil {
 		cashNow = e.server.nowUTC()
 	}
-	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, cashNow)
+	cashSweepReadCash(&in, policy.Cash.Sweep, acct, pos, cashNow)
 	in.NLVBase = cashSweepNLV(acct)
 	in.PlannedNeeds = cashSweepPlannedNeeds{Reason: cashSweepPlannedNeedsUnavailable}
 	e.server.cashLedgerValidatePlanning(acct, scope, &in, cashNow)
@@ -1133,6 +1132,17 @@ func (e *proposalEngine) cashSweepInput(ctx context.Context, policy protectionPo
 		in.OperationalFunding, in.CalibrationStudies = e.observeCashSweepFunding(acct, pos, scope, in, cashNow)
 	}
 	return in
+}
+
+// cashSweepReadCash fills the cash part of the planner's input from the
+// account and positions reads: the account ledger as the sweep reads it
+// (cashSweepLedgerAt) and the classified cash equivalents per currency
+// (cashSweepClassify). Every reader of the sweep's cash shares it: the
+// proposal engine, the brief's cash row and the cash settings facts, so they
+// list the same currencies (cashSweepCurrencies) and read the same balances.
+func cashSweepReadCash(in *cashSweepInput, bucket *protectionCashSweepPolicy, acct *rpc.AccountResult, pos *rpc.PositionsResult, now time.Time) {
+	in.Holdings, in.Unclassified = cashSweepClassify(bucket, pos)
+	in.BaseCurrency, in.Ledger, in.LedgerReason = cashSweepLedgerAt(acct, now)
 }
 
 // cashSweepNLV is the account's net liquidation value in base currency from

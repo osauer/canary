@@ -19,6 +19,11 @@ type policyCheckHit struct {
 	keys       []rpc.PolicyCheckKey
 	message    string
 	suggestion string
+	// screen is the sentence a settings screen shows in place of message and
+	// suggestion where those name file keys or cents: the screen's labels,
+	// whole units (cashPolicyMoney), what the owner can do there. Empty when
+	// the message serves as it is.
+	screen string
 }
 
 // policyCheckRule is one catalogue entry.
@@ -94,6 +99,8 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "One unit of a held line is worth more than the order cap in force, so no reduction or exit order for it can pass the gate.", run: checkLotAboveTradingMax},
 	{id: "cap_without_fx_headroom", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryContradiction,
 		summary: "A cap sized in another currency sits within 2% of the order cap in force, so an FX move makes the gate refuse an order sized at the cap.", run: checkCapFXHeadroom},
+	{id: "sweep_nothing_to_buy", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryContradiction,
+		summary: "The cash sweep is enabled while a currency it would invest in lists no bills and has no usable ETF, so the sweep has nothing to buy there and its cash stays cash.", run: checkSweepNothingToBuy},
 	{id: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "A per-order cap is under 2% or over 50% of NLV.", run: checkOrderCapVsNLV},
 	{id: "order_cap_splits_reduction", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
@@ -385,21 +392,29 @@ func checkOrderEntryOff(c *policyCheckContext) []policyCheckHit {
 	if c.trading.OrderEntryEnabled() {
 		return nil
 	}
-	var active []string
+	// what and fixes build the screen's sentence for the cash rows: the
+	// orders that can never be placed and what the screen offers against it.
+	var active, what, fixes []string
 	if s := c.sweep(); s != nil && s.effectiveMode() == rpc.CashSweepModeActive {
 		active = append(active, "[cash.sweep].mode = active")
+		what, fixes = append(what, "sweep orders"), append(fixes, "set Orders to Observe only")
 	}
 	if b := c.protection.Buckets.BudgetReduction; b.enabled() && b.effectiveMode() == rpc.BudgetReductionModeActive {
 		active = append(active, "[buckets.budget_reduction].mode = active")
 	}
 	if l := c.protection.Cash.Leveling; l.enabled() {
 		active = append(active, "[cash.leveling].enabled = true")
+		what, fixes = append(what, "leveling repayments"), append(fixes, "switch Currency leveling off")
 	}
 	if pre := c.protection.Authority.PreAuthorised; len(pre) > 0 {
 		active = append(active, "[authority].pre_authorised = "+strings.Join(pre, ", "))
 	}
 	if pre := c.protection.Cash.PreAuthorised; len(pre) > 0 {
 		active = append(active, "[cash].pre_authorised = "+strings.Join(pre, ", "))
+		if !slices.Contains(what, "sweep orders") {
+			what = append([]string{"sweep orders"}, what...)
+		}
+		fixes = append(fixes, "empty pre_authorised in the file")
 	}
 	if len(active) == 0 {
 		return nil
@@ -409,9 +424,15 @@ func checkOrderEntryOff(c *policyCheckContext) []policyCheckHit {
 		k, v, _ := strings.Cut(a, " = ")
 		keys = append(keys, rpc.PolicyCheckKey{File: c.protectionSrc.label, Key: k, Value: v})
 	}
+	screen := ""
+	if len(what) > 0 {
+		fix := cashPolicyList(fixes)
+		screen = "Order entry is off in Canary, so " + cashPolicyList(what) + " can never be placed. " + strings.ToUpper(fix[:1]) + fix[1:] + ", or turn order entry on."
+	}
 	return []policyCheckHit{{keys: keys,
 		message:    fmt.Sprintf("Order entry is %s, yet %s: those rows are listed as ready and can never be placed.", c.trading.Mode, strings.Join(active, " and ")),
-		suggestion: "Set the bucket's mode to shadow (and empty pre_authorised) while order entry is off, or turn order entry on yourself."}}
+		suggestion: "Set the bucket's mode to shadow (and empty pre_authorised) while order entry is off, or turn order entry on yourself.",
+		screen:     screen}}
 }
 
 func checkSettlementRouteExpired(c *policyCheckContext) []policyCheckHit {
@@ -946,10 +967,58 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 	}
 	if !ok || capBase <= tradingCap {
 		return []policyCheckHit{{keys: []rpc.PolicyCheckKey{exempt},
-			message: "Bill orders are declared exempt from the order cap in force, but the sweep's cap in force is within it, so the exemption is not used."}}
+			message: "Bill orders are declared exempt from the order cap in force, but the sweep's cap in force is within it, so the exemption is not used.",
+			screen:  "The sweep's largest order is within the order cap now, so this switch changes nothing."}}
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
-		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
+		// Whole units, as the cash settings facts show the same two caps.
+		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s. That is intended: bills may pass the order cap up to the sweep's cap, while stocks, ETFs, the fallback ETF and conversions keep it.", policyCheckMoney(math.Round(capBase), c.base()), policyCheckMoney(math.Round(tradingCap), c.base())),
+		screen:  fmt.Sprintf("Bill orders may go up to %s; all other sweep and leveling orders stay within the %s order cap.", cashPolicyMoney(capBase, c.base()), cashPolicyMoney(tradingCap, c.base()))}}
+}
+
+// checkSweepNothingToBuy reports an enabled sweep with a currency that has
+// nothing to buy under the planner's own rules: the first instrument it can
+// plan with (cashSweepPlanInvest) is a bill other than US Treasury bills and
+// no isins are listed, which cashSweepResolveCurrency reads as
+// universe_unavailable before any search; the ETF fallback follows a
+// completed search of the listed bills, so it never applies to an empty
+// list. A currency declared none is kept as cash on purpose, and USD bills
+// come from TreasuryDirect's list.
+func checkSweepNothingToBuy(c *policyCheckContext) []policyCheckHit {
+	s := c.sweep()
+	if s == nil {
+		return nil
+	}
+	keys := []rpc.PolicyCheckKey{c.protectionKey("cash.sweep", "enabled", "true")}
+	var gaps, tables []string
+	etf := false
+	for _, ccy := range c.sweepCurrencies() {
+		cfg := s.currency(ccy)
+		plannable := cashSweepPlannable(cfg)
+		if len(plannable) == 0 || !cashSweepIsBill(plannable[0]) || plannable[0] == cashSweepInstrumentUSTBill || len(cfg.ISINs) > 0 {
+			continue
+		}
+		gaps, tables = append(gaps, ccy), append(tables, "[cash.sweep.currency."+ccy+"]")
+		keys = append(keys, c.sweepCurrencyKey(ccy, "isins", "none listed"))
+		etf = etf || slices.ContainsFunc(plannable, func(i string) bool { return !cashSweepIsBill(i) }) || (cfg.Fallback == cashSweepInstrumentETF && len(cfg.missingNumbers()) == 0)
+	}
+	if len(gaps) == 0 {
+		return nil
+	}
+	has, them, they, stay := "have", "them", "they", "stay"
+	if len(gaps) == 1 {
+		has, them, they, stay = "has", "it", "it", "stays"
+	}
+	// With a usable ETF declared the words say why it does not help.
+	noETF, screenETF, screenWhy := " and no ETF with its symbol and exchange is declared", " or fallback ETF", ""
+	if etf {
+		noETF, screenETF, screenWhy = "; an ETF is bought only after a search of the listed bills finds none", "", ", and an ETF is bought only after a search of the listed bills finds none"
+	}
+	return []policyCheckHit{{keys: keys,
+		message: fmt.Sprintf("[cash.sweep] is enabled, but %s %s nothing to buy: no isins are listed in %s%s, so the sweep reads universe_unavailable there and the cash above the float stays cash.",
+			cashPolicyList(gaps), has, cashPolicyJoin(tables, "or"), noETF),
+		suggestion: "List the bills the sweep may buy in isins (DE… de_bubill and FR… fr_btf for EUR, GB… uk_tbill for GBP, CA… ca_tbill for CAD), or set instruments = [\"none\"] for a currency you keep as cash on purpose.",
+		screen:     fmt.Sprintf("Nothing to buy in %s: the policy file lists no bills%s for %s%s, so %s %s in cash.", cashPolicyJoin(gaps, "or"), screenETF, them, screenWhy, they, stay)}}
 }
 
 // checkSweepBuysWhileBorrowed reports a sweep allowed to buy bills while a
