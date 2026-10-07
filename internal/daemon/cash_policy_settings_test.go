@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -988,6 +989,27 @@ func TestCashPolicyFindingsAreThePolicyCheckOnTheFileAndTheDraft(t *testing.T) {
 	for _, f := range append(snap.Findings, check.Findings...) {
 		if !slices.Contains(cashPolicyFindingRules, f.Rule) || len(f.Keys) == 0 || !strings.HasPrefix(f.Keys[0], "cash.") {
 			t.Fatalf("finding outside the cash rules %+v", f)
+		}
+	}
+}
+
+// With order entry off while the sweep proposes orders and leveling is on,
+// the order_entry_off_for_active_bucket error names the Orders row and the
+// leveling switch, so the screen shows why nothing can be placed.
+func TestCashPolicyFindingsReachTheOrderEntryOffRows(t *testing.T) {
+	in := pcInput(t, pcClean())
+	in.Trading.Mode = config.TradingModeDisabled
+	got := cashPolicyFindings(CheckPolicy(in))
+	i := slices.IndexFunc(got, func(f rpc.CashPolicyFinding) bool { return f.Rule == "order_entry_off_for_active_bucket" })
+	if i < 0 {
+		t.Fatalf("the order-entry-off error reaches no cash row: %+v", got)
+	}
+	if got[i].Severity != rpc.PolicyCheckError {
+		t.Fatalf("severity %q, want error", got[i].Severity)
+	}
+	for _, key := range []string{"cash.sweep.mode", "cash.leveling.enabled"} {
+		if !slices.Contains(got[i].Keys, key) {
+			t.Errorf("finding lacks %s: keys %v", key, got[i].Keys)
 		}
 	}
 }
