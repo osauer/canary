@@ -321,3 +321,38 @@ func TestProtectiveExitInventoryPairsCanarysOwnRows(t *testing.T) {
 		t.Fatalf("a stamped snapshot row with its unstamped journal row = %+v, want counted once (3)", inv)
 	}
 }
+
+// A snapshot row pairs with a journal row by PermID when both carry one;
+// without one, the session order id and client id pair them only for an
+// identical intent: the same contract, action and quantity. Session ids
+// repeat after a TWS id reset, so a same-id row on another contract or with
+// another quantity must not pair with a still-open unacknowledged row.
+func TestOpenOrderSnapshotEventMatchesPairsOnlyAnIdenticalIntent(t *testing.T) {
+	t.Parallel()
+	view := rpc.OrderView{OrderRef: "buy-recent", ReservedOrderID: 2002, ClientID: 31, Symbol: "SYNB", SecType: "OPT", ConID: deltaTestShortPuts, Action: rpc.OrderActionBuy, Quantity: 3}
+	row := func(conID int, action string, qty float64) ibkrlib.OrderLifecycleEvent {
+		return ibkrlib.OrderLifecycleEvent{Type: ibkrlib.OrderLifecycleEventOpenOrder, OrderID: 2002, PermID: 9001, ClientIDPresent: true, ClientID: 31,
+			Symbol: "SYNB", SecType: "OPT", ConID: conID, Action: action, TotalQuantity: qty, Remaining: qty}
+	}
+	if !openOrderSnapshotEventMatches(row(deltaTestShortPuts, rpc.OrderActionBuy, 3), view) {
+		t.Fatal("the stamped row with the same contract, action and quantity must pair by order id")
+	}
+	if openOrderSnapshotEventMatches(row(deltaTestLongCalls, rpc.OrderActionBuy, 3), view) {
+		t.Fatal("a same-id row on another contract paired: a reused session id mis-paired an unacknowledged send")
+	}
+	if openOrderSnapshotEventMatches(row(deltaTestShortPuts, rpc.OrderActionBuy, 4), view) {
+		t.Fatal("a same-id row with another quantity paired")
+	}
+	if openOrderSnapshotEventMatches(row(deltaTestShortPuts, rpc.OrderActionSell, 3), view) {
+		t.Fatal("a same-id row in the other direction paired")
+	}
+	stamped := view
+	stamped.PermID = 9001
+	if !openOrderSnapshotEventMatches(row(deltaTestLongCalls, rpc.OrderActionSell, 7), stamped) {
+		t.Fatal("matching PermIDs must pair whatever the row says")
+	}
+	bare := row(0, rpc.OrderActionBuy, 3)
+	if !openOrderSnapshotEventMatches(bare, view) {
+		t.Fatal("a row without a ConID on the same symbol, type, action and quantity must pair")
+	}
+}

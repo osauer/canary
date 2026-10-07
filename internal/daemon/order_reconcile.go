@@ -8,6 +8,8 @@ import (
 
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"math"
+	"strings"
 )
 
 // errOrderJournalHeadUnstable distinguishes "the journal kept advancing under
@@ -226,10 +228,13 @@ func (s *Server) snapshotOpenOrdersFrom(ctx context.Context, c *ibkrlib.Connecto
 }
 
 // openOrderSnapshotContains reports whether the snapshot still carries the
-// journal row's broker order. A known PermID is account-wide authority and
-// must match exactly; it can never fall back to a colliding client-local order
-// ID. Fallback is permitted only when neither side has a PermID and the
-// snapshot explicitly carried the exact client ID (including valid client 0).
+// journal row's broker order. When both sides carry a PermID, that
+// account-wide authority must match exactly. Otherwise the client-local
+// session order id plus the exact client ID (including valid client 0) pairs
+// them, but only for an identical intent: the same contract, action and
+// quantity. Session ids repeat after a TWS id reset, and a still-open journal
+// row without a PermID (an unacknowledged send) must never pair with another
+// order that reused its id.
 func openOrderSnapshotContains(snap ibkrlib.OpenOrderSnapshot, view rpc.OrderView) bool {
 	_, _, ok := openOrderSnapshotMatch(snap, view)
 	return ok
@@ -245,15 +250,34 @@ func openOrderSnapshotMatch(snap ibkrlib.OpenOrderSnapshot, view rpc.OrderView) 
 }
 
 // openOrderSnapshotEventMatches pairs a snapshot row with its journal row:
-// by PermID when both carry one, else by the session order id and client
-// id, so a row the broker already stamped pairs with a journal row that has
-// not seen that status event yet.
+// by PermID when both carry one, else by the session order id and client id
+// for an identical intent only (openOrderSameIntent), so a row the broker
+// already stamped pairs with a journal row that has not seen that status
+// event yet while a reused session id never pairs a different order.
 func openOrderSnapshotEventMatches(order ibkrlib.OrderLifecycleEvent, view rpc.OrderView) bool {
 	if view.PermID != 0 && order.PermID != 0 {
 		return order.PermID == view.PermID
 	}
-	return view.ReservedOrderID > 0 && order.OrderID == view.ReservedOrderID &&
-		order.ClientIDPresent && order.ClientID == view.ClientID
+	if view.ReservedOrderID <= 0 || order.OrderID != view.ReservedOrderID || !order.ClientIDPresent || order.ClientID != view.ClientID {
+		return false
+	}
+	return openOrderSameIntent(order, view)
+}
+
+// openOrderSameIntent reports whether a snapshot row and a journal row name
+// the same order: the same contract (ConID, or symbol and security type when
+// either side has none), the same action and the same quantity.
+func openOrderSameIntent(order ibkrlib.OrderLifecycleEvent, view rpc.OrderView) bool {
+	if order.ConID > 0 && view.ConID > 0 {
+		if order.ConID != view.ConID {
+			return false
+		}
+	} else if !strings.EqualFold(strings.TrimSpace(order.Symbol), strings.TrimSpace(view.Symbol)) ||
+		!strings.EqualFold(strings.TrimSpace(order.SecType), strings.TrimSpace(view.SecType)) {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(order.Action), strings.TrimSpace(view.Action)) &&
+		math.Abs(order.TotalQuantity-view.Quantity) < 1e-9
 }
 
 // runOrderReconcileLoop is the standing sweep, launched once per daemon
