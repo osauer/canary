@@ -457,3 +457,28 @@ func TestMissingBondMaturityKeyRefusesBondBuysOnly(t *testing.T) {
 		t.Fatalf("limits = %+v, want complete with the bond limit unset", limits)
 	}
 }
+
+// IBKR's bond frames carry no symbol (live read 2026-10-07: every preview
+// failed with "contract symbol is required for market data"). The order's
+// contract falls back to the CUSIP, then the ISIN, as the sweep's does.
+func TestBondOrderByIdentifierQuotesALineWithoutSymbol(t *testing.T) {
+	rig := newBondRequestRig(t)
+	cusip := syntheticCUSIP(t, "91282CZZ")
+	line := rig.line(cusip, "USD", 8701)
+	line.Symbol = ""
+	rig.setLine(cusip, *line)
+	rig.treasury[cusip] = []treasuryDirectSecurity{{CUSIP: cusip, SecurityType: "Note", Type: "Note", MaturityDate: cashSweepDay(rig.now).AddDate(7, 0, 0).Format(time.DateOnly) + "T00:00:00", InterestRate: "5"}}
+	var quoted rpc.ContractParams
+	quote := rig.srv.orderPreviewQuote
+	rig.srv.orderPreviewQuote = func(ctx context.Context, c rpc.ContractParams, d time.Duration) (rpc.OrderQuoteSnapshot, error) {
+		quoted = c
+		if strings.TrimSpace(c.Symbol) == "" {
+			return rpc.OrderQuoteSnapshot{}, errors.New("contract symbol is required for market data")
+		}
+		return quote(ctx, c, d)
+	}
+	res, err := rig.preview(rpc.OrderActionBuy, cusip, "BOND", "USD", 1000)
+	if err != nil || quoted.Symbol != cusip || res.Draft.Contract.Symbol != cusip {
+		t.Fatalf("preview of a line without symbol: %v; quoted %+v", err, quoted)
+	}
+}

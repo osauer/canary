@@ -98,7 +98,12 @@ Added 2026-10-06 14:52 CEST. `policy.cash.get`, `policy.cash.check` and
 RPCs they are outside every catalogue: not in MCP, the CLI or an agent grant.
 Get returns each key in scope with its value, source (`file`,
 `canary_default`, `not_written`), written default, bounds, help and facts; the
-revision is the hash of the file's bytes. Check runs the loader's validation
+revision is the hash of the file's bytes. Its findings are `canary policy
+check`'s findings over the file (over the draft, for check) for the rules that
+name a cash key; a rule whose CLI text names file keys or cents writes the
+sentence the screen shows beside it (`screen` on the finding, in the screen's
+labels and whole units), and the snapshot carries that sentence in place of
+the CLI text (2026-10-07). Check runs the loader's validation
 on the draft and returns canonical terms and their digest; it writes nothing.
 Apply takes those terms with a confirmation reference (Desk action id,
 credential, envelope; audited, not verifiable here), audits its origin as

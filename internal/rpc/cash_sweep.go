@@ -155,12 +155,15 @@ type CashSweepBorrowing struct {
 // CashSweepBorrowedCurrency is one currency with a negative cash balance:
 // Cash is the balance (negative) and Borrowed its absolute value, both in
 // the currency's own unit; BorrowedBase is it at the ledger rate, nil when
-// the rate is unknown.
+// the rate is unknown. SettledOnly is true when the trade-date cash alone is
+// within the tolerance and the settled cash makes the currency borrowed (a
+// sale has not settled yet).
 type CashSweepBorrowedCurrency struct {
 	Currency     string   `json:"currency"`
 	Cash         float64  `json:"cash"`
 	Borrowed     float64  `json:"borrowed"`
 	BorrowedBase *float64 `json:"borrowed_base,omitempty"`
+	SettledOnly  bool     `json:"settled_only,omitempty"`
 }
 
 // CashSweepUnknownCash is one currency whose cash cannot be read, and why.

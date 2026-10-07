@@ -75,6 +75,11 @@ type PolicyCheckFinding struct {
 	// Suggestion is the value Canary suggests, with its reasoning; empty when
 	// the fix is a decision rather than a number.
 	Suggestion string `json:"suggestion,omitempty"`
+	// Screen is the one sentence a settings screen shows for this finding in
+	// place of Message and Suggestion, in the screen's words: its labels, whole
+	// units, what the owner can do there. Empty when the message serves as it
+	// is. The CLI renders Message and Suggestion.
+	Screen string `json:"screen,omitempty"`
 }
 
 // PolicyCheckKey is one setting a finding names.

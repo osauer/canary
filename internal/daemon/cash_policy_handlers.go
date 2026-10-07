@@ -85,12 +85,22 @@ func (s *Server) readCashPolicy() (cashPolicyRead, error) {
 		r.state = rpc.CashPolicyFileOK
 	case p.PolicyVersion > active.PolicyVersion || !m.adoptedFromFile():
 		r.state = rpc.CashPolicyFileAhead
-		r.message = fmt.Sprintf("the file holds version %d; Canary runs version %d and adopts the file at its next reread, within 30 seconds", p.PolicyVersion, active.PolicyVersion)
+		r.message = fmt.Sprintf("the file holds version %d; Canary runs version %d and adopts the file at its next reread%s", p.PolicyVersion, active.PolicyVersion, m.rereadWithin())
 	default:
 		r.state = rpc.CashPolicyFileDrift
 		r.message = fmt.Sprintf("the file was edited without raising policy_version, so Canary keeps version %d in force and has not adopted the edits", active.PolicyVersion)
 	}
 	return r, nil
+}
+
+// rereadWithin says how soon the manager rereads the file: within its reload
+// interval while hot reload is on. Otherwise only a restart or a save from
+// Desk rereads it, and no interval is promised.
+func (m *protectionPolicyManager) rereadWithin() string {
+	if !m.hotReload {
+		return ""
+	}
+	return ", within " + cashPolicyDuration(m.reloadInterval)
 }
 
 // cashPolicyBookCache keeps the facts' live inputs for cashPolicyBookTTL.
@@ -100,8 +110,9 @@ type cashPolicyBookCache struct {
 	book cashPolicyBook
 }
 
-// cashPolicyBook gathers the facts' live inputs: the account read, the order
-// cap in force, the interest rates from the broker's statements and, while
+// cashPolicyBook gathers the facts' live inputs: the account and positions
+// reads (the sweep's cash input, as the planner assembles it), the order cap
+// in force, the interest rates from the broker's statements and, while
 // leveling is on, the planned repayments from the latest proposals.
 func (s *Server) cashPolicyBook(ctx context.Context) cashPolicyBook {
 	if s.cashPolicyBookForTest != nil {
@@ -119,9 +130,17 @@ func (s *Server) cashPolicyBook(ctx context.Context) cashPolicyBook {
 	if err != nil || acct == nil {
 		b.ledgerReason = "the account could not be read"
 	} else {
-		base, ledger, reason := cashSweepLedgerAt(acct, now)
-		b.base, b.ledgerReason, b.check = base, reason, PolicyCheckBookFrom(acct, nil)
-		for ccy, row := range ledger {
+		// Holdings are classified by the sweep policy in force, as the
+		// planner does; a failed positions read leaves them out, as there.
+		pos, _ := s.handlePositionsList(ctx, &rpc.Request{})
+		var bucket *protectionCashSweepPolicy
+		if m := s.protectionPolicies; m != nil {
+			active, _ := m.Active()
+			bucket = active.Cash.Sweep
+		}
+		cashSweepReadCash(&b.sweep, bucket, acct, pos, now)
+		b.base, b.ledgerReason, b.check = b.sweep.BaseCurrency, b.sweep.LedgerReason, PolicyCheckBookFrom(acct, nil)
+		for ccy, row := range b.sweep.Ledger {
 			if row.Observed {
 				b.cash[ccy] = row.TradeDate
 			}
@@ -129,8 +148,8 @@ func (s *Server) cashPolicyBook(ctx context.Context) cashPolicyBook {
 				b.fx[ccy] = row.ExchangeRate
 			}
 		}
-		if base != "" {
-			b.fx[base] = 1
+		if b.base != "" {
+			b.fx[b.base] = 1
 		}
 		if positiveFinite(acct.NetLiquidation) {
 			b.nlv = acct.NetLiquidation

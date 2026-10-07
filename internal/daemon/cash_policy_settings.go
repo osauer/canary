@@ -108,7 +108,7 @@ var cashPolicySpecs = []cashPolicySpec{
 		help: "Below this nothing is bought; a sale that restores cash can be smaller.", min: new(0.0),
 		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyFalls},
 	{section: rpc.CashPolicySectionSweep, leaf: "max_order_notional", label: "Largest order", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitBase,
-		help: "Each order, buy or sale, is at most the larger of this and the share below.", min: new(0.0), exclusive: true,
+		help: "Each sweep order, buy or sell, is capped at this amount or the share of NLV below, whichever is larger. It must also fit the order cap; only bill orders may exceed it, and only while \"Let bill orders exceed the order cap\" is on.", min: new(0.0), exclusive: true,
 		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyRises},
 	{section: rpc.CashPolicySectionSweep, leaf: "max_order_pct_nlv", label: "Largest order, share of NLV", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitPctNLV,
 		help: "Raises the largest order as NLV grows; 0 keeps the fixed amount.", min: new(0.0), max: new(100.0),
@@ -116,8 +116,8 @@ var cashPolicySpecs = []cashPolicySpec{
 	{section: rpc.CashPolicySectionSweep, leaf: "no_buy_while_borrowed", label: "No bill buys while a currency is borrowed", typ: rpc.CashPolicyTypeBool,
 		help:   "Holds every bill buy while any currency's cash is negative; sales still go ahead.",
 		absent: rpc.CashPolicySourceNotWritten, more: cashPolicyTurnsOff},
-	{section: rpc.CashPolicySectionSweep, leaf: "bills_exempt_from_trading_max_notional", label: "Bills may pass the order cap", typ: rpc.CashPolicyTypeBool,
-		help:   "A same-currency bill order may exceed the order cap in force, up to the sweep's largest order.",
+	{section: rpc.CashPolicySectionSweep, leaf: "bills_exempt_from_trading_max_notional", label: "Let bill orders exceed the order cap", typ: rpc.CashPolicyTypeBool,
+		help:   "A bill order in the same currency may exceed the order cap, up to the sweep's largest order.",
 		absent: rpc.CashPolicySourceCanaryDefault, builtin: false, more: cashPolicyTurnsOn},
 	{section: rpc.CashPolicySectionSweep, leaf: "order_step_base", label: "Order step", typ: rpc.CashPolicyTypeNumber, unit: rpc.CashPolicyUnitBase,
 		help: "Orders are sized in whole steps, so an approval stays valid while NLV moves; 0 means no steps.", min: new(0.0),
@@ -377,15 +377,18 @@ func cashPolicyCurrencyCode(ccy string) bool {
 }
 
 // cashPolicyBook is what the facts are worked out from: the account's base
-// currency, net liquidation value and per-currency trade-date cash, the order
-// cap in force, the interest rates from the broker's statements and, while
-// leveling is on, its planned repayments. Each *Reason says why an input is
-// unavailable.
+// currency, net liquidation value and per-currency cash (the trade-date cash
+// of each observed ledger row), the cash part of the sweep planner's input
+// (sweep: the ledger as the sweep reads it and the classified cash
+// equivalents, from cashSweepReadCash), the order cap in force, the interest
+// rates from the broker's statements and, while leveling is on, its planned
+// repayments. Each *Reason says why an input is unavailable.
 type cashPolicyBook struct {
 	at             time.Time
 	base           string
 	nlv            float64
 	cash, fx       map[string]float64
+	sweep          cashSweepInput
 	ledgerReason   string
 	orderCap       float64
 	orderCapReason string
@@ -397,7 +400,9 @@ type cashPolicyBook struct {
 }
 
 // borrowed lists the currencies whose trade-date cash is negative by more
-// than one unit, most borrowed (in base) first.
+// than one unit, most borrowed (in base) first: what the leveling facts read,
+// as the band reads trade-date cash. The sweep's rule has its own test
+// (cashPolicyBorrowedFact).
 func (b cashPolicyBook) borrowed() []string {
 	var out []string
 	for ccy, cash := range b.cash {
@@ -527,11 +532,12 @@ func cashPolicyFacts(p protectionPolicy, b cashPolicyBook) (map[string]string, r
 		facts["cash.leveling.cushion_base"] = "About " + cashPolicyApprox(*l.CushionBase/b.fx[shown[0]]) + " " + shown[0] + "."
 	}
 	if l.Enabled && b.leveling != nil && len(b.leveling.Bundles) > 0 {
+		// The running plan; a draft does not move it, so it is today's.
 		var parts []string
 		for _, bundle := range b.leveling.Bundles {
-			parts = append(parts, fmt.Sprintf("%s now: saves about %s within %d days, costs at most %s.", bundle.Currency, money(bundle.SavingBase), bundle.PaybackDays, money(math.Ceil(bundle.CostBase))))
+			parts = append(parts, fmt.Sprintf("%s saves about %s within %d days, costs at most %s", bundle.Currency, money(bundle.SavingBase), bundle.PaybackDays, money(math.Ceil(bundle.CostBase))))
 		}
-		facts["cash.leveling.payback_days"] = strings.Join(parts, " ")
+		facts["cash.leveling.payback_days"] = "Today's plan: " + strings.Join(parts, "; ") + "."
 	}
 
 	sweep := sections.Sweep
@@ -555,22 +561,61 @@ func cashPolicyFacts(p protectionPolicy, b cashPolicyBook) (map[string]string, r
 			facts["cash.sweep."+k] = orders
 		}
 	}
-	switch borrowed := b.borrowed(); {
-	case b.ledgerReason != "":
-		facts["cash.sweep.no_buy_while_borrowed"] = "Whether a currency is borrowed is unknown now: " + b.ledgerReason + "."
-	case len(borrowed) == 0:
-		facts["cash.sweep.no_buy_while_borrowed"] = "No currency is borrowed now."
-	case s.NoBuyWhileBorrowed != nil && !*s.NoBuyWhileBorrowed:
-		facts["cash.sweep.no_buy_while_borrowed"] = cashPolicyList(borrowed) + cashPolicyIsAre(borrowed) + " borrowed now; bill buys go ahead."
-	default:
-		facts["cash.sweep.no_buy_while_borrowed"] = cashPolicyList(borrowed) + cashPolicyIsAre(borrowed) + " borrowed now, so bill buys wait."
-	}
+	facts["cash.sweep.no_buy_while_borrowed"] = cashPolicyBorrowedFact(s, b)
 	if b.orderCapReason == "" && b.orderCap > 0 {
-		facts["cash.sweep.bills_exempt_from_trading_max_notional"] = "Order cap in force: " + money(b.orderCap) + "."
+		facts["cash.sweep.bills_exempt_from_trading_max_notional"] = "Order cap now: " + money(b.orderCap) + "."
 	} else {
-		facts["cash.sweep.bills_exempt_from_trading_max_notional"] = "The order cap in force cannot be read now."
+		facts["cash.sweep.bills_exempt_from_trading_max_notional"] = "The order cap can't be read now."
 	}
 	return facts, sections
+}
+
+// cashPolicyBorrowedFact states what the sweep's borrowing rule does now,
+// from the rule's own test over the planner's own input: cashSweepBorrowingFor
+// over the currencies cashSweepCurrencies lists from the book's sweep input
+// (ledger rows and classified equivalents, as cashSweepReadCash assembles
+// them for the planner), so the lower of trade-date and settled cash counts
+// and a currency whose cash cannot be read, or that holds an equivalent
+// without a ledger row, holds the buys too. An unavailable ledger and the
+// rule switched off keep their own sentences.
+func cashPolicyBorrowedFact(s *protectionCashSweepPolicy, b cashPolicyBook) string {
+	if b.ledgerReason != "" {
+		return "Whether a currency is borrowed is unknown now: " + b.ledgerReason + "."
+	}
+	in := b.sweep
+	borrowing := cashSweepBorrowingFor(s, in, cashSweepCurrencies(s, in))
+	off := s.NoBuyWhileBorrowed != nil && !*s.NoBuyWhileBorrowed
+	var ccys, settled []string
+	for _, c := range borrowing.Borrowed {
+		if c.SettledOnly && !off {
+			settled = append(settled, c.Currency)
+			continue
+		}
+		ccys = append(ccys, c.Currency)
+	}
+	switch borrowing.State {
+	case rpc.CashSweepBorrowingBorrowed:
+		if off {
+			return cashPolicyList(ccys) + cashPolicyIsAre(ccys) + " borrowed now; bill buys go ahead."
+		}
+		var parts []string
+		if len(ccys) > 0 {
+			parts = append(parts, cashPolicyList(ccys)+cashPolicyIsAre(ccys)+" borrowed")
+		}
+		if len(settled) > 0 {
+			parts = append(parts, cashPolicyList(settled)+cashPolicyIsAre(settled)+" borrowed on settled cash")
+		}
+		return "Bill buys paused: " + strings.Join(parts, "; ") + "."
+	case rpc.CashSweepBorrowingUnknown:
+		for _, c := range borrowing.Unknown {
+			ccys = append(ccys, c.Currency)
+		}
+		if off {
+			return cashPolicyList(ccys) + " cash can't be read; bill buys go ahead."
+		}
+		return "Bill buys paused: " + cashPolicyList(ccys) + " cash can't be read."
+	}
+	return "No currency is borrowed now."
 }
 
 // levelingShown is the currencies the band is shown in: those borrowed now
@@ -737,10 +782,12 @@ func cashPolicyBuys(c protectionCashSweepCurrency) string {
 // cashPolicyFindingRules are the `canary policy check` rules the screen
 // shows, each for the cash keys it names.
 var cashPolicyFindingRules = []string{"sweep_minimum_above_cap", "cap_above_trading_max", "cash_reserve_vs_nlv", "order_cap_vs_nlv",
-	"sweep_buys_while_borrowed", "leveling_debit_inside_band", "sweep_minimum_uneconomic", "order_entry_off_for_active_bucket", "sweep_cap_exempt"}
+	"sweep_buys_while_borrowed", "leveling_debit_inside_band", "sweep_minimum_uneconomic", "order_entry_off_for_active_bucket", "sweep_cap_exempt",
+	"sweep_nothing_to_buy"}
 
 // cashPolicyFindings keeps the report's findings of those rules that name a
-// cash key, with the keys as dotted names.
+// cash key, with the keys as dotted names. A finding's text is the sentence
+// its rule wrote for the screen (Screen), else the CLI text.
 func cashPolicyFindings(report rpc.PolicyCheckReport) []rpc.CashPolicyFinding {
 	out := []rpc.CashPolicyFinding{}
 	for _, f := range report.Findings {
@@ -758,6 +805,9 @@ func cashPolicyFindings(report rpc.PolicyCheckReport) []rpc.CashPolicyFinding {
 			continue
 		}
 		text := strings.TrimSpace(f.Message + " " + f.Suggestion)
+		if f.Screen != "" {
+			text = f.Screen
+		}
 		out = append(out, rpc.CashPolicyFinding{Rule: f.Rule, Severity: f.Severity, Keys: keys, Text: text})
 	}
 	return out
@@ -810,13 +860,18 @@ func cashPolicyDuration(d time.Duration) string {
 
 // cashPolicyList joins names: "USD", "USD and GBP", "USD, GBP and CAD".
 func cashPolicyList(names []string) string {
+	return cashPolicyJoin(names, "and")
+}
+
+// cashPolicyJoin joins names with a conjunction: "EUR, GBP or CAD".
+func cashPolicyJoin(names []string, conjunction string) string {
 	switch len(names) {
 	case 0:
 		return ""
 	case 1:
 		return names[0]
 	}
-	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+	return strings.Join(names[:len(names)-1], ", ") + " " + conjunction + " " + names[len(names)-1]
 }
 
 func cashPolicyIsAre(names []string) string {

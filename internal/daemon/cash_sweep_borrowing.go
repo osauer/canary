@@ -21,8 +21,10 @@ import (
 // cashSweepBorrowingFor reads every currency the sweep lists (every ledger
 // currency, every currency holding an equivalent) from the same ledger the
 // band reads its cash from: the lower of trade-date cash and the broker's
-// settled cash where observed. A listed currency whose cash cannot be read is
-// unknown; a currency the ledger does not list carries no balance.
+// settled cash where observed; a currency borrowed on settled cash alone is
+// marked SettledOnly. A listed currency whose cash cannot be read is unknown;
+// a currency the ledger does not list carries no balance. The cash settings
+// fact reads this same test (cashPolicyBorrowedFact).
 func cashSweepBorrowingFor(bucket *protectionCashSweepPolicy, in cashSweepInput, ccys []string) *rpc.CashSweepBorrowing {
 	out := &rpc.CashSweepBorrowing{State: rpc.CashSweepBorrowingClear, ToleranceUnits: rpc.CashSweepBorrowedToleranceUnits}
 	if bucket != nil && bucket.NoBuyWhileBorrowed != nil {
@@ -48,7 +50,7 @@ func cashSweepBorrowingFor(bucket *protectionCashSweepPolicy, in cashSweepInput,
 		if cash >= -rpc.CashSweepBorrowedToleranceUnits {
 			continue
 		}
-		b := rpc.CashSweepBorrowedCurrency{Currency: ccy, Cash: cash, Borrowed: -cash}
+		b := rpc.CashSweepBorrowedCurrency{Currency: ccy, Cash: cash, Borrowed: -cash, SettledOnly: row.TradeDate >= -rpc.CashSweepBorrowedToleranceUnits}
 		if row.ExchangeRate > 0 && finiteProtectionOptionPolicyValue(row.ExchangeRate) {
 			b.BorrowedBase = new(-cash * row.ExchangeRate)
 		}

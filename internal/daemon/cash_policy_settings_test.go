@@ -67,11 +67,12 @@ payback_days = 30
 var cashPolicyTestNow = time.Date(2026, 10, 6, 12, 5, 0, 0, time.UTC)
 
 // cashPolicyTestBook is a synthetic account: EUR base, NLV 200,000, EUR
-// cash 60,000, USD borrowed 20,000 at 0.855 EUR per USD, an order cap of
-// 25,000 EUR, rates read to 3 Oct 2026.
+// cash 60,000, USD borrowed 20,000 on trade-date cash at 0.855 EUR per USD,
+// an order cap of 25,000 EUR, rates read to 3 Oct 2026.
 func cashPolicyTestBook() cashPolicyBook {
 	return cashPolicyBook{at: cashPolicyTestNow, base: "EUR", nlv: 200000,
 		cash: map[string]float64{"EUR": 60000, "USD": -20000}, fx: map[string]float64{"EUR": 1, "USD": 0.855}, orderCap: 25000,
+		sweep: cashSweepInput{BaseCurrency: "EUR", Ledger: map[string]cashSweepLedgerRow{"EUR": {Observed: true, TradeDate: 60000, ExchangeRate: 1}, "USD": {Observed: true, TradeDate: -20000, ExchangeRate: 0.855}}},
 		rates: map[string]currencyLevelingRate{
 			"EUR": {Cash: new(0.014), CashThrough: "2026-10-03"},
 			"USD": {Loan: new(0.051), LoanThrough: "2026-10-03", Cash: new(0.033), CashThrough: "2026-09-12"},
@@ -248,8 +249,8 @@ func TestCashPolicyGetReportsEveryKeyWithSourceDefaultBoundsAndHelp(t *testing.T
 		"cash.leveling.cushion_base":                        "About 290 USD.",
 		"cash.sweep.reserve_floor_base":                     "Now 20,000 EUR: 10% of NLV.",
 		"cash.sweep.max_order_notional":                     "Now 20,000 to 50,000 EUR per order.",
-		"cash.sweep.no_buy_while_borrowed":                  "USD is borrowed now, so bill buys wait.",
-		"cash.sweep.bills_exempt_from_trading_max_notional": "Order cap in force: 25,000 EUR.",
+		"cash.sweep.no_buy_while_borrowed":                  "Bill buys paused: USD is borrowed.",
+		"cash.sweep.bills_exempt_from_trading_max_notional": "Order cap now: 25,000 EUR.",
 	} {
 		if row, _ := cashPolicySetting(snap, key); row.Fact != want {
 			t.Errorf("%s fact %q, want %q", key, row.Fact, want)
@@ -1011,6 +1012,133 @@ func TestCashPolicyFindingsReachTheOrderEntryOffRows(t *testing.T) {
 		if !slices.Contains(got[i].Keys, key) {
 			t.Errorf("finding lacks %s: keys %v", key, got[i].Keys)
 		}
+	}
+}
+
+// Settings review item 4 (2026-10-07): the no_buy_while_borrowed fact is the
+// sweep's own borrowing test (cashSweepBorrowingFor), not a copy of it: the
+// lower of trade-date and settled cash counts, unknown cash holds, and the
+// words say what pauses the buys. The sentences for the rule switched off and
+// for an unknown ledger stay.
+func TestCashPolicyBorrowedFactIsTheSweepsOwnTest(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		file string
+		book func(*cashPolicyBook)
+		want string
+	}{
+		{"nothing borrowed", cashPolicyTestFile, func(b *cashPolicyBook) {
+			b.sweep.Ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 6000, ExchangeRate: 0.855}
+			b.cash["USD"] = 6000
+		}, "No currency is borrowed now."},
+		{"borrowed on trade-date cash", cashPolicyTestFile, nil, "Bill buys paused: USD is borrowed."},
+		{"borrowed on settled cash only", cashPolicyTestFile, func(b *cashPolicyBook) {
+			b.sweep.Ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 500, Settled: new(-12000.0), ExchangeRate: 0.855}
+			b.cash["USD"] = 500
+		}, "Bill buys paused: USD is borrowed on settled cash."},
+		{"cash unknown", cashPolicyTestFile, func(b *cashPolicyBook) {
+			b.sweep.Ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 6000, ExchangeRate: 0.855}
+			b.cash["USD"] = 6000
+			b.sweep.Ledger["GBP"] = cashSweepLedgerRow{ExchangeRate: 1.15}
+		}, "Bill buys paused: GBP cash can't be read."},
+		// A currency holding a classified equivalent without a ledger row is
+		// unknown to the sweep (review finding 7, 2026-10-07): the fact lists
+		// the planner's currencies, holdings included, not the ledger's alone.
+		{"equivalents held in a currency without a ledger row", cashPolicyTestFile, func(b *cashPolicyBook) {
+			b.sweep.Ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 6000, ExchangeRate: 0.855}
+			b.cash["USD"] = 6000
+			b.sweep.Holdings = map[string][]cashSweepHolding{"CAD": {cashSweepTestBill(801, "CAD", cashSweepInstrumentCATBill, 40, 20)}}
+		}, "Bill buys paused: CAD cash can't be read."},
+		{"rule off", strings.Replace(cashPolicyTestFile, "no_buy_while_borrowed = true", "no_buy_while_borrowed = false", 1), nil,
+			"USD is borrowed now; bill buys go ahead."},
+		{"ledger unknown", cashPolicyTestFile, func(b *cashPolicyBook) {
+			b.sweep.Ledger, b.cash, b.ledgerReason = nil, map[string]float64{}, "the account could not be read"
+		}, "Whether a currency is borrowed is unknown now: the account could not be read."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s, _, _ := cashPolicyServer(t, c.file)
+			if c.book != nil {
+				s.cashPolicyBookForTest = func() cashPolicyBook { b := cashPolicyTestBook(); c.book(&b); return b }
+			}
+			row, _ := cashPolicySetting(cashPolicyGet(t, s), "cash.sweep.no_buy_while_borrowed")
+			if row.Fact != c.want {
+				t.Fatalf("fact %q, want %q", row.Fact, c.want)
+			}
+		})
+	}
+}
+
+// The payback fact comes from the running plan, which does not follow a
+// draft, so it is labelled as today's plan.
+func TestCashPolicyPaybackFactIsTodaysPlan(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, strings.Replace(cashPolicyTestFile, "[cash.leveling]\nenabled = false", "[cash.leveling]\nenabled = true", 1))
+	s.cashPolicyBookForTest = func() cashPolicyBook {
+		b := cashPolicyTestBook()
+		b.leveling = &rpc.TradeProposalCurrencyLevelingStatus{Bundles: []rpc.TradeProposalCurrencyLevelingBundle{{Currency: "USD", SavingBase: 52.4, CostBase: 4.2, PaybackDays: 30}}}
+		return b
+	}
+	row, _ := cashPolicySetting(cashPolicyGet(t, s), "cash.leveling.payback_days")
+	if want := "Today's plan: USD saves about 52 EUR within 30 days, costs at most 5 EUR."; row.Fact != want {
+		t.Fatalf("fact %q, want %q", row.Fact, want)
+	}
+}
+
+// Settings review item 1 (2026-10-07): the order-cap rows speak of the order
+// cap and the switch in the screen's words, the cap in whole units.
+func TestCashPolicyOrderCapRowsSayWhatTheSwitchDoes(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	exempt, _ := cashPolicySetting(snap, "cash.sweep.bills_exempt_from_trading_max_notional")
+	if exempt.Label != "Let bill orders exceed the order cap" ||
+		exempt.Help != "A bill order in the same currency may exceed the order cap, up to the sweep's largest order." ||
+		exempt.Fact != "Order cap now: 25,000 EUR." {
+		t.Fatalf("exemption row %+v", exempt)
+	}
+	if largest, _ := cashPolicySetting(snap, "cash.sweep.max_order_notional"); largest.Help != "Each sweep order, buy or sell, is capped at this amount or the share of NLV below, whichever is larger. It must also fit the order cap; only bill orders may exceed it, and only while \"Let bill orders exceed the order cap\" is on." {
+		t.Fatalf("largest order help %q", largest.Help)
+	}
+	s.cashPolicyBookForTest = func() cashPolicyBook {
+		b := cashPolicyTestBook()
+		b.orderCap, b.orderCapReason = 0, "[order_limits] is incomplete"
+		return b
+	}
+	if row, _ := cashPolicySetting(cashPolicyGet(t, s), "cash.sweep.bills_exempt_from_trading_max_notional"); row.Fact != "The order cap can't be read now." {
+		t.Fatalf("unreadable cap fact %q", row.Fact)
+	}
+}
+
+// A file ahead of the policy in force is adopted at the manager's next
+// reread: within its reload interval while hot reload is on; otherwise the
+// next restart or save rereads it and no interval is promised.
+func TestCashPolicyAheadMessageNamesTheNextReread(t *testing.T) {
+	s, path, _ := cashPolicyServer(t, cashPolicyTestFile)
+	if err := os.WriteFile(path, []byte(strings.Replace(cashPolicyTestFile, "policy_version = 14", "policy_version = 15", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "the file holds version 15; Canary runs version 14 and adopts the file at its next reread"
+	if snap := cashPolicyGet(t, s); snap.FileState != rpc.CashPolicyFileAhead || snap.Message != want {
+		t.Fatalf("without hot reload: %s %q", snap.FileState, snap.Message)
+	}
+	s.protectionPolicies.hotReload, s.protectionPolicies.reloadInterval = true, 45*time.Second
+	if snap := cashPolicyGet(t, s); snap.Message != want+", within 45 seconds" {
+		t.Fatalf("with hot reload: %q", snap.Message)
+	}
+}
+
+// Settings review item 3 (2026-10-07): a sweep currency with no bills listed
+// and no usable ETF has nothing to buy; the finding reaches the sweep's
+// switch in the screen's words and names every such currency.
+func TestCashPolicyNothingToBuyReachesTheSweepSwitch(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	snap := cashPolicyGet(t, s)
+	i := slices.IndexFunc(snap.Findings, func(f rpc.CashPolicyFinding) bool { return f.Rule == "sweep_nothing_to_buy" })
+	if i < 0 {
+		t.Fatalf("no nothing-to-buy finding: %+v", snap.Findings)
+	}
+	f := snap.Findings[i]
+	if f.Severity != rpc.PolicyCheckWarn || !slices.Equal(f.Keys, []string{"cash.sweep.enabled", "cash.sweep.currency.EUR.isins", "cash.sweep.currency.GBP.isins"}) ||
+		f.Text != "Nothing to buy in EUR or GBP: the policy file lists no bills or fallback ETF for them, so they stay in cash." {
+		t.Fatalf("finding %+v", f)
 	}
 }
 
