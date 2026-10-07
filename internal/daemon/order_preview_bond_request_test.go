@@ -494,3 +494,22 @@ func TestBondOrderContractGoesByContractIDAlone(t *testing.T) {
 		t.Fatalf("a stock lost its symbol: %+v", s)
 	}
 }
+
+// The quote of a bill or bond keeps its CUSIP or ISIN as the symbol: Canary's
+// market data keys a subscription by symbol, and IBKR accepted the CUSIP with
+// the contract id (live 2026-10-07). Only the order goes by contract id alone;
+// dropping the symbol from the quote too refused every bond preview ("contract
+// symbol is required for market data", live 13:26 CEST on 3644bf05).
+func TestBondQuoteContractKeepsItsSymbol(t *testing.T) {
+	bond := rpc.ContractParams{ConID: 928489461, Symbol: "91282CRM5", SecType: "BOND", Exchange: "SMART", Currency: "USD"}
+	if q := previewIBKRQuoteContract(bond); q.Symbol != "91282CRM5" || q.ConID != 928489461 || q.SecType != "BOND" || q.Exchange != "SMART" || q.Currency != "USD" {
+		t.Fatalf("bond quote contract = %+v, want the CUSIP symbol with the contract id", q)
+	}
+	if o := previewIBKRContract(bond); o.Symbol != "" {
+		t.Fatalf("bond order contract = %+v, want no symbol", o)
+	}
+	stock := rpc.ContractParams{Symbol: "AAA", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	if q, o := previewIBKRQuoteContract(stock), previewIBKRContract(stock); q.Symbol != o.Symbol || q.ConID != o.ConID || q.SecType != o.SecType || q.Exchange != o.Exchange || q.Currency != o.Currency || q.PrimaryExch != o.PrimaryExch {
+		t.Fatalf("a stock quote contract %+v differs from its order contract %+v", q, o)
+	}
+}
