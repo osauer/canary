@@ -353,7 +353,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")
-			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended"},
+			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "That is intended: bills may pass the order cap"},
 		{name: "a sweep currency with no bills listed and no usable ETF", rule: "sweep_nothing_to_buy", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "isins = [\""+synthDEBill+"\"]\n", "")
@@ -498,7 +498,7 @@ func TestPolicyCheckScreenSentencesReachTheSettingsScreen(t *testing.T) {
 		cli string
 	}{
 		{"exemption used, whole units", "sweep_cap_exempt", func(f *pcFiles, in *PolicyCheckInput) { exempt(f); in.Book.NetLiquidation = 255559 },
-			"Bill orders may go up to 15,000 EUR; all other sweep and leveling orders stay within the 12,778 EUR order cap.", "12,777.95 EUR"},
+			"Bill orders may go up to 15,000 EUR; all other sweep and leveling orders stay within the 12,778 EUR order cap.", "That is intended: bills may pass the order cap"},
 		{"exemption not used", "sweep_cap_exempt", func(f *pcFiles, _ *PolicyCheckInput) {
 			f.protection = strings.Replace(f.protection, "no_buy_while_borrowed = true\n", "no_buy_while_borrowed = true\nbills_exempt_from_trading_max_notional = true\n", 1)
 		}, "The sweep's largest order is within the order cap now, so this switch changes nothing.", "the exemption is not used"},
