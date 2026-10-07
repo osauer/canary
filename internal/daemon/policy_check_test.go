@@ -139,8 +139,8 @@ var pcNow = time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 // absolute delta, −9,000 for a long put whose close raises it.
 func pcDeltaPositions(optionDelta float64) []PolicyCheckPosition {
 	return []PolicyCheckPosition{
-		{Kind: policyCheckKindStock, Currency: "USD", Quantity: 100, MarketValueBase: 30000, Underlying: "SYNA", DollarDeltaBase: new(30000.0)},
-		{Kind: policyCheckKindOption, Currency: "USD", Quantity: 1, MarketValueBase: 12000, Underlying: "SYNA", DollarDeltaBase: new(optionDelta)},
+		{Kind: policyCheckKindStock, Currency: "USD", Quantity: 100, MarketValueBase: 30000, ConID: 5001, Underlying: "SYNA", DollarDeltaBase: new(30000.0)},
+		{Kind: policyCheckKindOption, Currency: "USD", Quantity: 1, MarketValueBase: 12000, ConID: 5101, Underlying: "SYNA", DollarDeltaBase: new(optionDelta)},
 	}
 }
 
@@ -288,7 +288,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "trading cap tiny against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0\nmax_order_pct_nlv = 5.0", "max_order_floor_base = 3000.0\nmax_order_pct_nlv = 1.0")
-			}, contains: "1.5% of NLV"},
+			}, contains: "1.5% of NLV (200,000 EUR): opening or adding 10% of the book takes 7 orders, each waiting its own cycle and approval; exits that lower the underlying's absolute delta pass whatever the cap"},
 		{name: "trading cap huge against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0", "max_order_floor_base = 150000.0")
@@ -308,10 +308,10 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 				// lowers it, so the larger 90,000 EUR line passes the cap
 				// whole and is not counted.
 				in.Book.Positions = []PolicyCheckPosition{
-					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, Underlying: "SYNA", DollarDeltaBase: new(100000.0)},
-					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 6, MarketValueBase: 72000, Underlying: "SYNA", DollarDeltaBase: new(-54000.0)},
-					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, Underlying: "SYNB", DollarDeltaBase: new(100000.0)},
-					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 10, MarketValueBase: 90000, Underlying: "SYNB", DollarDeltaBase: new(60000.0)},
+					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, ConID: 5001, Underlying: "SYNA", DollarDeltaBase: new(100000.0)},
+					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 6, MarketValueBase: 72000, ConID: 5101, Underlying: "SYNA", DollarDeltaBase: new(-54000.0)},
+					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, ConID: 5002, Underlying: "SYNB", DollarDeltaBase: new(100000.0)},
+					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 10, MarketValueBase: 90000, ConID: 5102, Underlying: "SYNB", DollarDeltaBase: new(60000.0)},
 				}
 			}, contains: "the cap still binds (its exit does not lower, or cannot be shown to lower, the underlying's absolute delta) of 72,000 EUR into 8 orders"},
 		{name: "keep_cash under 2% of NLV without the reserve design", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
@@ -386,7 +386,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")
-			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended"},
+			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended (orders that open or add, the fallback ETF buy and conversions keep the order cap)"},
 	}
 	covered := map[string]bool{}
 	for _, tc := range cases {
@@ -490,22 +490,26 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 		CurrencyExposure:   []rpc.CurrencyExposure{{Currency: "USD", CashCcy: 2000, CashObserved: true, ExchangeRate: 0.9}}}
 	spot := 90.0
 	delta := 0.5
-	pos := &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "syna", SecType: "STOCK", Currency: "USD", Quantity: 10, Mark: 90, MarketValueBase: &mv}},
+	rate := 0.9
+	pos := &rpc.PositionsResult{Stocks: []rpc.PositionView{{Symbol: "syna", SecType: "STOCK", ConID: 1, Currency: "USD", Quantity: 10, Mark: 90, MarketValueBase: &mv, FXRate: &rate}},
 		Options: []rpc.PositionView{
-			{Symbol: "SYNA", SecType: "OPTION", Currency: "USD", Quantity: 1, MarketValue: 1000, Delta: &delta, Underlying: &spot},
-			{Symbol: "SYNA", SecType: "OPTION", Currency: "USD", Quantity: 2, MarketValue: 1000},
+			{Symbol: "SYNA", SecType: "OPTION", ConID: 2, Currency: "USD", Quantity: 1, MarketValue: 1000, Delta: &delta, Underlying: &spot, FXRate: &rate},
+			{Symbol: "SYNA", SecType: "OPTION", ConID: 3, Currency: "USD", Quantity: 2, MarketValue: 1000, FXRate: &rate},
+			{Symbol: "SYNA", SecType: "OPTION", ConID: 4, Currency: "USD", Quantity: 1, MarketValue: 1000, Delta: &delta, Underlying: &spot},
 		}}
 	b := PolicyCheckBookFrom(acct, pos)
 	if b == nil || b.Cash["EUR"] != 7000 || b.Cash["USD"] != 2000 || b.FXToBase["USD"] != 0.9 {
 		t.Fatalf("book %+v", b)
 	}
-	if len(b.Positions) != 3 || b.Positions[1].MarketValueBase != 900 {
+	if len(b.Positions) != 4 || b.Positions[1].MarketValueBase != 900 {
 		t.Fatalf("positions %+v", b.Positions)
 	}
-	// The deltas the daemon's risk verdicts use, in base at the account's
-	// rate: 10 shares × 90 × 0.9, and 0.5 × 1 contract × 100 × 90 × 0.9; a
-	// row without a delta stays unmeasured.
-	if p := b.Positions[0]; p.Underlying != "SYNA" || p.DollarDeltaBase == nil || *p.DollarDeltaBase != 810 {
+	// The deltas the trading gate measures (deltaLegBase), in base at each
+	// row's own rate: 10 shares × 90 × 0.9, and 0.5 × 1 contract × 100 × 90
+	// × 0.9. A row without a delta stays unmeasured, and so does a row
+	// without its own FX rate: the account's rate is no fallback, because
+	// the gate has none.
+	if p := b.Positions[0]; p.Underlying != "SYNA" || p.ConID != 1 || p.DollarDeltaBase == nil || *p.DollarDeltaBase != 810 {
 		t.Fatalf("stock delta %+v", p)
 	}
 	if p := b.Positions[1]; p.Underlying != "SYNA" || p.DollarDeltaBase == nil || *p.DollarDeltaBase != 4050 {
@@ -514,12 +518,22 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 	if p := b.Positions[2]; p.DollarDeltaBase != nil {
 		t.Fatalf("an option without a delta was measured: %+v", p)
 	}
+	if p := b.Positions[3]; p.DollarDeltaBase != nil {
+		t.Fatalf("an option without its FX rate was measured from the account's rate: %+v", p)
+	}
 	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); known || lowers {
 		t.Fatal("an underlying with an unmeasured line must read unknown")
 	}
 	b.Positions = b.Positions[:2]
 	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); !known || !lowers {
 		t.Fatal("closing the long call on a net-long underlying must lower its absolute delta")
+	}
+	// The check's verdict is the gate's: the same evidence and arithmetic.
+	ev := deltaReductionEvidence{Current: true, Underlying: "SYNA", BaseCurrency: "EUR", NetBefore: 810 + 4050, BookBefore: 810 + 4050,
+		Legs: map[int]deltaReductionLeg{2: {Quantity: 1, UnitBase: 4050}}}
+	if ok, why := deltaReducingExit(rpc.OrderDraft{Action: rpc.OrderActionSell, Quantity: 1, Contract: rpc.ContractParams{ConID: 2, Symbol: "SYNA", SecType: "OPT"}},
+		rpc.OrderPositionImpact{Before: 1, After: 0, Effect: rpc.OrderPositionEffectClose}, ev, protectiveExitInventory{Current: true}); !ok || why != "" {
+		t.Fatalf("gate verdict %v %q disagrees with the check", ok, why)
 	}
 	if PolicyCheckBookFrom(&rpc.AccountResult{BaseCurrency: "EUR"}, nil) != nil {
 		t.Fatal("a zero-NLV account made a book")

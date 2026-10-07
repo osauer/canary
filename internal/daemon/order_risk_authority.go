@@ -562,8 +562,9 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	// underlying passes the option-contract cap and the notional cap (owner
 	// decision 2026-10-07 08:13 CEST; the rule, its measurement and what
 	// still bounds it: delta_reduction.go). An unknown or stale delta never
-	// exempts, and the refusal then says why.
-	deltaExempt, deltaWhy := deltaReducingExit(draft, position, delta)
+	// exempts, nor does an order that with the other working orders in its
+	// direction would exceed the held line, and the refusal then says why.
+	deltaExempt, deltaWhy := deltaReducingExit(draft, position, delta, exit)
 	if strings.EqualFold(draft.Contract.SecType, "OPT") && draft.Quantity > limits.MaxOptionContracts && !deltaExempt {
 		return fmt.Errorf("option quantity %d exceeds the option cap in force of %d contracts ([order_limits].max_option_contracts)%s", draft.Quantity, limits.MaxOptionContracts, deltaWhy)
 	}
@@ -596,10 +597,10 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 		switch {
 		case !exit.Current:
 			return fmt.Errorf("a bond sale needs the broker's complete, current open-order list to show no other working sale already sells the held face; preview again")
-		case math.IsNaN(exit.OtherWorkingSell) || math.IsInf(exit.OtherWorkingSell, 0) || exit.OtherWorkingSell < 0 ||
-			exit.OtherWorkingSell+float64(draft.Quantity) > position.Before+1e-9:
+		case math.IsNaN(exit.OtherWorkingSameSide) || math.IsInf(exit.OtherWorkingSameSide, 0) || exit.OtherWorkingSameSide < 0 ||
+			exit.OtherWorkingSameSide+float64(draft.Quantity) > position.Before+1e-9:
 			return fmt.Errorf("this bond sale of %d units with %s already working to sell exceeds the %s held; cancel a working sale first",
-				draft.Quantity, strconv.FormatFloat(exit.OtherWorkingSell, 'f', -1, 64), strconv.FormatFloat(position.Before, 'f', -1, 64))
+				draft.Quantity, strconv.FormatFloat(exit.OtherWorkingSameSide, 'f', -1, 64), strconv.FormatFloat(position.Before, 'f', -1, 64))
 		}
 	}
 	if ibkrlib.IsBillOrBond(draft.Contract.SecType) && strings.EqualFold(draft.Action, rpc.OrderActionBuy) {
@@ -783,18 +784,15 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 			EvidenceAt: s.orderNow(), Source: orderFXSourceIdentity,
 		}
 	}
-	// The exemptions read their evidence again at admission: a hand sale
-	// entered after the preview withdraws the protective exit, and the
-	// underlying's delta is measured from the positions as they are now. A
-	// modify excludes its own target order. The delta is read against the
-	// signed notional; a cap that binds only after FX drift at admission
-	// asks for a new preview, as every other drift does.
+	// The exemptions read their evidence again at admission: a hand order
+	// entered after the preview withdraws the protective exit or the
+	// delta-reducing exit, and the underlying's delta is measured from the
+	// positions as they are now. A modify excludes its own target order.
+	// The delta is read against the larger of the signed and the current
+	// notional, so a cap that binds only after FX drift still finds its
+	// measurement.
 	exitInventory := s.captureProtectiveExitInventory(ctx, status, draft, current.Impact, payload.Replace)
 	limits := s.orderLimitsInForce(current.BaseCurrency)
-	deltaEvidence := s.captureDeltaReductionEvidence(ctx, status, draft, current.Impact, limits, signedNotional)
-	if err := validateOrderRiskAuthority(limits, draft, current.Impact, signedNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
-		return fmt.Errorf("%w: signed preview risk authority is invalid: %v", ErrTradingDisabled, err)
-	}
 	var fxAuthority *orderPreviewBrokerAuthority
 	if !binding.testOnly {
 		fxAuthority = &orderPreviewBrokerAuthority{
@@ -804,6 +802,14 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	currentNotional, err := s.captureOrderNotionalAuthority(ctx, fxAuthority, signedNotional.QuoteNotional, draft.Contract.Currency, current.BaseCurrency, orderFXQuoteBudget)
 	if err != nil {
 		return err
+	}
+	bindNotional := signedNotional
+	if currentNotional.BaseNotional > signedNotional.BaseNotional {
+		bindNotional = currentNotional
+	}
+	deltaEvidence := s.captureDeltaReductionEvidence(ctx, status, draft, current.Impact, limits, bindNotional)
+	if err := validateOrderRiskAuthority(limits, draft, current.Impact, signedNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
+		return fmt.Errorf("%w: signed preview risk authority is invalid: %v", ErrTradingDisabled, err)
 	}
 	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)

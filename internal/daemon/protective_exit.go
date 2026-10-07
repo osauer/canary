@@ -32,19 +32,36 @@ const (
 	protectiveExitExceedsPositionCode      = "protective_exit_exceeds_position"
 )
 
-// protectiveExitInventory is the broker open-order evidence the exemption
-// reads. The zero value is "unavailable" and never exempts.
+// protectiveExitInventory is the broker open-order evidence the exemptions
+// read: the protective stock exit, the bond sale and the delta-reducing exit
+// (delta_reduction.go) each require that this order and every other working
+// order in its direction together stay within the held line. The zero value
+// is "unavailable" and never exempts.
 type protectiveExitInventory struct {
 	// Current is true only for a complete, current all-client open-order
 	// snapshot of the order's own account and mode.
 	Current bool
-	// OtherWorkingSell is the remaining quantity of every other working SELL
-	// order for the exact contract, hand orders in TWS included.
-	OtherWorkingSell float64
+	// OtherWorkingSameSide is the remaining quantity of every other working
+	// order for the exact contract in the draft's own direction (sells
+	// beside a sell, buys beside a buy), hand orders in TWS included.
+	OtherWorkingSameSide float64
+	// OtherWorkingSameSideByLeg is the same count per leg of a strategy
+	// combo, by the leg's ConID and in the leg's own direction; nil for a
+	// single-contract draft.
+	OtherWorkingSameSideByLeg map[int]float64
 	// ReducesWorkingStop is true for a modify whose target is a working sell
 	// stop on the same contract and whose new quantity is below the target's
 	// remaining quantity.
 	ReducesWorkingStop bool
+}
+
+// otherWorkingSameSide is the competing working quantity for one contract
+// of the draft: the combo leg's count, or the single contract's.
+func (inv protectiveExitInventory) otherWorkingSameSide(conID int) float64 {
+	if inv.OtherWorkingSameSideByLeg != nil {
+		return inv.OtherWorkingSameSideByLeg[conID]
+	}
+	return inv.OtherWorkingSameSide
 }
 
 // isProtectiveStopOrderType reports the stop kinds a protective exit may use.
@@ -88,10 +105,10 @@ func protectiveStockExitExempt(draft rpc.OrderDraft, position rpc.OrderPositionI
 	if inv.ReducesWorkingStop {
 		return true
 	}
-	if math.IsNaN(inv.OtherWorkingSell) || math.IsInf(inv.OtherWorkingSell, 0) || inv.OtherWorkingSell < 0 {
+	if math.IsNaN(inv.OtherWorkingSameSide) || math.IsInf(inv.OtherWorkingSameSide, 0) || inv.OtherWorkingSameSide < 0 {
 		return false
 	}
-	return inv.OtherWorkingSell+float64(draft.Quantity) <= position.Before+1e-9
+	return inv.OtherWorkingSameSide+float64(draft.Quantity) <= position.Before+1e-9
 }
 
 // brokerOrderRemaining is the quantity a working broker order can still fill.
@@ -105,10 +122,12 @@ func brokerOrderRemaining(order ibkrlib.OrderLifecycleEvent) float64 {
 	return 0
 }
 
-// brokerOrderSameStockContract matches a broker order to the exact contract.
-// An order without a ConID that names the same stock symbol counts: doubt
-// adds to the competing quantity, never removes from it.
-func brokerOrderSameStockContract(order ibkrlib.OrderLifecycleEvent, contract rpc.ContractParams) bool {
+// brokerOrderSameContract matches a broker order to the exact contract. An
+// order without a ConID that names the same symbol in the contract's own
+// class (a stock or ETF beside a stock, an option on the underlying beside
+// an option, a bill or bond beside a bond) counts: doubt adds to the
+// competing quantity, never removes from it.
+func brokerOrderSameContract(order ibkrlib.OrderLifecycleEvent, contract rpc.ContractParams) bool {
 	if order.ConID > 0 && contract.ConID > 0 {
 		return order.ConID == contract.ConID
 	}
@@ -116,7 +135,16 @@ func brokerOrderSameStockContract(order ibkrlib.OrderLifecycleEvent, contract rp
 		return false
 	}
 	secType := strings.TrimSpace(order.SecType)
-	return secType == "" || isStockLikeRiskSecType(secType) || (ibkrlib.IsBillOrBond(secType) && ibkrlib.IsBillOrBond(contract.SecType))
+	switch {
+	case secType == "":
+		return true
+	case strings.EqualFold(contract.SecType, "OPT"):
+		return strings.EqualFold(secType, "OPT") || strings.EqualFold(secType, rpc.SecTypeOption)
+	case ibkrlib.IsBillOrBond(contract.SecType):
+		return ibkrlib.IsBillOrBond(secType)
+	default:
+		return isStockLikeRiskSecType(secType)
+	}
 }
 
 // bondSaleCandidate is a bill or bond sale that reduces or closes a held
@@ -136,14 +164,29 @@ func brokerOrderIsTarget(order ibkrlib.OrderLifecycleEvent, target orderPreviewR
 }
 
 // protectiveExitInventoryFromSnapshot reads one complete snapshot for the
-// exemption. target is the zero value for a new placement.
+// exemptions: the other working orders in the draft's direction on its
+// contract, or on each leg of a strategy combo in that leg's direction.
+// target is the zero value for a new placement.
 func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, scope brokerStateScope, draft rpc.OrderDraft, target orderPreviewReplaceTarget) protectiveExitInventory {
 	inv := protectiveExitInventory{Current: true}
+	working := brokerWorkingOrders(snapshot, nil, scope)
+	if group := draft.StrategyGroup; group != nil {
+		inv.OtherWorkingSameSideByLeg = make(map[int]float64, len(group.Legs))
+		for _, leg := range group.Legs {
+			inv.OtherWorkingSameSideByLeg[leg.Contract.ConID] = 0
+			for _, row := range working {
+				if brokerOrderSameContract(row.Order, leg.Contract) && strings.EqualFold(strings.TrimSpace(row.Order.Action), strings.TrimSpace(leg.Action)) {
+					inv.OtherWorkingSameSideByLeg[leg.Contract.ConID] += brokerOrderRemaining(row.Order)
+				}
+			}
+		}
+		return inv
+	}
 	targetFound := false
 	var targetRemaining float64
-	for _, row := range brokerWorkingOrders(snapshot, nil, scope) {
+	for _, row := range working {
 		order := row.Order
-		if !brokerOrderSameStockContract(order, draft.Contract) {
+		if !brokerOrderSameContract(order, draft.Contract) {
 			continue
 		}
 		if (target.ReservedOrderID > 0 || target.PermID > 0) && brokerOrderIsTarget(order, target) {
@@ -153,10 +196,10 @@ func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, sco
 			}
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(order.Action), rpc.OrderActionSell) {
+		if !strings.EqualFold(strings.TrimSpace(order.Action), strings.TrimSpace(draft.Action)) {
 			continue
 		}
-		inv.OtherWorkingSell += brokerOrderRemaining(order)
+		inv.OtherWorkingSameSide += brokerOrderRemaining(order)
 	}
 	if targetFound && targetRemaining > 0 && float64(draft.Quantity) < targetRemaining-1e-9 {
 		inv.ReducesWorkingStop = true
@@ -165,10 +208,12 @@ func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, sco
 }
 
 // captureProtectiveExitInventory reads the complete broker open-order
-// inventory for a protective-exit candidate. A non-candidate, an unavailable
-// inventory or one for another account/mode returns the unavailable value.
+// inventory (the cached protection snapshot; no new broker request) for a
+// protective-exit, bond-sale or delta-reducing-exit candidate. A
+// non-candidate, an unavailable inventory or one for another account/mode
+// returns the unavailable value.
 func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, position rpc.OrderPositionImpact, target orderPreviewReplaceTarget) protectiveExitInventory {
-	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position)) {
+	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position) && !deltaReductionCandidate(draft, position)) {
 		return protectiveExitInventory{}
 	}
 	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, false)
@@ -220,7 +265,7 @@ func protectiveExitProposalBlocker(allowStockShort bool, p rpc.TradeProposal, in
 	default:
 		return rpc.TradingBlocker{
 			Code:    protectiveExitCompetingSellCode,
-			Message: fmt.Sprintf("another working sell order already covers %.4g of the %.4g shares held, so this stop would sell more than you hold", inv.OtherWorkingSell, before),
+			Message: fmt.Sprintf("another working sell order already covers %.4g of the %.4g shares held, so this stop would sell more than you hold", inv.OtherWorkingSameSide, before),
 			Action:  "Cancel or finish the other sell order first; the stop then becomes ready.",
 		}, true
 	}

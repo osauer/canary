@@ -54,38 +54,65 @@ type PolicyCheckPosition struct {
 	Currency        string
 	Quantity        float64
 	MarketValueBase float64
+	// ConID is the broker contract id, which the delta checks key a line by.
+	ConID int
 	// Underlying is the symbol whose delta the line belongs to: the stock's
 	// own, or the option's underlying. It groups the lines the delta-reducing
 	// exit exemption (delta_reduction.go) sums.
 	Underlying string
+	// Right and Multiplier are an option line's, for the short-leg coverage
+	// rule; empty and zero for a stock.
+	Right      string
+	Multiplier int
 	// DollarDeltaBase is the line's signed dollar delta in base currency as
-	// the daemon's risk verdicts measure it (positionDollarDelta); nil when
-	// the row is stale or lacks a delta, spot or FX rate.
+	// the trading gate measures it (deltaLegBase: the daemon's
+	// positionDollarDelta at the row's own FX rate); nil when the row is
+	// stale or lacks a delta, spot or FX rate, with no fallback the gate
+	// lacks.
 	DollarDeltaBase *float64
 }
 
-// exitLowersAbsoluteDelta reports whether closing units of line p would
-// lower the absolute net delta of its underlying, as the trading gate
-// measures it for the delta-reducing exit exemption, and whether that can be
-// known at all: every line of the underlying needs a delta, else the gate
-// fails closed and so does this.
+// exitLowersAbsoluteDelta reports whether closing units of line p would pass
+// the delta-reducing exit rule as the trading gate judges it (lower the
+// underlying's and the book's absolute delta, leave no short option
+// uncovered; deltaReductionEvidence.judge), and whether that can be known at
+// all: every line of the book needs a measured delta, else the gate fails
+// closed and so does this. The working-order inventory, a point-in-time
+// matter, is not part of the check.
 func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64) (lowers, known bool) {
-	if b == nil || p.Underlying == "" || p.DollarDeltaBase == nil || p.Quantity == 0 || units <= 0 {
+	if b == nil || p.Underlying == "" || p.ConID <= 0 || p.Quantity == 0 || units <= 0 {
 		return false, false
 	}
-	net := 0.0
+	ev := deltaReductionEvidence{Underlying: p.Underlying, BaseCurrency: b.BaseCurrency, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
 	for _, q := range b.Positions {
+		if q.DollarDeltaBase == nil || q.Quantity == 0 {
+			return false, false
+		}
+		ev.BookBefore += *q.DollarDeltaBase
 		if q.Underlying != p.Underlying {
 			continue
 		}
-		if q.DollarDeltaBase == nil {
-			return false, false
+		ev.NetBefore += *q.DollarDeltaBase
+		if q.Kind == policyCheckKindOption {
+			ev.Cover.Options = append(ev.Cover.Options, deltaCoverLeg{ConID: q.ConID, Right: strings.ToUpper(strings.TrimSpace(q.Right)), Quantity: q.Quantity, Multiplier: float64(max(q.Multiplier, 1))})
+		} else {
+			ev.Cover.Shares[q.ConID] += q.Quantity
 		}
-		net += *q.DollarDeltaBase
+		if q.ConID == p.ConID {
+			if _, dup := ev.Legs[q.ConID]; dup {
+				return false, false
+			}
+			ev.Legs[q.ConID] = deltaReductionLeg{Quantity: q.Quantity, UnitBase: *q.DollarDeltaBase / q.Quantity}
+		}
 	}
+	ev.Current = true
 	// Closing moves the quantity toward zero by units.
-	after := net - math.Copysign(units, p.Quantity)*(*p.DollarDeltaBase/p.Quantity)
-	return lowersAbsoluteDelta(net, after), true
+	changes := []deltaChange{{ConID: p.ConID, Before: p.Quantity, After: p.Quantity - math.Copysign(units, p.Quantity)}}
+	if _, failed := ev.netAfter(changes); failed != nil {
+		return false, false
+	}
+	ok, _ := ev.judge(p.Underlying, changes)
+	return ok, true
 }
 
 // Position kinds the book checks distinguish.
@@ -140,15 +167,12 @@ func PolicyCheckBookFrom(acct *rpc.AccountResult, pos *rpc.PositionsResult) *Pol
 			default:
 				continue
 			}
-			p := PolicyCheckPosition{Kind: kind, Currency: ccy, Quantity: row.Quantity, MarketValueBase: mv, Underlying: strings.ToUpper(strings.TrimSpace(row.Symbol))}
-			if dd, ok := positionDollarDelta(row, kind == policyCheckKindOption); ok && !row.Stale {
-				rate, ok := positionBaseRate(row, base)
-				if !ok {
-					rate, ok = b.FXToBase[ccy], positiveFinite(b.FXToBase[ccy])
-				}
-				if ok {
-					p.DollarDeltaBase = new(dd * rate)
-				}
+			p := PolicyCheckPosition{Kind: kind, Currency: ccy, Quantity: row.Quantity, MarketValueBase: mv, ConID: row.ConID, Underlying: strings.ToUpper(strings.TrimSpace(row.Symbol))}
+			if kind == policyCheckKindOption {
+				p.Right, p.Multiplier = strings.ToUpper(strings.TrimSpace(row.Right)), optionMultiplier(row)
+			}
+			if dd, why := deltaLegBase(row, kind == policyCheckKindOption, base); why == "" {
+				p.DollarDeltaBase = new(dd)
 			}
 			b.Positions = append(b.Positions, p)
 		}

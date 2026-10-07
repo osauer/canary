@@ -60,7 +60,7 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 		{name: "ETF stop", draft: protectiveExitTestDraft("ETF", rpc.OrderTypeTRAIL, 300),
 			position: protectiveExitTestPosition(300, rpc.OrderActionSell, 300), notional: 25000, inv: current},
 		{name: "partial stop with a hand sale that fits", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2000),
-			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 2000), notional: 15000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 2000}},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 2000), notional: 15000, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 2000}},
 		{name: "limit sell keeps the notional cap", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 4000),
 			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "small limit sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
@@ -72,13 +72,13 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 		{name: "quantity above the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4001),
 			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4001), notional: 30007.5, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "another working sell exceeds the position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
-			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 1}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "small stop with a competing sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 100),
-			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 100), notional: 750, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 3901}, wantErr: "allow_stock_short"},
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 100), notional: 750, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 3901}, wantErr: "allow_stock_short"},
 		{name: "stale inventory fails closed", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
 			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: protectiveExitInventory{}, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
 		{name: "a shrink of a working stop passes despite a hand sale", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 3000),
-			position: protectiveExitTestPosition(3000, rpc.OrderActionSell, 3000), notional: 22500, inv: protectiveExitInventory{Current: true, OtherWorkingSell: 1000, ReducesWorkingStop: true}},
+			position: protectiveExitTestPosition(3000, rpc.OrderActionSell, 3000), notional: 22500, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 1000, ReducesWorkingStop: true}},
 		{name: "buy stop is not an exit of a long", draft: func() rpc.OrderDraft {
 			d := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000)
 			d.Action = rpc.OrderActionBuy
@@ -138,12 +138,52 @@ func TestProtectiveExitInventoryCountsCompetingSells(t *testing.T) {
 	}}
 	draft := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2800)
 	inv := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
-	if !inv.Current || inv.OtherWorkingSell != 1200 || !inv.ReducesWorkingStop {
+	if !inv.Current || inv.OtherWorkingSameSide != 1200 || !inv.ReducesWorkingStop {
 		t.Fatalf("modify inventory = %+v, want current, 1200 competing, a reduction of the working stop", inv)
 	}
 	place := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
-	if place.OtherWorkingSell != 5200 || place.ReducesWorkingStop {
+	if place.OtherWorkingSameSide != 5200 || place.ReducesWorkingStop {
 		t.Fatalf("place inventory = %+v, want 5200 competing and no reduction", place)
+	}
+}
+
+// The inventory follows the order's direction and class: beside a
+// buy-to-close of a short option it counts the other working buys on that
+// exact option (a buy without a ConID that names the underlying counts, a
+// sell or another option does not), and beside a strategy combo it counts
+// per leg in each leg's direction.
+func TestProtectiveExitInventoryFollowsTheOrdersDirection(t *testing.T) {
+	t.Parallel()
+	optionOrder := func(permID int, conID int, action string, qty float64) ibkrlib.OrderLifecycleEvent {
+		o := protectiveExitTestOrder(0, permID, action, rpc.OrderTypeLMT, qty)
+		o.SecType, o.ConID, o.Symbol, o.Expiry, o.Strike, o.Right = "OPT", conID, "SYNB", "20261218", 75, "P"
+		return o
+	}
+	handBuy := optionOrder(8004, 0, rpc.OrderActionBuy, 1) // a hand order the API reports without a ConID
+	snapshot := ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: time.Now(), Orders: []ibkrlib.OrderLifecycleEvent{
+		optionOrder(8001, deltaTestShortPuts, rpc.OrderActionBuy, 3),
+		optionOrder(8002, deltaTestShortPuts, rpc.OrderActionSell, 2),
+		optionOrder(8003, deltaTestLongCalls, rpc.OrderActionBuy, 4),
+		handBuy,
+	}}
+	buyBack := deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8)
+	inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, buyBack, orderPreviewReplaceTarget{})
+	if !inv.Current || inv.OtherWorkingSameSide != 4 || inv.OtherWorkingSameSideByLeg != nil {
+		t.Fatalf("buy-back inventory = %+v, want 4 competing buys (3 on the contract, 1 hand order without a ConID)", inv)
+	}
+	sellCalls := deltaTestOptionDraft(deltaTestLongCalls, "C", rpc.OrderActionSell, 8)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+		t.Fatalf("sell inventory = %+v, want no competing sells", inv)
+	}
+	stock := deltaTestStockDraft(rpc.OrderActionBuy, 100)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+		t.Fatalf("stock inventory = %+v, want option orders not to count against the stock", inv)
+	}
+	combo, _ := deltaTestStrategyDraft(8, deltaTestLeg(deltaTestLongCalls, 1, rpc.OrderActionSell, 8, 8), deltaTestLeg(deltaTestShortPuts, -1, rpc.OrderActionBuy, 8, -8))
+	inv = protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, combo, orderPreviewReplaceTarget{})
+	if !inv.Current || inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 0 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 4 ||
+		inv.otherWorkingSameSide(deltaTestShortPuts) != 4 {
+		t.Fatalf("combo inventory = %+v, want per-leg counts in each leg's direction (calls sold: 0; puts bought back: 3 on the contract plus the hand buy without a ConID)", inv)
 	}
 }
 

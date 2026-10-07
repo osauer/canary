@@ -587,16 +587,16 @@ func checkOrderCapVsNLV(c *policyCheckContext) []policyCheckHit {
 			if r.label != orderCapLabel && capOK {
 				want = min(want, tradingCap)
 			}
-			what := "a trim of 10% of the book"
+			what, tail, fits := "a trim of 10% of the book", "", "a typical trim"
 			if r.label == orderCapLabel {
 				// A delta-reducing exit passes the order cap whatever its size;
 				// an order that opens or adds is held to it.
-				what = "an order that opens or adds 10% of the book"
+				what, tail, fits = "opening or adding 10% of the book", "; exits that lower the underlying's absolute delta pass whatever the cap", "a typical opening order"
 			}
 			out = append(out, policyCheckHit{keys: r.keys,
-				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): %s takes %d orders, each waiting its own cycle and approval.",
-					r.label, policyCheckMoney(r.base, base), policyCheckPct(share), policyCheckMoney(nlv, base), what, int(math.Ceil(0.10*nlv/r.base))),
-				suggestion: fmt.Sprintf("About %s (5%% of NLV, no more than the trading cap), so a typical trim fits in two orders.", policyCheckMoney(policyCheckRoundDown(want/r.fx), r.ccy))})
+				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): %s takes %d orders, each waiting its own cycle and approval%s.",
+					r.label, policyCheckMoney(r.base, base), policyCheckPct(share), policyCheckMoney(nlv, base), what, int(math.Ceil(0.10*nlv/r.base)), tail),
+				suggestion: fmt.Sprintf("About %s (5%% of NLV, no more than the trading cap), so %s fits in two orders.", policyCheckMoney(policyCheckRoundDown(want/r.fx), r.ccy), fits)})
 		case share > policyCheckHugeShareNLV:
 			out = append(out, policyCheckHit{keys: r.keys,
 				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): a single order may move more than half the book.",
@@ -1024,7 +1024,7 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 			message: "Bill orders are declared exempt from the order cap in force, but the sweep's cap in force is within it, so the exemption is not used."}}
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
-		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
+		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (orders that open or add, the fallback ETF buy and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
 }
 
 // checkSweepBuysWhileBorrowed reports a sweep allowed to buy bills while a

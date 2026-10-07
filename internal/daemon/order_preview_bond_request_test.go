@@ -361,10 +361,10 @@ func TestOrderRiskAuthorityChecksBondBuyMaturity(t *testing.T) {
 	if err := validateOrderRiskAuthority(limits, sale, reduce, auth, "EUR", protectiveExitInventory{}, deltaReductionEvidence{}); err == nil || !strings.Contains(err.Error(), "open-order list") {
 		t.Fatalf("a sale without the open-order list: %v", err)
 	}
-	if err := validateOrderRiskAuthority(limits, sale, reduce, auth, "EUR", protectiveExitInventory{Current: true, OtherWorkingSell: 5000}, deltaReductionEvidence{}); err != nil {
+	if err := validateOrderRiskAuthority(limits, sale, reduce, auth, "EUR", protectiveExitInventory{Current: true, OtherWorkingSameSide: 5000}, deltaReductionEvidence{}); err != nil {
 		t.Fatalf("a sale that fits beside a working one was refused: %v", err)
 	}
-	if err := validateOrderRiskAuthority(limits, sale, reduce, auth, "EUR", protectiveExitInventory{Current: true, OtherWorkingSell: 5001}, deltaReductionEvidence{}); err == nil || !strings.Contains(err.Error(), "already working") {
+	if err := validateOrderRiskAuthority(limits, sale, reduce, auth, "EUR", protectiveExitInventory{Current: true, OtherWorkingSameSide: 5001}, deltaReductionEvidence{}); err == nil || !strings.Contains(err.Error(), "already working") {
 		t.Fatalf("a sale beyond the held face with working sales: %v", err)
 	}
 }

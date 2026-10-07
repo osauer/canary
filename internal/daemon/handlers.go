@@ -1251,6 +1251,11 @@ func flagOptionMarkOutsideBidAsk(options []rpc.PositionView) {
 	}
 }
 
+// zeroValueStockPositionCode marks a stock row whose quote probe left it with
+// zero mark and zero market value: stale as a quote, but a known zero to the
+// delta-reducing exit measurement (deltaLegBase).
+const zeroValueStockPositionCode = "zero_value_stock_position"
+
 // flagZeroValueStockPositions marks rows whose quote probe left them with
 // authority and retains them until broker evidence resolves the zero value.
 func flagZeroValueStockPositions(stocks []rpc.PositionView) {
@@ -1259,13 +1264,13 @@ func flagZeroValueStockPositions(stocks []rpc.PositionView) {
 		if !stockPositionLooksInactive(*p) {
 			continue
 		}
-		if positionWarningHasCode(p.WarningDetails, "zero_value_stock_position") {
+		if positionWarningHasCode(p.WarningDetails, zeroValueStockPositionCode) {
 			continue
 		}
 		p.Stale = true
 		p.StaleReason = "zero-value portfolio row; likely inactive or defunct"
 		p.WarningDetails = append(p.WarningDetails, rpc.DataWarning{
-			Code:     "zero_value_stock_position",
+			Code:     zeroValueStockPositionCode,
 			Scope:    p.Symbol,
 			Severity: "data_quality",
 			Message:  "Held stock position has nonzero quantity but zero mark and zero market value.",

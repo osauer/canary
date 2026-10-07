@@ -300,18 +300,34 @@ true`. And an order that reduces delta passes both the notional cap and the
 option cap (owner decision 2026-10-07 08:13 CEST: "tighter order cap must not
 block exits if they reduce delta"): it only closes or shrinks a position you
 hold, never opening, adding or flipping to the other side, and it lowers the
-absolute net delta of its underlying, measured with the same position deltas
-Canary's risk verdicts use (shares at their mark, option contracts at their
-delta, multiplier and model spot, all in the account base currency). A hand
-exit, an option buy-to-close or sell-to-close, a strategy close, a reduction
-proposal or a budget-governor cut above the cap therefore passes when it
-lowers that delta. Closing a long put or buying back a short call that hedges
-a long stock raises the stock's absolute delta, so it keeps the cap; so does
-any order whose underlying has a leg with a stale quote or no delta, spot or
-FX rate, because an unknown delta never exempts. The refusal then says why,
+absolute net delta of its underlying and of your whole book (owner decision
+2026-10-07 09:51 CEST: both must fall), measured with the same position
+deltas Canary's risk verdicts use (shares at their mark, option contracts at
+their delta, multiplier and model spot, all in the account base currency). A
+hand exit, an option buy-to-close or sell-to-close, a strategy close, a
+reduction proposal or a budget-governor cut above the cap therefore passes
+when it lowers both. Closing a long put or buying back a short call that
+hedges a long stock raises the stock's absolute delta, so it keeps the cap;
+closing index puts that hedge a net-long book, or buying back a short stock
+in one, raises the book's, so it keeps the cap too; so does any order while
+a line anywhere in your book has a stale quote or no delta, spot or FX rate,
+because an unknown delta never exempts (bills, bonds and a defunct zero-value
+row count as zero and do not block it). An exit that would leave a short
+option uncovered keeps the cap as well (owner decision 2026-10-07 09:51 CEST,
+on the principle Canary applies to its option combos: never leave a short
+leg uncovered): after the order, short calls need long shares or long calls
+and short puts need short shares or long puts, so selling the stock under a
+covered call, or the long leg of a spread on its own, is refused with
+`this sale would leave 2 short calls on SYNB uncovered, so the order cap
+applies`, while a sale that leaves enough shares passes. The order and every
+other working order in its direction on the same contract (hand orders in
+TWS included) must together stay within what you hold, read from the
+broker's complete open-order list, so two exits of one line cannot both pass
+and together flip it; when that list cannot be read, the cap applies and the
+refusal says so. The refusal then says why,
 for example `order notional 15,000 EUR exceeds the order cap in force 12,000
 EUR (5% of NLV 240,000 EUR; [order_limits]); the exit does not lower the
-absolute delta of SYNA (69,000 EUR before, 99,000 EUR after), so the cap
+absolute delta of SYNA (110,400 EUR before, 158,400 EUR after), so the cap
 applies`. Bills, bonds and conversions carry no equity delta and never
 qualify. The short and sell-to-open permissions, the bond maturity limit and
 the currency checks have no exemption: a stock exit above the cap still needs

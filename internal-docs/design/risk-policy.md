@@ -208,7 +208,7 @@ two hours, two-hourly through the first day, then six-hourly) that stops
 when retained coverage reaches the latch day; it honors the fetch state's
 own failure and pacing schedule.
 
-## Delta-reducing exits (owner decision 2026-10-07 08:13 CEST)
+## Delta-reducing exits (owner decision 2026-10-07 08:13 CEST; open questions decided 09:51 CEST)
 
 The owner's decision: "tighter order cap must not block exits if they reduce
 delta. That's a (design-)bug". Before it, `validateOrderRiskAuthority` held
@@ -222,10 +222,13 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
 1. **The rule.** An order passes the notional cap and the option-contract cap
    when it reduces delta: it only closes or shrinks an existing position (it
    never opens a position, never adds to one, never flips to the other side),
-   and it lowers the absolute net delta of its underlying, measured with the
+   and it lowers the absolute net delta of its underlying and of the whole
+   book (owner decision 2026-10-07 09:51 CEST, "Both"), measured with the
    same position deltas Canary already uses for its daemon-side risk verdicts.
    If any delta the test needs is unknown or stale, the order does not qualify
-   and the cap applies (fail closed).
+   and the cap applies (fail closed). An exit that would leave a short option
+   uncovered keeps the cap (owner decision 2026-10-07 09:51 CEST, "Keep the
+   cap"; item 9 below).
 2. **The measure.** `positionDollarDelta` (handlers.go), which rule 15's net
    exposure (`mapRuleNames` → `GroupDollarDeltaBase`) and the portfolio reduce
    sweep (`netPortfolioDollarDelta`) already read: shares × mark for a stock
@@ -234,7 +237,9 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    is the order's contract symbol; its legs are every held equity row that
    quotes as a stock and every option row with that symbol. Bills, bonds and
    conversions carry no equity delta and are neither legs nor candidates. No
-   second kind of delta is computed.
+   second kind of delta is computed: `deltaLegBase` is the one per-row
+   measurement, and the policy check's book reads it too, with no fallback
+   the gate lacks (a row without its own FX rate is unmeasured for both).
 3. **The test.** `measureDeltaReduction` reads one `positions.list` result of
    the order's own account and mode (`currentPortfolioAuthority`), sums the
    legs' base dollar deltas into the net before, and keeps the per-unit
@@ -244,16 +249,29 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    quantity must equal the exact position evidence the order was judged
    against. Any stale row, missing delta, spot or FX rate, non-current or
    other-account read, duplicate or unheld contract leaves the evidence not
-   current, and the refusal names the reason.
+   current, and the refusal names the reason in plain words (the line as the
+   Rulebook describes it, never a contract id or a raw error). Two exits of
+   one line judged against the same position would together flip it, so the
+   exemption also needs the broker's complete open-order inventory
+   (`captureProtectiveExitInventory`, now read for every candidate from the
+   cached protection snapshot): this order and every other working order in
+   its direction on the contract (per leg for a combo, hand orders included)
+   must stay within the held quantity; an unavailable inventory keeps the
+   cap and the refusal says so.
 4. **Enforcement points.** Preview (`previewOrder`, `previewStrategyOrder`)
    and admission (`bindPreviewOrderRiskAuthority`) each read the positions
    when, and only when, the order is a close or reduction that a cap would
    otherwise refuse (`captureDeltaReductionEvidence`); any other order reads
-   nothing. The first-byte wire guard reuses the admission reading with the
-   re-read position and issues no broker request, as it does for the
-   protective exit. The strategy path lifts the per-leg contract cap the same
-   way. Proposal rows are not re-judged: reduce, sweep, governor and
-   risk-reduction rows all go through the preview.
+   nothing, and a candidate the caps admit carries an `Unread` mark. Admission
+   reads against the larger of the signed and the current (FX re-read)
+   notional, so a cap that binds only after FX drift still finds its
+   measurement. The first-byte wire guard reuses the admission reading with
+   the re-read position and issues no broker request, as it does for the
+   protective exit; a cap that first binds there (the book's NLV moved) is
+   refused with "the order cap did not apply when you previewed this order;
+   preview it again". The strategy path lifts the per-leg contract cap the
+   same way and reads the inventory per leg. Proposal rows are not re-judged:
+   reduce, sweep, governor and risk-reduction rows all go through the preview.
 5. **Unchanged.** Freeze, account and route pins, previews and WhatIf, the
    sell-as-short re-read (`allow_stock_short`) and the sell-to-open re-read
    (`allow_option_sell_to_open`), origin gating, owner approval, the drawdown
@@ -263,14 +281,29 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    not, so it is not a special case and was not folded in. The sweep bill
    exemption is unchanged.
 6. **What still bounds cost and risk.** A qualifying order can only shrink a
-   line the book carries, so its worst case is that whole line in one order
-   instead of several: the preview prices it from a live quote inside the
-   strategy's limit (nothing goes out at market), the broker WhatIf must
-   accept it, the position and the measurement are read again at admission,
-   the wire guard re-checks the position, and the owner approves each order.
-   What remains is the price impact of one large exit against its limit,
-   which the owner accepts by approving a preview that shows the whole
-   quantity.
+   line the book carries, and with every other working order in its
+   direction it stays within that line, so its worst case is that whole line
+   in one order instead of several: the preview prices it from a live quote
+   inside the strategy's limit (nothing goes out at market), the broker
+   WhatIf must accept it, the position, the measurement and the inventory are
+   read again at admission, and the wire guard re-checks the position. Who
+   decides to send it is unchanged by this rule, and differs by path: a hand
+   order, a proposal submit and a single reduce are approved per order
+   (device confirmation or the human CLI); a portfolio reduce sweep
+   (`reduce-portfolio submit`) is approved as one basket of up to 25 orders;
+   a queued authorisation (`daemon-owner-queued`) was signed per order by
+   the owner ahead of time; a bucket listed in the protection policy's
+   `[authority] pre_authorised` (`trailing_stop`, `option_loss_exit`,
+   `option_profit_trail`, `budget_reduction`) is sent by the daemon
+   (`daemon-preauthorised`) after a notice and the veto window with no
+   per-order approval, so for those buckets the exemption now admits an
+   option exit above the caps on the standing policy alone (their stock
+   stops were already exempt as protective exits); the protective stop guard
+   (`daemon-protective-guard`) only shrinks or cancels Canary's own stock
+   stops; the cash sweep's bills never qualify. What remains is the price
+   impact of one large exit against its limit, which the owner accepts by
+   approving a preview that shows the whole quantity, or, for a
+   pre-authorised bucket, by listing the bucket.
 7. **Policy check.** `lot_above_trading_max` now reports an option line above
    the cap only when its single-contract close would not lower the
    underlying's absolute delta or the delta cannot be measured (the book
@@ -280,16 +313,53 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    and hands `risk_reduction` and `budget_reduction` to the new info rule
    `reduction_cap_above_order_cap`, which says that such a bucket's rows pass
    only as delta-reducing exits.
-8. **Open owner questions**, recorded, not decided here. (a) The rule is per
-   underlying: closing a long index put lowers the index's own absolute
-   delta and passes, though at book level it removes a hedge; rule 15's net
-   exposure still watches that. (b) Bills and bonds carry no equity delta,
-   so a bond or bill sale above the cap keeps it (fail closed) unless the
-   sweep bill exemption covers it; whether a bond sale should pass as a
-   risk-reducing exit is open. (c) A stock exit above the cap now passes the
-   cap but still needs `allow_stock_short`, and an option sell-to-close
-   still needs `allow_option_sell_to_open`, so with both false the owner's
-   large exits remain refused by the re-reads, not by the caps.
+8. **The whole book (owner decision 2026-10-07 09:51 CEST, "Both").** The
+   first cut judged the underlying alone, which let a close of index puts
+   that hedge a net-long book of single stocks pass (it lowers the index's
+   own absolute delta while raising the book's). Now the exit must lower
+   both. The book is measured in the same positions loop with the same
+   per-row measure as `netPortfolioDollarDelta` (reduce_portfolio.go):
+   `deltaLegBase` = `positionDollarDelta` × `positionBaseRate`, from the
+   current same-account read; `BookBefore` is kept beside `NetBefore`, and
+   the order's own change moves both. Fail closed: a line anywhere in the
+   book that cannot be measured keeps the cap and the refusal names that
+   line. Two cases do not make the book unmeasurable: bills, bonds and
+   conversions carry no equity delta and count as zero (the loop skips them),
+   and a stock row Canary marks stale only because it is a zero-value row
+   (`zeroValueStockPositionCode`, "likely inactive or defunct") measures as
+   a known zero. The refusal names both figures: "the exit does not lower the
+   absolute delta of the whole book (95,400 EUR before, 135,400 EUR after)".
+   Tested: the index-hedge close and the cover of a short stock in a
+   net-long book keep the cap; a stock sale in a net-long book passes; one
+   unmeasured line elsewhere keeps the cap; a defunct zero-value row and a
+   bond row do not.
+9. **Uncovered short legs (owner decision 2026-10-07 09:51 CEST, "Keep the
+   cap").** Decided on the case of selling the stock under a covered call,
+   with Canary's own rule for option combos as the principle: never leave a
+   short leg uncovered (internal/strategy pairs opposite-signed legs of one
+   underlying into a unit whose exits stay together; option_exit_units.go
+   refuses a single-leg order for a unit). After the order, the underlying's
+   short calls need long shares (contracts × multiplier) or long calls, and
+   its short puts need short shares or long puts; an exit that takes that
+   cover away (uncovered contracts after > before) does not qualify and the
+   refusal says "this sale would leave 2 short calls on SYNB uncovered, so
+   the order cap applies". Covered: a stock sale under covered calls, a
+   buy-back of short shares that cover short puts, and the sale of the long
+   leg of a same-right spread (vertical, calendar, diagonal) on its own;
+   closing the spread as one combo passes. Not covered, by design, with no
+   margin rule invented: a long put as cover for a short call or a long call
+   for a short put (a risk reversal is one of Canary's units but not
+   coverage), options of another underlying (an index hedge), and cash as
+   cover for a short put (a stock exit does not change it, so it never
+   triggers). The `policy check` book carries each option line's right and
+   multiplier so `exitLowersAbsoluteDelta` judges exactly as the gate does
+   (`deltaReductionEvidence.judge`), minus the working-order inventory.
+10. **Still open.** A stock exit above the cap now passes the cap but still
+    needs `allow_stock_short`, and an option sell-to-close still needs
+    `allow_option_sell_to_open`, so with both false the owner's large exits
+    remain refused by the re-reads, not by the caps. Bills and bonds keep the
+    cap under this rule (no equity delta) unless the sweep bill exemption
+    covers them.
 
 ## Safety invariants
 
