@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -574,6 +575,29 @@ func (c *Connector) ExportMarketDataMemory() MarketDataMemory {
 			m.gapWarned[key] = first
 		}
 	}
+	return m
+}
+
+// EntitlementGaps returns the subscription keys whose entitlement gap has
+// warned and when each first did, for a daemon that keeps them across
+// restarts. The keys name contracts, never accounts.
+func (m MarketDataMemory) EntitlementGaps() map[string]time.Time {
+	return maps.Clone(m.gapWarned)
+}
+
+// WithEntitlementGaps returns m with recorded gaps added; a gap m already
+// holds keeps its own time. Lapsed gaps are dropped when a connector exports.
+func (m MarketDataMemory) WithEntitlementGaps(gaps map[string]time.Time) MarketDataMemory {
+	merged := maps.Clone(m.gapWarned)
+	if merged == nil {
+		merged = make(map[string]time.Time, len(gaps))
+	}
+	for key, first := range gaps {
+		if _, ok := merged[key]; !ok {
+			merged[key] = first
+		}
+	}
+	m.gapWarned = merged
 	return m
 }
 
@@ -7178,7 +7202,7 @@ func HistoricalFeeRateUSRouteSupported(contract Contract, requireExchange bool) 
 // encoder used only by the FEE_RATE fallback. It checks the socket epoch before
 // writer access so reconnect cannot redirect the request.
 func (c *Connection) sendExactHistoricalStockRouteRequest(ctx context.Context, contract Contract, reqID int, epoch uint64) error {
-	c.registerReqAlias(reqID, contract)
+	c.registerReqAlias(ctx, reqID, contract)
 	fields := []any{
 		reqContractData,
 		8,

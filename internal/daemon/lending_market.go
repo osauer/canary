@@ -331,7 +331,10 @@ func (s *Server) refreshLendingMarketOnce(ctx context.Context, read lendingMarke
 		cache.mu.Unlock()
 		return
 	}
-	readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), 35*time.Second)
+	// The worker records IBKR's "no security definition" answer as a
+	// verdict below, so the wire echo of a delisted name is not a warning.
+	readCtx := ibkrlib.WithDefinitionMissClassified(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground))
+	readCtx, cancel := context.WithTimeout(readCtx, 35*time.Second)
 	row, daily, historyErr := read(readCtx, selected)
 	cancel()
 	var verdict *marketHistoryDefinitionMiss

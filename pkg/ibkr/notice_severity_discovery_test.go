@@ -1,6 +1,7 @@
 package ibkr
 
 import (
+	"context"
 	"encoding/binary"
 	"strconv"
 	"strings"
@@ -64,16 +65,24 @@ func TestDefinitionMissSeverityDependsOnConID(t *testing.T) {
 	epoch := conn.BrokerSessionEpoch()
 	const noDefinition = "No security definition has been found for the request"
 
-	conn.registerReqAlias(41, Contract{Symbol: "PAIIU", SecType: "STK", Exchange: "SMART", Currency: "USD"})
+	conn.registerReqAlias(context.Background(), 41, Contract{Symbol: "PAIIU", SecType: "STK", Exchange: "SMART", Currency: "USD"})
 	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(41, 200, noDefinition), epoch)
 	if line := singleNoticeLine(t, buf, "(PAIIU STK)"); !strings.Contains(line, "level=INFO") || !strings.Contains(line, "symbol-only lookup") {
 		t.Fatalf("symbol-only miss severity: %s", line)
 	}
 
-	conn.registerReqAlias(42, Contract{Symbol: "OKE", SecType: "STK", Exchange: "SMART", Currency: "USD", ConID: 10794})
+	conn.registerReqAlias(context.Background(), 42, Contract{Symbol: "OKE", SecType: "STK", Exchange: "SMART", Currency: "USD", ConID: 10794})
 	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(42, 200, noDefinition), epoch)
 	if line := singleNoticeLine(t, buf, "(OKE STK)"); !strings.Contains(line, "level=WARN") {
 		t.Fatalf("stale conID miss lost its warning: %s", line)
+	}
+
+	// The same conID miss under a requester that records the verdict itself
+	// (the lending worker's delisted names) is INFO.
+	conn.registerReqAlias(WithDefinitionMissClassified(context.Background()), 44, Contract{Symbol: "CMND.OLD", SecType: "STK", Exchange: "SMART", Currency: "USD", ConID: 5551})
+	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(44, 200, noDefinition), epoch)
+	if line := singleNoticeLine(t, buf, "(CMND.OLD STK)"); !strings.Contains(line, "level=INFO") || !strings.Contains(line, "requester records this verdict") {
+		t.Fatalf("classified conID miss severity: %s", line)
 	}
 
 	// A notice with no alias at all (unknown reqID) keeps the warning: there

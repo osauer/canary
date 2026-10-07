@@ -647,8 +647,8 @@ func stampAsked(lines []BondContractDetails, asked Contract) []BondContractDetai
 // other field empty (includeExpired false, which the encoder sends as 0).
 // Unlike the discovery request it adds no SMART default and no primary
 // exchange, so a form can ask with no exchange.
-func (c *Connection) bondContractDetailsRequestMessage(contract Contract, reqID int) []byte {
-	c.registerReqAlias(reqID, contract)
+func (c *Connection) bondContractDetailsRequestMessage(ctx context.Context, contract Contract, reqID int) []byte {
+	c.registerReqAlias(ctx, reqID, contract)
 	return c.encodeMsg(reqContractData, 8, reqID, contract.ConID, contract.Symbol, contract.SecType,
 		"", "", "", "", // lastTradeDateOrContractMonth, strike, right, multiplier
 		contract.Exchange, "", // exchange, primaryExchange
@@ -757,7 +757,7 @@ func (c *Connector) bondContractDetailsOnce(ctx context.Context, binding Connect
 	req, releaseReq := c.registerBondContractDetailsRequest(reqID)
 	defer releaseReq()
 
-	msg := conn.bondContractDetailsRequestMessage(form.contract, reqID)
+	msg := conn.bondContractDetailsRequestMessage(fetchCtx, form.contract, reqID)
 	if err := conn.sendMessageWithTypeContextForEpoch(fetchCtx, msg, RequestTypeGeneral, binding.epoch, true); err != nil {
 		return nil, attempt, err
 	}

@@ -34,6 +34,7 @@ func Parse(s string) slog.Level {
 // at any configured level. scripts/log-monitor keys restart-loop detection on
 // these exact strings; a level change must never blind it.
 var lifecyclePrefixes = []string{
+	"canary daemon serving",   // daemon: process start, with its build
 	"Connected to IB Gateway", // daemon: broker session established
 	"canary app serving",      // app host: process start
 	"Shutting down server.",   // app host (HyperServe): clean stop

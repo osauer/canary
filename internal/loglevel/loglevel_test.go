@@ -33,6 +33,7 @@ func TestLifecycleMarkersSurviveWarnFloor(t *testing.T) {
 
 	l.Info("Request completed", "status", 200)
 	l.Debug("noise")
+	l.Info("canary daemon serving v3.17.0 (build d59b6bf3) on /tmp/canary.sock")
 	l.Info("Connected to IB Gateway at 127.0.0.1:4002")
 	l.Info("canary app serving", "listen", "0.0.0.0:8765")
 	l.Info("Shutting down server.", "reason", "terminated")
@@ -44,7 +45,7 @@ func TestLifecycleMarkersSurviveWarnFloor(t *testing.T) {
 			t.Errorf("sub-floor line %q reached the log:\n%s", absent, out)
 		}
 	}
-	for _, present := range []string{"Connected to IB Gateway", "canary app serving", "Shutting down server.", "something actionable"} {
+	for _, present := range []string{"canary daemon serving", "Connected to IB Gateway", "canary app serving", "Shutting down server.", "something actionable"} {
 		if !strings.Contains(out, present) {
 			t.Errorf("line %q missing from the log:\n%s", present, out)
 		}
