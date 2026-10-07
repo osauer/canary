@@ -67,8 +67,9 @@ func newTestDevice(t *testing.T, class string) testDevice {
 	d := testDevice{class: class, key: key, point: point}
 	switch class {
 	case "companion":
+		// As Desk derives it (execution_companion.go companionKeyID).
 		sum := sha256.Sum256(point)
-		d.id = hex.EncodeToString(sum[:16])
+		d.id = base64.RawURLEncoding.EncodeToString(sum[:16])
 	default:
 		d.id = base64.RawURLEncoding.EncodeToString([]byte("passkey-credential-" + hex.EncodeToString(point[1:5])))
 	}
@@ -544,7 +545,7 @@ func TestCashPolicyTwoFileSaveReceiptsAndRestore(t *testing.T) {
 			ev, found, err := core.GetEvent(t.Context(), daemonStateScope, cashPolicyEventKey("desk-balanced"))
 			var receipt cashPolicyReceipt
 			if err != nil || !found || json.Unmarshal(ev.PayloadJSON, &receipt) != nil || receipt.Version != 2 || receipt.PresetBefore != rpc.CashPolicyPresetCautious || receipt.PresetAfter != rpc.CashPolicyPresetBalanced ||
-				receipt.Verified != device.credential() || receipt.Constitution == nil || receipt.Constitution.SavedVersion != 9 || !strings.Contains(receipt.WrittenRevision, "+sha256:") {
+				receipt.Verified != device.credential() || receipt.Constitution == nil || receipt.Constitution.SavedVersion != 9 || receipt.Constitution.GovernanceEvent != "recorded" || !strings.Contains(receipt.WrittenRevision, "+sha256:") {
 				t.Fatalf("receipt %+v (%v %v)", receipt, found, err)
 			}
 			// A hand edit withdraws the offer.
@@ -738,22 +739,48 @@ func TestCashPolicyTwoFileWriteFailures(t *testing.T) {
 	})
 }
 
-// The pinned key must be well formed, and a mismatched companion id is
-// refused by the loader, so a pasted line cannot disagree with its key.
+// A malformed [desk_device] line never refuses the constitution (a refused
+// constitution would leave no policy and refuse every preview after a
+// restart): the loader keeps the policy, the snapshot names the line's
+// error and a cap change is refused with it. An unknown key under the table
+// is refused like an unknown key anywhere else in the file. A companion id
+// is the first 16 bytes of the point's SHA-256 in base64url, as Desk derives
+// it, so a pasted line and its key cannot disagree.
 func TestConstitutionDeskDeviceLinesAreValidated(t *testing.T) {
 	device := newTestDevice(t, "companion")
 	if _, err := parseConstitutionFile([]byte(pinned(cashPolicyTestConstitution, device))); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := parseConstitutionFile([]byte(cashPolicyTestConstitution + "\n[desk_device]\nwatch = \"x\"\n")); err == nil {
+		t.Fatal("an unknown key under [desk_device] was accepted")
+	}
+	hexID := hex.EncodeToString(func() []byte { s := sha256.Sum256(device.point); return s[:16] }())
 	for name, line := range map[string]string{
 		"no id":        `companion = "` + base64.RawURLEncoding.EncodeToString(device.point) + `"`,
-		"wrong id":     `companion = "0123456789abcdef0123456789abcdef:` + base64.RawURLEncoding.EncodeToString(device.point) + `"`,
+		"hex id":       `companion = "` + hexID + `:` + base64.RawURLEncoding.EncodeToString(device.point) + `"`,
 		"not a point":  `companion = "` + device.id + `:AAAA"`,
-		"unknown key":  `watch = "x"`,
 		"passkey junk": `passkey = "cred:not-base64!!"`,
 	} {
-		if _, err := parseConstitutionFile([]byte(cashPolicyTestConstitution + "\n[desk_device]\n" + line + "\n")); err == nil {
-			t.Fatalf("%s accepted", name)
+		constitution := cashPolicyTestConstitution + "\n[desk_device]\n" + line + "\n"
+		c, err := parseConstitutionFile([]byte(constitution))
+		if err != nil {
+			t.Fatalf("%s refused the constitution: %v", name, err)
+		}
+		if _, err := c.DeskDevice.Keys(); err == nil {
+			t.Fatalf("%s parsed as a key", name)
+		}
+		s, path, conPath, _ := cashPolicyServerWithConstitution(t, cashPolicyTestFile, constitution)
+		before, conBefore := readFile(t, path), readFile(t, conPath)
+		snap := cashPolicyGet(t, s)
+		if len(snap.Device.Verifiable) != 0 || !strings.HasPrefix(snap.Device.Message, "Canary cannot verify your device: desk_device.") {
+			t.Fatalf("%s: device %+v", name, snap.Device)
+		}
+		check := cashPolicyCheck(t, s, snap.Revision, map[string]any{"order_limits.max_order_pct_nlv": 20})
+		if _, err := cashPolicyApply(s, check.Terms, check.Digest, "desk-badline", device.confirm(t, "b1", check.Terms, cashPolicyTestReview(check)), ""); rpcCode(err) != rpc.CodeConfirmationUnverifiable || !strings.Contains(err.Error(), "desk_device.") {
+			t.Fatalf("%s: cap change %v", name, err)
+		}
+		if readFile(t, path) != before || readFile(t, conPath) != conBefore {
+			t.Fatalf("%s: a refused save wrote a file", name)
 		}
 	}
 	if keys, err := (&risk.ConstitutionDeskDevice{Passkey: newTestDevice(t, "passkey").line()[len(`passkey = "`) : len(newTestDevice(t, "passkey").line())-1]}).Keys(); err != nil || len(keys) != 1 || keys[0].Class != "passkey" {
@@ -785,5 +812,48 @@ func TestCashPolicyChangesKeepTheCompanionsFields(t *testing.T) {
 	_ = json.Unmarshal([]byte(check.Terms), &terms)
 	if len(terms) != 4 || terms["version"] != 1.0 {
 		t.Fatalf("terms %v", terms)
+	}
+}
+
+// A fixed vector from Desk's own code (desk eb4383d, the real companion
+// path: enrolment, prepare, challenge, companionSubmit, policyDeviceLine;
+// the signing key was a test key): the [desk_device] line Desk shows and
+// the envelope Desk sent verify here, so the two readings of the key id and
+// the digest chain cannot drift apart again without this test saying so.
+func TestCashPolicyVerifiesDesksOwnCompanionEnvelope(t *testing.T) {
+	const (
+		line     = `Yib7YatlNMp7PBkgkDcaYg:BHA_5_1h8QKDK8LBlTnh1KRZp9xEhEBMiA4sfIH46M39z_hR1ij6Od1hpx5SThcTuLHg_LRK5BCJNdwn-h5tvqI`
+		actionID = "KR5KS66WR3JYM23EEIZOEA3QS3"
+		terms    = `{"changes":{"cash.leveling.trigger_base":5000},"expected_revision":"sha256:r1","kind":"canary.cash_policy_change","version":1}`
+		envelope = `{"challenge":"MiCy8VxP7unpzdZDIw3FE1FGAWAwLzjsUDvRvw6PEms","credential":"companion","key_id":"Yib7YatlNMp7PBkgkDcaYg","review_json":"{\"base_currency\":\"\",\"changes\":[{\"key\":\"cash.leveling.trigger_base\",\"label\":\"Band\",\"unit\":\"base\",\"from\":10000,\"from_source\":\"file\",\"to\":5000,\"from_text\":\"\",\"to_text\":\"\"}],\"consequences\":[\"Leveling repays loans from 5,000 EUR instead of 10,000 EUR.\"],\"findings\":null,\"kind\":\"cash_policy\",\"policy_version\":14,\"saved_version\":15}","signature":"1fCJWfFL2I5cJEnIBpPK2za2Ve1L77nzwHYd-TIUzyKDQIWSqDRhoNXn88sE3iCPaKVKzWehZeDomI8DLWxrKw"}`
+	)
+	key, err := risk.ParseDeskDeviceKey("companion", line)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &rpc.CashPolicyConfirmation{DeskActionID: actionID, Credential: "companion:Yib7YatlNMp7PBkgkDcaYg", Envelope: envelope}
+	verified, err := verifyCashPolicyDevice([]risk.DeskDeviceKey{key}, c, terms)
+	if err != nil || verified != "companion:Yib7YatlNMp7PBkgkDcaYg" {
+		t.Fatalf("Desk's real envelope: %q %v", verified, err)
+	}
+	for name, bad := range map[string]*rpc.CashPolicyConfirmation{
+		"other terms":  {DeskActionID: actionID, Credential: c.Credential, Envelope: envelope},
+		"other action": {DeskActionID: "KR5KS66WR3JYM23EEIZOEA3QS4", Credential: c.Credential, Envelope: envelope},
+		"other review": {DeskActionID: actionID, Credential: c.Credential, Envelope: strings.Replace(envelope, "10000", "10001", 1)},
+		"other sig":    {DeskActionID: actionID, Credential: c.Credential, Envelope: strings.Replace(envelope, "1fCJWfFL", "1fCJWfFM", 1)},
+	} {
+		useTerms := terms
+		if name == "other terms" {
+			useTerms = strings.Replace(terms, "5000", "4000", 1)
+		}
+		if _, err := verifyCashPolicyDevice([]risk.DeskDeviceKey{key}, bad, useTerms); err == nil {
+			t.Fatalf("%s verified", name)
+		}
+	}
+	// The loader keeps a constitution that pins this line, and the snapshot
+	// lists the credential.
+	s, _, _, _ := cashPolicyServerWithConstitution(t, cashPolicyTestFile, cashPolicyTestConstitution+"\n[desk_device]\ncompanion = \""+line+"\"\n")
+	if snap := cashPolicyGet(t, s); !slices.Equal(snap.Device.Verifiable, []string{"companion:Yib7YatlNMp7PBkgkDcaYg"}) {
+		t.Fatalf("device %+v", snap.Device)
 	}
 }

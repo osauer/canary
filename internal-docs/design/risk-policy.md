@@ -177,9 +177,12 @@ sweep is not set up yet.
 2. **Device, verified here.** A change to any cap key, in either direction
    and with no window, is accepted only with a confirmation Canary verifies
    itself against `[desk_device]`: the public key of the credential Desk
-   enrolled, pinned by the owner once, by hand
-   (`companion = "<key id>:<base64url P-256 point>"`, `passkey = "<credential
-   id>:<point>"`). The envelope carries the device's signature over Desk's
+   enrolled, pinned by the owner once, by hand, from the line Desk's
+   Settings shows (`companion = "<key id>:<base64url P-256 point>"`, the key
+   id being base64url of the first 16 bytes of the point's SHA-256 as Desk
+   derives it; `passkey = "<credential id>:<point>"`). A malformed line never
+   refuses the constitution: the loader keeps the policy and cap changes are
+   refused with the line's error. The envelope carries the device's signature over Desk's
    digest, which chains to these exact terms and the review the owner saw
    (`cash_policy_device.go`); a reliance (`confirmed_by`), an unsigned
    envelope, an unknown key or a broken chain is refused with

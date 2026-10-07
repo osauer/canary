@@ -562,11 +562,16 @@ type cashPolicyReceipt struct {
 }
 
 // cashPolicyConstitutionReceipt is the constitution half of a receipt.
+// GovernanceEvent says whether the revision's governance event was recorded
+// ("recorded") or why not: the file is written and in force by then, and
+// nothing can be rolled back (old bytes would read as drift), so the receipt,
+// which the restore and the retry read, carries the fact beside the log line.
 type cashPolicyConstitutionReceipt struct {
 	FromVersion     int    `json:"from_version"`
 	SavedVersion    int    `json:"saved_version"`
 	WrittenRevision string `json:"written_revision"`
 	Backup          string `json:"backup"`
+	GovernanceEvent string `json:"governance_event"`
 }
 
 func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*rpc.CashPolicyApplyResult, error) {
@@ -750,7 +755,7 @@ func (s *Server) applyCashPolicy(ctx context.Context, m *protectionPolicyManager
 		s.riskPolicies.reloadHeld()
 		conData = conOut
 		receipt.Constitution = &cashPolicyConstitutionReceipt{FromVersion: r.con.file.PolicyVersion, SavedVersion: conAfter.PolicyVersion, WrittenRevision: cashPolicyDigest(conOut), Backup: backup}
-		s.journalOrderLimitsRevision(ctx, now, in, r.con.file, conAfter, caps, receipt)
+		receipt.Constitution.GovernanceEvent = s.journalOrderLimitsRevision(ctx, now, in, r.con.file, conAfter, caps, receipt)
 	}
 	if len(cash) > 0 {
 		err = s.writeCashPolicyHalf(m, r, cashOut, now, &receipt)
@@ -850,8 +855,11 @@ func (s *Server) cashPolicyConfirm(ctx context.Context, r cashPolicyRead, in rpc
 // Desk as a governance event in risk_policy_events: the request and the
 // Desk action, the credential and whether Canary verified it, the versions,
 // the fingerprint after and each cap before and after (design §7.2). Today
-// only status transitions reach that journal; this adds the writes.
-func (s *Server) journalOrderLimitsRevision(ctx context.Context, now time.Time, in rpc.CashPolicyApplyRequest, before, after *risk.Constitution, caps []cashPolicyEdit, receipt cashPolicyReceipt) {
+// only status transitions reach that journal; this adds the writes. It
+// returns "recorded", or why the event could not be recorded, for the
+// receipt: the store was checked ready before the write, so a failure here
+// is the append itself, after the file is in force.
+func (s *Server) journalOrderLimitsRevision(ctx context.Context, now time.Time, in rpc.CashPolicyApplyRequest, before, after *risk.Constitution, caps []cashPolicyEdit, receipt cashPolicyReceipt) string {
 	changes := map[string]any{}
 	for _, e := range caps {
 		changes[e.key] = map[string]any{"from": e.from, "to": e.to}
@@ -874,7 +882,9 @@ func (s *Server) journalOrderLimitsRevision(ctx context.Context, now time.Time, 
 	}
 	if err != nil {
 		s.warnf("order limits revision %d written from Desk, but its governance event could not be recorded: %v", after.PolicyVersion, err)
+		return "not recorded: " + err.Error()
 	}
+	return "recorded"
 }
 
 // appendRiskPolicyEvent writes one governance event to the state store

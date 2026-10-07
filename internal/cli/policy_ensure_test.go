@@ -154,4 +154,17 @@ func TestPolicyEnsureApplyPlanRefusesWhileADaemonRuns(t *testing.T) {
 	if code != 1 || !strings.Contains(errb.String(), "plan contains no reviewed conversion") {
 		t.Fatalf("with the lock free the plan itself is read: exit %d\n%s", code, errb.String())
 	}
+	// A daemon on another socket (canary daemon --socket) is seen through
+	// the same flag.
+	other := filepath.Join(home, "other", "ibkr.sock")
+	release, err = daemon.TryInstanceLock(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	errb.Reset()
+	code = RunPolicyLocal(context.Background(), &Env{Stdout: &out, Stderr: &errb, Version: "v9.9.9"}, []string{"ensure", "--apply-plan", plan, "--socket", other})
+	if code != 1 || !strings.Contains(errb.String(), "a Canary daemon is running and owns the policy files") {
+		t.Fatalf("with the other socket's lock held: exit %d\n%s", code, errb.String())
+	}
 }

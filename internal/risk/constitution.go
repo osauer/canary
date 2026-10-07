@@ -71,8 +71,11 @@ type Constitution struct {
 // credential Desk enrolled for the owner, one per credential class, each as
 // "<credential id>:<base64url of the uncompressed 65-byte P-256 point>".
 // Companion is the paired macOS companion's Secure Enclave key, whose id is
-// the first 16 bytes of the point's SHA-256 in hex, as Desk derives it;
-// Passkey is the owner's passkey, under WebAuthn's credential id (base64url).
+// the first 16 bytes of the point's SHA-256 in unpadded base64url, as Desk
+// derives it (execution_companion.go companionKeyID); Passkey is the owner's
+// passkey, under WebAuthn's credential id (base64url). A line that does not
+// parse never refuses the constitution: the loader keeps the policy, and
+// policy.cash.get and apply report the line as unverifiable instead.
 type ConstitutionDeskDevice struct {
 	Companion string `toml:"companion" json:"companion,omitempty"`
 	Passkey   string `toml:"passkey" json:"passkey,omitempty"`
@@ -111,8 +114,9 @@ func (d *ConstitutionDeskDevice) Keys() ([]DeskDeviceKey, error) {
 // ParseDeskDeviceKey reads "<id>:<base64url point>" for one credential
 // class. The id is 1 to 128 characters of base64url or hex; the point is the
 // uncompressed X9.62 encoding of a P-256 public key (65 bytes, 0x04 first).
-// A companion id must be the first 16 bytes of the point's SHA-256 in hex,
-// as Desk derives it, so a pasted key and id cannot disagree.
+// A companion id must be the first 16 bytes of the point's SHA-256 in
+// unpadded base64url, as Desk derives it, so a pasted key and id cannot
+// disagree.
 func ParseDeskDeviceKey(class, value string) (DeskDeviceKey, error) {
 	key := "desk_device." + class
 	id, point, ok := strings.Cut(strings.TrimSpace(value), ":")
@@ -131,8 +135,8 @@ func ParseDeskDeviceKey(class, value string) (DeskDeviceKey, error) {
 	}
 	if class == "companion" {
 		sum := sha256.Sum256(raw)
-		if id != hex.EncodeToString(sum[:16]) {
-			return DeskDeviceKey{}, fmt.Errorf("%s: the key id is not the one Desk derives from this key (the first 16 bytes of its SHA-256, in hex)", key)
+		if id != base64.RawURLEncoding.EncodeToString(sum[:16]) {
+			return DeskDeviceKey{}, fmt.Errorf("%s: the key id is not the one Desk derives from this key (the first 16 bytes of its SHA-256, in base64url)", key)
 		}
 	}
 	return DeskDeviceKey{Class: class, ID: id, Key: pub}, nil
@@ -324,9 +328,6 @@ func (c Constitution) Validate() error {
 	}
 	if v := c.Capital.MaxUnreconciledDays; v != nil && *v <= 0 {
 		return fmt.Errorf("capital.max_unreconciled_days must be positive")
-	}
-	if _, err := c.DeskDevice.Keys(); err != nil {
-		return err
 	}
 	warn, block := c.Drawdown.WarnConsumedPct, c.Drawdown.BlockConsumedPct
 	if warn != nil && (math.IsNaN(*warn) || math.IsInf(*warn, 0) || *warn <= 0 || *warn > 100) {

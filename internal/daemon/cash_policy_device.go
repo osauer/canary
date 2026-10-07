@@ -25,7 +25,11 @@ import (
 // enrols the owner's credential, a passkey or the paired companion's Secure
 // Enclave key, and Canary never sees that enrolment; the owner pins the
 // credential's public key in the constitution's [desk_device] once, by hand,
-// from the key Desk shows. From then on a save's envelope must carry the
+// from the key Desk shows (Settings shows the exact line; the companion's
+// id is base64url of the first 16 bytes of the point's SHA-256, the
+// passkey's its WebAuthn credential id). A malformed line never refuses the
+// constitution: the loader keeps the policy and this file refuses cap changes
+// with the line's own error. From then on a save's envelope must carry the
 // signature the device made over Desk's digest, and Canary recomputes that
 // digest from the request's own terms: the chain the companion checks before
 // it signs (Desk: cmd/desk-presence/Policy.swift, execution_policy.go). No

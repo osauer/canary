@@ -75,6 +75,7 @@ func runPolicyEnsure(_ context.Context, env *Env, args []string) int {
 	dryRun := fs.Bool("dry-run", false, "report what would be written or migrated without writing anything")
 	jsonOut := fs.Bool("json", false, "emit the actions as JSON")
 	configPath := fs.String("config", "", "config file that names the policy paths (default: the daemon's config)")
+	socketPath := fs.String("socket", "", "the daemon's unix socket, whose instance lock --apply-plan takes (default $XDG_RUNTIME_DIR/ibkr/ibkr.sock, as canary daemon)")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
@@ -88,8 +89,13 @@ func runPolicyEnsure(_ context.Context, env *Env, args []string) int {
 	if *applyPlan != "" {
 		// A running daemon rereads the policy files and writes them for a
 		// save from Desk; an out-of-process write under it would race both.
-		// The daemon's own instance lock is the mutex.
-		release, err := daemon.TryInstanceLock(dial.DefaultSocketPath())
+		// The daemon's own instance lock is the mutex, resolved as `canary
+		// daemon` resolves its socket: --socket, else the default path.
+		lockSocket := *socketPath
+		if lockSocket == "" {
+			lockSocket = dial.DefaultSocketPath()
+		}
+		release, err := daemon.TryInstanceLock(lockSocket)
 		if errors.Is(err, daemon.ErrAlreadyRunning) {
 			return fail(env, "policy ensure: a Canary daemon is running and owns the policy files; it migrates them itself at its next start (canary restart), or stop it first (canary stop)")
 		}
