@@ -949,7 +949,8 @@ func checkSweepExempt(c *policyCheckContext) []policyCheckHit {
 			message: "Bill orders are declared exempt from the order cap in force, but the sweep's cap in force is within it, so the exemption is not used."}}
 	}
 	return []policyCheckHit{{keys: append(append(keys, exempt), c.tradingCapKey()),
-		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s; bills_exempt_from_trading_max_notional lets bill orders pass the order cap up to the sweep's cap, so the gap is intended (stocks, ETFs, the fallback ETF and conversions keep the order cap).", policyCheckMoney(capBase, c.base()), policyCheckMoney(tradingCap, c.base()))}}
+		// Whole units, as the cash settings facts show the same two caps.
+		message: fmt.Sprintf("The sweep's cap in force of %s is above the order cap in force of %s. That is intended: bills may pass the order cap up to the sweep's cap, while stocks, ETFs, the fallback ETF and conversions keep it.", policyCheckMoney(math.Round(capBase), c.base()), policyCheckMoney(math.Round(tradingCap), c.base()))}}
 }
 
 // checkSweepBuysWhileBorrowed reports a sweep allowed to buy bills while a

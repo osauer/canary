@@ -351,7 +351,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "exempt sweep cap above the trading cap", rule: "sweep_cap_exempt", severity: rpc.PolicyCheckInfo,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "max_order_notional = 9000.0\nkeep_cash", "max_order_notional = 15000.0\nbills_exempt_from_trading_max_notional = true\nkeep_cash")
-			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "the gap is intended"},
+			}, absent: []string{"cap_above_trading_max", "cap_without_fx_headroom"}, contains: "That is intended: bills may pass the order cap"},
 	}
 	covered := map[string]bool{}
 	for _, tc := range cases {
