@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -13,8 +14,10 @@ import (
 )
 
 // Delta-reducing exit exemption (owner decision 2026-10-07 08:13 CEST:
-// "tighter order cap must not block exits if they reduce delta"; the two open
-// questions decided 2026-10-07 09:51 CEST: "Both" and "Keep the cap").
+// "tighter order cap must not block exits if they reduce delta"; the open
+// questions decided 2026-10-07 09:51 CEST, "Both" and "Keep the cap", and
+// 2026-10-07 12:28 CEST, "Yes, pass" for unattended exits and "Expires no
+// earlier" for what covers a short option).
 //
 // The rule, stated once here and in internal-docs/design/risk-policy.md: an
 // order passes the notional cap and the option-contract cap of [order_limits]
@@ -63,12 +66,15 @@ import (
 // the owner ahead of time; a bucket listed in the protection policy's
 // [authority] pre_authorised (trailing_stop, option_loss_exit,
 // option_profit_trail, budget_reduction) is sent by the daemon after a notice
-// and the veto window with no per-order approval, so for those buckets the
-// exemption now admits an option exit above the caps on the standing policy
-// alone; the protective stop guard only shrinks or cancels Canary's own stock
-// stops. What remains is the price impact of one large exit against its
-// limit, which the owner accepts by approving a preview that shows the whole
-// quantity, or, for a pre-authorised bucket, by listing the bucket.
+// and the veto window with no per-order approval, and the owner decided
+// (2026-10-07 12:28 CEST, "Yes, pass") that such a bucket's option exit
+// passes the caps in one order, unattended, when it meets every exit
+// condition above; the protective stop guard only shrinks or cancels
+// Canary's own stock stops. What remains is the price impact of one large
+// exit against its limit, bounded by the line, both deltas, the cover rule,
+// a limit inside its bounds and, unattended, the veto window; the owner
+// accepts it by approving a preview that shows the whole quantity or, for a
+// pre-authorised bucket, by listing the bucket.
 
 // deltaReductionLeg is one held line the order touches: the quantity the
 // measurement saw and the base dollar delta one unit of it carries.
@@ -80,8 +86,11 @@ type deltaReductionLeg struct {
 // deltaCoverLeg is one option line of the underlying as the short-leg
 // coverage rule sees it.
 type deltaCoverLeg struct {
-	ConID      int
-	Right      string
+	ConID int
+	Right string
+	// Expiry is the option's expiry as the positions spell it (YYYYMMDD);
+	// a long with none covers nothing.
+	Expiry     string
 	Quantity   float64
 	Multiplier float64
 }
@@ -301,7 +310,7 @@ func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, dra
 		}
 		ev.NetBefore += base
 		if isOption {
-			ev.Cover.Options = append(ev.Cover.Options, deltaCoverLeg{ConID: row.ConID, Right: strings.ToUpper(strings.TrimSpace(row.Right)), Quantity: row.Quantity, Multiplier: float64(optionMultiplier(row))})
+			ev.Cover.Options = append(ev.Cover.Options, deltaCoverLeg{ConID: row.ConID, Right: strings.ToUpper(strings.TrimSpace(row.Right)), Expiry: row.Expiry, Quantity: row.Quantity, Multiplier: float64(optionMultiplier(row))})
 		} else {
 			ev.Cover.Shares[row.ConID] += row.Quantity
 		}
@@ -398,28 +407,90 @@ func (c deltaCoverage) uncovered(changes []deltaChange) (calls, puts float64) {
 			shares += change.After - change.Before
 		}
 	}
-	var shortCalls, longCalls, shortPuts, longPuts, callMult, putMult float64
+	var shortCalls, longCalls, shortPuts, longPuts []deltaCoverLine
+	var callMult, putMult float64
 	for _, leg := range c.Options {
 		q := quantity(leg)
 		mult := max(leg.Multiplier, 1)
+		line := deltaCoverLine{expiry: strings.TrimSpace(leg.Expiry), shares: math.Abs(q) * mult}
 		switch {
+		case q == 0:
 		case strings.HasPrefix(leg.Right, "C") && q < 0:
-			shortCalls += -q * mult
+			shortCalls = append(shortCalls, line)
 			callMult = mult
 		case strings.HasPrefix(leg.Right, "C"):
-			longCalls += q * mult
+			longCalls = append(longCalls, line)
 		case strings.HasPrefix(leg.Right, "P") && q < 0:
-			shortPuts += -q * mult
+			shortPuts = append(shortPuts, line)
 			putMult = mult
 		case strings.HasPrefix(leg.Right, "P"):
-			longPuts += q * mult
+			longPuts = append(longPuts, line)
 		}
 	}
 	if callMult > 0 {
-		calls = max(0, shortCalls-longCalls-max(shares, 0)) / callMult
+		calls = uncoveredShares(shortCalls, longCalls, max(shares, 0)) / callMult
 	}
 	if putMult > 0 {
-		puts = max(0, shortPuts-longPuts-max(-shares, 0)) / putMult
+		puts = uncoveredShares(shortPuts, longPuts, max(-shares, 0)) / putMult
+	}
+	return calls, puts
+}
+
+// deltaCoverLine is one option line of a right, in share-equivalents.
+type deltaCoverLine struct {
+	expiry string
+	shares float64
+}
+
+// uncoveredShares is the share-equivalent of the short lines no long line
+// or share covers. A long option covers a short option of the same right
+// only if it expires on or after the short one's expiry (owner decision
+// 2026-10-07 12:28 CEST, "Expires no earlier"); strike does not matter, a
+// near-dated long in a calendar does not count, and a long with no known
+// expiry covers nothing. The latest-expiring short takes its cover first,
+// since a long that covers it covers every earlier short too; shares cover
+// a short of any expiry and are applied last.
+func uncoveredShares(shorts, longs []deltaCoverLine, shares float64) float64 {
+	slices.SortStableFunc(shorts, func(a, b deltaCoverLine) int { return strings.Compare(b.expiry, a.expiry) })
+	slices.SortStableFunc(longs, func(a, b deltaCoverLine) int { return strings.Compare(a.expiry, b.expiry) })
+	remaining := 0.0
+	for _, short := range shorts {
+		need := short.shares
+		if short.expiry != "" {
+			for i := range longs {
+				if longs[i].expiry == "" || longs[i].expiry < short.expiry || longs[i].shares <= 0 {
+					continue
+				}
+				take := min(need, longs[i].shares)
+				longs[i].shares -= take
+				need -= take
+				if need <= 1e-9 {
+					break
+				}
+			}
+		}
+		remaining += max(need, 0)
+	}
+	return max(0, remaining-shares)
+}
+
+// removesCover reports whether the order sells long shares or long calls
+// (the cover of short calls) or buys back short shares or sells long puts
+// (the cover of short puts).
+func (c deltaCoverage) removesCover(changes []deltaChange) (calls, puts bool) {
+	for _, change := range changes {
+		if _, stock := c.Shares[change.ConID]; stock {
+			calls = calls || (change.Before > 0 && change.After < change.Before)
+			puts = puts || (change.Before < 0 && change.After > change.Before)
+			continue
+		}
+		for _, leg := range c.Options {
+			if leg.ConID != change.ConID || change.Before <= 0 || change.After >= change.Before {
+				continue
+			}
+			calls = calls || strings.HasPrefix(leg.Right, "C")
+			puts = puts || strings.HasPrefix(leg.Right, "P")
+		}
 	}
 	return calls, puts
 }
@@ -441,17 +512,22 @@ func (ev deltaReductionEvidence) judge(name string, changes []deltaChange) (bool
 		return false, fmt.Sprintf("; the exit does not lower the absolute delta of the whole book (%s before, %s after), so the cap applies",
 			risk.FormatOrderMoney(math.Abs(ev.BookBefore), ev.BaseCurrency), risk.FormatOrderMoney(math.Abs(bookAfter), ev.BaseCurrency))
 	}
+	// Never leave a short leg uncovered: the order keeps the cap when, after
+	// it, a short of a right is uncovered and the order either made it so or
+	// sold cover of that kind (a near-dated long in a calendar is not cover,
+	// but selling it on its own still leaves the far short uncovered).
 	callsBefore, putsBefore := ev.Cover.uncovered(nil)
 	callsAfter, putsAfter := ev.Cover.uncovered(changes)
+	sellsCallCover, sellsPutCover := ev.Cover.removesCover(changes)
 	verb := "sale"
 	if len(changes) == 1 && strings.EqualFold(strings.TrimSpace(changes[0].Action), rpc.OrderActionBuy) {
 		verb = "buy-back"
 	}
-	if callsAfter > callsBefore+1e-9 {
-		return false, fmt.Sprintf("; this %s would leave %s short calls on %s uncovered, so the order cap applies", verb, deltaContracts(callsAfter-callsBefore), name)
+	if callsAfter > 1e-9 && (callsAfter > callsBefore+1e-9 || sellsCallCover) {
+		return false, fmt.Sprintf("; this %s would leave %s short calls on %s uncovered, so the order cap applies", verb, deltaContracts(callsAfter), name)
 	}
-	if putsAfter > putsBefore+1e-9 {
-		return false, fmt.Sprintf("; this %s would leave %s short puts on %s uncovered, so the order cap applies", verb, deltaContracts(putsAfter-putsBefore), name)
+	if putsAfter > 1e-9 && (putsAfter > putsBefore+1e-9 || sellsPutCover) {
+		return false, fmt.Sprintf("; this %s would leave %s short puts on %s uncovered, so the order cap applies", verb, deltaContracts(putsAfter), name)
 	}
 	return true, ""
 }

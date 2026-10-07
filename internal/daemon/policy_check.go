@@ -67,9 +67,10 @@ type PolicyCheckPosition struct {
 	// own, or the option's underlying. It groups the lines the delta-reducing
 	// exit exemption (delta_reduction.go) sums.
 	Underlying string
-	// Right and Multiplier are an option line's, for the short-leg coverage
-	// rule; empty and zero for a stock.
+	// Right, Expiry and Multiplier are an option line's, for the short-leg
+	// coverage rule; empty and zero for a stock.
 	Right      string
+	Expiry     string
 	Multiplier int
 	// DollarDeltaBase is the line's signed dollar delta in base currency as
 	// the trading gate measures it (deltaLegBase: the daemon's
@@ -106,7 +107,7 @@ func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units f
 		}
 		ev.NetBefore += *q.DollarDeltaBase
 		if q.Kind == policyCheckKindOption {
-			ev.Cover.Options = append(ev.Cover.Options, deltaCoverLeg{ConID: q.ConID, Right: strings.ToUpper(strings.TrimSpace(q.Right)), Quantity: q.Quantity, Multiplier: float64(max(q.Multiplier, 1))})
+			ev.Cover.Options = append(ev.Cover.Options, deltaCoverLeg{ConID: q.ConID, Right: strings.ToUpper(strings.TrimSpace(q.Right)), Expiry: q.Expiry, Quantity: q.Quantity, Multiplier: float64(max(q.Multiplier, 1))})
 		} else {
 			ev.Cover.Shares[q.ConID] += q.Quantity
 		}
@@ -197,7 +198,7 @@ func PolicyCheckBookFrom(acct *rpc.AccountResult, pos *rpc.PositionsResult) *Pol
 			}
 			p := PolicyCheckPosition{Kind: kind, Currency: ccy, Quantity: row.Quantity, MarketValueBase: mv, ConID: row.ConID, Underlying: strings.ToUpper(strings.TrimSpace(row.Symbol))}
 			if kind == policyCheckKindOption {
-				p.Right, p.Multiplier = strings.ToUpper(strings.TrimSpace(row.Right)), optionMultiplier(row)
+				p.Right, p.Expiry, p.Multiplier = strings.ToUpper(strings.TrimSpace(row.Right)), strings.TrimSpace(row.Expiry), optionMultiplier(row)
 			}
 			if dd, why := deltaLegBase(row, kind == policyCheckKindOption, base); why == "" {
 				p.DollarDeltaBase = new(dd)

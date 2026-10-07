@@ -318,8 +318,11 @@ exit that would leave a short
 option uncovered keeps the cap as well (owner decision 2026-10-07 09:51 CEST,
 on the principle Canary applies to its option combos: never leave a short
 leg uncovered): after the order, short calls need long shares or long calls
-and short puts need short shares or long puts, so selling the stock under a
-covered call, or the long leg of a spread on its own, is refused with
+and short puts need short shares or long puts, and a long option counts as
+cover only if it expires on or after the short one (owner decision 2026-10-07
+12:28 CEST; a near-dated long in a calendar does not), so selling the stock
+under a covered call, the long leg of a spread on its own, or the near leg of
+a calendar on its own, is refused with
 `this sale would leave 2 short calls on SYNB uncovered, so the order cap
 applies`, while a sale that leaves enough shares passes. The order and every
 other working order in its direction on the same contract (hand orders in
@@ -335,8 +338,11 @@ for example `order notional 15,000 EUR exceeds the order cap in force 12,000
 EUR (5% of NLV 240,000 EUR; [order_limits]); the exit does not lower the
 absolute delta of SYNA (110,400 EUR before, 158,400 EUR after), so the cap
 applies`. Bills, bonds and conversions carry no equity delta and never
-qualify. The short and sell-to-open permissions, the bond maturity limit and
-the currency checks have no exemption: a stock exit above the cap still needs
+qualify. A pre-authorised protection bucket's option exit passes the same way
+without a per-order approval, after its notice and veto window (owner
+decision 2026-10-07 12:28 CEST). The short and sell-to-open permissions, the
+bond maturity limit and the currency checks have no exemption: a stock exit
+above the cap still needs
 `allow_stock_short` and an option sell-to-close still needs
 `allow_option_sell_to_open`, exactly as below the cap.
 

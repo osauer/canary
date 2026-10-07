@@ -316,10 +316,14 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    option exit above the caps on the standing policy alone (their stock
    stops were already exempt as protective exits); the protective stop guard
    (`daemon-protective-guard`) only shrinks or cancels Canary's own stock
-   stops; the cash sweep's bills never qualify. What remains is the price
-   impact of one large exit against its limit, which the owner accepts by
-   approving a preview that shows the whole quantity, or, for a
-   pre-authorised bucket, by listing the bucket.
+   stops; the cash sweep's bills never qualify. The owner decided this
+   (2026-10-07 12:28 CEST, "Yes, pass"): a pre-authorised bucket's option
+   exit passes the caps in one order, unattended, when it meets every exit
+   condition. What remains is the price impact of one large exit against its
+   limit, unattended for those buckets, bounded by the line, both deltas,
+   the cover rule, a limit inside its bounds and the veto window; the owner
+   accepts it by approving a preview that shows the whole quantity, or, for
+   a pre-authorised bucket, by listing the bucket.
 7. **Policy check.** `lot_above_trading_max` now reports an option line above
    the cap only when its single-contract close would not lower the
    underlying's absolute delta or the delta cannot be measured (the book
@@ -367,9 +371,23 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    for a short put (a risk reversal is one of Canary's units but not
    coverage), options of another underlying (an index hedge), and cash as
    cover for a short put (a stock exit does not change it, so it never
-   triggers). The `policy check` book carries each option line's right and
-   multiplier so `exitLowersAbsoluteDelta` judges exactly as the gate does
-   (`deltaReductionEvidence.judge`), minus the working-order inventory.
+   triggers). Cover by expiry (owner decision 2026-10-07 12:28 CEST,
+   "Expires no earlier"): a long option covers a short option of the same
+   right only if it expires on or after the short one's expiry; strike does
+   not matter; a near-dated long in a calendar does not count; a long with
+   no known expiry covers nothing (`uncoveredShares`: the latest-expiring
+   short takes its cover first, since a long that covers it covers every
+   earlier short too, and shares cover any expiry and apply last). An exit
+   keeps the cap when, after it, a short of a right is uncovered and the
+   order either made it so or sold cover of that kind (`removesCover`): so
+   selling stock under short calls whose only long calls expire earlier
+   keeps the cap, a long call expiring on or after the short one still
+   covers, and selling the near long leg of a calendar on its own keeps the
+   cap (the far short stays uncovered), while buying back the far short is
+   judged by the delta rule alone. The `policy check` book carries each
+   option line's right, expiry and multiplier so `exitLowersAbsoluteDelta`
+   judges exactly as the gate does (`deltaReductionEvidence.judge`), minus
+   the working-order inventory.
 10. **Still open.** A stock exit above the cap now passes the cap but still
     needs `allow_stock_short`, and an option sell-to-close still needs
     `allow_option_sell_to_open`, so with both false the owner's large exits

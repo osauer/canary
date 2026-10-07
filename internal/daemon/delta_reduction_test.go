@@ -42,10 +42,10 @@ func deltaTestEvidence() deltaReductionEvidence {
 			deltaTestShortCalls: {Quantity: -8, UnitBase: 6000},
 		},
 		Cover: deltaCoverage{Shares: map[int]float64{deltaTestStock: 1000}, Options: []deltaCoverLeg{
-			{ConID: deltaTestLongPuts, Right: "P", Quantity: 10, Multiplier: 100},
-			{ConID: deltaTestShortPuts, Right: "P", Quantity: -8, Multiplier: 100},
-			{ConID: deltaTestLongCalls, Right: "C", Quantity: 8, Multiplier: 100},
-			{ConID: deltaTestShortCalls, Right: "C", Quantity: -8, Multiplier: 100},
+			{ConID: deltaTestLongPuts, Right: "P", Expiry: "20261218", Quantity: 10, Multiplier: 100},
+			{ConID: deltaTestShortPuts, Right: "P", Expiry: "20261218", Quantity: -8, Multiplier: 100},
+			{ConID: deltaTestLongCalls, Right: "C", Expiry: "20261218", Quantity: 8, Multiplier: 100},
+			{ConID: deltaTestShortCalls, Right: "C", Expiry: "20261218", Quantity: -8, Multiplier: 100},
 		}}}
 }
 
@@ -530,5 +530,63 @@ func TestDeltaRuleKeepsTheCapForAnUncoveredShortLeg(t *testing.T) {
 	position := rpc.OrderPositionImpact{Before: 12, After: 4, Effect: rpc.OrderPositionEffectReduce}
 	if err := deltaTestGate(spread, draft, position, 20000); err != nil {
 		t.Fatalf("closing the spread as one combo must pass: %v", err)
+	}
+}
+
+// Owner decision 2026-10-07 12:28 CEST, "Expires no earlier": a long option
+// covers a short option of the same right only if it expires on or after the
+// short one's expiry; strike does not matter. Selling stock under short
+// calls whose only long call expires earlier keeps the cap; a long call
+// expiring on or after the short one still covers; selling the near long leg
+// of a calendar on its own keeps the cap, the far short staying uncovered.
+func TestDeltaRuleCoversAShortOnlyWithALongExpiringNoEarlier(t *testing.T) {
+	t.Parallel()
+	f := func(v float64) *float64 { return &v }
+	call := func(conID int, expiry string, qty, delta float64) rpc.PositionView {
+		return rpc.PositionView{Symbol: "SYNB", SecType: rpc.SecTypeOption, ConID: conID, Currency: "EUR", Quantity: qty, Multiplier: 100,
+			Mark: 3, MarketValue: 300 * qty, Expiry: expiry, Strike: 75, Right: "C", Delta: f(delta), Underlying: f(120)}
+	}
+	book := func(options ...rpc.PositionView) *rpc.PositionsResult {
+		pos := deltaTestPositions()
+		pos.Options = options
+		return pos
+	}
+	const nearCalls, farCalls = 7105, 7106
+	sell400 := deltaTestStockDraft(rpc.OrderActionSell, 400)
+	after400 := protectiveExitTestPosition(1000, rpc.OrderActionSell, 400)
+
+	// 1,000 shares under 8 short December calls; the only long calls expire
+	// in November, so after the sale 600 shares cover 6 of the 8.
+	earlier := book(call(farCalls, "20261218", -8, 0.5), call(nearCalls, "20261120", 8, 0.5))
+	err := deltaTestGate(earlier, sell400, after400, 30000)
+	if err == nil || !strings.Contains(err.Error(), "this sale would leave 2 short calls on SYNB uncovered, so the order cap applies") {
+		t.Fatalf("stock sold under short calls whose long calls expire earlier: %v, want the cap with the uncovered calls named", err)
+	}
+	// The same long calls expiring in January, or on the same day, cover.
+	for _, expiry := range []string{"20270115", "20261218"} {
+		later := book(call(farCalls, "20261218", -8, 0.5), call(nearCalls, expiry, 8, 0.5))
+		if err := deltaTestGate(later, sell400, after400, 30000); err != nil {
+			t.Fatalf("long calls expiring %s cover the December short calls, so the sale must pass: %v", expiry, err)
+		}
+	}
+	// A calendar without stock: 8 long November calls (delta 0.6, +57,600)
+	// over 8 short December calls (delta 0.5, −48,000), net +9,600. Selling
+	// one near long call lowers the delta, but the near leg never covered the
+	// far short, which it leaves uncovered.
+	calendar := book(call(nearCalls, "20261120", 8, 0.6), call(farCalls, "20261218", -8, 0.5))
+	calendar.Stocks = calendar.Stocks[1:]
+	sellNear := deltaTestOptionDraft(nearCalls, "C", rpc.OrderActionSell, 1)
+	sellNear.Contract.Expiry = "20261120"
+	err = deltaTestGate(calendar, sellNear, protectiveExitTestPosition(8, rpc.OrderActionSell, 1), 15000)
+	if err == nil || !strings.Contains(err.Error(), "this sale would leave 8 short calls on SYNB uncovered, so the order cap applies") {
+		t.Fatalf("selling the near long leg of a calendar on its own: %v, want the cap with the far short calls named", err)
+	}
+	// Buying back the far short calls of that calendar passes: nothing stays
+	// uncovered that the order did not already cover.
+	buyFar := deltaTestOptionDraft(farCalls, "C", rpc.OrderActionBuy, 8)
+	if err := deltaTestGate(calendar, buyFar, protectiveExitTestPosition(-8, rpc.OrderActionBuy, 8), 2000); err == nil || !strings.Contains(err.Error(), "does not lower the absolute delta") {
+		// The buy-back raises the net delta (+48,000), so the delta rule, not
+		// the cover rule, decides it; the cover rule must not fire first.
+		t.Fatalf("buying back the far short calls: %v, want the delta rule's refusal, not an uncovered-leg one", err)
 	}
 }
