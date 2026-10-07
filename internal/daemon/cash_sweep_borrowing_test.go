@@ -63,14 +63,15 @@ func TestCashSweepBorrowedUSDHoldsEURBuys(t *testing.T) {
 }
 
 // A negative settled balance counts even when trade-date cash is positive:
-// the borrowing reads the band's own cash, the lower of the two.
+// the borrowing reads the band's own cash, the lower of the two, and marks
+// the currency as borrowed on settled cash alone.
 func TestCashSweepBorrowingReadsSettledCash(t *testing.T) {
 	in := borrowedSweepInput(map[string]float64{"EUR": 60000, "USD": 500})
 	row := in.Ledger["USD"]
 	row.Settled = new(-12000.0)
 	in.Ledger["USD"] = row
 	plan := cashSweepPlanFor(ownerSizedSweepPolicy(), in, cashSweepTestNow())
-	if b := plan.status.Borrowing; b.State != rpc.CashSweepBorrowingBorrowed || b.Borrowed[0].Cash != -12000 {
+	if b := plan.status.Borrowing; b.State != rpc.CashSweepBorrowingBorrowed || b.Borrowed[0].Cash != -12000 || !b.Borrowed[0].SettledOnly {
 		t.Fatalf("borrowing = %+v", b)
 	}
 }

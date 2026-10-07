@@ -579,7 +579,7 @@ func CheckPolicy(in PolicyCheckInput) rpc.PolicyCheckReport {
 		}
 		for _, hit := range rule.run(c) {
 			report.Findings = append(report.Findings, rpc.PolicyCheckFinding{Rule: rule.id, Severity: rule.severity, Category: rule.category,
-				Keys: hit.keys, Message: hit.message, Suggestion: hit.suggestion})
+				Keys: hit.keys, Message: hit.message, Suggestion: hit.suggestion, Screen: hit.screen})
 		}
 	}
 	rank := map[string]int{rpc.PolicyCheckError: 0, rpc.PolicyCheckWarn: 1, rpc.PolicyCheckInfo: 2}

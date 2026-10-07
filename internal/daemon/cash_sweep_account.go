@@ -172,12 +172,12 @@ func (s *Server) cashLikeByCurrency(acct *rpc.AccountResult, pos *rpc.PositionsR
 }
 
 func cashLikeRows(bucket *protectionCashSweepPolicy, acct *rpc.AccountResult, pos *rpc.PositionsResult, positionsCurrent bool) ([]rpc.BriefCashCurrency, string, bool) {
-	_, ledger, reason := cashSweepLedger(acct)
-	if reason != "" {
-		return nil, reason, true
+	var in cashSweepInput
+	cashSweepReadCash(&in, bucket, acct, pos, time.Now().UTC())
+	if in.LedgerReason != "" {
+		return nil, in.LedgerReason, true
 	}
-	holdings, unclassified := cashSweepClassify(bucket, pos)
-	in := cashSweepInput{Ledger: ledger, Holdings: holdings, Unclassified: unclassified}
+	ledger, holdings, unclassified := in.Ledger, in.Holdings, in.Unclassified
 	rows := []rpc.BriefCashCurrency{}
 	for _, ccy := range cashSweepCurrencies(bucket, in) {
 		row := rpc.BriefCashCurrency{Currency: ccy}

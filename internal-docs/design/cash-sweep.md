@@ -138,7 +138,10 @@ and no cash reserve remains to trip.
   candidate list) or `instrument_unresolved` (no candidate confirmed), with
   the evidence. A missing bill line is inferred only from a completed contract
   search, so the ETF fallback still never acts. Nil is unavailable, never
-  zero.
+  zero. `canary policy check` warns (`sweep_nothing_to_buy`, 2026-10-07)
+  while the sweep is on and a currency's first plannable instrument is a bill
+  other than US Treasury bills with no `isins` listed; Desk's cash settings
+  screen shows the finding on the sweep's switch.
 - Assumptions (S5, extended by Phase B): (A1) IBKR pays about benchmark −
   0.5% above 10,000 per currency, nothing below; (A2) T-bill initial margin
   about 1%, ETF 25–50%; (A3) German tax measures bill rolls in EUR, FX
