@@ -145,7 +145,10 @@ func (s *Server) resolvePreviewBondRequest(ctx context.Context, authority *order
 	if authority != nil && !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return fail(fmt.Errorf("%w: broker session changed during bond contract details", ErrTradingDisabled))
 	}
-	contract := rpc.ContractParams{ConID: line.ConID, Symbol: strings.ToUpper(strings.TrimSpace(line.Symbol)), SecType: ibkrlib.BillOrBondSecType(line.SecType),
+	// IBKR's bond frames carry no symbol, and a quote needs one: fall back to
+	// the CUSIP, then the ISIN, as a sweep row does.
+	symbol := nonEmptyString(strings.ToUpper(strings.TrimSpace(line.Symbol)), nonEmptyString(line.CUSIP(), nonEmptyString(line.ISIN(), req.identifier)))
+	contract := rpc.ContractParams{ConID: line.ConID, Symbol: symbol, SecType: ibkrlib.BillOrBondSecType(line.SecType),
 		Exchange: "SMART", Currency: req.currency, MinTick: rules.MinTick}
 	return contract, terms, rules, cashSweepBondSession(&line, "", now), quantity, nil
 }
