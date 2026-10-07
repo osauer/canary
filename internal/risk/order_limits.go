@@ -213,8 +213,8 @@ type OrderLimitsInForce struct {
 // every key. The floor override lifts the floor to the ceiling.
 func EvaluateOrderLimits(o *ConstitutionOrderLimits, baseCurrency string, nlv OrderLimitsNLV, override *OrderLimitsOverride, unavailable string) OrderLimitsInForce {
 	base := strings.ToUpper(strings.TrimSpace(baseCurrency))
-	out := OrderLimitsInForce{BaseCurrency: base, Missing: o.MissingKeysForEveryOrder(), Unavailable: strings.TrimSpace(unavailable)}
-	out.BondMaturityUnset = o == nil || o.MaxBondMaturityYears == nil
+	out := OrderLimitsInForce{BaseCurrency: base, Missing: o.MissingKeysForEveryOrder(), Unavailable: strings.TrimSpace(unavailable),
+		BondMaturityUnset: o == nil || o.MaxBondMaturityYears == nil}
 	if o != nil {
 		// Written values are reported even while another key is missing, so
 		// a surface never shows a written limit as zero.
