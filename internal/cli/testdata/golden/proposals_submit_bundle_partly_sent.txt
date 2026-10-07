@@ -1,0 +1,32 @@
+# canary proposals submit-bundle --stdin · COLUMNS=80 · colour off
+
+Leveling repayment · 1 of 2 conversions sent
+Bundle         currency_leveling-bundle:d3dea6a8de0b612f
+  Conversion 1 · sent · BUY 7192 USD.CHF · order canary-20260905-140204-00000001
+  Conversion 2 · refused · SELL 11049 EUR.USD
+    submit_refused · Canary refused this conversion while sending it, so it did
+    not reach the broker: trading is frozen
+  Blocked: bundle_partly_sent · conversion 2 of 2 was refused while sending and
+  did not reach the broker; the one before it was sent, and the rest were not
+  sent
+  Next: Inspect each conversion's receipt; nothing resends the rest, and the
+  next cycle plans what remains once the ledger shows the fills.
+Sent is not filled: each conversion is a limit order for today; canary orders
+shows how it fills.
+
+# canary proposals submit-bundle --stdin · COLUMNS=80 · colour on, ESC written as \x1b
+
+\x1b[33mLeveling repayment · 1 of 2 conversions sent\x1b[0m
+\x1b[2mBundle        \x1b[0m currency_leveling-bundle:d3dea6a8de0b612f
+  Conversion 1 · sent · BUY 7192 USD.CHF · order canary-20260905-140204-00000001
+  Conversion 2 · refused · SELL 11049 EUR.USD
+    \x1b[33msubmit_refused · Canary refused this conversion while sending it, so it did\x1b[0m
+    \x1b[33mnot reach the broker: trading is frozen\x1b[0m
+  \x1b[33mBlocked: bundle_partly_sent · conversion 2 of 2 was refused while sending and\x1b[0m
+  \x1b[33mdid not reach the broker; the one before it was sent, and the rest were not\x1b[0m
+  \x1b[33msent\x1b[0m
+  Next: Inspect each conversion's receipt; nothing resends the rest, and the
+  next cycle plans what remains once the ledger shows the fills.
+\x1b[2mSent is not filled: each conversion is a limit order for today; canary orders\x1b[0m
+\x1b[2mshows how it fills.\x1b[0m
+

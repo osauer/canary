@@ -142,6 +142,10 @@ type PolicyCheckInput struct {
 	// FileStatus is the daemon's status per policy file (active, drift,
 	// error); nil when no daemon answered.
 	FileStatus map[string]string
+	// ProtectionData, when set, is read as the protection policy file in
+	// place of the file at Files.Protection: policy.cash.check measures a
+	// draft before anything is written.
+	ProtectionData []byte
 }
 
 // PolicyCheckInputFromConfigFile reads config.toml the way the daemon does
@@ -260,6 +264,10 @@ func newPolicyCheckContext(in PolicyCheckInput) *policyCheckContext {
 	}
 
 	c.protectionSrc = readPolicyCheckSource(PolicyFileProtection, in.Files.Protection)
+	if in.ProtectionData != nil {
+		c.protectionSrc = policyCheckSource{policy: PolicyFileProtection, path: in.Files.Protection, label: filepath.Base(in.Files.Protection),
+			state: policyCheckFileRead, data: in.ProtectionData, review: policyFileReview(in.ProtectionData)}
+	}
 	c.protection = defaultProtectionPolicy()
 	if c.protectionSrc.state == policyCheckFileRead {
 		if _, _, err := parseProtectionPolicy(c.protectionSrc.data); err != nil {

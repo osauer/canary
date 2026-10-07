@@ -87,6 +87,10 @@ type proposalEngine struct {
 	// queuedRefreshForTest replaces the executor's fresh refresh (which
 	// needs a gateway) in hermetic tests of the queued send path.
 	queuedRefreshForTest func(ctx context.Context) (rpc.TradeProposalSnapshot, error)
+	// bundlesSending holds the prepared bundle ids whose one submission is
+	// running in this process, so a status read can tell a send in progress
+	// from one a stopped daemon left unfinished.
+	bundlesSending sync.Map
 }
 
 // proposalSubmitOptions distinguishes the daemon's own pre-authorised and

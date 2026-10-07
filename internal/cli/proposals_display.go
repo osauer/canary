@@ -56,10 +56,16 @@ func renderProposalsSummary(env *Env, snap *rpc.TradeProposalSnapshot) {
 				}
 			}
 		}
+		var rows []rpc.TradeProposal
 		for _, p := range snap.Proposals {
-			if group(p) != g {
-				continue
+			if group(p) == g {
+				rows = append(rows, p)
 			}
+		}
+		if g == 2 {
+			rows = currencyLevelingSendOrder(snap.CurrencyLeveling, rows)
+		}
+		for _, p := range rows {
 			state, style := "review", env.bold
 			if len(p.Blockers) > 0 || p.State == rpc.TradeProposalStateBlocked {
 				state, style = "blocked", env.yellow

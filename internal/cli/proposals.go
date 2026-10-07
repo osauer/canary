@@ -39,6 +39,12 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 		return runProposalsPrepare(ctx, env, args)
 	case "prepared-status":
 		return runProposalsPreparedStatus(ctx, env, args)
+	case "prepare-bundle":
+		return runProposalsPrepareBundle(ctx, env, args)
+	case "submit-bundle":
+		return runProposalsSubmitBundle(ctx, env, args)
+	case "bundle-status":
+		return runProposalsBundleStatus(ctx, env, args)
 	case "submit":
 		return runProposalsSubmit(ctx, env, args)
 	case "reduce":
@@ -59,7 +65,7 @@ func runProposals(ctx context.Context, env *Env, args []string) int {
 func proposalsSubcommandIndex(args []string) int {
 	for i, arg := range args {
 		switch arg {
-		case "status", "refresh", "list", "preview", "prepare", "prepared-status", "submit", "reduce", "request-stop", "ignore", "veto", "queue":
+		case "status", "refresh", "list", "preview", "prepare", "prepared-status", "prepare-bundle", "submit-bundle", "bundle-status", "submit", "reduce", "request-stop", "ignore", "veto", "queue":
 			return i
 		}
 	}

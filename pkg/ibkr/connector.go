@@ -799,6 +799,25 @@ func farmStatusImpaired(status string) bool {
 	return status == "disconnected" || status == "broken"
 }
 
+// HistoricalBarFarmOutageAnnounced reports whether a historical bar farm
+// (an HMDS farm; fundfarm serves fundamentals, not bars) is still broken
+// after its break drew the one WARN warnLongDataFarmBreaks gives a break
+// that lasts. Bar requests it serves time out until it recovers, and the
+// recovery warns too, so their requesters can join the announcement.
+func (c *Connector) HistoricalBarFarmOutageAnnounced() bool {
+	if c == nil {
+		return false
+	}
+	c.dataFarmMu.RLock()
+	defer c.dataFarmMu.RUnlock()
+	for _, farm := range c.dataFarms {
+		if farm.Type == "historical" && strings.Contains(farm.Name, "hmds") && farm.warned && farmStatusImpaired(farm.Status) {
+			return true
+		}
+	}
+	return false
+}
+
 // marketDataFarmImpaired reports whether any market-data (or TWS-server
 func (c *Connector) marketDataFarmImpaired() bool {
 	c.dataFarmMu.RLock()

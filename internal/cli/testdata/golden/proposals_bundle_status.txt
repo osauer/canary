@@ -1,0 +1,20 @@
+# canary proposals bundle-status --bundle-ref-stdin · COLUMNS=80 · colour off
+
+Leveling repayment · 1 of 2 conversions sent
+Bundle         currency_leveling-bundle:d3dea6a8de0b612f
+Preparation    U1lOVEhFVElDLVBSRVAtMQ
+Submitted      14:03 TZ
+  Conversion 1 · sent · currency_leveling:4d80cd1444744be4 · order
+  canary-20260905-140204-00000001 · submitted
+  Conversion 2 · refused · currency_leveling:14b769cd67fdded3
+
+# canary proposals bundle-status --bundle-ref-stdin · COLUMNS=80 · colour on, ESC written as \x1b
+
+\x1b[33mLeveling repayment · 1 of 2 conversions sent\x1b[0m
+\x1b[2mBundle        \x1b[0m currency_leveling-bundle:d3dea6a8de0b612f
+\x1b[2mPreparation   \x1b[0m U1lOVEhFVElDLVBSRVAtMQ
+\x1b[2mSubmitted     \x1b[0m 14:03 TZ
+  Conversion 1 · sent · currency_leveling:4d80cd1444744be4 · order
+  canary-20260905-140204-00000001 · submitted
+  Conversion 2 · refused · currency_leveling:14b769cd67fdded3
+

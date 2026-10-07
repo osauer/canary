@@ -9,6 +9,14 @@ same preview. The daemon owns the binding and all current trading checks.
 | Prepare | `canary proposals prepare KEY REVISION --json` | `trade.proposals.prepare` |
 | Submit | `canary proposals submit KEY REVISION --prepared-ref-stdin --json` | `trade.proposals.submit` with `prepared_ref` |
 | Passive receipt | `canary proposals prepared-status --prepared-ref-stdin --json` | `trade.proposals.prepared_status` |
+| Prepare a leveling repayment | `canary proposals prepare-bundle BUNDLE_ID REVISION --json` | `trade.proposals.prepare_bundle` |
+| Submit it once | `canary proposals submit-bundle --stdin --json` | `trade.proposals.submit_bundle` |
+| Its passive receipt | `canary proposals bundle-status --bundle-ref-stdin --json` | `trade.proposals.prepared_bundle_status` |
+
+A leveling repayment of several conversions is prepared and sent as one
+bundle behind one private reference (`canarypb1.…`), with exact terms and
+their digest; its conversions' own references never leave Canary. See
+`currency-leveling.md`, "One approval per loan".
 
 Prepare supports the existing optional quantity selection and timeout. It uses
 full proposal revalidation, ordinary order preview and broker WhatIf. Success

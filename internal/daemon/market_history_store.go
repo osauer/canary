@@ -351,8 +351,11 @@ func (s *Server) logMarketHistoryFallback(p rpc.MarketHistoryParams, saved *stor
 	if errors.Is(cause, ibkrlib.ErrIBKRUnavailable) && s.logGatewayDependency("history refresh requires the broker; recorded history remains available") {
 		return
 	}
-	if errors.Is(cause, ibkrlib.ErrHistoricalServiceStalled) {
-		// Announced once by the connector; data health carries it per series.
+	if errors.Is(cause, ibkrlib.ErrHistoricalServiceStalled) || errors.Is(cause, context.DeadlineExceeded) && s.historicalBarFarmOutage() {
+		// Announced once by the connector (a declared stall, or a bar farm
+		// broken past its attention threshold, whose recovery also warns);
+		// data health carries it per series. Each timed-out read warned on
+		// its own before: about 50 lines inside one ushmds break on 2026-10-05.
 		s.logger.Debugf("market history %s %s: %v; serving recorded history through %s", p.Contract.Symbol, p.Range, cause, saved.Result.End.UTC().Format("2006-01-02"))
 		return
 	}

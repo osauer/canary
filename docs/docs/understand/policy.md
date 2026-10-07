@@ -155,7 +155,8 @@ files:
   with a comment naming the release, comments out retired keys and logs what it
   changed. It refuses any change to a setting you wrote, apart from raising
   `policy_version` when it writes missing `[order_limits]` keys, cash sweep
-  sizing numbers or the `[cash.leveling]` table, so the daemon adopts them.
+  sizing numbers, the `[cash.leveling]` table or `[cash] confirmation_window`, so
+  the daemon adopts them.
   Recommendations remain separate owner decisions.
 - **A broken file is left alone.** The running manager retains its last good
   settings and reports the file failure. Protection automation pauses when its

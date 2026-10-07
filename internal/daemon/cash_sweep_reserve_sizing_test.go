@@ -371,7 +371,7 @@ func TestPolicyEnsureWritesMissingSweepNumbers(t *testing.T) {
 	want := []string{"added cash.sweep.max_order_pct_nlv = 10.0", "added cash.sweep.min_order_notional = 20000.0",
 		"added cash.sweep.reserve_floor_base = 10000.0", "added cash.sweep.reserve_pct_nlv = 10.0", "added cash.sweep.order_step_base = 1000.0", "added cash.sweep.keep_cash = 5000.0",
 		"added cash.sweep.bills_exempt_from_trading_max_notional = true", "added cash.sweep.no_buy_while_borrowed = true", "added [cash.leveling] with enabled = false",
-		"raised policy_version 12 to 13: the keys above take effect"}
+		`added [cash] with confirmation_window = "10m"`, "raised policy_version 12 to 13: the keys above take effect"}
 	if preview.Action != PolicyFileWouldMigrate || !slices.Equal(preview.Changes, want) || !strings.Contains(preview.Diff, "reserve_pct_nlv = 10.0") {
 		t.Fatalf("dry run = %+v", preview)
 	}

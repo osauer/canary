@@ -78,6 +78,18 @@ func (s *Server) gatewayDialPending() bool {
 	return s.connectInFlight
 }
 
+// historicalBarFarmOutage reads the current connector's announced bar-farm
+// outage without the reconnect side effect of gatewayConnector.
+func (s *Server) historicalBarFarmOutage() bool {
+	if s.historicalFarmOutage != nil {
+		return s.historicalFarmOutage()
+	}
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	return c.HistoricalBarFarmOutageAnnounced()
+}
+
 // backendLinkDown reads the current connector's backend-link latch without
 // the reconnect side effect of gatewayConnector.
 func (s *Server) backendLinkDown() bool {

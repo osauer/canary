@@ -95,6 +95,8 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 		{name: "status"}, {name: "account"}, {name: "positions"}, {name: "technical"},
 		{name: "brief"}, {name: "rules"}, {name: "policy"}, {name: "recon"}, {name: "proposals"},
 		{name: "proposals", args: []string{"reduce", "--portfolio"}},
+		{name: "proposals", args: []string{"prepare-bundle"}}, {name: "proposals", args: []string{"submit-bundle", "--stdin"}},
+		{name: "proposals", args: []string{"bundle-status", "--bundle-ref-stdin"}},
 		{name: "opportunities"},
 		{name: "trading"}, {name: "settings"},
 		{name: "orders"}, {name: "order"}, {name: "order", args: []string{"cancel"}},
@@ -117,6 +119,26 @@ func TestCLIInvocationTimingDeclaresCataloguedMethods(t *testing.T) {
 			if timing.Lifetime == rpc.MethodLifetimeUnary && budget <= timing.DaemonTimeout {
 				t.Errorf("command %q budget %s does not outlive %q daemon timeout %s", cmd.name, budget, method, timing.DaemonTimeout)
 			}
+		}
+	}
+}
+
+// The repayment commands wait longer than the daemon allows a bundle: a CLI
+// that gave up at 60 s left a send running that its caller read as finished
+// (review B1, 2026-10-06).
+func TestCLIBundleCommandsOutliveTheDaemon(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ arg, method string }{
+		{"prepare-bundle", rpc.MethodTradeProposalsPrepareBundle},
+		{"submit-bundle", rpc.MethodTradeProposalsSubmitBundle},
+		{"bundle-status", rpc.MethodTradeProposalsPreparedBundleStatus},
+	} {
+		timing, ok := rpc.LookupMethodTiming(c.method)
+		if !ok {
+			t.Fatalf("%s is not catalogued", c.method)
+		}
+		if budget := unaryInvocationBudget("proposals", []string{c.arg, "--json"}); budget <= timing.DaemonTimeout {
+			t.Errorf("proposals %s waits %s; the daemon allows %s %s", c.arg, budget, c.method, timing.DaemonTimeout)
 		}
 	}
 }

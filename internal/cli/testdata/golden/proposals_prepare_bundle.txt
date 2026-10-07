@@ -1,0 +1,58 @@
+# canary proposals prepare-bundle currency_leveling-bundle:d3dea6a8de0b612f 0000000000000000000000000000000b · COLUMNS=80 · colour off
+
+Leveling repayment · 2 conversions for one approval · review expires 14:12 TZ
+Bundle         currency_leveling-bundle:d3dea6a8de0b612f
+Revision       0000000000000000000000000000000b
+Preparation    U1lOVEhFVElDLVBSRVAtMQ
+Account        live · base EUR
+Loan           −20,000.00 USD (−17,094.02 EUR) · costs 5.10% a year, statements
+               to 2026-10-05
+After          at least +117.12 USD once every conversion fills; the cushion is
+               +292.50 USD (€ 250.00)
+Worth it       saves about € 59.37 within 30 days · costs at most € 6.86
+  Conversion 1 · BUY 7192 USD.CHF · LMT 0.79890 DAY
+    quote bid 0.79870 / ask 0.79880 at 14:02 TZ
+    pays at most 5,745.69 CHF · receives 7,192.00 USD
+    CHF keeps at least 254.31 CHF · earns 0.00% · saves about € 25.77, costs at
+    most € 2.94
+  Conversion 2 · SELL 11049 EUR.USD · LMT 1.16980 DAY
+    quote bid 1.16995 / ask 1.17005 at 14:02 TZ
+    pays 11,049.00 EUR · receives at least 12,925.12 USD
+    EUR keeps at least 48,951.00 EUR · earns 1.40% · saves about € 33.60, costs
+    at most € 3.92
+Canary checks every conversion again before it sends any, then sends them in
+order and stops at the first that is not sent; nothing is sent twice.
+Terms digest   sha256:ababababababababababababababababababababababababababababab
+               ababab
+The private bundle reference is printed only with --json, for the backend that
+sends it.
+
+# canary proposals prepare-bundle currency_leveling-bundle:d3dea6a8de0b612f 0000000000000000000000000000000b · COLUMNS=80 · colour on, ESC written as \x1b
+
+\x1b[1mLeveling repayment · 2 conversions for one approval · review expires 14:12 TZ\x1b[0m
+\x1b[2mBundle        \x1b[0m currency_leveling-bundle:d3dea6a8de0b612f
+\x1b[2mRevision      \x1b[0m 0000000000000000000000000000000b
+\x1b[2mPreparation   \x1b[0m U1lOVEhFVElDLVBSRVAtMQ
+\x1b[2mAccount       \x1b[0m live · base EUR
+\x1b[2mLoan          \x1b[0m −20,000.00 USD (−17,094.02 EUR) · costs 5.10% a year, statements
+               to 2026-10-05
+\x1b[2mAfter         \x1b[0m at least +117.12 USD once every conversion fills; the cushion is
+               +292.50 USD (€ 250.00)
+\x1b[2mWorth it      \x1b[0m saves about € 59.37 within 30 days · costs at most € 6.86
+  \x1b[1mConversion 1 · BUY 7192 USD.CHF · LMT 0.79890 DAY\x1b[0m
+    quote bid 0.79870 / ask 0.79880 at 14:02 TZ
+    pays at most 5,745.69 CHF · receives 7,192.00 USD
+    CHF keeps at least 254.31 CHF · earns 0.00% · saves about € 25.77, costs at
+    most € 2.94
+  \x1b[1mConversion 2 · SELL 11049 EUR.USD · LMT 1.16980 DAY\x1b[0m
+    quote bid 1.16995 / ask 1.17005 at 14:02 TZ
+    pays 11,049.00 EUR · receives at least 12,925.12 USD
+    EUR keeps at least 48,951.00 EUR · earns 1.40% · saves about € 33.60, costs
+    at most € 3.92
+Canary checks every conversion again before it sends any, then sends them in
+order and stops at the first that is not sent; nothing is sent twice.
+\x1b[2mTerms digest  \x1b[0m sha256:ababababababababababababababababababababababababababababab
+               ababab
+\x1b[2mThe private bundle reference is printed only with --json, for the backend that\x1b[0m
+\x1b[2msends it.\x1b[0m
+

@@ -82,7 +82,7 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		trailer := "; effective settings verified unchanged."
 		if exactBefore, err := effectivePolicyFileKey(k.name, data); err == nil {
 			if exactAfter, err := effectivePolicyFileKey(k.name, out); err == nil && exactBefore != exactAfter {
-				trailer = "; missing cash sweep and currency leveling numbers written, every other setting verified unchanged."
+				trailer = "; missing cash management keys written, every other setting verified unchanged."
 				if k.name == PolicyFileConstitution {
 					trailer = "; missing [order_limits] keys written (owner decisions 2026-10-05 19:56 CEST and 2026-10-06 20:17 CEST; each key's comment names its source), every other setting verified unchanged."
 				}

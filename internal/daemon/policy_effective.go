@@ -401,6 +401,7 @@ func protectionSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 		"buckets.budget_reduction.mode":     in.protection.Buckets.BudgetReduction.effectiveMode(),
 		"buckets.budget_reduction.basis":    in.protection.Buckets.BudgetReduction.basis(),
 		"cash.sweep.mode":                   in.protection.Cash.Sweep.effectiveMode(),
+		"cash.confirmation_window":          shortDuration(p.Cash.confirmationWindow()),
 		"cash.sweep.currency_priority":      nonEmptyString(sweep.CurrencyPriority, "none (policy order)"),
 	}
 	// Under basis = rulebook the governor's caps are the Rulebook's levels,
