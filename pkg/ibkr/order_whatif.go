@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 const (
@@ -137,6 +139,20 @@ func (c *Connection) previewOrderWhatIfForEpoch(ctx context.Context, order *IBKR
 	defer c.UnregisterHandler(msgErrMsg, errorHandlerID)
 	defer c.UnregisterHandler(msgSystemNotification, systemNoticeHandlerID)
 	defer c.UnregisterHandler(msgOpenOrder, openOrderHandlerID)
+	// Every frame that names the order is recorded, so a WhatIf that times out
+	// says what IBKR did send: a notice the handlers count as informational,
+	// or an openOrder they could not read (a bond WhatIf timed out live on
+	// 2026-10-07 with nothing in the log).
+	trace := &whatIfFrameTrace{}
+	releaseTap := c.tapInboundFrames(func(fields []string, receiptEpoch uint64) {
+		if expectedEpoch != nil && receiptEpoch != *expectedEpoch {
+			return
+		}
+		if line, ok := whatIfTapFrame(fields, order.OrderID); ok {
+			trace.add(line)
+		}
+	})
+	defer releaseTap()
 
 	if err := c.sendPlaceOrderFrameGuarded(ctx, order, epoch, nil); err != nil {
 		return orderWhatIfUnavailableResult(fmt.Sprintf("send broker WhatIf: %v", err)), nil
@@ -144,7 +160,14 @@ func (c *Connection) previewOrderWhatIfForEpoch(ctx context.Context, order *IBKR
 
 	select {
 	case <-ctx.Done():
-		return orderWhatIfUnavailableResult("timeout waiting for broker WhatIf response"), nil
+		message := "timeout waiting for broker WhatIf response"
+		if seen := trace.snapshot(); len(seen) > 0 {
+			message += fmt.Sprintf(" (IBKR sent for order %d: %s)", order.OrderID, strings.Join(seen, "; "))
+		} else {
+			message += fmt.Sprintf(" (IBKR sent nothing naming order %d)", order.OrderID)
+		}
+		ibkrLogger.Warnf("WhatIf %s %s: %s", order.SecType, order.Symbol, message)
+		return orderWhatIfUnavailableResult(message), nil
 	case result := <-resultCh:
 		if expectedEpoch != nil && c.BrokerSessionEpoch() != *expectedEpoch {
 			return orderWhatIfUnavailableResult("broker session changed while waiting for WhatIf response"), nil
@@ -421,6 +444,63 @@ func parseOrderWhatIfSystemNotice(fields []string) (reqID, code int, message, ad
 		return 0, 0, "", "", false
 	}
 	return int(note.tickerID), note.code, strings.TrimSpace(note.message), strings.TrimSpace(note.advancedOrderRejectJSON), true
+}
+
+// whatIfFrameTrace keeps the first frames that name one WhatIf order.
+type whatIfFrameTrace struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+const whatIfFrameTraceMax = 8
+
+func (t *whatIfFrameTrace) add(line string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.lines) < whatIfFrameTraceMax {
+		t.lines = append(t.lines, line)
+	}
+}
+
+func (t *whatIfFrameTrace) snapshot() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return slices.Clone(t.lines)
+}
+
+// whatIfTapFrame describes a frame that names orderID: an error or notice
+// with IBKR's code and text, an openOrder with its WhatIf flag and status
+// when it is a protobuf summary, or any other message by id and field count.
+// ok is false for a frame about another order.
+func whatIfTapFrame(fields []string, orderID int) (string, bool) {
+	msgID, err := strconv.Atoi(strings.TrimSpace(safeGet(fields, 0)))
+	if err != nil || orderID <= 0 {
+		return "", false
+	}
+	switch msgID {
+	case msgSystemNotification:
+		note, err := parseSystemNotificationPayload([]byte(safeGet(fields, 1)))
+		if err != nil || note.tickerID != int64(orderID) {
+			return "", false
+		}
+		return fmt.Sprintf("notice %d: %s", note.code, brokerNoticeLine(note.message)), true
+	case msgErrMsg:
+		reqID, code, msg, ok := parseOrderWhatIfError(fields)
+		if !ok || reqID != orderID {
+			return "", false
+		}
+		return fmt.Sprintf("error %d: %s", code, brokerNoticeLine(msg)), true
+	}
+	id := strconv.Itoa(orderID)
+	if strings.TrimSpace(safeGet(fields, 1)) != id && strings.TrimSpace(safeGet(fields, 2)) != id && !slices.Contains(fields, "orderId="+id) {
+		return "", false
+	}
+	line := fmt.Sprintf("msg %d, %d fields", msgID, len(fields))
+	if safeGet(fields, 1) == "protobuf" {
+		line += fmt.Sprintf(" (whatIf=%s, status=%s, symbol=%s)", wireValue(summaryFieldValue(fields, "whatIf=")),
+			wireValue(summaryFieldValue(fields, "status=")), wireValue(summaryFieldValue(fields, "symbol=")))
+	}
+	return line, true
 }
 
 func orderWhatIfInformationalError(code int) bool {
