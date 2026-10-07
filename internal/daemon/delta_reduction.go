@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Delta-reducing exit exemption (owner decision 2026-10-07 08:13 CEST:
@@ -313,8 +314,18 @@ func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, dra
 		return ""
 	}
 	for _, row := range pos.Stocks {
+		if ibkrlib.IsBillOrBond(row.SecType) || strings.EqualFold(strings.TrimSpace(row.SecType), "CASH") {
+			continue // bills, bonds and conversions carry no equity delta (owner decision 2026-10-07 09:51 CEST)
+		}
 		if !rpc.PositionQuotesAsStock(row) {
-			continue // bills, bonds and conversions carry no equity delta
+			// A future, index, CFD, fund or warrant row carries delta the
+			// daemon does not measure: it keeps the cap and is named.
+			if row.Quantity != 0 {
+				ev.Reason = fmt.Sprintf("the %s %s line is not a stock, ETF or option, so Canary has no delta for it",
+					strings.ToUpper(strings.TrimSpace(row.Symbol)), strings.ToUpper(strings.TrimSpace(row.SecType)))
+				return ev
+			}
+			continue
 		}
 		if why := visit(row, false); why != "" {
 			ev.Reason = why
@@ -450,12 +461,29 @@ func deltaContracts(v float64) string {
 	return strconv.FormatFloat(math.Ceil(v-1e-9), 'f', -1, 64)
 }
 
-// sameSideVerbs words the competing working orders in the order's direction.
-func sameSideVerbs(action string) (present, past string) {
-	if strings.EqualFold(strings.TrimSpace(action), rpc.OrderActionBuy) {
-		return "buys back", "bought back"
+// competingExitClause words the refusal when the other working orders in
+// the order's direction and this order together exceed the held line:
+// "another working order already sells 700 of the 1,000 SYNB shares you
+// hold; with this one, more would be sold than you hold. Cancel it first".
+// Counts carry thousands separators like the money beside them, and the
+// clause never contains "); ", which Desk reads as a sentence break.
+func competingExitClause(change deltaChange, other float64) string {
+	present, past := "sells", "sold"
+	if strings.EqualFold(strings.TrimSpace(change.Action), rpc.OrderActionBuy) {
+		present, past = "buys back", "bought back"
 	}
-	return "sells", "sold"
+	hold := "hold"
+	if change.Before < 0 {
+		hold = "are short"
+	}
+	unit := "shares"
+	if strings.EqualFold(change.Contract.SecType, "OPT") {
+		unit = "contracts"
+	}
+	line := strings.TrimPrefix(deltaContractDesc(change.Contract), "the ")
+	line = strings.TrimSuffix(strings.TrimSuffix(line, " stock"), " option")
+	return fmt.Sprintf("another working order already %s %s of the %s %s %s you %s; with this one, more would be %s than you %s. Cancel it first",
+		present, risk.FormatOrderMoney(other, ""), risk.FormatOrderMoney(math.Abs(change.Before), ""), line, unit, hold, past, hold)
 }
 
 // deltaReducingExit decides the exemption for one order from its evidence
@@ -498,9 +526,7 @@ func deltaReducingExit(draft rpc.OrderDraft, position rpc.OrderPositionImpact, e
 		other := inv.otherWorkingSameSide(change.ConID)
 		qty := math.Abs(change.After - change.Before)
 		if math.IsNaN(other) || math.IsInf(other, 0) || other < 0 || other+qty > math.Abs(change.Before)+1e-9 {
-			present, past := sameSideVerbs(change.Action)
-			return false, fmt.Sprintf("; another working order already %s %s of the %s held of %s, so with this one more would be %s than is held; cancel it first",
-				present, strconv.FormatFloat(other, 'f', -1, 64), strconv.FormatFloat(math.Abs(change.Before), 'f', -1, 64), strings.TrimPrefix(deltaContractDesc(change.Contract), "the "), past)
+			return false, "; " + competingExitClause(change, other)
 		}
 	}
 	return true, ""

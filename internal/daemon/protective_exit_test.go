@@ -137,11 +137,11 @@ func TestProtectiveExitInventoryCountsCompetingSells(t *testing.T) {
 		other, foreign, filled,
 	}}
 	draft := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2800)
-	inv := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
+	inv := protectiveExitInventoryFromSnapshot(snapshot, nil, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
 	if !inv.Current || inv.OtherWorkingSameSide != 1200 || !inv.ReducesWorkingStop {
 		t.Fatalf("modify inventory = %+v, want current, 1200 competing, a reduction of the working stop", inv)
 	}
-	place := protectiveExitInventoryFromSnapshot(snapshot, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
+	place := protectiveExitInventoryFromSnapshot(snapshot, nil, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
 	if place.OtherWorkingSameSide != 5200 || place.ReducesWorkingStop {
 		t.Fatalf("place inventory = %+v, want 5200 competing and no reduction", place)
 	}
@@ -167,23 +167,42 @@ func TestProtectiveExitInventoryFollowsTheOrdersDirection(t *testing.T) {
 		handBuy,
 	}}
 	buyBack := deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8)
-	inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, buyBack, orderPreviewReplaceTarget{})
+	inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, buyBack, orderPreviewReplaceTarget{})
 	if !inv.Current || inv.OtherWorkingSameSide != 4 || inv.OtherWorkingSameSideByLeg != nil {
 		t.Fatalf("buy-back inventory = %+v, want 4 competing buys (3 on the contract, 1 hand order without a ConID)", inv)
 	}
 	sellCalls := deltaTestOptionDraft(deltaTestLongCalls, "C", rpc.OrderActionSell, 8)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("sell inventory = %+v, want no competing sells", inv)
 	}
 	stock := deltaTestStockDraft(rpc.OrderActionBuy, 100)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("stock inventory = %+v, want option orders not to count against the stock", inv)
 	}
 	combo, _ := deltaTestStrategyDraft(8, deltaTestLeg(deltaTestLongCalls, 1, rpc.OrderActionSell, 8, 8), deltaTestLeg(deltaTestShortPuts, -1, rpc.OrderActionBuy, 8, -8))
-	inv = protectiveExitInventoryFromSnapshot(snapshot, deltaTestScope, combo, orderPreviewReplaceTarget{})
+	inv = protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, combo, orderPreviewReplaceTarget{})
 	if !inv.Current || inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 0 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 4 ||
 		inv.otherWorkingSameSide(deltaTestShortPuts) != 4 {
 		t.Fatalf("combo inventory = %+v, want per-leg counts in each leg's direction (calls sold: 0; puts bought back: 3 on the contract plus the hand buy without a ConID)", inv)
+	}
+
+	// A working combo close (BAG) reports no legs, so its units count against
+	// every option leg of its underlying whatever the exit's direction, as a
+	// lower bound; it never counts against the stock.
+	bag := protectiveExitTestOrder(0, 8005, rpc.OrderActionSell, rpc.OrderTypeLMT, 2)
+	bag.SecType, bag.ConID, bag.Symbol = "BAG", 0, "SYNB"
+	snapshot.Orders = append(snapshot.Orders, bag)
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 6 {
+		t.Fatalf("buy-back inventory with a working combo = %+v, want 4 + 2 units of the combo", inv)
+	}
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 2 {
+		t.Fatalf("sell inventory with a working combo = %+v, want the combo's 2 units", inv)
+	}
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+		t.Fatalf("stock inventory with a working combo = %+v, want the combo not to count against the stock", inv)
+	}
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, combo, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 2 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 6 {
+		t.Fatalf("combo inventory with a working combo = %+v, want the combo's units on every leg", inv)
 	}
 }
 

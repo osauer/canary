@@ -236,7 +236,11 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    for an option, converted to base with `positionBaseRate`. The underlying
    is the order's contract symbol; its legs are every held equity row that
    quotes as a stock and every option row with that symbol. Bills, bonds and
-   conversions carry no equity delta and are neither legs nor candidates. No
+   conversions carry no equity delta and are neither legs nor candidates;
+   any other non-equity row the positions file among the stocks (a future,
+   index, CFD, fund or warrant) carries delta the daemon does not measure, so
+   it keeps the cap and the refusal names the line (the policy check's book
+   lists it as an unmeasured line and judges no exit while one exists). No
    second kind of delta is computed: `deltaLegBase` is the one per-row
    measurement, and the policy check's book reads it too, with no fallback
    the gate lacks (a row without its own FX rate is unmeasured for both).
@@ -257,7 +261,19 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    cached protection snapshot): this order and every other working order in
    its direction on the contract (per leg for a combo, hand orders included)
    must stay within the held quantity; an unavailable inventory keeps the
-   cap and the refusal says so.
+   cap and the refusal says so. The cached snapshot is served unchanged for
+   up to `protectionOrderSnapshotRefreshEvery` (45 s) and nothing refreshes
+   it when Canary places an order, so the count also takes Canary's own
+   journal rows (`journalOrderViewsForInventory`): an open row in scope that
+   no snapshot row pairs and that moved after the snapshot counts, a paired
+   row never twice; only when the journal cannot be read is the inventory
+   read from the broker afresh. The broker reports no legs for a working
+   combo (BAG), so one on an option's underlying counts against every option
+   leg whatever the exit's direction, its units a lower bound
+   (`workingOrderIdentity.competesWith`). The refusal reads "another working
+   order already sells 700 of the 1,000 SYNB shares you hold; with this one,
+   more would be sold than you hold. Cancel it first", counts with thousands
+   separators, no "); " inside a clause (Desk reads that as a sentence break).
 4. **Enforcement points.** Preview (`previewOrder`, `previewStrategyOrder`)
    and admission (`bindPreviewOrderRiskAuthority`) each read the positions
    when, and only when, the order is a close or reduction that a cap would

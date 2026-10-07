@@ -18,6 +18,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Policy plausibility check (docs/docs/understand/policy.md, "Check a
@@ -45,6 +46,12 @@ type PolicyCheckBook struct {
 	// whether an empty list means "no positions".
 	Positions      []PolicyCheckPosition
 	PositionsKnown bool
+	// UnmeasuredLines names, in plain words, the held lines that are neither
+	// stock, ETF nor option and carry delta Canary does not measure
+	// (futures, indexes, CFDs, funds, warrants); bills, bonds and conversions
+	// are not among them. While one exists the delta-reducing exit rule
+	// cannot judge any exit, as the gate fails closed on it.
+	UnmeasuredLines []string
 }
 
 // PolicyCheckPosition is one held line, measured in base currency.
@@ -75,18 +82,23 @@ type PolicyCheckPosition struct {
 // exitLowersAbsoluteDelta reports whether closing units of line p would pass
 // the delta-reducing exit rule as the trading gate judges it (lower the
 // underlying's and the book's absolute delta, leave no short option
-// uncovered; deltaReductionEvidence.judge), and whether that can be known at
-// all: every line of the book needs a measured delta, else the gate fails
-// closed and so does this. The working-order inventory, a point-in-time
-// matter, is not part of the check.
-func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64) (lowers, known bool) {
+// uncovered; deltaReductionEvidence.judge), whether that can be known at
+// all (every line of the book needs a measured delta, else the gate fails
+// closed and so does this), and the reason when it does not pass or cannot
+// be known, in the gate's own words. The working-order inventory, a
+// point-in-time matter, is not part of the check.
+func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64) (lowers, known bool, why string) {
+	const unmeasured = "its delta, or that of another line in the book, cannot be measured"
 	if b == nil || p.Underlying == "" || p.ConID <= 0 || p.Quantity == 0 || units <= 0 {
-		return false, false
+		return false, false, unmeasured
+	}
+	if len(b.UnmeasuredLines) > 0 {
+		return false, false, b.UnmeasuredLines[0]
 	}
 	ev := deltaReductionEvidence{Underlying: p.Underlying, BaseCurrency: b.BaseCurrency, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
 	for _, q := range b.Positions {
 		if q.DollarDeltaBase == nil || q.Quantity == 0 {
-			return false, false
+			return false, false, unmeasured
 		}
 		ev.BookBefore += *q.DollarDeltaBase
 		if q.Underlying != p.Underlying {
@@ -100,7 +112,7 @@ func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units f
 		}
 		if q.ConID == p.ConID {
 			if _, dup := ev.Legs[q.ConID]; dup {
-				return false, false
+				return false, false, unmeasured
 			}
 			ev.Legs[q.ConID] = deltaReductionLeg{Quantity: q.Quantity, UnitBase: *q.DollarDeltaBase / q.Quantity}
 		}
@@ -109,10 +121,17 @@ func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units f
 	// Closing moves the quantity toward zero by units.
 	changes := []deltaChange{{ConID: p.ConID, Before: p.Quantity, After: p.Quantity - math.Copysign(units, p.Quantity)}}
 	if _, failed := ev.netAfter(changes); failed != nil {
-		return false, false
+		return false, false, unmeasured
 	}
-	ok, _ := ev.judge(p.Underlying, changes)
-	return ok, true
+	ok, clause := ev.judge(p.Underlying, changes)
+	if ok {
+		return true, true, ""
+	}
+	// The gate's clause as a reason: no leading separator and no closing
+	// "so the cap applies", which the finding states itself.
+	why = strings.TrimPrefix(clause, "; ")
+	why = strings.TrimSuffix(strings.TrimSuffix(why, ", so the cap applies"), ", so the order cap applies")
+	return false, true, why
 }
 
 // Position kinds the book checks distinguish.
@@ -152,7 +171,16 @@ func PolicyCheckBookFrom(acct *rpc.AccountResult, pos *rpc.PositionsResult) *Pol
 	for _, rows := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
 		for _, row := range rows {
 			kind := policyCheckPositionKind(row.SecType)
-			if kind == "" || row.Quantity == 0 {
+			if kind == "" {
+				// A future, index, CFD, fund or warrant carries delta the
+				// gate does not measure; bills, bonds and conversions none.
+				if row.Quantity != 0 && !ibkrlib.IsBillOrBond(row.SecType) && !strings.EqualFold(strings.TrimSpace(row.SecType), "CASH") {
+					b.UnmeasuredLines = append(b.UnmeasuredLines, fmt.Sprintf("the %s %s line is not a stock, ETF or option, so Canary has no delta for it",
+						strings.ToUpper(strings.TrimSpace(row.Symbol)), strings.ToUpper(strings.TrimSpace(row.SecType))))
+				}
+				continue
+			}
+			if row.Quantity == 0 {
 				continue
 			}
 			ccy := strings.ToUpper(strings.TrimSpace(row.Currency))

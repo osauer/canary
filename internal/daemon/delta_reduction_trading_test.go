@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/risk"
@@ -127,4 +128,51 @@ func TestDeltaReducingExitThroughAdmissionAndTheWireGuard(t *testing.T) {
 			t.Fatalf("sends %d reads %d, want none: the cap did not bind until the wire", len(*sent), reads)
 		}
 	})
+}
+
+// Two exits of one line within the open-order cache window: the inventory
+// is served from a cache for up to 45 s and nothing refreshes it when
+// Canary places an order, so the first exit is not in the snapshot the
+// second reads. Canary's own journal row, open and moved after the
+// snapshot, counts instead, and the second exit is refused.
+func TestDeltaReducingExitSeesCanarysOwnOrderInsideTheCacheWindow(t *testing.T) {
+	t.Parallel()
+	position := fixedPreviewPosition(-8, -4, rpc.OrderPositionEffectReduce)
+	srv, sent := deltaTradingTestServer(t, config.Trading{Mode: config.TradingModePaper}, func(ctx context.Context, c rpc.ContractParams, action string, qty int) (rpc.OrderPositionImpact, error) {
+		return position(ctx, c, action, qty)
+	})
+	srv.orderPreviewQuote = fixedPreviewQuote(2.4, 2.6)
+	// The cached snapshot completed a second before the first order went out
+	// and is served unchanged to the second preview.
+	srv.openOrderInventoryForTest = func(_ context.Context, fresh bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+		if fresh {
+			t.Fatal("the journal answered, so no fresh broker read may be issued")
+		}
+		return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: srv.orderNow().Add(-time.Second)}, deltaTestScope, nil
+	}
+	limit := 2.5
+	first := rpc.OrderPreviewParams{Action: "buy", Quantity: 4, LimitPrice: &limit,
+		Contract: rpc.ContractParams{ConID: deltaTestShortPuts, Symbol: "SYNB", SecType: "OPT", Currency: "EUR", Expiry: "20261218", Right: "P", Strike: 75, Multiplier: 100}}
+	res, err := srv.previewOrder(t.Context(), first)
+	if err != nil {
+		t.Fatalf("first preview: %v", err)
+	}
+	if _, err := srv.placeOrder(t.Context(), rpc.OrderPlaceParams{PreviewToken: res.PreviewToken}); err != nil || len(*sent) != 1 {
+		t.Fatalf("first exit: %v, sends %d, want it placed", err, len(*sent))
+	}
+
+	// The first is still working and unfilled: the second would buy back 8
+	// of the 8 short contracts on top of it.
+	position = fixedPreviewPosition(-8, 0, rpc.OrderPositionEffectClose)
+	second := first
+	second.Quantity = 8
+	_, err = srv.previewOrder(t.Context(), second)
+	blockers := previewFailureBlockers(err)
+	if err == nil || len(blockers) != 1 || blockers[0].Code != previewRiskLimitCode ||
+		!strings.Contains(blockers[0].Message, "another working order already buys back 4 of the 8 SYNB 20261218 P 75 contracts you are short; with this one, more would be bought back than you are short. Cancel it first") {
+		t.Fatalf("second exit err %v blockers %+v, want the refusal naming Canary's own working buy-back", err, blockers)
+	}
+	if len(*sent) != 1 {
+		t.Fatalf("sends = %d, want only the first exit at the broker", len(*sent))
+	}
 }

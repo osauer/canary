@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -122,19 +123,41 @@ func brokerOrderRemaining(order ibkrlib.OrderLifecycleEvent) float64 {
 	return 0
 }
 
-// brokerOrderSameContract matches a broker order to the exact contract. An
-// order without a ConID that names the same symbol in the contract's own
-// class (a stock or ETF beside a stock, an option on the underlying beside
-// an option, a bill or bond beside a bond) counts: doubt adds to the
-// competing quantity, never removes from it.
-func brokerOrderSameContract(order ibkrlib.OrderLifecycleEvent, contract rpc.ContractParams) bool {
-	if order.ConID > 0 && contract.ConID > 0 {
-		return order.ConID == contract.ConID
+// workingOrderIdentity is what the competing-order count needs of a working
+// order, from a broker snapshot row or from Canary's own journal row.
+type workingOrderIdentity struct {
+	SecType, Symbol, Action string
+	ConID                   int
+	Remaining               float64
+}
+
+func brokerOrderIdentity(order ibkrlib.OrderLifecycleEvent) workingOrderIdentity {
+	return workingOrderIdentity{SecType: order.SecType, Symbol: order.Symbol, Action: order.Action, ConID: order.ConID, Remaining: brokerOrderRemaining(order)}
+}
+
+// journalOrderIdentity reads a journal row; one the broker has not yet
+// acknowledged has no remaining quantity, so its whole quantity counts.
+func journalOrderIdentity(view rpc.OrderView) workingOrderIdentity {
+	remaining := view.Remaining
+	if remaining <= 0 {
+		remaining = view.Quantity
 	}
-	if !strings.EqualFold(strings.TrimSpace(order.Symbol), strings.TrimSpace(contract.Symbol)) {
+	return workingOrderIdentity{SecType: view.SecType, Symbol: view.Symbol, Action: view.Action, ConID: view.ConID, Remaining: remaining}
+}
+
+// sameContract matches the order to the exact contract. An order without a
+// ConID that names the same symbol in the contract's own class (a stock or
+// ETF beside a stock, an option on the underlying beside an option, a bill
+// or bond beside a bond) counts: doubt adds to the competing quantity, never
+// removes from it.
+func (w workingOrderIdentity) sameContract(contract rpc.ContractParams) bool {
+	if w.ConID > 0 && contract.ConID > 0 {
+		return w.ConID == contract.ConID
+	}
+	if !strings.EqualFold(strings.TrimSpace(w.Symbol), strings.TrimSpace(contract.Symbol)) {
 		return false
 	}
-	secType := strings.TrimSpace(order.SecType)
+	secType := strings.TrimSpace(w.SecType)
 	switch {
 	case secType == "":
 		return true
@@ -145,6 +168,23 @@ func brokerOrderSameContract(order ibkrlib.OrderLifecycleEvent, contract rpc.Con
 	default:
 		return isStockLikeRiskSecType(secType)
 	}
+}
+
+// competesWith is the quantity the working order holds against an exit of
+// contract in direction action: its remaining quantity when it is the same
+// contract in the same direction, or when it is a combo (BAG) on the
+// option's underlying whatever its direction, because the broker reports no
+// combo legs and a working combo close touches every leg of its unit, so
+// its units are a lower bound on each leg. Zero otherwise.
+func (w workingOrderIdentity) competesWith(contract rpc.ContractParams, action string) float64 {
+	if strings.EqualFold(contract.SecType, "OPT") && strings.EqualFold(strings.TrimSpace(w.SecType), "BAG") &&
+		strings.EqualFold(strings.TrimSpace(w.Symbol), strings.TrimSpace(contract.Symbol)) {
+		return w.Remaining
+	}
+	if !w.sameContract(contract) || !strings.EqualFold(strings.TrimSpace(w.Action), strings.TrimSpace(action)) {
+		return 0
+	}
+	return w.Remaining
 }
 
 // bondSaleCandidate is a bill or bond sale that reduces or closes a held
@@ -163,64 +203,100 @@ func brokerOrderIsTarget(order ibkrlib.OrderLifecycleEvent, target orderPreviewR
 	return target.ReservedOrderID > 0 && order.OrderID == target.ReservedOrderID
 }
 
-// protectiveExitInventoryFromSnapshot reads one complete snapshot for the
-// exemptions: the other working orders in the draft's direction on its
-// contract, or on each leg of a strategy combo in that leg's direction.
-// target is the zero value for a new placement.
-func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, scope brokerStateScope, draft rpc.OrderDraft, target orderPreviewReplaceTarget) protectiveExitInventory {
+// protectiveExitInventoryFromSnapshot reads one complete snapshot, with
+// Canary's own journal rows, for the exemptions: the other working orders
+// in the draft's direction on its contract, or on each leg of a strategy
+// combo in that leg's direction, a working combo on an option's underlying
+// counting against every leg. target is the zero value for a new placement.
+//
+// The snapshot is served from a cache for up to
+// protectionOrderSnapshotRefreshEvery, and nothing refreshes it when Canary
+// places an order, so an order Canary sent after the snapshot completed is
+// not in it. An open journal row in scope that no snapshot row pairs and that
+// moved after the snapshot counts too, so two exits of one line admitted
+// within that window cannot both pass; a row the snapshot shows is paired,
+// never counted twice.
+func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, views []rpc.OrderView, scope brokerStateScope, draft rpc.OrderDraft, target orderPreviewReplaceTarget) protectiveExitInventory {
 	inv := protectiveExitInventory{Current: true}
-	working := brokerWorkingOrders(snapshot, nil, scope)
+	working := brokerWorkingOrders(snapshot, views, scope)
+	hasTarget := target.ReservedOrderID > 0 || target.PermID > 0
+	var unseen []workingOrderIdentity
+	for i := range views {
+		view := &views[i]
+		if !view.Open || !orderViewMatchesBrokerScope(*view, scope) || !view.UpdatedAt.After(snapshot.AsOf) {
+			continue
+		}
+		if hasTarget && ((target.ReservedOrderID > 0 && view.ReservedOrderID == target.ReservedOrderID) || (target.PermID > 0 && view.PermID == target.PermID)) {
+			continue
+		}
+		if !slices.ContainsFunc(working, func(row brokerWorkingOrder) bool { return row.Journal == view }) {
+			unseen = append(unseen, journalOrderIdentity(*view))
+		}
+	}
+	competing := func(contract rpc.ContractParams, action string) float64 {
+		total := 0.0
+		for _, row := range working {
+			if hasTarget && brokerOrderIsTarget(row.Order, target) {
+				continue
+			}
+			total += brokerOrderIdentity(row.Order).competesWith(contract, action)
+		}
+		for _, w := range unseen {
+			total += w.competesWith(contract, action)
+		}
+		return total
+	}
 	if group := draft.StrategyGroup; group != nil {
 		inv.OtherWorkingSameSideByLeg = make(map[int]float64, len(group.Legs))
 		for _, leg := range group.Legs {
-			inv.OtherWorkingSameSideByLeg[leg.Contract.ConID] = 0
-			for _, row := range working {
-				if brokerOrderSameContract(row.Order, leg.Contract) && strings.EqualFold(strings.TrimSpace(row.Order.Action), strings.TrimSpace(leg.Action)) {
-					inv.OtherWorkingSameSideByLeg[leg.Contract.ConID] += brokerOrderRemaining(row.Order)
-				}
-			}
+			inv.OtherWorkingSameSideByLeg[leg.Contract.ConID] = competing(leg.Contract, leg.Action)
 		}
 		return inv
 	}
-	targetFound := false
-	var targetRemaining float64
-	for _, row := range working {
-		order := row.Order
-		if !brokerOrderSameContract(order, draft.Contract) {
-			continue
-		}
-		if (target.ReservedOrderID > 0 || target.PermID > 0) && brokerOrderIsTarget(order, target) {
-			targetFound = true
-			if strings.EqualFold(strings.TrimSpace(order.Action), rpc.OrderActionSell) && isProtectiveStopOrderType(order.OrderType) {
-				targetRemaining = brokerOrderRemaining(order)
+	inv.OtherWorkingSameSide = competing(draft.Contract, draft.Action)
+	if hasTarget {
+		for _, row := range working {
+			order := row.Order
+			if brokerOrderIsTarget(order, target) && strings.EqualFold(strings.TrimSpace(order.Action), rpc.OrderActionSell) && isProtectiveStopOrderType(order.OrderType) {
+				if remaining := brokerOrderRemaining(order); remaining > 0 && float64(draft.Quantity) < remaining-1e-9 {
+					inv.ReducesWorkingStop = true
+				}
 			}
-			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(order.Action), strings.TrimSpace(draft.Action)) {
-			continue
-		}
-		inv.OtherWorkingSameSide += brokerOrderRemaining(order)
-	}
-	if targetFound && targetRemaining > 0 && float64(draft.Quantity) < targetRemaining-1e-9 {
-		inv.ReducesWorkingStop = true
 	}
 	return inv
 }
 
+// journalOrderViewsForInventory reads Canary's own order rows for the
+// competing-order count; false when the journal cannot be read.
+func (s *Server) journalOrderViewsForInventory() ([]rpc.OrderView, bool) {
+	if s == nil || s.orderJournal == nil {
+		return nil, false
+	}
+	events, err := s.orderJournal.LoadEvents(0)
+	if err != nil {
+		return nil, false
+	}
+	return buildOrderViews(events), true
+}
+
 // captureProtectiveExitInventory reads the complete broker open-order
-// inventory (the cached protection snapshot; no new broker request) for a
-// protective-exit, bond-sale or delta-reducing-exit candidate. A
-// non-candidate, an unavailable inventory or one for another account/mode
-// returns the unavailable value.
+// inventory (the cached protection snapshot, completed with Canary's own
+// journal rows; no new broker request) for a protective-exit, bond-sale or
+// delta-reducing-exit candidate. Only when the journal cannot be read is the
+// inventory read from the broker afresh. A non-candidate, an unavailable
+// inventory or one for another account/mode returns the unavailable value.
 func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, position rpc.OrderPositionImpact, target orderPreviewReplaceTarget) protectiveExitInventory {
 	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position) && !deltaReductionCandidate(draft, position)) {
 		return protectiveExitInventory{}
 	}
-	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, false)
-	if err != nil || !sameBrokerScope(scope, brokerStateScope{Account: status.Account, Mode: status.Mode}) {
+	want := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	views, journaled := s.journalOrderViewsForInventory()
+	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, !journaled)
+	if err != nil || !sameBrokerScope(scope, want) {
 		return protectiveExitInventory{}
 	}
-	return protectiveExitInventoryFromSnapshot(snapshot, scope, draft, target)
+	return protectiveExitInventoryFromSnapshot(snapshot, views, scope, draft, target)
 }
 
 // protectiveExitProposalBlocker is the readiness side of the exemption for a
@@ -310,7 +386,7 @@ func (e *proposalEngine) protectiveExitRowBlocker(ctx context.Context, p rpc.Tra
 		if strings.TrimSpace(contract.SecType) == "" {
 			contract.SecType = positionWireSecType(p.SecType)
 		}
-		inv = protectiveExitInventoryFromSnapshot(book.snapshot, book.scope, rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}, orderPreviewReplaceTarget{})
+		inv = protectiveExitInventoryFromSnapshot(book.snapshot, nil, book.scope, rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}, orderPreviewReplaceTarget{})
 	}
 	return protectiveExitProposalBlocker(allowStockShort, p, inv)
 }

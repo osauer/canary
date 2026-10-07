@@ -526,16 +526,12 @@ func checkLotAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 		// whatever its size (owner decision 2026-10-07 08:13 CEST); a line
 		// whose single-contract close does not, or cannot be measured, stays
 		// unexitable through Canary.
-		lowers, known := c.book.exitLowersAbsoluteDelta(p, 1)
+		lowers, known, why := c.book.exitLowersAbsoluteDelta(p, 1)
 		if known && lowers {
 			continue
 		}
-		why := fmt.Sprintf("closing it would not lower the absolute delta of %s, so the exemption for delta-reducing exits does not apply", p.Underlying)
-		if !known {
-			why = "its delta, or that of another line on its underlying, cannot be measured, so the exemption for delta-reducing exits cannot apply"
-		}
 		out = append(out, policyCheckHit{keys: []rpc.PolicyCheckKey{c.tradingCapKey(), {File: "live account", Key: "one " + p.Currency + " option contract", Value: policyCheckMoney(unit, c.base())}},
-			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the order cap in force of %s, and %s: no loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(tradingCap, c.base()), why),
+			message:    fmt.Sprintf("One contract of a held %s option line is worth %s, above the order cap in force of %s, and closing one contract does not pass as a delta-reducing exit: %s. No loss exit, budget reduction or close for it can pass the gate, even for a single contract.", p.Currency, policyCheckMoney(unit, c.base()), policyCheckMoney(tradingCap, c.base()), why),
 			suggestion: fmt.Sprintf("Raise [order_limits] max_order_floor_base (or max_order_pct_nlv) yourself so the cap in force reaches at least %s if Canary should be able to exit this line, or plan its exit by hand.", policyCheckMoney(policyCheckRoundUp(unit), c.base()))})
 	}
 	return out
@@ -612,7 +608,7 @@ func checkOrderCapVsNLV(c *policyCheckContext) []policyCheckHit {
 			if r.label == orderCapLabel {
 				// A delta-reducing exit passes the order cap whatever its size;
 				// an order that opens or adds is held to it.
-				what, tail, fits = "opening or adding 10% of the book", "; exits that lower the underlying's absolute delta pass whatever the cap", "a typical opening order"
+				what, tail, fits = "opening or adding 10% of the book", "; delta-reducing exits pass whatever the cap", "a typical opening order"
 			}
 			out = append(out, policyCheckHit{keys: r.keys,
 				message: fmt.Sprintf("%s caps one order at %s, %s of NLV (%s): %s takes %d orders, each waiting its own cycle and approval%s.",
@@ -683,18 +679,20 @@ func checkOrderCapSplits(c *policyCheckContext) []policyCheckHit {
 		// the order cap whatever its size (owner decision 2026-10-07 08:13
 		// CEST); the cap still splits an exit that does not, or whose delta
 		// cannot be measured.
-		capped := 0.0
+		capped, what := 0.0, ""
 		for _, p := range c.book.Positions {
 			if p.Kind != policyCheckKindOption || p.Quantity == 0 {
 				continue
 			}
-			if lowers, known := c.book.exitLowersAbsoluteDelta(p, math.Abs(p.Quantity)); known && lowers {
+			lowers, known, why := c.book.exitLowersAbsoluteDelta(p, math.Abs(p.Quantity))
+			if known && lowers {
 				continue
 			}
-			capped = max(capped, math.Abs(p.MarketValueBase))
+			if v := math.Abs(p.MarketValueBase); v > capped {
+				capped, what = v, fmt.Sprintf("a whole-line exit of the largest option line the cap still binds (%s: %s)", p.Underlying, why)
+			}
 		}
-		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "The order cap in force ([order_limits])", "a whole-line exit of the largest option line the cap still binds (its exit does not lower, or cannot be shown to lower, the underlying's absolute delta)",
-			capped, tradingCap, 1, base)
+		report([]rpc.PolicyCheckKey{c.tradingCapKey()}, "The order cap in force ([order_limits])", what, capped, tradingCap, 1, base)
 	}
 	return out
 }

@@ -140,11 +140,11 @@ func TestDeltaReducingExitPassesTheCaps(t *testing.T) {
 		{name: "a second buy-back of a short-8 option line is refused",
 			draft: deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8), position: protectiveExitTestPosition(-8, rpc.OrderActionBuy, 8), notional: 2000, evidence: ev,
 			inv:     protectiveExitInventory{Current: true, OtherWorkingSameSide: 8},
-			wantErr: []string{"option cap in force of 5 contracts", "another working order already buys back 8 of the 8 held of SYNB 20261218 P 75 option, so with this one more would be bought back than is held; cancel it first"}},
+			wantErr: []string{"option cap in force of 5 contracts", "another working order already buys back 8 of the 8 SYNB 20261218 P 75 contracts you are short; with this one, more would be bought back than you are short. Cancel it first"}},
 		{name: "a second sale of the long stock line is refused", edit: allowShort,
 			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev,
 			inv:     protectiveExitInventory{Current: true, OtherWorkingSameSide: 700},
-			wantErr: []string{"order cap in force 12,000 EUR", "another working order already sells 700 of the 1000 held of SYNB stock, so with this one more would be sold than is held; cancel it first"}},
+			wantErr: []string{"order cap in force 12,000 EUR", "another working order already sells 700 of the 1,000 SYNB shares you hold; with this one, more would be sold than you hold. Cancel it first"}},
 		{name: "working orders that fit beside this one do not count against it", edit: allowShort,
 			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev,
 			inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 600}},
@@ -225,7 +225,7 @@ func TestDeltaReducingStrategyClosePassesTheCaps(t *testing.T) {
 	}
 	busy := protectiveExitInventory{Current: true, OtherWorkingSameSideByLeg: map[int]float64{deltaTestLongCalls: 0, deltaTestShortPuts: 1}}
 	if err := validateOrderRiskAuthority(limits, draft, position, protectiveExitTestNotional(20000), "EUR", busy, ev); err == nil ||
-		!strings.Contains(err.Error(), "another working order already buys back 1 of the 8 held of SYNB 20261218 C 75 option") {
+		!strings.Contains(err.Error(), "another working order already buys back 1 of the 8 SYNB 20261218 C 75 contracts you are short; with this one, more would be bought back than you are short. Cancel it first") {
 		t.Fatalf("a leg another order already exits must keep the cap: %v", err)
 	}
 
@@ -307,6 +307,12 @@ func TestMeasureDeltaReductionReadsTheDaemonsDeltas(t *testing.T) {
 		{name: "unknown base currency", edit: func(p *rpc.PositionsResult) { p.Portfolio = nil }, draft: sell, reason: "the account base currency is unknown"},
 		{name: "duplicate rows", edit: func(p *rpc.PositionsResult) { p.Stocks = append(p.Stocks, p.Stocks[0]) }, draft: sell, reason: "the SYNB stock line appears twice in the positions"},
 		{name: "contract not held", edit: func(*rpc.PositionsResult) {}, draft: deltaTestOptionDraft(7199, "C", rpc.OrderActionSell, 1), reason: "the SYNB 20261218 C 75 option is not a held position; preview again"},
+		{name: "a futures row elsewhere in the book", edit: func(p *rpc.PositionsResult) {
+			p.Stocks = append(p.Stocks, rpc.PositionView{Symbol: "SYNF", SecType: rpc.SecTypeFuture, ConID: 7701, Currency: "EUR", Quantity: -2, Multiplier: 50, Mark: 4000, MarketValue: -400000})
+		}, draft: sell, reason: "the SYNF FUTURE line is not a stock, ETF or option, so Canary has no delta for it"},
+		{name: "a CFD row elsewhere in the book", edit: func(p *rpc.PositionsResult) {
+			p.Stocks = append(p.Stocks, rpc.PositionView{Symbol: "SYNC", SecType: "CFD", ConID: 7702, Currency: "EUR", Quantity: 100, Multiplier: 1, Mark: 10, MarketValue: 1000})
+		}, draft: sell, reason: "the SYNC CFD line is not a stock, ETF or option, so Canary has no delta for it"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -474,6 +480,10 @@ func TestDeltaRuleJudgesTheWholeBookToo(t *testing.T) {
 	}
 	if err := deltaTestGate(defunct, sell, protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), 30000); err != nil {
 		t.Fatalf("the sale must still pass beside a defunct row and a bond: %v", err)
+	}
+	defunct.Stocks = append(defunct.Stocks, rpc.PositionView{Symbol: "EUR.USD", SecType: "CASH", ConID: 7801, Currency: "USD", Quantity: 20000, Multiplier: 1, Mark: 1.1, MarketValue: 22000})
+	if ev := measureDeltaReduction(defunct, deltaTestScope, sell); !ev.Current || ev.BookBefore != 135400 {
+		t.Fatalf("a conversion row must count as zero too: %+v", ev)
 	}
 }
 

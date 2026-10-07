@@ -228,7 +228,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			}, absent: []string{"lot_above_trading_max"}, contains: "10,800 EUR"},
 		{name: "an option line above the cap that hedges the stock stays unexitable", rule: "lot_above_trading_max", severity: rpc.PolicyCheckError,
 			edit:     func(_ *pcFiles, in *PolicyCheckInput) { in.Book.Positions = pcDeltaPositions(-9000) },
-			contains: "and closing it would not lower the absolute delta of SYNA, so the exemption for delta-reducing exits does not apply"},
+			contains: "and closing one contract does not pass as a delta-reducing exit: the exit does not lower the absolute delta of SYNA (21,000 EUR before, 30,000 EUR after). No loss exit, budget reduction or close for it can pass the gate"},
 		{name: "sweep minimum above the sweep cap", rule: "sweep_minimum_above_cap", severity: rpc.PolicyCheckError,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "min_order_notional = 3000.0", "min_order_notional = 9500.0")
@@ -290,7 +290,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 		{name: "trading cap tiny against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0\nmax_order_pct_nlv = 5.0", "max_order_floor_base = 3000.0\nmax_order_pct_nlv = 1.0")
-			}, contains: "1.5% of NLV (200,000 EUR): opening or adding 10% of the book takes 7 orders, each waiting its own cycle and approval; exits that lower the underlying's absolute delta pass whatever the cap"},
+			}, contains: "1.5% of NLV (200,000 EUR): opening or adding 10% of the book takes 7 orders, each waiting its own cycle and approval; delta-reducing exits pass whatever the cap"},
 		{name: "trading cap huge against NLV", rule: "order_cap_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "max_order_floor_base = 10000.0", "max_order_floor_base = 150000.0")
@@ -315,7 +315,7 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 					{Kind: policyCheckKindStock, Currency: "USD", Quantity: 1000, MarketValueBase: 100000, ConID: 5002, Underlying: "SYNB", DollarDeltaBase: new(100000.0)},
 					{Kind: policyCheckKindOption, Currency: "USD", Quantity: 10, MarketValueBase: 90000, ConID: 5102, Underlying: "SYNB", DollarDeltaBase: new(60000.0)},
 				}
-			}, contains: "the cap still binds (its exit does not lower, or cannot be shown to lower, the underlying's absolute delta) of 72,000 EUR into 8 orders"},
+			}, contains: "the cap still binds (SYNA: the exit does not lower the absolute delta of SYNA (46,000 EUR before, 100,000 EUR after)) of 72,000 EUR into 8 orders"},
 		{name: "keep_cash under 2% of NLV without the reserve design", rule: "cash_reserve_vs_nlv", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.protection = replace(f.protection, "reserve_floor_base = 10000.0\nreserve_pct_nlv = 5.0\n", "")
@@ -527,12 +527,23 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 	if p := b.Positions[3]; p.DollarDeltaBase != nil {
 		t.Fatalf("an option without its FX rate was measured from the account's rate: %+v", p)
 	}
-	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); known || lowers {
-		t.Fatal("an underlying with an unmeasured line must read unknown")
+	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1); known || lowers || why != "its delta, or that of another line in the book, cannot be measured" {
+		t.Fatalf("an underlying with an unmeasured line must read unknown: %v %v %q", lowers, known, why)
 	}
 	b.Positions = b.Positions[:2]
-	if lowers, known := b.exitLowersAbsoluteDelta(b.Positions[1], 1); !known || !lowers {
-		t.Fatal("closing the long call on a net-long underlying must lower its absolute delta")
+	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1); !known || !lowers || why != "" {
+		t.Fatalf("closing the long call on a net-long underlying must lower its absolute delta: %v %v %q", lowers, known, why)
+	}
+	// A futures row carries delta the gate does not measure: the book names
+	// it and no exit can be judged, as the gate fails closed on it.
+	pos.Stocks = append(pos.Stocks, rpc.PositionView{Symbol: "SYNF", SecType: rpc.SecTypeFuture, ConID: 9, Currency: "USD", Quantity: -1, Multiplier: 50, Mark: 4000, MarketValue: -200000})
+	withFuture := PolicyCheckBookFrom(acct, pos)
+	if len(withFuture.UnmeasuredLines) != 1 || withFuture.UnmeasuredLines[0] != "the SYNF FUTURE line is not a stock, ETF or option, so Canary has no delta for it" {
+		t.Fatalf("unmeasured lines = %v", withFuture.UnmeasuredLines)
+	}
+	withFuture.Positions = withFuture.Positions[:2]
+	if _, known, why := withFuture.exitLowersAbsoluteDelta(withFuture.Positions[1], 1); known || !strings.Contains(why, "SYNF FUTURE line") {
+		t.Fatalf("a futures row must keep every exit unknown and be named: %v %q", known, why)
 	}
 	// The check's verdict is the gate's: the same evidence and arithmetic.
 	ev := deltaReductionEvidence{Current: true, Underlying: "SYNA", BaseCurrency: "EUR", NetBefore: 810 + 4050, BookBefore: 810 + 4050,

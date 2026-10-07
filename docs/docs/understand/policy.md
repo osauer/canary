@@ -312,7 +312,9 @@ closing index puts that hedge a net-long book, or buying back a short stock
 in one, raises the book's, so it keeps the cap too; so does any order while
 a line anywhere in your book has a stale quote or no delta, spot or FX rate,
 because an unknown delta never exempts (bills, bonds and a defunct zero-value
-row count as zero and do not block it). An exit that would leave a short
+row count as zero and do not block it; a future, index, CFD, fund or warrant
+line, whose delta Canary does not measure, keeps the cap and is named). An
+exit that would leave a short
 option uncovered keeps the cap as well (owner decision 2026-10-07 09:51 CEST,
 on the principle Canary applies to its option combos: never leave a short
 leg uncovered): after the order, short calls need long shares or long calls
@@ -321,10 +323,14 @@ covered call, or the long leg of a spread on its own, is refused with
 `this sale would leave 2 short calls on SYNB uncovered, so the order cap
 applies`, while a sale that leaves enough shares passes. The order and every
 other working order in its direction on the same contract (hand orders in
-TWS included) must together stay within what you hold, read from the
-broker's complete open-order list, so two exits of one line cannot both pass
-and together flip it; when that list cannot be read, the cap applies and the
-refusal says so. The refusal then says why,
+TWS included, an order Canary itself sent moments ago, and a working combo
+close on an option's underlying, which counts against every leg) must
+together stay within what you hold, read from the broker's complete
+open-order list, so two exits of one line cannot both pass and together flip
+it; when that list cannot be read, the cap applies and the refusal says so,
+for example `another working order already sells 700 of the 1,000 SYNB
+shares you hold; with this one, more would be sold than you hold. Cancel it
+first`. The refusal then says why,
 for example `order notional 15,000 EUR exceeds the order cap in force 12,000
 EUR (5% of NLV 240,000 EUR; [order_limits]); the exit does not lower the
 absolute delta of SYNA (110,400 EUR before, 158,400 EUR after), so the cap
@@ -461,11 +467,11 @@ rule is one entry.
 | `order_entry_off_for_active_bucket` | error | no | A bucket (cash sweep, budget governor, currency leveling) is active or pre-authorised while `[trading].mode` disables order entry. |
 | `settlement_route_expired` | error | no | A sweep currency's `settlement_valid_through` has passed, so its bill orders hold. |
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
-| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, and closing it would not lower its underlying's absolute delta (a hedge leg) or that delta cannot be measured, so no exit for it can pass the gate. A line whose close lowers the delta is exempt from the cap and not reported. |
+| `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, and closing one contract would not pass as a delta-reducing exit (it would not lower the underlying's or the book's absolute delta, would leave a short leg uncovered, or a line's delta cannot be measured; the finding names the reason), so no exit for it can pass the gate. A line whose close passes as a delta-reducing exit is exempt from the cap and not reported. |
 | `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the order cap in force, so an FX move refuses an order sized at the cap. |
 | `sweep_nothing_to_buy` | warn | no | The sweep is enabled while a currency it would invest in has nothing to buy: its first plannable instrument is a bill other than US Treasury bills and no `isins` are listed, so the currency reads `universe_unavailable` and its cash stays cash (the ETF fallback follows a completed search of listed bills, so it never acts on an empty list). A currency declared `none` is kept as cash on purpose and is no gap. |
 | `order_cap_vs_nlv` | warn | yes | A per-order cap is under 2% or over 50% of NLV. |
-| `order_cap_splits_reduction` | warn | yes | A bucket's cap splits a planned trim (issuer act back to watch, premium budget act back to watch) into more than 5 orders, or the order cap in force splits a whole option-line exit it still binds (one whose exit does not lower, or cannot be shown to lower, its underlying's absolute delta) into more than 5. Delta-reducing exits and protective stock stops are exempt from the order cap and are not counted. |
+| `order_cap_splits_reduction` | warn | yes | A bucket's cap splits a planned trim (issuer act back to watch, premium budget act back to watch) into more than 5 orders, or the order cap in force splits a whole option-line exit it still binds (one that would not pass as a delta-reducing exit; the finding names the reason) into more than 5. Delta-reducing exits and protective stock stops are exempt from the order cap and are not counted. |
 | `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |
 | `protected_floor_vs_equity` | warn | yes | The protected floor sits at or above equity, or leaves less than the declared risk capital above it. |
 | `declared_risk_vs_nlv` | warn | yes | Declared risk capital is above NLV or under 2% of it. |
