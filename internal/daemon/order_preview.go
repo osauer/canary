@@ -776,8 +776,11 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 		multiplier = 0
 	}
 	if ibkrlib.IsBillOrBond(secType) {
-		// A bill or bond is ordered by contract id alone; no listing fields ride along.
-		return &ibkrlib.Contract{ConID: contract.ConID, Symbol: strings.ToUpper(strings.TrimSpace(contract.Symbol)), SecType: secType, Exchange: exchange, Currency: currency}
+		// A bill or bond is ordered by contract id alone; no listing fields ride
+		// along, not even the symbol. IBKR's bond details carry none, and the
+		// CUSIP a quote uses as its symbol conflicts with IBKR's own (error 478,
+		// live 2026-10-07: "requested symbol 91282CRM5, in contract US-T").
+		return &ibkrlib.Contract{ConID: contract.ConID, SecType: secType, Exchange: exchange, Currency: currency}
 	}
 	out := &ibkrlib.Contract{
 		ConID:        contract.ConID,
