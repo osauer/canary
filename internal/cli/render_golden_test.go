@@ -209,6 +209,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "proposals_bundle_status", argv: []string{"proposals", "bundle-status", "--bundle-ref-stdin"}, stdin: goldenBundleRef,
 			conn: goldenConn{rpc.MethodTradeProposalsPreparedBundleStatus: goldenBundleStatus()}},
 		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
+		{name: "setups_evaluate_confirmed", argv: []string{"setups", "evaluate"}, render: func(env *Env) { renderSetupResult(env, goldenSetup()) }},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
 		{name: "order_preview_bond", argv: []string{"order", "preview", "buy", "DE000SYN0000", "10000", "--type", "BOND", "--currency", "EUR"}, conn: goldenConn{rpc.MethodOrderPreview: goldenBondPreview()}},
@@ -662,4 +663,15 @@ func goldenBrief(narrative bool) rpc.BriefResult {
 		Coda:  []rpc.BriefRun{run("Read-only; nothing here places an order.", "")},
 	}
 	return res
+}
+
+// goldenSetup is a confirmed volume turn with a known average trade. Clocks are
+// UTC so the RFC 3339 stamps read the same in every zone.
+func goldenSetup() rpc.SetupResult {
+	spike := time.Date(2026, 9, 30, 14, 15, 0, 0, time.UTC)
+	confirmed, valid := spike.Add(5*time.Minute), spike.Add(11*time.Minute)
+	return rpc.SetupResult{Version: 1, Spec: rpc.SetupSpec{Version: 1, Template: "volume_turn_v1", Revision: "synthetic-3", SpikeMultiple: 3, ResponseBars: 2, BaselineSessions: 20},
+		Contract: rpc.ContractParams{ConID: 17, Symbol: "SYNTH", SecType: "STK", Currency: "USD"}, EvaluatedAt: confirmed.Add(20 * time.Second), EvidenceKind: "current_observation",
+		State: "confirmed", Reasons: []string{"volume_spike_price_rising"}, SpikeAt: &spike, FirstConfirmedAt: &confirmed, ConfirmationType: "rising", ValidUntil: &valid, BaselineSessions: 20,
+		Features: rpc.SetupFeatures{SpikeMultiple: new(3.4), TradeSize: new(74.2), TradeSizeUsual: new(128.6), TradeSizeBars: 12}}
 }

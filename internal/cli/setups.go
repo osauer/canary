@@ -133,6 +133,12 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, result)
 	}
+	renderSetupResult(env, result)
+	return 0
+}
+
+// renderSetupResult is the human reading of one setup evaluation.
+func renderSetupResult(env *Env, result rpc.SetupResult) {
 	riskReadLine(env, "Entry setup", result.Contract.Symbol, result.State)
 	riskReadLine(env, "Rule", result.Spec.Template, result.Spec.Revision)
 	riskReadLine(env, "Evidence", result.EvidenceKind, result.EvaluatedAt.Format(time.RFC3339))
@@ -141,6 +147,9 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 	}
 	if result.Features.SpikeMultiple != nil {
 		riskReadLine(env, "Activity", fmt.Sprintf("%.2f× same-slot mean across %d comparable sessions", *result.Features.SpikeMultiple, result.BaselineSessions))
+	}
+	if f := result.Features; f.TradeSize != nil && f.TradeSizeUsual != nil {
+		riskReadLine(env, "Average trade", fmt.Sprintf("%.0f units against %.0f usual over the latest %d bars", *f.TradeSize, *f.TradeSizeUsual, f.TradeSizeBars))
 	}
 	if result.FirstConfirmedAt != nil {
 		riskReadLine(env, "First price confirmation", result.FirstConfirmedAt.Format(time.RFC3339), result.ConfirmationType)
@@ -152,7 +161,6 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 		riskReadLine(env, "Reason", reason)
 	}
 	fmt.Fprintln(env.Stdout, "Observation only. Risk, option feasibility and exact order authority are separate.")
-	return 0
 }
 
 // runSetupMarkouts reads the entry-markout ledger. Rows are
