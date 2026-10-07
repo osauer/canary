@@ -799,6 +799,19 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 	return out
 }
 
+// previewIBKRQuoteContract is the contract a quote subscribes with: the order
+// contract, except that a bill or bond keeps its symbol (the CUSIP or ISIN
+// when IBKR sent none). Canary's market data keys a subscription by symbol,
+// and IBKR accepts that symbol with the contract id for a quote but not for an
+// order (error 478), so only the order goes by contract id alone.
+func previewIBKRQuoteContract(contract rpc.ContractParams) *ibkrlib.Contract {
+	out := previewIBKRContract(contract)
+	if ibkrlib.IsBillOrBond(out.SecType) {
+		out.Symbol = strings.ToUpper(strings.TrimSpace(contract.Symbol))
+	}
+	return out
+}
+
 func previewIBKRStrategyContract(draft rpc.OrderDraft) *ibkrlib.Contract {
 	contract := previewIBKRContract(draft.Contract)
 	contract.BondRules = previewBondRules(draft)
@@ -1305,7 +1318,7 @@ func (s *Server) exactSessionContractQuote(ctx context.Context, authority *order
 	quoteCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	started := time.Now()
-	key, err := authority.connector.SubscribeMarketDataWithContractForSession(quoteCtx, authority.session, *previewIBKRContract(contract), defaultGenericTicks)
+	key, err := authority.connector.SubscribeMarketDataWithContractForSession(quoteCtx, authority.session, *previewIBKRQuoteContract(contract), defaultGenericTicks)
 	if err != nil {
 		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
 	}

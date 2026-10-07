@@ -135,7 +135,7 @@ func (b optionExitBrokerSource) option(ctx context.Context, contract rpc.Contrac
 	a := b.authority
 	ctx, cancel := context.WithTimeout(ctx, optionExitQuoteTimeout)
 	defer cancel()
-	key, err := a.connector.SubscribeMarketDataWithContractForSession(ctx, a.session, *previewIBKRContract(contract), defaultGenericTicks)
+	key, err := a.connector.SubscribeMarketDataWithContractForSession(ctx, a.session, *previewIBKRQuoteContract(contract), defaultGenericTicks)
 	if err != nil {
 		return nil, err
 	}
