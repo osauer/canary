@@ -513,9 +513,11 @@ func (ev deltaReductionEvidence) judge(name string, changes []deltaChange) (bool
 			risk.FormatOrderMoney(math.Abs(ev.BookBefore), ev.BaseCurrency), risk.FormatOrderMoney(math.Abs(bookAfter), ev.BaseCurrency))
 	}
 	// Never leave a short leg uncovered: the order keeps the cap when, after
-	// it, a short of a right is uncovered and the order either made it so or
-	// sold cover of that kind (a near-dated long in a calendar is not cover,
-	// but selling it on its own still leaves the far short uncovered).
+	// it, a short of a right is uncovered, the uncovered count has not fallen,
+	// and the order either made it so or sold cover of that kind (a near-dated
+	// long in a calendar is not cover, but selling it on its own still leaves
+	// the far short uncovered; closing or reducing the calendar as one combo
+	// lowers the count and passes).
 	callsBefore, putsBefore := ev.Cover.uncovered(nil)
 	callsAfter, putsAfter := ev.Cover.uncovered(changes)
 	sellsCallCover, sellsPutCover := ev.Cover.removesCover(changes)
@@ -523,10 +525,10 @@ func (ev deltaReductionEvidence) judge(name string, changes []deltaChange) (bool
 	if len(changes) == 1 && strings.EqualFold(strings.TrimSpace(changes[0].Action), rpc.OrderActionBuy) {
 		verb = "buy-back"
 	}
-	if callsAfter > 1e-9 && (callsAfter > callsBefore+1e-9 || sellsCallCover) {
+	if callsAfter > 1e-9 && callsAfter >= callsBefore-1e-9 && (callsAfter > callsBefore+1e-9 || sellsCallCover) {
 		return false, fmt.Sprintf("; this %s would leave %s short calls on %s uncovered, so the order cap applies", verb, deltaContracts(callsAfter), name)
 	}
-	if putsAfter > 1e-9 && (putsAfter > putsBefore+1e-9 || sellsPutCover) {
+	if putsAfter > 1e-9 && putsAfter >= putsBefore-1e-9 && (putsAfter > putsBefore+1e-9 || sellsPutCover) {
 		return false, fmt.Sprintf("; this %s would leave %s short puts on %s uncovered, so the order cap applies", verb, deltaContracts(putsAfter), name)
 	}
 	return true, ""

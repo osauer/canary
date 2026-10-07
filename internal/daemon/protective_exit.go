@@ -129,7 +129,40 @@ type workingOrderIdentity struct {
 	SecType, Symbol, Action string
 	ConID                   int
 	Remaining               float64
+	// Legs are the option contracts of a combo (BAG) order the journal
+	// knows; nil for a hand combo, which then counts against every leg.
+	Legs map[int]struct{}
 }
+
+// journalInventory is Canary's own order rows for the competing-order count:
+// the journal's views and the legs of each combo it placed, by order
+// reference and by session order id.
+type journalInventory struct {
+	views         []rpc.OrderView
+	legsByRef     map[string]map[int]struct{}
+	legsByOrderID map[int]map[int]struct{}
+}
+
+// legsOf is the combo legs the journal knows for a row, or nil.
+func (j journalInventory) legsOf(view *rpc.OrderView) map[int]struct{} {
+	if view == nil {
+		return nil
+	}
+	if legs, ok := j.legsByRef[view.OrderRef]; ok && view.OrderRef != "" {
+		return legs
+	}
+	if legs, ok := j.legsByOrderID[view.ReservedOrderID]; ok && view.ReservedOrderID > 0 {
+		return legs
+	}
+	return nil
+}
+
+// journalInventoryMargin is how long before a snapshot's completion its
+// request may have begun: the flight's own budget (orderReconcileSnapshotWait).
+// An unpaired open journal row updated after that counts, so an order placed
+// while the snapshot was in flight, absent from it because the broker had
+// not acknowledged it yet, is not read as settled.
+const journalInventoryMargin = orderReconcileSnapshotWait
 
 func brokerOrderIdentity(order ibkrlib.OrderLifecycleEvent) workingOrderIdentity {
 	return workingOrderIdentity{SecType: order.SecType, Symbol: order.Symbol, Action: order.Action, ConID: order.ConID, Remaining: brokerOrderRemaining(order)}
@@ -173,12 +206,19 @@ func (w workingOrderIdentity) sameContract(contract rpc.ContractParams) bool {
 // competesWith is the quantity the working order holds against an exit of
 // contract in direction action: its remaining quantity when it is the same
 // contract in the same direction, or when it is a combo (BAG) on the
-// option's underlying whatever its direction, because the broker reports no
-// combo legs and a working combo close touches every leg of its unit, so
-// its units are a lower bound on each leg. Zero otherwise.
+// option's underlying whatever its direction, because a working combo close
+// touches every leg of its unit, so its units are a lower bound on each leg.
+// A combo Canary placed names its legs in the journal and counts only
+// against those; a hand combo, whose legs the broker does not report, counts
+// against every option leg of the underlying. Zero otherwise.
 func (w workingOrderIdentity) competesWith(contract rpc.ContractParams, action string) float64 {
 	if strings.EqualFold(contract.SecType, "OPT") && strings.EqualFold(strings.TrimSpace(w.SecType), "BAG") &&
 		strings.EqualFold(strings.TrimSpace(w.Symbol), strings.TrimSpace(contract.Symbol)) {
+		if w.Legs != nil {
+			if _, leg := w.Legs[contract.ConID]; !leg {
+				return 0
+			}
+		}
 		return w.Remaining
 	}
 	if !w.sameContract(contract) || !strings.EqualFold(strings.TrimSpace(w.Action), strings.TrimSpace(action)) {
@@ -216,21 +256,25 @@ func brokerOrderIsTarget(order ibkrlib.OrderLifecycleEvent, target orderPreviewR
 // moved after the snapshot counts too, so two exits of one line admitted
 // within that window cannot both pass; a row the snapshot shows is paired,
 // never counted twice.
-func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, views []rpc.OrderView, scope brokerStateScope, draft rpc.OrderDraft, target orderPreviewReplaceTarget) protectiveExitInventory {
+func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, journal journalInventory, scope brokerStateScope, draft rpc.OrderDraft, target orderPreviewReplaceTarget) protectiveExitInventory {
 	inv := protectiveExitInventory{Current: true}
+	views := journal.views
 	working := brokerWorkingOrders(snapshot, views, scope)
 	hasTarget := target.ReservedOrderID > 0 || target.PermID > 0
+	since := snapshot.AsOf.Add(-journalInventoryMargin)
 	var unseen []workingOrderIdentity
 	for i := range views {
 		view := &views[i]
-		if !view.Open || !orderViewMatchesBrokerScope(*view, scope) || !view.UpdatedAt.After(snapshot.AsOf) {
+		if !view.Open || !orderViewMatchesBrokerScope(*view, scope) || !view.UpdatedAt.After(since) {
 			continue
 		}
 		if hasTarget && ((target.ReservedOrderID > 0 && view.ReservedOrderID == target.ReservedOrderID) || (target.PermID > 0 && view.PermID == target.PermID)) {
 			continue
 		}
 		if !slices.ContainsFunc(working, func(row brokerWorkingOrder) bool { return row.Journal == view }) {
-			unseen = append(unseen, journalOrderIdentity(*view))
+			w := journalOrderIdentity(*view)
+			w.Legs = journal.legsOf(view)
+			unseen = append(unseen, w)
 		}
 	}
 	competing := func(contract rpc.ContractParams, action string) float64 {
@@ -239,7 +283,9 @@ func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, vie
 			if hasTarget && brokerOrderIsTarget(row.Order, target) {
 				continue
 			}
-			total += brokerOrderIdentity(row.Order).competesWith(contract, action)
+			w := brokerOrderIdentity(row.Order)
+			w.Legs = journal.legsOf(row.Journal)
+			total += w.competesWith(contract, action)
 		}
 		for _, w := range unseen {
 			total += w.competesWith(contract, action)
@@ -268,16 +314,34 @@ func protectiveExitInventoryFromSnapshot(snapshot ibkrlib.OpenOrderSnapshot, vie
 }
 
 // journalOrderViewsForInventory reads Canary's own order rows for the
-// competing-order count; false when the journal cannot be read.
-func (s *Server) journalOrderViewsForInventory() ([]rpc.OrderView, bool) {
+// competing-order count, with the legs of each combo it placed; false when
+// the journal cannot be read. It folds the whole journal, as every other
+// order read does (there is no bounded open-orders read model to serve it).
+func (s *Server) journalOrderViewsForInventory() (journalInventory, bool) {
 	if s == nil || s.orderJournal == nil {
-		return nil, false
+		return journalInventory{}, false
 	}
 	events, err := s.orderJournal.LoadEvents(0)
 	if err != nil {
-		return nil, false
+		return journalInventory{}, false
 	}
-	return buildOrderViews(events), true
+	j := journalInventory{views: buildOrderViews(events), legsByRef: map[string]map[int]struct{}{}, legsByOrderID: map[int]map[int]struct{}{}}
+	for _, event := range events {
+		if event.StrategyGroup == nil || len(event.StrategyGroup.Legs) == 0 {
+			continue
+		}
+		legs := make(map[int]struct{}, len(event.StrategyGroup.Legs))
+		for _, leg := range event.StrategyGroup.Legs {
+			legs[leg.Contract.ConID] = struct{}{}
+		}
+		if event.OrderRef != "" {
+			j.legsByRef[event.OrderRef] = legs
+		}
+		if event.ReservedOrderID > 0 {
+			j.legsByOrderID[event.ReservedOrderID] = legs
+		}
+	}
+	return j, true
 }
 
 // captureProtectiveExitInventory reads the complete broker open-order
@@ -291,12 +355,12 @@ func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.
 		return protectiveExitInventory{}
 	}
 	want := brokerStateScope{Account: status.Account, Mode: status.Mode}
-	views, journaled := s.journalOrderViewsForInventory()
+	journal, journaled := s.journalOrderViewsForInventory()
 	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, !journaled)
 	if err != nil || !sameBrokerScope(scope, want) {
 		return protectiveExitInventory{}
 	}
-	return protectiveExitInventoryFromSnapshot(snapshot, views, scope, draft, target)
+	return protectiveExitInventoryFromSnapshot(snapshot, journal, scope, draft, target)
 }
 
 // protectiveExitProposalBlocker is the readiness side of the exemption for a
@@ -386,7 +450,7 @@ func (e *proposalEngine) protectiveExitRowBlocker(ctx context.Context, p rpc.Tra
 		if strings.TrimSpace(contract.SecType) == "" {
 			contract.SecType = positionWireSecType(p.SecType)
 		}
-		inv = protectiveExitInventoryFromSnapshot(book.snapshot, nil, book.scope, rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}, orderPreviewReplaceTarget{})
+		inv = protectiveExitInventoryFromSnapshot(book.snapshot, journalInventory{}, book.scope, rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: contract, Quantity: p.Quantity, OrderType: p.OrderType}, orderPreviewReplaceTarget{})
 	}
 	return protectiveExitProposalBlocker(allowStockShort, p, inv)
 }

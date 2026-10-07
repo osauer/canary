@@ -244,9 +244,13 @@ func openOrderSnapshotMatch(snap ibkrlib.OpenOrderSnapshot, view rpc.OrderView) 
 	return -1, ibkrlib.OrderLifecycleEvent{}, false
 }
 
+// openOrderSnapshotEventMatches pairs a snapshot row with its journal row:
+// by PermID when both carry one, else by the session order id and client
+// id, so a row the broker already stamped pairs with a journal row that has
+// not seen that status event yet.
 func openOrderSnapshotEventMatches(order ibkrlib.OrderLifecycleEvent, view rpc.OrderView) bool {
-	if view.PermID != 0 || order.PermID != 0 {
-		return view.PermID != 0 && order.PermID != 0 && order.PermID == view.PermID
+	if view.PermID != 0 && order.PermID != 0 {
+		return order.PermID == view.PermID
 	}
 	return view.ReservedOrderID > 0 && order.OrderID == view.ReservedOrderID &&
 		order.ClientIDPresent && order.ClientID == view.ClientID

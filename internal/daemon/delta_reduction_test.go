@@ -589,4 +589,21 @@ func TestDeltaRuleCoversAShortOnlyWithALongExpiringNoEarlier(t *testing.T) {
 		// the cover rule, decides it; the cover rule must not fire first.
 		t.Fatalf("buying back the far short calls: %v, want the delta rule's refusal, not an uncovered-leg one", err)
 	}
+	// Reducing the calendar 8 → 4 units as one guaranteed combo (near long
+	// sold, far short bought back) leaves 4 far shorts uncovered, fewer than
+	// the 8 before: the cover rule does not fire, and the delta falls
+	// (+9,600 → +4,800), so it passes; so does closing the whole calendar.
+	near := deltaTestLeg(nearCalls, 1, rpc.OrderActionSell, 4, 8)
+	near.Contract.Expiry = "20261120"
+	reduce, _ := deltaTestStrategyDraft(4, near, deltaTestLeg(farCalls, -1, rpc.OrderActionBuy, 4, -8))
+	reduce.StrategyGroup.Operation, reduce.StrategyGroup.UnitsBefore, reduce.StrategyGroup.UnitsAfter = rpc.StrategyOperationReduce, 8, 4
+	if err := deltaTestGate(calendar, reduce, rpc.OrderPositionImpact{Before: 8, After: 4, Effect: rpc.OrderPositionEffectReduce}, 20000); err != nil {
+		t.Fatalf("reducing the calendar as one combo must pass: %v", err)
+	}
+	near = deltaTestLeg(nearCalls, 1, rpc.OrderActionSell, 8, 8)
+	near.Contract.Expiry = "20261120"
+	whole, position := deltaTestStrategyDraft(8, near, deltaTestLeg(farCalls, -1, rpc.OrderActionBuy, 8, -8))
+	if err := deltaTestGate(calendar, whole, position, 20000); err != nil {
+		t.Fatalf("closing the whole calendar as one combo must pass: %v", err)
+	}
 }

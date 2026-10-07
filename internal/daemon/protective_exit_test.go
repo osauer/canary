@@ -137,11 +137,11 @@ func TestProtectiveExitInventoryCountsCompetingSells(t *testing.T) {
 		other, foreign, filled,
 	}}
 	draft := protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 2800)
-	inv := protectiveExitInventoryFromSnapshot(snapshot, nil, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
+	inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, protectiveExitTestScope, draft, orderPreviewReplaceTarget{ReservedOrderID: 11, PermID: 7000})
 	if !inv.Current || inv.OtherWorkingSameSide != 1200 || !inv.ReducesWorkingStop {
 		t.Fatalf("modify inventory = %+v, want current, 1200 competing, a reduction of the working stop", inv)
 	}
-	place := protectiveExitInventoryFromSnapshot(snapshot, nil, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
+	place := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, protectiveExitTestScope, draft, orderPreviewReplaceTarget{})
 	if place.OtherWorkingSameSide != 5200 || place.ReducesWorkingStop {
 		t.Fatalf("place inventory = %+v, want 5200 competing and no reduction", place)
 	}
@@ -167,20 +167,20 @@ func TestProtectiveExitInventoryFollowsTheOrdersDirection(t *testing.T) {
 		handBuy,
 	}}
 	buyBack := deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8)
-	inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, buyBack, orderPreviewReplaceTarget{})
+	inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, buyBack, orderPreviewReplaceTarget{})
 	if !inv.Current || inv.OtherWorkingSameSide != 4 || inv.OtherWorkingSameSideByLeg != nil {
 		t.Fatalf("buy-back inventory = %+v, want 4 competing buys (3 on the contract, 1 hand order without a ConID)", inv)
 	}
 	sellCalls := deltaTestOptionDraft(deltaTestLongCalls, "C", rpc.OrderActionSell, 8)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("sell inventory = %+v, want no competing sells", inv)
 	}
 	stock := deltaTestStockDraft(rpc.OrderActionBuy, 100)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("stock inventory = %+v, want option orders not to count against the stock", inv)
 	}
 	combo, _ := deltaTestStrategyDraft(8, deltaTestLeg(deltaTestLongCalls, 1, rpc.OrderActionSell, 8, 8), deltaTestLeg(deltaTestShortPuts, -1, rpc.OrderActionBuy, 8, -8))
-	inv = protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, combo, orderPreviewReplaceTarget{})
+	inv = protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, combo, orderPreviewReplaceTarget{})
 	if !inv.Current || inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 0 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 4 ||
 		inv.otherWorkingSameSide(deltaTestShortPuts) != 4 {
 		t.Fatalf("combo inventory = %+v, want per-leg counts in each leg's direction (calls sold: 0; puts bought back: 3 on the contract plus the hand buy without a ConID)", inv)
@@ -192,16 +192,16 @@ func TestProtectiveExitInventoryFollowsTheOrdersDirection(t *testing.T) {
 	bag := protectiveExitTestOrder(0, 8005, rpc.OrderActionSell, rpc.OrderTypeLMT, 2)
 	bag.SecType, bag.ConID, bag.Symbol = "BAG", 0, "SYNB"
 	snapshot.Orders = append(snapshot.Orders, bag)
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 6 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 6 {
 		t.Fatalf("buy-back inventory with a working combo = %+v, want 4 + 2 units of the combo", inv)
 	}
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 2 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 2 {
 		t.Fatalf("sell inventory with a working combo = %+v, want the combo's 2 units", inv)
 	}
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, stock, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
 		t.Fatalf("stock inventory with a working combo = %+v, want the combo not to count against the stock", inv)
 	}
-	if inv := protectiveExitInventoryFromSnapshot(snapshot, nil, deltaTestScope, combo, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 2 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 6 {
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journalInventory{}, deltaTestScope, combo, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSideByLeg[deltaTestLongCalls] != 2 || inv.OtherWorkingSameSideByLeg[deltaTestShortPuts] != 6 {
 		t.Fatalf("combo inventory with a working combo = %+v, want the combo's units on every leg", inv)
 	}
 }
@@ -269,5 +269,55 @@ func TestTrailingStopRowReadinessFollowsTheExemption(t *testing.T) {
 	// cap decides at preview from exact FX evidence.
 	if _, ok := protectiveExitProposalBlocker(true, protectiveExitTestRow(), protectiveExitInventory{}); ok {
 		t.Fatal("allow_stock_short row must not carry an exemption blocker")
+	}
+}
+
+// Canary's own journal rows complete the cached snapshot: a combo it placed
+// counts only against the legs the journal names (a hand combo against every
+// leg); an unpaired open row placed up to journalInventoryMargin before the
+// snapshot completed counts, an older one not; and a snapshot row the broker
+// already stamped with a PermID pairs with the journal row that has not seen
+// it yet, so the order is not counted twice.
+func TestProtectiveExitInventoryPairsCanarysOwnRows(t *testing.T) {
+	t.Parallel()
+	asOf := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	view := func(ref string, orderID int, secType, action string, conID int, qty float64, updated time.Time) rpc.OrderView {
+		return rpc.OrderView{OrderRef: ref, ReservedOrderID: orderID, ClientID: 31, Account: deltaTestScope.Account, Mode: deltaTestScope.Mode,
+			Symbol: "SYNB", SecType: secType, ConID: conID, Action: action, Quantity: qty, Open: true, UpdatedAt: updated}
+	}
+	buyBack := deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8)
+	sellCalls := deltaTestOptionDraft(deltaTestLongCalls, "C", rpc.OrderActionSell, 8)
+	empty := ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: asOf}
+
+	// A call-spread close Canary placed after the snapshot: its legs are known.
+	journal := journalInventory{
+		views:     []rpc.OrderView{view("combo-calls", 2001, "BAG", rpc.OrderActionSell, 0, 2, asOf.Add(time.Second))},
+		legsByRef: map[string]map[int]struct{}{"combo-calls": {deltaTestLongCalls: {}, deltaTestShortCalls: {}}},
+	}
+	if inv := protectiveExitInventoryFromSnapshot(empty, journal, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 0 {
+		t.Fatalf("a put buy-back beside Canary's call-spread close = %+v, want nothing competing", inv)
+	}
+	if inv := protectiveExitInventoryFromSnapshot(empty, journal, deltaTestScope, sellCalls, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 2 {
+		t.Fatalf("a call sale beside Canary's call-spread close = %+v, want its 2 units", inv)
+	}
+
+	// An unpaired buy-back placed 5 s before the snapshot completed, inside
+	// the flight's budget, counts; one older than the budget does not.
+	journal = journalInventory{views: []rpc.OrderView{
+		view("buy-recent", 2002, "OPT", rpc.OrderActionBuy, deltaTestShortPuts, 3, asOf.Add(-5*time.Second)),
+		view("buy-old", 2003, "OPT", rpc.OrderActionBuy, deltaTestShortPuts, 2, asOf.Add(-journalInventoryMargin-time.Second)),
+	}}
+	if inv := protectiveExitInventoryFromSnapshot(empty, journal, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 3 {
+		t.Fatalf("unpaired journal rows = %+v, want the recent buy-back (3) counted and the old one not", inv)
+	}
+
+	// The broker stamped the row with a PermID the journal has not seen: it
+	// pairs by order id and counts once.
+	stamped := ibkrlib.OrderLifecycleEvent{Type: ibkrlib.OrderLifecycleEventOpenOrder, OrderID: 2002, PermID: 9001, ClientIDPresent: true, ClientID: 31, Account: deltaTestScope.Account,
+		Symbol: "SYNB", SecType: "OPT", ConID: deltaTestShortPuts, Currency: "EUR", Action: rpc.OrderActionBuy, OrderType: rpc.OrderTypeLMT, TotalQuantity: 3, Remaining: 3, Status: "Submitted"}
+	snapshot := ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: asOf, Orders: []ibkrlib.OrderLifecycleEvent{stamped}}
+	journal = journalInventory{views: []rpc.OrderView{view("buy-recent", 2002, "OPT", rpc.OrderActionBuy, deltaTestShortPuts, 3, asOf.Add(time.Second))}}
+	if inv := protectiveExitInventoryFromSnapshot(snapshot, journal, deltaTestScope, buyBack, orderPreviewReplaceTarget{}); inv.OtherWorkingSameSide != 3 {
+		t.Fatalf("a stamped snapshot row with its unstamped journal row = %+v, want counted once (3)", inv)
 	}
 }

@@ -267,10 +267,22 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    journal rows (`journalOrderViewsForInventory`): an open row in scope that
    no snapshot row pairs and that moved after the snapshot counts, a paired
    row never twice; only when the journal cannot be read is the inventory
-   read from the broker afresh. The broker reports no legs for a working
-   combo (BAG), so one on an option's underlying counts against every option
-   leg whatever the exit's direction, its units a lower bound
-   (`workingOrderIdentity.competesWith`). The refusal reads "another working
+   read from the broker afresh. An unpaired row counts when it moved after
+   the snapshot's request could have begun: the snapshot carries only its
+   completion time, so the margin is the flight's own budget
+   (`journalInventoryMargin` = `orderReconcileSnapshotWait`, 15 s), and the
+   broker's acknowledgement lag never reads as settled. A snapshot row the
+   broker already stamped with a PermID pairs with the journal row that has
+   not seen it yet, by session order id and client id
+   (`openOrderSnapshotEventMatches`), so it is not counted twice. The broker
+   reports no legs for a working combo (BAG): a combo Canary placed names
+   its legs in the journal (`journalInventory.legsOf`) and counts only
+   against those legs, so a put-spread close beside Canary's own working
+   call-spread close passes; a hand combo counts against every option leg of
+   the underlying whatever the exit's direction, its units a lower bound
+   (`workingOrderIdentity.competesWith`). The journal is folded whole for
+   this read, as every other order read does; there is no bounded
+   open-orders read model to serve it and none was added for this alone. The refusal reads "another working
    order already sells 700 of the 1,000 SYNB shares you hold; with this one,
    more would be sold than you hold. Cancel it first", counts with thousands
    separators, no "); " inside a clause (Desk reads that as a sentence break).
@@ -378,13 +390,15 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    no known expiry covers nothing (`uncoveredShares`: the latest-expiring
    short takes its cover first, since a long that covers it covers every
    earlier short too, and shares cover any expiry and apply last). An exit
-   keeps the cap when, after it, a short of a right is uncovered and the
-   order either made it so or sold cover of that kind (`removesCover`): so
-   selling stock under short calls whose only long calls expire earlier
-   keeps the cap, a long call expiring on or after the short one still
-   covers, and selling the near long leg of a calendar on its own keeps the
-   cap (the far short stays uncovered), while buying back the far short is
-   judged by the delta rule alone. The `policy check` book carries each
+   keeps the cap when, after it, a short of a right is uncovered, the
+   uncovered count has not fallen, and the order either made it so or sold
+   cover of that kind (`removesCover`): so selling stock under short calls
+   whose only long calls expire earlier keeps the cap, a long call expiring
+   on or after the short one still covers, and selling the near long leg of
+   a calendar on its own keeps the cap (the far short stays uncovered),
+   while buying back the far short is judged by the delta rule alone and
+   reducing or closing the calendar as one guaranteed combo, which lowers
+   the uncovered count, passes. The `policy check` book carries each
    option line's right, expiry and multiplier so `exitLowersAbsoluteDelta`
    judges exactly as the gate does (`deltaReductionEvidence.judge`), minus
    the working-order inventory.
