@@ -482,3 +482,15 @@ func TestBondOrderByIdentifierQuotesALineWithoutSymbol(t *testing.T) {
 		t.Fatalf("preview of a line without symbol: %v; quoted %+v", err, quoted)
 	}
 }
+
+// The order a bond preview signs goes to IBKR by contract id alone: the
+// quote may carry the CUSIP as its symbol, the order may not (IBKR error 478).
+func TestBondOrderContractGoesByContractIDAlone(t *testing.T) {
+	c := previewIBKRContract(rpc.ContractParams{ConID: 928489461, Symbol: "91282CRM5", SecType: "BOND", Exchange: "SMART", Currency: "USD"})
+	if c.Symbol != "" || c.ConID != 928489461 || c.SecType != "BOND" {
+		t.Fatalf("bond order contract = %+v, want contract id only", c)
+	}
+	if s := previewIBKRContract(rpc.ContractParams{Symbol: "AAA", SecType: "STK", Currency: "USD"}); s.Symbol != "AAA" {
+		t.Fatalf("a stock lost its symbol: %+v", s)
+	}
+}

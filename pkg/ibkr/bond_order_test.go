@@ -255,3 +255,29 @@ func TestExactSessionBondQuoteAsksForNoGenericTicks(t *testing.T) {
 		t.Fatal("a stale session binding read contract details")
 	}
 }
+
+// A bill or bond is ordered by contract id alone. IBKR's bond contract
+// details carry no symbol, and a CUSIP sent as the symbol conflicts with
+// IBKR's own (error 478, live 2026-10-07: "requested symbol 91282CRM5, in
+// contract US-T"), so an empty symbol passes for a bond with a contract id
+// and for nothing else.
+func TestValidateOrderAdmitsABondByContractIDWithoutSymbol(t *testing.T) {
+	rules := BondOrderRules{MinTick: 0.00001, MinSize: 1, SizeIncrement: 1}
+	bond := &IBKROrder{ConID: 900001, SecType: SecTypeBond, Exchange: "SMART", Currency: "USD", BondRules: &rules,
+		Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 98.89, LmtPriceSet: true, TIF: "DAY"}
+	if err := ValidateOrder(bond); err != nil {
+		t.Fatalf("a bond by contract id without symbol: %v", err)
+	}
+	noID := *bond
+	noID.ConID = 0
+	if err := ValidateOrder(&noID); err == nil {
+		t.Fatal("a bond with neither symbol nor contract id passed")
+	}
+	stock := &IBKROrder{ConID: 900002, SecType: "STK", Exchange: "SMART", Currency: "USD", Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 10, TIF: "DAY"}
+	if err := ValidateOrder(stock); err == nil {
+		t.Fatal("a stock without symbol passed")
+	}
+	if _, _, err := NewBondLimitOrder(Contract{ConID: 900001, SecType: SecTypeBond, Exchange: "SMART", Currency: "USD"}, rules, "BUY", 1, 98.89); err != nil {
+		t.Fatalf("the bond order shape refused a contract without symbol: %v", err)
+	}
+}

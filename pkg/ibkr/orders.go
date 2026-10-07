@@ -165,7 +165,10 @@ func ValidateOrder(order *IBKROrder) error {
 		return fmt.Errorf("order is nil")
 	}
 
-	if order.Symbol == "" {
+	// A bill or bond goes by contract id alone: IBKR's bond contract details
+	// carry no symbol, and any symbol sent with the contract id must match
+	// IBKR's own (error 478 otherwise).
+	if order.Symbol == "" && !(IsBillOrBond(order.SecType) && order.ConID > 0) {
 		return fmt.Errorf("symbol is required")
 	}
 
