@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.19.0 — 2026-10-07 21:54 CEST
+
+### What's new
+
+- **Repay borrowed currencies from cash earning less elsewhere.** Currency leveling compares interest savings with conversion costs, preserves each paying currency's cushion and presents one repayment for your approval. It starts disabled and cannot be pre-authorised.
+- **Trade bills and bonds by ISIN or CUSIP.** Preview a purchase or sale by face value through the existing gated CLI. Purchases require external issuer evidence, fixed or zero coupons, permitted maturity, valid size increments and an accepted broker WhatIf; sales stay within the held face less other working sales.
+- **See bonds' rate and issuer risk.** Positions and buy previews show yield, duration and estimated loss from a one-percentage-point rise. Positions also show sensitivity to a one-basis-point yield move. Portfolio totals include issuer and currency concentration; stress adds a Rates and credit row. Unmeasurable bonds are named. These measurements introduce no new warning thresholds or trading blocks.
+
+### Added
+
+- One preparation and approval for a repayment containing several conversions: `canary proposals prepare-bundle`, `submit-bundle` and `bundle-status`. Review terms name every conversion and its bounds; receipts distinguish sent, refused, not sent and unknown outcomes. A repeated submission cannot send the repayment again.
+- Cash-setting reads, draft checks and recorded saves for Desk, a private project that serves as Canary's console. Cautious, Balanced, Aggressive and Custom reflect the policy files' values. Order-limit changes require device confirmation verified by Canary; saves keep backups and provenance and report partial completion.
+- Setup evaluation includes trade counts, usual volume and trade activity by time of day, recent average trade size, reconstructed rule-state changes and four previous sessions in hourly bars. The setup rule is unchanged; a reconstruction does not prove what was known at the original decision.
+
+### Changed
+
+- Cash management uses `[cash.sweep]` and `[cash.leveling]`, with separate cash pre-authorisation. Existing sweep configuration migrates after a backup, preserving values and comments.
+- An exit may exceed notional and option-contract caps when it reduces absolute net delta for both its underlying and the whole portfolio, fits beside existing working orders and satisfies the option-cover checks. Missing evidence retains the caps. This also applies to already pre-authorised exit buckets after their existing notice and veto window: the maximum consequence is a larger single exit of the held position. Limit pricing, broker checks, freeze and the other admission gates remain.
+- Sweep quantities move on a policy-controlled money grid: purchases round down and redemption targets round up, reducing approval invalidation from small account-value movements.
+- Cash-setting saves without additional broker consequences may reuse a recent confirmation from the same Desk console. Changes that increase broker consequences require fresh confirmation; order-limit changes always require it.
+- Policy explanations and settings describe exit exemptions, borrowing restrictions, sweep behavior and bond-maturity limits. Unwritten option and bond limits display not set.
+
+### Fixed
+
+- Competing-exit checks include journaled orders not yet visible in a broker snapshot, actual combination-leg ratios and directions, and option expiry when determining cover.
+- Reused broker session identifiers match journal records only when contract, side and quantity agree, avoiding false matches and double counting.
+- The sweep and currency repayment planner reserve remaining bond principal and accrued interest. Missing or inconsistent obligations prevent reuse of that cash.
+- Bills and bonds no longer inflate equity-delta measurements or incorrectly trigger equity-exposure warnings.
+- Bond quotes retain the required symbol while order requests use the resolved contract ID. Timeout diagnostics identify broker responses received, and bond lookup exposes trading class and market name.
+- Bond and bill purchases are refused when their limit price reaches or exceeds the estimated remaining principal and coupon payments; sales are unaffected.
+- Repayment receipts retain every conversion's identity and preparation. Waiting submissions, transport uncertainty, consumed references and partial sends no longer produce misleading prepared or nothing-sent results.
+- Invalid prices outside a requested lending-history window no longer discard valid observations inside it. Refused observations identify the affected bar.
+- Disabled order entry is attached to the relevant settings rows. Missing alert coverage says stress or order integrity instead of internal source identifiers.
+
+### Maintenance
+
+- Startup reads and historical-data timeouts share the relevant connection or data-farm incident instead of producing repeated warnings. Unknown lending contracts remain remembered across restarts for 30 days, missing-subscription observations survive restarts and lifecycle logs identify the running build. Overnight behavior still needs observation at its next real occurrence.
+- Registry publication waits longer for visibility and reports and retries transient query failures.
+- Privacy checks inspect account-value and cash figures, and a pre-commit hook checks the actual staged content.
+- Regression checks avoid an intermittent archive-pipe failure. Builds share path-independent cache entries and reclaim older Go-cache entries when space is low.
+- Claude receives the Canary skill through its plugin only, avoiding duplicate installation.
+
+### Upgrade notes
+
+- Startup migration backs up affected policy files and adds missing settings. Currency leveling remains off. The new feature's written defaults are a 10,000 base-currency trigger, a 250 base-currency cushion, a 2-basis-point slippage limit and a 30-day cost-recovery window; each is read from the policy file.
+- Newly written defaults include a 1,000 base-currency sweep step, a 10-minute cash-settings confirmation window and a 30-year maximum bond maturity. Purchases within seven days of maturity, inflation-linked bonds, floating-rate notes and asset-backed securities are not admitted by the new bond path.
+- New or missing order-limit defaults become 10% of net liquidation value and 10 option contracts, previously 5% and five. Existing written values are preserved. The 100,000 base-currency order ceiling is unchanged; applying a preset is a separate device-confirmed decision.
+- Moving cash policy changes proposal revisions once; pending proposals may need renewed review. Older binaries may not read the new policy sections; retain the migration backups when planning a rollback.
+- Standard binaries and MCP remain read-only. Currency repayments cannot be pre-authorised, and no MCP broker-write tools are added.
+
 ## v3.18.1 — 2026-10-06 06:57 CEST
 
 ### What's new

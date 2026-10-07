@@ -1,8 +1,21 @@
 # Canary full context
 
-Updated: 2026-10-06
+Updated: 2026-10-07 21:54 CEST
 
-Version 3.18 shows every limit in force and checks that the limits add up.
+Version 3.19 adds owner-approved currency repayments, gated bill and bond orders
+by ISIN or CUSIP, and bond yield, duration and rate-risk measurements. Currency
+leveling starts disabled and cannot be pre-authorised. Bond-risk measurements
+introduce no new warnings or blocks. Cash settings and risk presets are served
+from the daemon; order-limit changes require verified device confirmation.
+Qualifying exits can pass the notional and option-contract caps only when they
+reduce absolute net delta for both their underlying and the portfolio, fit
+beside working orders and satisfy the option-cover checks. This also applies
+to existing pre-authorised exit buckets, with their notice and veto window.
+Existing written policy limits are preserved; newly written defaults are 10%
+of net liquidation value and 10 option contracts. Standard binaries and MCP
+remain read-only.
+
+Version 3.18 introduced the following features. It shows every limit in force and checks that the limits add up.
 `canary policy show --explain` prints every limit, policy and runtime setting
 that governs Canary, each with its value, unit, source and meaning, and `canary
 policy show SECTION` prints one part. `canary policy check` reads the config and
@@ -25,12 +38,12 @@ builds the order-value cap and the short-sale check no longer refuse a
 broker-side stop that, with the other working sell orders for the same stock or
 ETF, sells no more than the long position, and a protective stop guard writes on
 its own, but only to shrink or cancel stop orders Canary itself placed when the
-position falls below them. Stops placed by hand are never changed. From 3.18.1
-policy files need no action on upgrade: at its first start the daemon backs up
-each file it changes and writes the missing keys. `[order_limits]` takes the
-`[trading]` values as the floor with a 5% of net liquidation scale and a 100,000
-ceiling, so the order cap can rise to 5% of net liquidation value, up to the
-ceiling. The sweep remains off by default. Owner commissioning requires
+position falls below them. Stops placed by hand are never changed. Version 3.18.1
+introduced automatic policy migration: at its first start the daemon backs up
+each file it changes and writes the missing keys. That release wrote a 5% of
+net liquidation scale with a 100,000 base-currency ceiling. Version 3.19 writes
+10% and 10 option contracts only for new or missing keys; existing written
+values are preserved and the 100,000 ceiling is unchanged. The sweep remains off by default. Owner commissioning requires
 calibrated reserves and current native settlement evidence; missing evidence
 holds the sweep. Bills can lose value on an early sale. Standard binaries and
 the MCP server remain read-only. Installation does not enable automatic

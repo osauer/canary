@@ -2,7 +2,7 @@
   "serverInfo": {
     "name": "canary",
     "title": "Canary MCP Server",
-    "version": "3.18.1",
+    "version": "3.19.0",
     "description": "Canary's local read-only MCP source catalogue for Interactive Brokers account, market, broker reporting, FX, lending fees, indicative borrowing rates, FINRA short interest, policy checks, Edge and risk context. New tools may precede the latest signed release; check installed tools/list.",
     "homepage": "https://osauer.dev/canary/",
     "repository": "https://github.com/osauer/canary",
