@@ -104,6 +104,7 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 		renderOptionsTable(env, out, r.Options, r.DataType, showRealized)
 	}
 	renderBondsTable(env, out, r.Bonds)
+	renderBondRisk(env, out, r.Bonds, r.BondRisk)
 	fmt.Fprintf(out, "  %d positions  ·  as of %s\n",
 		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r).Local()))
 	return 0

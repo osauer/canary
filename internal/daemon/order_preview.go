@@ -501,6 +501,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 			if err := bondBuyYieldRefusal(limit, bondTerms, s.orderNow()); err != nil {
 				return nil, err
 			}
+			bondBuyRateRisk(bondTerms, limit, contract.Currency, s.orderNow())
 		}
 	}
 

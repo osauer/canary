@@ -1,7 +1,8 @@
 # Bond risk (interest rate, issuer credit, concentration)
 
-Updated: 2026-10-06 21:34 CEST
-Status: proposed. Every threshold below is `unapproved` until the owner sets
+Updated: 2026-10-07 20:51 CEST
+Status: phase 1 built (owner "Phase1 Go", 2026-10-07 20:43 CEST); phases 2
+and 3 proposed. Every threshold below is `unapproved` until the owner sets
 it.
 
 This record follows `.agents/docs/risk-policy-contract.md`. It answers the
@@ -128,6 +129,25 @@ changes submit eligibility until the owner makes one a hard gate.
 6. The equity exposure row counting equities and options only (this record
    proposes it).
 7. Whether any of these ever becomes a hard pre-trade gate.
+
+## Phase 1 as built
+
+- `risk.MeasureBond` solves the yield to maturity at the mark (coupon dates
+  stepped back from maturity, accrued interest evenly between them, days
+  over 365.25) and derives modified duration; the one-point loss reprices
+  fully, convexity included. `risk.SummarizeBondBook` sums the book.
+- Held lines take coupon, maturity, issuer and class from the same issuer
+  evidence a buy is admitted by; a bill without evidence is measured as a
+  zero with an unknown class and counts as non-government. A line IBKR has
+  flagged as factor-priced (inflation-linked), an unclassified line, or one
+  whose maturity disagrees with its evidence is named as not in the sums.
+- Surfaces: the positions bonds section and `bond_risk` summary (CLI table,
+  JSON, MCP `canary_positions`); a buy preview's yield, duration and
+  one-point loss; the stress read's "Rates and credit" row (always observe)
+  and, on the equity exposure row, the gross figure without bonds as
+  evidence only. The brief and Desk read these daemon fields in a later
+  change.
+- Ratings: IBKR sends none (proven 2026-10-07), so no rating is shown.
 
 ## Phases
 

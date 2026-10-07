@@ -1,0 +1,38 @@
+# canary positions · COLUMNS=80 · colour off
+Bills & bonds
+  SYMBOL  CLASS  ISIN / CUSIP  CCY  MATURITY    DAYS   POS    MARK       VALUE  NOTE
+  ──────────────────────────────────────────────────────────────────────────────────
+  SYNT    bond   SYN000001     USD  2033-09-30  2550    10   99.14  $ 9,914.00      
+  SYNC    bond   XS000SYN0000  EUR  2035-07-01  3189  5000   94.80  € 4,740.00      
+  SYNL    bond   DE000SYN0001  EUR  —              —  1000  101.00  € 1,010.00      
+
+Bond risk · loss if yields rise one point
+  SYMBOL  ISSUER                CLASS       YIELD  DURATION      DV01     LOSS
+  ────────────────────────────────────────────────────────────────────────────
+  SYNT    United States Treas…  government  5.15%      5.8y  5.13 EUR  498 EUR
+  SYNC    Synthetic Energy In…  inv. grade  4.38%      7.1y  3.37 EUR  324 EUR
+  Bonds held             14,600 EUR (6.1% of NLV)
+  One-point rise costs   822 EUR (0.3% of NLV)
+  Non-government         4,740 EUR (2.0% of NLV)
+  Largest issuer         United States Treasury, 8,850 EUR (3.7% of NLV)
+  Not in the sums        SYNL: inflation-linked: IBKR prices it on a factored principal
+
+# canary positions · COLUMNS=80 · colour on, ESC written as \x1b
+Bills & bonds
+\x1b[2m  SYMBOL  CLASS  ISIN / CUSIP  CCY  MATURITY    DAYS   POS    MARK       VALUE  NOTE\x1b[0m
+  \x1b[2m──────────────────────────────────────────────────────────────────────────────────\x1b[0m
+  SYNT    bond   SYN000001     USD  2033-09-30  2550    10   99.14  $ 9,914.00      
+  SYNC    bond   XS000SYN0000  EUR  2035-07-01  3189  5000   94.80  € 4,740.00      
+  SYNL    bond   DE000SYN0001  EUR  —              —  1000  101.00  € 1,010.00      
+
+Bond risk · loss if yields rise one point
+\x1b[2m  SYMBOL  ISSUER                CLASS       YIELD  DURATION      DV01     LOSS\x1b[0m
+  \x1b[2m────────────────────────────────────────────────────────────────────────────\x1b[0m
+  SYNT    United States Treas…  government  5.15%      5.8y  5.13 EUR  498 EUR
+  SYNC    Synthetic Energy In…  inv. grade  4.38%      7.1y  3.37 EUR  324 EUR
+  Bonds held             14,600 EUR (6.1% of NLV)
+  One-point rise costs   822 EUR (0.3% of NLV)
+  Non-government         4,740 EUR (2.0% of NLV)
+  Largest issuer         United States Treasury, 8,850 EUR (3.7% of NLV)
+  Not in the sums        SYNL: inflation-linked: IBKR prices it on a factored principal
+

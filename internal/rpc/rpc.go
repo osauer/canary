@@ -1837,6 +1837,9 @@ type PositionsResult struct {
 	// maturity and currency. The rows stay in Stocks with their valuation;
 	// this section adds the classification and is keyed by con_id.
 	Bonds []PositionBond `json:"bonds,omitempty"`
+	// BondRisk sums the held bonds' value, rate risk and issuers
+	// (internal-docs/design/bond-risk.md, phase 1); nil when none is held.
+	BondRisk *risk.BondBook `json:"bond_risk,omitempty"`
 }
 
 // Position strategy sources, states, and operations form the typed contract

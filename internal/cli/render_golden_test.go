@@ -212,6 +212,11 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
 		{name: "order_preview_bond", argv: []string{"order", "preview", "buy", "DE000SYN0000", "10000", "--type", "BOND", "--currency", "EUR"}, conn: goldenConn{rpc.MethodOrderPreview: goldenBondPreview()}},
+		{name: "positions_bond_risk", argv: []string{"positions"}, render: func(env *Env) {
+			bonds, book := goldenBondRisk()
+			renderBondsTable(env, env.Stdout, bonds)
+			renderBondRisk(env, env.Stdout, bonds, book)
+		}},
 	}
 }
 
@@ -228,7 +233,8 @@ func goldenBondPreview() rpc.OrderPreviewResult {
 			Bond: &rpc.OrderBondTerms{Instrument: rpc.OrderBondInstrumentByIdentifier, ISIN: "DE000SYN0000", QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1,
 				PriceConvention: rpc.BondPriceConventionPer100, MinTick: 0.0001, MinSize: 1, SizeIncrement: 1, FaceValue: 10000, Maturity: "2036-02-15",
 				MaturitySource: "ecb_eligible_assets", IssuerClass: rpc.BondIssuerGovernment, Issuer: "Synthetic Republic", EvidenceSource: "ecb_eligible_assets",
-				EvidenceAsOf: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), Coupon: new(2.5), AccruedBound: 250}},
+				EvidenceAsOf: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), Coupon: new(2.5), AccruedBound: 250,
+				YieldPct: new(2.68), ModifiedDuration: new(8.6), RateShockLoss: new(812.4)}},
 		Quote:    rpc.OrderQuoteSnapshot{Symbol: "SYNB", Bid: &bid, Ask: &ask, DataType: rpc.MarketDataLive, AsOf: goldenAt},
 		Position: rpc.OrderPositionImpact{Before: 0, After: 10000, Effect: rpc.OrderPositionEffectOpen},
 		Notional: 10092, NotionalCurrency: "EUR", NotionalBase: 10092, BaseCurrency: "EUR",
@@ -662,4 +668,25 @@ func goldenBrief(narrative bool) rpc.BriefResult {
 		Coda:  []rpc.BriefRun{run("Read-only; nothing here places an order.", "")},
 	}
 	return res
+}
+
+// goldenBondRisk is a synthetic held bond book (bond-risk.md, phase 1): a
+// measured government note, a measured corporate, and a line the sums miss.
+func goldenBondRisk() ([]rpc.PositionBond, *risk.BondBook) {
+	bonds := []rpc.PositionBond{
+		{ConID: 900001, Symbol: "SYNT", Currency: "USD", Class: rpc.BondClassBond, CUSIP: "SYN000001", Maturity: "2033-09-30", DaysToMaturity: new(2550),
+			Coupon: new(5.0), Quantity: 10, Mark: 99.14, MarketValue: 9914, EvidenceIssuer: "United States Treasury", IssuerClass: rpc.BondIssuerGovernment,
+			EvidenceSource: "treasurydirect", YieldPct: new(5.15), ModifiedDuration: new(5.8), MarketValueBase: new(8850.0), DV01Base: new(5.13), RateShockLossBase: new(498.2)},
+		{ConID: 900002, Symbol: "SYNC", Currency: "EUR", Class: rpc.BondClassBond, ISIN: "XS000SYN0000", Maturity: "2035-07-01", DaysToMaturity: new(3189),
+			Coupon: new(3.647), Quantity: 5000, Mark: 94.8, MarketValue: 4740, EvidenceIssuer: "Synthetic Energy International", IssuerClass: rpc.BondIssuerInvestmentGrade,
+			EvidenceSource: "ecb_eligible_assets", YieldPct: new(4.38), ModifiedDuration: new(7.1), MarketValueBase: new(4740.0), DV01Base: new(3.37), RateShockLossBase: new(323.9)},
+		{ConID: 900003, Symbol: "SYNL", Currency: "EUR", Class: rpc.BondClassBond, ISIN: "DE000SYN0001", Quantity: 1000, Mark: 101, MarketValue: 1010,
+			MarketValueBase: new(1010.0), RiskUnmeasured: "inflation-linked: IBKR prices it on a factored principal"},
+	}
+	book := risk.SummarizeBondBook([]risk.BondBookLine{
+		{Symbol: "SYNT", Currency: "USD", Issuer: "United States Treasury", IssuerClass: rpc.BondIssuerGovernment, MarketValueBase: new(8850.0), RateShockLossBase: new(498.2)},
+		{Symbol: "SYNC", Currency: "EUR", Issuer: "Synthetic Energy International", IssuerClass: rpc.BondIssuerInvestmentGrade, MarketValueBase: new(4740.0), RateShockLossBase: new(323.9)},
+		{Symbol: "SYNL", Currency: "EUR", Issuer: "Federal Republic of Germany", IssuerClass: rpc.BondIssuerGovernment, MarketValueBase: new(1010.0), Unmeasured: bonds[2].RiskUnmeasured},
+	}, new(240000.0), "EUR")
+	return bonds, book
 }

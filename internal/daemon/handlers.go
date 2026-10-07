@@ -609,6 +609,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	// BOND rows stay in Stocks for every valuation; the bonds section
 	// classifies them (bond_directory.go).
 	res.Bonds = s.classifyBondPositions(ctx, res.Stocks, time.Now())
+	res.BondRisk = s.measureBondPositions(ctx, res.Bonds, res.Stocks, netLiquidationBase, baseCcy, time.Now())
 	completedAt := time.Now().UTC()
 	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
 	res.Authority.PortfolioComplete = wantSym == "" && wantType == "" && currentPortfolioAuthority(res.Authority)

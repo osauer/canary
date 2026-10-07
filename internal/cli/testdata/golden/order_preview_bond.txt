@@ -8,6 +8,7 @@ Draft          BUY 10000 SYNB LMT 98.4200 DAY outside_rth=false
 Strategy       patient-limit
 Bond           DE000SYN0000 · Synthetic Republic · government, on the ECB eligible list (4 Sep 2026) · matures 2036-02-15 · coupon 2.5%
 Value          10,000 EUR face at 98.42 per 100 = 9,842 EUR, plus accrued interest up to 250 EUR
+Rate risk      yield 2.68%, duration 8.6 years; a one-point rise in yields would cost about 812 EUR
 Notional       10,092 EUR (price plus the most accrued interest; what the order cap checks)
 Notional (base) 10,092 EUR
 Position       0 -> 10000 (open)
@@ -30,6 +31,7 @@ Canary Order Preview  \x1b[2m\x1b[1mTOKEN\x1b[0m\x1b[0m
 \x1b[2mStrategy      \x1b[0m patient-limit
 \x1b[2mBond          \x1b[0m DE000SYN0000 · Synthetic Republic · government, on the ECB eligible list (4 Sep 2026) · matures 2036-02-15 · coupon 2.5%
 \x1b[2mValue         \x1b[0m 10,000 EUR face at 98.42 per 100 = 9,842 EUR, plus accrued interest up to 250 EUR
+\x1b[2mRate risk     \x1b[0m yield 2.68%, duration 8.6 years; a one-point rise in yields would cost about 812 EUR
 \x1b[2mNotional      \x1b[0m 10,092 EUR (price plus the most accrued interest; what the order cap checks)
 \x1b[2mNotional (base)\x1b[0m 10,092 EUR
 \x1b[2mPosition      \x1b[0m 0 -> 10000 (open)

@@ -113,6 +113,9 @@ func computeStress(in StressInput, now time.Time, sourceIssues []stressSourceIss
 		stressOptionsRow(res.Portfolio, in.Positions, res.Market),
 		stressDataQualityRow(res.Market, in.Regime),
 	}
+	if row, ok := stressRatesCreditRow(res.Portfolio); ok {
+		rows = append(rows, row)
+	}
 	res.Signals = stressSignals(res.Portfolio, in.Positions, res.Market, in.Regime)
 	res.Signals = stressApplySourceBlocks(res.Signals, sourceIssues)
 	if established {
@@ -331,6 +334,7 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 	out := StressPortfolioSummary{
 		BaseCurrency:   acct.BaseCurrency,
 		NetLiquidation: acct.NetLiquidation,
+		BondRisk:       pos.BondRisk,
 	}
 	if acct.NetLiquidation > 0 {
 		// Margin headroom is Rulebook rule 19's reading, attached by
@@ -340,6 +344,9 @@ func summarizeStressPortfolio(acct rpc.AccountResult, pos rpc.PositionsResult, m
 		if acct.GrossPositionValue > 0 {
 			pct := acct.GrossPositionValue / acct.NetLiquidation * 100
 			out.GrossExposurePctNLV = &pct
+			if pos.BondRisk != nil {
+				out.GrossExcludingBondsPctNLV = new((acct.GrossPositionValue - pos.BondRisk.MarketValueBase) / acct.NetLiquidation * 100)
+			}
 		}
 		if acct.DailyPnL != nil {
 			pct := *acct.DailyPnL / acct.NetLiquidation * 100
@@ -1324,6 +1331,11 @@ func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRo
 	grossDelta := derefPct(p.GrossDeltaPctNLV)
 	evidence := fmt.Sprintf("gross %.0f%% NLV (watch %.0f%%); %s; gross delta %.0f%% NLV (watch %.0f%%)",
 		gross, stressPolicy.GrossExposureWatchPct, stressNetExposureEvidence(p.NetExposure), grossDelta, stressPolicy.GrossDeltaWatchPct)
+	if p.GrossExcludingBondsPctNLV != nil {
+		// Shown only: the gross figure above includes held bonds, and whether
+		// they count toward it is an open owner decision (bond-risk.md).
+		evidence += fmt.Sprintf("; gross without bonds %.0f%% NLV", *p.GrossExcludingBondsPctNLV)
+	}
 	// Disclosure is unconditional; only the pass verdict below is conditional.
 	gap := stressUnmeasuredNames(p.ExposureUnmeasured)
 	if gap != "" {
@@ -3770,4 +3782,30 @@ func groupThousands(s string) string {
 		out.WriteRune(r)
 	}
 	return out.String()
+}
+
+// stressRatesCreditRow states the held bonds' rate and issuer risk
+// (internal-docs/design/bond-risk.md, phase 1): the loss if yields rise one
+// point, the non-government share and the largest issuer. Measurement only:
+// it always observes, because no bond limit is set yet. Absent without bonds.
+func stressRatesCreditRow(p StressPortfolioSummary) (StressRow, bool) {
+	b := p.BondRisk
+	if b == nil {
+		return StressRow{}, false
+	}
+	pct := func(v *float64) string {
+		if v == nil {
+			return "of an unknown NLV"
+		}
+		return fmt.Sprintf("%.1f%% NLV", *v)
+	}
+	evidence := fmt.Sprintf("bonds %s; a one-point rise in yields costs %s; non-government %s",
+		pct(b.PctNLV), pct(b.RateShockLossPctNLV), pct(b.NonGovernmentPctNLV))
+	if len(b.Issuers) > 0 {
+		evidence += fmt.Sprintf("; largest issuer %s %s", b.Issuers[0].Issuer, pct(b.Issuers[0].PctNLV))
+	}
+	if n := len(b.Unmeasured); n > 0 {
+		evidence += fmt.Sprintf("; %d bond line(s) not in the sums", n)
+	}
+	return stressRow("Rates and credit", "", risk.SeverityObserve, "Measurement only: no bond limit is set yet.", evidence), true
 }

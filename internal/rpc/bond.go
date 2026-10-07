@@ -216,6 +216,20 @@ type PositionBond struct {
 	MarketValue        float64   `json:"market_value_ccy"`
 	// Reason says why an unresolved row could not be classified.
 	Reason string `json:"reason,omitempty"`
+	// Bond risk at the mark (internal-docs/design/bond-risk.md, phase 1):
+	// the issuer evidence, the yield and modified duration, and in the
+	// account base the market value, the value of a 0.01-point move (DV01)
+	// and the loss on a one-point rise in yields. Nil while unmeasured, and
+	// RiskUnmeasured then says why.
+	EvidenceIssuer    string   `json:"evidence_issuer,omitempty"`
+	IssuerClass       string   `json:"issuer_class,omitempty"`
+	EvidenceSource    string   `json:"evidence_source,omitempty"`
+	YieldPct          *float64 `json:"yield_pct,omitempty"`
+	ModifiedDuration  *float64 `json:"modified_duration,omitempty"`
+	MarketValueBase   *float64 `json:"market_value_base,omitempty"`
+	DV01Base          *float64 `json:"dv01_base,omitempty"`
+	RateShockLossBase *float64 `json:"rate_shock_loss_base,omitempty"`
+	RiskUnmeasured    string   `json:"risk_unmeasured,omitempty"`
 }
 
 // CloneBondQuote deep-copies a bond quote; nil stays nil.
@@ -290,6 +304,13 @@ type OrderBondTerms struct {
 	// price: one year of coupon on the face, in the contract's currency. The
 	// order's value for the order cap includes it.
 	AccruedBound float64 `json:"accrued_bound,omitempty"`
+	// A buy's rate risk at its limit price (bond-risk.md, phase 1): yield to
+	// maturity in percent, modified duration in years, and the loss in the
+	// contract's currency on a one-point rise in yields. Nil when the bond
+	// cannot be measured (a sweep bill carries no coupon here).
+	YieldPct         *float64 `json:"yield_pct,omitempty"`
+	ModifiedDuration *float64 `json:"modified_duration,omitempty"`
+	RateShockLoss    *float64 `json:"rate_shock_loss,omitempty"`
 }
 
 // CloneOrderBondTerms copies bond terms; nil stays nil.
@@ -300,6 +321,11 @@ func CloneOrderBondTerms(in *OrderBondTerms) *OrderBondTerms {
 	out := *in
 	if in.Coupon != nil {
 		out.Coupon = new(*in.Coupon)
+	}
+	for _, p := range []**float64{&out.YieldPct, &out.ModifiedDuration, &out.RateShockLoss} {
+		if *p != nil {
+			*p = new(**p)
+		}
 	}
 	return &out
 }

@@ -1766,6 +1766,13 @@ type StressPortfolioSummary struct {
 	// MarginHeadroom is the Rulebook's rule 19 reading the stress read used
 	// for its margin row and margin_cushion_low signal, with rule 19's bands.
 	MarginHeadroom *StressMarginHeadroom `json:"margin_headroom,omitempty"`
+	// BondRisk is the held bonds' book (bond-risk.md, phase 1) the "Rates
+	// and credit" row reads; nil when no bond is held.
+	BondRisk *risk.BondBook `json:"bond_risk,omitempty"`
+	// GrossExcludingBondsPctNLV is the broker's gross position value less the
+	// held bonds' value, as % of NLV: shown beside the equity exposure row's
+	// gross figure, which includes bonds, without changing its verdict.
+	GrossExcludingBondsPctNLV *float64 `json:"gross_excluding_bonds_pct_nlv,omitempty"`
 
 	// ExposureUnmeasured names the held underlyings that contributed nothing to
 	// the book, so a threshold comparison against them can only prove a breach,

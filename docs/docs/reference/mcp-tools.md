@@ -143,7 +143,7 @@ Read account financials. The `authority` block identifies one concrete account a
 
 ## `canary_positions`
 
-Read held positions and exposure. The `authority` block identifies one concrete account and mode with availability, freshness, and typed reason; stale or unavailable empty rows do not prove an empty book. Held bonds and bills stay in `stocks` with their valuation (sec_type BILL or BOND); the `bonds` section classifies each by `con_id` as `bill`, `bond` or `unresolved` (with a `reason`) and adds maturity, days to maturity, coupon, ISIN/CUSIP and currency.
+Read held positions and exposure. The `authority` block identifies one concrete account and mode with availability, freshness, and typed reason; stale or unavailable empty rows do not prove an empty book. Held bonds and bills stay in `stocks` with their valuation (sec_type BILL or BOND); the `bonds` section classifies each by `con_id` as `bill`, `bond` or `unresolved` (with a `reason`) and adds maturity, days to maturity, coupon, ISIN/CUSIP and currency, and where it can be measured the issuer and issuer class, yield, modified duration and, in the account base, value, DV01 and `rate_shock_loss_base` (the loss if yields rise one point), else `risk_unmeasured` saying why. `bond_risk` sums them: bonds and the one-point loss as % of NLV, by currency and issuer, the non-government share, and the lines not in the sums. Measurement only: no bond limit judges these yet.
 
 **Parameters:**
 

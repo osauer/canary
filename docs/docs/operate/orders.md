@@ -92,7 +92,26 @@ preview shows the bond, the source that confirmed it, its maturity and
 coupon, and both parts of the value.
 
 A sale needs no confirmation: it may sell only bonds you hold, never more
-than the held face, and it never opens a short position.
+than the held face less any sale already working, and it never opens a short
+position.
+
+A buy priced at or above what the bond still pays (100 plus its coupon for
+the years left) is refused: it would yield nothing. TWS's own negative-yield
+confirmation is switched off for API orders, so Canary makes this check
+itself. A buy preview also states the bond's yield, its duration and what a
+one-point rise in yields would cost.
+
+## Bond risk
+
+`canary positions` shows, for each bond you hold, its issuer and whether it
+is a government or investment-grade issuer, its yield, its duration, how much
+a 0.01-point move in yields changes its value (DV01), and what a one-point
+rise in yields would cost. Below the table it sums the book: bonds and that
+loss as a share of net liquidation value, the non-government share, and the
+largest issuer. A bond Canary cannot measure, such as an inflation-linked one,
+is named with the reason. `canary stress` adds a "Rates and credit" row with
+the same sums. None of this warns or blocks yet: the limits are still to be
+set.
 
 ## Who placed an order
 

@@ -367,6 +367,10 @@ func renderOrderPreviewText(env *Env, res *rpc.OrderPreviewResult) {
 	if b := res.Draft.Bond; b != nil {
 		statusRow(env, out, "Bond", formatOrderBondIdentity(b))
 		statusRow(env, out, "Value", formatOrderBondValue(res.Draft))
+		if b.YieldPct != nil && b.ModifiedDuration != nil && b.RateShockLoss != nil {
+			statusRow(env, out, "Rate risk", fmt.Sprintf("yield %.2f%%, duration %.1f years; a one-point rise in yields would cost about %s",
+				*b.YieldPct, *b.ModifiedDuration, risk.FormatOrderMoney(math.Round(*b.RateShockLoss), res.Draft.Contract.Currency)))
+		}
 	}
 	// One figure, one format: the house money format, as in the Value row.
 	notional := risk.FormatOrderMoney(res.Notional, res.NotionalCurrency)
