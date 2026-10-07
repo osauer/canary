@@ -32,6 +32,12 @@ LDFLAGS = $(STRIP_LDFLAGS) -X main.version=$(VERSION) -X main.commit=$(COMMIT) -
 GO_TAGS ?= trading
 GO_BUILD_TAGS = $(if $(strip $(GO_TAGS)),-tags '$(GO_TAGS)',)
 
+# Every local build, test and gate compiles path-independent (owner
+# instruction 2026-10-07 09:49 CEST): with -trimpath the worktrees, each at its
+# own path, share Go build-cache entries instead of each adding its own copy.
+# Release builds pass -trimpath themselves (scripts/build-release-target.sh).
+export GOFLAGS := $(strip $(filter-out -trimpath,$(GOFLAGS)) -trimpath)
+
 # Install location for `make install`. Defaults to ~/.local/bin (XDG
 # user-local convention; usually already on PATH). Override for a system
 # install: make install PREFIX=/usr/local (needs sudo). Note: $GOBIN is
@@ -270,10 +276,10 @@ uninstall: ## Remove Canary and any pre-upgrade executable residue from $(PREFIX
 TEST_JOBS ?= 3
 TEST_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(TEST_JOBS),)
 .PHONY: build-space-check build-space-contract-check
-build-space-check: ## Refuse heavy local gates when a build filesystem has less than 8 GiB available
+build-space-check: ## Below 8 GiB on a build filesystem, trim the Go build cache (least recently used first); never refuses
 	@./scripts/check-build-space.sh
 
-build-space-contract-check: ## Exercise capacity refusals with synthetic filesystem responses
+build-space-contract-check: ## Exercise the capacity trim with synthetic filesystem responses
 	@./scripts/check-build-space_test.sh
 
 # Keep the guard ahead of every major entrypoint, including independently run
