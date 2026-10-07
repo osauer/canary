@@ -1,0 +1,44 @@
+# canary order preview buy DE000SYN0000 10000 --type BOND --currency EUR · COLUMNS=80 · colour off
+
+Canary Order Preview  TOKEN
+Mode           paper
+Account        DU0000000
+Endpoint       127.0.0.1:4002 client 7
+Draft          BUY 10000 SYNB LMT 98.4200 DAY outside_rth=false
+Strategy       patient-limit
+Bond           DE000SYN0000 · Synthetic Republic · government, on the ECB eligible list (4 Sep 2026) · matures 2036-02-15 · coupon 2.5%
+Value          10,000 EUR face at 98.42 per 100 = 9,842 EUR, plus accrued interest up to 250 EUR
+Notional       10,092 EUR (price plus the most accrued interest; what the order cap checks)
+Notional (base) 10,092 EUR
+Position       0 -> 10000 (open)
+Quote          SYNB | bid 98.4000 | ask 98.4400 | data live
+WhatIf         accepted (required=true)
+Token minted   true
+Submit eligible true
+Token scope    place
+Token ID       ptk-0001
+Expires        2026-09-05T12:02:00Z
+Token          tok-synthetic
+
+# canary order preview buy DE000SYN0000 10000 --type BOND --currency EUR · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Order Preview  \x1b[2m\x1b[1mTOKEN\x1b[0m\x1b[0m
+\x1b[2mMode          \x1b[0m paper
+\x1b[2mAccount       \x1b[0m DU0000000
+\x1b[2mEndpoint      \x1b[0m 127.0.0.1:4002 client 7
+\x1b[2mDraft         \x1b[0m BUY 10000 SYNB LMT 98.4200 DAY outside_rth=false
+\x1b[2mStrategy      \x1b[0m patient-limit
+\x1b[2mBond          \x1b[0m DE000SYN0000 · Synthetic Republic · government, on the ECB eligible list (4 Sep 2026) · matures 2036-02-15 · coupon 2.5%
+\x1b[2mValue         \x1b[0m 10,000 EUR face at 98.42 per 100 = 9,842 EUR, plus accrued interest up to 250 EUR
+\x1b[2mNotional      \x1b[0m 10,092 EUR (price plus the most accrued interest; what the order cap checks)
+\x1b[2mNotional (base)\x1b[0m 10,092 EUR
+\x1b[2mPosition      \x1b[0m 0 -> 10000 (open)
+\x1b[2mQuote         \x1b[0m SYNB | bid 98.4000 | ask 98.4400 | data live
+\x1b[2mWhatIf        \x1b[0m accepted (required=true)
+\x1b[2mToken minted  \x1b[0m true
+\x1b[2mSubmit eligible\x1b[0m true
+\x1b[2mToken scope   \x1b[0m place
+\x1b[2mToken ID      \x1b[0m ptk-0001
+\x1b[2mExpires       \x1b[0m 2026-09-05T12:02:00Z
+\x1b[2mToken         \x1b[0m tok-synthetic
+

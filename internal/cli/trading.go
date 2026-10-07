@@ -83,6 +83,11 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 			statusRow(env, out, "Option qty cap", fmt.Sprintf("%d contracts", l.MaxOptionContracts))
 			statusRow(env, out, "Stock short", strconv.FormatBool(l.AllowStockShort))
 			statusRow(env, out, "Option STO", strconv.FormatBool(l.AllowOptionSellToOpen))
+			bond := fmt.Sprintf("at most %d years", l.MaxBondMaturityYears)
+			if l.BondMaturityUnset {
+				bond = env.yellow("not set: bond buys refused until Canary writes it")
+			}
+			statusRow(env, out, "Bond maturity, buys", bond)
 		} else {
 			statusRow(env, out, "Order limits", env.yellow(l.Summary))
 		}

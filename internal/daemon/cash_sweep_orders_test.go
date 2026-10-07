@@ -519,7 +519,7 @@ func TestOrderPreviewAdmitsBondOnlyForASweepRow(t *testing.T) {
 	if err := validateOrderRiskAuthority(testOrderLimits(10000, func(o *risk.ConstitutionOrderLimits) { o.AllowStockShort = new(true) }), draft, rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}, auth, "USD", protectiveExitInventory{}); err == nil {
 		t.Fatal("a bond short passed the risk authority")
 	}
-	if err := validateOrderRiskAuthority(testOrderLimits(10000), draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD", protectiveExitInventory{}); err != nil {
+	if err := validateOrderRiskAuthority(testOrderLimits(10000), draft, rpc.OrderPositionImpact{Before: 10, After: 5, Effect: rpc.OrderPositionEffectReduce}, auth, "USD", protectiveExitInventory{Current: true}); err != nil {
 		t.Fatalf("a bond reduce was refused: %v", err)
 	}
 }

@@ -31,7 +31,7 @@ min(ceiling, max(floor, pct × NLV)) from the last current account reading, the
 floor when NLV cannot be read, and a missing key refuses every preview with
 `order_risk_limit` naming it. `trading.status` and `risk_policy.snapshot` carry
 the typed `order_limits` (`cap_base`, `cap_bound` floor, pct_nlv, ceiling or
-override, `summary`, or `missing`); the settings view reports the limits
+override, `max_bond_maturity_years`, `summary`, or `missing`); the settings view reports the limits
 read-only with source `policy`, and the `trading.limits.*` settings keys are
 retired. The preview's `max_notional` echoes the cap in force. `reqAllOpenOrders` covers API-created orders across
 clients but cannot prove that a manual TWS order has not already consumed exit

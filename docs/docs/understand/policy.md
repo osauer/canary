@@ -254,7 +254,10 @@ The per-order limits are risk limits and live in the personal risk policy as
 `config.toml` `[trading]` keys with a runtime override in `canary settings`;
 both are retired. The trading gate reads every key from the file only; while
 one is missing every order preview is refused with the `order_risk_limit`
-blocker naming the key, until the next daemon start writes it.
+blocker naming the key, until the next daemon start writes it. The one
+exception is `max_bond_maturity_years`: while it is missing only bond and bill
+buys are refused, so it never blocks an exit, a stop or any other order
+(owner decision 2026-10-07 08:27 CEST).
 
 | Key | Meaning | `policy ensure` writes |
 |---|---|---|
@@ -264,6 +267,7 @@ blocker naming the key, until the next daemon start writes it.
 | `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 5 |
 | `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
 | `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
+| `max_bond_maturity_years` | Longest time to maturity, in whole years from today, a bond or bill buy may have (1 to 100) | 30 |
 
 The notional cap scales with the book:
 
@@ -292,7 +296,15 @@ sells at most the long position with no competing working sell
 ([Protection](../operate/protection.md)), and a same-currency sweep bill within
 the sweep's own cap when the protection policy writes
 `bills_exempt_from_trading_max_notional = true`. The option cap, the short and
-sell-to-open permissions and the currency checks have no exemption.
+sell-to-open permissions, the bond maturity limit and the currency checks have
+no exemption.
+
+The bond maturity limit (owner decision 2026-10-06 20:17 CEST) counts whole
+years from today's UTC date: with 30 written, a buy on 2026-10-06 may mature on
+or before 2056-10-06, and a bond maturing a day later is refused, for example
+`the bond matures 2056-10-07, beyond the 30-year limit in force (2056-10-06;
+[order_limits].max_bond_maturity_years)`. A maturity Canary cannot read is
+refused too. Selling a bond you hold is never limited by it.
 
 For a time-bounded larger cap, a human grants a one-shot override of the floor:
 
@@ -311,7 +323,9 @@ it is bound.
 A file written before `[order_limits]` existed gains the table at the next
 daemon start, after a backup: each key from `config.toml` `[trading]` (a
 10,000 floor, 5 option contracts and no shorting or selling to open where a key
-was never set), the two scaled-cap keys and a raised `policy_version`. To return
+was never set), the two scaled-cap keys, `max_bond_maturity_years = 30` and a
+raised `policy_version`. A table written before `max_bond_maturity_years`
+existed gains that key alone, 30, the same way. To return
 to a fixed cap, set `max_order_ceiling_base` equal to `max_order_floor_base` and
 raise `policy_version`. The
 `[trading]` keys still load so an old `config.toml` stays valid, are never read
@@ -414,6 +428,7 @@ rule is one entry.
 | `base_currency_mismatch` | error | yes | The constitution's `base_currency` differs from the account's. |
 | `lot_above_trading_max` | error | yes | One contract of a held option line is worth more than the order cap in force, so no exit for it can pass the gate. |
 | `cap_without_fx_headroom` | warn | no | A cap sized in another currency sits within 2% of the order cap in force, so an FX move refuses an order sized at the cap. |
+| `sweep_nothing_to_buy` | warn | no | The sweep is enabled while a currency it would invest in has nothing to buy: its first plannable instrument is a bill other than US Treasury bills and no `isins` are listed, so the currency reads `universe_unavailable` and its cash stays cash (the ETF fallback follows a completed search of listed bills, so it never acts on an empty list). A currency declared `none` is kept as cash on purpose and is no gap. |
 | `order_cap_vs_nlv` | warn | yes | A per-order cap is under 2% or over 50% of NLV. |
 | `order_cap_splits_reduction` | warn | yes | A cap splits a planned trim (issuer act back to watch, premium budget act back to watch) or a whole option-line exit into more than 5 orders. Protective stock stops are exempt from the cap and are not counted. |
 | `cash_reserve_vs_nlv` | warn | yes | The cash the sweep keeps back is under 2% or over 50% of NLV: with the reserve design, the larger of the base currency's `keep_cash` and the reserve (the largest of `reserve_floor_base` and `reserve_pct_nlv` of NLV), plus `keep_cash` in the other currencies; without it, `keep_cash` across the swept currencies. |

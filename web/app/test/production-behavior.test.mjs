@@ -1999,6 +1999,10 @@ test("TestAppJSMoneyFormattersNeverDefaultToUSD replacement preserves unknown, b
   const position = protection.protectionPositionLine({ contract: { currency: "USD" }, position_day_change_money: 12.5, position_day_change_currency: "" });
   assert.equal(position.textContent.includes("$"), false);
   assert.equal(settings.tradingLimitSummary({ max_notional: { value: 5000 } }).includes("$"), false);
+  assert.match(settings.tradingLimitSummary({ max_notional: { value: 5000 }, max_option_contracts: { value: 5 }, max_bond_maturity_years: { value: 30 } }), / \/ 5 opt \/ bonds ≤ 30 years$/);
+  // A limit the policy does not write reads "not set", never 0.
+  assert.match(settings.tradingLimitSummary({ max_notional: { value: 5000 }, max_option_contracts: { value: 0, unset: true }, max_bond_maturity_years: { value: 0, unset: true } }), / \/ options not set \/ bonds not set$/);
+  assert.match(settings.tradingLimitMeta({ max_bond_maturity_years: { value: 30, access: "read", reason: "risk-policy.toml [order_limits]" } }), /bond maturity/);
 });
 
 test("TestRegimeAuthorityHealthControlsVisibleDataQualityPosture replacement qualifies stale and unavailable authority", () => {

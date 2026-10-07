@@ -50,7 +50,7 @@ func normalizePreviewBondContract(in rpc.ContractParams) (rpc.ContractParams, er
 func validatePreviewBondParams(p rpc.OrderPreviewParams, replace bool) error {
 	switch {
 	case p.Bond == nil:
-		return errBadRequest("order preview admits BOND only for a cash_sweep proposal row; preview it with `canary proposals preview`")
+		return errBadRequest("a BOND preview names the bond by identifier (`canary order preview buy|sell ISIN|CUSIP FACE --type BOND --currency CCY`) or previews a cash_sweep proposal row (`canary proposals preview`)")
 	case replace:
 		return errBadRequest("a working BOND order cannot be modified through preview; cancel it and preview the row again")
 	case p.Bond.FacePerUnit <= 0 || strings.TrimSpace(p.Bond.Instrument) == "":

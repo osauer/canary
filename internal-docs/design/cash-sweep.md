@@ -138,7 +138,10 @@ and no cash reserve remains to trip.
   candidate list) or `instrument_unresolved` (no candidate confirmed), with
   the evidence. A missing bill line is inferred only from a completed contract
   search, so the ETF fallback still never acts. Nil is unavailable, never
-  zero.
+  zero. `canary policy check` warns (`sweep_nothing_to_buy`, 2026-10-07)
+  while the sweep is on and a currency's first plannable instrument is a bill
+  other than US Treasury bills with no `isins` listed; Desk's cash settings
+  screen shows the finding on the sweep's switch.
 - Assumptions (S5, extended by Phase B): (A1) IBKR pays about benchmark −
   0.5% above 10,000 per currency, nothing below; (A2) T-bill initial margin
   about 1%, ETF 25–50%; (A3) German tax measures bill rolls in EUR, FX
@@ -228,7 +231,9 @@ premium budget since Rulebook amendment 17; its measure reads no cash.
   above free cash (in face and in cost) or off the bill's grid; no
   invest/redeem alternation on unchanged inputs; absent from `canary policy
   default protection`; shadow refused by preview and submit; an unresolved
-  row never `AutomaticEligible()`; no RPC caller can preview a BOND.
+  row never `AutomaticEligible()`; no RPC caller can author bond terms (since
+  2026-10-06 a bond named by identifier is previewed with terms the daemon
+  builds, [bond-orders.md](bond-orders.md)).
 - Adversarial: ETF symbol and exchange are policy data matched by ConID; no
   broker text enters a decision.
 - Parity: CLI text, JSON `cash_sweep`, MCP `canary_proposals`, SPA blocker path.

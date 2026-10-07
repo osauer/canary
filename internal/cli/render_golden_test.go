@@ -174,7 +174,9 @@ func compareGolden(t *testing.T, path, got string) {
 func renderGoldenCases() []renderGoldenCase {
 	fresh := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityFresh, LastSuccessAt: new(goldenAt), LastSuccessAgeSeconds: new(int64(60))}
 	stale := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityStale, LastSuccessAt: new(goldenAt.Add(-2 * time.Hour)), LastSuccessAgeSeconds: new(int64(7200)), FailureCode: rpc.RegimeAuthorityFailureRefreshTimeout}
-	readyTrading := rpc.TradingStatus{Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3}
+	readyTrading := rpc.TradingStatus{Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3,
+		OrderLimits: &risk.OrderLimitsInForce{Complete: true, BaseCurrency: "EUR", CapBase: 12000, CapBound: risk.OrderCapBoundPctNLV, Summary: "12,000 EUR (5% of NLV 240,000 EUR; [order_limits])",
+			MaxOptionContracts: 5, MaxBondMaturityYears: 30}}
 	blockedTrading := rpc.TradingStatus{Mode: config.TradingModeLive, Endpoint: "127.0.0.1:4001", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, LiveOverride: rpc.TradingLiveOverrideBlocked, Blocked: true, Freeze: true, TradingControlGeneration: 4,
 		Blockers:      []rpc.TradingBlocker{{Code: "live_override_missing", Message: "live trading needs the live override", Action: "set the live override in config.toml"}},
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
@@ -210,6 +212,28 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "setups_evaluate_confirmed", argv: []string{"setups", "evaluate"}, render: func(env *Env) { renderSetupResult(env, goldenSetup()) }},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
+		{name: "order_preview_bond", argv: []string{"order", "preview", "buy", "DE000SYN0000", "10000", "--type", "BOND", "--currency", "EUR"}, conn: goldenConn{rpc.MethodOrderPreview: goldenBondPreview()}},
+	}
+}
+
+// goldenBondPreview is a synthetic buy of a government bond named by ISIN
+// (internal-docs/design/bond-orders.md), with its issuer evidence and its
+// accrued interest bound.
+func goldenBondPreview() rpc.OrderPreviewResult {
+	bid, ask := 98.40, 98.44
+	return rpc.OrderPreviewResult{
+		PreviewToken: "tok-synthetic", PreviewTokenID: "ptk-0001", PreviewTokenScope: rpc.OrderTokenScopePlace, PreviewTokenExpiresAt: time.Date(2026, 9, 5, 12, 2, 0, 0, time.UTC),
+		TokenMinted: true, SubmitEligible: true, Mode: config.TradingModePaper, Account: "DU0000000", Endpoint: "127.0.0.1:4002", ClientID: 7,
+		Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: rpc.ContractParams{ConID: 900001, Symbol: "SYNB", SecType: "BOND", Exchange: "SMART", Currency: "EUR"},
+			Quantity: 10000, OrderType: rpc.OrderTypeLMT, LimitPrice: 98.42, TIF: rpc.OrderTIFDay, Strategy: rpc.OrderStrategyPatientLimit, OrderRef: "canary-synthetic",
+			Bond: &rpc.OrderBondTerms{Instrument: rpc.OrderBondInstrumentByIdentifier, ISIN: "DE000SYN0000", QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1,
+				PriceConvention: rpc.BondPriceConventionPer100, MinTick: 0.0001, MinSize: 1, SizeIncrement: 1, FaceValue: 10000, Maturity: "2036-02-15",
+				MaturitySource: "ecb_eligible_assets", IssuerClass: rpc.BondIssuerGovernment, Issuer: "Synthetic Republic", EvidenceSource: "ecb_eligible_assets",
+				EvidenceAsOf: time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), Coupon: new(2.5), AccruedBound: 250}},
+		Quote:    rpc.OrderQuoteSnapshot{Symbol: "SYNB", Bid: &bid, Ask: &ask, DataType: rpc.MarketDataLive, AsOf: goldenAt},
+		Position: rpc.OrderPositionImpact{Before: 0, After: 10000, Effect: rpc.OrderPositionEffectOpen},
+		Notional: 10092, NotionalCurrency: "EUR", NotionalBase: 10092, BaseCurrency: "EUR",
+		WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, RequiredForSubmit: true},
 	}
 }
 
@@ -353,6 +377,7 @@ func goldenSettings() rpc.PlatformSettings {
 	st.Trading.Limits.MaxOptionContracts = rpc.SettingsInt{Value: 5, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
 	st.Trading.Limits.AllowStockShort = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
 	st.Trading.Limits.AllowOptionSellToOpen = rpc.SettingsBool{Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
+	st.Trading.Limits.MaxBondMaturityYears = rpc.SettingsInt{Value: 30, Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourcePolicy, Reason: limitReason}
 	st.MarketData.Quality = rpc.PlatformMarketDataQuality{Status: "live", Summary: "all quotes live", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceObserved}
 	st.Build.Channel = rpc.SettingsString{Value: "release", Access: rpc.SettingsAccessRead, Source: rpc.SettingsSourceBuild}
 	return st

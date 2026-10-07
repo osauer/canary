@@ -209,12 +209,13 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	c := decodeTestConstitution(t, out)
 	o := c.OrderLimits
 	if c.PolicyVersion != 6 || o == nil || *o.MaxOrderFloorBase != 12000 || *o.MaxOrderPctNLV != 5 || *o.MaxOrderCeilingBase != 100000 ||
-		*o.MaxOptionContracts != 3 || !*o.AllowStockShort || *o.AllowOptionSellToOpen {
+		*o.MaxOptionContracts != 3 || !*o.AllowStockShort || *o.AllowOptionSellToOpen || *o.MaxBondMaturityYears != 30 {
 		t.Fatalf("explicit source migrated to v%d %+v", c.PolicyVersion, o)
 	}
 	joined := strings.Join(changes, "\n")
 	for _, want := range []string{"max_order_floor_base = 12000.0 (config.toml [trading].max_notional)", "raise policy_version 5 -> 6",
-		"allow_option_sell_to_open = false (Canary's compiled default; config.toml [trading] does not set allow_option_sell_to_open)"} {
+		"allow_option_sell_to_open = false (Canary's compiled default; config.toml [trading] does not set allow_option_sell_to_open)",
+		"write [order_limits].max_bond_maturity_years = 30 (owner decision 2026-10-06 20:17 CEST)"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("changes lack %q:\n%s", want, joined)
 		}
@@ -242,6 +243,31 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	complete := orderLimitsMigrationConstitution + testOrderLimitsTOML
 	if out, changes, _, err := migrateConstitutionPolicyFileFrom(explicit, true)([]byte(complete), "test"); err != nil || len(changes) != 0 || string(out) != complete {
 		t.Fatalf("a complete table migrated again: %v %v", changes, err)
+	}
+}
+
+// A table complete before the bond maturity limit existed gains only that
+// key, with the owner's B2 value (2026-10-06 20:17 CEST, "30 years"), and a
+// higher policy_version; every key it wrote keeps its value.
+func TestConstitutionMigrationAddsOnlyTheBondMaturityLimit(t *testing.T) {
+	sixKeys := orderLimitsMigrationConstitution + strings.Replace(testOrderLimitsTOML, "max_bond_maturity_years = 30\n", "", 1)
+	out, changes, _, err := migrateConstitutionPolicyFileFrom(config.Trading{MaxNotional: new(12000.0)}, true)([]byte(sixKeys), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := decodeTestConstitution(t, out)
+	o := c.OrderLimits
+	if c.PolicyVersion != 6 || len(o.MissingKeys()) != 0 || *o.MaxBondMaturityYears != 30 || *o.MaxOrderFloorBase != 10000 || !*o.AllowStockShort {
+		t.Fatalf("migrated to v%d %+v", c.PolicyVersion, o)
+	}
+	if len(changes) != 2 || changes[0] != "write [order_limits].max_bond_maturity_years = 30 (owner decision 2026-10-06 20:17 CEST)" {
+		t.Fatalf("changes = %q, want only the bond maturity key and the version raise", changes)
+	}
+	if !strings.Contains(string(out), "max_bond_maturity_years = 30  # owner decision 2026-10-06 20:17 CEST") {
+		t.Fatalf("the written key lacks its provenance:\n%s", out)
+	}
+	if orderLimitsPreserved(&risk.ConstitutionOrderLimits{MaxBondMaturityYears: new(20)}, o) {
+		t.Fatal("a changed bond maturity limit counted as preserved")
 	}
 }
 

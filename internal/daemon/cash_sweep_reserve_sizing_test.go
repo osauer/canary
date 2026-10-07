@@ -272,7 +272,9 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 	}
 	bill := func(ccy, secType, instrument string, cap float64) rpc.OrderDraft {
 		return rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 30, Contract: rpc.ContractParams{ConID: 9, SecType: secType, Currency: ccy},
-			Bond: &rpc.OrderBondTerms{Instrument: instrument, QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100, TradingCapExemptUpToBase: cap}}
+			Bond: &rpc.OrderBondTerms{Instrument: instrument, QuantityUnit: rpc.BondQuantityUnitFace1, FacePerUnit: 1, PriceConvention: rpc.BondPriceConventionPer100, TradingCapExemptUpToBase: cap,
+				// A sweep bill buy carries its bill's maturity (cashSweepOrderTerms).
+				Maturity: "2027-03-15"}}
 	}
 	open := rpc.OrderPositionImpact{Before: 0, After: 30000, Effect: rpc.OrderPositionEffectOpen}
 	sell := bill("EUR", "BILL", cashSweepInstrumentDEBubill, 50000)
@@ -301,7 +303,7 @@ func TestCashSweepTradingCapExemptionBoundary(t *testing.T) {
 		{"buy that does not open", bill("EUR", "BILL", cashSweepInstrumentDEBubill, 50000), rpc.OrderPositionImpact{Before: -10, After: 20, Effect: rpc.OrderPositionEffectFlip}, 30000, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateOrderRiskAuthority(cfg, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", protectiveExitInventory{})
+			err := validateOrderRiskAuthority(cfg, tc.draft, tc.position, protectiveExitTestNotional(tc.notional), "EUR", protectiveExitInventory{Current: true})
 			if tc.pass && err != nil {
 				t.Fatalf("refused: %v", err)
 			}
