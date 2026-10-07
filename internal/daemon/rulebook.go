@@ -1754,8 +1754,12 @@ func netExposureSide(r risk.RuleRow) string {
 // draftAddsNetExposure reports whether a buy opening or increasing a position
 // adds to the side rule 15 flags: on a net-long book everything but a put
 // adds long exposure, and a put reduces it; on a net-short book only a put
-// adds. Close and reduce never reach here.
+// adds. A bill or bond never enters rule 15's measure, so it adds nothing.
+// Close and reduce never reach here.
 func draftAddsNetExposure(r risk.RuleRow, draft rpc.OrderDraft) bool {
+	if ibkrlib.IsBillOrBond(draft.Contract.SecType) {
+		return false
+	}
 	put := strings.EqualFold(draft.Contract.SecType, "OPT") && strings.HasPrefix(strings.ToUpper(strings.TrimSpace(draft.Contract.Right)), "P")
 	if netExposureSide(r) == "short" {
 		return put

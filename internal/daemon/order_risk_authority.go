@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,7 +70,7 @@ type orderPreviewBrokerAuthority struct {
 
 func (s *Server) hasOrderPreviewBrokerTestSeam() bool {
 	return s.orderPreviewQuote != nil || s.orderPreviewPositionImpact != nil || s.orderRiskAuthorityForTest != nil ||
-		s.orderContractResolverForTest != nil || s.orderPreviewWhatIf != nil || s.orderBondDetailsForTest != nil
+		s.orderContractResolverForTest != nil || s.orderPreviewWhatIf != nil || s.orderBondDetailsForTest != nil || s.orderBondLookupForTest != nil
 }
 
 func (s *Server) captureOrderPreviewBrokerAuthority() (*orderPreviewBrokerAuthority, error) {
@@ -579,6 +580,33 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	if ibkrlib.IsBillOrBond(draft.Contract.SecType) && stockShortOrFlip(position.Effect) {
 		// A bond sale only ever reduces or closes a held line.
 		return fmt.Errorf("a bond order that opens or flips a short position is not supported")
+	}
+	if bondSaleCandidate(draft, position) {
+		// Two sales of the same held face, each judged against the unfilled
+		// position, would together sell short. The complete open-order list
+		// must show room for this sale beside every other working one.
+		switch {
+		case !exit.Current:
+			return fmt.Errorf("a bond sale needs the broker's complete, current open-order list to show no other working sale already sells the held face; preview again")
+		case math.IsNaN(exit.OtherWorkingSell) || math.IsInf(exit.OtherWorkingSell, 0) || exit.OtherWorkingSell < 0 ||
+			exit.OtherWorkingSell+float64(draft.Quantity) > position.Before+1e-9:
+			return fmt.Errorf("this bond sale of %d units with %s already working to sell exceeds the %s held; cancel a working sale first",
+				draft.Quantity, strconv.FormatFloat(exit.OtherWorkingSell, 'f', -1, 64), strconv.FormatFloat(position.Before, 'f', -1, 64))
+		}
+	}
+	if ibkrlib.IsBillOrBond(draft.Contract.SecType) && strings.EqualFold(draft.Action, rpc.OrderActionBuy) {
+		// A bond buy matures within [order_limits].max_bond_maturity_years
+		// (owner decision 2026-10-06 20:17 CEST); a sale is never limited.
+		if draft.Bond == nil {
+			return fmt.Errorf("a bond buy carries no bond terms, so its maturity cannot be checked")
+		}
+		asOf := limits.AsOf
+		if asOf.IsZero() {
+			asOf = time.Now().UTC()
+		}
+		if err := limits.CheckBondMaturity(draft.Bond.Maturity, asOf); err != nil {
+			return err
+		}
 	}
 	riskEffect := position.Effect
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) && !protectiveExit {

@@ -52,10 +52,13 @@ type BondContract struct {
 	ConID  int    `json:"con_id"`
 	Symbol string `json:"symbol,omitempty"`
 	// SecType is the IBKR security type the line resolved as: BILL or BOND.
-	SecType        string   `json:"sec_type,omitempty"`
-	ISIN           string   `json:"isin,omitempty"`
-	CUSIP          string   `json:"cusip,omitempty"`
-	Issuer         string   `json:"issuer,omitempty"`
+	SecType string `json:"sec_type,omitempty"`
+	ISIN    string `json:"isin,omitempty"`
+	CUSIP   string `json:"cusip,omitempty"`
+	Issuer  string `json:"issuer,omitempty"`
+	// Ratings is IBKR's ratings field as sent, when it sends one; shown, never
+	// read for a decision.
+	Ratings        string   `json:"ratings,omitempty"`
 	Class          string   `json:"class"`
 	Currency       string   `json:"currency"`
 	Exchange       string   `json:"exchange,omitempty"`
@@ -222,11 +225,31 @@ func CloneBondQuote(in *BondQuote) *BondQuote {
 	return &out
 }
 
+// OrderBondRequest names one bill or bond for an order: its ISIN or CUSIP
+// and the face amount in the bond's currency.
+type OrderBondRequest struct {
+	Identifier string  `json:"identifier"`
+	Face       float64 `json:"face"`
+}
+
+// OrderBondInstrumentByIdentifier is the Instrument of a bond order the
+// owner named by identifier (internal-docs/design/bond-orders.md), as
+// against a cash_sweep row's vocabulary bill.
+const OrderBondInstrumentByIdentifier = "by_identifier"
+
+// Issuer classes a bond buy is admitted under.
+const (
+	BondIssuerGovernment      = "government"
+	BondIssuerInvestmentGrade = "investment_grade"
+)
+
 // OrderBondTerms is a BOND order's instrument conventions and its line's
 // order grid, carried on the draft so the signed preview says what one unit
-// and one price point mean. Canary previews a BOND only for a cash_sweep row
-// (internal-docs/design/cash-sweep.md): the proposal engine sets the
-// conventions, the preview reads the grid from the line's contract details.
+// and one price point mean. A cash_sweep row's terms come from the proposal
+// engine (internal-docs/design/cash-sweep.md); a bond named by identifier
+// gets its terms and issuer evidence from the daemon
+// (internal-docs/design/bond-orders.md). The preview reads the grid from the
+// line's contract details.
 type OrderBondTerms struct {
 	ResolutionSource string `json:"resolution_source,omitempty"`
 	// Exact maturity and identity reviewed in the proposal, rechecked at preview.
@@ -249,6 +272,19 @@ type OrderBondTerms struct {
 	// this base notional (the sweep's order cap in force), never beyond.
 	// Zero exempts nothing.
 	TradingCapExemptUpToBase float64 `json:"trading_cap_exempt_up_to_base,omitempty"`
+	// The issuer evidence a buy named by identifier was admitted by: the
+	// class (BondIssuer*), the issuer, the source and when it was read or
+	// published, and the annual coupon in percent. Empty on a cash_sweep row
+	// and on a sale.
+	IssuerClass    string    `json:"issuer_class,omitempty"`
+	Issuer         string    `json:"issuer,omitempty"`
+	EvidenceSource string    `json:"evidence_source,omitempty"`
+	EvidenceAsOf   time.Time `json:"evidence_as_of,omitzero"`
+	Coupon         *float64  `json:"coupon,omitempty"`
+	// AccruedBound bounds the accrued interest a buy pays on top of its
+	// price: one year of coupon on the face, in the contract's currency. The
+	// order's value for the order cap includes it.
+	AccruedBound float64 `json:"accrued_bound,omitempty"`
 }
 
 // CloneOrderBondTerms copies bond terms; nil stays nil.
@@ -257,5 +293,8 @@ func CloneOrderBondTerms(in *OrderBondTerms) *OrderBondTerms {
 		return nil
 	}
 	out := *in
+	if in.Coupon != nil {
+		out.Coupon = new(*in.Coupon)
+	}
 	return &out
 }

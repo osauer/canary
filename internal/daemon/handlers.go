@@ -1607,6 +1607,11 @@ func (a *portfolioAggregateAccumulator) addOption(o rpc.PositionView) {
 }
 
 func (a *portfolioAggregateAccumulator) addStock(st rpc.PositionView) {
+	if ibkrlib.IsBillOrBond(st.SecType) {
+		// A bill or bond has no equity delta: its quantity is face and its
+		// mark a price per 100 of face, so quantity × mark is neither.
+		return
+	}
 	localDollarDelta, ok := positionDollarDelta(st, false)
 	if !ok {
 		return

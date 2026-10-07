@@ -286,10 +286,21 @@ func renderSettingsText(env *Env, st *rpc.PlatformSettings) {
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Order limits (risk-policy.toml [order_limits]):")
 	displayRow(env, out, "Order cap in force", orderCapSettingText(st.Trading.Limits.MaxNotional))
-	displayRow(env, out, "Max option qty (every order)", fmt.Sprintf("%d (%s)", st.Trading.Limits.MaxOptionContracts.Value, accessSummary(st.Trading.Limits.MaxOptionContracts.Access, st.Trading.Limits.MaxOptionContracts.Source)))
+	options := st.Trading.Limits.MaxOptionContracts
+	optionText := fmt.Sprintf("%d (%s)", options.Value, accessSummary(options.Access, options.Source))
+	if options.Unset {
+		optionText = "not set: order previews refused until Canary writes it"
+	}
+	displayRow(env, out, "Max option qty (every order)", optionText)
 	displayRow(env, out, "Apparent exits", "same caps; SELL uses worst-case short/STO gates")
 	displayRow(env, out, "Stock short", formatSettingsBool(env, st.Trading.Limits.AllowStockShort))
 	displayRow(env, out, "Option STO", formatSettingsBool(env, st.Trading.Limits.AllowOptionSellToOpen))
+	bond := st.Trading.Limits.MaxBondMaturityYears
+	bondText := fmt.Sprintf("at most %d years (%s)", bond.Value, accessSummary(bond.Access, bond.Source))
+	if bond.Unset {
+		bondText = "not set: bond buys refused until Canary writes it"
+	}
+	displayRow(env, out, "Bond maturity, buys", bondText)
 	fmt.Fprintln(out)
 	displayRow(env, out, "Market data", nonEmpty(st.MarketData.Quality.Status, "unknown")+" - "+nonEmpty(st.MarketData.Quality.Summary, "no observation"))
 	for _, concern := range st.MarketData.Quality.DataQuality {

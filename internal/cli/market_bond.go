@@ -62,6 +62,9 @@ func renderMarketBondText(out io.Writer, res *rpc.MarketBondResult) {
 		if c.Issuer != "" {
 			parts = append(parts, c.Issuer)
 		}
+		if c.Ratings != "" {
+			parts = append(parts, "rated "+c.Ratings)
+		}
 		fmt.Fprintf(out, "  %-10s %s\n", "Resolved", strings.Join(parts, " · "))
 		size := []string{bondFigure("min size", c.MinSize, "%g"), bondFigure("increment", c.SizeIncrement, "%g"), bondFigure("tick", c.MinTick, "%g")}
 		if c.QuantityUnit != "" {

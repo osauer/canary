@@ -185,7 +185,7 @@ func TestPolicyEffectiveViewAttributesSources(t *testing.T) {
 		t.Errorf("retired max_notional row = %+v, want config.toml's 8000 marked retired", notional)
 	}
 	for _, key := range []string{"order_limits.max_order_floor_base", "order_limits.max_order_pct_nlv", "order_limits.max_order_ceiling_base",
-		"order_limits.max_option_contracts", "order_limits.allow_stock_short", "order_limits.allow_option_sell_to_open"} {
+		"order_limits.max_option_contracts", "order_limits.allow_stock_short", "order_limits.allow_option_sell_to_open", "order_limits.max_bond_maturity_years"} {
 		if row, ok := rows["constitution:"+key]; !ok || row.Source != rpc.PolicySourceUnapproved || row.Enforcement != risk.EnforcementHard {
 			t.Errorf("%s row = %+v, want an unapproved hard gate", key, row)
 		}

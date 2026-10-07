@@ -330,15 +330,28 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err != nil {
 		return nil, err
 	}
-	contract, err := normalizePreviewContract(p.Contract)
-	if err != nil {
-		return nil, err
-	}
-	if p.Quantity <= 0 {
-		return nil, errBadRequest("quantity must be positive")
+	// A bond named by identifier (bond-orders.md) resolves its contract and
+	// quantity from the line on the broker session below.
+	var bondRequest *previewBondRequest
+	var contract rpc.ContractParams
+	if p.BondOrder != nil {
+		req, err := validatePreviewBondRequest(p, scope == rpc.OrderTokenScopeModify)
+		if err != nil {
+			return nil, err
+		}
+		bondRequest = &req
+		contract = rpc.ContractParams{SecType: req.secType, Exchange: "SMART", Currency: req.currency}
+	} else {
+		contract, err = normalizePreviewContract(p.Contract)
+		if err != nil {
+			return nil, err
+		}
+		if p.Quantity <= 0 {
+			return nil, errBadRequest("quantity must be positive")
+		}
 	}
 	isBond := ibkrlib.IsBillOrBond(contract.SecType)
-	if isBond {
+	if isBond && bondRequest == nil {
 		if err := validatePreviewBondParams(p, scope == rpc.OrderTokenScopeModify); err != nil {
 			return nil, err
 		}
@@ -373,7 +386,13 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if isBond {
 		var terms rpc.OrderBondTerms
 		var session *rpc.BondSession
-		contract, terms, bondRules, session, err = s.resolvePreviewBondContract(ctx, previewAuthority, contract, *p.Bond, min(timeout, bondDetailsWait))
+		if bondRequest != nil {
+			var quantity int
+			contract, terms, bondRules, session, quantity, err = s.resolvePreviewBondRequest(ctx, previewAuthority, action, *bondRequest, min(timeout, bondDetailsWait))
+			p.Quantity = quantity
+		} else {
+			contract, terms, bondRules, session, err = s.resolvePreviewBondContract(ctx, previewAuthority, contract, *p.Bond, min(timeout, bondDetailsWait))
+		}
 		if err != nil {
 			return nil, previewStageRefusal(previewContractUnresolvedCode, err)
 		}
@@ -475,7 +494,9 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		if _, _, err := ibkrlib.NewBondLimitOrder(*previewIBKRContract(contract), bondRules, action, p.Quantity, limit); err != nil {
 			return nil, refusePreviewCode(previewBondOrderInvalidCode, errBadRequest(err.Error()))
 		}
-		notional = bondOrderNotional(p.Quantity, bondTerms, limit)
+		// A buy named by identifier also pays accrued interest, bounded by
+		// one year of coupon (zero on a sweep row and on a sale).
+		notional = bondOrderNotional(p.Quantity, bondTerms, limit) + bondTerms.AccruedBound
 	}
 
 	now := time.Now().UTC()
@@ -531,6 +552,14 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 	if err != nil {
 		return nil, previewStageRefusal(previewWhatIfFailedCode, err)
+	}
+	if bondRequest != nil && action == rpc.OrderActionBuy && whatIf.Status == rpc.OrderWhatIfStatusAccepted {
+		// The order unit is an assumption (A5); the broker's own margin figure
+		// must agree with the order's value before a token is minted.
+		if message, ok := bondWhatIfUnitCheck(whatIf, bondTerms, notional, notionalAuthority.BaseNotional, contract.Currency, positionAuthority.BaseCurrency); !ok {
+			return nil, refusePreview(errBadRequest(message), rpc.TradingBlocker{Code: previewBondUnitMismatchCode, Message: message,
+				Action: "Do not buy: the bond's order unit may not be what Canary assumes. Keep the preview output for the fix."})
+		}
 	}
 	if previewAuthority != nil && !s.orderPreviewBrokerAuthorityCurrent(previewAuthority) {
 		return nil, refusePreviewCode(previewBrokerSessionChangedCode, fmt.Errorf("%w: broker session changed before preview token mint", ErrTradingDisabled))

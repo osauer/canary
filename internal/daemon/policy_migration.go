@@ -84,7 +84,7 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 			if exactAfter, err := effectivePolicyFileKey(k.name, out); err == nil && exactBefore != exactAfter {
 				trailer = "; missing cash management keys written, every other setting verified unchanged."
 				if k.name == PolicyFileConstitution {
-					trailer = "; missing [order_limits] keys written from config.toml [trading] (owner decision 2026-10-05 19:56 CEST), every other setting verified unchanged."
+					trailer = "; missing [order_limits] keys written (owner decisions 2026-10-05 19:56 CEST and 2026-10-06 20:17 CEST; each key's comment names its source), every other setting verified unchanged."
 				}
 			}
 		}
@@ -127,7 +127,7 @@ func protectionMaterialisationFileKey(_ string, data []byte) (string, error) {
 // migrateConstitutionPolicyFileFrom converts a constitution to schema 2 when
 // its semantics allow, and writes every [order_limits] key it lacks from
 // src, config.toml [trading] as written (owner decision 2026-10-05 19:56
-// CEST), raising policy_version.
+// CEST), or from the owner's decided value, raising policy_version.
 func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead bool) func([]byte, string) ([]byte, []string, []string, error) {
 	return func(data []byte, _ string) ([]byte, []string, []string, error) {
 		var c risk.Constitution

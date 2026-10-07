@@ -19,6 +19,7 @@ Max option qty (every order) 5 (read/policy)
 Apparent exits same caps; SELL uses worst-case short/STO gates
 Stock short    false (read/policy)
 Option STO     false (read/policy)
+Bond maturity, buys at most 30 years (read/policy)
 
 Market data    live - all quotes live
 
@@ -43,6 +44,7 @@ Order limits (risk-policy.toml [order_limits]):
 \x1b[2mApparent exits\x1b[0m same caps; SELL uses worst-case short/STO gates
 \x1b[2mStock short   \x1b[0m false (read/policy)
 \x1b[2mOption STO    \x1b[0m false (read/policy)
+\x1b[2mBond maturity, buys\x1b[0m at most 30 years (read/policy)
 
 \x1b[2mMarket data   \x1b[0m live - all quotes live
 

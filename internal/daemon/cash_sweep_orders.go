@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -382,33 +381,13 @@ func cashSweepBillUnitCheck(prop rpc.TradeProposal, preview *rpc.OrderPreviewRes
 		preview.WhatIf.Status != rpc.OrderWhatIfStatusAccepted {
 		return rpc.TradingBlocker{}, false, false
 	}
-	terms := preview.Draft.Bond
-	unit := fmt.Sprintf("%s (%s of face per unit)", terms.QuantityUnit, formatBudgetMoney(terms.FacePerUnit, preview.Draft.Contract.Currency))
 	block := func(message string) (rpc.TradingBlocker, bool, bool) {
 		return rpc.TradingBlocker{Code: rpc.CashSweepBlockerBillUnitMismatch, Message: message,
 			Action: "Do not submit: check the bill's quantity unit against the broker (post-install proof steps 6–7). The row stays blocked until a preview checks clean."}, true, true
 	}
-	m := preview.WhatIf.Margin
-	if m == nil || m.InitialMarginBefore == nil || m.InitialMarginAfter == nil ||
-		math.IsNaN(*m.InitialMarginBefore) || math.IsNaN(*m.InitialMarginAfter) || math.IsInf(*m.InitialMarginBefore, 0) || math.IsInf(*m.InitialMarginAfter, 0) {
-		return block(fmt.Sprintf("the broker's WhatIf carried no initial-margin change, so the assumed unit %s cannot be checked against the broker's own figures", unit))
-	}
-	broker := math.Abs(*m.InitialMarginAfter - *m.InitialMarginBefore)
-	marginCcy := normCcy(m.Currency)
-	var expected float64
-	var ccy string
-	switch {
-	case marginCcy == "" || marginCcy == normCcy(preview.BaseCurrency):
-		expected, ccy = preview.NotionalBase, nonEmptyString(normCcy(preview.BaseCurrency), marginCcy)
-	case marginCcy == normCcy(nonEmptyString(preview.NotionalCurrency, preview.Draft.Contract.Currency)):
-		expected, ccy = preview.Notional, marginCcy
-	default:
-		return block(fmt.Sprintf("the broker's WhatIf reports its initial-margin change in %s, neither the account base nor the bill's currency, so the assumed unit %s cannot be checked", marginCcy, unit))
-	}
-	if ratio := broker / expected; !positiveFinite(expected) || !positiveFinite(broker) || ratio < cashSweepUnitRatioMin || ratio > cashSweepUnitRatioMax {
-		return block(fmt.Sprintf("the broker's WhatIf initial-margin change %s is %s of the order's expected value %s at the assumed unit %s, outside the band %s to %s; the unit may be wrong",
-			formatBudgetMoney(broker, ccy), strconv.FormatFloat(ratio, 'g', 3, 64), formatBudgetMoney(expected, ccy), unit,
-			strconv.FormatFloat(cashSweepUnitRatioMin, 'f', -1, 64), strconv.FormatFloat(cashSweepUnitRatioMax, 'f', -1, 64)))
+	if message, ok := bondWhatIfUnitCheck(preview.WhatIf, preview.Draft.Bond, preview.Notional, preview.NotionalBase,
+		nonEmptyString(preview.NotionalCurrency, preview.Draft.Contract.Currency), preview.BaseCurrency); !ok {
+		return block(message)
 	}
 	return rpc.TradingBlocker{}, false, true
 }

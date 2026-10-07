@@ -1054,6 +1054,11 @@ func policyCheckDeref(v *float64) float64 {
 // cannot use: a key not written, or no constitution at all.
 func checkOrderLimitsMissing(c *policyCheckContext) []policyCheckHit {
 	l := c.orderLimits
+	if l.Complete && l.BondMaturityUnset && l.Unavailable == "" {
+		return []policyCheckHit{{keys: []rpc.PolicyCheckKey{{File: c.constitutionSrc.label, Key: "[order_limits]." + risk.OrderLimitMaxBondMaturityYears, Value: "not written"}},
+			message:    "risk-policy.toml [order_limits] does not write max_bond_maturity_years, so the trading gate refuses every bond buy; other orders are judged as usual.",
+			suggestion: "Run canary restart: at start the daemon writes the owner's 30-year limit after a backup. Or write the key with a higher policy_version."}}
+	}
 	if l.Complete {
 		return nil
 	}

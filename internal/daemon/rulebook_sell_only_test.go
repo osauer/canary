@@ -153,3 +153,17 @@ func TestCloneRulesResultCopiesTheSellOnlyFact(t *testing.T) {
 		t.Fatalf("clone shares the sell-only rules: %+v", in.SellOnly)
 	}
 }
+
+// Rule 15 measures equity and option exposure only; a bill or bond never
+// enters it, so buying one does not add to the side it flags. The premium
+// budget's sell-only warning still applies to any buy.
+func TestPreviewDoesNotCountABondBuyAsNetExposure(t *testing.T) {
+	open := rpc.OrderPositionImpact{Effect: "open"}
+	for _, secType := range []string{"BOND", "BILL"} {
+		bond := rpc.OrderDraft{Action: "BUY", Contract: rpc.ContractParams{Symbol: "SYNB", SecType: secType}}
+		got := previewCodes(rulebookPreviewWarnings(sellOnlyTestResult(120), bond, open))
+		if got["rule_"+risk.RuleNetExposure].Code != "" || got["rule_"+risk.RuleCashSellOnly].Code == "" {
+			t.Fatalf("%s buy warnings = %+v", secType, got)
+		}
+	}
+}

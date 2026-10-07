@@ -17,6 +17,10 @@ import (
 // Every key is read from the file only. A missing key is not defaulted: the
 // daemon refuses every order preview with a blocker naming it. An NLV that
 // cannot be read currently binds the floor, the smaller cap, and says so.
+//
+// max_bond_maturity_years (owner decision 2026-10-06 20:17 CEST, decision B2
+// of internal-docs/design/bond-orders.md) is the longest time to maturity a
+// bond or bill buy may have; 30 years is the value written.
 
 // Order-limit keys as the constitution file spells them.
 const (
@@ -26,6 +30,7 @@ const (
 	OrderLimitMaxOptionContracts    = "max_option_contracts"
 	OrderLimitAllowStockShort       = "allow_stock_short"
 	OrderLimitAllowOptionSellToOpen = "allow_option_sell_to_open"
+	OrderLimitMaxBondMaturityYears  = "max_bond_maturity_years"
 )
 
 // OrderLimitsTable is the constitution table the order limits live in.
@@ -65,12 +70,17 @@ type ConstitutionOrderLimits struct {
 	AllowStockShort *bool `toml:"allow_stock_short" json:"allow_stock_short"`
 	// AllowOptionSellToOpen permits option sell-to-open orders.
 	AllowOptionSellToOpen *bool `toml:"allow_option_sell_to_open" json:"allow_option_sell_to_open"`
+	// MaxBondMaturityYears is the longest time to maturity, in whole years
+	// from today, a bond or bill buy may have; sells are never limited by it.
+	// The JSON tag omits it while unset so a policy written before the key
+	// existed keeps its fingerprint until the key is written.
+	MaxBondMaturityYears *int `toml:"max_bond_maturity_years" json:"max_bond_maturity_years,omitempty"`
 }
 
 // OrderLimitKeys lists the table's keys in file order.
 func OrderLimitKeys() []string {
 	return []string{OrderLimitMaxOrderFloorBase, OrderLimitMaxOrderPctNLV, OrderLimitMaxOrderCeilingBase,
-		OrderLimitMaxOptionContracts, OrderLimitAllowStockShort, OrderLimitAllowOptionSellToOpen}
+		OrderLimitMaxOptionContracts, OrderLimitAllowStockShort, OrderLimitAllowOptionSellToOpen, OrderLimitMaxBondMaturityYears}
 }
 
 // MissingKeys names, as order_limits.KEY, every key the table does not write;
@@ -87,11 +97,26 @@ func (o *ConstitutionOrderLimits) MissingKeys() []string {
 		OrderLimitMaxOptionContracts:    have.MaxOptionContracts != nil,
 		OrderLimitAllowStockShort:       have.AllowStockShort != nil,
 		OrderLimitAllowOptionSellToOpen: have.AllowOptionSellToOpen != nil,
+		OrderLimitMaxBondMaturityYears:  have.MaxBondMaturityYears != nil,
 	}
 	var out []string
 	for _, k := range OrderLimitKeys() {
 		if !present[k] {
 			out = append(out, OrderLimitsTable+"."+k)
+		}
+	}
+	return out
+}
+
+// MissingKeysForEveryOrder is MissingKeys without max_bond_maturity_years:
+// the keys whose absence refuses every order preview. A missing bond
+// maturity limit refuses bond buys only (owner decision 2026-10-07 08:27
+// CEST), so it never blocks an exit, a stop or any other order.
+func (o *ConstitutionOrderLimits) MissingKeysForEveryOrder() []string {
+	var out []string
+	for _, k := range o.MissingKeys() {
+		if k != OrderLimitsTable+"."+OrderLimitMaxBondMaturityYears {
+			out = append(out, k)
 		}
 	}
 	return out
@@ -118,6 +143,9 @@ func (o *ConstitutionOrderLimits) validate() error {
 	}
 	if v := o.MaxOptionContracts; v != nil && *v <= 0 {
 		return fmt.Errorf("order_limits.max_option_contracts must be positive")
+	}
+	if v := o.MaxBondMaturityYears; v != nil && (*v <= 0 || *v > 100) {
+		return fmt.Errorf("order_limits.max_bond_maturity_years must be in [1, 100]")
 	}
 	return nil
 }
@@ -166,6 +194,14 @@ type OrderLimitsInForce struct {
 	MaxOptionContracts    int  `json:"max_option_contracts,omitempty"`
 	AllowStockShort       bool `json:"allow_stock_short"`
 	AllowOptionSellToOpen bool `json:"allow_option_sell_to_open"`
+	MaxBondMaturityYears  int  `json:"max_bond_maturity_years,omitempty"`
+	// BondMaturityUnset is true while the table does not write
+	// max_bond_maturity_years: bond buys are refused, every other order is
+	// judged as usual.
+	BondMaturityUnset bool `json:"bond_maturity_unset,omitempty"`
+	// AsOf is when the limits were evaluated: the "today" the bond maturity
+	// limit counts from. Not published.
+	AsOf time.Time `json:"-"`
 
 	// Summary says the cap in force and how it was bound, in plain words,
 	// or why there is none.
@@ -177,7 +213,18 @@ type OrderLimitsInForce struct {
 // every key. The floor override lifts the floor to the ceiling.
 func EvaluateOrderLimits(o *ConstitutionOrderLimits, baseCurrency string, nlv OrderLimitsNLV, override *OrderLimitsOverride, unavailable string) OrderLimitsInForce {
 	base := strings.ToUpper(strings.TrimSpace(baseCurrency))
-	out := OrderLimitsInForce{BaseCurrency: base, Missing: o.MissingKeys(), Unavailable: strings.TrimSpace(unavailable)}
+	out := OrderLimitsInForce{BaseCurrency: base, Missing: o.MissingKeysForEveryOrder(), Unavailable: strings.TrimSpace(unavailable),
+		BondMaturityUnset: o == nil || o.MaxBondMaturityYears == nil}
+	if o != nil {
+		// Written values are reported even while another key is missing, so
+		// a surface never shows a written limit as zero.
+		if o.MaxOptionContracts != nil {
+			out.MaxOptionContracts = *o.MaxOptionContracts
+		}
+		if o.MaxBondMaturityYears != nil {
+			out.MaxBondMaturityYears = *o.MaxBondMaturityYears
+		}
+	}
 	if len(out.Missing) > 0 {
 		if out.Unavailable != "" {
 			out.Summary = out.Unavailable + "; every order preview is refused until risk-policy.toml writes [order_limits] (canary policy ensure)"
@@ -225,6 +272,33 @@ func EvaluateOrderLimits(o *ConstitutionOrderLimits, baseCurrency string, nlv Or
 			FormatOrderMoney(out.CapBase, base), pctText, FormatOrderMoney(nlv.Base, base))
 	}
 	return out
+}
+
+// CheckBondMaturity judges a bond or bill buy against
+// max_bond_maturity_years. maturity is "YYYY-MM-DD"; the limit date is
+// today's UTC date plus the limit in years (time.AddDate), and a maturity on
+// that date passes. Incomplete limits, an unset limit or an unreadable
+// maturity refuse. Sells are never judged by it: the caller applies it to
+// buys only.
+func (l OrderLimitsInForce) CheckBondMaturity(maturity string, now time.Time) error {
+	key := "[" + OrderLimitsTable + "]." + OrderLimitMaxBondMaturityYears
+	if !l.Complete {
+		return fmt.Errorf("the bond maturity cannot be judged: %s", l.Summary)
+	}
+	if l.BondMaturityUnset || l.MaxBondMaturityYears <= 0 {
+		return fmt.Errorf("%s is not set: bond buys are refused until Canary writes it at its next start", key)
+	}
+	due, err := time.Parse(time.DateOnly, strings.TrimSpace(maturity))
+	if err != nil {
+		return fmt.Errorf("the bond maturity %q is not a YYYY-MM-DD date, so %s cannot be applied", maturity, key)
+	}
+	y, m, d := now.UTC().Date()
+	limit := time.Date(y, m, d, 0, 0, 0, 0, time.UTC).AddDate(l.MaxBondMaturityYears, 0, 0)
+	if due.After(limit) {
+		return fmt.Errorf("the bond matures %s, beyond the %d-year limit in force (%s; %s)",
+			due.Format(time.DateOnly), l.MaxBondMaturityYears, limit.Format(time.DateOnly), key)
+	}
+	return nil
 }
 
 // FormatOrderMoney renders an amount with thousands separators, whole units

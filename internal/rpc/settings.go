@@ -42,6 +42,9 @@ type SettingsInt struct {
 	Access string `json:"access"`
 	Source string `json:"source"`
 	Reason string `json:"reason,omitempty"`
+	// Unset is true when the source does not write the value: Value is
+	// then not a figure, and a surface says "not set", never 0.
+	Unset bool `json:"unset,omitempty"`
 }
 
 // SettingsString is a string value annotated with access and source authority.
@@ -177,12 +180,15 @@ type PlatformAutoTradeSettings struct {
 // sourced from risk-policy.toml [order_limits] since the owner decision of
 // 2026-10-05 19:56 CEST: MaxNotional is the cap in force, and every Reason
 // says how it is bound or which key is missing. The runtime overrides are
-// retired.
+// retired. MaxBondMaturityYears is the longest maturity, in whole years
+// from today, a bond or bill buy may have (owner decision 2026-10-06 20:17
+// CEST).
 type TradingLimitSettings struct {
 	MaxNotional           SettingsFloat `json:"max_notional"`
 	MaxOptionContracts    SettingsInt   `json:"max_option_contracts"`
 	AllowStockShort       SettingsBool  `json:"allow_stock_short"`
 	AllowOptionSellToOpen SettingsBool  `json:"allow_option_sell_to_open"`
+	MaxBondMaturityYears  SettingsInt   `json:"max_bond_maturity_years"`
 }
 
 // PlatformMarketDataSetting exposes observed data quality and never persists
