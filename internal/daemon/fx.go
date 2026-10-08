@@ -10,11 +10,21 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const fxMethod = "closing_native_book_v1"
+
+// The retained XML no longer matches its SQLite projection (or the authority
+// moved during the read). The backfill worker tells these apart from other
+// read failures: the projection may still be catching up with a report
+// another lane has just saved.
+var (
+	errFXInventoryChanged = errors.New("accepted_inventory_changed")
+	errFXAuthorityChanged = errors.New("reporting_authority_changed")
+)
 
 // Parsing is reused only by the exact SHA-256 of bytes already checked against
 // the accepted inventory. Every read still verifies files and authority before
@@ -74,7 +84,7 @@ func (s *Server) fxStatements(ctx context.Context) ([]flexstmt.Statement, error)
 	}
 	files, err := readStatementProjectionFiles(ctx, selection)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
-		return nil, fmt.Errorf("accepted_inventory_changed")
+		return nil, errFXInventoryChanged
 	}
 	out, err := s.fxEvidence.parse(ctx, files)
 	if err != nil {
@@ -82,7 +92,7 @@ func (s *Server) fxStatements(ctx context.Context) ([]flexstmt.Statement, error)
 	}
 	final, err := s.coreStore.LoadStatementFiles(ctx, projectionScope)
 	if err != nil || !statementProjectionInventoryMatches(final, files) || selection != s.flexEvidenceSelection() || !sameBrokerScope(scope, s.currentBrokerStateScope()) {
-		return nil, fmt.Errorf("reporting_authority_changed")
+		return nil, errFXAuthorityChanged
 	}
 	out, _ = retainedStatementsForScope(out, scope)
 	return out, nil
@@ -382,6 +392,16 @@ func (s *Server) startFXWorker(ctx context.Context) {
 				activeQuery = query
 			}
 			rows, err := s.fxStatements(ctx)
+			if errors.Is(err, errFXInventoryChanged) || errors.Is(err, errFXAuthorityChanged) {
+				// The daily Flex check saves its report under flexBrokerMu and
+				// refreshes the projection only after releasing it, so a read in
+				// between sees files the projection does not list yet. Reconcile
+				// (a no-op when current) and read once more; a mismatch that
+				// survives fails like any other read.
+				if err = fxProjectionFailure(s.refreshStatementProjection(ctx)); err == nil {
+					rows, err = s.fxStatements(ctx)
+				}
+			}
 			if err == nil {
 				now := time.Now()
 				if s.now != nil {
@@ -451,7 +471,7 @@ func (s *Server) startFXWorker(ctx context.Context) {
 					}
 				}
 				if err == nil {
-					err = s.refreshStatementProjection(ctx)
+					err = fxProjectionFailure(s.refreshStatementProjection(ctx))
 				}
 			}
 			s.fxMu.Lock()
@@ -463,7 +483,9 @@ func (s *Server) startFXWorker(ctx context.Context) {
 				if failure, ok := errors.AsType[*flexFetchFailure](err); ok {
 					s.fxReason = "backfill_" + failure.reason
 				}
-				s.warnf("FX backfill: %s", s.fxReason)
+				// err is a read code, a redacted Flex failure, a redacted
+				// projection failure or a context error: no broker values.
+				s.warnf("FX backfill: %s: %v", s.fxReason, err)
 				delay = time.Minute
 			} else {
 				s.fxReason = ""
@@ -481,6 +503,20 @@ func (s *Server) startFXWorker(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// fxProjectionFailure names a failed projection refresh without its text: a
+// retained-statement parse error can quote broker values. A store block keeps
+// its cause, so the warning says so and joins an open authority incident.
+func fxProjectionFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	failure := &flexFetchFailure{reason: rpc.ReconReportReasonProjectionFailed, retryable: true, detail: "statement projection refresh failed"}
+	if errors.Is(err, corestore.ErrBlocked) {
+		return fmt.Errorf("%w: %w", failure, corestore.ErrBlocked)
+	}
+	return failure
 }
 
 // fetchFXStatement retains only a broker-authenticated response matching
