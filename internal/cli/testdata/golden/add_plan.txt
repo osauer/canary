@@ -1,0 +1,18 @@
+# canary add plan SYNA --currency USD --limit 100 · COLUMNS=80 · colour off
+Add · SYNA · USD
+Position · 0 → 9 shares
+Add shares · 9 (maximum 9)
+Limit · 100.0000 USD per share
+Cost incl. fee bound · 905.00 USD
+Cash after reserves · 95.00 USD
+Sizing constraint · Available cash after reserves and fees
+Planning evidence only. An exact preview and separate owner confirmation are required. Existing stops retain their reviewed quantity.
+# canary add plan SYNA --currency USD --limit 100 · COLUMNS=80 · colour on, ESC written as \x1b
+Add · SYNA · USD
+Position · 0 → 9 shares
+Add shares · 9 (maximum 9)
+Limit · 100.0000 USD per share
+Cost incl. fee bound · 905.00 USD
+Cash after reserves · 95.00 USD
+Sizing constraint · Available cash after reserves and fees
+Planning evidence only. An exact preview and separate owner confirmation are required. Existing stops retain their reviewed quantity.

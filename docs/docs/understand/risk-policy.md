@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-10-05 22:20 CEST
+Updated: 2026-10-08 19:39 CEST
 
 The personal risk policy is one TOML file you write by hand. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -61,6 +61,7 @@ integer you raise on each revision.
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
+| `[position_add]` (optional) | `max_stock_pct_nlv`, `max_underlying_stock_pct_nlv` | Owner-chosen stock allocation ceilings for opening or increasing long stock positions; no defaults. The table opts stock additions into cash, allocation and portfolio-risk admission checks. |
 | `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`, `max_bond_maturity_years` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, whether an order may open a stock short or sell an option to open, and the longest maturity a bond or bill buy may have. Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
@@ -215,3 +216,32 @@ release.
 `canary_policy_check`. Its governance verbs (`capital-event`, `override`,
 `reset-drawdown`, `correct-peak`) are human-origin only, so an agent session
 can read the policy result and never operate this file.
+
+## Opening or adding stock
+
+`canary add plan SYMBOL --currency CCY --limit PRICE` calculates the largest
+permitted whole-share addition in one order. Use `--quantity N` to check an
+exact smaller addition. The same command opens a selected watchlist instrument:
+Canary reads the existing holding, including a confirmed zero, from the broker.
+MCP `canary_add` exposes this planning read only.
+
+`canary add preview` prepares the exact order through the existing review path.
+Submission still needs separate owner confirmation. Auto sizing never creates
+a recurring purchase or unattended submission.
+
+The optional `[position_add]` table belongs in this risk policy. Both
+`max_stock_pct_nlv` and `max_underlying_stock_pct_nlv` are required percentages
+in `(0,100]`, chosen by you. They cap all stock market value and stock in the
+selected underlying respectively, including pending buys. No table or value
+is installed automatically. Once the table is present, ordinary stock BUY
+orders that increase a long holding must pass the same checks.
+
+The calculation also respects cash reserves, native settled cash, fees,
+per-order limits, existing stock and option issuer risk, capital availability,
+sell-only conditions and margin headroom. Missing evidence holds the purchase.
+Cash is never converted. Existing stops keep their reviewed quantity.
+
+This increment supports stock additions and openings only. Unknown pending
+activity, queued instructions, pending non-stock orders, or corporate debt
+without combined issuer mapping can hold the plan. Bonds and option orders
+will have separate sizing rules in later increments.

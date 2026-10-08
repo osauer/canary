@@ -182,6 +182,12 @@ func renderGoldenCases() []renderGoldenCase {
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
 	}
 	return []renderGoldenCase{
+		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
+		{name: "add_held", render: func(env *Env) {
+			p := goldenStockAdd()
+			p.Blockers = []risk.StockAddBlocker{{Code: "add_no_capacity", Message: "The available allowance cannot fund one whole share."}}
+			renderAddPlan(env, p)
+		}},
 		{name: "regime", argv: []string{"regime"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(fresh)}},
 		{name: "regime_explain", argv: []string{"regime", "--explain"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(fresh)}},
 		{name: "regime_stale", argv: []string{"regime"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(stale)}},

@@ -35,6 +35,44 @@
   ],
   "tools": [
     {
+      "name": "canary_add",
+      "description": "Calculate the permitted whole-share addition to a selected stock, including opening from a watchlist with no holding. Canary reads actual positions, other exposure, outstanding orders, cash reserves, approved allocation limits and risk budgets. Provide an explicit currency and limit price; omit quantity for the maximum under current evidence. Missing inputs or unapproved policy hold the plan. Read-only planning may request a broker WhatIf fee estimate; it returns no preview token, reserves no money and cannot submit, modify or authorise an order. Use canary_positions for holdings, canary_rules for risk explanations, and the owner CLI's add preview for an exact order review. Not for options, bonds, shorts, stock selection, recurring purchases or an investment recommendation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "con_id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact broker stock contract ID when known."
+          },
+          "currency": {
+            "type": "string",
+            "description": "Explicit stock trading currency, for example USD or EUR; no automatic conversion."
+          },
+          "limit_price": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Maximum price per share in the specified currency."
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "Whole shares to add. Omitted or zero calculates the maximum; never the existing position size."
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Selected stock symbol, case-insensitive; membership of a watchlist does not authorise a purchase."
+          }
+        },
+        "required": [
+          "symbol",
+          "currency",
+          "limit_price"
+        ]
+      }
+    },
+    {
       "name": "canary_short_interest_screen",
       "description": "Discover US equities (including listed funds and OTC) with large reported short positions using FINRA's twice-monthly public publication. Filters and sorting apply before limiting results; default ranks short shares, not percent of float. Free float is unavailable. Settlement date is distinct from fetch time; failed refreshes retain stale publication provenance. FINRA days to cover is floored at 1 and average daily shares covers the reporting interval. Optional recent price and 20-session dollar-turnover context is bounded background acquisition with explicit partial coverage, not an all-market liquidity guarantee. Short interest is neither daily short-sale volume nor borrowing cost. Use canary_lending_screen for borrower fees, canary_lending_fees for earned lending income. Read-only; no orders, enrollment, subscriptions or policy changes.",
       "inputSchema": {

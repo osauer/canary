@@ -581,6 +581,7 @@ func orderJournalEventForDraft(draft rpc.OrderDraft, eventType string, status rp
 		OpenClose:       draft.OpenClose,
 		StrategyGroup:   draft.StrategyGroup,
 		Bond:            rpc.CloneOrderBondTerms(draft.Bond),
+		Add:             rpc.CloneAddReview(draft.Add),
 		Source:          draft.Source,
 	}
 }

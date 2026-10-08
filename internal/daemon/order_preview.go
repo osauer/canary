@@ -568,6 +568,19 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 				Action: "Do not buy: the bond's order unit may not be what Canary assumes. Keep the preview output for the fix."})
 		}
 	}
+	if p.Add || s.stockAddRequired(draft, position) {
+		if scope != rpc.OrderTokenScopePlace {
+			return nil, errBadRequest("An Add order needs a new exact review; modification is not supported")
+		}
+		evidence, addErr := s.validateStockAddDraft(ctx, draft, whatIf)
+		if addErr != nil {
+			return nil, refusePreviewCode("stock_add_held", addErr)
+		}
+		if evidence.input.CurrentQuantity != position.Before {
+			return nil, refusePreviewCode("stock_add_changed", fmt.Errorf("position changed while preparing Add"))
+		}
+		draft.Add = &evidence.review
+	}
 	if previewAuthority != nil && !s.orderPreviewBrokerAuthorityCurrent(previewAuthority) {
 		return nil, refusePreviewCode(previewBrokerSessionChangedCode, fmt.Errorf("%w: broker session changed before preview token mint", ErrTradingDisabled))
 	}
@@ -601,6 +614,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err := s.orderJournal.Append(orderJournalEvent{
 		At:             now,
 		Type:           orderJournalEventPreviewed,
+		Add:            rpc.CloneAddReview(draft.Add),
 		OrderRef:       draft.OrderRef,
 		PreviewTokenID: tokenID,
 		ClientID:       status.ClientID,

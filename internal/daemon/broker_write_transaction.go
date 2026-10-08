@@ -17,13 +17,16 @@ import (
 // account/mode scope that passed authorization. It is never durable order
 // authority and must be revalidated immediately before broker I/O.
 type brokerWriteTransactionBinding struct {
-	connector      *ibkrlib.Connector
-	connectorEpoch uint64
-	session        ibkrlib.ConnectorSessionBinding
-	scope          brokerStateScope
-	endpoint       string
-	clientID       int
-	origin         string
+	stockAddReview             *rpc.AddReview
+	stockAddOrdersGeneration   uint64
+	stockAddAccountFingerprint string
+	connector                  *ibkrlib.Connector
+	connectorEpoch             uint64
+	session                    ibkrlib.ConnectorSessionBinding
+	scope                      brokerStateScope
+	endpoint                   string
+	clientID                   int
+	origin                     string
 	//lint:ignore U1000 Used by the trading-tagged order submission path.
 	orderID int
 	//lint:ignore U1000 Used by the trading-tagged order submission path.
@@ -342,6 +345,14 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		var limits risk.OrderLimitsInForce
 		if binding.riskBound {
 			limits = s.orderLimitsInForce(binding.riskBaseCurrency)
+		}
+		// Policy managers and account evidence are read before the control lease,
+		// following the same lock order as ordinary order-limit validation.
+		if binding.stockAddReview != nil {
+			broker := &orderPreviewBrokerAuthority{connector: binding.connector}
+			if s.stockAddQueuedInstruction(binding.scope) || !s.stockAddPolicyCurrent(*binding.stockAddReview) || s.currentProtectionOrderSnapshotBinding().generation != binding.stockAddOrdersGeneration || stockAddAccountFingerprint(broker) != binding.stockAddAccountFingerprint {
+				return fmt.Errorf("%w: Add policy, cash or working orders changed after admission; preview again", ErrTradingDisabled)
+			}
 		}
 		_, currentControlGeneration, frozen, unlock := s.lockEffectiveTradingControlSnapshot()
 		leaseMu.Lock()

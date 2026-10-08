@@ -4,9 +4,9 @@ description: Use Canary through the local `canary` CLI for the daily brief,
   detailed regime and portfolio stress, official exchange sessions, account and position detail, historical Edge decision review, named-symbol
   technical analysis, borrowing-fee and short-interest research, desk policy and
   rules, protection proposals, option-exercise opportunities, runtime settings,
-  and order status or history. Read first; broker writes require an explicit
+  stock addition plans, and order status or history. Read first; broker writes require an explicit
   transaction-specific request and the gated CLI path.
-allowed-tools: Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
+allowed-tools: Bash(canary add plan*) Bash(canary account*) Bash(canary positions*) Bash(canary technical*)
   Bash(canary calendar*) Bash(canary regime*) Bash(canary stress*) Bash(canary brief*) Bash(canary edge*) Bash(canary rules*) Bash(canary proposals status*) Bash(canary proposals list*) Bash(canary proposals refresh*) Bash(canary opportunities status*) Bash(canary opportunities list*) Bash(canary opportunities refresh*) Bash(canary settings show*) Bash(canary policy show*) Bash(canary recon show*) Bash(canary trading status*) Bash(canary orders open*) Bash(canary orders history*) Bash(canary order status*)
   Bash(canary lending fees*) Bash(canary lending rates*) Bash(canary lending screen*) Bash(canary lending market*) Bash(canary short-interest screen*) Bash(canary data health*) Bash(canary data check*) Bash(canary status*) Bash(canary version*)
 ---
@@ -42,6 +42,22 @@ names.
 For an explicitly named stock or ETF, `canary technical SYMBOL --json` returns
 trend, relative strength, ATR, and liquidity evidence. It is analysis, not an
 order-entry path.
+
+## Stock addition planning
+
+For a user-selected stock or watchlist item, use `canary add plan SYMBOL
+--currency CCY --limit PRICE --json` or MCP `canary_add`. Omit quantity for the
+maximum permitted addition; use `--quantity N` for an exact proposed increase.
+Canary reads current holdings, including a verified zero; never invent or pass
+an existing-position size. A plan is conditional on current policy, cash,
+pending orders, risk and the exact broker fee estimate. It reserves nothing.
+Do not interpret maximum capacity as a recommendation to invest that amount.
+Missing or unapproved evidence means held, not zero risk. Bonds and option
+construction are not supported by this command.
+
+Planning cannot mint a preview token or submit. The CLI's `add preview` uses
+the existing exact-order review; all transaction-specific broker-write
+permission rules below still apply. No recurring or unattended Add is created.
 
 ## Market regime and portfolio stress
 

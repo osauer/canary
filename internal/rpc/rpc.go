@@ -2687,6 +2687,7 @@ type OrderStatusParams struct {
 // then mint a short-lived preview token. The preview path never places the
 // order; place/modify/cancel remain separate gated RPCs.
 type OrderPreviewParams struct {
+	Add        bool            `json:"add,omitempty"`
 	Action     string          `json:"action"` // BUY | SELL, case-insensitive
 	Contract   ContractParams  `json:"contract"`
 	Quantity   int             `json:"quantity"`
@@ -2774,6 +2775,7 @@ type StrategyOrderLeg struct {
 
 // OrderDraft is the canonical local intent bound into a preview token.
 type OrderDraft struct {
+	Add           *AddReview          `json:"add,omitempty"`
 	Action        string              `json:"action"`
 	Contract      ContractParams      `json:"contract"`
 	Quantity      int                 `json:"quantity"`

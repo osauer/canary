@@ -1,6 +1,6 @@
 # Trading Harness Development With Codex
 
-Updated: 2026-07-10 08:50 CEST
+Updated: 2026-10-08 19:39 CEST
 
 ## Purpose
 
@@ -130,3 +130,13 @@ Before adding more automation, produce two approved design artifacts:
    reconciliation, corrections, and report finality.
 
 Only then choose the first narrow control to run manually and in shadow mode.
+
+## Stock additions
+
+The [position-add contract](../design/position-add.md) covers the first stock
+opening/increase increment, including zero-held watchlist instruments. Use its
+pure sizing, typed RPCs and existing order path when adding a surface. The
+optional policy table has no assigned percentages; do not fill owner decisions
+with implementation defaults. MCP exposes only planning. Later bond and option
+increments must reuse the ownership and execution boundaries while defining
+their own instrument rules.

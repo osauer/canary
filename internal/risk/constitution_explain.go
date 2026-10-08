@@ -124,6 +124,13 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 			"Longest lifetime of a one-shot override. Overrides are human-only, name one control, require a reason, are journaled with the policy fingerprint, and expire on their own.", "advisory"),
 	}
 	rows = append(rows, orderLimitRows(c, cur, get, str)...)
+	if c != nil && c.PositionAdd != nil {
+		stock, stockSource := pct(c.PositionAdd.MaxStockPctNLV)
+		name, nameSource := pct(c.PositionAdd.MaxUnderlyingStockPctNLV)
+		rows = append(rows,
+			get("position_add.max_stock_pct_nlv", stock, stockSource, "Maximum stock market value, including pending purchases, as a share of current account net liquidation. Opts stock additions into cash, allocation and Rulebook entry checks.", "hard"),
+			get("position_add.max_underlying_stock_pct_nlv", name, nameSource, "Maximum stock market value in the selected underlying as a share of current net liquidation. Existing options also consume the separate issuer loss and risk-capital budgets.", "hard"))
+	}
 	rTolPVal, rTolPSrc := pct(rTolP)
 	rTolMVal, rTolMSrc := money(rTolM)
 	rDateWVal, rDateWSrc := num(rDateW, "business days")

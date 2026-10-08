@@ -814,6 +814,24 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 	}
+	if s.stockAddRequired(draft, current.Impact) {
+		if draft.Add == nil {
+			return fmt.Errorf("%w: equity Add policy now applies; preview again", ErrTradingDisabled)
+		}
+		if payload.Scope != rpc.OrderTokenScopePlace {
+			return fmt.Errorf("%w: Add modification needs a new review", ErrTradingDisabled)
+		}
+		addEvidence, addErr := s.validateStockAddDraft(ctx, draft, payload.WhatIf)
+		if addErr != nil {
+			return fmt.Errorf("%w: Add held: %v", ErrTradingDisabled, addErr)
+		}
+		if addEvidence.input.CurrentQuantity != current.Impact.Before || addEvidence.portfolioGeneration != current.Generation && !current.TestOnly {
+			return fmt.Errorf("%w: portfolio changed during Add admission", ErrTradingDisabled)
+		}
+		binding.stockAddReview = &addEvidence.review
+		binding.stockAddOrdersGeneration = addEvidence.ordersGeneration
+		binding.stockAddAccountFingerprint = addEvidence.accountFingerprint
+	}
 	binding.riskBound = true
 	binding.riskDraft = draft
 	binding.riskPosition = current.Impact

@@ -57,6 +57,7 @@ type orderJournalStore struct {
 }
 
 type orderJournalEvent struct {
+	Add             *rpc.AddReview           `json:"add,omitempty"`
 	Version         int                      `json:"version"`
 	At              time.Time                `json:"at"`
 	Type            string                   `json:"type"`

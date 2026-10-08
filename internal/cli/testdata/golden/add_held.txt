@@ -1,0 +1,6 @@
+# canary  · COLUMNS=80 · colour off
+Add · SYNA · USD
+Held · The available allowance cannot fund one whole share.
+# canary  · COLUMNS=80 · colour on, ESC written as \x1b
+Add · SYNA · USD
+Held · The available allowance cannot fund one whole share.

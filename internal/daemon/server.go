@@ -58,6 +58,7 @@ var perCandidateConnectBudget = 25 * time.Second
 
 // Server is the daemon process state.
 type Server struct {
+	stockAddEvidenceForTest func(context.Context, rpc.AddParams) (stockAddEvidence, error)
 	marketTapeCollecting    atomic.Bool
 	marketTapeArchiveFailed atomic.Bool
 
@@ -2774,6 +2775,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleChainExpiries(ctx, req) })
 	case rpc.MethodTechnical:
 		s.unary(req, enc, func() (any, error) { return s.handleTechnical(ctx, req) })
+	case rpc.MethodAddPlan:
+		s.unary(req, enc, func() (any, error) { return s.handleAddPlan(ctx, req) })
+	case rpc.MethodAddPreview:
+		s.unary(req, enc, func() (any, error) { return s.handleAddPreview(ctx, req) })
 	case rpc.MethodSetupsEvaluate:
 		s.unary(req, enc, func() (any, error) { return s.handleSetupsEvaluate(ctx, req) })
 	case rpc.MethodSetupsOptions:

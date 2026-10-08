@@ -4,7 +4,21 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**35 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**36 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+
+## `canary_add`
+
+Calculate the permitted whole-share addition to a selected stock, including opening from a watchlist with no holding. Canary reads actual positions, other exposure, outstanding orders, cash reserves, approved allocation limits and risk budgets. Provide an explicit currency and limit price; omit quantity for the maximum under current evidence. Missing inputs or unapproved policy hold the plan. Read-only planning may request a broker WhatIf fee estimate; it returns no preview token, reserves no money and cannot submit, modify or authorise an order. Use canary_positions for holdings, canary_rules for risk explanations, and the owner CLI's add preview for an exact order review. Not for options, bonds, shorts, stock selection, recurring purchases or an investment recommendation.
+
+**Parameters:**
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `con_id` | integer | no | Exact broker stock contract ID when known. |
+| `currency` | string | **yes** | Explicit stock trading currency, for example USD or EUR; no automatic conversion. |
+| `limit_price` | number | **yes** | Maximum price per share in the specified currency. |
+| `quantity` | integer | no | Whole shares to add. Omitted or zero calculates the maximum; never the existing position size. |
+| `symbol` | string | **yes** | Selected stock symbol, case-insensitive; membership of a watchlist does not authorise a purchase. |
 
 ## `canary_short_interest_screen`
 

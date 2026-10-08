@@ -55,6 +55,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodChainFetch, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
 	{Method: MethodChainExpiries, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
 	{Method: MethodTechnical, Lifetime: MethodLifetimeUnary, DaemonTimeout: 75 * time.Second},
+	{Method: MethodAddPlan, Lifetime: MethodLifetimeUnary, DaemonTimeout: 90 * time.Second},
+	{Method: MethodAddPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodSetupsEvaluate, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodSetupsOptions, Lifetime: MethodLifetimeUnary, DaemonTimeout: 60 * time.Second},
 	{Method: MethodSetupsCoverage, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},

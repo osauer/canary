@@ -1274,6 +1274,14 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 	} {
 		fmt.Fprintf(&b, "# [inventory.%s]\n# id = %q\n# version = %q\n", pin.name, pin.id, pin.version)
 	}
+	b.WriteString(`
+# Optional stock opening/addition policy. No values are assigned on install.
+# Uncomment the table and choose BOTH percentages before using canary add.
+# This opts stock increases into cash, allocation and portfolio-risk checks.
+# [position_add]
+# max_stock_pct_nlv = 0.0
+# max_underlying_stock_pct_nlv = 0.0
+`)
 	b.WriteString(orderLimitsTemplateBlock(src, srcRead))
 	b.WriteString(`
 # Your device, for saves from Desk (owner decision 2026-10-07 08:33 CEST).

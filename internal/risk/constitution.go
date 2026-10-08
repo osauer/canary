@@ -53,6 +53,9 @@ type Constitution struct {
 	Recon     ConstitutionRecon     `toml:"recon" json:"recon"`
 	Cadence   ConstitutionCadence   `toml:"cadence" json:"cadence"`
 	Inventory ConstitutionInventory `toml:"inventory" json:"inventory"`
+	// PositionAdd is optional: only owner-supplied stock allocation limits opt
+	// long stock increases into the Add admission contract. No defaults apply.
+	PositionAdd *StockAddPolicy `toml:"position_add" json:"position_add,omitempty"`
 	// OrderLimits holds the per-order gates (owner decision 2026-10-05
 	// 19:56 CEST). A pointer, so a policy without the table keeps its
 	// fingerprint; absent means every order preview is refused.
@@ -429,6 +432,9 @@ func (c Constitution) Validate() error {
 	if c.Inventory.RequireSignoff != nil && !c.Semantics().ProcessReminders {
 		return fmt.Errorf("inventory.require_signoff requires schema 2 or legacy policy_version >= 4")
 	}
+	if err := c.PositionAdd.validate(); err != nil {
+		return err
+	}
 	return c.OrderLimits.validate()
 }
 
@@ -535,6 +541,14 @@ func (c Constitution) UnapprovedKeys() []string {
 	if (c.PolicyVersion == 0 || c.Semantics().StatementReconciliation) && c.Recon.MaxEquityDivergencePct == nil {
 		out = append(out, "recon.max_equity_divergence_pct")
 	}
+	if c.PositionAdd != nil {
+		if c.PositionAdd.MaxStockPctNLV == nil {
+			out = append(out, "position_add.max_stock_pct_nlv")
+		}
+		if c.PositionAdd.MaxUnderlyingStockPctNLV == nil {
+			out = append(out, "position_add.max_underlying_stock_pct_nlv")
+		}
+	}
 	// cadence.* keys are deliberately not approval material: the timezone
 	// overrides fail Validate, never this list.
 	return out
@@ -613,10 +627,11 @@ func (c Constitution) FingerprintKey() string {
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
+			PositionAdd   *StockAddPolicy          `json:"position_add,omitempty"`
 		}{
 			Kind: base.Kind, SchemaVersion: base.SchemaVersion, PolicyID: base.PolicyID, PolicyVersion: base.PolicyVersion,
 			Capital: base.Capital, Drawdown: base.Drawdown, Override: base.Override, Recon: recon,
-			Cadence: legacyCadence, Inventory: base.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice,
+			Cadence: legacyCadence, Inventory: base.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice, PositionAdd: c.PositionAdd,
 		}
 		raw, _ = json.Marshal(normalized)
 	} else if c.SchemaVersion != 2 && c.PolicyVersion < 4 {
@@ -633,9 +648,10 @@ func (c Constitution) FingerprintKey() string {
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
+			PositionAdd   *StockAddPolicy          `json:"position_add,omitempty"`
 		}{
-			OrderLimits:   c.OrderLimits,
-			DeskDevice:    c.DeskDevice,
+			OrderLimits: c.OrderLimits,
+			DeskDevice:  c.DeskDevice, PositionAdd: c.PositionAdd,
 			Kind:          strings.TrimSpace(c.Kind),
 			SchemaVersion: c.SchemaVersion,
 			PolicyID:      strings.TrimSpace(c.PolicyID),
@@ -662,11 +678,12 @@ func (c Constitution) FingerprintKey() string {
 			Inventory     ConstitutionInventory    `json:"inventory"`
 			OrderLimits   *ConstitutionOrderLimits `json:"order_limits,omitempty"`
 			DeskDevice    *ConstitutionDeskDevice  `json:"desk_device,omitempty"`
+			PositionAdd   *StockAddPolicy          `json:"position_add,omitempty"`
 		}{
 			Kind: strings.TrimSpace(c.Kind), SchemaVersion: c.SchemaVersion,
 			PolicyID: strings.TrimSpace(c.PolicyID), PolicyVersion: c.PolicyVersion,
 			Capital: c.Capital, Drawdown: c.Drawdown, Override: c.Override,
-			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice,
+			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice, PositionAdd: c.PositionAdd,
 		}
 		raw, _ = json.Marshal(normalized)
 	}
