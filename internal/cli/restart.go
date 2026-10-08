@@ -181,12 +181,7 @@ func RunRestart(ctx context.Context, args []string, stdout, stderr io.Writer) in
 		fmt.Fprintf(stderr, "%s restart: --timeout must be positive\n", productidentity.Executable)
 		return 2
 	}
-	if !opts.app {
-		if err := dial.AllowAutostart(dial.DefaultSocketPath()); err != nil {
-			fmt.Fprintf(stderr, "%s restart: clear stop intent: %v\n", productidentity.Executable, err)
-			return 1
-		}
-	}
+
 	appDeps := productionAppRestartDeps()
 	if opts.app {
 		return runRestartAppCore(ctx, &opts, appDeps)
@@ -265,6 +260,18 @@ func runRestartAllCore(ctx context.Context, opts *restartOptions, daemonDeps res
 }
 
 func runRestartStackCore(ctx context.Context, opts *restartOptions, daemonDeps restartDeps, appDeps appRestartDeps, behavior restartStackBehavior) int {
+	ctx, release, err := dial.WithStartupLock(ctx, dial.DefaultSocketPath())
+	if err != nil {
+		fmt.Fprintf(opts.err, "%s restart: reserve daemon startup: %v\n", productidentity.Executable, err)
+		return 1
+	}
+	defer release()
+	if behavior.startDaemonWhenMissing {
+		if err := dial.AllowAutostart(dial.DefaultSocketPath()); err != nil {
+			fmt.Fprintf(opts.err, "%s restart: clear stop intent: %v\n", productidentity.Executable, err)
+			return 1
+		}
+	}
 	// App discovery is by process name (findAppProcess) and cannot tell
 	// at a non-default scope, the only app this command could find is one
 	// outside that scope, so implicit app management must stay hands-off.

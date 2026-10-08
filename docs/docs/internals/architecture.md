@@ -49,6 +49,15 @@ background clients cannot undo an operator stop. The daemon exits after
 the separately listed configuration, evidence, and app files survive;
 refreshable in-memory views do not.
 
+Restart reserves startup before quiescing the app and holds that reservation
+through daemon replacement and app resume. Ordinary autostarts wait on the
+same reservation and recheck stop intent afterwards. The daemon also acquires
+it before its instance lock, covering older clients that invoke daemon mode
+directly. The selected child inherits the reservation's file descriptor;
+closing its copy does not unlock the parent's reservation. A process exit
+releases ownership without deleting the lock file. Restart still requires
+its own spawned PID to own the instance lock before accepting readiness.
+
 ## Code ownership layers
 
 - `pkg/ibkr` is the clean-room TWS wire client: protocol framing, sockets and

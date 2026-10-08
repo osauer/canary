@@ -1359,7 +1359,12 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	s.configureGatewayRestart()
+	releaseStartup, err := dial.LockDaemonStartup(ctx, s.socketPath)
+	if err != nil {
+		return err
+	}
 	lock, err := acquireInstanceLock(s.socketPath)
+	releaseStartup()
 	if err != nil {
 		return err
 	}

@@ -92,3 +92,16 @@ func TestDefinitionMissSeverityDependsOnConID(t *testing.T) {
 		t.Fatalf("unaliased miss lost its warning: %s", line)
 	}
 }
+
+// A currency pair's notice names the whole pair: "EUR CASH" alone could be
+// any of the account's EUR.* pairs, so a refusal on 2026-10-07 could not be
+// tied to the one an order preview needed.
+func TestCashNoticeNamesThePair(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	conn, _ := newReadyWireTestConnection(t)
+	epoch := conn.BrokerSessionEpoch()
+
+	conn.registerReqAlias(context.Background(), 51, Contract{Symbol: "EUR", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD"})
+	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(51, 354, "Requested market data is not subscribed."), epoch)
+	singleNoticeLine(t, buf, "reqID=51 (EUR.USD CASH)")
+}
