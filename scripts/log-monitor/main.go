@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	reportVersion      = 2
+	reportVersion      = 3
 	defaultMaxSignals  = 10
 	maxScannerCapacity = 1024 * 1024
 
@@ -98,10 +98,17 @@ type signal struct {
 type suppressedSummary struct {
 	Severity string `json:"severity"`
 	Kind     string `json:"kind"`
-	Count    int    `json:"count"`
+	// Count is every occurrence the cap cut for the pair, across all of its
+	// distinct messages; it is not how often Sample occurred.
+	Count int `json:"count"`
 	// Sample is the highest-ranked suppressed message of the pair, already
 	// redacted by safeMessage.
 	Sample string `json:"sample,omitempty"`
+	// SampleCount is how often Sample itself occurred, and Distinct how many
+	// distinct messages the row holds, so the row never reads as Count
+	// repeats of its sample.
+	SampleCount int `json:"sample_count"`
+	Distinct    int `json:"distinct"`
 }
 
 type scannedLog struct {
@@ -117,7 +124,7 @@ type scannedLog struct {
 
 var (
 	accountPattern = regexp.MustCompile(`\b(?:DU|U)\d{5,}\b`)
-	sensitiveField = regexp.MustCompile(`(?i)\b(account(?:_id)?|order(?:_id|_ref)?|preview_token|token|balance|holding|position|symbol|conid|reqid)=("[^"]*"|\S+)`)
+	sensitiveField = regexp.MustCompile(`(?i)\b(account(?:_id)?|order(?:_id|_?ref)?|preview_token|token|balance|holding|position|symbol|conid|reqid)=("[^"]*"|\S+)`)
 	symbolPhrase   = regexp.MustCompile(`(?i)\bfor [A-Z][A-Z0-9.]{0,9} via\b`)
 	spacePattern   = regexp.MustCompile(`\s+`)
 	statusPattern  = regexp.MustCompile(`(?:^|\s)status=(\d{3})(?:\s|$)`)
@@ -138,6 +145,12 @@ var (
 	ratePattern     = regexp.MustCompile(`\b\d+\.\d{3,}\b`)
 	pidPattern      = regexp.MustCompile(`\bpid \d+\b`)
 	counterPattern  = regexp.MustCompile(`\b([a-z_]+)=\d+(?:[./]\d+)?\b|\(cached \d+ so far\)`)
+	// Broker order references also travel in free text: the WhatIf timeout
+	// names "order 48213", broker notices "OrderId 48213" or "permId =…", the
+	// order wire summary "orderId=…". The keyword and separator stay; the
+	// number does not. "order 2 of 3" is a position, kept by redactOrderRefs.
+	orderRefPattern = regexp.MustCompile(`(?i)\b(?:order(?:[ _]?id)?|perm(?:[ _]?id)?)(?:\s*[=:#]\s*|\s+#?)(\d+)\b`)
+	ordinalTail     = regexp.MustCompile(`^\s+of\s+\d`)
 )
 
 func main() {
@@ -465,11 +478,15 @@ func finalizeSignals(result *logReport, max int) {
 			i = len(result.Suppressed)
 			index[key] = i
 			result.Suppressed = append(result.Suppressed, suppressedSummary{
-				Severity: s.Severity,
-				Kind:     s.Kind,
-				Sample:   s.Message,
+				Severity:    s.Severity,
+				Kind:        s.Kind,
+				Sample:      s.Message,
+				SampleCount: effectiveCount(s),
 			})
 		}
+		// addSignal merged repeats, so each dropped signal of a pair is one
+		// distinct message.
+		result.Suppressed[i].Distinct++
 		result.Suppressed[i].Count += effectiveCount(s)
 		result.SuppressedSignals += effectiveCount(s)
 	}
@@ -597,6 +614,7 @@ func redactMessage(message string) string {
 	message = symbolPhrase.ReplaceAllString(message, "for [symbol] via")
 	message = addrPattern.ReplaceAllString(message, "[addr]")
 	message = inlineTimestamp.ReplaceAllString(message, "[time]")
+	message = redactOrderRefs(message)
 	message = durationPattern.ReplaceAllString(message, "[duration]")
 	message = expiryPattern.ReplaceAllString(message, "[expiry]")
 	message = clockPattern.ReplaceAllString(message, "[clock]")
@@ -618,6 +636,26 @@ func redactMessage(message string) string {
 		message = message[:240] + "…"
 	}
 	return message
+}
+
+// redactOrderRefs replaces the number of every broker order reference with
+// [ref], keeping the words around it, except an ordinal such as "order 2 of 3".
+func redactOrderRefs(message string) string {
+	var out strings.Builder
+	last := 0
+	for _, m := range orderRefPattern.FindAllStringSubmatchIndex(message, -1) {
+		if ordinalTail.MatchString(message[m[1]:]) {
+			continue
+		}
+		out.WriteString(message[last:m[2]])
+		out.WriteString("[ref]")
+		last = m[3]
+	}
+	if last == 0 {
+		return message
+	}
+	out.WriteString(message[last:])
+	return out.String()
 }
 
 func extractSlogMessage(line string) string {

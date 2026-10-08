@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -172,7 +173,8 @@ func TestEscalatingLoopOutranksArrivalOrderAndSuppressionIsSummarized(t *testing
 	}
 
 	// 30 one-off warnings minus the 8 remaining kept slots = 22 suppressed
-	// occurrences, summarized with severity, kind, and a sample.
+	// occurrences of 22 distinct messages, summarized with severity, kind,
+	// and a sample that occurred once.
 	if got.SuppressedSignals != 22 {
 		t.Fatalf("suppressed = %d, want 22", got.SuppressedSignals)
 	}
@@ -180,8 +182,95 @@ func TestEscalatingLoopOutranksArrivalOrderAndSuppressionIsSummarized(t *testing
 		t.Fatalf("suppressed rollup = %+v, want one WARN/log_level row", got.Suppressed)
 	}
 	row := got.Suppressed[0]
-	if row.Severity != "WARN" || row.Kind != "log_level" || row.Count != 22 || row.Sample == "" {
+	if row.Severity != "WARN" || row.Kind != "log_level" || row.Count != 22 || row.Sample == "" ||
+		row.SampleCount != 1 || row.Distinct != 22 {
 		t.Fatalf("suppressed row = %+v", row)
+	}
+}
+
+// Reproduces 2026-10-08: a suppressed row carried one sample and the whole
+// group's count, and the report read "27x <sample>" for a message that had
+// occurred once. Each row now says how often its sample occurred and how many
+// distinct messages the cap cut into it. Decoded from the JSON a reader gets.
+func TestSuppressedRowCountsItsSampleApartFromTheGroup(t *testing.T) {
+	var lines []string
+	for range 40 {
+		lines = append(lines, `time=2026-10-07T05:00:00Z level=WARN msg="kept warning A"`)
+	}
+	for range 30 {
+		lines = append(lines, `time=2026-10-07T05:01:00Z level=WARN msg="kept warning B"`)
+	}
+	for range 3 {
+		lines = append(lines, `time=2026-10-07T05:02:00Z level=WARN msg="cut warning repeated"`)
+	}
+	for i := range 4 {
+		lines = append(lines, fmt.Sprintf(`time=2026-10-07T05:03:00Z level=WARN msg="cut warning variant %c"`, 'a'+i))
+	}
+	got := classifyDaemon(scannedLog{state: "scanned", lines: lines}, 2)
+
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Suppressed []struct {
+			Severity    string `json:"severity"`
+			Kind        string `json:"kind"`
+			Count       int    `json:"count"`
+			Sample      string `json:"sample"`
+			SampleCount int    `json:"sample_count"`
+			Distinct    int    `json:"distinct"`
+		} `json:"suppressed"`
+		SuppressedSignals int `json:"suppressed_signals"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.SuppressedSignals != 7 || len(decoded.Suppressed) != 1 {
+		t.Fatalf("suppressed = %s", raw)
+	}
+	row := decoded.Suppressed[0]
+	if row.Severity != "WARN" || row.Kind != "log_level" || row.Count != 7 || row.Sample != "cut warning repeated" {
+		t.Fatalf("suppressed row = %+v", row)
+	}
+	if row.SampleCount != 3 || row.Distinct != 5 {
+		t.Fatalf("suppressed row sample_count = %d distinct = %d, want 3 and 5 (row %s)", row.SampleCount, row.Distinct, raw)
+	}
+}
+
+// The 2026-10-07 WhatIf timeout names the broker order it waited for in free
+// text, which the key=value redaction never saw; the report passed it on.
+// Broker order references are redacted wherever a message is emitted, and
+// ordinary words and positions stay readable.
+func TestOrderReferencesAreRedactedInFreeText(t *testing.T) {
+	whatIf := `time=2026-10-07T14:03:00+02:00 level=WARN msg="WhatIf BOND SYNTHB: timeout waiting for broker WhatIf response (IBKR sent nothing naming order 48213)" component=IBKR`
+	const want = "WhatIf BOND SYNTHB: timeout waiting for broker WhatIf response (IBKR sent nothing naming order [ref])"
+
+	got := classifyDaemon(scannedLog{state: "scanned", lines: []string{whatIf}}, defaultMaxSignals)
+	if len(got.Signals) != 1 || got.Signals[0].Message != want {
+		t.Fatalf("signal = %+v, want %q", got.Signals, want)
+	}
+	cut := classifyDaemon(scannedLog{state: "scanned", lines: []string{
+		`time=2026-10-07T14:00:00Z level=ERROR msg="kept error"`, whatIf,
+	}}, 1)
+	if len(cut.Suppressed) != 1 || cut.Suppressed[0].Sample != want {
+		t.Fatalf("suppressed = %+v, want sample %q", cut.Suppressed, want)
+	}
+
+	for in, out := range map[string]string{
+		"IBKR sent for order 48213: notice 2109: outside regular hours": "IBKR sent for order [ref]: notice 2109: outside regular hours",
+		"OrderId 48213 that needs to be cancelled cannot be cancelled":  "OrderId [ref] that needs to be cancelled cannot be cancelled",
+		"open order orderId=48213 permId=91827364 status=Submitted":     "open order orderId=[ref] permId=[ref] status=Submitted",
+		"Order permId =91827364 is not cancellable":                     "Order permId =[ref] is not cancellable",
+		"dropping callback for broker order 48213 (perm 91827364)":      "dropping callback for broker order [ref] (perm [ref])",
+		"order #48213 rejected":                                         "order #[ref] rejected",
+		"order history unavailable; 3 orders cancelled":                 "order history unavailable; 3 orders cancelled",
+		"order 2 of 3 in the plan follows after this fill":              "order 2 of 3 in the plan follows after this fill",
+		"reorder 5 legs by expiry":                                      "reorder 5 legs by expiry",
+	} {
+		if got := redactMessage(in); got != out {
+			t.Errorf("redactMessage(%q) = %q, want %q", in, got, out)
+		}
 	}
 }
 

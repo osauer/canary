@@ -58,3 +58,14 @@ disclaimer remains in that benign family set. Its volume threshold applies to
 actual UTC calendar days, across scans. Closed-family counts retain 28 days of
 recurrence evidence; short restart windows also span scans. Report size remains
 bounded by ranked signals plus suppressed-family summaries.
+
+Signals beyond `-max-signals` fold into one `suppressed` row per severity and
+kind (report `version` 3). A row's `count` totals every cut occurrence across
+its `distinct` messages; `sample` is the highest-ranked of them and
+`sample_count` how often that one message occurred, so a row with `count` 27
+and `sample_count` 1 is 27 lines, of which the sample is one.
+
+Messages never carry account IDs or broker order references. Besides
+`key=value` fields, free-text references such as `order <n>`, `OrderId <n>`,
+`orderId=<n>` and `permId <n>` keep their words and read `[ref]` in place of
+the number; a position such as `order 2 of 3` stays as written.
