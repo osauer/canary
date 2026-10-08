@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.19.1 — 2026-10-08 07:48 CEST
+
+### What's new
+
+- **A daemon log that warns only when something needs you.** A nightly TWS restart, a known missing data subscription, a settled earnings answer or a routine daemon stop no longer produce a burst of warnings. Real outages during the hours your logging schedule covers still warn, once.
+
+### Fixed
+
+- `canary restart` no longer leaves the app stopped when another command starts the daemon during the restart (#55).
+- A TWS or IB Gateway restart is logged once when the connection drops and once when it returns, instead of a burst of disconnect warnings and errors from each connection. Outside the hours your logging schedule covers, both lines are informational.
+- "Market data not subscribed" now warns once per instrument per 24 hours, as intended since 3.19.0. A data-farm alert had stopped Canary remembering earlier warnings, and repeated order-preview quotes each counted as new.
+- Broker notices about a currency pair name the pair, such as EUR.USD, instead of the base currency alone.
+- Earnings lookups no longer warn every morning that the account lacks a Wall Street Horizon subscription. The first answer per symbol still warns, and earnings dates still come from Nasdaq.
+- Stopping or restarting the daemon no longer logs chart refreshes and gamma calculations as failed.
+- The FX backfill no longer warns in the seconds after the daily statement download. A failure that persists now names its cause.
+
+### Maintenance
+
+- The log monitor shows how often each sampled warning occurred and how many different messages were cut, and it redacts broker order references in message text.
+
 ## v3.19.0 — 2026-10-07 21:54 CEST
 
 ### What's new
