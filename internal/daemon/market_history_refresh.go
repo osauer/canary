@@ -134,6 +134,13 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	readCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), marketHistoryRefreshWindow)
 	result, err := request(readCtx, item.Params)
 	cancel()
+	// The worker's own context ends only at daemon shutdown: the read was
+	// abandoned, not failed, and no next attempt will come. Keyed on ctx, not
+	// on the error: a coalesced interactive read whose caller left also
+	// returns context.Canceled while this worker lives on, and still counts.
+	if err != nil && ctx.Err() != nil {
+		return
+	}
 	verdict := marketHistoryVerdict(err)
 	s.marketData.mu.Lock()
 	// The series may have expired or been evicted during the read; it then
