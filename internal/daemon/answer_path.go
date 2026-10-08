@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -148,8 +149,13 @@ func (s *Server) superviseAnswerPaths(now time.Time) {
 	}
 }
 
+// errAnswerPathRedial marks a session the supervisor ended on purpose. The
+// supervisor has warned already, so the reconnect that follows opens no
+// gateway incident (see reconnectFlow).
+var errAnswerPathRedial = errors.New("redialled by the daemon")
+
 func (s *Server) redialStalledLane(name string, c *ibkrlib.Connector, since, now time.Time) {
-	reason := fmt.Errorf("history unanswered since %s", since.Format(time.TimeOnly))
+	reason := fmt.Errorf("%w: history unanswered since %s", errAnswerPathRedial, since.Format(time.TimeOnly))
 	switch name {
 	case rpc.AnswerPathLanePrimary:
 		if !s.brokerWriteMu.TryLock() {

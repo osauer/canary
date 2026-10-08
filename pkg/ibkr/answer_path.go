@@ -142,3 +142,23 @@ func (c *Connector) DropSession(reason error) bool {
 	conn.handleDisconnection(reason)
 	return true
 }
+
+// SessionLossCause returns why the Connector's broker session ended: the
+// transport error (EOF, reset), a heartbeat timeout, or the reason its owner
+// passed to DropSession, unchanged so errors.Is works on it. It is nil while
+// the session is connected. With ManagedConnectionLogging the loss itself
+// logs at debug, and the owner reports it with this cause.
+func (c *Connector) SessionLossCause() error {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+	if conn == nil || conn.IsConnected() {
+		return nil
+	}
+	conn.statusMu.RLock()
+	defer conn.statusMu.RUnlock()
+	return conn.lastError
+}

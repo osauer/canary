@@ -1,7 +1,10 @@
 # Bounded connection diagnostics
 
 The daemon owns a single in-memory connection incident. Failed discovery,
-handshake attempts and watchdog observations open it. The first observation
+handshake attempts, watchdog observations and the loss of a set-up API session
+(EOF, reset, heartbeat timeout; opened by the reconnect with that cause) open
+it. A session the answer-path supervisor drops on purpose does not: the
+supervisor has warned. The first observation
 warns, subsequent details are debug-only, and continuing failures produce a
 reminder every fifteen minutes. A completed connection closes it with a warning
 bookend, so recovery remains visible at the default log level. Current typed
@@ -11,13 +14,21 @@ History refreshes classified by the typed IBKR-unavailable error and proposal or
 opportunity refreshes blocked solely by `account_unavailable` may join an
 already-open connection incident. Gamma refreshes with no usable connector join
 the same incident instead of warning each minute. They cannot create that
-incident. Independent history defects and other blockers retain their warnings. The counter measures
-observations, including dependent failures, not distinct outages or retries.
+incident. A history read cut by a session change carries the typed error too,
+and in the instant between a lost session and its reconnect those symptoms
+log at debug. The breadth bulk lane shares the primary lane's gateway: its
+dial failure joins the incident while the primary session is lost or its
+incident is open; beside a healthy primary it warns on duty and logs INFO off
+duty. Independent history defects and other blockers retain their warnings.
+The counter measures observations, including dependent failures, not distinct
+outages or retries.
 
-Managed broker connections send recoverable handshake-attempt detail to debug;
-standalone library clients retain their existing severity. Protocol errors,
-identity conflicts, read-loop failures and backend-link notices are not covered
-by that switch. Neither retries nor trading gates change.
+Managed broker connections send recoverable handshake-attempt detail, startAPI
+retries and a lost session's read-loop lines (EOF, reset, disconnect,
+heartbeat timeout) to debug; standalone library clients retain their existing
+severity. Protocol errors (an oversized frame, a timeout inside a frame),
+identity conflicts and backend-link notices are not covered by that switch.
+Neither retries nor trading gates change.
 
 P&L silence has a separate bounded incident. Rebuild attempts continue at the
 existing cadence. Only a frame for the current account subscription closes the
