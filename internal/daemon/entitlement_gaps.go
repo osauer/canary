@@ -14,6 +14,14 @@ import (
 // dropped it, so every start warned once more per missing subscription: NDX
 // after each of six starts on 2026-10-06. The daemon records the gaps when a
 // connector retires and seeds the first connector of the next process.
+//
+// Owner decision (Oliver, 2026-10-08 07:15 CEST): a code-354 "market data not
+// subscribed" notice warns once per subscription key per 24 h; repeats inside
+// the window log at INFO, remembered across reconnects and daemon restarts.
+// This replaces the 2026-10-03 rule that warned again after every daemon
+// start. Documents written before then may hold one exact-session key per
+// order preview ("…|EXACT:<seq>"); loading merges them into one gap per
+// instrument (MarketDataMemory.WithEntitlementGaps normalises the keys).
 const (
 	entitlementGapScope = "market-data"
 	entitlementGapKind  = "entitlement_gaps"
