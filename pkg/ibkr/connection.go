@@ -3534,6 +3534,10 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 			symbolAlias = entry.symbol
 			if symbolAlias != "" {
 				label := symbolAlias
+				if entry.secType == "CASH" && entry.currency != "" {
+					// A pair's symbol is only its base currency.
+					label += "." + entry.currency
+				}
 				if entry.secType != "" {
 					label += " " + entry.secType
 				}
