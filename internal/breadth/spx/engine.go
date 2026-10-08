@@ -56,6 +56,11 @@ type Options struct {
 	// refuse every read; RecoveryGateError allows bounded serial recovery
 	// reads while preserving the warning. The gate must be cheap.
 	HealthGate func() error
+	// ConnectionOutage reports whether a refresh failure is a symptom of a
+	// broker-connection outage that the caller's connection owner reports;
+	// the engine then adds no warning of its own for it. nil warns on every
+	// failure.
+	ConnectionOutage func(error) bool
 }
 
 // Engine is the breadth-spx state machine: it loads persisted state, drives a
@@ -125,7 +130,8 @@ type Engine struct {
 	// while that session is still the target.
 	definitionMisses map[string]string
 
-	healthGate func() error
+	healthGate       func() error
+	connectionOutage func(error) bool
 	// Only Refresh holds these, under refreshMu. A failure admits one new
 	// trial after backoff; success permits the next serial request, never
 	// certifying all constituents or clearing the provider's warning.
@@ -169,6 +175,7 @@ func New(store *Store, fetcher BarFetcher, opts Options) *Engine {
 		definitionMisses: map[string]string{},
 		membersFn:        membersFn,
 		healthGate:       opts.HealthGate,
+		connectionOutage: opts.ConnectionOutage,
 		kick:             make(chan struct{}, 1),
 	}
 	if e.clock == nil {
@@ -410,11 +417,16 @@ const fetchErrorSampleSize = 5
 // distinct cause. A single dead bulk connector fails every planned name
 func (e *Engine) logFetchErrors(fetchErrs map[string]error) {
 	byCause := make(map[string][]string, len(fetchErrs))
+	causeErr := make(map[string]error, len(fetchErrs))
 	for sym, err := range fetchErrs {
 		cause := err.Error()
 		byCause[cause] = append(byCause[cause], sym)
+		causeErr[cause] = err
 	}
 	for _, cause := range slices.Sorted(maps.Keys(byCause)) {
+		if e.ownedOutage(causeErr[cause]) {
+			continue
+		}
 		names := byCause[cause]
 		slices.Sort(names)
 		if len(names) <= fetchErrorSampleSize {
@@ -752,6 +764,12 @@ func nySessionKey(now time.Time) string {
 		return now.In(loc).Format("2006-01-02")
 	}
 	return now.UTC().Format("2006-01-02")
+}
+
+// ownedOutage reports a failure whose connection outage the caller's
+// connection owner reports (Options.ConnectionOutage).
+func (e *Engine) ownedOutage(err error) bool {
+	return e.connectionOutage != nil && e.connectionOutage(err)
 }
 
 // warnf is a nil-safe Logger.Warnf wrapper. The engine's logger is

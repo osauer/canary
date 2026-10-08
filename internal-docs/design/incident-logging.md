@@ -22,7 +22,13 @@ lost, being dialled, or in an open incident. Beside a ready primary, including
 the inline dial during the primary's own connect, the failure is the lane's
 own episode: it warns on duty and logs INFO off duty, repeats stay at debug
 with the fifteen-minute reminder, and an episode that began off duty warns
-once when duty begins. Independent history defects and other blockers retain
+once when duty begins. That dial is the only reporter of a lane outage: the
+breadth refresh's own symptoms of it (the lane not ready, a read cut by the
+session change, no connector) carry the typed error and log at debug. A
+history read pending when its session ends fails at once with the typed error;
+TWS answers a request only on the session that carried it, and until
+2026-10-08 such a read waited out its budget, two minutes for a breadth read.
+Independent history defects and other blockers retain
 their warnings.
 The counter measures observations, including dependent failures, not distinct
 outages or retries.

@@ -57,7 +57,7 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	}
 	c := f.getConn()
 	if c == nil {
-		return nil, fmt.Errorf("breadth fetcher: no gateway connector")
+		return nil, fmt.Errorf("%w: breadth fetcher: no gateway connector", ibkrlib.ErrIBKRUnavailable)
 	}
 	// Breadth refresh is background fan-out by definition; ride the
 	// connector's background pacing lane so interactive reads on the
@@ -65,11 +65,11 @@ func (f *breadthFetcher) FetchDaily(ctx context.Context, symbol string, lookback
 	ctx = ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground)
 	binding, ready := c.CaptureHistoricalSession()
 	if !ready {
-		return nil, fmt.Errorf("breadth fetcher: historical session unavailable")
+		return nil, fmt.Errorf("%w: breadth fetcher: historical session unavailable", ibkrlib.ErrIBKRUnavailable)
 	}
 	raw, err := c.FetchHistoricalDailyBars(ctx, symbol, lookbackDays, f.defaultTimeout)
 	if !c.HistoricalSessionCurrent(binding) || f.getConn() != c {
-		return nil, fmt.Errorf("breadth fetcher: historical session changed during read")
+		return nil, fmt.Errorf("%w: breadth fetcher: historical session changed during read", ibkrlib.ErrIBKRUnavailable)
 	}
 	if errors.Is(err, ibkrlib.ErrContractNoDefinition) {
 		return nil, spx.ErrNoDefinition

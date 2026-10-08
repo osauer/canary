@@ -849,8 +849,26 @@ func (s *Server) installBreadthEngine() {
 	fetcher := newBreadthFetcher(s.breadthGatewayConnector)
 	s.breadth = spx.New(spx.NewStore(dir), fetcher, spx.Options{
 		Logger: s.logger, MembersFn: s.resolveBreadthMembers, DeferStoreLoad: true,
-		HealthGate: s.breadthLaneHealth,
+		HealthGate: s.breadthLaneHealth, ConnectionOutage: s.breadthConnectionOutage,
 	})
+}
+
+// breadthConnectionOutage takes the breadth engine's connection failures, the
+// ones typed ErrIBKRUnavailable, to their owner: the bulk lane's connect path.
+// Whatever saw the lane down (the health gate, the fetcher's connector read)
+// asked for a redial (triggerBreadthConnect); a failed dial reports itself
+// through breadthConnectWarnf, which joins the gateway's incident while the
+// primary session is not ready and is otherwise the lane's own episode, and a
+// dial that succeeds kicks the scheduler with nothing to report. The engine's
+// lines for the same outage were duplicates: on 2026-10-07 "bulk connector is
+// not ready" and "historical session changed during read" warned at 23:47:00,
+// two minutes after TWS's 23:45 restart.
+func (s *Server) breadthConnectionOutage(err error) bool {
+	if !errors.Is(err, ibkrlib.ErrIBKRUnavailable) {
+		return false
+	}
+	s.debugf("breadth: %v", err)
+	return true
 }
 
 // breadthLaneHealth is the engine's transport gate: nil when a fan-out is
@@ -865,7 +883,7 @@ func (s *Server) breadthLaneHealth() error {
 	s.mu.Unlock()
 	if c == nil || !c.IsReady() {
 		s.triggerBreadthConnect()
-		return fmt.Errorf("breadth bulk connector is not ready")
+		return fmt.Errorf("%w: breadth bulk connector is not ready", ibkrlib.ErrIBKRUnavailable)
 	}
 	if farm, impaired := breadthLaneFarmImpaired(c); impaired {
 		return breadthFarmGateError(farm)

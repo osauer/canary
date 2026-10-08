@@ -2660,6 +2660,7 @@ func (c *Connector) onConnectionLost(conn *Connection) {
 	c.mu.Unlock()
 	c.invalidateUnstampedConnectorObservations(conn)
 	c.evidenceBarrier.RUnlock()
+	c.endSessionHistory(conn)
 	// Keep every epoch-aware inbound hook on the retired Connection. Stop has
 	// a bounded drain, so a decoded late frame must still reach exact-session
 	if c.pnl != nil {
@@ -7052,6 +7053,37 @@ func (c *Connector) completeHistoricalRequest(reqID int, res historicalResult) {
 
 func (c *Connector) failHistoricalRequest(reqID int, err error) {
 	c.completeHistoricalRequest(reqID, historicalResult{err: err})
+}
+
+// errHistorySessionEnded fails a history read whose broker session ended
+// before the answer (see endSessionHistory).
+var errHistorySessionEnded = fmt.Errorf("%w: the broker session ended before the history answer", ErrIBKRUnavailable)
+
+// endSessionHistory fails every history read still waiting on conn, whose
+// session has ended. TWS answers a request only on the session that carried
+// it, so each read would otherwise wait out its own budget for an answer that
+// cannot come: two minutes for a breadth read, which held the breadth refresh
+// open until 23:47:00 after TWS's 23:45 restart (2026-10-01, 10-02, 10-06 and
+// 10-07). The failure is neither an answer nor a timeout to the answer-path
+// accounting. A read bound to another Connection is left alone.
+func (c *Connector) endSessionHistory(conn *Connection) {
+	c.mu.RLock()
+	owned := c.conn == conn
+	c.mu.RUnlock()
+	if !owned {
+		return
+	}
+	c.historicalMu.Lock()
+	ended := make([]int, 0, len(c.historicalReqs))
+	for reqID, req := range c.historicalReqs {
+		if req.connection == nil || req.connection == conn {
+			ended = append(ended, reqID)
+		}
+	}
+	c.historicalMu.Unlock()
+	for _, reqID := range ended {
+		c.failHistoricalRequest(reqID, errHistorySessionEnded)
+	}
 }
 
 func (c *Connector) nextHistoricalBackoff(symbol string) time.Duration {

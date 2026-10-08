@@ -235,8 +235,9 @@ func (e *Engine) Run(ctx context.Context) {
 		if err != nil {
 			// Transport waits poll every transportRetryDelay; warn only
 			// when the reason changes so an hours-long farm outage reads
-			// as an episode in the log, not a line per poll.
-			if msg := err.Error(); msg != lastTransportWarn {
+			// as an episode in the log, not a line per poll. A connection
+			// outage is its owner's to report.
+			if msg := err.Error(); msg != lastTransportWarn && !e.ownedOutage(err) {
 				e.warnf("breadth: %s refresh: %v", reason, err)
 				lastTransportWarn = msg
 			}
