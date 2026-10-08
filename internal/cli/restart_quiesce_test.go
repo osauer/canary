@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/update"
 )
@@ -34,6 +35,7 @@ func testRestartStateHome(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_RUNTIME_DIR", root)
 	t.Setenv("CANARY_SOCKET", "")
 	return root
 }
@@ -158,6 +160,11 @@ func TestRunRestartAllCoreRecordsQuiescedSupervisorUntilResumed(t *testing.T) {
 			return nil
 		},
 		load: func(context.Context, appSupervisor) error {
+			wait, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			if _, _, err := dial.WithStartupLock(wait, dial.DefaultSocketPath()); !errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("restart released reservation before app resume: %v", err)
+			}
 			if !fileExists(t, recordPath) {
 				t.Fatal("quiesce record must survive until the job is loaded again")
 			}

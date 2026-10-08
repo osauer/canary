@@ -94,6 +94,10 @@ func OpenLock(path string) (*Lock, error) {
 	return &Lock{path: path, f: f}, nil
 }
 
+// File exposes the held descriptor for inheritance via exec.Cmd.ExtraFiles.
+// The caller must not close or unlock it; Release retains ownership.
+func (l *Lock) File() *os.File { return l.f }
+
 // Release unlocks and closes the underlying file. Safe to call
 // multiple times; the second call is a no-op. The lock file itself
 // is intentionally NOT removed (see OpenLock comment).

@@ -191,6 +191,11 @@ func AutospawnAndConnectContext(ctx context.Context, socketPath string) (*Conn, 
 // semantics, so a caller that finds a daemon still booting waits for its
 // socket instead of starting a second one.
 func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, executable string) (*Conn, error) {
+	ctx, release, err := WithStartupLock(ctx, socketPath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if err := CheckAutostart(socketPath); err != nil {
 		return nil, err
 	}
@@ -224,7 +229,7 @@ func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, e
 	if err := CheckAutostart(socketPath); err != nil {
 		return nil, err
 	}
-	spawnedPID, err := spawnDaemonFromExecutable(executable)
+	spawnedPID, err := spawnDaemonFromExecutable(ctx, executable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
@@ -261,6 +266,14 @@ func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, e
 // restart may also have to carry a validated schema migration before the
 // socket is published. A non-positive budget falls back to StartupBudget.
 func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, socketPath, executable string, startupTimeout time.Duration) (*Conn, error) {
+	ctx, release, err := WithStartupLock(ctx, socketPath)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if err := CheckAutostart(socketPath); err != nil {
+		return nil, err
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -283,7 +296,7 @@ func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, so
 		return nil, err
 	}
 
-	spawnedPID, err := spawnDaemonFromExecutable(executable)
+	spawnedPID, err := spawnDaemonFromExecutable(ctx, executable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon from %s: %w", executable, err)
 	}
@@ -340,12 +353,15 @@ func waitForSocketOrPIDDeath(ctx context.Context, socketPath string, pid int, ti
 // Stdout/stderr route to the daemon log file (or /dev/null on fallback).
 // Leaving Cmd.Stdout/Stderr at the zero value wired exec to a closed fd on
 // macOS and wedged the daemon during startup before it could log.
-func spawnDaemonFromExecutable(bin string) (int, error) {
+func spawnDaemonFromExecutable(ctx context.Context, bin string) (int, error) {
 	bin = strings.TrimSpace(bin)
 	if bin == "" {
 		return 0, errors.New("daemon executable is empty")
 	}
 	cmd := exec.Command(bin, "daemon")
+	if held, ok := ctx.Value(startupLockKey{}).(*startupReservation); ok {
+		cmd.ExtraFiles = []*os.File{held.file}
+	}
 	cmd.Stdin = nil
 
 	logPath := DefaultLogPath()
