@@ -288,6 +288,12 @@ func TestExactSessionEntitlementGapIsOnePerInstrument(t *testing.T) {
 					t.Fatal(err)
 				}
 				conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(subscriptionReqID(c, key), 354, notSubscribed354), epoch)
+				if !strings.Contains(key, "|EXACT:") {
+					t.Fatalf("fixture: %q is not an exact-session key", key)
+				}
+				if c.marketDataAbsenceFor(key) == nil {
+					t.Fatalf("the rejection of %s formed no per-request absence", key)
+				}
 				_ = c.UnsubscribeMarketDataForSession(t.Context(), binding, key)
 			}
 			lines := logLines(buf, "code=354")
@@ -305,5 +311,35 @@ func TestExactSessionEntitlementGapIsOnePerInstrument(t *testing.T) {
 				t.Fatalf("next exact-session quote refused: %v", err)
 			}
 		})
+	}
+}
+
+// A 354 drawn by the delayed fallback's own request is no absence verdict on
+// the contract: the live refusal already decided the line. It still warned,
+// so the gap memory records it under the line's key and exports it to the
+// daemon, and the next probe of that gap is INFO.
+func TestDelayedFallback354RemembersTheGapWithoutAnAbsence(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	c, conn, epoch := wiredNoticeConnector(t)
+	contract := Contract{ConID: 900104, Symbol: "SYNTHDLY", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	key, err := c.SubscribeMarketDataWithContract(t.Context(), contract, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.subMu.Lock()
+	c.subscriptions[key].delayedFallback = true // the current request is the delayed fallback's
+	c.subMu.Unlock()
+	if c.marketDataFarmImpaired() {
+		t.Fatal("fixture: a farm is impaired; the farm branch would decide instead")
+	}
+	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(subscriptionReqID(c, key), 354, notSubscribed354), epoch)
+	if _, ok := c.ExportMarketDataMemory().EntitlementGaps()[key]; !ok {
+		t.Fatal("the warned gap was not remembered for the daemon")
+	}
+	if c.marketDataAbsenceFor(key) != nil {
+		t.Fatal("a delayed-fallback rejection formed an absence verdict")
+	}
+	if lines := logLines(buf, "code=354"); len(lines) != 1 || !strings.Contains(lines[0], "level=WARN") {
+		t.Fatalf("354 severities, want one WARN: %v", lines)
 	}
 }

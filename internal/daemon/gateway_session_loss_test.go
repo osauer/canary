@@ -431,3 +431,79 @@ func TestBreadthConnectFailureFollowsDuty(t *testing.T) {
 		})
 	}
 }
+
+// postConnectSetup dials the bulk lane inline while the primary's connect
+// still holds the dial slot. A ready primary proves the gateway is up, so a
+// bulk dial TWS turns away there (a zombie session holding client ID 16, a
+// handshake that never completes) is the lane's own failure and follows the
+// duty schedule; the pending dial used to claim it, leaving it at debug.
+func TestBreadthDialFailureBesideReadyPrimaryFollowsDuty(t *testing.T) {
+	for _, tc := range []struct {
+		at, level string
+	}{{"2026-10-07T18:00:00Z", "WARN"}, {"2026-10-07T22:30:00Z", "INFO"}} {
+		t.Run(tc.level, func(t *testing.T) {
+			f := startFakeTWS(t)
+			s, out := sessionLossServer(t, f, tc.at)
+			mark := len(out.String())
+
+			f.rejecting.Store(true) // TWS turns the bulk lane's client away
+			s.mu.Lock()
+			s.connectInFlight = true // as inside postConnectSetup
+			s.breadthConnectInFlight = true
+			ep := s.endpoint
+			s.mu.Unlock()
+			s.breadthConnectFlow(t.Context(), ep)
+			s.mu.Lock()
+			s.connectInFlight = false
+			s.mu.Unlock()
+
+			logged := settledLog(out, mark)
+			var own []string
+			for _, line := range logLinesAt(logged, tc.level) {
+				if strings.Contains(line, "breadth bulk connector") {
+					own = append(own, line)
+				}
+			}
+			if len(own) != 1 {
+				t.Fatalf("want one %s line for the bulk lane's failure beside a ready primary, got %d:\n%s", tc.level, len(own), logged)
+			}
+			if tc.level == "INFO" && len(logLinesAt(logged, "WARN")) != 0 {
+				t.Fatalf("off-duty bulk failure warned:\n%s", logged)
+			}
+		})
+	}
+}
+
+// A bulk-lane failure that starts off duty logs INFO; when duty begins while
+// it continues, it warns once, as the primary's incident does. The streak
+// check kept every later failure at debug, so the lane could stay down all
+// session with no warning.
+func TestBreadthFailureStartedOffDutyWarnsWhenDutyBegins(t *testing.T) {
+	now := scheduleTime(t, "2026-10-08T10:00:00Z") // Thu 12:00 CEST, before the US duty window
+	out := &lockedBuffer{}
+	s := &Server{cfg: &config.Resolved{Daemon: config.Daemon{LogCalendarMode: "scheduled"}}, logger: NewLogger(out, "debug"), now: func() time.Time { return now }}
+	s.gatewaySchedule.view.Store(compileGatewaySchedule(now, []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions}, 2*time.Hour, 90*time.Minute, false))
+	fail := func() {
+		s.breadthConnectWarnf("breadth bulk connector: not ready after Start (cid=%d); skipping", 16)
+		s.releaseBreadthConnect(false)
+	}
+	fail()
+	now = now.Add(30 * time.Second)
+	fail()
+	now = scheduleTime(t, "2026-10-08T12:00:00Z") // duty began at 11:30Z
+	fail()
+	now = now.Add(30 * time.Second)
+	fail()
+	lines := func(level string) []string { return logLinesAt(out.String(), level) }
+	if len(lines("INFO")) != 1 || len(lines("WARN")) != 1 || len(lines("DEBUG")) != 2 {
+		t.Fatalf("want INFO, then one WARN when duty begins, repeats at debug:\n%s", out.String())
+	}
+
+	// A seated lane ends the episode; the next failure is a new one.
+	s.releaseBreadthConnect(true)
+	now = now.Add(time.Minute)
+	fail()
+	if len(lines("WARN")) != 2 {
+		t.Fatalf("a new failure after recovery did not warn:\n%s", out.String())
+	}
+}

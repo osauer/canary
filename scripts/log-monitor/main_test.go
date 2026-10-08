@@ -258,15 +258,20 @@ func TestOrderReferencesAreRedactedInFreeText(t *testing.T) {
 	}
 
 	for in, out := range map[string]string{
-		"IBKR sent for order 48213: notice 2109: outside regular hours": "IBKR sent for order [ref]: notice 2109: outside regular hours",
-		"OrderId 48213 that needs to be cancelled cannot be cancelled":  "OrderId [ref] that needs to be cancelled cannot be cancelled",
-		"open order orderId=48213 permId=91827364 status=Submitted":     "open order orderId=[ref] permId=[ref] status=Submitted",
-		"Order permId =91827364 is not cancellable":                     "Order permId =[ref] is not cancellable",
-		"dropping callback for broker order 48213 (perm 91827364)":      "dropping callback for broker order [ref] (perm [ref])",
-		"order #48213 rejected":                                         "order #[ref] rejected",
-		"order history unavailable; 3 orders cancelled":                 "order history unavailable; 3 orders cancelled",
-		"order 2 of 3 in the plan follows after this fill":              "order 2 of 3 in the plan follows after this fill",
-		"reorder 5 legs by expiry":                                      "reorder 5 legs by expiry",
+		"IBKR sent for order 48213: notice 2109: outside regular hours":                 "IBKR sent for order [ref]: notice 2109: outside regular hours",
+		"OrderId 48213 that needs to be cancelled cannot be cancelled":                  "OrderId [ref] that needs to be cancelled cannot be cancelled",
+		"open order orderId=48213 permId=91827364 status=Submitted":                     "open order orderId=[ref] permId=[ref] status=Submitted",
+		"Order permId =91827364 is not cancellable":                                     "Order permId =[ref] is not cancellable",
+		"dropping callback for broker order 48213 (perm 91827364)":                      "dropping callback for broker order [ref] (perm [ref])",
+		"order #48213 rejected":                                                         "order #[ref] rejected",
+		"order history unavailable; 3 orders cancelled":                                 "order history unavailable; 3 orders cancelled",
+		"order 2 of 3 in the plan follows after this fill":                              "order 2 of 3 in the plan follows after this fill",
+		"order 48213 of 100 shares rejected":                                            "order [ref] of 100 shares rejected",
+		"modify preview token targets broker order ID 48213, current order is 48214":    "modify preview token targets broker order ID [ref], current order is [ref]",
+		"modify preview token targets permanent ID 91827364, current order is 91827365": "modify preview token targets permanent ID [ref], current order is [ref]",
+		"child order parentId 48213 not found":                                          "child order parentId [ref] not found",
+		"openOrder 48213 arrived for an unknown contract":                               "openOrder [ref] arrived for an unknown contract",
+		"reorder 5 legs by expiry":                                                      "reorder 5 legs by expiry",
 	} {
 		if got := redactMessage(in); got != out {
 			t.Errorf("redactMessage(%q) = %q, want %q", in, got, out)

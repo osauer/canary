@@ -281,6 +281,9 @@ type Server struct {
 	breadthConnectInFlight      bool
 	breadthConnectFailStreak    int
 	lastBreadthConnectAttemptAt time.Time
+	// breadthLog is the bulk lane's own failure episode, for a failure beside
+	// a ready primary; see breadthConnectWarnf.
+	breadthLog logepisode.State
 
 	// membersRefresher runs the daemon-internal SPX-constituent
 	// `~/.cache/ibkr/spx-members/sp500-members.json` and pushed into
@@ -1041,45 +1044,52 @@ func (s *Server) breadthLaneDown() (down bool, failStreak int, lastAttempt time.
 // reconnects immediately; failure widens the quiet period 1s→15s, the
 func (s *Server) releaseBreadthConnect(ok bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.breadthConnectInFlight = false
 	if ok {
 		s.breadthConnectFailStreak = 0
-		return
+	} else {
+		s.breadthConnectFailStreak++
 	}
-	s.breadthConnectFailStreak++
+	s.mu.Unlock()
+	if ok {
+		s.breadthLog.Recover(s.gatewayLogClock())
+	}
 }
 
-// breadthConnectWarnf surfaces the first failure of a streak at Warn and
-// drops the repeats to Debug. A gateway that stays down re-triggers this
-// lane on every breadth tick (30 s after a transport error, 12 min after
-// a below-threshold pass), and the primary lane has already learned what
-// an unthrottled per-attempt WARN does to this log: ~50k identical lines
-// over one 13.5 h overnight outage.
+// breadthConnectWarnf reports a bulk-lane dial failure once per episode. A
+// gateway that stays down re-triggers this lane on every breadth tick (30 s
+// after a transport error, 12 min after a below-threshold pass), and the
+// primary lane has already learned what an unthrottled per-attempt WARN does
+// to this log: ~50k identical lines over one 13.5 h overnight outage.
 //
-// The bulk lane shares the primary lane's gateway: while that gateway's
-// incident is open, a dial is pending or the primary session has ended, the
-// failure joins the incident at debug instead of adding a second warning
-// (TWS's restart ends both clients at once). A failure beside a healthy
-// primary is the lane's own and follows the duty schedule: WARN on duty,
-// INFO off duty.
+// The bulk lane shares the primary lane's gateway: while the primary is not
+// ready and that gateway's incident is open, a dial is pending or the
+// primary session has ended, the failure joins the incident at debug instead
+// of adding a second warning (TWS's restart ends both clients at once). A
+// ready primary proves the gateway is up, so a failure beside it is the
+// lane's own even while the primary's connect still holds the dial slot
+// (postConnectSetup dials this lane inline; the pending dial used to claim
+// that failure at debug). The lane's own episode follows the duty schedule
+// like the primary's incident: the first failure warns on duty and logs INFO
+// off duty, repeats stay at debug with a reminder every fifteen minutes, and
+// a failure that began off duty warns once when duty begins. A seated lane
+// ends the episode (releaseBreadthConnect).
 func (s *Server) breadthConnectWarnf(format string, args ...any) {
-	s.mu.Lock()
-	first := s.breadthConnectFailStreak == 0
-	s.mu.Unlock()
-	if !first {
-		s.debugf(format, args...)
-		return
-	}
 	detail := fmt.Sprintf(format, args...)
-	if s.logGatewayDependency(detail) {
+	if !s.gatewaySessionReady() && s.logGatewayDependency(detail) {
 		return
 	}
-	if now := s.gatewayLogClock(); !s.gatewayLogRequired(now, now) {
-		s.infof("%s", detail)
-		return
+	now := s.gatewayLogClock()
+	required := s.gatewayLogRequired(now, now)
+	emit, count, age := s.breadthLog.ObserveAttention(now, required)
+	switch {
+	case !emit:
+		s.debugf("%s", detail)
+	case required:
+		s.warnf("%s (observations=%d, duration=%s)", detail, count, age.Round(time.Second))
+	default:
+		s.infof("%s (observations=%d, duration=%s)", detail, count, age.Round(time.Second))
 	}
-	s.warnf("%s", detail)
 }
 
 // triggerBreadthConnect starts a background rebuild of the bulk lane if

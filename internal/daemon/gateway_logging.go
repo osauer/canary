@@ -96,6 +96,15 @@ func (s *Server) gatewaySessionEnded() bool {
 	return c != nil && s.postConnectSetupDone.Load() && !c.IsReady()
 }
 
+// gatewaySessionReady reports a published connector with a live API session,
+// read without gatewayConnector's reconnect side effect.
+func (s *Server) gatewaySessionReady() bool {
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	return c != nil && c.IsReady()
+}
+
 // historicalBarFarmOutage reads the current connector's announced bar-farm
 // outage without the reconnect side effect of gatewayConnector.
 func (s *Server) historicalBarFarmOutage() bool {

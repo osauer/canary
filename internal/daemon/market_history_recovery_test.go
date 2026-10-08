@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -131,5 +134,58 @@ func TestHistoryReconciliationReservationBoundsConcurrentReaders(t *testing.T) {
 	}
 	if !s.reserveHistoryReconciliation("one-series", now.Add(15*time.Minute)) {
 		t.Fatal("reservation never permits recovery")
+	}
+}
+
+// A full reconciliation read cut by the reader's own context is abandoned,
+// not failed: daemon shutdown (or a caller who left) cancelled it. Only the
+// tail read checked the context, so the reconciliation read logged "IBKR
+// refresh failed: context canceled" at WARN on the way out. A reconciliation
+// that fails on its own still warns.
+func TestHistoryReconciliationCancelledByReaderDoesNotWarn(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		cancel   bool
+		wantWarn int
+	}{{"reader cancelled", true, 0}, {"broker failed", false, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, p, key, now, r := historyFixture(t)
+			var buf bytes.Buffer
+			s.logger = NewLogger(&buf, "info")
+			r.Points = append(r.Points[:1], rpc.MarketHistoryPoint{At: now.AddDate(0, 0, -5).Truncate(24 * time.Hour), Value: 105}, r.Points[1])
+			if _, err := s.readRetainedHistory(t.Context(), key, p, now, func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error) {
+				return &r, nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			later := now.AddDate(0, 0, 3)
+			calls := 0
+			_, err := s.readRetainedHistory(ctx, key, p, later, func(ctx context.Context, _ rpc.MarketHistoryParams, days int, _ time.Time) (*rpc.MarketHistoryResult, error) {
+				calls++
+				if days > 0 { // the tail: an older bar changed, so a full read follows
+					changed := r
+					changed.Points = slices.Clone(r.Points)
+					changed.AsOf = later
+					changed.Points[1].Value = 52.5
+					return &changed, nil
+				}
+				if tc.cancel {
+					cancel()
+					return nil, fmt.Errorf("historical data for SYNTH: %w", ctx.Err())
+				}
+				return nil, errors.New("synthetic full-range failure")
+			})
+			if calls != 2 {
+				t.Fatalf("reconciliation read not reached: calls=%d err=%v", calls, err)
+			}
+			if n := strings.Count(buf.String(), "level=WARN"); n != tc.wantWarn {
+				t.Fatalf("WARN lines = %d, want %d:\n%s", n, tc.wantWarn, buf.String())
+			}
+			if tc.cancel && !errors.Is(err, context.Canceled) {
+				t.Fatalf("abandoned read returned %v, want context.Canceled", err)
+			}
+		})
 	}
 }

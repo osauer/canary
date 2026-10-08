@@ -113,9 +113,9 @@ type ConnectionConfig struct {
 	// Reconnection settings (from hedge patterns)
 	// ManagedConnectionLogging delegates outage warnings to the owner: failed
 	// connection attempts, startAPI retries and a lost session (EOF, reset,
-	// heartbeat timeout, disconnect) log at debug, and the owner reports the
-	// outage once. Protocol faults such as an oversized frame still log at
-	// error. Returned errors and connection state are unchanged; standalone
+	// failed heartbeat send, heartbeat timeout, disconnect) log at debug, and
+	// the owner reports the outage once. Protocol faults such as an oversized
+	// frame or a TLS alert still log at error. Returned errors and connection state are unchanged; standalone
 	// callers default to warnings.
 	ManagedConnectionLogging bool
 	AutoReconnect            bool
@@ -919,13 +919,14 @@ func (c *Connection) logReadFailure(l logging.Entry, fault bool, err error, form
 
 // transportLoss reports whether err is the peer or the network ending the
 // socket (EOF, reset, broken pipe) rather than a protocol fault or a read
-// timeout.
+// timeout. crypto/tls reports a TLS alert as a *net.OpError with Op "remote
+// error" or "local error"; that is a protocol fault on a live socket.
 func transportLoss(err error) bool {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
 	if opErr, ok := errors.AsType[*net.OpError](err); ok {
-		return !opErr.Timeout()
+		return !opErr.Timeout() && opErr.Op != "remote error" && opErr.Op != "local error"
 	}
 	return false
 }
@@ -1315,9 +1316,10 @@ func (c *Connection) heartbeatMonitor() {
 			}
 
 			// Send heartbeat request to IBKR. A failed send is left to the
-			// answer timeout above.
+			// answer timeout above, which ends the session; on a managed
+			// connection that loss is the owner's to report.
 			if err := c.RequestCurrentTime(); err != nil {
-				connectLogger.Warnf("Failed to send heartbeat: %v", err)
+				c.logOwnedWarn(connectLogger, "Failed to send heartbeat: %v", err)
 			}
 		}
 	}

@@ -17,17 +17,22 @@ the same incident instead of warning each minute. They cannot create that
 incident. A history read cut by a session change carries the typed error too,
 and in the instant between a lost session and its reconnect those symptoms
 log at debug. The breadth bulk lane shares the primary lane's gateway: its
-dial failure joins the incident while the primary session is lost or its
-incident is open; beside a healthy primary it warns on duty and logs INFO off
-duty. Independent history defects and other blockers retain their warnings.
+dial failure joins the incident while the primary session is not ready and is
+lost, being dialled, or in an open incident. Beside a ready primary, including
+the inline dial during the primary's own connect, the failure is the lane's
+own episode: it warns on duty and logs INFO off duty, repeats stay at debug
+with the fifteen-minute reminder, and an episode that began off duty warns
+once when duty begins. Independent history defects and other blockers retain
+their warnings.
 The counter measures observations, including dependent failures, not distinct
 outages or retries.
 
 Managed broker connections send recoverable handshake-attempt detail, startAPI
-retries and a lost session's read-loop lines (EOF, reset, disconnect,
-heartbeat timeout) to debug; standalone library clients retain their existing
-severity. Protocol errors (an oversized frame, a timeout inside a frame),
-identity conflicts and backend-link notices are not covered by that switch.
+retries and a lost session's read-loop lines (EOF, reset, disconnect, failed
+heartbeat send, heartbeat timeout) to debug; standalone library clients retain
+their existing severity. Protocol errors (an oversized frame, a timeout inside
+a frame, a TLS alert), identity conflicts and backend-link notices are not
+covered by that switch.
 Neither retries nor trading gates change.
 
 P&L silence has a separate bounded incident. Rebuild attempts continue at the

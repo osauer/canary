@@ -147,9 +147,12 @@ var (
 	counterPattern  = regexp.MustCompile(`\b([a-z_]+)=\d+(?:[./]\d+)?\b|\(cached \d+ so far\)`)
 	// Broker order references also travel in free text: the WhatIf timeout
 	// names "order 48213", broker notices "OrderId 48213" or "permId =…", the
-	// order wire summary "orderId=…". The keyword and separator stay; the
-	// number does not. "order 2 of 3" is a position, kept by redactOrderRefs.
-	orderRefPattern = regexp.MustCompile(`(?i)\b(?:order(?:[ _]?id)?|perm(?:[ _]?id)?)(?:\s*[=:#]\s*|\s+#?)(\d+)\b`)
+	// order wire summary "orderId=…", the modify-token check "permanent ID
+	// …, current order is …". A camelCase identifier ending in Order
+	// ("openOrder 48213") has no word boundary before "order", so it is
+	// matched on its own. The keyword and separator stay; the number does
+	// not. "order 2 of 3" is a position, kept by redactOrderRefs.
+	orderRefPattern = regexp.MustCompile(`\b(?:[A-Za-z]*[a-z]Order|(?i:order|perm(?:anent)?|parent[ _]?id))(?i:[ _]?id)?(?i:\s*[=:#]\s*|\s+(?:is\s+)?#?)(\d+)\b`)
 	ordinalTail     = regexp.MustCompile(`^\s+of\s+\d`)
 )
 
@@ -639,12 +642,14 @@ func redactMessage(message string) string {
 }
 
 // redactOrderRefs replaces the number of every broker order reference with
-// [ref], keeping the words around it, except an ordinal such as "order 2 of 3".
+// [ref], keeping the words around it, except an ordinal such as "order 2 of
+// 3". An ordinal has at most two digits: "order 48213 of 100 shares" names a
+// broker order.
 func redactOrderRefs(message string) string {
 	var out strings.Builder
 	last := 0
 	for _, m := range orderRefPattern.FindAllStringSubmatchIndex(message, -1) {
-		if ordinalTail.MatchString(message[m[1]:]) {
+		if m[3]-m[2] <= 2 && ordinalTail.MatchString(message[m[1]:]) {
 			continue
 		}
 		out.WriteString(message[last:m[2]])

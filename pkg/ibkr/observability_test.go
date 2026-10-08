@@ -1,12 +1,15 @@
 package ibkr
 
 import (
+	"crypto/tls"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -165,5 +168,75 @@ func TestManagedStartAPIRetriesLogAtDebug(t *testing.T) {
 				t.Errorf("managed=%t: want one %s line for %q, got %q", managed, want, substr, lines)
 			}
 		}
+	}
+}
+
+// A heartbeat that cannot be sent on a managed connection belongs to the
+// lost session its owner reports once; the answer timeout then ends the
+// session. It warned on every tick until then. Standalone clients keep the
+// warning.
+func TestHeartbeatSendFailureFollowsManagedLogging(t *testing.T) {
+	for _, tc := range []struct {
+		managed bool
+		level   string
+	}{{true, "DEBUG"}, {false, "WARN"}} {
+		t.Run(tc.level, func(t *testing.T) {
+			buf := captureConnectorLogs(t)
+			SetLogLevel("debug")
+			t.Cleanup(func() { SetLogLevel("info") })
+			conn, _ := heartbeatPair(t, 100*time.Millisecond)
+			conn.config.ManagedConnectionLogging = tc.managed
+			_ = conn.conn.Close() // the socket is gone; status still reads connected
+			conn.lastHeartbeatNano.Store(time.Now().UnixNano())
+			conn.wg.Add(1)
+			go conn.heartbeatMonitor()
+			deadline := time.Now().Add(5 * time.Second)
+			for conn.IsConnected() {
+				if time.Now().After(deadline) {
+					t.Fatal("answer timeout did not end the session")
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+			lines := logLines(buf, "Failed to send heartbeat")
+			if len(lines) == 0 {
+				t.Fatal("no heartbeat send failure observed: the test proves nothing")
+			}
+			for _, line := range lines {
+				if !strings.Contains(line, "level="+tc.level) {
+					t.Fatalf("managed=%t: want %s, got %q", tc.managed, tc.level, line)
+				}
+			}
+		})
+	}
+}
+
+// crypto/tls reports an alert as a *net.OpError whose Op is "remote error"
+// or "local error". That is a protocol fault on a live socket, not the peer
+// ending it, so a managed connection keeps its error; reading it as a
+// transport loss sent it to debug.
+func TestTLSAlertIsNotATransportLoss(t *testing.T) {
+	serverSide, clientSide := net.Pipe()
+	defer serverSide.Close()
+	defer clientSide.Close()
+	go func() { _ = tls.Server(serverSide, &tls.Config{MinVersion: tls.VersionTLS13}).Handshake() }()
+	remote := tls.Client(clientSide, &tls.Config{MaxVersion: tls.VersionTLS12, InsecureSkipVerify: true}).Handshake()
+	if opErr, ok := errors.AsType[*net.OpError](remote); !ok || opErr.Op != "remote error" {
+		t.Fatalf("fixture: want a TLS alert from the peer, got %v", remote)
+	}
+	local := &net.OpError{Op: "local error", Net: "tcp", Err: tls.AlertError(20)} // bad_record_mac
+	for _, err := range []error{remote, local} {
+		if transportLoss(err) {
+			t.Errorf("TLS alert %v read as a transport loss", err)
+		}
+	}
+	if reset := (&net.OpError{Op: "read", Net: "tcp", Err: syscall.ECONNRESET}); !transportLoss(reset) {
+		t.Error("a reset is a transport loss")
+	}
+
+	buf := captureConnectorLogs(t)
+	c := &Connection{config: &ConnectionConfig{ManagedConnectionLogging: true}}
+	c.logReadFailure(connectLogger, true, local, "Error reading message: %v", local)
+	if lines := logLines(buf, "Error reading message: local error"); len(lines) != 1 || !strings.Contains(lines[0], "level=ERROR") {
+		t.Fatalf("managed TLS alert: want one ERROR line, got %q", lines)
 	}
 }

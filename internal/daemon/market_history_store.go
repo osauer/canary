@@ -415,6 +415,13 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		}
 	}
 	if fetchErr != nil {
+		if err := ctx.Err(); err != nil {
+			// The reader left or the daemon is stopping: the read was
+			// abandoned, not failed, whichever read it cut. Only the tail read
+			// checked this, so a reconciliation read cut by shutdown warned
+			// "IBKR refresh failed: context canceled".
+			return nil, err
+		}
 		if saved == nil {
 			return nil, fetchErr
 		}
