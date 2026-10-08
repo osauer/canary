@@ -708,7 +708,7 @@ func (s *Server) installEarningsCache() {
 		s.logger.Warnf("earnings cache: resolve dir: %v (persistence disabled)", err)
 		dir = ""
 	}
-	cache := newEarningsCacheCold(dir, s.logger.Warnf)
+	cache := newEarningsCacheCold(dir, s.logger.Warnf, s.logger.Debugf)
 	if err := cache.setSecondaryProvider(earningsWSHProvider, s.fetchWSHEarningsProvider); err != nil {
 		s.logger.Warnf("earnings cache: install IBKR WSH provider: %v", err)
 	}

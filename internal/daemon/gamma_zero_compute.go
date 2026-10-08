@@ -531,6 +531,7 @@ func computeGammaZeroFor(
 	now func() time.Time,
 	progress *atomic.Int32,
 	logger gammaLogger,
+	stopping func() bool,
 	oiStore *gammaOpenInterestStore,
 	grids *expiryGridStore,
 ) (*rpc.GammaZeroComputed, error) {
@@ -652,6 +653,7 @@ func computeGammaZeroFor(
 		startWall:  startWall,
 		log:        log,
 		linkDown:   func() bool { return gammaBackendLinkDown(c) },
+		stopping:   stopping,
 	}
 	legs, liveOIUpdates, stats, err := fan.run(ctx, jobs)
 	if err != nil {
@@ -1005,6 +1007,11 @@ type gammaLegFanout struct {
 	// time, so the scheduler's per-tick guard cannot stop a fan-out already
 	// in flight. Nil means never down.
 	linkDown func() bool
+	// stopping reports daemon shutdown: the server context every compute
+	// derives from is done. A fan-out it cancels was abandoned, not failed;
+	// one cancelled by a forced recompute alone still warns. Nil means the
+	// daemon is never stopping.
+	stopping func() bool
 }
 
 func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legData, map[string]gammaOIRecord, gammaFanoutStats, error) {
@@ -1115,7 +1122,11 @@ func (f *gammaLegFanout) run(ctx context.Context, jobs []gammaLegSpec) ([]legDat
 	}
 	fanoutElapsed := time.Since(f.startWall).Round(time.Millisecond)
 	if ctx.Err() != nil {
-		f.log.Warnf("gamma.abort reason=ctx_cancelled landed=%d/%d elapsed=%s err=%v",
+		abort := f.log.Warnf
+		if f.stopping != nil && f.stopping() {
+			abort = f.log.Infof
+		}
+		abort("gamma.abort reason=ctx_cancelled landed=%d/%d elapsed=%s err=%v",
 			len(legs), len(jobs), fanoutElapsed, ctx.Err())
 		return nil, nil, stats, ctx.Err()
 	}

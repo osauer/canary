@@ -548,10 +548,17 @@ func runUnderlyingPhaseOnce(
 	}()
 
 	var logger gammaLogger
+	var stopping func() bool
 	if s != nil {
 		logger = s.logger
+		s.mu.Lock()
+		serverCtx := s.serverCtx
+		s.mu.Unlock()
+		if serverCtx != nil {
+			stopping = func() bool { return serverCtx.Err() != nil }
+		}
 	}
-	return computeGammaZeroFor(bgCtx, c, underlying, params, productionLegFetcher, time.Now, innerProg, logger, s.gammaOI, s.gammaGrids)
+	return computeGammaZeroFor(bgCtx, c, underlying, params, productionLegFetcher, time.Now, innerProg, logger, stopping, s.gammaOI, s.gammaGrids)
 }
 
 // gammaScopeForRequest maps the requested scope onto the actual

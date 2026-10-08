@@ -243,7 +243,10 @@ type earningsCache struct {
 	store    *earningsStore
 	client   *http.Client
 	logf     func(format string, args ...any)
-	clock    func() time.Time
+	// debugf takes outcomes that are not news to an operator, such as a
+	// provider confirming a verdict it already gave and the brief names.
+	debugf func(format string, args ...any)
+	clock  func() time.Time
 	// fetchURL is swappable for tests; %s receives the provider symbol.
 	fetchURL string
 
@@ -256,21 +259,25 @@ type earningsCache struct {
 
 // newEarningsCacheCold installs the legacy codec without reading it. Server
 // leaves legacy reads exclusively to the unpublished cutover importer.
-func newEarningsCacheCold(dir string, logf func(string, ...any)) *earningsCache {
-	c := newEarningsCacheMemory(logf)
+func newEarningsCacheCold(dir string, logf, debugf func(string, ...any)) *earningsCache {
+	c := newEarningsCacheMemory(logf, debugf)
 	c.store = &earningsStore{dir: dir}
 	return c
 }
 
-func newEarningsCacheMemory(logf func(string, ...any)) *earningsCache {
+func newEarningsCacheMemory(logf, debugf func(string, ...any)) *earningsCache {
 	if logf == nil {
 		logf = func(string, ...any) {}
+	}
+	if debugf == nil {
+		debugf = func(string, ...any) {}
 	}
 	return &earningsCache{
 		symbols:                 map[string]earningsSymbolState{},
 		inflight:                map[string]bool{},
 		client:                  &http.Client{Timeout: earningsFetchTimeout},
 		logf:                    logf,
+		debugf:                  debugf,
 		clock:                   time.Now,
 		fetchURL:                "https://api.nasdaq.com/api/analyst/%s/earnings-date",
 		authorityRetryNotBefore: map[string]time.Time{},
@@ -588,10 +595,18 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 		// An attempt without a failure record is the provider answering
 		// (no_date_published, unsupported_security), not breaking; those
 		// verdicts live in the earnings state, so only genuine failures warn.
-		if item.localErr != nil && item.attempt.LastFailure != nil {
-			failure := item.attempt.LastFailure
-			c.logf("earnings provider %s outcome symbol=%s status=%s code=%s stage=%s retryable=%t", item.provider, sym, item.attempt.Status, failure.Code, failure.Stage, failure.Retryable)
+		if item.localErr == nil || item.attempt.LastFailure == nil {
+			continue
 		}
+		failure := item.attempt.LastFailure
+		logf := c.logf
+		// An unentitled feed is an account-level verdict the brief already
+		// names; the daily retry that only confirms it is not news.
+		previous := state.Providers[item.provider].LastAttempt
+		if earningsProviderUnentitled(previous.Status, previous.LastFailure) && earningsProviderUnentitled(item.attempt.Status, failure) {
+			logf = c.debugf
+		}
+		logf("earnings provider %s outcome symbol=%s status=%s code=%s stage=%s retryable=%t", item.provider, sym, item.attempt.Status, failure.Code, failure.Stage, failure.Retryable)
 	}
 	if completedIdentity != nil {
 		identityCopy := *completedIdentity

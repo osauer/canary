@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -117,5 +119,69 @@ func TestGammaCombinedSkipsSPXAfterBackendLinkLoss(t *testing.T) {
 func TestGammaBackendLinkDownNilConnector(t *testing.T) {
 	if gammaBackendLinkDown(nil) {
 		t.Fatal("nil connector must not read as link down")
+	}
+}
+
+// Daemon shutdown cancels the server context every gamma compute derives
+// from. A fan-out it stops was abandoned, not failed: the abort is said at
+// INFO and the compute's own failure line likewise. A forced recompute
+// cancelling only the superseded job keeps both WARN lines.
+func TestGammaCancelWarnsOnlyWhileTheDaemonLives(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		shutdown bool
+	}{
+		{"daemon shutdown", true},
+		{"forced recompute supersedes the job", false},
+	} {
+		t.Run(tc.name+"/fan-out", func(t *testing.T) {
+			log := &bytes.Buffer{}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			fetch := func(context.Context, *ibkrlib.Connector, string, string, string, float64, string, float64, time.Time, string) legResult {
+				cancel()
+				return legResult{OK: true, IV: 0.2, Gamma: 0.001, OI: 10, OIObserved: true, IVSource: gammaIVSourceModelTick}
+			}
+			fan := newGammaTestFanout(fetch, func() bool { return false })
+			fan.log = gammaLogf{inner: NewLogger(log, "info")}
+			fan.stopping = func() bool { return tc.shutdown }
+			if _, _, _, err := fan.run(ctx, gammaTestJobs(8)); !errors.Is(err, context.Canceled) {
+				t.Fatalf("err = %v, want context.Canceled", err)
+			}
+			assertGammaCancelLine(t, log.String(), "gamma.abort reason=ctx_cancelled", tc.shutdown)
+		})
+		t.Run(tc.name+"/compute job", func(t *testing.T) {
+			log := &bytes.Buffer{}
+			parent, stop := context.WithCancel(t.Context())
+			defer stop()
+			now := time.Now()
+			cache := newGammaZeroCacheWithStore(nil, now, NewLogger(log, "info"))
+			started := make(chan struct{})
+			cache.mu.Lock()
+			job := cache.spawnJob(parent, rpc.GammaZeroScopeCombined, nySessionKey(now), now, 1, func(ctx context.Context, _ *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+				close(started)
+				<-ctx.Done()
+				return nil, ctx.Err()
+			})
+			cache.mu.Unlock()
+			<-started
+			if tc.shutdown {
+				stop()
+			} else {
+				job.cancel()
+			}
+			<-job.done
+			assertGammaCancelLine(t, log.String(), "gamma compute: scope="+rpc.GammaZeroScopeCombined+" failed: context canceled", tc.shutdown)
+		})
+	}
+}
+
+func assertGammaCancelLine(t *testing.T, log, line string, shutdown bool) {
+	t.Helper()
+	if !strings.Contains(log, line) {
+		t.Fatalf("missing %q: %q", line, log)
+	}
+	if warned := strings.Contains(log, "level=WARN"); warned == shutdown {
+		t.Fatalf("shutdown=%t warned=%t: %q", shutdown, warned, log)
 	}
 }

@@ -488,3 +488,56 @@ func TestMarketHistoryRefreshPausesQuietlyOnAnInactiveContract(t *testing.T) {
 		}
 	}
 }
+
+// Daemon shutdown cancels the worker's own context mid-read. That read was
+// abandoned, not failed: no WARN promising a next attempt that never comes
+// (one at every restart on 2026-10-07) and no backoff recorded. A read that
+// ends on its own deadline, or a coalesced interactive read cancelled by its
+// caller while the worker lives on, still fails and warns as before.
+func TestMarketHistoryRefreshShutdownIsNoOutcome(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		stopping bool
+		err      error
+		warn     string
+	}{
+		{"worker stopped mid-read", true, context.Canceled, ""},
+		{"read hit its deadline", false, context.DeadlineExceeded, "market history refresh SPY 1D: context deadline exceeded; next attempt after "},
+		{"coalesced reader left", false, context.Canceled, "market history refresh SPY 1D: context canceled; next attempt after "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			log := &bytes.Buffer{}
+			s := &Server{logger: NewLogger(log, "info")}
+			p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
+			s.rememberMarketHistory(p)
+			key, _, err := marketHistoryIdentity(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, stop := context.WithCancel(t.Context())
+			defer stop()
+			s.refreshMarketHistoryInterest(ctx, key, func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
+				if tc.stopping {
+					stop()
+				}
+				return nil, tc.err
+			})
+			item := s.marketData.interest[key]
+			if tc.warn == "" {
+				if log.Len() != 0 {
+					t.Fatalf("shutdown must not log a refresh outcome: %q", log.String())
+				}
+				if item.Failures != 0 || !item.RetryAt.IsZero() {
+					t.Fatalf("shutdown recorded a failure: failures=%d retryAt=%s", item.Failures, item.RetryAt)
+				}
+				return
+			}
+			if !strings.Contains(log.String(), "level=WARN") || !strings.Contains(log.String(), tc.warn) {
+				t.Fatalf("want WARN containing %q, got %q", tc.warn, log.String())
+			}
+			if item.Failures != 1 || item.RetryAt.IsZero() {
+				t.Fatalf("failure not recorded: failures=%d retryAt=%s", item.Failures, item.RetryAt)
+			}
+		})
+	}
+}

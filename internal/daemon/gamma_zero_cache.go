@@ -665,7 +665,12 @@ func (c *gammaZeroCache) spawnJob(parent context.Context, scope, key string, now
 		if err != nil {
 			job.err = err
 			job.result = hydrateGammaDiagnosticResult(res, time.Now())
-			gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s failed: %v", scope, err)
+			failed := gammaLogf{inner: c.log}.Warnf
+			if parent.Err() != nil {
+				// Daemon shutdown: the compute was abandoned, not failed.
+				failed = gammaLogf{inner: c.log}.Infof
+			}
+			failed("gamma compute: scope=%s failed: %v", scope, err)
 			return
 		}
 		if err := validateGammaComputed(res); err != nil {

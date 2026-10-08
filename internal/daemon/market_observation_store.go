@@ -64,11 +64,11 @@ func (s *Server) attachCoreMarketAuthority(store *corestore.Store) error {
 		return fmt.Errorf("attach FX-rate authority: %w", err)
 	}
 	if s.earnings == nil {
-		logf := func(string, ...any) {}
+		var logf, debugf func(string, ...any)
 		if s.logger != nil {
-			logf = s.logger.Warnf
+			logf, debugf = s.logger.Warnf, s.logger.Debugf
 		}
-		s.earnings = newEarningsCacheMemory(logf)
+		s.earnings = newEarningsCacheMemory(logf, debugf)
 	}
 	if err := s.earnings.UseCoreStore(store); err != nil {
 		return fmt.Errorf("attach earnings authority: %w", err)
