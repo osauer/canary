@@ -111,8 +111,12 @@ type ConnectionConfig struct {
 	MaxClientIDRetries int // Max attempts for transient startAPI failures (default 5)
 
 	// Reconnection settings (from hedge patterns)
-	// ManagedConnectionLogging delegates connection-attempt warnings to the owner.
-	// Returned errors and connection state are unchanged; standalone callers default to warnings.
+	// ManagedConnectionLogging delegates outage warnings to the owner: failed
+	// connection attempts, startAPI retries and a lost session (EOF, reset,
+	// heartbeat timeout, disconnect) log at debug, and the owner reports the
+	// outage once. Protocol faults such as an oversized frame still log at
+	// error. Returned errors and connection state are unchanged; standalone
+	// callers default to warnings.
 	ManagedConnectionLogging bool
 	AutoReconnect            bool
 	MaxRetries               int
@@ -883,11 +887,47 @@ func (c *Connection) SetPacketLogger(logger PacketLogger) {
 
 // logConnectAttempt leaves the daemon responsible for bounded outage warnings.
 func (c *Connection) logConnectAttempt(format string, args ...any) {
+	c.logOwnedWarn(connectLogger, format, args...)
+}
+
+// logOwnedWarn logs a failed connection attempt or a lost session. On a
+// managed connection the owner reports the outage once, so the line is a
+// debug diagnostic; standalone callers keep the warning.
+func (c *Connection) logOwnedWarn(l logging.Entry, format string, args ...any) {
 	if c.config.ManagedConnectionLogging {
-		connectLogger.Debugf(format, args...)
+		l.Debugf(format, args...)
 		return
 	}
-	connectLogger.Warnf(format, args...)
+	l.Warnf(format, args...)
+}
+
+// logReadFailure logs a read error that ends the stream. A transport loss on
+// a managed connection is its owner's outage and logs at debug. Any other
+// read error keeps its level, error when fault is set: an oversized frame is
+// a protocol fault no outage explains, and a timeout inside a frame leaves
+// the stream misaligned.
+func (c *Connection) logReadFailure(l logging.Entry, fault bool, err error, format string, args ...any) {
+	switch {
+	case c.config.ManagedConnectionLogging && transportLoss(err):
+		l.Debugf(format, args...)
+	case fault:
+		l.Errorf(format, args...)
+	default:
+		l.Warnf(format, args...)
+	}
+}
+
+// transportLoss reports whether err is the peer or the network ending the
+// socket (EOF, reset, broken pipe) rather than a protocol fault or a read
+// timeout.
+func transportLoss(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
+		return !opErr.Timeout()
+	}
+	return false
 }
 
 func (c *Connection) ensurePacketLogger() {
@@ -942,7 +982,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		}
 
 		if errors.Is(err, errStartAPIFailed) {
-			connectLogger.Warnf("startAPI failed for Client ID %d; retrying", clientID)
+			c.logConnectAttempt("startAPI failed for Client ID %d; retrying", clientID)
 			continue
 		}
 
@@ -1070,7 +1110,7 @@ func (c *Connection) connectAttempt(ctx context.Context, useTLS bool, outboundEp
 			return err
 		}
 		delay := c.registerStartAPIFailure()
-		connectLogger.Warnf("Client %d: Failed to start API: %v (backing off %s)", c.config.ClientID, err, delay)
+		c.logConnectAttempt("Client %d: Failed to start API: %v (backing off %s)", c.config.ClientID, err, delay)
 		if delay > 0 {
 			select {
 			case <-time.After(delay):
@@ -1269,7 +1309,7 @@ func (c *Connection) heartbeatMonitor() {
 			// redialled; counting a successful send as liveness had kept such
 			// a session "connected" indefinitely.
 			if silent := time.Since(lastHeartbeat); silent >= c.config.HeartbeatInterval*2 {
-				connectLogger.Warnf("Heartbeat timeout: the Gateway answered nothing for %s (Client ID: %d)", silent.Round(time.Second), c.config.ClientID)
+				c.logOwnedWarn(connectLogger, "Heartbeat timeout: the Gateway answered nothing for %s (Client ID: %d)", silent.Round(time.Second), c.config.ClientID)
 				c.handleDisconnection(fmt.Errorf("heartbeat timeout: no answer for %s", silent.Round(time.Second)))
 				return
 			}
@@ -1298,7 +1338,7 @@ func (c *Connection) handleDisconnection(err error) {
 	c.statusMu.Unlock()
 	c.pauseTransport()
 
-	connectLogger.Warnf("Disconnection detected (Client ID: %d): %v", c.config.ClientID, err)
+	c.logOwnedWarn(connectLogger, "Disconnection detected (Client ID: %d): %v", c.config.ClientID, err)
 
 	if c.onDisconnect != nil {
 		c.onDisconnect(err)
@@ -1884,7 +1924,7 @@ func (c *Connection) startAPI() error {
 				return fmt.Errorf("%w: connection closed by server after startAPI", errStartAPIFailed)
 			}
 			// Log but don't fail on read errors during initialization
-			connectLogger.Errorf("Error reading initial message: %v", err)
+			c.logReadFailure(connectLogger, true, err, "Error reading initial message: %v", err)
 			break
 		}
 
@@ -1943,7 +1983,7 @@ func (c *Connection) readMessages() {
 					continue
 				}
 				if err == io.EOF {
-					ibkrLogger.Warnf("Connection closed by server")
+					c.logOwnedWarn(ibkrLogger, "Connection closed by server")
 					c.handleDisconnection(err)
 					return
 				}
@@ -1957,7 +1997,7 @@ func (c *Connection) readMessages() {
 				}
 				// Any other error means stream alignment is uncertain —
 				// errors before disconnect). Fail fast: log, signal
-				ibkrLogger.Errorf("Error reading message: %v", err)
+				c.logReadFailure(ibkrLogger, true, err, "Error reading message: %v", err)
 				c.handleDisconnection(err)
 				return
 			}
@@ -4277,7 +4317,7 @@ func (c *Connection) readMessage() ([]byte, error) {
 		// Only log non-timeout errors (timeouts are expected when no messages)
 		// and not a socket this side closed on purpose.
 		if netErr, ok := err.(net.Error); (!ok || !netErr.Timeout()) && !errors.Is(err, net.ErrClosed) {
-			connectLogger.Warnf("Client %d: Failed to read length: %v", c.config.ClientID, err)
+			c.logReadFailure(connectLogger, false, err, "Client %d: Failed to read length: %v", c.config.ClientID, err)
 		}
 		return nil, err
 	}
@@ -4299,7 +4339,7 @@ func (c *Connection) readMessage() ([]byte, error) {
 	msgBytes := make([]byte, msgLength)
 	// Debug: Reading message body
 	if _, err := io.ReadFull(c.reader, msgBytes); err != nil {
-		connectLogger.Warnf("Client %d: Failed to read body: %v", c.config.ClientID, err)
+		c.logReadFailure(connectLogger, false, err, "Client %d: Failed to read body: %v", c.config.ClientID, err)
 		return nil, err
 	}
 

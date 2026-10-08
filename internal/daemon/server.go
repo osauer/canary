@@ -1056,15 +1056,30 @@ func (s *Server) releaseBreadthConnect(ok bool) {
 // a below-threshold pass), and the primary lane has already learned what
 // an unthrottled per-attempt WARN does to this log: ~50k identical lines
 // over one 13.5 h overnight outage.
+//
+// The bulk lane shares the primary lane's gateway: while that gateway's
+// incident is open, a dial is pending or the primary session has ended, the
+// failure joins the incident at debug instead of adding a second warning
+// (TWS's restart ends both clients at once). A failure beside a healthy
+// primary is the lane's own and follows the duty schedule: WARN on duty,
+// INFO off duty.
 func (s *Server) breadthConnectWarnf(format string, args ...any) {
 	s.mu.Lock()
 	first := s.breadthConnectFailStreak == 0
 	s.mu.Unlock()
-	if first {
-		s.warnf(format, args...)
+	if !first {
+		s.debugf(format, args...)
 		return
 	}
-	s.debugf(format, args...)
+	detail := fmt.Sprintf(format, args...)
+	if s.logGatewayDependency(detail) {
+		return
+	}
+	if now := s.gatewayLogClock(); !s.gatewayLogRequired(now, now) {
+		s.infof("%s", detail)
+		return
+	}
+	s.warnf("%s", detail)
 }
 
 // triggerBreadthConnect starts a background rebuild of the bulk lane if
@@ -2378,6 +2393,22 @@ func (s *Server) reconnectFlow(ctx context.Context) {
 		}
 		if !old.BackendLink().Down {
 			return
+		}
+	}
+	// A set-up session that ended is the incident this daemon owns: one line
+	// with the cause opens it here, and postConnectSetup's recovery line
+	// closes it; both follow the duty schedule. The wire layer logs the loss
+	// at debug (ManagedConnectionLogging). A backend failover is announced by
+	// the connector (1100), and a session the answer-path supervisor dropped
+	// was announced there. Until 2026-10-08 the wire layer warned three times
+	// per client instead, off duty included, and no incident line existed.
+	if old != nil && !old.IsReady() && s.postConnectSetupDone.Load() {
+		if cause := old.SessionLossCause(); !errors.Is(cause, errAnswerPathRedial) {
+			detail := "IBKR API session lost"
+			if cause != nil {
+				detail += ": " + cause.Error()
+			}
+			s.logGatewayUnavailable(detail)
 		}
 	}
 	s.withConnectorEvidencePublication(old, nil, func() {

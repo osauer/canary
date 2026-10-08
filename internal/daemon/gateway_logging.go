@@ -44,13 +44,16 @@ func (s *Server) gatewayLogClock() time.Time {
 
 // logGatewayDependency suppresses duplicate symptoms only during an outage
 // another owner reports: the daemon's own transport incident, a dial whose
-// outcome is still pending, or the connector's TWS-to-IBKR backend-link loss,
-// which the connector announces once (1100) and whose restore it reports
-// itself (1101/1102). A pending dial reports its own failure through
-// logGatewayUnavailable; without it, the chart reads of each daemon start
-// warned "IBKR connection unavailable" in the instant before the first
-// connect (24 lines over seven restarts on 2026-10-05). It never infers an
-// outage from arbitrary text.
+// outcome is still pending, a set-up session that has ended and whose
+// reconnect opens that incident (reconnectFlow), or the connector's
+// TWS-to-IBKR backend-link loss, which the connector announces once (1100)
+// and whose restore it reports itself (1101/1102). A pending dial reports its
+// own failure through logGatewayUnavailable; without it, the chart reads of
+// each daemon start warned "IBKR connection unavailable" in the instant
+// before the first connect (24 lines over seven restarts on 2026-10-05). The
+// ended session covers the reads cut by the loss before anything redials:
+// two history warnings 51 ms after TWS's restart on 2026-10-07. It never
+// infers an outage from arbitrary text.
 func (s *Server) logGatewayDependency(detail string) bool {
 	switch {
 	case s.gatewayLog.Join():
@@ -60,6 +63,10 @@ func (s *Server) logGatewayDependency(detail string) bool {
 	case s.gatewayDialPending():
 		if s.logger != nil && s.logger.debugEnabled() {
 			s.logger.Debugf("Gateway dependency awaiting dial: %s", detail)
+		}
+	case s.gatewaySessionEnded():
+		if s.logger != nil && s.logger.debugEnabled() {
+			s.logger.Debugf("Gateway dependency awaiting redial: %s", detail)
 		}
 	case s.backendLinkDown():
 		if s.logger != nil && s.logger.debugEnabled() {
@@ -76,6 +83,17 @@ func (s *Server) gatewayDialPending() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.connectInFlight
+}
+
+// gatewaySessionEnded reports a published connector whose set-up session has
+// ended and not yet been replaced: the state reconnectFlow turns into the
+// incident. It reads the connector without gatewayConnector's reconnect side
+// effect.
+func (s *Server) gatewaySessionEnded() bool {
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	return c != nil && s.postConnectSetupDone.Load() && !c.IsReady()
 }
 
 // historicalBarFarmOutage reads the current connector's announced bar-farm

@@ -177,7 +177,9 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 		}
 		series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
 		if !c.HistoricalSessionCurrent(binding) {
-			return ibkrlib.ChartSeries{}, errors.New("broker session changed during history read")
+			// The read was cut by a lost broker session: a symptom of the
+			// gateway incident, which logGatewayDependency joins.
+			return ibkrlib.ChartSeries{}, fmt.Errorf("%w: broker session changed during history read", ibkrlib.ErrIBKRUnavailable)
 		}
 		s.observeHistorySource(len(series.Bars) > 0, err, c, binding)
 		return series, err
