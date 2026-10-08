@@ -3,12 +3,17 @@ package daemon
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"github.com/osauer/canary/v2/internal/config"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -314,4 +319,172 @@ func TestFXCanonicalNAVAndCurrencyFailures(t *testing.T) {
 			t.Fatal("short calendar certified YTD")
 		}
 	})
+}
+
+// fxWorkerHarness is a Flex-enabled daemon whose retained statements are
+// projected into SQLite. The historical fetch lane is a probe: reaching it
+// proves the worker accepted its evidence read, and it holds the lane until
+// the worker stops so nothing after that read is logged before the test looks.
+type fxWorkerHarness struct {
+	s       *Server
+	log     *lockedBuffer
+	dir     string
+	fetched chan struct{}
+}
+
+func newFXWorkerHarness(t *testing.T) *fxWorkerHarness {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir, err := flexStatementsDirPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	h := &fxWorkerHarness{log: &lockedBuffer{}, dir: dir, fetched: make(chan struct{}, 1)}
+	h.save(t, "20260824-043346", reportingFlexFixture("20260801", "20260824"))
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := time.Date(2026, 8, 25, 4, 33, 50, 0, time.UTC)
+	h.s = &Server{
+		cfg:       &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "123"}, Gateway: config.Gateway{Account: "DU-SYNTHETIC", Port: new(7497)}},
+		coreStore: store,
+		now:       func() time.Time { return now },
+		logger:    NewLogger(h.log, "info"),
+	}
+	if err := h.s.refreshStatementProjection(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.s.flexRawDateRangeLockedFn = func(ctx context.Context, _, _ time.Time, _ int, _, _ string) ([]byte, error) {
+		select {
+		case h.fetched <- struct{}{}:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return h
+}
+
+// save writes a retained report the way the daily Flex check does, without
+// refreshing the SQLite projection.
+func (h *fxWorkerHarness) save(t *testing.T, stamp string, raw []byte) {
+	t.Helper()
+	name := "flex-" + flexQueryFingerprint("123") + "-" + stamp + ".xml"
+	if err := os.WriteFile(filepath.Join(h.dir, name), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// firstTick starts the worker and returns once its first evidence read has
+// settled: it either reached the fetch lane or recorded a failure.
+func (h *fxWorkerHarness) firstTick(t *testing.T) (reachedFetch bool) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(func() {
+		cancel()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			h.s.fxMu.Lock()
+			running := h.s.fxWorker
+			h.s.fxMu.Unlock()
+			if !running {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Error("FX worker did not stop")
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
+	h.s.startFXWorker(ctx)
+	deadline := time.After(10 * time.Second)
+	poll := time.NewTicker(5 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-h.fetched:
+			return true
+		case <-poll.C:
+			h.s.fxMu.Lock()
+			reason := h.s.fxReason
+			h.s.fxMu.Unlock()
+			if reason != "" {
+				return false
+			}
+		case <-deadline:
+			t.Fatal("FX worker did not settle its first evidence read")
+		}
+	}
+}
+
+// The daily Flex check saves its report under flexBrokerMu, releases the lane
+// and only then refreshes the SQLite projection. An FX tick in that window
+// sees saved files the projection does not list yet; that is the projection
+// catching up, not a backfill failure.
+func TestFXBackfillWaitsOutProjectionCatchUp(t *testing.T) {
+	h := newFXWorkerHarness(t)
+	h.save(t, "20260825-043346", reportingFlexFixture("20260802", "20260825"))
+	reached := h.firstTick(t)
+	if out := h.log.String(); strings.Contains(out, "level=WARN") {
+		t.Fatalf("projection catch-up warned: %q", out)
+	}
+	result, err := h.s.handleFX(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Backfill.Reason != "" || !reached {
+		t.Fatalf("backfill reason=%q reached fetch=%v; want the tick to proceed", result.Backfill.Reason, reached)
+	}
+}
+
+// A retained report the projection cannot take keeps files and SQLite apart
+// after the reconcile. That still warns, with a cause that names the stage and
+// never quotes broker values from the parse error.
+func TestFXBackfillWarnsWhenProjectionStaysBehind(t *testing.T) {
+	h := newFXWorkerHarness(t)
+	const sentinel = "U1234567"
+	corrupt := []byte(strings.Replace(string(reportingFlexFixture("20260802", "20260825")),
+		"<Trades></Trades>", `<Trades><Trade conid="`+sentinel+`"/></Trades>`, 1))
+	if _, err := flexstmt.Parse(corrupt); err == nil || !strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("fixture must fail to parse with the raw value quoted: %v", err)
+	}
+	h.save(t, "20260825-043346", corrupt)
+	if h.firstTick(t) {
+		t.Fatal("worker accepted evidence the projection does not hold")
+	}
+	out := h.log.String()
+	if strings.Count(out, "level=WARN") != 1 || !strings.Contains(out, "FX backfill: backfill_projection_failed: statement projection refresh failed") {
+		t.Fatalf("persistent mismatch must warn once with its cause: %q", out)
+	}
+	if strings.Contains(out, sentinel) {
+		t.Fatalf("warning quoted a broker value: %q", out)
+	}
+	result, err := h.s.handleFX(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Backfill.Reason == "" {
+		t.Fatal("persistent mismatch left no backfill reason")
+	}
+}
+
+// A blocked store is a real failure: the redacted projection failure keeps
+// the block in its text and its chain, so it warns (or joins an open
+// authority incident) instead of reading as a catch-all.
+func TestFXProjectionFailureKeepsStoreBlockVisible(t *testing.T) {
+	err := fxProjectionFailure(fmt.Errorf("replace statement projection: %w", corestore.ErrBlocked))
+	failure, ok := errors.AsType[*flexFetchFailure](err)
+	if !ok || failure.reason != rpc.ReconReportReasonProjectionFailed || !errors.Is(err, corestore.ErrBlocked) ||
+		err.Error() != "statement projection refresh failed: corestore: health is blocked" {
+		t.Fatalf("blocked projection failure=%v", err)
+	}
+	if fxProjectionFailure(nil) != nil {
+		t.Fatal("successful refresh reported a failure")
+	}
 }
