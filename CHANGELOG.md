@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.19.2 — 2026-10-08 08:24 CEST
+
+### What's new
+
+- **The nightly TWS restart no longer holds up the S&P 500 breadth refresh.** The refresh used to wait two minutes for an answer the restart had cut off, then warn. It now resumes as soon as TWS is back.
+
+### Fixed
+
+- After the nightly TWS restart, the daemon log no longer warns two minutes later that the breadth connection is not ready or that its reads were cut off. The restart is logged once, as the connection's own loss and recovery.
+- A chart or price-history request in progress when the IBKR connection drops now ends at once instead of waiting out its full timeout.
+
 ## v3.19.1 — 2026-10-08 07:48 CEST
 
 ### What's new
