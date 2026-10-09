@@ -25,11 +25,17 @@ const (
 	CapitalTierUnapproved = "unapproved"
 )
 
-// EnforcementShadow and EnforcementAdvisory are the enforcement classes a
-// constitution control may declare. Validation rejects unsupported classes.
+// EnforcementHard marks a pre-trade gate: the order limits refuse an order
+// preview outright, and since 2026-10-09 18:46 CEST (owner decision: an
+// engaged brake is a block) it is the block tier's one enforcement class: a
+// latched or breached block tier refuses every risk-adding order, and so
+// does stale capital evidence, because the brake cannot be shown released.
+// The shadow and advisory classes of phases 1–3 are retired; a file that
+// still names one is refused, so a brake is never read as observation.
 const (
-	EnforcementShadow   = "shadow"
-	EnforcementAdvisory = "advisory"
+	EnforcementHard     = "hard"
+	EnforcementShadow   = "shadow"   // retired 2026-10-09; refused by validation
+	EnforcementAdvisory = "advisory" // retired 2026-10-09; refused by validation
 )
 
 // DrawdownReleaseManual and DrawdownReleaseAutomatic are the values of
@@ -345,11 +351,11 @@ func (c Constitution) Validate() error {
 		return fmt.Errorf("drawdown.warn_consumed_pct must be below block_consumed_pct")
 	}
 	switch c.Drawdown.BlockEnforcement {
-	case "", EnforcementShadow, EnforcementAdvisory:
-	case "hard":
-		return fmt.Errorf("drawdown.block_enforcement %q is not promotable in schema v1; promotion to a pre-trade gate is a later human policy revision", c.Drawdown.BlockEnforcement)
+	case "", EnforcementHard:
+	case EnforcementShadow, EnforcementAdvisory:
+		return fmt.Errorf("drawdown.block_enforcement %q was retired on 2026-10-09: the brake is a block; write \"hard\" or remove the key", c.Drawdown.BlockEnforcement)
 	default:
-		return fmt.Errorf("drawdown.block_enforcement %q is invalid; use shadow or advisory", c.Drawdown.BlockEnforcement)
+		return fmt.Errorf("drawdown.block_enforcement %q is invalid; the only class is hard", c.Drawdown.BlockEnforcement)
 	}
 	if err := c.validateDrawdownRelease(); err != nil {
 		return err
@@ -462,11 +468,10 @@ func loadConstitutionLocation(raw string) (*time.Location, error) {
 }
 
 // EffectiveBlockEnforcement resolves the block tier's enforcement class;
-// empty defaults to shadow — the fail-safe direction (observe and journal,
-// never gate).
+// empty means hard, the only class.
 func (c Constitution) EffectiveBlockEnforcement() string {
 	if c.Drawdown.BlockEnforcement == "" {
-		return EnforcementShadow
+		return EnforcementHard
 	}
 	return c.Drawdown.BlockEnforcement
 }

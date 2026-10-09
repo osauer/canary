@@ -814,6 +814,9 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 	}
+	if err := s.riskPolicyBrakeError(draft, current.Impact); err != nil {
+		return err
+	}
 	if s.stockAddRequired(draft, current.Impact) {
 		if draft.Add == nil {
 			return fmt.Errorf("%w: equity Add policy now applies; preview again", ErrTradingDisabled)

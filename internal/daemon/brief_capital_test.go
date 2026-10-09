@@ -20,7 +20,7 @@ func approvedTestConstitution() *risk.Constitution {
 			BaseCurrency: "EUR", ProtectedFloor: new(80000.0), DeclaredRiskCapital: new(50000.0),
 			MaxEquityAgeMinutes: new(240), MaxUnreconciledDays: new(45),
 		},
-		Drawdown: risk.ConstitutionDrawdown{WarnConsumedPct: new(10.0), BlockConsumedPct: new(20.0), BlockEnforcement: risk.EnforcementAdvisory},
+		Drawdown: risk.ConstitutionDrawdown{WarnConsumedPct: new(10.0), BlockConsumedPct: new(20.0), BlockEnforcement: risk.EnforcementHard},
 		Override: risk.ConstitutionOverride{MaxDurationHours: new(72)},
 		Recon: risk.ConstitutionRecon{
 			AmountTolerancePct: new(1.0), AmountToleranceMin: new(25.0), DateWindowBusinessDays: new(3), MaxReportAgeDays: new(7),
@@ -31,7 +31,7 @@ func approvedTestConstitution() *risk.Constitution {
 func TestBriefCapitalRowCarriesConstitutionFiguresOnlyWhenApproved(t *testing.T) {
 	now := time.Date(2026, time.September, 21, 9, 0, 0, 0, time.UTC)
 	effective := 42000.0
-	report := rpc.CapitalStateReport{Tier: risk.CapitalTierOK, Enforcement: risk.EnforcementAdvisory, EffectiveRiskCapitalBase: &effective, BaseCurrency: "EUR"}
+	report := rpc.CapitalStateReport{Tier: risk.CapitalTierOK, Enforcement: risk.EnforcementHard, EffectiveRiskCapitalBase: &effective, BaseCurrency: "EUR"}
 
 	// Approved: every figure is served and the effective base comes from the verdict.
 	approved := composeBriefRisk(&rpc.RiskPolicyResult{Status: rpc.RiskPolicyStatusActive, Capital: report}, approvedTestConstitution(), now)

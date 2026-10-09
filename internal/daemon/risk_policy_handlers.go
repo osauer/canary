@@ -474,19 +474,29 @@ func (s *Server) handleRiskPolicyCorrectPeak(_ context.Context, req *rpc.Request
 	}, nil
 }
 
-// riskPolicyPreviewWarnings maps a warn/block capital tier to an advisory
-// DataWarning on a risk-increasing order preview. Reduce/close intents and
+// drawdownBrakeCode is the blocker of a risk-adding order the drawdown brake
+// refuses; the readiness classes read it as not executable.
+const drawdownBrakeCode = "drawdown_brake"
+
+// riskPolicyBrake is the drawdown brake at every enforcement point: the
+// order preview, admission and the final wire guard read it beside the order
+// limits (owner decision 2026-10-09 18:46 CEST: an engaged brake is a block).
+// A latched or breached block tier refuses every risk-adding order, and so
+// does stale capital evidence, because the brake cannot be shown released
+// (decision 7: hard fails closed). Reduce and close intents and
 // policy-classified hedge entries (long put on the rulebook hedge index
-// list) never warn — the exemptions of interview decision 4. Cheap by
-// construction: in-memory policy + persisted equity, never an account
-// fetch. submit_eligible is never affected.
-func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.OrderPositionImpact) []rpc.DataWarning {
+// list) pass; cancels never reach it. A warn tier keeps its advisory preview
+// cause. Without a policy manager or capital store there is no brake
+// (synthetic servers); without an accepted policy the order limits already
+// refuse every order. Cheap by construction: in-memory policy plus persisted
+// equity, never an account fetch.
+func (s *Server) riskPolicyBrake(draft rpc.OrderDraft, position rpc.OrderPositionImpact) (*rpc.TradingBlocker, []rpc.DataWarning) {
 	if s.riskPolicies == nil || s.riskCapital == nil {
-		return nil
+		return nil, nil
 	}
 	switch position.Effect {
 	case "close", "reduce":
-		return nil
+		return nil, nil
 	}
 	now := time.Now().UTC()
 	if s.now != nil {
@@ -494,44 +504,67 @@ func (s *Server) riskPolicyPreviewWarnings(draft rpc.OrderDraft, position rpc.Or
 	}
 	evaluation := s.acceptedRiskPolicy(now)
 	if evaluation.policy == nil {
-		return nil // unapproved constitution: policy show owns that disclosure, not preview noise
+		return nil, nil // unapproved constitution: policy show owns that disclosure; the order limits refuse every order
 	}
 	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") &&
 		strings.EqualFold(draft.Contract.Right, "P") && s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
-		return nil // hedge entry stays available under a drawdown breach
+		return nil, nil // hedge entry stays available under a drawdown breach
 	}
 	v := evaluation.capitalNudge.Report
-	var severity, tier string
-	switch v.Tier {
-	case risk.CapitalTierWarn:
-		severity, tier = "watch", "warning"
-	case risk.CapitalTierBlock:
-		severity, tier = "act", "block"
-		// Advisory occurrence bookkeeping is attached to this exact typed,
-		// risk-increasing, non-hedge preview path. Persistence failure cannot
-		// alter the preview warning or any submit-eligibility field.
-		if s.nudges != nil {
-			if s.shadowBookkeepingHook != nil {
-				s.shadowBookkeepingHook()
-			}
-			authority := s.nudgeAuthorityForPolicy(evaluation, now)
-			if authority.eligible && authority.capitalNudge.LatchOpen {
-				_ = s.nudges.recordShadow(authority.policyIdentity, authority.capitalNudge.Episode, true, false, true)
-			}
-		}
-	default:
-		return nil
-	}
 	consumed := "n/a"
 	if v.ConsumedPct != nil {
 		consumed = fmt.Sprintf("%.1f%%", *v.ConsumedPct)
 	}
-	return []rpc.DataWarning{{
-		Code:     "capital_drawdown",
-		Scope:    "risk_policy",
-		Severity: severity,
-		Message:  fmt.Sprintf("Drawdown %s tier: %s of declared risk capital consumed from the adjusted peak; this order increases risk.", tier, consumed),
-		Impact:   fmt.Sprintf("Advisory constitution cause (enforcement %s); submit eligibility is unaffected.", evaluation.policy.EffectiveBlockEnforcement()),
-		Action:   "Run `canary policy show --explain` for the capital state and ladder.",
-	}}
+	const open = " Reductions, closes, cancels and hedges stay open."
+	switch {
+	case v.Tier == risk.CapitalTierBlock || v.BlockLatched:
+		s.recordBrakeRefusal(evaluation, now)
+		return &rpc.TradingBlocker{
+			Code:    drawdownBrakeCode,
+			Message: fmt.Sprintf("Drawdown brake on: %s of declared risk capital consumed from the adjusted peak; this order adds risk.", consumed) + open,
+			Action:  "Reduce or close instead, or wait for the brake to clear; `canary policy show --explain` has the capital state.",
+		}, nil
+	case v.EquityStale || v.ReconcileStale:
+		return &rpc.TradingBlocker{
+			Code:    drawdownBrakeCode,
+			Message: "Capital evidence is stale, so the drawdown brake cannot be shown released; this order adds risk." + open,
+			Action:  "Refresh the account reading or reconcile; `canary policy show --explain` names the stale input.",
+		}, nil
+	case v.Tier == risk.CapitalTierWarn:
+		return nil, []rpc.DataWarning{{
+			Code:     "capital_drawdown",
+			Scope:    "risk_policy",
+			Severity: "watch",
+			Message:  fmt.Sprintf("Drawdown warning tier: %s of declared risk capital consumed from the adjusted peak; this order adds risk.", consumed),
+			Impact:   "Advisory cause; at the block tier the brake refuses risk-adding orders.",
+			Action:   "Run `canary policy show --explain` for the capital state and ladder.",
+		}}
+	}
+	return nil, nil
+}
+
+// riskPolicyBrakeError is the brake as the admission and wire-guard checks
+// report it: a trading-disabled error carrying the blocker's words.
+func (s *Server) riskPolicyBrakeError(draft rpc.OrderDraft, position rpc.OrderPositionImpact) error {
+	blocker, _ := s.riskPolicyBrake(draft, position)
+	if blocker == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrTradingDisabled, blocker.Message)
+}
+
+// recordBrakeRefusal keeps the governance bookkeeping of the first refused
+// risk-adding order per latch episode. Persistence failure cannot alter the
+// refusal.
+func (s *Server) recordBrakeRefusal(evaluation riskPolicyEvaluation, now time.Time) {
+	if s.nudges == nil {
+		return
+	}
+	if s.shadowBookkeepingHook != nil {
+		s.shadowBookkeepingHook()
+	}
+	authority := s.nudgeAuthorityForPolicy(evaluation, now)
+	if authority.eligible && authority.capitalNudge.LatchOpen {
+		_ = s.nudges.recordShadow(authority.policyIdentity, authority.capitalNudge.Episode, true, false, true)
+	}
 }

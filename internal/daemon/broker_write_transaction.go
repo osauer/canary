@@ -414,6 +414,9 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			if err := validateOrderRiskAuthority(limits, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit, binding.riskDeltaReduction); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 			}
+			if err := s.riskPolicyBrakeError(binding.riskDraft, current.Impact); err != nil {
+				return err
+			}
 		}
 		if binding.exerciseBound {
 			current, err := s.captureWireOrderPositionAuthority(binding, status, binding.exerciseDraft)

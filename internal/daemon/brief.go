@@ -1147,10 +1147,7 @@ func composeBriefRisk(policy *rpc.RiskPolicyResult, constitution *risk.Constitut
 	briefCapitalRowFigures(&out.Capital, policy, constitution)
 	// The capital status derives from the values it shows: a breached tier or
 	// a fully consumed budget can never render ok, whatever produced it. In
-	blockDetail := "drawdown block tier is breached; risk-increasing orders are the enforcement target"
-	if strings.EqualFold(c.Enforcement, "shadow") {
-		blockDetail = "drawdown block tier is breached; shadow enforcement journals what would block — nothing is blocked yet, and reductions and closes stay available"
-	}
+	blockDetail := "drawdown block tier is breached; risk-adding orders are refused until it clears, and reductions, closes, cancels and hedges stay open"
 	switch {
 	case c.Tier == risk.CapitalTierBlock || c.BlockLatched || (c.ConsumedPct != nil && *c.ConsumedPct >= 100):
 		out.Capital.BriefRowState = briefAttention(blockDetail)

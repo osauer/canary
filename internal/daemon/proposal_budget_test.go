@@ -26,11 +26,11 @@ func budgetTestPolicy(mode string, totalPct, perLinePct float64) protectionPolic
 }
 
 // budgetLatchedInput is an approved constitution (50,000 EUR declared) with the
-// drawdown block tier latched under advisory enforcement.
+// drawdown block tier latched.
 func budgetLatchedInput() budgetGovernorInput {
 	return budgetGovernorInput{
 		Constitution: approvedTestConstitution(),
-		Capital:      rpc.CapitalStateReport{Tier: risk.CapitalTierBlock, BlockLatched: true, Enforcement: risk.EnforcementAdvisory, BaseCurrency: "EUR"},
+		Capital:      rpc.CapitalStateReport{Tier: risk.CapitalTierBlock, BlockLatched: true, Enforcement: risk.EnforcementHard, BaseCurrency: "EUR"},
 	}
 }
 
@@ -226,11 +226,6 @@ func TestBudgetReductionGatesNameWhyNothingIsGenerated(t *testing.T) {
 			in.Capital.Tier, in.Capital.BlockLatched = risk.CapitalTierUnapproved, false
 			return in
 		}, rpc.BudgetStateConstitutionUnapproved},
-		"shadow enforcement": {func() budgetGovernorInput {
-			in := budgetLatchedInput()
-			in.Constitution.Drawdown.BlockEnforcement = ""
-			return in
-		}, rpc.BudgetStateEnforcementShadow},
 		"not latched": {func() budgetGovernorInput {
 			in := budgetLatchedInput()
 			in.Capital.Tier, in.Capital.BlockLatched = risk.CapitalTierWarn, false

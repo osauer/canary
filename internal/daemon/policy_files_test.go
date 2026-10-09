@@ -389,7 +389,7 @@ max_unreconciled_days = 5
 [drawdown]
 warn_consumed_pct = 40.0
 block_consumed_pct = 80.0
-block_enforcement = "shadow"
+block_enforcement = "hard"
 
 [override]
 max_duration_hours = 24

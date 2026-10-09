@@ -115,11 +115,11 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("drawdown.warn_consumed_pct", warnVal, warnSrc,
 			"Advisory tier: when losses from the cash-flow-adjusted peak consume this share of declared risk capital, surfaces warn and risk-increasing previews carry an advisory cause. Self-clearing on recovery.", "advisory"),
 		get("drawdown.block_consumed_pct", blockVal, blockSrc,
-			"Block tier: at this consumed share the breach latches in daemon state. Risk-increasing orders are the target; reductions, closes, cancels, and policy-classified hedges stay exempt. How it clears follows drawdown.release.", enfc),
+			"Block tier: at this consumed share the breach latches in daemon state and every risk-adding order is refused until it clears; reductions, closes, cancels and policy-classified hedges stay open. How it clears follows drawdown.release.", enfc),
 		get("drawdown.release", release, relSrc,
 			"How a latched brake clears. manual (default): only canary policy reset-drawdown, which rebases the peak. automatic: also when fresh, verified drawdown falls below the block threshold, keeping the peak and loss history. Missing or stale evidence never releases it.", "advisory"),
 		get("drawdown.block_enforcement", enfc, enfSrc,
-			"Enforcement class of the block tier. v1 accepts shadow (journal what would block) or advisory (warn loudly); promotion to hard is a later human policy revision after the shadow period.", "structural"),
+			"Enforcement class of the block tier: hard, the only class since 2026-10-09 (an engaged brake is a block). Stale capital evidence refuses risk-adding orders too. The shadow and advisory classes are retired.", "structural"),
 		get("override.max_duration_hours", ovhVal, ovhSrc,
 			"Longest lifetime of a one-shot override. Overrides are human-only, name one control, require a reason, are journaled with the policy fingerprint, and expire on their own.", "advisory"),
 	}
@@ -233,10 +233,6 @@ func artefactClass(c *Constitution, pick func(*Constitution) string) string {
 	}
 	return pick(c)
 }
-
-// EnforcementHard marks a pre-trade gate: the order limits refuse an order
-// preview outright.
-const EnforcementHard = "hard"
 
 // orderLimitRows renders [order_limits]. A key the file does not write reads
 // unapproved, and every order preview is refused until it is written.

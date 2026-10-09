@@ -263,9 +263,6 @@ func budgetMeasurePlan(policy protectionPolicy, input budgetGovernorInput, pos *
 	case len(input.Unapproved) > 0 || len(c.UnapprovedKeys()) > 0 || input.Capital.Tier == risk.CapitalTierUnapproved || c.Capital.DeclaredRiskCapital == nil:
 		st.State, st.Reason = rpc.BudgetStateConstitutionUnapproved, "the risk constitution has unapproved material keys; the capital tier is unapproved and the governor measures nothing"
 		return plan
-	case c.EffectiveBlockEnforcement() == risk.EnforcementShadow:
-		st.State, st.Reason = rpc.BudgetStateEnforcementShadow, "drawdown.block_enforcement is shadow; the governor acts only under advisory or stronger enforcement"
-		return plan
 	case !input.Capital.BlockLatched && input.Capital.Tier != risk.CapitalTierBlock:
 		st.State, st.Reason = rpc.BudgetStateNotLatched, fmt.Sprintf("the drawdown block tier is neither latched nor breached (tier %s); the governor waits for the brake", nonEmptyString(input.Capital.Tier, risk.CapitalTierUnknown))
 		return plan

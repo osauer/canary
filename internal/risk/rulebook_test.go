@@ -632,7 +632,7 @@ func approvedConstitution() Constitution {
 		Drawdown: ConstitutionDrawdown{
 			WarnConsumedPct:  new(15.0),
 			BlockConsumedPct: new(30.0),
-			BlockEnforcement: EnforcementShadow,
+			BlockEnforcement: EnforcementHard,
 		},
 		Override: ConstitutionOverride{MaxDurationHours: new(24)},
 		Recon: ConstitutionRecon{

@@ -1235,9 +1235,10 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # equity peak. warn is advisory and clears itself; block latches.
 # warn_consumed_pct = 0.0
 # block_consumed_pct = 0.0
-# shadow (default): journal what would block, gate nothing. advisory: warn
-# loudly on surfaces and previews, gate nothing. Both formats reject "hard".
-# block_enforcement = "shadow"
+# hard, the only class since 2026-10-09: a latched or breached block tier
+# refuses every risk-adding order, and so does stale capital evidence;
+# reductions, closes, cancels and policy-classified hedges stay open.
+# block_enforcement = "hard"
 # How a latched brake clears: manual (default) only by a journaled human reset
 # (canary policy reset-drawdown); automatic also when fresh, verified drawdown
 # falls below the block threshold, keeping the peak and loss history.

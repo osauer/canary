@@ -473,10 +473,7 @@ func capitalHeadline(c rpc.CapitalStateReport, limits []risk.ConstitutionLimit) 
 	case risk.CapitalTierWarn:
 		return "WARNING — losses have crossed your early-warning line" + drawdownLadderHint(limits)
 	case risk.CapitalTierBlock:
-		if c.Enforcement == risk.EnforcementShadow {
-			return "BLOCK LINE CROSSED — recorded only for now (shadow mode): nothing is stopped yet"
-		}
-		return "BLOCK LINE CROSSED — risk-increasing orders are flagged; reducing and closing stay available"
+		return "BLOCK LINE CROSSED — risk-adding orders are refused; reducing, closing, cancelling and hedging stay open"
 	case risk.CapitalTierUnapproved:
 		return "NOT ARMED — the policy file is missing decisions (listed below)"
 	default:

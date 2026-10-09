@@ -552,6 +552,10 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
+	brake, brakeWarnings := s.riskPolicyBrake(draft, position)
+	if brake != nil {
+		return nil, refusePreview(errBadRequest(brake.Message), *brake)
+	}
 	var whatIf rpc.OrderWhatIfResult
 	if scope == rpc.OrderTokenScopeModify {
 		whatIf, err = s.fetchModifyPreviewWhatIfBound(ctx, status, replaceView, draft, timeout, previewAuthority)
@@ -665,7 +669,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 		})
 	}
 	warnings = append(warnings, rulebookPreviewWarnings(s.rulesForPreview(ctx), draft, position)...)
-	warnings = append(warnings, s.riskPolicyPreviewWarnings(draft, position)...)
+	warnings = append(warnings, brakeWarnings...)
 	tokenMinted := token != "" && tokenID != ""
 	submitEligible := tokenMinted && whatIf.Status == rpc.OrderWhatIfStatusAccepted && !whatIf.RequiredForSubmit
 

@@ -1,9 +1,10 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-10-07 20:33 CEST
+Updated: 2026-10-09 21:45 CEST
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); 2026-10-05 adds
-[order_limits], the one pre-trade hard gate in this file (see Order limits
-below); 2026-10-07 adds the delta-reducing exit exemption to its two caps
+[order_limits], a pre-trade hard gate (see Order limits below); 2026-10-09
+makes the drawdown brake the second (decision 4 below, owner 18:46 CEST);
+2026-10-07 adds the delta-reducing exit exemption to the order caps
 (see Delta-reducing exits below); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
 statement-authoritative flows and the clean-report auto-extend. Interview
@@ -28,8 +29,14 @@ must not duplicate numbers.
 4. **Drawdown ladder:** two tiers, both % of declared risk capital consumed
    from the cash-flow-adjusted equity peak. Warn = advisory, self-clearing.
    Block targets risk-increasing orders only; reductions, closes, cancels,
-   and rulebook-hedge-classified entries stay exempt. Block ships
-   shadow-first.
+   and rulebook-hedge-classified entries stay exempt. Block shipped
+   shadow-first; since the owner's decision of 2026-10-09 18:46 CEST ("an
+   active brake is and should be a block") it is a hard pre-trade gate: a
+   latched or breached block tier refuses every risk-adding order at the
+   preview, at admission and at the final wire guard (`riskPolicyBrake`,
+   blocker `drawdown_brake`), the shadow and advisory classes are retired
+   and a file that still names one is refused, and the budget governor no
+   longer waits for a promotion.
 5. **Resumption (operator decisions 2026-09-23):** with
    `drawdown.release = "automatic"` the brake releases itself on a fresh,
    finite, same-account equity observation when
@@ -52,8 +59,11 @@ must not duplicate numbers.
    hard expiry, journaled with fingerprint) for time-bounded exceptions;
    fingerprinted revisions for durable change.
 7. **Stale/unreconciled data:** posture follows enforcement class.
-   Advisory/shadow: unknown + disclosure, never a silent pass. Promoted
-   hard (future): fail closed for risk increases.
+   Advisory (the warn tier): unknown + disclosure, never a silent pass. The
+   block tier is hard (2026-10-09): stale equity or reconcile evidence
+   refuses risk-adding orders, because the brake cannot be shown released;
+   an unseeded ladder (no observation yet, a paper account) is not stale and
+   refuses nothing.
 8. **Cadence:** routine brief viewing and clean monthly evidence are automated,
    never human attestations. Reconciliation lapses flow through the staleness
    posture; only exceptional repair returns to the operator.
@@ -494,16 +504,15 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
   revision or override can express a change to them.
 - All four policy write methods are human-origin-only (`originIsHuman`);
   agent sessions read but never operate this surface.
-- Apart from `[order_limits]`, nothing in this feature reads or writes
-  `submit_eligible`, blockers, freeze, pins, or tokens; the capital controls
-  are advisory/shadow end to end. `[order_limits]` only refuses: no key or
-  override can authorize an order or relax freeze, pins, tokens or origin
-  gating.
+- Apart from `[order_limits]` and the drawdown brake, nothing in this
+  feature reads or writes `submit_eligible`, blockers, freeze, pins, or
+  tokens. Both only refuse: no key or override can authorize an order or
+  relax freeze, pins, tokens or origin gating.
 - Data absence never renders ok: `unapproved`, `unknown`, stale, and
   unreconciled are distinct disclosed states (never-false-pass).
-- `block_enforcement = "hard"` is rejected by schema v1; promotion requires
-  a schema revision after the phase-2/3 shadow evidence, as a deliberate
-  human decision.
+- `block_enforcement` accepts only `hard` (or is absent, which means hard)
+  since 2026-10-09; `shadow` and `advisory` are refused with a message that
+  names the retirement.
 
 ## Files
 
@@ -531,7 +540,7 @@ cutover inputs, not live fallbacks.
 ## Deferred (explicitly not in phase 1)
 
 MCP `canary_policy` tool; SPA card; push alerts; Flex/Activity ingestion;
-promotion of any control to hard; automated reports (phase 4); capital
+automated reports (phase 4); capital
 allocation responses (phase 5). The stress policy fingerprint label is
 `stress-policy-fp-v1` (originally `risk-policy-fp-v1`) to keep identities
 unambiguous; fingerprint keys are unchanged.
