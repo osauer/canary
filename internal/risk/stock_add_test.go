@@ -8,6 +8,8 @@ import (
 
 func stockAddFixture() StockAddInput {
 	p := DefaultRulebookPolicy()
+	// These arithmetic witnesses exclude protection; its admission has a separate witness.
+	p.Modes[RuleHedgeIntegrity] = RuleModeOff
 	p.SingleNameWatchPct, p.SingleNameActPct = 80, 90
 	p.IlliquidWatchPct, p.IlliquidActPct = 80, 90
 	return StockAddInput{Policy: &StockAddPolicy{AdmissionContract: StockAddAdmissionV1, MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 20000, Fee: 5, OrderCapBase: 20000,
@@ -65,7 +67,7 @@ func TestStockAddNeverTreatsMissingOrInvalidAsZero(t *testing.T) {
 		name   string
 		change func(*StockAddInput)
 	}{
-		{"policy", func(in *StockAddInput) { in.Policy = nil }},
+		{"policy", func(in *StockAddInput) { in.Policy.AdmissionContract = "invalid" }},
 		{"unknown positions", func(in *StockAddInput) { in.Rules.Positions.Healthy = false }},
 		{"unknown account", func(in *StockAddInput) { in.Rules.Account.Healthy = false }},
 		{"NLV", func(in *StockAddInput) { in.Rules.NLVBase = nil }},
@@ -210,8 +212,8 @@ func TestStockAddAdmissionApprovalIsDistinctFromAllocationValues(t *testing.T) {
 	if !found {
 		t.Fatal("missing admission approval was not disclosed")
 	}
-	if got := SizeStockAdd(in); got.Quantity != 0 || len(got.Blockers) == 0 || got.Blockers[0].Kind != "policy" {
-		t.Fatal("allocation values activated admission")
+	if got := SizeStockAdd(in); got.Quantity != 100 || len(got.Blockers) != 0 {
+		t.Fatal("existing policy sizing should not require legacy admission activation")
 	}
 	in.Policy.AdmissionContract = StockAddAdmissionV1
 	if before == c.FingerprintKey() {

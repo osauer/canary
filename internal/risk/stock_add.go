@@ -10,8 +10,8 @@ import (
 // StockAddAdmissionV1 names the complete, separately approved stock-entry contract.
 const StockAddAdmissionV1 = "stock-entry-v1"
 
-// StockAddPolicy contains the owner's stock allocation ceilings. Absent values
-// are unapproved. Installing the feature writes no policy and supplies no defaults.
+// StockAddPolicy holds optional additional stock allocation ceilings. Existing
+// Rulebook and funding policy govern Add when this table is absent.
 type StockAddPolicy struct {
 	AdmissionContract        string   `toml:"admission_contract" json:"admission_contract"`
 	MaxStockPctNLV           *float64 `toml:"max_stock_pct_nlv" json:"max_stock_pct_nlv"`
@@ -43,6 +43,7 @@ type StockAddInput struct {
 	ConID                                                           int
 	Price, FX, CurrentQuantity, StockValueBase, UnderlyingStockBase float64
 	FreeCash, Fee, OrderCapBase                                     float64
+	Manual                                                          bool
 	Requested                                                       int
 	BrokerMargin                                                    *StockAddMargin
 	Cash                                                            *StockAddCash
@@ -131,6 +132,7 @@ type StockAddPlan struct {
 	Cost                float64             `json:"cost"`
 	CashAfter           float64             `json:"cash_after_reserves"`
 	Binding             string              `json:"binding"`
+	Warnings            []StockAddBlocker   `json:"warnings,omitempty"`
 	Blockers            []StockAddBlocker   `json:"blockers"`
 }
 
@@ -147,9 +149,6 @@ func SizeStockAdd(in StockAddInput) StockAddPlan {
 		out.Quantity = 0
 		out.Blockers = append(out.Blockers, StockAddBlocker{Kind: stockAddBlockerKind(code), Code: code, Message: message})
 		return out
-	}
-	if in.Policy == nil || in.Policy.AdmissionContract != StockAddAdmissionV1 || in.Policy.MaxStockPctNLV == nil || in.Policy.MaxUnderlyingStockPctNLV == nil {
-		return hold("add_policy_unapproved", "Stock allocation limits and the stock-entry-v1 admission contract need explicit policy approval.")
 	}
 	if err := in.Policy.validate(); err != nil {
 		return hold("add_policy_invalid", err.Error())
@@ -184,9 +183,21 @@ func SizeStockAdd(in StockAddInput) StockAddPlan {
 		amount float64
 	}{
 		{"cash", (in.FreeCash - in.Fee) * in.FX},
-		{"stock_allocation", *in.Rules.NLVBase**in.Policy.MaxStockPctNLV/100 - in.StockValueBase},
-		{"underlying_stock", *in.Rules.NLVBase**in.Policy.MaxUnderlyingStockPctNLV/100 - in.UnderlyingStockBase},
 		{"order_limit", in.OrderCapBase},
+	}
+	if in.Policy != nil {
+		if v := in.Policy.MaxStockPctNLV; v != nil {
+			capacities = append(capacities, struct {
+				key    string
+				amount float64
+			}{"stock_allocation", *in.Rules.NLVBase**v/100 - in.StockValueBase})
+		}
+		if v := in.Policy.MaxUnderlyingStockPctNLV; v != nil {
+			capacities = append(capacities, struct {
+				key    string
+				amount float64
+			}{"underlying_stock", *in.Rules.NLVBase**v/100 - in.UnderlyingStockBase})
+		}
 	}
 	// The existing order DTO uses an int; one million is its structural bound,
 	// not an investment-policy allowance.
@@ -215,6 +226,9 @@ func SizeStockAdd(in StockAddInput) StockAddPlan {
 			maxQ = int(q)
 			out.Binding = c.key
 		}
+	}
+	if out.AllocationRoom == math.MaxFloat64 {
+		out.AllocationRoom = float64(maxQ)
 	}
 	if maxQ == 0 {
 		return hold("add_no_capacity", "The available allowance cannot fund one whole share.")
@@ -294,26 +308,86 @@ func stockAddRiskRows(in StockAddInput, quantity int) []RuleRow {
 		r.MaintenanceMarginBase = new(in.BrokerMargin.MaintenanceMarginBase)
 	}
 	p := in.Rulebook
-	p.Modes = maps.Clone(p.Modes)
-	if p.Modes == nil {
-		p.Modes = map[string]string{}
+	// Use the owner's modes and numbers. Issuer rows see the affected issuer;
+	// global rows retain the complete book. Cluster evaluation keeps all members.
+	issuer := func(symbol string) string {
+		for group, members := range p.IssuerGroups {
+			if slices.Contains(members, symbol) {
+				return group
+			}
+		}
+		return symbol
 	}
-	// Display modes do not turn off admission measurements.
-	for _, id := range []string{RuleSingleNameExposure, RuleCashSellOnly, RuleNetExposure, RuleLossBudget, RuleMarginHeadroom} {
-		p.Modes[id] = RuleModeTrack
+	scoped := r
+	scoped.Names = slices.DeleteFunc(slices.Clone(r.Names), func(n NameInput) bool { return issuer(n.Symbol) != issuer(in.Symbol) })
+	local := EvaluateRulebook(scoped, p).Rows
+	p.Clusters = maps.Clone(p.Clusters)
+	for group, members := range p.Clusters {
+		if !slices.ContainsFunc(members, func(symbol string) bool { return issuer(symbol) == issuer(in.Symbol) }) {
+			delete(p.Clusters, group)
+		}
 	}
-	return slices.DeleteFunc(EvaluateRulebook(r, p).Rows, func(row RuleRow) bool {
-		return !slices.Contains([]string{RuleSingleNameExposure, RuleCashSellOnly, RuleNetExposure, RuleLossBudget, RuleMarginHeadroom}, row.ID)
+	rows := EvaluateRulebook(r, p).Rows
+	for i, row := range rows {
+		if slices.Contains([]string{RuleSingleNameExposure, RuleDeltaSwing, RuleLossBudget, RuleEarningsSizeFreeze}, row.ID) {
+			for _, own := range local {
+				if own.ID == row.ID {
+					rows[i] = own
+					break
+				}
+			}
+		}
+	}
+	return slices.DeleteFunc(rows, func(row RuleRow) bool {
+		return !slices.Contains([]string{RuleSingleNameExposure, RuleCashSellOnly, RuleNetExposure, RuleLossBudget, RuleMarginHeadroom, RuleDeltaSwing, RuleClusterStress, RuleHedgeIntegrity, RuleEarningsSizeFreeze, RuleFXExposure}, row.ID)
 	})
 }
 
 func stockAddRiskReason(in StockAddInput, quantity int) string {
 	for _, row := range stockAddRiskRows(in, quantity) {
-		if row.Status != RuleStatusPass && row.Reason != RuleReasonNoLongOptions {
-			return row.Title + ": " + row.Evidence
+		// FX and event findings retain their advisory semantics. The issuer loss
+		// check already constrains earnings-related size; absent clusters are not
+		// invented. An intentionally disabled rule grants no measurement.
+		if row.ID == RuleFXExposure || row.ID == RuleEarningsSizeFreeze || row.Status == RuleStatusNotEvaluated || row.Status == RuleStatusInfo || row.Status == RuleStatusPass {
+			continue
 		}
+		if in.Manual && (row.Status == RuleStatusWatch || row.Status == RuleStatusAct) {
+			continue
+		}
+		return row.Title + ": " + row.Evidence
 	}
 	return ""
+}
+
+func stockAddWarnings(in StockAddInput, quantity int) []StockAddBlocker {
+	var out []StockAddBlocker
+	for _, row := range stockAddRiskRows(in, quantity) {
+		if row.Status == RuleStatusWatch || row.Status == RuleStatusAct {
+			out = append(out, StockAddBlocker{Kind: "warning", Code: row.ID, Message: stockAddWarningMessage(row)})
+		}
+	}
+	return out
+}
+
+func stockAddWarningMessage(row RuleRow) string {
+	switch row.ID {
+	case RuleCashSellOnly:
+		return "Option premium is above the policy warning level; new buying works against sell-only guidance."
+	case RuleHedgeIntegrity:
+		return "This purchase leaves index protection outside its policy range."
+	case RuleMarginHeadroom:
+		return "This purchase leaves margin headroom below the policy warning level."
+	case RuleEarningsSizeFreeze:
+		return "This issuer is already large and has approaching earnings."
+	}
+	limit := row.WatchThreshold
+	if limit == nil {
+		limit = row.Threshold
+	}
+	if row.Observed != nil && limit != nil {
+		return fmt.Sprintf("%s: %.1f %s; warning level %.1f.", row.Title, *row.Observed, row.Unit, *limit)
+	}
+	return row.Title + ": policy warning applies."
 }
 
 func stockAddRiskKind(in StockAddInput, quantity int) string {
@@ -375,6 +449,9 @@ func CheckStockAdd(in StockAddInput) StockAddPlan {
 	if margin == nil || margin.Quantity != in.Requested || !finiteStockAdd(margin.ExcessLiquidityBase) || !finiteStockAdd(margin.InitialMarginBase) || !finiteStockAdd(margin.MaintenanceMarginBase) || (margin.LookAheadExcessBase != nil && !finiteStockAdd(*margin.LookAheadExcessBase)) {
 		return hold("evidence", "add_margin_unavailable", "The exact order needs complete broker margin evidence.")
 	}
+	if margin.ExcessLiquidityBase < 0 || margin.LookAheadExcessBase != nil && *margin.LookAheadExcessBase < 0 {
+		return hold("capacity", "add_margin_shortfall", "The purchase would leave insufficient broker margin.")
+	}
 	out.RiskChecks = stockAddChecks(in, in.Requested)
 	out.Margin = margin
 	out.Cost = float64(in.Requested)*in.Price + in.Fee
@@ -385,6 +462,7 @@ func CheckStockAdd(in StockAddInput) StockAddPlan {
 	if reason := stockAddRiskReason(in, in.Requested); reason != "" {
 		return hold(stockAddRiskKind(in, in.Requested), "add_risk_hold", reason)
 	}
+	out.Warnings = stockAddWarnings(in, in.Requested)
 	out.Quantity = in.Requested
 	out.After = in.CurrentQuantity + float64(in.Requested)
 	out.StockPctAfter = (in.StockValueBase + float64(in.Requested)*in.Price*in.FX) / *in.Rules.NLVBase * 100

@@ -2907,8 +2907,9 @@ type OrderPreviewResult struct {
 // OrderPlaceParams redeems a submit-eligible preview token for a broker
 // transmit. The daemon revalidates the local trading gate and token binding
 type OrderPlaceParams struct {
-	PreviewToken string `json:"preview_token"`
-	TimeoutMs    int    `json:"timeout_ms,omitempty"`
+	AcceptAddWarnings bool   `json:"accept_add_warnings,omitempty"`
+	PreviewToken      string `json:"preview_token"`
+	TimeoutMs         int    `json:"timeout_ms,omitempty"`
 	// Origin identifies who is asking (OrderOrigin*) for audit and any
 	// origin-specific policy.
 	Origin string `json:"origin,omitempty"`

@@ -649,6 +649,11 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 
 	warnings := append([]rpc.DataWarning{}, quote.Warnings...)
+	if draft.Add != nil {
+		for _, warning := range draft.Add.Plan.Warnings {
+			warnings = append(warnings, rpc.DataWarning{Code: "add_" + warning.Code, Severity: "warning", Message: warning.Message})
+		}
+	}
 	warnings = append(warnings, previewWhatIfWarnings(whatIf)...)
 	if p.OutsideRTH {
 		warnings = append(warnings, rpc.DataWarning{

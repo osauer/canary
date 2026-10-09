@@ -16,6 +16,7 @@ import (
 
 func stockAddTestInput() risk.StockAddInput {
 	pol := risk.DefaultRulebookPolicy()
+	pol.Modes[risk.RuleHedgeIntegrity] = risk.RuleModeOff
 	pol.SingleNameWatchPct, pol.SingleNameActPct = 80, 90
 	pol.IlliquidWatchPct, pol.IlliquidActPct = 80, 90
 	return risk.StockAddInput{Policy: &risk.StockAddPolicy{AdmissionContract: risk.StockAddAdmissionV1, MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 10000, OrderCapBase: 10000, Rulebook: pol, Rules: risk.RuleInputs{AsOf: time.Date(2026, 5, 28, 8, 45, 0, 0, time.UTC), BaseCurrency: "USD", Account: risk.SourceState{Healthy: true}, Positions: risk.SourceState{Healthy: true}, NLVBase: new(100000.), ExcessLiquidityBase: new(50000.), RiskCapital: &risk.RiskCapitalInput{EffectiveBase: new(100000.)}}}
@@ -246,7 +247,7 @@ func TestStockAddMissingPolicyHoldsBeforeAnyBrokerRead(t *testing.T) {
 	p := stockAddTestParams()
 	raw, _ := json.Marshal(p)
 	result, err := s.handleAddPlan(t.Context(), &rpc.Request{Params: raw})
-	if err != nil || result.Quantity != 0 || len(result.Blockers) != 1 || !strings.Contains(result.Blockers[0].Message, "unapproved") {
+	if err != nil || result.Quantity != 0 || len(result.Blockers) != 1 || !strings.Contains(result.Blockers[0].Message, "risk policy is unavailable") {
 		t.Fatalf("%+v %v", result, err)
 	}
 }

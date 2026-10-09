@@ -54,6 +54,9 @@ func runAdd(ctx context.Context, env *Env, args []string) int {
 func renderAddPlan(env *Env, p rpc.AddPlanResult) {
 	riskReadLine(env, "Add", p.Contract.Symbol, p.Currency)
 	riskReadLine(env, "Limit", fmt.Sprintf("%.4f %s per share", p.LimitPrice, p.Currency))
+	for _, w := range p.Warnings {
+		riskReadLine(env, "Warning · confirmation required", w.Message)
+	}
 	for _, b := range p.Blockers {
 		riskReadLine(env, "Held · "+addBlockerKindLabel(b.Kind), b.Message)
 	}

@@ -55,6 +55,9 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 	if err != nil {
 		return nil, err
 	}
+	if payload.Draft.Add != nil && len(payload.Draft.Add.Plan.Warnings) > 0 && !p.AcceptAddWarnings {
+		return nil, fmt.Errorf("%w: acknowledge the reviewed Add warnings before submitting", ErrTradingDisabled)
+	}
 	if msg := s.trailRedemptionGuard(ctx, payload.Draft); msg != "" {
 		return nil, fmt.Errorf("%w: %s", ErrTradingDisabled, msg)
 	}
@@ -74,6 +77,7 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 		return nil, fmt.Errorf("prepare broker place attempt: %w", err)
 	}
 	confirm := previewTokenConfirmedEvent(payload, reservedOrderID, now, fmt.Sprintf("preview token confirmed for %s broker transmit", auth.Route))
+	confirm.AddWarningsAccepted = p.AcceptAddWarnings && payload.Draft.Add != nil && len(payload.Draft.Add.Plan.Warnings) > 0
 	attempt := orderJournalEventForDraft(payload.Draft, orderJournalEventSendAttempted, status, payload.TokenID, reservedOrderID, now)
 	attachOrderFeeBound(&attempt, payload.WhatIf)
 	attempt.AttemptID = attemptID

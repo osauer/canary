@@ -121,7 +121,7 @@ func TestStockAddPlanDisclosesProtectionAndAllAllowances(t *testing.T) {
 	p := stockAddTestParams()
 	p.Quantity, p.Max = 10, false
 	got, err := s.planStockAdd(t.Context(), p)
-	if err != nil || got.Quantity != 10 || len(got.Allowances) != 4 || len(got.RiskChecks) != 5 || got.Protection == nil || got.Protection.UncoveredBefore != 10 || got.Protection.UncoveredAfter != 20 || got.Protection.PendingQuantity != 5 {
+	if err != nil || got.Quantity != 10 || len(got.Allowances) != 4 || len(got.RiskChecks) != 10 || got.Protection == nil || got.Protection.UncoveredBefore != 10 || got.Protection.UncoveredAfter != 20 || got.Protection.PendingQuantity != 5 {
 		t.Fatalf("missing position plan: %+v %v", got, err)
 	}
 }

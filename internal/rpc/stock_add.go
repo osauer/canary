@@ -79,6 +79,7 @@ func CloneAddReview(in *AddReview) *AddReview {
 	}
 	out := *in
 	out.Plan.Blockers = slices.Clone(in.Plan.Blockers)
+	out.Plan.Warnings = slices.Clone(in.Plan.Warnings)
 	out.Plan.Allowances = slices.Clone(in.Plan.Allowances)
 	out.Plan.RiskChecks = slices.Clone(in.Plan.RiskChecks)
 	if in.Plan.Cash != nil {

@@ -97,3 +97,50 @@ func TestStockAddWireGuardRejectsChangedAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestStockAddWarningsRequireExplicitAcceptanceAndJournalIt(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		t.Run(map[bool]string{false: "not accepted", true: "accepted"}[accepted], func(t *testing.T) {
+			s, in := stockAddTestServer(t)
+			in.Manual = true
+			in.Rulebook.SingleNameWatchPct, in.Rulebook.SingleNameActPct = .1, .2
+			s.rulebookPolicies.active = in.Rulebook
+			sent := 0
+			s.orderReserveBrokerID = func(context.Context) (int, error) { return 1001, nil }
+			s.orderPlaceBroker = func(context.Context, *ibkrlib.Contract, *ibkrlib.RawOrder) error { sent++; return nil }
+			s.openOrderInventoryForTest = func(context.Context, bool) (ibkrlib.OpenOrderSnapshot, brokerStateScope, error) {
+				return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: s.orderNow()}, s.currentBrokerStateScope(), nil
+			}
+			p := stockAddTestParams()
+			p.Quantity, p.Max = 3, false
+			raw, _ := json.Marshal(p)
+			preview, err := s.handleAddPreview(t.Context(), &rpc.Request{Params: raw})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := s.placeOrder(t.Context(), rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, AcceptAddWarnings: accepted})
+			if !accepted {
+				if err == nil || sent != 0 || !strings.Contains(err.Error(), "acknowledge") {
+					t.Fatalf("unaccepted warning reached dispatch: %+v %v sent=%d", result, err, sent)
+				}
+				return
+			}
+			if err != nil || !result.Accepted || sent != 1 {
+				t.Fatalf("accepted warning refused: %+v %v sent=%d", result, err, sent)
+			}
+			events, err := s.orderJournal.LoadEvents(0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, event := range events {
+				if event.AddWarningsAccepted {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("explicit warning acceptance missing from audit")
+			}
+		})
+	}
+}

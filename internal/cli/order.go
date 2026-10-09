@@ -281,6 +281,7 @@ func previewCLIOrderType(raw string, hasTrail, hasLimitOffset bool) (string, err
 
 func runOrderPlace(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "order place")
+	acceptWarnings := fs.Bool("accept-add-warnings", false, "acknowledge the warnings in this exact Add preview; acceptance is logged")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	token := fs.String("preview-token", "", "submit-capable preview token")
 	if err := fs.Parse(args); err != nil {
@@ -293,7 +294,7 @@ func runOrderPlace(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "order place: --preview-token is required")
 	}
 	var res rpc.OrderPlaceResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderPlace, rpc.OrderPlaceParams{PreviewToken: strings.TrimSpace(*token), Origin: env.Origin}, &res); err != nil {
+	if err := env.Conn.Call(ctx, rpc.MethodOrderPlace, rpc.OrderPlaceParams{PreviewToken: strings.TrimSpace(*token), Origin: env.Origin, AcceptAddWarnings: *acceptWarnings}, &res); err != nil {
 		return fail(env, "order place: %v", err)
 	}
 	if *jsonOut {

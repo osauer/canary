@@ -15,16 +15,14 @@ portfolio target evidence use the existing position classification helper;
 known holdings retain their measured quantity and currency conversion. Unknown
 and unsupported types cannot become stock evidence through this conversion.
 
-The owner requested this staged build on 2026-10-08. The two new stock
-allocation percentages remain **unapproved** until chosen by the owner. No
-installer, migration, CLI, model tool or daemon start writes their values.
-The feature is opt-in through `[position_add]` in the risk constitution.
-Installing the code alone changes no trading policy. The owner's "I agree,
-proceed" on 2026-10-08 authorised the design-review corrections: explicit
-sizing intent and admission activation, exact fee accounting, shared reserve
-funding, broker margin evidence and a complete position-plan explanation.
-No numerical limits or live policy activation were requested. They remain
-unapproved. Source revision recorded at 2026-10-08 21:40 CEST.
+Owner revision approved 2026-10-09 15:52 CEST in the Desk interview
+`01a11d08-684a-70c3-bed6-ab84135953f8`: existing policy supplies Add limits.
+The optional allocation table is no longer required. Existing explicit extra
+caps remain enforced when present; installation writes no private policy.
+Automatic maximum sizing respects applicable warning boundaries. Exact manual
+additions may acknowledge advisory warnings; missing evidence and hard funding,
+order, margin and execution constraints remain binding. Warning acceptance is
+bound to an exact preview and recorded before broker transmission.
 
 `internal/risk/stock_add.go` owns sizing. The daemon assembles broker and policy
 evidence. `internal/rpc/stock_add.go` is the CLI/MCP contract. Both surfaces
@@ -53,30 +51,20 @@ holds. The price ceiling and currency must be explicit. No FX trade is created.
 
 ## Approved inputs and arithmetic
 
-The optional risk-constitution table requires two percentages in `(0,100]`
-and explicit approval of the named admission contract. Setting allocation
-percentages alone does not activate the new generic stock-order admission
-checks. An Add request always requires all three values. Once activated,
-ordinary stock orders cannot bypass the same checks.
+The existing owner-reviewed risk, Rulebook and cash policies must be current.
+`position_add` is an optional extra allocation restriction, not an activation
+prerequisite. Its stock-only caps, when provided, have different semantics from
+issuer loss and issuer delta; no default percentages are introduced.
 
-`admission_contract = "stock-entry-v1"` approves the full contract below:
-Rulebook rules 1, 3, 15, 18 and 19 must stay inside their **pass** bands for
-long-stock increases, including ordinary stock BUYs, irrespective of display
-modes. These previously advisory bands become hard admission checks for that
-scope. The selected bands and thresholds remain in the existing Rulebook
-policy. No new numerical threshold or exception is supplied by code.
+Issuer loss, dollar delta and risk-capital checks are scoped to the affected
+issuer, including configured share-class groups. Cluster checks retain every
+member of each affected configured cluster. Cash, margin, regime exposure,
+protection coverage and sell-only guidance remain portfolio-wide. Rule display
+modes and existing thresholds are respected. FX and earnings findings retain
+advisory semantics and source evidence is shown before and after the purchase.
 
-| Key | Meaning |
-| --- | --- |
-| `position_add.admission_contract` | Explicit approval of `stock-entry-v1`; distinct from choosing allocation percentages |
-| `position_add.max_stock_pct_nlv` | Gross market value of all stocks, including pending stock buys, as a percentage of current measured account net liquidation |
-| `position_add.max_underlying_stock_pct_nlv` | Market value of stock in the selected underlying, including its pending buys, as a percentage of that same net liquidation |
-
-These limits are distinct from issuer loss. The existing Rulebook issuer groups
-combine stock and options, including share classes that the owner groups.
-
-Capacity is the smallest whole-share allowance from stock allocation, stock in
-the underlying, the current per-order notional limit, and spendable cash in the
+Capacity is the smallest whole-share allowance from any explicitly configured stock allocation limits,
+the current per-order notional limit, and spendable cash in the
 stock's currency. Cash is the lower of observed trade-date and native settled
 cash, less outstanding purchases and their full fee bounds, the existing
 currency cash float, and the existing account reserve. The reserve is the
@@ -116,14 +104,20 @@ rule evidence and stop-instruction coverage. Blockers distinguish policy,
 capacity, unavailable evidence and unsupported instruments. Partial evidence is
 retained; an unknown maximum never becomes a zero-capacity claim.
 
-After sizing the simple limits, Canary evaluates the hypothetical portfolio
-through the existing issuer-concentration, premium-budget/sell-only, whole-book
-net exposure, issuer loss-budget and margin-headroom rules (1, 3, 15, 18, 19).
-Entry must remain inside their pass bands. Rule display modes cannot disable
-these admission measurements. The existing capital state must be current,
-reconciled and in its normal tier. A current regime is required. Existing
-option legs use the Rulebook's earnings-aware hedge credit and valuation.
-Missing risk evidence cannot create capacity. The exact candidate's broker
+After sizing funding and order allowances, Canary evaluates the hypothetical
+portfolio through existing rules 1, 3, 8, 12, 14, 15, 16, 17, 18 and 19.
+A missing required measurement cannot create capacity. Max is conservative;
+manual exact quantity may carry brief warnings. `order place` requires explicit
+`--accept-add-warnings` when the signed Add preview contains warnings. The
+confirmation journal records acceptance; changed warnings require a new review.
+Desk's device confirmation binds the same preview and accepts its displayed
+warnings through the existing execution adapter. No AUTO strategy or arming UI
+is added to the Canary CLI.
+
+Capital evidence must be current and reconciled. AUTO sizing requires normal
+capital state; manual entry retains the constitution's existing enforcement
+and preview warnings. Existing option legs remain in the risk calculation.
+The exact candidate's broker
 before/after maintenance-margin and equity-with-loan change determines its
 headroom debit. Commission is charged additionally; any simulated margin
 release is ignored. Current and look-ahead headroom both retain the approved
@@ -134,12 +128,10 @@ an absent margin currency is unavailable evidence, not an inferred
 account-base denomination. All margin values must be finite. Thresholds remain in their existing
 policy files; the code supplies no new investment numbers.
 
-This is a new hard admission contract **only when the owner approves the named
-admission contract in the optional table**. It does not globally promote other advisory rules or change
-capital-state enforcement for other instrument types. An opted-in table also
-applies to ordinary stock BUY previews/sends that open or increase a long, so
-choosing the older order command cannot bypass it. Reductions and short covers
-remain on their existing controls. A flip from short to long is unsupported.
+A legacy explicitly configured `stock-entry-v1` table still routes ordinary
+stock increases through the same funding/evidence review. It no longer silently
+promotes advisory warnings to unoverrideable refusals. Reductions and short
+covers retain their existing controls; flips from short to long are unsupported.
 
 ## Pending activity and support limits
 

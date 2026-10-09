@@ -284,8 +284,8 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	}
 	ev := stockAddEvidence{}
 	mgr := s.riskPolicies.snapshot()
-	if mgr.policy == nil || mgr.policy.PositionAdd == nil || mgr.policy.PositionAdd.MaxStockPctNLV == nil || mgr.policy.PositionAdd.MaxUnderlyingStockPctNLV == nil || mgr.policy.PositionAdd.AdmissionContract != risk.StockAddAdmissionV1 {
-		return ev, &stockAddProblem{kind: "policy", message: "position_add admission_contract, max_stock_pct_nlv and max_underlying_stock_pct_nlv require explicit approval; an absent or incomplete contract is unapproved"}
+	if mgr.policy == nil {
+		return ev, &stockAddProblem{kind: "policy", message: "the existing risk policy is unavailable"}
 	}
 	if mgr.status != rpc.RiskPolicyStatusActive || mgr.review == rpc.PolicyReviewUnreviewed {
 		return ev, &stockAddProblem{kind: "policy", message: "the risk policy must be current and owner-reviewed"}
@@ -392,8 +392,9 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	if err != nil {
 		return ev, err
 	}
-	input := risk.StockAddInput{Policy: mgr.policy.PositionAdd, Symbol: contract.Symbol, ConID: contract.ConID, Price: p.LimitPrice, FX: n.BasePerContract, Requested: p.Quantity, FreeCash: cash.Spendable, Cash: cash, PendingCostBase: committedBase, Rulebook: pol,
+	input := risk.StockAddInput{Policy: mgr.policy.PositionAdd, Manual: p.Quantity > 0, Symbol: contract.Symbol, ConID: contract.ConID, Price: p.LimitPrice, FX: n.BasePerContract, Requested: p.Quantity, FreeCash: cash.Spendable, Cash: cash, PendingCostBase: committedBase, Rulebook: pol,
 		Rules: risk.RuleInputs{AsOf: now, BaseCurrency: base, Positions: risk.SourceState{Healthy: true}, Account: risk.SourceState{Healthy: true}, NLVBase: new(acct.NetLiquidation), RiskCapital: s.rulebookRiskCapital(acct, nil, base, now), Names: mapRuleNames(pos, pol, base)}}
+	input.Rules.NonBaseNLVBase, input.Rules.NonBaseCurrencies = nonBaseExposure(acct, pos)
 	input.Rules.ExcessLiquidityBase, input.Rules.LookAheadExcessLiquidityBase, input.Rules.InitialMarginBase, input.Rules.MaintenanceMarginBase = rulebookMarginInputs(acct, aa)
 	if input.Rules.ExcessLiquidityBase != nil {
 		input.Rules.ExcessLiquidityBase = new(*input.Rules.ExcessLiquidityBase - committedBase)
@@ -409,7 +410,7 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("current regime evidence is unavailable")
 	}
 	capital := s.riskCapital.Report(mgr.policy, &risk.CapitalObservation{EquityBase: acct.NetLiquidation, AsOf: acct.AsOf}, scope)
-	if capital.Tier != risk.CapitalTierOK || capital.EquityStale || capital.ReconcileStale {
+	if (!input.Manual && capital.Tier != risk.CapitalTierOK) || capital.EquityStale || capital.ReconcileStale {
 		return ev, fmt.Errorf("capital policy is not ready for new risk: %s", capital.Tier)
 	}
 	limits := s.orderLimitsInForceForPreview(ctx, base)
@@ -579,6 +580,13 @@ func (s *Server) validateStockAddDraft(ctx context.Context, draft rpc.OrderDraft
 		return ev, err
 	}
 	plan := risk.CheckStockAdd(ev.input)
+	if draft.Add != nil {
+		// The owner confirmed these exact warning facts. Changed warnings need
+		// another preview; a previous acknowledgement cannot cover new risk.
+		if !slices.Equal(draft.Add.Plan.Warnings, plan.Warnings) {
+			return ev, fmt.Errorf("add warnings changed; review and confirm again")
+		}
+	}
 	if len(plan.Blockers) > 0 || plan.Quantity != draft.Quantity {
 		return ev, fmt.Errorf("%s", addBlockerText(plan))
 	}
