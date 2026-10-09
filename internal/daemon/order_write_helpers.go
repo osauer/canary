@@ -56,6 +56,9 @@ func validateOrderViewMatchesGate(view rpc.OrderView, status rpc.TradingStatus) 
 }
 
 func validateModifyDraft(view rpc.OrderView, draft rpc.OrderDraft) error {
+	if !orderAlgorithmMatches(draft.AdaptivePriority, view.AdaptivePriority, view.AlgoStrategy, view.AlgoKnown) {
+		return errBadRequest("order modify cannot change or discard the broker algorithm")
+	}
 	if strings.ToUpper(strings.TrimSpace(view.SecType)) != "STK" || strings.ToUpper(strings.TrimSpace(draft.Contract.SecType)) != "STK" {
 		return errBadRequest("order modify supports STK contracts only")
 	}
@@ -225,4 +228,17 @@ func validateModifyContractRouting(view rpc.OrderView, contract rpc.ContractPara
 		return errBadRequest("order modify cannot change trading class")
 	}
 	return nil
+}
+
+// Legacy callbacks cannot certify Adaptive. Preserve pre-existing plain-order
+// handling when algorithm metadata is unavailable, but never ignore a known
+// broker strategy or convert an incomplete Adaptive observation to plain.
+func orderAlgorithmMatches(expectedPriority, observedPriority, observedStrategy string, known bool) bool {
+	if expectedPriority != observedPriority {
+		return false
+	}
+	if expectedPriority != "" {
+		return known && observedStrategy == "Adaptive"
+	}
+	return observedStrategy == ""
 }

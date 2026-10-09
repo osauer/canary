@@ -119,6 +119,13 @@ func encodePlaceOrderOrderProto(order *IBKROrder) ([]byte, error) {
 	}
 	msg = protoAppendInt32(msg, 43, int32(order.DeltaNeutralConID))
 	msg = protoAppendInt32(msg, 46, int32(order.DeltaNeutralShortSaleSlot))
+	// IBKR Order.proto: algoStrategy=61, algoParams=62 (string map).
+	if order.AdaptivePriority != "" {
+		msg = protoAppendString(msg, 61, "Adaptive")
+		entry := protoAppendString(nil, 1, "adaptivePriority")
+		entry = protoAppendString(entry, 2, order.AdaptivePriority)
+		msg = protoAppendMessage(msg, 62, entry)
+	}
 	if order.WhatIf {
 		msg = protoAppendBool(msg, 65, true)
 	}
@@ -144,6 +151,9 @@ func encodePlaceOrderOrderProto(order *IBKROrder) ([]byte, error) {
 func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	if order == nil {
 		return fmt.Errorf("order is nil")
+	}
+	if err := validateAdaptiveOrder(order); err != nil {
+		return err
 	}
 	for _, field := range []struct {
 		name  string

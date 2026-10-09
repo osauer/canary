@@ -133,6 +133,11 @@ func (c *Connection) previewOrderWhatIfForEpoch(ctx context.Context, order *IBKR
 	openOrderHandlerID := register(msgOpenOrder, func(fields []string) {
 		result, ok := parseOrderWhatIfOpenOrder(fields, order.OrderID, c.serverVersion)
 		if ok {
+			if order.AdaptivePriority != "" && result.Status == OrderWhatIfStatusAccepted &&
+				(summaryFieldValue(fields, "algoStrategy=") != "Adaptive" || summaryFieldValue(fields, "adaptivePriority=") != order.AdaptivePriority) {
+				result = orderWhatIfUnavailableResult("broker WhatIf did not confirm the requested Adaptive priority; no plain-limit fallback")
+				result.OrderID = order.OrderID
+			}
 			sendOrderWhatIfResult(resultCh, result)
 		}
 	})
@@ -236,39 +241,40 @@ func (c *Connector) previewOrderWhatIf(ctx context.Context, contract *Contract, 
 	}
 
 	ibkrOrder := &IBKROrder{
-		ConID:           contract.ConID,
-		Symbol:          contract.Symbol,
-		SecType:         contract.SecType,
-		Expiry:          contract.Expiry,
-		Strike:          contract.Strike,
-		Right:           contract.Right,
-		Multiplier:      multiplierToString(contract.Multiplier),
-		Exchange:        contract.Exchange,
-		PrimaryExch:     contract.PrimaryExch,
-		Currency:        contract.Currency,
-		LocalSymbol:     contract.LocalSymbol,
-		TradingClass:    contract.TradingClass,
-		SecIDType:       contract.SecIDType,
-		SecID:           contract.SecID,
-		BondRules:       cloneBondOrderRules(contract.BondRules),
-		ClientID:        order.ClientID,
-		Action:          order.Action,
-		TotalQty:        order.TotalQty,
-		OrderType:       order.OrderType,
-		LmtPrice:        order.LmtPrice,
-		AuxPrice:        order.AuxPrice,
-		TrailStopPrice:  order.TrailStopPrice,
-		TrailingPercent: order.TrailingPercent,
-		LmtPriceOffset:  order.LmtPriceOffset,
-		TIF:             order.TIF,
-		TriggerMethod:   order.TriggerMethod,
-		OrderRef:        order.OrderRef,
-		OutsideRth:      order.OutsideRth,
-		Account:         order.Account,
-		Transmit:        false,
-		WhatIf:          true,
-		OpenClose:       strings.ToUpper(strings.TrimSpace(order.OpenClose)),
-		Origin:          0,
+		AdaptivePriority: order.AdaptivePriority,
+		ConID:            contract.ConID,
+		Symbol:           contract.Symbol,
+		SecType:          contract.SecType,
+		Expiry:           contract.Expiry,
+		Strike:           contract.Strike,
+		Right:            contract.Right,
+		Multiplier:       multiplierToString(contract.Multiplier),
+		Exchange:         contract.Exchange,
+		PrimaryExch:      contract.PrimaryExch,
+		Currency:         contract.Currency,
+		LocalSymbol:      contract.LocalSymbol,
+		TradingClass:     contract.TradingClass,
+		SecIDType:        contract.SecIDType,
+		SecID:            contract.SecID,
+		BondRules:        cloneBondOrderRules(contract.BondRules),
+		ClientID:         order.ClientID,
+		Action:           order.Action,
+		TotalQty:         order.TotalQty,
+		OrderType:        order.OrderType,
+		LmtPrice:         order.LmtPrice,
+		AuxPrice:         order.AuxPrice,
+		TrailStopPrice:   order.TrailStopPrice,
+		TrailingPercent:  order.TrailingPercent,
+		LmtPriceOffset:   order.LmtPriceOffset,
+		TIF:              order.TIF,
+		TriggerMethod:    order.TriggerMethod,
+		OrderRef:         order.OrderRef,
+		OutsideRth:       order.OutsideRth,
+		Account:          order.Account,
+		Transmit:         false,
+		WhatIf:           true,
+		OpenClose:        strings.ToUpper(strings.TrimSpace(order.OpenClose)),
+		Origin:           0,
 	}
 	if ibkrOrder.OpenClose == "" {
 		ibkrOrder.OpenClose = "O"
@@ -393,6 +399,9 @@ func (c *Connection) sendPlaceOrderFrameGuarded(ctx context.Context, order *IBKR
 			return definitelyUnsent(err)
 		}
 		return c.sendMessageWithTypeContextForEpochGuarded(ctx, msg, RequestTypeOrder, epoch, true, guard)
+	}
+	if order.AdaptivePriority != "" {
+		return definitelyUnsent(fmt.Errorf("this broker protocol does not support Adaptive; no order sent"))
 	}
 	if order.LmtPriceOffset != 0 {
 		return definitelyUnsent(fmt.Errorf("legacy placeOrder encoder does not support lmtPriceOffset"))

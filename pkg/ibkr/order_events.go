@@ -27,53 +27,56 @@ const (
 // Raw is a copied slice of untrusted wire fields and may be nil for synthesized
 // error events.
 type OrderLifecycleEvent struct {
-	Type            string // Type is one of the OrderLifecycleEvent constants.
-	OrderID         int    // OrderID is session-scoped; zero means absent.
-	PermID          int    // PermID is IBKR's permanent order ID; zero means absent.
-	ClientID        int    // ClientID identifies the TWS API client; zero is a valid client ID.
-	ClientIDPresent bool   // ClientIDPresent distinguishes explicit client 0 from an omitted legacy field.
-	RequestID       int    // RequestID correlates execDetails requests; zero means absent.
-	Status          string // Status is unnormalized broker state and may be empty.
-	ErrorCode       int    // ErrorCode is populated for synthesized error events.
-	Message         string // Message is untrusted broker warning or error text.
-	Symbol          string
-	SecType         string
-	ConID           int
-	Expiry          string
-	Strike          float64
-	Right           string
-	Multiplier      int
-	Exchange        string
-	Currency        string
-	LocalSymbol     string
-	TradingClass    string
-	Action          string
-	TotalQuantity   float64 // TotalQuantity is in shares or contracts.
-	OrderType       string
-	LimitPrice      float64 // LimitPrice is in quote-currency units.
-	AuxPrice        float64 // AuxPrice is a stop price or trailing amount.
-	TrailingPercent float64 // TrailingPercent is the broker percentage value, not a fraction.
-	TrailStopPrice  float64 // TrailStopPrice is in quote-currency units.
-	LmtPriceOffset  float64 // LmtPriceOffset is in price units.
-	TIF             string
-	TriggerMethod   int
-	OutsideRth      bool
-	WhatIf          bool
-	Filled          float64 // Filled is the callback's cumulative filled quantity.
-	Remaining       float64 // Remaining is the callback's unfilled quantity.
-	AvgFillPrice    float64 // AvgFillPrice is in quote-currency units.
-	LastFillPrice   float64 // LastFillPrice is in quote-currency units.
-	WhyHeld         string
-	MktCapPrice     float64
-	ExecID          string
-	ExecTime        string
-	Account         string
-	ExecutionSide   string
-	Shares          float64 // Shares is this execution's quantity in shares or contracts.
-	Price           float64 // Price is this execution's price in quote-currency units.
-	CumQty          float64 // CumQty is the execution's cumulative filled quantity.
-	OrderRef        string
-	Raw             []string
+	AlgoStrategy     string
+	AdaptivePriority string
+	AlgoKnown        bool
+	Type             string // Type is one of the OrderLifecycleEvent constants.
+	OrderID          int    // OrderID is session-scoped; zero means absent.
+	PermID           int    // PermID is IBKR's permanent order ID; zero means absent.
+	ClientID         int    // ClientID identifies the TWS API client; zero is a valid client ID.
+	ClientIDPresent  bool   // ClientIDPresent distinguishes explicit client 0 from an omitted legacy field.
+	RequestID        int    // RequestID correlates execDetails requests; zero means absent.
+	Status           string // Status is unnormalized broker state and may be empty.
+	ErrorCode        int    // ErrorCode is populated for synthesized error events.
+	Message          string // Message is untrusted broker warning or error text.
+	Symbol           string
+	SecType          string
+	ConID            int
+	Expiry           string
+	Strike           float64
+	Right            string
+	Multiplier       int
+	Exchange         string
+	Currency         string
+	LocalSymbol      string
+	TradingClass     string
+	Action           string
+	TotalQuantity    float64 // TotalQuantity is in shares or contracts.
+	OrderType        string
+	LimitPrice       float64 // LimitPrice is in quote-currency units.
+	AuxPrice         float64 // AuxPrice is a stop price or trailing amount.
+	TrailingPercent  float64 // TrailingPercent is the broker percentage value, not a fraction.
+	TrailStopPrice   float64 // TrailStopPrice is in quote-currency units.
+	LmtPriceOffset   float64 // LmtPriceOffset is in price units.
+	TIF              string
+	TriggerMethod    int
+	OutsideRth       bool
+	WhatIf           bool
+	Filled           float64 // Filled is the callback's cumulative filled quantity.
+	Remaining        float64 // Remaining is the callback's unfilled quantity.
+	AvgFillPrice     float64 // AvgFillPrice is in quote-currency units.
+	LastFillPrice    float64 // LastFillPrice is in quote-currency units.
+	WhyHeld          string
+	MktCapPrice      float64
+	ExecID           string
+	ExecTime         string
+	Account          string
+	ExecutionSide    string
+	Shares           float64 // Shares is this execution's quantity in shares or contracts.
+	Price            float64 // Price is this execution's price in quote-currency units.
+	CumQty           float64 // CumQty is the execution's cumulative filled quantity.
+	OrderRef         string
+	Raw              []string
 }
 
 // OrderLifecycleReceipt binds one parsed broker lifecycle event to the exact
@@ -228,39 +231,42 @@ func parseExecDetailsEvent(fields []string) (OrderLifecycleEvent, bool) {
 func parseOpenOrderProtoEvent(fields []string) (OrderLifecycleEvent, bool) {
 	clientID, clientIDPresent := orderEventSummaryInt(fields, "clientId=")
 	ev := OrderLifecycleEvent{
-		Type:            OrderLifecycleEventOpenOrder,
-		OrderID:         orderEventInt(summaryFieldValue(fields, "orderId=")),
-		ConID:           orderEventInt(summaryFieldValue(fields, "conId=")),
-		PermID:          orderEventInt(summaryFieldValue(fields, "permId=")),
-		ClientID:        clientID,
-		ClientIDPresent: clientIDPresent,
-		Symbol:          strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "symbol="))),
-		SecType:         strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "secType="))),
-		Expiry:          strings.TrimSpace(summaryFieldValue(fields, "expiry=")),
-		Strike:          orderEventFloat(summaryFieldValue(fields, "strike=")),
-		Right:           strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "right="))),
-		Multiplier:      orderEventInt(summaryFieldValue(fields, "multiplier=")),
-		Exchange:        strings.TrimSpace(summaryFieldValue(fields, "exchange=")),
-		Currency:        strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "currency="))),
-		LocalSymbol:     strings.TrimSpace(summaryFieldValue(fields, "localSymbol=")),
-		TradingClass:    strings.TrimSpace(summaryFieldValue(fields, "tradingClass=")),
-		Action:          strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "action="))),
-		TotalQuantity:   orderEventFloat(summaryFieldValue(fields, "qty=")),
-		OrderType:       strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "orderType="))),
-		LimitPrice:      orderEventFloat(summaryFieldValue(fields, "lmtPrice=")),
-		AuxPrice:        orderEventFloat(summaryFieldValue(fields, "auxPrice=")),
-		TrailingPercent: orderEventFloat(summaryFieldValue(fields, "trailingPercent=")),
-		TrailStopPrice:  orderEventFloat(summaryFieldValue(fields, "trailStopPrice=")),
-		LmtPriceOffset:  orderEventFloat(summaryFieldValue(fields, "lmtPriceOffset=")),
-		TIF:             strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "tif="))),
-		TriggerMethod:   orderEventInt(summaryFieldValue(fields, "triggerMethod=")),
-		OutsideRth:      protoSummaryBool(fields, "outsideRth="),
-		WhatIf:          protoSummaryBool(fields, "whatIf="),
-		Account:         strings.TrimSpace(summaryFieldValue(fields, "account=")),
-		OrderRef:        strings.TrimSpace(summaryFieldValue(fields, "orderRef=")),
-		Status:          strings.TrimSpace(summaryFieldValue(fields, "status=")),
-		Message:         orderEventWarningMessage(fields),
-		Raw:             append([]string{}, fields...),
+		AlgoKnown:        true,
+		AlgoStrategy:     summaryFieldValue(fields, "algoStrategy="),
+		AdaptivePriority: summaryFieldValue(fields, "adaptivePriority="),
+		Type:             OrderLifecycleEventOpenOrder,
+		OrderID:          orderEventInt(summaryFieldValue(fields, "orderId=")),
+		ConID:            orderEventInt(summaryFieldValue(fields, "conId=")),
+		PermID:           orderEventInt(summaryFieldValue(fields, "permId=")),
+		ClientID:         clientID,
+		ClientIDPresent:  clientIDPresent,
+		Symbol:           strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "symbol="))),
+		SecType:          strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "secType="))),
+		Expiry:           strings.TrimSpace(summaryFieldValue(fields, "expiry=")),
+		Strike:           orderEventFloat(summaryFieldValue(fields, "strike=")),
+		Right:            strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "right="))),
+		Multiplier:       orderEventInt(summaryFieldValue(fields, "multiplier=")),
+		Exchange:         strings.TrimSpace(summaryFieldValue(fields, "exchange=")),
+		Currency:         strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "currency="))),
+		LocalSymbol:      strings.TrimSpace(summaryFieldValue(fields, "localSymbol=")),
+		TradingClass:     strings.TrimSpace(summaryFieldValue(fields, "tradingClass=")),
+		Action:           strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "action="))),
+		TotalQuantity:    orderEventFloat(summaryFieldValue(fields, "qty=")),
+		OrderType:        strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "orderType="))),
+		LimitPrice:       orderEventFloat(summaryFieldValue(fields, "lmtPrice=")),
+		AuxPrice:         orderEventFloat(summaryFieldValue(fields, "auxPrice=")),
+		TrailingPercent:  orderEventFloat(summaryFieldValue(fields, "trailingPercent=")),
+		TrailStopPrice:   orderEventFloat(summaryFieldValue(fields, "trailStopPrice=")),
+		LmtPriceOffset:   orderEventFloat(summaryFieldValue(fields, "lmtPriceOffset=")),
+		TIF:              strings.ToUpper(strings.TrimSpace(summaryFieldValue(fields, "tif="))),
+		TriggerMethod:    orderEventInt(summaryFieldValue(fields, "triggerMethod=")),
+		OutsideRth:       protoSummaryBool(fields, "outsideRth="),
+		WhatIf:           protoSummaryBool(fields, "whatIf="),
+		Account:          strings.TrimSpace(summaryFieldValue(fields, "account=")),
+		OrderRef:         strings.TrimSpace(summaryFieldValue(fields, "orderRef=")),
+		Status:           strings.TrimSpace(summaryFieldValue(fields, "status=")),
+		Message:          orderEventWarningMessage(fields),
+		Raw:              append([]string{}, fields...),
 	}
 	return ev, ev.OrderID > 0
 }

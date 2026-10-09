@@ -228,6 +228,10 @@ func cashPolicyNullIfEmpty(raw json.RawMessage) json.RawMessage {
 // binds the signature to one action and is spent by Desk, so Canary checks
 // its shape only.
 func verifyDeskCompanionSignature(key *ecdsa.PublicKey, actionID, digest, challenge, signature string) error {
+	return verifyDeskCompanionSignatureDomain(deskCompanionPolicyPrefix, key, actionID, digest, challenge, signature)
+}
+
+func verifyDeskCompanionSignatureDomain(domain string, key *ecdsa.PublicKey, actionID, digest, challenge, signature string) error {
 	if nonce, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(challenge, "=")); err != nil || len(nonce) != deskPasskeyNonceBytes {
 		return errors.New("the companion's challenge is not 32 bytes in base64url")
 	}
@@ -240,7 +244,7 @@ func verifyDeskCompanionSignature(key *ecdsa.PublicKey, actionID, digest, challe
 	if r.Sign() == 0 || s.Sign() == 0 || r.Cmp(order) >= 0 || s.Cmp(order) >= 0 {
 		return errors.New("the companion's signature is not a P-256 signature")
 	}
-	hash := sha256.Sum256([]byte(deskCompanionPolicyPrefix + "\n" + actionID + "\n" + digest + "\n" + challenge))
+	hash := sha256.Sum256([]byte(domain + "\n" + actionID + "\n" + digest + "\n" + challenge))
 	if !ecdsa.Verify(key, hash[:], r, s) {
 		return errors.New("the companion's signature does not verify against the key pinned for it")
 	}
@@ -254,6 +258,10 @@ func verifyDeskCompanionSignature(key *ecdsa.PublicKey, actionID, digest, challe
 // DER signature verifies over the authenticator data and the SHA-256 of the
 // client data.
 func verifyDeskPasskeyAssertion(key *ecdsa.PublicKey, actionID, digest, authData, clientData, signature string) error {
+	return verifyDeskPasskeyAssertionDomain(deskPasskeyPolicyPrefix, key, actionID, digest, authData, clientData, signature)
+}
+
+func verifyDeskPasskeyAssertionDomain(domain string, key *ecdsa.PublicKey, actionID, digest, authData, clientData, signature string) error {
 	auth, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(authData, "="))
 	if err != nil || len(auth) < 37 {
 		return errors.New("the passkey's authenticator data is not base64url of at least 37 bytes")
@@ -280,7 +288,7 @@ func verifyDeskPasskeyAssertion(key *ecdsa.PublicKey, actionID, digest, authData
 	if err != nil || len(challenge) != deskPasskeyNonceBytes+sha256.Size {
 		return errors.New("the passkey's challenge is not Desk's nonce and binding")
 	}
-	binding := sha256.Sum256(append([]byte(deskPasskeyPolicyPrefix+"\n"+actionID+"\n"+digest+"\n"), challenge[:deskPasskeyNonceBytes]...))
+	binding := sha256.Sum256(append([]byte(domain+"\n"+actionID+"\n"+digest+"\n"), challenge[:deskPasskeyNonceBytes]...))
 	if !bytes.Equal(challenge[deskPasskeyNonceBytes:], binding[:]) {
 		return errors.New("the passkey's challenge does not bind this action and these terms")
 	}

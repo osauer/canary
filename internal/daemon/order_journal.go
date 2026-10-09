@@ -57,6 +57,9 @@ type orderJournalStore struct {
 }
 
 type orderJournalEvent struct {
+	AlgoStrategy        string                   `json:"algo_strategy,omitempty"`
+	AlgoKnown           bool                     `json:"algo_known,omitempty"`
+	AdaptivePriority    string                   `json:"adaptive_priority,omitempty"`
 	AddWarningsAccepted bool                     `json:"add_warnings_accepted,omitempty"`
 	Add                 *rpc.AddReview           `json:"add,omitempty"`
 	Version             int                      `json:"version"`

@@ -4814,24 +4814,26 @@ func (c *Connector) unsubscribeMarketData(ctx context.Context, symbol string, bi
 // responsible for supplying a broker-valid combination of order type, prices,
 // quantity, time in force, account, and routing fields.
 type RawOrder struct {
-	OrderID         int
-	ClientID        int
-	PermID          int
-	Action          string // BUY or SELL
-	TotalQty        int
-	OrderType       string // MKT, LMT, STP, etc.
-	LmtPrice        float64
-	LmtPriceSet     bool
-	AuxPrice        float64 // Stop price for stop orders
-	TrailStopPrice  float64
-	TrailingPercent float64
-	LmtPriceOffset  float64
-	TIF             string // Time in force: DAY, GTC, IOC, etc.
-	TriggerMethod   int    // IBKR stop trigger method for stop/trailing orders
-	Account         string
-	OrderRef        string // Our internal order ID
-	OutsideRth      bool   // Allow execution outside regular trading hours
-	OpenClose       string // O=open, C=close
+	// AdaptivePriority requests IBKR Adaptive, never a plain-limit fallback.
+	AdaptivePriority string
+	OrderID          int
+	ClientID         int
+	PermID           int
+	Action           string // BUY or SELL
+	TotalQty         int
+	OrderType        string // MKT, LMT, STP, etc.
+	LmtPrice         float64
+	LmtPriceSet      bool
+	AuxPrice         float64 // Stop price for stop orders
+	TrailStopPrice   float64
+	TrailingPercent  float64
+	LmtPriceOffset   float64
+	TIF              string // Time in force: DAY, GTC, IOC, etc.
+	TriggerMethod    int    // IBKR stop trigger method for stop/trailing orders
+	Account          string
+	OrderRef         string // Our internal order ID
+	OutsideRth       bool   // Allow execution outside regular trading hours
+	OpenClose        string // O=open, C=close
 }
 
 // SubmitOrder sends an unrestricted order through the active broker
@@ -4916,40 +4918,41 @@ func (c *Connector) submitOrderForSession(ctx context.Context, binding Connector
 
 	// Convert to IBKROrder for the connection
 	ibkrOrder := &IBKROrder{
-		OrderID:         order.OrderID,
-		ClientID:        order.ClientID,
-		PermID:          order.PermID,
-		ConID:           contract.ConID,
-		Symbol:          contract.Symbol,
-		SecType:         contract.SecType,
-		Expiry:          contract.Expiry,
-		Strike:          contract.Strike,
-		Right:           contract.Right,
-		Multiplier:      multiplierToString(contract.Multiplier),
-		Exchange:        contract.Exchange,
-		PrimaryExch:     contract.PrimaryExch,
-		Currency:        contract.Currency,
-		LocalSymbol:     contract.LocalSymbol,
-		TradingClass:    contract.TradingClass,
-		ComboLegs:       append([]ComboLeg(nil), contract.ComboLegs...),
-		BondRules:       cloneBondOrderRules(contract.BondRules),
-		Action:          order.Action,
-		TotalQty:        order.TotalQty,
-		OrderType:       order.OrderType,
-		LmtPrice:        order.LmtPrice,
-		LmtPriceSet:     order.LmtPriceSet || strings.EqualFold(order.OrderType, "LMT"),
-		AuxPrice:        order.AuxPrice,
-		TrailStopPrice:  order.TrailStopPrice,
-		TrailingPercent: order.TrailingPercent,
-		LmtPriceOffset:  order.LmtPriceOffset,
-		TIF:             order.TIF,
-		TriggerMethod:   order.TriggerMethod,
-		OrderRef:        order.OrderRef,
-		OutsideRth:      order.OutsideRth,
-		Account:         order.Account,
-		Transmit:        true,
-		OpenClose:       strings.ToUpper(strings.TrimSpace(order.OpenClose)),
-		Origin:          0,
+		AdaptivePriority: order.AdaptivePriority,
+		OrderID:          order.OrderID,
+		ClientID:         order.ClientID,
+		PermID:           order.PermID,
+		ConID:            contract.ConID,
+		Symbol:           contract.Symbol,
+		SecType:          contract.SecType,
+		Expiry:           contract.Expiry,
+		Strike:           contract.Strike,
+		Right:            contract.Right,
+		Multiplier:       multiplierToString(contract.Multiplier),
+		Exchange:         contract.Exchange,
+		PrimaryExch:      contract.PrimaryExch,
+		Currency:         contract.Currency,
+		LocalSymbol:      contract.LocalSymbol,
+		TradingClass:     contract.TradingClass,
+		ComboLegs:        append([]ComboLeg(nil), contract.ComboLegs...),
+		BondRules:        cloneBondOrderRules(contract.BondRules),
+		Action:           order.Action,
+		TotalQty:         order.TotalQty,
+		OrderType:        order.OrderType,
+		LmtPrice:         order.LmtPrice,
+		LmtPriceSet:      order.LmtPriceSet || strings.EqualFold(order.OrderType, "LMT"),
+		AuxPrice:         order.AuxPrice,
+		TrailStopPrice:   order.TrailStopPrice,
+		TrailingPercent:  order.TrailingPercent,
+		LmtPriceOffset:   order.LmtPriceOffset,
+		TIF:              order.TIF,
+		TriggerMethod:    order.TriggerMethod,
+		OrderRef:         order.OrderRef,
+		OutsideRth:       order.OutsideRth,
+		Account:          order.Account,
+		Transmit:         true,
+		OpenClose:        strings.ToUpper(strings.TrimSpace(order.OpenClose)),
+		Origin:           0,
 	}
 	if ibkrOrder.OpenClose == "" {
 		ibkrOrder.OpenClose = "O"

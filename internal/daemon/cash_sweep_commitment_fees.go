@@ -43,7 +43,7 @@ func cashSweepWorkingAttempt(o ibkrlib.OrderLifecycleEvent, scope brokerStateSco
 		}
 		if ev.At.IsZero() || ev.At.After(e.Now) || !cashSweepDay(ev.At).Equal(cashSweepDay(e.Now)) || ev.TIF != rpc.OrderTIFDay || o.TIF != rpc.OrderTIFDay ||
 			ev.ConID != o.ConID || ev.SecType != o.SecType || normCcy(ev.Currency) != normCcy(o.Currency) || ev.Multiplier != o.Multiplier || ev.Exchange != o.Exchange ||
-			ev.Action != o.Action || ev.OrderType != o.OrderType || ev.Quantity != o.TotalQuantity || ev.LimitPrice != o.LimitPrice || ev.TriggerMethod != o.TriggerMethod || ev.OutsideRTH != o.OutsideRth || ev.Trail != nil || ev.StrategyGroup != nil {
+			!orderAlgorithmMatches(ev.AdaptivePriority, o.AdaptivePriority, o.AlgoStrategy, o.AlgoKnown) || ev.Action != o.Action || ev.OrderType != o.OrderType || ev.Quantity != o.TotalQuantity || ev.LimitPrice != o.LimitPrice || ev.TriggerMethod != o.TriggerMethod || ev.OutsideRTH != o.OutsideRth || ev.Trail != nil || ev.StrategyGroup != nil {
 			return orderJournalEvent{}, false
 		}
 		return ev, true

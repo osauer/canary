@@ -58,6 +58,8 @@ var perCandidateConnectBudget = 25 * time.Second
 
 // Server is the daemon process state.
 type Server struct {
+	// deskAuthorityMu fences controller changes against the final broker byte.
+	deskAuthorityMu         sync.RWMutex
 	stockAddEvidenceForTest func(context.Context, rpc.AddParams) (stockAddEvidence, error)
 	marketTapeCollecting    atomic.Bool
 	marketTapeArchiveFailed atomic.Bool

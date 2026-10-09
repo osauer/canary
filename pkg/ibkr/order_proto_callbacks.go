@@ -1,6 +1,7 @@
 package ibkr
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -14,6 +15,8 @@ const (
 )
 
 type inboundOrderProtoSummary struct {
+	algoStrategy         string
+	adaptivePriority     string
 	orderID              int
 	requestID            int
 	permID               int
@@ -196,6 +199,8 @@ func appendContractSummaryFields(fields []string, summary inboundOrderProtoSumma
 
 func appendOrderSummaryFields(fields []string, summary inboundOrderProtoSummary) []string {
 	return append(fields,
+		"algoStrategy="+summary.algoStrategy,
+		"adaptivePriority="+summary.adaptivePriority,
 		"action="+summary.action,
 		"qty="+summary.quantity,
 		"orderType="+summary.orderType,
@@ -359,6 +364,34 @@ func parseInboundContractProto(body []byte, summary *inboundOrderProtoSummary) e
 func parseInboundOrderProto(body []byte, summary *inboundOrderProtoSummary) error {
 	return forEachProtoField(body, func(fieldNumber, wireType int, value []byte) error {
 		switch fieldNumber {
+		case 61:
+			if wireType != protoWireBytes {
+				return fmt.Errorf("invalid algoStrategy wire type")
+			}
+			summary.algoStrategy = string(value)
+		case 62:
+			if wireType != protoWireBytes {
+				return fmt.Errorf("invalid algoParams wire type")
+			}
+			var key, param string
+			if err := forEachProtoField(value, func(f, w int, v []byte) error {
+				if w != protoWireBytes {
+					return fmt.Errorf("invalid algo parameter wire type")
+				}
+				if f == 1 {
+					key = string(v)
+				}
+				if f == 2 {
+					param = string(v)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if key == "adaptivePriority" {
+				summary.adaptivePriority = param
+			}
+
 		case 1:
 			v, err := protoVarintValue(fieldNumber, wireType, value)
 			if err != nil {

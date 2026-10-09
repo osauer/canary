@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 // account/mode scope that passed authorization. It is never durable order
 // authority and must be revalidated immediately before broker I/O.
 type brokerWriteTransactionBinding struct {
+	deskAuthority              *deskAuthorityFence
 	stockAddReview             *rpc.AddReview
 	stockAddOrdersGeneration   uint64
 	stockAddAccountFingerprint string
@@ -311,15 +313,34 @@ func (s *Server) requireBrokerWriteTransactionCurrent(binding brokerWriteTransac
 func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status rpc.TradingStatus, cancel bool) (func() error, func()) {
 	var leaseMu sync.Mutex
 	var releaseLease func()
+	var releaseAuthority func()
 	release := func() {
 		leaseMu.Lock()
 		if releaseLease != nil {
 			releaseLease()
 			releaseLease = nil
 		}
+		if releaseAuthority != nil {
+			releaseAuthority()
+			releaseAuthority = nil
+		}
 		leaseMu.Unlock()
 	}
 	guard := func() error {
+		if binding.deskAuthority != nil {
+			leaseMu.Lock()
+			if releaseAuthority != nil {
+				leaseMu.Unlock()
+				return fmt.Errorf("%w: repeated automatic wire guard", ErrTradingDisabled)
+			}
+			unlockAuthority, err := s.lockDeskAuthorityForWire(context.Background(), binding.deskAuthority, status)
+			if err != nil {
+				leaseMu.Unlock()
+				return err
+			}
+			releaseAuthority = unlockAuthority
+			leaseMu.Unlock()
+		}
 		if err := s.requireBrokerWriteTransactionCurrent(binding); err != nil {
 			return err
 		}
@@ -417,6 +438,9 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			if latest != binding.orderEventSeq {
 				return fmt.Errorf("%w: order changed after modify staging; refresh and retry", ErrTradingDisabled)
 			}
+		}
+		if binding.deskAuthority != nil && !s.orderNow().Before(binding.deskAuthority.ValidUntil) {
+			return fmt.Errorf("%w: automatic signal expired before broker send", ErrTradingDisabled)
 		}
 		return nil
 	}

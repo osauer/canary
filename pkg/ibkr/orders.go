@@ -18,10 +18,12 @@ import (
 // OrderID, ClientID, Account, OpenClose, and TIF and may update WhatIf,
 // Transmit, Status, Remaining, and timestamp fields in place.
 type IBKROrder struct {
-	OrderID  int    // OrderID is the session-scoped broker order ID; zero requests allocation.
-	ClientID int    // ClientID is the TWS API client ID; zero uses the connection's configured ID.
-	PermID   int    // PermID is IBKR's permanent order ID; zero means not observed.
-	Account  string // Account is the target broker account; empty uses connection account data.
+	// AdaptivePriority requests IBKR Adaptive, never a plain-limit fallback.
+	AdaptivePriority string
+	OrderID          int    // OrderID is the session-scoped broker order ID; zero requests allocation.
+	ClientID         int    // ClientID is the TWS API client ID; zero uses the connection's configured ID.
+	PermID           int    // PermID is IBKR's permanent order ID; zero means not observed.
+	Account          string // Account is the target broker account; empty uses connection account data.
 
 	// Contract details
 	Symbol       string
@@ -165,6 +167,10 @@ func ValidateOrder(order *IBKROrder) error {
 		return fmt.Errorf("order is nil")
 	}
 
+	if err := validateAdaptiveOrder(order); err != nil {
+		return err
+	}
+
 	// A bill or bond goes by contract id alone: IBKR's bond contract details
 	// carry no symbol, and any symbol sent with the contract id must match
 	// IBKR's own (error 478 otherwise).
@@ -230,5 +236,22 @@ func ValidateOrder(order *IBKROrder) error {
 		order.TIF = "DAY"
 	}
 
+	return nil
+}
+
+// validateAdaptiveOrder limits this extension to the owner's accepted stock
+// order shape. Unknown priorities never become IBKR or application defaults.
+func validateAdaptiveOrder(order *IBKROrder) error {
+	if order.AdaptivePriority == "" {
+		return nil
+	}
+	switch order.AdaptivePriority {
+	case "Patient", "Normal", "Urgent":
+	default:
+		return fmt.Errorf("unsupported Adaptive priority %q", order.AdaptivePriority)
+	}
+	if (order.SecType != "STK" && order.SecType != "ETF") || order.OrderType != "LMT" || order.TIF != "DAY" || order.Exchange != "SMART" || order.OutsideRth || order.LmtPrice <= 0 || math.IsNaN(order.LmtPrice) || math.IsInf(order.LmtPrice, 0) {
+		return fmt.Errorf("the Adaptive algorithm requires a SMART stock LMT DAY order with a positive limit during regular hours")
+	}
 	return nil
 }

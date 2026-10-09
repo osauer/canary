@@ -125,7 +125,7 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 		if !s.stockAddEvidenceCurrent(ev) {
 			return candidate{}, fmt.Errorf("account, orders or policy changed while sizing; calculate again")
 		}
-		draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: ev.contract, Quantity: q, OrderType: "LMT", LimitPrice: p.LimitPrice, TIF: "DAY", Strategy: "explicit-limit"}
+		draft := rpc.OrderDraft{AdaptivePriority: p.AdaptivePriority, Action: rpc.OrderActionBuy, Contract: ev.contract, Quantity: q, OrderType: "LMT", LimitPrice: p.LimitPrice, TIF: "DAY", Strategy: "explicit-limit"}
 		w, err := s.fetchPreviewWhatIfBound(ctx, s.currentTradingStatus(), draft, orderPreviewDefaultWait, ev.broker)
 		if err != nil {
 			return candidate{}, err

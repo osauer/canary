@@ -173,10 +173,14 @@ func TestCashSweepFeeBoundSurvivesSQLiteRestartAndPartialFill(t *testing.T) {
 	}
 	for name, change := range map[string]func(*ibkrlib.OrderLifecycleEvent, *cashSweepFeeEvidence){
 		"changed quantity": func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) { o.TotalQuantity++ },
-		"changed limit":    func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) { o.LimitPrice++ },
-		"client unknown":   func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) { o.ClientIDPresent = false },
-		"other endpoint":   func(_ *ibkrlib.OrderLifecycleEvent, e *cashSweepFeeEvidence) { e.Endpoint = "127.0.0.1:4002" },
-		"next day":         func(_ *ibkrlib.OrderLifecycleEvent, e *cashSweepFeeEvidence) { e.Now = e.Now.AddDate(0, 0, 1) },
+		"changed algorithm": func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) {
+			o.AlgoKnown = true
+			o.AlgoStrategy = "ArrivalPx"
+		},
+		"changed limit":  func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) { o.LimitPrice++ },
+		"client unknown": func(o *ibkrlib.OrderLifecycleEvent, _ *cashSweepFeeEvidence) { o.ClientIDPresent = false },
+		"other endpoint": func(_ *ibkrlib.OrderLifecycleEvent, e *cashSweepFeeEvidence) { e.Endpoint = "127.0.0.1:4002" },
+		"next day":       func(_ *ibkrlib.OrderLifecycleEvent, e *cashSweepFeeEvidence) { e.Now = e.Now.AddDate(0, 0, 1) },
 		"unused preview": func(_ *ibkrlib.OrderLifecycleEvent, e *cashSweepFeeEvidence) {
 			v := ev
 			v.Type = orderJournalEventPreviewed

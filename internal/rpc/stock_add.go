@@ -20,10 +20,11 @@ const (
 // AddParams requires an explicit maximum or exact additional quantity.
 // Current size is daemon-owned.
 type AddParams struct {
-	Max        bool           `json:"max,omitempty"`
-	Contract   ContractParams `json:"contract"`
-	LimitPrice float64        `json:"limit_price"`
-	Quantity   int            `json:"quantity,omitempty"`
+	AdaptivePriority string         `json:"-"`
+	Max              bool           `json:"max,omitempty"`
+	Contract         ContractParams `json:"contract"`
+	LimitPrice       float64        `json:"limit_price"`
+	Quantity         int            `json:"quantity,omitempty"`
 }
 
 // NormalizeAddParams rejects unsupported entry types and invented position sizes.
