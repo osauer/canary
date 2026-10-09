@@ -2759,6 +2759,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handlePositionsList(ctx, req) })
 	case rpc.MethodPortfolioSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handlePortfolioSnapshot(ctx) })
+	case rpc.MethodPortfolioPlan:
+		s.unary(req, enc, func() (any, error) { return s.handlePortfolioPlan(ctx, req) })
 	case rpc.MethodMarketSnapshot:
 		s.unary(req, enc, func() (any, error) { return s.handleMarketSnapshot(ctx, req) })
 	case rpc.MethodMarketHistory:

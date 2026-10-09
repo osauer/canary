@@ -56,6 +56,8 @@ type Constitution struct {
 	// PositionAdd is optional: only owner-supplied stock allocation limits opt
 	// long stock increases into the Add admission contract. No defaults apply.
 	PositionAdd *StockAddPolicy `toml:"position_add" json:"position_add,omitempty"`
+	// PortfolioPlan supplies advisory targets only; it grants no order authority.
+	PortfolioPlan *PortfolioPlanPolicy `toml:"portfolio_plan" json:"portfolio_plan,omitempty"`
 	// OrderLimits holds the per-order gates (owner decision 2026-10-05
 	// 19:56 CEST). A pointer, so a policy without the table keeps its
 	// fingerprint; absent means every order preview is refused.
@@ -435,6 +437,9 @@ func (c Constitution) Validate() error {
 	if err := c.PositionAdd.validate(); err != nil {
 		return err
 	}
+	if err := c.PortfolioPlan.validate(); err != nil {
+		return err
+	}
 	return c.OrderLimits.validate()
 }
 
@@ -689,6 +694,12 @@ func (c Constitution) FingerprintKey() string {
 			Recon: c.Recon, Cadence: v4Cadence, Inventory: c.Inventory, OrderLimits: c.OrderLimits, DeskDevice: c.DeskDevice, PositionAdd: c.PositionAdd,
 		}
 		raw, _ = json.Marshal(normalized)
+	}
+	if c.PortfolioPlan != nil {
+		raw, _ = json.Marshal(struct {
+			Constitution  json.RawMessage      `json:"constitution"`
+			PortfolioPlan *PortfolioPlanPolicy `json:"portfolio_plan"`
+		}{raw, c.PortfolioPlan})
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])

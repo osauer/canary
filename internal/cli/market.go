@@ -62,11 +62,17 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 
 func runPortfolio(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "portfolio")
-	fs.Bool("json", false, "emit JSON")
+	jsonOut := fs.Bool("json", false, "emit JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
 	var res rpc.PortfolioSnapshotResult
+	if fs.NArg() == 1 && fs.Arg(0) == "plan" {
+		return runPortfolioPlan(ctx, env, *jsonOut)
+	}
+	if fs.NArg() != 0 {
+		return fail(env, "usage: canary portfolio [plan] [--json]")
+	}
 	if err := env.Conn.Call(ctx, rpc.MethodPortfolioSnapshot, nil, &res); err != nil {
 		return fail(env, "portfolio: %v", err)
 	}

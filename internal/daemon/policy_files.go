@@ -1285,6 +1285,22 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # admission_contract = "stock-entry-v1"
 # max_stock_pct_nlv = 0.0
 # max_underlying_stock_pct_nlv = 0.0
+# Optional advisory portfolio plan. Installation assigns no targets or limits.
+# [portfolio_plan]
+# contract = "target-band-plan-v1"
+# valid_until = 2000-01-01T00:00:00Z
+# targets = [...] is written using one array-of-table entry per exact stock:
+# [[portfolio_plan.targets]]
+# symbol = ""
+# con_id = 0
+# currency = ""
+# priority = 0
+# lower_pct_nlv = 0.0
+# target_pct_nlv = 0.0
+# upper_pct_nlv = 0.0
+# limit_price = 0.0
+# entry_regimes = []
+# reason = ""
 `)
 	b.WriteString(orderLimitsTemplateBlock(src, srcRead))
 	b.WriteString(`

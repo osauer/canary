@@ -488,9 +488,14 @@ type TradeProposalSourceFingerprints struct {
 
 // TradeProposalSnapshot is one daemon-authored, account-and-mode-scoped
 type TradeProposalSnapshot struct {
-	Kind          string    `json:"kind"`
-	SchemaVersion string    `json:"schema_version"`
-	AsOf          time.Time `json:"as_of"`
+	// PlanningEvidence binds the original complete book to a read-only portfolio
+	// plan. Old persisted generations have no evidence and cannot admit additions.
+	PlanningEvidence          string                `json:"planning_evidence,omitempty"`
+	PlanningAuthority         *AccountDataAuthority `json:"planning_authority,omitempty"`
+	PlanningPolicyFingerprint string                `json:"planning_policy_fingerprint,omitempty"`
+	Kind                      string                `json:"kind"`
+	SchemaVersion             string                `json:"schema_version"`
+	AsOf                      time.Time             `json:"as_of"`
 	// Revision binds the whole list. Preview, submit and ignore take a row's
 	// own revision (TradeProposal.Revision), which a neighbour's change leaves standing.
 	Revision string `json:"revision"`

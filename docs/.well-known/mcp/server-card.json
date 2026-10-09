@@ -77,6 +77,14 @@
       }
     },
     {
+      "name": "canary_portfolio_plan",
+      "description": "Read the next portfolio action under an explicit owner-approved target-band mandate. Canary combines current holdings and the accepted watchlist, applies target bands, entry regimes and priority, and considers existing reductions and protection before sizing one stock addition. Returns hold or cannot-evaluate reasons, desired quantities separately from the checked next order, source evidence and unassigned stocks. Recalculate after each broker outcome; later candidates have no reserved allowance and projected sale proceeds are not spendable cash. Takes no caller-supplied holdings, targets, limits or authority. Read-only; may request bounded broker WhatIf fee and margin checks, but never refreshes the proposal executor, mints an order token, reserves cash or submits. Use canary_portfolio for composition and canary_add for one selected stock's sizing. Not autonomous trading or support for new option, bond or short positions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_short_interest_screen",
       "description": "Discover US equities (including listed funds and OTC) with large reported short positions using FINRA's twice-monthly public publication. Filters and sorting apply before limiting results; default ranks short shares, not percent of float. Free float is unavailable. Settlement date is distinct from fetch time; failed refreshes retain stale publication provenance. FINRA days to cover is floored at 1 and average daily shares covers the reporting interval. Optional recent price and 20-session dollar-turnover context is bounded background acquisition with explicit partial coverage, not an all-market liquidity guarantee. Short interest is neither daily short-sale volume nor borrowing cost. Use canary_lending_screen for borrower fees, canary_lending_fees for earned lending income. Read-only; no orders, enrollment, subscriptions or policy changes.",
       "inputSchema": {

@@ -1,0 +1,32 @@
+# canary portfolio plan · COLUMNS=80 · colour off
+Portfolio plan · review only
+Decision · review
+Reason · One addition is checked for review. Calculate again after its outcome
+  before sizing another candidate.
+Mandate expires · 2026-09-06 14:00 TZ
+Regime · calm
+SYNA · add · 2.00% of NLV; target 3.00%
+Owner target
+Desired addition · 10 shares before order checks
+SYNB · wait for replan · 0.00% of NLV; target 1.00%
+Calculate again after the first outcome.
+Desired addition · 5 shares before order checks
+No stock target · SYNC USD · contract 303
+Next review · BUY SYNA 10 · limit 100.00 USD · cost incl. fee 1002.00 USD
+No money reserved or order authorised. Replan after each outcome.
+# canary portfolio plan · COLUMNS=80 · colour on, ESC written as \x1b
+Portfolio plan · review only
+Decision · review
+Reason · One addition is checked for review. Calculate again after its outcome
+  before sizing another candidate.
+Mandate expires · 2026-09-06 14:00 TZ
+Regime · calm
+SYNA · add · 2.00% of NLV; target 3.00%
+Owner target
+Desired addition · 10 shares before order checks
+SYNB · wait for replan · 0.00% of NLV; target 1.00%
+Calculate again after the first outcome.
+Desired addition · 5 shares before order checks
+No stock target · SYNC USD · contract 303
+Next review · BUY SYNA 10 · limit 100.00 USD · cost incl. fee 1002.00 USD
+No money reserved or order authorised. Replan after each outcome.

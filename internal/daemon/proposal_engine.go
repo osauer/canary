@@ -310,6 +310,11 @@ func proposalRefreshTransient(snap rpc.TradeProposalSnapshot) bool {
 }
 
 func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
+	return e.snapshotForRead(show, true)
+}
+
+// Portfolio planning must not wake a refresh or its automatic submission cycle.
+func (e *proposalEngine) snapshotForRead(show, refresh bool) rpc.TradeProposalSnapshot {
 	if e == nil {
 		return emptyProposalSnapshot(time.Now().UTC())
 	}
@@ -343,7 +348,9 @@ func (e *proposalEngine) Snapshot(show bool) rpc.TradeProposalSnapshot {
 	e.decorateAutomatic(&snap)
 	e.decorateQueued(&snap)
 	e.decorateReadiness(&snap)
-	e.kickIfCoverageStale(snap.Proposals)
+	if refresh {
+		e.kickIfCoverageStale(snap.Proposals)
+	}
 	return snap
 }
 
@@ -533,6 +540,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		return snap, nil
 	}
 	accountFP := rpc.BuildAccountFingerprint(acct)
+	planningPolicy := e.server.portfolioPlanningPolicyFingerprint(now)
 	positionsFP := rpc.BuildPositionsFingerprint(pos, acct.NetLiquidation)
 	rulebookPolicy := e.rulebookPolicy()
 	rulebookFP := rpc.Fingerprint{Version: rpc.RulebookPolicyFingerprintVersion, Key: rulebookPolicy.FingerprintKey()}
@@ -621,6 +629,11 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		Counts:                     proposalCounts(proposals, protectionCoverageBaseCurrency(pos)),
 	}
 	snap.Counts.OptionHedges = len(hedges)
+	if planningPolicy != "" && planningPolicy == e.server.portfolioPlanningPolicyFingerprint(e.clock()) {
+		snap.PlanningEvidence = portfolioPlanBookFingerprint(acct, pos)
+		snap.PlanningAuthority = pos.Authority
+		snap.PlanningPolicyFingerprint = planningPolicy
+	}
 	snap.CashSweep = sweep
 	snap.Counts.CashSweep, snap.Counts.CashSweepShadow = cashSweepCounts(proposals)
 	snap.CurrencyLeveling = leveling
@@ -3797,6 +3810,14 @@ func proposalSupportedSecType(secType string) bool {
 
 func cloneProposalSnapshot(in rpc.TradeProposalSnapshot) rpc.TradeProposalSnapshot {
 	out := in
+	if in.PlanningAuthority != nil {
+		a := *in.PlanningAuthority
+		if a.Fields != nil {
+			fields := *a.Fields
+			a.Fields = &fields
+		}
+		out.PlanningAuthority = &a
+	}
 	out.Proposals = append([]rpc.TradeProposal(nil), in.Proposals...)
 	if in.OptionHedges != nil {
 		out.OptionHedges = append([]rpc.OptionHedge(nil), in.OptionHedges...)

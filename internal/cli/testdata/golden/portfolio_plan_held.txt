@@ -1,0 +1,12 @@
+# canary portfolio plan · COLUMNS=80 · colour off
+Portfolio plan · review only
+Decision · held
+Reason · Current portfolio evidence is incomplete.
+Held · A complete same-session account and portfolio are required.
+No money reserved or order authorised. Replan after each outcome.
+# canary portfolio plan · COLUMNS=80 · colour on, ESC written as \x1b
+Portfolio plan · review only
+Decision · held
+Reason · Current portfolio evidence is incomplete.
+Held · A complete same-session account and portfolio are required.
+No money reserved or order authorised. Replan after each outcome.

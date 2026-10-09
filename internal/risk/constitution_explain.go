@@ -124,6 +124,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 			"Longest lifetime of a one-shot override. Overrides are human-only, name one control, require a reason, are journaled with the policy fingerprint, and expire on their own.", "advisory"),
 	}
 	rows = append(rows, orderLimitRows(c, cur, get, str)...)
+	rows = append(rows, portfolioPlanLimits(c)...)
 	if c != nil && c.PositionAdd != nil {
 		stock, stockSource := pct(c.PositionAdd.MaxStockPctNLV)
 		name, nameSource := pct(c.PositionAdd.MaxUnderlyingStockPctNLV)

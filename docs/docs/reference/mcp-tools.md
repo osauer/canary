@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**36 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**37 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_add`
 
@@ -20,6 +20,12 @@ Calculate the permitted whole-share addition to a selected stock, including open
 | `max` | boolean | no | Explicitly request the maximum for one order. Mutually exclusive with quantity; no automatic execution. |
 | `quantity` | integer | no | Exact additional whole shares. Choose this or max=true; never the current position or a target total. |
 | `symbol` | string | **yes** | Selected stock symbol, case-insensitive; membership of a watchlist does not authorise a purchase. |
+
+## `canary_portfolio_plan`
+
+Read the next portfolio action under an explicit owner-approved target-band mandate. Canary combines current holdings and the accepted watchlist, applies target bands, entry regimes and priority, and considers existing reductions and protection before sizing one stock addition. Returns hold or cannot-evaluate reasons, desired quantities separately from the checked next order, source evidence and unassigned stocks. Recalculate after each broker outcome; later candidates have no reserved allowance and projected sale proceeds are not spendable cash. Takes no caller-supplied holdings, targets, limits or authority. Read-only; may request bounded broker WhatIf fee and margin checks, but never refreshes the proposal executor, mints an order token, reserves cash or submits. Use canary_portfolio for composition and canary_add for one selected stock's sizing. Not autonomous trading or support for new option, bond or short positions.
+
+*No parameters.*
 
 ## `canary_short_interest_screen`
 

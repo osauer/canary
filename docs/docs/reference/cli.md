@@ -21,7 +21,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary account`](#canary-account) | Desk | Account summary snapshot (NLV, BP, cash, margin, daily P&L) | `read-only` | yes |
 | [`canary positions`](#canary-positions) | Desk | List open positions (stocks + options) | `read-only` | yes |
 | [`canary strategies`](#canary-strategies) | Desk | Group option legs and close or reduce them as one guaranteed combo | `confirm` | yes |
-| [`canary portfolio`](#canary-portfolio) | Desk | Signed allocation by asset class and GICS sector, with coverage | `read-only` | yes |
+| [`canary portfolio`](#canary-portfolio) | Desk | Signed allocation by asset class and GICS sector, with coverage; plan reads the next portfolio action | `read-only` | yes |
 | [`canary market`](#canary-market) | Markets | Observed quotes, price history and a daily price/breadth/volume tape | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
 | [`canary watchlist`](#canary-watchlist) | Markets | Read and edit the durable owner watchlist; no broker or policy changes | `local` | CLI only |
@@ -170,13 +170,15 @@ canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]
 
 ## `canary portfolio`
 
-Signed allocation by asset class and GICS sector, with coverage.
+Signed allocation by asset class and GICS sector, with coverage; plan reads the next portfolio action.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary portfolio [--json]
+canary portfolio [plan] [--json]
 ```
+
+Subcommands: `plan`.
 
 **Flags**
 
