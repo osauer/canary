@@ -417,34 +417,8 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("per-order limits are incomplete")
 	}
 	input.OrderCapBase = limits.CapBase
-	for _, stock := range pos.Stocks {
-		if stock.Quantity == 0 {
-			continue
-		}
-		if stock.SecType != "STK" {
-			// Government debt has a separately evidenced issuer; corporate debt or
-			// an unresolved instrument cannot silently disappear from issuer risk.
-			government := stock.SecType == "BOND" && slices.ContainsFunc(pos.Bonds, func(b rpc.PositionBond) bool {
-				return b.ConID == stock.ConID && b.Quantity == stock.Quantity && b.IssuerClass == rpc.BondIssuerGovernment && b.EvidenceIssuer != "" && b.EvidenceSource != ""
-			})
-			if government {
-				continue
-			}
-			return ev, &stockAddProblem{kind: "unsupported", message: fmt.Sprintf("cross-asset issuer concentration for held %s is not yet supported by equity Add", stock.SecType)}
-		}
-		rate, ok := positionBaseRate(stock, base)
-		if !ok || stock.Stale || !positiveFinite(stock.Mark) {
-			return ev, fmt.Errorf("a held stock has no current valuation or currency conversion")
-		}
-		value := math.Abs(stock.Quantity) * stock.Mark * rate
-		input.StockValueBase += value
-		if stock.Symbol == contract.Symbol {
-			input.UnderlyingStockBase += value
-			if stock.ConID != contract.ConID {
-				return ev, fmt.Errorf("another stock identity shares this symbol; exact underlying aggregation is required")
-			}
-			input.CurrentQuantity += stock.Quantity
-		}
+	if err := stockAddHeldStocks(&input, pos, contract, base); err != nil {
+		return ev, err
 	}
 	if err := stockAddPending(&input, inventory.Orders, ledger, contract, scope); err != nil {
 		return ev, err
@@ -645,4 +619,38 @@ func (s *Server) stockAddQueuedInstruction(scope brokerStateScope) bool {
 		}
 	}
 	return false
+}
+
+// stockAddHeldStocks consumes canonical position rows; broker request codes are a separate contract.
+func stockAddHeldStocks(input *risk.StockAddInput, pos *rpc.PositionsResult, contract rpc.ContractParams, base string) error {
+	for _, stock := range pos.Stocks {
+		if stock.Quantity == 0 {
+			continue
+		}
+		if !rpc.PositionQuotesAsStock(stock) {
+			// Government debt has a separately evidenced issuer; corporate debt or
+			// an unresolved instrument cannot silently disappear from issuer risk.
+			government := stock.SecType == "BOND" && slices.ContainsFunc(pos.Bonds, func(b rpc.PositionBond) bool {
+				return b.ConID == stock.ConID && b.Quantity == stock.Quantity && b.IssuerClass == rpc.BondIssuerGovernment && b.EvidenceIssuer != "" && b.EvidenceSource != ""
+			})
+			if government {
+				continue
+			}
+			return &stockAddProblem{kind: "unsupported", message: fmt.Sprintf("cross-asset issuer concentration for held %s is not yet supported by equity Add", stock.SecType)}
+		}
+		rate, ok := positionBaseRate(stock, base)
+		if !ok || stock.Stale || !positiveFinite(stock.Mark) {
+			return fmt.Errorf("a held stock has no current valuation or currency conversion")
+		}
+		value := math.Abs(stock.Quantity) * stock.Mark * rate
+		input.StockValueBase += value
+		if stock.Symbol == contract.Symbol {
+			input.UnderlyingStockBase += value
+			if stock.ConID != contract.ConID {
+				return fmt.Errorf("another stock identity shares this symbol; exact underlying aggregation is required")
+			}
+			input.CurrentQuantity += stock.Quantity
+		}
+	}
+	return nil
 }

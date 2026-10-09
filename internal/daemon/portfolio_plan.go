@@ -213,11 +213,15 @@ func portfolioTargetEvidence(policy *risk.PortfolioPlanPolicy, acct *rpc.Account
 		})
 	}
 	for _, p := range pos.Stocks {
-		c := proposalContractFromPosition(p, p.SecType)
+		secType := p.SecType
+		if rpc.PositionQuotesAsStock(p) {
+			secType = "STK"
+		}
+		c := proposalContractFromPosition(p, secType)
 		if !configured(c) {
 			unassigned = append(unassigned, c)
 		}
-		if p.SecType != "STK" {
+		if !rpc.PositionQuotesAsStock(p) {
 			continue
 		}
 		fx, ok := positionBaseRate(p, acct.BaseCurrency)

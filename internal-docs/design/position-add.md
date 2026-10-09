@@ -9,6 +9,12 @@ selected watchlist instrument with no holding. Canary proves the existing
 quantity from a complete broker portfolio; no caller can supply a holding,
 cash balance, risk budget or a claim that an absent position means zero.
 
+Position contract correction, 2026-10-09 08:36 CEST: held equities use the
+canonical `STOCK` response type, while broker requests use `STK`. Add and
+portfolio target evidence use the existing position classification helper;
+known holdings retain their measured quantity and currency conversion. Unknown
+and unsupported types cannot become stock evidence through this conversion.
+
 The owner requested this staged build on 2026-10-08. The two new stock
 allocation percentages remain **unapproved** until chosen by the owner. No
 installer, migration, CLI, model tool or daemon start writes their values.
