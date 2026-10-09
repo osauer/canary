@@ -1,6 +1,6 @@
 # Position additions
 
-Updated: 2026-10-08 19:39 CEST
+Updated: 2026-10-08 21:40 CEST
 
 ## Scope and ownership
 
@@ -13,7 +13,12 @@ The owner requested this staged build on 2026-10-08. The two new stock
 allocation percentages remain **unapproved** until chosen by the owner. No
 installer, migration, CLI, model tool or daemon start writes their values.
 The feature is opt-in through `[position_add]` in the risk constitution.
-Installing the code alone changes no trading policy.
+Installing the code alone changes no trading policy. The owner's "I agree,
+proceed" on 2026-10-08 authorised the design-review corrections: explicit
+sizing intent and admission activation, exact fee accounting, shared reserve
+funding, broker margin evidence and a complete position-plan explanation.
+No numerical limits or live policy activation were requested. They remain
+unapproved. Source revision recorded at 2026-10-08 21:40 CEST.
 
 `internal/risk/stock_add.go` owns sizing. The daemon assembles broker and policy
 evidence. `internal/rpc/stock_add.go` is the CLI/MCP contract. Both surfaces
@@ -22,9 +27,10 @@ are later increments.
 
 ## Operator and model surfaces
 
-- `canary add plan SYMBOL --currency CCY --limit PRICE [--quantity N] [--con-id ID] [--json]`
-  reads current capacity. Omitted/zero quantity means the maximum permitted
-  addition in one order. A positive quantity requests exactly that addition.
+- `canary add plan SYMBOL --currency CCY --limit PRICE (--quantity N | --max) [--con-id ID] [--json]`
+  reads current capacity. `--max` explicitly requests the maximum for one
+  order; a positive `--quantity N` requests exactly that addition. Neither or
+  both intents are rejected, including zero quantity without Max.
 - `canary add preview` accepts the same arguments and prepares a normal signed
   stock BUY, LMT, DAY, regular-session order review. The existing separate
   confirmation and submission path remains necessary.
@@ -41,10 +47,22 @@ holds. The price ceiling and currency must be explicit. No FX trade is created.
 
 ## Approved inputs and arithmetic
 
-The optional risk-constitution table has two required percentages in `(0,100]`:
+The optional risk-constitution table requires two percentages in `(0,100]`
+and explicit approval of the named admission contract. Setting allocation
+percentages alone does not activate the new generic stock-order admission
+checks. An Add request always requires all three values. Once activated,
+ordinary stock orders cannot bypass the same checks.
+
+`admission_contract = "stock-entry-v1"` approves the full contract below:
+Rulebook rules 1, 3, 15, 18 and 19 must stay inside their **pass** bands for
+long-stock increases, including ordinary stock BUYs, irrespective of display
+modes. These previously advisory bands become hard admission checks for that
+scope. The selected bands and thresholds remain in the existing Rulebook
+policy. No new numerical threshold or exception is supplied by code.
 
 | Key | Meaning |
 | --- | --- |
+| `position_add.admission_contract` | Explicit approval of `stock-entry-v1`; distinct from choosing allocation percentages |
 | `position_add.max_stock_pct_nlv` | Gross market value of all stocks, including pending stock buys, as a percentage of current measured account net liquidation |
 | `position_add.max_underlying_stock_pct_nlv` | Market value of stock in the selected underlying, including its pending buys, as a percentage of that same net liquidation |
 
@@ -56,18 +74,41 @@ the underlying, the current per-order notional limit, and spendable cash in the
 stock's currency. Cash is the lower of observed trade-date and native settled
 cash, less outstanding purchases and their full fee bounds, the existing
 currency cash float, and the existing account reserve. The reserve is the
-larger of its approved base amount and its approved percentage of NLV, converted
-into the purchase currency. The full account reserve is retained in that
-currency as a conservative first-stage constraint; currencies are never pooled.
+larger of its approved base amount and its approved percentage of NLV.
+Every observed currency first deducts its own settlement float and known
+fee-inclusive commitments. The purchase currency retains only the account
+reserve shortfall after that other cash is counted in measured base value.
+Negative balances reduce funding; missing settlement, float or conversion
+holds instead of supplying reserve credit. The purchase itself still fits
+settled native cash: reserve funding never creates an FX trade or borrowing.
 The existing `no_buy_while_borrowed` cash policy also applies. Missing reserve or
 borrowing policy values hold the feature.
 
 The exact candidate needs an accepted WhatIf with a finite maximum commission
-in its own cash currency. That fee reduces spendable cash. Up to three candidate
-simulations seek a stable affordable quantity; failure to stabilize holds.
-A requested quantity above the allowance is refused, never silently resized.
-The maximum is conditional on the current snapshot, selected limit and returned
-fee bound; it is not an investment recommendation or a fill guarantee.
+in its own cash currency and complete before/after margin evidence. Each
+quantity is checked against **its own** fee and margin; neither is reused to
+claim support for another quantity. A manual request reports its exact check,
+not an extrapolated maximum. An oversized request is refused, never resized.
+
+Max starts from a pure arithmetic/risk upper bound before broker costs and
+simulated margin. It finds an affordable candidate and checks every larger
+quantity up to that bound before claiming `maximum_known=true`. This does not
+assume monotone fees or broker margin. A technical bound of 24 simulations and
+the existing RPC deadline bound work; they are not investment limits. If work
+ends before maximality is established, `add_search_incomplete` carries the
+supported quantity and allowances, without a selected order or review. An
+explicit quantity can then be checked afresh. A missing/rejected WhatIf remains
+missing broker evidence, not proof that every smaller order is unaffordable.
+The maximum is conditional on current evidence, not a recommendation or fill
+guarantee. The normal preview obtains its own exact simulation again.
+
+The plan distinguishes allocation room (the stock/type ceilings alone), the
+next-order upper bound (cash, non-margin risk and the order cap before exact
+broker costs), and the exact checked order. It exposes each monetary allowance
+in base currency, native cash deductions, before/after allocations, the selected
+rule evidence and stop-instruction coverage. Blockers distinguish policy,
+capacity, unavailable evidence and unsupported instruments. Partial evidence is
+retained; an unknown maximum never becomes a zero-capacity claim.
 
 After sizing the simple limits, Canary evaluates the hypothetical portfolio
 through the existing issuer-concentration, premium-budget/sell-only, whole-book
@@ -76,13 +117,19 @@ Entry must remain inside their pass bands. Rule display modes cannot disable
 these admission measurements. The existing capital state must be current,
 reconciled and in its normal tier. A current regime is required. Existing
 option legs use the Rulebook's earnings-aware hedge credit and valuation.
-Missing risk evidence cannot create capacity. The entire stock purchase and
-pending purchase commitments are conservatively deducted from excess liquidity;
-broker buying power is never a cash budget. Thresholds remain in their existing
+Missing risk evidence cannot create capacity. The exact candidate's broker
+before/after maintenance-margin and equity-with-loan change determines its
+headroom debit. Commission is charged additionally; any simulated margin
+release is ignored. Current and look-ahead headroom both retain the approved
+floor. Pending purchases still consume their full fee-inclusive debit because
+they have no combined broker simulation here. Broker buying power is never a
+cash budget. Missing, invalid or mismatched margin currency holds the order;
+an absent margin currency is unavailable evidence, not an inferred
+account-base denomination. All margin values must be finite. Thresholds remain in their existing
 policy files; the code supplies no new investment numbers.
 
-This is a new hard admission contract **only when the owner supplies the
-optional table**. It does not globally promote other advisory rules or change
+This is a new hard admission contract **only when the owner approves the named
+admission contract in the optional table**. It does not globally promote other advisory rules or change
 capital-state enforcement for other instrument types. An opted-in table also
 applies to ordinary stock BUY previews/sends that open or increase a long, so
 choosing the older order command cannot bypass it. Reductions and short covers
@@ -95,8 +142,10 @@ reported as filled holdings. Every currency's purchase commitments must have
 known fees. An unacknowledged local buy, uncertain broker inventory, armed queued
 instruction, pending non-stock order or immediate sale holds an Add. Existing
 covered stock stop orders may remain working; they confer no sizing credit and
-are not resized by an Add. The normal protection process can subsequently
-review the changed holding.
+are not resized by an Add. The plan shows shares under working stop
+instructions and shares without them before and after the proposed addition;
+pending buys are disclosed separately. Stops guarantee neither execution nor a
+loss cap. A protection change requires its own separate owner review.
 
 Held government bonds can be excluded from stock allocation only with exact
 broker identity and independent government-issuer evidence. Held corporate debt
@@ -135,7 +184,12 @@ Synthetic tests cover zero and existing holdings, every capacity, native FX,
 fees, exact quantity refusal, nonlinear option exposure, issuer groups, missing
 inputs, pending purchases, strict request schemas, policy fingerprints, CLI
 rendering, MCP read-only dispatch, submission revalidation and final wire holds.
-The maximum is also checked against exhaustive quantities in small fixtures.
+The maximum is also checked against exhaustive quantities in small fixtures,
+including discontinuous and quantity-dependent fees. Permanent regressions cover
+the former fee oscillation and the manual-order fee extrapolation defect.
+Account-wide reserve tests prove native cash is never pooled; exact-margin tests
+prove no headroom credit is borrowed from another quantity, look-ahead is retained
+and missing evidence holds. CLI golden reports cover successful and held plans.
 `make test` includes static/privacy/docs gates, render checks, race tests and
 the historical regression spine. Broker-free tests establish these contracts;
 actual broker commissioning is separate and requires the owner's policy values.

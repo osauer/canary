@@ -359,33 +359,32 @@ gofmt-check: ## Verify tracked / non-gitignored Go files are gofmt'd
 # which `./...` would otherwise include (same scope as gofmt-check).
 vet-check: ## Run go vet (both default and trading-tag builds)
 	pkgs=$$(./scripts/go-tracked-packages.sh ./...) && go vet $$pkgs
-	pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./internal/... ./pkg/...) && go vet -tags trading $$pkgs
+	pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./...) && go vet -tags trading $$pkgs
 
-staticcheck-check: ## Run staticcheck
+# Merge build results so helpers used only by trading are not falsely marked
+# unused in the read-only build. Analysis and merge failures both remain fatal.
+staticcheck-check: ## Run and merge staticcheck for default and trading builds
+	@set -e; \
+		dir=$$(mktemp -d "$${TMPDIR:-/tmp}/canary-staticcheck.XXXXXX"); \
+		trap 'rm -rf "$$dir"' EXIT HUP INT TERM; \
+		tool=$$(go -C tools tool -n staticcheck); \
+		pkgs=$$(./scripts/go-tracked-packages.sh ./...); \
+		"$$tool" -f binary $$pkgs > "$$dir/default"; \
+		pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./...); \
+		"$$tool" -f binary -tags trading $$pkgs > "$$dir/trading"; \
+		"$$tool" -merge "$$dir/default" "$$dir/trading"
+
+# Reachability depends on source and build tags, not only dependencies. Always
+# scan both product builds; a dependency-only daily stamp can hide new calls
+# into vulnerable code. Go and the scanner retain their own download caches.
+govulncheck-check: ## Scan both product builds, developer tools and docs generator
+	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) && \
+		tool=$$(go -C tools tool -n govulncheck) && "$$tool" $$pkgs
 	@pkgs=$$(./scripts/go-tracked-packages.sh -tags trading ./...) && \
-		tool=$$(go -C tools tool -n staticcheck) && "$$tool" -tags trading $$pkgs
-
-# govulncheck's verdict is keyed on the dependency set + toolchain + the
-# vulnerability DB — not on local code edits — so re-running it on every
-# commit only pays cold-cache compile cost for the same answer. Skip when
-# go.mod/go.sum/toolchain are unchanged AND a scan already passed today
-# (the date bound keeps DB updates flowing in daily). The exact-SHA release
-# authority runs on fresh CI runners with no stamp cache, so it always scans.
-GOVULN_STAMP ?= $(HOME)/.cache/ibkr/govulncheck.stamp
-govulncheck-check: ## Run govulncheck (skipped when deps unchanged and already scanned today; GOVULN_FORCE=1 forces)
-	@depshash=$$( (cat go.mod go.sum tools/go.mod tools/go.sum scripts/docgen/docs-html/go.mod scripts/docgen/docs-html/go.sum 2>/dev/null; go version) | shasum -a 256 | cut -d' ' -f1); \
-	today=$$(date +%Y-%m-%d); \
-	if [ "$(GOVULN_FORCE)" != "1" ] && [ -r "$(GOVULN_STAMP)" ] && [ "$$(cat "$(GOVULN_STAMP)")" = "$$depshash $$today" ]; then \
-		echo "govulncheck: deps/toolchain unchanged, already scanned today — skipping (GOVULN_FORCE=1 to force)"; \
-	else \
-		pkgs=$$(./scripts/go-tracked-packages.sh ./...) && \
-		tool=$$(go -C tools tool -n govulncheck) && \
-		"$$tool" $$pkgs && \
+		tool=$$(go -C tools tool -n govulncheck) && "$$tool" -tags trading $$pkgs
+	@tool=$$(go -C tools tool -n govulncheck) && \
 		"$$tool" -C tools -tags=tools -scan=module && \
-		(cd scripts/docgen/docs-html && "$$tool" ./...) && \
-		mkdir -p "$$(dirname "$(GOVULN_STAMP)")" && \
-		echo "$$depshash $$today" > "$(GOVULN_STAMP)"; \
-	fi
+		(cd scripts/docgen/docs-html && "$$tool" ./...)
 
 # Validate the Claude Code plugin + marketplace manifests with the official
 # `claude plugin validate` tool. The TestSkill* gates in internal/cli (run
@@ -513,21 +512,23 @@ parity-check: ## Verify MCP tool inventory matches the CLI surface
 #   - `go tool modernize` writes diagnostics AND `go: downloading …` lines to
 #     stderr (the latter when go.mod's tool deps aren't cached — every fresh
 #     CI run hits this). Same stream means we can't separate by redirection;
-#     instead we capture stderr via stream-swap and grep the chatter out.
+#     instead we capture stderr, check the exit status, then filter chatter.
 # A future kindness: `go: downloading` is the only chatter we've observed, so
 # if the tool ever grows another routine stderr message, extend the filter
 # explicitly instead of weakening it.
 modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go version)
 	@./scripts/go-tracked-packages_test.sh
+	@./scripts/check-go-analysis_test.sh
 	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) || exit 1; \
-	out=$$(go fix -diff $$pkgs); \
+	out=$$(go fix -diff $$pkgs) || { printf 'go fix failed\n%s\n' "$$out" >&2; exit 1; }; \
 	if [ -n "$$out" ]; then \
 		echo "go fix found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \
 	fi
 	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) || exit 1; \
-	tool=$$(go -C tools tool -n modernize); \
-	out=$$("$$tool" $$pkgs 2>&1 1>/dev/null | grep -v '^go: downloading'); \
+	tool=$$(go -C tools tool -n modernize) || exit 1; \
+	out=$$("$$tool" $$pkgs 2>&1 1>/dev/null) || { printf 'modernize failed\n%s\n' "$$out" >&2; exit 1; }; \
+	out=$$(printf '%s\n' "$$out" | grep -v '^go: downloading ' || true); \
 	if [ -n "$$out" ]; then \
 		echo "modernize found pending changes:"; echo "$$out"; \
 		echo "apply with: make modernize"; exit 1; \

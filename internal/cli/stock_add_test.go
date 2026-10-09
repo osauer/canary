@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -48,5 +49,33 @@ func TestStockAddCLIOnlyPlansOrPreviews(t *testing.T) {
 	}
 }
 func goldenStockAdd() rpc.AddPlanResult {
-	return rpc.AddPlanResult{Contract: rpc.ContractParams{Symbol: "SYNA"}, Currency: "USD", LimitPrice: 100, Before: 0, After: 9, Quantity: 9, MaxQuantity: 9, Effect: "open_long", Cost: 905, CashAfter: 95, Binding: "cash"}
+	return rpc.AddPlanResult{Contract: rpc.ContractParams{Symbol: "SYNA"}, Currency: "USD", BaseCurrency: "USD", LimitPrice: 100,
+		Before: 4, After: 13, Quantity: 9, MaxQuantity: 9, MaximumKnown: true, Sizing: "max", OrderUpperBound: 10, AllocationRoom: 20, Effect: "increase_long", Cost: 905, CashAfter: 95, Binding: "cash",
+		StockPctBefore: 10, StockPctAfter: 10.9, UnderlyingPctBefore: 0.6, UnderlyingPctAfter: 1.5,
+		Allowances: []risk.StockAddAllowance{{Code: "cash", Limit: 1000, Remaining: 1000, Shares: 10}, {Code: "underlying_stock", Limit: 2600, Used: 600, Remaining: 2000, Shares: 20}},
+		Cash:       &risk.StockAddCash{Available: 1600, Committed: 200, CurrencyFloat: 100, ReserveInCurrency: 300, AccountReserveBase: 1000, OtherReserveFundingBase: 700, Spendable: 1000},
+		Protection: &risk.StockAddProtection{StopQuantity: 3, UncoveredBefore: 1, UncoveredAfter: 10, PendingQuantity: 2},
+		RiskChecks: []risk.StockAddRiskCheck{{ID: "margin_headroom", Title: "Margin headroom", BeforeStatus: "pass", BeforeEvidence: "Excess liquidity is 50% of account value.", AfterStatus: "pass", AfterEvidence: "Broker simulation leaves 49% of account value as excess liquidity."}},
+	}
+}
+
+func TestStockAddCLIRequiresExplicitSizingIntent(t *testing.T) {
+	for _, tc := range []struct {
+		flags []string
+		valid bool
+	}{
+		{[]string{"--max"}, true},
+		{[]string{"--quantity", "2"}, true},
+		{nil, false},
+		{[]string{"--quantity", "0"}, false},
+		{[]string{"--max", "--quantity", "2"}, false},
+	} {
+		c := &stockAddConn{}
+		var out bytes.Buffer
+		args := append([]string{"plan", "SYNA", "--currency", "USD", "--limit", "100", "--json"}, tc.flags...)
+		code := Run(t.Context(), &Env{Conn: c, Stdout: &out, Stderr: &out}, "add", args)
+		if (code == 0) != tc.valid || (!tc.valid && c.method != "") {
+			t.Fatalf("%v: exit=%d called=%s %s", tc.flags, code, c.method, out.String())
+		}
+	}
 }

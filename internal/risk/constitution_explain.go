@@ -127,8 +127,10 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 	if c != nil && c.PositionAdd != nil {
 		stock, stockSource := pct(c.PositionAdd.MaxStockPctNLV)
 		name, nameSource := pct(c.PositionAdd.MaxUnderlyingStockPctNLV)
+		admission, admissionSource := str(c.PositionAdd.AdmissionContract != "", func() string { return c.PositionAdd.AdmissionContract })
 		rows = append(rows,
-			get("position_add.max_stock_pct_nlv", stock, stockSource, "Maximum stock market value, including pending purchases, as a share of current account net liquidation. Opts stock additions into cash, allocation and Rulebook entry checks.", "hard"),
+			get("position_add.admission_contract", admission, admissionSource, "Explicit approval of stock-entry-v1: pass bands of Rulebook rules 1, 3, 15, 18 and 19 become hard admission checks for all long-stock increases, including ordinary orders. Display modes do not disable them. Allocation values alone do not activate admission.", "hard"),
+			get("position_add.max_stock_pct_nlv", stock, stockSource, "Maximum stock market value, including pending purchases, as a share of current account net liquidation. Requires a separately approved admission_contract to activate stock entry checks.", "hard"),
 			get("position_add.max_underlying_stock_pct_nlv", name, nameSource, "Maximum stock market value in the selected underlying as a share of current net liquidation. Existing options also consume the separate issuer loss and risk-capital budgets.", "hard"))
 	}
 	rTolPVal, rTolPSrc := pct(rTolP)

@@ -18,13 +18,13 @@ func stockAddTestInput() risk.StockAddInput {
 	pol := risk.DefaultRulebookPolicy()
 	pol.SingleNameWatchPct, pol.SingleNameActPct = 80, 90
 	pol.IlliquidWatchPct, pol.IlliquidActPct = 80, 90
-	return risk.StockAddInput{Policy: &risk.StockAddPolicy{MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 10000, OrderCapBase: 10000, Rulebook: pol, Rules: risk.RuleInputs{AsOf: time.Date(2026, 5, 28, 8, 45, 0, 0, time.UTC), BaseCurrency: "USD", Account: risk.SourceState{Healthy: true}, Positions: risk.SourceState{Healthy: true}, NLVBase: new(100000.), ExcessLiquidityBase: new(50000.), RiskCapital: &risk.RiskCapitalInput{EffectiveBase: new(100000.)}}}
+	return risk.StockAddInput{Policy: &risk.StockAddPolicy{AdmissionContract: risk.StockAddAdmissionV1, MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 10000, OrderCapBase: 10000, Rulebook: pol, Rules: risk.RuleInputs{AsOf: time.Date(2026, 5, 28, 8, 45, 0, 0, time.UTC), BaseCurrency: "USD", Account: risk.SourceState{Healthy: true}, Positions: risk.SourceState{Healthy: true}, NLVBase: new(100000.), ExcessLiquidityBase: new(50000.), RiskCapital: &risk.RiskCapitalInput{EffectiveBase: new(100000.)}}}
 }
 func stockAddTestParams() rpc.AddParams {
-	return rpc.AddParams{Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "STK", Currency: "USD", Exchange: "SMART", ConID: 101}, LimitPrice: 100}
+	return rpc.AddParams{Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "STK", Currency: "USD", Exchange: "SMART", ConID: 101}, LimitPrice: 100, Max: true}
 }
 func stockAddTestWhatIf(fee float64) rpc.OrderWhatIfResult {
-	return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true, Margin: &rpc.OrderMarginImpact{CommissionCurrency: "USD", MaxCommission: new(fee)}}
+	return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true, Margin: &rpc.OrderMarginImpact{Currency: "USD", InitialMarginBefore: new(50000.), InitialMarginAfter: new(50000.), MaintenanceMarginBefore: new(40000.), MaintenanceMarginAfter: new(40000.), EquityWithLoanBefore: new(90000.), EquityWithLoanAfter: new(90000.), CommissionCurrency: "USD", MaxCommission: new(fee)}}
 }
 func stockAddTestServer(t *testing.T) (*Server, *risk.StockAddInput) {
 	s := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper})
@@ -102,7 +102,7 @@ func TestStockAddPlanHoldsUnknownAndChangingFees(t *testing.T) {
 func TestStockAddPreviewBindsReviewAndRefusesInventedPosition(t *testing.T) {
 	s, in := stockAddTestServer(t)
 	p := stockAddTestParams()
-	p.Quantity = 3
+	p.Quantity, p.Max = 3, false
 	raw, _ := json.Marshal(p)
 	out, err := s.handleAddPreview(t.Context(), &rpc.Request{Params: raw})
 	if err != nil {
@@ -130,7 +130,7 @@ func TestStockAddAdmissionRecomputesAllAllowances(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			s, in := stockAddTestServer(t)
 			p := stockAddTestParams()
-			p.Quantity = 3
+			p.Quantity, p.Max = 3, false
 			raw, _ := json.Marshal(p)
 			out, err := s.handleAddPreview(t.Context(), &rpc.Request{Params: raw})
 			if err != nil {
@@ -200,7 +200,11 @@ func TestStockAddPolicyOptInCannotBeBypassedByGenericPreview(t *testing.T) {
 	if s.stockAddRequired(draft, position) {
 		t.Fatal("legacy policy changed on installation")
 	}
-	s.riskPolicies.active.PositionAdd = &risk.StockAddPolicy{}
+	s.riskPolicies.active.PositionAdd = &risk.StockAddPolicy{MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}
+	if s.stockAddRequired(draft, position) {
+		t.Fatal("allocation values silently activated trading admission")
+	}
+	s.riskPolicies.active.PositionAdd.AdmissionContract = risk.StockAddAdmissionV1
 	if !s.stockAddRequired(draft, position) {
 		t.Fatal("ordinary stock order bypasses active Add policy")
 	}

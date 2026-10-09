@@ -29,7 +29,7 @@ func TestStockAddTradingRechecksBeforeSendingAndNeverResizes(t *testing.T) {
 				return ibkrlib.OpenOrderSnapshot{Complete: true, AsOf: s.orderNow()}, s.currentBrokerStateScope(), nil
 			}
 			p := stockAddTestParams()
-			p.Quantity = 3
+			p.Quantity, p.Max = 3, false
 			raw, _ := json.Marshal(p)
 			preview, err := s.handleAddPreview(t.Context(), &rpc.Request{Params: raw})
 			if err != nil {

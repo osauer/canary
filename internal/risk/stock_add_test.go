@@ -10,7 +10,7 @@ func stockAddFixture() StockAddInput {
 	p := DefaultRulebookPolicy()
 	p.SingleNameWatchPct, p.SingleNameActPct = 80, 90
 	p.IlliquidWatchPct, p.IlliquidActPct = 80, 90
-	return StockAddInput{Policy: &StockAddPolicy{MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 20000, Fee: 5, OrderCapBase: 20000,
+	return StockAddInput{Policy: &StockAddPolicy{AdmissionContract: StockAddAdmissionV1, MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}, Symbol: "SYNA", ConID: 101, Price: 100, FX: 1, FreeCash: 20000, Fee: 5, OrderCapBase: 20000,
 		Rules: RuleInputs{AsOf: time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC), BaseCurrency: "USD", Account: SourceState{Healthy: true}, Positions: SourceState{Healthy: true}, NLVBase: new(100000.), ExcessLiquidityBase: new(50000.), RiskCapital: &RiskCapitalInput{EffectiveBase: new(100000.)}}, Rulebook: p}
 }
 
@@ -106,7 +106,7 @@ func TestStockAddMaximumMatchesExhaustiveRiskSearch(t *testing.T) {
 			case "risk capital":
 				in.Rules.RiskCapital.EffectiveBase = new(4500.)
 			case "margin":
-				in.Rules.ExcessLiquidityBase = new(35000.)
+				in.Rules.ExcessLiquidityBase = new(15000.)
 			case "sell only":
 				in.Rulebook.RegimeCalm.NetExposureWatchPct = 6
 			}
@@ -169,7 +169,7 @@ func TestStockAddPolicyIsOptionalExplicitAndFingerprintBound(t *testing.T) {
 			t.Fatalf("accepted %v", v)
 		}
 	}
-	c.PositionAdd = &StockAddPolicy{MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}
+	c.PositionAdd = &StockAddPolicy{AdmissionContract: StockAddAdmissionV1, MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -181,5 +181,69 @@ func TestStockAddPolicyIsOptionalExplicitAndFingerprintBound(t *testing.T) {
 	c.PositionAdd = nil
 	if before != c.FingerprintKey() {
 		t.Fatal("absent Add altered legacy policy identity")
+	}
+}
+
+func TestStockAddAllocationRoomIsSeparateFromOrderQuantityBound(t *testing.T) {
+	in := stockAddFixture()
+	in.Price = 0.001
+	in.FreeCash = 1e6
+	in.Fee = 0
+	got := SizeStockAdd(in)
+	if got.AllocationRoom != 10000000 || got.OrderUpperBound > 1000000 || len(got.Blockers) != 0 {
+		t.Fatalf("position capacity conflated with order bound: %+v", got)
+	}
+}
+
+func TestStockAddAdmissionApprovalIsDistinctFromAllocationValues(t *testing.T) {
+	in := stockAddFixture()
+	in.Policy.AdmissionContract = ""
+	c := approvedConstitution()
+	c.PositionAdd = in.Policy
+	before := c.FingerprintKey()
+	found := false
+	for _, key := range c.UnapprovedKeys() {
+		if key == "position_add.admission_contract" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("missing admission approval was not disclosed")
+	}
+	if got := SizeStockAdd(in); got.Quantity != 0 || len(got.Blockers) == 0 || got.Blockers[0].Kind != "policy" {
+		t.Fatal("allocation values activated admission")
+	}
+	in.Policy.AdmissionContract = StockAddAdmissionV1
+	if before == c.FingerprintKey() {
+		t.Fatal("admission approval did not invalidate policy identity")
+	}
+	in.Policy.AdmissionContract = "guess"
+	if c.Validate() == nil {
+		t.Fatal("unrecognized admission contract accepted")
+	}
+}
+
+func TestStockAddAdmissionExplanationPreservesApprovalSource(t *testing.T) {
+	c := approvedConstitution()
+	c.PositionAdd = &StockAddPolicy{MaxStockPctNLV: new(60.), MaxUnderlyingStockPctNLV: new(10.)}
+	for _, approved := range []bool{false, true} {
+		want := "unapproved"
+		if approved {
+			c.PositionAdd.AdmissionContract = StockAddAdmissionV1
+			want = "file"
+		}
+		found := false
+		for _, row := range ConstitutionLimits(&c) {
+			if row.Key != "position_add.admission_contract" {
+				continue
+			}
+			found = true
+			if row.Source != want || row.Value == "" {
+				t.Fatalf("approval source lost: %+v", row)
+			}
+		}
+		if !found {
+			t.Fatal("admission decision missing from explanation")
+		}
 	}
 }

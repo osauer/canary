@@ -134,7 +134,7 @@ func reviewedTerminalMatch(set map[string]ReviewedTerminalStock, key string) (st
 		return "", false
 	}
 	if entry.ConID > 0 {
-		if i := strings.LastIndex(rest, "|CONID:"); i >= 0 && rest[i+len("|CONID:"):] != strconv.Itoa(entry.ConID) {
+		if _, conID, found := strings.CutLast(rest, "|CONID:"); found && conID != strconv.Itoa(entry.ConID) {
 			return "", false
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -28,8 +29,13 @@ type stockAddEvidence struct {
 	accountFingerprint  string
 }
 
+// stockAddProblem preserves the reason category across daemon evidence collection.
+type stockAddProblem struct{ kind, message string }
+
+func (p *stockAddProblem) Error() string { return p.message }
+
 func (s *Server) addHeld(p rpc.AddParams, code, message string) *rpc.AddPlanResult {
-	return &rpc.AddPlanResult{AsOf: s.orderNow(), Contract: p.Contract, LimitPrice: p.LimitPrice, Currency: p.Contract.Currency, Blockers: []risk.StockAddBlocker{{Code: code, Message: message}}}
+	return &rpc.AddPlanResult{AsOf: s.orderNow(), Contract: p.Contract, LimitPrice: p.LimitPrice, Currency: p.Contract.Currency, Blockers: []risk.StockAddBlocker{{Kind: "evidence", Code: code, Message: message}}}
 }
 
 func (s *Server) handleAddPlan(ctx context.Context, req *rpc.Request) (*rpc.AddPlanResult, error) {
@@ -68,48 +74,208 @@ func addBlockerText(p risk.StockAddPlan) string {
 	return "no permitted quantity"
 }
 
+// stockAddQuoteBudget bounds broker work, not investment size or owner policy.
+// A maximum is claimed only when every greater candidate up to the proven
+// arithmetic upper bound has been ruled out. No fee monotonicity is assumed.
+const stockAddQuoteBudget = 24
+
 func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPlanResult, error) {
 	ev, err := s.stockAddEvidence(ctx, p)
 	if err != nil {
 		out := s.addHeld(p, "add_evidence_unavailable", err.Error())
-		out.AsOf = s.orderNow()
+		if problem, ok := errors.AsType[*stockAddProblem](err); ok {
+			out.Blockers[0].Kind = problem.kind
+		}
 		return out, nil
 	}
-	// First size without fees to select a candidate, then use only that exact
-	// quantity's accepted broker fee bound. At most three adjustments; inability
-	// to obtain a stable exact quote holds instead of estimating a commission.
-	plan := risk.SizeStockAdd(ev.input)
-	out := &rpc.AddPlanResult{StockAddPlan: plan, Contract: ev.contract, LimitPrice: p.LimitPrice, Currency: ev.contract.Currency, BaseCurrency: ev.input.Rules.BaseCurrency, AsOf: s.orderNow()}
-	for range 3 {
-		if plan.Quantity <= 0 || len(plan.Blockers) > 0 {
-			out.StockAddPlan = plan
-			return out, nil
+	capacityInput := ev.input
+	capacityInput.Requested, capacityInput.Fee, capacityInput.BrokerMargin = 0, 0, nil
+	capacity := risk.SizeStockAdd(capacityInput)
+	upper := capacity.MaxQuantity
+	capacity.OrderUpperBound, capacity.MaxQuantity = upper, 0
+	capacity.Quantity, capacity.After, capacity.Cost, capacity.CashAfter = 0, capacity.Before, 0, ev.input.FreeCash
+	capacity.StockPctAfter, capacity.UnderlyingPctAfter = capacity.StockPctBefore, capacity.UnderlyingPctBefore
+	if capacity.Protection != nil {
+		capacity.Protection.UncoveredAfter = capacity.Protection.UncoveredBefore
+	}
+	capacity.Sizing = "quantity"
+	if p.Max {
+		capacity.Sizing = "max"
+	}
+	capacity.RequestedQuantity = p.Quantity
+	out := &rpc.AddPlanResult{StockAddPlan: capacity, Contract: ev.contract, LimitPrice: p.LimitPrice, Currency: ev.contract.Currency, BaseCurrency: ev.input.Rules.BaseCurrency, AsOf: s.orderNow()}
+	held := func(kind, code, message string) (*rpc.AddPlanResult, error) {
+		out.Quantity = 0
+		out.Review = nil
+		out.Blockers = append(out.Blockers, risk.StockAddBlocker{Kind: kind, Code: code, Message: message})
+		return out, nil
+	}
+	if len(capacity.Blockers) > 0 {
+		return out, nil
+	}
+	if p.Quantity > upper {
+		return held("capacity", "add_quantity_above_max", "The requested addition exceeds the current order allowance before broker costs.")
+	}
+	type candidate struct {
+		plan risk.StockAddPlan
+		fee  float64
+	}
+	checked := map[int]candidate{}
+	quote := func(q int) (candidate, error) {
+		if !s.stockAddEvidenceCurrent(ev) {
+			return candidate{}, fmt.Errorf("account, orders or policy changed while sizing; calculate again")
 		}
-		draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: ev.contract, Quantity: plan.Quantity, OrderType: "LMT", LimitPrice: p.LimitPrice, TIF: "DAY", Strategy: "explicit-limit"}
+		draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: ev.contract, Quantity: q, OrderType: "LMT", LimitPrice: p.LimitPrice, TIF: "DAY", Strategy: "explicit-limit"}
 		w, err := s.fetchPreviewWhatIfBound(ctx, s.currentTradingStatus(), draft, orderPreviewDefaultWait, ev.broker)
 		if err != nil {
-			return s.addHeld(p, "add_fee_unavailable", err.Error()), nil
+			return candidate{}, err
 		}
 		fee, ok := cashSweepFeeUpper(&rpc.OrderPreviewResult{WhatIf: w}, ev.contract.Currency)
 		if !ok {
-			return s.addHeld(p, "add_fee_unavailable", "The exact candidate needs an accepted broker maximum commission in its cash currency."), nil
+			return candidate{}, fmt.Errorf("the exact candidate needs an accepted broker commission bound in its cash currency")
 		}
-		ev.input.Fee = fee
-		next := risk.SizeStockAdd(ev.input)
-		if next.Quantity != plan.Quantity {
-			plan = next
-			continue
+		input := ev.input
+		input.Requested, input.Fee = q, fee
+		input.BrokerMargin, err = stockAddWhatIfMargin(input, w, q)
+		if err != nil {
+			return candidate{}, err
 		}
+		c := candidate{plan: risk.CheckStockAdd(input), fee: fee}
+		checked[q] = c
+		return c, nil
+	}
+	finish := func(c candidate, maximum bool) (*rpc.AddPlanResult, error) {
 		if !s.stockAddEvidenceCurrent(ev) {
-			return s.addHeld(p, "add_evidence_changed", "Account, orders or policy changed while sizing; calculate again."), nil
+			return held("evidence", "add_evidence_changed", "Account, orders or policy changed while sizing; calculate again.")
 		}
-		out.StockAddPlan = next
-		out.MaxCommission = new(fee)
-		ev.review.Plan = next
-		out.Review = &ev.review
+		out.StockAddPlan = c.plan
+		out.Sizing = capacity.Sizing
+		out.RequestedQuantity = p.Quantity
+		out.MaxCommission = new(c.fee)
+		if maximum {
+			out.MaxQuantity, out.MaximumKnown = c.plan.Quantity, true
+		}
+		if len(c.plan.Blockers) == 0 && c.plan.Quantity > 0 {
+			ev.review.Plan = out.StockAddPlan
+			out.Review = &ev.review
+		}
 		return out, nil
 	}
-	return s.addHeld(p, "add_fee_unavailable", "Broker commission did not stabilise for an exact affordable quantity; calculate again."), nil
+	if !p.Max {
+		c, err := quote(p.Quantity)
+		if err != nil {
+			return held("evidence", "add_broker_evidence_unavailable", err.Error())
+		}
+		return finish(c, false)
+	}
+	q, best := upper, 0
+	for range stockAddQuoteBudget {
+		if err := ctx.Err(); err != nil {
+			return held("evidence", "add_search_incomplete", "The planning time budget ended before a maximum was established.")
+		}
+		c, err := quote(q)
+		if err != nil {
+			return held("evidence", "add_broker_evidence_unavailable", err.Error())
+		}
+		if c.plan.Quantity > best && len(c.plan.Blockers) == 0 {
+			best = q
+		}
+		out.SupportedQuantity = best
+		// Certification is exhaustive above the best accepted quantity. Even a
+		// discontinuous fee schedule cannot make an untested larger lot disappear.
+		next := upper
+		for next > best {
+			if _, seen := checked[next]; !seen {
+				break
+			}
+			next--
+		}
+		if next == best {
+			if best == 0 {
+				return held("capacity", "add_no_capacity", "Every quantity within the order allowance failed its exact cash or margin check.")
+			}
+			return finish(checked[best], true)
+		}
+		if best == 0 {
+			// Find one affordable witness early, but never use its fee to certify
+			// a different quantity. The untested upper interval is still checked.
+			affordable := max(0, int(math.Floor((ev.input.FreeCash-c.fee)/ev.input.Price)))
+			next = min(next, affordable)
+			if next >= q {
+				next = q / 2
+			}
+			if next == 0 {
+				next = 1
+			}
+			if _, seen := checked[next]; seen {
+				next = upper
+				for next > 0 {
+					if _, seen := checked[next]; !seen {
+						break
+					}
+					next--
+				}
+			}
+		}
+		q = next
+	}
+	return held("evidence", "add_search_incomplete", fmt.Sprintf("Maximum not established within the bounded broker search. %d additional shares passed an exact check; use an explicit quantity for a fresh review.", best))
+}
+
+// stockAddWhatIfMargin applies only this draft's simulated margin change. The
+// broker must identify the account-base denomination of margin amounts;
+// commission has its own native currency. Missing currency supplies no credit.
+func stockAddWhatIfMargin(in risk.StockAddInput, w rpc.OrderWhatIfResult, quantity int) (*risk.StockAddMargin, error) {
+	m := w.Margin
+	if w.Status != rpc.OrderWhatIfStatusAccepted || m == nil || (m.Currency == "" || m.Currency != in.Rules.BaseCurrency) {
+		return nil, fmt.Errorf("the exact order needs accepted broker margin evidence in account base currency")
+	}
+	for _, v := range []*float64{m.InitialMarginBefore, m.InitialMarginAfter, m.MaintenanceMarginBefore, m.MaintenanceMarginAfter, m.EquityWithLoanBefore, m.EquityWithLoanAfter, in.Rules.ExcessLiquidityBase} {
+		if v == nil || !finiteProtectionOptionPolicyValue(*v) {
+			return nil, fmt.Errorf("the exact order needs complete before and after broker margin evidence")
+		}
+	}
+	if *m.InitialMarginBefore < 0 || *m.InitialMarginAfter < 0 || *m.MaintenanceMarginBefore < 0 || *m.MaintenanceMarginAfter < 0 {
+		return nil, fmt.Errorf("broker margin evidence is invalid")
+	}
+	before := *m.EquityWithLoanBefore - *m.MaintenanceMarginBefore
+	after := *m.EquityWithLoanAfter - *m.MaintenanceMarginAfter
+	// Pending purchases are already charged against observed headroom. Keep
+	// their full debit; never give a margin-release credit to this new purchase.
+	change := min(0, after-before) - in.Fee*in.FX
+	out := &risk.StockAddMargin{Quantity: quantity, ExcessLiquidityBase: min(*in.Rules.ExcessLiquidityBase+in.PendingCostBase, before) - in.PendingCostBase + change, InitialMarginBase: *m.InitialMarginAfter, MaintenanceMarginBase: *m.MaintenanceMarginAfter}
+	if in.Rules.LookAheadExcessLiquidityBase != nil {
+		out.LookAheadExcessBase = new(min(*in.Rules.LookAheadExcessLiquidityBase+in.PendingCostBase, before) - in.PendingCostBase + change)
+	}
+	return out, nil
+}
+
+// stockAddCashFunding leaves the account reserve funded once across measured
+// cash currencies, after every currency's float and fee-inclusive commitments.
+// Only the selected currency can pay for the stock; no FX or borrowing is created.
+func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64) (*risk.StockAddCash, error) {
+	out := &risk.StockAddCash{AccountReserveBase: reserve}
+	for _, ccy := range slices.Sorted(maps.Keys(ledger)) {
+		row := ledger[ccy]
+		keep, known := bucket.keepCash(ccy)
+		if !known || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) || !finiteProtectionOptionPolicyValue(row.TradeDate) || !positiveFinite(row.ExchangeRate) {
+			return nil, fmt.Errorf("settled cash, currency float and conversion are required for account reserve funding in %s", ccy)
+		}
+		available := min(row.TradeDate, *row.Settled)
+		committed := commitments.ByCurrency[ccy]
+		free := available - committed - keep
+		if ccy == currency {
+			out.Available, out.Committed, out.CurrencyFloat = available, committed, keep
+		} else {
+			out.OtherReserveFundingBase += free * row.ExchangeRate
+		}
+	}
+	if _, ok := ledger[currency]; !ok || !positiveFinite(rate) {
+		return nil, fmt.Errorf("selected currency cash is unavailable")
+	}
+	out.ReserveInCurrency = max(0, reserve-out.OtherReserveFundingBase) / rate
+	out.Spendable = out.Available - out.Committed - out.CurrencyFloat - out.ReserveInCurrency
+	return out, nil
 }
 
 func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAddEvidence, error) {
@@ -118,19 +284,19 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	}
 	ev := stockAddEvidence{}
 	mgr := s.riskPolicies.snapshot()
-	if mgr.policy == nil || mgr.policy.PositionAdd == nil || mgr.policy.PositionAdd.MaxStockPctNLV == nil || mgr.policy.PositionAdd.MaxUnderlyingStockPctNLV == nil {
-		return ev, fmt.Errorf("position_add.max_stock_pct_nlv and position_add.max_underlying_stock_pct_nlv are unapproved")
+	if mgr.policy == nil || mgr.policy.PositionAdd == nil || mgr.policy.PositionAdd.MaxStockPctNLV == nil || mgr.policy.PositionAdd.MaxUnderlyingStockPctNLV == nil || mgr.policy.PositionAdd.AdmissionContract != risk.StockAddAdmissionV1 {
+		return ev, &stockAddProblem{kind: "policy", message: "position_add admission_contract, max_stock_pct_nlv and max_underlying_stock_pct_nlv require explicit approval; an absent or incomplete contract is unapproved"}
 	}
 	if mgr.status != rpc.RiskPolicyStatusActive || mgr.review == rpc.PolicyReviewUnreviewed {
-		return ev, fmt.Errorf("the risk policy must be current and owner-reviewed")
+		return ev, &stockAddProblem{kind: "policy", message: "the risk policy must be current and owner-reviewed"}
 	}
 	pol, polStatus := s.activeRulebookPolicy()
 	if polStatus.Review == rpc.PolicyReviewUnreviewed || polStatus.Status != "active" {
-		return ev, fmt.Errorf("the Rulebook policy must be current and owner-reviewed")
+		return ev, &stockAddProblem{kind: "policy", message: "the Rulebook policy must be current and owner-reviewed"}
 	}
 	cashPolicy, cashStatus := s.protectionPolicies.Active()
 	if cashStatus.Status != "active" || cashStatus.Review == rpc.PolicyReviewUnreviewed {
-		return ev, fmt.Errorf("the cash reserve policy must be current and owner-reviewed")
+		return ev, &stockAddProblem{kind: "policy", message: "the cash reserve policy must be current and owner-reviewed"}
 	}
 	broker, err := s.captureOrderPreviewBrokerAuthority()
 	if err != nil {
@@ -174,16 +340,9 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	if !ok || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) {
 		return ev, fmt.Errorf("native settled cash is unavailable for %s", contract.Currency)
 	}
-	keep, known := cashPolicy.Cash.Sweep.keepCash(contract.Currency)
-	if !known {
-		return ev, fmt.Errorf("cash reserve for %s is unapproved", contract.Currency)
-	}
-	// Reuse the common account reserve as well as each currency's settlement
-	// float. Reserve the full base cushion when spending outside the base too;
-	// this is conservative and avoids making cash fungible across currencies.
 	bucket := cashPolicy.Cash.Sweep
 	if bucket == nil || bucket.ReserveFloorBase == nil || bucket.ReservePctNLV == nil || bucket.NoBuyWhileBorrowed == nil {
-		return ev, fmt.Errorf("account cash reserve is unapproved")
+		return ev, &stockAddProblem{kind: "policy", message: "account cash reserve is unapproved"}
 	}
 	if !aa.NetLiquidationAvailable || !aa.BaseCurrencyAvailable || !aa.ExcessLiquidityAvailable || acct.NetLiquidation <= 0 {
 		return ev, fmt.Errorf("net liquidation, base currency and margin headroom must be measured")
@@ -197,7 +356,6 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, err
 	}
 	reserve := max(*bucket.ReserveFloorBase, acct.NetLiquidation*(*bucket.ReservePctNLV)/100)
-	keep += reserve / n.BasePerContract
 	inventory, orderScope, err := s.brokerOpenOrderInventory(ctx, true)
 	if err != nil {
 		return ev, err
@@ -230,7 +388,11 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		}
 		committedBase += amount * rate
 	}
-	input := risk.StockAddInput{Policy: mgr.policy.PositionAdd, Symbol: contract.Symbol, ConID: contract.ConID, Price: p.LimitPrice, FX: n.BasePerContract, Requested: p.Quantity, FreeCash: min(row.TradeDate, *row.Settled) - keep - commitments.ByCurrency[contract.Currency], Rulebook: pol,
+	cash, err := stockAddCashFunding(bucket, ledger, commitments, contract.Currency, reserve, n.BasePerContract)
+	if err != nil {
+		return ev, err
+	}
+	input := risk.StockAddInput{Policy: mgr.policy.PositionAdd, Symbol: contract.Symbol, ConID: contract.ConID, Price: p.LimitPrice, FX: n.BasePerContract, Requested: p.Quantity, FreeCash: cash.Spendable, Cash: cash, PendingCostBase: committedBase, Rulebook: pol,
 		Rules: risk.RuleInputs{AsOf: now, BaseCurrency: base, Positions: risk.SourceState{Healthy: true}, Account: risk.SourceState{Healthy: true}, NLVBase: new(acct.NetLiquidation), RiskCapital: s.rulebookRiskCapital(acct, nil, base, now), Names: mapRuleNames(pos, pol, base)}}
 	input.Rules.ExcessLiquidityBase, input.Rules.LookAheadExcessLiquidityBase, input.Rules.InitialMarginBase, input.Rules.MaintenanceMarginBase = rulebookMarginInputs(acct, aa)
 	if input.Rules.ExcessLiquidityBase != nil {
@@ -268,7 +430,7 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 			if government {
 				continue
 			}
-			return ev, fmt.Errorf("cross-asset issuer concentration for held %s is not yet supported by equity Add", stock.SecType)
+			return ev, &stockAddProblem{kind: "unsupported", message: fmt.Sprintf("cross-asset issuer concentration for held %s is not yet supported by equity Add", stock.SecType)}
 		}
 		rate, ok := positionBaseRate(stock, base)
 		if !ok || stock.Stale || !positiveFinite(stock.Mark) {
@@ -325,7 +487,7 @@ func stockAddPending(in *risk.StockAddInput, orders []ibkrlib.OrderLifecycleEven
 			return fmt.Errorf("order inventory includes another account")
 		}
 		if o.SecType != "STK" {
-			return fmt.Errorf("pending non-stock risk cannot yet be included in equity Add")
+			return &stockAddProblem{kind: "unsupported", message: "pending non-stock risk cannot yet be included in equity Add"}
 		}
 		if o.Action == "SELL" {
 			protective := slices.Contains([]string{"STP", "STP LMT", "TRAIL", "TRAIL LIMIT"}, o.OrderType)
@@ -334,10 +496,13 @@ func stockAddPending(in *risk.StockAddInput, orders []ibkrlib.OrderLifecycleEven
 			if !protective || !covered {
 				return fmt.Errorf("a pending sale must resolve before adding stock")
 			}
+			if o.ConID == contract.ConID {
+				in.StopQuantity += brokerOrderRemaining(o)
+			}
 			continue
 		}
 		if o.Action != "BUY" || o.SecType != "STK" || o.ConID <= 0 {
-			return fmt.Errorf("pending non-stock risk cannot yet be included in equity Add")
+			return &stockAddProblem{kind: "unsupported", message: "pending non-stock risk cannot yet be included in equity Add"}
 		}
 		remaining := o.Remaining
 		if remaining <= 0 {
@@ -354,6 +519,7 @@ func stockAddPending(in *risk.StockAddInput, orders []ibkrlib.OrderLifecycleEven
 				return fmt.Errorf("pending purchase has a conflicting stock identity")
 			}
 			in.UnderlyingStockBase += value
+			in.PendingQuantity += remaining
 		}
 		found := false
 		for i := range in.Rules.Names {
@@ -415,7 +581,7 @@ func (s *Server) stockAddPolicyCurrent(review rpc.AddReview) bool {
 
 func (s *Server) stockAddRequired(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
 	mgr := s.riskPolicies.snapshot()
-	return draft.Add != nil || (mgr.policy != nil && mgr.policy.PositionAdd != nil && draft.Contract.SecType == "STK" && draft.Action == rpc.OrderActionBuy && position.After > max(0, position.Before))
+	return draft.Add != nil || (mgr.policy != nil && mgr.policy.PositionAdd != nil && mgr.policy.PositionAdd.AdmissionContract == risk.StockAddAdmissionV1 && draft.Contract.SecType == "STK" && draft.Action == rpc.OrderActionBuy && position.After > max(0, position.Before))
 }
 
 func (s *Server) validateStockAddDraft(ctx context.Context, draft rpc.OrderDraft, w rpc.OrderWhatIfResult) (stockAddEvidence, error) {
@@ -434,7 +600,11 @@ func (s *Server) validateStockAddDraft(ctx context.Context, draft rpc.OrderDraft
 	}
 	ev.input.Fee = fee
 	ev.input.Requested = draft.Quantity
-	plan := risk.SizeStockAdd(ev.input)
+	ev.input.BrokerMargin, err = stockAddWhatIfMargin(ev.input, w, draft.Quantity)
+	if err != nil {
+		return ev, err
+	}
+	plan := risk.CheckStockAdd(ev.input)
 	if len(plan.Blockers) > 0 || plan.Quantity != draft.Quantity {
 		return ev, fmt.Errorf("%s", addBlockerText(plan))
 	}

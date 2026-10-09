@@ -606,8 +606,8 @@ func runtimeSection(in policyEffectiveInputs) rpc.PolicyEffectiveSection {
 		}
 		if l, ok := settingsLeafOf(v); ok {
 			id := path
-			if i := strings.LastIndex(path, "."); i >= 0 {
-				id = path[:i]
+			if parent, _, found := strings.CutLast(path, "."); found {
+				id = parent
 			}
 			g, seen := groups[id]
 			if !seen {

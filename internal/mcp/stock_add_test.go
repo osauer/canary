@@ -25,19 +25,22 @@ func TestStockAddMCPOnlyRequestsReadOnlyPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close(); _ = os.Remove(path) })
-	calls := make(chan rpc.Request, 1)
+	calls := make(chan rpc.Request, 2)
 	go func() {
 		c, err := ln.Accept()
 		if err != nil {
 			return
 		}
 		defer c.Close()
-		var req rpc.Request
-		if json.NewDecoder(c).Decode(&req) != nil {
-			return
+		decoder := json.NewDecoder(c)
+		for range 2 {
+			var req rpc.Request
+			if decoder.Decode(&req) != nil {
+				return
+			}
+			calls <- req
+			_ = json.NewEncoder(c).Encode(rpc.Response{ID: req.ID, Ok: true, Result: json.RawMessage(`{"quantity":3,"before":0,"after":3}`)})
 		}
-		calls <- req
-		_ = json.NewEncoder(c).Encode(rpc.Response{ID: req.ID, Ok: true, Result: json.RawMessage(`{"quantity":3,"before":0,"after":3}`)})
 	}()
 	conn, err := dial.Connect(path)
 	if err != nil {
@@ -56,7 +59,19 @@ func TestStockAddMCPOnlyRequestsReadOnlyPlan(t *testing.T) {
 	if req.Method != rpc.MethodAddPlan || p.Contract.Symbol != "SYNA" || p.Quantity != 3 || p.LimitPrice != 100 {
 		t.Fatalf("unexpected call %+v %+v", req, p)
 	}
-	for _, args := range []string{`{"symbol":"SYNA","currency":"USD","limit_price":100,"existing_position_size":0}`, `{"symbol":"SYNA","currency":"USD","limit_price":100,"submit":true}`, `{"symbol":"SYNA","limit_price":100}`} {
+	_, err = tool.Handler(t.Context(), conn, json.RawMessage(`{"symbol":"syna","currency":"usd","limit_price":100,"max":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req = <-calls
+	p = rpc.AddParams{}
+	if err := json.Unmarshal(req.Params, &p); err != nil {
+		t.Fatal(err)
+	}
+	if req.Method != rpc.MethodAddPlan || !p.Max || p.Quantity != 0 {
+		t.Fatalf("explicit Max lost: %+v %+v", req, p)
+	}
+	for _, args := range []string{`{"symbol":"SYNA","currency":"USD","limit_price":100}`, `{"symbol":"SYNA","currency":"USD","limit_price":100,"quantity":0}`, `{"symbol":"SYNA","currency":"USD","limit_price":100,"quantity":3,"max":true}`, `{"symbol":"SYNA","currency":"USD","limit_price":100,"existing_position_size":0}`, `{"symbol":"SYNA","currency":"USD","limit_price":100,"submit":true}`, `{"symbol":"SYNA","limit_price":100}`} {
 		if _, err := tool.Handler(t.Context(), nil, json.RawMessage(args)); err == nil {
 			t.Fatalf("accepted authority input %s", args)
 		}

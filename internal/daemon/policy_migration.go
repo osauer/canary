@@ -173,10 +173,9 @@ func migrateOpportunityPolicyFile(data []byte, _ string) ([]byte, []string, []st
 		doc.set("buckets.option_exercise", row.key, tomlValueText(row.value), nil)
 	}
 	for _, key := range []string{"profile", "authority.exercise_reduce_only", "authority.auto_submit", "buckets.option_exercise.allow_no_option_bid"} {
-		i := strings.LastIndex(key, ".")
-		table, leaf := "", key
-		if i >= 0 {
-			table, leaf = key[:i], key[i+1:]
+		table, leaf, found := strings.CutLast(key, ".")
+		if !found {
+			table, leaf = "", key
 		}
 		if doc.commentOut(table, leaf, "retired: "+opportunityPolicyHelp[key]) {
 			changes = append(changes, "comment out "+key+" (no execution authority)")

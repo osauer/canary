@@ -841,14 +841,21 @@ func (e *opportunityEngine) Submit(ctx context.Context, p rpc.OpportunityExercis
 		e.appendEvent(opportunityEvent{At: now, Type: "submit-blocked", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: firstTradingBlockerMessage(blockers), SourceFingerprints: opp.SourceFingerprints})
 		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, Blockers: blockers, Message: "exercise submit blocked", AsOf: now}, nil
 	}
+	submitErr := e.server.submitOptionExercise(ctx, payload, opp, qty, origin)
+	return e.recordExerciseSubmission(preview, opp, payload, now, submitErr), nil
+}
+
+// recordExerciseSubmission keeps outcome recording identical for both builds;
+// only the trading build can supply a successful broker submission result.
+func (e *opportunityEngine) recordExerciseSubmission(preview rpc.OpportunityExercisePreviewResult, opp rpc.Opportunity, payload orderPreviewTokenPayload, now time.Time, err error) rpc.OpportunityExerciseSubmitResult {
 	orderRef := payload.Draft.OrderRef
-	if err := e.server.submitOptionExercise(ctx, payload, opp, qty, origin); err != nil {
+	if err != nil {
 		blockers := []rpc.TradingBlocker{{Code: "exercise_submit_failed", Message: err.Error(), Action: "Reconcile in TWS before trying again."}}
 		e.appendEvent(opportunityEvent{At: now, Type: "submit-error", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: err.Error(), SourceFingerprints: opp.SourceFingerprints})
-		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Blockers: blockers, Message: "exercise submit failed; broker receipt may be uncertain, reconcile before retrying", AsOf: now}, nil
+		return rpc.OpportunityExerciseSubmitResult{Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Blockers: blockers, Message: "exercise submit failed; broker receipt may be uncertain, reconcile before retrying", AsOf: now}
 	}
 	e.appendEvent(opportunityEvent{At: now, Type: "submitted", Key: opp.Key, Revision: opp.Revision, PreviewTokenID: payload.TokenID, OrderRef: orderRef, AccountID: e.currentScope().Account, PolicyID: opp.PolicyID, PolicyVersion: opp.PolicyVersion, PolicyFingerprint: opp.PolicyFingerprint, Message: "option exercise instruction sent; reconcile status in TWS", SourceFingerprints: opp.SourceFingerprints})
-	return rpc.OpportunityExerciseSubmitResult{Accepted: true, Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Message: "option exercise instruction sent; verify broker status in TWS", AsOf: now}, nil
+	return rpc.OpportunityExerciseSubmitResult{Accepted: true, Preview: &preview, Opportunity: opp, PreviewTokenID: payload.TokenID, OrderRef: orderRef, Message: "option exercise instruction sent; verify broker status in TWS", AsOf: now}
 }
 
 func exerciseOrderDraft(opp rpc.Opportunity, qty int, now time.Time) rpc.OrderDraft {

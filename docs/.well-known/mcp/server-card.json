@@ -54,11 +54,15 @@
             "exclusiveMinimum": 0,
             "description": "Maximum price per share in the specified currency."
           },
+          "max": {
+            "type": "boolean",
+            "description": "Explicitly request the maximum for one order. Mutually exclusive with quantity; no automatic execution."
+          },
           "quantity": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 1,
             "maximum": 1000000,
-            "description": "Whole shares to add. Omitted or zero calculates the maximum; never the existing position size."
+            "description": "Exact additional whole shares. Choose this or max=true; never the current position or a target total."
           },
           "symbol": {
             "type": "string",

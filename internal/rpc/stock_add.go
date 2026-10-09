@@ -17,9 +17,10 @@ const (
 	MethodAddPreview = "add.preview"
 )
 
-// AddParams selects a stock and a price ceiling. Quantity zero asks for the
-// largest permitted whole-share addition; current size is daemon-owned.
+// AddParams requires an explicit maximum or exact additional quantity.
+// Current size is daemon-owned.
 type AddParams struct {
+	Max        bool           `json:"max,omitempty"`
 	Contract   ContractParams `json:"contract"`
 	LimitPrice float64        `json:"limit_price"`
 	Quantity   int            `json:"quantity,omitempty"`
@@ -39,7 +40,10 @@ func NormalizeAddParams(p AddParams) (AddParams, error) {
 		return p, fmt.Errorf("stock addition currently supports an exact stock identity and explicit currency only")
 	}
 	if math.IsNaN(p.LimitPrice) || math.IsInf(p.LimitPrice, 0) || p.LimitPrice <= 0 || p.Quantity < 0 || p.Quantity > 1000000 {
-		return p, fmt.Errorf("stock addition needs a positive finite limit and a quantity from 0 to 1000000 (0 means maximum)")
+		return p, fmt.Errorf("stock addition needs a positive finite limit and a quantity from 0 to 1000000 (maximum requires max=true)")
+	}
+	if p.Max == (p.Quantity > 0) {
+		return p, fmt.Errorf("choose exactly one sizing intent: max or a positive additional quantity")
 	}
 	return p, nil
 }
@@ -75,5 +79,19 @@ func CloneAddReview(in *AddReview) *AddReview {
 	}
 	out := *in
 	out.Plan.Blockers = slices.Clone(in.Plan.Blockers)
+	out.Plan.Allowances = slices.Clone(in.Plan.Allowances)
+	out.Plan.RiskChecks = slices.Clone(in.Plan.RiskChecks)
+	if in.Plan.Cash != nil {
+		out.Plan.Cash = new(*in.Plan.Cash)
+	}
+	if in.Plan.Protection != nil {
+		out.Plan.Protection = new(*in.Plan.Protection)
+	}
+	if in.Plan.Margin != nil {
+		out.Plan.Margin = new(*in.Plan.Margin)
+		if in.Plan.Margin.LookAheadExcessBase != nil {
+			out.Plan.Margin.LookAheadExcessBase = new(*in.Plan.Margin.LookAheadExcessBase)
+		}
+	}
 	return &out
 }

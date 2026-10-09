@@ -1276,9 +1276,13 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 	}
 	b.WriteString(`
 # Optional stock opening/addition policy. No values are assigned on install.
-# Uncomment the table and choose BOTH percentages before using canary add.
-# This opts stock increases into cash, allocation and portfolio-risk checks.
+# Choose BOTH percentages and explicitly approve the admission contract.
+# stock-entry-v1 makes Rulebook rules 1, 3, 15, 18 and 19 pass bands mandatory
+# for ALL long-stock increases, including ordinary BUY commands, regardless
+# of advisory display modes. It also requires cash, allocation and margin evidence.
+# Allocation values alone do not activate this admission behavior.
 # [position_add]
+# admission_contract = "stock-entry-v1"
 # max_stock_pct_nlv = 0.0
 # max_underlying_stock_pct_nlv = 0.0
 `)

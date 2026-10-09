@@ -1,18 +1,68 @@
-# canary add plan SYNA --currency USD --limit 100 · COLUMNS=80 · colour off
+# canary add plan SYNA --currency USD --limit 100 --max · COLUMNS=80 · colour off
 Add · SYNA · USD
-Position · 0 → 9 shares
-Add shares · 9 (maximum 9)
 Limit · 100.0000 USD per share
+Add shares · 9
+Maximum for this order · 9 shares; larger candidates ruled out
 Cost incl. fee bound · 905.00 USD
 Cash after reserves · 95.00 USD
-Sizing constraint · Available cash after reserves and fees
-Planning evidence only. An exact preview and separate owner confirmation are required. Existing stops retain their reviewed quantity.
-# canary add plan SYNA --currency USD --limit 100 · COLUMNS=80 · colour on, ESC written as \x1b
+Position · 4 → 13 shares
+Sizing · Explicit maximum for one order
+Stock allocation room · 20 additional shares before cash, risk and order
+  checks
+Order allowance · up to 10 shares before exact broker costs and margin
+Cash before this order's fee · limit 1000.00; used 0.00; remaining 1000.00 USD
+  (10 shares)
+Underlying stock allowance · limit 2600.00; used 600.00; remaining 2000.00 USD
+  (20 shares)
+Cash calculation · 1600.00 available − 200.00 committed − 100.00 currency
+  float − 300.00 account reserve = 1000.00 USD spendable
+Account reserve · 1000.00 USD required; 700.00 USD available outside this
+  currency after floats and commitments
+Total stock allocation · 10.00% → 10.90% of account value
+Underlying stock allocation · 0.60% → 1.50% of account value
+Sizing constraint before broker simulation · Cash before this order's fee
+Margin headroom before · Excess liquidity is 50% of account value.
+Margin headroom after · Broker simulation leaves 49% of account value as
+  excess liquidity.
+Working stop instructions · 3 shares; shares without these instructions 1 → 10
+Other pending purchases · 2 shares; not included in the filled holding or stop
+  coverage
+Protection review · Stop instructions do not guarantee an exit or loss limit.
+  Existing stops retain their reviewed quantity; changing protection requires a
+  separate review.
+Order review · Planning evidence only. An exact preview and separate owner
+  confirmation are required.
+# canary add plan SYNA --currency USD --limit 100 --max · COLUMNS=80 · colour on, ESC written as \x1b
 Add · SYNA · USD
-Position · 0 → 9 shares
-Add shares · 9 (maximum 9)
 Limit · 100.0000 USD per share
+Add shares · 9
+Maximum for this order · 9 shares; larger candidates ruled out
 Cost incl. fee bound · 905.00 USD
 Cash after reserves · 95.00 USD
-Sizing constraint · Available cash after reserves and fees
-Planning evidence only. An exact preview and separate owner confirmation are required. Existing stops retain their reviewed quantity.
+Position · 4 → 13 shares
+Sizing · Explicit maximum for one order
+Stock allocation room · 20 additional shares before cash, risk and order
+  checks
+Order allowance · up to 10 shares before exact broker costs and margin
+Cash before this order's fee · limit 1000.00; used 0.00; remaining 1000.00 USD
+  (10 shares)
+Underlying stock allowance · limit 2600.00; used 600.00; remaining 2000.00 USD
+  (20 shares)
+Cash calculation · 1600.00 available − 200.00 committed − 100.00 currency
+  float − 300.00 account reserve = 1000.00 USD spendable
+Account reserve · 1000.00 USD required; 700.00 USD available outside this
+  currency after floats and commitments
+Total stock allocation · 10.00% → 10.90% of account value
+Underlying stock allocation · 0.60% → 1.50% of account value
+Sizing constraint before broker simulation · Cash before this order's fee
+Margin headroom before · Excess liquidity is 50% of account value.
+Margin headroom after · Broker simulation leaves 49% of account value as
+  excess liquidity.
+Working stop instructions · 3 shares; shares without these instructions 1 → 10
+Other pending purchases · 2 shares; not included in the filled holding or stop
+  coverage
+Protection review · Stop instructions do not guarantee an exit or loss limit.
+  Existing stops retain their reviewed quantity; changing protection requires a
+  separate review.
+Order review · Planning evidence only. An exact preview and separate owner
+  confirmation are required.

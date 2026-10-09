@@ -61,7 +61,7 @@ integer you raise on each revision.
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
 | `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
-| `[position_add]` (optional) | `max_stock_pct_nlv`, `max_underlying_stock_pct_nlv` | Owner-chosen stock allocation ceilings for opening or increasing long stock positions; no defaults. The table opts stock additions into cash, allocation and portfolio-risk admission checks. |
+| `[position_add]` (optional) | `admission_contract`, `max_stock_pct_nlv`, `max_underlying_stock_pct_nlv` | Owner-chosen stock allocation ceilings for opening or increasing long stock positions; no defaults. The explicit `stock-entry-v1` admission contract activates cash, allocation and portfolio-risk checks for stock increases, including ordinary orders. |
 | `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`, `max_bond_maturity_years` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, whether an order may open a stock short or sell an option to open, and the longest maturity a bond or bill buy may have. Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
 
 The schema bounds the shape of these numbers, never the level. Percentages must
@@ -219,27 +219,43 @@ can read the policy result and never operate this file.
 
 ## Opening or adding stock
 
-`canary add plan SYMBOL --currency CCY --limit PRICE` calculates the largest
-permitted whole-share addition in one order. Use `--quantity N` to check an
-exact smaller addition. The same command opens a selected watchlist instrument:
-Canary reads the existing holding, including a confirmed zero, from the broker.
-MCP `canary_add` exposes this planning read only.
+`canary add plan SYMBOL --currency CCY --limit PRICE --max` requests the
+maximum whole-share addition for one order. Use `--quantity N` instead to check
+an exact addition. Choose one explicitly. The same command opens a selected
+watchlist instrument: Canary reads the actual holding, including confirmed zero.
+MCP `canary_add` exposes planning only with the same explicit sizing choice.
+
+The plan separates stock allocation room, the next-order allowance before
+broker costs, and the exact checked order. It shows cash deductions, allocation
+changes, risk checks and working stop coverage. Each order uses its own broker
+fee and margin simulation. An exact-quantity request does not estimate a maximum
+using that smaller order's fee. If a bounded Max search cannot establish the
+maximum, it retains useful evidence and explains which quantity passed a check;
+no order is selected from that incomplete result.
 
 `canary add preview` prepares the exact order through the existing review path.
-Submission still needs separate owner confirmation. Auto sizing never creates
-a recurring purchase or unattended submission.
+Submission needs separate owner confirmation. Max never creates a recurring
+purchase or unattended submission. Existing stops retain their quantity; their
+before/after share coverage is shown, and any change needs a separate review.
 
 The optional `[position_add]` table belongs in this risk policy. Both
 `max_stock_pct_nlv` and `max_underlying_stock_pct_nlv` are required percentages
 in `(0,100]`, chosen by you. They cap all stock market value and stock in the
-selected underlying respectively, including pending buys. No table or value
-is installed automatically. Once the table is present, ordinary stock BUY
-orders that increase a long holding must pass the same checks.
+selected underlying respectively, including pending buys.
 
-The calculation also respects cash reserves, native settled cash, fees,
-per-order limits, existing stock and option issuer risk, capital availability,
-sell-only conditions and margin headroom. Missing evidence holds the purchase.
-Cash is never converted. Existing stops keep their reviewed quantity.
+**Activation is a separate policy decision:** `admission_contract =
+"stock-entry-v1"` makes the pass bands of Rulebook rules 1 (issuer concentration),
+3 (premium budget/sell-only), 15 (net exposure), 18 (issuer loss budget) and 19
+(margin headroom) mandatory for long-stock increases. This includes ordinary
+stock BUYs and applies regardless of those rules' advisory display modes.
+Allocation percentages alone do not activate these new admission checks. No
+policy values or admission approval are installed automatically.
+
+Purchases must fit settled cash in their own currency after fees, commitments
+and currency floats. The account cash reserve is funded once across measured
+cash currencies; another currency can cover the reserve, but cannot fund this
+purchase. The exact broker margin simulation must retain the approved headroom
+floor, including look-ahead where available. Missing evidence holds the order.
 
 This increment supports stock additions and openings only. Unknown pending
 activity, queued instructions, pending non-stock orders, or corporate debt

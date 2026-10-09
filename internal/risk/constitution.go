@@ -542,6 +542,9 @@ func (c Constitution) UnapprovedKeys() []string {
 		out = append(out, "recon.max_equity_divergence_pct")
 	}
 	if c.PositionAdd != nil {
+		if c.PositionAdd.AdmissionContract != StockAddAdmissionV1 {
+			out = append(out, "position_add.admission_contract")
+		}
 		if c.PositionAdd.MaxStockPctNLV == nil {
 			out = append(out, "position_add.max_stock_pct_nlv")
 		}

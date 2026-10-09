@@ -46,8 +46,13 @@ order-entry path.
 ## Stock addition planning
 
 For a user-selected stock or watchlist item, use `canary add plan SYMBOL
---currency CCY --limit PRICE --json` or MCP `canary_add`. Omit quantity for the
-maximum permitted addition; use `--quantity N` for an exact proposed increase.
+--currency CCY --limit PRICE --max --json` or MCP `canary_add` with `max=true`.
+Use `--quantity N` instead for an exact proposed increase; neither omitted nor
+zero quantity means Max. Keep allocation room, the order upper bound and an
+exactly checked order distinct. A manual plan does not claim a maximum. A
+bounded Max search can return useful checked size with `add_search_incomplete`;
+that is incomplete evidence, not zero capacity. Preserve cash deductions, risk
+checks and working stop coverage in the explanation.
 Canary reads current holdings, including a verified zero; never invent or pass
 an existing-position size. A plan is conditional on current policy, cash,
 pending orders, risk and the exact broker fee estimate. It reserves nothing.

@@ -182,10 +182,16 @@ func renderGoldenCases() []renderGoldenCase {
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
 	}
 	return []renderGoldenCase{
-		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
+		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100", "--max"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
 		{name: "add_held", render: func(env *Env) {
 			p := goldenStockAdd()
-			p.Blockers = []risk.StockAddBlocker{{Code: "add_no_capacity", Message: "The available allowance cannot fund one whole share."}}
+			p.Quantity, p.MaxQuantity, p.OrderUpperBound, p.MaximumKnown = 0, 0, 0, false
+			p.After, p.StockPctAfter, p.UnderlyingPctAfter = p.Before, p.StockPctBefore, p.UnderlyingPctBefore
+			p.Cash.Available, p.Cash.Spendable = 695, 95
+			p.Allowances[0] = risk.StockAddAllowance{Code: "cash", Limit: 95, Remaining: 95, Shares: 0}
+			p.Protection.UncoveredAfter = p.Protection.UncoveredBefore
+			p.RiskChecks[0].AfterEvidence, p.RiskChecks[0].AfterStatus = "", ""
+			p.Blockers = []risk.StockAddBlocker{{Kind: "capacity", Code: "add_no_capacity", Message: "The available allowance cannot fund one whole share."}}
 			renderAddPlan(env, p)
 		}},
 		{name: "regime", argv: []string{"regime"}, conn: goldenConn{rpc.MethodRegimeSnapshot: goldenRegime(fresh)}},

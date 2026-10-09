@@ -273,7 +273,8 @@ Plan a stock addition or opening and review it through existing order confirmati
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary add plan|preview SYMBOL --currency CCY --limit PRICE [--quantity N] [--con-id ID] [--json]
+canary add plan|preview SYMBOL --currency CCY --limit PRICE (--quantity N
+--max) [--con-id ID] [--json]
 ```
 
 *The catalog records no flags. Run `canary add --help` for what the command parses.*
