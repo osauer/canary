@@ -64,9 +64,13 @@ follows the brake alone.
 Implemented building blocks: signed-term verification, persisted authority and
 control generations, an optional final-wire lease, Adaptive encoding and
 WhatIf/callback checks, journal projection and algorithm drift refusal.
-No production dispatcher constructs the new wire binding, and no server switch
-or CLI command exposes the authority handlers yet. Passing tests establishes
-these building blocks only.
+Since 2026-10-10 the daemon dispatches the four authority methods, reached
+only through the Go client (`DeskAuthority`, `PrepareDeskAuthority`,
+`ConfirmDeskAuthority`, `ControlDeskAuthority`), like the cash policy methods:
+outside the MCP catalogue and the CLI, so the controller capability never
+appears in argv. A daemon without them answers unknown-method, which Desk
+reads as automatic trading unavailable. No production order dispatcher
+constructs the wire fence yet; that arrives with `desk.execution.submit`.
 
 Before connection: persist episode consumption and pre-dispatch commitments;
 reconcile attempts against the existing order journal; attach the authority to

@@ -2939,6 +2939,14 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
 	case rpc.MethodCashSweepPrioritySet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPrioritySet(ctx, req) })
+	case rpc.MethodDeskAuthorityStatus:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityStatus(ctx) })
+	case rpc.MethodDeskAuthorityPrepare:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityPrepare(ctx, req) })
+	case rpc.MethodDeskAuthorityConfirm:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityConfirm(ctx, req) })
+	case rpc.MethodDeskAuthorityControl:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityControl(ctx, req) })
 	case rpc.MethodCashPolicyGet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyGet(ctx, req) })
 	case rpc.MethodCashPolicyCheck:

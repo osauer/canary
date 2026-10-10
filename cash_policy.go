@@ -113,6 +113,11 @@ func (c *Client) ApplyCashPolicy(ctx context.Context, in CashPolicyApplyRequest)
 }
 
 func (c *Client) callCashPolicy(ctx context.Context, method string, in, out any) error {
+	return c.callPrivate(ctx, method, in, out)
+}
+
+// callPrivate calls a non-catalogue daemon method on one connection.
+func (c *Client) callPrivate(ctx context.Context, method string, in, out any) error {
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return err
