@@ -1038,11 +1038,17 @@ func loadRetainedFlexStatements() ([]flexstmt.Statement, []string, error) {
 	return loadRetainedFlexStatementsContextSelected(context.Background(), nil, flexEvidenceSelection{IncludeAll: true})
 }
 
-func (s *Server) loadActiveRetainedFlexStatementsContext(ctx context.Context, checkpoint func(string) error) ([]flexstmt.Statement, []string, error) {
-	return loadRetainedFlexStatementsContextSelected(ctx, checkpoint, s.flexEvidenceSelection())
+func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection) ([]flexstmt.Statement, []string, error) {
+	return loadRetainedFlexStatementsWith(ctx, checkpoint, selection, func(ctx context.Context, path string) ([]flexstmt.Statement, error) {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return flexstmt.ParseContext(ctx, data)
+	})
 }
 
-func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection) ([]flexstmt.Statement, []string, error) {
+func loadRetainedFlexStatementsWith(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection, read func(context.Context, string) ([]flexstmt.Statement, error)) ([]flexstmt.Statement, []string, error) {
 	check := func(stage string) error {
 		if checkpoint != nil {
 			return checkpoint(stage)
@@ -1089,12 +1095,7 @@ func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint f
 		if err := check("retained_statement_file"); err != nil {
 			return nil, nil, err
 		}
-		data, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
-			continue
-		}
-		sts, err := flexstmt.ParseContext(ctx, data)
+		sts, err := read(ctx, filepath.Join(dir, name))
 		if err != nil {
 			problems = append(problems, fmt.Sprintf("%s: %v", name, err))
 			continue

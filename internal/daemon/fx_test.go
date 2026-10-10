@@ -23,7 +23,7 @@ func TestFXEvidenceCacheRestatementAndRetraction(t *testing.T) {
 		return statementProjectionFile{data: raw, digest: sha256.Sum256(raw)}
 	}
 	raw := reportingFlexFixture("20260820", "20260820")
-	cache := &fxEvidenceCache{}
+	cache := &retainedFlexCache{}
 	rows, err := cache.parse(t.Context(), []statementProjectionFile{file(raw)})
 	if err != nil || len(rows) != 1 || len(cache.rows) != 1 {
 		t.Fatal("initial evidence", err)

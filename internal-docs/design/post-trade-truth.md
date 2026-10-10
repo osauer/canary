@@ -130,6 +130,16 @@ statement can carry an instruction anywhere. Restatements supersede by
 (account-day, line id); superseded lines are kept with a superseded mark
 for audit.
 
+Recurring reconciliation, performance, FX and settled-cash reads reuse daemon-owned parsed
+statements only after hashing the current file bytes. File names, size,
+modification time and broker generation alone never establish a match. The
+in-memory view retains only the current query's selected file set; changes,
+deletions and corrupt replacements are observed on the next read. Concurrent
+readers share one cancellable parsing lane. Only parsing is reused: policy,
+account selection, ledger matching, dismissals and time are evaluated afresh.
+FX and settled-cash readers also retain their before/after checks against the
+accepted SQLite inventory and current query/account authority.
+
 Edge calculation never resolves those retained XML versions independently. It
 reads typed current records, daily equity, and statement/query-coverage metadata
 from the active query generation in one SQLite read transaction and fingerprints

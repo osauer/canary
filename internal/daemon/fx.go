@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -25,46 +24,6 @@ var (
 	errFXInventoryChanged = errors.New("accepted_inventory_changed")
 	errFXAuthorityChanged = errors.New("reporting_authority_changed")
 )
-
-// Parsing is reused only by the exact SHA-256 of bytes already checked against
-// the accepted inventory. Every read still verifies files and authority before
-// and after selection; this cache never substitutes for unavailable evidence.
-type fxEvidenceCache struct {
-	mu   sync.Mutex
-	rows map[[32]byte][]flexstmt.Statement
-}
-
-func (cache *fxEvidenceCache) parse(ctx context.Context, files []statementProjectionFile) ([]flexstmt.Statement, error) {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if cache.rows == nil {
-		cache.rows = map[[32]byte][]flexstmt.Statement{}
-	}
-	live := map[[32]byte]bool{}
-	out := []flexstmt.Statement{}
-	for _, file := range files {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		live[file.digest] = true
-		rows, ok := cache.rows[file.digest]
-		if !ok {
-			var err error
-			rows, err = flexstmt.Parse(file.data)
-			if err != nil {
-				return nil, fmt.Errorf("accepted_statement_invalid")
-			}
-			cache.rows[file.digest] = rows
-		}
-		out = append(out, rows...)
-	}
-	for digest := range cache.rows {
-		if !live[digest] {
-			delete(cache.rows, digest)
-		}
-	}
-	return out, nil
-}
 
 // fxStatements binds reads to the accepted, active-query inventory and current
 // account. Neither uploaded files nor unaccepted disk bytes certify FX values.
@@ -86,9 +45,12 @@ func (s *Server) fxStatements(ctx context.Context) ([]flexstmt.Statement, error)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return nil, errFXInventoryChanged
 	}
-	out, err := s.fxEvidence.parse(ctx, files)
+	out, err := s.retainedFlex.parse(ctx, files)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("accepted_statement_invalid")
 	}
 	final, err := s.coreStore.LoadStatementFiles(ctx, projectionScope)
 	if err != nil || !statementProjectionInventoryMatches(final, files) || selection != s.flexEvidenceSelection() || !sameBrokerScope(scope, s.currentBrokerStateScope()) {

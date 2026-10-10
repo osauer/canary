@@ -428,6 +428,8 @@ type Server struct {
 	// flexFetch tracks the daily Flex statement ingestion for post-trade
 	// the broker; sanitized status only, never the token.
 	flexFetch flexFetchState
+	// retainedFlex reuses parsed, content-verified evidence for recurring reads.
+	retainedFlex retainedFlexCache
 	// flexBrokerMu serializes the daily report and Edge's paced historical
 	// ranges. IBKR applies the Flex Web Service limit above Canary's query
 	// identities, so separate workers must still share one request lane.
@@ -438,7 +440,6 @@ type Server struct {
 	fxWorker        bool
 	fxWake          chan struct{}
 	fxReason        string
-	fxEvidence      fxEvidenceCache
 	// Test-only seams for the broker fetch and retained-statement projection.
 	flexFetchOnceFn          func(context.Context, time.Time) (flexFetchOutcome, error)
 	flexProjectionFn         func(context.Context) error

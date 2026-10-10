@@ -66,6 +66,9 @@ func (s *Server) flexSettledCashBaseline(scope brokerStateScope, now time.Time) 
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return fail("Flex statement bytes do not match accepted active-query evidence")
 	}
+	if _, err := s.retainedFlex.parse(ctx, files); err != nil {
+		return fail("accepted Flex statement could not be parsed")
+	}
 	byName := map[string]corestore.StatementFileRecord{}
 	for _, record := range recorded {
 		byName[record.FileKey] = record
@@ -79,11 +82,7 @@ func (s *Server) flexSettledCashBaseline(scope brokerStateScope, now time.Time) 
 		if record.IngestedAt == nil || record.IngestedAt.IsZero() || record.IngestedAt.After(now) {
 			return fail("Flex cash statement has no valid local acceptance receipt")
 		}
-		parsed, err := flexstmt.Parse(file.data)
-		if err != nil {
-			return fail("accepted Flex statement could not be parsed")
-		}
-		for _, statement := range parsed {
+		for _, statement := range file.statements {
 			statements = append(statements, flexCashSourceStatement{Statement: statement, Digest: file.digest, AcceptedAt: record.IngestedAt.UTC()})
 		}
 	}
