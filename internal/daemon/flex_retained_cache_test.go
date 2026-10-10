@@ -261,3 +261,29 @@ func TestRetainedFlexCancelledScanKeepsVerifiedParses(t *testing.T) {
 		t.Fatalf("cancelled partial scan discarded verified parses: rows=%d err=%v", len(s.retainedFlex.rows), err)
 	}
 }
+
+func TestRetainedFlexColdCancelledScanPreservesCompletedFiles(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for i := range 2 {
+		writeFlexFixture(t, fmt.Sprintf("flex-%d.xml", i), "20260103;120000", "20260101", "20260102", cashLine(fmt.Sprint(i), "Dividends", float64(i), "20260102"))
+	}
+	s := &Server{}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	visited := 0
+	_, _, err := s.loadActiveRetainedFlexStatementsContext(ctx, func(stage string) error {
+		if stage == "retained_statement_file" {
+			visited++
+			if visited == 2 {
+				cancel()
+			}
+		}
+		return ctx.Err()
+	})
+	if !errors.Is(err, context.Canceled) || len(s.retainedFlex.rows) != 1 {
+		t.Fatalf("cold cancellation discarded a completed parse: rows=%d err=%v", len(s.retainedFlex.rows), err)
+	}
+	if got, problems, err := s.loadActiveRetainedFlexStatementsContext(t.Context(), nil); err != nil || len(problems) != 0 || len(got) != 2 || len(s.retainedFlex.rows) != 2 {
+		t.Fatalf("next scan could not finish: rows=%d problems=%v err=%v", len(got), problems, err)
+	}
+}

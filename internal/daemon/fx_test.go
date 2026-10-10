@@ -20,7 +20,7 @@ import (
 
 func TestFXEvidenceCacheRestatementAndRetraction(t *testing.T) {
 	file := func(raw []byte) statementProjectionFile {
-		return statementProjectionFile{data: raw, digest: sha256.Sum256(raw)}
+		return statementProjectionFile{name: "flex-fixture.xml", data: raw, digest: sha256.Sum256(raw)}
 	}
 	raw := reportingFlexFixture("20260820", "20260820")
 	cache := &retainedFlexCache{}

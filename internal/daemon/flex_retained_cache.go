@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/osauer/canary/v2/internal/flexstmt"
@@ -18,7 +19,7 @@ import (
 type retainedFlexCache struct {
 	once sync.Once
 	gate chan struct{}
-	rows map[[sha256.Size]byte][]flexstmt.Statement
+	rows map[string]retainedFlexEntry
 }
 
 type retainedFlexEntry struct {
@@ -35,22 +36,34 @@ func (s *Server) loadActiveRetainedFlexStatementsContext(ctx context.Context, ch
 		return nil, nil, err
 	}
 	defer func() { <-c.gate }()
-	next := make(map[[sha256.Size]byte][]flexstmt.Statement)
 	// Hash unchanged files with one reusable buffer, without allocating their
 	// complete XML or trusting names, size, modification time or broker dates.
 	buffer := make([]byte, 32*1024)
-	statements, problems, err := loadRetainedFlexStatementsWith(ctx, checkpoint, s.flexEvidenceSelection(), func(ctx context.Context, path string) ([]flexstmt.Statement, error) {
+	return loadRetainedFlexStatementsWith(ctx, checkpoint, s.flexEvidenceSelection(), c.retainFiles, func(ctx context.Context, path string) ([]flexstmt.Statement, error) {
 		entry, err := c.read(ctx, path, buffer)
 		if err != nil {
 			return nil, err
 		}
-		next[entry.digest] = entry.statements
 		return entry.statements, nil
 	})
-	if err == nil {
-		c.rows = next
+}
+
+// Keep completed files even when a later parse is cancelled. Keying by the
+// selected filename bounds retained progress to one verified version per file.
+// The content digest, never the filename alone, determines whether it is reused.
+func (c *retainedFlexCache) retainFiles(names []string) {
+	if c.rows == nil {
+		c.rows = make(map[string]retainedFlexEntry, len(names))
 	}
-	return statements, problems, err
+	selected := make(map[string]bool, len(names))
+	for _, name := range names {
+		selected[name] = true
+	}
+	for name := range c.rows {
+		if !selected[name] {
+			delete(c.rows, name)
+		}
+	}
 }
 
 func (c *retainedFlexCache) lock(ctx context.Context) error {
@@ -74,25 +87,29 @@ func (c *retainedFlexCache) parse(ctx context.Context, files []statementProjecti
 		return nil, err
 	}
 	defer func() { <-c.gate }()
-	next := make(map[[sha256.Size]byte][]flexstmt.Statement)
+	names := make([]string, len(files))
+	for i, file := range files {
+		names[i] = file.name
+	}
+	c.retainFiles(names)
 	var out []flexstmt.Statement
 	for i, file := range files {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		rows, ok := c.rows[file.digest]
-		if !ok {
-			var err error
-			rows, err = flexstmt.ParseContext(ctx, file.data)
+		entry, ok := c.rows[file.name]
+		if !ok || entry.digest != file.digest {
+			delete(c.rows, file.name)
+			rows, err := flexstmt.ParseContext(ctx, file.data)
 			if err != nil {
 				return nil, err
 			}
+			entry = retainedFlexEntry{digest: file.digest, statements: rows}
+			c.rows[file.name] = entry
 		}
-		files[i].statements = rows
-		next[file.digest] = rows
-		out = append(out, rows...)
+		files[i].statements = entry.statements
+		out = append(out, entry.statements...)
 	}
-	c.rows = next
 	return out, nil
 }
 
@@ -133,9 +150,11 @@ func (c *retainedFlexCache) read(ctx context.Context, path string, buffer []byte
 	}
 	var digest [sha256.Size]byte
 	hash.Sum(digest[:0])
-	if rows, ok := c.rows[digest]; ok {
-		return retainedFlexEntry{digest: digest, statements: rows}, ctx.Err()
+	name := filepath.Base(path)
+	if entry, ok := c.rows[name]; ok && entry.digest == digest {
+		return entry, ctx.Err()
 	}
+	delete(c.rows, name)
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return empty, err
 	}
@@ -150,5 +169,7 @@ func (c *retainedFlexCache) read(ctx context.Context, path string, buffer []byte
 	if err != nil {
 		return empty, err
 	}
-	return retainedFlexEntry{digest: digest, statements: statements}, nil
+	entry := retainedFlexEntry{digest: digest, statements: statements}
+	c.rows[name] = entry
+	return entry, nil
 }

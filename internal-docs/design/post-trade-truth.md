@@ -135,7 +135,9 @@ statements only after hashing the current file bytes. File names, size,
 modification time and broker generation alone never establish a match. The
 in-memory view retains only the current query's selected file set; changes,
 deletions and corrupt replacements are observed on the next read. Concurrent
-readers share one cancellable parsing lane. Only parsing is reused: policy,
+readers share one cancellable parsing lane. Completed per-file parses survive
+a cancelled cold scan, with at most one verified version per selected file.
+Only parsing is reused: policy,
 account selection, ledger matching, dismissals and time are evaluated afresh.
 FX and settled-cash readers also retain their before/after checks against the
 accepted SQLite inventory and current query/account authority.

@@ -47,11 +47,7 @@ func TestHealthOrderJournalWarmReadsAvoidHistoryReplay(t *testing.T) {
 		}
 	}
 	read()
-	cold := testing.AllocsPerRun(1, func() {
-		if _, _, err := s.loadOrderViews(); err != nil {
-			t.Fatal(err)
-		}
-	})
+	cold := uncachedOrderReadAllocations(t, s)
 	warm := testing.AllocsPerRun(3, read)
 	if warm >= cold/10 {
 		t.Fatalf("health replays unchanged order history: warm %.0f, full replay %.0f allocations", warm, cold)

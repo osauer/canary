@@ -366,18 +366,19 @@ func orderHistoryLimitations() []string {
 }
 
 func (s *Server) loadOrderViews() ([]rpc.OrderView, map[string][]rpc.OrderEvent, error) {
-	if s == nil || s.orderJournal == nil {
-		return nil, nil, fmt.Errorf("%w: order journal is unavailable", ErrTradingDisabled)
-	}
-	// Rows arrive in authoritative event_seq order; the fold below remains
-	events, err := s.loadOrderJournalEventsForRead("orders.open")
+	projection, err := s.loadOrderReadProjection()
 	if err != nil {
 		return nil, nil, err
 	}
-	views := buildOrderViews(events)
-	eventsByKey := buildOrderEventsByKey(events)
-	inferDayOrderExpiry(views, eventsByKey, s.orderNow())
-	return views, eventsByKey, nil
+	events := make(map[string][]rpc.OrderEvent, len(projection.eventsByKey))
+	for key, retained := range projection.eventsByKey {
+		rows := slices.Clone(retained)
+		for i := range rows {
+			rows[i].Trail = cloneTrailSpec(rows[i].Trail)
+		}
+		events[key] = rows
+	}
+	return projection.viewsAt(s.orderNow()), events, nil
 }
 
 func (s *Server) loadOrderViewsReconciled(ctx context.Context) ([]rpc.OrderView, map[string][]rpc.OrderEvent, error) {
@@ -1904,13 +1905,6 @@ func (s *Server) orderNow() time.Time {
 		return s.now().UTC()
 	}
 	return time.Now().UTC()
-}
-
-func (s *Server) loadOrderJournalEventsForRead(_ string) ([]orderJournalEvent, error) {
-	if s == nil || s.orderJournal == nil {
-		return nil, ErrTradingDisabled
-	}
-	return s.orderJournal.LoadEvents(0)
 }
 
 //lint:ignore U1000 used by the trading-tag order placement path

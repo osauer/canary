@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -46,6 +47,16 @@ type edgePublication struct {
 	Windows                 map[string]edgecore.Result `json:"windows,omitempty"`
 	LastFullRevalidation    time.Time                  `json:"last_full_revalidation,omitzero"`
 	UpdatedAt               time.Time                  `json:"updated_at"`
+}
+
+// The document is read and digest-verified on every health poll. Only its
+// successful decoding is reused; the analytical windows are never retained
+// here or reconstructed merely to report their publication state.
+type edgePublicationHealthCache struct {
+	mu     sync.Mutex
+	digest [sha256.Size]byte
+	valid  bool
+	state  string
 }
 
 type edgeBarCache struct {
@@ -708,12 +719,16 @@ func edgeStatementsFromProjection(snapshot corestore.StatementProjectionSnapshot
 }
 
 func (s *Server) loadEdgePublication(ctx context.Context) (edgePublication, bool, error) {
-	var out edgePublication
 	doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, edgePublicationStateKind)
 	if err != nil || !ok {
-		return out, ok, err
+		return edgePublication{}, ok, err
 	}
-	if err := json.Unmarshal(doc.JSON, &out); err != nil {
+	return decodeEdgePublication(doc.JSON)
+}
+
+func decodeEdgePublication(raw []byte) (edgePublication, bool, error) {
+	var out edgePublication
+	if err := json.Unmarshal(raw, &out); err != nil {
 		return out, false, fmt.Errorf("decode Edge publication: %w", err)
 	}
 	if out.Version < edgePublicationVersion {
@@ -725,6 +740,26 @@ func (s *Server) loadEdgePublication(ctx context.Context) (edgePublication, bool
 		return out, false, fmt.Errorf("unsupported future Edge publication version")
 	}
 	return out, true, nil
+}
+
+func (s *Server) edgePublicationHealthState(ctx context.Context) (string, bool, error) {
+	doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, edgePublicationStateKind)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	digest := sha256.Sum256(doc.JSON)
+	c := &s.edgeHealth
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.valid && c.digest == digest {
+		return c.state, true, nil
+	}
+	publication, ok, err := decodeEdgePublication(doc.JSON)
+	if err != nil || !ok {
+		return "", ok, err
+	}
+	c.digest, c.state, c.valid = digest, publication.State, true
+	return c.state, true, nil
 }
 
 func (s *Server) saveEdgePublication(ctx context.Context, publication edgePublication) error {
@@ -758,7 +793,7 @@ func (s *Server) edgeSubsystemHealth() rpc.SubsystemHealth {
 		sub.Status, sub.Message = "action_required", "Flex setup required"
 		return sub
 	}
-	publication, ok, err := s.loadEdgePublication(context.Background())
+	state, ok, err := s.edgePublicationHealthState(context.Background())
 	if err != nil {
 		sub.Status, sub.Message = "unavailable", "snapshot authority unreadable"
 		return sub
@@ -771,7 +806,7 @@ func (s *Server) edgeSubsystemHealth() rpc.SubsystemHealth {
 		sub.Status, sub.Message = "computing", "snapshot refresh in progress"
 		return sub
 	}
-	switch publication.State {
+	switch state {
 	case rpc.EdgeStateCurrent:
 		sub.Status = "ready"
 	case rpc.EdgeStateBackfilling:

@@ -1039,7 +1039,7 @@ func loadRetainedFlexStatements() ([]flexstmt.Statement, []string, error) {
 }
 
 func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection) ([]flexstmt.Statement, []string, error) {
-	return loadRetainedFlexStatementsWith(ctx, checkpoint, selection, func(ctx context.Context, path string) ([]flexstmt.Statement, error) {
+	return loadRetainedFlexStatementsWith(ctx, checkpoint, selection, nil, func(ctx context.Context, path string) ([]flexstmt.Statement, error) {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return nil, err
@@ -1048,7 +1048,7 @@ func loadRetainedFlexStatementsContextSelected(ctx context.Context, checkpoint f
 	})
 }
 
-func loadRetainedFlexStatementsWith(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection, read func(context.Context, string) ([]flexstmt.Statement, error)) ([]flexstmt.Statement, []string, error) {
+func loadRetainedFlexStatementsWith(ctx context.Context, checkpoint func(string) error, selection flexEvidenceSelection, prepare func([]string), read func(context.Context, string) ([]flexstmt.Statement, error)) ([]flexstmt.Statement, []string, error) {
 	check := func(stage string) error {
 		if checkpoint != nil {
 			return checkpoint(stage)
@@ -1065,6 +1065,9 @@ func loadRetainedFlexStatementsWith(ctx context.Context, checkpoint func(string)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if prepare != nil {
+				prepare(nil)
+			}
 			return nil, nil, nil
 		}
 		return nil, nil, err
@@ -1089,6 +1092,9 @@ func loadRetainedFlexStatementsWith(ctx context.Context, checkpoint func(string)
 		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(names))) // timestamped names: newest first
+	if prepare != nil {
+		prepare(names)
+	}
 	var out []flexstmt.Statement
 	var problems []string
 	for _, name := range names {

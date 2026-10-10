@@ -369,12 +369,15 @@ is no external metrics stack and no tracing.
   longest outage), and the daemon's log coalesces flap bursts into
   episode-level lines instead of one warning per blip. It ends in
   one verdict: ready, attention, offline, or starting.
-- Health and idle-exit readers share a daemon-owned fold of the append-only
-  order journal. Each read checks storage authority and new order events;
+- Order readers share a daemon-owned fold of the append-only order journal.
+  Each read checks storage authority and new order events;
   unrelated observation events do not rebuild order history. Account scope
   and DAY-order expiry are evaluated on every read. Replacing or losing the
-  store cannot reuse a successful summary, and execution and reconciliation
-  retain their existing fenced reads.
+  store cannot reuse a successful summary. Returned views and event maps are
+  caller-owned, and execution and reconciliation retain their existing fences.
+  Edge health also reuses successful publication decoding only after reading
+  and verifying the current document bytes; it does not rebuild analytical
+  windows on every status poll.
 - A connected session counts as alive only while the Gateway answers: the
   heartbeat is kept by received frames, never by a successful send, so a
   Gateway that accepts requests and answers none loses the session after two

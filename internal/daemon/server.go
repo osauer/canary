@@ -361,7 +361,7 @@ type Server struct {
 
 	// orderJournal is the durable audit log for order intents and broker
 	orderJournal *orderJournalStore
-	orderHealth  orderHealthCache
+	orderReads   orderReadCache
 	// strategyLineage is a read-through cache of durable submitted group
 	// drafts. Position polling uses it to detect broken leg ratios without
 	// rereading the complete order journal on every refresh.
@@ -452,6 +452,7 @@ type Server struct {
 	edgeWake              chan struct{}
 	edgeWorkerWG          sync.WaitGroup
 	edgeBusy              atomic.Bool
+	edgeHealth            edgePublicationHealthCache
 	edgeFetchBarsFn       func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
 	edgeFetchMarketBarsFn func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
 	edgeFlexFetchRangeFn  func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
