@@ -27,7 +27,7 @@ func TestQuoteHistoryBarsAreReadOncePerContractUntilTheNextClose(t *testing.T) {
 	if reads != 1 || again[0].Close != 101 {
 		t.Fatalf("a second quote request on the same closed weekend must not read again: reads=%d %v", reads, again)
 	}
-	if _, _ = s.quoteHistoryBars(quoteLiquidityKey{symbol: "IBM", exchange: "SMART", currency: "USD"}, marketcal.MarketUSEquity, saturday, fetch); reads != 2 {
+	if _, _ = s.quoteHistoryBars(quoteLiquidityKey{symbol: "SYNB", exchange: "SMART", currency: "USD"}, marketcal.MarketUSEquity, saturday, fetch); reads != 2 {
 		t.Fatalf("another contract is its own read: reads=%d", reads)
 	}
 	mondayOpen := time.Date(2026, 9, 21, 19, 50, 0, 0, time.UTC) // 15:50 New York, session open
