@@ -45,7 +45,7 @@ func (s *Server) fxStatements(ctx context.Context) ([]flexstmt.Statement, error)
 		return nil, err
 	}
 	defer func() { <-s.retainedFlex.gate }()
-	files, err := readStatementProjectionFilesWithCache(ctx, selection, &s.retainedFlex)
+	files, err := readStatementProjectionFiles(ctx, selection, &s.retainedFlex)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return nil, errFXInventoryChanged
 	}

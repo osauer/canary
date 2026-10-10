@@ -66,7 +66,7 @@ func (s *Server) flexSettledCashBaseline(scope brokerStateScope, now time.Time) 
 		return fail("Flex cash baseline read exceeded its budget")
 	}
 	defer func() { <-s.retainedFlex.gate }()
-	files, err := readStatementProjectionFilesWithCache(ctx, selection, &s.retainedFlex)
+	files, err := readStatementProjectionFiles(ctx, selection, &s.retainedFlex)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return fail("Flex statement bytes do not match accepted active-query evidence")
 	}

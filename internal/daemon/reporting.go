@@ -173,7 +173,16 @@ func reportingStatementsFromMetadata(records []corestore.StatementRecord) ([]fle
 		if record.Kind != corestore.StatementRecordMetadata {
 			return nil, fmt.Errorf("reporting projection returned an unexpected record kind")
 		}
-		var item statementMetadataProjectionPayload
+		// Reporting health consumes schema coverage, not position or financing
+		// arrays. Those retain their full typed decoding in their own readers.
+		var item struct {
+			Version          int                        `json:"version"`
+			QueryFingerprint string                     `json:"query_fingerprint,omitempty"`
+			FromDate         time.Time                  `json:"from_date"`
+			ToDate           time.Time                  `json:"to_date"`
+			ManifestVersion  string                     `json:"manifest_version"`
+			Coverage         []flexstmt.SectionCoverage `json:"coverage"`
+		}
 		if err := json.Unmarshal(record.RawJSON, &item); err != nil || item.Version != statementProjectionVersion ||
 			item.FromDate.IsZero() || item.ToDate.IsZero() || item.FromDate.After(item.ToDate) ||
 			item.QueryFingerprint != "" && !validFlexQueryFingerprint(item.QueryFingerprint) {

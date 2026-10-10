@@ -64,7 +64,11 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	}
 	selection := s.flexEvidenceSelection()
 	projectionScope := statementProjectionScopeForSelection(selection)
-	files, err := readStatementProjectionFiles(ctx, selection)
+	if err := s.retainedFlex.lock(ctx); err != nil {
+		return err
+	}
+	defer func() { <-s.retainedFlex.gate }()
+	files, err := readStatementProjectionFiles(ctx, selection, &s.retainedFlex)
 	if err != nil {
 		return err
 	}
@@ -72,11 +76,13 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("load statement projection inventory: %w", err)
 	}
+	// Populate the cache even when SQLite already has this inventory, so a
+	// cold refresh does not keep allocating full XML on every retry.
+	if _, err := s.retainedFlex.parseLocked(ctx, files); err != nil {
+		return err
+	}
 	if statementProjectionInventoryMatches(recorded, files) {
 		return nil
-	}
-	if err := parseStatementProjectionFiles(ctx, files); err != nil {
-		return err
 	}
 	fileRecords, days, records, recordVersions, err := buildStatementProjection(files, s.statementProjectionNow(), selection.ActiveQueryFingerprint)
 	if err != nil {
@@ -95,16 +101,11 @@ func (s *Server) statementProjectionNow() time.Time {
 	return time.Now().UTC()
 }
 
-// readStatementProjectionFiles returns a coherent, deterministic snapshot of
-// regular XML files. Symlinks are rejected so mutable evidence outside the
-// private statements directory cannot enter the authoritative projection.
-func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSelection) ([]statementProjectionFile, error) {
-	return readStatementProjectionFilesWithCache(ctx, selection, nil)
-}
-
-// cache must be locked through parsing: a verified warm file can omit its XML
-// only while the matching parsed entry cannot be replaced by another reader.
-func readStatementProjectionFilesWithCache(ctx context.Context, selection flexEvidenceSelection, cache *retainedFlexCache) ([]statementProjectionFile, error) {
+// readStatementProjectionFiles reads the selected regular, non-symlink files.
+// cache must be locked through parsing: unchanged XML can be omitted only while
+// its matching parsed entry cannot be replaced by another reader. All consumers,
+// including ingestion, use this path so a refresh cannot bypass warm reuse.
+func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSelection, cache *retainedFlexCache) ([]statementProjectionFile, error) {
 	dir, err := flexStatementsDirPath()
 	if err != nil {
 		return nil, err
@@ -145,10 +146,7 @@ func readStatementProjectionFilesWithCache(ctx context.Context, selection flexEv
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 
 	files := make([]statementProjectionFile, 0, len(names))
-	var buffer []byte
-	if cache != nil {
-		buffer = make([]byte, 32*1024)
-	}
+	buffer := make([]byte, 32*1024)
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -201,10 +199,6 @@ func readStatementProjectionFilesWithCache(ctx context.Context, selection flexEv
 // Reuse only the parser output; file identity and accepted inventory remain
 // checked by the caller. Changed evidence still supplies exact bytes to parse.
 func readStatementProjectionData(ctx context.Context, f *os.File, name string, cache *retainedFlexCache, buffer []byte) ([]byte, int64, [sha256.Size]byte, error) {
-	if cache == nil {
-		data, err := io.ReadAll(f)
-		return data, int64(len(data)), sha256.Sum256(data), err
-	}
 	h := sha256.New()
 	var size int64
 	var digest [sha256.Size]byte
@@ -251,21 +245,6 @@ func statementProjectionInventoryMatches(recorded []corestore.StatementFileRecor
 		}
 	}
 	return true
-}
-
-func parseStatementProjectionFiles(ctx context.Context, files []statementProjectionFile) error {
-	for i := range files {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		statements, err := flexstmt.ParseContext(ctx, files[i].data)
-		if err != nil {
-			return fmt.Errorf("parse retained statement %q: %w", files[i].name, err)
-		}
-		files[i].statements = statements
-		files[i].data = nil
-	}
-	return nil
 }
 
 func buildStatementProjection(files []statementProjectionFile, ingestedAt time.Time, queryFingerprint string) ([]corestore.StatementFileRecord, []corestore.StatementEquityDayRecord, []corestore.StatementRecord, []corestore.StatementRecord, error) {

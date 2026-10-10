@@ -416,11 +416,26 @@ func (s *Server) handleDataHealth(p rpc.DataHealthParams) (rpc.DataHealthResult,
 		state.reports[full.Revision], state.latest = full, full
 		state.mu.Unlock()
 	}
-	page, err := finalizeDataHealth(slices.Clone(full.Sources), full.ScopeState, full.AsOf, p)
-	if err != nil {
-		return page, err
+	// The retained report is immutable and already sorted, summarized and
+	// fingerprinted. Paginate that revision without rebuilding its catalogue.
+	if p.Offset < 0 || p.Offset > len(full.Sources) || p.Limit < 0 || p.Limit > 64 {
+		return rpc.DataHealthResult{}, errBadRequest("health page requires a valid offset and limit <= 64")
 	}
-	page.Check = full.Check
+	limit := p.Limit
+	if limit == 0 {
+		limit = 24
+	}
+	end := min(len(full.Sources), p.Offset+limit)
+	page := full
+	page.Sources = slices.Clone(full.Sources[p.Offset:end])
+	if page.Sources == nil {
+		page.Sources = []rpc.DataSourceHealth{}
+	}
+	page.Concerns = slices.Clone(full.Concerns)
+	page.Offset, page.NextOffset, page.Complete = p.Offset, nil, end == len(full.Sources)
+	if !page.Complete {
+		page.NextOffset = &end
+	}
 	return fitDataHealthPage(page)
 }
 

@@ -383,6 +383,14 @@ is no external metrics stack and no tracing.
   identity, active-query inventory and account scope are still checked.
   Source-health pagination finds the largest prefix within its existing JSON
   budget without serializing every one-row decrement of an oversized page.
+- Statement projection refresh shares the same verified parse cache as FX,
+  cash and reconciliation, including cold-start cache population. Every read
+  still hashes the selected file bytes and checks file identity; changed,
+  removed and unaccepted evidence keeps the existing acceptance checks. Reporting
+  health decodes only schema/date/coverage metadata, leaving position and
+  financing payloads to their authoritative readers. Health pagination reuses
+  its immutable retained revision, summary and concerns rather than encoding
+  and hashing the entire catalogue for every page.
 - `canary profile --kind cpu|allocs --duration 60s` explicitly captures the
   daemon process through the existing private Unix socket; it adds no HTTP
   listener, MCP tool, periodic profiler or log stream. One capture runs at a
