@@ -75,6 +75,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodCashSweepPrioritySet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	// The cash policy reads include the account read (10s) and the
 	// statements the interest rates come from.
+	{Method: MethodDeskExecutionCapabilities, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodDeskExecutionLookup, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodDeskAuthorityStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodDeskAuthorityPrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodDeskAuthorityConfirm, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},

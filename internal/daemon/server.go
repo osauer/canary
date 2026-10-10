@@ -59,7 +59,9 @@ var perCandidateConnectBudget = 25 * time.Second
 // Server is the daemon process state.
 type Server struct {
 	// deskAuthorityMu fences controller changes against the final broker byte.
-	deskAuthorityMu         sync.RWMutex
+	deskAuthorityMu sync.RWMutex
+	// deskExecutionMu serializes the execution journal's check-then-append.
+	deskExecutionMu         sync.Mutex
 	stockAddEvidenceForTest func(context.Context, rpc.AddParams) (stockAddEvidence, error)
 	marketTapeCollecting    atomic.Bool
 	marketTapeArchiveFailed atomic.Bool
@@ -2939,6 +2941,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
 	case rpc.MethodCashSweepPrioritySet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPrioritySet(ctx, req) })
+	case rpc.MethodDeskExecutionCapabilities:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskExecutionCapabilities(), nil })
+	case rpc.MethodDeskExecutionLookup:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskExecutionLookup(ctx, req) })
 	case rpc.MethodDeskAuthorityStatus:
 		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityStatus(ctx) })
 	case rpc.MethodDeskAuthorityPrepare:

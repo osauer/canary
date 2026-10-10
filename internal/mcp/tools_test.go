@@ -97,7 +97,8 @@ func TestNoTradingToolsReachCashPolicy(t *testing.T) {
 		}
 	}
 	for _, method := range []string{rpc.MethodCashPolicyGet, rpc.MethodCashPolicyCheck, rpc.MethodCashPolicyApply,
-		rpc.MethodDeskAuthorityStatus, rpc.MethodDeskAuthorityPrepare, rpc.MethodDeskAuthorityConfirm, rpc.MethodDeskAuthorityControl} {
+		rpc.MethodDeskAuthorityStatus, rpc.MethodDeskAuthorityPrepare, rpc.MethodDeskAuthorityConfirm, rpc.MethodDeskAuthorityControl,
+		rpc.MethodDeskExecutionCapabilities, rpc.MethodDeskExecutionLookup} {
 		if _, ok := rpc.LookupMethodTiming(method); !ok {
 			t.Errorf("%s has no timing", method)
 		}

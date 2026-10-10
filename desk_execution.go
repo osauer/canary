@@ -1,6 +1,10 @@
 package canary
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import (
+	"context"
+
+	"github.com/osauer/canary/v2/internal/rpc"
+)
 
 // Desk execution contract (rpc.MethodDeskExecution*): one daemon path for a
 // device-confirmed manual batch and the standing automatic mandate. These
@@ -79,6 +83,26 @@ type DeskExecutionLookupParams = rpc.DeskExecutionLookupParams
 
 // DeskExecutionLookupResult answers every named request.
 type DeskExecutionLookupResult = rpc.DeskExecutionLookupResult
+
+// DeskExecutionCapabilities reports the served contract version, methods and
+// authorisations. A daemon without it is unavailable to Desk.
+func (c *Client) DeskExecutionCapabilities(ctx context.Context) (*DeskExecutionCapabilitiesResult, error) {
+	var out DeskExecutionCapabilitiesResult
+	if err := c.callPrivate(ctx, rpc.MethodDeskExecutionCapabilities, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// LookupDeskExecution answers named requests from Canary's journal. It is
+// read-only; an error never means that nothing happened.
+func (c *Client) LookupDeskExecution(ctx context.Context, in DeskExecutionLookupParams) (*DeskExecutionLookupResult, error) {
+	var out DeskExecutionLookupResult
+	if err := c.callPrivate(ctx, rpc.MethodDeskExecutionLookup, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
 
 // DeskIntentDigest binds a request to its receipt.
 func DeskIntentDigest(item DeskExecutionItem) string { return rpc.DeskIntentDigest(item) }

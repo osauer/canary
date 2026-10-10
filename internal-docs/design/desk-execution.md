@@ -55,6 +55,19 @@ Capacity is shared because both pass the same serialized admission.
 methods and served authorisations. A daemon that does not report them is
 unavailable to Desk; there is no fallback to another write path.
 
+## Journal (served since 2026-10-10)
+
+Every item is journaled in the core store's append-only event log before
+anything can reach the broker. The request row and the episode row commit
+together under unique keys scoped to account and mode, so a retry finds its
+request, a reused ID with another intent is refused, and an episode yields at
+most one request across restarts. Outcome rows follow: accepted and refused
+are final, unknown can later be resolved by either. `lookup` reads this
+journal: no request row answers `absent`; a request row without an outcome
+answers `unknown`; an unreadable journal fails the call. Capabilities list
+`capabilities` and `lookup` only, with no authorisations, until submit is
+served.
+
 ## Known constraint for reductions
 
 With `[order_limits].allow_stock_short = false`, every stock sell that is
