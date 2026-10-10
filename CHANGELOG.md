@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.20.0 — 2026-10-10 13:30 CEST
+
+### What's new
+
+- **Size a stock purchase before approving it.** Choose an exact number of shares or ask for the largest supported quantity, whether adding to a holding or opening a stock position. The plan shows funding, fees, margin and risk checks; it creates no permission to trade.
+- **Compare the next action across your portfolio.** Read-only planning selects one next action from holdings and the accepted watchlist against explicit, expiring owner targets. It reserves no funds and avoids treating independent size estimates as one funded batch.
+- **Lower CPU use during routine monitoring.** Repeated statement, order-history and analytical-publication reads reuse verified work while continuing to check for changed evidence.
+
+### Added
+
+- Stock sizing and portfolio planning through the CLI and read-only MCP. An incomplete sizing search reports its limits instead of claiming a proven maximum.
+- Device-confirmed automatic mandate records and request lookup for Desk, a private investment console. Execution submission is not yet exposed by this integration; installing the release does not activate automatic trading.
+
+### Changed
+
+- The drawdown brake blocks orders that add risk when engaged or when required evidence is missing or stale. Reductions, closes and policy-classified hedges remain eligible under their other checks.
+- After a drawdown brake engages, a full automatic mandate remains limited to protection until the owner confirms full scope again in Desk. Confirmation is refused while the brake is engaged.
+- A stock or ETF sale can pass the short-sale recheck when current, complete inventory proves that it and all working sales fit within the held long position. Other order limits and execution checks still apply.
+
+### Fixed
+
+- Routine status and background reads no longer repeatedly decode unchanged statements, replay the full order history or decode every analytical window. Interrupted statement scans retain completed, verified parses for the next attempt.
+- Stock sizing and planning recognize the canonical stock positions returned by the broker and preserve their quantity and currency.
+- A failed account read no longer replaces dated equity evidence with an undated value.
+- The website follows the saved System, Dark or Light theme across navigation.
+
+### Maintenance
+
+- Adaptive-order terms are preserved and checked through previews, broker encoding and order records; unsupported combinations and changed terms are refused.
+- Go analysis checks both standard and trading builds, rejects failed analyzers and isolates source-path caches across worktrees. The build toolchain is Go 1.27.2.
+
+### Upgrade notes
+
+- For `drawdown.block_enforcement`, `shadow` and `advisory` are refused; `hard` is the supported value and an omitted value now means `hard`. A configured but unseeded capital ladder does not establish a drawdown threshold.
+- Stock allocation ceilings apply when configured. Exact manual quantities distinguish advisory warnings, which require explicit acceptance, from hard funding and margin blocks.
+- Existing policy values are preserved. Standard binaries and MCP remain read-only; orders still require the existing gated trading path.
+
 ## v3.19.2 — 2026-10-08 08:24 CEST
 
 ### What's new

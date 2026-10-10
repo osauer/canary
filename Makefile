@@ -363,10 +363,13 @@ vet-check: ## Run go vet (both default and trading-tag builds)
 
 # Merge build results so helpers used only by trading are not falsely marked
 # unused in the read-only build. Analysis and merge failures both remain fatal.
+# Staticcheck stores source paths even with trimpath. Scope its cache to this
+# invocation so results from another worktree cannot break the variant merge.
 staticcheck-check: ## Run and merge staticcheck for default and trading builds
 	@set -e; \
 		dir=$$(mktemp -d "$${TMPDIR:-/tmp}/canary-staticcheck.XXXXXX"); \
 		trap 'rm -rf "$$dir"' EXIT HUP INT TERM; \
+		export STATICCHECK_CACHE="$$dir/cache"; \
 		tool=$$(go -C tools tool -n staticcheck); \
 		pkgs=$$(./scripts/go-tracked-packages.sh ./...); \
 		"$$tool" -f binary $$pkgs > "$$dir/default"; \

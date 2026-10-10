@@ -1,6 +1,13 @@
 # Canary full context
 
-Updated: 2026-10-07 21:54 CEST
+Updated: 2026-10-10 13:30 CEST
+
+Version 3.20 adds exact or maximum stock sizing and read-only portfolio planning
+against explicit, expiring owner targets. Routine monitoring reuses verified
+statement and order-history work to reduce CPU use. The drawdown brake refuses
+risk-adding orders while engaged or when required evidence is unavailable.
+Desk mandate records and request lookup do not expose execution submission or
+activate automatic trading. Standard binaries and MCP remain read-only.
 
 Version 3.19 adds owner-approved currency repayments, gated bill and bond orders
 by ISIN or CUSIP, and bond yield, duration and rate-risk measurements. Currency

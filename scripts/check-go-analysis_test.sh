@@ -38,6 +38,7 @@ STUB
 cat > "$fixture/bin/analyzer" <<'STUB'
 #!/bin/sh
 name=${0##*/}
+if [ "$name" = staticcheck ]; then printf '%s\n' "${STATICCHECK_CACHE:-unset}" >> "$ANALYSIS_FIXTURE/staticcheck-caches"; fi
 if [ "$name" = staticcheck ] && [ "${1:-}" = -merge ] && [ "${FAIL_STEP:-}" = merge ]; then exit 73; fi
 printf '%s %s\n' "$name" "$*" >> "$ANALYSIS_FIXTURE/calls"
 if [ "${FAIL_STEP:-}" = "$name" ]; then
@@ -111,6 +112,20 @@ for target in staticcheck-check govulncheck-check; do
     export FAIL_STEP=resolve
     reject "$target"
 done
+# Staticcheck caches contain source paths. Shared cross-worktree entries must
+# not prevent the two product variants from merging their used-symbol sets.
+export FAIL_STEP= STATICCHECK_CACHE="$fixture/shared-cache"
+: > "$fixture/staticcheck-caches"
+run staticcheck-check || fail 'isolated staticcheck run failed'
+run staticcheck-check || fail 'second isolated staticcheck run failed'
+caches=()
+while IFS= read -r cache; do caches+=("$cache"); done < "$fixture/staticcheck-caches"
+[ "${#caches[@]}" -eq 6 ] || fail 'missing staticcheck cache witnesses'
+[ "${caches[0]}" != "$STATICCHECK_CACHE" ] || fail 'staticcheck reused the ambient cross-worktree cache'
+[ "${caches[0]}" = "${caches[1]}" ] && [ "${caches[1]}" = "${caches[2]}" ] || fail 'build variants did not share the isolated cache'
+[ "${caches[3]}" = "${caches[4]}" ] && [ "${caches[4]}" = "${caches[5]}" ] || fail 'second build variants did not share the isolated cache'
+[ "${caches[0]}" != "${caches[3]}" ] || fail 'separate runs reused a source-path cache'
+[ ! -e "${caches[0]}" ] && [ ! -e "${caches[3]}" ] || fail 'temporary analyzer caches were retained'
 export FAIL_STEP=vet
 reject vet-check
-printf 'go-analysis test: OK (silent failures, diagnostics, both builds, repeat scans)\n'
+printf 'go-analysis test: OK (silent failures, diagnostics, both builds, repeat scans, isolated source-path caches)\n'
