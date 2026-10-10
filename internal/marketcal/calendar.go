@@ -3,6 +3,7 @@ package marketcal
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -10,6 +11,27 @@ const (
 	defaultDays = 14
 	maxDays     = 400
 )
+
+var calendarLocations = struct {
+	sync.Mutex
+	loaded map[string]*time.Location
+}{loaded: make(map[string]*time.Location)}
+
+// Only the finite embedded calendar timezones enter this cache. Location rules
+// are immutable and shared across queries and Calendar instances; failed loads
+// remain retryable. A timezone database update takes effect after restart.
+func calendarLocation(name string) (*time.Location, error) {
+	calendarLocations.Lock()
+	defer calendarLocations.Unlock()
+	if loc := calendarLocations.loaded[name]; loc != nil {
+		return loc, nil
+	}
+	loc, err := time.LoadLocation(name)
+	if err == nil {
+		calendarLocations.loaded[name] = loc
+	}
+	return loc, err
+}
 
 // NormalizeMarket maps CLI/MCP-friendly aliases to the stable Market token.
 func NormalizeMarket(v string) (Market, bool) {
@@ -55,7 +77,7 @@ func (c *Calendar) Query(q Query) (Result, error) {
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported market %q", q.Market)
 	}
-	loc, err := time.LoadLocation(spec.timezone)
+	loc, err := calendarLocation(spec.timezone)
 	if err != nil {
 		return Result{}, fmt.Errorf("load %s: %w", spec.timezone, err)
 	}

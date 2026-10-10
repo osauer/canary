@@ -391,6 +391,11 @@ is no external metrics stack and no tracing.
   financing payloads to their authoritative readers. Health pagination reuses
   its immutable retained revision, summary and concerns rather than encoding
   and hashing the entire catalogue for every page.
+- Market-calendar queries share successfully loaded timezone rules across
+  calendar instances and concurrent callers. Failed loads remain retryable;
+  timezone database changes take effect after daemon restart. Session dates,
+  DST transitions and coverage checks still run for every query. Lending symbol
+  validation compiles its fixed expression once rather than per candidate.
 - `canary profile --kind cpu|allocs --duration 60s` explicitly captures the
   daemon process through the existing private Unix socket; it adds no HTTP
   listener, MCP tool, periodic profiler or log stream. One capture runs at a

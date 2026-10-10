@@ -7,18 +7,19 @@ import (
 	"strings"
 )
 
+var validLendingRateSymbol = regexp.MustCompile(`^[A-Z0-9][A-Z0-9.]{0,31}$`)
+
 // NormalizeLendingRateSymbols bounds an explicit symbol-level research read.
 // This does not establish exact contract identity or lending eligibility.
 func NormalizeLendingRateSymbols(input []string) ([]string, error) {
 	if len(input) == 0 || len(input) > 100 {
 		return nil, errors.New("supply 1-100 US stock symbols")
 	}
-	valid := regexp.MustCompile(`^[A-Z0-9][A-Z0-9.]{0,31}$`)
 	seen := map[string]bool{}
 	out := []string{}
 	for _, raw := range input {
 		symbol := strings.ToUpper(strings.TrimSpace(raw))
-		if !valid.MatchString(symbol) {
+		if !validLendingRateSymbol.MatchString(symbol) {
 			return nil, errors.New("invalid US stock symbol")
 		}
 		if !seen[symbol] {
