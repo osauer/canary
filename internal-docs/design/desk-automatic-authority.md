@@ -45,6 +45,20 @@ A daemon restart preserves scope but clears effective Running until a reconciled
 controller supplies a new request ID. Confirmation replay returns current state
 and cannot rearm a revoked mandate. A replaced store invalidates old signatures.
 
+## Drawdown brake holds full scope
+
+Owner decision 2026-10-10 07:51 CEST: after a drawdown brake, automatic
+additions come back only through a review. Each brake engagement holds a
+full mandate at protection (status `held_by: "drawdown_brake"`); the hold
+outlasts the brake's automatic release until the owner confirms full again
+on a device in Desk. While the brake is engaged, confirming full is refused;
+protection can be armed. The hold is derived at read from the brake's
+engagement count, which only grows, against the count recorded at
+confirmation, so no event hook can miss an engagement. An unreadable brake
+holds. The controller sees the lower scope and `authority_changed` at the
+wire for entries; protection and reductions keep running. Manual trading
+follows the brake alone.
+
 ## Current source and remaining connection
 
 Implemented building blocks: signed-term verification, persisted authority and

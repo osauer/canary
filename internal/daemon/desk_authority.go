@@ -21,10 +21,13 @@ const deskAuthorityStateKind = "desk_authority_v1"
 
 type deskAuthorityRecord struct {
 	rpc.DeskAuthorityStatus
-	LastRequestID   string                     `json:"last_request_id,omitempty"`
-	LastRequestHash string                     `json:"last_request_hash,omitempty"`
-	ControlProcess  time.Time                  `json:"control_process,omitzero"`
-	Confirmation    rpc.CashPolicyConfirmation `json:"confirmation"`
+	LastRequestID   string    `json:"last_request_id,omitempty"`
+	LastRequestHash string    `json:"last_request_hash,omitempty"`
+	ControlProcess  time.Time `json:"control_process,omitzero"`
+	// BrakeEpisode is the drawdown brake's engagement count when full scope
+	// was confirmed; a later engagement holds full at protection.
+	BrakeEpisode uint64                     `json:"brake_episode,omitempty"`
+	Confirmation rpc.CashPolicyConfirmation `json:"confirmation"`
 }
 
 func decodeDeskAuthority(raw []byte, out any) error {
@@ -65,7 +68,28 @@ func (s *Server) readDeskAuthority(ctx context.Context) (deskAuthorityRecord, er
 	if s.startedAt.IsZero() || !out.ControlProcess.Equal(s.startedAt) {
 		out.Running = false
 	}
+	// Each brake engagement holds full scope at protection until the owner
+	// confirms full again on a device after the brake clears (owner decision
+	// 2026-10-10 07:51 CEST). Protection and reductions keep running.
+	if out.Scope == "full" {
+		if episode, engaged, known := s.deskAuthorityBrake(out.Terms); !known || engaged || episode != out.BrakeEpisode {
+			out.Scope, out.HeldBy = "protect", "drawdown_brake"
+		}
+	}
 	return out, nil
+}
+
+// deskAuthorityBrake reads the drawdown brake for the mandate's account.
+// known is false when the brake cannot be read; the caller then holds.
+func (s *Server) deskAuthorityBrake(terms *rpc.DeskAuthorityTerms) (episode uint64, engaged, known bool) {
+	if s.riskCapital == nil {
+		return 0, false, true
+	}
+	if terms == nil {
+		return 0, false, false
+	}
+	episode, engaged, err := s.riskCapital.BrakeEpisodeForScope(brokerStateScope{Account: terms.AccountID, Mode: terms.AccountMode})
+	return episode, engaged, err == nil
 }
 
 func validDeskAuthorityTerms(t rpc.DeskAuthorityTerms) bool {
@@ -106,6 +130,7 @@ func (s *Server) handleDeskAuthorityPrepare(ctx context.Context, req *rpc.Reques
 
 func (s *Server) saveDeskAuthority(ctx context.Context, old int64, next deskAuthorityRecord, action string) (rpc.DeskAuthorityStatus, error) {
 	next.Generation = old + 1
+	next.HeldBy = "" // derived at read, never stored
 	raw, err := json.Marshal(next)
 	if err != nil {
 		return rpc.DeskAuthorityStatus{}, err
@@ -123,6 +148,10 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 	var terms rpc.DeskAuthorityTerms
 	if decodeDeskAuthority([]byte(in.Terms), &terms) != nil || !validDeskAuthorityTerms(terms) || in.Digest != cashPolicyDigest([]byte(in.Terms)) {
 		return rpc.DeskAuthorityStatus{}, errBadRequest("exact automatic authority terms are required")
+	}
+	episode, engaged, known := s.deskAuthorityBrake(&terms)
+	if terms.MaximumScope == "full" && (engaged || !known) {
+		return rpc.DeskAuthorityStatus{}, errBadRequest("full automatic trading can be confirmed after the drawdown brake clears; protection can be armed now")
 	}
 	s.deskAuthorityMu.Lock()
 	defer s.deskAuthorityMu.Unlock()
@@ -161,7 +190,7 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 	if err != nil {
 		return rpc.DeskAuthorityStatus{}, err
 	}
-	next := deskAuthorityRecord{Terms: &terms, Scope: terms.MaximumScope, ConfirmedAt: s.orderNow(), Verified: verified, Confirmation: in.Confirmation}
+	next := deskAuthorityRecord{Terms: &terms, Scope: terms.MaximumScope, ConfirmedAt: s.orderNow(), Verified: verified, Confirmation: in.Confirmation, BrakeEpisode: episode}
 	// Confirmation does not resume execution. The reconciled controller must
 	// explicitly fence its current preferences before any subsequent dispatch.
 	return s.saveDeskAuthority(ctx, current.Generation, next, "confirmed")

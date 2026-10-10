@@ -67,8 +67,12 @@ type DeskAuthorityStatus struct {
 	Running          bool                `json:"running"`
 	PreferencesHash  string              `json:"preferences_hash,omitempty"`
 	AdaptivePriority string              `json:"adaptive_priority,omitempty"`
-	ConfirmedAt      time.Time           `json:"confirmed_at,omitzero"`
-	Verified         string              `json:"verified,omitempty"`
+	// HeldBy names what holds a full mandate at protection: "drawdown_brake"
+	// from each brake engagement until the owner confirms full again on a
+	// device after the brake clears. Empty when nothing holds it.
+	HeldBy      string    `json:"held_by,omitempty"`
+	ConfirmedAt time.Time `json:"confirmed_at,omitzero"`
+	Verified    string    `json:"verified,omitempty"`
 }
 
 // DeskAuthorityPrepared contains canonical terms and their confirmation digest.

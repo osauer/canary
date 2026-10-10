@@ -1676,6 +1676,21 @@ func (st *riskCapitalStore) nudgeLatchLocked() (open bool, episode string, occur
 	return true, opaqueIdentity("drawdown-latch", st.state.LatchedAt.UTC().Format(time.RFC3339Nano), fmt.Sprintf("%d", sequence)), st.state.LatchedAt
 }
 
+// BrakeEpisodeForScope reports how many times the drawdown brake has engaged
+// and whether it is engaged now. The count only grows, so a mandate confirmed
+// at a lower count predates the latest engagement.
+func (st *riskCapitalStore) BrakeEpisodeForScope(scope brokerStateScope) (episode uint64, engaged bool, err error) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.loadLocked()
+	if st.core != nil {
+		if err := st.selectScopeLocked(scope); err != nil {
+			return 0, false, err
+		}
+	}
+	return st.state.LatchEpisodeSeq, st.state.BlockLatched, nil
+}
+
 // LastEquity returns the persisted last equity observation for the recon
 // equity-divergence check; zero when never observed.
 func (st *riskCapitalStore) LastEquity() (float64, time.Time) {
