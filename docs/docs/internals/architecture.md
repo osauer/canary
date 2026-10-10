@@ -378,6 +378,11 @@ is no external metrics stack and no tracing.
   Edge health also reuses successful publication decoding only after reading
   and verifying the current document bytes; it does not rebuild analytical
   windows on every status poll.
+- FX and settled-cash reads stream-hash retained statements before reusing
+  parsed evidence. Unchanged XML does not allocate a complete byte copy; file
+  identity, active-query inventory and account scope are still checked.
+  Source-health pagination finds the largest prefix within its existing JSON
+  budget without serializing every one-row decrement of an oversized page.
 - A connected session counts as alive only while the Gateway answers: the
   heartbeat is kept by received frames, never by a successful send, so a
   Gateway that accepts requests and answers none loses the session after two

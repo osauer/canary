@@ -62,11 +62,15 @@ func (s *Server) flexSettledCashBaseline(scope brokerStateScope, now time.Time) 
 	if err != nil {
 		return fail("accepted Flex statement inventory is unavailable")
 	}
-	files, err := readStatementProjectionFiles(ctx, selection)
+	if err := s.retainedFlex.lock(ctx); err != nil {
+		return fail("Flex cash baseline read exceeded its budget")
+	}
+	defer func() { <-s.retainedFlex.gate }()
+	files, err := readStatementProjectionFilesWithCache(ctx, selection, &s.retainedFlex)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return fail("Flex statement bytes do not match accepted active-query evidence")
 	}
-	if _, err := s.retainedFlex.parse(ctx, files); err != nil {
+	if _, err := s.retainedFlex.parseLocked(ctx, files); err != nil {
 		return fail("accepted Flex statement could not be parsed")
 	}
 	byName := map[string]corestore.StatementFileRecord{}

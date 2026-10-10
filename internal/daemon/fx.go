@@ -41,11 +41,15 @@ func (s *Server) fxStatements(ctx context.Context) ([]flexstmt.Statement, error)
 	if err != nil {
 		return nil, fmt.Errorf("accepted_inventory_unavailable")
 	}
-	files, err := readStatementProjectionFiles(ctx, selection)
+	if err := s.retainedFlex.lock(ctx); err != nil {
+		return nil, err
+	}
+	defer func() { <-s.retainedFlex.gate }()
+	files, err := readStatementProjectionFilesWithCache(ctx, selection, &s.retainedFlex)
 	if err != nil || !statementProjectionInventoryMatches(recorded, files) {
 		return nil, errFXInventoryChanged
 	}
-	out, err := s.retainedFlex.parse(ctx, files)
+	out, err := s.retainedFlex.parseLocked(ctx, files)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

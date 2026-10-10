@@ -99,6 +99,12 @@ func (s *Server) statementProjectionNow() time.Time {
 // regular XML files. Symlinks are rejected so mutable evidence outside the
 // private statements directory cannot enter the authoritative projection.
 func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSelection) ([]statementProjectionFile, error) {
+	return readStatementProjectionFilesWithCache(ctx, selection, nil)
+}
+
+// cache must be locked through parsing: a verified warm file can omit its XML
+// only while the matching parsed entry cannot be replaced by another reader.
+func readStatementProjectionFilesWithCache(ctx context.Context, selection flexEvidenceSelection, cache *retainedFlexCache) ([]statementProjectionFile, error) {
 	dir, err := flexStatementsDirPath()
 	if err != nil {
 		return nil, err
@@ -139,6 +145,10 @@ func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSel
 	sort.Sort(sort.Reverse(sort.StringSlice(names)))
 
 	files := make([]statementProjectionFile, 0, len(names))
+	var buffer []byte
+	if cache != nil {
+		buffer = make([]byte, 32*1024)
+	}
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -163,7 +173,7 @@ func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSel
 			}
 			return nil, fmt.Errorf("inspect opened statement %q: %w", name, statErr)
 		}
-		data, readErr := io.ReadAll(f)
+		data, size, digest, readErr := readStatementProjectionData(ctx, f, name, cache, buffer)
 		afterRead, afterStatErr := f.Stat()
 		if readErr == nil {
 			readErr = afterStatErr
@@ -177,14 +187,53 @@ func readStatementProjectionFiles(ctx context.Context, selection flexEvidenceSel
 		}
 		current, currentErr := os.Lstat(path)
 		if currentErr != nil || !os.SameFile(afterRead, current) ||
-			int64(len(data)) != opened.Size() || afterRead.Size() != opened.Size() || !afterRead.ModTime().Equal(opened.ModTime()) {
+			size != opened.Size() || afterRead.Size() != opened.Size() || !afterRead.ModTime().Equal(opened.ModTime()) {
 			return nil, fmt.Errorf("statement %q changed while reading", name)
 		}
 		files = append(files, statementProjectionFile{
-			name: name, size: int64(len(data)), digest: sha256.Sum256(data), data: data,
+			name: name, size: size, digest: digest, data: data,
 		})
 	}
 	return files, nil
+}
+
+// Hash every byte on every read, including same-size/same-time restatements.
+// Reuse only the parser output; file identity and accepted inventory remain
+// checked by the caller. Changed evidence still supplies exact bytes to parse.
+func readStatementProjectionData(ctx context.Context, f *os.File, name string, cache *retainedFlexCache, buffer []byte) ([]byte, int64, [sha256.Size]byte, error) {
+	if cache == nil {
+		data, err := io.ReadAll(f)
+		return data, int64(len(data)), sha256.Sum256(data), err
+	}
+	h := sha256.New()
+	var size int64
+	var digest [sha256.Size]byte
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, 0, digest, err
+		}
+		n, err := f.Read(buffer)
+		size += int64(n)
+		_, _ = h.Write(buffer[:n])
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, 0, digest, err
+		}
+	}
+	h.Sum(digest[:0])
+	if entry, ok := cache.rows[name]; ok && entry.digest == digest {
+		return nil, size, digest, ctx.Err()
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, digest, err
+	}
+	data, err := io.ReadAll(f)
+	if err == nil && (int64(len(data)) != size || sha256.Sum256(data) != digest) {
+		err = fmt.Errorf("statement source changed while reading")
+	}
+	return data, size, digest, err
 }
 
 func statementProjectionInventoryMatches(recorded []corestore.StatementFileRecord, files []statementProjectionFile) bool {

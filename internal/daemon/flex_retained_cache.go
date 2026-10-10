@@ -87,6 +87,10 @@ func (c *retainedFlexCache) parse(ctx context.Context, files []statementProjecti
 		return nil, err
 	}
 	defer func() { <-c.gate }()
+	return c.parseLocked(ctx, files)
+}
+
+func (c *retainedFlexCache) parseLocked(ctx context.Context, files []statementProjectionFile) ([]flexstmt.Statement, error) {
 	names := make([]string, len(files))
 	for i, file := range files {
 		names[i] = file.name

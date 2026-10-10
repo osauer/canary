@@ -420,21 +420,40 @@ func dataHealthSummaryLabel(s rpc.DataHealthSummary) string {
 // Shrinking a page advances by the rows emitted; a single oversize source is
 // an explicit error, never a silently incomplete source catalogue.
 func fitDataHealthPage(result rpc.DataHealthResult) (rpc.DataHealthResult, error) {
-	for {
-		raw, err := json.Marshal(result)
+	raw, err := json.Marshal(result)
+	if err != nil {
+		return rpc.DataHealthResult{}, err
+	}
+	if len(raw) <= dataHealthPageBytes {
+		return result, nil
+	}
+	// All shortened pages have the same envelope shape; their encoded size
+	// grows with each added source. Find the largest fitting prefix without
+	// encoding each one-row decrement of a history-heavy catalogue.
+	low, high, best := 1, len(result.Sources)-1, 0
+	for low <= high {
+		count := low + (high-low)/2
+		candidate := result
+		candidate.Sources = result.Sources[:count]
+		next := result.Offset + count
+		candidate.NextOffset, candidate.Complete = &next, false
+		raw, err := json.Marshal(candidate)
 		if err != nil {
 			return rpc.DataHealthResult{}, err
 		}
 		if len(raw) <= dataHealthPageBytes {
-			return result, nil
+			best, low = count, count+1
+		} else {
+			high = count - 1
 		}
-		if len(result.Sources) <= 1 {
-			return rpc.DataHealthResult{}, errBadRequest("source health exceeds page budget")
-		}
-		result.Sources = result.Sources[:len(result.Sources)-1]
-		next := result.Offset + len(result.Sources)
-		result.NextOffset, result.Complete = &next, false
 	}
+	if best == 0 {
+		return rpc.DataHealthResult{}, errBadRequest("source health exceeds page budget")
+	}
+	result.Sources = result.Sources[:best]
+	next := result.Offset + best
+	result.NextOffset, result.Complete = &next, false
+	return result, nil
 }
 
 func dataHealthKindOrder(kind string) int {
