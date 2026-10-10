@@ -2850,8 +2850,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		})
 	case rpc.MethodDataCheck:
 		s.unary(req, enc, func() (any, error) { return s.requestDataHealthCheck() })
-	case rpc.MethodProfileCapture:
-		s.unary(req, enc, func() (any, error) { return s.handleProfile(ctx, req) })
 	case rpc.MethodStatusHealth:
 		s.unary(req, enc, func() (any, error) { return s.handleStatusHealth(), nil })
 	case rpc.MethodTradingStatus:

@@ -41,7 +41,6 @@ func (t MethodTiming) ClientTimeout(headroom time.Duration) time.Duration {
 // daemon. Keep policy and behavior in the daemon handlers; this catalog owns
 // only the lifetime class and outer request budget shared by adapters.
 var methodTimings = []MethodTiming{
-	{Method: MethodProfileCapture, Lifetime: MethodLifetimeUnary, DaemonTimeout: ProfileMaxDuration + 5*time.Second},
 	{Method: MethodAccountSummary, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodPositionsList, Lifetime: MethodLifetimeUnary, DaemonTimeout: 30 * time.Second},
 	{Method: MethodPositionsRisk, Lifetime: MethodLifetimeUnary, DaemonTimeout: 30 * time.Second},

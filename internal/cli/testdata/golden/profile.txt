@@ -1,8 +1,0 @@
-# canary profile · COLUMNS=80 · colour off
-Captured cpu profile from daemon PID 123
-Directory: /private/tmp/canary-profile-synthetic
-cpu.pprof
-# canary profile · COLUMNS=80 · colour on, ESC written as \x1b
-Captured cpu profile from daemon PID 123
-Directory: /private/tmp/canary-profile-synthetic
-cpu.pprof

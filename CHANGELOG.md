@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.20.1 — 2026-10-10 17:46 CEST
+
+### What's new
+
+- **Lower CPU and memory-allocation overhead while monitoring your account.** Routine status reads, statement refreshes and lending screens reuse more of their unchanged work.
+
+### Fixed
+
+- Repeated FX, cash and statement-refresh reads no longer copy complete unchanged XML files into new buffers.
+- Health polling avoids decoding unused position and financing data and rebuilding retained reports for every page.
+- Market-calendar queries reuse timezone rules, and lending screens reuse symbol validation instead of compiling it for every candidate.
+
+### Maintenance
+
+- Added allocation and concurrency regressions for the optimized paths, alongside existing statement-acceptance, session and DST checks.
+
 ## v3.20.0 — 2026-10-10 13:30 CEST
 
 ### What's new

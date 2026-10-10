@@ -110,7 +110,6 @@ func Catalog() []CommandSpec {
 
 func catalogExtras() map[string]CommandSpec {
 	return map[string]CommandSpec{
-		"profile":        {Group: GroupSystem, Guard: GuardLocal, Flags: flags(valueFlag("kind", []string{"cpu", "allocs"}), valueFlag("duration", nil), boolFlag("json"))},
 		"short-interest": {Group: GroupDesk, Flags: flags(valueFlag("min-price", nil), valueFlag("min-avg-dollar-volume-20d", nil), valueFlag("min-average-volume", nil), valueFlag("min-days-to-cover", nil), valueFlag("sort-by", rpc.ShortInterestSortKeys), valueFlag("sort-dir", []string{"asc", "desc"}), valueFlag("limit", nil), valueFlag("exclude", nil), boolFlag("listed-only"), boolFlag("json")), Subcommands: subcommands("screen"), Guard: GuardReadOnly},
 		"status":         {Group: GroupDesk, Flags: flags(boolFlag("json"))},
 		"data":           {Group: GroupMarkets, Flags: flags(valueFlag("offset", nil), valueFlag("limit", nil), valueFlag("revision", nil), boolFlag("json")), Subcommands: subcommands("health", "check"), Guard: GuardReadOnly},
