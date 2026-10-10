@@ -389,7 +389,8 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    same way and reads the inventory per leg. Proposal rows are not re-judged:
    reduce, sweep, governor and risk-reduction rows all go through the preview.
 5. **Unchanged.** Freeze, account and route pins, previews and WhatIf, the
-   sell-as-short re-read (`allow_stock_short`) and the sell-to-open re-read
+   sell-as-short re-read (`allow_stock_short`, narrowed for held longs on
+   2026-10-10, item 10) and the sell-to-open re-read
    (`allow_option_sell_to_open`), origin gating, owner approval, the drawdown
    brake, sell-only and the governor. The protective stock exit keeps its own
    exemption: it reads the open-order inventory, not deltas, also passes the
@@ -490,10 +491,16 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    option line's right, expiry and multiplier so `exitLowersAbsoluteDelta`
    judges exactly as the gate does (`deltaReductionEvidence.judge`), minus
    the working-order inventory.
-10. **Still open.** A stock exit above the cap now passes the cap but still
-    needs `allow_stock_short`, and an option sell-to-close still needs
-    `allow_option_sell_to_open`, so with both false the owner's large exits
-    remain refused by the re-reads, not by the caps. Bills and bonds keep the
+10. **Still open.** An option sell-to-close still needs
+    `allow_option_sell_to_open`, so with it false the owner's option exits
+    remain refused by the re-read, not by the caps. A stock exit no longer
+    needs `allow_stock_short` when the complete, current open-order inventory
+    keeps it and every other working sell within the long position held
+    (owner decision 2026-10-10 07:28 CEST: "Admit them";
+    `heldStockExitAdmitted` in `protective_exit.go`). Any order type
+    qualifies; stale or incomplete inventory, a sale above the position, or
+    working sells beyond it keep the re-read. The residual risk is a hand
+    order placed in TWS after Canary sends, as for the protective exit. Bills and bonds keep the
     cap under this rule (no equity delta) unless the sweep bill exemption
     covers them.
 

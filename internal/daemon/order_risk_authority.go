@@ -618,13 +618,14 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 		}
 	}
 	riskEffect := position.Effect
-	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) && !protectiveExit {
+	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isRiskReducing(riskEffect) && !protectiveExit && !heldStockExitAdmitted(draft, position, exit) {
 		// Incomplete manual-order visibility means the apparent long exit may
 		// arrive after another sell consumed that capacity. Apply the same
-		// explicit short-opening permission as a zero-position sell. The
-		// protective exit is excused because the complete inventory shows no
-		// competing sell now and the stop guard shrinks or cancels the stop
-		// when a later sale reduces the position.
+		// explicit short-opening permission as a zero-position sell. A sale of
+		// a held long is excused when the complete inventory shows it and
+		// every other working sell within the shares held (owner decision
+		// 2026-10-10 07:28 CEST); what remains is a hand order placed in TWS
+		// after this one is sent, as for the protective exit.
 		riskEffect = rpc.OrderPositionEffectOpenShort
 	}
 	switch {

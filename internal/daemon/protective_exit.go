@@ -81,10 +81,16 @@ func isProtectiveStopOrderType(orderType string) bool {
 // evidence: a single-contract stock/ETF sell stop that closes or reduces a
 // long position. Only a candidate reads the open-order inventory.
 func protectiveStockExitCandidate(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
+	return isProtectiveStopOrderType(draft.OrderType) && heldStockExitCandidate(draft, position)
+}
+
+// heldStockExitCandidate is a single-contract stock/ETF sell of any order
+// type that sells at most the long position held.
+func heldStockExitCandidate(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
 	if draft.StrategyGroup != nil || !isStockLikeRiskSecType(draft.Contract.SecType) {
 		return false
 	}
-	if !strings.EqualFold(strings.TrimSpace(draft.Action), rpc.OrderActionSell) || !isProtectiveStopOrderType(draft.OrderType) {
+	if !strings.EqualFold(strings.TrimSpace(draft.Action), rpc.OrderActionSell) {
 		return false
 	}
 	qty := float64(draft.Quantity)
@@ -107,6 +113,20 @@ func protectiveStockExitExempt(draft rpc.OrderDraft, position rpc.OrderPositionI
 		return true
 	}
 	if math.IsNaN(inv.OtherWorkingSameSide) || math.IsInf(inv.OtherWorkingSameSide, 0) || inv.OtherWorkingSameSide < 0 {
+		return false
+	}
+	return inv.OtherWorkingSameSide+float64(draft.Quantity) <= position.Before+1e-9
+}
+
+// heldStockExitAdmitted decides whether a sale of a held long, of any order
+// type, is excused from the short re-read: the complete, current open-order
+// inventory shows that this sale and every other working sell of the
+// contract stay within the shares held (owner decision 2026-10-10 07:28
+// CEST). It excuses nothing else; the order cap and every other gate still
+// apply. Stale or incomplete inventory never admits.
+func heldStockExitAdmitted(draft rpc.OrderDraft, position rpc.OrderPositionImpact, inv protectiveExitInventory) bool {
+	if !heldStockExitCandidate(draft, position) || !inv.Current ||
+		math.IsNaN(inv.OtherWorkingSameSide) || math.IsInf(inv.OtherWorkingSameSide, 0) || inv.OtherWorkingSameSide < 0 {
 		return false
 	}
 	return inv.OtherWorkingSameSide+float64(draft.Quantity) <= position.Before+1e-9
@@ -357,7 +377,7 @@ func (s *Server) journalOrderViewsForInventory() (journalInventory, bool) {
 // inventory read from the broker afresh. A non-candidate, an unavailable
 // inventory or one for another account/mode returns the unavailable value.
 func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, position rpc.OrderPositionImpact, target orderPreviewReplaceTarget) protectiveExitInventory {
-	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position) && !deltaReductionCandidate(draft, position)) {
+	if s == nil || ctx == nil || (!heldStockExitCandidate(draft, position) && !bondSaleCandidate(draft, position) && !deltaReductionCandidate(draft, position)) {
 		return protectiveExitInventory{}
 	}
 	want := brokerStateScope{Account: status.Account, Mode: status.Mode}

@@ -64,8 +64,17 @@ func TestProtectiveStockExitExemptionBoundary(t *testing.T) {
 			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 2000), notional: 15000, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 2000}},
 		{name: "limit sell keeps the notional cap", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 4000),
 			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4000), notional: 30000, inv: current, wantErr: "order cap in force 12,000 EUR (5% of NLV 240,000 EUR"},
-		{name: "small limit sell keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
-			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 10), notional: 75, inv: current, wantErr: "allow_stock_short"},
+		// A sale of a held long, of any order type, passes the short re-read
+		// when the complete inventory keeps all working sells within the
+		// shares held (owner decision 2026-10-10 07:28 CEST).
+		{name: "small limit sell of a held long passes", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 10), notional: 75, inv: current},
+		{name: "limit sell with a competing sell beyond the position keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 100),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 100), notional: 750, inv: protectiveExitInventory{Current: true, OtherWorkingSameSide: 3901}, wantErr: "allow_stock_short"},
+		{name: "limit sell on stale inventory keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 10),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 10), notional: 75, inv: protectiveExitInventory{}, wantErr: "allow_stock_short"},
+		{name: "limit sell above the position keeps the short re-read", draft: protectiveExitTestDraft("STK", rpc.OrderTypeLMT, 4001),
+			position: protectiveExitTestPosition(4000, rpc.OrderActionSell, 4001), notional: 7.5, inv: current, wantErr: "allow_stock_short"},
 		{name: "flat position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 10),
 			position: protectiveExitTestPosition(0, rpc.OrderActionSell, 10), notional: 75, inv: current, wantErr: "allow_stock_short"},
 		{name: "short position", draft: protectiveExitTestDraft("STK", rpc.OrderTypeTRAIL, 4000),
