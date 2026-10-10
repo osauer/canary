@@ -1486,6 +1486,11 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 	if obs != nil && st.state.AccountID != "" && !brokerScopeConcrete(scope) {
 		obs = nil
 	}
+	// An undated figure (the cached account fallback after a failed read) is
+	// no observation; the persisted, dated equity serves instead.
+	if obs != nil && obs.AsOf.IsZero() {
+		obs = nil
+	}
 
 	if obs == nil && st.state.LastEquityBase > 0 {
 		obs = &risk.CapitalObservation{EquityBase: st.state.LastEquityBase, AsOf: st.state.LastEquityAsOf}

@@ -117,6 +117,22 @@ func TestDrawdownBrakeFailsClosedOnStaleEvidence(t *testing.T) {
 	}
 }
 
+// Missing capital evidence refuses a risk-adding order too: with no usable
+// equity reading the tier is unknown, never ok, and the brake cannot be shown
+// released (owner decision 2026-10-09: stale or missing evidence counts as
+// engaged).
+func TestDrawdownBrakeFailsClosedOnMissingEvidence(t *testing.T) {
+	srv, _, _, _ := brakeTestServer(t)
+	draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 100, Contract: rpc.ContractParams{Symbol: "SYN", SecType: "STK", Currency: "EUR"}}
+	blocker, _ := srv.riskPolicyBrake(draft, rpc.OrderPositionImpact{Before: 0, After: 100, Effect: rpc.OrderPositionEffectOpen})
+	if blocker == nil || blocker.Code != drawdownBrakeCode || !strings.Contains(blocker.Message, "missing") {
+		t.Fatalf("buy without an equity reading: %+v, want drawdown_brake naming the missing evidence", blocker)
+	}
+	if err := srv.riskPolicyBrakeError(draft, rpc.OrderPositionImpact{Before: 100, After: 50, Effect: rpc.OrderPositionEffectReduce}); err != nil {
+		t.Fatalf("reduction without an equity reading: %v, want allowed", err)
+	}
+}
+
 // The constitution accepts hard, and only hard, as the block tier's class.
 func TestConstitutionRejectsRetiredEnforcementClasses(t *testing.T) {
 	for _, class := range []string{risk.EnforcementShadow, risk.EnforcementAdvisory} {

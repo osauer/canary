@@ -65,6 +65,17 @@ func recoveryEvents(t *testing.T, st *riskCapitalStore) int {
 	return n
 }
 
+// An undated equity figure (the cached account fallback after a failed read)
+// never displaces the persisted, dated reading: the report keeps the dated
+// equity and its time instead of a zero clock.
+func TestReportIgnoresUndatedObservation(t *testing.T) {
+	st, c, _ := recoveryStore(t)
+	rep := st.Report(c, &risk.CapitalObservation{EquityBase: 250000}, testLiveObserveScope)
+	if rep.EquityAsOf.IsZero() || rep.EquityBase == nil || *rep.EquityBase != 240000 {
+		t.Fatalf("undated observation served: equity_as_of %v equity_base %v, want the dated 240000", rep.EquityAsOf, rep.EquityBase)
+	}
+}
+
 func TestDrawdownRecoveryPersistsWithoutRebasingAndReengages(t *testing.T) {
 	st, c, now := recoveryStore(t)
 	peakAt, episode := st.state.PeakAsOf, st.state.LatchEpisodeSeq

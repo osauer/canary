@@ -530,6 +530,15 @@ func (s *Server) riskPolicyBrake(draft rpc.OrderDraft, position rpc.OrderPositio
 			Message: "Capital evidence is stale, so the drawdown brake cannot be shown released; this order adds risk." + open,
 			Action:  "Refresh the account reading or reconcile; `canary policy show --explain` names the stale input.",
 		}, nil
+	case v.Tier != risk.CapitalTierOK && v.Tier != risk.CapitalTierWarn:
+		// No usable equity reading or an unapproved capital section leaves the
+		// tier unknown, never ok: missing evidence counts as an engaged brake
+		// (owner decision 2026-10-09 18:46 CEST).
+		return &rpc.TradingBlocker{
+			Code:    drawdownBrakeCode,
+			Message: "Capital evidence is missing, so the drawdown brake cannot be shown released; this order adds risk." + open,
+			Action:  "Wait for a current account reading; `canary policy show --explain` names the missing input.",
+		}, nil
 	case v.Tier == risk.CapitalTierWarn:
 		return nil, []rpc.DataWarning{{
 			Code:     "capital_drawdown",
