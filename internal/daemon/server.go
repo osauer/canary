@@ -361,6 +361,7 @@ type Server struct {
 
 	// orderJournal is the durable audit log for order intents and broker
 	orderJournal *orderJournalStore
+	orderHealth  orderHealthCache
 	// strategyLineage is a read-through cache of durable submitted group
 	// drafts. Position polling uses it to detect broken leg ratios without
 	// rereading the complete order journal on every refresh.
@@ -3167,7 +3168,7 @@ func (s *Server) backgroundTasks() []rpc.BackgroundTaskStatus {
 // all scopes (what idle shutdown must respect). A journal read error is
 // returned as such — never flattened to zero counts.
 func (s *Server) openBrokerOrderCounts() (scoped, total int, err error) {
-	views, _, err := s.loadOrderViews()
+	views, _, err := s.orderHealthSnapshot()
 	if err != nil {
 		return 0, 0, err
 	}

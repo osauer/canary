@@ -6,7 +6,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/discover"
@@ -454,27 +453,16 @@ func (s *Server) orderJournalSummary() (orderJournalSummary, error) {
 	if s == nil || s.orderJournal == nil {
 		return orderJournalSummary{}, fmt.Errorf("order journal is not configured")
 	}
-	events, err := s.orderJournal.LoadEvents(0)
+	views, lastEvent, err := s.orderHealthSnapshot()
 	if err != nil {
 		return orderJournalSummary{}, err
 	}
-	var last orderJournalEvent
-	for _, ev := range events {
-		last = ev
-	}
 	scope := s.currentBrokerStateScope()
-	var summary orderJournalSummary
-	views := buildOrderViews(events)
-	// Same inference pass as the orders view: a calendar-expired DAY order
-	// must not be counted open here while the list shows it closed.
-	inferDayOrderExpiry(views, buildOrderEventsByKey(events), s.orderNow())
+	summary := orderJournalSummary{LastEvent: lastEvent}
 	for _, view := range views {
 		if view.Open && orderViewMatchesBrokerScope(view, scope) {
 			summary.OpenOrders++
 		}
-	}
-	if !last.At.IsZero() {
-		summary.LastEvent = fmt.Sprintf("%s %s at %s", last.Type, orderJournalEventLabel(last), last.At.Format(time.RFC3339))
 	}
 	return summary, nil
 }
