@@ -182,6 +182,7 @@ func renderGoldenCases() []renderGoldenCase {
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
 	}
 	return []renderGoldenCase{
+		{name: "profile", argv: []string{"profile"}, conn: goldenConn{rpc.MethodProfileCapture: rpc.ProfileResult{Kind: "cpu", PID: 123, Directory: "/private/tmp/canary-profile-synthetic", Files: []string{"cpu.pprof"}}}},
 		{name: "portfolio_plan", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: goldenPortfolioPlan()}},
 		{name: "portfolio_plan_held", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: rpc.PortfolioPlanResult{State: "held", Reason: "Current portfolio evidence is incomplete.", Blockers: []rpc.TradingBlocker{{Code: "portfolio_book_unavailable", Message: "A complete same-session account and portfolio are required."}}}}},
 		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100", "--max"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},

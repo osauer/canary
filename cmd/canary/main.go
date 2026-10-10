@@ -213,6 +213,8 @@ func cliInvocationTiming(cmd string, rest []string) ([]string, time.Duration, ti
 	const ordinaryHeadroom = 5 * time.Second
 
 	switch cmd {
+	case "profile":
+		return []string{rpc.MethodProfileCapture}, ordinaryHeadroom, ordinaryFloor
 	case "status":
 		return []string{rpc.MethodStatusHealth, rpc.MethodAlertCandidates}, ordinaryHeadroom, ordinaryFloor
 	case "account":

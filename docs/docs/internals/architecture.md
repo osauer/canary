@@ -383,6 +383,17 @@ is no external metrics stack and no tracing.
   identity, active-query inventory and account scope are still checked.
   Source-health pagination finds the largest prefix within its existing JSON
   budget without serializing every one-row decrement of an oversized page.
+- `canary profile --kind cpu|allocs --duration 60s` explicitly captures the
+  daemon process through the existing private Unix socket; it adds no HTTP
+  listener, MCP tool, periodic profiler or log stream. One capture runs at a
+  time, for 1–120 whole seconds. Each file is capped at 32 MiB in a generated
+  owner-only temporary directory (0700; files 0600). CPU capture stops at its
+  deadline or daemon cancellation. Allocation capture writes start/end
+  cumulative samples, without forced GC or changing runtime sampling rates;
+  compare them with `go tool pprof -base allocs-start.pprof allocs-end.pprof`.
+  Profile snapshots follow Go's GC accounting delay. Failed captures remove
+  their partial files; successful files remain for the operator to inspect
+  and remove. Disconnecting the CLI does not extend the bounded daemon capture.
 - A connected session counts as alive only while the Gateway answers: the
   heartbeat is kept by received frames, never by a successful send, so a
   Gateway that accepts requests and answers none loses the session after two

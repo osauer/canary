@@ -235,6 +235,7 @@ var commands []Command
 func init() {
 	commands = []Command{
 		{"status", "Daemon + gateway health (run this first if anything fails)", "canary status [--json]", runStatus},
+		{"profile", "Capture a bounded daemon CPU or allocation profile into private local files", "canary profile [--kind cpu|allocs] [--duration 60s] [--json]", runProfile},
 		{"data", "Canary-owned source health and bounded required-feed checks", "canary data health [--offset N --limit N --revision ID] [--json] | canary data check [--json]", runData},
 		{"account", "Account summary snapshot (NLV, BP, cash, margin, daily P&L)", "canary account [--watch --rate 1s] [--json] | canary account --settlement-probe --json | canary account --currency-settlement-probe --json", runAccount},
 		{"positions", "List open positions (stocks + options)", "canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quotes] [--by underlying] [--watch --rate 1s] [--json]", runPositions},

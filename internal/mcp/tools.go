@@ -808,6 +808,7 @@ func sanitizeOrderStatusForMCP(res *rpc.OrderStatusResult) {
 // MCP tool counterpart. The parity test consults this so adding a new CLI
 // command without an MCP tool fails the gate unless the exclusion is recorded.
 var ExcludedCLI = map[string]string{
+	"profile":   "Explicit local operator diagnostic; profiling is not a model tool.",
 	"watchlist": "owner-managed local preferences; typed read-only client and owner CLI, no model mutation tool",
 	"setups":    "owner-configured entry observations ship through CLI and the typed host client first; no model tool or automatic playbook activation",
 	"version":   "info-only CLI verb; not useful as a tool call",
