@@ -111,9 +111,13 @@ func TestDeltaReducingExitPassesTheCaps(t *testing.T) {
 	}{
 		{name: "a stock sale that shrinks a long above the notional cap passes", edit: allowShort,
 			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev, inv: deltaTestInventory},
-		{name: "the same sale keeps the sell-as-short re-read",
-			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev, inv: deltaTestInventory,
-			wantErr: []string{"allow_stock_short"}, wantNot: []string{"order cap in force"}},
+		// A sale of a held long within the shares held passes the short
+		// re-read on current inventory (owner decision 2026-10-10 07:28 CEST).
+		{name: "the same sale passes without allow_stock_short",
+			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev, inv: deltaTestInventory},
+		{name: "the same sale on stale inventory is refused",
+			draft: deltaTestStockDraft(rpc.OrderActionSell, 400), position: protectiveExitTestPosition(1000, rpc.OrderActionSell, 400), notional: 30000, evidence: ev, inv: protectiveExitInventory{},
+			wantErr: []string{"cannot read the broker's open orders"}},
 		{name: "an option buy-to-close above the contract cap that lowers the delta passes",
 			draft: deltaTestOptionDraft(deltaTestShortPuts, "P", rpc.OrderActionBuy, 8), position: protectiveExitTestPosition(-8, rpc.OrderActionBuy, 8), notional: 2000, evidence: ev, inv: deltaTestInventory},
 		{name: "an option sell-to-close above both caps that lowers the delta passes", edit: allowSTO,
