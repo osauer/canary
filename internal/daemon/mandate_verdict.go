@@ -682,10 +682,12 @@ func mandateMoney(v float64, ccy string) string {
 }
 
 // riskAddingOrder is the one classification the drawdown brake and the
-// mandate gate share: a close or reduce never adds risk, and a BUY of a put
-// on a Rulebook hedge symbol is a hedge entry that stays open; everything
-// else adds risk. Cancels never reach either gate. The mandate gate alone
-// also passes a bill purchase (mandateBillBuy).
+// mandate gate share: a close or reduce never adds risk (a BUY that closes
+// or shrinks a held index hedge included), a BUY of a put on a Rulebook
+// hedge symbol is a hedge entry that stays open, and a SELL of the index
+// future is a reduction when indexHedgeReduces says so; everything else
+// adds risk. Cancels never reach either gate. The mandate gate alone also
+// passes a bill purchase (mandateBillBuy).
 func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
 	switch position.Effect {
 	case rpc.OrderPositionEffectClose, rpc.OrderPositionEffectReduce:
@@ -695,7 +697,41 @@ func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositio
 		strings.EqualFold(draft.Contract.Right, "P") && s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
 		return false
 	}
+	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isIndexFutureContract(draft.Contract) {
+		return !s.indexHedgeReduces(draft)
+	}
 	return true
+}
+
+// indexHedgeReduces classifies a SELL of the index future (owner decision
+// 2026-10-28 20:07 CET; design note index-hedge.md, "gate
+// classification"). On the kept mandate book with the order added it is a
+// reduction only when the 10% index fall's loss is lower than without it
+// and not below zero (the hedge never turns the book into a bet on a
+// fall), the loss measure with the hedge's own rise loss stays within the
+// loss room, and no name's gap loss breaches the gap cap. Otherwise, or
+// when the book cannot be measured now, the normal gate applies.
+//
+// The loss measure counts the hedge's loss in a 10% rise (TM-04.12), so a
+// sale always raises it by that much: "does not rise" is read as "stays
+// within the loss room", since a literal reading would never let a hedge
+// through.
+func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
+	input, _, _ := s.mandateCurrentInput()
+	if input == nil {
+		return false
+	}
+	leg, ok := mandateOrderLeg(draft, input)
+	if !ok {
+		return false
+	}
+	before, after := mandate.Evaluate(*input), mandate.Evaluate(mandateInputWithLegs(*input, []mandate.Leg{leg}))
+	if before.Stresses == nil || after.Stresses == nil || after.Loss == nil {
+		return false
+	}
+	fall := after.Stresses.IndexLossBase
+	return fall < before.Stresses.IndexLossBase-1e-9 && fall >= 0 &&
+		after.Loss.TotalBase <= after.Loss.RoomBase+1e-9 && len(after.Stresses.GapBreaches) == 0
 }
 
 // mandateBillBuy reports a BUY of a government bill (security type BILL).
@@ -1115,7 +1151,7 @@ func (s *Server) mandateOrderBook(draft rpc.OrderDraft, in *mandate.Input, now t
 	if book.FXNow == nil {
 		book.FXNow = map[string]float64{}
 	}
-	sym := normSym(draft.Contract.Symbol)
+	sym := mandateOrderUnderlying(draft)
 	ccy := normCcy(draft.Contract.Currency)
 	for _, l := range in.Legs {
 		if l.Underlying == sym && ccy == "" {
@@ -1217,7 +1253,7 @@ func mandateOrderLeg(draft rpc.OrderDraft, in *mandate.Input) (mandate.Leg, bool
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) {
 		qty = -qty
 	}
-	sym := normSym(draft.Contract.Symbol)
+	sym := mandateOrderUnderlying(draft)
 	ccy := normCcy(draft.Contract.Currency)
 	id := ""
 	if draft.Contract.ConID > 0 {
@@ -1305,6 +1341,36 @@ func mandateOrderLeg(draft rpc.OrderDraft, in *mandate.Input) (mandate.Leg, bool
 		}
 		return mandate.Leg{ID: id, Symbol: fmt.Sprintf("%s %s %g %s", sym, draft.Contract.Expiry, draft.Contract.Strike, right), Underlying: sym, Kind: mandate.KindOption,
 			Quantity: qty, Multiplier: mult, Currency: ccy, Spot: underlyingSpot, Right: right, Strike: draft.Contract.Strike, TimeToExpiryYears: t, IV: &iv, LossPerUnitBase: premium}, true
+	case "FUT":
+		// The index future is the mandate's own linear index line (MES FUT),
+		// at its multiplier and the held contract's mark, else the order's
+		// limit; no other future is priced.
+		mult := float64(draft.Contract.Multiplier)
+		spot := draft.LimitPrice
+		if held != nil && mandate.IsIndexFuture(*held) && held.Spot > 0 {
+			spot = held.Spot
+		}
+		if !isIndexFutureContract(draft.Contract) || mult <= 0 || spot <= 0 || qty == 0 {
+			return mandate.Leg{}, false
+		}
+		if id == "" {
+			id = "order:" + mandate.MicroSP500Future
+		}
+		if held != nil {
+			id = held.ID
+		}
+		return mandate.Leg{ID: id, Symbol: nonEmptyString(draft.Contract.LocalSymbol, "MES "+draft.Contract.Expiry), Underlying: mandate.MicroSP500Future, Kind: mandate.KindStock,
+			Quantity: qty, Multiplier: mult, Currency: ccy, Spot: spot}, true
 	}
 	return mandate.Leg{}, false
+}
+
+// mandateOrderUnderlying is the mandate's underlying key of an order's
+// contract: the index future's own key (moved by SPY's returns), else its
+// symbol.
+func mandateOrderUnderlying(draft rpc.OrderDraft) string {
+	if isIndexFutureContract(draft.Contract) {
+		return mandate.MicroSP500Future
+	}
+	return normSym(draft.Contract.Symbol)
 }
