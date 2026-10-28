@@ -68,16 +68,24 @@ Each item below must land before a hedge can be sent.
 
    Otherwise it adds risk and the normal gate applies. A BUY that closes or
    reduces a held hedge is already a close or reduce.
-4. **Owner numbers.** These go in an optional table, and placing a hedge is
-   refused while they are absent:
-   - the order cap reads notional, and one MES carries about five times the
-     index level in USD, so a hedge needs its own cap: proposed
-     `[mandate.index_hedge] max_contracts`, the most contracts one hedge may
-     hold;
-   - the order limits have switches for a stock short and an option sale to
-     open, but none for a future sold to open: proposed
-     `allow_future_short` under `[order_limits]`, or the table above standing
-     as the switch.
+4. **Owner numbers.** Decided 2026-10-28 20:07 CET (Desk session, on the
+   recommendation); placing a hedge is refused while the table is absent:
+   - `[mandate.index_hedge] max_contracts = 25`, the most contracts one
+     hedge may hold: a hard stop against a wrong size, never the target,
+     set where it covers the long side of the book. The owner's policy
+     file carries the table as a comment with the decision, since the
+     policy loader refuses a key the daemon does not read; the work that
+     reads it asks the owner before activating it (uncomment and bump
+     `policy_version`).
+   - No second switch: the table's presence is the permission. No
+     `allow_future_short`.
+   - The loss measure (TM-04.12) counts a held hedge's loss in the 10%
+     index rise, so a hedge spends loss room like every other line. This
+     replaces "a future without a stop adds nothing" above for the hedge.
+   - Order shape: sell at the bid, good for the day, US regular hours;
+     no stop order on the hedge. Desk says "roll due" from ten days before
+     the contract's expiry and "hedge no longer needed" when the book
+     without it is inside the limit; the owner rolls and unwinds by hand.
 5. **Futures trading permission at IBKR.** This cannot be read through
    Canary: the order path has no futures, and a WhatIf is an order-path
    request. Market data for CME index futures works (ESZ6 quoted live
