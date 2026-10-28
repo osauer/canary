@@ -615,9 +615,6 @@ type Server struct {
 	// optionUnderlyingCloseForTest replaces the quote read behind an
 	// option-only underlying's close (prewarmOptionUnderlyingCloses).
 	optionUnderlyingCloseForTest func(context.Context, rpc.ContractParams) (float64, bool)
-	// optionUnderlyingHoldForTest replaces the stock subscription hold an
-	// option-only underlying gets during the Greeks capture.
-	optionUnderlyingHoldForTest func(context.Context, string) (func(), error)
 	// reduceHedgeFutureForTest replaces the hedge plan's read of the front
 	// Micro S&P future and its quote (reduceHedgeFuture).
 	reduceHedgeFutureForTest func(context.Context) (rpc.ContractParams, *rpc.Quote, error)

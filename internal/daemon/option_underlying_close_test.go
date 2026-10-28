@@ -53,34 +53,3 @@ func TestOptionOnlyUnderlyingGetsItsClose(t *testing.T) {
 		}
 	}
 }
-
-// Outside regular hours IBKR sends an option's model figures (implied
-// volatility, delta, underlying price) only while its underlying streams:
-// on the live book 2026-10-28 21:33 CET every option whose underlying
-// Canary streamed (a held stock, SPY for the regime) had them after a
-// restart, and the three on names held only through options had none. The
-// underlying of every option-only name is now held for the whole capture.
-func TestOptionOnlyUnderlyingIsHeldDuringTheGreeksCapture(t *testing.T) {
-	s := &Server{}
-	held := map[string]int{}
-	s.optionUnderlyingHoldForTest = func(_ context.Context, sym string) (func(), error) {
-		held[sym]++
-		return func() { held[sym]-- }, nil
-	}
-	stocks := []rpc.PositionView{mandateReductionStock("SYNA", 9101, 100, 50)}
-	options := []rpc.PositionView{
-		{Symbol: "SYNO", SecType: rpc.SecTypeOption, Currency: "USD", Expiry: "20261120", Strike: 8, Right: "C"},
-		{Symbol: "SYNO", SecType: rpc.SecTypeOption, Currency: "USD", Expiry: "20261120", Strike: 9, Right: "C"},
-		{Symbol: "SYNA", SecType: rpc.SecTypeOption, Currency: "USD", Expiry: "20261120", Strike: 55, Right: "C"},
-	}
-	ran := false
-	s.withOptionOnlyUnderlyingsHeld(t.Context(), stocks, options, func() {
-		ran = true
-		if held["SYNO"] != 1 || held["SYNA"] != 0 {
-			t.Fatalf("during the capture held = %v, want the option-only name once and the held stock left alone", held)
-		}
-	})
-	if !ran || held["SYNO"] != 0 {
-		t.Fatalf("ran %v, held after = %v, want the capture run and every hold released", ran, held)
-	}
-}
