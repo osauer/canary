@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"slices"
@@ -205,10 +206,13 @@ func (s *Server) reduceMandateScores(ctx context.Context, res *rpc.TradeProposal
 
 // reduceTradeCost is what the planned legs give up to the market: half the
 // quoted bid-ask spread of each leg's line, times its units and multiplier,
-// in base currency. It reads the legs the scores fill, and is unknown,
-// naming the first line without a two-sided quote or base rate, when any
-// lacks one: a partial cost would read as the plan's.
-func reduceTradeCost(legs []rpc.TradeProposalReduceLeg, pos *rpc.PositionsResult) (*float64, string) {
+// in base currency. It reads the legs the scores fill. A line's quote is
+// its position row's when the row carries both sides; the broker's
+// portfolio stream carries a mark for an option and never a bid or ask, so
+// a row without one is quoted by its exact contract, as the hedge's future
+// is. The cost is unknown, naming the first line without a two-sided quote
+// or base rate, when any lacks one: a partial cost would read as the plan's.
+func (s *Server) reduceTradeCost(ctx context.Context, legs []rpc.TradeProposalReduceLeg, pos *rpc.PositionsResult) (*float64, string) {
 	if pos == nil {
 		return nil, "the positions could not be read"
 	}
@@ -226,7 +230,18 @@ func reduceTradeCost(legs []rpc.TradeProposalReduceLeg, pos *rpc.PositionsResult
 			continue
 		}
 		row, ok := rows[leg.ConID]
-		if !ok || leg.ConID <= 0 || row.Bid == nil || row.Ask == nil || *row.Bid <= 0 || *row.Ask < *row.Bid {
+		if !ok || leg.ConID <= 0 {
+			return nil, leg.Symbol + " has no two-sided quote"
+		}
+		bid, ask := row.Bid, row.Ask
+		if !twoSided(bid, ask) {
+			q, err := s.reduceLegQuote(ctx, row)
+			if err != nil || q == nil {
+				return nil, leg.Symbol + " has no two-sided quote"
+			}
+			bid, ask = q.Bid, q.Ask
+		}
+		if !twoSided(bid, ask) {
 			return nil, leg.Symbol + " has no two-sided quote"
 		}
 		mult := 1.0
@@ -237,10 +252,30 @@ func reduceTradeCost(legs []rpc.TradeProposalReduceLeg, pos *rpc.PositionsResult
 		if !rateOK {
 			return nil, leg.Symbol + " has no rate to the base currency"
 		}
-		total += (*row.Ask - *row.Bid) / 2 * float64(leg.ReduceQuantity) * mult * rate
+		total += (*ask - *bid) / 2 * float64(leg.ReduceQuantity) * mult * rate
 	}
 	return &total, ""
 }
+
+// twoSided reports a quote with a bid above zero and an ask at or above it.
+func twoSided(bid, ask *float64) bool {
+	return bid != nil && ask != nil && *bid > 0 && *ask >= *bid
+}
+
+// reduceLegQuote reads a planned leg's line by its exact contract, within
+// the budget the hedge's future is read in.
+func (s *Server) reduceLegQuote(ctx context.Context, row rpc.PositionView) (*rpc.Quote, error) {
+	contract := proposalContractFromPosition(row, positionWireSecType(row.SecType))
+	if s.reduceLegQuoteForTest != nil {
+		return s.reduceLegQuoteForTest(ctx, contract)
+	}
+	raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: contract, TimeoutMs: reduceLegQuoteTimeoutMs})
+	return s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
+}
+
+// reduceLegQuoteTimeoutMs bounds one leg's exact-contract quote; the
+// hedge's future is read within the same budget (reduceHedgeFuture).
+const reduceLegQuoteTimeoutMs = 2000
 
 // mandateInputWithTrades is the input with each traded contract's quantity
 // moved by its change. Two legs of one contract are summed by the

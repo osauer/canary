@@ -44,7 +44,7 @@ func (s *Server) reduceHedgeFuture(ctx context.Context) (rpc.ContractParams, *rp
 	}
 	contract := rpc.ContractParams{ConID: fut.ConID, Symbol: fut.Symbol, SecType: fut.SecType, Exchange: fut.Exchange, Currency: fut.Currency,
 		Expiry: fut.Expiry, LocalSymbol: fut.LocalSymbol, TradingClass: fut.TradingClass, Multiplier: fut.Multiplier}
-	raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: contract, TimeoutMs: 2000})
+	raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: contract, TimeoutMs: reduceLegQuoteTimeoutMs})
 	q, err := s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
 	return contract, q, err
 }

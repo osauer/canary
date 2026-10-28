@@ -615,6 +615,10 @@ type Server struct {
 	// reduceHedgeFutureForTest replaces the hedge plan's read of the front
 	// Micro S&P future and its quote (reduceHedgeFuture).
 	reduceHedgeFutureForTest func(context.Context) (rpc.ContractParams, *rpc.Quote, error)
+	// reduceLegQuoteForTest replaces the exact-contract quote a reduce plan
+	// reads for a leg whose position row has no two-sided quote
+	// (reduceLegQuote).
+	reduceLegQuoteForTest    func(context.Context, rpc.ContractParams) (*rpc.Quote, error)
 	orderPreviewWhatIf       func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
 	orderWritesEnabled       func() bool
 	gatewayReadyForTrading   func() bool

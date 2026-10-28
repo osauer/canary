@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -319,4 +320,46 @@ func beforeAfter(before, after *float64) string {
 		return "unknown"
 	}
 	return fmt.Sprintf("%.2f now, %.2f after", *before, *after)
+}
+
+// The broker's portfolio stream carries a mark for an option and never a
+// bid or ask (live book 2026-10-28 17:19 CET: none of eight option rows had
+// one), so a cost read off the rows alone was unknown on every plan that
+// touched an option. A leg without a two-sided row quote is quoted by the
+// exact contract, as the hedge's future is; the row's own quote is kept
+// when it has one, and a quote that does not arrive leaves the cost
+// unknown, naming the line.
+func TestReducePlanQuotesAnOptionLegWithoutARowQuote(t *testing.T) {
+	book := scoreBook()
+	book[1].Bid, book[1].Ask = nil, nil
+	srv, pos := newReducePreviewTestServer(t, book...)
+	pos.Portfolio.BaseCurrency = "EUR"
+	keepMandateEvaluation(t, srv, pos)
+	var asked []rpc.ContractParams
+	srv.reduceLegQuoteForTest = func(_ context.Context, c rpc.ContractParams) (*rpc.Quote, error) {
+		asked = append(asked, c)
+		return &rpc.Quote{Bid: new(2.0), Ask: new(3.0)}, nil
+	}
+	plan, err := srv.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{Mode: rpc.ReduceModeAll, Percent: 100, PlanOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 || asked[0].ConID != 9103 || asked[0].SecType != "OPT" || asked[0].Right == "" {
+		t.Fatalf("exact quotes asked = %+v, want the one option leg by contract", asked)
+	}
+	want := 100*0.1 + 10*0.5*100
+	if plan.TradeCostBase == nil || math.Abs(*plan.TradeCostBase-want) > 1e-6 || plan.TradeCostUnknown != "" {
+		t.Fatalf("cost %v %q, want %.2f from the row quote and the exact option quote", plan.TradeCostBase, plan.TradeCostUnknown, want)
+	}
+
+	srv.reduceLegQuoteForTest = func(context.Context, rpc.ContractParams) (*rpc.Quote, error) {
+		return nil, errors.New("no quote within 2s")
+	}
+	plan, err = srv.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{Mode: rpc.ReduceModeAll, Percent: 100, PlanOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TradeCostBase != nil || !strings.Contains(plan.TradeCostUnknown, "SPY") || plan.LossMeasureAfterBase == nil {
+		t.Fatalf("no quote: cost %v %q, measure %+v; want unknown naming the line and the scores kept", plan.TradeCostBase, plan.TradeCostUnknown, plan.PlanLossMeasure)
+	}
 }

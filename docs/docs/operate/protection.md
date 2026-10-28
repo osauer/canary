@@ -284,7 +284,10 @@ book now and with every planned leg filled, in the base currency:
   still allows (`loss_measure_before_base`, `loss_measure_after_base`,
   `loss_room_base`). Locked lines count in it and are never traded.
 - The trading cost: half the quoted bid-ask spread on each leg, times its
-  units and multiplier (`trade_cost_base`). Commissions are not in it.
+  units and multiplier (`trade_cost_base`). Commissions are not in it. A
+  share line is quoted off its position row; an option row carries only a
+  mark, so an option leg is quoted by its exact contract, within two
+  seconds a leg, as the hedge's future is.
 
 `--mode hedge --plan` prices an index hedge instead of a cut. It sells
 Micro E-mini S&P 500 futures, the front quarterly contract on CME (a

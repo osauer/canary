@@ -284,7 +284,7 @@ func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalRed
 		if read, err := s.mandatePositions(ctx); err == nil {
 			pos = read
 		}
-		res.TradeCostBase, res.TradeCostUnknown = reduceTradeCost(res.Legs, pos)
+		res.TradeCostBase, res.TradeCostUnknown = s.reduceTradeCost(ctx, res.Legs, pos)
 	}
 	res.LegCount = len(res.Legs)
 	for _, leg := range res.Legs {
