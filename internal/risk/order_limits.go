@@ -248,6 +248,13 @@ type OrderLimitsInForce struct {
 	// max_bond_maturity_years: bond buys are refused, every other order is
 	// judged as usual.
 	BondMaturityUnset bool `json:"bond_maturity_unset,omitempty"`
+	// IndexHedgeMaxContracts is [mandate.index_hedge] max_contracts, the
+	// most Micro S&P contracts one index hedge may hold; zero with
+	// IndexHedgeRefusal saying why while the table is not written, and then
+	// a hedge sale is refused (owner decision 2026-10-28 20:07 CET: the
+	// table's presence is the permission). Read by the order gate only.
+	IndexHedgeMaxContracts int    `json:"-"`
+	IndexHedgeRefusal      string `json:"-"`
 	// AsOf is when the limits were evaluated: the "today" the bond maturity
 	// limit counts from. Not published.
 	AsOf time.Time `json:"-"`

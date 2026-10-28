@@ -1762,7 +1762,9 @@ const (
 	// the front quarterly contract, until a 10% index fall leaves the whole
 	// book about even, in whole contracts rounded toward less hedge (owner
 	// decisions 2026-10-28 13:17 CET: instrument MES, size to neutral).
-	// Plan only: placing a hedge is not built. Percent, Sectors and MinBeta
+	// A preview (not PlanOnly) prices the leg through the order path and
+	// carries its signed token, submitted as a basket's tokens are; placing
+	// needs [mandate.index_hedge] max_contracts. Percent, Sectors and MinBeta
 	// do not apply.
 	ReduceModeHedge = "hedge"
 )

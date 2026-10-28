@@ -379,6 +379,12 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 			return nil, err
 		}
 	}
+	isFuture := strings.EqualFold(contract.SecType, "FUT")
+	if isFuture {
+		if err := s.indexFutureSessionRefusal(s.orderNow()); err != nil {
+			return nil, err
+		}
+	}
 	timeout := orderPreviewTimeout(p.TimeoutMs)
 	previewAuthority, err := s.captureOrderPreviewBrokerAuthority()
 	if err != nil {
@@ -456,6 +462,11 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 	if scope == rpc.OrderTokenScopeModify && p.TriggerMethod == rpc.OrderTriggerMethodDefault {
 		triggerMethod = replaceView.TriggerMethod
+	}
+	if isFuture {
+		if err := indexFuturePreviewRefusal(p, scope, action, orderType, tif, position); err != nil {
+			return nil, err
+		}
 	}
 
 	var quote rpc.OrderQuoteSnapshot
@@ -893,7 +904,7 @@ func previewIBKRContract(contract rpc.ContractParams) *ibkrlib.Contract {
 		currency = "USD"
 	}
 	multiplier := contract.Multiplier
-	if secType != "OPT" {
+	if secType != "OPT" && secType != "FUT" {
 		multiplier = 0
 	}
 	if ibkrlib.IsBillOrBond(secType) {
@@ -1137,6 +1148,9 @@ func normalizePreviewContract(in rpc.ContractParams) (rpc.ContractParams, error)
 		// Admitted only with a currency_leveling row's conversion terms
 		// (previewOrder).
 		return normalizePreviewFXContract(in)
+	case "FUT":
+		// Admitted only as the index hedge or its close (index_hedge_order.go).
+		return normalizePreviewFutureContract(in)
 	default:
 		return rpc.ContractParams{}, errBadRequest("order preview supports STK/ETF/OPT contracts only")
 	}
@@ -1658,7 +1672,8 @@ func allowanceLimitPrice(action string, allowance *rpc.OrderAllowanceLimit, expl
 		return 0, 0, errBadRequest("allowance-limit strategy is daemon-internal")
 	case explicit != nil:
 		return 0, 0, errBadRequest("allowance-limit strategy must not carry a limit price")
-	case !positiveFinite(allowance.Pct) || allowance.Pct >= 100:
+	case !(allowance.Pct >= 0) || allowance.Pct >= 100:
+		// Zero is the touch itself: the index hedge sells at the bid.
 		return 0, 0, errBadRequest("allowance-limit allowance is invalid")
 	}
 	if err := requireFreshPreviewQuote(quote, "allowance-limit"); err != nil {

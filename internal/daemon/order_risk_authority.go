@@ -598,6 +598,15 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	// exempts, nor does an order that with the other working orders in its
 	// direction would exceed the held line, and the refusal then says why.
 	deltaExempt, deltaWhy := deltaReducingExit(draft, position, delta, exit)
+	// A future is the index hedge or its close, or nothing; one that passes
+	// its rule is exempt from the notional cap (index_hedge_order.go).
+	futureExempt := false
+	if strings.EqualFold(strings.TrimSpace(draft.Contract.SecType), "FUT") {
+		if err := indexFutureOrderRule(limits, draft, position); err != nil {
+			return err
+		}
+		futureExempt = true
+	}
 	if strings.EqualFold(draft.Contract.SecType, "OPT") && draft.Quantity > limits.MaxOptionContracts && !deltaExempt {
 		return fmt.Errorf("option quantity %d exceeds the option cap in force of %d contracts ([order_limits].max_option_contracts)%s", draft.Quantity, limits.MaxOptionContracts, deltaWhy)
 	}
@@ -610,7 +619,7 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	// bills_exempt_from_trading_max_notional (owner decision 2026-10-05
 	// 18:35 CEST); every other order keeps the order cap in force.
 	sweepBill := cashSweepTradingCapExempt(draft, position, notional)
-	if notional.BaseNotional > limits.CapBase && !protectiveExit && !sweepBill && !deltaExempt {
+	if notional.BaseNotional > limits.CapBase && !protectiveExit && !sweepBill && !deltaExempt && !futureExempt {
 		return fmt.Errorf("order notional %s exceeds the order cap in force %s%s", risk.FormatOrderMoney(notional.BaseNotional, baseCurrency), limits.Summary, deltaWhy)
 	}
 	if draft.StrategyGroup != nil {

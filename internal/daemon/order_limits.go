@@ -137,6 +137,7 @@ func (s *Server) orderLimitsInForce(baseCurrency string) risk.OrderLimitsInForce
 	}
 	limits := risk.EvaluateOrderLimits(mgr.policy.OrderLimits, base, s.currentOrderLimitsNLV(base, now), s.orderLimitsFloorOverride(now), "")
 	limits.AsOf = now
+	limits.IndexHedgeMaxContracts, limits.IndexHedgeRefusal = mgr.policy.Mandate.IndexHedgeMaxContracts()
 	if limits.Complete && policyBase != "" && base != "" && policyBase != base {
 		limits.Complete = false
 		limits.Unavailable = fmt.Sprintf("risk-policy.toml states its amounts in %s (capital.base_currency) but the account base currency is %s", policyBase, base)

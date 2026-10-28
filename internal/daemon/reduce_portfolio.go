@@ -494,8 +494,8 @@ func (s *Server) reducePortfolioSubmit(ctx context.Context, p rpc.TradeProposalR
 		clone.Replayed = true
 		return &clone, nil
 	}
-	if p.PlanOnly || len(p.ProposalKeys) > 0 || p.Mode == rpc.ReduceModeHedge {
-		res.Blockers = []rpc.TradingBlocker{{Code: "bad_request", Message: "a plan is preview-only", Action: "Preview the basket, then submit its tokens; nothing was sent."}}
+	if p.PlanOnly || len(p.ProposalKeys) > 0 || p.Mode == rpc.ReduceModeHedge && len(p.PreviewTokens) == 0 {
+		res.Blockers = []rpc.TradingBlocker{{Code: "bad_request", Message: "a plan is preview-only, and a hedge is placed from its previewed token", Action: "Preview the basket, then submit its tokens; nothing was sent."}}
 		return res, nil
 	}
 	if len(p.PreviewTokens) > 0 {

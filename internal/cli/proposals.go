@@ -231,7 +231,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 		return nil
 	})
-	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), all (every unlocked line, shorts bought back), or hedge (with --plan alone: sell Micro S&P futures until a 10% fall leaves the book about even)")
+	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), all (every unlocked line, shorts bought back), or hedge (sell Micro S&P futures until a 10% fall leaves the book about even; a preview mints the leg's token, submitted with --submit --preview-token)")
 	var sectors []string
 	fs.Func("sector", "with --mode longs|all: only lines in this GICS sector (repeatable)", func(v string) error {
 		if v = strings.TrimSpace(v); v != "" {
@@ -272,8 +272,8 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "proposals reduce: --proposal goes with --portfolio --plan alone; the proposals carry their own size")
 		}
 	} else if strings.EqualFold(strings.TrimSpace(*mode), rpc.ReduceModeHedge) {
-		if !*portfolio || !*plan || *submit || set["percent"] || set["sector"] || set["min-beta"] || fs.NArg() > 0 || *conID > 0 {
-			return fail(env, "proposals reduce: --mode hedge goes with --portfolio --plan alone; the hedge is sized to neutral")
+		if !*portfolio || *submit || set["percent"] || set["sector"] || set["min-beta"] || set["adaptive-priority"] || fs.NArg() > 0 || *conID > 0 {
+			return fail(env, "proposals reduce: --mode hedge goes with --portfolio alone (and --plan to price it only); the hedge is sized to neutral, and its preview's token is placed with --portfolio --submit --preview-token TOKEN")
 		}
 	} else if *percent <= 0 || *percent > 100 {
 		return fail(env, "proposals reduce: --percent must be between 1 and 100 (the app offers 25/50/75/100)")
@@ -490,7 +490,11 @@ func renderReduceTerms(env *Env, out io.Writer, indent string, terms *rpc.TradeP
 		if b.Side == "ask" {
 			where, worse = "above", "higher"
 		}
-		statusRow(env, out, indent+"Worst price", fmt.Sprintf("%s · %.2f%% %s the %s %s; not sent if the %s is %s", formatReducePrice(b.WorstPrice), b.AllowancePct, where, b.Side, formatReducePrice(b.Reference), b.Side, worse))
+		if b.AllowancePct == 0 {
+			statusRow(env, out, indent+"Worst price", fmt.Sprintf("%s · the %s itself; not sent if the %s is %s", formatReducePrice(b.WorstPrice), b.Side, b.Side, worse))
+		} else {
+			statusRow(env, out, indent+"Worst price", fmt.Sprintf("%s · %.2f%% %s the %s %s; not sent if the %s is %s", formatReducePrice(b.WorstPrice), b.AllowancePct, where, b.Side, formatReducePrice(b.Reference), b.Side, worse))
+		}
 	}
 	if !terms.ExpiresAt.IsZero() {
 		statusRow(env, out, indent+"Expires", terms.ExpiresAt.Format(time.RFC3339))
@@ -505,8 +509,11 @@ func formatReduceTerms(terms *rpc.TradeProposalReduceTerms) string {
 	}
 	c := terms.Contract
 	name := c.Symbol
-	if strings.EqualFold(c.SecType, "OPT") {
+	switch {
+	case strings.EqualFold(c.SecType, "OPT"):
 		name = fmt.Sprintf("%s %s %s%s", c.Symbol, c.Expiry, formatReducePrice(c.Strike), strings.ToUpper(c.Right))
+	case strings.EqualFold(c.SecType, "FUT") && c.LocalSymbol != "":
+		name = c.LocalSymbol
 	}
 	algo := "plain limit"
 	switch {

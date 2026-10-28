@@ -74,7 +74,7 @@ func hedgeQuotePrice(q *rpc.Quote) float64 {
 // on the book now and with the hedge sold. Nothing to hedge, or less than
 // one contract, is a blocker with the book's figures unchanged.
 func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReducePortfolioParams) *rpc.TradeProposalReducePortfolioResult {
-	res := &rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeHedge, PlanOnly: true, AsOf: s.reduceClock(), Legs: []rpc.TradeProposalReduceLeg{}}
+	res := &rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeHedge, PlanOnly: p.PlanOnly, AsOf: s.reduceClock(), Legs: []rpc.TradeProposalReduceLeg{}}
 	block := func(code, msg, action string) *rpc.TradeProposalReducePortfolioResult {
 		res.Blockers = append(res.Blockers, rpc.TradingBlocker{Code: code, Message: msg, Action: action})
 		return res
@@ -83,8 +83,6 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		res.IndexLoss, res.PlanLossMeasure, res.TradeCostUnknown = indexLossUnknown(why), planLossMeasureUnknown(why), why
 	}
 	switch {
-	case !p.PlanOnly:
-		return block("hedge_plan_only", "an index hedge is priced by a plan only; no order path places a future yet", "Read the plan.")
 	case len(p.Sectors) > 0 || p.MinBeta != 0 || len(p.ProposalKeys) > 0 || p.Percent != 0 && p.Percent != 100:
 		return block("bad_request", "an index hedge is sized to neutral on the whole book; percent, sector, beta and proposals do not apply", "Ask for the hedge alone.")
 	}
@@ -160,5 +158,54 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	}
 	res.TotalNotional = value * fx
 	res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
+	if p.PlanOnly {
+		return res
+	}
+	// A preview prices the leg through the one order path and hands back
+	// its signed token, as a cut's leg does; the plan's figures stay.
+	res.Legs[0] = s.reduceHedgePreviewLeg(ctx, p, leg, input)
+	aggregateBasket(res, false)
+	if len(res.Legs[0].Blockers) == 0 {
+		res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
+	}
 	return res
+}
+
+// reduceHedgePreviewLeg previews the sized hedge sale: the table must be
+// written and the book's short contracts with this sale within
+// max_contracts, never resized to fit (a hard stop against a wrong size,
+// not the target); then a limit at the bid, good for the day, in US
+// regular hours, through previewOrder with the hedge's source.
+func (s *Server) reduceHedgePreviewLeg(ctx context.Context, p rpc.TradeProposalReducePortfolioParams, leg rpc.TradeProposalReduceLeg, input *mandate.Input) rpc.TradeProposalReduceLeg {
+	heldShort := 0.0
+	for _, l := range input.Legs {
+		if mandate.IsIndexFuture(l) && l.Quantity < 0 {
+			heldShort -= l.Quantity
+		}
+	}
+	draft := rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: *leg.Contract, Quantity: leg.ReduceQuantity}
+	if blockers := s.indexHedgeCapRefusal(draft, heldShort); len(blockers) > 0 {
+		leg.Blockers = blockers
+		return leg
+	}
+	legCtx, cancel := legContext(ctx, p.TimeoutMs)
+	defer cancel()
+	preview, err := s.previewOrder(legCtx, rpc.OrderPreviewParams{Action: rpc.OrderActionSell, Contract: *leg.Contract, Quantity: leg.ReduceQuantity,
+		OrderType: rpc.OrderTypeLMT, Strategy: rpc.OrderStrategyAllowanceLimit, Allowance: &rpc.OrderAllowanceLimit{Pct: 0}, TIF: rpc.OrderTIFDay,
+		TimeoutMs: p.TimeoutMs, Source: hedgeOrderSource})
+	if err != nil {
+		leg.Blockers = previewFailureBlockers(err)
+		return leg
+	}
+	leg.Notional = preview.Notional
+	leg.PreviewTokenID = preview.PreviewTokenID
+	leg.SubmitEligible = preview.SubmitEligible
+	leg.Preview = sanitizeProposalPreviewForProposal(preview, rpc.TradeProposal{})
+	leg.Terms = reduceTermsFor(preview.Draft, preview.Quote, preview.PreviewTokenID, preview.PreviewTokenExpiresAt, "")
+	if !preview.SubmitEligible {
+		leg.Blockers = previewNotSubmitEligibleBlockers(preview)
+		return leg
+	}
+	leg.PreviewToken = preview.PreviewToken
+	return leg
 }

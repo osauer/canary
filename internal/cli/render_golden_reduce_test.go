@@ -126,15 +126,29 @@ func goldenReducePortfolioPlanLongs() rpc.TradeProposalReducePortfolioResult {
 
 // goldenReducePortfolioPlanHedge sells five Micro S&P contracts to neutral:
 // the fall's loss falls to under one contract's offset, the rise's gain by
-// as much, and the unstopped future leaves the loss measure as it was.
+// as much, and the hedge's loss in the rise spends loss room (owner
+// decision 2026-10-28 20:07 CET).
 func goldenReducePortfolioPlanHedge() rpc.TradeProposalReducePortfolioResult {
 	contract := rpc.ContractParams{ConID: 750001, Symbol: "MES", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218", LocalSymbol: "MESZ6", TradingClass: "MES", Multiplier: 5}
 	return rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeHedge, PlanOnly: true, BaseCurrency: "EUR", AsOf: goldenAt, LegCount: 1, TotalNotional: 135000,
 		IndexShockPct: 10, IndexLossBeforeBase: new(15000.0), IndexLossAfterBase: new(1500.0), IndexRisePct: 10, IndexRiseLossBeforeBase: new(-15000.0), IndexRiseLossAfterBase: new(-1500.0),
-		LossMeasureBeforeBase: new(41000.0), LossMeasureAfterBase: new(41000.0), LossRoomBase: new(69000.0), TradeCostBase: new(5.63),
+		LossMeasureBeforeBase: new(41000.0), LossMeasureAfterBase: new(54500.0), LossRoomBase: new(69000.0), TradeCostBase: new(5.63),
 		Legs: []rpc.TradeProposalReduceLeg{{ConID: 750001, Symbol: "MES", SecType: "FUT", Action: rpc.OrderActionSell, ReduceQuantity: 5, DollarDelta: -135000,
 			Notional: 150000, NotionalCurrency: "USD", NotionalBase: new(135000.0), Contract: &contract}},
 		Message: "sell 5 MESZ6 to neutral"}
+}
+
+// goldenReducePortfolioPreviewHedge is the hedge previewed: the same leg
+// with its token and exact terms, a limit at the bid, good for the day.
+func goldenReducePortfolioPreviewHedge() rpc.TradeProposalReducePortfolioResult {
+	res := goldenReducePortfolioPlanHedge()
+	res.PlanOnly, res.Accepted, res.EligibleCount = false, true, 1
+	leg := &res.Legs[0]
+	leg.Notional, leg.PreviewToken, leg.PreviewTokenID, leg.SubmitEligible = 149993.75, goldenReduceToken, goldenReduceTokenID, true
+	leg.Terms = &rpc.TradeProposalReduceTerms{PreviewTokenID: goldenReduceTokenID, ExpiresAt: time.Date(2026, 9, 5, 12, 10, 0, 0, time.UTC),
+		Contract: *leg.Contract, Action: rpc.OrderActionSell, Quantity: 5, OrderType: rpc.OrderTypeLMT, LimitPrice: 5999.75, TIF: rpc.OrderTIFDay,
+		PriceBound: rpc.TradeProposalReducePriceBound{Side: "bid", Reference: 5999.75, ReferenceMid: 6000, WorstPrice: 5999.75}}
+	return res
 }
 
 // goldenReducePortfolioPlanHedgeNone is a book that already gains in the

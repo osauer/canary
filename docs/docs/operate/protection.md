@@ -297,10 +297,23 @@ toward less hedge, so the book never ends short of the index. Every line
 counts toward the size, locked ones too. The plan carries one leg with its
 `contract` (month and multiplier) and the same scores as a cut. When the
 fall already leaves the book even or ahead, or its loss is less than one
-contract offsets, the plan sells nothing and says why. A future without a
-stop adds nothing to the loss measure and is listed as unstopped, as a
-share line without a stop is. The hedge is a plan only: no order path
-places a future yet.
+contract offsets, the plan sells nothing and says why. A held future counts
+in the mandate like every other line: its gain or loss in the 10% fall and
+rise, and in the loss measure what it loses in the rise
+(`index_hedge_base`), so a hedge spends loss room.
+
+Without `--plan`, `--mode hedge` previews the sale and the leg carries a
+signed preview token; `--portfolio --submit --preview-token TOKEN`, or the
+device-confirmed basket in Desk, places exactly those terms. The sale is a
+limit at the bid, good for the day, in US regular hours only, with no stop
+order. Placing needs `[mandate.index_hedge] max_contracts` in the risk
+constitution: without it the leg says `index_hedge_unplaceable`, and a sale
+that would leave the book more contracts short than that says
+`index_hedge_over_max`; it is never resized to fit. At submit the hours,
+the cap with Canary's working hedge sales and the bid are read again. A
+held hedge is bought back as a percent reduce of its own line,
+`canary proposals reduce --con-id ID --percent N --include-hedges`; no
+portfolio sweep selects it.
 
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`
