@@ -564,7 +564,9 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	s.prewarmStockQuoteSummaries(ctx, c, res.Stocks)
 	flagZeroValueStockPositions(res.Stocks)
 	s.fillDailyChange(res.Stocks)
-	// Options reuse their underlying's cached previous close as context.
+	// Options reuse their underlying's cached previous close as context;
+	// a name held only through options reads its own.
+	s.prewarmOptionUnderlyingCloses(ctx, c, res.Stocks, res.Options)
 	s.fillOptionUnderlyingPrevClose(res.Options)
 	// Briefly subscribe to each option leg to harvest model Greeks.
 	s.prewarmOptionGreeks(ctx, c, res.Options)
@@ -1426,6 +1428,56 @@ func (s *Server) fillOptionUnderlyingPrevClose(options []rpc.PositionView) {
 		v := e.value
 		p.PrevClose = &v
 	}
+}
+
+// prewarmOptionUnderlyingCloses reads the regular close of every option's
+// underlying the book does not hold as a stock line, as
+// prewarmStockQuoteSummaries reads a held stock's, into the same cache.
+// Without it such an option's only underlying price was the broker's
+// option-model tick, which does not come after a restart outside market
+// hours, and one such leg left the mandate verdict unknown (live book
+// 2026-10-28 21:23 CET). A read that fails leaves the row as it was.
+func (s *Server) prewarmOptionUnderlyingCloses(ctx context.Context, c *ibkrlib.Connector, stocks, options []rpc.PositionView) {
+	if s == nil || s.prevCloses == nil || len(options) == 0 || (c == nil && s.optionUnderlyingCloseForTest == nil) {
+		return
+	}
+	held := map[string]bool{}
+	for _, row := range stocks {
+		if positionQuotesAsStock(row) {
+			held[normSym(row.Symbol)] = true
+		}
+	}
+	var jobs []rpc.ContractParams
+	for _, row := range options {
+		sym := normSym(row.Symbol)
+		if sym == "" || held[sym] {
+			continue
+		}
+		held[sym] = true
+		jobs = append(jobs, rpc.ContractParams{Symbol: sym, SecType: "STK", Exchange: "SMART", Currency: nonEmptyString(normCcy(row.Currency), "USD")})
+	}
+	runBounded(jobs, positionsPrewarmWorkers, func(contract rpc.ContractParams) {
+		if ctx.Err() != nil {
+			return
+		}
+		var value float64
+		var ok bool
+		if s.optionUnderlyingCloseForTest != nil {
+			value, ok = s.optionUnderlyingCloseForTest(ctx, contract)
+		} else {
+			q, read, _ := s.snapshotHeldStockQuote(ctx, c, contract, positionStockQuoteBudget)
+			switch {
+			case !read:
+			case q.RegularClose != nil:
+				value, ok = *q.RegularClose, true
+			case q.PrevClose != nil:
+				value, ok = *q.PrevClose, true
+			}
+		}
+		if ok && value > 0 {
+			s.prevCloses.put(contract.Symbol, prevCloseEntry{value: value}, time.Now())
+		}
+	})
 }
 
 // positionsPrewarmWorkers bounds per-call market-data enrichment concurrency.
