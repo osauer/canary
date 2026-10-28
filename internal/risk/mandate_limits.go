@@ -36,7 +36,7 @@ func mandateLimits(c *Constitution, get func(key, value, source, meaning, enforc
 	if m.StartedAt != "" {
 		startVal, startSrc = strconv.Quote(m.StartedAt), "file"
 	}
-	return []ConstitutionLimit{
+	return append([]ConstitutionLimit{
 		get("mandate.max_loss_pct", lossVal, lossSrc,
 			"The largest loss of the budget base the owner tolerates, in percent: room runs from 1 at a new high to 0 at this loss. The verdict's measure: the loss room (this percent of the budget base at room) bounds the loss measure, every bought option at its premium at risk plus the cash loss to the stop of every stopped share line (spec TM-04.12, owner decision 2026-10-27); over it the verdict reads reduce and additions are refused. Changes only by a policy revision.", "hard"),
 		get(MandateAdditionsOverrideControl, volVal, volSrc,
@@ -49,5 +49,26 @@ func mandateLimits(c *Constitution, get func(key, value, source, meaning, enforc
 			"The one-name gap each underlying is stressed by, in percent of its price. Changes only by a policy revision.", "hard"),
 		get("mandate.gap_room_pct", roomVal, roomSrc,
 			"The share of the remaining loss room one name may lose in that gap, in percent. Changes only by a policy revision.", "hard"),
+	}, ivFallbackLimits(m, get, pct)...)
+}
+
+// ivFallbackLimits lists [mandate.iv_fallback] once the table is written.
+func ivFallbackLimits(m *ConstitutionMandate, get func(key, value, source, meaning, enforcement string) ConstitutionLimit, pct func(v *float64) (string, string)) []ConstitutionLimit {
+	if m.IVFallback == nil {
+		return nil
+	}
+	f := m.IVFallback
+	band := "The share an option's fallback volatility (implied from its own mark when the position row carries none) is moved by, down and up, to bound the S&P-fall figure, for options "
+	tier := " of the loss room the S&P-fall uncertainty from fallback volatilities may take"
+	row := func(key string, v *float64, meaning string) ConstitutionLimit {
+		val, src := pct(v)
+		return get("mandate.iv_fallback."+key, val, src, meaning+" Changes only by a policy revision.", "advisory")
+	}
+	return []ConstitutionLimit{
+		row("short_band_pct", f.ShortBandPct, band+"under 8 days to expiry."),
+		row("month_band_pct", f.MonthBandPct, band+"8 to 35 days to expiry."),
+		row("long_band_pct", f.LongBandPct, band+"beyond 35 days to expiry."),
+		row("measured_pct", f.MeasuredPct, "The share"+tier+" while the verdict still reads measured."),
+		row("range_pct", f.RangePct, "The share"+tier+" while the verdict reads measured only when it is the same at both edges; beyond it the verdict is unknown."),
 	}
 }

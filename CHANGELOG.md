@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.29.0 — Unreleased
+
+### Added
+
+- An option without its own implied volatility no longer has to leave the mandate's verdict unknown (owner instruction 2026-10-28 08:51 CET). Before a session's first quote, after a daemon restart or outside the option's market hours the position row carries none, and one such option blanked the loss verdict, every stress and the S&P-fall figures of the reduce plan and the proposals. Canary now prices it at the volatility its own mark implies. A new optional policy table `[mandate.iv_fallback]` decides what that may do: each such volatility is moved down and up by `short_band_pct` (under 8 days to expiry), `month_band_pct` (8 to 35 days) or `long_band_pct` (beyond), and half the resulting range of the S&P-fall figure is judged against the loss room: within `measured_pct` the verdict stands, within `range_pct` only when it is the same at both edges, beyond it is unknown. `canary mandate` lists the options, their bands and the range; `canary_mandate` carries `verdict.iv_fallback` and each leg's `iv_source`. Absent, or with a key missing, nothing changes. The new-install template carries the proposed values (65, 15, 8; 5, 20) commented out.
+
 ## v3.28.0 — 2026-10-28 08:22 CET
 
 ### What's new

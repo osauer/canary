@@ -487,9 +487,32 @@ func mandateLegsFromPositions(pos *rpc.PositionsResult, base string, now time.Ti
 			Currency: normCcy(row.Currency), Spot: spot, Right: strings.ToUpper(strings.TrimSpace(row.Right)), Strike: row.Strike,
 			TimeToExpiryYears: mandateYearsToExpiry(row.Expiry, now), IV: row.IV}
 		mandateOptionLoss(&leg, row, base)
+		mandateFallbackIV(&leg, row)
 		legs = append(legs, leg)
 	}
 	return legs, notModelled, fxNow, reasons
+}
+
+// mandateFallbackIV prices an option the position row carries no volatility
+// for at the volatility its own mark implies, tagged as such with the mark's
+// time (owner instruction 2026-10-28 08:51 CET). Before a session's first
+// model tick, after a daemon restart or in another market's hours the row has
+// none, and one such leg used to leave the whole book unknown. The evaluator
+// counts the tag only under the owner's [mandate.iv_fallback]; a mark it
+// cannot invert (none, or at or below intrinsic) leaves the leg as it was.
+func mandateFallbackIV(leg *mandate.Leg, row rpc.PositionView) {
+	if leg.IV != nil || leg.Spot <= 0 || leg.Strike <= 0 || leg.TimeToExpiryYears <= 0 || (leg.Right != "C" && leg.Right != "P") {
+		return
+	}
+	iv, ok := mandate.ImpliedVolatility(leg.Right == "C", row.Mark, leg.Spot, leg.Strike, leg.TimeToExpiryYears)
+	if !ok {
+		return
+	}
+	leg.IV, leg.IVSource = &iv, mandate.IVSourceMark
+	leg.IVAsOf = row.PriceAt
+	if leg.IVAsOf.IsZero() {
+		leg.IVAsOf = row.QuotePriceAt
+	}
 }
 
 // mandateLegID identifies a position row as the evaluator's leg: the exact

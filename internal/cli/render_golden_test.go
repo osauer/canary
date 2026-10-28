@@ -282,6 +282,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "reporting_costs_empty", argv: []string{"reporting", "costs", "--month", "2026-08"}, conn: goldenConn{rpc.MethodReportingCosts: goldenReportingCostsEmpty()}},
 		{name: "mandate_register", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateRegister()}},
 		{name: "mandate_unknown", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateUnknown()}},
+		{name: "mandate_iv_fallback", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateIVFallback()}},
 		{name: "mandate_unknown_held", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateHeld()}},
 		{name: "mandate_no_room", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateNoRoom()}},
 		{name: "mandate_exposure", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateExposure()}},
@@ -672,8 +673,8 @@ func goldenMandate(status string) rpc.MandateRiskResult {
 	if status == mandate.StatusReduce {
 		scale = 4
 	}
-	capital := mandate.Capital{Known: true, BaseCurrency: "EUR", StartedAt: "2026-09-01", EquityBase: 300000, EquityAsOf: goldenAt.Add(-2 * time.Minute),
-		TaxReserveBase: 70000, RiskBase: 225000, FlowsSinceStart: -5000, HWMRiskBase: 235000, HWMAsOf: goldenAt.Add(-48 * time.Hour),
+	capital := mandate.Capital{Known: true, BaseCurrency: "EUR", StartedAt: "2026-09-01", EquityBase: 307000, EquityAsOf: goldenAt.Add(-2 * time.Minute),
+		TaxReserveBase: 70000, RiskBase: 232000, FlowsSinceStart: -5000, HWMRiskBase: 235000, HWMAsOf: goldenAt.Add(-48 * time.Hour),
 		BudgetBase: 230000, DrawdownBase: 5000, DrawdownPct: 2.13, Room: 0.929, BudgetAnnualSD: 32050}
 	up := 6200 * scale
 	// The within book is drawn gaining in the index stress and the reduce
@@ -783,7 +784,7 @@ func goldenMandateNoRoom() rpc.MandateRiskResult {
 	v := res.Verdict
 	v.Status = mandate.StatusReduce
 	c := &v.Capital
-	c.EquityBase, c.RiskBase, c.DrawdownBase, c.DrawdownPct, c.Room, c.BudgetAnnualSD = 225000, 155000, 75000, 31.91, 0, 0
+	c.EquityBase, c.TaxReserveBase, c.RiskBase, c.DrawdownBase, c.DrawdownPct, c.Room, c.BudgetAnnualSD = 240000, 85000, 155000, 75000, 31.91, 0, 0
 	v.Risk.RatioToBudget = math.Inf(1)
 	v.Loss.RoomBase, v.Loss.RatioToRoom = 0, math.Inf(1)
 	v.Stresses.GapCapBase, v.Stresses.GapBreaches = 0, []string{"SYNA", "SYNB"}
@@ -850,6 +851,16 @@ func goldenMandateProposals() rpc.TradeProposalSnapshot {
 
 // goldenMandateUnknown is a verdict the evidence cannot establish: one
 // series stale, one option without IV.
+// goldenMandateIVFallback is a measured verdict with one option priced on
+// the volatility its mark implies (owner, 2026-10-28 08:51 CET).
+func goldenMandateIVFallback() rpc.MandateRiskResult {
+	res := goldenMandate(mandate.StatusWithin)
+	ratio := 0.012
+	res.Verdict.IVFallback = &mandate.IVFallbackReport{IndexLossLowBase: 8100, IndexLossHighBase: 8700, UncertaintyBase: 300, RatioToRoom: &ratio, Tier: mandate.IVTierMeasured,
+		Legs: []mandate.IVFallbackLeg{{Symbol: "SYNA 20261218 110 C", Source: mandate.IVSourceMark, AsOf: goldenAt.Add(-14 * time.Hour), DaysToExpiry: 51, IV: 0.34, BandPct: 8}}}
+	return res
+}
+
 func goldenMandateUnknown() rpc.MandateRiskResult {
 	res := goldenMandate(mandate.StatusWithin)
 	v := res.Verdict

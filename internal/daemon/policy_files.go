@@ -1375,6 +1375,21 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # this gap instead; absent, they take gap_shock_pct. 12 is your decision of
 # 2026-10-14 (D4).
 # index_gap_shock_pct = 12.0
+# What an option without its own implied volatility may do to the verdict.
+# Canary then prices it at the volatility its own mark implies; this table
+# says how far that may move the S&P-fall figure. Bands: the share each such
+# volatility is moved down and up, for options under 8 days to expiry, 8 to
+# 35 days, and beyond. Tiers: half the resulting range against the loss
+# room; within measured_pct the verdict reads measured, within range_pct
+# only when it is the same at both edges, beyond it unknown. Absent, one
+# such option leaves the verdict unknown. The values are proposals from one
+# week of recorded option chains; they bind only once you write them.
+# [mandate.iv_fallback]
+# short_band_pct = 65.0
+# month_band_pct = 15.0
+# long_band_pct = 8.0
+# measured_pct = 5.0
+# range_pct = 20.0
 # Risk allocations per sleeve, in percent a year of the budget base. The
 # machine's (core, overlay) are reserved as far as each runs: its stage times
 # its allocation while the sleeve sends orders,

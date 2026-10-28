@@ -9,7 +9,7 @@ Loss room · 30% × 230,000 EUR at room 0% · loss 32% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 0% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 155,000 EUR = equity 225,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 155,000 EUR = equity 240,000 EUR − tax reserve 85,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · refused · the loss measure 20,750 EUR (premium at risk 0 EUR,
                   stop loss 20,750 EUR) is over the mandate's loss room 0 EUR
@@ -67,7 +67,7 @@ Loss room · 30% × 230,000 EUR at room 0% · loss 32% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 0% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 155,000 EUR = equity 225,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 155,000 EUR = equity 240,000 EUR − tax reserve 85,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · \x1b[31mrefused · the loss measure 20,750 EUR (premium at risk 0 EUR,\x1b[0m
                   \x1b[31mstop loss 20,750 EUR) is over the mandate's loss room 0 EUR\x1b[0m

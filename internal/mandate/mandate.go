@@ -80,6 +80,12 @@ type Leg struct {
 	Strike            float64  `json:"strike,omitempty"`
 	TimeToExpiryYears float64  `json:"time_to_expiry_years,omitempty"`
 	IV                *float64 `json:"iv,omitempty"`
+	// IVSource is empty for the position row's own volatility and
+	// IVSourceMark when the daemon implied it from the leg's mark; IVAsOf is
+	// that mark's time. A mark-implied volatility counts only under the
+	// owner's [mandate.iv_fallback] (ivfallback.go).
+	IVSource string    `json:"iv_source,omitempty"`
+	IVAsOf   time.Time `json:"iv_as_of,omitzero"`
 	// ISIN names the fund behind the line when the daemon knows it (a
 	// position row carries none): Evaluate fills it from Input.LineISINs.
 	ISIN string `json:"isin,omitempty"`
@@ -423,6 +429,9 @@ type Verdict struct {
 	// OwnerStop is the owner sleeve's drawdown stop with the sleeve's use on
 	// this verdict; nil while the policy writes none.
 	OwnerStop *SleeveStop `json:"owner_stop,omitempty"`
+	// IVFallback names the options priced on a fallback volatility, the
+	// S&P-fall range across their bands and its tier; nil when none is.
+	IVFallback *IVFallbackReport `json:"iv_fallback,omitempty"`
 }
 
 // Evaluate runs the historical simulation and judges the book against the
@@ -484,7 +493,7 @@ func Evaluate(in Input) Verdict {
 	// Leg-level evidence: an option without IV or any leg without a spot
 	// cannot be priced; the verdict says which.
 	for _, l := range legs {
-		if why := legUnknown(l); why != "" {
+		if why := legUnknownUnder(l, in.Policy); why != "" {
 			v.Reasons = append(v.Reasons, fmt.Sprintf("%s: %s", l.Symbol, why))
 		}
 	}
@@ -500,7 +509,7 @@ func Evaluate(in Input) Verdict {
 	// Reports with contributions unknown still list the legs.
 	if len(v.Reasons) > 0 {
 		for _, l := range legs {
-			v.Legs = append(v.Legs, LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, Unknown: firstNonEmpty(legUnknown(l), "not simulated"), LossBase: legLoss(l)})
+			v.Legs = append(v.Legs, LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, Unknown: firstNonEmpty(legUnknownUnder(l, in.Policy), "not simulated"), LossBase: legLoss(l)})
 		}
 		ApplySleeveStop(&v, in.OwnerStop)
 		return v
@@ -532,6 +541,14 @@ func Evaluate(in Input) Verdict {
 	default:
 		v.Status = StatusWithin
 	}
+	if r := judgeIVFallback(in, legs, returns, sim, v.Loss, v.Status); r != nil {
+		v.IVFallback = r
+		if r.Tier == IVTierUnknown {
+			// Unknown keeps its contract: no risk, stresses or allocations.
+			v.Status, v.Risk, v.Stresses, v.Allocations = StatusUnknown, nil, nil, nil
+			v.Reasons = append(v.Reasons, r.Reason)
+		}
+	}
 	ApplySleeveStop(&v, in.OwnerStop)
 	return v
 }
@@ -542,6 +559,15 @@ func WithLeg(in Input, add Leg) Input {
 	out := in
 	out.Legs = append(slices.Clone(in.Legs), add)
 	return out
+}
+
+// legUnknownUnder is legUnknown under the policy: a mark-implied volatility
+// counts only while the owner's [mandate.iv_fallback] is written.
+func legUnknownUnder(l Leg, p Policy) string {
+	if l.Kind == KindOption && l.IVSource == IVSourceMark && p.IVFallback == nil {
+		return "no implied volatility on the position row"
+	}
+	return legUnknown(l)
 }
 
 func legUnknown(l Leg) string {

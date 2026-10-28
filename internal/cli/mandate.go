@@ -68,6 +68,18 @@ func mandateStressPnL(loss float64, ccy string) string {
 	return "loses " + mandateAmount(loss, ccy)
 }
 
+// mandateStressRange says a stress range with one verb where both ends share
+// it: "loses 8,100 to 8,700 EUR", else "gains 200 EUR to loses 400 EUR".
+func mandateStressRange(low, high float64, ccy string) string {
+	switch {
+	case low >= 0:
+		return "loses " + mandateCap(low) + " to " + mandateAmount(high, ccy)
+	case high < 0:
+		return "gains " + mandateCap(-high) + " to " + mandateAmount(-low, ccy)
+	}
+	return mandateStressPnL(low, ccy) + " to " + mandateStressPnL(high, ccy)
+}
+
 // mandateCap prints a gap cap as a bare grouped figure for a parenthesis.
 func mandateCap(v float64) string {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
@@ -198,6 +210,7 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			riskReadLine(env, "  Currency share of the risk", mandatePct(v.Risk.FXContributionPct))
 		}
 	}
+	renderMandateIVFallback(env, v.IVFallback, ccy)
 	if len(v.NotModelled) > 0 {
 		riskReadLine(env, "Not modelled", strings.Join(v.NotModelled, "; "))
 	}
@@ -518,4 +531,33 @@ func mandatePhaseWords(phase string) string {
 		return "owner sleeve stop"
 	}
 	return phase
+}
+
+// renderMandateIVFallback says which options are priced on the volatility
+// their own mark implies, the S&P-fall range across their bands and how the
+// verdict judged it.
+func renderMandateIVFallback(env *Env, r *mandate.IVFallbackReport, ccy string) {
+	if r == nil {
+		return
+	}
+	fmt.Fprintln(env.Stdout, "\n"+env.bold("Fallback volatility"))
+	judged := "measured"
+	switch r.Tier {
+	case mandate.IVTierRange:
+		judged = "measured: the verdict is the same at both edges"
+	case mandate.IVTierUnknown:
+		judged = "too wide: the verdict is unknown"
+	}
+	width := "± " + mandateAmount(r.UncertaintyBase, ccy)
+	if r.RatioToRoom != nil {
+		width += ", " + mandatePct(*r.RatioToRoom*100) + " of the loss room"
+	}
+	riskReadLine(env, "  Index fall range", mandateStressRange(r.IndexLossLowBase, r.IndexLossHighBase, ccy), width, judged)
+	for _, l := range r.Legs {
+		as := ""
+		if !l.AsOf.IsZero() {
+			as = "mark of " + formatTimeShort(l.AsOf.Local())
+		}
+		riskReadLine(env, "  "+l.Symbol, briefJoin(fmt.Sprintf("IV %.0f%% implied from its mark", l.IV*100), fmt.Sprintf("band ±%g%%, %d days to expiry", l.BandPct, l.DaysToExpiry), as))
+	}
 }
