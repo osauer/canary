@@ -380,8 +380,8 @@ func TestRiskRatioEncodesAtZeroBudget(t *testing.T) {
 // A Micro S&P future is a linear line on the index (the index hedge, owner
 // decision 2026-10-28 13:17 CET): SPY's returns give it a beta of 1, it
 // takes the index gap, a 10% fall gains a short exactly the shock on its
-// contract value, and without a stop it is listed as unstopped and adds
-// nothing to the loss measure, as an unstopped share line does.
+// contract value, and its loss in the 10% rise spends loss room (owner
+// decision 2026-10-28 20:07 CET), so it is never listed as unstopped.
 func TestMicroSP500FutureIsALinearIndexLine(t *testing.T) {
 	short := Leg{ID: "con:9", Symbol: "MESZ6", Underlying: MicroSP500Future, Kind: KindStock, Quantity: -2, Multiplier: 5, Currency: "USD", Spot: 6000}
 	v := Evaluate(testInput(t, []Leg{short}))
@@ -396,8 +396,14 @@ func TestMicroSP500FutureIsALinearIndexLine(t *testing.T) {
 	if !u.BroadIndex || math.Abs(u.Beta-1) > 1e-9 || u.GapShockPct != testPolicy().GapShockPctFor(true) {
 		t.Fatalf("underlying %+v, want a broad index line with beta 1", u)
 	}
-	if v.Loss == nil || v.Loss.TotalBase != 0 || !slices.Contains(v.Loss.Unstopped, "MESZ6") {
-		t.Fatalf("loss %+v, want nothing counted and the line unstopped", v.Loss)
+	if v.Loss == nil || math.Abs(v.Loss.TotalBase-gain) > 1e-6 || math.Abs(v.Loss.IndexHedgeBase-gain) > 1e-6 || slices.Contains(v.Loss.Unstopped, "MESZ6") {
+		t.Fatalf("loss %+v, want the %.2f rise loss counted under index_hedge_base and the line not unstopped", v.Loss, gain)
+	}
+	// A stop covering the whole line bounds it at the stop's distance.
+	stopped := short
+	stopped.StopArmed, stopped.LossPerUnitBase = true, 450
+	if m, why := MeasureLoss(testInput(t, []Leg{stopped})); len(why) > 0 || m.IndexHedgeBase != 900 || m.TotalBase != 900 {
+		t.Fatalf("stopped future measure %+v (%v), want 900 to the stop", m, why)
 	}
 	if IsBroadIndex("ES", "USD") || ReturnsSeries("MES", "USD") != "MES" {
 		t.Fatal("a share symbol must not match the future's key")

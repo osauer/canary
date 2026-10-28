@@ -531,6 +531,11 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			view.Strike = pos.Contract.Strike
 			res.Options = append(res.Options, view)
 		} else {
+			if pos.Contract.SecType == "FUT" {
+				// A future's month names the contract (the hedge's roll
+				// reads it); a stock has none.
+				view.Expiry = pos.Contract.Expiry
+			}
 			res.Stocks = append(res.Stocks, view)
 		}
 		if pos.Contract.ConID > 0 {
@@ -1899,6 +1904,11 @@ func positionDollarDelta(row rpc.PositionView, isOption bool) (float64, bool) {
 	}
 	if row.Mark <= 0 {
 		return 0, false
+	}
+	if positionIsFuture(row) {
+		// A future's dollar delta is its contract value: quantity × price ×
+		// multiplier (owner decisions 2026-10-28, the index hedge).
+		return row.Quantity * row.Mark * float64(max(row.Multiplier, 1)), true
 	}
 	return row.Quantity * row.Mark, true
 }

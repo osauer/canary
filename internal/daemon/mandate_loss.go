@@ -168,6 +168,9 @@ func mandateApplyStops(legs []mandate.Leg, pos *rpc.PositionsResult, base string
 		}
 		row, held := rows[l.ID]
 		rate, rateOK := positionBaseRate(row, base)
+		// A future's stop counts at contract value per point (its
+		// multiplier); a share's at one.
+		mult := math.Max(1, l.Multiplier)
 		covered, loss := 0.0, 0.0
 		for _, st := range stops[l.ID] {
 			if !held || !rateOK || !(row.Mark > 0) {
@@ -182,7 +185,7 @@ func mandateApplyStops(legs []mandate.Leg, pos *rpc.PositionsResult, base string
 				break
 			}
 			covered += q
-			loss += math.Max(0, perShare) * q * rate
+			loss += math.Max(0, perShare) * mult * q * rate
 		}
 		if covered > 0 {
 			// The covered shares' loss, spread over the line, so a cut of the

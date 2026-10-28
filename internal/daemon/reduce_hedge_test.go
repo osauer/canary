@@ -43,8 +43,9 @@ func hedgePlan(t *testing.T, s *Server, p rpc.TradeProposalReducePortfolioParams
 // the book about even, rounded toward less hedge (owner decisions
 // 2026-10-28 13:17 CET): 3,000 index shares lose 15,000 in the fall, one
 // contract at 6,000 × 5 × 0.9 offsets 2,700, so five leave 1,500. The plan
-// is scored as a sweep is: the rise gains less by as much, the unstopped
-// future adds nothing to the loss measure, and the cost is half the spread.
+// is scored as a sweep is: the rise gains less by as much, the hedge's loss
+// in the rise (5 × 10% × 6,000 × 5 × 0.9 = 13,500) spends loss room (owner
+// decision 2026-10-28 20:07 CET), and the cost is half the spread.
 func TestReduceHedgePlanSellsToNeutral(t *testing.T) {
 	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50))
 	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
@@ -60,8 +61,8 @@ func TestReduceHedgePlanSellsToNeutral(t *testing.T) {
 		t.Fatalf("fall %s, rise %s; want 15,000 → 1,500 and -15,000 → -1,500",
 			beforeAfter(res.IndexLossBeforeBase, res.IndexLossAfterBase), beforeAfter(res.IndexRiseLossBeforeBase, res.IndexRiseLossAfterBase))
 	}
-	if res.LossMeasureBeforeBase == nil || !near(res.LossMeasureAfterBase, *res.LossMeasureBeforeBase) || res.LossRoomBase == nil {
-		t.Fatalf("loss measure %s, want unchanged by an unstopped hedge", beforeAfter(res.LossMeasureBeforeBase, res.LossMeasureAfterBase))
+	if res.LossMeasureBeforeBase == nil || !near(res.LossMeasureAfterBase, *res.LossMeasureBeforeBase+13500) || res.LossRoomBase == nil {
+		t.Fatalf("loss measure %s, want the hedge's 13,500 rise loss added", beforeAfter(res.LossMeasureBeforeBase, res.LossMeasureAfterBase))
 	}
 	if !near(res.TradeCostBase, 0.25*5*5*0.9) || !near(leg.NotionalBase, 5*6000*5*0.9) || res.BaseCurrency != "EUR" {
 		t.Fatalf("cost %v notional %v ccy %s", res.TradeCostBase, leg.NotionalBase, res.BaseCurrency)

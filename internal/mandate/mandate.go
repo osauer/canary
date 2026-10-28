@@ -110,12 +110,19 @@ type Leg struct {
 // LossMeasure is the mandate's headline (spec TM-04.12): what the book can
 // lose, as the owner measures it, against the loss the mandate still allows.
 type LossMeasure struct {
-	// TotalBase is PremiumBase + StopLossBase: the premium at risk on every
-	// bought option and the cash loss to the stop on every share line with an
-	// armed stop, in base currency.
+	// TotalBase is PremiumBase + StopLossBase + IndexHedgeBase: the premium
+	// at risk on every bought option, the cash loss to the stop on every
+	// share line with an armed stop, and the loss of every held index future
+	// in the 10% index move against it, in base currency.
 	TotalBase    float64 `json:"total_base"`
 	PremiumBase  float64 `json:"premium_base"`
 	StopLossBase float64 `json:"stop_loss_base"`
+	// IndexHedgeBase is the loss of the held index futures (the Reduce
+	// hedge) when the index moves IndexShockPct against them: a short loses
+	// in the rise, a long in the fall. A hedge spends loss room like every
+	// other line (owner decision 2026-10-28 20:07 CET); a stop that covers
+	// the whole line bounds it at the stop's distance instead.
+	IndexHedgeBase float64 `json:"index_hedge_base,omitempty"`
 	// RoomBase is the loss the mandate still allows: max_loss_pct of the
 	// budget base, less the drawdown already taken (room × D × budget base).
 	RoomBase float64 `json:"room_base"`
@@ -132,10 +139,11 @@ type LossMeasure struct {
 
 // LossName is one underlying's part of the loss measure.
 type LossName struct {
-	Underlying   string  `json:"underlying"`
-	TotalBase    float64 `json:"total_base"`
-	PremiumBase  float64 `json:"premium_base"`
-	StopLossBase float64 `json:"stop_loss_base"`
+	Underlying     string  `json:"underlying"`
+	TotalBase      float64 `json:"total_base"`
+	PremiumBase    float64 `json:"premium_base"`
+	StopLossBase   float64 `json:"stop_loss_base"`
+	IndexHedgeBase float64 `json:"index_hedge_base,omitempty"`
 }
 
 // MarshalJSON writes an unbounded ratio as null, as Risk does.
@@ -194,7 +202,7 @@ func MeasureLoss(in Input) (*LossMeasure, []string) {
 			reasons = append(reasons, "the mandate's capital is unknown")
 		}
 	}
-	m, lossReasons := measureLoss(in, mergeLegs(in.Legs, in.LineISINs))
+	m, lossReasons := measureLoss(in, mergeLegs(in))
 	return m, append(reasons, lossReasons...)
 }
 
@@ -225,6 +233,11 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 		case l.Kind == KindOption && l.Quantity > 0:
 			n.PremiumBase += loss
 			out.PremiumBase += loss
+		case IsIndexFuture(l):
+			// Its loss is bounded by the index move (or a full stop), so it
+			// is never unstopped.
+			n.IndexHedgeBase += loss
+			out.IndexHedgeBase += loss
 		case l.Kind == KindStock:
 			n.StopLossBase += loss
 			out.StopLossBase += loss
@@ -232,9 +245,9 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 				out.Unstopped = append(out.Unstopped, l.Symbol)
 			}
 		}
-		n.TotalBase = n.PremiumBase + n.StopLossBase
+		n.TotalBase = n.PremiumBase + n.StopLossBase + n.IndexHedgeBase
 	}
-	out.TotalBase = out.PremiumBase + out.StopLossBase
+	out.TotalBase = out.PremiumBase + out.StopLossBase + out.IndexHedgeBase
 	for _, name := range order {
 		if n := byName[name]; n.TotalBase > 0 {
 			out.Names = append(out.Names, *n)
@@ -462,7 +475,7 @@ func Evaluate(in Input) Verdict {
 	if !in.Capital.Known {
 		v.Reasons = append(v.Reasons, in.Capital.Reasons...)
 	}
-	legs := mergeLegs(in.Legs, in.LineISINs)
+	legs := mergeLegs(in)
 	// The headline needs no history: the loss measure is read first, and a
 	// bought option whose premium is unmeasured is a reason like any other.
 	var lossReasons []string
@@ -615,17 +628,52 @@ func legUnknown(l Leg) string {
 	return ""
 }
 
-func mergeLegs(in []Leg, isins map[string]string) []Leg {
+// IsIndexFuture reports a linear leg on the index future key: a held Micro
+// S&P future, or the Reduce hedge's planned or ordered contracts.
+func IsIndexFuture(l Leg) bool {
+	return l.Kind == KindStock && strings.EqualFold(strings.TrimSpace(l.Underlying), MicroSP500Future)
+}
+
+// IndexFutureLossPerUnit is one contract's loss when the index moves
+// IndexShockPct against it, in base currency at fx: price × multiplier ×
+// the shock. The sign of the holding does not matter: a short loses in the
+// rise, a long in the fall, by the same amount.
+func IndexFutureLossPerUnit(l Leg, fx float64) float64 {
+	if !(l.Spot > 0) || !(l.Multiplier > 0) || !(fx > 0) || math.IsInf(fx, 0) {
+		return 0
+	}
+	return IndexShockPct / 100 * l.Spot * l.Multiplier * fx
+}
+
+// fxNowFor is the base units one unit of the leg's currency buys now: 1 in
+// the base currency, else the positions' rate (0 when none, which the
+// verdict names as a missing rate).
+func fxNowFor(in Input, l Leg) float64 {
+	ccy := strings.ToUpper(strings.TrimSpace(l.Currency))
+	if ccy == "" || ccy == strings.ToUpper(strings.TrimSpace(in.BaseCurrency)) {
+		return 1
+	}
+	return in.FXNow[ccy]
+}
+
+// mergeLegs normalises the input's legs and sums two lines of one contract.
+// A held index future without a full stop counts its index-move loss per
+// contract here, so every book the evaluator reads (the verdict, a plan's
+// after book, the gate's book with the order) measures it the same way.
+func mergeLegs(in Input) []Leg {
 	index := map[string]int{}
 	var out []Leg
-	for _, l := range in {
+	for _, l := range in.Legs {
 		l.Right = strings.ToUpper(strings.TrimSpace(l.Right))
 		l.Currency = strings.ToUpper(strings.TrimSpace(l.Currency))
 		l.Underlying = strings.ToUpper(strings.TrimSpace(l.Underlying))
-		if isin, ok := isins[l.ID]; ok && l.ID != "" && l.ISIN == "" {
+		if isin, ok := in.LineISINs[l.ID]; ok && l.ID != "" && l.ISIN == "" {
 			l.ISIN = isin
 		}
 		l.ISIN = strings.ToUpper(strings.TrimSpace(l.ISIN))
+		if IsIndexFuture(l) && !l.StopArmed {
+			l.LossPerUnitBase = IndexFutureLossPerUnit(l, fxNowFor(in, l))
+		}
 		if i, ok := index[l.ID]; ok && l.ID != "" {
 			// Two lines of one contract on one side: the loss per unit is
 			// the quantity-weighted figure, so the sum carries both

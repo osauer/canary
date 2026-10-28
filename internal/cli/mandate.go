@@ -251,7 +251,11 @@ func renderMandateLoss(env *Env, l *mandate.LossMeasure, ccy string) {
 	if l.RoomBase > 0 {
 		room = mandatePct(l.RatioToRoom*100) + " of the loss room " + mandateAmount(l.RoomBase, ccy)
 	}
-	parts := []string{mandateAmount(l.TotalBase, ccy) + " = premium at risk " + mandateAmount(l.PremiumBase, ccy) + " + loss to armed stops " + mandateAmount(l.StopLossBase, ccy), room}
+	sum := mandateAmount(l.TotalBase, ccy) + " = premium at risk " + mandateAmount(l.PremiumBase, ccy) + " + loss to armed stops " + mandateAmount(l.StopLossBase, ccy)
+	if l.IndexHedgeBase > 0 {
+		sum += fmt.Sprintf(" + index hedge in a %g%% move against it ", mandate.IndexShockPct) + mandateAmount(l.IndexHedgeBase, ccy)
+	}
+	parts := []string{sum, room}
 	if len(l.Unstopped) > 0 {
 		parts = append(parts, "unstopped, counting nothing: "+strings.Join(l.Unstopped, ", "))
 	}
