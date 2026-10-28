@@ -1,5 +1,5 @@
 diff --git a/internal/daemon/reduce_portfolio.go b/internal/daemon/reduce_portfolio.go
-index 8d1e9b45..7a65a57c 100644
+index 815b9c96..6d4c879c 100644
 --- a/internal/daemon/reduce_portfolio.go
 +++ b/internal/daemon/reduce_portfolio.go
 @@ -37,10 +37,9 @@
@@ -40,10 +40,10 @@ index 8d1e9b45..7a65a57c 100644
 @@ -107,9 +100,6 @@
  		return nil, 0, false, 0, []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "current positions are unavailable", Action: "Retry once the daemon has refreshed positions."}}
  	}
- 	netDelta, netComplete = netPortfolioDollarDelta(pos)
+ 	netDelta, netComplete = netPortfolioDollarDelta(exposure)
 -	if !netComplete {
 -		return nil, netDelta, false, 0, []rpc.TradingBlocker{{Code: "net_delta_incomplete", Message: "the full portfolio's net delta is unavailable; a partial book cannot establish which holdings reduce risk", Action: "Refresh positions and wait for current prices, Greeks, and FX before reducing the portfolio."}}
 -	}
- 	if math.Abs(netDelta) < reduceSweepMaterialityFloor(pos) {
+ 	if math.Abs(netDelta) < reduceSweepMaterialityFloor(exposure) {
  		return nil, netDelta, netComplete, 0, []rpc.TradingBlocker{{Code: "net_delta_immaterial", Message: "longs and shorts roughly offset; there is no dominant net delta direction to trim", Action: "Trim individual holdings instead, or review hedges manually."}}
  	}
