@@ -1,12 +1,16 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -14,12 +18,23 @@ import (
 // under the current policy, so served proposals and plans read it.
 func indexLossServer(t *testing.T, pos *rpc.PositionsResult) *Server {
 	t.Helper()
-	s := &Server{now: func() time.Time { return mandateTestNow }}
-	s.riskPolicies = newRiskPolicyManager("", time.Minute, nil)
+	s := &Server{}
+	keepMandateEvaluation(t, s, pos)
+	return s
+}
+
+// keepMandateEvaluation keeps a mandate evaluation of pos on s under the
+// current policy, the loss measure half the loss room, and returns its input.
+func keepMandateEvaluation(t *testing.T, s *Server, pos *rpc.PositionsResult) *mandate.Input {
+	t.Helper()
+	s.now = func() time.Time { return mandateTestNow }
+	if s.riskPolicies == nil {
+		s.riskPolicies = newRiskPolicyManager("", time.Minute, nil)
+	}
 	s.riskPolicies.active = testMandateConstitution()
 	fixture := mandateReductionFixture(t, pos, 0.5, 1000000, 0)
 	s.mandateVerdicts.set(fixture.Result, fixture.Input, mandateTestNow, s.riskPolicies.snapshot().policy.FingerprintKey(), false, s.captureMandateBookBinding())
-	return s
+	return fixture.Input
 }
 
 // Canary's own proposals are priced for the index fall exactly as the
@@ -36,12 +51,12 @@ func TestProposalIndexLossMatchesTheReducePlan(t *testing.T) {
 	s := indexLossServer(t, pos)
 
 	plan := &rpc.TradeProposalReducePortfolioResult{}
-	s.reduceIndexLoss(t.Context(), plan, map[int]float64{9101: -40})
+	s.reduceMandateScores(t.Context(), plan, map[int]float64{9101: -40})
 	if plan.IndexLossBeforeBase == nil || plan.IndexLossAfterBase == nil {
 		t.Fatalf("precondition: the plan prices the cut: %+v", plan.IndexLoss)
 	}
 	both := &rpc.TradeProposalReducePortfolioResult{}
-	s.reduceIndexLoss(t.Context(), both, map[int]float64{9101: -40, 9102: -50})
+	s.reduceMandateScores(t.Context(), both, map[int]float64{9101: -40, 9102: -50})
 
 	sell := func(key, symbol string, conID, qty int) rpc.TradeProposal {
 		return rpc.TradeProposal{Key: key, Revision: "r1", Bucket: rpc.TradeProposalBucketRiskReduction, Action: rpc.OrderActionSell, Quantity: qty,
@@ -142,7 +157,7 @@ func TestReducePlanPricesNamedProposals(t *testing.T) {
 		t.Fatalf("plan = %+v, want two priced legs in EUR", plan)
 	}
 	cuts := &rpc.TradeProposalReducePortfolioResult{}
-	s.reduceIndexLoss(t.Context(), cuts, map[int]float64{9101: -40, 9102: -50})
+	s.reduceMandateScores(t.Context(), cuts, map[int]float64{9101: -40, 9102: -50})
 	near := func(a, b *float64) bool { return a != nil && b != nil && math.Abs(*a-*b) < 1e-6 }
 	if !near(plan.IndexLossAfterBase, cuts.IndexLossAfterBase) || !near(plan.IndexLossBeforeBase, cuts.IndexLossBeforeBase) || !near(plan.IndexLossAfterBase, served.IndexLoss.IndexLossAfterBase) {
 		t.Fatalf("named plan %+v, sweep plan %+v, snapshot %+v; want one figure", plan.IndexLoss, cuts.IndexLoss, served.IndexLoss)
@@ -162,4 +177,146 @@ func TestReducePlanPricesNamedProposals(t *testing.T) {
 	if len(refused.Blockers) == 0 || refused.IndexLossAfterBase != nil {
 		t.Fatalf("named proposals without plan_only = %+v, want refused", refused)
 	}
+}
+
+// scoreBook is a long index book with two-sided quotes: shares under a
+// stop and bought calls. The index's beta is 1 by construction, so the
+// book loses in the fall and gains in the rise.
+func scoreBook() []rpc.PositionView {
+	spy := mandateReductionStock("SPY", 9101, 100, 50)
+	call := mandateReductionCall("SPY", 9103, 10, 50, 50, 2.5, "20261218")
+	call.Delta = new(0.5)
+	spy.Bid, spy.Ask = new(49.9), new(50.1)
+	call.Bid, call.Ask = new(2.4), new(2.6)
+	return []rpc.PositionView{spy, call}
+}
+
+// The reduce plan is scored on both sides against the loss limit (owner,
+// 2026-10-28 13:13 CET), in every sweep mode: the loss measure now and after
+// against the room (each cut line gives up its own premium or distance to
+// the stop), the index rise beside the fall (a long book gains less in the
+// rise and loses less in the fall once cut), and the trading cost, half the
+// spread times units times multiplier. A leg without a two-sided quote
+// makes the cost unknown, never partial.
+func TestReducePlanScoresBothSidesAgainstTheLossLimit(t *testing.T) {
+	srv, pos := newReducePreviewTestServer(t, scoreBook()...)
+	pos.Portfolio.BaseCurrency = "EUR"
+	in := keepMandateEvaluation(t, srv, pos)
+	perUnit, quote := map[int]float64{}, map[int]float64{}
+	for _, l := range in.Legs {
+		var conID int
+		if _, err := fmt.Sscanf(l.ID, "con:%d", &conID); err == nil {
+			perUnit[conID] = l.LossPerUnitBase
+		}
+	}
+	for _, row := range slices.Concat(pos.Stocks, pos.Options) {
+		quote[row.ConID] = (*row.Ask - *row.Bid) / 2 * float64(max(row.Multiplier, 1))
+	}
+	nowMeasure, _ := mandate.MeasureLoss(*in)
+	nowStress := mandate.Evaluate(*in).Stresses
+	room := mandate.LossRoomBase(in.Policy, in.Capital)
+	near := func(got *float64, want float64) bool { return got != nil && math.Abs(*got-want) < 1e-6 }
+
+	for _, mode := range []string{rpc.ReduceModeNet, rpc.ReduceModeLongs, rpc.ReduceModeAll} {
+		plan, err := srv.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{Mode: mode, Percent: 50, PlanOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cut, cost, planned := 0.0, 0.0, 0
+		for _, leg := range plan.Legs {
+			if len(leg.Blockers) > 0 {
+				continue
+			}
+			planned++
+			cut += float64(leg.ReduceQuantity) * perUnit[leg.ConID]
+			cost += float64(leg.ReduceQuantity) * quote[leg.ConID]
+		}
+		if planned < 2 {
+			t.Fatalf("%s: precondition: the plan cuts lines: %+v", mode, plan.Legs)
+		}
+		if !near(plan.LossMeasureBeforeBase, nowMeasure.TotalBase) || !near(plan.LossMeasureAfterBase, nowMeasure.TotalBase-cut) || !near(plan.LossRoomBase, room) || plan.LossMeasureUnknown != "" {
+			t.Fatalf("%s: loss measure %+v, want %.2f now, %.2f after, room %.2f", mode, plan.PlanLossMeasure, nowMeasure.TotalBase, nowMeasure.TotalBase-cut, room)
+		}
+		if plan.IndexRisePct != mandate.IndexShockPct || !near(plan.IndexRiseLossBeforeBase, nowStress.IndexRiseLossBase) || plan.IndexRiseLossAfterBase == nil ||
+			*plan.IndexRiseLossBeforeBase >= 0 || *plan.IndexRiseLossAfterBase <= *plan.IndexRiseLossBeforeBase || *plan.IndexRiseLossAfterBase >= 0 ||
+			*plan.IndexLossBeforeBase <= 0 || *plan.IndexLossAfterBase >= *plan.IndexLossBeforeBase {
+			t.Fatalf("%s: index fall %s and rise %s, want a long book that gains less in the rise and loses less in the fall once cut", mode,
+				beforeAfter(plan.IndexLossBeforeBase, plan.IndexLossAfterBase), beforeAfter(plan.IndexRiseLossBeforeBase, plan.IndexRiseLossAfterBase))
+		}
+		if !near(plan.TradeCostBase, cost) || plan.TradeCostUnknown != "" {
+			t.Fatalf("%s: trade cost %v %q, want %.2f", mode, plan.TradeCostBase, plan.TradeCostUnknown, cost)
+		}
+	}
+
+	pos.Stocks[0].Ask = nil
+	plan, err := srv.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{Mode: rpc.ReduceModeLongs, Percent: 50, PlanOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.TradeCostBase != nil || !strings.Contains(plan.TradeCostUnknown, "SPY") || plan.LossMeasureAfterBase == nil {
+		t.Fatalf("one-sided quote: cost %v %q, measure %+v; want the cost unknown naming the line and the scores kept", plan.TradeCostBase, plan.TradeCostUnknown, plan.PlanLossMeasure)
+	}
+
+	// The wire names, beside the index fall's.
+	raw, _ := json.Marshal(plan)
+	for _, k := range []string{"loss_measure_before_base", "loss_measure_after_base", "loss_room_base", "index_rise_pct", "index_rise_loss_before_base", "index_rise_loss_after_base", "trade_cost_unknown"} {
+		if !strings.Contains(string(raw), `"`+k+`"`) {
+			t.Errorf("plan JSON lacks %s", k)
+		}
+	}
+}
+
+// A plan of named proposals scores as the sweep cutting the same lines: a
+// proposal selling held units takes them off the line at the line's own
+// loss per unit, the rise and the loss measure match, and the cost reads
+// the held lines' quotes. A row it cannot price leaves every figure unknown.
+func TestReducePlanOfProposalsScoresAsTheSweep(t *testing.T) {
+	rows := scoreBook()
+	pos := mandateReductionBook(rows...)
+	s := indexLossServer(t, pos)
+	s.mandatePositionsForTest = func(context.Context) (*rpc.PositionsResult, error) { return pos, nil }
+	sell := func(key string, row rpc.PositionView, qty int) rpc.TradeProposal {
+		return rpc.TradeProposal{Key: key, Revision: "r1", State: "generated", Bucket: rpc.TradeProposalBucketRiskReduction, Action: rpc.OrderActionSell, Quantity: qty,
+			Symbol: row.Symbol, SecType: positionWireSecType(row.SecType), OrderType: rpc.OrderTypeLMT,
+			Contract: rpc.ContractParams{ConID: row.ConID, Symbol: row.Symbol, SecType: positionWireSecType(row.SecType), Currency: "EUR"}}
+	}
+	trail := sell("ts-SPY", rows[0], 100)
+	trail.Bucket, trail.OrderType = rpc.TradeProposalBucketTrailingStop, rpc.OrderTypeTRAIL
+	scope := brokerStateScope{Account: "DU1234567", Mode: rpc.AccountModePaper}
+	s.tradeProposals = &proposalEngine{server: s, scope: func() brokerStateScope { return scope },
+		snapshot: rpc.TradeProposalSnapshot{Kind: rpc.TradeProposalSnapshotKind, Revision: "snap-1", AccountID: scope.Account, AccountMode: scope.Mode,
+			Proposals: []rpc.TradeProposal{sell("rr-SPY", rows[0], 40), sell("ox-SPY", rows[1], 4), trail}}}
+
+	plan, err := s.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{PlanOnly: true, ProposalKeys: []string{"rr-SPY", "ox-SPY"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sweep := &rpc.TradeProposalReducePortfolioResult{}
+	s.reduceMandateScores(t.Context(), sweep, map[int]float64{9101: -40, 9103: -4})
+	near := func(a, b *float64) bool { return a != nil && b != nil && math.Abs(*a-*b) < 1e-6 }
+	if !near(plan.LossMeasureAfterBase, sweep.LossMeasureAfterBase) || !near(plan.LossMeasureBeforeBase, sweep.LossMeasureBeforeBase) || !near(plan.LossRoomBase, sweep.LossRoomBase) {
+		t.Fatalf("named plan measure %s, sweep %s; want one figure", beforeAfter(plan.LossMeasureBeforeBase, plan.LossMeasureAfterBase), beforeAfter(sweep.LossMeasureBeforeBase, sweep.LossMeasureAfterBase))
+	}
+	if *plan.LossMeasureAfterBase >= *plan.LossMeasureBeforeBase {
+		t.Fatalf("selling stopped shares and bought calls must lessen the loss measure: %+v", plan.PlanLossMeasure)
+	}
+	if !near(plan.IndexRiseLossAfterBase, sweep.IndexRiseLossAfterBase) || !near(plan.IndexRiseLossBeforeBase, sweep.IndexRiseLossBeforeBase) {
+		t.Fatalf("named plan rise %s, sweep %s; want one figure", beforeAfter(plan.IndexRiseLossBeforeBase, plan.IndexRiseLossAfterBase), beforeAfter(sweep.IndexRiseLossBeforeBase, sweep.IndexRiseLossAfterBase))
+	}
+	if want := 40*0.1 + 4*0.1*100; !near(plan.TradeCostBase, new(want)) {
+		t.Fatalf("trade cost %v %q, want %.2f", plan.TradeCostBase, plan.TradeCostUnknown, want)
+	}
+
+	withStop, _ := s.reducePortfolioPreview(t.Context(), rpc.TradeProposalReducePortfolioParams{PlanOnly: true, ProposalKeys: []string{"ox-SPY", "ts-SPY"}})
+	if withStop.LossMeasureAfterBase != nil || withStop.IndexRiseLossAfterBase != nil || withStop.TradeCostBase != nil ||
+		withStop.LossMeasureUnknown == "" || withStop.IndexRiseLossUnknown == "" || withStop.TradeCostUnknown == "" {
+		t.Fatalf("plan with a stop = %+v, want every figure unknown and why", withStop)
+	}
+}
+
+func beforeAfter(before, after *float64) string {
+	if before == nil || after == nil {
+		return "unknown"
+	}
+	return fmt.Sprintf("%.2f now, %.2f after", *before, *after)
 }

@@ -2,8 +2,10 @@
 
 Portfolio Reduce Preview  accepted=true
 Percent        50% of net delta
+Index -10%     gains $ 1,200.00 now, loses $ 300.00 after
+Index +10%     loses $ 900.00 now, gains $ 200.00 after
 Legs           2 eligible · 0 blocked of 2
-Delta scope    unlocked holdings; locked holdings excluded
+Delta scope    the book without locked hedges; locked holdings are never traded
 Net delta (before)
                $ 3,750.00
 Target removed $ 1,875.00
@@ -32,8 +34,10 @@ Untouched      1 position
 
 Portfolio Reduce Preview  accepted=true
 \x1b[2mPercent       \x1b[0m 50% of net delta
+\x1b[2mIndex -10%    \x1b[0m gains $ 1,200.00 now, loses $ 300.00 after
+\x1b[2mIndex +10%    \x1b[0m loses $ 900.00 now, gains $ 200.00 after
 \x1b[2mLegs          \x1b[0m 2 eligible · 0 blocked of 2
-\x1b[2mDelta scope   \x1b[0m unlocked holdings; locked holdings excluded
+\x1b[2mDelta scope   \x1b[0m the book without locked hedges; locked holdings are never traded
 \x1b[2mNet delta (before)\x1b[0m
 \x1b[2m              \x1b[0m $ 3,750.00
 \x1b[2mTarget removed\x1b[0m $ 1,875.00

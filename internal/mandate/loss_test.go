@@ -3,6 +3,7 @@ package mandate
 import (
 	"encoding/json"
 	"math"
+	"slices"
 	"testing"
 )
 
@@ -123,5 +124,67 @@ func TestWithLegAddsTheOrdersLoss(t *testing.T) {
 	v := Evaluate(WithLeg(in, add))
 	if v.Loss == nil || math.Abs(v.Loss.TotalBase-15000) > 1e-6 {
 		t.Fatalf("with the order: %+v, want 15,000 of premium", v.Loss)
+	}
+}
+
+// A closing leg leaves the line's loss per unit as it was: selling 4 of 10
+// calls leaves 6 at their own premium, and selling 40 of 100 stopped shares
+// leaves 60 at their own distance to the stop (found 2026-10-28: the merge
+// weighted the sale's zero premium in, so the plan's after figure read low).
+func TestClosingLegKeepsTheLinesLossPerUnit(t *testing.T) {
+	iv := 0.35
+	call := Leg{ID: "1", Symbol: "SYNA 100 C", Underlying: "SYNA", Kind: KindOption, Quantity: 10, Multiplier: 100, Currency: "USD", Spot: 100,
+		Right: "C", Strike: 100, TimeToExpiryYears: 0.25, IV: &iv, LossPerUnitBase: 1000}
+	shares := Leg{ID: "2", Symbol: "SYNB", Underlying: "SYNB", Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "USD", Spot: 50, LossPerUnitBase: 5, StopArmed: true}
+	in := lossTestInput(t, []Leg{call, shares})
+	sellCalls, sellShares := call, shares
+	sellCalls.Quantity, sellCalls.LossPerUnitBase = -4, 0
+	sellShares.Quantity, sellShares.LossPerUnitBase, sellShares.StopArmed = -40, 0, false
+	m, reasons := MeasureLoss(WithLeg(WithLeg(in, sellCalls), sellShares))
+	if len(reasons) > 0 || m == nil || math.Abs(m.PremiumBase-6000) > 1e-6 || math.Abs(m.StopLossBase-300) > 1e-6 || len(m.Unstopped) != 0 {
+		t.Fatalf("after the sales: %+v %v, want 6,000 of premium and 300 to the stop, still stopped", m, reasons)
+	}
+	// Past flat, the new side's units carry the new leg's own figure.
+	flip := call
+	flip.Quantity, flip.LossPerUnitBase = -15, 0
+	if m, _ := MeasureLoss(WithLeg(in, flip)); m == nil || m.PremiumBase != 0 {
+		t.Fatalf("short after the flip: %+v, want no premium at risk", m)
+	}
+	// Adding to the line still weighs the two premiums.
+	add := call
+	add.Quantity, add.LossPerUnitBase = 10, 3000
+	if m, _ := MeasureLoss(WithLeg(in, add)); m == nil || math.Abs(m.PremiumBase-40000) > 1e-6 {
+		t.Fatalf("added: %+v, want 40,000 of premium", m)
+	}
+}
+
+// MeasureLoss is the verdict's headline without the simulation, and unknown
+// for every reason the verdict would give for it: an unmeasured premium, the
+// daemon's own grounds, or capital without a loss room.
+func TestMeasureLossMatchesTheVerdict(t *testing.T) {
+	iv := 0.35
+	legs := []Leg{{ID: "1", Symbol: "SYNA 100 C", Underlying: "SYNA", Kind: KindOption, Quantity: 10, Multiplier: 100, Currency: "USD", Spot: 100,
+		Right: "C", Strike: 100, TimeToExpiryYears: 0.25, IV: &iv, LossPerUnitBase: 1000}}
+	in := lossTestInput(t, legs)
+	m, reasons := MeasureLoss(in)
+	v := Evaluate(in)
+	if len(reasons) > 0 || m == nil || v.Loss == nil || m.TotalBase != v.Loss.TotalBase || m.RoomBase != v.Loss.RoomBase {
+		t.Fatalf("measure %+v %v, verdict %+v", m, reasons, v.Loss)
+	}
+	stale := in
+	stale.Reasons = []string{"positions read is stale"}
+	if _, reasons := MeasureLoss(stale); len(reasons) != 1 || reasons[0] != "positions read is stale" {
+		t.Fatalf("daemon grounds: %v", reasons)
+	}
+	noCapital := in
+	noCapital.Capital = Capital{Reasons: []string{"no equity reading"}}
+	if _, reasons := MeasureLoss(noCapital); len(reasons) == 0 || reasons[0] != "no equity reading" {
+		t.Fatalf("unknown capital: %v", reasons)
+	}
+	unmeasured := in
+	unmeasured.Legs = slices.Clone(legs)
+	unmeasured.Legs[0].LossUnknown = "no price paid"
+	if _, reasons := MeasureLoss(unmeasured); len(reasons) == 0 {
+		t.Fatal("an unmeasured premium must make the measure unknown")
 	}
 }

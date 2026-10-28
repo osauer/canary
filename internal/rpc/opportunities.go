@@ -1815,18 +1815,39 @@ type TradeProposalReduceUntouchedPosition struct {
 
 // IndexLoss is the mandate's index stress (the index falls IndexShockPct
 // and every name follows with its beta, options repriced) on the book now
-// and with a set of orders filled, in the account base currency. A negative
-// loss is a gain. The before and after figures are nil, with
-// IndexLossUnknown saying why, when the mandate cannot measure the book or
-// price the orders. The same shape serves the portfolio reduce plan (its
-// top-level fields), each proposal (`index_loss`) and the proposal
-// snapshot (`index_loss`, every actionable proposal filled together), so
-// a reader prices Canary's own proposals exactly as a planned sweep.
+// and with a set of orders filled, in the account base currency, and its
+// other side: the index rising IndexRisePct, the same shock (owner,
+// 2026-10-28 13:13 CET: a plan is scored on both sides). A negative loss is
+// a gain. The before and after figures are nil, with the unknown field
+// saying why, when the mandate cannot measure the book or price the
+// orders. The same shape serves the portfolio reduce plan (its top-level
+// fields), each proposal (`index_loss`) and the proposal snapshot
+// (`index_loss`, every actionable proposal filled together), so a reader
+// prices Canary's own proposals exactly as a planned sweep.
 type IndexLoss struct {
-	IndexShockPct       float64  `json:"index_shock_pct,omitempty"`
-	IndexLossBeforeBase *float64 `json:"index_loss_before_base,omitempty"`
-	IndexLossAfterBase  *float64 `json:"index_loss_after_base,omitempty"`
-	IndexLossUnknown    string   `json:"index_loss_unknown,omitempty"`
+	IndexShockPct           float64  `json:"index_shock_pct,omitempty"`
+	IndexLossBeforeBase     *float64 `json:"index_loss_before_base,omitempty"`
+	IndexLossAfterBase      *float64 `json:"index_loss_after_base,omitempty"`
+	IndexLossUnknown        string   `json:"index_loss_unknown,omitempty"`
+	IndexRisePct            float64  `json:"index_rise_pct,omitempty"`
+	IndexRiseLossBeforeBase *float64 `json:"index_rise_loss_before_base,omitempty"`
+	IndexRiseLossAfterBase  *float64 `json:"index_rise_loss_after_base,omitempty"`
+	IndexRiseLossUnknown    string   `json:"index_rise_loss_unknown,omitempty"`
+}
+
+// PlanLossMeasure is the mandate's loss measure (spec TM-04.12: premium at
+// risk on every bought option plus the cash loss to every armed share stop)
+// on the book now and with a plan's orders filled, against the loss room
+// the mandate still allows, in the account base currency (owner, 2026-10-28
+// 13:13 CET: a plan is scored against the loss limit). Locked lines count
+// and are never traded. The three figures are nil, with
+// LossMeasureUnknown saying why, when the mandate cannot measure the book,
+// its loss room or the orders.
+type PlanLossMeasure struct {
+	LossMeasureBeforeBase *float64 `json:"loss_measure_before_base,omitempty"`
+	LossMeasureAfterBase  *float64 `json:"loss_measure_after_base,omitempty"`
+	LossRoomBase          *float64 `json:"loss_room_base,omitempty"`
+	LossMeasureUnknown    string   `json:"loss_measure_unknown,omitempty"`
 }
 
 // TradeProposalReducePortfolioResult is the basket preview/submit envelope.
@@ -1853,11 +1874,22 @@ type TradeProposalReducePortfolioResult struct {
 	AsOf                 time.Time                `json:"as_of"`
 	// Kept lists the held lines the sweep left alone.
 	Kept []TradeProposalReduceKept `json:"kept,omitempty"`
-	// IndexLoss is the mandate's index stress on the book now and with every
-	// planned leg filled; its fields are the result's own (index_shock_pct,
-	// index_loss_before_base, index_loss_after_base, index_loss_unknown).
+	// IndexLoss is the mandate's index stress, fall and rise, on the book
+	// now and with every planned leg filled; its fields are the result's own
+	// (index_shock_pct, index_loss_*, index_rise_pct, index_rise_loss_*).
 	IndexLoss
-	PlanOnly bool `json:"plan_only,omitempty"`
+	// PlanLossMeasure is the loss measure now and with every planned leg
+	// filled, against the loss room; its fields are the result's own
+	// (loss_measure_*, loss_room_base).
+	PlanLossMeasure
+	// TradeCostBase is what the planned legs give up to the market: half the
+	// quoted bid-ask spread times units times multiplier on each, in base
+	// currency. Nil, with TradeCostUnknown naming the line, when any leg's
+	// line has no two-sided quote or no base rate: a partial cost would read
+	// as the plan's. Commissions are not in it.
+	TradeCostBase    *float64 `json:"trade_cost_base,omitempty"`
+	TradeCostUnknown string   `json:"trade_cost_unknown,omitempty"`
+	PlanOnly         bool     `json:"plan_only,omitempty"`
 	// NetDollarDeltaAfter estimates signed exposure after all eligible preview
 	// legs fill at current Greeks/prices. Nil means unavailable, not zero.
 	NetDollarDeltaAfter *float64 `json:"net_dollar_delta_after,omitempty"`

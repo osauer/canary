@@ -255,7 +255,7 @@ func TestMandateInputWithTradesMovesOnlyTheTradedLines(t *testing.T) {
 		t.Fatal("the kept input must not change")
 	}
 	res := &rpc.TradeProposalReducePortfolioResult{}
-	(&Server{}).reduceIndexLoss(t.Context(), res, nil)
+	(&Server{}).reduceMandateScores(t.Context(), res, nil)
 	if res.IndexLossBeforeBase != nil || res.IndexLossUnknown == "" || res.IndexShockPct != mandate.IndexShockPct {
 		t.Fatalf("no mandate = %+v, want the loss unknown and said why", res)
 	}

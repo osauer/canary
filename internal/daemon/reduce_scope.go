@@ -175,24 +175,71 @@ func reduceScopedCandidates(pos *rpc.PositionsResult, p rpc.TradeProposalReduceP
 	return cands, kept
 }
 
-// reduceIndexLoss measures the mandate's index stress on the book now and
-// with every planned leg filled, on the last evaluation's input. trades maps
-// a contract to its signed quantity change.
-func (s *Server) reduceIndexLoss(ctx context.Context, res *rpc.TradeProposalReducePortfolioResult, trades map[int]float64) {
-	res.IndexShockPct = mandate.IndexShockPct
+// reduceMandateInput is the last evaluation's input for a plan's scores.
+// With no evaluation since the daemon started, or one under another policy,
+// a read's evaluation (it never counts toward the forced reduction's
+// streak) measures the book now.
+func (s *Server) reduceMandateInput(ctx context.Context) (*mandate.Input, string) {
 	input, _, why := s.mandateCurrentInput()
 	if input == nil && s.riskPolicies != nil {
-		// No evaluation since the daemon started, or one under another
-		// policy: a read's evaluation (it never counts toward the forced
-		// reduction's streak) measures the book now.
 		s.evaluateMandate(ctx, true)
 		input, _, why = s.mandateCurrentInput()
 	}
+	return input, why
+}
+
+// reduceMandateScores scores a plan on the mandate's measures, on the book
+// now and with every planned leg filled: the index stress, fall and rise,
+// and the loss measure against the loss room (owner, 2026-10-28 13:13 CET:
+// a plan is scored on both sides against the loss limit). trades maps a
+// contract to its signed quantity change.
+func (s *Server) reduceMandateScores(ctx context.Context, res *rpc.TradeProposalReducePortfolioResult, trades map[int]float64) {
+	input, why := s.reduceMandateInput(ctx)
 	if input == nil {
-		res.IndexLossUnknown = why
+		res.IndexLoss, res.PlanLossMeasure = indexLossUnknown(why), planLossMeasureUnknown(why)
 		return
 	}
-	res.IndexLoss = indexLossBetween(*input, mandateInputWithTrades(*input, trades))
+	after := mandateInputWithTrades(*input, trades)
+	res.IndexLoss, res.PlanLossMeasure = indexLossBetween(*input, after), planLossMeasureBetween(*input, after)
+}
+
+// reduceTradeCost is what the planned legs give up to the market: half the
+// quoted bid-ask spread of each leg's line, times its units and multiplier,
+// in base currency. It reads the legs the scores fill, and is unknown,
+// naming the first line without a two-sided quote or base rate, when any
+// lacks one: a partial cost would read as the plan's.
+func reduceTradeCost(legs []rpc.TradeProposalReduceLeg, pos *rpc.PositionsResult) (*float64, string) {
+	if pos == nil {
+		return nil, "the positions could not be read"
+	}
+	rows := map[int]rpc.PositionView{}
+	for _, row := range slices.Concat(pos.Stocks, pos.Options) {
+		rows[row.ConID] = row
+	}
+	baseCcy := ""
+	if pos.Portfolio != nil {
+		baseCcy = pos.Portfolio.BaseCurrency
+	}
+	total := 0.0
+	for _, leg := range legs {
+		if leg.ReduceQuantity <= 0 || len(leg.Blockers) > 0 {
+			continue
+		}
+		row, ok := rows[leg.ConID]
+		if !ok || leg.ConID <= 0 || row.Bid == nil || row.Ask == nil || *row.Bid <= 0 || *row.Ask < *row.Bid {
+			return nil, leg.Symbol + " has no two-sided quote"
+		}
+		mult := 1.0
+		if positionWireSecType(row.SecType) == "OPT" {
+			mult = float64(optionMultiplier(row))
+		}
+		rate, rateOK := positionBaseRate(row, baseCcy)
+		if !rateOK {
+			return nil, leg.Symbol + " has no rate to the base currency"
+		}
+		total += (*row.Ask - *row.Bid) / 2 * float64(leg.ReduceQuantity) * mult * rate
+	}
+	return &total, ""
 }
 
 // mandateInputWithTrades is the input with each traded contract's quantity

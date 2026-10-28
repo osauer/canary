@@ -322,9 +322,29 @@ func TestShortStockUpsideGapAndIndexStress(t *testing.T) {
 	if u.GapUpLossBase == nil || math.Abs(*u.GapUpLossBase-100*50*0.25) > 1e-9 || u.GapDownLossBase >= 0 || u.GapLossBase != *u.GapUpLossBase {
 		t.Fatalf("short stock gap: %+v", u)
 	}
-	// A short of a name with positive beta gains when the index falls.
-	if v.Stresses.IndexLossBase >= 0 {
+	// A short of a name with positive beta gains when the index falls, and
+	// loses as much when it rises by the same amount.
+	if v.Stresses.IndexLossBase >= 0 || math.Abs(v.Stresses.IndexRiseLossBase+v.Stresses.IndexLossBase) > 1e-9 {
 		t.Fatalf("index stress on a short: %+v", v.Stresses)
+	}
+}
+
+// The index rise is the fall's other side (owner, 2026-10-28 13:13 CET): the
+// same IndexShockPct up through each name's beta, every leg revalued. The
+// index itself moves by exactly the shock; a short call loses more in the
+// rise than it gains in the fall.
+func TestIndexRiseRevaluesEveryLeg(t *testing.T) {
+	index := Leg{ID: "1", Symbol: IndexSymbol, Underlying: IndexSymbol, Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "EUR", Spot: 50}
+	v := Evaluate(testInput(t, []Leg{index}))
+	if v.Stresses == nil || math.Abs(v.Stresses.IndexLossBase-500) > 1e-9 || math.Abs(v.Stresses.IndexRiseLossBase+500) > 1e-9 {
+		t.Fatalf("index line: %+v %v, want 500 lost in the fall and 500 gained in the rise", v.Stresses, v.Reasons)
+	}
+	iv := 0.3
+	shortCall := Leg{ID: "2", Symbol: "SPY 50 C", Underlying: IndexSymbol, Kind: KindOption, Quantity: -1, Multiplier: 100, Currency: "EUR", Spot: 50,
+		Right: "C", Strike: 50, TimeToExpiryYears: 0.25, IV: &iv}
+	v = Evaluate(testInput(t, []Leg{shortCall}))
+	if v.Stresses == nil || v.Stresses.IndexRiseLossBase <= 0 || v.Stresses.IndexRiseLossBase <= -v.Stresses.IndexLossBase {
+		t.Fatalf("short call: %+v %v, want the rise's loss above the fall's gain", v.Stresses, v.Reasons)
 	}
 }
 

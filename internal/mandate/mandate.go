@@ -181,6 +181,23 @@ func LossRoomBase(p Policy, c Capital) float64 {
 	return c.Room * p.MaxLossPct / 100 * c.BudgetBase
 }
 
+// MeasureLoss is the loss measure alone, without the simulation: the
+// verdict's headline for a book, with every reason the verdict would give
+// for it being unknown (the daemon's own grounds, capital without a loss
+// room, a bought option whose premium is unmeasured). Any reason makes the
+// figure unknown to a reader.
+func MeasureLoss(in Input) (*LossMeasure, []string) {
+	reasons := slices.Clone(in.Reasons)
+	if !in.Capital.Known {
+		reasons = append(reasons, in.Capital.Reasons...)
+		if len(in.Capital.Reasons) == 0 {
+			reasons = append(reasons, "the mandate's capital is unknown")
+		}
+	}
+	m, lossReasons := measureLoss(in, mergeLegs(in.Legs, in.LineISINs))
+	return m, append(reasons, lossReasons...)
+}
+
 // measureLoss sums the legs' loss figures (mergeLegs has normalised them)
 // against the loss room. The reasons name each bought option whose premium
 // cannot be measured; any makes the verdict unknown.
@@ -394,8 +411,11 @@ type Stresses struct {
 	GapCapBase       float64 `json:"gap_cap_base"`
 	IndexShockPct    float64 `json:"index_shock_pct"`
 	// IndexLossBase is the loss when the index falls IndexShockPct and every
-	// name follows with its beta.
-	IndexLossBase float64 `json:"index_loss_base"`
+	// name follows with its beta; IndexRiseLossBase the loss when it rises
+	// as far (owner, 2026-10-28 13:13 CET: a plan is scored on both sides).
+	// A negative loss is a gain.
+	IndexLossBase     float64 `json:"index_loss_base"`
+	IndexRiseLossBase float64 `json:"index_rise_loss_base"`
 	// GapBreaches names the underlyings whose gap loss exceeds the cap.
 	GapBreaches []string `json:"gap_breaches,omitempty"`
 }
@@ -607,15 +627,23 @@ func mergeLegs(in []Leg, isins map[string]string) []Leg {
 		}
 		l.ISIN = strings.ToUpper(strings.TrimSpace(l.ISIN))
 		if i, ok := index[l.ID]; ok && l.ID != "" {
-			// Two lines of one contract: the loss per unit is the
-			// quantity-weighted figure, so the sum carries both premiums.
-			was, add := math.Abs(out[i].Quantity), math.Abs(l.Quantity)
-			if was+add > 0 {
-				out[i].LossPerUnitBase = (out[i].LossPerUnitBase*was + l.LossPerUnitBase*add) / (was + add)
-			}
-			out[i].StopArmed = out[i].StopArmed && l.StopArmed
-			if l.LossUnknown != "" && out[i].LossUnknown == "" {
-				out[i].LossUnknown = l.LossUnknown
+			// Two lines of one contract on one side: the loss per unit is
+			// the quantity-weighted figure, so the sum carries both
+			// premiums. A closing line (an order selling what is held) only
+			// takes units away: those left keep their own figure and stop,
+			// and past flat the new side's units are the closing line's.
+			was, add := out[i].Quantity, l.Quantity
+			switch {
+			case was*add >= 0:
+				if math.Abs(was)+math.Abs(add) > 0 {
+					out[i].LossPerUnitBase = (out[i].LossPerUnitBase*math.Abs(was) + l.LossPerUnitBase*math.Abs(add)) / (math.Abs(was) + math.Abs(add))
+				}
+				out[i].StopArmed = out[i].StopArmed && l.StopArmed
+				if l.LossUnknown != "" && out[i].LossUnknown == "" {
+					out[i].LossUnknown = l.LossUnknown
+				}
+			case math.Abs(add) > math.Abs(was):
+				out[i].LossPerUnitBase, out[i].StopArmed, out[i].LossUnknown = l.LossPerUnitBase, l.StopArmed, l.LossUnknown
 			}
 			out[i].Quantity += l.Quantity
 			continue
@@ -801,6 +829,9 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 	}
 	stresses.IndexLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
 		return 1 - IndexShockPct/100*betas[l.Underlying]
+	})
+	stresses.IndexRiseLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
+		return 1 + IndexShockPct/100*betas[l.Underlying]
 	})
 	underlyings := make([]UnderlyingReport, 0, len(order))
 	for _, name := range order {

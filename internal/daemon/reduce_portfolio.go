@@ -422,7 +422,8 @@ func (s *Server) reducePortfolioPreview(ctx context.Context, p rpc.TradeProposal
 		}
 		res.Legs = append(res.Legs, leg)
 	}
-	s.reduceIndexLoss(ctx, res, reduceTradeChanges(res.Legs))
+	s.reduceMandateScores(ctx, res, reduceTradeChanges(res.Legs))
+	res.TradeCostBase, res.TradeCostUnknown = reduceTradeCost(res.Legs, pos)
 	aggregateBasket(res, false)
 	if res.Mode == rpc.ReduceModeNet && !p.PlanOnly {
 		projectReducePortfolioReview(res, pos, cands)

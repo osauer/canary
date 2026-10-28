@@ -36,28 +36,58 @@ func (s *Server) mandateCurrentInput() (*mandate.Input, time.Time, string) {
 }
 
 // indexLossWithLegs measures the index stress on the kept book now and
-// with the given order legs added (a leg of a held contract sums with it).
+// with the given order legs added.
 func indexLossWithLegs(in mandate.Input, add []mandate.Leg) rpc.IndexLoss {
-	after := in
-	after.Legs = append(append([]mandate.Leg(nil), in.Legs...), add...)
-	return indexLossBetween(in, after)
+	return indexLossBetween(in, mandateInputWithLegs(in, add))
 }
 
-// indexLossBetween measures the index stress on the book before and on the
-// book after; unknown, with the before book's first reason, when either
-// cannot be measured.
+// mandateInputWithLegs is the input with the given order legs added; a leg
+// of a held contract sums with it.
+func mandateInputWithLegs(in mandate.Input, add []mandate.Leg) mandate.Input {
+	in.Legs = slices.Concat(in.Legs, add)
+	return in
+}
+
+// indexLossBetween measures the index stress, fall and rise, on the book
+// before and on the book after; unknown, with the before book's first
+// reason, when either cannot be measured.
 func indexLossBetween(before, after mandate.Input) rpc.IndexLoss {
-	out := rpc.IndexLoss{IndexShockPct: mandate.IndexShockPct}
 	b, a := mandate.Evaluate(before), mandate.Evaluate(after)
 	if b.Stresses == nil || a.Stresses == nil {
-		out.IndexLossUnknown = "the mandate cannot measure the book"
+		why := "the mandate cannot measure the book"
 		if len(b.Reasons) > 0 {
-			out.IndexLossUnknown = b.Reasons[0]
+			why = b.Reasons[0]
 		}
-		return out
+		return indexLossUnknown(why)
 	}
+	out := rpc.IndexLoss{IndexShockPct: mandate.IndexShockPct, IndexRisePct: mandate.IndexShockPct}
 	out.IndexLossBeforeBase, out.IndexLossAfterBase = &b.Stresses.IndexLossBase, &a.Stresses.IndexLossBase
+	out.IndexRiseLossBeforeBase, out.IndexRiseLossAfterBase = &b.Stresses.IndexRiseLossBase, &a.Stresses.IndexRiseLossBase
 	return out
+}
+
+// indexLossUnknown is the index stress, both sides, unknown for why.
+func indexLossUnknown(why string) rpc.IndexLoss {
+	return rpc.IndexLoss{IndexShockPct: mandate.IndexShockPct, IndexLossUnknown: why, IndexRisePct: mandate.IndexShockPct, IndexRiseLossUnknown: why}
+}
+
+// planLossMeasureBetween is the loss measure on the book before and on the
+// book after, against the loss room; unknown, with the first reason, when
+// either cannot be measured.
+func planLossMeasureBetween(before, after mandate.Input) rpc.PlanLossMeasure {
+	b, bWhy := mandate.MeasureLoss(before)
+	a, aWhy := mandate.MeasureLoss(after)
+	if why := slices.Concat(bWhy, aWhy); len(why) > 0 || b == nil || a == nil {
+		if len(why) == 0 {
+			why = []string{"the mandate cannot measure the book"}
+		}
+		return planLossMeasureUnknown(why[0])
+	}
+	return rpc.PlanLossMeasure{LossMeasureBeforeBase: &b.TotalBase, LossMeasureAfterBase: &a.TotalBase, LossRoomBase: &b.RoomBase}
+}
+
+func planLossMeasureUnknown(why string) rpc.PlanLossMeasure {
+	return rpc.PlanLossMeasure{LossMeasureUnknown: why}
 }
 
 // proposalFillsNow reports whether a row is an order that fills when sent;
@@ -118,7 +148,7 @@ func (e *proposalEngine) decorateIndexLoss(snap *rpc.TradeProposalSnapshot) {
 	}
 	input, evaluatedAt, why := e.server.mandateCurrentInput()
 	if input == nil {
-		unknown := rpc.IndexLoss{IndexShockPct: mandate.IndexShockPct, IndexLossUnknown: why}
+		unknown := indexLossUnknown(why)
 		snap.IndexLoss = &unknown
 		for i := range snap.Proposals {
 			if proposalCarriesEquityRisk(snap.Proposals[i]) {
@@ -144,7 +174,8 @@ func (e *proposalEngine) decorateIndexLoss(snap *rpc.TradeProposalSnapshot) {
 			}
 			leg, why := proposalIndexLossLeg(p, input)
 			if why != "" {
-				rows[p.Key] = &rpc.IndexLoss{IndexShockPct: mandate.IndexShockPct, IndexLossUnknown: why}
+				unknown := indexLossUnknown(why)
+				rows[p.Key] = &unknown
 				continue
 			}
 			row := indexLossWithLegs(*input, []mandate.Leg{leg})
@@ -180,10 +211,11 @@ const maxProposalPlanRows = 100
 
 // reduceProposalsPlan prices Canary's own proposals by key, the way a sweep
 // plan prices its legs: each named row is a leg at its own size, priced
-// through the order gate's pricing, and the index loss is the kept book
-// with every named row filled. A row that cannot be found or priced is a
-// blocked leg, and then the whole figure is unknown: a partial figure would
-// read as the named set's.
+// through the order gate's pricing, and the scores (index fall and rise,
+// loss measure) are the kept book with every named row filled; the trading
+// cost reads each row's held line's quote. A row that cannot be found or
+// priced is a blocked leg, and then every figure is unknown: a partial
+// figure would read as the named set's.
 func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalReducePortfolioParams) *rpc.TradeProposalReducePortfolioResult {
 	res := &rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeProposals, PlanOnly: true, AsOf: s.reduceClock(), Legs: []rpc.TradeProposalReduceLeg{}}
 	res.IndexShockPct = mandate.IndexShockPct
@@ -199,11 +231,7 @@ func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalRed
 		return res
 	}
 	snap := s.tradeProposals.snapshotForRead(false, false)
-	input, _, why := s.mandateCurrentInput()
-	if input == nil && s.riskPolicies != nil {
-		s.evaluateMandate(ctx, true) // as the sweep plan does: a read's evaluation
-		input, _, why = s.mandateCurrentInput()
-	}
+	input, why := s.reduceMandateInput(ctx)
 	if input != nil {
 		res.BaseCurrency = strings.ToUpper(input.BaseCurrency)
 	}
@@ -239,15 +267,24 @@ func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalRed
 		}
 		res.Legs = append(res.Legs, leg)
 	}
+	unknown := func(why string) {
+		res.IndexLoss, res.PlanLossMeasure, res.TradeCostUnknown = indexLossUnknown(why), planLossMeasureUnknown(why), why
+	}
 	switch {
 	case input == nil:
-		res.IndexLossUnknown = why
+		unknown(why)
 	case unpriced > 0:
-		res.IndexLossUnknown = fmt.Sprintf("%d of %d named proposals cannot be priced for the fall", unpriced, len(res.Legs))
+		unknown(fmt.Sprintf("%d of %d named proposals cannot be priced for the fall", unpriced, len(res.Legs)))
 	case len(res.Legs) == 0:
-		res.IndexLossUnknown = "no proposal was named"
+		unknown("no proposal was named")
 	default:
-		res.IndexLoss = indexLossWithLegs(*input, legs)
+		after := mandateInputWithLegs(*input, legs)
+		res.IndexLoss, res.PlanLossMeasure = indexLossBetween(*input, after), planLossMeasureBetween(*input, after)
+		var pos *rpc.PositionsResult
+		if read, err := s.mandatePositions(ctx); err == nil {
+			pos = read
+		}
+		res.TradeCostBase, res.TradeCostUnknown = reduceTradeCost(res.Legs, pos)
 	}
 	res.LegCount = len(res.Legs)
 	for _, leg := range res.Legs {
