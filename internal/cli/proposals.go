@@ -231,7 +231,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 		return nil
 	})
-	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), or all (every unlocked line, shorts bought back)")
+	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), all (every unlocked line, shorts bought back), or hedge (with --plan alone: sell Micro S&P futures until a 10% fall leaves the book about even)")
 	var sectors []string
 	fs.Func("sector", "with --mode longs|all: only lines in this GICS sector (repeatable)", func(v string) error {
 		if v = strings.TrimSpace(v); v != "" {
@@ -270,6 +270,10 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 	} else if len(proposalKeys) > 0 {
 		if !*portfolio || !*plan || *submit || set["percent"] || set["mode"] || set["sector"] || set["min-beta"] || fs.NArg() > 0 || *conID > 0 {
 			return fail(env, "proposals reduce: --proposal goes with --portfolio --plan alone; the proposals carry their own size")
+		}
+	} else if strings.EqualFold(strings.TrimSpace(*mode), rpc.ReduceModeHedge) {
+		if !*portfolio || !*plan || *submit || set["percent"] || set["sector"] || set["min-beta"] || fs.NArg() > 0 || *conID > 0 {
+			return fail(env, "proposals reduce: --mode hedge goes with --portfolio --plan alone; the hedge is sized to neutral")
 		}
 	} else if *percent <= 0 || *percent > 100 {
 		return fail(env, "proposals reduce: --percent must be between 1 and 100 (the app offers 25/50/75/100)")
@@ -542,6 +546,8 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of every long", res.Percent))
 	case rpc.ReduceModeAll:
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of every unlocked line", res.Percent))
+	case rpc.ReduceModeHedge:
+		statusRow(env, out, "Hedge", "Micro S&P futures until a 10% fall leaves the book about even")
 	default:
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of net delta", res.Percent))
 	}
@@ -559,6 +565,8 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 		statusRow(env, out, "Loss measure", "unknown: "+m.LossMeasureUnknown)
 	}
 	switch {
+	case res.TradeCostBase != nil && *res.TradeCostBase == 0:
+		statusRow(env, out, "Trading cost", "none")
 	case res.TradeCostBase != nil:
 		statusRow(env, out, "Trading cost", formatProposalMoney(*res.TradeCostBase, res.BaseCurrency)+", half the quoted spread")
 	case res.TradeCostUnknown != "":
@@ -646,6 +654,9 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 			head = leg.Symbol
 		}
 		fmt.Fprintf(out, "  %s  [%s]\n", head, state)
+		if leg.Contract != nil {
+			statusRow(env, out, "  contract", strings.TrimSpace(queuedContractLabel(*leg.Contract)+" · expires "+leg.Contract.Expiry+fmt.Sprintf(" · ×%d", leg.Contract.Multiplier)))
+		}
 		if leg.Notional != 0 {
 			statusRow(env, out, "  notional", formatProposalMoney(leg.Notional, leg.NotionalCurrency))
 		}

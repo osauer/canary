@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -373,5 +374,32 @@ func TestRiskRatioEncodesAtZeroBudget(t *testing.T) {
 	back = Verdict{}
 	if err := json.Unmarshal(raw, &back); err != nil || back.Risk.RatioToBudget != v.Risk.RatioToBudget {
 		t.Fatalf("finite ratio %v → %v (%v)", v.Risk.RatioToBudget, back.Risk.RatioToBudget, err)
+	}
+}
+
+// A Micro S&P future is a linear line on the index (the index hedge, owner
+// decision 2026-10-28 13:17 CET): SPY's returns give it a beta of 1, it
+// takes the index gap, a 10% fall gains a short exactly the shock on its
+// contract value, and without a stop it is listed as unstopped and adds
+// nothing to the loss measure, as an unstopped share line does.
+func TestMicroSP500FutureIsALinearIndexLine(t *testing.T) {
+	short := Leg{ID: "con:9", Symbol: "MESZ6", Underlying: MicroSP500Future, Kind: KindStock, Quantity: -2, Multiplier: 5, Currency: "USD", Spot: 6000}
+	v := Evaluate(testInput(t, []Leg{short}))
+	if v.Stresses == nil {
+		t.Fatalf("unknown: %v", v.Reasons)
+	}
+	gain := 0.10 * 6000 * 5 * 2 * 0.9
+	if math.Abs(v.Stresses.IndexLossBase+gain) > 1e-6 || math.Abs(v.Stresses.IndexRiseLossBase-gain) > 1e-6 {
+		t.Fatalf("stresses %+v, want %.2f gained in the fall and lost in the rise", v.Stresses, gain)
+	}
+	u := v.Underlyings[0]
+	if !u.BroadIndex || math.Abs(u.Beta-1) > 1e-9 || u.GapShockPct != testPolicy().GapShockPctFor(true) {
+		t.Fatalf("underlying %+v, want a broad index line with beta 1", u)
+	}
+	if v.Loss == nil || v.Loss.TotalBase != 0 || !slices.Contains(v.Loss.Unstopped, "MESZ6") {
+		t.Fatalf("loss %+v, want nothing counted and the line unstopped", v.Loss)
+	}
+	if IsBroadIndex("ES", "USD") || ReturnsSeries("MES", "USD") != "MES" {
+		t.Fatal("a share symbol must not match the future's key")
 	}
 }

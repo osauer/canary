@@ -49,7 +49,17 @@ var BroadIndexInstruments = []BroadIndexInstrument{
 	{Symbol: "VWCE", Currencies: []string{"EUR"}, ISIN: "IE00BK5BQT80", Name: "Vanguard FTSE All-World UCITS ETF (Acc)"},
 	{Symbol: "VWRL", Currencies: []string{"EUR", "GBP"}, ISIN: "IE00B3RBWM25", Name: "Vanguard FTSE All-World UCITS ETF (Dist)"},
 	{Symbol: "VGWL", Currencies: []string{"EUR"}, ISIN: "IE00B3RBWM25", Name: "Vanguard FTSE All-World UCITS ETF (Dist)"},
+	// S&P 500 futures, under their own key (MicroSP500Future).
+	{Symbol: MicroSP500Future, Currencies: []string{"USD"}, Name: "Micro E-mini S&P 500 futures"},
 }
+
+// MicroSP500Future is the underlying key of a Micro E-mini S&P 500 future
+// line (the index hedge, owner decision 2026-10-28 13:17 CET). A future is a
+// linear line on the index: a stock-kind leg at its contract multiplier,
+// spot the future's price, moved by SPY's returns (ReturnsProxies) and
+// stressed by the index gap. The key carries " FUT" so no share symbol can
+// match it: ES, the larger contract's root, is also a listed company.
+const MicroSP500Future = "MES FUT"
 
 // IsBroadIndex reports whether a line of this symbol and currency is on
 // the broad index list. Both must match: a symbol alone can name another
@@ -109,6 +119,7 @@ type ReturnsProxy struct {
 // matches by ISIN.
 var ReturnsProxies = []ReturnsProxy{
 	{Symbol: "IBCF", Currency: "EUR", ISIN: "IE00B3ZW0K18", Series: IndexSymbol, Why: "EUR-hedged S&P 500 fund: SPY's local-currency returns, on the US close"},
+	{Symbol: MicroSP500Future, Currency: "USD", Series: IndexSymbol, Why: "S&P 500 future: SPY's returns on the US close; its dated contracts roll, so no one contract's closes span the window"},
 }
 
 // ReturnsSeries names the series a line's daily returns are read from: its

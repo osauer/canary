@@ -1758,6 +1758,13 @@ const (
 	ReduceModeAll   = "all"
 	// ReduceModeProposals is a plan of named proposals (ProposalKeys).
 	ReduceModeProposals = "proposals"
+	// ReduceModeHedge is a plan that sells Micro E-mini S&P 500 futures,
+	// the front quarterly contract, until a 10% index fall leaves the whole
+	// book about even, in whole contracts rounded toward less hedge (owner
+	// decisions 2026-10-28 13:17 CET: instrument MES, size to neutral).
+	// Plan only: placing a hedge is not built. Percent, Sectors and MinBeta
+	// do not apply.
+	ReduceModeHedge = "hedge"
 )
 
 // TradeProposalReduceKept is a held line the sweep left alone, and why.
@@ -1799,6 +1806,9 @@ type TradeProposalReduceLeg struct {
 	OrderRef                  string                     `json:"order_ref,omitempty"`
 	Blockers                  []TradingBlocker           `json:"blockers,omitempty"`
 	Message                   string                     `json:"message,omitempty"`
+	// Contract is the exact contract a hedge leg sells (its month and
+	// multiplier); a sweep leg names its held line by ConID alone.
+	Contract *ContractParams `json:"contract,omitempty"`
 	// Sector and Beta are the facts a scoped sweep selected the line on.
 	Sector string   `json:"sector,omitempty"`
 	Beta   *float64 `json:"beta,omitempty"`

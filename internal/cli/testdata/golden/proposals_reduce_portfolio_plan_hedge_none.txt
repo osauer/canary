@@ -1,0 +1,24 @@
+# canary proposals reduce --portfolio --mode hedge --plan · COLUMNS=80 · colour off
+
+Portfolio Reduce Plan  accepted=false
+Hedge          Micro S&P futures until a 10% fall leaves the book about even
+Index -10%     gains € 2,400.00 now, € 2,400.00 after
+Index +10%     loses € 1,900.00 now, € 1,900.00 after
+Loss measure   € 41,000.00 now, € 41,000.00 after, of € 69,000.00 room
+Trading cost   none
+Legs           0 planned · 0 blocked of 0
+  - nothing_to_hedge: a 10% S&P fall already leaves the book even or ahead; selling futures would add a short
+    action: Keep the book as it is.
+
+# canary proposals reduce --portfolio --mode hedge --plan · COLUMNS=80 · colour on, ESC written as \x1b
+
+Portfolio Reduce Plan  accepted=false
+\x1b[2mHedge         \x1b[0m Micro S&P futures until a 10% fall leaves the book about even
+\x1b[2mIndex -10%    \x1b[0m gains € 2,400.00 now, € 2,400.00 after
+\x1b[2mIndex +10%    \x1b[0m loses € 1,900.00 now, € 1,900.00 after
+\x1b[2mLoss measure  \x1b[0m € 41,000.00 now, € 41,000.00 after, of € 69,000.00 room
+\x1b[2mTrading cost  \x1b[0m none
+\x1b[2mLegs          \x1b[0m 0 planned · 0 blocked of 0
+  - nothing_to_hedge: a 10% S&P fall already leaves the book even or ahead; selling futures would add a short
+    action: Keep the book as it is.
+

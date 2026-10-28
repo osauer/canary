@@ -286,6 +286,19 @@ book now and with every planned leg filled, in the base currency:
 - The trading cost: half the quoted bid-ask spread on each leg, times its
   units and multiplier (`trade_cost_base`). Commissions are not in it.
 
+`--mode hedge --plan` prices an index hedge instead of a cut. It sells
+Micro E-mini S&P 500 futures, the front quarterly contract on CME (a
+contract in its expiry week is skipped for the next), until a 10% S&P fall
+leaves the whole book about even. The size is in whole contracts, rounded
+toward less hedge, so the book never ends short of the index. Every line
+counts toward the size, locked ones too. The plan carries one leg with its
+`contract` (month and multiplier) and the same scores as a cut. When the
+fall already leaves the book even or ahead, or its loss is less than one
+contract offsets, the plan sells nothing and says why. A future without a
+stop adds nothing to the loss measure and is listed as unstopped, as a
+share line without a stop is. The hedge is a plan only: no order path
+places a future yet.
+
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`
 says why. The cost is unknown when any leg's line has no two-sided quote:
