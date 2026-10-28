@@ -113,6 +113,8 @@ var policyCheckCatalogue = []policyCheckRule{
 		summary: "The protected floor leaves less than the declared risk capital above it, or sits at or above equity.", run: checkProtectedFloor},
 	{id: "declared_risk_vs_nlv", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "Declared risk capital is above NLV or under 2% of it.", run: checkDeclaredRisk},
+	{id: "index_hedge_unplaceable", severity: rpc.PolicyCheckInfo, category: rpc.PolicyCheckCategoryProvenance,
+		summary: "The constitution writes a [mandate] table but no [mandate.index_hedge] max_contracts, so the Reduce hedge is priced but never placed.", run: checkIndexHedgeUnplaceable},
 	{id: "mandate_realised_drawdown", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
 		summary: "The risk base has lost half or more of the mandate's maximum loss from its high-water mark, or its capital state cannot be measured.", run: checkMandateRealisedDrawdown},
 	{id: "mandate_realised_volatility", severity: rpc.PolicyCheckWarn, category: rpc.PolicyCheckCategoryBook, needsBook: true,
@@ -1293,6 +1295,23 @@ func checkMandateKeys(c *policyCheckContext) []policyCheckHit {
 			suggestion: "Set started_at to today or an earlier date."})
 	}
 	return hits
+}
+
+// checkIndexHedgeUnplaceable says, while the mandate is written, that the
+// index hedge cannot be placed until [mandate.index_hedge] max_contracts is
+// (owner decision 2026-10-28 20:07 CET: the table's presence is the
+// permission). The plan still prices it.
+func checkIndexHedgeUnplaceable(c *policyCheckContext) []policyCheckHit {
+	k := c.constitution
+	if k == nil || k.Mandate == nil {
+		return nil
+	}
+	if _, why := k.Mandate.IndexHedgeMaxContracts(); why != "" {
+		return []policyCheckHit{{keys: []rpc.PolicyCheckKey{c.constitutionKey("mandate.index_hedge", "max_contracts", "unwritten")},
+			message:    "Placing the Reduce index hedge is refused: " + why + ". The plan (`canary proposals reduce --portfolio --mode hedge --plan`) still prices it.",
+			suggestion: "Write [mandate.index_hedge] max_contracts, the most Micro S&P contracts one hedge may hold (a hard stop, never the target), with a higher policy_version, when you want the hedge placeable."}}
+	}
+	return nil
 }
 
 // checkMandateRealisedDrawdown reads the risk base's drawdown from its

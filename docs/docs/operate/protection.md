@@ -267,15 +267,53 @@ book's net delta-adjusted risk, only on lines in the net direction. `--mode
 longs` sells the same share of every long-delta line and keeps every short
 and long put. `--mode all` cuts that share of every line, buying back shorts.
 `--sector` (repeatable, GICS names) and `--min-beta` narrow a longs or all
-sweep. `--plan` sizes the legs without broker previews and reports what the
-book would lose if the index fell 10% now and after, from the mandate's
-index stress; a plan cannot be submitted.
+sweep. `--plan` sizes the legs without broker previews and scores them; a
+plan cannot be submitted.
+
+A plan is scored on both sides against the loss limit, each figure on the
+book now and with every planned leg filled, in the base currency:
+
+- The index fall, from the mandate's index stress: the index falls 10% and
+  every name follows with its beta, options repriced
+  (`index_shock_pct`, `index_loss_before_base`, `index_loss_after_base`).
+- The index rise, the same shock upward (`index_rise_pct`,
+  `index_rise_loss_before_base`, `index_rise_loss_after_base`). A negative
+  loss is a gain, on either side.
+- The mandate's loss measure, premium at risk on every bought option plus
+  the cash loss to every armed share stop, against the loss room the mandate
+  still allows (`loss_measure_before_base`, `loss_measure_after_base`,
+  `loss_room_base`). Locked lines count in it and are never traded.
+- The trading cost: half the quoted bid-ask spread on each leg, times its
+  units and multiplier (`trade_cost_base`). Commissions are not in it. A
+  share line is quoted off its position row; an option row carries only a
+  mark, so an option leg is quoted by its exact contract, within two
+  seconds a leg, as the hedge's future is.
+
+`--mode hedge --plan` prices an index hedge instead of a cut. It sells
+Micro E-mini S&P 500 futures, the front quarterly contract on CME (a
+contract in its expiry week is skipped for the next), until a 10% S&P fall
+leaves the whole book about even. The size is in whole contracts, rounded
+toward less hedge, so its modeled payout in that fall does not exceed the
+book's modeled loss. Every line
+counts toward the size, locked ones too. The plan carries one leg with its
+`contract` (month and multiplier) and the same scores as a cut. When the
+fall already leaves the book even or ahead, or its loss is less than one
+contract offsets, the plan sells nothing and says why. A held index hedge without a stop contributes its loss in the upward
+index shock to the mandate loss measure. A working stop contributes its
+distance at the contract multiplier. The hedge is a plan only: no order path
+places a future yet.
+
+A figure the plan cannot give is absent, and `index_loss_unknown`,
+`index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`
+says why. The cost is unknown when any leg's line has no two-sided quote:
+a partial cost would read as the plan's. The figures are served, never
+stored. A preview carries the same fields.
 
 Canary's own proposals carry the same figure. `canary proposals list`, and
 the proposal snapshot it reads, give each row an `index_loss` object with
-the fields the plan carries at its top level: `index_shock_pct`,
+the index fields the plan carries at its top level: `index_shock_pct`,
 `index_loss_before_base`, `index_loss_after_base`, and `index_loss_unknown`
-when there is no figure. The before figure is the book now; the after figure
+when there is no figure, and the rise's `index_rise_*` beside them. The before figure is the book now; the after figure
 is the book with that row filled. The snapshot's own `index_loss` fills every
 actionable row together, and its `base_currency` names the currency. A
 blocked or shadow row is priced on its own but left out of the total. A stop
@@ -287,11 +325,14 @@ evaluation.
 
 To price a chosen set of proposals, name them: `canary proposals reduce
 --portfolio --plan --proposal KEY` (repeatable) returns a plan in mode
-`proposals`, one leg per named row at its own size, with the same index-loss
-fields as a sweep plan. The after figure is the book with every named row
-filled. A row that is not current, or that cannot be priced (a stop, a trail,
-a cash or currency row, an option without the terms to price it), is a
-blocked leg, and then the figure is unknown with the count of rows not
+`proposals`, one leg per named row at its own size, with the same scores
+as a sweep plan. The after figures are the book with every named row
+filled; a row selling held units takes them off the line at the line's own
+premium or distance to the stop. The cost reads each row's held line; a row
+for a contract the book does not hold has no quote, so the cost is unknown.
+A row that is not current, or that cannot be priced (a stop, a trail, a
+cash or currency row, an option without the terms to price it), is a
+blocked leg, and then every figure is unknown with the count of rows not
 priced: a partial figure would read as the whole set's. `--percent`,
 `--mode`, `--sector` and `--min-beta` do not apply, and a plan cannot be
 submitted.
@@ -311,8 +352,11 @@ hedge because you say so, not because of its delta sign that day. A lock
 names the underlying and covers every contract of it the book holds when a
 sweep runs: the shares, the calls written on them, the puts, and the
 contract a roll moves into. `--con-id` is optional and records the contract
-the lock was placed from, which the lock also covers. Net mode reads the
-direction of the unlocked book. The mandate's automatic reduction and the
+the lock was placed from, which the lock also covers. Net mode sizes and
+directs its cut on the book without its locked hedges: a locked core name
+counts, though it is never traded, so the puts that protect it are not read
+as a bare short and sold. A locked hedge never sets the direction. The
+mandate's automatic reduction and the
 premium budget sweep leave locked names out too, and `positions.risk`
 carries the keep list resolved against its book under `holding_locks`.
 

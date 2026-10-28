@@ -443,6 +443,10 @@ func TestPolicyCheckCatalogue(t *testing.T) {
 			edit: func(f *pcFiles, _ *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "schema_version = 1", "schema_version = 2") + "\n[mandate]\nmax_loss_pct = 30.0\nvol_target_pct = 15.0\ntax_reserve_base = 70000.0\nstarted_at = \"2030-01-01\"\ngap_shock_pct = 25.0\ngap_room_pct = 33.3\n[mandate.sleeves]\nowner_vol_pct = 20.0\n"
 			}, absent: []string{"file_refused"}, contains: "The sleeve share owner_vol_pct = 20% is above"},
+		{name: "mandate written without the index hedge table", rule: "index_hedge_unplaceable", severity: rpc.PolicyCheckInfo,
+			edit: func(f *pcFiles, _ *PolicyCheckInput) {
+				f.constitution = replace(f.constitution, "schema_version = 1", "schema_version = 2") + "\n[mandate]\nmax_loss_pct = 30.0\nvol_target_pct = 15.0\ntax_reserve_base = 70000.0\nstarted_at = \"2026-10-01\"\ngap_shock_pct = 25.0\ngap_room_pct = 33.3\n"
+			}, absent: []string{"mandate_keys_inconsistent", "file_refused"}, contains: "Placing the Reduce index hedge is refused: the risk constitution carries no [mandate.index_hedge] table"},
 		{name: "mandate risk base half the maximum loss below its high", rule: "mandate_realised_drawdown", severity: rpc.PolicyCheckWarn,
 			edit: func(f *pcFiles, in *PolicyCheckInput) {
 				f.constitution = replace(f.constitution, "schema_version = 1", "schema_version = 2") + "\n[mandate]\nmax_loss_pct = 30.0\nvol_target_pct = 15.0\ntax_reserve_base = 70000.0\nstarted_at = \"2026-10-01\"\ngap_shock_pct = 25.0\ngap_room_pct = 33.3\n"

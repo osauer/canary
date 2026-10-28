@@ -22,6 +22,9 @@ type Policy struct {
 	// GapRoomPct is the share of the remaining loss room one name may lose
 	// in that gap.
 	GapRoomPct float64
+	// IVFallback is the owner's [mandate.iv_fallback]; nil while unwritten,
+	// when an option without its own volatility leaves the book unknown.
+	IVFallback *IVFallback
 }
 
 // CapitalInput is the daemon's capital evidence for the mandate: the last

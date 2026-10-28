@@ -22,7 +22,7 @@ func TestReducePortfolioTextRetainsReviewProjection(t *testing.T) {
 	text := strings.Join(strings.Fields(out.String()), " ")
 	// The after field is deliberately different from before minus achieved:
 	// adapters must retain the daemon's typed projection, not recompute it.
-	for _, value := range []string{formatProposalMoney(-321.25, "USD"), "unlocked holdings", "locked holdings excluded", "SYNC 20261218 35 P", "700003", "-2", "opposite_delta", res.UntouchedPositions[0].Reason} {
+	for _, value := range []string{formatProposalMoney(-321.25, "USD"), "without locked hedges", "locked holdings are never traded", "SYNC 20261218 35 P", "700003", "-2", "opposite_delta", res.UntouchedPositions[0].Reason} {
 		if !strings.Contains(text, value) {
 			t.Errorf("rendered review lost %q:\n%s", value, out.String())
 		}

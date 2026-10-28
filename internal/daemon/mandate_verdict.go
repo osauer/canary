@@ -460,6 +460,18 @@ func mandateLegsFromPositions(pos *rpc.PositionsResult, base string, now time.Ti
 			notModelled = append(notModelled, fmt.Sprintf("%s (zero-value row, likely inactive)", row.Symbol))
 			continue
 		}
+		if positionIsIndexFuture(row) {
+			// A held Micro S&P future is the hedge's own line (owner
+			// decisions 2026-10-28 13:17 and 20:07 CET): a linear leg at its
+			// multiplier under the MES FUT key, moved by the index.
+			if row.Stale {
+				reasons = append(reasons, fmt.Sprintf("%s has a stale quote (%s)", mandateFutureSymbol(row), nonEmptyString(row.StaleReason, "no reason given")))
+			}
+			noteFX(row)
+			legs = append(legs, mandate.Leg{ID: legID(row), Symbol: mandateFutureSymbol(row), Underlying: mandate.MicroSP500Future, Kind: mandate.KindStock,
+				Quantity: row.Quantity, Multiplier: float64(row.Multiplier), Currency: normCcy(row.Currency), Spot: row.Mark})
+			continue
+		}
 		if !positionQuotesAsStock(row) {
 			reasons = append(reasons, fmt.Sprintf("%s carries security type %s, which the mandate does not model", row.Symbol, secType))
 			continue
@@ -487,9 +499,56 @@ func mandateLegsFromPositions(pos *rpc.PositionsResult, base string, now time.Ti
 			Currency: normCcy(row.Currency), Spot: spot, Right: strings.ToUpper(strings.TrimSpace(row.Right)), Strike: row.Strike,
 			TimeToExpiryYears: mandateYearsToExpiry(row.Expiry, now), IV: row.IV}
 		mandateOptionLoss(&leg, row, base)
+		mandateFallbackIV(&leg, row)
 		legs = append(legs, leg)
 	}
 	return legs, notModelled, fxNow, reasons
+}
+
+// positionIsFuture reports a held futures row, as the positions spell it.
+func positionIsFuture(row rpc.PositionView) bool {
+	switch strings.ToUpper(strings.TrimSpace(row.SecType)) {
+	case rpc.SecTypeFuture, "FUT":
+		return true
+	}
+	return false
+}
+
+// positionIsIndexFuture reports a held Micro E-mini S&P 500 future: the
+// hedge's contract root in USD. Any other future stays unmodelled.
+func positionIsIndexFuture(row rpc.PositionView) bool {
+	return positionIsFuture(row) && normSym(row.Symbol) == hedgeFutureSymbol && normCcy(row.Currency) == "USD"
+}
+
+// mandateFutureSymbol names a future's line as the owner knows it: its
+// local symbol (MESZ6), else root and month.
+func mandateFutureSymbol(row rpc.PositionView) string {
+	if sym := strings.ToUpper(strings.TrimSpace(row.LocalSymbol)); sym != "" {
+		return sym
+	}
+	return strings.TrimSpace(normSym(row.Symbol) + " " + row.Expiry)
+}
+
+// mandateFallbackIV prices an option the position row carries no volatility
+// for at the volatility its own mark implies, tagged as such with the mark's
+// time (owner instruction 2026-10-28 08:51 CET). Before a session's first
+// model tick, after a daemon restart or in another market's hours the row has
+// none, and one such leg used to leave the whole book unknown. The evaluator
+// counts the tag only under the owner's [mandate.iv_fallback]; a mark it
+// cannot invert (none, or at or below intrinsic) leaves the leg as it was.
+func mandateFallbackIV(leg *mandate.Leg, row rpc.PositionView) {
+	if leg.IV != nil || leg.Spot <= 0 || leg.Strike <= 0 || leg.TimeToExpiryYears <= 0 || (leg.Right != "C" && leg.Right != "P") {
+		return
+	}
+	iv, ok := mandate.ImpliedVolatility(leg.Right == "C", row.Mark, leg.Spot, leg.Strike, leg.TimeToExpiryYears)
+	if !ok {
+		return
+	}
+	leg.IV, leg.IVSource = &iv, mandate.IVSourceMark
+	leg.IVAsOf = row.PriceAt
+	if leg.IVAsOf.IsZero() {
+		leg.IVAsOf = row.QuotePriceAt
+	}
 }
 
 // mandateLegID identifies a position row as the evaluator's leg: the exact

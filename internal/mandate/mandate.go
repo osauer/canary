@@ -80,6 +80,12 @@ type Leg struct {
 	Strike            float64  `json:"strike,omitempty"`
 	TimeToExpiryYears float64  `json:"time_to_expiry_years,omitempty"`
 	IV                *float64 `json:"iv,omitempty"`
+	// IVSource is empty for the position row's own volatility and
+	// IVSourceMark when the daemon implied it from the leg's mark; IVAsOf is
+	// that mark's time. A mark-implied volatility counts only under the
+	// owner's [mandate.iv_fallback] (ivfallback.go).
+	IVSource string    `json:"iv_source,omitempty"`
+	IVAsOf   time.Time `json:"iv_as_of,omitzero"`
 	// ISIN names the fund behind the line when the daemon knows it (a
 	// position row carries none): Evaluate fills it from Input.LineISINs.
 	ISIN string `json:"isin,omitempty"`
@@ -104,12 +110,19 @@ type Leg struct {
 // LossMeasure is the mandate's headline (spec TM-04.12): what the book can
 // lose, as the owner measures it, against the loss the mandate still allows.
 type LossMeasure struct {
-	// TotalBase is PremiumBase + StopLossBase: the premium at risk on every
-	// bought option and the cash loss to the stop on every share line with an
-	// armed stop, in base currency.
+	// TotalBase is PremiumBase + StopLossBase + IndexHedgeBase: the premium
+	// at risk on every bought option, the cash loss to the stop on every
+	// share line with an armed stop, and the loss of every held index future
+	// in the 10% index move against it, in base currency.
 	TotalBase    float64 `json:"total_base"`
 	PremiumBase  float64 `json:"premium_base"`
 	StopLossBase float64 `json:"stop_loss_base"`
+	// IndexHedgeBase is the loss of the held index futures (the Reduce
+	// hedge) when the index moves IndexShockPct against them: a short loses
+	// in the rise, a long in the fall. A hedge spends loss room like every
+	// other line (owner decision 2026-10-28 20:07 CET); a stop that covers
+	// the whole line bounds it at the stop's distance instead.
+	IndexHedgeBase float64 `json:"index_hedge_base,omitempty"`
 	// RoomBase is the loss the mandate still allows: max_loss_pct of the
 	// budget base, less the drawdown already taken (room × D × budget base).
 	RoomBase float64 `json:"room_base"`
@@ -126,10 +139,11 @@ type LossMeasure struct {
 
 // LossName is one underlying's part of the loss measure.
 type LossName struct {
-	Underlying   string  `json:"underlying"`
-	TotalBase    float64 `json:"total_base"`
-	PremiumBase  float64 `json:"premium_base"`
-	StopLossBase float64 `json:"stop_loss_base"`
+	Underlying     string  `json:"underlying"`
+	TotalBase      float64 `json:"total_base"`
+	PremiumBase    float64 `json:"premium_base"`
+	StopLossBase   float64 `json:"stop_loss_base"`
+	IndexHedgeBase float64 `json:"index_hedge_base,omitempty"`
 }
 
 // MarshalJSON writes an unbounded ratio as null, as Risk does.
@@ -175,6 +189,23 @@ func LossRoomBase(p Policy, c Capital) float64 {
 	return c.Room * p.MaxLossPct / 100 * c.BudgetBase
 }
 
+// MeasureLoss is the loss measure alone, without the simulation: the
+// verdict's headline for a book, with every reason the verdict would give
+// for it being unknown (the daemon's own grounds, capital without a loss
+// room, a bought option whose premium is unmeasured). Any reason makes the
+// figure unknown to a reader.
+func MeasureLoss(in Input) (*LossMeasure, []string) {
+	reasons := slices.Clone(in.Reasons)
+	if !in.Capital.Known {
+		reasons = append(reasons, in.Capital.Reasons...)
+		if len(in.Capital.Reasons) == 0 {
+			reasons = append(reasons, "the mandate's capital is unknown")
+		}
+	}
+	m, lossReasons := measureLoss(in, mergeLegs(in))
+	return m, append(reasons, lossReasons...)
+}
+
 // measureLoss sums the legs' loss figures (mergeLegs has normalised them)
 // against the loss room. The reasons name each bought option whose premium
 // cannot be measured; any makes the verdict unknown.
@@ -185,6 +216,10 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 	var order []string
 	for _, l := range legs {
 		if l.Quantity == 0 {
+			continue
+		}
+		if IsIndexFuture(l) && l.LossUnknown != "" {
+			reasons = append(reasons, fmt.Sprintf("%s: index hedge loss unmeasured: %s", l.Symbol, l.LossUnknown))
 			continue
 		}
 		if l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown != "" {
@@ -202,6 +237,11 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 		case l.Kind == KindOption && l.Quantity > 0:
 			n.PremiumBase += loss
 			out.PremiumBase += loss
+		case IsIndexFuture(l):
+			// Its loss is bounded by the index move (or a full stop), so it
+			// is never unstopped.
+			n.IndexHedgeBase += loss
+			out.IndexHedgeBase += loss
 		case l.Kind == KindStock:
 			n.StopLossBase += loss
 			out.StopLossBase += loss
@@ -209,9 +249,9 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 				out.Unstopped = append(out.Unstopped, l.Symbol)
 			}
 		}
-		n.TotalBase = n.PremiumBase + n.StopLossBase
+		n.TotalBase = n.PremiumBase + n.StopLossBase + n.IndexHedgeBase
 	}
-	out.TotalBase = out.PremiumBase + out.StopLossBase
+	out.TotalBase = out.PremiumBase + out.StopLossBase + out.IndexHedgeBase
 	for _, name := range order {
 		if n := byName[name]; n.TotalBase > 0 {
 			out.Names = append(out.Names, *n)
@@ -388,8 +428,11 @@ type Stresses struct {
 	GapCapBase       float64 `json:"gap_cap_base"`
 	IndexShockPct    float64 `json:"index_shock_pct"`
 	// IndexLossBase is the loss when the index falls IndexShockPct and every
-	// name follows with its beta.
-	IndexLossBase float64 `json:"index_loss_base"`
+	// name follows with its beta; IndexRiseLossBase the loss when it rises
+	// as far (owner, 2026-10-28 13:13 CET: a plan is scored on both sides).
+	// A negative loss is a gain.
+	IndexLossBase     float64 `json:"index_loss_base"`
+	IndexRiseLossBase float64 `json:"index_rise_loss_base"`
 	// GapBreaches names the underlyings whose gap loss exceeds the cap.
 	GapBreaches []string `json:"gap_breaches,omitempty"`
 }
@@ -423,6 +466,9 @@ type Verdict struct {
 	// OwnerStop is the owner sleeve's drawdown stop with the sleeve's use on
 	// this verdict; nil while the policy writes none.
 	OwnerStop *SleeveStop `json:"owner_stop,omitempty"`
+	// IVFallback names the options priced on a fallback volatility, the
+	// S&P-fall range across their bands and its tier; nil when none is.
+	IVFallback *IVFallbackReport `json:"iv_fallback,omitempty"`
 }
 
 // Evaluate runs the historical simulation and judges the book against the
@@ -433,7 +479,7 @@ func Evaluate(in Input) Verdict {
 	if !in.Capital.Known {
 		v.Reasons = append(v.Reasons, in.Capital.Reasons...)
 	}
-	legs := mergeLegs(in.Legs, in.LineISINs)
+	legs := mergeLegs(in)
 	// The headline needs no history: the loss measure is read first, and a
 	// bought option whose premium is unmeasured is a reason like any other.
 	var lossReasons []string
@@ -484,7 +530,7 @@ func Evaluate(in Input) Verdict {
 	// Leg-level evidence: an option without IV or any leg without a spot
 	// cannot be priced; the verdict says which.
 	for _, l := range legs {
-		if why := legUnknown(l); why != "" {
+		if why := legUnknownUnder(l, in.Policy); why != "" {
 			v.Reasons = append(v.Reasons, fmt.Sprintf("%s: %s", l.Symbol, why))
 		}
 	}
@@ -500,7 +546,7 @@ func Evaluate(in Input) Verdict {
 	// Reports with contributions unknown still list the legs.
 	if len(v.Reasons) > 0 {
 		for _, l := range legs {
-			v.Legs = append(v.Legs, LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, Unknown: firstNonEmpty(legUnknown(l), "not simulated"), LossBase: legLoss(l)})
+			v.Legs = append(v.Legs, LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, Unknown: firstNonEmpty(legUnknownUnder(l, in.Policy), "not simulated"), LossBase: legLoss(l)})
 		}
 		ApplySleeveStop(&v, in.OwnerStop)
 		return v
@@ -532,6 +578,14 @@ func Evaluate(in Input) Verdict {
 	default:
 		v.Status = StatusWithin
 	}
+	if r := judgeIVFallback(in, legs, returns, sim, v.Loss, v.Status); r != nil {
+		v.IVFallback = r
+		if r.Tier == IVTierUnknown {
+			// Unknown keeps its contract: no risk, stresses or allocations.
+			v.Status, v.Risk, v.Stresses, v.Allocations = StatusUnknown, nil, nil, nil
+			v.Reasons = append(v.Reasons, r.Reason)
+		}
+	}
 	ApplySleeveStop(&v, in.OwnerStop)
 	return v
 }
@@ -542,6 +596,15 @@ func WithLeg(in Input, add Leg) Input {
 	out := in
 	out.Legs = append(slices.Clone(in.Legs), add)
 	return out
+}
+
+// legUnknownUnder is legUnknown under the policy: a mark-implied volatility
+// counts only while the owner's [mandate.iv_fallback] is written.
+func legUnknownUnder(l Leg, p Policy) string {
+	if l.Kind == KindOption && l.IVSource == IVSourceMark && p.IVFallback == nil {
+		return "no implied volatility on the position row"
+	}
+	return legUnknown(l)
 }
 
 func legUnknown(l Leg) string {
@@ -569,33 +632,95 @@ func legUnknown(l Leg) string {
 	return ""
 }
 
-func mergeLegs(in []Leg, isins map[string]string) []Leg {
+// IsIndexFuture reports a linear leg on the index future key: a held Micro
+// S&P future, or the Reduce hedge's planned or ordered contracts.
+func IsIndexFuture(l Leg) bool {
+	return l.Kind == KindStock && strings.EqualFold(strings.TrimSpace(l.Underlying), MicroSP500Future)
+}
+
+// IndexFutureLossPerUnit is one contract's loss when the index moves
+// IndexShockPct against it, in base currency at fx: price × multiplier ×
+// the shock. The sign of the holding does not matter: a short loses in the
+// rise, a long in the fall, by the same amount.
+func IndexFutureLossPerUnit(l Leg, fx float64) float64 {
+	if !(l.Spot > 0) || !(l.Multiplier > 0) || !(fx > 0) || math.IsInf(fx, 0) {
+		return 0
+	}
+	return IndexShockPct / 100 * l.Spot * l.Multiplier * fx
+}
+
+// fxNowFor is the base units one unit of the leg's currency buys now: 1 in
+// the base currency, else the positions' rate (0 when none, which the
+// verdict names as a missing rate).
+func fxNowFor(in Input, l Leg) float64 {
+	ccy := strings.ToUpper(strings.TrimSpace(l.Currency))
+	if ccy == "" || ccy == strings.ToUpper(strings.TrimSpace(in.BaseCurrency)) {
+		return 1
+	}
+	return in.FXNow[ccy]
+}
+
+// mergeLegs normalises the input's legs and sums two lines of one contract.
+// A held index future without a full stop counts its index-move loss per
+// contract here, so every book the evaluator reads (the verdict, a plan's
+// after book, the gate's book with the order) measures it the same way.
+func mergeLegs(in Input) []Leg {
 	index := map[string]int{}
 	var out []Leg
-	for _, l := range in {
+	for _, l := range in.Legs {
 		l.Right = strings.ToUpper(strings.TrimSpace(l.Right))
 		l.Currency = strings.ToUpper(strings.TrimSpace(l.Currency))
 		l.Underlying = strings.ToUpper(strings.TrimSpace(l.Underlying))
-		if isin, ok := isins[l.ID]; ok && l.ID != "" && l.ISIN == "" {
+		if isin, ok := in.LineISINs[l.ID]; ok && l.ID != "" && l.ISIN == "" {
 			l.ISIN = isin
 		}
 		l.ISIN = strings.ToUpper(strings.TrimSpace(l.ISIN))
 		if i, ok := index[l.ID]; ok && l.ID != "" {
-			// Two lines of one contract: the loss per unit is the
-			// quantity-weighted figure, so the sum carries both premiums.
-			was, add := math.Abs(out[i].Quantity), math.Abs(l.Quantity)
-			if was+add > 0 {
-				out[i].LossPerUnitBase = (out[i].LossPerUnitBase*was + l.LossPerUnitBase*add) / (was + add)
-			}
-			out[i].StopArmed = out[i].StopArmed && l.StopArmed
-			if l.LossUnknown != "" && out[i].LossUnknown == "" {
-				out[i].LossUnknown = l.LossUnknown
+			// Two lines of one contract on one side: the loss per unit is
+			// the quantity-weighted figure, so the sum carries both
+			// premiums. A closing line (an order selling what is held) only
+			// takes units away: those left keep their own figure and stop,
+			// and past flat the new side's units are the closing line's.
+			was, add := out[i].Quantity, l.Quantity
+			switch {
+			case was*add >= 0:
+				if math.Abs(was)+math.Abs(add) > 0 {
+					out[i].LossPerUnitBase = (out[i].LossPerUnitBase*math.Abs(was) + l.LossPerUnitBase*math.Abs(add)) / (math.Abs(was) + math.Abs(add))
+				}
+				out[i].StopArmed = out[i].StopArmed && l.StopArmed
+				if l.LossUnknown != "" && out[i].LossUnknown == "" {
+					out[i].LossUnknown = l.LossUnknown
+				}
+			case math.Abs(add) > math.Abs(was):
+				out[i].LossPerUnitBase, out[i].StopArmed, out[i].LossUnknown = l.LossPerUnitBase, l.StopArmed, l.LossUnknown
 			}
 			out[i].Quantity += l.Quantity
 			continue
 		}
 		index[l.ID] = len(out)
 		out = append(out, l)
+	}
+	// Measure the resulting contract, after merging additions and closes.
+	// Only complete stop coverage replaces its index-move loss; a planned
+	// addition must agree with the same partially covered holding after fill.
+	for i := range out {
+		l := &out[i]
+		if !IsIndexFuture(*l) || l.Quantity == 0 {
+			continue
+		}
+		fx := fxNowFor(in, *l)
+		switch {
+		case !(l.Spot > 0) || math.IsInf(l.Spot, 0):
+			l.LossUnknown = "no price"
+		case !(l.Multiplier > 0) || math.IsInf(l.Multiplier, 0):
+			l.LossUnknown = "no contract multiplier"
+		case !(fx > 0) || math.IsInf(fx, 0):
+			l.LossUnknown = "no current exchange rate to the base currency"
+		default:
+			if !l.StopArmed {
+				l.LossPerUnitBase = IndexFutureLossPerUnit(*l, fx)
+			}
+		}
 	}
 	return out
 }
@@ -775,6 +900,9 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 	}
 	stresses.IndexLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
 		return 1 - IndexShockPct/100*betas[l.Underlying]
+	})
+	stresses.IndexRiseLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
+		return 1 + IndexShockPct/100*betas[l.Underlying]
 	})
 	underlyings := make([]UnderlyingReport, 0, len(order))
 	for _, name := range order {

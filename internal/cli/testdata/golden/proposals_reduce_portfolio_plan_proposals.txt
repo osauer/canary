@@ -3,6 +3,10 @@
 Portfolio Reduce Plan  accepted=false
 Proposals      2 named, each at its own size
 Index -10%     loses $ 8,300.00 now, $ 6,900.00 after
+Index +10%     gains $ 8,100.00 now, $ 6,800.00 after
+Loss measure   unknown: SYNB 20261218 40 C: premium at risk unmeasured: no price
+               paid
+Trading cost   unknown: SYNC has no two-sided quote
 Legs           2 planned · 0 blocked of 2
   SELL 40 SYNA  [planned]
   SELL 10 SYNC  [planned]
@@ -12,6 +16,10 @@ Legs           2 planned · 0 blocked of 2
 Portfolio Reduce Plan  accepted=false
 \x1b[2mProposals     \x1b[0m 2 named, each at its own size
 \x1b[2mIndex -10%    \x1b[0m loses $ 8,300.00 now, $ 6,900.00 after
+\x1b[2mIndex +10%    \x1b[0m gains $ 8,100.00 now, $ 6,800.00 after
+\x1b[2mLoss measure  \x1b[0m unknown: SYNB 20261218 40 C: premium at risk unmeasured: no price
+               paid
+\x1b[2mTrading cost  \x1b[0m unknown: SYNC has no two-sided quote
 \x1b[2mLegs          \x1b[0m 2 planned · 0 blocked of 2
   SELL 40 SYNA  [planned]
   SELL 10 SYNC  [planned]

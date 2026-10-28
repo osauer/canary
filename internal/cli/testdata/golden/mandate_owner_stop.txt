@@ -9,7 +9,7 @@ Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 225,000 EUR = equity 300,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Owner sleeve · STOP ENGAGED since Sat 5 Sep 13:30 TZ · 27% below its
                high-water mark 240,000 EUR · stop 25%, releases under 20% ·
@@ -71,7 +71,7 @@ Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 225,000 EUR = equity 300,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Owner sleeve · \x1b[31mSTOP ENGAGED since Sat 5 Sep 13:30 TZ · 27% below its\x1b[0m
                \x1b[31mhigh-water mark 240,000 EUR · stop 25%, releases under 20% ·\x1b[0m

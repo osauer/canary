@@ -231,7 +231,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 		return nil
 	})
-	mode := fs.String("mode", "", "with --portfolio: net (trim the unlocked book's net delta, the default), longs (the same share of every long), or all (every unlocked line, shorts bought back)")
+	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), all (every unlocked line, shorts bought back), or hedge (with --plan alone: sell Micro S&P futures until a 10% fall leaves the book about even)")
 	var sectors []string
 	fs.Func("sector", "with --mode longs|all: only lines in this GICS sector (repeatable)", func(v string) error {
 		if v = strings.TrimSpace(v); v != "" {
@@ -240,7 +240,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		return nil
 	})
 	minBeta := fs.Float64("min-beta", 0, "with --mode longs|all: only lines whose beta to the index is at least this")
-	plan := fs.Bool("plan", false, "with --portfolio: size the legs and the index loss without broker previews; nothing can be submitted from a plan")
+	plan := fs.Bool("plan", false, "with --portfolio: size the legs and score them without broker previews (index fall and rise, loss measure against the loss room, half-spread trading cost); nothing can be submitted from a plan")
 	var proposalKeys []string
 	fs.Func("proposal", "with --portfolio --plan: price this proposal (its key) instead of a sweep (repeatable); the plan is the book with every named proposal filled", func(v string) error {
 		if v = strings.TrimSpace(v); v != "" {
@@ -270,6 +270,10 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 	} else if len(proposalKeys) > 0 {
 		if !*portfolio || !*plan || *submit || set["percent"] || set["mode"] || set["sector"] || set["min-beta"] || fs.NArg() > 0 || *conID > 0 {
 			return fail(env, "proposals reduce: --proposal goes with --portfolio --plan alone; the proposals carry their own size")
+		}
+	} else if strings.EqualFold(strings.TrimSpace(*mode), rpc.ReduceModeHedge) {
+		if !*portfolio || !*plan || *submit || set["percent"] || set["sector"] || set["min-beta"] || fs.NArg() > 0 || *conID > 0 {
+			return fail(env, "proposals reduce: --mode hedge goes with --portfolio --plan alone; the hedge is sized to neutral")
 		}
 	} else if *percent <= 0 || *percent > 100 {
 		return fail(env, "proposals reduce: --percent must be between 1 and 100 (the app offers 25/50/75/100)")
@@ -542,11 +546,31 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of every long", res.Percent))
 	case rpc.ReduceModeAll:
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of every unlocked line", res.Percent))
+	case rpc.ReduceModeHedge:
+		statusRow(env, out, "Hedge", "Micro S&P futures until a 10% fall leaves the book about even")
 	default:
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of net delta", res.Percent))
 	}
 	if label, value := formatIndexLoss(&res.IndexLoss, res.BaseCurrency); value != "" {
 		statusRow(env, out, label, value)
+	}
+	if label, value := formatIndexRise(&res.IndexLoss, res.BaseCurrency); value != "" {
+		statusRow(env, out, label, value)
+	}
+	switch m := res.PlanLossMeasure; {
+	case m.LossMeasureBeforeBase != nil && m.LossMeasureAfterBase != nil && m.LossRoomBase != nil:
+		statusRow(env, out, "Loss measure", formatProposalMoney(*m.LossMeasureBeforeBase, res.BaseCurrency)+" now, "+formatProposalMoney(*m.LossMeasureAfterBase, res.BaseCurrency)+
+			" after, of "+formatProposalMoney(*m.LossRoomBase, res.BaseCurrency)+" room")
+	case m.LossMeasureUnknown != "":
+		statusRow(env, out, "Loss measure", "unknown: "+m.LossMeasureUnknown)
+	}
+	switch {
+	case res.TradeCostBase != nil && *res.TradeCostBase == 0:
+		statusRow(env, out, "Trading cost", "none")
+	case res.TradeCostBase != nil:
+		statusRow(env, out, "Trading cost", formatProposalMoney(*res.TradeCostBase, res.BaseCurrency)+", half the quoted spread")
+	case res.TradeCostUnknown != "":
+		statusRow(env, out, "Trading cost", "unknown: "+res.TradeCostUnknown)
 	}
 	if len(res.Kept) > 0 {
 		kept := make([]string, 0, len(res.Kept))
@@ -565,7 +589,7 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 		statusRow(env, out, "Legs", fmt.Sprintf("%d %s · %d blocked of %d", res.EligibleCount, verb, res.BlockedCount, res.LegCount))
 	}
 	if res.TargetDollarDelta != 0 || res.NetDollarDeltaAfter != nil {
-		statusRow(env, out, "Delta scope", "unlocked holdings; locked holdings excluded")
+		statusRow(env, out, "Delta scope", "the book without locked hedges; locked holdings are never traded")
 	}
 	if res.TargetDollarDelta != 0 {
 		statusRow(env, out, "Net delta (before)", formatProposalMoney(res.NetDollarDeltaBefore, res.BaseCurrency))
@@ -630,6 +654,9 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 			head = leg.Symbol
 		}
 		fmt.Fprintf(out, "  %s  [%s]\n", head, state)
+		if leg.Contract != nil {
+			statusRow(env, out, "  contract", strings.TrimSpace(queuedContractLabel(*leg.Contract)+" · expires "+leg.Contract.Expiry+fmt.Sprintf(" · ×%d", leg.Contract.Multiplier)))
+		}
 		if leg.Notional != 0 {
 			statusRow(env, out, "  notional", formatProposalMoney(leg.Notional, leg.NotionalCurrency))
 		}
@@ -812,11 +839,42 @@ func formatIndexLoss(il *rpc.IndexLoss, ccy string) (label, value string) {
 	case il == nil:
 		return "", ""
 	case il.IndexLossBeforeBase != nil && il.IndexLossAfterBase != nil:
-		return fmt.Sprintf("Index -%.0f%%", il.IndexShockPct), "loses " + formatProposalMoney(*il.IndexLossBeforeBase, ccy) + " now, " + formatProposalMoney(*il.IndexLossAfterBase, ccy) + " after"
+		return fmt.Sprintf("Index -%.0f%%", il.IndexShockPct), formatStressMove(*il.IndexLossBeforeBase, *il.IndexLossAfterBase, ccy)
 	case il.IndexLossUnknown != "":
 		return "Index loss", "unknown: " + il.IndexLossUnknown
 	}
 	return "", ""
+}
+
+// formatIndexRise is the reduce plan's index-rise figure, the fall's other
+// side. Empty when absent, or unknown for the reason the fall already gave.
+func formatIndexRise(il *rpc.IndexLoss, ccy string) (label, value string) {
+	switch {
+	case il == nil:
+		return "", ""
+	case il.IndexRiseLossBeforeBase != nil && il.IndexRiseLossAfterBase != nil:
+		return fmt.Sprintf("Index +%.0f%%", il.IndexRisePct), formatStressMove(*il.IndexRiseLossBeforeBase, *il.IndexRiseLossAfterBase, ccy)
+	case il.IndexRiseLossUnknown != "" && il.IndexRiseLossUnknown != il.IndexLossUnknown:
+		return "Index rise", "unknown: " + il.IndexRiseLossUnknown
+	}
+	return "", ""
+}
+
+// formatStressMove says what a stress does to the book now and after the
+// orders fill; a negative loss is a gain and reads as one.
+func formatStressMove(before, after float64, ccy string) string {
+	side := func(loss float64) (string, string) {
+		if loss < 0 {
+			return "gains", formatProposalMoney(-loss, ccy)
+		}
+		return "loses", formatProposalMoney(loss, ccy)
+	}
+	bVerb, bAmount := side(before)
+	aVerb, aAmount := side(after)
+	if aVerb == bVerb {
+		return bVerb + " " + bAmount + " now, " + aAmount + " after"
+	}
+	return bVerb + " " + bAmount + " now, " + aVerb + " " + aAmount + " after"
 }
 
 func renderProposalRow(env *Env, out io.Writer, p *rpc.TradeProposal, snapBaseCurrency string) {

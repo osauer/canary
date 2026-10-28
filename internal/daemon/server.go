@@ -611,7 +611,14 @@ type Server struct {
 
 	// reducePositionsForTest replaces the positions read behind a reduce
 	// preview, sweep and tokened submit (reducePositions).
-	reducePositionsForTest   func(context.Context) (*rpc.PositionsResult, error)
+	reducePositionsForTest func(context.Context) (*rpc.PositionsResult, error)
+	// reduceHedgeFutureForTest replaces the hedge plan's read of the front
+	// Micro S&P future and its quote (reduceHedgeFuture).
+	reduceHedgeFutureForTest func(context.Context) (rpc.ContractParams, *rpc.Quote, error)
+	// reduceLegQuoteForTest replaces the exact-contract quote a reduce plan
+	// reads for a leg whose position row has no two-sided quote
+	// (reduceLegQuote).
+	reduceLegQuoteForTest    func(context.Context, rpc.ContractParams) (*rpc.Quote, error)
 	orderPreviewWhatIf       func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error)
 	orderWritesEnabled       func() bool
 	gatewayReadyForTrading   func() bool

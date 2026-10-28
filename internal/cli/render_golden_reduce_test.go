@@ -79,6 +79,7 @@ func goldenReducePortfolioPreview() rpc.TradeProposalReducePortfolioResult {
 	pct := 100.0
 	return rpc.TradeProposalReducePortfolioResult{Accepted: true, Percent: 50, NetDollarDeltaBefore: 3750, TargetDollarDelta: 1875, AchievedDollarDelta: 1875, AchievedPctOfTarget: &pct,
 		LegCount: 2, EligibleCount: 2, TotalNotional: 1750, BaseCurrency: "USD", AsOf: goldenAt, NetDollarDeltaAfter: new(1875.0),
+		IndexShockPct: 10, IndexLossBeforeBase: new(-1200.0), IndexLossAfterBase: new(300.0), IndexRisePct: 10, IndexRiseLossBeforeBase: new(900.0), IndexRiseLossAfterBase: new(-200.0),
 		UntouchedPositions: []rpc.TradeProposalReduceUntouchedPosition{{
 			Contract:         rpc.ContractParams{ConID: 700003, Symbol: "SYNC", SecType: "OPT", Expiry: "20261218", Strike: 35, Right: "P", Currency: "USD"},
 			PositionQuantity: 2, Code: "locked", Reason: "Locked by you; never in a bulk reduction.",
@@ -93,13 +94,16 @@ func goldenReducePortfolioPreview() rpc.TradeProposalReducePortfolioResult {
 }
 
 // goldenReducePortfolioPlanLongs is a 25% longs plan: sized from the marks,
-// no tokens, a locked hedge and a short kept, and the index stress measured.
+// no tokens, a locked hedge and a short kept, and scored on the index fall
+// and rise, the loss measure and the trading cost.
 // goldenReducePortfolioPlanProposals prices two of Canary's own proposals
-// by key, each at its own size.
+// by key, each at its own size; its loss measure and cost are unknown.
 func goldenReducePortfolioPlanProposals() rpc.TradeProposalReducePortfolioResult {
 	before, after := 8300.0, 6900.0
 	return rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeProposals, PlanOnly: true, BaseCurrency: "USD", AsOf: goldenAt, LegCount: 2,
-		IndexShockPct: 10, IndexLossBeforeBase: &before, IndexLossAfterBase: &after,
+		IndexShockPct: 10, IndexLossBeforeBase: &before, IndexLossAfterBase: &after, IndexRisePct: 10, IndexRiseLossBeforeBase: new(-8100.0), IndexRiseLossAfterBase: new(-6800.0),
+		LossMeasureUnknown: "SYNB 20261218 40 C: premium at risk unmeasured: no price paid",
+		TradeCostUnknown:   "SYNC has no two-sided quote",
 		Legs: []rpc.TradeProposalReduceLeg{
 			{ConID: goldenReduceStockCon, Symbol: "SYNA", SecType: "STK", Action: rpc.OrderActionSell, PositionQuantity: 100, ReduceQuantity: 40},
 			{ConID: 5151, Symbol: "SYNC", SecType: "STK", Action: rpc.OrderActionSell, PositionQuantity: 40, ReduceQuantity: 10},
@@ -109,12 +113,37 @@ func goldenReducePortfolioPlanProposals() rpc.TradeProposalReducePortfolioResult
 func goldenReducePortfolioPlanLongs() rpc.TradeProposalReducePortfolioResult {
 	before, after := 8300.0, 5100.0
 	return rpc.TradeProposalReducePortfolioResult{Percent: 25, Mode: rpc.ReduceModeLongs, PlanOnly: true, BaseCurrency: "USD", AsOf: goldenAt,
-		LegCount: 2, BlockedCount: 0, TotalNotional: 0, IndexShockPct: 10, IndexLossBeforeBase: &before, IndexLossAfterBase: &after,
-		Kept: []rpc.TradeProposalReduceKept{{ConID: goldenReduceOptionCon, Symbol: "SYNB", Reason: "locked", Role: rpc.HoldingLockRoleHedge}, {ConID: 7070, Symbol: "SYNS", Reason: "short"}},
+		LegCount: 2, BlockedCount: 0, TotalNotional: 0,
+		IndexShockPct: 10, IndexLossBeforeBase: &before, IndexLossAfterBase: &after, IndexRisePct: 10, IndexRiseLossBeforeBase: new(-8100.0), IndexRiseLossAfterBase: new(-4900.0),
+		LossMeasureBeforeBase: new(41000.0), LossMeasureAfterBase: new(33500.0), LossRoomBase: new(69000.0),
+		TradeCostBase: new(12.35),
+		Kept:          []rpc.TradeProposalReduceKept{{ConID: goldenReduceOptionCon, Symbol: "SYNB", Reason: "locked", Role: rpc.HoldingLockRoleHedge}, {ConID: 7070, Symbol: "SYNS", Reason: "short"}},
 		Legs: []rpc.TradeProposalReduceLeg{
 			{ConID: goldenReduceStockCon, Symbol: "SYNA", SecType: "STK", Action: rpc.OrderActionSell, PositionQuantity: 100, ReduceQuantity: 25, DollarDelta: 2500, RiskContributionCut: 625, Notional: 625, NotionalCurrency: "USD", NotionalBase: new(625.0)},
 			{ConID: 5151, Symbol: "SYNC", SecType: "STK", Action: rpc.OrderActionSell, PositionQuantity: 40, ReduceQuantity: 10, DollarDelta: 4000, RiskContributionCut: 1000, Notional: 1000, NotionalCurrency: "USD", NotionalBase: new(1000.0)},
 		}}
+}
+
+// goldenReducePortfolioPlanHedge sells five Micro S&P contracts to neutral:
+// the fall's loss falls to under one contract's offset, the rise's gain by
+// as much, and the unstopped future leaves the loss measure as it was.
+func goldenReducePortfolioPlanHedge() rpc.TradeProposalReducePortfolioResult {
+	contract := rpc.ContractParams{ConID: 750001, Symbol: "MES", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218", LocalSymbol: "MESZ6", TradingClass: "MES", Multiplier: 5}
+	return rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeHedge, PlanOnly: true, BaseCurrency: "EUR", AsOf: goldenAt, LegCount: 1, TotalNotional: 135000,
+		IndexShockPct: 10, IndexLossBeforeBase: new(15000.0), IndexLossAfterBase: new(1500.0), IndexRisePct: 10, IndexRiseLossBeforeBase: new(-15000.0), IndexRiseLossAfterBase: new(-1500.0),
+		LossMeasureBeforeBase: new(41000.0), LossMeasureAfterBase: new(41000.0), LossRoomBase: new(69000.0), TradeCostBase: new(5.63),
+		Legs: []rpc.TradeProposalReduceLeg{{ConID: 750001, Symbol: "MES", SecType: "FUT", Action: rpc.OrderActionSell, ReduceQuantity: 5, DollarDelta: -135000,
+			Notional: 150000, NotionalCurrency: "USD", NotionalBase: new(135000.0), Contract: &contract}},
+		Message: "sell 5 MESZ6 to neutral"}
+}
+
+// goldenReducePortfolioPlanHedgeNone is a book that already gains in the
+// fall: nothing to sell, the figures unchanged.
+func goldenReducePortfolioPlanHedgeNone() rpc.TradeProposalReducePortfolioResult {
+	return rpc.TradeProposalReducePortfolioResult{Mode: rpc.ReduceModeHedge, PlanOnly: true, BaseCurrency: "EUR", AsOf: goldenAt, Legs: []rpc.TradeProposalReduceLeg{},
+		IndexShockPct: 10, IndexLossBeforeBase: new(-2400.0), IndexLossAfterBase: new(-2400.0), IndexRisePct: 10, IndexRiseLossBeforeBase: new(1900.0), IndexRiseLossAfterBase: new(1900.0),
+		LossMeasureBeforeBase: new(41000.0), LossMeasureAfterBase: new(41000.0), LossRoomBase: new(69000.0), TradeCostBase: new(0.0),
+		Blockers: []rpc.TradingBlocker{{Code: "nothing_to_hedge", Message: "a 10% S&P fall already leaves the book even or ahead; selling futures would add a short", Action: "Keep the book as it is."}}}
 }
 
 func goldenReducePortfolioSubmit() rpc.TradeProposalReducePortfolioResult {

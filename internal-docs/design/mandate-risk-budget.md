@@ -1301,6 +1301,49 @@ measure row by row to 95% of the room; a stopped share line counts its loss
 to the stop and an unstopped one counts nothing and is named; the premium
 budget counts protection with its share in the note.
 
+## Fallback volatility
+
+Owner instruction 2026-10-28 08:51 CET ("Build it"), after one option
+without an implied volatility before the US open left the whole verdict
+unknown, every stress and plan figure with it. An option position row
+carries the volatility of the session's last model tick; before the first
+one, after a daemon restart and outside the option's market hours it has
+none. The design question and the owner's framing: "a stale IV has most
+likely relatively low impact on the whole book and we can accept that
+risk", provided the impact is measured.
+
+- **Fallback.** The daemon prices such a leg at the volatility its own mark
+  implies (`mandateFallbackIV`, the Black-Scholes inversion the order gate
+  already uses for unheld legs) and tags it `iv_source = "mark"` with the
+  mark's time when supplied by the position data. No clock is invented when
+  the portfolio stream supplies none. A mark at or below intrinsic implies none; the leg stays
+  unknown.
+- **Approval.** The evaluator counts the tag only under
+  `[mandate.iv_fallback]`; absent, or with a key missing, such a leg leaves
+  the verdict unknown as before, and every fingerprint is kept.
+- **Band.** Each fallback volatility is moved down and up by its band:
+  `short_band_pct` under 8 days to expiry, `month_band_pct` from 8 to 35
+  days, `long_band_pct` beyond. The book is simulated twice more, every
+  fallback leg at the edge that loses more in the S&P fall and at the
+  other. The verdict's `iv_fallback` carries the legs, the S&P-fall range
+  and half its width (`uncertainty_base`) against the loss room.
+- **Tiers.** Half the width within `measured_pct` of the loss room: the
+  verdict stands. Within `range_pct`: it stands only when the verdict (the
+  loss measure and the gap caps) is the same at both edges. Beyond: unknown
+  with the reason, no stresses, as any unknown.
+- **Numbers.** The proposed values come from Canary's recorded option
+  chains, 19 to 27 October 2026, four complete sessions, three held names,
+  778 contract pairs: the 99th percentile of the one-session IV move per
+  class was 63% under 8 days, 13% from 8 to 35 days and 5% beyond, rounded
+  up to 65, 15 and 8. One week, three names and a rising-volatility week:
+  the bands should be re-measured once the recorder has a few months.
+  The tiers 5 and 20 follow common desk practice for data-quality
+  exceptions against a limit.
+- **Not built.** A last recorded volatility as a further fallback (the
+  recorder keeps no contract id and failed three of seven nights), a wider
+  band around known events such as earnings, and an option with no mark at
+  all, which still leaves the verdict unknown.
+
 ## Exceptions And Change Control
 
 - Who may grant an exception: the owner, by revising `[mandate]` (raise D or

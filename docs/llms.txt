@@ -2,6 +2,11 @@
 
 Updated: 2026-10-28 09:11 CET
 
+Version 3.29 adds reduction-plan comparisons for index falls and rises, loss
+room and quoted trading costs, plus index-hedge planning. Optional IV-fallback
+policy reports uncertainty when a held option lacks its own volatility.
+Plans are not submission authority.
+
 Version 3.28 adds historical option-exit replay, option-list pagination and
 intraday account-value history. Holding locks cover a name across its held
 contracts. Mandate reporting separates the loss measure from volatility;

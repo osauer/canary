@@ -60,6 +60,118 @@ type ConstitutionMandate struct {
 	// (internal-docs/design/strategy-register.md); [mandate.core] is its
 	// first entry. Optional: absent, every fingerprint is kept.
 	Strategies map[string]*ConstitutionMandateStrategy `toml:"strategies" json:"strategies,omitempty"`
+	// IVFallback is [mandate.iv_fallback] (owner instruction 2026-10-28
+	// 08:51 CET): how far an option priced on the volatility implied by its
+	// own mark may move the S&P-fall figure before the verdict reads unknown.
+	// Optional: absent, or with any key unwritten, an option without its
+	// own volatility leaves the book unknown as before, and every
+	// fingerprint is kept.
+	IVFallback *ConstitutionMandateIVFallback `toml:"iv_fallback" json:"iv_fallback,omitempty"`
+	// IndexHedge is [mandate.index_hedge] (owner decision 2026-10-28 20:07
+	// CET): the most Micro S&P contracts one Reduce hedge may hold. The
+	// table's presence is the permission to place a hedge; absent, or
+	// without max_contracts, placing one is refused with a blocker naming
+	// the table, and every fingerprint is kept. There is no second switch.
+	IndexHedge *ConstitutionMandateIndexHedge `toml:"index_hedge" json:"index_hedge,omitempty"`
+}
+
+// ConstitutionMandateIndexHedge is [mandate.index_hedge]. MaxContracts is a
+// hard stop against a wrong size, never the target: the hedge is sized to
+// neutral and refused beyond this many contracts held after it. The owner's
+// number (2026-10-28 20:07 CET) is 25, set where it covers the long side of
+// the book.
+type ConstitutionMandateIndexHedge struct {
+	MaxContracts *int `toml:"max_contracts" json:"max_contracts"`
+}
+
+// IndexHedgeMaxContracts is the most contracts one hedge may hold, or the
+// reason placing a hedge is refused: no table, or no max_contracts.
+func (m *ConstitutionMandate) IndexHedgeMaxContracts() (int, string) {
+	switch {
+	case m == nil || m.IndexHedge == nil:
+		return 0, "the risk constitution carries no [mandate.index_hedge] table; placing an index hedge is refused until it is written with max_contracts and a higher policy_version"
+	case m.IndexHedge.MaxContracts == nil:
+		return 0, "the risk constitution writes no mandate.index_hedge.max_contracts; placing an index hedge is refused until it does"
+	}
+	return *m.IndexHedge.MaxContracts, ""
+}
+
+// validate holds a written max_contracts to a whole positive count.
+func (h *ConstitutionMandateIndexHedge) validate() error {
+	if h == nil || h.MaxContracts == nil {
+		return nil
+	}
+	if *h.MaxContracts < 1 {
+		return fmt.Errorf("mandate.index_hedge.max_contracts must be at least 1")
+	}
+	return nil
+}
+
+// ConstitutionMandateIVFallback is [mandate.iv_fallback]. The bands are the
+// share of a fallback volatility the evaluator moves it by, down and up, per
+// expiry class (under 8 days, 8 to 35 days, beyond); the tiers are the
+// shares of the loss room the S&P-fall uncertainty may take: within
+// measured_pct the verdict reads measured, within range_pct only when it is
+// the same at both edges of the bands, beyond it unknown. The values
+// proposed on 2026-10-28 come from one week of recorded chains (the 99th
+// percentile of one-session IV moves per class): 65, 15, 8; 5 and 20.
+type ConstitutionMandateIVFallback struct {
+	ShortBandPct *float64 `toml:"short_band_pct" json:"short_band_pct"`
+	MonthBandPct *float64 `toml:"month_band_pct" json:"month_band_pct"`
+	LongBandPct  *float64 `toml:"long_band_pct" json:"long_band_pct"`
+	MeasuredPct  *float64 `toml:"measured_pct" json:"measured_pct"`
+	RangePct     *float64 `toml:"range_pct" json:"range_pct"`
+}
+
+// IVFallbackUnapprovedKeys lists the [mandate.iv_fallback] keys a written
+// table still lacks; while any is missing the fallback stays off. Like the
+// core's, they never reach the constitution's own approval list.
+func (m *ConstitutionMandate) IVFallbackUnapprovedKeys() []string {
+	if m == nil || m.IVFallback == nil {
+		return nil
+	}
+	f := m.IVFallback
+	var out []string
+	for _, k := range []struct {
+		key string
+		v   *float64
+	}{{"short_band_pct", f.ShortBandPct}, {"month_band_pct", f.MonthBandPct}, {"long_band_pct", f.LongBandPct}, {"measured_pct", f.MeasuredPct}, {"range_pct", f.RangePct}} {
+		if k.v == nil {
+			out = append(out, "mandate.iv_fallback."+k.key)
+		}
+	}
+	return out
+}
+
+// validate checks the written keys: a band below 100 (the low edge stays a
+// volatility), the tiers in (0, 100] and measured_pct at most range_pct.
+func (f *ConstitutionMandateIVFallback) validate() error {
+	if f == nil {
+		return nil
+	}
+	bad := func(v *float64, hi float64, closed bool) bool {
+		return v != nil && (math.IsNaN(*v) || math.IsInf(*v, 0) || *v <= 0 || *v > hi || !closed && *v >= hi)
+	}
+	for _, k := range []struct {
+		key string
+		v   *float64
+	}{{"short_band_pct", f.ShortBandPct}, {"month_band_pct", f.MonthBandPct}, {"long_band_pct", f.LongBandPct}} {
+		if bad(k.v, 100, false) {
+			return fmt.Errorf("mandate.iv_fallback.%s must be in (0, 100)", k.key)
+		}
+	}
+	for _, k := range []struct {
+		key string
+		v   *float64
+	}{{"measured_pct", f.MeasuredPct}, {"range_pct", f.RangePct}} {
+		if bad(k.v, 100, true) {
+			return fmt.Errorf("mandate.iv_fallback.%s must be in (0, 100]", k.key)
+		}
+	}
+	if f.MeasuredPct != nil && f.RangePct != nil && *f.MeasuredPct > *f.RangePct {
+		return fmt.Errorf("mandate.iv_fallback.measured_pct (%g) must not exceed range_pct (%g)", *f.MeasuredPct, *f.RangePct)
+	}
+	return nil
 }
 
 // ConstitutionMandateCore is [mandate.core]: which compiled rule the core
@@ -263,6 +375,12 @@ func (m *ConstitutionMandate) validate(semantics ConstitutionSemantics) error {
 		}
 	}
 	if err := m.Core.validate(); err != nil {
+		return err
+	}
+	if err := m.IVFallback.validate(); err != nil {
+		return err
+	}
+	if err := m.IndexHedge.validate(); err != nil {
 		return err
 	}
 	if sl := m.Sleeves; sl != nil {

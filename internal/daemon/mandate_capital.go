@@ -433,8 +433,14 @@ func mandatePolicyNumbers(c *risk.Constitution) mandate.Policy {
 		return mandate.Policy{}
 	}
 	m := c.Mandate
-	return mandate.Policy{MaxLossPct: policyCheckDeref(m.MaxLossPct), VolTargetPct: policyCheckDeref(m.VolTargetPct),
+	p := mandate.Policy{MaxLossPct: policyCheckDeref(m.MaxLossPct), VolTargetPct: policyCheckDeref(m.VolTargetPct),
 		GapShockPct: policyCheckDeref(m.GapShockPct), IndexGapShockPct: policyCheckDeref(m.IndexGapShockPct), GapRoomPct: policyCheckDeref(m.GapRoomPct)}
+	// The fallback binds only once the owner has written every key of
+	// [mandate.iv_fallback]; a half-written table keeps it off.
+	if f := m.IVFallback; f != nil && len(m.IVFallbackUnapprovedKeys()) == 0 {
+		p.IVFallback = &mandate.IVFallback{ShortBandPct: *f.ShortBandPct, MonthBandPct: *f.MonthBandPct, LongBandPct: *f.LongBandPct, MeasuredPct: *f.MeasuredPct, RangePct: *f.RangePct}
+	}
+	return p
 }
 
 // MandateCapitalForScope evaluates the mandate's capital state from the

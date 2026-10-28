@@ -531,6 +531,11 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 			view.Strike = pos.Contract.Strike
 			res.Options = append(res.Options, view)
 		} else {
+			if pos.Contract.SecType == "FUT" {
+				// A future's month names the contract (the hedge's roll
+				// reads it); a stock has none.
+				view.Expiry = pos.Contract.Expiry
+			}
 			res.Stocks = append(res.Stocks, view)
 		}
 		if pos.Contract.ConID > 0 {
@@ -948,6 +953,10 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 // wire-shape contract is per-share, so that one case is coerced to 1. The
 // coercion is STK-only because a future multiplier of 100 is meaningful.
 func positionViewMultiplier(secType string, raw int) int {
+	// Futures have no per-share default: missing contract terms stay unknown.
+	if secType == "FUT" || secType == rpc.SecTypeFuture {
+		return raw
+	}
 	multiplier := max(raw, 1)
 	if secType == "STK" && multiplier == 100 {
 		return 1
@@ -1899,6 +1908,14 @@ func positionDollarDelta(row rpc.PositionView, isOption bool) (float64, bool) {
 	}
 	if row.Mark <= 0 {
 		return 0, false
+	}
+	if positionIsFuture(row) {
+		// A future's dollar delta is its contract value: quantity × price ×
+		// multiplier (owner decisions 2026-10-28, the index hedge).
+		if row.Multiplier <= 0 {
+			return 0, false
+		}
+		return row.Quantity * row.Mark * float64(row.Multiplier), true
 	}
 	return row.Quantity * row.Mark, true
 }

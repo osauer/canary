@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func reduceKeptReason(kept []rpc.TradeProposalReduceKept, conID int) string {
 
 func TestReduceNetSweepNeverSellsALockedHedge(t *testing.T) {
 	pos := reduceScopeBook()
-	cands, net, _, _, _ := reduceSweepCandidates(pos, 50)
+	cands, net, _, _, _ := reduceSweepCandidates(pos, pos, 50)
 	if _, ok := reduceFindCandidate(cands, 9); !ok || net >= 0 {
 		t.Fatalf("precondition: the unlocked net sweep of a net-short book sells the puts; net=%v cands=%+v", net, cands)
 	}
@@ -43,7 +44,7 @@ func TestReduceNetSweepNeverSellsALockedHedge(t *testing.T) {
 	if len(kept) != 1 || kept[0].ConID != 9 || kept[0].Reason != reduceKeptLocked || kept[0].Role != rpc.HoldingLockRoleHedge {
 		t.Fatalf("kept = %+v, want the locked puts disclosed", kept)
 	}
-	cands, net, _, _, _ = reduceSweepCandidates(book, 50)
+	cands, net, _, _, _ = reduceSweepCandidates(book, reduceExposureBook(pos, locks), 50)
 	if _, ok := reduceFindCandidate(cands, 9); ok {
 		t.Fatal("a locked hedge was selected by the net sweep")
 	}
@@ -55,6 +56,41 @@ func TestReduceNetSweepNeverSellsALockedHedge(t *testing.T) {
 	}
 	if len(pos.Options) != 1 {
 		t.Fatal("taking locked lines out must not change the caller's positions")
+	}
+}
+
+// The owner's book on 2026-10-28: a locked core long, an unlocked long and
+// unlocked long puts that protect the core. Read without the core, the book
+// was net short, so the net sweep sold the puts and left the core unhedged.
+// A locked core line counts toward the direction and size, though it is
+// never traded (owner, 2026-10-28 12:04 CET).
+func TestReduceNetSweepCountsALockedCoreLine(t *testing.T) {
+	locks := rpc.HoldingLocks{Locks: []rpc.HoldingLock{{Symbol: "CORE", Role: rpc.HoldingLockRoleCore}}}
+	// Core 30,000 + long 5,000 - puts 20,000 is net long 15,000: the long is
+	// cut and the protection kept. Core 10,000 leaves the book net short
+	// 5,000: the puts are trimmed by half of that (5 contracts), not by half
+	// of the unlocked book's 15,000 (15).
+	for _, c := range []struct {
+		core, net  float64
+		sells, qty int
+	}{{300, 15000, 2, 50}, {100, -5000, 9, 5}} {
+		pos := reduceTestPortfolio([]rpc.PositionView{
+			{Symbol: "CORE", SecType: "STOCK", ConID: 1, Currency: "USD", Quantity: c.core, Mark: 100},
+			{Symbol: "LONG", SecType: "STOCK", ConID: 2, Currency: "USD", Quantity: 50, Mark: 100},
+		}, []rpc.PositionView{
+			{Symbol: "IDX", SecType: "OPTION", ConID: 9, Currency: "USD", Quantity: 40, Right: "P", Multiplier: 100, Delta: new(-0.05), Underlying: new(100.0)},
+		})
+		unlocked, _ := reduceUnlockedBook(pos, locks)
+		cands, net, _, target, blockers := reduceSweepCandidates(unlocked, reduceExposureBook(pos, locks), 50)
+		if len(blockers) > 0 {
+			t.Fatalf("core %v: blockers %+v", c.core, blockers)
+		}
+		if !approxEqual(net, c.net, 1e-6) || !approxEqual(target, math.Abs(c.net)/2, 1e-6) {
+			t.Fatalf("core %v: net %v target %v, want net %v and half of it", c.core, net, target, c.net)
+		}
+		if len(cands) != 1 || cands[0].row.ConID != c.sells || cands[0].qty != c.qty {
+			t.Fatalf("core %v: candidates %+v, want %d of contract %d only", c.core, cands, c.qty, c.sells)
+		}
 	}
 }
 
@@ -219,7 +255,7 @@ func TestMandateInputWithTradesMovesOnlyTheTradedLines(t *testing.T) {
 		t.Fatal("the kept input must not change")
 	}
 	res := &rpc.TradeProposalReducePortfolioResult{}
-	(&Server{}).reduceIndexLoss(t.Context(), res, nil)
+	(&Server{}).reduceMandateScores(t.Context(), res, nil)
 	if res.IndexLossBeforeBase != nil || res.IndexLossUnknown == "" || res.IndexShockPct != mandate.IndexShockPct {
 		t.Fatalf("no mandate = %+v, want the loss unknown and said why", res)
 	}

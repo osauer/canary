@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -322,9 +323,29 @@ func TestShortStockUpsideGapAndIndexStress(t *testing.T) {
 	if u.GapUpLossBase == nil || math.Abs(*u.GapUpLossBase-100*50*0.25) > 1e-9 || u.GapDownLossBase >= 0 || u.GapLossBase != *u.GapUpLossBase {
 		t.Fatalf("short stock gap: %+v", u)
 	}
-	// A short of a name with positive beta gains when the index falls.
-	if v.Stresses.IndexLossBase >= 0 {
+	// A short of a name with positive beta gains when the index falls, and
+	// loses as much when it rises by the same amount.
+	if v.Stresses.IndexLossBase >= 0 || math.Abs(v.Stresses.IndexRiseLossBase+v.Stresses.IndexLossBase) > 1e-9 {
 		t.Fatalf("index stress on a short: %+v", v.Stresses)
+	}
+}
+
+// The index rise is the fall's other side (owner, 2026-10-28 13:13 CET): the
+// same IndexShockPct up through each name's beta, every leg revalued. The
+// index itself moves by exactly the shock; a short call loses more in the
+// rise than it gains in the fall.
+func TestIndexRiseRevaluesEveryLeg(t *testing.T) {
+	index := Leg{ID: "1", Symbol: IndexSymbol, Underlying: IndexSymbol, Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "EUR", Spot: 50}
+	v := Evaluate(testInput(t, []Leg{index}))
+	if v.Stresses == nil || math.Abs(v.Stresses.IndexLossBase-500) > 1e-9 || math.Abs(v.Stresses.IndexRiseLossBase+500) > 1e-9 {
+		t.Fatalf("index line: %+v %v, want 500 lost in the fall and 500 gained in the rise", v.Stresses, v.Reasons)
+	}
+	iv := 0.3
+	shortCall := Leg{ID: "2", Symbol: "SPY 50 C", Underlying: IndexSymbol, Kind: KindOption, Quantity: -1, Multiplier: 100, Currency: "EUR", Spot: 50,
+		Right: "C", Strike: 50, TimeToExpiryYears: 0.25, IV: &iv}
+	v = Evaluate(testInput(t, []Leg{shortCall}))
+	if v.Stresses == nil || v.Stresses.IndexRiseLossBase <= 0 || v.Stresses.IndexRiseLossBase <= -v.Stresses.IndexLossBase {
+		t.Fatalf("short call: %+v %v, want the rise's loss above the fall's gain", v.Stresses, v.Reasons)
 	}
 }
 
@@ -353,5 +374,38 @@ func TestRiskRatioEncodesAtZeroBudget(t *testing.T) {
 	back = Verdict{}
 	if err := json.Unmarshal(raw, &back); err != nil || back.Risk.RatioToBudget != v.Risk.RatioToBudget {
 		t.Fatalf("finite ratio %v → %v (%v)", v.Risk.RatioToBudget, back.Risk.RatioToBudget, err)
+	}
+}
+
+// A Micro S&P future is a linear line on the index (the index hedge, owner
+// decision 2026-10-28 13:17 CET): SPY's returns give it a beta of 1, it
+// takes the index gap, a 10% fall gains a short exactly the shock on its
+// contract value, and its loss in the 10% rise spends loss room (owner
+// decision 2026-10-28 20:07 CET), so it is never listed as unstopped.
+func TestMicroSP500FutureIsALinearIndexLine(t *testing.T) {
+	short := Leg{ID: "con:9", Symbol: "MESZ6", Underlying: MicroSP500Future, Kind: KindStock, Quantity: -2, Multiplier: 5, Currency: "USD", Spot: 6000}
+	v := Evaluate(testInput(t, []Leg{short}))
+	if v.Stresses == nil {
+		t.Fatalf("unknown: %v", v.Reasons)
+	}
+	gain := 0.10 * 6000 * 5 * 2 * 0.9
+	if math.Abs(v.Stresses.IndexLossBase+gain) > 1e-6 || math.Abs(v.Stresses.IndexRiseLossBase-gain) > 1e-6 {
+		t.Fatalf("stresses %+v, want %.2f gained in the fall and lost in the rise", v.Stresses, gain)
+	}
+	u := v.Underlyings[0]
+	if !u.BroadIndex || math.Abs(u.Beta-1) > 1e-9 || u.GapShockPct != testPolicy().GapShockPctFor(true) {
+		t.Fatalf("underlying %+v, want a broad index line with beta 1", u)
+	}
+	if v.Loss == nil || math.Abs(v.Loss.TotalBase-gain) > 1e-6 || math.Abs(v.Loss.IndexHedgeBase-gain) > 1e-6 || slices.Contains(v.Loss.Unstopped, "MESZ6") {
+		t.Fatalf("loss %+v, want the %.2f rise loss counted under index_hedge_base and the line not unstopped", v.Loss, gain)
+	}
+	// A stop covering the whole line bounds it at the stop's distance.
+	stopped := short
+	stopped.StopArmed, stopped.LossPerUnitBase = true, 450
+	if m, why := MeasureLoss(testInput(t, []Leg{stopped})); len(why) > 0 || m.IndexHedgeBase != 900 || m.TotalBase != 900 {
+		t.Fatalf("stopped future measure %+v (%v), want 900 to the stop", m, why)
+	}
+	if IsBroadIndex("ES", "USD") || ReturnsSeries("MES", "USD") != "MES" {
+		t.Fatal("a share symbol must not match the future's key")
 	}
 }

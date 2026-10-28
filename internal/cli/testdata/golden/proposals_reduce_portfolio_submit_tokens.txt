@@ -2,6 +2,8 @@
 
 Portfolio Reduce Submit  accepted=false
 Percent        50% of net delta
+Index -10%     gains $ 1,200.00 now, loses $ 300.00 after
+Index +10%     loses $ 900.00 now, gains $ 200.00 after
 Legs           1 placed · 1 blocked of 2
 Total notional $ 1,250.00
 Request ref    desk-basket-7f3a
@@ -25,6 +27,8 @@ Request ref    desk-basket-7f3a
 
 Portfolio Reduce Submit  accepted=false
 \x1b[2mPercent       \x1b[0m 50% of net delta
+\x1b[2mIndex -10%    \x1b[0m gains $ 1,200.00 now, loses $ 300.00 after
+\x1b[2mIndex +10%    \x1b[0m loses $ 900.00 now, gains $ 200.00 after
 \x1b[2mLegs          \x1b[0m 1 placed · 1 blocked of 2
 \x1b[2mTotal notional\x1b[0m $ 1,250.00
 \x1b[2mRequest ref   \x1b[0m desk-basket-7f3a

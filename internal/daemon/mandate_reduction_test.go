@@ -72,6 +72,10 @@ func mandateReductionFixture(t *testing.T, pos *rpc.PositionsResult, ratio, budg
 	for sym, s := range mandateReductionVols {
 		in.Series[sym] = mandateSeriesInput(mandateTestSeries("u:"+sym, s.vol, s.seed, 0), now)
 	}
+	if _, ok := fxNow["USD"]; ok {
+		// A USD line (the hedge's future) needs the rate's history too.
+		in.FX["USD"] = mandateSeriesInput(mandateTestSeries("fx:USD", 0.08, 9, 0), now)
+	}
 	probe := mandate.Evaluate(in)
 	if probe.Risk == nil || probe.Loss == nil {
 		t.Fatalf("fixture unmeasured: %v", probe.Reasons)
@@ -89,6 +93,9 @@ func mandateArmTestStops(t *testing.T, legs []mandate.Leg, pos *rpc.PositionsRes
 	marks := map[string]float64{}
 	value := 0.0
 	for _, row := range pos.Stocks {
+		if positionIsFuture(row) {
+			continue // a future counts its index-move loss, never a test stop
+		}
 		marks[mandateLegID(row)] = row.Mark
 		value += math.Abs(row.Quantity) * row.Mark
 	}
@@ -100,7 +107,7 @@ func mandateArmTestStops(t *testing.T, legs []mandate.Leg, pos *rpc.PositionsRes
 	}
 	f := want / value
 	for i := range legs {
-		if legs[i].Kind != mandate.KindStock {
+		if legs[i].Kind != mandate.KindStock || mandate.IsIndexFuture(legs[i]) {
 			continue
 		}
 		legs[i].LossPerUnitBase, legs[i].StopArmed = f*marks[legs[i].ID], true

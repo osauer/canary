@@ -906,7 +906,7 @@ canary proposals status|refresh|list|preview|prepare|prepared-status|prepare-bun
 | `--con-id` | yes | - |
 | `--include-hedges` | no | - |
 | `--portfolio` | no | - |
-| `--mode` | yes | `net`, `longs`, `all` |
+| `--mode` | yes | `net`, `longs`, `all`, `hedge` |
 | `--sector` | yes | - |
 | `--min-beta` | yes | - |
 | `--plan` | no | - |

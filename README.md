@@ -66,6 +66,11 @@ covers the first connection.
 _Current Canary SPA rendered from synthetic data. Edge reports observed
 historical outcomes; it is not a forecast or a causal claim._
 
+Reduction plans compare both index directions, loss room and quoted trading
+costs. An index-hedge plan sizes whole Micro E-mini contracts; a plan does not
+submit an order. [Protection and reduction planning](docs/docs/operate/protection.md)
+explains the figures and their limits.
+
 ## Choose your surface
 
 | You want to… | Start with | Boundary |

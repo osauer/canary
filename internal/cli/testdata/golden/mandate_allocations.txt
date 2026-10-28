@@ -9,7 +9,7 @@ Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 225,000 EUR = equity 300,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · refused · your sleeve carries 23,970 EUR a year, over its
                   allocation 19,230 EUR (the budget less the machine's
@@ -63,7 +63,7 @@ Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 225,000 EUR = equity 300,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · \x1b[31mrefused · your sleeve carries 23,970 EUR a year, over its\x1b[0m
                   \x1b[31mallocation 19,230 EUR (the budget less the machine's\x1b[0m

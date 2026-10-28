@@ -24,6 +24,17 @@ type frontFutureResolution struct {
 // leaves at most the existing bounded contract-details wire request running;
 // its terminal success can serve the next snapshot without another broker trip.
 func (c *Connector) frontFuture(ctx context.Context, contract Contract, now time.Time, wait time.Duration, fetch func(Contract, time.Duration) ([]ContractDetailsLite, error)) (Contract, error) {
+	return c.frontFutureAfter(ctx, contract, now, now, wait, fetch)
+}
+
+// FrontFutureAfter selects the nearest expiry strictly after the cutoff date.
+// The observation time remains separate so a roll window cannot extend cache
+// freshness or replace an ordinary front-contract lookup.
+func (c *Connector) FrontFutureAfter(ctx context.Context, contract Contract, now, cutoff time.Time) (Contract, error) {
+	return c.frontFutureAfter(ctx, contract, now, cutoff, 3*time.Second, nil)
+}
+
+func (c *Connector) frontFutureAfter(ctx context.Context, contract Contract, now, cutoff time.Time, wait time.Duration, fetch func(Contract, time.Duration) ([]ContractDetailsLite, error)) (Contract, error) {
 	if err := ctx.Err(); err != nil {
 		return Contract{}, err
 	}
@@ -32,7 +43,7 @@ func (c *Connector) frontFuture(ctx context.Context, contract Contract, now time
 		return Contract{}, fmt.Errorf("broker session unavailable")
 	}
 	contract = normalizeMarketDataContract(contract)
-	key := contractDetailsFlightKey(contract)
+	key := contractDetailsFlightKey(contract) + "\x00" + cutoff.UTC().Format("20060102")
 	c.frontFutureMu.Lock()
 	if c.frontFutures == nil {
 		c.frontFutures = make(map[string]*frontFutureResolution)
@@ -58,7 +69,7 @@ func (c *Connector) frontFuture(ctx context.Context, contract Contract, now time
 				})
 			}
 		}
-		go c.acquireFrontFuture(entry, contract, now, fetch)
+		go c.acquireFrontFuture(entry, contract, now, cutoff, fetch)
 	}
 	c.frontFutureMu.Unlock()
 	timer := time.NewTimer(wait)
@@ -91,13 +102,15 @@ func (c *Connector) fetchFrontFutureDetails(binding ConnectorSessionBinding, con
 	})
 }
 
-func (c *Connector) acquireFrontFuture(entry *frontFutureResolution, contract Contract, now time.Time, fetch func(Contract, time.Duration) ([]ContractDetailsLite, error)) {
+func (c *Connector) acquireFrontFuture(entry *frontFutureResolution, contract Contract, now, cutoff time.Time, fetch func(Contract, time.Duration) ([]ContractDetailsLite, error)) {
 	started := time.Now()
 	details, err := fetch(contract, contractDetailsSharedWireMinimum)
-	completed := now.Add(time.Since(started))
+	elapsed := time.Since(started)
+	completed := now.Add(elapsed)
+	selectionTime := cutoff.Add(elapsed)
 	var resolved Contract
 	if err == nil {
-		resolved, err = selectFrontFuture(contract, details, completed)
+		resolved, err = selectFrontFuture(contract, details, selectionTime)
 	}
 	if !c.SessionCurrent(entry.binding) {
 		resolved, err = Contract{}, fmt.Errorf("broker session changed")
@@ -110,7 +123,7 @@ func (c *Connector) acquireFrontFuture(entry *frontFutureResolution, contract Co
 	if err == nil {
 		// Re-resolve on the next UTC date even if the six-hour lifetime spans
 		// midnight. The selection excludes contracts on their expiry date.
-		midnight := completed.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
+		midnight := completed.Add(selectionTime.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour).Sub(selectionTime))
 		entry.expires = completed.Add(frontFutureCacheAge)
 		if midnight.Before(entry.expires) {
 			entry.expires = midnight
