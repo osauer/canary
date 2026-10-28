@@ -1,7 +1,8 @@
 #!/bin/sh
 # check-no-account-data.sh — fail the pre-commit gate when tracked/staged
-# files carry real IBKR account data. Six checks, all over the git index
-# (tracked + staged-for-add files):
+# files or outgoing commit messages carry real IBKR account data. File
+# checks use the git index (tracked + staged-for-add files); message checks
+# cover every HEAD ancestor not already reachable from origin refs:
 #   1. No HTML at the repo root and 2. no scratch-page names (*lab*.html,
 #      *scratch*) — scratch pages and screenshots are the historical leak.
 #   3. No IBKR account IDs (U / DU followed by 6-9 digits) anywhere,
@@ -21,6 +22,26 @@ cd "$(dirname "$0")/.."
 
 self=scripts/check-no-account-data.sh
 status=0
+
+# Commit bodies travel with the first push, before hosted CI can stop a
+# release. Keep their text private: the record prefix below contains only a
+# verified SHA and message line, and every diagnostic discards the content.
+# With no origin refs every local commit is unpublished; an unborn index
+# has no messages yet. Do not exempt ancestors just because HEAD is clean.
+messages=
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+	outgoing=$(git rev-list HEAD --not --remotes=origin 2>/dev/null) || {
+		echo "check-no-account-data: outgoing commit enumeration failed; the message check did not run" >&2
+		exit 1
+	}
+	messages=$(for commit in $outgoing; do
+		message=$(git show -s --format=%B "$commit" 2>/dev/null) || {
+			echo "check-no-account-data: cannot read outgoing commit $commit; the message check did not run" >&2
+			exit 1
+		}
+		printf '%s\n' "$message" | awk -v sha="$commit" '{ printf "commit %s:%d:%s\n", sha, NR, $0 }'
+	done) || exit 1
+fi
 
 # Index contents, minus files staged for deletion / missing on disk
 files=$(git ls-files --cached | while IFS= read -r f; do
@@ -60,6 +81,24 @@ for f in $candidates; do
 		status=1
 	fi
 done
+
+# The same account-ID boundary and placeholder allowlist apply to each
+# outgoing message line. Never print its subject, body or matched ID.
+message_id_hits=$(printf '%s\n' "$messages" | grep -Ei "$id_re" | while IFS= read -r record; do
+	commit=${record%%:*}
+	rest=${record#*:}
+	line=${rest%%:*}
+	content=${rest#*:}
+	ids=$(printf '%s\n' "$content" | grep -aoiE "$id_re" | grep -aoiE 'D?U[0-9]{6,9}' |
+		tr '[:lower:]' '[:upper:]' | grep -vxE "$allow_re" || true)
+	if [ -n "$ids" ]; then
+		printf 'check-no-account-data: %s contains a non-placeholder IBKR account ID on line %s\n' "$commit" "$line"
+	fi
+done)
+if [ -n "$message_id_hits" ]; then
+	printf '%s\n' "$message_id_hits" >&2
+	status=1
+fi
 
 # 4) No compiled executables in the index (Mach-O / ELF magic). A stray
 #    and other checked-in assets pass — only executable container magic
@@ -151,6 +190,13 @@ if [ -n "$source" ]; then
 			echo "check-no-account-data: git grep failed; the holdings check did not run" >&2
 			status=1
 		}
+		if [ -n "$messages" ]; then
+			message_hits=$(printf '%s\n' "$messages" | grep -w -F -e "$checked") || [ $? -eq 1 ] || {
+				echo "check-no-account-data: message grep failed; the holdings check did not run" >&2
+				status=1
+			}
+			raw=$(printf '%s\n%s\n' "$raw" "$message_hits")
+		fi
 	fi
 	# Only path and line leave the script: gate output travels into commit
 	# messages, reports and CI logs, so the ticker is withheld.
@@ -232,6 +278,11 @@ if [ -e "$state" ]; then
 				status=1
 			}
 		fi
+		# Every outgoing message is unpublished, including rounded money
+		# spellings. Feed it through the same matcher as the file records.
+		if [ -n "$messages" ]; then
+			raw=$(printf '%s\n%s\n' "$raw" "$messages")
+		fi
 		# A spelling counts only as a whole number: not the tail of a longer
 		# one (an ungrouped spelling may follow a comma: CSV, JSON), a hex
 		# colour or an identifier, nor the head of a longer one, though cents
@@ -249,7 +300,7 @@ if [ -e "$state" ]; then
 				l = substr(r, 1, i - 1); t = tolower(substr(r, i + 1))
 				if (f == "CHANGELOG.md" && cut > 0 && l + 0 >= cut) next
 				for (k = 1; k <= n; k++) {
-					if (T[k] == "new" && !all && !(f in C)) continue
+					if (T[k] == "new" && !all && !(f in C) && f !~ /^commit [0-9a-f]+$/) continue
 					p = P[k]; kf = p ~ /k$/; g = substr(p, length(p) - 3, 1); sep = !kf && g ~ /[.,_]/ ? g : ""
 					for (o = 0; (j = index(substr(t, o + 1), p)) > 0; o += j) {
 						s = o + j; e = s + length(p); a = substr(t, e, 1)

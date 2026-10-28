@@ -312,7 +312,8 @@ func (c *greeksCache) put(key string, e greeksEntry, now time.Time) {
 	c.inner.put(key, e, now)
 }
 
-// prevCloseCache memoises per-symbol previous-regular-session-close prices
+// prevCloseCache memoises previous-regular-session-close prices by the
+// explicit symbol, currency and security kind (prevCloseContractKey)
 // so positions / quote calls don't issue a fresh market-data subscribe
 // for every held underlying on every invocation. The value (tick 9 in
 // IBKR's protocol) is static across a full trading day — the cache TTL

@@ -77,6 +77,18 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 			return nil, err
 		}
 	}
+	if payload.Draft.Source == hedgeOrderSource {
+		// Admission already proved the complete book against one correlated
+		// positions receipt. Keep that stronger proof through the first byte.
+		if binding.indexHedge == nil {
+			return nil, fmt.Errorf("%w: whole-book hedge authority is unavailable", ErrTradingDisabled)
+		}
+		binding.reduceFillEvidence = &binding.indexHedge.orders
+
+		if err := s.validateHedgeTokenForPlace(ctx, payload, binding.riskPosition.Before, p.TimeoutMs); err != nil {
+			return nil, err
+		}
+	}
 	if payload.Scope == rpc.OrderTokenScopeProtectedAdd {
 		return s.placeProtectedStockAdd(ctx, p, payload, binding, status)
 	}
@@ -174,6 +186,29 @@ func (s *Server) validateReduceTokenForPlace(ctx context.Context, payload orderP
 	quote, err := s.fetchPreviewQuoteBound(ctx, draft.Contract, orderPreviewTimeout(timeoutMs), nil)
 	if err != nil {
 		return fmt.Errorf("%w: current reduction quote unavailable: %v", ErrTradingDisabled, err)
+	}
+	if _, blockers := reducePriceBoundCheck(draft, payload.Quote, quote); len(blockers) > 0 {
+		return tradingBlockersError(blockers)
+	}
+	return nil
+}
+
+// validateHedgeTokenForPlace is the hedge sale's contract at the common
+// write boundary, so order.place cannot bypass the reduce wrapper: US
+// regular hours, Canary's working hedge sales and the contract's held short
+// within max_contracts (the reduce wrapper adds the other months), and a
+// bid not already below the reviewed limit.
+func (s *Server) validateHedgeTokenForPlace(ctx context.Context, payload orderPreviewTokenPayload, held float64, timeoutMs int) error {
+	draft := payload.Draft
+	if err := s.indexFutureSessionRefusal(s.orderNow()); err != nil {
+		return fmt.Errorf("%w: %v", ErrTradingDisabled, err)
+	}
+	if blockers := s.indexHedgeCapRefusal(draft, max(0, -held)); len(blockers) > 0 {
+		return tradingBlockersError(blockers)
+	}
+	quote, err := s.fetchPreviewQuoteBound(ctx, draft.Contract, orderPreviewTimeout(timeoutMs), nil)
+	if err != nil {
+		return fmt.Errorf("%w: current hedge quote unavailable: %v", ErrTradingDisabled, err)
 	}
 	if _, blockers := reducePriceBoundCheck(draft, payload.Quote, quote); len(blockers) > 0 {
 		return tradingBlockersError(blockers)

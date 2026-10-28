@@ -19,6 +19,7 @@ import (
 // account/mode scope that passed authorization. It is never durable order
 // authority and must be revalidated immediately before broker I/O.
 type brokerWriteTransactionBinding struct {
+	indexHedge                 *indexHedgeAuthority
 	reduceFillEvidence         *protectionOrderSnapshotBinding
 	deskAuthority              *deskAuthorityFence
 	stockAddReview             *rpc.AddReview
@@ -379,6 +380,14 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		if cancel {
 			return nil
 		}
+		// Futures are allowed only during the owner's US regular session,
+		// for both opening hedges and buybacks. Admission may precede the
+		// close while journal staging or transport pacing crosses it.
+		if binding.riskBound && strings.EqualFold(binding.riskDraft.Contract.SecType, "FUT") {
+			if err := s.indexFutureSessionRefusal(s.orderNow()); err != nil {
+				return fmt.Errorf("%w: %v", ErrTradingDisabled, err)
+			}
+		}
 		if binding.reduceFillEvidence != nil && !s.reduceFillBindingCurrent(*binding.reduceFillEvidence) {
 			return fmt.Errorf("%w: broker fills or session changed before reduction transmission; preview again", ErrTradingDisabled)
 		}
@@ -438,6 +447,11 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			}
 			if err := validateOrderRiskAuthority(limits, binding.riskDraft, current.Impact, binding.riskNotional, current.BaseCurrency, binding.riskProtectiveExit, binding.riskDeltaReduction); err != nil {
 				return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
+			}
+			if binding.indexHedge != nil {
+				if err := s.validateIndexHedgeAuthority(binding.indexHedge, binding.riskDraft, limits); err != nil {
+					return err
+				}
 			}
 			if err := s.riskPolicyBrakeError(binding.riskDraft, current.Impact); err != nil {
 				return err

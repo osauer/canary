@@ -1,0 +1,46 @@
+# canary proposals reduce --portfolio --mode hedge · COLUMNS=80 · colour off
+
+Portfolio Reduce Preview  accepted=true
+Hedge          Micro S&P futures until a 10% fall leaves the book about even
+Roll due       MESZ6 expires 2026-12-18: roll the hedge to the next contract
+               (due from 2026-12-08).
+Not needed     The book without the hedge reads within the mandate: its loss
+               measure € 41,000 is inside the loss room € 69,000. Buy the hedge
+               back when you choose.
+Index -10%     loses € 15,000.00 now, € 1,500.00 after
+Index +10%     gains € 15,000.00 now, € 1,500.00 after
+Loss measure   € 41,000.00 now, € 54,500.00 after, of € 69,000.00 room
+Trading cost   € 5.63, half the quoted spread
+Legs           1 eligible · 0 blocked of 1
+Total notional € 135,000.00
+  SELL 5 MES  [eligible]
+  contract     MESZ6 · expires 20261218 · ×5
+  notional     $ 149,993.75
+  token        ibkrp4.synthetic-reduce-leg-1.sig
+  Terms        SELL 5 MESZ6 LMT 5999.75 DAY · plain limit
+  Worst price  5999.75 · the bid itself; not sent if the bid is lower
+  Expires      2026-09-05T12:10:00Z
+
+# canary proposals reduce --portfolio --mode hedge · COLUMNS=80 · colour on, ESC written as \x1b
+
+Portfolio Reduce Preview  accepted=true
+\x1b[2mHedge         \x1b[0m Micro S&P futures until a 10% fall leaves the book about even
+\x1b[2mRoll due      \x1b[0m MESZ6 expires 2026-12-18: roll the hedge to the next contract
+               (due from 2026-12-08).
+\x1b[2mNot needed    \x1b[0m The book without the hedge reads within the mandate: its loss
+               measure € 41,000 is inside the loss room € 69,000. Buy the hedge
+               back when you choose.
+\x1b[2mIndex -10%    \x1b[0m loses € 15,000.00 now, € 1,500.00 after
+\x1b[2mIndex +10%    \x1b[0m gains € 15,000.00 now, € 1,500.00 after
+\x1b[2mLoss measure  \x1b[0m € 41,000.00 now, € 54,500.00 after, of € 69,000.00 room
+\x1b[2mTrading cost  \x1b[0m € 5.63, half the quoted spread
+\x1b[2mLegs          \x1b[0m 1 eligible · 0 blocked of 1
+\x1b[2mTotal notional\x1b[0m € 135,000.00
+  SELL 5 MES  [eligible]
+\x1b[2m  contract    \x1b[0m MESZ6 · expires 20261218 · ×5
+\x1b[2m  notional    \x1b[0m $ 149,993.75
+\x1b[2m  token       \x1b[0m ibkrp4.synthetic-reduce-leg-1.sig
+\x1b[2m  Terms       \x1b[0m SELL 5 MESZ6 LMT 5999.75 DAY · plain limit
+\x1b[2m  Worst price \x1b[0m 5999.75 · the bid itself; not sent if the bid is lower
+\x1b[2m  Expires     \x1b[0m 2026-09-05T12:10:00Z
+

@@ -35,59 +35,60 @@ closing everything stays a separate emergency action in Desk.
 
   The key is not the bare symbol: ES is also a listed company, and the
   compiled lists match on symbol and currency.
-- **Loss measure (TM-04.12).** The later owner decision below supersedes the initial unstopped-share
-  treatment: a held index future spends loss room through its upward-shock
-  loss, or its effective full stop distance at the multiplier. The rally
-  comparison also remains in `index_rise_*`.
+- **Loss measure (TM-04.12).** A held hedge counts its loss in the 10%
+  index rise (`index_hedge_base`), so it spends loss room like every other
+  line (owner decision 2026-10-28 20:07 CET; built 2026-10-28). A stop on
+  it would count its distance at contract value per point instead. Its
+  rally loss also shows in the plan's `index_rise_*` figures.
 
-## Placement work and retained owner decisions
+## Gated hedge placement (implemented 2026-10-28)
 
-Each item below must land before a hedge can be sent.
+Each item landed on local main with its own gate; the commits name them.
 
-1. **Held futures in the mandate (implemented 2026-10-28).** Previously a held future read "carries
-   security type FUTURE, which the mandate does not model", which makes the
-   whole verdict unknown and refuses every addition.
-   - A held MES must become the same `MES FUT` leg the plan uses.
-   - Net mode must read its dollar delta at the multiplier:
-     `positionDollarDelta` reads a non-option at quantity × mark.
-   - A stop order on it must count at contract value per point.
-2. **The order path.** Preview, WhatIf, placement, journal and fill
-   coherence accept STK/ETF/OPT/BOND/BILL/CASH only ("order preview supports
-   STK/ETF/OPT contracts only"). A future through them is a broker-path change:
-   release tier, with a live WhatIf proof under the owner's instruction. Desk's
-   device-confirmed bundle submits one token per leg; a hedge leg is one token,
-   with no second path.
-3. **Gate classification** (`riskAddingOrder`, shared by the mandate gate and
-   the drawdown brake). A SELL of an index future is a reduction, passing
-   `refuses_additions`, only when all of these hold, re-evaluated on the kept
-   book with the order:
-   - the 10% fall's loss is lower and still not below zero (to neutral, never
-     past it);
-   - the loss measure does not rise;
-   - no gap cap is breached.
+1. **Held futures in the mandate.** A held MES is the same `MES FUT` leg the
+   plan uses, at its multiplier and mark. Net mode reads its dollar delta at
+   the multiplier. A stop on it counts at contract value per point.
+2. **Policy table.** `[mandate.index_hedge] max_contracts`, read by the
+   risk-policy loader. Absent, the hedge still prices, and placing it is
+   refused (`index_hedge_unplaceable`); `canary policy check` reports it
+   (`index_hedge_unplaceable`, info). No `allow_future_short`.
+3. **The order path.** A future reaches the broker in two shapes only, both
+   through the one device-confirmed path (preview, WhatIf, signed token,
+   admission, wire guard; index_hedge_order.go):
+   - the hedge sale, previewed by the daemon from the plan (`--mode hedge`
+     without `--plan`): a limit at the bid, good for the day, in US regular
+     hours (`outside_regular_hours` otherwise, at preview and at submit),
+     with no stop order. The leg carries one signed token, submitted as a
+     basket's tokens are. The order gate holds the contract's position
+     after the sale within `max_contracts`; the submit includes other
+     months, all-client pending sales and durable uncertain commitments; over it is refused, never
+     resized (`index_hedge_over_max`). A hedge within the cap is exempt
+     from the order cap, whose face-value notional one contract can exceed.
+   - its close: a percent reduce of the held line with `--include-hedges`,
+     priced as every reduce is. The portfolio sweep never selects a hedge.
+4. **Gate classification.** A SELL is a reduction only when the modeled
+   index-fall loss decreases without crossing neutral, the loss measure
+   does not increase, and no gap cap is breached. Otherwise it remains a
+   risk addition and the normal mandate and drawdown gates apply. Counting
+   the hedge's rise loss does not authorize weakening this criterion.
+5. **Plan words for Desk.** The hedge plan and preview carry `roll_due`
+   from ten days before a held contract's expiry and `hedge_not_needed`
+   while the book without its held hedges reads within the mandate, each
+   with one plain message (`docs/docs/operate/protection.md`).
 
-   Otherwise it adds risk and the normal gate applies. A BUY that closes or
-   reduces a held hedge is already a close or reduce.
-4. **Owner numbers.** Decided 2026-10-28 20:07 CET (Desk session, on the
-   recommendation); placing a hedge is refused while the table is absent:
-   - `[mandate.index_hedge] max_contracts = 25`, the most contracts one
-     hedge may hold: a hard stop against a wrong size, never the target,
-     set where it covers the long side of the book. The owner's policy
-     file carries the table as a comment with the decision, since the
-     policy loader refuses a key the daemon does not read; the work that
-     reads it asks the owner before activating it (uncomment and bump
-     `policy_version`).
-   - No second switch: the table's presence is the permission. No
-     `allow_future_short`.
-   - The loss measure (TM-04.12) counts a held hedge's loss in the 10%
-     index rise, so a hedge spends loss room like every other line. This
-     replaces "a future without a stop adds nothing" above for the hedge.
-   - Order shape: sell at the bid, good for the day, US regular hours;
-     no stop order on the hedge. Desk says "roll due" from ten days before
-     the contract's expiry and "hedge no longer needed" when the book
-     without it is inside the limit; the owner rolls and unwinds by hand.
-5. **Futures trading permission at IBKR.** This cannot be read through
-   Canary: the order path has no futures, and a WhatIf is an order-path
-   request. Market data for CME index futures works (ESZ6 quoted live
-   2026-10-28). The owner confirms the permission under Settings → Trading
-   Permissions → Futures (United States, CME) in IBKR's account settings.
+## Held by the owner
+
+Nothing above places a hedge until the owner does four things:
+
+- **Activate the table.** Uncomment `[mandate.index_hedge] max_contracts =
+  25` in the policy file and raise `policy_version`. Canary never edits the
+  owner's policy file.
+- **Install the build** carrying these commits, from a clean worktree at
+  local main.
+- **Grant the futures permission at IBKR.** Canary cannot read it. The
+  owner confirms it under Settings → Trading Permissions → Futures (United
+  States, CME) in IBKR's account settings. Market data for CME index
+  futures works (ESZ6 quoted live 2026-10-28).
+- **Prove the path live.** A WhatIf of the hedge sale on the live session,
+  on the owner's instruction, before the first real hedge; a refused
+  permission shows there.

@@ -298,10 +298,38 @@ book's modeled loss. Every line
 counts toward the size, locked ones too. The plan carries one leg with its
 `contract` (month and multiplier) and the same scores as a cut. When the
 fall already leaves the book even or ahead, or its loss is less than one
-contract offsets, the plan sells nothing and says why. A held index hedge without a stop contributes its loss in the upward
-index shock to the mandate loss measure. A working stop contributes its
-distance at the contract multiplier. The hedge is a plan only: no order path
-places a future yet.
+contract offsets, the plan sells nothing and says why. A held future counts
+in the mandate like every other line: its gain or loss in the 10% fall and
+rise, and in the loss measure its loss in the adverse index shock
+(`index_hedge_base`), so a hedge spends loss room. Effective full stops use their contract-value distance instead.
+
+Without `--plan`, `--mode hedge` previews the sale and the leg carries a
+signed preview token; `--portfolio --submit --preview-token TOKEN`, or the
+device-confirmed basket in Desk, places exactly those terms. The sale is a
+limit at the bid, good for the day, in US regular hours only, with no stop
+order. Placing needs `[mandate.index_hedge] max_contracts` in the risk
+constitution: without it the leg says `index_hedge_unplaceable`, and a sale
+that would leave the book more contracts short than that says
+`index_hedge_over_max`; it is never resized to fit. At submit the hours,
+the cap and neutral sizing with all pending hedge sales across contracts and clients and the bid are read again. A
+held hedge is bought back as a percent reduce of its own line,
+`canary proposals reduce --con-id ID --percent N --include-hedges`; no
+portfolio sweep selects it.
+
+While a hedge is held, the hedge plan and preview carry two flags for the
+owner, who rolls and unwinds by hand; nothing acts on them:
+
+| Field | Set when | Message field |
+| --- | --- | --- |
+| `roll_due` | from ten days before a held Micro S&P contract's expiry | `roll_due_message`: the contract, its expiry and the date the roll became due |
+| `hedge_not_needed` | the book without its held short hedges reads `within` on the mandate | `hedge_not_needed_message`: the loss measure without the hedge against the loss room |
+
+
+A hedge that increases the loss measure remains a risk addition, even when
+it reduces the modeled index-fall loss. Ordinary drawdown, mandate and owner
+sleeve gates still apply. The written contract cap bounds position size; it
+does not cap the loss of a short future if the index rises. The modeled
+upward shock is a comparison, not a maximum possible loss.
 
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`

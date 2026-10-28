@@ -207,7 +207,7 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 		return preparedReduce{}, blockers, nil
 	}
 	free := row.Quantity
-	if reduceEligible(row) {
+	if reduceSingleEligible(row) {
 		action := rpc.OrderActionSell
 		if row.Quantity < 0 {
 			action = rpc.OrderActionBuy
@@ -263,7 +263,7 @@ func (s *Server) reducePositions(ctx context.Context) (*rpc.PositionsResult, err
 	var held []reduceHeldPosition
 	for _, rows := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
 		for _, row := range rows {
-			if reduceEligible(row) {
+			if reduceSingleEligible(row) {
 				held = append(held, reduceHeldPosition{proposalContractFromPosition(row, positionWireSecType(row.SecType)), row.Quantity})
 			}
 		}
@@ -283,8 +283,8 @@ func (s *Server) reducePositions(ctx context.Context) (*rpc.PositionsResult, err
 // sell; the percentage applies to it.
 func prepareReduceForRow(row rpc.PositionView, p rpc.TradeProposalReduceParams, limits *risk.ConstitutionOrderLimits, free float64) (preparedReduce, []rpc.TradingBlocker) {
 	hedge := isProtectiveShort(row)
-	if !reduceEligible(row) {
-		return preparedReduce{row: row, hedge: hedge}, []rpc.TradingBlocker{{Code: "not_reducible", Message: fmt.Sprintf("%s %s is not eligible for a percentage reduce", row.Symbol, positionWireSecType(row.SecType)), Action: "The reduce action covers stocks/ETFs and long options."}}
+	if !reduceSingleEligible(row) {
+		return preparedReduce{row: row, hedge: hedge}, []rpc.TradingBlocker{{Code: "not_reducible", Message: fmt.Sprintf("%s %s is not eligible for a percentage reduce", row.Symbol, positionWireSecType(row.SecType)), Action: "The reduce action covers stocks/ETFs, long options and a held short index hedge."}}
 	}
 	if hedge && !p.IncludeHedges {
 		return preparedReduce{row: row, hedge: hedge}, []rpc.TradingBlocker{{Code: "hedge_excluded", Message: fmt.Sprintf("%s is a protective short (hedge) and is excluded from the reduce workflow", row.Symbol), Action: "Set include_hedges to trim this hedge deliberately."}}
@@ -471,7 +471,7 @@ func reduceQuoteMid(quote rpc.OrderQuoteSnapshot) (float64, bool) {
 // worst-price rule) has none.
 func reducePriceBound(draft rpc.OrderDraft, reviewed rpc.OrderQuoteSnapshot) (rpc.TradeProposalReducePriceBound, bool) {
 	a := draft.Allowance
-	if a == nil || !positiveFinite(a.Pct) || !positiveFinite(a.Reference) || !positiveFinite(draft.LimitPrice) {
+	if a == nil || !(a.Pct >= 0) || math.IsInf(a.Pct, 0) || !positiveFinite(a.Reference) || !positiveFinite(draft.LimitPrice) {
 		return rpc.TradeProposalReducePriceBound{}, false
 	}
 	side := "bid"
@@ -672,7 +672,7 @@ func (s *Server) reduceVerifyToken(token string) (orderPreviewTokenPayload, []rp
 		}
 		return orderPreviewTokenPayload{}, []rpc.TradingBlocker{{Code: code, Message: err.Error(), Action: "Preview the reduction again and submit the new token; nothing was sent."}}
 	}
-	if payload.Draft.Source != reduceOrderSource {
+	if payload.Draft.Source != reduceOrderSource && payload.Draft.Source != hedgeOrderSource {
 		return orderPreviewTokenPayload{}, []rpc.TradingBlocker{{Code: "token_not_reduce", Message: "the preview token is not a reduce preview", Action: "Submit a token from `proposals reduce`; an order preview goes through `order place`."}}
 	}
 	return payload, nil
@@ -704,6 +704,21 @@ func reduceTokenPositionCheck(pos *rpc.PositionsResult, draft rpc.OrderDraft) (r
 	return row, nil
 }
 
+// reduceHeldRow is the held row of a contract, when the book holds it.
+func reduceHeldRow(pos *rpc.PositionsResult, conID int) (rpc.PositionView, bool) {
+	if pos == nil || conID <= 0 {
+		return rpc.PositionView{}, false
+	}
+	for _, rows := range [][]rpc.PositionView{pos.Stocks, pos.Options} {
+		for _, row := range rows {
+			if row.ConID == conID {
+				return row, true
+			}
+		}
+	}
+	return rpc.PositionView{}, false
+}
+
 func formatPositionQuantity(q float64) string {
 	if q == math.Trunc(q) {
 		return fmt.Sprintf("%d", int64(q))
@@ -729,19 +744,32 @@ func (s *Server) reduceTokenLeg(ctx context.Context, token string, pos *rpc.Posi
 		out.blockers = []rpc.TradingBlocker{{Code: "holding_locked", Message: fmt.Sprintf("%s was locked after the review; a bulk reduction never sells a locked holding", strings.ToUpper(strings.TrimSpace(payload.Draft.Contract.Symbol))), Action: "Unlock it first, or reduce it on its own; nothing was sent."}}
 		return out
 	}
-	row, blockers := reduceTokenPositionCheck(pos, payload.Draft)
-	out.row, out.rowFound = row, row.ConID != 0
-	if len(blockers) > 0 {
-		out.blockers = blockers
-		return out
-	}
-	// Another of Canary's sales may have gone out since the review: the
-	// reviewed size must still fit what they leave unsold.
-	committed, blockers := s.reduceCommittedSales(payload.Draft.Contract, payload.Draft.Action)
-	if len(blockers) == 0 {
-		var free float64
-		if free, blockers = reduceFreeQuantity(row.Quantity, committed, row.Symbol); len(blockers) == 0 && float64(payload.Draft.Quantity) > math.Abs(free)+1e-9 {
-			blockers = []rpc.TradingBlocker{{Code: "reduce_already_working", Message: fmt.Sprintf("Canary's working orders already sell %s of the %s held of %s; the reviewed %d would sell beyond the line", formatPositionQuantity(committed), formatPositionQuantity(math.Abs(row.Quantity)), strings.ToUpper(strings.TrimSpace(row.Symbol)), payload.Draft.Quantity), Action: "Preview again for what is left; nothing was sent."}}
+	if payload.Draft.Source == hedgeOrderSource {
+		// A hedge sale opens or adds to a short: no held row is required,
+		// and the whole book's short contracts stay within max_contracts.
+		if row, ok := reduceHeldRow(pos, payload.Draft.Contract.ConID); ok {
+			out.row, out.rowFound = row, true
+		}
+		if err := s.indexFutureSessionRefusal(s.orderNow()); err != nil {
+			blockers = previewFailureBlockers(err)
+		} else {
+			blockers = s.indexHedgeCapRefusal(payload.Draft, indexHedgeShortHeld(pos))
+		}
+	} else {
+		var row rpc.PositionView
+		row, blockers = reduceTokenPositionCheck(pos, payload.Draft)
+		out.row, out.rowFound = row, row.ConID != 0
+		if len(blockers) == 0 {
+			// Another of Canary's sales may have gone out since the review:
+			// the reviewed size must still fit what they leave unsold.
+			var committed float64
+			committed, blockers = s.reduceCommittedSales(payload.Draft.Contract, payload.Draft.Action)
+			if len(blockers) == 0 {
+				var free float64
+				if free, blockers = reduceFreeQuantity(row.Quantity, committed, row.Symbol); len(blockers) == 0 && float64(payload.Draft.Quantity) > math.Abs(free)+1e-9 {
+					blockers = []rpc.TradingBlocker{{Code: "reduce_already_working", Message: fmt.Sprintf("Canary's working orders already sell %s of the %s held of %s; the reviewed %d would sell beyond the line", formatPositionQuantity(committed), formatPositionQuantity(math.Abs(row.Quantity)), strings.ToUpper(strings.TrimSpace(row.Symbol)), payload.Draft.Quantity), Action: "Preview again for what is left; nothing was sent."}}
+				}
+			}
 		}
 	}
 	if len(blockers) > 0 {

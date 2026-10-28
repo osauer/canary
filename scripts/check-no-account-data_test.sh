@@ -126,6 +126,58 @@ stage fixture.txt 'safe fixture DU1234567'
 git -C "$repo" commit --quiet -m clean >"$out" 2>&1 || fail "the pre-commit hook blocked a clean commit"
 rm "$repo/.git/hooks/pre-commit"
 
+# Commit messages are publication content too. Use a separate synthetic
+# repository so published-message controls cannot affect the file fixtures.
+index_repo="$repo"
+message_repo="$test_root/messages"
+mkdir -p "$message_repo/scripts"
+cp "$repo_root/scripts/check-no-account-data.sh" "$message_repo/scripts/"
+git init --quiet "$message_repo"
+git -C "$message_repo" config user.name "Account Data Test"
+git -C "$message_repo" config user.email "account-data-test@example.invalid"
+git -C "$message_repo" config core.hooksPath .git/hooks
+printf 'safe fixture\n' > "$message_repo/fixture.txt"
+git -C "$message_repo" add .
+git -C "$message_repo" commit --quiet -m 'Synthetic published base'
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+repo="$message_repo"
+message_commit() {
+	git -C "$message_repo" commit --quiet --allow-empty -m "$1"
+	message_sha=$(git -C "$message_repo" rev-parse HEAD)
+}
+message_commit 'Synthetic subject
+
+The current holding is ZQXW.'
+holding_sha="$message_sha"
+message_commit 'Later safe subject'
+! gate || fail "an older unpublished commit body naming a holding was accepted"
+expect "commit $holding_sha names a current holding on line(s) 3"
+withheld ZQXW
+# Already published commits are not newly disclosed by this push.
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+gate || fail "a published commit message was rescanned as outgoing"
+message_commit "Synthetic subject
+
+Account $probe_lower"
+! gate || fail "an unpublished commit body containing an account ID was accepted"
+expect "commit $message_sha contains a non-placeholder IBKR account ID on line 3"
+withheld "$probe_lower"
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+message_commit 'SPY, DU1234567, zqxw and ZQXWV are allowed examples'
+gate || fail "commit messages did not preserve the existing ID and holdings allowlists"
+# Enumeration or message reads failing cannot silently drop this scope.
+mkdir -p "$test_root/message-bin"
+for failed_command in rev-list show; do
+	printf '#!/bin/sh\ncase "$1" in %s) exit 128 ;; esac\nexec "%s" "$@"\n' "$failed_command" "$(command -v git)" > "$test_root/message-bin/git"
+	chmod +x "$test_root/message-bin/git"
+	! (cd "$repo" && PATH="$test_root/message-bin:$PATH" ./scripts/check-no-account-data.sh) > "$out" 2>&1 ||
+		fail "failed outgoing $failed_command read passed the gate"
+	expect "the message check did not run"
+	withheld ZQXW
+	withheld "$probe_lower"
+done
+repo="$index_repo"
+
 # The daemon store's latest Flex position report per account is the
 # denylist, adjusted option roots and their underlyings included; closed
 # positions and trades are not holdings.
@@ -314,5 +366,46 @@ rm -f "$cache"
 store ""
 gate || fail "a store without Flex statements was rejected"
 expect "holdings check SKIPPED — no private holdings data (the daemon store holds no Flex statements"
+
+# Outgoing messages use the same live-money spellings and boundary rules
+# as unpublished files, including rounded figures. Only SHA and line escape.
+store "$book $(doc trade_proposals_current "$cash")"
+repo="$message_repo"
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+message_commit 'Synthetic subject
+
+A 618k book and cash of 314,159.26.'
+! gate || fail "unpublished commit-body money figures were accepted"
+expect "commit $message_sha names a money figure of the live book on line(s) 3"
+withheld 618k
+withheld 314
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+message_commit 'An older 123,987, a paper 864,197 and digest a618034f are not live figures'
+gate || fail "message money matching diverged from the file boundary rules"
+repo="$index_repo"
+
+# The canonical release and its internal entry must both run the privacy
+# gate before their first push; later CI is already past disclosure.
+python3 - "$repo_root/Makefile" <<'PY_RELEASE_ORDER'
+from pathlib import Path
+import sys
+text = Path(sys.argv[1]).read_text().splitlines()
+for target in ("release:", "_release-run:"):
+    start = next(i for i, line in enumerate(text) if line.startswith(target))
+    gated = False
+    found_push = False
+    for line in text[start + 1:]:
+        if line and not line.startswith(("\t", "#", " ")):
+            break
+        if line.startswith("\t") and "$(MAKE) account-data-check" in line:
+            gated = True
+        if line.startswith("\t") and "git push " in line:
+            found_push = True
+            if not gated:
+                raise SystemExit(f"{target} first push precedes the account-data gate")
+            break
+    if not found_push:
+        raise SystemExit(f"{target} publication boundary missing")
+PY_RELEASE_ORDER
 
 echo "check-no-account-data test: OK"

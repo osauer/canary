@@ -15,7 +15,12 @@ import (
 // front Micro S&P future at 6,000 with a half-point spread.
 func hedgeServer(t *testing.T, rows ...rpc.PositionView) *Server {
 	t.Helper()
-	s := &Server{}
+	return hedgeServerOn(t, &Server{}, rows...)
+}
+
+// hedgeServerOn is hedgeServer on a server the caller built.
+func hedgeServerOn(t *testing.T, s *Server, rows ...rpc.PositionView) *Server {
+	t.Helper()
 	in := keepMandateEvaluation(t, s, mandateReductionBook(rows...))
 	in.FX["USD"] = mandateSeriesInput(mandateTestSeries("fx:USD", 0.08, 9, 0), mandateTestNow)
 	if in.FXNow == nil {
@@ -93,12 +98,14 @@ func TestReduceHedgePlanSellsNothingPastNeutral(t *testing.T) {
 	}
 }
 
-// A hedge is a plan only, sized to neutral on the whole book, and a future
-// it cannot read leaves it unsized with the reason.
+// A hedge is sized to neutral on the whole book; without the owner's
+// [mandate.index_hedge] table a preview prices it and refuses to place it,
+// and a future it cannot read leaves it unsized with the reason.
 func TestReduceHedgePlanRefusals(t *testing.T) {
 	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50))
-	if res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{}); len(res.Blockers) == 0 || res.Blockers[0].Code != "hedge_plan_only" {
-		t.Fatalf("preview = %+v, want plan only", res.Blockers)
+	if res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{}); len(res.Legs) != 1 || len(res.Legs[0].Blockers) == 0 || res.Legs[0].Blockers[0].Code != "index_hedge_unplaceable" ||
+		!strings.Contains(res.Legs[0].Blockers[0].Message, "[mandate.index_hedge]") || res.Legs[0].PreviewToken != "" || res.Accepted || res.IndexLossAfterBase == nil {
+		t.Fatalf("preview without the table = %+v, want the priced leg refused naming the table", res)
 	}
 	if res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true, Percent: 50}); len(res.Blockers) == 0 || res.Blockers[0].Code != "bad_request" {
 		t.Fatalf("percent = %+v, want refused", res.Blockers)

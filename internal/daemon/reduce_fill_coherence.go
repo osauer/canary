@@ -107,21 +107,11 @@ func (s *Server) ensureOrderFillCoherence(ctx context.Context, held []reduceHeld
 		}
 		return binding, nil
 	}
-	var snapshot []*ibkrlib.RawPosition
-	var err error
-	if s.reduceFillSnapshotForTest != nil {
-		snapshot, err = s.reduceFillSnapshotForTest(ctx, orderPreviewTimeout(timeoutMs))
-	} else if binding.connector != nil {
-		snapshot, err = binding.connector.RefreshPositionsForSession(ctx, binding.session, orderPreviewTimeout(timeoutMs))
-	} else {
-		err = fmt.Errorf("broker position snapshot unavailable")
-	}
+	snapshot, err := s.orderFillPositionsReceipt(ctx, binding, timeoutMs)
 	if err != nil {
-		return binding, fmt.Errorf("%w: filled reduction position unconfirmed: %v", ErrTradingDisabled, err)
+		return binding, err
 	}
-	if !s.reduceFillBindingCurrent(binding) {
-		return binding, fmt.Errorf("%w: broker orders changed during reduction position check; preview again", ErrTradingDisabled)
-	}
+
 	quantities := make(map[int]float64)
 	for _, row := range snapshot {
 		if row == nil || !strings.EqualFold(row.Account, binding.scope.Account) {
@@ -141,4 +131,27 @@ func (s *Server) ensureOrderFillCoherence(ctx context.Context, held []reduceHeld
 		}
 	}
 	return binding, nil
+}
+
+// orderFillPositionsReceipt is the request-correlated account receipt shared by
+// subset reduction checks and the hedge's complete-book quantity check. It
+// never runs under the wire guard; the captured lifecycle frontier must survive
+// the request before its quantities can establish admission authority.
+func (s *Server) orderFillPositionsReceipt(ctx context.Context, binding protectionOrderSnapshotBinding, timeoutMs int) ([]*ibkrlib.RawPosition, error) {
+	var snapshot []*ibkrlib.RawPosition
+	var err error
+	if s.reduceFillSnapshotForTest != nil {
+		snapshot, err = s.reduceFillSnapshotForTest(ctx, orderPreviewTimeout(timeoutMs))
+	} else if binding.connector != nil {
+		snapshot, err = binding.connector.RefreshPositionsForSession(ctx, binding.session, orderPreviewTimeout(timeoutMs))
+	} else {
+		err = fmt.Errorf("broker position snapshot unavailable")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: filled reduction position unconfirmed: %v", ErrTradingDisabled, err)
+	}
+	if !s.reduceFillBindingCurrent(binding) {
+		return nil, fmt.Errorf("%w: broker orders changed during reduction position check; preview again", ErrTradingDisabled)
+	}
+	return snapshot, nil
 }

@@ -2137,6 +2137,10 @@ func positionWireSecType(raw string) string {
 		return "OPT"
 	case strings.EqualFold(raw, "ETF"):
 		return "ETF"
+	case strings.EqualFold(raw, rpc.SecTypeFuture) || strings.EqualFold(raw, "FUT"):
+		// A held future keeps its type: only the index hedge's own path
+		// trades one (index_hedge_order.go); every other gate refuses it.
+		return "FUT"
 	case ibkrlib.IsBillOrBond(raw):
 		// A held bill or bond keeps its own type: proposal gates refuse it
 		// (unsupported_security_type) outside a cash_sweep row's own bill.

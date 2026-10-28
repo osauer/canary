@@ -1315,6 +1315,7 @@ release: ## Cut a release from an isolated worktree of committed HEAD: make rele
 	@# min that the exact-SHA CI wait would otherwise absorb at the end.
 	@# Plain push refuses non-fast-forward, and _release-run re-asserts the
 	@# same ref from the worktree (a no-op here), so ordering loses nothing.
+	$(MAKE) account-data-check
 	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	@wt="$(RELEASE_WORKTREE_ROOT)/canary-release-$(RELEASE_VERSION)"; \
 	sha=$$(git rev-parse HEAD); \
@@ -1562,6 +1563,7 @@ _release-run:
 	@# exactly this commit, and origin/$(MAIN_BRANCH) must carry it. Plain
 	@# push refuses non-fast-forward, so origin moving since fire aborts here.
 	$(MAKE) release-origin-check
+	$(MAKE) account-data-check
 	git push --no-follow-tags origin HEAD:$(MAIN_BRANCH)
 	@# Auth preflight before any expensive step: gh auth goes stale
 	@# between releases and used to surface only at the LAST pipeline
