@@ -67,6 +67,44 @@ type ConstitutionMandate struct {
 	// own volatility leaves the book unknown as before, and every
 	// fingerprint is kept.
 	IVFallback *ConstitutionMandateIVFallback `toml:"iv_fallback" json:"iv_fallback,omitempty"`
+	// IndexHedge is [mandate.index_hedge] (owner decision 2026-10-28 20:07
+	// CET): the most Micro S&P contracts one Reduce hedge may hold. The
+	// table's presence is the permission to place a hedge; absent, or
+	// without max_contracts, placing one is refused with a blocker naming
+	// the table, and every fingerprint is kept. There is no second switch.
+	IndexHedge *ConstitutionMandateIndexHedge `toml:"index_hedge" json:"index_hedge,omitempty"`
+}
+
+// ConstitutionMandateIndexHedge is [mandate.index_hedge]. MaxContracts is a
+// hard stop against a wrong size, never the target: the hedge is sized to
+// neutral and refused beyond this many contracts held after it. The owner's
+// number (2026-10-28 20:07 CET) is 25, set where it covers the long side of
+// the book.
+type ConstitutionMandateIndexHedge struct {
+	MaxContracts *int `toml:"max_contracts" json:"max_contracts"`
+}
+
+// IndexHedgeMaxContracts is the most contracts one hedge may hold, or the
+// reason placing a hedge is refused: no table, or no max_contracts.
+func (m *ConstitutionMandate) IndexHedgeMaxContracts() (int, string) {
+	switch {
+	case m == nil || m.IndexHedge == nil:
+		return 0, "the risk constitution carries no [mandate.index_hedge] table; placing an index hedge is refused until it is written with max_contracts and a higher policy_version"
+	case m.IndexHedge.MaxContracts == nil:
+		return 0, "the risk constitution writes no mandate.index_hedge.max_contracts; placing an index hedge is refused until it does"
+	}
+	return *m.IndexHedge.MaxContracts, ""
+}
+
+// validate holds a written max_contracts to a whole positive count.
+func (h *ConstitutionMandateIndexHedge) validate() error {
+	if h == nil || h.MaxContracts == nil {
+		return nil
+	}
+	if *h.MaxContracts < 1 {
+		return fmt.Errorf("mandate.index_hedge.max_contracts must be at least 1")
+	}
+	return nil
 }
 
 // ConstitutionMandateIVFallback is [mandate.iv_fallback]. The bands are the
@@ -340,6 +378,9 @@ func (m *ConstitutionMandate) validate(semantics ConstitutionSemantics) error {
 		return err
 	}
 	if err := m.IVFallback.validate(); err != nil {
+		return err
+	}
+	if err := m.IndexHedge.validate(); err != nil {
 		return err
 	}
 	if sl := m.Sleeves; sl != nil {

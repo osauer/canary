@@ -1390,6 +1390,13 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # long_band_pct = 8.0
 # measured_pct = 5.0
 # range_pct = 20.0
+# The Reduce index hedge: Micro E-mini S&P 500 futures sold until a 10% fall
+# leaves the book about even. This table's presence is the permission to
+# place one; absent, the hedge is priced but never placed. max_contracts is
+# the most contracts one hedge may hold, a hard stop against a wrong size,
+# never the target. 25 is the owner's number of 2026-10-28.
+# [mandate.index_hedge]
+# max_contracts = 25
 # Risk allocations per sleeve, in percent a year of the budget base. The
 # machine's (core, overlay) are reserved as far as each runs: its stage times
 # its allocation while the sleeve sends orders,

@@ -49,7 +49,20 @@ func mandateLimits(c *Constitution, get func(key, value, source, meaning, enforc
 			"The one-name gap each underlying is stressed by, in percent of its price. Changes only by a policy revision.", "hard"),
 		get("mandate.gap_room_pct", roomVal, roomSrc,
 			"The share of the remaining loss room one name may lose in that gap, in percent. Changes only by a policy revision.", "hard"),
-	}, ivFallbackLimits(m, get, pct)...)
+	}, append(ivFallbackLimits(m, get, pct), indexHedgeLimits(m, get)...)...)
+}
+
+// indexHedgeLimits lists [mandate.index_hedge] once the table is written.
+func indexHedgeLimits(m *ConstitutionMandate, get func(key, value, source, meaning, enforcement string) ConstitutionLimit) []ConstitutionLimit {
+	if m.IndexHedge == nil {
+		return nil
+	}
+	val, src := "unapproved", "unapproved"
+	if v := m.IndexHedge.MaxContracts; v != nil {
+		val, src = strconv.Itoa(*v), "file"
+	}
+	return []ConstitutionLimit{get("mandate.index_hedge.max_contracts", val, src,
+		"The most Micro E-mini S&P 500 contracts one Reduce hedge may hold after it is placed: a hard stop against a wrong size, never the target (the hedge is sized to neutral). The table's presence is the permission to place a hedge; without it, or without this key, a hedge is refused. Changes only by a policy revision.", "hard")}
 }
 
 // ivFallbackLimits lists [mandate.iv_fallback] once the table is written.

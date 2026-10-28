@@ -509,6 +509,7 @@ rule is one entry.
 | `dated_assumption_expired` | warn | no | A directional intent's `expires_at` has passed. |
 | `dated_assumption_expiring` | info | no | One of those dates ends within 14 days. |
 | `file_unreviewed` | info | no | A file still carries the "Canary defaults, not yet reviewed" header; for the Rulebook it names the limits that already differ from the defaults. |
+| `index_hedge_unplaceable` | info | no | The constitution writes a `[mandate]` table but no `[mandate.index_hedge]` `max_contracts`, so the Reduce index hedge is priced by the plan but never placed; the table's presence is the permission. |
 | `compiled_default_in_force` | info | no | A sweep sizing number is not written, so the sweep holds at `needs_your_number`. |
 | `sweep_cap_exempt` | info | no | `bills_exempt_from_trading_max_notional` is declared, and whether the sweep's cap in force uses it. |
 | `reduction_cap_above_order_cap` | info | no | A `risk_reduction` or `budget_reduction` cap is above the order cap in force (in the contract currency at the book's FX rate). Its rows pass the gate only as delta-reducing exits; a row that does not lower its underlying's absolute delta, or whose delta cannot be measured, is refused at the order cap. Reported so the condition stays visible. |
