@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-10-28 08:05 CET
+Updated: 2026-10-28 09:11 CET
 
 Version 3.28 adds historical option-exit replay, option-list pagination and
 intraday account-value history. Holding locks cover a name across its held

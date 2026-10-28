@@ -90,32 +90,84 @@ func (s *Server) mandateArmedStops(ctx context.Context, pos *rpc.PositionsResult
 	// child active; standalone broker stops can still be measured.
 	views, _, _ := s.loadOrderViews()
 	working := brokerWorkingOrders(snapshot, views, scope)
+	// An OCA member on another contract, or a non-stop member, can remove
+	// this line's protection too. Group the complete inventory before filtering.
+	groups := map[string][]brokerWorkingOrder{}
+	for _, candidate := range working {
+		if group := strings.TrimSpace(candidate.Order.OcaGroup); group != "" {
+			groups[group] = append(groups[group], candidate)
+		}
+	}
 	out := map[string][]mandateArmedStop{}
 	for _, row := range pos.Stocks {
 		if row.Quantity == 0 || row.ConID <= 0 {
 			continue
 		}
-		action := mandateAction(row)
+		seen := map[string]bool{}
 		for _, candidate := range working {
-			order := candidate.Order
-			if order.ConID != row.ConID || !mandateStopEffective(candidate) || !strings.EqualFold(order.Action, action) || !mandateConditionalOrder(order.OrderType) {
-				continue
+			var stop mandateArmedStop
+			var ok bool
+			if group := strings.TrimSpace(candidate.Order.OcaGroup); group != "" {
+				if seen[group] {
+					continue
+				}
+				seen[group] = true
+				stop, ok = mandateOCAStop(groups[group], row)
+			} else if candidate.Order.OcaType == 0 {
+				stop, ok = mandateStopForPosition(candidate, row)
 			}
-			if account := strings.TrimSpace(order.Account); account != "" && strings.TrimSpace(scope.Account) != "" && !strings.EqualFold(account, strings.TrimSpace(scope.Account)) {
-				continue
+			if ok {
+				id := mandateLegID(row)
+				out[id] = append(out[id], stop)
 			}
-			price, qty := mandateStopPrice(order), order.Remaining
-			if qty <= 0 {
-				qty = order.TotalQuantity
-			}
-			if !(price > 0) || !(qty > 0) {
-				continue
-			}
-			id := mandateLegID(row)
-			out[id] = append(out[id], mandateArmedStop{StopPrice: price, Quantity: qty})
 		}
 	}
 	return out, ""
+}
+
+func mandateStopForPosition(candidate brokerWorkingOrder, row rpc.PositionView) (mandateArmedStop, bool) {
+	order := candidate.Order
+	if order.ConID != row.ConID || !mandateStopEffective(candidate) || !strings.EqualFold(order.Action, mandateAction(row)) || !mandateConditionalOrder(order.OrderType) {
+		return mandateArmedStop{}, false
+	}
+	stop := mandateArmedStop{StopPrice: mandateStopPrice(order), Quantity: brokerOrderRemaining(order)}
+	return stop, positiveFinite(stop.StopPrice) && positiveFinite(stop.Quantity)
+}
+
+// mandateOCAStop is the coverage the whole group can prove, not the sum of
+// mutually exclusive orders. With block, whichever same-line stop fills can
+// cancel or reduce its peers: only the smallest remaining quantity is common
+// coverage, and the worst trigger bounds its measured loss. Partial fills do
+// not grant the cancelled/reduced peers another full allocation of shares.
+// Other contracts, non-stops, unconfirmed members or inconsistent types leave
+// no provable stop coverage. Multiple non-blocking members can overfill and
+// change the net position, so they cannot prove this line remains protected.
+func mandateOCAStop(group []brokerWorkingOrder, row rpc.PositionView) (mandateArmedStop, bool) {
+	if len(group) == 0 {
+		return mandateArmedStop{}, false
+	}
+	typ := group[0].Order.OcaType
+	if typ < ibkrlib.OcaTypeCancelWithBlock || typ > ibkrlib.OcaTypeReduceNonBlock || len(group) > 1 && typ == ibkrlib.OcaTypeReduceNonBlock {
+		return mandateArmedStop{}, false
+	}
+	var combined mandateArmedStop
+	for i, candidate := range group {
+		stop, ok := mandateStopForPosition(candidate, row)
+		if !ok || candidate.Order.OcaType != typ {
+			return mandateArmedStop{}, false
+		}
+		if i == 0 {
+			combined = stop
+			continue
+		}
+		combined.Quantity = min(combined.Quantity, stop.Quantity)
+		if row.Quantity > 0 {
+			combined.StopPrice = min(combined.StopPrice, stop.StopPrice)
+		} else {
+			combined.StopPrice = max(combined.StopPrice, stop.StopPrice)
+		}
+	}
+	return combined, true
 }
 
 // mandateStopEffective distinguishes executable protection from an order

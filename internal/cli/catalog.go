@@ -129,7 +129,7 @@ func catalogExtras() map[string]CommandSpec {
 		"macro":          {Group: GroupMarkets, Brief: "Economic calendar and official releases", Flags: flags(boolFlag("details"), valueFlag("window-start", nil), valueFlag("window-end", nil), boolFlag("json"))},
 		"regime":         {Group: GroupMarkets, Brief: "Market conditions across eight indicators", Flags: flags(boolFlag("explain"), valueFlag("view", []string{"full", "monitor"}), boolFlag("profiles"), boolFlag("json"))},
 		"stress":         {Group: GroupDesk, Brief: "Check portfolio risks and the evidence behind them", Flags: flags(boolFlag("details"), boolFlag("json"))},
-		"mandate":        {Group: GroupDesk, Brief: "Check the book's risk against the mandate's volatility budget", Flags: flags(boolFlag("refresh"), boolFlag("json"))},
+		"mandate":        {Group: GroupDesk, Brief: "Check the book's loss measure against the mandate's loss room", Flags: flags(boolFlag("refresh"), boolFlag("json"))},
 		"core":           {Group: GroupDesk, Brief: "See the core sleeve's monthly target, its pending row and what it would trade", Flags: flags(boolFlag("refresh"), valueFlag("isin", nil), valueFlag("currency", nil), boolFlag("json")), Subcommands: []SubcommandSpec{{Name: "resolve", Guard: GuardReadOnly}}},
 		"strategy":       {Group: GroupDesk, Brief: "See a registered strategy's monthly target and what it would trade, or replay its rule over past month-ends", Flags: flags(boolFlag("refresh"), boolFlag("replay"), boolFlag("json"))},
 		"brief":          {Group: GroupDesk, Brief: "Portfolio summary, urgent items first; more with --details", Flags: flags(boolFlag("details"), boolFlag("json")), Guard: GuardReadOnly},

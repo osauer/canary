@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.28.1 — 2026-10-28 09:11 CET
+
+### What's new
+
+This patch makes updated premium limits bind option-purchase reviews and sends,
+and restores lower-price changes to partly filled option purchases. Mandate
+stop coverage and proposal-plan summaries also report missing protection or
+measurements correctly.
+
+Existing policy limits and hedge exceptions are preserved. Standard binaries
+and all MCP tools remain read-only; broker writes retain their separate gates.
+
+### Fixed
+
+- Option purchases apply the current per-name and portfolio premium caps after a policy or configured regime change, including at the final send check. Previously, a retained exposure could keep the earlier caps until its next measurement. (#128)
+- Partly filled option purchases can change their remaining limit price when holdings agree with the broker fill evidence. Staging a modification no longer mistakes its own journal update for a new fill. (#129)
+- Root CLI help describes the mandate's loss-room headline, matching the command output, dedicated help and MCP description. (#130)
+- In the mandate loss measurement, mutually cancelling stop orders no longer count as independent protection for the same shares. Uncovered shares remain identified. (#131)
+- Named proposal plans report rows as unpriced when the required mandate measurement is unavailable, including their counts and per-row blockers. (#132)
+
 ## v3.28.0 — 2026-10-28 08:22 CET
 
 ### What's new

@@ -364,6 +364,12 @@ func (s *Server) journalOrderViewsForInventory() (journalInventory, bool) {
 	if err != nil {
 		return journalInventory{}, false
 	}
+	return journalOrderInventoryFromEvents(events), true
+}
+
+// journalOrderInventoryFromEvents folds one captured journal event set so
+// inventory consumers can derive related evidence from that same frontier.
+func journalOrderInventoryFromEvents(events []orderJournalEvent) journalInventory {
 	j := journalInventory{views: buildOrderViews(events), legsByRef: map[string]map[int]rpc.StrategyOrderLeg{}, legsByOrderID: map[int]map[int]rpc.StrategyOrderLeg{}}
 	for _, event := range events {
 		if event.StrategyGroup == nil || len(event.StrategyGroup.Legs) == 0 {
@@ -380,7 +386,7 @@ func (s *Server) journalOrderViewsForInventory() (journalInventory, bool) {
 			j.legsByOrderID[event.ReservedOrderID] = legs
 		}
 	}
-	return j, true
+	return j
 }
 
 // captureProtectiveExitInventory reads the complete broker open-order

@@ -53,6 +53,8 @@ func indexLossBetween(before, after mandate.Input) rpc.IndexLoss {
 		out.IndexLossUnknown = "the mandate cannot measure the book"
 		if len(b.Reasons) > 0 {
 			out.IndexLossUnknown = b.Reasons[0]
+		} else if len(a.Reasons) > 0 {
+			out.IndexLossUnknown = a.Reasons[0]
 		}
 		return out
 	}
@@ -206,6 +208,15 @@ func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalRed
 	}
 	if input != nil {
 		res.BaseCurrency = strings.ToUpper(input.BaseCurrency)
+		// Terms alone do not make a priced scenario: every named row needs
+		// a measurable starting book, including when a kept input is unknown.
+		baseline := mandate.Evaluate(*input)
+		if baseline.Stresses == nil {
+			input, why = nil, "the mandate cannot measure the book"
+			if len(baseline.Reasons) > 0 {
+				why = baseline.Reasons[0]
+			}
+		}
 	}
 	var legs []mandate.Leg
 	unpriced := 0
@@ -228,8 +239,16 @@ func (s *Server) reduceProposalsPlan(ctx context.Context, p rpc.TradeProposalRed
 		if !proposalCarriesEquityRisk(row) {
 			unpriced++
 			leg.Blockers = []rpc.TradingBlocker{{Code: "index_loss_unpriced", Message: "a cash or currency row carries no equity risk to price"}}
-		} else if input != nil {
+		} else if input == nil {
+			unpriced++
+			leg.Blockers = []rpc.TradingBlocker{{Code: "index_loss_unpriced", Message: why}}
+		} else {
 			m, reason := proposalIndexLossLeg(row, input)
+			if reason == "" {
+				// An order's price is not enough when its added exposure lacks
+				// the evidence needed to measure the scenario.
+				reason = indexLossWithLegs(*input, []mandate.Leg{m}).IndexLossUnknown
+			}
 			if reason != "" {
 				unpriced++
 				leg.Blockers = []rpc.TradingBlocker{{Code: "index_loss_unpriced", Message: reason}}

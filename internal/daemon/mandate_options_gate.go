@@ -99,6 +99,16 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 	if exposure == nil {
 		return refuse("this option buy cannot be measured: no current positions read carries the book's premium at risk.", "Retry once the positions read is current; "+measure)
 	}
+	// Holdings belong to the measured exposure, but owner limits and the
+	// regime set are mutable authority. Re-read them at every gate, including
+	// the final wire guard, without changing the cached exposure.
+	policy := s.rulebookPolicy()
+	stage, carried := s.rulebookRegimeStage(policy, s.nowUTC())
+	nameCapPct := policy.OptionNameActPct
+	_, bookCapPct, bookSet := policy.PremiumBudgetInForce(stage.Bucket, carried)
+	if !finiteProtectionOptionPolicyValue(nameCapPct) || nameCapPct < 0 || !finiteProtectionOptionPolicyValue(bookCapPct) || bookCapPct < 0 {
+		return refuse("the current premium limits cannot be measured.", "Restore a valid Rulebook policy before adding option premium.")
+	}
 	if exposure.NLVBase == nil || !(*exposure.NLVBase > 0) {
 		return refuse("this option buy cannot be measured: "+nonEmptyString(exposure.NLVReason, "net liquidation value is unknown")+".", "Retry once the account has been read; "+measure)
 	}
@@ -134,10 +144,10 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 		nameNow = *row.PremiumAtRiskBase
 	}
 	nameNow += pending[sym]
-	nameCap := exposure.NamePremiumCapPct / 100 * nlv
+	nameCap := nameCapPct / 100 * nlv
 	if after := nameNow + premium; after > nameCap+mandateReductionEpsilon {
 		return refuse(fmt.Sprintf("with this order the premium at risk in %s would be %s, %s of net liquidation %s, over the %s limit for one name (now %s).",
-			sym, mandateMoney(after, ccy), mandatePremiumPct(after/nlv*100), mandateMoney(nlv, ccy), mandatePremiumPct(exposure.NamePremiumCapPct), mandatePremiumPct(nameNow/nlv*100)),
+			sym, mandateMoney(after, ccy), mandatePremiumPct(after/nlv*100), mandateMoney(nlv, ccy), mandatePremiumPct(nameCapPct), mandatePremiumPct(nameNow/nlv*100)),
 			fmt.Sprintf("Size it smaller: %s has room for %s more premium under the limit. %s", sym, mandateMoney(max(0, nameCap-nameNow), ccy), measure))
 	}
 	if exposure.Book.PremiumAtRiskBase == nil {
@@ -147,14 +157,14 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 	for _, amount := range pending {
 		bookNow += amount
 	}
-	bookCap := exposure.BookPremiumCapPct / 100 * nlv
+	bookCap := bookCapPct / 100 * nlv
 	if after := bookNow + premium; after > bookCap+mandateReductionEpsilon {
 		set := ""
-		if exposure.BookPremiumSet != "" {
-			set = " of the " + exposure.BookPremiumSet + " set"
+		if bookSet != "" {
+			set = " of the " + bookSet + " set"
 		}
 		return refuse(fmt.Sprintf("with this order the book's premium at risk would be %s, %s of net liquidation %s, over the %s premium budget%s (now %s).",
-			mandateMoney(after, ccy), mandatePremiumPct(after/nlv*100), mandateMoney(nlv, ccy), mandatePremiumPct(exposure.BookPremiumCapPct), set, mandatePremiumPct(bookNow/nlv*100)),
+			mandateMoney(after, ccy), mandatePremiumPct(after/nlv*100), mandateMoney(nlv, ccy), mandatePremiumPct(bookCapPct), set, mandatePremiumPct(bookNow/nlv*100)),
 			fmt.Sprintf("Size it smaller: the book has room for %s more premium under the budget, or sell premium first. %s", mandateMoney(max(0, bookCap-bookNow), ccy), measure))
 	}
 	return nil
@@ -268,12 +278,17 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 	if !protectionOrderSnapshotUsable(snapshot, s.orderNow()) {
 		return nil, fmt.Errorf("current broker purchase commitments are unavailable")
 	}
-	journal, ok := s.journalOrderViewsForInventory()
-	if !ok {
+	if s.orderJournal == nil {
 		return nil, fmt.Errorf("durable purchase commitments are unavailable")
 	}
+	events, err := s.orderJournal.LoadEvents(0)
+	if err != nil {
+		return nil, fmt.Errorf("durable purchase commitments are unavailable")
+	}
+	journal := journalOrderInventoryFromEvents(events)
+	fills := mandatePremiumFillClock(events)
 	out := map[string]float64{}
-	add := func(view rpc.OrderView, remaining float64, legs map[int]rpc.StrategyOrderLeg) error {
+	add := func(view rpc.OrderView, remaining float64, legs map[int]rpc.StrategyOrderLeg, filledAt time.Time) error {
 		if strings.EqualFold(view.SecType, "BAG") {
 			if len(legs) == 0 {
 				return fmt.Errorf("a working combination has unknown option premium commitments")
@@ -290,7 +305,7 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 		}
 		// A fill after the exposure reading may not yet be in held premium. Do
 		// not guess whether it is included or count those units twice.
-		if view.Filled > 0 && view.UpdatedAt.After(exposure.AsOf) {
+		if view.Filled > 0 && (filledAt.IsZero() || filledAt.After(exposure.AsOf)) {
 			return fmt.Errorf("an option purchase filled after the premium reading")
 		}
 		if view.OrderRef != "" && view.OrderRef == draft.OrderRef {
@@ -314,14 +329,19 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 	seen := map[int]bool{}
 	for _, row := range brokerWorkingOrders(snapshot, journal.views, scope) {
 		view := untrackedOrderView(row.Order, scope, snapshot.AsOf)
+		filledAt := snapshot.AsOf
 		if row.Journal != nil {
+			fill := fills[orderViewKey(*row.Journal)]
+			if fill.quantity >= view.Filled {
+				filledAt = fill.at
+			}
 			view.OrderRef = row.Journal.OrderRef
 			view.UpdatedAt = row.Journal.UpdatedAt
 			if strings.EqualFold(view.SecType, "OPT") && strings.EqualFold(view.Action, rpc.OrderActionBuy) && view.OrderRef != draft.OrderRef && (view.Quantity != row.Journal.Quantity || view.LimitPrice != row.Journal.LimitPrice || view.OrderType != row.Journal.OrderType) {
 				return nil, fmt.Errorf("a modified option purchase has not been reconciled with broker terms")
 			}
 		}
-		if err := add(view, brokerOrderRemaining(row.Order), journal.legsOf(row.Journal)); err != nil {
+		if err := add(view, brokerOrderRemaining(row.Order), journal.legsOf(row.Journal), filledAt); err != nil {
 			return nil, err
 		}
 		for i := range journal.views {
@@ -336,7 +356,8 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 		}
 		// Even a terminal fill must wait for the positions measurement to catch
 		// up; otherwise a fast fill releases its reservation before becoming held.
-		if strings.EqualFold(view.SecType, "OPT") && strings.EqualFold(view.Action, rpc.OrderActionBuy) && view.Filled > 0 && view.UpdatedAt.After(exposure.AsOf) {
+		filledAt := fills[orderViewKey(view)].at
+		if strings.EqualFold(view.SecType, "OPT") && strings.EqualFold(view.Action, rpc.OrderActionBuy) && view.Filled > 0 && (filledAt.IsZero() || filledAt.After(exposure.AsOf)) {
 			return nil, fmt.Errorf("an option purchase filled after the premium reading")
 		}
 		if !view.Open {
@@ -346,11 +367,44 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 		if remaining <= 0 {
 			remaining = view.Quantity - view.Filled
 		}
-		if err := add(view, remaining, journal.legsOf(&view)); err != nil {
+		if err := add(view, remaining, journal.legsOf(&view), filledAt); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
+}
+
+type mandatePremiumFill struct {
+	quantity float64
+	at       time.Time
+}
+
+// A modification, cancel request, or repeated broker echo can carry an old
+// Filled total with a new event time. Only an increased cumulative fill moves
+// this clock. Canonical journal aliases retain the exact account/order identity
+// across callbacks and endpoint changes. Correlated position agreement and the
+// first-byte lifecycle fence remain the proof that those fills are reflected.
+func mandatePremiumFillClock(events []orderJournalEvent) map[string]mandatePremiumFill {
+	aliases := orderJournalKeyAliases(events)
+	clocks := map[string]mandatePremiumFill{}
+	for _, event := range events {
+		key := orderJournalCanonicalKey(event, aliases)
+		if key == "" {
+			continue
+		}
+		prior := clocks[key]
+		if event.Filled > prior.quantity {
+			prior.quantity = event.Filled
+			if event.At.IsZero() {
+				// An undated new fill cannot borrow an older fill's date.
+				prior.at = time.Time{}
+			} else if event.At.After(prior.at) {
+				prior.at = event.At
+			}
+			clocks[key] = prior
+		}
+	}
+	return clocks
 }
 
 // mandateOptionsGateView reads the premium limits for an option buy now:

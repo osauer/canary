@@ -20,7 +20,7 @@ Account, positions, orders and risk
   add             Plan a stock addition or opening and review it through
                   existing order confirmation
   stress          Check portfolio risks and the evidence behind them
-  mandate         Check the book's risk against the mandate's volatility budget
+  mandate         Check the book's loss measure against the mandate's loss room
   core            See the core sleeve's monthly target, its pending row and what
                   it would trade
   strategy        See a registered strategy's monthly target and what it would
@@ -99,7 +99,7 @@ Start: canary status — check the broker connection
   \x1b[36madd             \x1b[0mPlan a stock addition or opening and review it through
                   existing order confirmation
   \x1b[36mstress          \x1b[0mCheck portfolio risks and the evidence behind them
-  \x1b[36mmandate         \x1b[0mCheck the book's risk against the mandate's volatility budget
+  \x1b[36mmandate         \x1b[0mCheck the book's loss measure against the mandate's loss room
   \x1b[36mcore            \x1b[0mSee the core sleeve's monthly target, its pending row and what
                   it would trade
   \x1b[36mstrategy        \x1b[0mSee a registered strategy's monthly target and what it would
