@@ -315,6 +315,14 @@ held hedge is bought back as a percent reduce of its own line,
 `canary proposals reduce --con-id ID --percent N --include-hedges`; no
 portfolio sweep selects it.
 
+While a hedge is held, the hedge plan and preview carry two flags for the
+owner, who rolls and unwinds by hand; nothing acts on them:
+
+| Field | Set when | Message field |
+| --- | --- | --- |
+| `roll_due` | from ten days before a held Micro S&P contract's expiry | `roll_due_message`: the contract, its expiry and the date the roll became due |
+| `hedge_not_needed` | the book without its held hedges reads `within` on the mandate | `hedge_not_needed_message`: the loss measure without the hedge against the loss room |
+
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`
 says why. The cost is unknown when any leg's line has no two-sided quote:

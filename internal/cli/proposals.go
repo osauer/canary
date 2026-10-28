@@ -555,6 +555,12 @@ func renderProposalReducePortfolioText(env *Env, res *rpc.TradeProposalReducePor
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of every unlocked line", res.Percent))
 	case rpc.ReduceModeHedge:
 		statusRow(env, out, "Hedge", "Micro S&P futures until a 10% fall leaves the book about even")
+		if res.RollDue {
+			statusRow(env, out, "Roll due", res.RollDueMessage)
+		}
+		if res.HedgeNotNeeded {
+			statusRow(env, out, "Not needed", res.HedgeNotNeededMessage)
+		}
 	default:
 		statusRow(env, out, "Percent", fmt.Sprintf("%d%% of net delta", res.Percent))
 	}

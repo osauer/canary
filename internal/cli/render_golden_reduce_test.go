@@ -143,6 +143,8 @@ func goldenReducePortfolioPlanHedge() rpc.TradeProposalReducePortfolioResult {
 func goldenReducePortfolioPreviewHedge() rpc.TradeProposalReducePortfolioResult {
 	res := goldenReducePortfolioPlanHedge()
 	res.PlanOnly, res.Accepted, res.EligibleCount = false, true, 1
+	res.RollDue, res.RollDueMessage = true, "MESZ6 expires 2026-12-18: roll the hedge to the next contract (due from 2026-12-08)."
+	res.HedgeNotNeeded, res.HedgeNotNeededMessage = true, "The book without the hedge reads within the mandate: its loss measure € 41,000 is inside the loss room € 69,000. Buy the hedge back when you choose."
 	leg := &res.Legs[0]
 	leg.Notional, leg.PreviewToken, leg.PreviewTokenID, leg.SubmitEligible = 149993.75, goldenReduceToken, goldenReduceTokenID, true
 	leg.Terms = &rpc.TradeProposalReduceTerms{PreviewTokenID: goldenReduceTokenID, ExpiresAt: time.Date(2026, 9, 5, 12, 10, 0, 0, time.UTC),

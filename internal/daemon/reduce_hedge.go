@@ -92,6 +92,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		return block("hedge_unsized", "the hedge cannot be sized: "+why, "Retry once the mandate has measured the book.")
 	}
 	res.BaseCurrency = strings.ToUpper(input.BaseCurrency)
+	s.reduceHedgeFlags(ctx, res, input)
 	now := mandate.Evaluate(*input)
 	if now.Stresses == nil {
 		why := "the mandate cannot measure the book"
@@ -169,6 +170,60 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
 	}
 	return res
+}
+
+// hedgeRollDays is how long before a held contract's expiry the plan says
+// a roll is due (owner decision 2026-10-28 20:07 CET).
+const hedgeRollDays = 10
+
+// reduceHedgeFlags writes the two words Desk shows beside a held hedge:
+// roll_due from ten days before a held contract's expiry, and
+// hedge_not_needed while the book without its held hedges reads within the
+// mandate. A positions read that fails leaves roll_due unset; the plan
+// does not depend on it.
+func (s *Server) reduceHedgeFlags(ctx context.Context, res *rpc.TradeProposalReducePortfolioResult, input *mandate.Input) {
+	held := false
+	without := *input
+	without.Legs = nil
+	for _, l := range input.Legs {
+		if mandate.IsIndexFuture(l) {
+			held = held || l.Quantity < 0
+			continue
+		}
+		without.Legs = append(without.Legs, l)
+	}
+	if !held {
+		return
+	}
+	if v := mandate.Evaluate(without); v.Status == mandate.StatusWithin && v.Loss != nil {
+		res.HedgeNotNeeded = true
+		res.HedgeNotNeededMessage = fmt.Sprintf("The book without the hedge reads within the mandate: its loss measure %s is inside the loss room %s. Buy the hedge back when you choose.",
+			mandateMoney(v.Loss.TotalBase, res.BaseCurrency), mandateMoney(v.Loss.RoomBase, res.BaseCurrency))
+	}
+	pos, err := s.reducePositions(ctx)
+	if err != nil || pos == nil {
+		return
+	}
+	today := s.reduceClock()
+	var earliest time.Time
+	for _, row := range pos.Stocks {
+		if !heldIndexHedge(row) {
+			continue
+		}
+		expiry, err := time.Parse("20060102", strings.TrimSpace(row.Expiry))
+		if err != nil {
+			continue
+		}
+		from := expiry.AddDate(0, 0, -hedgeRollDays)
+		if today.Before(from) {
+			continue
+		}
+		name := nonEmptyString(row.LocalSymbol, "MES "+row.Expiry)
+		msg := fmt.Sprintf("%s expires %s: roll the hedge to the next contract (due from %s).", name, expiry.Format(time.DateOnly), from.Format(time.DateOnly))
+		if !res.RollDue || expiry.Before(earliest) {
+			res.RollDue, res.RollDueMessage, earliest = true, msg, expiry
+		}
+	}
 }
 
 // reduceHedgePreviewLeg previews the sized hedge sale: the table must be

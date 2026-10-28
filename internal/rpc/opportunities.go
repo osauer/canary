@@ -1902,6 +1902,16 @@ type TradeProposalReducePortfolioResult struct {
 	TradeCostBase    *float64 `json:"trade_cost_base,omitempty"`
 	TradeCostUnknown string   `json:"trade_cost_unknown,omitempty"`
 	PlanOnly         bool     `json:"plan_only,omitempty"`
+	// RollDue, on a hedge plan or preview, is set from ten days before a
+	// held Micro S&P contract's expiry; RollDueMessage names the contract
+	// and the date. HedgeNotNeeded is set while a hedge is held and the book
+	// without it reads within the mandate; HedgeNotNeededMessage says so
+	// with the loss measure. Both are for the owner, who rolls and unwinds
+	// by hand (owner decision 2026-10-28 20:07 CET); nothing acts on them.
+	RollDue               bool   `json:"roll_due,omitempty"`
+	RollDueMessage        string `json:"roll_due_message,omitempty"`
+	HedgeNotNeeded        bool   `json:"hedge_not_needed,omitempty"`
+	HedgeNotNeededMessage string `json:"hedge_not_needed_message,omitempty"`
 	// NetDollarDeltaAfter estimates signed exposure after all eligible preview
 	// legs fill at current Greeks/prices. Nil means unavailable, not zero.
 	NetDollarDeltaAfter *float64 `json:"net_dollar_delta_after,omitempty"`
