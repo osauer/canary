@@ -569,7 +569,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	s.prewarmOptionUnderlyingCloses(ctx, c, res.Stocks, res.Options)
 	s.fillOptionUnderlyingPrevClose(res.Options)
 	// Briefly subscribe to each option leg to harvest model Greeks.
-	s.prewarmOptionGreeks(ctx, c, res.Options)
+	s.prewarmOptionGreeks(ctx, c, res.Stocks, res.Options)
 	s.fillOptionGreeks(c, res.Options)
 	// Compute option day change after previous-close enrichment.
 	fillOptionDayChangeMoney(res.Options)
@@ -1441,21 +1441,7 @@ func (s *Server) prewarmOptionUnderlyingCloses(ctx context.Context, c *ibkrlib.C
 	if s == nil || s.prevCloses == nil || len(options) == 0 || (c == nil && s.optionUnderlyingCloseForTest == nil) {
 		return
 	}
-	held := map[string]bool{}
-	for _, row := range stocks {
-		if positionQuotesAsStock(row) {
-			held[normSym(row.Symbol)] = true
-		}
-	}
-	var jobs []rpc.ContractParams
-	for _, row := range options {
-		sym := normSym(row.Symbol)
-		if sym == "" || held[sym] {
-			continue
-		}
-		held[sym] = true
-		jobs = append(jobs, rpc.ContractParams{Symbol: sym, SecType: "STK", Exchange: "SMART", Currency: nonEmptyString(normCcy(row.Currency), "USD")})
-	}
+	jobs := optionOnlyUnderlyings(stocks, options)
 	runBounded(jobs, positionsPrewarmWorkers, func(contract rpc.ContractParams) {
 		if ctx.Err() != nil {
 			return
@@ -1480,6 +1466,49 @@ func (s *Server) prewarmOptionUnderlyingCloses(ctx context.Context, c *ibkrlib.C
 	})
 }
 
+// optionOnlyUnderlyings are the underlyings of options on names the book
+// does not hold as a stock line, once each, as SMART stock contracts.
+func optionOnlyUnderlyings(stocks, options []rpc.PositionView) []rpc.ContractParams {
+	held := map[string]bool{}
+	for _, row := range stocks {
+		if positionQuotesAsStock(row) {
+			held[normSym(row.Symbol)] = true
+		}
+	}
+	var out []rpc.ContractParams
+	for _, row := range options {
+		sym := normSym(row.Symbol)
+		if sym == "" || held[sym] {
+			continue
+		}
+		held[sym] = true
+		out = append(out, rpc.ContractParams{Symbol: sym, SecType: "STK", Exchange: "SMART", Currency: nonEmptyString(normCcy(row.Currency), "USD")})
+	}
+	return out
+}
+
+// withOptionOnlyUnderlyingsHeld runs capture while every option-only
+// underlying streams. Outside regular hours IBKR sends an option's model
+// figures (implied volatility, delta, underlying price) only while its
+// underlying streams: after a restart on 2026-10-28 21:33 CET every option
+// whose underlying Canary streamed had them and the three on names held
+// only through options had none. A hold that fails leaves that option to
+// the capture as before.
+func (s *Server) withOptionOnlyUnderlyingsHeld(ctx context.Context, stocks, options []rpc.PositionView, capture func()) {
+	hold := s.optionUnderlyingHoldForTest
+	if hold == nil && s.subs != nil {
+		hold = s.subs.Hold
+	}
+	if hold != nil {
+		for _, contract := range optionOnlyUnderlyings(stocks, options) {
+			if release, err := hold(ctx, contract.Symbol); err == nil {
+				defer release()
+			}
+		}
+	}
+	capture()
+}
+
 // positionsPrewarmWorkers bounds per-call market-data enrichment concurrency.
 const positionsPrewarmWorkers = 4
 
@@ -1487,7 +1516,7 @@ const positionsPrewarmWorkers = 4
 const optionGreeksBudget = 2500 * time.Millisecond
 
 // prewarmOptionGreeks dispatches bounded concurrent option-Greeks captures.
-func (s *Server) prewarmOptionGreeks(ctx context.Context, c *ibkrlib.Connector, options []rpc.PositionView) {
+func (s *Server) prewarmOptionGreeks(ctx context.Context, c *ibkrlib.Connector, stocks, options []rpc.PositionView) {
 	if s.greeks == nil || c == nil || len(options) == 0 {
 		return
 	}
@@ -1518,12 +1547,17 @@ func (s *Server) prewarmOptionGreeks(ctx context.Context, c *ibkrlib.Connector, 
 			right:  p.Right,
 		})
 	}
-	runBounded(jobs, positionsPrewarmWorkers, func(j job) {
-		if ctx.Err() != nil {
-			return
-		}
-		entry := captureOptionGreeks(ctx, c, j.under, j.expiry, j.strike, j.right, optionGreeksBudget)
-		s.greeks.put(j.key, entry, time.Now())
+	if len(jobs) == 0 {
+		return
+	}
+	s.withOptionOnlyUnderlyingsHeld(ctx, stocks, options, func() {
+		runBounded(jobs, positionsPrewarmWorkers, func(j job) {
+			if ctx.Err() != nil {
+				return
+			}
+			entry := captureOptionGreeks(ctx, c, j.under, j.expiry, j.strike, j.right, optionGreeksBudget)
+			s.greeks.put(j.key, entry, time.Now())
+		})
 	})
 }
 
