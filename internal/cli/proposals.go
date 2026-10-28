@@ -231,7 +231,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 		return nil
 	})
-	mode := fs.String("mode", "", "with --portfolio: net (trim the unlocked book's net delta, the default), longs (the same share of every long), or all (every unlocked line, shorts bought back)")
+	mode := fs.String("mode", "", "with --portfolio: net (trim the net delta of the book with locked core holdings counted, the default), longs (the same share of every long), or all (every unlocked line, shorts bought back)")
 	var sectors []string
 	fs.Func("sector", "with --mode longs|all: only lines in this GICS sector (repeatable)", func(v string) error {
 		if v = strings.TrimSpace(v); v != "" {

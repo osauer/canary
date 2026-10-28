@@ -21,10 +21,8 @@ const (
 // reduceUnlockedBook is the book a sweep may act on: every locked line is
 // taken out and disclosed as kept. A lock names an underlying, so the keep
 // list is resolved against this book first: the shares and every option on
-// them go together (owner, 2026-10-28 06:41 CET). In net mode the direction
-// is then the unlocked book's, so a hedge the owner locked never sets it
-// (owner, 2026-10-22 19:50 CEST: a hedge is a hedge because the owner says
-// so).
+// them go together (owner, 2026-10-28 06:41 CET). What a net sweep counts is
+// reduceExposureBook's.
 func reduceUnlockedBook(pos *rpc.PositionsResult, locks rpc.HoldingLocks) (*rpc.PositionsResult, []rpc.TradeProposalReduceKept) {
 	if pos == nil || len(locks.Locks) == 0 {
 		return pos, nil
@@ -46,6 +44,28 @@ func reduceUnlockedBook(pos *rpc.PositionsResult, locks rpc.HoldingLocks) (*rpc.
 	book.Stocks = keep(pos.Stocks)
 	book.Options = keep(pos.Options)
 	return &book, kept
+}
+
+// reduceExposureBook is the book whose net delta sets a net sweep's
+// direction and size: every line but a locked hedge. A hedge the owner
+// locked never sets the direction (owner, 2026-10-22 19:50 CEST: a hedge is
+// a hedge because the owner says so). A locked core line is exposure the
+// owner keeps, so it counts though it is never traded, and the unlocked
+// protection over it is not read as a bare short (owner, 2026-10-28 12:04
+// CET: a sweep that left the core out sold the core's puts).
+func reduceExposureBook(pos *rpc.PositionsResult, locks rpc.HoldingLocks) *rpc.PositionsResult {
+	if pos == nil || len(locks.Locks) == 0 {
+		return pos
+	}
+	resolved := locks.Resolve(pos)
+	counted := func(rows []rpc.PositionView) []rpc.PositionView {
+		return slices.DeleteFunc(slices.Clone(rows), func(row rpc.PositionView) bool {
+			return resolved.Locked(row.ConID) && resolved.Role(row.ConID) == rpc.HoldingLockRoleHedge
+		})
+	}
+	book := *pos
+	book.Stocks, book.Options = counted(pos.Stocks), counted(pos.Options)
+	return &book
 }
 
 // reduceScopeFacts are the per-underlying facts a scoped sweep selects on:

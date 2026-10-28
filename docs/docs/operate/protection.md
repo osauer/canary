@@ -311,8 +311,11 @@ hedge because you say so, not because of its delta sign that day. A lock
 names the underlying and covers every contract of it the book holds when a
 sweep runs: the shares, the calls written on them, the puts, and the
 contract a roll moves into. `--con-id` is optional and records the contract
-the lock was placed from, which the lock also covers. Net mode reads the
-direction of the unlocked book. The mandate's automatic reduction and the
+the lock was placed from, which the lock also covers. Net mode sizes and
+directs its cut on the book without its locked hedges: a locked core name
+counts, though it is never traded, so the puts that protect it are not read
+as a bare short and sold. A locked hedge never sets the direction. The
+mandate's automatic reduction and the
 premium budget sweep leave locked names out too, and `positions.risk`
 carries the keep list resolved against its book under `holding_locks`.
 

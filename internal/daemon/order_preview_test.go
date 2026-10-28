@@ -812,7 +812,7 @@ func TestReduceSweep100PercentDoesNotFullyCloseWithHedgePresent(t *testing.T) {
 			{Symbol: "SPY", SecType: "OPTION", ConID: 2, Currency: "USD", Quantity: 2, Right: "P", Delta: &hedgeDelta, Underlying: &hedgeUnderlying, Multiplier: 100},
 		},
 	)
-	cands, netDelta, _, target, blockers := reduceSweepCandidates(pos, 100)
+	cands, netDelta, _, target, blockers := reduceSweepCandidates(pos, pos, 100)
 	if len(blockers) > 0 {
 		t.Fatalf("unexpected blockers: %+v", blockers)
 	}

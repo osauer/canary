@@ -1726,8 +1726,10 @@ type TradeProposalReducePortfolioParams struct {
 	// leg never holds the others. Without them, submit sizes the sweep from
 	// the live book (the paired app's path).
 	PreviewTokens []string `json:"preview_tokens,omitempty"`
-	// Mode chooses the lines: "" or "net" trims the unlocked book's net
-	// delta direction; "longs" sells Percent of every long-delta line;
+	// Mode chooses the lines: "" or "net" trims unlocked lines in the net
+	// delta direction of the book without its locked hedges, a locked core
+	// line counted but never traded; "longs" sells Percent of every
+	// long-delta line;
 	// "all" cuts Percent of every line, selling longs and buying back
 	// shorts. Locked holdings are never selected in any mode.
 	Mode string `json:"mode,omitempty"`

@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 - An option without its own implied volatility no longer has to leave the mandate's verdict unknown (owner instruction 2026-10-28 08:51 CET). Before a session's first quote, after a daemon restart or outside the option's market hours the position row carries none, and one such option blanked the loss verdict, every stress and the S&P-fall figures of the reduce plan and the proposals. Canary now prices it at the volatility its own mark implies. A new optional policy table `[mandate.iv_fallback]` decides what that may do: each such volatility is moved down and up by `short_band_pct` (under 8 days to expiry), `month_band_pct` (8 to 35 days) or `long_band_pct` (beyond), and half the resulting range of the S&P-fall figure is judged against the loss room: within `measured_pct` the verdict stands, within `range_pct` only when it is the same at both edges, beyond it is unknown. `canary mandate` lists the options, their bands and the range; `canary_mandate` carries `verdict.iv_fallback` and each leg's `iv_source`. Absent, or with a key missing, nothing changes. The new-install template carries the proposed values (65, 15, 8; 5, 20) commented out.
 
+### Fixed
+
+- `canary proposals reduce --portfolio` in net mode, the default, could sell the protection of a locked core holding (owner decision 2026-10-28 12:04 CET). It read the direction and size from the unlocked lines alone, so long puts protecting a locked name looked like a bare short: on a book that was net long with the core counted, the sweep sold the puts and left the core unhedged. A locked core name now counts toward the direction and size, though it is never traded; a locked hedge still never sets the direction (owner decision 2026-10-22 19:50 CEST). The preview's `net_dollar_delta_before` reads the same book. Longs and all modes are unchanged.
+
 ## v3.28.0 — 2026-10-28 08:22 CET
 
 ### What's new

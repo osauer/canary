@@ -33,7 +33,7 @@ func TestReduceSweepRequiresCompleteExposure(t *testing.T) {
 				{Symbol: "SHORT", SecType: "STOCK", ConID: 2, Currency: "USD", Quantity: -200, Mark: 100},
 			}, nil)
 			tc.edit(pos)
-			cands, net, complete, target, blockers := reduceSweepCandidates(pos, 50)
+			cands, net, complete, target, blockers := reduceSweepCandidates(pos, pos, 50)
 			if complete || len(cands) != 0 || target != 0 || len(blockers) != 1 || blockers[0].Code != "net_delta_incomplete" {
 				t.Fatalf("partial book authorized a sweep: complete=%v candidates=%d target=%v blockers=%+v", complete, len(cands), target, blockers)
 			}
@@ -49,7 +49,7 @@ func TestReduceSweepCompleteHedgedBookReducesNetExposure(t *testing.T) {
 		{Symbol: "LONG", SecType: "STOCK", ConID: 1, Currency: "USD", Quantity: 100, Mark: 100},
 		{Symbol: "SHORT", SecType: "STOCK", ConID: 2, Currency: "USD", Quantity: -200, Mark: 100},
 	}, nil)
-	cands, net, complete, target, blockers := reduceSweepCandidates(pos, 50)
+	cands, net, complete, target, blockers := reduceSweepCandidates(pos, pos, 50)
 	if net != -10000 || !complete || target != 5000 || len(blockers) != 0 {
 		t.Fatalf("complete book blocked: net=%v complete=%v target=%v blockers=%+v", net, complete, target, blockers)
 	}
@@ -66,7 +66,7 @@ func TestReduceSweepCountsADefunctHoldingAsZero(t *testing.T) {
 	defunct := rpc.PositionView{Symbol: "DEFQ", SecType: "STOCK", ConID: 9, Currency: "USD", Quantity: 20000, Stale: true,
 		QuoteExpectation: rpc.QuoteExpectationNone, QuoteExpectationReason: rpc.QuoteExpectationReasonTerminal}
 	pos := reduceTestPortfolio([]rpc.PositionView{{Symbol: "LONG", SecType: "STOCK", ConID: 1, Currency: "USD", Quantity: 100, Mark: 100}, defunct}, nil)
-	cands, net, complete, _, blockers := reduceSweepCandidates(pos, 50)
+	cands, net, complete, _, blockers := reduceSweepCandidates(pos, pos, 50)
 	if !complete || net != 10000 || len(blockers) != 0 {
 		t.Fatalf("a defunct holding blocked the book: complete=%v net=%v blockers=%+v", complete, net, blockers)
 	}
@@ -81,7 +81,7 @@ func TestReduceSweepCountsADefunctHoldingAsZero(t *testing.T) {
 	}
 	defunct.QuoteExpectation = ""
 	pos = reduceTestPortfolio([]rpc.PositionView{{Symbol: "LONG", SecType: "STOCK", ConID: 1, Currency: "USD", Quantity: 100, Mark: 100}, defunct}, nil)
-	if _, _, complete, _, _ := reduceSweepCandidates(pos, 50); complete {
+	if _, _, complete, _, _ := reduceSweepCandidates(pos, pos, 50); complete {
 		t.Fatal("a stale zero-mark holding without the broker's verdict counted as zero")
 	}
 }

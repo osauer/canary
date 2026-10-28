@@ -100,17 +100,22 @@ func reduceSweepMaterialityFloor(pos *rpc.PositionsResult) float64 {
 	return minNetDeltaForSweepFloor
 }
 
-// reduceSweepCandidates implements the delta-adjusted risk-contribution
-// tiny-delta long option is never force-trimmed to hit the aggregate target —
-func reduceSweepCandidates(pos *rpc.PositionsResult, percent int) (cands []reduceSweepCandidate, netDelta float64, netComplete bool, targetDollarDelta float64, blockers []rpc.TradingBlocker) {
+// reduceSweepCandidates is the delta-adjusted net sweep. The exposure book's
+// net dollar delta (reduceExposureBook) sets the direction and, times
+// percent, the target. Only pos's lines are selected: those whose delta
+// shares the net's sign, each sized pro rata to its share of the
+// contributing risk. An opposite-sign line is protection and never
+// selected, and a share that rounds below one unit is left alone, never
+// force-trimmed to hit the target.
+func reduceSweepCandidates(pos, exposure *rpc.PositionsResult, percent int) (cands []reduceSweepCandidate, netDelta float64, netComplete bool, targetDollarDelta float64, blockers []rpc.TradingBlocker) {
 	if pos == nil {
 		return nil, 0, false, 0, []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "current positions are unavailable", Action: "Retry once the daemon has refreshed positions."}}
 	}
-	netDelta, netComplete = netPortfolioDollarDelta(pos)
+	netDelta, netComplete = netPortfolioDollarDelta(exposure)
 	if !netComplete {
 		return nil, netDelta, false, 0, []rpc.TradingBlocker{{Code: "net_delta_incomplete", Message: "the full portfolio's net delta is unavailable; a partial book cannot establish which holdings reduce risk", Action: "Refresh positions and wait for current prices, Greeks, and FX before reducing the portfolio."}}
 	}
-	if math.Abs(netDelta) < reduceSweepMaterialityFloor(pos) {
+	if math.Abs(netDelta) < reduceSweepMaterialityFloor(exposure) {
 		return nil, netDelta, netComplete, 0, []rpc.TradingBlocker{{Code: "net_delta_immaterial", Message: "longs and shorts roughly offset; there is no dominant net delta direction to trim", Action: "Trim individual holdings instead, or review hedges manually."}}
 	}
 	netSign := 1.0
@@ -455,7 +460,7 @@ func (s *Server) reducePortfolioSelect(ctx context.Context, p rpc.TradeProposalR
 		if len(p.Sectors) > 0 || p.MinBeta > 0 {
 			return nil, []rpc.TradingBlocker{{Code: "bad_request", Message: "sectors and min_beta narrow a longs or all sweep, not a net one", Action: "Choose mode longs or all."}}
 		}
-		cands, netDelta, netComplete, target, blockers := reduceSweepCandidates(book, p.Percent)
+		cands, netDelta, netComplete, target, blockers := reduceSweepCandidates(book, reduceExposureBook(pos, locks), p.Percent)
 		res.NetDollarDeltaBefore, res.NetDeltaIncomplete, res.TargetDollarDelta, res.Kept = netDelta, !netComplete, target, kept
 		return cands, blockers
 	case rpc.ReduceModeLongs, rpc.ReduceModeAll:
