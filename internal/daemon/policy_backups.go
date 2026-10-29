@@ -14,17 +14,24 @@ import (
 // Owner decision 2026-10-29 10:59 CET: beside each policy file Canary keeps
 // the newest five backups it wrote plus every backup younger than thirty
 // days, and removes the rest once a daemon start has succeeded. A backup is
-// recognised by the UTC stamp Canary puts at the end of its name; copies the
-// owner made by hand carry no such stamp and are never touched.
+// recognised by the label and UTC stamp Canary's writers put in its name;
+// copies the owner made by hand are never touched, stamped or not.
 const (
 	policyBackupKeep   = 5
 	policyBackupMaxAge = 30 * 24 * time.Hour
 )
 
-// policyBackupStamp matches the tail every Canary backup writer appends:
-// `<file>.bak-<label>-<YYYYMMDDTHHMMSSZ>`, with `-<n>` after the stamp when a
-// second save landed in the same second (writeCashPolicyBackup).
-var policyBackupStamp = regexp.MustCompile(`-(\d{8}T\d{6}Z)(?:-\d+)?$`)
+// policyBackupName matches what follows `<file>.bak-` in a name Canary's
+// own backup writers produce: `<label>-<YYYYMMDDTHHMMSSZ>`, with `-<n>` after
+// the stamp when a second save landed in the same second
+// (writeCashPolicyBackup). The label is one Canary writes: the rulebook
+// reset's `reset`, Desk's `desk`, or the release that migrated the file
+// (sanitizeReleaseLabel of a release or `git describe` version, a Go
+// pseudo-version, a commit id, `dev`, or its fallbacks). A stamp alone is not enough: hand-made snapshots such as
+// `.bak-before-<commit>-<stamp>` end in the same stamp and are the owner's.
+var policyBackupName = regexp.MustCompile(`^(?:reset|desk|canary|thisrelease|dev|devel|` +
+	`v\d+\.\d+\.\d+(?:-rc\.?\d+|-0\.\d{14}-[0-9a-f]{12})?(?:-\d+-g[0-9a-f]{7,40})?(?:-dirty)?|` +
+	`[0-9a-f]{7,40}(?:-dirty)?)-(\d{8}T\d{6}Z)(?:-\d+)?$`)
 
 type policyBackup struct {
 	path  string
@@ -50,7 +57,7 @@ func listPolicyBackups(path string) ([]policyBackup, error) {
 		if !strings.HasPrefix(name, prefix) || !entry.Type().IsRegular() {
 			continue
 		}
-		m := policyBackupStamp.FindStringSubmatch(name)
+		m := policyBackupName.FindStringSubmatch(strings.TrimPrefix(name, prefix))
 		if m == nil {
 			continue
 		}

@@ -22,7 +22,7 @@ func TestPrunePolicyBackupsKeepsNewestFiveAndEverythingYoung(t *testing.T) {
 		"protection-policy.toml.bak-v3.29.0-2-g83735137-" + stamp(1*day):   1 * day,
 		"protection-policy.toml.bak-reset-" + stamp(2*day):                 2 * day,
 		"protection-policy.toml.bak-desk-" + stamp(3*day) + "-2":           3 * day,
-		"protection-policy.toml.bak-before-6885795a-" + stamp(31*day):      31 * day,
+		"protection-policy.toml.bak-6885795a-dirty-" + stamp(31*day):       31 * day,
 		"protection-policy.toml.bak-v3.18.1-10-gca83d1b1-" + stamp(40*day): 40 * day,
 		"protection-policy.toml.bak-v3.17.0-27-g4966751f-" + stamp(50*day): 50 * day,
 		"protection-policy.toml.bak-v3.17.0-18-g7727a5f1-" + stamp(60*day): 60 * day,
@@ -33,6 +33,9 @@ func TestPrunePolicyBackupsKeepsNewestFiveAndEverythingYoung(t *testing.T) {
 		"protection-policy.toml.before-eur-allowlist-20261001",
 		"protection-policy.toml.v2-2026-07-18.bak",
 		"protection-policy.toml.bak-before-auto-release",
+		// Hand-made snapshots ending in Canary's stamp format, old.
+		"protection-policy.toml.bak-before-6885795a-" + stamp(90*day),
+		"protection-policy.toml.bak-v3-before-cleanup-" + stamp(90*day),
 		// Another policy file's backup, old, must not be counted against this one.
 		"risk-policy.toml.bak-v3.17.0-18-g7727a5f1-" + stamp(90*day),
 	}
@@ -76,7 +79,7 @@ func TestPrunePolicyBackupsKeepsNewestFiveAndEverythingYoung(t *testing.T) {
 	}
 	for _, name := range handMade {
 		if !slices.Contains(names, name) {
-			t.Errorf("%s: a file without a Canary stamp was removed", name)
+			t.Errorf("%s: a file Canary did not write was removed", name)
 		}
 	}
 	if !slices.Contains(names, "protection-policy.toml") {
@@ -93,7 +96,7 @@ func TestPrunePolicyBackupsLeavesFewOldBackupsAndMissingDirs(t *testing.T) {
 	policy := filepath.Join(dir, "risk-policy.toml")
 	now := time.Date(2026, 10, 29, 11, 0, 0, 0, time.UTC)
 	for i := range 4 {
-		name := "risk-policy.toml.bak-v1-" + now.Add(-time.Duration(100+i)*24*time.Hour).Format("20060102T150405Z")
+		name := "risk-policy.toml.bak-v1.0.0-" + now.Add(-time.Duration(100+i)*24*time.Hour).Format("20060102T150405Z")
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
