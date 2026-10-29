@@ -198,6 +198,8 @@ func TestIndexFutureOrderRule(t *testing.T) {
 // A held hedge is closed as any line is reduced, deliberately: a percent
 // reduce with include_hedges buys it back; without it the hedge is
 // excluded; the portfolio sweep never selects it.
+// The held row is shaped as the portfolio stream delivers it, the exchange
+// only as the primary one; the buy-back still names CME, never SMART.
 func TestIndexHedgeCloseIsADeliberateReduce(t *testing.T) {
 	s := hedgeOrderServer(t, 25, mandateReductionStock("SPY", 9101, 3000, 50), mandateReductionFuture(hedgeTestConID, -2, 6000))
 	res, err := s.tradeProposalReducePreview(t.Context(), rpc.TradeProposalReduceParams{ConID: hedgeTestConID, Percent: 100})
@@ -205,8 +207,8 @@ func TestIndexHedgeCloseIsADeliberateReduce(t *testing.T) {
 		t.Fatalf("close without include_hedges = %+v %v, want hedge_excluded", res, err)
 	}
 	res, err = s.tradeProposalReducePreview(t.Context(), rpc.TradeProposalReduceParams{ConID: hedgeTestConID, Percent: 100, IncludeHedges: true})
-	if err != nil || !res.Accepted || res.PreviewToken == "" || res.Terms == nil || res.Terms.Action != rpc.OrderActionBuy || res.Terms.Quantity != 2 || res.Terms.Contract.SecType != "FUT" {
-		t.Fatalf("close = %+v %v, want BUY 2 with a token", res, err)
+	if err != nil || !res.Accepted || res.PreviewToken == "" || res.Terms == nil || res.Terms.Action != rpc.OrderActionBuy || res.Terms.Quantity != 2 || res.Terms.Contract.SecType != "FUT" || res.Terms.Contract.Exchange != "CME" {
+		t.Fatalf("close = %+v %v, want BUY 2 on CME with a token", res, err)
 	}
 	if reduceEligible(mandateReductionFuture(hedgeTestConID, -2, 6000)) {
 		t.Fatal("the portfolio sweep may select the hedge")

@@ -11,9 +11,10 @@ import (
 
 // mandateReductionFuture is a held Micro S&P future in USD, two contracts
 // short by default, as the positions spell it (security type FUTURE, the
-// multiplier on the row, the month on the row, a base rate of 0.9).
+// multiplier on the row, the month on the row, a base rate of 0.9, and the
+// exchange only as the primary one: the portfolio stream carries no other).
 func mandateReductionFuture(conID int, contracts, mark float64) rpc.PositionView {
-	return rpc.PositionView{Symbol: "MES", SecType: rpc.SecTypeFuture, ConID: conID, Exchange: "CME", Currency: "USD", LocalSymbol: "MESZ6", TradingClass: "MES", Expiry: "20261218",
+	return rpc.PositionView{Symbol: "MES", SecType: rpc.SecTypeFuture, ConID: conID, PrimaryExch: "CME", Currency: "USD", LocalSymbol: "MESZ6", TradingClass: "MES", Expiry: "20261218",
 		Quantity: contracts, Multiplier: 5, Mark: mark, FXRate: new(0.9), DataType: rpc.MarketDataLive}
 }
 

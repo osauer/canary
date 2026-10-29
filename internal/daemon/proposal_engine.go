@@ -2195,6 +2195,16 @@ func proposalContractFromPosition(row rpc.PositionView, secType string) rpc.Cont
 			contract.Currency = nonEmptyString(row.Currency, "EUR")
 		}
 	}
+	if secType == "FUT" {
+		// A future is ordered on its listing exchange, never SMART, and the
+		// portfolio stream names that exchange only as the primary one: a
+		// held hedge's row has no Exchange. Without either the contract
+		// stays unnamed and the future preview says so.
+		contract.Exchange = strings.ToUpper(strings.TrimSpace(row.Exchange))
+		if contract.Exchange == "" || contract.Exchange == "SMART" {
+			contract.Exchange = strings.ToUpper(strings.TrimSpace(row.PrimaryExch))
+		}
+	}
 	return contract
 }
 
