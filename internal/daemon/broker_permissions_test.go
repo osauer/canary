@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -138,5 +139,37 @@ func TestBrokerPermissionsSurviveARestart(t *testing.T) {
 	}
 	if st := restarted.brokerPermissions.state(restarted.currentBrokerStateScope(), rpc.BrokerPermissionFutures); st.State != rpc.BrokerPermissionEnabled {
 		t.Fatalf("a granted permission was not learned at restart: %+v", st)
+	}
+}
+
+// A check that gets no broker answer used to return without a word: no log
+// line, no detail, futures read "not checked yet" for good (live install
+// 2026-10-29 07:32 CET, two checks, nothing shown). It now says why in the
+// status and is retried at the next pass.
+func TestFuturesCheckWithoutAnAnswerSaysWhy(t *testing.T) {
+	answer := rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusUnavailable, Message: "Broker WhatIf did not return an accepted preview."}
+	s, calls, now := brokerPermissionRig(t, func() rpc.OrderWhatIfResult { return answer })
+	if s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true}) {
+		t.Fatal("a check without an answer counted as done")
+	}
+	st := s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionFutures)
+	if st.State != rpc.BrokerPermissionUnknown || !strings.Contains(st.Detail, "did not return an accepted preview") {
+		t.Fatalf("after an unanswered check = %+v, want the reason", st)
+	}
+	if s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true}); *calls != 1 {
+		t.Fatalf("an unanswered check was retried at once: %d", *calls)
+	}
+	*now = now.Add(brokerPermissionRetryAfter)
+	if s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true}); *calls != 2 {
+		t.Fatalf("an unanswered check was not retried after the wait: %d", *calls)
+	}
+	*now = now.Add(brokerPermissionRetryAfter)
+
+	s.reduceHedgeFutureForTest = func(context.Context) (rpc.ContractParams, *rpc.Quote, error) {
+		return rpc.ContractParams{}, nil, errors.New("no gateway")
+	}
+	s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true})
+	if st := s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionFutures); !strings.Contains(st.Detail, "no gateway") {
+		t.Fatalf("a failed contract read left no reason: %+v", st)
 	}
 }

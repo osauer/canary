@@ -31,8 +31,10 @@ const (
 	// again: daily, the owner's choice of 2026-10-29 07:14 CET.
 	brokerPermissionCheckEvery = 24 * time.Hour
 	// brokerPermissionLoopEvery is how often the loop looks whether a check
-	// is due or was missed for want of a gateway.
-	brokerPermissionLoopEvery = 10 * time.Minute
+	// is due; brokerPermissionRetryAfter is how long a check that got no
+	// answer waits before the next attempt.
+	brokerPermissionLoopEvery  = time.Minute
+	brokerPermissionRetryAfter = 10 * time.Minute
 
 	brokerPermissionSourceCheck   = "Canary's daily check"
 	brokerPermissionSourcePreview = "your preview"
@@ -232,6 +234,11 @@ func (p *brokerPermissionStore) due(scope brokerStateScope, class string, now ti
 	return !ok || now.Sub(last) >= brokerPermissionCheckEvery
 }
 
+// markRetry makes class due again brokerPermissionRetryAfter from now.
+func (p *brokerPermissionStore) markRetry(scope brokerStateScope, class string, now time.Time) {
+	p.markChecked(scope, class, now.Add(brokerPermissionRetryAfter-brokerPermissionCheckEvery))
+}
+
 func (p *brokerPermissionStore) markChecked(scope brokerStateScope, class string, now time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -300,22 +307,32 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	// unanswered keeps why the check got no answer, logs it once per
+	// attempt and retries later: a silent miss would leave futures "not
+	// checked yet" with no reason (live install 2026-10-29 07:32 CET).
+	unanswered := func(why string) bool {
+		s.brokerPermissions.markRetry(scope, class, now)
+		s.infof("broker permissions: futures check got no answer; next attempt in %s: %s", brokerPermissionRetryAfter, why)
+		if err := s.brokerPermissions.observe(ctx, scope, class, brokerPermissionSourceCheck, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusUnavailable, Message: why}, now); err != nil {
+			s.warnf("broker permissions: %v", err)
+		}
+		return false
+	}
 	contract, quote, err := s.reduceHedgeFuture(readCtx)
 	if err != nil || contract.ConID == 0 {
-		s.warnf("broker permissions: futures check skipped, no Micro S&P contract: %v", err)
-		return false
+		return unanswered(fmt.Sprintf("no Micro S&P contract read: %v", err))
 	}
 	draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: contract, Quantity: 1, OrderType: rpc.OrderTypeLMT,
 		LimitPrice: brokerPermissionCheckPrice(hedgeQuotePrice(quote)), TIF: rpc.OrderTIFDay, OrderRef: brokerPermissionCheckOrderRef}
 	w, err := s.fetchPreviewWhatIfBound(readCtx, status, draft, orderPreviewDefaultWait, nil)
 	if err != nil {
-		s.warnf("broker permissions: futures check failed: %v", err)
-		return false
+		return unanswered(err.Error())
 	}
 	if w.Status != rpc.OrderWhatIfStatusAccepted && w.Status != rpc.OrderWhatIfStatusRejected {
-		return false
+		return unanswered(nonEmptyString(w.Message, "the broker returned no preview"))
 	}
 	s.brokerPermissions.markChecked(scope, class, now)
+	s.infof("broker permissions: futures check %s: %s", w.Status, brokerPermissionDetail(nonEmptyString(w.Message, "no broker text")))
 	if err := s.brokerPermissions.observe(ctx, scope, class, brokerPermissionSourceCheck, w, now); err != nil {
 		s.warnf("broker permissions: %v", err)
 	}
