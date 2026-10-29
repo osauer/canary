@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -15,7 +18,7 @@ func mandateDefaultsBase() string {
 
 func migrateMandateDefaultsForTest(t *testing.T, in string) (string, []string) {
 	t.Helper()
-	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true)}
+	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true, true)}
 	out, changes, _, err := previewPolicyFileMigration(k, []byte(in), "test")
 	if err != nil {
 		t.Fatalf("migration refused: %v", err)
@@ -121,5 +124,105 @@ func TestMigrationRaisesPolicyVersionOnceForBoth(t *testing.T) {
 	out, _ := migrateMandateDefaultsForTest(t, in)
 	if c := decodeTestConstitution(t, []byte(out)); c.PolicyVersion != 7 || len(c.OrderLimits.MissingKeys()) != 0 || c.Mandate.IndexHedge == nil {
 		t.Fatalf("version %d:\n%s", c.PolicyVersion, out)
+	}
+}
+
+// startWithConstitution runs daemon start's ensure step against a
+// constitution under HOME, with the daemon's SQLite authority at db.
+func startWithConstitution(t *testing.T, home, db string) string {
+	t.Helper()
+	t.Setenv("HOME", home)
+	set := policyTestSet(t)
+	core := openTestCoreStore(t, db)
+	defer core.Close()
+	s := &Server{cfg: &config.Resolved{
+		Rulebook:      config.Rulebook{PolicyFile: set.Rulebook},
+		AutoTrade:     config.AutoTrade{PolicyFile: set.Protection},
+		Opportunities: config.Opportunities{PolicyFile: set.Opportunity},
+	}, ensurePolicyFiles: true, version: "v9.9.9", logger: NewLogger(&bytes.Buffer{}, "error"), coreStore: core}
+	s.ensurePolicyFilesOnStart()
+	return filepath.Join(home, ".config", "ibkr", "policies", "risk-policy.toml")
+}
+
+// The hedge table's presence is the permission to place a hedge. An owner
+// who wrote both default tables, and later deletes the hedge table to take
+// that permission back, keeps it deleted: no start writes 25 again, though
+// no Canary note ever reached the file. The same holds when the owner
+// tidied away the note a Canary write left.
+func TestADeletedHedgeTableStaysDeletedAcrossStarts(t *testing.T) {
+	ownerTables := "\n[mandate.iv_fallback]\nshort_band_pct = 65.0\nmonth_band_pct = 15.0\nlong_band_pct = 8.0\nmeasured_pct = 5.0\nrange_pct = 20.0\n\n[mandate.index_hedge]\nmax_contracts = 4\n"
+	for _, tc := range []struct {
+		name  string
+		start string
+		hedge string
+	}{
+		{"owner wrote both", mandateDefaultsBase() + ownerTables, "[mandate.index_hedge]\nmax_contracts = 4\n"},
+		{"canary wrote, note tidied away", mandateDefaultsBase(), "[mandate.index_hedge]\nmax_contracts = 25  # owner decision 2026-10-29 07:06 CET\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			db := filepath.Join(t.TempDir(), "state", "daemon.db")
+			path := filepath.Join(home, ".config", "ibkr", "policies", "risk-policy.toml")
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.start), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			startWithConstitution(t, home, db)
+			written := readPolicyTestFile(t, path)
+			if !strings.Contains(string(written), tc.hedge) {
+				t.Fatalf("first start: hedge table not as expected:\n%s", written)
+			}
+			var kept []string
+			for line := range strings.SplitSeq(strings.Replace(string(written), tc.hedge, "", 1), "\n") {
+				if !strings.Contains(line, mandateDefaultsNote) {
+					kept = append(kept, line)
+				}
+			}
+			deleted := strings.Join(kept, "\n")
+			if err := os.WriteFile(path, []byte(deleted), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			// Two starts within one second would share a backup stamp and
+			// fail on the second backup, passing for the wrong reason.
+			backups, _ := filepath.Glob(path + ".bak-*")
+			for _, b := range backups {
+				if err := os.Remove(b); err != nil {
+					t.Fatal(err)
+				}
+			}
+			startWithConstitution(t, home, db)
+			after := readPolicyTestFile(t, path)
+			if c := decodeTestConstitution(t, after); c.Mandate.IndexHedge != nil {
+				t.Fatalf("a start wrote the deleted hedge table again:\n%s", after)
+			}
+			if string(after) != deleted {
+				t.Fatalf("a start changed the file after the deletion:\n%s", after)
+			}
+			// `canary policy ensure` has no daemon record: its plan never
+			// proposes the defaults, so --apply-plan cannot write them back.
+			for _, a := range EnsurePolicyFiles(PolicyFileSet{Constitution: path}, EnsureOptions{DryRun: true, Release: "v9.9.9"}) {
+				if strings.Contains(strings.Join(a.Changes, "\n"), "[mandate.") {
+					t.Fatalf("the CLI plan proposes the deleted table: %q", a.Changes)
+				}
+			}
+		})
+	}
+}
+
+// A hedge table the owner switched off by commenting it out, with a number
+// of their own, is the owner's: a start neither activates it nor puts the
+// proposal's 25 in its place. The template's proposal, commented with the
+// proposal's values, is still activated in place.
+func TestMigrationLeavesAnOwnerCommentedTable(t *testing.T) {
+	in := mandateDefaultsBase() + "\n# off for now\n# [mandate.index_hedge]\n# max_contracts = 4\n"
+	out, _ := migrateMandateDefaultsForTest(t, in)
+	c := decodeTestConstitution(t, []byte(out))
+	if c.Mandate.IndexHedge != nil || !strings.Contains(out, "# [mandate.index_hedge]\n# max_contracts = 4\n") {
+		t.Fatalf("the owner's commented table was activated or rewritten:\n%s", out)
+	}
+	if c.Mandate.IVFallback == nil {
+		t.Fatalf("the missing fallback table was not written:\n%s", out)
 	}
 }

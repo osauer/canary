@@ -80,6 +80,12 @@ type PolicyFileSet struct {
 	// read, so only compiled values are known.
 	OrderGateSource     config.Trading
 	OrderGateSourceRead bool
+	// WriteMandateDefaults lets the constitution's migration write the
+	// mandate defaults. Only the daemon sets it, while its record says the
+	// file has not had them; every other caller (`canary policy ensure`,
+	// `policy show`) has no record to read, so a table the owner deleted is
+	// never proposed again.
+	WriteMandateDefaults bool
 }
 
 // PolicyFileSetFor resolves the policy paths from a daemon config; nil means
@@ -165,7 +171,7 @@ func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction
 		{PolicyFileOpportunity, set.Opportunity, OpportunityPolicyTemplate, func(b []byte) error { _, err := parseOpportunityPolicy(b); return err }, migrateOpportunityPolicyFile},
 		{PolicyFileConstitution, set.Constitution, func(release string) []byte {
 			return constitutionPolicyTemplateFrom(release, set.OrderGateSource, set.OrderGateSourceRead)
-		}, parseConstitutionPolicy, migrateConstitutionPolicyFileFrom(set.OrderGateSource, set.OrderGateSourceRead)},
+		}, parseConstitutionPolicy, migrateConstitutionPolicyFileFrom(set.OrderGateSource, set.OrderGateSourceRead, set.WriteMandateDefaults)},
 	}
 	// Validate the whole reviewed set before any write. Applying a plan never
 	// creates unrelated missing files, and an unknown/stale entry cannot cause
@@ -1525,7 +1531,13 @@ func (s *Server) ensurePolicyFilesOnStart() {
 	if s == nil || !s.ensurePolicyFiles {
 		return
 	}
-	for _, a := range EnsurePolicyFiles(PolicyFileSetFor(s.cfg), EnsureOptions{Release: s.version, ApplyMigrations: true}) {
+	set := PolicyFileSetFor(s.cfg)
+	set.WriteMandateDefaults = !s.mandateDefaultsDone(set.Constitution)
+	actions := EnsurePolicyFiles(set, EnsureOptions{Release: s.version, ApplyMigrations: true})
+	if set.WriteMandateDefaults {
+		s.recordMandateDefaults(set.Constitution, actions)
+	}
+	for _, a := range actions {
 		line := fmt.Sprintf("policy file %s: %s %s", a.Policy, a.Action, a.Path)
 		if a.Backup != "" {
 			line += " (backup " + a.Backup + ")"

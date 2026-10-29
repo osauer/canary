@@ -145,7 +145,7 @@ func TestMandateTableIncompleteAndLegacyV4(t *testing.T) {
 // written one byte for byte; the only mandate conversion is the two default
 // tables of 2026-10-29 (mandate_defaults_policy_file_test.go).
 func TestMandateTableSurvivesMigrationUnchanged(t *testing.T) {
-	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true)}
+	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true, true)}
 	complete := strings.Replace(schema2ConstitutionTOML(), "policy_version = 5", "policy_version = 6", 1) + testOrderLimitsTOML + mandateTableTOML
 	out, changes, _, err := previewPolicyFileMigration(k, []byte(complete), "test")
 	if err != nil || !strings.Contains(string(out), mandateTableTOML) {

@@ -19,6 +19,7 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 		return nil
 	}
 	set := PolicyFileSetFor(s.cfg)
+	set.WriteMandateDefaults = !s.mandateDefaultsDone(set.Constitution)
 	dry := map[string]PolicyFileAction{}
 	for _, a := range EnsurePolicyFiles(set, EnsureOptions{DryRun: true, Release: s.version}) {
 		dry[a.Policy] = a

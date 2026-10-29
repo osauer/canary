@@ -132,7 +132,9 @@ func protectionMaterialisationFileKey(_ string, data []byte) (string, error) {
 // its semantics allow, and writes every [order_limits] key it lacks from
 // src, config.toml [trading] as written (owner decision 2026-10-05 19:56
 // CEST), or from the owner's decided value, raising policy_version.
-func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead bool) func([]byte, string) ([]byte, []string, []string, error) {
+// writeMandateDefaults lets it write the mandate defaults
+// (PolicyFileSet.WriteMandateDefaults).
+func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead, writeMandateDefaults bool) func([]byte, string) ([]byte, []string, []string, error) {
 	return func(data []byte, _ string) ([]byte, []string, []string, error) {
 		var c risk.Constitution
 		if _, err := toml.Decode(string(data), &c); err != nil {
@@ -149,7 +151,7 @@ func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead bool) func([]
 		}
 		limits := migrateConstitutionOrderLimits(doc, c, src, srcRead)
 		changes = append(changes, limits...)
-		changes = append(changes, migrateConstitutionMandateDefaults(doc, c, string(data), len(limits) == 0)...)
+		changes = append(changes, migrateConstitutionMandateDefaults(doc, c, string(data), len(limits) == 0, writeMandateDefaults)...)
 		if len(changes) == 0 {
 			return data, nil, notes, nil
 		}

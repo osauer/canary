@@ -202,7 +202,7 @@ func decodeTestConstitution(t *testing.T, data []byte) risk.Constitution {
 // raises policy_version; a written key is never changed.
 func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	explicit := config.Trading{MaxNotional: new(12000.0), MaxOptionContracts: new(3), AllowStockShort: new(true)}
-	out, changes, _, err := migrateConstitutionPolicyFileFrom(explicit, true)([]byte(orderLimitsMigrationConstitution), "test")
+	out, changes, _, err := migrateConstitutionPolicyFileFrom(explicit, true, true)([]byte(orderLimitsMigrationConstitution), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 		}
 	}
 
-	out, changes, _, err = migrateConstitutionPolicyFileFrom(config.Trading{}, true)([]byte(orderLimitsMigrationConstitution), "test")
+	out, changes, _, err = migrateConstitutionPolicyFileFrom(config.Trading{}, true, true)([]byte(orderLimitsMigrationConstitution), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	}
 
 	partial := orderLimitsMigrationConstitution + "\n[order_limits]\nmax_order_floor_base = 20000.0\n"
-	out, changes, _, err = migrateConstitutionPolicyFileFrom(explicit, true)([]byte(partial), "test")
+	out, changes, _, err = migrateConstitutionPolicyFileFrom(explicit, true, true)([]byte(partial), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestConstitutionMigrationWritesOrderLimitsFromConfig(t *testing.T) {
 	}
 
 	complete := orderLimitsMigrationConstitution + testOrderLimitsTOML
-	if out, changes, _, err := migrateConstitutionPolicyFileFrom(explicit, true)([]byte(complete), "test"); err != nil || len(changes) != 0 || string(out) != complete {
+	if out, changes, _, err := migrateConstitutionPolicyFileFrom(explicit, true, true)([]byte(complete), "test"); err != nil || len(changes) != 0 || string(out) != complete {
 		t.Fatalf("a complete table migrated again: %v %v", changes, err)
 	}
 }
@@ -254,7 +254,7 @@ func TestConstitutionMigrationAddsOnlyTheReduceAllowances(t *testing.T) {
 	if without == testOrderLimitsTOML {
 		t.Fatal("the fixture no longer writes the allowances")
 	}
-	out, changes, _, err := migrateConstitutionPolicyFileFrom(config.Trading{}, true)([]byte(orderLimitsMigrationConstitution+without), "test")
+	out, changes, _, err := migrateConstitutionPolicyFileFrom(config.Trading{}, true, true)([]byte(orderLimitsMigrationConstitution+without), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestConstitutionMigrationAddsOnlyTheReduceAllowances(t *testing.T) {
 // higher policy_version; every key it wrote keeps its value.
 func TestConstitutionMigrationAddsOnlyTheBondMaturityLimit(t *testing.T) {
 	sixKeys := orderLimitsMigrationConstitution + strings.Replace(testOrderLimitsTOML, "max_bond_maturity_years = 30\n", "", 1)
-	out, changes, _, err := migrateConstitutionPolicyFileFrom(config.Trading{MaxNotional: new(12000.0)}, true)([]byte(sixKeys), "test")
+	out, changes, _, err := migrateConstitutionPolicyFileFrom(config.Trading{MaxNotional: new(12000.0)}, true, true)([]byte(sixKeys), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
