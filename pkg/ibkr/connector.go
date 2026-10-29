@@ -8100,6 +8100,14 @@ func sanitizeExactHistoricalError(err error) error {
 	return &HistoricalRequestError{Category: HistoricalFailureGatewayUnavailable}
 }
 
+// HistoricalNotEntitled reports a historical-data refusal for want of a
+// market data permission or subscription. It stands until the account's
+// entitlements change, so retrying it only repeats the refusal.
+func HistoricalNotEntitled(err error) bool {
+	requestErr, ok := errors.AsType[*HistoricalRequestError](err)
+	return ok && classifyHistoricalRequestFailure(requestErr) == HistoricalFailureNotEntitled
+}
+
 func classifyHistoricalRequestFailure(err *HistoricalRequestError) string {
 	if err == nil {
 		return HistoricalFailureProtocolRejected

@@ -46,7 +46,22 @@ const (
 	// mandateHistoryAttemptsPerSession bounds them.
 	mandateHistoryRetryAfter         = 15 * time.Minute
 	mandateHistoryAttemptsPerSession = 3
+	// stateKindMandateHistoryRefusals keeps the series IBKR refused for want
+	// of a market data permission, so a reconnect or restart does not ask
+	// again inside the session the refusal answered.
+	stateKindMandateHistoryRefusals = "mandate_history_refusals"
 )
+
+// mandateHistoryRefusal is IBKR's refusal of a series for want of a market
+// data permission: final for the completed session it answered (Session, on
+// Market's calendar), asked again once at the next one so an added
+// subscription is picked up without a restart.
+type mandateHistoryRefusal struct {
+	At      time.Time        `json:"at"`
+	Error   string           `json:"error"`
+	Session string           `json:"session"`
+	Market  marketcal.Market `json:"market,omitempty"`
+}
 
 // mandateHistorySeries is one persisted series.
 type mandateHistorySeries struct {
@@ -99,6 +114,10 @@ type mandateHistoryStore struct {
 	loaded    map[string]bool
 	attempts  map[string]mandateHistoryAttempt
 	failures  map[string]mandateHistoryFailure
+	// refusals mirrors stateKindMandateHistoryRefusals, loaded on first use.
+	refusals        map[string]mandateHistoryRefusal
+	refusalsLoaded  bool
+	refusalsVersion int64
 	// requested holds series an order asked for that the book does not
 	// need (a name or currency not held yet), read on the same background
 	// lane and budget until they are fresh or mandateHistoryRequestKeep
@@ -486,6 +505,9 @@ func (s *Server) refreshMandateSeries(ctx context.Context, c mandateHistorySessi
 	if !covered {
 		return
 	}
+	if r, ok := s.mandateHistoryRefusalFor(ctx, need.Key); ok && r.Market == market && completed <= r.Session {
+		return
+	}
 	st := &s.mandateHistory
 	st.mu.Lock()
 	attempt, seen := st.attempts[need.Key]
@@ -531,7 +553,10 @@ func (s *Server) readMandateSeries(ctx context.Context, need mandateHistoryNeed,
 			}
 			st.failures[need.Key] = mandateHistoryFailure{at: now, err: errText(err)}
 			st.mu.Unlock()
-			if s.logger != nil {
+			switch {
+			case ibkrlib.HistoricalNotEntitled(err):
+				s.noteMandateHistoryRefusal(ctx, need, now, err)
+			case s.logger != nil:
 				s.logger.Warnf("mandate history %s: %v; the verdict reads unknown until a read succeeds", need.Key, err)
 			}
 		}
@@ -543,7 +568,108 @@ func (s *Server) readMandateSeries(ctx context.Context, need mandateHistoryNeed,
 	st.mu.Lock()
 	delete(st.failures, need.Key)
 	st.mu.Unlock()
+	if r, ok := s.mandateHistoryRefusalFor(ctx, need.Key); ok {
+		s.setMandateHistoryRefusal(ctx, need.Key, nil)
+		if s.logger != nil {
+			s.logger.Infof("mandate history %s: IBKR serves it again; the market data permission refusal of %s is cleared", need.Key, r.At.UTC().Format(time.DateTime))
+		}
+	}
 	return true
+}
+
+// noteMandateHistoryRefusal records a series IBKR refused for want of a
+// market data permission as final for the session it answered. The first
+// refusal warns once, with what to do; a repeat at a later session is INFO.
+func (s *Server) noteMandateHistoryRefusal(ctx context.Context, need mandateHistoryNeed, now time.Time, err error) {
+	market := need.Market
+	if market == "" {
+		market = marketcal.MarketUSEquity
+	}
+	completed, _, _ := mandateLastSessionsIn(now, market)
+	_, known := s.mandateHistoryRefusalFor(ctx, need.Key)
+	s.setMandateHistoryRefusal(ctx, need.Key, &mandateHistoryRefusal{At: now, Error: errText(err), Session: completed, Market: market})
+	if s.logger == nil {
+		return
+	}
+	if known {
+		s.logger.Infof("mandate history %s: still no market data permission at IBKR (%v); asked again at the next trading session", need.Key, err)
+		return
+	}
+	s.logger.Warnf("mandate history %s: IBKR has no market data permission for it (%v); the verdict reads unknown. Add the exchange's market data subscription at IBKR; Canary asks once each trading session and stops warning", need.Key, err)
+}
+
+// mandateHistoryRefusalFor returns the standing permission refusal of the
+// series, loading the record on first use. A server without the SQLite
+// authority keeps it in memory.
+func (s *Server) mandateHistoryRefusalFor(ctx context.Context, key string) (mandateHistoryRefusal, bool) {
+	s.loadMandateHistoryRefusals(ctx)
+	st := &s.mandateHistory
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	r, ok := st.refusals[key]
+	return r, ok
+}
+
+func (s *Server) loadMandateHistoryRefusals(ctx context.Context) {
+	st := &s.mandateHistory
+	st.mu.Lock()
+	loaded := st.refusalsLoaded
+	st.mu.Unlock()
+	if loaded {
+		return
+	}
+	records, revision := map[string]mandateHistoryRefusal{}, int64(0)
+	if s.coreStore != nil {
+		doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, stateKindMandateHistoryRefusals)
+		if err != nil {
+			if s.logger != nil {
+				s.logger.Warnf("mandate history refusals: %v", err)
+			}
+			return
+		}
+		if ok {
+			if err := json.Unmarshal(doc.JSON, &records); err != nil && s.logger != nil {
+				s.logger.Warnf("mandate history refusals: decode: %v", err)
+			}
+			revision = doc.Revision
+		}
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if !st.refusalsLoaded {
+		st.refusals, st.refusalsVersion, st.refusalsLoaded = records, revision, true
+	}
+}
+
+// setMandateHistoryRefusal records r for the series, or clears it when r is
+// nil, and writes the record through.
+func (s *Server) setMandateHistoryRefusal(ctx context.Context, key string, r *mandateHistoryRefusal) {
+	s.loadMandateHistoryRefusals(ctx)
+	st := &s.mandateHistory
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.refusals == nil {
+		st.refusals = map[string]mandateHistoryRefusal{}
+	}
+	if r == nil {
+		delete(st.refusals, key)
+	} else {
+		st.refusals[key] = *r
+	}
+	if s.coreStore == nil {
+		return
+	}
+	raw, err := json.Marshal(st.refusals)
+	if err == nil {
+		var doc corestore.StateDocument
+		doc, err = s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{ScopeKey: daemonStateScope, Kind: stateKindMandateHistoryRefusals, ExpectedRevision: st.refusalsVersion, JSON: raw})
+		if err == nil {
+			st.refusalsVersion = doc.Revision
+		}
+	}
+	if err != nil && s.logger != nil {
+		s.logger.Warnf("mandate history refusals: save: %v", err)
+	}
 }
 
 // mandateSeriesFailure is a series' last failed read since its last
@@ -551,8 +677,13 @@ func (s *Server) readMandateSeries(ctx context.Context, need mandateHistoryNeed,
 func (s *Server) mandateSeriesFailure(key string) (string, time.Time) {
 	st := &s.mandateHistory
 	st.mu.Lock()
-	defer st.mu.Unlock()
 	f := st.failures[key]
+	st.mu.Unlock()
+	if f.err == "" {
+		if r, ok := s.mandateHistoryRefusalFor(context.Background(), key); ok {
+			return r.Error, r.At
+		}
+	}
 	return f.err, f.at
 }
 

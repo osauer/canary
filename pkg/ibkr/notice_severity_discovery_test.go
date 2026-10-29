@@ -32,8 +32,9 @@ func singleNoticeLine(t *testing.T, buf *safeBuffer, substr string) string {
 }
 
 // 162 "query cancelled" acknowledges the requester's own timeout cancel and
-// stays in debug; 162 "no data" is a per-contract verdict at INFO; a pacing
-// 162 keeps its warning.
+// stays in debug; 162 "no data" is a per-contract verdict at INFO, as is a
+// 162 refusal for want of a market data permission, which its requester
+// records and flags once; a pacing 162 keeps its warning.
 func TestHistoricalNoticeSeveritiesFollowTheText(t *testing.T) {
 	buf := captureConnectorLogs(t)
 	conn, _ := newReadyWireTestConnection(t)
@@ -49,6 +50,15 @@ func TestHistoricalNoticeSeveritiesFollowTheText(t *testing.T) {
 	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(32, 162, "Historical Market Data Service error message:HMDS query returned no data: ESZ6@CME Trades"), epoch)
 	if line := singleNoticeLine(t, buf, "returned no data"); !strings.Contains(line, "level=INFO") {
 		t.Fatalf("no-data verdict severity: %s", line)
+	}
+
+	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(34, 162, "Historical Market Data Service error message:No market data permissions for IBIS2 STK"), epoch)
+	if line := singleNoticeLine(t, buf, "No market data permissions"); !strings.Contains(line, "level=INFO") || !strings.Contains(line, "requester records this verdict") {
+		t.Fatalf("permission refusal severity: %s", line)
+	}
+	if !HistoricalNotEntitled(&HistoricalRequestError{Code: 162, Message: "Historical Market Data Service error message:No market data permissions for IBIS2 STK"}) ||
+		HistoricalNotEntitled(&HistoricalRequestError{Code: 162, Message: "Historical Market Data Service error message:HMDS query returned no data: ESZ6@CME Trades"}) {
+		t.Fatal("HistoricalNotEntitled misreads the 162 text")
 	}
 
 	conn.processSystemNoticeMessageAtEpoch(syntheticSystemNoticeText(33, 162, "Historical Market Data Service error message:Historical data request pacing violation"), epoch)

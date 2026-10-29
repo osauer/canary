@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.30.1 — Unreleased
+
+### Fixed
+
+- A strategy or mandate line whose daily history IBKR refuses for want of a market data permission is no longer asked for every 15 minutes and after every reconnect or restart. Canary warns once, says to add the exchange's market data subscription at IBKR, and asks again once each trading session.
+
 ## v3.30.0 — 2026-10-29 12:50 CET
 
 ### What's new

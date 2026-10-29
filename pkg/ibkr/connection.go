@@ -3805,6 +3805,10 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 	}
 	queryCancelled := note.code == 162 && strings.Contains(upperMsg, "QUERY CANCELLED")
 	noDataVerdict := note.code == 162 && strings.Contains(upperMsg, "NO DATA")
+	// A 162 refusal for want of a market data permission reaches its
+	// requester as a not_entitled failure, which the requester records and
+	// flags once; the echo of every repeat would warn again.
+	notEntitledVerdict := note.code == 162 && classifyHistoricalRequestFailure(&HistoricalRequestError{Code: note.code, Message: note.message}) == HistoricalFailureNotEntitled
 	// Repeat probes of an entitlement gap the connector has warned about
 	// once are informational.
 	repeatGap := note.code == 354 && noticeCtx.knownEntitlementGap != nil && noticeCtx.knownEntitlementGap(int(note.tickerID), aliasEntry)
@@ -3832,7 +3836,7 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 			ibkrLogger.Debugf(format, args...)
 		case repeatGap:
 			ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
-		case classifiedMiss:
+		case classifiedMiss, notEntitledVerdict:
 			ibkrLogger.Infof(format+" (the requester records this verdict)", args...)
 		case symbolLookupMiss:
 			ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
@@ -3855,7 +3859,7 @@ func (c *Connection) handleSystemNotificationAtEpoch(fields []string, epoch uint
 		ibkrLogger.Debugf(format, args...)
 	case repeatGap:
 		ibkrLogger.Infof(format+" (known entitlement gap; repeat probe)", args...)
-	case classifiedMiss:
+	case classifiedMiss, notEntitledVerdict:
 		ibkrLogger.Infof(format+" (the requester records this verdict)", args...)
 	case symbolLookupMiss:
 		ibkrLogger.Infof(format+" (symbol-only lookup; the requester classifies the miss)", args...)
