@@ -308,6 +308,9 @@ type MandateOverrideView struct {
 	Reason    string    `json:"reason"`
 	GrantedAt time.Time `json:"granted_at"`
 	ExpiresAt time.Time `json:"expires_at"`
+	// GrantedFrom is "console" when the owner granted it on the device from
+	// Desk's console, empty from a terminal.
+	GrantedFrom string `json:"granted_from,omitempty"`
 }
 
 // FetchMandateRisk reads the daemon's mandate verdict. The daemon evaluates

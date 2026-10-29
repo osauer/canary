@@ -1,7 +1,9 @@
 # Mandate risk budget (ex-ante volatility budget and the additions gate)
 
-Updated: 2026-10-23 19:30 CEST (options at the gate, the override and the
-exposure view, "Options, the override and the exposure view" below)
+Updated: 2026-10-29 16:30 CET (the override from Desk's console on the
+owner's device, "Options, the override and the exposure view" below; before:
+2026-10-23 19:30 CEST, options at the gate, the override and the exposure
+view)
 Status: increment 1 implemented 2026-10-14 (measurement, verdict, additions
 gate); increment 2 implemented 2026-10-14 (forced reduction, below);
 increment 3 implemented 2026-10-18 (allocations, below); increment 4
@@ -1184,7 +1186,25 @@ option book's loss was bounded by its premium):
    CET). A machine sleeve's order never
    reads it. `canary mandate` prints the override with its reason, grant and
    expiry; `gate.override` carries it and Desk shows it on Risk › Mandate.
-   Desk never grants one: the owner does, in a terminal.
+   **From Desk's console, on the owner's device** (owner, 2026-10-29 15:31
+   CET: "one-click: yes, ok"): `policy.override` stays human-origin only,
+   and no origin a caller claims grants one; the one other path is
+   `desk.override.prepare` and `desk.override.confirm`
+   (`internal/daemon/desk_override.go`), for `mandate.vol_target_pct` only.
+   Canary prepares exact terms (the account, the control, the reason and
+   hours as `policy.override` checks them, an id and a ten-minute
+   confirmation window); the owner's companion (Touch ID or Apple Watch) or
+   passkey signs Desk's review of them in the override's own signing domain
+   (`desk-companion-override-v1`, `desk-passkey-override-v1`); Canary
+   verifies that signature itself against the key pinned in `[desk_device]`,
+   as it does for an arming and an order cap change, and grants. The record
+   and the journal entry carry `granted_from = "console"`, the credential
+   verified and the terms id; terms grant once, and a retry answers with the
+   override they granted. `gate.override.granted_from` lets Desk say so.
+   Another control, a confirmation that relies on an earlier one, an
+   unpinned device, a signature from another domain, other terms, another
+   account or a passed window grants nothing. Like the cash policy and
+   authority methods they are outside the MCP catalogue and the CLI.
 4. **Exposure through the greeks, to watch, never to gate.** The verdict
    carries `exposure` (`rpc.MandateExposureView`): per underlying and for the
    book, net delta in money (shares plus delta × contracts × multiplier, at
@@ -1212,7 +1232,10 @@ hedge put left out and named; the greeks sum per name and for the book, a
 missing vega or a stale quote leaves the figure absent with its reason; the
 override lifts the stock gate with its warning, the gate view names it, the
 other mandate keys take none, the no-room hold stands, and an expired
-override reads as none; the rulebook migration writes
+override reads as none (`internal/daemon/desk_override_test.go`: the
+console override needs the owner's device signature over its exact terms,
+for the volatility target only, grants once, and `policy.override` refuses
+every origin but a human one); the rulebook migration writes
 `option_name_act_pct = 15` with its provenance and keeps the policy in
 force.
 
@@ -1429,6 +1452,7 @@ internal/daemon/mandate_capital.go     high-water mark, room, daily samples (ins
 internal/daemon/mandate_history.go     decision-grade daily closes, background refresh
 internal/daemon/mandate_verdict.go     evaluation cache, RPC handler, mandate_budget gate
 internal/daemon/mandate_options_gate.go the premium gate for option buys, the hard holds, the override (2026-10-23)
+internal/daemon/desk_override.go       the override from Desk's console, verified on the owner's device (2026-10-29)
 internal/daemon/mandate_exposure.go    the exposure view: greeks and premium at risk per name and for the book
 internal/risk/premium_at_risk.go       premium at risk per leg, name and book (rule 3's figure)
 internal/risk/mandate_limits.go        the [mandate] keys as constitution limits; the override control

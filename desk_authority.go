@@ -69,3 +69,56 @@ func (c *Client) ControlDeskAuthority(ctx context.Context, in DeskAuthorityContr
 	}
 	return &out, nil
 }
+
+// Desk's one-click mandate override (owner, 2026-10-29 15:31 CET): Canary
+// prepares exact terms for an override of mandate.vol_target_pct only, and
+// grants it once the owner's device signature over Desk's review of them
+// verifies against the key pinned in [desk_device]. No origin claim grants
+// one; policy.override stays human-origin only.
+
+// DeskOverridePrepareParams asks for the terms of one override.
+type DeskOverridePrepareParams = rpc.DeskOverridePrepareParams
+
+// DeskOverrideTerms are the exact override terms the owner confirms.
+type DeskOverrideTerms = rpc.DeskOverrideTerms
+
+// DeskOverridePrepared carries the canonical terms and their digest.
+type DeskOverridePrepared = rpc.DeskOverridePrepared
+
+// DeskOverrideConfirmParams carries the terms and the device confirmation.
+type DeskOverrideConfirmParams = rpc.DeskOverrideConfirmParams
+
+// RiskPolicyWriteResult is Canary's answer to a granted override, the
+// override record (OverrideRecord) with it.
+type RiskPolicyWriteResult = rpc.RiskPolicyWriteResult
+
+// OverrideRecord is one override as Canary keeps it; GrantedFrom is
+// OverrideGrantedFromConsole for one granted on the owner's device.
+type OverrideRecord = rpc.OverrideRecord
+
+// Override kinds and the console provenance an override record carries.
+const (
+	DeskOverrideTermsKind      = rpc.DeskOverrideTermsKind
+	DeskOverrideReviewKind     = rpc.DeskOverrideReviewKind
+	OverrideGrantedFromConsole = rpc.OverrideGrantedFromConsole
+)
+
+// PrepareDeskOverride returns exact override terms for the owner's device
+// review.
+func (c *Client) PrepareDeskOverride(ctx context.Context, in DeskOverridePrepareParams) (*DeskOverridePrepared, error) {
+	var out DeskOverridePrepared
+	if err := c.callPrivate(ctx, rpc.MethodDeskOverridePrepare, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ConfirmDeskOverride grants the override after Canary verified the device
+// confirmation; a retry of the same terms answers with the same override.
+func (c *Client) ConfirmDeskOverride(ctx context.Context, in DeskOverrideConfirmParams) (*RiskPolicyWriteResult, error) {
+	var out RiskPolicyWriteResult
+	if err := c.callPrivate(ctx, rpc.MethodDeskOverrideConfirm, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}

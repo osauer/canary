@@ -287,7 +287,11 @@ func renderMandateGate(env *Env, g *rpc.MandateGateView) {
 		}
 	}
 	if o := g.Override; o != nil {
-		riskDisplayLine(env, "Override · ", briefJoin(o.Control+" until "+formatTimeShort(o.ExpiresAt.Local()), fmt.Sprintf("%q", o.Reason), "granted "+formatTimeShort(o.GrantedAt.Local()), o.ID), env.yellow)
+		granted := "granted " + formatTimeShort(o.GrantedAt.Local())
+		if o.GrantedFrom == rpc.OverrideGrantedFromConsole {
+			granted += " from the console"
+		}
+		riskDisplayLine(env, "Override · ", briefJoin(o.Control+" until "+formatTimeShort(o.ExpiresAt.Local()), fmt.Sprintf("%q", o.Reason), granted, o.ID), env.yellow)
 	}
 }
 

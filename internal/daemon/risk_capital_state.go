@@ -1310,19 +1310,69 @@ func (st *riskCapitalStore) GrantOverride(p rpc.OverrideParams, c *risk.Constitu
 }
 
 func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.Constitution, scope brokerStateScope) (rpc.OverrideRecord, error) {
+	rec, _, err := st.grantOverride(p, c, scope, consoleOverrideGrant{})
+	return rec, err
+}
+
+// consoleOverrideGrant is the provenance of an override the owner granted on
+// the device from Desk's console: the terms Canary prepared, the Desk action
+// and the credential whose signature Canary verified. Zero for a grant from
+// a terminal.
+type consoleOverrideGrant struct {
+	termsID, deskActionID, verified string
+}
+
+// GrantConsoleOverrideForScope records an override the owner confirmed on
+// the device from Desk's console. The caller has verified the device
+// signature over the terms g names. Terms grant once: a retry of the same
+// terms answers with the override they granted (replay true) and grants no
+// second one.
+func (st *riskCapitalStore) GrantConsoleOverrideForScope(p rpc.OverrideParams, c *risk.Constitution, scope brokerStateScope, g consoleOverrideGrant) (rpc.OverrideRecord, bool, error) {
+	if g.termsID == "" || g.verified == "" {
+		return rpc.OverrideRecord{}, false, fmt.Errorf("a console override needs the terms and the verified device")
+	}
+	return st.grantOverride(p, c, scope, g)
+}
+
+// consoleOverrideByTerms finds the override prepared terms granted, if any.
+func (st *riskCapitalStore) consoleOverrideByTerms(scope brokerStateScope, termsID string) (rpc.OverrideRecord, bool) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.loadLocked()
+	if st.core != nil {
+		if err := st.selectScopeLocked(scope); err != nil {
+			return rpc.OverrideRecord{}, false
+		}
+	}
+	return st.overrideByTermsLocked(termsID)
+}
+
+func (st *riskCapitalStore) overrideByTermsLocked(termsID string) (rpc.OverrideRecord, bool) {
+	for _, o := range st.state.Overrides {
+		if termsID != "" && o.TermsID == termsID {
+			return o, true
+		}
+	}
+	return rpc.OverrideRecord{}, false
+}
+
+// validateOverride checks one override against the constitution: a control
+// that takes a one-shot override, a reason, and hours within
+// override.max_duration_hours. It returns the trimmed control and reason.
+func validateOverride(p rpc.OverrideParams, c *risk.Constitution) (string, string, error) {
 	control := strings.TrimSpace(p.Control)
 	reason := strings.TrimSpace(p.Reason)
 	if control == "" || reason == "" {
-		return rpc.OverrideRecord{}, fmt.Errorf("override needs both control and reason")
+		return "", "", fmt.Errorf("override needs both control and reason")
 	}
 	if p.Hours <= 0 {
-		return rpc.OverrideRecord{}, fmt.Errorf("override hours must be positive")
+		return "", "", fmt.Errorf("override hours must be positive")
 	}
 	if c == nil || c.Override.MaxDurationHours == nil {
-		return rpc.OverrideRecord{}, fmt.Errorf("override.max_duration_hours is unapproved; overrides are unavailable until the policy declares the cap")
+		return "", "", fmt.Errorf("override.max_duration_hours is unapproved; overrides are unavailable until the policy declares the cap")
 	}
 	if p.Hours > *c.Override.MaxDurationHours {
-		return rpc.OverrideRecord{}, fmt.Errorf("override hours %d exceed override.max_duration_hours %d", p.Hours, *c.Override.MaxDurationHours)
+		return "", "", fmt.Errorf("override hours %d exceed override.max_duration_hours %d", p.Hours, *c.Override.MaxDurationHours)
 	}
 	known := false
 	for _, l := range risk.ConstitutionLimits(c) {
@@ -1332,13 +1382,13 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 		}
 	}
 	if !known {
-		return rpc.OverrideRecord{}, fmt.Errorf("override control %q is not a constitution key; safety invariants have no keys and cannot be overridden", control)
+		return "", "", fmt.Errorf("override control %q is not a constitution key; safety invariants have no keys and cannot be overridden", control)
 	}
 	// Of the order limits only the floor takes a one-shot override, which
 	// lifts it to the ceiling until it expires: the ceiling, the option cap
 	// and the short and sell-to-open permissions change only by a revision.
 	if strings.HasPrefix(control, risk.OrderLimitsTable+".") && control != risk.OrderLimitFloorOverrideControl {
-		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the order limits only %s takes a one-shot override (it lifts the floor to max_order_ceiling_base); change the others with a policy revision", control, risk.OrderLimitFloorOverrideControl)
+		return "", "", fmt.Errorf("override control %q cannot be overridden; of the order limits only %s takes a one-shot override (it lifts the floor to max_order_ceiling_base); change the others with a policy revision", control, risk.OrderLimitFloorOverrideControl)
 	}
 	// Of the mandate keys only the volatility target takes a one-shot
 	// override: it lifts the volatility budget's additions gate (owner
@@ -1351,16 +1401,26 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 	// expiry under override.max_duration_hours. The maximum loss, the tax
 	// reserve, the start and the gap numbers change only by a revision.
 	if strings.HasPrefix(control, "mandate.") && control != risk.MandateAdditionsOverrideControl {
-		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the mandate keys only %s takes a one-shot override (it lifts the volatility budget's additions gate and the premium limits for your orders; the maximum loss, the owner sleeve's stop and the order caps still bind); change the others with a policy revision", control, risk.MandateAdditionsOverrideControl)
+		return "", "", fmt.Errorf("override control %q cannot be overridden; of the mandate keys only %s takes a one-shot override (it lifts the volatility budget's additions gate and the premium limits for your orders; the maximum loss, the owner sleeve's stop and the order caps still bind); change the others with a policy revision", control, risk.MandateAdditionsOverrideControl)
 	}
+	return control, reason, nil
+}
 
+func (st *riskCapitalStore) grantOverride(p rpc.OverrideParams, c *risk.Constitution, scope brokerStateScope, g consoleOverrideGrant) (rpc.OverrideRecord, bool, error) {
+	control, reason, err := validateOverride(p, c)
+	if err != nil {
+		return rpc.OverrideRecord{}, false, err
+	}
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	st.loadLocked()
 	if st.core != nil {
 		if err := st.selectScopeLocked(scope); err != nil {
-			return rpc.OverrideRecord{}, err
+			return rpc.OverrideRecord{}, false, err
 		}
+	}
+	if o, ok := st.overrideByTermsLocked(g.termsID); ok {
+		return o, true, nil
 	}
 	now := st.now().UTC()
 	st.overrideSeq++
@@ -1373,16 +1433,21 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 		PolicyFingerprint: constitutionFingerprint(c),
 		Active:            true,
 	}
-	st.state.Overrides = append(st.state.Overrides, rec)
-	st.appendRiskPolicyJournal(map[string]any{
+	entry := map[string]any{
 		"version": 1, "at": now, "kind": "override_granted", "id": rec.ID,
 		"control": rec.Control, "reason": rec.Reason, "expires_at": rec.ExpiresAt,
 		"policy_fingerprint": rec.PolicyFingerprint,
-	})
-	if err := st.persistLocked(true); err != nil {
-		return rpc.OverrideRecord{}, err
 	}
-	return rec, nil
+	if g.termsID != "" {
+		rec.GrantedFrom, rec.Verified, rec.TermsID = rpc.OverrideGrantedFromConsole, g.verified, g.termsID
+		entry["granted_from"], entry["verified"], entry["terms_id"], entry["desk_action_id"] = rec.GrantedFrom, rec.Verified, rec.TermsID, g.deskActionID
+	}
+	st.state.Overrides = append(st.state.Overrides, rec)
+	st.appendRiskPolicyJournal(entry)
+	if err := st.persistLocked(true); err != nil {
+		return rpc.OverrideRecord{}, false, err
+	}
+	return rec, false, nil
 }
 
 // ResetDrawdown clears the latch and re-bases the adjusted peak to the

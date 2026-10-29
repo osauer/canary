@@ -119,14 +119,15 @@ func TestNoTradingToolsReachCashPolicy(t *testing.T) {
 	for _, tool := range Tools {
 		methods := append(slices.Clone(tool.RPCMethods), mcpToolMethodsForCall(tool.Name, nil)...)
 		for _, method := range methods {
-			if strings.HasPrefix(method, "policy.cash.") || strings.HasPrefix(method, "desk.authority.") || strings.HasPrefix(method, "desk.execution.") {
+			if strings.HasPrefix(method, "policy.cash.") || strings.HasPrefix(method, "desk.authority.") || strings.HasPrefix(method, "desk.execution.") || strings.HasPrefix(method, "desk.override.") {
 				t.Errorf("%s reaches %s", tool.Name, method)
 			}
 		}
 	}
 	for _, method := range []string{rpc.MethodCashPolicyGet, rpc.MethodCashPolicyCheck, rpc.MethodCashPolicyApply,
 		rpc.MethodDeskAuthorityStatus, rpc.MethodDeskAuthorityPrepare, rpc.MethodDeskAuthorityConfirm, rpc.MethodDeskAuthorityControl,
-		rpc.MethodDeskExecutionCapabilities, rpc.MethodDeskExecutionLookup, rpc.MethodDeskExecutionSubmit} {
+		rpc.MethodDeskExecutionCapabilities, rpc.MethodDeskExecutionLookup, rpc.MethodDeskExecutionSubmit,
+		rpc.MethodDeskOverridePrepare, rpc.MethodDeskOverrideConfirm} {
 		if _, ok := rpc.LookupMethodTiming(method); !ok {
 			t.Errorf("%s has no timing", method)
 		}

@@ -3178,6 +3178,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityConfirm(ctx, req) })
 	case rpc.MethodDeskAuthorityControl:
 		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityControl(ctx, req) })
+	case rpc.MethodDeskOverridePrepare:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskOverridePrepare(ctx, req) })
+	case rpc.MethodDeskOverrideConfirm:
+		s.unary(req, enc, func() (any, error) { return s.handleDeskOverrideConfirm(ctx, req) })
 	case rpc.MethodCashPolicyGet:
 		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyGet(ctx, req) })
 	case rpc.MethodCashPolicyCheck:

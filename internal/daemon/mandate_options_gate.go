@@ -64,7 +64,7 @@ func (s *Server) mandateAdditionsOverride(now time.Time) *rpc.MandateOverrideVie
 			continue
 		}
 		if best == nil || o.ExpiresAt.After(best.ExpiresAt) {
-			best = &rpc.MandateOverrideView{ID: o.ID, Control: o.Control, Reason: o.Reason, GrantedAt: o.GrantedAt, ExpiresAt: o.ExpiresAt}
+			best = &rpc.MandateOverrideView{ID: o.ID, Control: o.Control, Reason: o.Reason, GrantedAt: o.GrantedAt, ExpiresAt: o.ExpiresAt, GrantedFrom: o.GrantedFrom}
 		}
 	}
 	return best

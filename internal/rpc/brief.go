@@ -1736,6 +1736,13 @@ type OverrideRecord struct {
 	ExpiresAt         time.Time `json:"expires_at"`
 	PolicyFingerprint string    `json:"policy_fingerprint,omitempty"`
 	Active            bool      `json:"active"`
+	// GrantedFrom is "console" for an override granted on the owner's
+	// device from Desk's console (desk.override.confirm), with the
+	// credential Canary verified (Verified) and the terms it signed
+	// (TermsID); empty for one granted from a terminal.
+	GrantedFrom string `json:"granted_from,omitempty"`
+	Verified    string `json:"verified,omitempty"`
+	TermsID     string `json:"terms_id,omitempty"`
 }
 
 // CapitalStateReport is the runtime capital state, evaluated.

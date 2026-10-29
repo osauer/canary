@@ -89,6 +89,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodDeskAuthorityPrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodDeskAuthorityConfirm, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodDeskAuthorityControl, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
+	{Method: MethodDeskOverridePrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
+	{Method: MethodDeskOverrideConfirm, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodCashPolicyGet, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodCashPolicyCheck, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
 	{Method: MethodCashPolicyApply, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},
