@@ -8,6 +8,14 @@
       "approved_body_sha256": "fd7eb5b0f2240a7c49de73badc58952234195c678a0d69746b8297697d21a72c",
       "approved_on": "2026-10-11",
       "approval": "Owner approved the revised product description and v3.21.0 notes: Go ahead and update the published v3.21.0 release notes and the template with this wording. Source wording committed in f3cf193fa07d0a6015f61fefa5afb41f87e4dca6; assets and tags unchanged."
+    },
+    "v3.30.0": {
+      "tag_object": "908631976a2885d5a72878221320089cd9bbf3c8",
+      "commit": "a4e0d8e2aa27fe970bba2f2e689ef4969bfa28a7",
+      "original_body_sha256": "1e67bb472f1b0ea9787079e7ab3ff9b93c88f8e7c6819d8f17267a1dcc783d64",
+      "approved_body_sha256": "2c595652bb178ea6226efca8ab529b6dce8590f3f4441315e000f51fcd3904c9",
+      "approved_on": "2026-10-29",
+      "approval": "Owner approved the rewritten v3.30.0 notes on 2026-10-29 13:28 CET (\"Yes, amend\"), after asking whether they read like a person wrote them: publish them as an approved amendment and update CHANGELOG and llms.txt on main to match. Assets and tags unchanged."
     }
   }
 }

@@ -6,27 +6,28 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### What's new
 
-A held Micro E-mini S&P 500 hedge can now be bought back through Canary,
-and the hedge plan offers only a sale Canary can place when you ask,
-saying what holds it back. A hedge table you delete from your risk policy
-stays deleted. After a successful start the daemon removes its own old
-policy backups, and `canary app` deletes temporary files left by an
-interrupted save. Standard binaries and all MCP tools remain read-only.
+You can now close an index hedge from Canary:
+`canary proposals reduce --con-id ID --include-hedges` buys back held
+Micro E-mini S&P 500 futures. The hedge plan only suggests a sale Canary
+will accept, and tells you what's holding it back. The daemon also clears
+out its own old policy backups, and `canary app` cleans up after a crash.
 
 ### Added
 
-- Once a daemon start has succeeded, Canary removes the policy-file backups it wrote itself that are older than thirty days, keeping the newest five beside each policy file (owner decision 2026-10-29 10:59 CET). Only names Canary itself writes count (a version, `reset` or `desk` label, then a UTC stamp); copies you made by hand are left alone, even ones that end in the same stamp. The daemon log says how many went and their size, and nothing when there was nothing to do.
-- `canary app` removes the remains of a save interrupted by a crash or power loss (`.state-*.tmp` files older than an hour in its state folder) when it starts, and logs the count.
+- The daemon deletes policy backups it made more than 30 days ago, keeping the newest five for each file (owner decision 2026-10-29 10:59 CET). Backups you made yourself are never touched.
+- `canary app` deletes temporary files left behind when a save was cut off by a crash or power loss.
 
 ### Changed
 
-- The MCP `canary_trading_status` description now says the tool reports whether IBKR allows trading futures, options, stocks and bonds on your account, and that an opening order in a class IBKR refuses is refused before it is sent.
+- The `canary_trading_status` MCP tool now explains the broker permission fields it returns.
 
 ### Fixed
 
-- A `[mandate.index_hedge]` table you deleted from your risk policy could come back at the next daemon start in v3.29.1. It now stays deleted, and a table you commented out with your own values is left alone. Placing a hedge still needs your request and device confirmation.
-- `canary proposals reduce --con-id ID --include-hedges` buys back a held Micro E-mini S&P 500 hedge. In v3.29 its preview was refused because the position named no exchange. Nothing else in the order path changed.
-- `canary proposals reduce --portfolio --mode hedge` no longer offers a hedge sale that Canary would then refuse to place. It sells as many contracts as the mandate's limits allow on the book you hold and says which limit holds it back; when even one contract would break a limit, it offers no sale and says which. Nothing else in the order path changed.
+- If you deleted the `[mandate.index_hedge]` table from your risk policy, v3.29.1 could add it back at the next start. It now stays deleted.
+- Buying back a held hedge with `--include-hedges` failed at the preview step in v3.29. It works now.
+- The hedge plan (`--mode hedge`) could suggest more contracts than Canary would then let you sell. It now stops at what your mandate limits allow and names the limit.
+
+Nothing else in the order path changed.
 
 ## v3.29.1 — 2026-10-29 09:00 CET
 

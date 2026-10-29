@@ -2,10 +2,11 @@
 
 Updated: 2026-10-29 12:41 CET
 
-Version 3.30 buys back a held index hedge through `canary proposals reduce`,
-and the hedge plan offers only a sale Canary can place when asked. A hedge
-table deleted from the risk policy stays deleted. The daemon removes its own
-old policy backups after a successful start.
+Version 3.30 lets you close an index hedge from Canary: `canary proposals
+reduce --con-id ID --include-hedges` buys back held Micro E-mini S&P 500
+futures. The hedge plan only suggests a sale Canary will accept and says
+what's holding it back. A deleted hedge table stays deleted, and the daemon
+clears out its own old policy backups.
 
 Version 3.29 adds reduction-plan comparisons for index falls and rises, loss
 room and quoted trading costs, plus index-hedge planning. Optional IV-fallback
