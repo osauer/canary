@@ -109,7 +109,12 @@ func TestMandateOCACoverageUsesWholeGroup(t *testing.T) {
 					t.Fatalf("proven coverage=%g want=%g", covered, tc.wantQty)
 				}
 				legs, _ := mandateApplyStops([]mandate.Leg{{ID: mandateLegID(row), Symbol: "SYNA", Kind: mandate.KindStock, Quantity: qty}}, pos, "EUR", stops, "")
-				if legs[0].StopArmed != (tc.wantQty == 100) || math.Abs(legs[0].LossPerUnitBase*100-tc.wantLoss) > 1e-8 {
+				// A partly covered line carries its loss per covered share.
+				units := 100.0
+				if legs[0].StoppedUnits > 0 {
+					units = legs[0].StoppedUnits
+				}
+				if legs[0].StopArmed != (tc.wantQty == 100) || math.Abs(legs[0].LossPerUnitBase*units-tc.wantLoss) > 1e-8 {
 					t.Fatalf("loss/armed mismatch: %+v; want loss=%g covered=%g", legs[0], tc.wantLoss, tc.wantQty)
 				}
 				if tc.wantQty > 0 && tc.wantQty < 100 && !strings.Contains(legs[0].Symbol, "of 100 shares stopped") {

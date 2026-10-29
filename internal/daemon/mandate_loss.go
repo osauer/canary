@@ -204,8 +204,8 @@ func mandateStopPrice(order ibkrlib.OrderLifecycleEvent) float64 {
 // that cover it: a long line loses the mark less the stop per covered share,
 // a short line the stop less the mark, in base currency, and a stop above
 // the mark (a long line in profit) loses nothing. A line every stop covers
-// is armed; one covered in part counts the covered shares and is named as
-// unstopped for the rest. With no inventory (reason set) nothing is armed,
+// is armed; one covered in part counts the covered shares, per covered
+// share, and is named as unstopped for the rest. With no inventory (reason set) nothing is armed,
 // and the note says why every line reads unstopped.
 func mandateApplyStops(legs []mandate.Leg, pos *rpc.PositionsResult, base string, stops map[string][]mandateArmedStop, reason string) (out []mandate.Leg, note string) {
 	rows := map[string]rpc.PositionView{}
@@ -239,12 +239,17 @@ func mandateApplyStops(legs []mandate.Leg, pos *rpc.PositionsResult, base string
 			covered += q
 			loss += math.Max(0, perShare) * mult * q * rate
 		}
-		if covered > 0 {
-			// The covered shares' loss, spread over the line, so a cut of the
-			// line takes its share of the loss off.
-			l.LossPerUnitBase = loss / math.Abs(l.Quantity)
-		}
 		l.StopArmed = covered >= math.Abs(l.Quantity)-1e-9
+		switch {
+		case l.StopArmed:
+			l.LossPerUnitBase = loss / math.Abs(l.Quantity)
+		case covered > 0:
+			// The loss per covered share, on the covered shares only: a
+			// cut sells the uncovered shares first and leaves the stop's
+			// loss whole until it reaches them, as the line rebuilt after
+			// the fill counts it (review of 2026-10-29).
+			l.LossPerUnitBase, l.StoppedUnits = loss/covered, covered
+		}
 		if !l.StopArmed && covered > 0 {
 			l.Symbol = fmt.Sprintf("%s (%s of %s shares stopped)", l.Symbol, formatShares(covered), formatShares(math.Abs(l.Quantity)))
 		}

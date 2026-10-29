@@ -102,9 +102,14 @@ type Leg struct {
 	// the verdict is unknown.
 	LossUnknown string `json:"loss_unknown,omitempty"`
 	// StopArmed marks a share line fully covered by working stops or trails.
-	// Partial coverage still contributes LossPerUnitBase; the uncovered
+	// Partial coverage still contributes its covered loss; the uncovered
 	// residual is also listed as unstopped on the verdict.
 	StopArmed bool `json:"stop_armed,omitempty"`
+	// StoppedUnits is the units a share line's stops cover when they cover
+	// only part of it; LossPerUnitBase is then the loss per covered unit,
+	// and a cut takes the uncovered units first, as the line rebuilt after
+	// the fill counts them. Zero means the figure applies to every unit.
+	StoppedUnits float64 `json:"stopped_units,omitempty"`
 }
 
 // LossMeasure is the mandate's headline (spec TM-04.12): what the book can
@@ -245,7 +250,7 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 		case l.Kind == KindStock:
 			n.StopLossBase += loss
 			out.StopLossBase += loss
-			if !l.StopArmed {
+			if !stopArmed(l) {
 				out.Unstopped = append(out.Unstopped, l.Symbol)
 			}
 		}
@@ -274,9 +279,34 @@ func legLoss(l Leg) float64 {
 	case l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown == "":
 		return l.Quantity * l.LossPerUnitBase
 	case l.Kind == KindStock:
-		return math.Abs(l.Quantity) * l.LossPerUnitBase
+		return stockLossUnits(l) * l.LossPerUnitBase
 	}
 	return 0
+}
+
+// stockLossUnits is the units of a share line its loss figure applies to:
+// every unit held, or at most the ones its stops cover.
+func stockLossUnits(l Leg) float64 {
+	q := math.Abs(l.Quantity)
+	if l.StoppedUnits > 0 {
+		return math.Min(q, l.StoppedUnits)
+	}
+	return q
+}
+
+// stockCoveredUnits is the units of a share line its stops cover: none
+// without a stop.
+func stockCoveredUnits(l Leg) float64 {
+	if l.StopArmed || l.LossPerUnitBase > 0 {
+		return stockLossUnits(l)
+	}
+	return 0
+}
+
+// stopArmed reports a share line its stops cover in full, a partly covered
+// line cut to its covered units included.
+func stopArmed(l Leg) bool {
+	return l.StopArmed || l.StoppedUnits > 0 && math.Abs(l.Quantity) <= l.StoppedUnits+1e-9
 }
 
 // lossOverRoom reports a measure past the room; equal fits.
@@ -678,11 +708,23 @@ func mergeLegs(in Input) []Leg {
 		if i, ok := index[l.ID]; ok && l.ID != "" {
 			// Two lines of one contract on one side: the loss per unit is
 			// the quantity-weighted figure, so the sum carries both
-			// premiums. A closing line (an order selling what is held) only
+			// premiums; a share line's is the covered loss over the covered
+			// units. A closing line (an order selling what is held) only
 			// takes units away: those left keep their own figure and stop,
-			// and past flat the new side's units are the closing line's.
+			// uncovered units going first, and past flat the new side's
+			// units are the closing line's.
 			was, add := out[i].Quantity, l.Quantity
 			switch {
+			case was*add >= 0 && out[i].Kind == KindStock:
+				covered, loss := stockCoveredUnits(out[i])+stockCoveredUnits(l), legLoss(out[i])+legLoss(l)
+				out[i].LossPerUnitBase, out[i].StoppedUnits = 0, 0
+				if covered > 0 {
+					out[i].LossPerUnitBase = loss / covered
+					if covered < math.Abs(was)+math.Abs(add)-1e-9 {
+						out[i].StoppedUnits = covered
+					}
+				}
+				out[i].StopArmed = out[i].StopArmed && l.StopArmed
 			case was*add >= 0:
 				if math.Abs(was)+math.Abs(add) > 0 {
 					out[i].LossPerUnitBase = (out[i].LossPerUnitBase*math.Abs(was) + l.LossPerUnitBase*math.Abs(add)) / (math.Abs(was) + math.Abs(add))
@@ -692,7 +734,7 @@ func mergeLegs(in Input) []Leg {
 					out[i].LossUnknown = l.LossUnknown
 				}
 			case math.Abs(add) > math.Abs(was):
-				out[i].LossPerUnitBase, out[i].StopArmed, out[i].LossUnknown = l.LossPerUnitBase, l.StopArmed, l.LossUnknown
+				out[i].LossPerUnitBase, out[i].StopArmed, out[i].StoppedUnits, out[i].LossUnknown = l.LossPerUnitBase, l.StopArmed, l.StoppedUnits, l.LossUnknown
 			}
 			out[i].Quantity += l.Quantity
 			continue
@@ -717,8 +759,8 @@ func mergeLegs(in Input) []Leg {
 		case !(fx > 0) || math.IsInf(fx, 0):
 			l.LossUnknown = "no current exchange rate to the base currency"
 		default:
-			if !l.StopArmed {
-				l.LossPerUnitBase = IndexFutureLossPerUnit(*l, fx)
+			if !stopArmed(*l) {
+				l.LossPerUnitBase, l.StoppedUnits = IndexFutureLossPerUnit(*l, fx), 0
 			}
 		}
 	}
