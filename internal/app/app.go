@@ -63,6 +63,13 @@ func New(opts Options) (*App, error) {
 			_ = lock.Release()
 		}
 	}()
+	// Under the lock, so the only save that can be in flight is this
+	// process's own, which the age guard leaves alone.
+	if removed, err := state.RemoveInterruptedSaves(opts.StateDir, time.Now()); err != nil {
+		slog.Warn("canary app interrupted saves not cleaned", "error", err)
+	} else if removed > 0 {
+		slog.Info("canary app removed interrupted saves", "count", removed)
+	}
 	store, err := state.Open(opts.StateDir)
 	if err != nil {
 		return nil, err

@@ -156,7 +156,9 @@ files:
   changed. It refuses any change to a setting you wrote, apart from raising
   `policy_version` when it writes missing `[order_limits]` keys, cash sweep
   sizing numbers, the `[cash.leveling]` table or `[cash] confirmation_window`, so
-  the daemon adopts them.
+  the daemon adopts them. Once a start has succeeded, the daemon removes its own
+  backups older than thirty days beyond the newest five of each file; copies
+  you made yourself, without Canary's time stamp, are never touched.
   Recommendations remain separate owner decisions.
 - **A broken file is left alone.** The running manager retains its last good
   settings and reports the file failure. Protection automation pauses when its

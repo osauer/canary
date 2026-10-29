@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.30.0 — Unreleased
+
+### Added
+
+- Once a daemon start has succeeded, Canary removes the policy-file backups it wrote itself that are older than thirty days, keeping the newest five beside each policy file (owner decision 2026-10-29 10:59 CET). Only files ending in Canary's own UTC stamp count; copies you made by hand are left alone. The daemon log says how many went and their size, and nothing when there was nothing to do.
+- `canary app` removes the remains of a save interrupted by a crash or power loss (`.state-*.tmp` files older than an hour in its state folder) when it starts, and logs the count.
+
 ## v3.29.1 — 2026-10-29 09:00 CET
 
 ### What's new

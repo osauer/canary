@@ -1588,6 +1588,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.logger.Infof("canary daemon serving %s (build %s) on %s (gateway=%s:%d, clientID=%d)",
 		s.version, buildRevision(), s.socketPath, ep.Host, ep.Port, ep.ClientID)
 	s.evaluateRiskPolicyV3Reconciliation()
+	s.prunePolicyBackupsAfterStart()
 	// Skip the connect goroutine when discovery already failed — there's
 	// and no attempt in flight, starts reconnectFlow, and races the initial
 	if derr == nil {
