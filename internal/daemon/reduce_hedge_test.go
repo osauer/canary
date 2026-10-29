@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -116,5 +117,33 @@ func TestReduceHedgePlanRefusals(t *testing.T) {
 	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
 	if len(res.Legs) != 0 || len(res.Blockers) == 0 || res.Blockers[0].Code != "hedge_contract_unavailable" || !strings.Contains(res.Blockers[0].Message, "front future") {
 		t.Fatalf("no contract = %+v, want unsized and why", res.Blockers)
+	}
+}
+
+// On the held book the plan never offers a sale its placement refuses: a
+// sale that leaves a gap cap breached or the loss measure over the loss
+// room is refused there
+// (indexHedgeProjectedRiskRefusal). Each contract's 2,700 rise loss spends
+// room, so with room for three and a half more the plan sells three of the
+// five to neutral and says why; with SPY's gap cap already breached no sale
+// passes, and the plan says so instead of pricing one.
+func TestReduceHedgePlanStaysWithinWhatPlacementAdmits(t *testing.T) {
+	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50))
+	in, _ := s.reduceMandateInput(t.Context())
+	in.Capital.Room = (150000 + 3.5*2700) / 300000
+	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
+	if len(res.Blockers) > 0 || len(res.Legs) != 1 || res.Legs[0].ReduceQuantity != 3 ||
+		!strings.Contains(res.Message, "5 would reach neutral") || !strings.Contains(res.Message, "above the loss room") {
+		t.Fatalf("plan = %d legs %+v, message %q; want SELL 3 held below neutral by the loss room", len(res.Legs), res.Blockers, res.Message)
+	}
+	if hedgeSaleRefusal(*in, mandate.Leg{ID: mandateConLegID(750001), Symbol: "MESZ6", Underlying: mandate.MicroSP500Future, Kind: mandate.KindStock, Multiplier: 5, Currency: "USD", Spot: 6000}, 3) != "" {
+		t.Fatal("the planned sale would be refused at placement")
+	}
+
+	in.Capital.Room = 1
+	in.Policy.GapRoomPct = 10
+	res = hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
+	if len(res.Legs) != 0 || len(res.Blockers) != 1 || res.Blockers[0].Code != "hedge_over_mandate_cap" || !strings.Contains(res.Blockers[0].Message, "gap cap for SPY") {
+		t.Fatalf("plan = %+v, want no leg and hedge_over_mandate_cap naming SPY", res)
 	}
 }

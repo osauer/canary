@@ -71,6 +71,13 @@ Each item landed on local main with its own gate; the commits name them.
    does not increase, and no gap cap is breached. Otherwise it remains a
    risk addition and the normal mandate and drawdown gates apply. Counting
    the hedge's rise loss does not authorize weakening this criterion.
+   The plan offers the largest sale up to neutral that placement admits
+   (no gap cap breached, the loss measure within the loss room) and names
+   what holds it lower; with a gap cap already breached it offers none
+   (`hedgeSaleRefusal`, 2026-10-29 12:45 CET). The gap stress keeps the
+   hedge's own key, so a hedge's gap up is measured with the S&P lines
+   held flat and the two never net; whether they should is the owner's
+   decision, open since 2026-10-29.
 5. **Plan words for Desk.** The hedge plan and preview carry `roll_due`
    from ten days before a held contract's expiry and `hedge_not_needed`
    while the book without its held hedges reads within the mandate, each
@@ -84,7 +91,10 @@ Nothing above places a hedge until the owner does these things:
   25` and `[mandate.iv_fallback]` once beside a written `[mandate]`, after a
   backup and with a higher `policy_version` (owner decision 2026-10-29
   07:06 CET; `mandate_defaults_policy_file.go`). A table the owner wrote is
-  kept; one deleted afterwards stays deleted.
+  kept; one deleted afterwards stays deleted. The daemon records in its
+  state (`mandate_defaults`) that a file had its defaults, so this holds
+  for tables the owner wrote and after the closing note is tidied away; a
+  table the owner commented out with other values is left as it is.
 - **Install the build** carrying these commits, from a clean worktree at
   local main.
 - **Grant the futures permission at IBKR.** IBKR offers no read of it;

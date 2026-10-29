@@ -152,6 +152,30 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		return block("below_one_contract", fmt.Sprintf("the book loses %s in a %g%% fall; one %s contract offsets %s, so even one would hedge past neutral",
 			mandateMoney(fall, res.BaseCurrency), mandate.IndexShockPct, contract.LocalSymbol, mandateMoney(perContract, res.BaseCurrency)), "Keep the book as it is.")
 	}
+	// Placement refuses a sale that leaves a gap cap breached or the loss
+	// measure over the loss room (indexHedgeProjectedRiskRefusal), so the
+	// plan offers the largest sale up to neutral it would admit on the held
+	// book and says what holds it lower; both grow with the hedge, so fewer
+	// contracts never fit worse.
+	neutral := n
+	if why := hedgeSaleRefusal(*input, hedge, 1); why == hedgeUnmeasured {
+		unknown("the mandate cannot measure the book with the hedge")
+		return block("hedge_unsized", "the hedge cannot be sized: the mandate cannot measure the book with one contract sold", "Retry once the mandate has measured the book.")
+	} else if why != "" {
+		unchanged()
+		return block("hedge_over_mandate_cap", fmt.Sprintf("even one %s contract would leave the book %s, and the hedge's placement refuses that", contract.LocalSymbol, why),
+			"Bring the book within the mandate first, or keep it as it is.")
+	}
+	lo, hi := 1, neutral
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if hedgeSaleRefusal(*input, hedge, mid) == "" {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	n = lo
 	held := 0.0
 	for _, l := range input.Legs {
 		if l.ID == id {
@@ -173,6 +197,9 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	}
 	res.TotalNotional = value * fx
 	res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
+	if n < neutral {
+		res.Message = fmt.Sprintf("sell %d %s; %d would reach neutral but leave the book %s", n, contract.LocalSymbol, neutral, hedgeSaleRefusal(*input, hedge, n+1))
+	}
 	if p.PlanOnly {
 		return res
 	}
@@ -180,10 +207,33 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	// its signed token, as a cut's leg does; the plan's figures stay.
 	res.Legs[0] = s.reduceHedgePreviewLeg(ctx, p, leg, input)
 	aggregateBasket(res, false)
-	if len(res.Legs[0].Blockers) == 0 {
+	if len(res.Legs[0].Blockers) == 0 && n == neutral {
 		res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
 	}
 	return res
+}
+
+// hedgeUnmeasured is hedgeSaleRefusal's answer when the mandate cannot
+// measure the book with the sale.
+const hedgeUnmeasured = "unmeasured"
+
+// hedgeSaleRefusal says why placement would refuse a sale of n hedge
+// contracts on the held book (indexHedgeProjectedRiskRefusal's gap and
+// loss-room rules), or "" when it would not. Working hedge sales are not
+// counted here; placement counts them and refuses what they leave no room
+// for.
+func hedgeSaleRefusal(input mandate.Input, hedge mandate.Leg, n int) string {
+	hedge.Quantity = -float64(n)
+	v := mandate.Evaluate(mandateInputWithLegs(input, []mandate.Leg{hedge}))
+	switch {
+	case v.Stresses == nil || v.Loss == nil || v.Status == mandate.StatusUnknown:
+		return hedgeUnmeasured
+	case len(v.Stresses.GapBreaches) > 0:
+		return "over the gap cap for " + strings.Join(v.Stresses.GapBreaches, ", ")
+	case v.Loss.TotalBase > v.Loss.RoomBase+mandateReductionEpsilon:
+		return fmt.Sprintf("measuring %s of loss, above the loss room %s", mandateMoney(v.Loss.TotalBase, input.BaseCurrency), mandateMoney(v.Loss.RoomBase, input.BaseCurrency))
+	}
+	return ""
 }
 
 // hedgeRollDays is how long before a held contract's expiry the plan says
