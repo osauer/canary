@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-10-28 09:11 CET
+Updated: 2026-10-29 06:55 CET
 
 Version 3.29 adds reduction-plan comparisons for index falls and rises, loss
 room and quoted trading costs, plus index-hedge planning. Optional IV-fallback
