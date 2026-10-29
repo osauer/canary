@@ -1,6 +1,7 @@
 # Intraday volume-turn observation
 
-Updated: 2026-10-04 11:57 CEST (historical-request budget, coverage instrument, resolution reuse)
+Updated: 2026-10-04 11:57 CEST (historical-request budget, coverage instrument, resolution reuse);
+2026-10-29 21:46 CET (a live read outside the session answers with the last session, at the owner's request)
 
 `canary setups evaluate --spec /private/path/playbook.json --symbol SYNTH --con-id 17 --json`
 evaluates one owner-selected US stock without changing settings, risk policy,
@@ -23,8 +24,15 @@ at least as high as its preceding completed close. Opening prices never fill a
 missing preceding close; an opening-bar spike can first confirm on the next
 completed bar. Preserve spike and first-confirmation end times. A subsequent
 decline invalidates that event permanently; a new spike is a new observation.
-The latest spike is evaluated. Outside a known regular session, missing bars,
-incomplete baselines and stale data produce an unavailable result.
+The latest spike is evaluated. Missing bars, incomplete baselines and stale
+data produce an unavailable result. Outside a known regular session a live
+read (no `--at`) answers with the last regular session that closed, decided at
+its close and including the bar that ends there: `evidence_kind` is
+`last_session`, the baseline is that session's window, and no setup is live,
+because every spike's response window ends by the close (`state` watching or
+expired, `setup_match` false, no `valid_until`). A replay outside the session
+stays unavailable (`outside_regular_session`). Desk shows it as the last
+session, read-only (owner, 2026-10-29 21:41 CET).
 
 The pure `internal/setups` evaluator receives a frozen input and clock. The
 daemon resolves exact identity, reads calendar windows and collects RTH TRADES
@@ -101,6 +109,8 @@ evaluation spends it as follows.
   evaluation on retained bars never claims a fresher observation. Reuse needs
   the same broker session and a read no older than the paired baseline.
   Concurrent live evaluations of one contract share one read and its failure.
+  A closed session's read that holds every bar to its close is complete: it is
+  reused for the same broker session until the next session's read replaces it.
   Replays (`--at`) always read and never use or feed this memo.
 - Baseline: profiles are keyed by exact contract, not by date. A new session
   reuses the held sessions still in its 20-session window, reads only the

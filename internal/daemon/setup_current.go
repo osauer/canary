@@ -19,6 +19,7 @@ type setupCurrentBars struct {
 	at       time.Time // decision clock that bounded the read
 	acquired time.Time // when the read completed
 	next     time.Time // latest completed bar end plus five minutes
+	complete bool      // every bar to the session's close: no bar is due again
 	used     uint64
 }
 
@@ -35,10 +36,10 @@ type setupCurrentFlight struct {
 const setupCurrentLimit = setupProfileRowsMax
 
 // servable reports whether a live evaluation at now may reuse m: same broker
-// session and market session, no new bar due yet, and a read no older than
-// the baseline it is paired with.
+// session and market session, no new bar due yet (a closed session's read is
+// complete), and a read no older than the baseline it is paired with.
 func (m *setupCurrentBars) servable(binding ibkrlib.HistoricalSessionBinding, session string, now, baseline time.Time) bool {
-	return m != nil && m.binding == binding && m.session.Date == session && !now.Before(m.at) && now.Before(m.next) && !m.acquired.Before(baseline)
+	return m != nil && m.binding == binding && m.session.Date == session && !now.Before(m.at) && (m.complete || now.Before(m.next)) && !m.acquired.Before(baseline)
 }
 
 func newSetupCurrentBars(binding ibkrlib.HistoricalSessionBinding, current setups.Session, bars []ibkrlib.HistoricalBar, at, acquired time.Time) setupCurrentBars {
@@ -49,7 +50,7 @@ func newSetupCurrentBars(binding ibkrlib.HistoricalSessionBinding, current setup
 			last = b.End
 		}
 	}
-	return setupCurrentBars{binding: binding, session: session, at: at, acquired: acquired, next: last.Add(5 * time.Minute)}
+	return setupCurrentBars{binding: binding, session: session, at: at, acquired: acquired, next: last.Add(5 * time.Minute), complete: last.Equal(current.Close)}
 }
 
 // liveCurrentBars returns the current session's bars for a live evaluation

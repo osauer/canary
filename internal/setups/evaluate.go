@@ -25,8 +25,12 @@ type Input struct {
 	At, ObservedAt     time.Time
 	BaselineObservedAt time.Time
 	Historical         bool
-	Current            Session
-	Prior              []Session
+	// Closed reads a regular session that has ended, at its close: every bar
+	// is complete and no setup can still be live (decide ends each spike's
+	// window by the close).
+	Closed  bool
+	Current Session
+	Prior   []Session
 }
 
 // Evaluate calculates the setup using only bars completed by At. Policy is separate.
@@ -34,6 +38,8 @@ func Evaluate(spec rpc.SetupSpec, in Input) rpc.SetupResult {
 	r := rpc.SetupResult{Version: 1, Spec: spec, Contract: in.Contract, EvaluatedAt: in.At, ObservedAt: in.ObservedAt, SessionDate: in.Current.Date, EvidenceKind: "current_observation", State: "unavailable", Reasons: []string{}, Bars: []rpc.SetupBar{}, Baseline: []rpc.SetupBaseline{}, PriceBasis: "IBKR TRADES", VolumeBasis: "IBKR historical trade volume; same source and interval"}
 	if in.Historical {
 		r.EvidenceKind = "historical_reconstruction"
+	} else if in.Closed {
+		r.EvidenceKind = "last_session"
 	}
 	r.BaselineObservedAt = in.BaselineObservedAt
 	unknown := func(reason string) rpc.SetupResult {
@@ -53,7 +59,7 @@ func Evaluate(spec rpc.SetupSpec, in Input) rpc.SetupResult {
 	if !in.Historical && in.ObservedAt.Before(in.At) {
 		return unknown("source_precedes_decision")
 	}
-	if in.At.Before(in.Current.Open) || !in.At.Before(in.Current.Close) {
+	if in.At.Before(in.Current.Open) || in.At.After(in.Current.Close) || in.At.Equal(in.Current.Close) && !in.Closed {
 		return unknown("outside_regular_session")
 	}
 	for _, b := range in.Current.Bars {

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v3.30.1 — Unreleased
 
+### Changed
+
+- `canary setups evaluate` outside the regular session now answers with the last session that closed, read at its close (`evidence_kind` `last_session`), instead of an unavailable result. No setup is live in such an answer; a replay (`--at`) outside the session stays unavailable.
+
 ### Fixed
 
 - A strategy or mandate line whose daily history IBKR refuses for want of a market data permission is no longer asked for every 15 minutes and after every reconnect or restart. Canary warns once, says to add the exchange's market data subscription at IBKR, and asks again once each trading session.

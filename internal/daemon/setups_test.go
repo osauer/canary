@@ -721,3 +721,45 @@ func TestSetupBarsCarryIBKRTradeCounts(t *testing.T) {
 		t.Fatal("a missing count must stay unknown, never zero trades with volume")
 	}
 }
+
+func TestSetupOutsideTheSessionReadsTheLastSessionAtItsClose(t *testing.T) {
+	ny := setupNY(t)
+	closeAt := time.Date(2026, 9, 30, 16, 0, 0, 0, ny)
+	clock := &setupTestClock{t: time.Date(2026, 9, 30, 18, 30, 0, 0, ny)}
+	src := newFakeSetupSource()
+	// A closing spike: the last bar of the day trades five times its usual.
+	src.setVolume(time.Date(2026, 9, 30, 15, 55, 0, 0, ny), 1<<40)
+	s := setupTestServer(src, clock)
+	r := mustEvaluateSetup(t, s, "AAA", time.Time{})
+	if r.EvidenceKind != "last_session" || r.SessionDate != "2026-09-30" || !r.EvaluatedAt.Equal(closeAt) || len(r.Bars) != 78 {
+		t.Fatalf("after the close: %+v", r)
+	}
+	// Nothing outlives the close: a spike in the last bar has no window left.
+	if r.SetupMatch == nil || *r.SetupMatch || r.State != "expired" || r.ValidUntil != nil {
+		t.Fatalf("a closed session carried a live setup: match=%v state=%s valid=%v", r.SetupMatch, r.State, r.ValidUntil)
+	}
+	if len(r.RecentSessions) == 0 {
+		t.Fatal("the closed session lost its recent sessions")
+	}
+	first := len(src.symbolReads("AAA"))
+	// The closed session is complete: later reads that night and before the
+	// next open reuse it without another broker read.
+	for _, at := range []time.Time{time.Date(2026, 9, 30, 23, 0, 0, 0, ny), time.Date(2026, 10, 1, 8, 0, 0, 0, ny)} {
+		clock.set(at)
+		if again := mustEvaluateSetup(t, s, "AAA", time.Time{}); again.SessionDate != "2026-09-30" || again.InputHash != r.InputHash {
+			t.Fatalf("at %s: %+v", at, again)
+		}
+	}
+	if reads := len(src.symbolReads("AAA")); reads != first {
+		t.Fatalf("broker reads = %d after the first answer, %d at it", reads, first)
+	}
+	// A weekend shows Friday's session.
+	clock.set(time.Date(2026, 10, 3, 12, 0, 0, 0, ny))
+	if w := mustEvaluateSetup(t, s, "AAA", time.Time{}); w.EvidenceKind != "last_session" || w.SessionDate != "2026-10-02" {
+		t.Fatalf("weekend: %s %s", w.EvidenceKind, w.SessionDate)
+	}
+	// A replay keeps its own clock: outside the session it still answers so.
+	if replay := mustEvaluateSetup(t, s, "AAA", time.Date(2026, 9, 30, 17, 0, 0, 0, ny)); replay.EvidenceKind != "historical_reconstruction" || replay.Reasons[0] != "outside_regular_session" {
+		t.Fatalf("replay outside the session: %+v", replay)
+	}
+}

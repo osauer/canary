@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -80,10 +81,18 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 		at = now
 	}
 	current, prior, err := setupSessionWindows(at, p.Spec.BaselineSessions)
+	// Outside the regular session a live read answers with the last session
+	// that closed, read at its close; a replay (--at) keeps its own clock.
+	closed := false
+	if !historical && errors.Is(err, errOutsideRegularSession) {
+		if last, window, e := setupLastSession(at, p.Spec.BaselineSessions); e == nil {
+			current, prior, err, closed, at = last, window, nil, true, last.Close
+		}
+	}
 	// Coverage counts live evaluations inside a regular session only.
 	ev.session = current
 	ev.live = !historical && !current.Open.IsZero() && !at.Before(current.Open) && at.Before(current.Close)
-	base := setups.Input{Contract: p.Contract, At: at, ObservedAt: now, Historical: historical, Current: current}
+	base := setups.Input{Contract: p.Contract, At: at, ObservedAt: now, Historical: historical, Closed: closed, Current: current}
 	unavailable := func(reason string) *rpc.SetupResult {
 		r := setups.Evaluate(p.Spec, base)
 		r.Reasons = []string{reason}
@@ -222,6 +231,26 @@ func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, cont
 	return prior, observed, nil
 }
 
+var errOutsideRegularSession = errors.New("outside_regular_session")
+
+// setupLastSession is the latest regular session that closed by at, with its
+// baseline window: the session a live read outside trading hours shows.
+func setupLastSession(at time.Time, count int) (setups.Session, []setups.Session, error) {
+	cal := marketcal.New()
+	for offset := range 15 {
+		session, err := cal.SessionAt(marketcal.MarketUSEquity, at.AddDate(0, 0, -offset))
+		if err != nil || session.State == marketcal.StateUnknown {
+			return setups.Session{}, nil, fmt.Errorf("calendar_unavailable")
+		}
+		if session.Open.IsZero() || session.Close.After(at) {
+			continue
+		}
+		// The window is the one the session's last bar was decided in.
+		return setupSessionWindows(session.Close.Add(-time.Nanosecond), count)
+	}
+	return setups.Session{}, nil, fmt.Errorf("calendar_unavailable")
+}
+
 func setupSessionWindows(at time.Time, count int) (setups.Session, []setups.Session, error) {
 	cal := marketcal.New()
 	session, err := cal.SessionAt(marketcal.MarketUSEquity, at)
@@ -230,7 +259,7 @@ func setupSessionWindows(at time.Time, count int) (setups.Session, []setups.Sess
 	}
 	current := setups.Session{Date: session.Date, Open: session.Open, Close: session.Close}
 	if !session.IsOpen {
-		return current, nil, fmt.Errorf("outside_regular_session")
+		return current, nil, errOutsideRegularSession
 	}
 	var prior []setups.Session
 	for offset := 1; offset <= 120 && len(prior) < count; offset++ {
