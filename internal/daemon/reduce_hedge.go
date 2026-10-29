@@ -94,7 +94,21 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	}
 	res.BaseCurrency = strings.ToUpper(input.BaseCurrency)
 	s.reduceHedgeFlags(ctx, res, input)
-	now := mandate.Evaluate(*input)
+	// Working hedge sales count as sold: placement measures the book with
+	// them (indexHedgeProjectedRiskRefusal), and a plan that left them out
+	// sized past neutral by as many contracts as were working. Unread, the
+	// plan sizes on the held book and says so; placement still counts them.
+	book, working, workingNote := *input, 0.0, ""
+	if pending, _, _, err := s.indexHedgeCommitments(ctx, rpc.OrderDraft{}); err != nil {
+		workingNote = "; working hedge sales could not be read, and placement counts them"
+	} else if len(pending) > 0 {
+		book = mandateInputWithLegs(*input, pending)
+		for _, l := range pending {
+			working -= l.Quantity
+		}
+		workingNote = fmt.Sprintf(", %g already working", working)
+	}
+	now := mandate.Evaluate(book)
 	if now.Stresses == nil {
 		why := "the mandate cannot measure the book"
 		if len(now.Reasons) > 0 {
@@ -104,12 +118,16 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		return block("hedge_unsized", "the hedge cannot be sized: "+why, "Retry once the mandate has measured the book.")
 	}
 	unchanged := func() {
-		res.IndexLoss, res.PlanLossMeasure, res.TradeCostBase = indexLossBetween(*input, *input), planLossMeasureBetween(*input, *input), new(0.0)
+		res.IndexLoss, res.PlanLossMeasure, res.TradeCostBase = indexLossBetween(book, book), planLossMeasureBetween(book, book), new(0.0)
 	}
 	fall := now.Stresses.IndexLossBase
 	if fall <= 0 {
 		unchanged()
-		return block("nothing_to_hedge", fmt.Sprintf("a %g%% S&P fall already leaves the book even or ahead; selling futures would add a short", mandate.IndexShockPct), "Keep the book as it is.")
+		with := ""
+		if working > 0 {
+			with = fmt.Sprintf(" with the %g working hedge contracts sold", working)
+		}
+		return block("nothing_to_hedge", fmt.Sprintf("a %g%% S&P fall already leaves the book even or ahead%s; selling futures would add a short", mandate.IndexShockPct, with), "Keep the book as it is.")
 	}
 	contract, quote, err := s.reduceHedgeFuture(ctx)
 	if err != nil {
@@ -136,7 +154,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	// A held copy of this contract keeps its mandate valuation when quantities
 	// merge. Measure one unit on that same book, rather than mix its held mark
 	// with the new quote and size past the model's neutral point.
-	one := mandate.Evaluate(mandateInputWithLegs(*input, []mandate.Leg{hedge}))
+	one := mandate.Evaluate(mandateInputWithLegs(book, []mandate.Leg{hedge}))
 	if one.Stresses == nil {
 		unchanged()
 		return block("hedge_unsized", "the mandate cannot measure one hedge contract", "Retry once the mandate has measured the book.")
@@ -155,10 +173,10 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	// Placement refuses a sale that leaves a gap cap breached or the loss
 	// measure over the loss room (indexHedgeProjectedRiskRefusal), so the
 	// plan offers the largest sale up to neutral it would admit on the held
-	// book and says what holds it lower; both grow with the hedge, so fewer
-	// contracts never fit worse.
+	// book with the working sales and says what holds it lower; both grow
+	// with the hedge, so fewer contracts never fit worse.
 	neutral := n
-	if why := hedgeSaleRefusal(*input, hedge, 1); why == hedgeUnmeasured {
+	if why := hedgeSaleRefusal(book, hedge, 1); why == hedgeUnmeasured {
 		unknown("the mandate cannot measure the book with the hedge")
 		return block("hedge_unsized", "the hedge cannot be sized: the mandate cannot measure the book with one contract sold", "Retry once the mandate has measured the book.")
 	} else if why != "" {
@@ -169,7 +187,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	lo, hi := 1, neutral
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if hedgeSaleRefusal(*input, hedge, mid) == "" {
+		if hedgeSaleRefusal(book, hedge, mid) == "" {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -188,17 +206,17 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	res.Legs = append(res.Legs, leg)
 	res.LegCount = 1
 	hedge.Quantity = -float64(n)
-	after := mandateInputWithLegs(*input, []mandate.Leg{hedge})
-	res.IndexLoss, res.PlanLossMeasure = indexLossBetween(*input, after), planLossMeasureBetween(*input, after)
+	after := mandateInputWithLegs(book, []mandate.Leg{hedge})
+	res.IndexLoss, res.PlanLossMeasure = indexLossBetween(book, after), planLossMeasureBetween(book, after)
 	if quote != nil && quote.Bid != nil && quote.Ask != nil && *quote.Bid > 0 && *quote.Ask >= *quote.Bid {
 		res.TradeCostBase = new((*quote.Ask - *quote.Bid) / 2 * float64(n) * mult * fx)
 	} else {
 		res.TradeCostUnknown = contract.LocalSymbol + " has no two-sided quote"
 	}
 	res.TotalNotional = value * fx
-	res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
+	res.Message = fmt.Sprintf("sell %d %s to neutral%s", n, contract.LocalSymbol, workingNote)
 	if n < neutral {
-		res.Message = fmt.Sprintf("sell %d %s; %d would reach neutral but leave the book %s", n, contract.LocalSymbol, neutral, hedgeSaleRefusal(*input, hedge, n+1))
+		res.Message = fmt.Sprintf("sell %d %s; %d would reach neutral but leave the book %s%s", n, contract.LocalSymbol, neutral, hedgeSaleRefusal(book, hedge, n+1), workingNote)
 	}
 	if p.PlanOnly {
 		return res
@@ -208,7 +226,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	res.Legs[0] = s.reduceHedgePreviewLeg(ctx, p, leg, input)
 	aggregateBasket(res, false)
 	if len(res.Legs[0].Blockers) == 0 && n == neutral {
-		res.Message = fmt.Sprintf("sell %d %s to neutral", n, contract.LocalSymbol)
+		res.Message = fmt.Sprintf("sell %d %s to neutral%s", n, contract.LocalSymbol, workingNote)
 	}
 	return res
 }
@@ -218,10 +236,9 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 const hedgeUnmeasured = "unmeasured"
 
 // hedgeSaleRefusal says why placement would refuse a sale of n hedge
-// contracts on the held book (indexHedgeProjectedRiskRefusal's gap and
-// loss-room rules), or "" when it would not. Working hedge sales are not
-// counted here; placement counts them and refuses what they leave no room
-// for.
+// contracts on the input book, the held book with the working hedge sales
+// (indexHedgeProjectedRiskRefusal's gap and loss-room rules), or "" when it
+// would not.
 func hedgeSaleRefusal(input mandate.Input, hedge mandate.Leg, n int) string {
 	hedge.Quantity = -float64(n)
 	v := mandate.Evaluate(mandateInputWithLegs(input, []mandate.Leg{hedge}))

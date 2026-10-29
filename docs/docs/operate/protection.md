@@ -295,7 +295,9 @@ contract in its expiry week is skipped for the next), until a 10% S&P fall
 leaves the whole book about even. The size is in whole contracts, rounded
 toward less hedge, so its modeled payout in that fall does not exceed the
 book's modeled loss. Every line
-counts toward the size, locked ones too. The plan carries one leg with its
+counts toward the size, locked ones too, and hedge sales already working
+count as sold: the plan offers the rest to neutral and says how many are
+working. The plan carries one leg with its
 `contract` (month and multiplier) and the same scores as a cut. When the
 fall already leaves the book even or ahead, or its loss is less than one
 contract offsets, the plan sells nothing and says why. A held future counts
