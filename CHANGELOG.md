@@ -2,15 +2,33 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.30.0 — Unreleased
+## v3.29.1 — 2026-10-29 09:00 CET
+
+### What's new
+
+Canary learns from IBKR which product classes the account may trade, starting
+with the futures used by the index hedge, and refuses an opening order in a
+class IBKR does not allow before it reaches the broker. Index-hedge orders in
+Micro E-mini S&P 500 futures now reach IBKR; in v3.29.0 they stopped inside
+Canary.
+
+Daemon start also writes the volatility fallback and a 25-contract hedge cap
+into a risk constitution that already has a mandate. Standard binaries and all
+MCP tools remain read-only.
 
 ### Added
 
 - Canary learns the account's trading permission per product class from IBKR's answer to a preview (owner decision 2026-10-29 07:14 CET). The daemon checks futures at each start and then daily with a preview of one Micro E-mini S&P 500 contract that sends no order; options, stocks and bonds are learned from your own previews. `canary trading status` shows each class and `canary status` a `Broker access` line, in yellow while a class is not enabled. An opening or increasing order in such a class, the index hedge included, is refused before the broker with `broker_permission_not_enabled`.
+- When the futures check gets no answer from IBKR, `canary status` shows why and the daemon tries again ten minutes later. The first check after a start no longer waits ten minutes when the gateway connects late.
+- A stored refusal for options, stocks or bonds no longer blocks your own preview of an opening order in that class. The preview still asks IBKR; an accepted answer marks the class enabled, and a refused or missing answer keeps the refusal.
 
 ### Changed
 
 - Daemon start writes `[mandate.iv_fallback]` (bands 65, 15 and 8; tiers 5 and 20) and `[mandate.index_hedge] max_contracts = 25` once into a risk constitution with a written `[mandate]`, after a backup and with a higher `policy_version` (owner decision 2026-10-29 07:06 CET). A commented-out proposal of either table is activated in place; a table the owner wrote is kept, and one deleted afterwards is not written again. Placing a hedge still needs the trader's request and device confirmation.
+
+### Fixed
+
+- A Micro E-mini S&P 500 limit order for the day now reaches IBKR. In v3.29.0 the index-hedge review and sale stopped inside Canary with an unsupported security type error. Other futures order shapes are still refused before the broker, and nothing else in the order path changed.
 
 ## v3.29.0 — 2026-10-29 06:55 CET
 
