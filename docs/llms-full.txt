@@ -1,6 +1,11 @@
 # Canary full context
 
-Updated: 2026-10-29 06:55 CET
+Updated: 2026-10-29 12:41 CET
+
+Version 3.30 buys back a held index hedge through `canary proposals reduce`,
+and the hedge plan offers only a sale Canary can place when asked. A hedge
+table deleted from the risk policy stays deleted. The daemon removes its own
+old policy backups after a successful start.
 
 Version 3.29 adds reduction-plan comparisons for index falls and rises, loss
 room and quoted trading costs, plus index-hedge planning. Optional IV-fallback
