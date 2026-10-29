@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.30.0 — Unreleased
+
+### Changed
+
+- Daemon start writes `[mandate.iv_fallback]` (bands 65, 15 and 8; tiers 5 and 20) and `[mandate.index_hedge] max_contracts = 25` once into a risk constitution with a written `[mandate]`, after a backup and with a higher `policy_version` (owner decision 2026-10-29 07:06 CET). A commented-out proposal of either table is activated in place; a table the owner wrote is kept, and one deleted afterwards is not written again. Placing a hedge still needs the trader's request and device confirmation.
+
 ## v3.29.0 — 2026-10-29 06:55 CET
 
 ### What's new

@@ -141,14 +141,20 @@ func TestMandateTableIncompleteAndLegacyV4(t *testing.T) {
 	}
 }
 
-// The ensure migration never writes the table and leaves a written one as
-// it is: the policy in force is unchanged by a conversion.
+// The ensure migration never writes the [mandate] table and leaves a
+// written one byte for byte; the only mandate conversion is the two default
+// tables of 2026-10-29 (mandate_defaults_policy_file_test.go).
 func TestMandateTableSurvivesMigrationUnchanged(t *testing.T) {
 	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true)}
 	complete := strings.Replace(schema2ConstitutionTOML(), "policy_version = 5", "policy_version = 6", 1) + testOrderLimitsTOML + mandateTableTOML
 	out, changes, _, err := previewPolicyFileMigration(k, []byte(complete), "test")
-	if err != nil || len(changes) != 0 || string(out) != complete {
+	if err != nil || !strings.Contains(string(out), mandateTableTOML) {
 		t.Fatalf("a complete constitution with the table migrated: %v %v\n%s", changes, err, out)
+	}
+	for _, c := range changes {
+		if !strings.HasPrefix(c, "write [mandate.iv_fallback].") && !strings.HasPrefix(c, "write [mandate.index_hedge].") && !strings.HasPrefix(c, "raise policy_version") {
+			t.Fatalf("a complete constitution changed beyond the mandate defaults: %q", c)
+		}
 	}
 	// A file that still lacks [order_limits] gains them and nothing else:
 	// the mandate table is byte for byte what the owner wrote.

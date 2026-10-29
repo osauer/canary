@@ -155,8 +155,8 @@ func migrateConstitutionOrderLimits(doc *tomlDoc, c risk.Constitution, src confi
 }
 
 // constitutionMaterialisationFileKey identifies every constitution setting
-// except [order_limits], so the order-limits migration proves it changes
-// nothing else.
+// except [order_limits] and the mandate default tables, so those migrations
+// prove they change nothing else.
 func constitutionMaterialisationFileKey(_ string, data []byte) (string, error) {
 	if err := parseConstitutionPolicy(data); err != nil {
 		return "", err
@@ -166,6 +166,11 @@ func constitutionMaterialisationFileKey(_ string, data []byte) (string, error) {
 		return "", err
 	}
 	c.OrderLimits = nil
+	if c.Mandate != nil {
+		m := *c.Mandate
+		m.IVFallback, m.IndexHedge = nil, nil
+		c.Mandate = &m
+	}
 	return c.EffectiveFingerprintKey(), nil
 }
 

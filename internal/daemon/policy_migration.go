@@ -58,9 +58,10 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		// nothing else.
 		keyOf = protectionMaterialisationFileKey
 	case PolicyFileConstitution:
-		// Writing the missing [order_limits] keys is the one constitution
-		// conversion that changes the policy in force; every other setting
-		// and every order-limit key already written must stay as it is.
+		// Writing the missing [order_limits] keys and the mandate defaults
+		// are the constitution conversions that change the policy in force;
+		// every other setting, every order-limit key and every mandate
+		// default table already written must stay as it is.
 		keyOf = constitutionMaterialisationFileKey
 		var before, after risk.Constitution
 		if _, err := toml.Decode(string(data), &before); err != nil {
@@ -68,6 +69,9 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 		}
 		if _, err := toml.Decode(string(out), &after); err != nil || !orderLimitsPreserved(before.OrderLimits, after.OrderLimits) {
 			return nil, nil, notes, fmt.Errorf("conversion would change a written [order_limits] key; nothing written: %v", err)
+		}
+		if !mandateDefaultsPreserved(before.Mandate, after.Mandate) {
+			return nil, nil, notes, fmt.Errorf("conversion would change a written [mandate.iv_fallback] or [mandate.index_hedge] key; nothing written")
 		}
 	}
 	beforeKey, err := keyOf(k.name, data)
@@ -84,7 +88,7 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 			if exactAfter, err := effectivePolicyFileKey(k.name, out); err == nil && exactBefore != exactAfter {
 				trailer = "; missing cash management keys written, every other setting verified unchanged."
 				if k.name == PolicyFileConstitution {
-					trailer = "; missing [order_limits] keys written (owner decisions 2026-10-05 19:56 CEST and 2026-10-06 20:17 CEST; each key's comment names its source), every other setting verified unchanged."
+					trailer = constitutionMigrationTrailer(changes)
 				}
 			}
 		}
@@ -143,7 +147,9 @@ func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead bool) func([]
 			doc.set("", "schema_version", "2", nil)
 			changes = append(changes, "schema 2 separates format semantics from document revision")
 		}
-		changes = append(changes, migrateConstitutionOrderLimits(doc, c, src, srcRead)...)
+		limits := migrateConstitutionOrderLimits(doc, c, src, srcRead)
+		changes = append(changes, limits...)
+		changes = append(changes, migrateConstitutionMandateDefaults(doc, c, string(data), len(limits) == 0)...)
 		if len(changes) == 0 {
 			return data, nil, notes, nil
 		}
@@ -209,4 +215,19 @@ func policyFileDiff(path string, before, after []byte) string {
 		out.WriteString("+" + line + "\n")
 	}
 	return out.String()
+}
+
+// constitutionMigrationTrailer names what a constitution conversion wrote.
+// The mandate note also keeps a table the owner deletes from being written
+// again.
+func constitutionMigrationTrailer(changes []string) string {
+	var parts []string
+	joined := strings.Join(changes, "\n")
+	if strings.Contains(joined, "write [order_limits].") {
+		parts = append(parts, "missing [order_limits] keys written (owner decisions 2026-10-05 19:56 CEST and 2026-10-06 20:17 CEST; each key's comment names its source)")
+	}
+	if strings.Contains(joined, "write [mandate.") {
+		parts = append(parts, mandateDefaultsNote+" ("+mandateDefaultsSource+"; a table you delete stays deleted)")
+	}
+	return "; " + strings.Join(parts, "; ") + ", every other setting verified unchanged."
 }

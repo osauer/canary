@@ -78,11 +78,13 @@ Each item landed on local main with its own gate; the commits name them.
 
 ## Held by the owner
 
-Nothing above places a hedge until the owner does four things:
+Nothing above places a hedge until the owner does these things:
 
-- **Activate the table.** Uncomment `[mandate.index_hedge] max_contracts =
-  25` in the policy file and raise `policy_version`. Canary never edits the
-  owner's policy file.
+- **The table.** Daemon start writes `[mandate.index_hedge] max_contracts =
+  25` and `[mandate.iv_fallback]` once beside a written `[mandate]`, after a
+  backup and with a higher `policy_version` (owner decision 2026-10-29
+  07:06 CET; `mandate_defaults_policy_file.go`). A table the owner wrote is
+  kept; one deleted afterwards stays deleted.
 - **Install the build** carrying these commits, from a clean worktree at
   local main.
 - **Grant the futures permission at IBKR.** Canary cannot read it. The
