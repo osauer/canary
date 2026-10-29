@@ -634,8 +634,9 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	// Non-futures permissions are learned only from requested previews. Let
 	// their fresh WhatIf answer replace an old denial before applying it;
 	// an inconclusive answer keeps the denial and cannot mint a token.
-	// Modification previews supply the same permission evidence.
-	s.noteBrokerPermissionPreview(ctx, permissionScope, draft, whatIf)
+	// Modification previews supply the same permission evidence; an
+	// accepted reduce or close supplies none.
+	s.noteBrokerPermissionPreview(ctx, permissionScope, draft, position.Effect, whatIf)
 	if b := s.brokerPermissionBlocker(contract); b != nil && position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
 		return nil, refusePreview(errBadRequest(b.Message), *b)
 	}

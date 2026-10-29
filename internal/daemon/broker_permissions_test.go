@@ -94,11 +94,11 @@ func TestBrokerPermissionEvidenceKeepsWhatItKnows(t *testing.T) {
 	}
 
 	opt := rpc.OrderDraft{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT"}}
-	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"})
 	if v := s.handleTradingStatus().BrokerPermissions; len(v) != 1 {
 		t.Fatalf("a margin refusal of a preview showed options: %+v", v)
 	}
-	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
 	v := s.handleTradingStatus().BrokerPermissions
 	if len(v) != 2 || v[1].Class != rpc.BrokerPermissionOptions || v[1].State != rpc.BrokerPermissionEnabled || v[1].Source != brokerPermissionSourcePreview {
 		t.Fatalf("options after an accepted preview = %+v", v)
@@ -171,5 +171,62 @@ func TestFuturesCheckWithoutAnAnswerSaysWhy(t *testing.T) {
 	s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true})
 	if st := s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionFutures); !strings.Contains(st.Detail, "no gateway") {
 		t.Fatalf("a failed contract read left no reason: %+v", st)
+	}
+}
+
+// A stored futures denial lifts when the daily check is refused for a reason
+// that names no permission: the broker weighed the order, so the denial is no
+// longer confirmed, and the hedge's own preview may ask again. Kept, it
+// refused every hedge before the broker, and a check the broker keeps
+// refusing on price could never lift it (review of 2026-10-29).
+func TestFuturesDenialLiftsWhenTheCheckIsRefusedForAnotherReason(t *testing.T) {
+	answer := rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Available: true, Message: "YOUR ACCOUNT HAS NO TRADING PERMISSIONS FOR THIS INSTRUMENT"}
+	s, _, now := brokerPermissionRig(t, func() rpc.OrderWhatIfResult { return answer })
+	s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true})
+	if s.brokerPermissionBlocker(testMESContract) == nil {
+		t.Fatal("the permission refusal was not learned")
+	}
+
+	// The broker's answer to the check holds no news; the denial stays.
+	answer = rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusUnavailable, Message: "no answer in 10s"}
+	*now = now.Add(25 * time.Hour)
+	s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true})
+	if s.brokerPermissionBlocker(testMESContract) == nil {
+		t.Fatal("a check with no answer lifted the denial")
+	}
+
+	// The owner enables futures; the check is now refused on its price.
+	answer = rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Available: true, Message: "Order price is outside the allowed range"}
+	*now = now.Add(brokerPermissionRetryAfter)
+	s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true})
+	st := s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionFutures)
+	if st.State != rpc.BrokerPermissionUnknown || !strings.Contains(st.Detail, "no longer confirmed") || !strings.Contains(st.Detail, "outside the allowed range") {
+		t.Fatalf("after a price refusal = %+v, want the denial lifted with the reason", st)
+	}
+	if b := s.brokerPermissionBlocker(testMESContract); b != nil {
+		t.Fatalf("the hedge is still refused before the broker: %+v", b)
+	}
+	if got := s.indexHedgeCapRefusal(rpc.OrderDraft{Action: rpc.OrderActionSell, Contract: testMESContract, Quantity: 1}, 0); len(got) > 0 && got[0].Code == rpc.BrokerPermissionNotEnabledCode {
+		t.Fatalf("hedge sale refusal = %+v", got)
+	}
+}
+
+// An accepted reduce or close shows nothing about the class: IBKR lets an
+// account close what it may no longer open.
+func TestBrokerPermissionAcceptedCloseShowsNothing(t *testing.T) {
+	s := newTestServer(t)
+	scope := s.currentBrokerStateScope()
+	opt := rpc.OrderDraft{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT"}}
+	s.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "No trading permissions"})
+	for _, effect := range []string{rpc.OrderPositionEffectReduce, rpc.OrderPositionEffectClose} {
+		s.noteBrokerPermissionPreview(t.Context(), scope, opt, effect, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+		if st := s.brokerPermissions.state(scope, rpc.BrokerPermissionOptions); st.State != rpc.BrokerPermissionNotEnabled {
+			t.Fatalf("an accepted %s showed options %s", effect, st.State)
+		}
+	}
+	fresh := newTestServer(t)
+	fresh.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectClose, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+	if v := fresh.handleTradingStatus().BrokerPermissions; len(v) != 1 {
+		t.Fatalf("an accepted close showed a class: %+v", v)
 	}
 }

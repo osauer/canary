@@ -131,8 +131,13 @@ func brokerPermissionDetail(message string) string {
 
 // observe records what one WhatIf showed. An acceptance shows the class
 // enabled and a permission refusal not enabled. Any other answer from the
-// daily check leaves a known state as it was and, while none is known, says
-// why; from the trader's preview it shows nothing.
+// daily check leaves an enabled state as it was and, while none is known,
+// says why; from the trader's preview it shows nothing. A refusal for
+// another reason does not confirm a stored denial: the broker weighed the
+// order and named no permission. It returns the denial to unknown, so the
+// next opening preview reaches the broker again; kept, the denial refused
+// every hedge before the broker, and a check the broker keeps refusing on
+// price could never lift it.
 func (p *brokerPermissionStore) observe(ctx context.Context, scope brokerStateScope, class, source string, w rpc.OrderWhatIfResult, at time.Time) error {
 	if class == "" {
 		return nil
@@ -155,7 +160,10 @@ func (p *brokerPermissionStore) observe(ctx context.Context, scope brokerStateSc
 		p.records = map[string]brokerPermissionRecord{}
 	}
 	if prev, ok := p.records[key]; ok && rec.State == rpc.BrokerPermissionUnknown && prev.State != rpc.BrokerPermissionUnknown {
-		return nil
+		if prev.State != rpc.BrokerPermissionNotEnabled || w.Status != rpc.OrderWhatIfStatusRejected {
+			return nil
+		}
+		rec.Detail = "IBKR refused the check for another reason, so its earlier permission refusal is no longer confirmed: " + brokerPermissionDetail(w.Message)
 	}
 	p.records[key] = rec
 	if p.core == nil {
@@ -273,8 +281,14 @@ func (s *Server) brokerPermissionBlocker(contract rpc.ContractParams) *rpc.Tradi
 }
 
 // noteBrokerPermissionPreview records the class evidence of the trader's own
-// preview, attributed to the scope captured before its broker request.
-func (s *Server) noteBrokerPermissionPreview(ctx context.Context, scope brokerStateScope, draft rpc.OrderDraft, w rpc.OrderWhatIfResult) {
+// preview, attributed to the scope captured before its broker request. An
+// accepted reduce or close shows nothing: IBKR lets an account close what it
+// holds in a class it may no longer open, so the acceptance cannot show the
+// class enabled.
+func (s *Server) noteBrokerPermissionPreview(ctx context.Context, scope brokerStateScope, draft rpc.OrderDraft, effect string, w rpc.OrderWhatIfResult) {
+	if w.Status == rpc.OrderWhatIfStatusAccepted && (effect == rpc.OrderPositionEffectReduce || effect == rpc.OrderPositionEffectClose) {
+		return
+	}
 	if err := s.brokerPermissions.observe(ctx, scope, brokerPermissionClass(draft.Contract), brokerPermissionSourcePreview, w, s.nowUTC()); err != nil {
 		s.warnf("broker permissions: %v", err)
 	}

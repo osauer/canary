@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The project adheres to 
 ### Fixed
 
 - A strategy or mandate line whose daily history IBKR refuses for want of a market data permission is no longer asked for every 15 minutes and after every reconnect or restart. Canary warns once, says to add the exchange's market data subscription at IBKR, and asks again once each trading session.
+- Futures that IBKR once refused for want of permission no longer stay refused after you enable them. The daily check can be turned down for another reason, such as its price; that answer no longer confirms the old refusal, so the index hedge's own preview asks IBKR again.
+- An accepted preview that only reduces or closes a position no longer shows its product class as enabled. IBKR lets an account close what it can no longer open, so only an opening preview shows the permission.
 
 ## v3.30.0 — 2026-10-29 12:50 CET
 

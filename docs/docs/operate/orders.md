@@ -87,11 +87,15 @@ shows a row per class, and `canary status` a `Broker access` line, in yellow
 while a class is not enabled. An order that opens or adds to a position in
 such a class retains `broker_permission_not_enabled` until a fresh broker
 preview confirms permission; a reduction or a close stays open. After enabling
-stocks, options or bonds at IBKR, request another order preview in Canary,
-even after a restart. An accepted WhatIf updates the remembered permission;
-a rejected, unavailable or failed check keeps the refusal. Futures keep their
-next-start and daily checks, including the index hedge's opening gate. All
-other risk and submission gates still apply.
+stocks, options or bonds at IBKR, request another opening order preview in
+Canary, even after a restart. An accepted opening WhatIf updates the
+remembered permission; an accepted reduction or close says nothing about
+opening and leaves it as it was, and a rejected, unavailable or failed
+preview keeps the refusal. Futures keep their next-start and daily checks,
+including the index hedge's opening gate: a check IBKR refuses for a reason
+other than permission no longer confirms a remembered refusal, so futures
+read unknown and the hedge's own preview asks IBKR again. All other risk and
+submission gates still apply.
 
 ## Bond orders
 

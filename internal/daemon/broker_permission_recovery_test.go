@@ -77,19 +77,21 @@ func TestBrokerPermissionOpeningPreviewRecoversPersistedDenial(t *testing.T) {
 	}
 }
 
-func TestBrokerPermissionClosingPreviewStillRecovers(t *testing.T) {
+// A close is never refused for a stored denial, and its acceptance shows
+// nothing about opening; the next opening preview asks the broker again.
+func TestBrokerPermissionClosingPreviewLeavesTheDenial(t *testing.T) {
 	s, p, calls, allowed := brokerPermissionRecoveryRig(t, "OPT")
 	s.previewOrder(t.Context(), p)
 	*allowed = true
 	s.orderPreviewPositionImpact = fixedPreviewPosition(-1, 0, rpc.OrderPositionEffectClose)
 	_, err := s.previewOrder(t.Context(), p)
-	if err != nil || *calls != 2 || s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionOptions).State != rpc.BrokerPermissionEnabled {
-		t.Fatalf("closing preview recovery: calls=%d err=%v", *calls, err)
+	if err != nil || *calls != 2 || s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionOptions).State != rpc.BrokerPermissionNotEnabled {
+		t.Fatalf("closing preview: calls=%d err=%v state=%s", *calls, err, s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionOptions).State)
 	}
 	s.orderPreviewPositionImpact = fixedPreviewPosition(0, 1, rpc.OrderPositionEffectOpen)
 	_, err = s.previewOrder(t.Context(), p)
-	if err != nil || *calls != 3 {
-		t.Fatalf("opening preview after close recovery: calls=%d err=%v", *calls, err)
+	if err != nil || *calls != 3 || s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionOptions).State != rpc.BrokerPermissionEnabled {
+		t.Fatalf("opening preview after the close: calls=%d err=%v", *calls, err)
 	}
 }
 
