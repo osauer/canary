@@ -197,8 +197,8 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 	}
 
 	secType := strings.ToUpper(order.SecType)
-	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" && secType != "CASH" && !IsBillOrBond(secType) {
-		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG/BILL/BOND/CASH only")
+	if secType != "STK" && secType != "ETF" && secType != "OPT" && secType != "BAG" && secType != "CASH" && secType != "FUT" && !IsBillOrBond(secType) {
+		return unsupportedPlaceOrderProtoValue("secType", order.SecType, "STK/ETF/OPT/BAG/BILL/BOND/CASH/FUT only")
 	}
 	orderType := strings.ToUpper(strings.TrimSpace(order.OrderType))
 	if orderType != "LMT" && orderType != "TRAIL" && orderType != "TRAIL LIMIT" && orderType != "STP" {
@@ -220,6 +220,25 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 		}
 		if err := validateBondOrder(order); err != nil {
 			return fmt.Errorf("protobuf placeOrder %s: %w", secType, err)
+		}
+	}
+	if secType == "FUT" {
+		// A future (the index hedge and its permission check): LMT DAY in
+		// regular hours on its exact contract, expiry and multiplier.
+		if orderType != "LMT" {
+			return unsupportedPlaceOrderProtoValue("orderType", order.OrderType, "LMT only for FUT")
+		}
+		if tif := strings.ToUpper(strings.TrimSpace(order.TIF)); tif != "DAY" {
+			return unsupportedPlaceOrderProtoValue("tif", order.TIF, "DAY only for FUT")
+		}
+		if order.OutsideRth {
+			return unsupportedPlaceOrderProtoField("outsideRth")
+		}
+		if order.ConID <= 0 || strings.TrimSpace(order.Expiry) == "" || strings.TrimSpace(order.Multiplier) == "" || strings.TrimSpace(order.Exchange) == "" {
+			return fmt.Errorf("protobuf placeOrder FUT requires conID, expiry, multiplier and exchange")
+		}
+		if order.Right != "" || order.Strike != 0 || len(order.ComboLegs) != 0 {
+			return fmt.Errorf("protobuf placeOrder FUT takes no right, strike or combo legs")
 		}
 	}
 	if secType == "CASH" {
@@ -268,6 +287,8 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 		if order.Strike != 0 {
 			return unsupportedPlaceOrderProtoField("strike")
 		}
+	} else if secType == "FUT" {
+		// Validated above.
 	} else if secType == "OPT" {
 		if strings.TrimSpace(order.Expiry) == "" {
 			return fmt.Errorf("protobuf placeOrder OPT requires expiry")
