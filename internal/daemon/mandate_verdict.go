@@ -589,8 +589,8 @@ func (s *Server) mandateGateView(res *rpc.MandateRiskResult, now time.Time) *rpc
 	// Option additions read the premium limits; the volatility verdict is
 	// their warning (owner decision 2026-10-23 18:22 CEST).
 	view.Options = mandateOptionsGateView(res, view)
-	// The owner's override lifts the volatility gate; the holds that bound a
-	// loss stay (mandate_options_gate.go).
+	// The owner's override lifts the volatility gate and the premium limits;
+	// the holds that bound a loss stay (mandate_options_gate.go).
 	if override := s.mandateAdditionsOverride(now); override != nil {
 		view.Override = override
 		if hard := mandateHardHolds(res.Verdict, mandate.SleeveOwner, ccy, ""); hard != nil {
@@ -598,6 +598,9 @@ func (s *Server) mandateGateView(res *rpc.MandateRiskResult, now time.Time) *rpc
 		} else {
 			view.RefusesAdditions, view.Reason = false, mandateOverrideSentence(override, res.Verdict, ccy)
 		}
+		// The override lifts the premium limits too; option buys share the
+		// holds that bound a loss.
+		view.Options = &rpc.MandateOptionsGateView{RefusesAdditions: view.RefusesAdditions, Reason: view.Reason}
 	}
 	return view
 }
@@ -684,23 +687,56 @@ func mandateMoney(v float64, ccy string) string {
 // riskAddingOrder is the one classification the drawdown brake and the
 // mandate gate share: a close or reduce never adds risk (a BUY that closes
 // or shrinks a held index hedge included), a BUY of a put on a Rulebook
-// hedge symbol is a hedge entry that stays open, and a SELL of the index
-// future is a reduction when indexHedgeReduces says so; everything else
-// adds risk. Cancels never reach either gate. The mandate gate alone also
-// passes a bill purchase (mandateBillBuy).
+// hedge symbol or one that protects shares held (protectivePut) is a hedge
+// entry that stays open, and a SELL of the index future is a reduction when
+// indexHedgeReduces says so; everything else adds risk. Cancels never reach
+// either gate. The mandate gate alone also passes a bill purchase
+// (mandateBillBuy).
 func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
 	switch position.Effect {
 	case rpc.OrderPositionEffectClose, rpc.OrderPositionEffectReduce:
 		return false
 	}
-	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") &&
-		strings.EqualFold(draft.Contract.Right, "P") && s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) {
+	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") && strings.EqualFold(draft.Contract.Right, "P") &&
+		(s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) || s.protectivePut(draft)) {
 		return false
 	}
 	if strings.EqualFold(draft.Action, rpc.OrderActionSell) && isIndexFutureContract(draft.Contract) {
 		return !s.indexHedgeReduces(draft)
 	}
 	return true
+}
+
+// protectivePut reports a put BUY that protects shares the book holds
+// (owner, 2026-10-29 14:28 CET: protective puts must stay open whatever the
+// premium limits read). On the kept mandate book, the long puts on the name
+// with this order cover no more shares than the book holds long; beyond
+// them a put is a bet on a fall. Without a current measurement of the book
+// it is not protection, so the gates judge it as an addition. Its premium
+// still counts in the loss measure and the premium figures once held.
+func (s *Server) protectivePut(draft rpc.OrderDraft) bool {
+	input, _, _ := s.mandateCurrentInput()
+	if input == nil || !(draft.Quantity > 0) {
+		return false
+	}
+	sym := normSym(draft.Contract.Symbol)
+	mult := float64(draft.Contract.Multiplier)
+	if mult <= 0 {
+		mult = 100
+	}
+	var shares, covered float64
+	for _, l := range input.Legs {
+		if normSym(l.Underlying) != sym || !(l.Quantity > 0) {
+			continue
+		}
+		switch {
+		case l.Kind == mandate.KindStock:
+			shares += l.Quantity
+		case l.Kind == mandate.KindOption && strings.EqualFold(l.Right, "P"):
+			covered += l.Quantity * l.Multiplier
+		}
+	}
+	return shares > 0 && covered+float64(draft.Quantity)*mult <= shares+1e-9
 }
 
 // indexHedgeReduces classifies a SELL of the index future (owner decision
@@ -754,7 +790,8 @@ func mandateBillBuy(draft rpc.OrderDraft) bool {
 // An option buy is judged by the premium limits instead and reads the
 // volatility verdict as a warning (owner decision 2026-10-23 18:22 CEST,
 // mandate_options_gate.go); an active override of mandate.vol_target_pct
-// lifts the volatility gate for the owner's additions. Cheap by
+// lifts the volatility gate and the premium limits for the owner's
+// additions. Cheap by
 // construction: the kept verdict and a simulation of milliseconds, never a
 // broker read.
 func (s *Server) mandateBudgetGate(draft rpc.OrderDraft, position rpc.OrderPositionImpact) *rpc.TradingBlocker {
@@ -815,18 +852,20 @@ func (s *Server) mandateBudgetJudgement(draft rpc.OrderDraft, position rpc.Order
 	// gate refuses it, the holds that bound a loss (the maximum loss, the
 	// owner sleeve's stop) refuse it, and the volatility verdict is its
 	// warning.
-	option := mandateOptionAddition(draft)
-	if option {
-		if blocker := s.mandatePremiumGate(draft, result, input, ccy, open); blocker != nil {
-			return blocker, nil
-		}
-	}
-	// The owner's one-shot override of the volatility budget lifts the
-	// volatility gate for the owner's own additions (mandate_options_gate.go:
-	// what still binds). A machine sleeve's order never reads it.
+	// The owner's one-shot override lifts the volatility gate and, since
+	// 2026-10-29 14:28 CET (owner: "I always need to be able to stay in
+	// control"), the premium limits for the owner's own additions
+	// (mandate_options_gate.go: what still binds). A machine sleeve's order
+	// never reads it.
 	override := s.mandateAdditionsOverride(now)
 	if override != nil && sleeve != mandate.SleeveOwner {
 		override = nil
+	}
+	option := mandateOptionAddition(draft)
+	if option && override == nil {
+		if blocker := s.mandatePremiumGate(draft, result, input, ccy, open); blocker != nil {
+			return blocker, nil
+		}
 	}
 	if option || override != nil {
 		if blocker := mandateHardHolds(result.Verdict, sleeve, ccy, open); blocker != nil {

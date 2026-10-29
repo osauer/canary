@@ -31,11 +31,15 @@ import (
 //     sleeve's drawdown stop keeps the sleeve reduce-only while engaged.
 //   - The owner's one-shot override of mandate.vol_target_pct (canary policy
 //     override, human-only, journaled, expiring under
-//     override.max_duration_hours) lifts the additions gate for the owner's
-//     additions. What still bounds risk meanwhile: the drawdown brake and the
-//     no-room hold at the 30% maximum loss, the owner sleeve's stop, every
-//     order cap, the premium limits above, the device confirmation of every
-//     order and the override's expiry (risk.MandateAdditionsOverrideControl).
+//     override.max_duration_hours) lifts the additions gate and, since
+//     2026-10-29 14:28 CET (owner: "I always need to be able to stay in
+//     control"), the premium limits above for the owner's additions. What
+//     still bounds risk meanwhile: the drawdown brake and the no-room hold at
+//     the 30% maximum loss, the owner sleeve's stop, every order cap, the
+//     device confirmation of every order and the override's expiry
+//     (risk.MandateAdditionsOverrideControl).
+//   - A put bought to protect shares the book holds is a hedge entry, never
+//     an addition (protectivePut, owner 2026-10-29 14:28 CET).
 //
 // A short option opened to sell is no option addition here: its loss has no
 // premium to bound it, so it stays on the volatility gate as before.
@@ -440,13 +444,14 @@ func mandateOptionWarning(vol *rpc.TradingBlocker) *rpc.DataWarning {
 
 // mandateOverrideSentence names an active override on the gate view.
 func mandateOverrideSentence(o *rpc.MandateOverrideView, v *mandate.Verdict, ccy string) string {
-	return fmt.Sprintf("your override of %s lifts the volatility budget until %s (%q); the verdict reads: %s", o.Control, o.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"), o.Reason, mandateStatusSentence(v, ccy))
+	return fmt.Sprintf("your override of %s lifts the volatility budget and the premium limits until %s (%q); the verdict reads: %s", o.Control, o.ExpiresAt.UTC().Format("2006-01-02 15:04 UTC"), o.Reason, mandateStatusSentence(v, ccy))
 }
 
 // mandateOverrideWarning carries an active override on a preview the
-// volatility gate would otherwise have refused or judged.
+// volatility gate or the premium limits would otherwise have refused or
+// judged.
 func mandateOverrideWarning(o *rpc.MandateOverrideView, v *mandate.Verdict, ccy string) *rpc.DataWarning {
 	return &rpc.DataWarning{Code: mandateBudgetCode, Scope: "risk_policy", Severity: "warning",
-		Message: "Mandate budget: " + mandateOverrideSentence(o, v, ccy) + ". The maximum loss, the owner sleeve's stop, the order caps, the premium limits and the device confirmation still bind.",
+		Message: "Mandate budget: " + mandateOverrideSentence(o, v, ccy) + ". The maximum loss, the owner sleeve's stop, the order caps and the device confirmation still bind.",
 		Action:  "Let the override expire, or revoke it by a policy revision; `canary mandate` has the measurement."}
 }

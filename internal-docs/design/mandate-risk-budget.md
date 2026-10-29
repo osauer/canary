@@ -1169,14 +1169,19 @@ option book's loss was bounded by its premium):
    override --control mandate.vol_target_pct --reason TEXT --hours N` (the
    existing mechanism: journaled, expiring, capped by
    `override.max_duration_hours`) lifts the volatility budget's gate for the
-   owner's own additions until it expires. The `[mandate]` keys are
+   owner's own additions until it expires, and since 2026-10-29 14:28 CET
+   the premium limits on the owner's option buys too (owner: "I always need
+   to be able to stay in control"). The `[mandate]` keys are
    constitution limits once the table is written (`risk.mandateLimits`), so
    the control is a known key; of them only `mandate.vol_target_pct` takes
    an override (`risk.MandateAdditionsOverrideControl`), the others change
    by a revision. What still bounds risk while it is active: the drawdown
    brake and the no-room hold at the 30% maximum loss, the owner sleeve's
-   stop, every order cap, the premium limits above, the device confirmation
-   of every order, and the override's expiry. A machine sleeve's order never
+   stop, every order cap, the device confirmation of every order, and the
+   override's expiry. A put bought to protect shares held (its puts cover no
+   more shares than the book holds long) is a hedge entry like an index put
+   on the hedge list: no additions gate refuses it (owner, 2026-10-29 14:28
+   CET). A machine sleeve's order never
    reads it. `canary mandate` prints the override with its reason, grant and
    expiry; `gate.override` carries it and Desk shows it on Risk › Mandate.
    Desk never grants one: the owner does, in a terminal.

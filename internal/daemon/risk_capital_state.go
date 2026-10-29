@@ -1341,17 +1341,17 @@ func (st *riskCapitalStore) GrantOverrideForScope(p rpc.OverrideParams, c *risk.
 		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the order limits only %s takes a one-shot override (it lifts the floor to max_order_ceiling_base); change the others with a policy revision", control, risk.OrderLimitFloorOverrideControl)
 	}
 	// Of the mandate keys only the volatility target takes a one-shot
-	// override: it lifts the volatility budget's additions gate for the
-	// owner's own orders until it expires (owner decision 2026-10-23 18:22
-	// CEST). What still bounds risk meanwhile: the drawdown brake and the
+	// override: it lifts the volatility budget's additions gate (owner
+	// decision 2026-10-23 18:22 CEST) and the premium limits on option buys
+	// (owner, 2026-10-29 14:28 CET) for the owner's own orders until it
+	// expires. What still bounds risk meanwhile: the drawdown brake and the
 	// mandate's no-room hold at the 30% maximum loss, the owner sleeve's
-	// drawdown stop, every order cap, the premium limits on option additions
-	// (option_name_act_pct per name, the premium budget's act level for the
-	// book), the device confirmation of every order, and this override's
+	// drawdown stop, every order cap, the device confirmation of every
+	// order, and this override's
 	// expiry under override.max_duration_hours. The maximum loss, the tax
 	// reserve, the start and the gap numbers change only by a revision.
 	if strings.HasPrefix(control, "mandate.") && control != risk.MandateAdditionsOverrideControl {
-		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the mandate keys only %s takes a one-shot override (it lifts the volatility budget's additions gate for your orders; the maximum loss, the owner sleeve's stop, the order caps and the premium limits still bind); change the others with a policy revision", control, risk.MandateAdditionsOverrideControl)
+		return rpc.OverrideRecord{}, fmt.Errorf("override control %q cannot be overridden; of the mandate keys only %s takes a one-shot override (it lifts the volatility budget's additions gate and the premium limits for your orders; the maximum loss, the owner sleeve's stop and the order caps still bind); change the others with a policy revision", control, risk.MandateAdditionsOverrideControl)
 	}
 
 	st.mu.Lock()

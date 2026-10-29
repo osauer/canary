@@ -216,7 +216,7 @@ func TestMandateAdditionsOverrideLiftsTheVolatilityGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	blocker, warning := srv.mandateBudgetJudgement(mandateBuy(10), mandateOpen)
-	if blocker != nil || warning == nil || !strings.Contains(warning.Message, "your override of mandate.vol_target_pct lifts the volatility budget until") || !strings.Contains(warning.Message, "earnings week, adding by hand") {
+	if blocker != nil || warning == nil || !strings.Contains(warning.Message, "your override of mandate.vol_target_pct lifts the volatility budget and the premium limits until") || !strings.Contains(warning.Message, "earnings week, adding by hand") {
 		t.Fatalf("a stock buy under the override: blocker %+v warning %+v", blocker, warning)
 	}
 	res = srv.evaluateMandate(t.Context(), false)
@@ -272,5 +272,74 @@ func TestRulebookMigrationWritesTheOptionNameCap(t *testing.T) {
 		if _, err := parseRulebookPolicy([]byte(strings.Replace(string(out), "option_name_act_pct = 15", bad, 1))); err == nil {
 			t.Fatalf("%s accepted", bad)
 		}
+	}
+}
+
+// A put bought to protect shares the book holds is a hedge entry, as an
+// index put on the hedge list is: it lowers the loss in a fall, so the
+// premium limits and the additions gate never refuse it (owner, 2026-10-29
+// 14:28 CET: "I'm not allowed to buy protective puts"). Protection covers
+// at most the shares held; a put beyond them, or on a name not held long,
+// is a bet on a fall and stays an option addition.
+func TestMandateProtectivePutOnHeldSharesStaysOpen(t *testing.T) {
+	srv, _ := mandateTestServer(t, testMandateConstitution())
+	seedMandateHistory(t, srv, 0)
+	// 60 SYNB calls: 123,150 EUR of premium, 41% of net liquidation, over
+	// the 35% premium budget; the book holds 100 SYNB shares.
+	srv.mandatePositionsForTest = func(context.Context) (*rpc.PositionsResult, error) { return mandateTestLongOptionBook(t, srv, 60), nil }
+	res := srv.evaluateMandate(t.Context(), false)
+	if o := res.Gate.Options; o == nil || !o.RefusesAdditions {
+		t.Fatalf("fixture: options gate %+v, want refusing", res.Gate.Options)
+	}
+	put := rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 1, LimitPrice: 3, Contract: rpc.ContractParams{Symbol: "SYNB", SecType: "OPT", Currency: "EUR", Right: "P", Strike: 75, Expiry: "20270115", Multiplier: 100}}
+	if blocker := srv.mandateBudgetGate(put, mandateOpen); blocker != nil {
+		t.Fatalf("one put on 100 held SYNB shares: %+v, want open", blocker)
+	}
+	if srv.riskAddingOrder(put, mandateOpen) {
+		t.Fatal("a protective put classified as adding risk")
+	}
+	// Two contracts cover 200 shares of the 100 held: the second is a bet.
+	put.Quantity = 2
+	if blocker := srv.mandateBudgetGate(put, mandateOpen); blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode {
+		t.Fatalf("puts beyond the shares held: %+v, want mandate_premium", blocker)
+	}
+	// A name the book does not hold long has nothing to protect.
+	put.Quantity, put.Contract.Symbol, put.Contract.Currency = 1, "SYNC", "USD"
+	if blocker := srv.mandateBudgetGate(put, mandateOpen); blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode {
+		t.Fatalf("a put on a name not held: %+v, want mandate_premium", blocker)
+	}
+	// A call is never protection.
+	put.Contract = rpc.ContractParams{Symbol: "SYNB", SecType: "OPT", Currency: "EUR", Right: "C", Strike: 85, Expiry: "20270115", Multiplier: 100}
+	if blocker := srv.mandateBudgetGate(put, mandateOpen); blocker == nil {
+		t.Fatal("a call on held shares passed the premium gate")
+	}
+}
+
+// The owner's one-shot override lifts the premium limits for the owner's
+// own option buys as it lifts the volatility budget (owner, 2026-10-29
+// 14:28 CET: "I always need to be able to stay in control"). The maximum
+// loss, the owner sleeve's stop, the order caps, the device confirmation
+// and the override's expiry still bind.
+func TestMandateOverrideLiftsThePremiumLimits(t *testing.T) {
+	c := testMandateConstitution()
+	c.Override.MaxDurationHours = new(24)
+	srv, st := mandateTestServer(t, c)
+	seedMandateHistory(t, srv, 0)
+	srv.mandatePositionsForTest = func(context.Context) (*rpc.PositionsResult, error) { return mandateTestLongOptionBook(t, srv, 60), nil }
+	res := srv.evaluateMandate(t.Context(), false)
+	call := rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 1, LimitPrice: 8, Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Currency: "USD", Right: "C", Strike: 100, Expiry: "20270115", Multiplier: 100}}
+	if blocker := srv.mandateBudgetGate(call, mandateOpen); blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || res.Gate.Options == nil || !res.Gate.Options.RefusesAdditions {
+		t.Fatalf("fixture: blocker %+v options gate %+v, want refused over the premium budget", blocker, res.Gate.Options)
+	}
+	if _, err := st.GrantOverrideForScope(rpc.OverrideParams{Control: risk.MandateAdditionsOverrideControl, Reason: "buying back control", Hours: 2}, c, srv.currentBrokerStateScope()); err != nil {
+		t.Fatal(err)
+	}
+	blocker, warning := srv.mandateBudgetJudgement(call, mandateOpen)
+	if blocker != nil || warning == nil || !strings.Contains(warning.Message, "lifts the volatility budget and the premium limits until") || strings.Contains(warning.Message, "the premium limits and the device confirmation still bind") {
+		t.Fatalf("a call buy under the override: blocker %+v warning %+v", blocker, warning)
+	}
+	res = srv.evaluateMandate(t.Context(), false)
+	if o := res.Gate.Options; o == nil || o.RefusesAdditions || !strings.Contains(o.Reason, "buying back control") {
+		t.Fatalf("options gate under the override: %+v", res.Gate.Options)
 	}
 }

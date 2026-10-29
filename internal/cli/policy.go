@@ -200,8 +200,8 @@ func printPolicyActionUsage(env *Env, action string) int {
 		fmt.Fprintln(env.Stdout, "Of the order limits only order_limits.max_order_floor_base takes an override: it lifts the")
 		fmt.Fprintln(env.Stdout, "floor to max_order_ceiling_base, so the cap in force is the ceiling until the override expires.")
 		fmt.Fprintln(env.Stdout, "Of the mandate keys only mandate.vol_target_pct takes an override: it lifts the volatility")
-		fmt.Fprintln(env.Stdout, "budget's additions gate for your own orders until it expires; the maximum loss, the owner")
-		fmt.Fprintln(env.Stdout, "sleeve's stop, the order caps, the premium limits on option buys and the device confirmation")
+		fmt.Fprintln(env.Stdout, "budget's additions gate and the premium limits on option buys for your own orders until it")
+		fmt.Fprintln(env.Stdout, "expires; the maximum loss, the owner sleeve's stop, the order caps and the device confirmation")
 		fmt.Fprintln(env.Stdout, "still bind. Desk shows the override, its reason and its expiry on Risk › Mandate.")
 	default:
 		return fail(env, "policy help: unknown action %q (choose show, check, capital-event, reset-drawdown, correct-peak, override, default or ensure)", action)
