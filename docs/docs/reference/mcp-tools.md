@@ -123,7 +123,7 @@ Read daemon, gateway, storage, and source health, plus execution visibility and 
 
 ## `canary_trading_status`
 
-Read local broker-write readiness, pinned context, freeze state, and blockers. It only reports readiness and does not place, modify, or cancel orders.
+Read local broker-write readiness, pinned context, freeze state, the order cap in force (`order_limits`), and blockers. `broker_permissions` reports the account's trading permission per product class as IBKR's own previews showed it: futures always, unknown with the reason until a check could run (the daemon checks them at each start and then daily, once a preview is possible, with a preview of one Micro E-mini S&P 500 contract that sends no order), options, stocks and bonds once a preview has shown them; each row's `state` is enabled, not_enabled or unknown, with `checked_at`, `source` and the broker's `detail`. An opening or increasing order in a not_enabled class is refused with `broker_permission_not_enabled`; closing orders are not. Use it for 'can Canary trade', 'why was my order refused for permission' or 'is the index hedge allowed'; use canary_status for daemon and gateway health. It only reports readiness and does not place, modify, or cancel orders.
 
 *No parameters.*
 
