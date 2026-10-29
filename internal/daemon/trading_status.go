@@ -17,6 +17,7 @@ func (s *Server) handleTradingStatus() *rpc.TradingStatus {
 	ep := s.endpoint
 	s.mu.Unlock()
 	status := s.tradingStatus(ep)
+	status.BrokerPermissions = s.brokerPermissions.view(s.currentBrokerStateScope())
 	return &status
 }
 

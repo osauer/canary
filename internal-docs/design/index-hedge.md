@@ -87,8 +87,10 @@ Nothing above places a hedge until the owner does these things:
   kept; one deleted afterwards stays deleted.
 - **Install the build** carrying these commits, from a clean worktree at
   local main.
-- **Grant the futures permission at IBKR.** Canary cannot read it. The
-  owner confirms it under Settings → Trading Permissions → Futures (United
+- **Grant the futures permission at IBKR.** IBKR offers no read of it;
+  the daemon learns it from a daily preview of one contract and refuses the
+  hedge while IBKR shows it not enabled (`broker_permissions.go`, owner
+  decision 2026-10-29 07:14 CET). The owner confirms it under Settings → Trading Permissions → Futures (United
   States, CME) in IBKR's account settings. Market data for CME index
   futures works (ESZ6 quoted live 2026-10-28).
 - **Prove the path live.** A WhatIf of the hedge sale on the live session,

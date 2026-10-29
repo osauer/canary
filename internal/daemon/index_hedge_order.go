@@ -181,6 +181,9 @@ func indexHedgeShortHeld(pos *rpc.PositionsResult) float64 {
 // reviewed sale together stay within max_contracts. Admission additionally
 // binds the complete positions and commitment evidence through the wire.
 func (s *Server) indexHedgeCapRefusal(draft rpc.OrderDraft, heldShort float64) []rpc.TradingBlocker {
+	if b := s.brokerPermissionBlocker(draft.Contract); b != nil && draft.Action == rpc.OrderActionSell {
+		return []rpc.TradingBlocker{*b}
+	}
 	var mandateTable *risk.ConstitutionMandate
 	if c := s.riskPolicies.snapshot().policy; c != nil {
 		mandateTable = c.Mandate

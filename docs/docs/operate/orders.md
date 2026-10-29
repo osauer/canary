@@ -73,6 +73,23 @@ current boundary and the order cap in force but cannot authorise a trade. Its
 `trading_control_generation` advances with every change to the freeze, so two
 readings show a freeze that was set and lifted in between.
 
+## Trading permissions at IBKR
+
+IBKR does not tell an application which products the account may trade, so
+Canary learns it from the broker's answer to an order preview: a preview
+IBKR evaluates shows the class enabled, one it refuses for want of
+permission shows it not enabled. For futures, the class of the index hedge,
+the daemon checks itself at each start and then daily, with a preview of
+buying one Micro E-mini S&P 500 contract at half its price; IBKR evaluates
+it and no order is sent (owner decision 2026-10-29 07:14 CET). Options,
+stocks and bonds are learned from your own previews. `canary trading status`
+shows a row per class, and `canary status` a `Broker access` line, in yellow
+while a class is not enabled. An order that opens or adds to a position in
+such a class is refused before the broker with
+`broker_permission_not_enabled`, the index hedge included; a reduction or a
+close stays open. Once you enable the class in IBKR's account settings, the
+next start or the next daily check shows it.
+
 ## Bond orders
 
 ```text

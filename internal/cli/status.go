@@ -163,6 +163,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	if res.Trading.Mode != "" {
 		statusHealthRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
 	}
+	if len(res.Trading.BrokerPermissions) > 0 {
+		statusHealthRow(env, out, "Broker access", formatBrokerAccessValue(env, res.Trading.BrokerPermissions))
+	}
 	if res.Executions != nil {
 		statusHealthRow(env, out, "Executions", formatExecutionVisibilityValue(env, *res.Executions))
 	}

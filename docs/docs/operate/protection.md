@@ -310,7 +310,10 @@ limit at the bid, good for the day, in US regular hours only, with no stop
 order. Placing needs `[mandate.index_hedge] max_contracts` in the risk
 constitution: without it the leg says `index_hedge_unplaceable`, and a sale
 that would leave the book more contracts short than that says
-`index_hedge_over_max`; it is never resized to fit. At submit the hours,
+`index_hedge_over_max`; it is never resized to fit. While IBKR has shown
+futures not enabled for the account, the sale says
+`broker_permission_not_enabled` ([Trading permissions at
+IBKR](orders.md#trading-permissions-at-ibkr)). At submit the hours,
 the cap and neutral sizing with all pending hedge sales across contracts and clients and the bid are read again. A
 held hedge is bought back as a percent reduce of its own line,
 `canary proposals reduce --con-id ID --percent N --include-hedges`; no

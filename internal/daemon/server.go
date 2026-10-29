@@ -160,6 +160,9 @@ type Server struct {
 	dailyPnLCloseCaptures dailyPnLCloseCaptureAuthority
 	// accountIntraday records each session's net liquidation for display.
 	accountIntraday accountIntradayAuthority
+	// brokerPermissions keeps IBKR's trading permission per product class
+	// as the broker's previews showed it (broker_permissions.go).
+	brokerPermissions brokerPermissionStore
 	// pushDeliveryProof retains the app host's latest Web Push delivery
 	// proof; the daemon itself never sends a push.
 	pushDeliveryProof pushDeliveryProofAuthority
@@ -1598,6 +1601,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startCashSweepBillUniverse(serverCtx)
 	s.startRegimeRefreshLoop(serverCtx)
 	s.startRulebookCanonicalRefreshLoop(serverCtx)
+	s.startBrokerPermissionChecks(serverCtx)
 	s.startAlertShadowObservationLoops(serverCtx)
 	s.startMarketHistoryRefresh(serverCtx)
 	s.startMandateHistoryRefresh(serverCtx)

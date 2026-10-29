@@ -18,6 +18,11 @@ Sell options to open
                not allowed by policy
 Bond maturity, buys
                at most 30 years
+Futures        not enabled at IBKR (Canary's daily check, 2026-09-05 12:00 UTC);
+               the index hedge cannot be placed. Enable futures under Settings ›
+               Trading Permissions in IBKR's account settings; Canary checks
+               again at its next start or within a day.
+Options        enabled at IBKR (your preview, 2026-09-05 12:00 UTC)
 
 # canary trading status · COLUMNS=80 · colour on, ESC written as \x1b
 
@@ -39,4 +44,9 @@ Canary Trading  \x1b[32m\x1b[1mREADY\x1b[0m\x1b[0m
 \x1b[2m              \x1b[0m not allowed by policy
 \x1b[2mBond maturity, buys\x1b[0m
 \x1b[2m              \x1b[0m at most 30 years
+\x1b[2mFutures       \x1b[0m \x1b[33mnot enabled at IBKR (Canary's daily check, 2026-09-05 12:00 UTC);
+               the index hedge cannot be placed. Enable futures under Settings ›
+               Trading Permissions in IBKR's account settings; Canary checks
+               again at its next start or within a day.\x1b[0m
+\x1b[2mOptions       \x1b[0m enabled at IBKR (your preview, 2026-09-05 12:00 UTC)
 

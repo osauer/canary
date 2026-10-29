@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v3.30.0 — Unreleased
 
+### Added
+
+- Canary learns the account's trading permission per product class from IBKR's answer to a preview (owner decision 2026-10-29 07:14 CET). The daemon checks futures at each start and then daily with a preview of one Micro E-mini S&P 500 contract that sends no order; options, stocks and bonds are learned from your own previews. `canary trading status` shows each class and `canary status` a `Broker access` line, in yellow while a class is not enabled. An opening or increasing order in such a class, the index hedge included, is refused before the broker with `broker_permission_not_enabled`.
+
 ### Changed
 
 - Daemon start writes `[mandate.iv_fallback]` (bands 65, 15 and 8; tiers 5 and 20) and `[mandate.index_hedge] max_contracts = 25` once into a risk constitution with a written `[mandate]`, after a backup and with a higher `policy_version` (owner decision 2026-10-29 07:06 CET). A commented-out proposal of either table is activated in place; a table the owner wrote is kept, and one deleted afterwards is not written again. Placing a hedge still needs the trader's request and device confirmation.

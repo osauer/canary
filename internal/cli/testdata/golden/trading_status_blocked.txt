@@ -11,6 +11,8 @@ Capabilities   preview=true write=false
 Freeze         on (generation 4)
 Open orders    0
 Live override  blocked
+Futures        not checked yet. Canary checks with a preview once the gateway is
+               connected and trading is on.
 
 Blockers:
   - live_override_missing: live trading needs the live override
@@ -32,6 +34,8 @@ Canary Trading  \x1b[33m\x1b[1mBLOCKED\x1b[0m\x1b[0m
 \x1b[2mFreeze        \x1b[0m \x1b[33mon (generation 4)\x1b[0m
 \x1b[2mOpen orders   \x1b[0m 0
 \x1b[2mLive override \x1b[0m blocked
+\x1b[2mFutures       \x1b[0m not checked yet. Canary checks with a preview once the gateway is
+               connected and trading is on.
 
 Blockers:
   - live_override_missing: live trading needs the live override

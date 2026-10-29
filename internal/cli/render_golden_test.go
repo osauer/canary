@@ -210,10 +210,17 @@ func renderGoldenCases() []renderGoldenCase {
 	stale := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityStale, LastSuccessAt: new(goldenAt.Add(-2 * time.Hour)), LastSuccessAgeSeconds: new(int64(7200)), FailureCode: rpc.RegimeAuthorityFailureRefreshTimeout}
 	readyTrading := rpc.TradingStatus{Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3,
 		OrderLimits: &risk.OrderLimitsInForce{Complete: true, BaseCurrency: "EUR", CapBase: 12000, CapBound: risk.OrderCapBoundPctNLV, Summary: "12,000 EUR (5% of NLV 240,000 EUR; [order_limits])",
-			MaxOptionContracts: 5, MaxBondMaturityYears: 30}}
+			MaxOptionContracts: 5, MaxBondMaturityYears: 30},
+		BrokerPermissions: []rpc.BrokerPermission{
+			{Class: rpc.BrokerPermissionFutures, State: rpc.BrokerPermissionNotEnabled, CheckedAt: goldenAt, Source: "Canary's daily check", Detail: "No trading permission for this product",
+				Action: "Enable futures under Settings › Trading Permissions in IBKR's account settings; Canary checks again at its next start or within a day."},
+			{Class: rpc.BrokerPermissionOptions, State: rpc.BrokerPermissionEnabled, CheckedAt: goldenAt, Source: "your preview"},
+		}}
 	blockedTrading := rpc.TradingStatus{Mode: config.TradingModeLive, Endpoint: "127.0.0.1:4001", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, LiveOverride: rpc.TradingLiveOverrideBlocked, Blocked: true, Freeze: true, TradingControlGeneration: 4,
 		Blockers:      []rpc.TradingBlocker{{Code: "live_override_missing", Message: "live trading needs the live override", Action: "set the live override in config.toml"}},
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
+		BrokerPermissions: []rpc.BrokerPermission{{Class: rpc.BrokerPermissionFutures, State: rpc.BrokerPermissionUnknown,
+			Action: "Canary checks with a preview once the gateway is connected and trading is on."}},
 	}
 	diagnosticHealth := goldenHealthReady(readyTrading)
 	diagnosticHealth.ServerVersion = 203

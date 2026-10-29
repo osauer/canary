@@ -2578,6 +2578,41 @@ type TradingStatus struct {
 	// bound, or the missing keys that refuse every preview. Absent while
 	// order entry is disabled.
 	OrderLimits *risk.OrderLimitsInForce `json:"order_limits,omitempty"`
+	// BrokerPermissions is what IBKR's own previews showed about the
+	// account's trading permission per product class. IBKR offers no read of
+	// the permissions, so each state is evidence: a preview the broker
+	// accepted or refused for want of permission. Futures carry a row
+	// always; another class once a preview has shown it.
+	BrokerPermissions []BrokerPermission `json:"broker_permissions,omitempty"`
+}
+
+// Broker permission classes and states.
+const (
+	BrokerPermissionFutures = "futures"
+	BrokerPermissionOptions = "options"
+	BrokerPermissionStocks  = "stocks"
+	BrokerPermissionBonds   = "bonds"
+
+	BrokerPermissionEnabled    = "enabled"
+	BrokerPermissionNotEnabled = "not_enabled"
+	BrokerPermissionUnknown    = "unknown"
+
+	// BrokerPermissionNotEnabledCode is the blocker of an order or plan in a
+	// class IBKR refused for want of permission.
+	BrokerPermissionNotEnabledCode = "broker_permission_not_enabled"
+)
+
+// BrokerPermission is one product class's trading permission at IBKR as the
+// broker's last preview showed it. CheckedAt is when; Source says which
+// preview (Canary's daily check or the trader's own); Detail carries the
+// broker's refusal text, or why the state is still unknown.
+type BrokerPermission struct {
+	Class     string    `json:"class"`
+	State     string    `json:"state"`
+	CheckedAt time.Time `json:"checked_at,omitzero"`
+	Source    string    `json:"source,omitempty"`
+	Detail    string    `json:"detail,omitempty"`
+	Action    string    `json:"action,omitempty"`
 }
 
 // Order constants are the allowlisted action, order-type, time-in-force,

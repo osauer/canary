@@ -11,6 +11,8 @@ API protocol   176 negotiated · 203 client ceiling
 Gateway setup  as expected · read 12:01
 Subsystems     all 3 ready
 Trading        paper ready
+Broker access  futures not enabled at IBKR, index hedge cannot be placed ·
+               options enabled
 Executions     all clients (proven 13:35)
 Strategies     core live · row BUY 908 SYNX for 2026-09-04 · generated, opening
                window
@@ -34,6 +36,8 @@ IBKR Gateway  \x1b[32m\x1b[1mREADY\x1b[0m\x1b[0m
 \x1b[2mGateway setup \x1b[0m \x1b[32mas expected\x1b[0m · read 12:01
 \x1b[2mSubsystems    \x1b[0m \x1b[32mall 3 ready\x1b[0m
 \x1b[2mTrading       \x1b[0m \x1b[32mpaper ready\x1b[0m
+\x1b[2mBroker access \x1b[0m \x1b[33mfutures not enabled at IBKR, index hedge cannot be placed ·
+               options enabled\x1b[0m
 \x1b[2mExecutions    \x1b[0m \x1b[32mall clients (proven 13:35)\x1b[0m
 \x1b[2mStrategies    \x1b[0m core live · row BUY 908 SYNX for 2026-09-04 · generated, opening
                window

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -91,6 +92,9 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 			statusRow(env, out, "Order limits", env.yellow(l.Summary))
 		}
 	}
+	for _, p := range st.BrokerPermissions {
+		statusRow(env, out, brokerPermissionLabel(p.Class), formatBrokerPermission(env, p))
+	}
 	if len(st.Blockers) > 0 {
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Blockers:")
@@ -177,4 +181,63 @@ func policyPermission(allowed bool) string {
 		return "allowed by policy"
 	}
 	return "not allowed by policy"
+}
+
+// brokerPermissionLabel names a permission class as a status row.
+func brokerPermissionLabel(class string) string {
+	return strings.ToUpper(class[:1]) + class[1:]
+}
+
+// formatBrokerPermission says what IBKR's last preview showed about one
+// class: enabled, not enabled with what to do, or not yet known.
+func formatBrokerPermission(env *Env, p rpc.BrokerPermission) string {
+	when := ""
+	if !p.CheckedAt.IsZero() {
+		when = " (" + p.Source + ", " + p.CheckedAt.UTC().Format("2006-01-02 15:04 UTC") + ")"
+	}
+	switch p.State {
+	case rpc.BrokerPermissionEnabled:
+		return "enabled at IBKR" + when
+	case rpc.BrokerPermissionNotEnabled:
+		text := "not enabled at IBKR" + when
+		if p.Class == rpc.BrokerPermissionFutures {
+			text += "; the index hedge cannot be placed"
+		}
+		return env.yellow(text + ". " + p.Action)
+	default:
+		text := "not checked yet"
+		if p.Detail != "" {
+			text += ": " + p.Detail
+		}
+		if p.Action != "" {
+			text += ". " + p.Action
+		}
+		return text
+	}
+}
+
+// formatBrokerAccessValue is the status summary of the permission states.
+func formatBrokerAccessValue(env *Env, perms []rpc.BrokerPermission) string {
+	var parts []string
+	warn := false
+	for _, p := range perms {
+		switch p.State {
+		case rpc.BrokerPermissionEnabled:
+			parts = append(parts, p.Class+" enabled")
+		case rpc.BrokerPermissionNotEnabled:
+			warn = true
+			part := p.Class + " not enabled at IBKR"
+			if p.Class == rpc.BrokerPermissionFutures {
+				part += ", index hedge cannot be placed"
+			}
+			parts = append(parts, part)
+		default:
+			parts = append(parts, p.Class+" not checked yet")
+		}
+	}
+	value := strings.Join(parts, " · ")
+	if warn {
+		return env.yellow(value)
+	}
+	return value
 }
