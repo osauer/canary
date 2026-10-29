@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-10-23 11:54 WEST
+Updated: 2026-10-29 08:32 CET
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 It does preview: once `[trading].mode` is paper or live, `canary order preview`
@@ -85,10 +85,13 @@ it and no order is sent (owner decision 2026-10-29 07:14 CET). Options,
 stocks and bonds are learned from your own previews. `canary trading status`
 shows a row per class, and `canary status` a `Broker access` line, in yellow
 while a class is not enabled. An order that opens or adds to a position in
-such a class is refused before the broker with
-`broker_permission_not_enabled`, the index hedge included; a reduction or a
-close stays open. Once you enable the class in IBKR's account settings, the
-next start or the next daily check shows it.
+such a class retains `broker_permission_not_enabled` until a fresh broker
+preview confirms permission; a reduction or a close stays open. After enabling
+stocks, options or bonds at IBKR, request another order preview in Canary,
+even after a restart. An accepted WhatIf updates the remembered permission;
+a rejected, unavailable or failed check keeps the refusal. Futures keep their
+next-start and daily checks, including the index hedge's opening gate. All
+other risk and submission gates still apply.
 
 ## Bond orders
 

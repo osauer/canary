@@ -210,7 +210,12 @@ func brokerPermissionView(class string, rec brokerPermissionRecord, ok bool) rpc
 	}
 	switch {
 	case v.State == rpc.BrokerPermissionNotEnabled:
-		v.Action = "Enable " + class + " under Settings › Trading Permissions in IBKR's account settings; Canary checks again at its next start or within a day."
+		v.Action = "Enable " + class + " under Settings › Trading Permissions in IBKR's account settings; "
+		if class == rpc.BrokerPermissionFutures {
+			v.Action += "Canary checks again at its next start or within a day."
+		} else {
+			v.Action += "then request another order preview in Canary to check again."
+		}
 	case v.State == rpc.BrokerPermissionUnknown && class == rpc.BrokerPermissionFutures:
 		v.Action = "Canary checks with a preview once the gateway is connected and trading is on."
 	}
@@ -268,9 +273,9 @@ func (s *Server) brokerPermissionBlocker(contract rpc.ContractParams) *rpc.Tradi
 }
 
 // noteBrokerPermissionPreview records the class evidence of the trader's own
-// preview.
-func (s *Server) noteBrokerPermissionPreview(ctx context.Context, draft rpc.OrderDraft, w rpc.OrderWhatIfResult) {
-	if err := s.brokerPermissions.observe(ctx, s.currentBrokerStateScope(), brokerPermissionClass(draft.Contract), brokerPermissionSourcePreview, w, s.nowUTC()); err != nil {
+// preview, attributed to the scope captured before its broker request.
+func (s *Server) noteBrokerPermissionPreview(ctx context.Context, scope brokerStateScope, draft rpc.OrderDraft, w rpc.OrderWhatIfResult) {
+	if err := s.brokerPermissions.observe(ctx, scope, brokerPermissionClass(draft.Contract), brokerPermissionSourcePreview, w, s.nowUTC()); err != nil {
 		s.warnf("broker permissions: %v", err)
 	}
 }

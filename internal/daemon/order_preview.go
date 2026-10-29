@@ -468,8 +468,10 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 			return nil, err
 		}
 	}
-	if b := s.brokerPermissionBlocker(contract); b != nil && position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
-		return nil, refusePreview(errBadRequest(b.Message), *b)
+	if isFuture {
+		if b := s.brokerPermissionBlocker(contract); b != nil && position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
+			return nil, refusePreview(errBadRequest(b.Message), *b)
+		}
 	}
 
 	var quote rpc.OrderQuoteSnapshot
@@ -616,17 +618,26 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if mandateBlocker != nil {
 		return nil, refusePreview(errBadRequest(mandateBlocker.Message), *mandateBlocker)
 	}
+	permissionScope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
 	var whatIf rpc.OrderWhatIfResult
 	if scope == rpc.OrderTokenScopeModify {
 		whatIf, err = s.fetchModifyPreviewWhatIfBound(ctx, status, replaceView, draft, timeout, previewAuthority)
 	} else {
 		whatIf, err = s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, previewAuthority)
-		if err == nil {
-			s.noteBrokerPermissionPreview(ctx, draft, whatIf)
-		}
 	}
 	if err != nil {
 		return nil, previewStageRefusal(previewWhatIfFailedCode, err)
+	}
+	if previewAuthority != nil && !s.orderPreviewBrokerAuthorityCurrent(previewAuthority) {
+		return nil, refusePreviewCode(previewBrokerSessionChangedCode, fmt.Errorf("%w: broker session changed during permission preview", ErrTradingDisabled))
+	}
+	// Non-futures permissions are learned only from requested previews. Let
+	// their fresh WhatIf answer replace an old denial before applying it;
+	// an inconclusive answer keeps the denial and cannot mint a token.
+	// Modification previews supply the same permission evidence.
+	s.noteBrokerPermissionPreview(ctx, permissionScope, draft, whatIf)
+	if b := s.brokerPermissionBlocker(contract); b != nil && position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
+		return nil, refusePreview(errBadRequest(b.Message), *b)
 	}
 	if bondRequest != nil && action == rpc.OrderActionBuy && whatIf.Status == rpc.OrderWhatIfStatusAccepted {
 		// The order unit is an assumption (A5); the broker's own margin figure

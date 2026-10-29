@@ -94,11 +94,11 @@ func TestBrokerPermissionEvidenceKeepsWhatItKnows(t *testing.T) {
 	}
 
 	opt := rpc.OrderDraft{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT"}}
-	s.noteBrokerPermissionPreview(t.Context(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"})
 	if v := s.handleTradingStatus().BrokerPermissions; len(v) != 1 {
 		t.Fatalf("a margin refusal of a preview showed options: %+v", v)
 	}
-	s.noteBrokerPermissionPreview(t.Context(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
 	v := s.handleTradingStatus().BrokerPermissions
 	if len(v) != 2 || v[1].Class != rpc.BrokerPermissionOptions || v[1].State != rpc.BrokerPermissionEnabled || v[1].Source != brokerPermissionSourcePreview {
 		t.Fatalf("options after an accepted preview = %+v", v)
