@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"golang.org/x/net/html"
 )
 
 const shortInterestIndexURL = "https://www.finra.org/finra-data/browse-catalog/equity-short-interest/files"
@@ -29,24 +31,52 @@ type shortInterestPublication struct {
 	Rows           []rpc.ShortInterestRow `json:"rows"`
 }
 
-var shortInterestLink = regexp.MustCompile(`https://cdn\.finra\.org/equity/otcmarket/biweekly/shrt([0-9]{8})\.csv`)
+var shortInterestLink = regexp.MustCompile(`^https://cdn\.finra\.org/equity/otcmarket/biweekly/shrt([0-9]{8})\.csv$`)
+
+func shortInterestURLDate(url string, now time.Time) (string, error) {
+	match := shortInterestLink.FindStringSubmatch(url)
+	if match == nil {
+		return "", errors.New("invalid FINRA publication URL")
+	}
+	day, err := time.Parse("20060102", match[1])
+	if err != nil || day.After(now) || now.Sub(day) > 60*24*time.Hour {
+		return "", errors.New("invalid FINRA publication date")
+	}
+	return day.Format(time.DateOnly), nil
+}
 
 func shortInterestLatestURL(body []byte, now time.Time) (string, string, error) {
 	latest, url := "", ""
-	for _, match := range shortInterestLink.FindAllStringSubmatch(string(body), -1) {
-		day, err := time.Parse("20060102", match[1])
-		if err != nil || day.After(now) || now.Sub(day) > 60*24*time.Hour {
+	// Match a complete link target, not a FINRA-looking substring inside
+	// another URL or page text. The existing HTML tokenizer decodes hrefs.
+	tokens := html.NewTokenizer(bytes.NewReader(body))
+	for tokens.Next() != html.ErrorToken {
+		token := tokens.Token()
+		if token.Type != html.StartTagToken && token.Type != html.SelfClosingTagToken {
 			continue
 		}
-		if match[1] > latest {
-			latest, url = match[1], match[0]
+		if token.Data != "a" {
+			continue
+		}
+		href := ""
+		for _, attr := range token.Attr {
+			if attr.Key == "href" {
+				href = attr.Val
+				break
+			}
+		}
+		date, err := shortInterestURLDate(href, now)
+		if err != nil {
+			continue
+		}
+		if date > latest {
+			latest, url = date, href
 		}
 	}
 	if url == "" {
 		return "", "", errors.New("no recent FINRA publication link")
 	}
-	day, _ := time.Parse("20060102", latest)
-	return url, day.Format(time.DateOnly), nil
+	return url, latest, nil
 }
 
 func fetchShortInterest(ctx context.Context, now time.Time) (shortInterestPublication, error) {

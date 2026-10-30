@@ -75,7 +75,7 @@ var structSources = []structSource{
 		Root:    "opportunityPolicy",
 		Heading: "Opportunity policy file",
 		Intro: "Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/policies/opportunity-policy.toml`). " +
-			"Same envelope, reload discipline and materialization as the protection policy; `canary policy default opportunity` prints Canary's defaults. " +
+			"Same envelope, reload discipline and materialization as the protection policy, except that valid `[add]` picker-band edits apply on reload without a higher `policy_version`; `canary policy default opportunity` prints Canary's defaults. " +
 			"Controls option-exercise detection and eligibility; no automatic exercise is supported. Schema 2 requires all effective fields of an enabled detector. Schema 1 preserves historical zero/false omissions with diagnostics. Legacy profile and retired authority switches select no preset and grant no permission.",
 	},
 }

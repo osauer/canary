@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/osauer/canary/v2/canarytest"
@@ -16,7 +17,7 @@ func answer(raw string) canarytest.Handler {
 }
 
 const (
-	availablePositions = `{"as_of":"2026-02-02T15:00:00Z","authority":{"availability":"available"},
+	availablePositions = `{"as_of":"2026-02-02T15:00:00Z","authority":{"availability":"available","scope":{"account_mode":"live"}},
 		"stocks":[{"symbol":"ZQXNEW","sec_type":"STK"},{"symbol":"ZQXK B","sec_type":"STK"}],
 		"options":[{"symbol":"ZQXOPT","local_symbol":"ZQXOPT1 260918C00005000","sec_type":"OPT"}]}`
 	liveAccount = `{"as_of":"2026-02-02T15:00:00Z","net_liquidation":618034.27,
@@ -80,5 +81,18 @@ func TestNoDaemonReachable(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run(t.Context(), filepath.Join(t.TempDir(), "absent.sock"), &out, &errOut); code != exitNoDaemon || out.Len() != 0 {
 		t.Fatalf("exit %d, stdout %q", code, out.String())
+	}
+}
+
+func TestPaperOrUnknownHoldingsCannotReplaceLiveDenylist(t *testing.T) {
+	for _, positions := range []string{
+		strings.Replace(availablePositions, `"account_mode":"live"`, `"account_mode":"paper"`, 1),
+		`{"authority":{"availability":"available","scope":{"account_mode":"paper"}},"stocks":[],"options":[]}`,
+		`{"authority":{"availability":"available"},"stocks":[],"options":[]}`,
+	} {
+		got, code := read(t, positions, liveAccount)
+		if code != 0 || !strings.HasPrefix(got, "holdings|unavailable|") || strings.Contains(got, "held|") {
+			t.Fatalf("non-live positions supplied a replacement denylist: exit %d, rows:\n%s", code, got)
+		}
 	}
 }

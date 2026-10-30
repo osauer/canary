@@ -648,6 +648,7 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 # the Git tree. Structural and link checks inspect the exact artifact deployed.
 docs-html-check: ## Build and verify the complete Pages artifact
 	@go -C scripts/docgen/docs-html test ./...
+	@node --test scripts/copy-lint_test.mjs
 	@node scripts/render-architecture.mjs --check
 	@$(MAKE) pages-build
 	@node scripts/copy-lint.mjs --claims-only dist/pages/index.html --skip /reference/ dist/pages

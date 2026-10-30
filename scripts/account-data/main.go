@@ -50,6 +50,10 @@ func run(ctx context.Context, socket string, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "holdings|unavailable|%s\n", oneLine(err.Error()))
 	} else if why := unavailable(positions.Authority); why != "" {
 		fmt.Fprintf(out, "holdings|unavailable|%s\n", why)
+	} else if positions.Authority.Scope.AccountMode != rpc.AccountModeLive {
+		// A paper or unidentified book cannot replace the saved live denylist
+		// or prove that the live account is flat. Keep the gate's fallback.
+		fmt.Fprintln(out, "holdings|unavailable|the selected account is not live")
 	} else {
 		fmt.Fprintf(out, "holdings|available|%s\n", day(positions.AsOf))
 		for _, p := range append(positions.Stocks, positions.Options...) {

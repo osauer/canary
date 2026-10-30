@@ -245,6 +245,16 @@ money|unavailable|not_connected'
 expect "holdings checked against the private cache (the daemon has no broker data: not_connected)"
 expect "money check SKIPPED — the daemon has no live account data (not_connected)"
 
+# A paper or unidentified book cannot replace the saved live symbols, even
+# when its own holdings are empty. The reader emits unavailable for both.
+saved_holdings=$(cat "$cache")
+reader 0 'holdings|unavailable|the selected account is not live
+money|paper|'
+! gate || fail "a paper session bypassed the saved live holding"
+expect "holdings checked against the private cache"
+[ "$(cat "$cache")" = "$saved_holdings" ] || fail "paper scope replaced the live denylist"
+withheld ZQXOPT
+
 # A failed holdings grep fails the check rather than passing it.
 reader 0 "$held_rows
 $book
@@ -256,13 +266,11 @@ stage fixture.txt 'safe fixture DU1234567'
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed holdings grep passed"
 expect "git grep failed"
 
-# A flat live book has nothing to check and says so; a paper account is not
-# the live book.
-reader 0 'holdings|available|2026-02-02
-money|paper|'
-gate || fail "a flat book or a paper account was rejected"
+# A flat live book has nothing to check and says so.
+reader 0 "holdings|available|2026-02-02
+$book"
+gate || fail "a flat live book was rejected"
 expect "the running daemon reports no current holdings"
-expect "money check SKIPPED — the connected account is not the live book"
 reader 0 "$held_rows
 $book
 $cash"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,19 @@ func TestShortInterestDurableCacheAndShutdown(t *testing.T) {
 	s.marketData.loopWG.Wait()
 	if len(s.shortInterest.publication.Rows) != 1 {
 		t.Fatal("cache not restored")
+	}
+	for _, url := range []string{
+		"https://example.invalid/?next=" + p.URL,
+		p.URL + "?redirect=elsewhere",
+		p.URL + "/other",
+		`<a href="` + p.URL + `">report</a>`,
+		strings.Replace(p.URL, "20260915", "20260115", 1),
+	} {
+		bad := p
+		bad.URL = url
+		if validShortInterestPublication(bad, now) {
+			t.Fatalf("accepted invalid cached source URL %q", url)
+		}
 	}
 	p.FetchedAt = now.Add(time.Hour)
 	if validShortInterestPublication(p, now) {

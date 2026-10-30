@@ -33,13 +33,23 @@ func TestShortInterestParser(t *testing.T) {
 func TestShortInterestSourceLink(t *testing.T) {
 	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	good := "https://cdn.finra.org/equity/otcmarket/biweekly/shrt20260915.csv"
-	url, date, err := shortInterestLatestURL([]byte(good+" https://cdn.finra.org/equity/otcmarket/biweekly/shrt20261231.csv"), now)
+	url, date, err := shortInterestLatestURL([]byte(`<a href="`+good+`">current</a><a href="https://cdn.finra.org/equity/otcmarket/biweekly/shrt20261231.csv">future</a>`), now)
 	if err != nil || url != good || date != "2026-09-15" {
 		t.Fatal(url, date, err)
 	}
 	for _, bad := range []string{"https://evil.example/shrt20260915.csv", strings.Replace(good, "20260915", "20260115", 1), strings.Replace(good, "20260915", "20269999", 1)} {
-		if _, _, err := shortInterestLatestURL([]byte(bad), now); err == nil {
+		if _, _, err := shortInterestLatestURL([]byte(`<a href="`+bad+`">report</a>`), now); err == nil {
 			t.Fatal("bad link accepted")
+		}
+	}
+}
+
+func TestShortInterestSourceDoesNotExtractURLsInsideOtherLinks(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	good := "https://cdn.finra.org/equity/otcmarket/biweekly/shrt20260915.csv"
+	for _, link := range []string{"https://example.invalid/?next=" + good, good + "/other", good + "?redirect=elsewhere", good + ".invalid"} {
+		if got, _, err := shortInterestLatestURL([]byte(`<a href="`+link+`">report</a>`), now); err == nil {
+			t.Fatalf("extracted publication %q from a different link %q", got, link)
 		}
 	}
 }

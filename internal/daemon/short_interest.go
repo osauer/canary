@@ -91,8 +91,8 @@ func validShortInterestPublication(p shortInterestPublication, now time.Time) bo
 	if p.FetchedAt.IsZero() || p.FetchedAt.After(now) || len(p.Rows) == 0 || len(p.Rows) > shortInterestMaxRows || p.Skipped < 0 {
 		return false
 	}
-	url, date, e := shortInterestLatestURL([]byte(p.URL), now)
-	if e != nil || url != p.URL || date != p.SettlementDate {
+	date, e := shortInterestURLDate(p.URL, now)
+	if e != nil || date != p.SettlementDate {
 		return false
 	}
 	day, e := time.Parse(time.DateOnly, date)

@@ -3888,6 +3888,9 @@ func (c *Connection) setClientIDInUseErrorAtEpoch(epoch uint64, message string) 
 
 // sendMessage sends a length-prefixed message with rate limiting
 func (c *Connection) sendMessage(msg []byte) error {
+	if len(msg) == 0 {
+		return definitelyUnsent(fmt.Errorf("cannot send an empty broker message"))
+	}
 	// Check connection status before queueing - reject if disconnecting
 	c.statusMu.RLock()
 	status := c.status
@@ -3995,6 +3998,14 @@ func (c *Connection) sendMessageWithMarketDataMode(ctx context.Context, msg []by
 func (c *Connection) sendBoundFrames(ctx context.Context, msg []byte, reqType RequestType, epoch uint64, requireEpoch bool, guard func() error, dataType int, additional [][]byte) error {
 	// Broker instructions and epoch-bound authority reads must be exactly-once
 	protectedSend := requireEpoch || reqType == RequestTypeOrder
+	if len(msg) == 0 {
+		return brokerSendError(fmt.Errorf("cannot send an empty broker message"), SendDispositionDefinitelyUnsent, protectedSend)
+	}
+	for _, frame := range additional {
+		if len(frame) == 0 {
+			return brokerSendError(fmt.Errorf("cannot send an empty broker message"), SendDispositionDefinitelyUnsent, protectedSend)
+		}
+	}
 	outboundState := c.outboundSessionState.Load()
 	// Check connection status before queueing - reject if disconnecting
 	c.statusMu.RLock()
@@ -4607,15 +4618,19 @@ func (c *Connection) encodeMsg(fields ...any) []byte {
 			// For v100+: encode msgID as 4-byte binary, NO null terminator
 			switch v := field.(type) {
 			case int:
+				if v < math.MinInt32 || v > math.MaxInt32 {
+					return nil
+				}
 				binary.Write(&buf, binary.BigEndian, int32(v))
 			case int32:
 				binary.Write(&buf, binary.BigEndian, v)
 			case int64:
+				if v < math.MinInt32 || v > math.MaxInt32 {
+					return nil
+				}
 				binary.Write(&buf, binary.BigEndian, int32(v))
 			default:
-				ibkrLogger.Warnf("Non-integer message type %T: %v", field, field)
-				buf.WriteString(fmt.Sprintf("%v", v))
-				buf.WriteByte('\x00')
+				return nil
 			}
 			continue
 		}

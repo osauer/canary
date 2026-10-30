@@ -851,15 +851,15 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 	if err := validateOrderRiskAuthority(limits, draft, current.Impact, currentNotional, current.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return fmt.Errorf("%w: current trading controls reject the order: %v", ErrTradingDisabled, err)
 	}
-	if err := s.riskPolicyBrakeError(draft, current.Impact); err != nil {
-		return err
-	}
 	premiumFillBinding, err := s.prepareMandatePremium(ctx, draft, current.Impact)
 	if err != nil {
 		return fmt.Errorf("%w: Mandate premium: %v", ErrTradingDisabled, err)
 	}
 	if premiumFillBinding != nil {
 		binding.reduceFillEvidence = premiumFillBinding
+	}
+	if err := s.riskPolicyBrakeError(draft, current.Impact); err != nil {
+		return err
 	}
 	if err := s.mandateBudgetGateError(draft, current.Impact); err != nil {
 		return err

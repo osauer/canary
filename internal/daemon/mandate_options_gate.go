@@ -9,7 +9,6 @@ import (
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // Options at the additions gate (owner decision 2026-10-23 18:22 CEST):
@@ -178,12 +177,19 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 // The final physical-wire guard reads only that receipt and durable journal;
 // it must never initiate broker I/O while holding the transport lock.
 func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft, position rpc.OrderPositionImpact) (*protectionOrderSnapshotBinding, error) {
-	if s == nil || s.riskPolicies == nil || s.riskCapital == nil || !mandateOptionAddition(draft) || !s.riskAddingOrder(draft, position) || !s.riskPolicies.snapshot().policy.MandateActive() {
+	if s == nil || s.riskPolicies == nil || s.riskCapital == nil || !mandateOptionAddition(draft) || isRiskReducing(position.Effect) || !s.riskPolicies.snapshot().policy.MandateActive() {
+		return nil, nil
+	}
+	putCover := strings.EqualFold(draft.Contract.Right, "P") && !s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol)
+	if !putCover && !s.riskAddingOrder(draft, position) {
 		return nil, nil
 	}
 	snapshot, snapshotScope, err := s.brokerOpenOrderInventory(ctx, false)
 	if err != nil {
 		return nil, err
+	}
+	if !sameBrokerScope(snapshotScope, s.currentBrokerStateScope()) || !protectionOrderSnapshotUsable(snapshot, s.orderNow()) {
+		return nil, fmt.Errorf("current broker purchase commitments are unavailable")
 	}
 	_, input, _, _ := s.currentMandateVerdict()
 	if input == nil {
@@ -197,6 +203,11 @@ func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft
 	// Include filled contracts absent from the cached positions as zero: their
 	// absence must agree with the request-correlated broker receipt too.
 	contracts := map[int]rpc.ContractParams{}
+	needsFill := func(c rpc.ContractParams, action string) bool {
+		return strings.EqualFold(c.SecType, "OPT") && strings.EqualFold(action, rpc.OrderActionBuy) ||
+			putCover && (strings.EqualFold(c.SecType, "STK") || strings.EqualFold(c.SecType, "ETF")) &&
+				normSym(c.Symbol) == normSym(draft.Contract.Symbol) && strings.EqualFold(action, rpc.OrderActionSell)
+	}
 	for i := range inventory.views {
 		view := &inventory.views[i]
 		if view.Filled <= 0 || !orderViewMatchesBrokerScope(*view, before.scope) {
@@ -208,33 +219,48 @@ func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft
 				return nil, fmt.Errorf("filled combination premium legs are unknown")
 			}
 			for _, leg := range legs {
-				if strings.EqualFold(leg.Contract.SecType, "OPT") && strings.EqualFold(leg.Action, rpc.OrderActionBuy) {
+				if needsFill(leg.Contract, leg.Action) {
 					if leg.Contract.ConID <= 0 {
 						return nil, fmt.Errorf("filled option identity is unknown")
 					}
 					contracts[leg.Contract.ConID] = leg.Contract
 				}
 			}
-		} else if strings.EqualFold(view.SecType, "OPT") && strings.EqualFold(view.Action, rpc.OrderActionBuy) {
+		} else if needsFill(rpc.ContractParams{SecType: view.SecType, Symbol: view.Symbol}, view.Action) {
 			if view.ConID <= 0 {
 				return nil, fmt.Errorf("filled option identity is unknown")
 			}
-			contracts[view.ConID] = rpc.ContractParams{ConID: view.ConID, Symbol: view.Symbol, SecType: "OPT", Currency: view.Currency}
+			contracts[view.ConID] = rpc.ContractParams{ConID: view.ConID, Symbol: view.Symbol, SecType: view.SecType, Currency: view.Currency}
 		}
 	}
-	for _, row := range brokerWorkingOrders(snapshot, inventory.views, snapshotScope) {
-		order := row.Order
-		if order.Filled <= 0 {
+	for _, order := range snapshot.Orders {
+		if order.WhatIf || order.Filled <= 0 || order.Account != "" && !strings.EqualFold(order.Account, snapshotScope.Account) {
 			continue
 		}
-		if strings.EqualFold(order.SecType, "BAG") && row.Journal == nil {
-			return nil, fmt.Errorf("filled combination premium legs are unknown")
+		if strings.EqualFold(order.SecType, "BAG") {
+			matched := false
+			for _, view := range inventory.views {
+				if orderViewMatchesBrokerScope(view, snapshotScope) && openOrderSnapshotEventMatches(order, view) && view.OrderRef != "" && view.PreviewTokenID != "" && len(inventory.legsByRef[view.OrderRef]) > 0 {
+					matched = true
+					for _, leg := range inventory.legsByRef[view.OrderRef] {
+						if needsFill(leg.Contract, leg.Action) {
+							if leg.Contract.ConID <= 0 {
+								return nil, fmt.Errorf("filled option or share identity is unknown")
+							}
+							contracts[leg.Contract.ConID] = leg.Contract
+						}
+					}
+				}
+			}
+			if !matched {
+				return nil, fmt.Errorf("filled combination premium legs are unknown")
+			}
 		}
-		if strings.EqualFold(order.SecType, "OPT") && strings.EqualFold(order.Action, rpc.OrderActionBuy) {
+		if needsFill(rpc.ContractParams{SecType: order.SecType, Symbol: order.Symbol}, order.Action) {
 			if order.ConID <= 0 {
 				return nil, fmt.Errorf("filled option identity is unknown")
 			}
-			contracts[order.ConID] = rpc.ContractParams{ConID: order.ConID, Symbol: order.Symbol, SecType: "OPT", Currency: order.Currency}
+			contracts[order.ConID] = rpc.ContractParams{ConID: order.ConID, Symbol: order.Symbol, SecType: order.SecType, Currency: order.Currency}
 		}
 	}
 	held := make([]reduceHeldPosition, 0, len(contracts))
@@ -263,33 +289,10 @@ func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft
 // excludes the order being replaced (or the current staged send itself).
 func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Input, exposure *rpc.MandateExposureView, base string) (map[string]float64, error) {
 	scope := s.currentBrokerStateScope()
-	var snapshot ibkr.OpenOrderSnapshot
-	if s.openOrderInventoryForTest != nil {
-		var got brokerStateScope
-		var err error
-		snapshot, got, err = s.openOrderInventoryForTest(context.Background(), false)
-		if err != nil || !sameBrokerScope(got, scope) {
-			return nil, fmt.Errorf("current broker purchase commitments are unavailable")
-		}
-	} else {
-		binding := s.currentProtectionOrderSnapshotBinding()
-		var ok bool
-		snapshot, ok = s.cachedProtectionOrderSnapshot(binding, s.orderNow())
-		if !ok || !sameBrokerScope(binding.scope, scope) || !s.protectionOrderSnapshotBindingCurrent(binding) {
-			return nil, fmt.Errorf("current broker purchase commitments are unavailable")
-		}
-	}
-	if !protectionOrderSnapshotUsable(snapshot, s.orderNow()) {
-		return nil, fmt.Errorf("current broker purchase commitments are unavailable")
-	}
-	if s.orderJournal == nil {
-		return nil, fmt.Errorf("durable purchase commitments are unavailable")
-	}
-	events, err := s.orderJournal.LoadEvents(0)
+	snapshot, journal, events, err := s.currentMandateCommitments()
 	if err != nil {
-		return nil, fmt.Errorf("durable purchase commitments are unavailable")
+		return nil, err
 	}
-	journal := journalOrderInventoryFromEvents(events)
 	fills := mandatePremiumFillClock(events)
 	out := map[string]float64{}
 	add := func(view rpc.OrderView, remaining float64, legs map[int]rpc.StrategyOrderLeg, filledAt time.Time) error {

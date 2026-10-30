@@ -59,17 +59,25 @@ const walk = (p) => {
 };
 targets.forEach(walk);
 
+// This extracts prose for CLI diagnostics, never HTML for a browser. Decode
+// entities in one pass so a literal encoded entity stays literal; invalid
+// Unicode references become the replacement character instead of crashing.
+const entityText = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", rsquo: "'", lsquo: "'" };
+const decodeEntity = (entity, name, hex, decimal) => {
+  if (name) return Object.hasOwn(entityText, name) ? entityText[name] : entity;
+  const codepoint = hex ? parseInt(hex, 16) : Number(decimal);
+  return codepoint > 0 && codepoint <= 0x10ffff && !(codepoint >= 0xd800 && codepoint <= 0xdfff)
+    ? String.fromCodePoint(codepoint) : "\ufffd";
+};
 const textOf = (html) => html
-  .replace(/<script[\s\S]*?<\/script>/gi, " ")
-  .replace(/<style[\s\S]*?<\/style>/gi, " ")
-  .replace(/<(pre|code)[\s\S]*?<\/\1>/gi, " ")
-  .replace(/<!--[\s\S]*?-->/g, " ")
+  .replace(/<script(?=[\t\n\f\r />])[^>]*>[\s\S]*?<\/script(?=[\t\n\f\r />])[^>]*>/gi, " ")
+  .replace(/<style(?=[\t\n\f\r />])[^>]*>[\s\S]*?<\/style(?=[\t\n\f\r />])[^>]*>/gi, " ")
+  .replace(/<(pre|code)(?=[\t\n\f\r />])[^>]*>[\s\S]*?<\/\1(?=[\t\n\f\r />])[^>]*>/gi, " ")
+  .replace(/<!--[\s\S]*?--!?>/g, " ")
   .replace(/<\/(p|li|h[1-6]|div|section|article|td|th|tr|figcaption|blockquote|title)>/gi, ".\n")
   .replace(/<br\s*\/?>/gi, "\n")
   .replace(/<[^>]+>/g, " ")
-  .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
-  .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
-  .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&rsquo;|&lsquo;/g, "'")
+  .replace(/&([a-z]+);|&#[xX]([0-9a-fA-F]+);|&#(\d+);/g, decodeEntity)
   .replace(/[ \t]+/g, " ");
 const sentences = (text) => text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.replace(/^[\s.]+|[\s.]+$/g, "")).filter((s) => s.split(" ").length >= 3);
 

@@ -47,7 +47,8 @@ type AddDeltaBand struct {
 
 // AddPutCover is what a protective put may still cover: the shares held
 // long, the shares the long puts held cover, and the contracts of 100 shares
-// that fit, as the protective put gate counts them (working orders are not).
+// left after working put purchases and share sales reserve their units.
+// It is unavailable when current holdings or commitments cannot be read.
 type AddPutCover struct {
 	HeldShares    float64 `json:"held_shares"`
 	CoveredShares float64 `json:"covered_shares"`

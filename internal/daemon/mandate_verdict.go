@@ -715,48 +715,32 @@ func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositio
 // it is not protection, so the gates judge it as an addition. Its premium
 // still counts in the loss measure and the premium figures once held.
 func (s *Server) protectivePut(draft rpc.OrderDraft) bool {
-	if !(draft.Quantity > 0) {
+	if draft.Quantity <= 0 || draft.Contract.Multiplier <= 0 || normCcy(draft.Contract.Currency) == "" {
 		return false
 	}
-	shares, covered, ok := s.heldPutCover(draft.Contract.Symbol)
-	mult := float64(draft.Contract.Multiplier)
-	if mult <= 0 {
-		mult = 100
-	}
-	return ok && shares > 0 && covered+float64(draft.Quantity)*mult <= shares+1e-9
-}
-
-// heldPutCover counts, on the kept mandate book, the shares of a name held
-// long and the shares its long puts cover; ok is false when the book cannot
-// be read. The protective put gate and Add's put cover read it alike.
-func (s *Server) heldPutCover(symbol string) (shares, covered float64, ok bool) {
 	input, _, _ := s.mandateCurrentInput()
-	if input == nil {
-		return 0, 0, false
+	shares, covered, ok := heldPutCoverIn(input, draft.Contract.Symbol, draft.Contract.Currency)
+	if !ok || shares <= 0 {
+		return false
 	}
-	sym := normSym(symbol)
-	for _, l := range input.Legs {
-		if normSym(l.Underlying) != sym || !(l.Quantity > 0) {
-			continue
-		}
-		switch {
-		case l.Kind == mandate.KindStock:
-			shares += l.Quantity
-		case l.Kind == mandate.KindOption && strings.EqualFold(l.Right, "P"):
-			covered += l.Quantity * l.Multiplier
-		}
-	}
-	return shares, covered, true
+	sold, bought, err := s.pendingPutCover(draft)
+	return err == nil && covered+bought+float64(draft.Quantity)*float64(draft.Contract.Multiplier) <= max(0, shares-sold)+1e-9
 }
 
 // addPutCover is what Add's put picker may still offer on the name: the
-// contracts of 100 shares the protective put gate would still accept.
-func (s *Server) addPutCover(symbol string) *rpc.AddPutCover {
-	shares, covered, ok := s.heldPutCover(symbol)
+// contracts of 100 shares left after held and working puts and share sales.
+// The caller prepares the inventory; an unread commitment proves no room.
+func (s *Server) addPutCover(contract rpc.ContractParams) *rpc.AddPutCover {
+	input, _, _ := s.mandateCurrentInput()
+	shares, covered, ok := heldPutCoverIn(input, contract.Symbol, contract.Currency)
 	if !ok {
 		return nil
 	}
-	return &rpc.AddPutCover{HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-covered+1e-9)/100)))}
+	sold, bought, err := s.pendingPutCover(rpc.OrderDraft{Contract: contract})
+	if err != nil {
+		return nil
+	}
+	return &rpc.AddPutCover{HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-sold-covered-bought+1e-9)/100)))}
 }
 
 // indexHedgeReduces classifies a SELL of the index future (owner decision

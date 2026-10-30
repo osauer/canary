@@ -233,8 +233,14 @@ beyond (owner, 2026-10-22 20:34 CEST: "max 0.5 for 30 days, 0.4 for 60 and 120
 days"). Default puts target 30/60/90/120 days with 0.30–0.40, 0.25–0.35 and
 0.20–0.30 for 90 and 120 days, judged on the delta's size. A put row comes with
 `put_cover`: the shares held long, the shares held long puts cover and the
-contracts that still fit, counted as the protective put gate counts them, and
-`add call-plan` holds a put's size there (`cover_capped`).
+contracts that still fit after working put purchases and share sales reserve
+their units. Working stops and trails reserve shares too; pending stock buys
+and put sales create no room before their fills reach positions. The first two
+figures remain actual holdings. Missing current holdings or order inventory
+makes `put_cover` unavailable; it is never reported as zero room on that basis.
+Discovery reads this shared inventory once within the existing short order-read
+bound, after the option lookup. `add call-plan` holds a put's size to the same
+remaining room (`cover_capped`) and its exact preview also checks fill coherence.
 Capped horizons aim at their target from the start, at the strike the stock's
 implied volatility puts there; the live option delta still decides. Without a
 live in-range call, a second round aims with the options' own volatility, or

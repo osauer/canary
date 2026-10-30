@@ -602,10 +602,6 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
-	brake, brakeWarnings := s.riskPolicyBrake(draft, position)
-	if brake != nil {
-		return nil, refusePreview(errBadRequest(brake.Message), *brake)
-	}
 	mandateDraft := draft
 	if scope == rpc.OrderTokenScopeModify {
 		mandateDraft.OrderRef = replaceView.OrderRef
@@ -613,6 +609,10 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	// Read broker inventory and correlated fill quantities outside the wire lock.
 	if _, err := s.prepareMandatePremium(ctx, mandateDraft, position); err != nil {
 		return nil, refusePreview(errBadRequest("Mandate premium: "+err.Error()), rpc.TradingBlocker{Code: rpc.MandatePremiumBlockerCode, Message: "Mandate premium: " + err.Error(), Action: "Refresh orders and positions before adding option premium."})
+	}
+	brake, brakeWarnings := s.riskPolicyBrake(mandateDraft, position)
+	if brake != nil {
+		return nil, refusePreview(errBadRequest(brake.Message), *brake)
 	}
 	mandateBlocker, mandateWarning := s.mandateBudgetJudgement(mandateDraft, position)
 	if mandateBlocker != nil {

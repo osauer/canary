@@ -88,9 +88,6 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	}
 	out := &rpc.AddMarketResult{Version: 1, Underlying: setupOptionContract(exact.Contract), OptionsSession: session.current, OptionsLastSession: session.last, OptionMode: session.mode, OptionCap: s.addOptionCap()}
 	out.PriceIncrements = addPriceRules(ctx, c, binding, exact)
-	if side.right == "P" {
-		out.PutCover = s.addPutCover(u.Symbol)
-	}
 	lap("rules")
 	var expiries []rpc.SetupOptionExpiry
 	var listing map[string][]ibkr.ExpiryClassedStrikes
@@ -195,6 +192,11 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 		} else {
 			out.Calls = rows
 		}
+	}
+	if side.right == "P" {
+		// Discovery can take several broker round trips. Read remaining cover
+		// after them so earlier capacity is not returned as current.
+		out.PutCover = s.readAddPutCover(ctx, out.Underlying)
 	}
 	if !c.HistoricalSessionCurrent(binding) || !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return nil, fmt.Errorf("broker session changed during Add discovery")

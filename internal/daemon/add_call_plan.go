@@ -29,9 +29,9 @@ func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.
 	// never offers more than the protective put gate accepts.
 	optionCap, room := s.addOptionCap(), -1
 	if side.right == "P" {
-		cover := s.addPutCover(c.Symbol)
+		cover := s.readAddPutCover(ctx, c)
 		if cover == nil {
-			return nil, errBadRequest("The held shares cannot be read to size a protective put")
+			return nil, errBadRequest("The held shares and working orders cannot be read to size a protective put")
 		}
 		if cover.RoomContracts == 0 {
 			return nil, errBadRequest("No held shares are left for a protective put to cover")

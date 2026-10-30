@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-10-29 08:32 CET
+Updated: 2026-10-30 18:16 CET
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 It does preview: once `[trading].mode` is paper or live, `canary order preview`
@@ -76,12 +76,13 @@ readings show a freeze that was set and lifted in between.
 ## Trading permissions at IBKR
 
 IBKR does not tell an application which products the account may trade, so
-Canary learns it from the broker's answer to an order preview: a preview
-IBKR evaluates shows the class enabled, one it refuses for want of
+Canary learns it from the broker's answer to an order preview: an accepted
+opening preview shows the class enabled, one it refuses for want of
 permission shows it not enabled. For futures, the class of the index hedge,
 the daemon checks itself at each start and then daily, with a preview of
-buying one Micro E-mini S&P 500 contract at half its price; IBKR evaluates
-it and no order is sent (owner decision 2026-10-29 07:14 CET). Options,
+buying one Micro E-mini S&P 500 contract at half its price, or selling one at
+twice its price when a short is held so the preview still opens exposure.
+IBKR evaluates it and no order is sent (owner decision 2026-10-29 07:14 CET). Options,
 stocks and bonds are learned from your own previews. `canary trading status`
 shows a row per class, and `canary status` a `Broker access` line, in yellow
 while a class is not enabled. An order that opens or adds to a position in
@@ -96,6 +97,19 @@ including the index hedge's opening gate: a check IBKR refuses for a reason
 other than permission no longer confirms a remembered refusal, so futures
 read unknown and the hedge's own preview asks IBKR again. All other risk and
 submission gates still apply.
+
+## Protective put purchases
+
+A put purchase can use the protective-put exemption only for shares still
+available to back it. Canary counts held long puts and working put purchases,
+and subtracts working share sales, including stops and trailing stops. A
+pending stock purchase or put sale creates no capacity until its fill appears
+in the positions. An uncertain send still reserves capacity.
+
+The daemon checks these commitments at preview, admission and the final send.
+Missing or conflicting order and position evidence grants no exemption. A
+purchase beyond available cover must satisfy the ordinary addition gates;
+the exemption never changes the order caps or confirmation requirements.
 
 ## Bond orders
 

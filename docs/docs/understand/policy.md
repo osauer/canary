@@ -80,13 +80,17 @@ use the gated CLI only after an explicit transaction-specific instruction from
 the user in that turn. Apps and dashboards render daemon results; they do not
 create policy or submission authority.
 
+The opportunity policy's `[add]` call and put picker bands are an exception to
+the version rule: valid edits apply on reload without raising `policy_version`.
+These bands choose suggestions and grant no order or exercise authority.
+
 ## How policy versions behave
 
 Within one running daemon, policy managers apply these rules:
 
 1. A valid first file or a valid higher `policy_version` is accepted.
 2. Identical content at the accepted version continues unchanged.
-3. Different content at the same or a lower version reports drift and keeps the
+3. Different effective policy content at the same or a lower version reports drift and keeps the
    last accepted in-memory version.
 4. Invalid syntax, unknown keys, or failed validation report an error and keep
    the last accepted in-memory version where one exists.
@@ -94,6 +98,10 @@ Within one running daemon, policy managers apply these rules:
    not a retirement command.
 6. A protection or opportunity file that failed at startup is accepted at any
    version once it reads again, so a repair is never held back as drift.
+
+The `[add]` picker bands are outside the opportunity policy's effective
+identity. Their edits follow the exception above; exercise controls retain
+the version checks.
 
 A drifted or unreadable file never blocks an exit, a trim or a read. The
 protection policy in force keeps generating reduce-only proposals, which stay
@@ -341,9 +349,9 @@ cannot join, a second stop and a hand order still count. When that list cannot b
 for example `another working order already sells 700 of the 1,000 SYNB
 shares you hold; with this one, more would be sold than you hold. Cancel it
 first`. The refusal then says why,
-for example `order notional 15,000 EUR exceeds the order cap in force 12,000
-EUR (5% of NLV 240,000 EUR; [order_limits]); the exit does not lower the
-absolute delta of SYNA (110,400 EUR before, 158,400 EUR after), so the cap
+for example `order notional 7,500 EUR exceeds the order cap in force 1,000
+EUR (1% of NLV 100,000 EUR; [order_limits]); the exit does not lower the
+absolute delta of SYNA (6,000 EUR before, 7,500 EUR after), so the cap
 applies`. Bills, bonds and conversions carry no equity delta and never
 qualify. A pre-authorised protection bucket's option exit passes the same way
 without a per-order approval, after its notice and veto window (owner
