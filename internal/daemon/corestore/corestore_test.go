@@ -691,3 +691,38 @@ func copyTestFile(t *testing.T, source, destination string) {
 		t.Fatal(err)
 	}
 }
+
+// A large transaction grows the WAL past the limit; once autocheckpoint resets
+// it, the next commit must truncate the file instead of keeping its high-water
+// size until the daemon restarts.
+func TestWALFileShrinksAfterLargeTransaction(t *testing.T) {
+	s, path := openTestStore(t)
+	big := []byte(`{"p":"` + strings.Repeat("y", 1<<20) + `"}`)
+	err := s.criticalMutation(t.Context(), func(tx *sql.Tx) error {
+		for i := range walSizeLimit>>20 + 8 {
+			if _, err := compareAndSwapStateTx(t.Context(), tx, StateDocumentCAS{ScopeKey: fmt.Sprintf("wal/%d", i), Kind: "wal_probe.v1", JSON: big}, time.Now()); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	walSize := func() int64 {
+		info, err := os.Stat(path + "-wal")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.Size()
+	}
+	if got := walSize(); got <= walSizeLimit {
+		t.Fatalf("setup: large transaction left WAL at %d bytes, want above %d", got, walSizeLimit)
+	}
+	if _, err := s.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "wal/small", Kind: "wal_probe.v1", JSON: []byte(`{"p":1}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if got := walSize(); got > walSizeLimit {
+		t.Fatalf("WAL stayed at %d bytes after a reset, want at most %d", got, walSizeLimit)
+	}
+}

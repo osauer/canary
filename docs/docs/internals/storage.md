@@ -205,6 +205,11 @@ controls, a bounded busy timeout, and one serialized connection. Serial access
 keeps writer ordering simple. It also means an unbounded read can delay a
 broker-critical write, so production reads need limits and indexes.
 
+SQLite's automatic checkpoint copies the WAL back into `daemon.db` every 1,000
+pages while the daemon runs. A `journal_size_limit` of 64 MiB then truncates
+the WAL file after each reset. Without it, one large transaction left the file
+at its largest size until the next restart.
+
 ### Startup gate
 
 Storage becomes ready before state adapters attach, the daemon serves RPC,

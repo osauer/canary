@@ -18,6 +18,13 @@ import (
 
 const defaultBusyTimeout = 5 * time.Second
 
+// walSizeLimit caps the WAL file left behind once a checkpoint resets it.
+// SQLite's default (-1) rewinds the WAL but keeps the file at its largest
+// size, so one large transaction pinned a 140 MB WAL until restart
+// (2026-10-30). 64 MiB keeps routine state-document churn from shrinking and
+// regrowing the file on every reset; it bounds disk only, never content.
+const walSizeLimit = 64 << 20
+
 // Store is the daemon-owned authoritative handle. Its database handle is
 // intentionally private so all writes pass through typed transactions.
 type Store struct {
@@ -228,6 +235,7 @@ func sqliteDSN(path string, busy time.Duration, readOnly bool) string {
 		q.Add("_pragma", "synchronous(FULL)")
 		q.Add("_pragma", "fullfsync(ON)")
 		q.Add("_pragma", "checkpoint_fullfsync(ON)")
+		q.Add("_pragma", "journal_size_limit("+strconv.Itoa(walSizeLimit)+")")
 		q.Add("_pragma", "foreign_keys(ON)")
 		q.Add("_pragma", "busy_timeout("+strconv.FormatInt(busy.Milliseconds(), 10)+")")
 		q.Set("_txlock", "immediate")
@@ -245,7 +253,7 @@ func verifyPragmas(ctx context.Context, db *sql.DB, busy time.Duration) error {
 	if strings.ToLower(journal) != "wal" {
 		return fmt.Errorf("verify journal mode: got %q, want wal", journal)
 	}
-	var synchronous, foreignKeys, busyMS, fullfsync, checkpointFullfsync int64
+	var synchronous, foreignKeys, busyMS, fullfsync, checkpointFullfsync, journalLimit int64
 	if err := db.QueryRowContext(ctx, `PRAGMA synchronous`).Scan(&synchronous); err != nil || synchronous != 2 {
 		return fmt.Errorf("verify synchronous FULL: value=%d error=%w", synchronous, err)
 	}
@@ -260,6 +268,9 @@ func verifyPragmas(ctx context.Context, db *sql.DB, busy time.Duration) error {
 	}
 	if err := db.QueryRowContext(ctx, `PRAGMA checkpoint_fullfsync`).Scan(&checkpointFullfsync); err != nil || checkpointFullfsync != 1 {
 		return fmt.Errorf("verify checkpoint fullfsync: value=%d error=%w", checkpointFullfsync, err)
+	}
+	if err := db.QueryRowContext(ctx, `PRAGMA journal_size_limit`).Scan(&journalLimit); err != nil || journalLimit != walSizeLimit {
+		return fmt.Errorf("verify journal size limit: value=%d error=%w", journalLimit, err)
 	}
 	return nil
 }
