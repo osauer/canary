@@ -62,7 +62,7 @@
     .canary-answers h3 { font-size: 19px; font-weight: 500; margin: 0 0 8px; }
     .canary-answers p { margin: 0 0 26px; max-width: 54ch; }
     .canary-answers p:last-child { margin-bottom: 0; }
-    .canary-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 64px; align-items: center; padding-block: 48px 56px; }
+    .canary-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 64px; align-items: start; padding-block: 48px 56px; }
     .hero-lockup { display: flex; align-items: center; gap: 14px; }
     .hero-lockup .kicker { margin: 0; }
     .hero-mark { width: 52px; height: 52px; border-radius: 12px; }
@@ -72,9 +72,13 @@
     .canary-hero .proof { margin-top: 20px; font-size: 13px; color: var(--ink); }
     .canary-hero .proof span { white-space: nowrap; }
     .canary-hero .proof a { color: var(--ink); }
-    .hero-film { margin: 0; }
-    .hero-film video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; background: #1a1f2e; box-shadow: var(--shadow); }
-    .hero-film figcaption { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    .hero-shot { margin: 0; padding-top: 4px; }
+    .hero-shot img { border-radius: 8px; box-shadow: var(--shadow); }
+    .film-aside { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; align-items: center; padding-block: 36px 48px; }
+    .film-aside video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 8px; background: #1a1f2e; }
+    .film-aside .kicker { margin: 0; }
+    .film-aside h2 { font: 400 28px/1.1 var(--serif); margin: 8px 0 8px; }
+    .film-aside p:not(.kicker) { color: var(--muted); font-size: 15px; margin: 0; max-width: 46ch; }
     .audiences { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; padding-block: 0 56px; }
     .audience { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; padding: 26px 26px 26px; background: color-mix(in srgb, var(--ink) 3%, var(--paper)); }
     .audience .kicker { margin: 0; color: var(--moss-deep); }
@@ -82,7 +86,7 @@
     .audience p:not(.kicker) { font-size: 16px; margin: 0 0 12px; }
     .audience .needs { color: var(--muted); font-size: 14px; }
     .audience .needs a, .audience p a { color: inherit; }
-    .audience-actions { padding-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+    .audience-actions { margin-top: auto; padding-top: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
     .audience-actions .text-link { margin-top: 0; }
     .audience .button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: var(--moss); color: var(--paper); font-weight: 600; text-decoration: none; }
     .audience .button:hover { background: var(--moss-deep); }
@@ -92,7 +96,7 @@
     .recent b { display: block; color: var(--ink); font-weight: 500; margin-bottom: 6px; }
     .recent small { display: block; margin-top: 8px; font-size: 13px; }
     @media (max-width: 1100px) { .canary-hero { gap: 36px; } .audiences { grid-template-columns: 1fr 1fr; } .audiences .audience:last-child { grid-column: 1 / -1; } .recent { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 760px) { .canary-hero { grid-template-columns: 1fr; gap: 28px; padding-block: 36px 40px; } .canary-hero h1 { font-size: 72px; } .audiences, .recent { grid-template-columns: 1fr; gap: 20px; } .audience { padding: 20px; } .audience h2 { font-size: 28px; } }
+    @media (max-width: 760px) { .film-aside { grid-template-columns: 1fr; gap: 16px; } .canary-hero { grid-template-columns: 1fr; gap: 28px; padding-block: 36px 40px; } .canary-hero h1 { font-size: 72px; } .audiences, .recent { grid-template-columns: 1fr; gap: 20px; } .audience { padding: 20px; } .audience h2 { font-size: 28px; } }
   </style>
 </head>
 <body>
@@ -116,12 +120,9 @@
         <p class="sub">Canary connects to your IBKR account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and the paired phone app all read the same figures.</p>
         <p class="proof"><span>MIT licence ·</span> <span>Signed releases ·</span> <span>No telemetry ·</span> <span>A private project ·</span> <span><a href="https://github.com/osauer/canary">GitHub</a> ·</span> <span><a href="https://github.com/osauer/canary/releases/latest">Release notes</a></span></p>
       </div>
-      <figure class="hero-film">
-        <video controls playsinline preload="none" poster="media/canary-status-meeting-poster.jpg" width="1920" height="1080" aria-label="The Status Meeting, an animated short film about a trader saved by a canary alert">
-          <source src="media/canary-status-meeting.mp4" type="video/mp4">
-          <a href="media/canary-status-meeting.mp4">Watch the film (MP4)</a>
-        </video>
-        <figcaption>The Status Meeting: a trader saved by a canary alert. Under a minute, with sound. Synthetic figures.</figcaption>
+      <figure class="screen terminal-shot hero-shot">
+        <img src="screens/cli-brief.webp" width="1798" height="760" alt="Output of canary brief on a synthetic account: market state, portfolio summary and what needs attention" fetchpriority="high">
+        <figcaption><span><code>canary brief</code>, the morning read.</span><span>Synthetic account</span></figcaption>
       </figure>
     </section>
 
@@ -143,7 +144,7 @@
         <p class="needs">Orders go through one path, in the opt-in trading build, that checks each against your limits and your confirmation. <a href="/desk/">Canary Desk</a>, a private project, is built this way.</p>
         <div class="audience-actions">
           <a class="text-link" href="docs/internals/architecture.html">Architecture<span class="arrow" aria-hidden="true">→</span></a>
-          <a class="text-link" href="docs/reference/cli.html">CLI reference<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/reference/cli.html">CLI<span class="arrow" aria-hidden="true">→</span></a>
           <a class="text-link" href="docs/operate/orders.html">Trading build<span class="arrow" aria-hidden="true">→</span></a>
         </div>
       </article>
@@ -158,13 +159,6 @@
         </div>
       </article>
     </section>
-    <div class="wrap full-screen">
-      <figure class="screen narrow terminal-shot">
-        <img src="screens/cli-brief.webp" width="1798" height="760" alt="Output of canary brief on a synthetic account: market state, portfolio summary and what needs attention" fetchpriority="high">
-        <figcaption><span><code>canary brief</code>, the morning read.</span><span>Synthetic account</span></figcaption>
-      </figure>
-    </div>
-
     <section class="wrap section rhythm" aria-label="What Canary does">
       <article>
         <span class="number" aria-hidden="true">01</span>
@@ -190,17 +184,29 @@
     <section class="wrap section" aria-labelledby="recent-title">
       <div class="features-head"><p class="kicker">Recent releases</p><h2 id="recent-title">What shipped lately.</h2></div>
       <ul class="recent">
-        <li><b>A risk budget for the whole book</b>Set a loss budget for the account, measured by historical simulation. While the book is over it, Canary refuses orders that add risk. <code>canary mandate</code> shows the room left.<small>v3.22</small></li>
+        <li><b>A risk budget for the whole book</b>Set a maximum loss for the account; Canary measures the book’s risk against it by historical simulation. While the book is over budget, Canary refuses orders that add risk. <code>canary mandate</code> shows the room left.<small>v3.22</small></li>
         <li><b>Plans before orders</b>Reduction plans compare an index fall and rise, the loss room left and quoted trading costs. Stock-entry reviews can add protection for the new shares. A plan never places an order.<small>v3.27 to v3.29</small></li>
-        <li><b>An index hedge in whole contracts</b>Canary sizes a Micro E-mini S&amp;P 500 hedge against the modelled index-fall loss. In the trading build you can sell it and buy it back through the same confirmed, gated order path as every other order.<small>v3.29 and v3.30</small></li>
-        <li><b>What the account may trade</b>Canary learns from IBKR which product classes the account may trade, and refuses an opening order in a class IBKR does not allow before it reaches the broker.<small>v3.29.1</small></li>
-        <li><b>Strategies run in shadow first</b>Machine strategies live in a register in your risk policy. Each runs in shadow until you write its stage. Then each monthly decision becomes a proposal. You confirm each one on your device, or confirm once for a standing mandate with its own limits.<small>v3.23 to v3.25</small></li>
-        <li><b>A scorecard for your decisions</b>Every position change is scored against the market and its sector fund, with the cost of each fill counted.<small>v3.22 and v3.24</small></li>
-        <li><b>Bonds and bills</b>Trading builds order bills and bonds by ISIN or CUSIP. Canary reports each bond's yield, duration and rate risk.<small>v3.19</small></li>
+        <li><b>Protective puts for shares you hold</b><code>canary add</code> lists, for each horizon, the put nearest your delta band and how many of your shares are still uncovered, then sizes a put within them. The call and put bands live in your opportunity policy.<small>v3.31</small></li>
+        <li><b>An index hedge in whole contracts</b>Canary sizes a Micro E-mini S&amp;P 500 hedge against the modelled index-fall loss. In the trading build you can sell it and buy it back through the same confirmed, gated order path as every other order.<small>v3.29.1 and v3.30</small></li>
+        <li><b>What the account may trade</b>Canary learns from IBKR which product classes the account may trade, futures first, and refuses an opening order in a class IBKR does not allow before it reaches the broker.<small>v3.29.1</small></li>
+        <li><b>Strategies run in shadow first</b>Machine strategies live in a register in your risk policy. Each runs in shadow until you write its stage. Then each monthly decision becomes a proposal you confirm on your device, or, with Canary Desk, confirm once for a standing mandate with its own limits.<small>v3.23 to v3.25</small></li>
+        <li><b>A scorecard for your decisions</b>Every position change is scored against the market and its sector fund, with the half-spread each fill paid where a quote was kept.<small>v3.22 and v3.24</small></li>
         <li><b>A plain check of your Gateway setup</b><code>canary status</code> names each TWS or IB Gateway setting that differs from what Canary needs. Canary never changes a setting.<small>v3.26</small></li>
         <li><b>A look back</b>Replay how an option exit would have played out, and read the account's value through the day. A replay is not a forecast.<small>v3.28</small></li>
       </ul>
     </section>
+
+    <aside class="wrap film-aside" aria-labelledby="film-title">
+      <video controls playsinline preload="none" poster="media/canary-status-meeting-poster.jpg" width="1920" height="1080" aria-labelledby="film-title">
+        <source src="media/canary-status-meeting.mp4" type="video/mp4">
+        <a href="media/canary-status-meeting.mp4">Watch the film (MP4)</a>
+      </video>
+      <div>
+        <p class="kicker">A short film</p>
+        <h2 id="film-title">The Status Meeting</h2>
+        <p>A trader saved by a canary alert. Under a minute, with sound. Every figure in it is synthetic.</p>
+      </div>
+    </aside>
 
     <section class="wrap section install-row" id="install" aria-labelledby="install-title">
       <div>
@@ -530,8 +536,8 @@ canary setup claude-desktop
       <div class="features-head"><p class="kicker">Full features</p><h2 id="features-title">What’s inside.</h2></div>
       <div class="features-grid four">
       <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, breadth, credit spreads, funding, the yen and dealer gamma computed from SPX options.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, borrow availability and borrow fees.</li><li><b>Borrowing research · v3.17</b>Dated borrowing fees with price and liquidity, a wider US screen and FINRA short interest.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
-      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation. Bonds show yield, duration and rate risk.</li><li><b>Watchlist and setups · v3.17</b>Up to 20 names, read bar by bar for volume turns, with a dated quote for the exact call you choose.</li><li><b>Entry markouts · v3.17</b>Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Decision scorecard · v3.22</b>Every position change scored against the market and its sector fund, with each fill’s cost.</li><li><b>Option-exit replay · v3.28</b>How an option exit would have played out, from history. Not a forecast.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
-      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Risk budget · v3.22</b>A loss budget for the whole book, measured by historical simulation. Orders that add risk wait while the book is over it.</li><li><b>Reduction plans · v3.29</b>Each plan compares an index fall and rise, the loss room left and quoted trading costs.</li><li><b>Index hedge · v3.29</b>A Micro E-mini S&amp;P 500 hedge sized in whole contracts, placed and bought back only through the gated trading path.</li><li><b>Broker permissions · v3.29.1</b>Opening orders in a product class IBKR does not allow the account are refused before they reach the broker.</li><li><b>Policy check · v3.18</b>Every limit in force with its source and meaning, and a check that names each value that does not add up.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with a reserve that follows the account, your currency order and a reason for every plan.</li><li><b>Sweep economics</b>Order minimums and maximums, fee bounds and the net gain after spread, fees and forgone cash interest, before any purchase. No bill buys while any currency is borrowed.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Order limits · v3.18</b>A cap on each order’s value that follows net liquidation value, between a floor and a ceiling you set.</li><li><b>Protective stops · v3.18</b>In trading builds, Canary shrinks or cancels its own stops when you hold fewer shares than they would sell. Stops you placed by hand are never changed.</li><li><b>Trading build</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
+      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation. Bonds show yield, duration and rate risk.</li><li><b>Watchlist and setups · v3.17</b>Up to 20 names, read bar by bar for volume turns, with a dated quote for the exact call you choose.</li><li><b>Entry markouts · v3.17</b>Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Decision scorecard · v3.22</b>Every position change scored against the market and its sector fund, with the half-spread each fill paid where a quote was kept.</li><li><b>Option-exit replay · v3.28</b>How an option exit would have played out, from history. Not a forecast.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
+      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Risk budget · v3.22</b>A loss budget for the whole book, measured by historical simulation. Orders that add risk wait while the book is over it.</li><li><b>Reduction plans · v3.29</b>Each plan compares an index fall and rise, the loss room left and quoted trading costs.</li><li><b>Protective puts · v3.31</b>Puts for shares you hold, picked by your delta bands and sized within your uncovered shares.</li><li><b>Index hedge · v3.29</b>A Micro E-mini S&amp;P 500 hedge sized in whole contracts, placed and bought back only through the gated trading path.</li><li><b>Broker permissions · v3.29.1</b>Opening orders in a product class IBKR does not allow the account are refused before they reach the broker.</li><li><b>Policy check · v3.18</b>Every limit in force with its source and meaning, and a check that names each value that does not add up.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with a reserve that follows the account, your currency order and a reason for every plan.</li><li><b>Sweep economics</b>Order minimums and maximums, fee bounds and the net gain after spread, fees and forgone cash interest, before any purchase. No bill buys while any currency is borrowed.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Order limits · v3.18</b>A cap on each order’s value that follows net liquidation value, between a floor and a ceiling you set.</li><li><b>Protective stops · v3.18</b>In trading builds, Canary shrinks or cancels its own stops when you hold fewer shares than they would sell. Stops you placed by hand are never changed.</li><li><b>Trading build</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks. Bills and bonds can be ordered by ISIN or CUSIP.</li></ul></div>
       <div class="feature-group"><h3>Where you use it</h3><ul><li><b>Command line</b>One binary for macOS and Linux. Every command speaks JSON.</li><li><b>AI assistants</b>Read-only MCP tools for Claude and other hosts.</li><li><b>Your phone</b>A paired app with live updates and opt-in notifications.</li><li><b>Go library</b>The TWS protocol, spoken natively in Go, with no vendor SDK.</li></ul></div>
       </div>
     </section>
