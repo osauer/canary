@@ -42,7 +42,11 @@ writes one ordered path instead of several competing writers.
   query-coverage metadata, and typed current trade/instrument/position/event/
   action/transfer/cash/FX rows rebuilt from the complete retained set of
   original Flex XML statements. Immutable typed versions preserve restatements
-  behind the current winners. The newest generation decides a current row's
+  behind the current winners: a version is stored the first time its content
+  appears, from the earliest report that showed it, and a restatement with
+  different content is always stored. Which later reports repeated an
+  unchanged row stays in the retained XML, not in SQLite (owner instruction
+  2026-10-30 10:24 CET). The newest generation decides a current row's
   content; the row is credited to the oldest retained file in the unbroken run
   of generations that reported exactly that content, so a year-to-date report
   that repeats a row leaves it in place. Date and query-coverage metadata
@@ -99,13 +103,13 @@ appear in relational projection tables. Those projections are not the read path
 yet: the main Regime, rules, Stress, and capital-history readers still load
 matching `event_log` JSON and filter it in Go.
 
-[![Physical entity relationships in daemon.db schema version 8](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
+[![Physical entity relationships in daemon.db schema version 9](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/canary/blob/main/internal/daemon/corestore/schema.go)
 
-The diagram shows schema version 8. Solid lines are declared SQLite foreign
+The diagram shows schema version 9. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as `scope_key` creates a namespace only when no foreign key joins it.
 
@@ -267,6 +271,13 @@ and append-only `statement_record_versions` evidence needed by Canary Edge.
 Migration 8 additively stores statement date/query-coverage metadata without
 rewriting v7 tables that may already exist. The ordinary statement refresh
 repopulates all current rows from the complete retained XML set after upgrade.
+Migration 9 removes statement versions that repeat an earlier version's
+content, keeping the first one stored. Before it, every daily year-to-date
+refresh stored a copy of every row for the new file, which made the version
+tables the largest unbounded grower in `daemon.db`. Like migrations 4 to 6 it
+runs out of place: the upgrade backs up the source, compacts the candidate, and
+retires the large source backup only after a compact target backup and a
+receipt exist (owner instruction 2026-10-30 10:24 CET: "ok go for B1").
 
 ### Backup and restore
 

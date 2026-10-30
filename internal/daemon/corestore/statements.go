@@ -17,6 +17,13 @@ import (
 // inventory/winner projection while retaining every distinct file-content and
 // derived-day version as append-only evidence. A same-name restatement is a
 // new version when its SHA-256 changes, regardless of file size.
+//
+// A row version is stored only the first time its content is seen, from the
+// earliest report that showed it; a restatement with different content is
+// always stored. The daily Flex report covers the year to date, and copying
+// every unchanged row once per file made the version tables the largest
+// unbounded grower in daemon.db. Which later files repeated a row stays in
+// the retained XML. Owner instruction 2026-10-30 10:24 CET: "ok go for B1".
 func (s *Store) ReplaceStatementProjection(ctx context.Context, scopeKey string, files []StatementFileRecord, days []StatementEquityDayRecord, records, recordVersions []StatementRecord) error {
 	if err := validateKey("scope key", scopeKey, 512); err != nil {
 		return err
@@ -99,7 +106,15 @@ func (s *Store) ReplaceStatementProjection(ctx context.Context, scopeKey string,
 		}
 	}
 	currentRecords, currentMetadata := partitionStatementMetadata(records)
-	versionRecords, versionMetadata := partitionStatementMetadata(recordVersions)
+	// Offer the copies oldest report first, so the first-seen insert below
+	// keeps the earliest report's copy whatever order the caller used.
+	byReport := func(a, b StatementRecord) int {
+		if c := a.GeneratedAt.Compare(b.GeneratedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.StatementFileKey, b.StatementFileKey)
+	}
+	versionRecords, versionMetadata := partitionStatementMetadata(slices.SortedStableFunc(slices.Values(recordVersions), byReport))
 	return s.criticalMutation(ctx, func(tx *sql.Tx) error {
 		now := time.Now().UTC()
 		stamp := formatTime(now)
@@ -115,7 +130,10 @@ VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(scope_key,file_key,sha256) DO NOTHING`, scop
 			rawDigest := sha256.Sum256(day.RawJSON)
 			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_equity_day_versions
 (scope_key,account_key,day,equity_base_text,statement_file_key,statement_file_sha256,generated_at,raw_json,raw_sha256,recorded_at)
-VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, day.AccountKey, day.Day, day.EquityBaseText, day.StatementFileKey, file.SHA256[:], formatTime(day.GeneratedAt), day.RawJSON, rawDigest[:], stamp); err != nil {
+SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM statement_equity_day_versions
+ WHERE scope_key=? AND account_key=? AND day=? AND equity_base_text=? AND raw_sha256=?)`,
+				scopeKey, day.AccountKey, day.Day, day.EquityBaseText, day.StatementFileKey, file.SHA256[:], formatTime(day.GeneratedAt), day.RawJSON, rawDigest[:], stamp,
+				scopeKey, day.AccountKey, day.Day, day.EquityBaseText, rawDigest[:]); err != nil {
 				return fmt.Errorf("append statement equity-day version: %w", err)
 			}
 		}
@@ -124,7 +142,10 @@ VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, day.AccountKey, d
 			rawDigest := sha256.Sum256(record.RawJSON)
 			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_record_versions
 (scope_key,record_kind,record_key,account_key,effective_at,statement_file_key,statement_file_sha256,generated_at,raw_json,raw_sha256,recorded_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, record.Kind, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, rawDigest[:], stamp); err != nil {
+SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM statement_record_versions
+ WHERE scope_key=? AND record_kind=? AND record_key=? AND account_key=? AND effective_at=? AND raw_sha256=?)`,
+				scopeKey, record.Kind, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, rawDigest[:], stamp,
+				scopeKey, record.Kind, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), rawDigest[:]); err != nil {
 				return fmt.Errorf("append statement record version: %w", err)
 			}
 		}
@@ -133,7 +154,10 @@ VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, record.Kind, re
 			rawDigest := sha256.Sum256(record.RawJSON)
 			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_metadata_versions
 (scope_key,record_key,account_key,effective_at,statement_file_key,statement_file_sha256,generated_at,raw_json,raw_sha256,recorded_at)
-VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, rawDigest[:], stamp); err != nil {
+SELECT ?,?,?,?,?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM statement_metadata_versions
+ WHERE scope_key=? AND record_key=? AND account_key=? AND effective_at=? AND raw_sha256=?)`,
+				scopeKey, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, rawDigest[:], stamp,
+				scopeKey, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), rawDigest[:]); err != nil {
 				return fmt.Errorf("append statement metadata version: %w", err)
 			}
 		}

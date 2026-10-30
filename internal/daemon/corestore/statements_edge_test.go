@@ -11,8 +11,8 @@ import (
 func TestStatementRecordMigrationV6ToV7Candidate(t *testing.T) {
 	ctx := t.Context()
 	plan := currentMigrationPlan()
-	if len(plan) != 8 {
-		t.Fatalf("current schema version=%d want 8", len(plan))
+	if len(plan) != 9 {
+		t.Fatalf("current schema version=%d want 9", len(plan))
 	}
 	dir := privateTempDir(t)
 	sourcePath := filepath.Join(dir, "daemon-v6.db")
@@ -28,7 +28,7 @@ func TestStatementRecordMigrationV6ToV7Candidate(t *testing.T) {
 		t.Fatal("current store opened v6 authority without an explicit upgrade")
 	} else {
 		var upgrade *UpgradeRequiredError
-		if !errors.As(err, &upgrade) || upgrade.CurrentVersion != 6 || upgrade.TargetVersion != 8 {
+		if !errors.As(err, &upgrade) || upgrade.CurrentVersion != 6 || upgrade.TargetVersion != 9 {
 			t.Fatalf("open v6 error=%v", err)
 		}
 	}
@@ -85,7 +85,7 @@ func TestStatementMetadataMigrationV7ToV8Candidate(t *testing.T) {
 	if result.Source.SchemaVersion != 7 || result.Candidate.SchemaVersion != 8 || result.Candidate.Status != InspectionCurrent {
 		t.Fatalf("upgrade result source=%+v candidate=%+v", result.Source, result.Candidate)
 	}
-	candidate, err := Open(ctx, Options{Path: result.Candidate.Path})
+	candidate, err := openWithPlan(ctx, Options{Path: result.Candidate.Path}, plan[:8])
 	if err != nil {
 		t.Fatalf("open v8 candidate: %v", err)
 	}

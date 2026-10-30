@@ -181,12 +181,39 @@ type OperationalPruneSummary struct {
 	RemovedStressTransitionRows int64
 }
 
+// StatementVersionDedupSelector identifies the one reviewed removal of exact
+// duplicate statement versions. Predicate is a frozen implementation
+// identifier; it is never caller input.
+type StatementVersionDedupSelector struct {
+	Predicate string
+}
+
+// StatementVersionDedupSummary is the deterministic receipt for the v9
+// statement-version deduplication. OrderedDigestSHA256 uses the domain
+// "canary.statement-version-dedup.v1\x00", then for each table in the order
+// equity days, records, metadata: the table name and a zero byte, then each
+// removed version ID as 8-byte big-endian plus its stored 32-byte raw digest
+// in ascending ID order. Payload bytes are never copied into coordination
+// state.
+type StatementVersionDedupSummary struct {
+	MigrationVersion int
+	MigrationName    string
+	Selector         StatementVersionDedupSelector
+
+	RemovedEquityDayRows int64
+	RemovedRecordRows    int64
+	RemovedMetadataRows  int64
+	RemovedPayloadBytes  int64
+	OrderedDigestSHA256  string
+}
+
 // UpgradeMaintenanceResult reports physical work required by pending
 // migration metadata and the exact discard evidence produced while building
 type UpgradeMaintenanceResult struct {
 	Discards                       []ObservationDiscardSummary
 	EventDiscards                  []EventDiscardSummary
 	OperationalPrunes              []OperationalPruneSummary
+	StatementVersionDedups         []StatementVersionDedupSummary
 	Compacted                      bool
 	SourceBackupRetirementRequired bool
 }

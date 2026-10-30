@@ -407,6 +407,16 @@ func RecomputeUpgradeMaintenance(ctx context.Context, opts RecomputeUpgradeMaint
 				result.SourceBackupRetirementRequired = true
 			}
 		}
+		if m.maintenance.StatementDedup != nil {
+			summary, err := summarizeStatementVersionDedup(ctx, tx, m)
+			if err != nil {
+				return UpgradeMaintenanceResult{}, fmt.Errorf("recompute migration %d statement dedup: %w", m.version, err)
+			}
+			result.StatementVersionDedups = append(result.StatementVersionDedups, summary)
+			if effect.retireSourceBackup && statementVersionDedupRemovedRows(summary) {
+				result.SourceBackupRetirementRequired = true
+			}
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return UpgradeMaintenanceResult{}, fmt.Errorf("finish upgrade maintenance inspection: %w", err)
@@ -1144,7 +1154,7 @@ func migrateAndPublishUpgradeCandidate(
 	if verified.Status != InspectionCurrent || verified.Head != expectedHead {
 		return upgradeCandidateBuild{}, fmt.Errorf("%w: upgraded candidate has unexpected version or head", ErrRollback)
 	}
-	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance.Discards, execution.maintenance.EventDiscards, execution.maintenance.OperationalPrunes); err != nil {
+	if err := verifyMaintenanceDiscardsAbsent(ctx, outputPath, execution.maintenance); err != nil {
 		return upgradeCandidateBuild{}, err
 	}
 	if err := os.Link(outputPath, destination); err != nil {
@@ -1252,6 +1262,7 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 		var observationSummary *ObservationDiscardSummary
 		var eventSummary *EventDiscardSummary
 		var operationalSummary *OperationalPruneSummary
+		var statementSummary *StatementVersionDedupSummary
 		if m.maintenance != nil && m.maintenance.ObservationDiscard != nil {
 			computed, err := summarizeObservationDiscard(ctx, tx, m)
 			if err != nil {
@@ -1272,6 +1283,13 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 				return fail(fmt.Errorf("summarize migration %d operational prune: %w", next, err))
 			}
 			operationalSummary = &computed
+		}
+		if m.maintenance != nil && m.maintenance.StatementDedup != nil {
+			computed, err := summarizeStatementVersionDedup(ctx, tx, m)
+			if err != nil {
+				return fail(fmt.Errorf("summarize migration %d statement dedup: %w", next, err))
+			}
+			statementSummary = &computed
 		}
 		for _, stmt := range m.statements {
 			result, err := tx.ExecContext(ctx, stmt)
@@ -1323,6 +1341,16 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 					}
 				}
 			}
+			if statementSummary != nil && strings.HasPrefix(stmt, "DELETE ") {
+				expected := statementVersionDedupExpectedRows(*statementSummary, stmt)
+				affected, err := result.RowsAffected()
+				if err != nil {
+					return fail(fmt.Errorf("count migration %d statement dedup rows: %w", next, err))
+				}
+				if expected < 0 || affected != expected {
+					return fail(fmt.Errorf("migration %d statement dedup removed %d rows after summarizing %d", next, affected, expected))
+				}
+			}
 		}
 		if observationSummary != nil {
 			if err := verifyObservationDiscardAbsent(ctx, tx, observationSummary.Selector); err != nil {
@@ -1348,6 +1376,15 @@ func migratePendingAtomicallyDetailed(ctx context.Context, db *sql.DB, plan []mi
 			}
 			maintenance.OperationalPrunes = append(maintenance.OperationalPrunes, *operationalSummary)
 			if effect.retireSourceBackup && operationalPruneRemovedRows(*operationalSummary) {
+				maintenance.SourceBackupRetirementRequired = true
+			}
+		}
+		if statementSummary != nil {
+			if err := verifyStatementVersionDedupAbsent(ctx, tx, statementSummary.Selector); err != nil {
+				return fail(fmt.Errorf("verify migration %d statement dedup: %w", next, err))
+			}
+			maintenance.StatementVersionDedups = append(maintenance.StatementVersionDedups, *statementSummary)
+			if effect.retireSourceBackup && statementVersionDedupRemovedRows(*statementSummary) {
 				maintenance.SourceBackupRetirementRequired = true
 			}
 		}
@@ -1710,8 +1747,104 @@ func verifyOperationalPruneAbsent(ctx context.Context, q contextQueryRower, sele
 	return nil
 }
 
-func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observationSummaries []ObservationDiscardSummary, eventSummaries []EventDiscardSummary, operationalSummaries []OperationalPruneSummary) error {
-	if len(observationSummaries) == 0 && len(eventSummaries) == 0 && len(operationalSummaries) == 0 {
+func summarizeStatementVersionDedup(ctx context.Context, q contextQueryer, m migration) (StatementVersionDedupSummary, error) {
+	if m.maintenance == nil || m.maintenance.StatementDedup == nil ||
+		*m.maintenance.StatementDedup != statementVersionDedupSelector {
+		return StatementVersionDedupSummary{}, errorsf("invalid statement dedup selector")
+	}
+	summary := StatementVersionDedupSummary{
+		MigrationVersion: m.version,
+		MigrationName:    m.name,
+		Selector:         *m.maintenance.StatementDedup,
+	}
+	h := sha256.New()
+	h.Write([]byte("canary.statement-version-dedup.v1\x00"))
+	removed := []*int64{&summary.RemovedEquityDayRows, &summary.RemovedRecordRows, &summary.RemovedMetadataRows}
+	for i, t := range statementVersionDedupTables {
+		h.Write([]byte(t.table))
+		h.Write([]byte{0})
+		// The record and metadata tables arrive with migrations 7 and 8; a
+		// source older than that has nothing in them to remove.
+		var present int
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type='table' AND name=?`, t.table).Scan(&present); err != nil {
+			return StatementVersionDedupSummary{}, err
+		}
+		if present == 0 {
+			continue
+		}
+		rows, err := q.QueryContext(ctx, `SELECT `+t.id+`,length(raw_json),raw_sha256 FROM `+t.table+
+			statementVersionDedupMatchClause(t.table, t.id, t.identity)+` ORDER BY `+t.id)
+		if err != nil {
+			return StatementVersionDedupSummary{}, err
+		}
+		for rows.Next() {
+			var id, payloadBytes int64
+			var digest []byte
+			if err := rows.Scan(&id, &payloadBytes, &digest); err != nil {
+				rows.Close()
+				return StatementVersionDedupSummary{}, err
+			}
+			if id < 1 || payloadBytes < 0 || len(digest) != sha256.Size {
+				rows.Close()
+				return StatementVersionDedupSummary{}, errorsf("invalid statement version identity, size, or digest")
+			}
+			var identity [8]byte
+			binary.BigEndian.PutUint64(identity[:], uint64(id))
+			h.Write(identity[:])
+			h.Write(digest)
+			if *removed[i] == math.MaxInt64 || payloadBytes > math.MaxInt64-summary.RemovedPayloadBytes {
+				rows.Close()
+				return StatementVersionDedupSummary{}, errorsf("statement dedup summary counter overflow")
+			}
+			*removed[i]++
+			summary.RemovedPayloadBytes += payloadBytes
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return StatementVersionDedupSummary{}, err
+		}
+		if err := rows.Close(); err != nil {
+			return StatementVersionDedupSummary{}, err
+		}
+	}
+	summary.OrderedDigestSHA256 = hex.EncodeToString(h.Sum(nil))
+	return summary, nil
+}
+
+// statementVersionDedupExpectedRows is the summarized row count for one of
+// the migration's DELETE statements, or -1 for a statement it does not know.
+func statementVersionDedupExpectedRows(summary StatementVersionDedupSummary, stmt string) int64 {
+	removed := []int64{summary.RemovedEquityDayRows, summary.RemovedRecordRows, summary.RemovedMetadataRows}
+	for i, t := range statementVersionDedupTables {
+		if stmt == `DELETE FROM `+t.table+statementVersionDedupMatchClause(t.table, t.id, t.identity) {
+			return removed[i]
+		}
+	}
+	return -1
+}
+
+func statementVersionDedupRemovedRows(summary StatementVersionDedupSummary) bool {
+	return summary.RemovedEquityDayRows > 0 || summary.RemovedRecordRows > 0 || summary.RemovedMetadataRows > 0
+}
+
+func verifyStatementVersionDedupAbsent(ctx context.Context, q contextQueryRower, selector StatementVersionDedupSelector) error {
+	if selector != statementVersionDedupSelector {
+		return errorsf("invalid statement dedup selector")
+	}
+	for _, t := range statementVersionDedupTables {
+		var remaining int64
+		if err := q.QueryRowContext(ctx, `SELECT count(*) FROM `+t.table+statementVersionDedupMatchClause(t.table, t.id, t.identity)).Scan(&remaining); err != nil {
+			return err
+		}
+		if remaining != 0 {
+			return fmt.Errorf("corestore: statement dedup still matches %d %s rows", remaining, t.table)
+		}
+	}
+	return nil
+}
+
+func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, maintenance UpgradeMaintenanceResult) error {
+	if len(maintenance.Discards) == 0 && len(maintenance.EventDiscards) == 0 && len(maintenance.OperationalPrunes) == 0 && len(maintenance.StatementVersionDedups) == 0 {
 		return nil
 	}
 	db, err := sql.Open("sqlite", sqliteDSN(path, defaultBusyTimeout, true))
@@ -1720,18 +1853,27 @@ func verifyMaintenanceDiscardsAbsent(ctx context.Context, path string, observati
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	for _, summary := range observationSummaries {
+	return verifyMaintenanceAbsentDB(ctx, db, maintenance)
+}
+
+func verifyMaintenanceAbsentDB(ctx context.Context, db contextQueryRower, maintenance UpgradeMaintenanceResult) error {
+	for _, summary := range maintenance.Discards {
 		if err := verifyObservationDiscardAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}
-	for _, summary := range eventSummaries {
+	for _, summary := range maintenance.EventDiscards {
 		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}
-	for _, summary := range operationalSummaries {
+	for _, summary := range maintenance.OperationalPrunes {
 		if err := verifyOperationalPruneAbsent(ctx, db, summary.Selector); err != nil {
+			return err
+		}
+	}
+	for _, summary := range maintenance.StatementVersionDedups {
+		if err := verifyStatementVersionDedupAbsent(ctx, db, summary.Selector); err != nil {
 			return err
 		}
 	}
@@ -1766,22 +1908,7 @@ func validateUpgradedCandidate(ctx context.Context, db *sql.DB, source Inspectio
 	if got != want {
 		return fmt.Errorf("%w: upgraded candidate head changed during validation", ErrRollback)
 	}
-	for _, summary := range execution.maintenance.Discards {
-		if err := verifyObservationDiscardAbsent(ctx, db, summary.Selector); err != nil {
-			return err
-		}
-	}
-	for _, summary := range execution.maintenance.EventDiscards {
-		if err := verifyEventDiscardAbsent(ctx, db, summary.Selector); err != nil {
-			return err
-		}
-	}
-	for _, summary := range execution.maintenance.OperationalPrunes {
-		if err := verifyOperationalPruneAbsent(ctx, db, summary.Selector); err != nil {
-			return err
-		}
-	}
-	return nil
+	return verifyMaintenanceAbsentDB(ctx, db, execution.maintenance)
 }
 
 func existingRegularPath(path, label string) (string, os.FileInfo, error) {

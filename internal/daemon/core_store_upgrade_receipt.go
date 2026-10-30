@@ -15,14 +15,17 @@ import (
 )
 
 const (
-	coreSchemaMaintenanceReceiptVersion      = 3
-	coreSchemaMaintenanceReceiptEventVersion = 2
-	contractCachePruneMigrationVersion       = 4
-	contractCachePruneMigrationName          = "contract_cache_observation_prune"
-	alertEpisodePruneMigrationVersion        = 5
-	alertEpisodePruneMigrationName           = "alert_episode_event_prune"
-	betaOperationalPruneMigrationVersion     = 6
-	betaOperationalPruneMigrationName        = "beta_operational_history_prune"
+	coreSchemaMaintenanceReceiptVersion          = 4
+	coreSchemaMaintenanceReceiptOperationVersion = 3
+	coreSchemaMaintenanceReceiptEventVersion     = 2
+	contractCachePruneMigrationVersion           = 4
+	contractCachePruneMigrationName              = "contract_cache_observation_prune"
+	alertEpisodePruneMigrationVersion            = 5
+	alertEpisodePruneMigrationName               = "alert_episode_event_prune"
+	betaOperationalPruneMigrationVersion         = 6
+	betaOperationalPruneMigrationName            = "beta_operational_history_prune"
+	statementVersionDedupMigrationVersion        = 9
+	statementVersionDedupMigrationName           = "statement_version_dedup"
 )
 
 var contractCachePruneSelector = corestore.ObservationDiscardSelector{
@@ -41,16 +44,21 @@ var betaOperationalPruneReceiptSelector = corestore.OperationalPruneSelector{
 	Predicate: "beta_operational_history.v1",
 }
 
+var statementVersionDedupReceiptSelector = corestore.StatementVersionDedupSelector{
+	Predicate: "statement_version_first_seen.v1",
+}
+
 // coreSchemaUpgradeMaintenance is the frozen, typed maintenance result bound
 // into the transient manifest before publication. Each field names one shipped
 // repair; this is not a retention API. Discard keeps the v4 JSON field name so
 // an interrupted v4 manifest remains resumable after the v5 binary starts.
 type coreSchemaUpgradeMaintenance struct {
-	Discard            *corestore.ObservationDiscardSummary `json:"discard,omitempty"`
-	EventDiscard       *corestore.EventDiscardSummary       `json:"event_discard,omitempty"`
-	OperationalPrune   *corestore.OperationalPruneSummary   `json:"operational_prune,omitempty"`
-	Compacted          bool                                 `json:"compacted"`
-	RetireSourceBackup bool                                 `json:"retire_source_backup"`
+	Discard               *corestore.ObservationDiscardSummary    `json:"discard,omitempty"`
+	EventDiscard          *corestore.EventDiscardSummary          `json:"event_discard,omitempty"`
+	OperationalPrune      *corestore.OperationalPruneSummary      `json:"operational_prune,omitempty"`
+	StatementVersionDedup *corestore.StatementVersionDedupSummary `json:"statement_version_dedup,omitempty"`
+	Compacted             bool                                    `json:"compacted"`
+	RetireSourceBackup    bool                                    `json:"retire_source_backup"`
 }
 
 type coreSchemaMaintenanceArtifactReceipt struct {
@@ -61,13 +69,14 @@ type coreSchemaMaintenanceArtifactReceipt struct {
 }
 
 type coreSchemaMaintenanceReceipt struct {
-	Version          int                                  `json:"version"`
-	UpgradeID        string                               `json:"upgrade_id"`
-	Discard          *corestore.ObservationDiscardSummary `json:"discard,omitempty"`
-	EventDiscard     *corestore.EventDiscardSummary       `json:"event_discard,omitempty"`
-	OperationalPrune *corestore.OperationalPruneSummary   `json:"operational_prune,omitempty"`
-	Source           coreSchemaMaintenanceArtifactReceipt `json:"source"`
-	Target           coreSchemaMaintenanceArtifactReceipt `json:"target"`
+	Version               int                                     `json:"version"`
+	UpgradeID             string                                  `json:"upgrade_id"`
+	Discard               *corestore.ObservationDiscardSummary    `json:"discard,omitempty"`
+	EventDiscard          *corestore.EventDiscardSummary          `json:"event_discard,omitempty"`
+	OperationalPrune      *corestore.OperationalPruneSummary      `json:"operational_prune,omitempty"`
+	StatementVersionDedup *corestore.StatementVersionDedupSummary `json:"statement_version_dedup,omitempty"`
+	Source                coreSchemaMaintenanceArtifactReceipt    `json:"source"`
+	Target                coreSchemaMaintenanceArtifactReceipt    `json:"target"`
 }
 
 func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*coreSchemaUpgradeMaintenance, error) {
@@ -75,13 +84,13 @@ func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*co
 	if result.TargetBackup != nil {
 		return nil, fmt.Errorf("schema preparation created a target backup before publication")
 	}
-	if len(maintenance.Discards) == 0 && len(maintenance.EventDiscards) == 0 && len(maintenance.OperationalPrunes) == 0 {
+	if len(maintenance.Discards) == 0 && len(maintenance.EventDiscards) == 0 && len(maintenance.OperationalPrunes) == 0 && len(maintenance.StatementVersionDedups) == 0 {
 		if maintenance.Compacted || maintenance.SourceBackupRetirementRequired {
 			return nil, fmt.Errorf("schema upgrade maintenance flags have no typed discard summary")
 		}
 		return nil, nil
 	}
-	if len(maintenance.Discards) > 1 || len(maintenance.EventDiscards) > 1 || len(maintenance.OperationalPrunes) > 1 {
+	if len(maintenance.Discards) > 1 || len(maintenance.EventDiscards) > 1 || len(maintenance.OperationalPrunes) > 1 || len(maintenance.StatementVersionDedups) > 1 {
 		return nil, fmt.Errorf("schema upgrade maintenance contains duplicate typed discard summaries")
 	}
 	bound := &coreSchemaUpgradeMaintenance{
@@ -100,6 +109,10 @@ func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*co
 		prune := maintenance.OperationalPrunes[0]
 		bound.OperationalPrune = &prune
 	}
+	if len(maintenance.StatementVersionDedups) == 1 {
+		dedup := maintenance.StatementVersionDedups[0]
+		bound.StatementVersionDedup = &dedup
+	}
 	if err := validateCoreSchemaUpgradeMaintenance(*bound); err != nil {
 		return nil, err
 	}
@@ -107,7 +120,7 @@ func coreSchemaUpgradeMaintenanceFromResult(result corestore.UpgradeResult) (*co
 }
 
 func validateCoreSchemaUpgradeMaintenance(maintenance coreSchemaUpgradeMaintenance) error {
-	if maintenance.Discard == nil && maintenance.EventDiscard == nil && maintenance.OperationalPrune == nil {
+	if maintenance.Discard == nil && maintenance.EventDiscard == nil && maintenance.OperationalPrune == nil && maintenance.StatementVersionDedup == nil {
 		return fmt.Errorf("schema upgrade maintenance has no authorized typed discard")
 	}
 	if maintenance.Discard != nil {
@@ -157,6 +170,21 @@ func validateCoreSchemaUpgradeMaintenance(maintenance coreSchemaUpgradeMaintenan
 			return fmt.Errorf("zero-row operational prune reports payload bytes")
 		}
 	}
+	if maintenance.StatementVersionDedup != nil {
+		dedup := *maintenance.StatementVersionDedup
+		if dedup.MigrationVersion != statementVersionDedupMigrationVersion ||
+			dedup.MigrationName != statementVersionDedupMigrationName ||
+			dedup.Selector != statementVersionDedupReceiptSelector {
+			return fmt.Errorf("schema upgrade maintenance is not the authorized statement-version dedup")
+		}
+		if dedup.RemovedEquityDayRows < 0 || dedup.RemovedRecordRows < 0 || dedup.RemovedMetadataRows < 0 ||
+			dedup.RemovedPayloadBytes < 0 || !validSHA256Hex(dedup.OrderedDigestSHA256) {
+			return fmt.Errorf("schema upgrade statement-version dedup summary is invalid")
+		}
+		if !statementVersionDedupSummaryRemovedRows(dedup) && dedup.RemovedPayloadBytes != 0 {
+			return fmt.Errorf("zero-row statement-version dedup reports payload bytes")
+		}
+	}
 	if !maintenance.Compacted {
 		return fmt.Errorf("maintenance discard did not compact the candidate")
 	}
@@ -179,11 +207,19 @@ func equalCoreSchemaUpgradeMaintenance(left, right *coreSchemaUpgradeMaintenance
 	return equalObservationDiscard(left.Discard, right.Discard) &&
 		equalEventDiscard(left.EventDiscard, right.EventDiscard) &&
 		equalOperationalPrune(left.OperationalPrune, right.OperationalPrune) &&
+		equalStatementVersionDedup(left.StatementVersionDedup, right.StatementVersionDedup) &&
 		left.Compacted == right.Compacted &&
 		left.RetireSourceBackup == right.RetireSourceBackup
 }
 
 func equalOperationalPrune(left, right *corestore.OperationalPruneSummary) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func equalStatementVersionDedup(left, right *corestore.StatementVersionDedupSummary) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
@@ -207,7 +243,12 @@ func equalEventDiscard(left, right *corestore.EventDiscardSummary) bool {
 func coreSchemaUpgradeMaintenanceHasRemovedRows(maintenance coreSchemaUpgradeMaintenance) bool {
 	return maintenance.Discard != nil && maintenance.Discard.RemovedRows > 0 ||
 		maintenance.EventDiscard != nil && maintenance.EventDiscard.RemovedRows > 0 ||
-		maintenance.OperationalPrune != nil && operationalPruneSummaryRemovedRows(*maintenance.OperationalPrune)
+		maintenance.OperationalPrune != nil && operationalPruneSummaryRemovedRows(*maintenance.OperationalPrune) ||
+		maintenance.StatementVersionDedup != nil && statementVersionDedupSummaryRemovedRows(*maintenance.StatementVersionDedup)
+}
+
+func statementVersionDedupSummaryRemovedRows(dedup corestore.StatementVersionDedupSummary) bool {
+	return dedup.RemovedEquityDayRows > 0 || dedup.RemovedRecordRows > 0 || dedup.RemovedMetadataRows > 0
 }
 
 func operationalPruneSummaryRemovedRows(prune corestore.OperationalPruneSummary) bool {
@@ -216,14 +257,29 @@ func operationalPruneSummaryRemovedRows(prune corestore.OperationalPruneSummary)
 		prune.RemovedRuleTransitionRows > 0 || prune.RemovedStressTransitionRows > 0
 }
 
-func coreSchemaUpgradeMaintenanceMatchesTarget(maintenance coreSchemaUpgradeMaintenance, targetVersion int) bool {
-	if maintenance.OperationalPrune != nil {
-		return targetVersion == betaOperationalPruneMigrationVersion
+// coreSchemaUpgradeMaintenanceMatchesTarget reports whether maintenance holds
+// a summary for exactly the maintenance migrations the upgrade from
+// sourceVersion to targetVersion runs. One upgrade may span several, such as
+// v5 to v9; corestore summarizes each pending one even when it removes nothing.
+func coreSchemaUpgradeMaintenanceMatchesTarget(maintenance coreSchemaUpgradeMaintenance, sourceVersion, targetVersion int) bool {
+	pending := func(version int) bool { return sourceVersion < version && version <= targetVersion }
+	repairs := []struct {
+		present bool
+		version int
+	}{
+		{maintenance.Discard != nil, contractCachePruneMigrationVersion},
+		{maintenance.EventDiscard != nil, alertEpisodePruneMigrationVersion},
+		{maintenance.OperationalPrune != nil, betaOperationalPruneMigrationVersion},
+		{maintenance.StatementVersionDedup != nil, statementVersionDedupMigrationVersion},
 	}
-	if maintenance.EventDiscard != nil {
-		return targetVersion == alertEpisodePruneMigrationVersion
+	found := false
+	for _, repair := range repairs {
+		if repair.present != pending(repair.version) {
+			return false
+		}
+		found = found || repair.present
 	}
-	return maintenance.Discard != nil && targetVersion == contractCachePruneMigrationVersion
+	return found
 }
 
 func coreSchemaUpgradeRetiresSourceBackup(manifest coreSchemaUpgradeManifest) bool {
@@ -451,13 +507,18 @@ func coreSchemaMaintenanceReceiptFromManifest(manifest coreSchemaUpgradeManifest
 		// Preserve byte-compatible crash recovery for a v5 maintenance receipt
 		// written before the operational-prune migration existed.
 		version = coreSchemaMaintenanceReceiptEventVersion
+	} else if manifest.Maintenance.StatementVersionDedup == nil {
+		// Preserve byte-compatible crash recovery for a v6 maintenance receipt
+		// written before the statement-version dedup existed.
+		version = coreSchemaMaintenanceReceiptOperationVersion
 	}
 	return coreSchemaMaintenanceReceipt{
-		Version:          version,
-		UpgradeID:        manifest.UpgradeID,
-		Discard:          manifest.Maintenance.Discard,
-		EventDiscard:     manifest.Maintenance.EventDiscard,
-		OperationalPrune: manifest.Maintenance.OperationalPrune,
+		Version:               version,
+		UpgradeID:             manifest.UpgradeID,
+		Discard:               manifest.Maintenance.Discard,
+		EventDiscard:          manifest.Maintenance.EventDiscard,
+		OperationalPrune:      manifest.Maintenance.OperationalPrune,
+		StatementVersionDedup: manifest.Maintenance.StatementVersionDedup,
 		Source: coreSchemaMaintenanceArtifactReceipt{
 			SchemaVersion: manifest.SourceVersion,
 			Head:          manifest.SourceHead,
@@ -474,7 +535,8 @@ func coreSchemaMaintenanceReceiptFromManifest(manifest coreSchemaUpgradeManifest
 }
 
 func validateCoreSchemaMaintenanceReceipt(receipt coreSchemaMaintenanceReceipt) error {
-	if (receipt.Version != 1 && receipt.Version != coreSchemaMaintenanceReceiptEventVersion && receipt.Version != coreSchemaMaintenanceReceiptVersion) ||
+	if (receipt.Version != 1 && receipt.Version != coreSchemaMaintenanceReceiptEventVersion &&
+		receipt.Version != coreSchemaMaintenanceReceiptOperationVersion && receipt.Version != coreSchemaMaintenanceReceiptVersion) ||
 		!validCoreSchemaUpgradeID(receipt.UpgradeID) ||
 		!validAuthorityHead(receipt.Source.Head) ||
 		!validAuthorityHead(receipt.Target.Head) ||
@@ -492,12 +554,19 @@ func validateCoreSchemaMaintenanceReceipt(receipt coreSchemaMaintenanceReceipt) 
 	if receipt.Version == coreSchemaMaintenanceReceiptEventVersion && receipt.OperationalPrune != nil {
 		return fmt.Errorf("event-era schema maintenance receipt has operational prune metadata")
 	}
+	if receipt.Version < coreSchemaMaintenanceReceiptVersion && receipt.StatementVersionDedup != nil {
+		return fmt.Errorf("schema maintenance receipt version %d has statement-version dedup metadata", receipt.Version)
+	}
+	if receipt.Version == coreSchemaMaintenanceReceiptVersion && receipt.StatementVersionDedup == nil {
+		return fmt.Errorf("schema maintenance receipt version %d lacks statement-version dedup metadata", receipt.Version)
+	}
 	return validateCoreSchemaUpgradeMaintenance(coreSchemaUpgradeMaintenance{
-		Discard:            receipt.Discard,
-		EventDiscard:       receipt.EventDiscard,
-		OperationalPrune:   receipt.OperationalPrune,
-		Compacted:          true,
-		RetireSourceBackup: true,
+		Discard:               receipt.Discard,
+		EventDiscard:          receipt.EventDiscard,
+		OperationalPrune:      receipt.OperationalPrune,
+		StatementVersionDedup: receipt.StatementVersionDedup,
+		Compacted:             true,
+		RetireSourceBackup:    true,
 	})
 }
 
@@ -601,6 +670,7 @@ func equalCoreSchemaMaintenanceReceipt(left, right coreSchemaMaintenanceReceipt)
 		left.UpgradeID == right.UpgradeID &&
 		equalObservationDiscard(left.Discard, right.Discard) &&
 		equalEventDiscard(left.EventDiscard, right.EventDiscard) &&
+		equalStatementVersionDedup(left.StatementVersionDedup, right.StatementVersionDedup) &&
 		left.Source == right.Source && left.Target == right.Target
 }
 

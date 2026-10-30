@@ -583,7 +583,7 @@ func validatePreparedCoreSchemaUpgrade(manifest coreSchemaUpgradeManifest, artif
 			return fmt.Errorf("prepared head-preserving upgrade lacks exact v4 maintenance authority")
 		}
 	}
-	if maintenance != nil && !coreSchemaUpgradeMaintenanceMatchesTarget(*maintenance, manifest.TargetVersion) {
+	if maintenance != nil && !coreSchemaUpgradeMaintenanceMatchesTarget(*maintenance, manifest.SourceVersion, manifest.TargetVersion) {
 		return fmt.Errorf("prepared schema maintenance has invalid target version")
 	}
 	if manifest.Status == coreSchemaUpgradeReady {
@@ -753,7 +753,7 @@ func validateCoreSchemaUpgradeManifest(manifest coreSchemaUpgradeManifest) error
 				return fmt.Errorf("head-preserving schema upgrade lacks exact v4 maintenance authority")
 			}
 		}
-		if manifest.Maintenance != nil && !coreSchemaUpgradeMaintenanceMatchesTarget(*manifest.Maintenance, manifest.TargetVersion) {
+		if manifest.Maintenance != nil && !coreSchemaUpgradeMaintenanceMatchesTarget(*manifest.Maintenance, manifest.SourceVersion, manifest.TargetVersion) {
 			return fmt.Errorf("schema maintenance manifest has invalid target version")
 		}
 		hasTargetFingerprint := manifest.TargetBackupSHA256 != "" || manifest.TargetBackupBytes != 0

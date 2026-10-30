@@ -36,6 +36,7 @@ type migrationMaintenance struct {
 	ObservationDiscard *ObservationDiscardSelector
 	EventDiscard       *EventDiscardSelector
 	OperationalPrune   *OperationalPruneSelector
+	StatementDedup     *StatementVersionDedupSelector
 	CompactCandidate   bool
 	RetireSourceBackup bool
 	// PreserveAuthorityHead is an explicit exception to the normal out-of-place
@@ -625,6 +626,77 @@ func edgeStatementMetadataMigration() migration {
 	}
 }
 
+// statementVersionDedupMigrationVersion is migration 9's version. The
+// migration spells it as a literal, which the architecture renderer reads.
+const statementVersionDedupMigrationVersion = 9
+
+var statementVersionDedupSelector = StatementVersionDedupSelector{Predicate: "statement_version_first_seen.v1"}
+
+// statementVersionDedupTables names each statement version table, its ID
+// column, and the columns that make two versions the same content. The file
+// that reported a version, its generation stamp and the record time are not
+// content: the daily year-to-date Flex report repeats every unchanged row.
+var statementVersionDedupTables = []struct {
+	table, id string
+	identity  []string
+}{
+	{"statement_equity_day_versions", "equity_version_id", []string{"scope_key", "account_key", "day", "equity_base_text", "raw_sha256"}},
+	{"statement_record_versions", "record_version_id", []string{"scope_key", "record_kind", "record_key", "account_key", "effective_at", "raw_sha256"}},
+	{"statement_metadata_versions", "metadata_version_id", []string{"scope_key", "record_key", "account_key", "effective_at", "raw_sha256"}},
+}
+
+// statementVersionDedupMatchClause selects every version of table that repeats
+// an earlier version's content; the lowest ID, the first one stored, stays.
+func statementVersionDedupMatchClause(table, id string, identity []string) string {
+	return fmt.Sprintf(" WHERE %s NOT IN (SELECT min(%s) FROM %s GROUP BY %s)", id, id, table, strings.Join(identity, ", "))
+}
+
+func statementVersionDedupStatements() []string {
+	statements := make([]string, 0, 3*len(statementVersionDedupTables))
+	for _, t := range statementVersionDedupTables {
+		statements = append(statements,
+			`DROP TRIGGER `+t.table+`_no_delete`,
+			`DELETE FROM `+t.table+statementVersionDedupMatchClause(t.table, t.id, t.identity),
+			appendOnlyDeleteTrigger(t.table),
+		)
+	}
+	return statements
+}
+
+// statementVersionDedupMigration is migration 9. Until v3.32.0 every daily
+// Flex refresh appended a version copy of every row for the new file, even
+// when the row's content was unchanged, which made the version tables the
+// largest unbounded grower in daemon.db. The refresh now stores a version only
+// the first time its content is seen; this removes the copies stored before.
+// Owner instruction 2026-10-30 10:24 CET: "ok go for B1" (variant a).
+func statementVersionDedupMigration() migration {
+	selector := statementVersionDedupSelector
+	statements := statementVersionDedupStatements()
+	destructive := make([]string, 0, 2*len(statementVersionDedupTables))
+	for _, statement := range statements {
+		if isDestructiveStatement(statement) {
+			destructive = append(destructive, statement)
+		}
+	}
+	return migration{
+		version:    9,
+		name:       "statement_version_dedup",
+		statements: statements,
+		destructive: &destructiveApproval{
+			reason: "The daily year-to-date Flex refresh appended a version copy of every statement row for each new file, even when the row's content was identical to a version already stored. " +
+				"This exception drops only the delete guard of each statement version table, deletes only versions whose content columns equal an earlier version's (keeping the lowest ID, the first stored), and recreates the identical guard in the same transaction. " +
+				"Every distinct restatement stays, as do statement file versions, current statement rows and every other table. What leaves is the database's record of which later files repeated an identical row; the retained Flex XML still holds it. " +
+				"No reader uses the version tables beyond the integrity digest check. Owner instruction 2026-10-30 10:24 CET.",
+			statements: destructive,
+		},
+		maintenance: &migrationMaintenance{
+			StatementDedup:     &selector,
+			CompactCandidate:   true,
+			RetireSourceBackup: true,
+		},
+	}
+}
+
 func init() {
 	for _, table := range migrationV1AppendOnlyTables {
 		migrations[0].statements = append(migrations[0].statements,
@@ -651,6 +723,7 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 		betaOperationalHistoryPrune(),
 		edgeStatementProjectionMigration(),
 		edgeStatementMetadataMigration(),
+		statementVersionDedupMigration(),
 	)
 }
 
@@ -711,6 +784,14 @@ func migrationChecksum(m migration) string {
 			h.Write([]byte(m.maintenance.OperationalPrune.Predicate))
 			h.Write([]byte{0})
 		}
+		// StatementDedup was added after migrations 4 to 6 shipped and is
+		// appended the same way.
+		if m.maintenance.StatementDedup != nil {
+			h.Write([]byte("maintenance.statement-version-dedup.v1"))
+			h.Write([]byte{0})
+			h.Write([]byte(m.maintenance.StatementDedup.Predicate))
+			h.Write([]byte{0})
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -742,6 +823,10 @@ func cloneMigrationPlan(plan []migration) []migration {
 			if m.maintenance.OperationalPrune != nil {
 				selector := *m.maintenance.OperationalPrune
 				maintenance.OperationalPrune = &selector
+			}
+			if m.maintenance.StatementDedup != nil {
+				selector := *m.maintenance.StatementDedup
+				maintenance.StatementDedup = &selector
 			}
 			cloned[i].maintenance = &maintenance
 		}
@@ -793,6 +878,7 @@ func validateMigrationMaintenance(m migration, approved map[string]struct{}) err
 		maintenance.ObservationDiscard != nil,
 		maintenance.EventDiscard != nil,
 		maintenance.OperationalPrune != nil,
+		maintenance.StatementDedup != nil,
 	} {
 		if present {
 			typed++
@@ -843,6 +929,25 @@ func validateMigrationMaintenance(m migration, approved map[string]struct{}) err
 			appendOnlyDeleteTrigger("event_log"),
 		}
 		return validateExactMaintenanceStatements(m, approved, wantStatements, "event-discard")
+	}
+
+	if maintenance.StatementDedup != nil {
+		if *maintenance.StatementDedup != statementVersionDedupSelector {
+			return fmt.Errorf("migration %d maintenance has an invalid statement dedup selector", m.version)
+		}
+		if maintenance.PreserveAuthorityHead {
+			return fmt.Errorf("migration %d statement dedup cannot preserve the authority head", m.version)
+		}
+		wantStatements := statementVersionDedupStatements()
+		if err := validateExactMaintenanceStatements(m, approved, wantStatements, "statement-dedup"); err != nil {
+			return err
+		}
+		for _, statement := range wantStatements {
+			if _, ok := approved[statement]; isDestructiveStatement(statement) && !ok {
+				return fmt.Errorf("migration %d statement-dedup destructive statement lacks exact approval", m.version)
+			}
+		}
+		return nil
 	}
 
 	selector := *maintenance.OperationalPrune

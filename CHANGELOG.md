@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - The mandate's index gap now moves SPY, the other broad index funds and a Micro S&P hedge together, and the gap cap applies to their net loss. A hedge lowers the index gap loss and can cure a breached index line instead of adding a breach of its own; it breaches only when it hedges past neutral, and a sale is refused for the gap cap only when it adds or worsens a breach.
 - A daily statement refresh no longer credits every unchanged year-to-date row to the newest Flex report. A row stays on the report that first showed it and moves only when its content changes, so `canary recon equity` names that report for each day and each refresh writes less to the database. Statement date and coverage records still follow the newest report.
+- The database no longer stores a fresh copy of every unchanged statement row each time the daily Flex report arrives; a row is stored again only when its content changes. On the first start after the update the daemon removes the copies it stored before and compacts the database, which can take about a minute on a large one.
 
 ## v3.31.0 — 2026-10-30 09:03 CET
 
