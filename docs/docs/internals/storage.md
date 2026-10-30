@@ -42,7 +42,12 @@ writes one ordered path instead of several competing writers.
   query-coverage metadata, and typed current trade/instrument/position/event/
   action/transfer/cash/FX rows rebuilt from the complete retained set of
   original Flex XML statements. Immutable typed versions preserve restatements
-  behind the current winners.
+  behind the current winners. The newest generation decides a current row's
+  content; the row is credited to the oldest retained file in the unbroken run
+  of generations that reported exactly that content, so a year-to-date report
+  that repeats a row leaves it in place. Date and query-coverage metadata
+  always follows the newest generation, which readers take as proof of a fresh
+  report.
 
 Several records stay beside the database because they have different owners or
 recovery lifecycles:

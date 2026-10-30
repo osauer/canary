@@ -1,13 +1,16 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -249,8 +252,7 @@ func statementProjectionInventoryMatches(recorded []corestore.StatementFileRecor
 
 func buildStatementProjection(files []statementProjectionFile, ingestedAt time.Time, queryFingerprint string) ([]corestore.StatementFileRecord, []corestore.StatementEquityDayRecord, []corestore.StatementRecord, []corestore.StatementRecord, error) {
 	fileRecords := make([]corestore.StatementFileRecord, 0, len(files))
-	winners := make(map[string]corestore.StatementEquityDayRecord)
-	recordWinners := make(map[string]corestore.StatementRecord)
+	dayCandidates := make(map[string][]corestore.StatementEquityDayRecord)
 	recordVersions := []corestore.StatementRecord{}
 	for _, file := range files {
 		var latestGenerated time.Time
@@ -262,9 +264,6 @@ func buildStatementProjection(files []statementProjectionFile, ingestedAt time.T
 			for _, row := range statement.Equity {
 				day := row.ReportDate.UTC().Format("2006-01-02")
 				key := statement.AccountID + "\x00" + day
-				if current, ok := winners[key]; ok && !generated.After(current.GeneratedAt) {
-					continue
-				}
 				equityText := strconv.FormatFloat(row.TotalBase, 'g', -1, 64)
 				raw, err := json.Marshal(statementEquityProjectionPayload{
 					Version: statementProjectionVersion, ReportDate: day, TotalBase: equityText,
@@ -272,13 +271,13 @@ func buildStatementProjection(files []statementProjectionFile, ingestedAt time.T
 				if err != nil {
 					return nil, nil, nil, nil, fmt.Errorf("encode statement equity projection: %w", err)
 				}
-				winners[key] = corestore.StatementEquityDayRecord{
+				dayCandidates[key] = append(dayCandidates[key], corestore.StatementEquityDayRecord{
 					AccountKey: statement.AccountID, Day: day, EquityBaseText: equityText,
 					StatementFileKey: file.name, StatementFileSHA256: file.digest,
 					GeneratedAt: generated, RawJSON: raw,
-				}
+				})
 			}
-			if err := addStatementTypedRecords(recordWinners, &recordVersions, file, statement, queryFingerprint); err != nil {
+			if err := addStatementTypedRecords(&recordVersions, file, statement, queryFingerprint); err != nil {
 				return nil, nil, nil, nil, err
 			}
 		}
@@ -289,28 +288,61 @@ func buildStatementProjection(files []statementProjectionFile, ingestedAt time.T
 			IngestedAt: &ingestedAt,
 		})
 	}
-	keys := make([]string, 0, len(winners))
-	for key := range winners {
-		keys = append(keys, key)
+	// Ties keep the first file in name-descending order, as before.
+	days := make([]corestore.StatementEquityDayRecord, 0, len(dayCandidates))
+	for _, key := range slices.Sorted(maps.Keys(dayCandidates)) {
+		days = append(days, statementCurrentSource(dayCandidates[key],
+			func(a, b corestore.StatementEquityDayRecord) bool { return a.GeneratedAt.After(b.GeneratedAt) },
+			func(a, b corestore.StatementEquityDayRecord) bool { return bytes.Equal(a.RawJSON, b.RawJSON) }))
 	}
-	sort.Strings(keys)
-	days := make([]corestore.StatementEquityDayRecord, 0, len(keys))
-	for _, key := range keys {
-		days = append(days, winners[key])
+	recordCandidates := make(map[string][]corestore.StatementRecord)
+	for _, version := range recordVersions {
+		key := version.Kind + "\x00" + version.RecordKey
+		recordCandidates[key] = append(recordCandidates[key], version)
 	}
-	recordKeys := make([]string, 0, len(recordWinners))
-	for key := range recordWinners {
-		recordKeys = append(recordKeys, key)
-	}
-	sort.Strings(recordKeys)
-	records := make([]corestore.StatementRecord, 0, len(recordKeys))
-	for _, key := range recordKeys {
-		records = append(records, recordWinners[key])
+	records := make([]corestore.StatementRecord, 0, len(recordCandidates))
+	for _, key := range slices.Sorted(maps.Keys(recordCandidates)) {
+		records = append(records, statementCurrentSource(recordCandidates[key],
+			func(a, b corestore.StatementRecord) bool {
+				return a.GeneratedAt.After(b.GeneratedAt) || (a.GeneratedAt.Equal(b.GeneratedAt) && strings.Compare(hexDigest(a.StatementFileSHA256), hexDigest(b.StatementFileSHA256)) > 0)
+			},
+			func(a, b corestore.StatementRecord) bool {
+				// Metadata is the per-report receipt: Edge acquisition,
+				// reporting and financing read its generation as the proof of
+				// a fresh report, so it always follows the newest file.
+				return a.Kind != corestore.StatementRecordMetadata &&
+					a.EffectiveAt.Equal(b.EffectiveAt) && bytes.Equal(a.RawJSON, b.RawJSON)
+			}))
 	}
 	return fileRecords, days, records, recordVersions, nil
 }
 
-func addStatementTypedRecords(winners map[string]corestore.StatementRecord, versions *[]corestore.StatementRecord, file statementProjectionFile, statement flexstmt.Statement, queryFingerprint string) error {
+// statementCurrentSource picks one key's current row. The newest generation
+// decides the content; the source is the oldest file in the unbroken run of
+// generations that reported exactly that content. A year-to-date file
+// repeating an unchanged row therefore leaves the row on the file that first
+// reported it, while a changed row moves to the newest file. Only retained
+// files are candidates, so removing that first file moves the row to the next
+// file in the run and never leaves it pointing at missing evidence.
+func statementCurrentSource[T any](candidates []T, newer func(a, b T) bool, same func(a, b T) bool) T {
+	ordered := slices.Clone(candidates)
+	slices.SortStableFunc(ordered, func(a, b T) int {
+		switch {
+		case newer(a, b):
+			return -1
+		case newer(b, a):
+			return 1
+		}
+		return 0
+	})
+	source := 0
+	for source+1 < len(ordered) && same(ordered[source+1], ordered[0]) {
+		source++
+	}
+	return ordered[source]
+}
+
+func addStatementTypedRecords(versions *[]corestore.StatementRecord, file statementProjectionFile, statement flexstmt.Statement, queryFingerprint string) error {
 	generated := statement.WhenGenerated.UTC()
 	account := statement.AccountID
 	add := func(kind, recordKey string, effectiveAt time.Time, payload any) error {
@@ -322,17 +354,12 @@ func addStatementTypedRecords(winners map[string]corestore.StatementRecord, vers
 			return fmt.Errorf("encode %s statement record: %w", kind, err)
 		}
 		projectionKey := statementProjectionRecordKey(account, recordKey)
-		key := kind + "\x00" + projectionKey
 		candidate := corestore.StatementRecord{
 			Kind: kind, RecordKey: projectionKey, AccountKey: account,
 			EffectiveAt: effectiveAt.UTC(), StatementFileKey: file.name, StatementFileSHA256: file.digest,
 			GeneratedAt: generated, RawJSON: raw,
 		}
 		*versions = append(*versions, candidate)
-		current, ok := winners[key]
-		if !ok || generated.After(current.GeneratedAt) || (generated.Equal(current.GeneratedAt) && strings.Compare(hexDigest(file.digest), hexDigest(current.StatementFileSHA256)) > 0) {
-			winners[key] = candidate
-		}
 		return nil
 	}
 	metadataKey := "statement:" + statement.FromDate.UTC().Format(time.DateOnly) + ":" + statement.ToDate.UTC().Format(time.DateOnly)

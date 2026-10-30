@@ -87,9 +87,9 @@ type ReconEquityParams struct {
 	Limit int `json:"limit,omitempty"`
 }
 
-// EquityDayEntry is one derived statement-equity day. SourceStmt names the
-// retained statement file the value came from; WhenGenerated is the
-// restatement authority (newest statement wins per day).
+// EquityDayEntry is one derived statement-equity day. The newest statement
+// decides the value; SourceStmt names the oldest retained file in the unbroken
+// run that reported that same value, and WhenGenerated is its generation.
 type EquityDayEntry struct {
 	Day           string    `json:"day"`
 	AccountID     string    `json:"account_id"`
