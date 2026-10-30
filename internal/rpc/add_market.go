@@ -7,10 +7,13 @@ const MethodAddMarket = "add.market"
 
 // AddMarketParams identifies an underlying and optionally an exact selected call.
 type AddMarketParams struct {
-	Underlying ContractParams     `json:"underlying"`
-	Selected   *ContractParams    `json:"selected,omitempty"`
-	Refresh    []AddCallSelection `json:"refresh,omitempty"`
-	Discover   bool               `json:"discover,omitempty"`
+	Underlying ContractParams `json:"underlying"`
+	// Right picks the side: C, the default, for calls; P for protective
+	// puts. Selected and Refresh carry the same right.
+	Right    string             `json:"right,omitempty"`
+	Selected *ContractParams    `json:"selected,omitempty"`
+	Refresh  []AddCallSelection `json:"refresh,omitempty"`
+	Discover bool               `json:"discover,omitempty"`
 }
 
 // AddCallSelection refreshes one previously resolved horizon without re-ranking.
@@ -33,10 +36,22 @@ type AddCallCandidate struct {
 	DeltaBand *AddDeltaBand `json:"delta_band,omitempty"`
 }
 
-// AddDeltaBand bounds a suggested call's live delta, inclusive.
+// AddDeltaBand bounds a suggested option's live delta, inclusive, and names
+// the delta selection aims at. A put's band is written without its sign; its
+// quote's delta keeps the broker's sign.
 type AddDeltaBand struct {
-	Min float64 `json:"min"`
-	Max float64 `json:"max"`
+	Min    float64 `json:"min"`
+	Max    float64 `json:"max"`
+	Target float64 `json:"target"`
+}
+
+// AddPutCover is what a protective put may still cover: the shares held
+// long, the shares the long puts held cover, and the contracts of 100 shares
+// that fit, as the protective put gate counts them (working orders are not).
+type AddPutCover struct {
+	HeldShares    float64 `json:"held_shares"`
+	CoveredShares float64 `json:"covered_shares"`
+	RoomContracts int     `json:"room_contracts"`
 }
 
 // AddCallPlanning is closed-session context, never live selection or order
@@ -51,16 +66,20 @@ type AddCallPlanning struct {
 
 // AddMarketResult contains observations, never order authority or risk capacity.
 type AddMarketResult struct {
-	Version            int                         `json:"version"`
-	Underlying         ContractParams              `json:"underlying"`
-	Quote              *Quote                      `json:"quote,omitempty"`
-	PriceIncrements    []SetupOptionPriceIncrement `json:"price_increments,omitempty"`
-	Calls              []AddCallCandidate          `json:"calls,omitempty"`
-	Selected           *AddCallCandidate           `json:"selected,omitempty"`
-	AsOf               time.Time                   `json:"as_of"`
-	OptionsSession     MarketSession               `json:"options_session"`
-	OptionsLastSession *MarketSession              `json:"options_last_session,omitempty"`
-	OptionMode         string                      `json:"option_mode"` // live | planning | unavailable
+	Version         int                         `json:"version"`
+	Underlying      ContractParams              `json:"underlying"`
+	Quote           *Quote                      `json:"quote,omitempty"`
+	PriceIncrements []SetupOptionPriceIncrement `json:"price_increments,omitempty"`
+	Calls           []AddCallCandidate          `json:"calls,omitempty"`
+	// Puts replace Calls for right P, in the same row shape.
+	Puts []AddCallCandidate `json:"puts,omitempty"`
+	// PutCover is present for right P when the book can be measured.
+	PutCover           *AddPutCover      `json:"put_cover,omitempty"`
+	Selected           *AddCallCandidate `json:"selected,omitempty"`
+	AsOf               time.Time         `json:"as_of"`
+	OptionsSession     MarketSession     `json:"options_session"`
+	OptionsLastSession *MarketSession    `json:"options_last_session,omitempty"`
+	OptionMode         string            `json:"option_mode"` // live | planning | unavailable
 	// OptionCap is the option contracts one order may carry under the
 	// order limits in force; 0 when they cannot be read.
 	OptionCap int `json:"option_cap,omitempty"`

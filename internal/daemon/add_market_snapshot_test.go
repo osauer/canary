@@ -298,7 +298,7 @@ func runAddSnapshotScenario(t *testing.T, scenario string) {
 	if scenario == "planning" {
 		row := got.Calls[1]
 		p := row.Planning
-		if got.OptionMode != "planning" || p == nil || p.Price == nil || *p.Price != 1.01 || p.PriceSource != "broker_midpoint" || p.DeltaStatus != "in_range" || row.Quote == nil || row.Quote.IV == nil || row.Quote.ModelDataType != rpc.MarketDataFrozen || eligibleAddCall(row, time.Now()) || optionHistoryRequests != 0 || len(optionStrikes) != 3 {
+		if got.OptionMode != "planning" || p == nil || p.Price == nil || *p.Price != 1.01 || p.PriceSource != "broker_midpoint" || p.DeltaStatus != "in_range" || row.Quote == nil || row.Quote.IV == nil || row.Quote.ModelDataType != rpc.MarketDataFrozen || eligibleAddCall(testCallSide, row, time.Now()) || optionHistoryRequests != 0 || len(optionStrikes) != 3 {
 			t.Fatalf("closed read lost the closing quote, read history or invented eligibility: row=%+v planning=%+v history=%d strikes=%v", row, p, optionHistoryRequests, optionStrikes)
 		}
 	} else if !slices.Equal(slices.Sorted(slices.Values(optionStrikes)), []string{"100", "110", "120"}) {

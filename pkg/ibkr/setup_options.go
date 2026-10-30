@@ -117,9 +117,15 @@ func setupOptionParameterSize(fields []string) (int, error) {
 // ValidateSetupCallResolution checks the broker's exact underlying linkage and
 // standard call tuple after ordinary exact-contract resolution has succeeded.
 func ValidateSetupCallResolution(r ResolvedOrderContract, underlying Contract, expiry string, strike float64) error {
+	return ValidateSetupOptionResolution(r, underlying, expiry, strike, "C")
+}
+
+// ValidateSetupOptionResolution is ValidateSetupCallResolution for either
+// right, C or P.
+func ValidateSetupOptionResolution(r ResolvedOrderContract, underlying Contract, expiry string, strike float64, right string) error {
 	c := r.Contract
-	if r.UnderConID != underlying.ConID || r.UnderConID <= 0 || c.ConID <= 0 || c.Symbol != underlying.Symbol || c.SecType != "OPT" || c.Currency != "USD" || c.Exchange != "SMART" || c.Expiry != expiry || c.Right != "C" || c.Strike != strike || c.Multiplier != 100 || c.TradingClass != underlying.Symbol || strings.TrimSpace(c.LocalSymbol) == "" {
-		return fmt.Errorf("resolved option is not the exact standard call for this underlying")
+	if (right != "C" && right != "P") || r.UnderConID != underlying.ConID || r.UnderConID <= 0 || c.ConID <= 0 || c.Symbol != underlying.Symbol || c.SecType != "OPT" || c.Currency != "USD" || c.Exchange != "SMART" || c.Expiry != expiry || c.Right != right || c.Strike != strike || c.Multiplier != 100 || c.TradingClass != underlying.Symbol || strings.TrimSpace(c.LocalSymbol) == "" {
+		return fmt.Errorf("resolved option is not the exact standard option for this underlying")
 	}
 	return nil
 }

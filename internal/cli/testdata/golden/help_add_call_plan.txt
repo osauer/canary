@@ -1,6 +1,6 @@
 # canary add call-plan --help · COLUMNS=80 · colour off
-canary add call-plan — Size an exact long call using broker fee evidence; no
-orders placed
+canary add call-plan — Size an exact long call or protective put using broker
+fee evidence; no orders placed
 
 Usage: canary add call-plan [--json] < request.json
 
@@ -11,9 +11,12 @@ Stdin: one JSON object; unknown fields and extra objects are rejected. Output is
 always JSON, with or without --json.
 
 contract (required): copy the exact contract returned by add market. It must be
-a USD SMART call: sec_type OPT, right C, multiplier 100, positive con_id,
+a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id,
 trading_class and expiry YYYYMMDD more than seven days away; retain symbol and
 strike.
+
+A put is sized within the held shares it may still protect; cover_capped says
+that held the size.
 
 limit_price (required): positive premium per underlying share in USD. budget
 (required): positive total USD debit including the broker fee bound, at most
@@ -48,8 +51,8 @@ canary add call-plan --json <<'JSON'
 }
 JSON
 # canary add call-plan --help · COLUMNS=80 · colour on, ESC written as \x1b
-\x1b[1mcanary add call-plan — Size an exact long call using broker fee evidence; no\x1b[0m
-\x1b[1morders placed\x1b[0m
+\x1b[1mcanary add call-plan — Size an exact long call or protective put using broker\x1b[0m
+\x1b[1mfee evidence; no orders placed\x1b[0m
 
 Usage: \x1b[36mcanary add call-plan [--json] < request.json\x1b[0m
 
@@ -60,9 +63,12 @@ Stdin: one JSON object; unknown fields and extra objects are rejected. Output is
 always JSON, with or without --json.
 
 contract (required): copy the exact contract returned by add market. It must be
-a USD SMART call: sec_type OPT, right C, multiplier 100, positive con_id,
+a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id,
 trading_class and expiry YYYYMMDD more than seven days away; retain symbol and
 strike.
+
+A put is sized within the held shares it may still protect; cover_capped says
+that held the size.
 
 limit_price (required): positive premium per underlying share in USD. budget
 (required): positive total USD debit including the broker fee bound, at most

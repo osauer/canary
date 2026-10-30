@@ -40,13 +40,13 @@ func TestAddCallSelectionUsesActualExpiryInventory(t *testing.T) {
 		return rpc.AddCallCandidate{Contract: &contract, PriceIncrements: []rpc.SetupOptionPriceIncrement{{LowEdge: 0, Increment: .01}}, Quote: &rpc.SetupOptionQuote{Status: rpc.SetupQuoteQuoted, DataType: rpc.MarketDataLive, ModelDataType: rpc.MarketDataLive, AsOf: now, ModelAsOf: now, IV: new(.2), Delta: &delta}}
 	}
 	union := []ibkr.ResolvedOrderContract{call(765), call(770), call(772), call(773), call(774), call(775), call(780)}
-	before := selectAddCall(union, 772.94, quote)
+	before := selectAddCall(testCallSide, union, 772.94, quote)
 	if before.Contract != nil || !reflect.DeepEqual(sortedStrikes(quoted), []float64{772, 773, 774}) {
 		t.Fatalf("fixture did not reproduce the old union probe failure: %+v %v", before, quoted)
 	}
 	quoted = nil
 	actual := []ibkr.ResolvedOrderContract{call(765), call(770), call(775), call(780)}
-	after := selectAddCall(actual, 772.94, quote)
+	after := selectAddCall(testCallSide, actual, 772.94, quote)
 	if after.Contract == nil || after.Contract.Strike != 770 || !reflect.DeepEqual(sortedStrikes(quoted), []float64{770, 775, 780}) {
 		t.Fatalf("valid expiry call not selected: %+v %v", after, quoted)
 	}
@@ -60,7 +60,7 @@ func TestAddCallSelectionKeepsQuoteBoundAndEligibility(t *testing.T) {
 				calls[i].Contract.Strike = 100 + float64(i)
 			}
 			var count atomic.Int32
-			got := selectAddCall(calls, 100, func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+			got := selectAddCall(testCallSide, calls, 100, func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
 				count.Add(1)
 				now := time.Now()
 				q := &rpc.SetupOptionQuote{Status: rpc.SetupQuoteQuoted, DataType: rpc.MarketDataLive, ModelDataType: rpc.MarketDataLive, AsOf: now, ModelAsOf: now, IV: new(.2), Delta: new(.6)}
@@ -105,16 +105,16 @@ func TestAddCallNeedsIndependentLiveModelEvidence(t *testing.T) {
 	now := time.Now()
 	q := &rpc.SetupOptionQuote{Status: "quoted", DataType: rpc.MarketDataLive, AsOf: now, IV: new(.3), Delta: new(.6), ModelAsOf: now, ModelDataType: rpc.MarketDataLive}
 	row := rpc.AddCallCandidate{Contract: &rpc.ContractParams{ConID: 10001}, Quote: q, PriceIncrements: []rpc.SetupOptionPriceIncrement{{LowEdge: 0, Increment: .01}}}
-	if !eligibleAddCall(row, now) {
+	if !eligibleAddCall(testCallSide, row, now) {
 		t.Fatal("fresh exact model rejected")
 	}
 	q.ModelAsOf = now.Add(-16 * time.Second)
-	if eligibleAddCall(row, now) {
+	if eligibleAddCall(testCallSide, row, now) {
 		t.Fatal("price freshened model")
 	}
 	q.ModelAsOf = now
 	q.ModelDataType = rpc.MarketDataDelayed
-	if eligibleAddCall(row, now) {
+	if eligibleAddCall(testCallSide, row, now) {
 		t.Fatal("delayed model upgraded")
 	}
 }

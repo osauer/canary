@@ -17,8 +17,13 @@ const setupExpiryCallLimit = 2048
 // pairs. This bounded partial-contract request supplies the actual pairs and
 // their routing metadata; no partial response or shared cache is authoritative.
 func (c *Connector) FetchSetupExpiryCalls(ctx context.Context, binding ConnectorSessionBinding, underlying Contract, expiry string, timeout time.Duration) ([]ResolvedOrderContract, error) {
+	return c.FetchSetupExpiryOptions(ctx, binding, underlying, expiry, "C", timeout)
+}
+
+// FetchSetupExpiryOptions is FetchSetupExpiryCalls for either right, C or P.
+func (c *Connector) FetchSetupExpiryOptions(ctx context.Context, binding ConnectorSessionBinding, underlying Contract, expiry, right string, timeout time.Duration) ([]ResolvedOrderContract, error) {
 	date, dateErr := time.Parse("20060102", expiry)
-	if underlying.ConID <= 0 || underlying.Symbol == "" || underlying.SecType != "STK" || underlying.Currency != "USD" || underlying.Exchange != "SMART" || dateErr != nil || date.Format("20060102") != expiry || !c.SessionCurrent(binding) {
+	if right != "C" && right != "P" || underlying.ConID <= 0 || underlying.Symbol == "" || underlying.SecType != "STK" || underlying.Currency != "USD" || underlying.Exchange != "SMART" || dateErr != nil || date.Format("20060102") != expiry || !c.SessionCurrent(binding) {
 		return nil, fmt.Errorf("exact US stock session and expiry required")
 	}
 	// Match the existing full-expiry prewarm budget. A short snapshot budget
@@ -32,7 +37,7 @@ func (c *Connector) FetchSetupExpiryCalls(ctx context.Context, binding Connector
 	// The stock's primary listing venue does not identify the option venue.
 	// Use the same SMART route as exact call resolution; validate the returned
 	// option's UnderConID rather than sending the stock's primary exchange.
-	request := Contract{Symbol: underlying.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Right: "C", Multiplier: 100, TradingClass: underlying.Symbol}
+	request := Contract{Symbol: underlying.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Right: right, Multiplier: 100, TradingClass: underlying.Symbol}
 	conn := binding.connection
 	serverVersion := conn.serverVersion
 	id, err := conn.reserveRequestID(nil)
@@ -76,7 +81,7 @@ func (c *Connector) FetchSetupExpiryCalls(ctx context.Context, binding Connector
 		one := request
 		one.Strike = detail.Strike
 		resolved, err := exactOrderContract(one, []ContractDetailsLite{*detail})
-		if err != nil || detail.Strike <= 0 || math.IsNaN(detail.Strike) || math.IsInf(detail.Strike, 0) || ValidateSetupCallResolution(resolved, underlying, expiry, detail.Strike) != nil {
+		if err != nil || detail.Strike <= 0 || math.IsNaN(detail.Strike) || math.IsInf(detail.Strike, 0) || ValidateSetupOptionResolution(resolved, underlying, expiry, detail.Strike, right) != nil {
 			failure = fmt.Errorf("expiry call inventory contains a mismatched contract")
 			signal()
 			return

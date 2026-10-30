@@ -1,6 +1,6 @@
 # canary add market --help · COLUMNS=80 · colour off
-canary add market — Read stock quotes and discover or refresh exact long calls;
-no orders placed
+canary add market — Read stock quotes and discover or refresh exact long calls
+or protective puts; no orders placed
 
 Usage: canary add market [--json] < request.json
 
@@ -13,16 +13,24 @@ always JSON, with or without --json.
 underlying (required): stock contract with symbol, sec_type STK, currency and
 exchange SMART; con_id is optional when known.
 
-discover (optional boolean): discover call candidates for USD stocks. selected
-(optional contract): refresh one exact call returned by discovery.
+right (optional): C (default) for calls, P for protective puts. Puts come back
+in puts with put_cover: the shares held, the shares long puts cover and the
+contracts that still fit.
 
-refresh (optional array): up to four {horizon_days, contract} objects; unique
-horizons 14, 30, 60 or 120. Do not combine refresh with discover. selected and
-refresh contracts must be exact USD SMART calls for the underlying, with con_id,
-expiry, strike, right C, multiplier 100 and trading_class.
+discover (optional boolean): discover candidates for USD stocks, one per horizon
+of the opportunity policy's [add] table. selected (optional contract): refresh
+one exact contract returned by discovery.
 
-Options require USD. Read option_mode and per-call planning or unavailable
-evidence: planning prices are not executable quotes. Use the returned exact
+refresh (optional array): {horizon_days, contract} objects, one per horizon of
+that side at most, with unique horizons from the [add] table (calls 14, 30, 60
+and 120 by default; puts 30, 60, 90 and 120). Do not combine refresh with
+discover. selected and refresh contracts must be exact USD SMART options for the
+underlying with the request's right, con_id, expiry, strike, multiplier 100 and
+trading_class.
+
+Options require USD. Read option_mode and each row's planning or unavailable
+evidence: planning prices are not executable quotes. A row's delta_band is
+written without the sign; a put's quote delta keeps it. Use the returned exact
 contract for call-plan.
 
 Example (synthetic identity; replace with your resolved contract):
@@ -38,8 +46,8 @@ canary add market --json <<'JSON'
 }
 JSON
 # canary add market --help · COLUMNS=80 · colour on, ESC written as \x1b
-\x1b[1mcanary add market — Read stock quotes and discover or refresh exact long calls;\x1b[0m
-\x1b[1mno orders placed\x1b[0m
+\x1b[1mcanary add market — Read stock quotes and discover or refresh exact long calls\x1b[0m
+\x1b[1mor protective puts; no orders placed\x1b[0m
 
 Usage: \x1b[36mcanary add market [--json] < request.json\x1b[0m
 
@@ -52,16 +60,24 @@ always JSON, with or without --json.
 underlying (required): stock contract with symbol, sec_type STK, currency and
 exchange SMART; con_id is optional when known.
 
-discover (optional boolean): discover call candidates for USD stocks. selected
-(optional contract): refresh one exact call returned by discovery.
+right (optional): C (default) for calls, P for protective puts. Puts come back
+in puts with put_cover: the shares held, the shares long puts cover and the
+contracts that still fit.
 
-refresh (optional array): up to four {horizon_days, contract} objects; unique
-horizons 14, 30, 60 or 120. Do not combine refresh with discover. selected and
-refresh contracts must be exact USD SMART calls for the underlying, with con_id,
-expiry, strike, right C, multiplier 100 and trading_class.
+discover (optional boolean): discover candidates for USD stocks, one per horizon
+of the opportunity policy's [add] table. selected (optional contract): refresh
+one exact contract returned by discovery.
 
-Options require USD. Read option_mode and per-call planning or unavailable
-evidence: planning prices are not executable quotes. Use the returned exact
+refresh (optional array): {horizon_days, contract} objects, one per horizon of
+that side at most, with unique horizons from the [add] table (calls 14, 30, 60
+and 120 by default; puts 30, 60, 90 and 120). Do not combine refresh with
+discover. selected and refresh contracts must be exact USD SMART options for the
+underlying with the request's right, con_id, expiry, strike, multiplier 100 and
+trading_class.
+
+Options require USD. Read option_mode and each row's planning or unavailable
+evidence: planning prices are not executable quotes. A row's delta_band is
+written without the sign; a put's quote delta keeps it. Use the returned exact
 contract for call-plan.
 
 Example (synthetic identity; replace with your resolved contract):

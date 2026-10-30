@@ -222,12 +222,20 @@ require explicit review; neither workflow silently changes the other's mandate.
 The ordinary protection guard still requires fresh evidence and all write gates.
 
 `add market --json` reads JSON on standard input and returns a resolved stock
-in its trading currency. For USD underlyings it also offers four standard
-long-call horizons, targeting 14/30/60/120 days, always more
-than seven days. Live delta ranges follow days to expiry: 0.50–0.70 to 21 days,
-0.35–0.50 to 45 days, 0.25–0.40 beyond, and each row carries its `delta_band`
-(owner, 2026-10-22 20:34 CEST: "max 0.5 for 30 days, 0.4 for 60 and 120 days").
-Capped horizons aim at the cap from the start, at the strike the stock's
+in its trading currency. For USD underlyings it also offers standard long
+options by horizon, always more than seven days out: calls by default, or
+protective puts with `"right": "P"`. The horizons and their delta bands live in
+the opportunity policy's `[add]` table (owner, 2026-10-30 06:56 CET), which the
+daemon writes with Canary's defaults where the file has none; each row carries
+its `delta_band` with the `target` selection aims at. Default calls target
+14/30/60/120 days with 0.50–0.70 to 21 days, 0.35–0.50 to 45 days and 0.25–0.40
+beyond (owner, 2026-10-22 20:34 CEST: "max 0.5 for 30 days, 0.4 for 60 and 120
+days"). Default puts target 30/60/90/120 days with 0.30–0.40, 0.25–0.35 and
+0.20–0.30 for 90 and 120 days, judged on the delta's size. A put row comes with
+`put_cover`: the shares held long, the shares held long puts cover and the
+contracts that still fit, counted as the protective put gate counts them, and
+`add call-plan` holds a put's size there (`cover_capped`).
+Capped horizons aim at their target from the start, at the strike the stock's
 implied volatility puts there; the live option delta still decides. Without a
 live in-range call, a second round aims with the options' own volatility, or
 repeats the first when every quote missed its window, and the better call of

@@ -17,21 +17,35 @@ func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.
 	}
 	c := p.Contract
 	date, err := time.Parse("20060102", c.Expiry)
-	if err != nil || !date.After(time.Now().Add(7*24*time.Hour)) || c.ConID <= 0 || c.SecType != "OPT" || c.Currency != "USD" || c.Exchange != "SMART" || c.Right != "C" || c.Multiplier != 100 || c.TradingClass == "" || !positiveFinite(p.Budget) || p.Budget > 1e9 || !positiveFinite(p.LimitPrice) {
-		return nil, errBadRequest("Choose an exact long call, entry limit and positive budget")
+	if err != nil || !date.After(time.Now().Add(7*24*time.Hour)) || c.ConID <= 0 || c.SecType != "OPT" || c.Currency != "USD" || c.Exchange != "SMART" || (c.Right != "C" && c.Right != "P") || c.Multiplier != 100 || c.TradingClass == "" || !positiveFinite(p.Budget) || p.Budget > 1e9 || !positiveFinite(p.LimitPrice) {
+		return nil, errBadRequest("Choose an exact long call or put, entry limit and positive budget")
 	}
+	side := s.addSide(c.Right)
 	windows, hoursOK := s.addCallHours(ctx, c)
 	if !addCallSessionLive(windows, hoursOK, s.orderNow()) {
-		return nil, errBadRequest("Options session must be open to plan a call")
+		return nil, errBadRequest("Options session must be open to plan a " + side.noun())
 	}
-	plan, err := planCallQuantity(ctx, p, s.addOptionCap(), s.previewOrder)
+	// A put is sized within the shares it may still protect, so the plan
+	// never offers more than the protective put gate accepts.
+	optionCap, room := s.addOptionCap(), -1
+	if side.right == "P" {
+		cover := s.addPutCover(c.Symbol)
+		if cover == nil {
+			return nil, errBadRequest("The held shares cannot be read to size a protective put")
+		}
+		if cover.RoomContracts == 0 {
+			return nil, errBadRequest("No held shares are left for a protective put to cover")
+		}
+		room = cover.RoomContracts
+	}
+	plan, err := planAddQuantity(ctx, p, optionCap, room, s.previewOrder)
 	if err != nil {
 		return nil, err
 	}
 	// A preview can straddle the close. A completed plan must still belong
 	// to the open options session; broker data_type alone is not authority.
 	if !addCallSessionLive(windows, hoursOK, s.orderNow()) {
-		return nil, errBadRequest("Options session must be open to plan a call")
+		return nil, errBadRequest("Options session must be open to plan a " + side.noun())
 	}
 	return plan, nil
 }
@@ -89,8 +103,8 @@ func planCallQuantity(ctx context.Context, p rpc.AddCallPlanParams, maxContracts
 			return nil, fmt.Errorf("an accepted broker fee bound is required to size this call")
 		}
 		d := preview.Draft
-		if d.Action != rpc.OrderActionBuy || d.OrderType != "LMT" || d.Contract.SecType != "OPT" || d.Contract.Right != "C" || d.Contract.Multiplier != 100 || d.Contract.Currency != c.Currency || d.Contract.Exchange != c.Exchange || d.Contract.ConID != c.ConID || d.Contract.Symbol != c.Symbol || d.Contract.Strike != c.Strike || d.Contract.Expiry != c.Expiry || d.Contract.TradingClass != c.TradingClass || d.Quantity != n || d.LimitPrice != p.LimitPrice {
-			return nil, fmt.Errorf("call identity or terms changed during sizing")
+		if d.Action != rpc.OrderActionBuy || d.OrderType != "LMT" || d.Contract.SecType != "OPT" || d.Contract.Right != c.Right || d.Contract.Multiplier != 100 || d.Contract.Currency != c.Currency || d.Contract.Exchange != c.Exchange || d.Contract.ConID != c.ConID || d.Contract.Symbol != c.Symbol || d.Contract.Strike != c.Strike || d.Contract.Expiry != c.Expiry || d.Contract.TradingClass != c.TradingClass || d.Quantity != n || d.LimitPrice != p.LimitPrice {
+			return nil, fmt.Errorf("option identity or terms changed during sizing")
 		}
 		debit := float64(n)*p.LimitPrice*100 + fee
 		if !positiveFinite(debit) {
@@ -118,6 +132,24 @@ func planCallQuantity(ctx context.Context, p rpc.AddCallPlanParams, maxContracts
 		n = min(n-1, next)
 	}
 	return nil, fmt.Errorf("no checked call quantity fits this budget")
+}
+
+// planAddQuantity sizes under the option cap and, for a put, the cover room
+// (-1 for none), whichever is smaller, and says which held the size.
+func planAddQuantity(ctx context.Context, p rpc.AddCallPlanParams, optionCap, room int, previewOrder func(context.Context, rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error)) (*rpc.AddCallPlanResult, error) {
+	sizeCap := optionCap
+	if room > 0 && (sizeCap == 0 || room < sizeCap) {
+		sizeCap = room
+	}
+	plan, err := planCallQuantity(ctx, p, sizeCap, previewOrder)
+	if err != nil || !plan.HeldToCap || sizeCap != room {
+		return plan, err
+	}
+	plan.CoverCapped = true
+	if sizeCap != optionCap {
+		plan.HeldToCap, plan.OptionCap = false, 0
+	}
+	return plan, nil
 }
 
 func roundCallQuantity(n int) int {

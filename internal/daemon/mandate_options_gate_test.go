@@ -343,3 +343,19 @@ func TestMandateOverrideLiftsThePremiumLimits(t *testing.T) {
 		t.Fatalf("options gate under the override: %+v", res.Gate.Options)
 	}
 }
+
+// Add's put cover counts the shares as the protective put gate does: 100
+// SYNB shares held and no put leave room for one contract; a name not held
+// leaves none.
+func TestAddPutCoverMatchesTheProtectivePutGate(t *testing.T) {
+	srv, _ := mandateTestServer(t, testMandateConstitution())
+	seedMandateHistory(t, srv, 0)
+	srv.mandatePositionsForTest = func(context.Context) (*rpc.PositionsResult, error) { return mandateTestLongOptionBook(t, srv, 60), nil }
+	srv.evaluateMandate(t.Context(), false)
+	if c := srv.addPutCover("SYNB"); c == nil || c.HeldShares != 100 || c.CoveredShares != 0 || c.RoomContracts != 1 {
+		t.Fatalf("SYNB cover = %+v, want 100 held and room for one", c)
+	}
+	if c := srv.addPutCover("SYNC"); c == nil || c.RoomContracts != 0 {
+		t.Fatalf("SYNC cover = %+v, want no room", c)
+	}
+}

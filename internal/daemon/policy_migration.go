@@ -159,13 +159,36 @@ func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead, writeMandate
 	}
 }
 
-func migrateOpportunityPolicyFile(data []byte, _ string) ([]byte, []string, []string, error) {
+func migrateOpportunityPolicyFile(data []byte, release string) ([]byte, []string, []string, error) {
 	p, err := parseOpportunityPolicy(data)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var raw map[string]any
+	md, err := toml.Decode(string(data), &raw)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	doc := parseTOMLDoc(data)
 	var changes []string
+	// The Add picker's bands are written where the file has none, with the
+	// values Add uses without them, so the owner sees and owns them (owner,
+	// 2026-10-30 06:56 CET). A side the owner wrote is never rewritten.
+	addDefaults := defaultOpportunityAddPolicy()
+	switch {
+	case !md.IsDefined("add"):
+		doc.insert("add", addPolicyTableLines(release)[1:])
+		changes = append(changes, "write [add] call and put horizons with Canary's defaults")
+	default:
+		if !md.IsDefined("add", "calls") {
+			doc.insert("add", addHorizonsText("calls", addDefaults.Calls))
+			changes = append(changes, "write [add].calls with Canary's defaults")
+		}
+		if !md.IsDefined("add", "puts") {
+			doc.insert("add", addHorizonsText("puts", addDefaults.Puts))
+			changes = append(changes, "write [add].puts with Canary's defaults")
+		}
+	}
 	if p.SchemaVersion != 2 {
 		doc.set("", "schema_version", "2", nil)
 		changes = append(changes, "schema 2; materialise legacy effective values, including zero/false")

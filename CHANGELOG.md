@@ -7,11 +7,13 @@ All notable changes to this project are documented here. The project adheres to 
 ### Added
 
 - You can lift the volatility budget from Desk's console: Desk shows the exact override, you confirm it with Touch ID or Apple Watch, and Canary checks that signature against your paired device before granting it. It covers `mandate.vol_target_pct` only, expires like any override, and `canary mandate` says it was granted from the console. `canary policy override` in a terminal still works as before.
+- Add offers protective puts. `canary add market` with `"right": "P"` lists, for each horizon, the put whose delta sits nearest its band, and `put_cover` says how many of your shares are still uncovered. `canary add call-plan` sizes a put within those shares and says so with `cover_capped`. The order gates are unchanged.
 
 ### Changed
 
 - An override of `mandate.vol_target_pct` now also lifts the premium limits on your own option buys while it runs. The drawdown brake at the 30% maximum loss, the owner sleeve's stop, every order cap and the override's expiry still apply.
 - `canary setups evaluate` outside the regular session now answers with the last session that closed, read at its close (`evidence_kind` `last_session`), instead of an unavailable result. No setup is live in such an answer; a replay (`--at`) outside the session stays unavailable.
+- The horizons and delta bands Add uses for calls and puts now live in `opportunity-policy.toml` under `[add]`. Canary writes today's values there at startup when the file has none, and uses yours once you change them. An edit applies at the next reload and needs no higher `policy_version`. A band Canary cannot use is reported, and Add keeps Canary's bands until it is fixed. Each row's `delta_band` now also carries its `target`.
 
 ### Fixed
 

@@ -715,16 +715,26 @@ func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositio
 // it is not protection, so the gates judge it as an addition. Its premium
 // still counts in the loss measure and the premium figures once held.
 func (s *Server) protectivePut(draft rpc.OrderDraft) bool {
-	input, _, _ := s.mandateCurrentInput()
-	if input == nil || !(draft.Quantity > 0) {
+	if !(draft.Quantity > 0) {
 		return false
 	}
-	sym := normSym(draft.Contract.Symbol)
+	shares, covered, ok := s.heldPutCover(draft.Contract.Symbol)
 	mult := float64(draft.Contract.Multiplier)
 	if mult <= 0 {
 		mult = 100
 	}
-	var shares, covered float64
+	return ok && shares > 0 && covered+float64(draft.Quantity)*mult <= shares+1e-9
+}
+
+// heldPutCover counts, on the kept mandate book, the shares of a name held
+// long and the shares its long puts cover; ok is false when the book cannot
+// be read. The protective put gate and Add's put cover read it alike.
+func (s *Server) heldPutCover(symbol string) (shares, covered float64, ok bool) {
+	input, _, _ := s.mandateCurrentInput()
+	if input == nil {
+		return 0, 0, false
+	}
+	sym := normSym(symbol)
 	for _, l := range input.Legs {
 		if normSym(l.Underlying) != sym || !(l.Quantity > 0) {
 			continue
@@ -736,7 +746,17 @@ func (s *Server) protectivePut(draft rpc.OrderDraft) bool {
 			covered += l.Quantity * l.Multiplier
 		}
 	}
-	return shares > 0 && covered+float64(draft.Quantity)*mult <= shares+1e-9
+	return shares, covered, true
+}
+
+// addPutCover is what Add's put picker may still offer on the name: the
+// contracts of 100 shares the protective put gate would still accept.
+func (s *Server) addPutCover(symbol string) *rpc.AddPutCover {
+	shares, covered, ok := s.heldPutCover(symbol)
+	if !ok {
+		return nil
+	}
+	return &rpc.AddPutCover{HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-covered+1e-9)/100)))}
 }
 
 // indexHedgeReduces classifies a SELL of the index future (owner decision

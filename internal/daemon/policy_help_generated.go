@@ -170,6 +170,7 @@ var rulebookPolicyHelp = map[string]string{
 	"regime_early_warning.premium_budget_watch_pct": "is rule 3's watch level, the budget for new buying: premium at risk in long options, protection included (the higher of price paid and current value, summed) as a percent of NLV. It tightens with the regime; at watch or act option buys are held.",
 }
 var opportunityPolicyHelp = map[string]string{
+	"add":                            "sets the horizons and delta bands of the options Add offers: `calls` and `puts`, each a list of `{ days, dte = [min, max], delta = [min, max], target }`, put deltas without their sign. Canary writes its defaults where the file has none. Edits apply at the next reload without a higher policy_version; the table grants no order authority and never pauses option exercise.",
 	"kind":                           "checks the file type: canary.opportunity_policy or the legacy ibkr.opportunity_policy alias. It grants no trading permission.",
 	"policy_id":                      "is the required identity string for this policy (embedded default \"opportunity-option-exercise-mvp\").",
 	"policy_version":                 "records the owner revision; raise it for material edits. Names, comments and revision-only bumps do not change live action identity.",

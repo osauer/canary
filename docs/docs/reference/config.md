@@ -227,6 +227,7 @@ Loaded from the path in `[opportunities].policy_file` (default `~/.config/ibkr/p
 
 | Section | Field | Type | Description |
 |---------|-------|------|-------------|
+| *(top level)* | `add` | `opportunityAddPolicy` | Add sets the horizons and delta bands of the options Add offers: `calls` and `puts`, each a list of `{ days, dte = [min, max], delta = [min, max], target }`, put deltas without their sign. Canary writes its defaults where the file has none. Edits apply at the next reload without a higher policy_version; the table grants no order authority and never pauses option exercise. |
 | *(top level)* | `kind` | `string` | Kind checks the file type: canary.opportunity_policy or the legacy ibkr.opportunity_policy alias. It grants no trading permission. |
 | *(top level)* | `policy_id` | `string` | PolicyID is the required identity string for this policy (embedded default "opportunity-option-exercise-mvp"). |
 | *(top level)* | `policy_version` | `int` | PolicyVersion records the owner revision; raise it for material edits. Names, comments and revision-only bumps do not change live action identity. |

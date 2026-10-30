@@ -1215,6 +1215,7 @@ func OpportunityPolicyTemplate(release string) []byte {
 		writePolicyComment(&b, opportunityPolicyHelp["buckets.option_exercise."+row.key])
 		fmt.Fprintf(&b, "%s = %s\n", row.key, tomlValueText(row.value))
 	}
+	b.WriteString("\n" + strings.Join(addPolicyTableLines(release), "\n") + "\n")
 	return []byte(b.String())
 }
 

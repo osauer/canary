@@ -27,16 +27,20 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	if u.Symbol == "" || len(u.Symbol) > 32 || u.SecType != "STK" || !currencyValid || u.Exchange != "SMART" || u.ConID < 0 || u.Expiry != "" || u.Strike != 0 || u.Right != "" {
 		return nil, errBadRequest("Add requires an exact SMART stock underlying and trading currency")
 	}
-	if u.Currency != "USD" && (p.Discover || p.Selected != nil || len(p.Refresh) > 0) {
-		return nil, errBadRequest("The call picker supports standard USD calls")
+	if p.Right != "" && p.Right != "C" && p.Right != "P" {
+		return nil, errBadRequest("Choose right C or P")
 	}
-	if len(p.Refresh) > 4 || p.Discover && len(p.Refresh) > 0 {
-		return nil, errBadRequest("Choose discovery or at most four exact call refreshes")
+	side := s.addSide(p.Right)
+	if u.Currency != "USD" && (p.Discover || p.Selected != nil || len(p.Refresh) > 0) {
+		return nil, errBadRequest("The " + side.noun() + " picker supports standard USD " + side.noun() + "s")
+	}
+	if len(p.Refresh) > len(side.horizons) || p.Discover && len(p.Refresh) > 0 {
+		return nil, errBadRequest(fmt.Sprintf("Choose discovery or at most %d exact %s refreshes", len(side.horizons), side.noun()))
 	}
 	seen := map[int]bool{}
 	for _, item := range p.Refresh {
-		if !slices.Contains([]int{14, 30, 60, 120}, item.Horizon) || seen[item.Horizon] || !validAddCallSelection(item.Contract, u.Symbol) {
-			return nil, errBadRequest("Invalid call horizon or identity")
+		if !slices.Contains(side.horizonDays(), item.Horizon) || seen[item.Horizon] || !validAddCallSelection(side, item.Contract, u.Symbol) {
+			return nil, errBadRequest("Invalid " + side.noun() + " horizon or identity")
 		}
 		seen[item.Horizon] = true
 	}
@@ -84,6 +88,9 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	}
 	out := &rpc.AddMarketResult{Version: 1, Underlying: setupOptionContract(exact.Contract), OptionsSession: session.current, OptionsLastSession: session.last, OptionMode: session.mode, OptionCap: s.addOptionCap()}
 	out.PriceIncrements = addPriceRules(ctx, c, binding, exact)
+	if side.right == "P" {
+		out.PutCover = s.addPutCover(u.Symbol)
+	}
 	lap("rules")
 	var expiries []rpc.SetupOptionExpiry
 	var listing map[string][]ibkr.ExpiryClassedStrikes
@@ -105,27 +112,28 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	}
 	if p.Selected != nil {
 		requested := *p.Selected
-		if !validAddCallSelection(requested, u.Symbol) {
-			return nil, errBadRequest("choose an exact standard call")
+		if !validAddCallSelection(side, requested, u.Symbol) {
+			return nil, errBadRequest("choose an exact standard " + side.noun())
 		}
-		row := s.addCallMarket(ctx, c, binding, exact.Contract, requested.Expiry, requested.Strike, class)
+		row := s.addCallMarket(ctx, side, c, binding, exact.Contract, requested.Expiry, requested.Strike, class)
 		if row.Contract != nil && !sameAddCall(*row.Contract, requested) {
-			return nil, errBadRequest("selected call identity changed")
+			return nil, errBadRequest("selected " + side.noun() + " identity changed")
 		}
 		out.Selected = &row
 	}
+	rows := make([]rpc.AddCallCandidate, 0, len(side.horizons))
 	if len(p.Refresh) > 0 {
-		out.Calls = make([]rpc.AddCallCandidate, len(p.Refresh))
+		rows = make([]rpc.AddCallCandidate, len(p.Refresh))
 		addParallel(len(p.Refresh), addHorizonSlots, func(i int) {
 			item := p.Refresh[i]
-			row := s.addCallMarket(ctx, c, binding, exact.Contract, item.Contract.Expiry, item.Contract.Strike, class)
+			row := s.addCallMarket(ctx, side, c, binding, exact.Contract, item.Contract.Expiry, item.Contract.Strike, class)
 			if row.Contract != nil && !sameAddCall(*row.Contract, item.Contract) {
-				row = rpc.AddCallCandidate{Unavailable: "Call identity changed"}
+				row = rpc.AddCallCandidate{Unavailable: side.Noun() + " identity changed"}
 			}
 			row.Horizon = item.Horizon
-			_, row.DTE = addHorizonExpiry([]rpc.SetupOptionExpiry{{Date: item.Contract.Expiry}}, item.Horizon, 8, 150, time.Now())
-			row.DeltaBand = addDeltaBandFor(&item.Contract).rpc()
-			out.Calls[i] = row
+			_, row.DTE = addHorizonExpiry([]rpc.SetupOptionExpiry{{Date: item.Contract.Expiry}}, item.Horizon, 8, 400, time.Now())
+			row.DeltaBand = side.bandFor(&item.Contract).rpc()
+			rows[i] = row
 		})
 	}
 	if p.Discover {
@@ -136,49 +144,56 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 		if q := out.Quote; q != nil && q.IV != nil && positiveFinite(*q.IV) {
 			stockIV = *q.IV
 		}
-		out.Calls = make([]rpc.AddCallCandidate, 4)
-		timing := make([]string, 4)
-		addParallel(4, addHorizonSlots, func(i int) {
-			target := []int{14, 30, 60, 120}[i]
-			bounds := [][2]int{{8, 21}, {22, 45}, {46, 90}, {91, 150}}[i]
-			date, dte := addHorizonExpiry(expiries, target, bounds[0], bounds[1], time.Now())
-			row := rpc.AddCallCandidate{Horizon: target, DTE: dte, Unavailable: "No eligible call"}
+		rows = make([]rpc.AddCallCandidate, len(side.horizons))
+		timing := make([]string, len(side.horizons))
+		addParallel(len(side.horizons), addHorizonSlots, func(i int) {
+			h := side.horizons[i]
+			target := h.Days
+			date, dte := addHorizonExpiry(expiries, target, h.DTE[0], h.DTE[1], time.Now())
+			row := rpc.AddCallCandidate{Horizon: target, DTE: dte, Unavailable: "No eligible " + side.noun()}
 			if session.mode == "unavailable" {
 				row.Unavailable = "Options calendar unavailable"
 			}
 			if date != "" && spot != nil && *spot > 0 {
 				started := time.Now()
 				near := func(ref float64) ([]ibkr.ResolvedOrderContract, error) {
-					if calls := s.addNearestExpiryCalls(ctx, c, binding, exact.Contract, listing, date, ref); len(calls) >= 3 {
+					if calls := s.addNearestExpiryCalls(ctx, side, c, binding, exact.Contract, listing, date, ref); len(calls) >= 3 {
 						return calls, nil
 					}
 					// Too few listed strikes resolved for this expiry: take the
-					// broker's complete call inventory, slower but exhaustive.
-					return c.FetchSetupExpiryCalls(ctx, binding, exact.Contract, date, 30*time.Second)
+					// broker's complete inventory, slower but exhaustive.
+					return c.FetchSetupExpiryOptions(ctx, binding, exact.Contract, date, side.right, 30*time.Second)
 				}
 				quote := func(call ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
-					return s.addResolvedCallForSession(ctx, c, binding, exact.Contract, call, class.of(call))
+					return s.addResolvedCallForSession(ctx, side, c, binding, exact.Contract, call, class.of(call))
 				}
 				var spent string
 				var err error
-				row, spent, err = selectAddCallAimed(*spot, stockIV, dte, quote, near)
+				row, spent, err = selectAddCallAimed(side, *spot, stockIV, dte, quote, near)
 				timing[i] = fmt.Sprintf("%d:%s", target, spent)
 				if err == nil {
 					row.Horizon, row.DTE = target, dte
 				} else {
 					s.warnAddInventoryFailure(u.Symbol, date, target, time.Since(started), err)
-					row.Unavailable = "Call contracts unavailable"
+					row.Unavailable = side.Noun() + " contracts unavailable"
 				}
 			}
 			if dte > 0 {
-				row.DeltaBand = addDeltaBandForDTE(dte).rpc()
+				row.DeltaBand = side.bandForDTE(dte).rpc()
 			}
-			out.Calls[i] = row
+			rows[i] = row
 		})
 		lap("horizons")
 		// The default log keeps warnings only; a slow discovery is one.
 		if time.Since(started) > 8*time.Second {
 			s.warnf("add.slow symbol=%s underlying_ms=%d rules_ms=%d listing_ms=%d spot_ms=%d horizons_ms=%d %s total_ms=%d", u.Symbol, phase["underlying"].Milliseconds(), phase["rules"].Milliseconds(), phase["listing"].Milliseconds(), phase["spot"].Milliseconds(), phase["horizons"].Milliseconds(), strings.Join(timing, " "), time.Since(started).Milliseconds())
+		}
+	}
+	if len(rows) > 0 {
+		if side.right == "P" {
+			out.Puts = rows
+		} else {
+			out.Calls = rows
 		}
 	}
 	if !c.HistoricalSessionCurrent(binding) || !s.orderPreviewBrokerAuthorityCurrent(authority) {
@@ -241,15 +256,15 @@ func addInventoryFailureReason(err error) string {
 
 // Quote only the nearest actual contracts for this expiry. The broker's
 // separate SecDef expiry/strike sets must never consume these three slots.
-func selectAddCall(calls []ibkr.ResolvedOrderContract, spot float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) rpc.AddCallCandidate {
-	row, _ := selectAddCallNear(calls, spot, quote)
+func selectAddCall(side addSide, calls []ibkr.ResolvedOrderContract, spot float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) rpc.AddCallCandidate {
+	row, _ := selectAddCallNear(side, calls, spot, quote)
 	return row
 }
 
 // selectAddCallNear quotes the three actual contracts nearest ref at once and
 // keeps the best of them (pickAddCall). It also returns an implied
 // volatility it observed, to aim a further round.
-func selectAddCallNear(calls []ibkr.ResolvedOrderContract, ref float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) (rpc.AddCallCandidate, float64) {
+func selectAddCallNear(side addSide, calls []ibkr.ResolvedOrderContract, ref float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) (rpc.AddCallCandidate, float64) {
 	calls = slices.Clone(calls)
 	slices.SortFunc(calls, func(a, b ibkr.ResolvedOrderContract) int {
 		return compareDistance(a.Contract.Strike, b.Contract.Strike, ref)
@@ -266,22 +281,22 @@ func selectAddCallNear(calls []ibkr.ResolvedOrderContract, ref float64, quote fu
 			iv = *q.IV
 		}
 	}
-	return pickAddCall(candidates...), iv
+	return pickAddCall(side, candidates...), iv
 }
 
-// pickAddCall keeps, in order: a live in-range call nearest its band's
-// target, a closed-market call whose last delta was in range, then a
-// closed-market call without a delta. Earlier candidates win ties.
-func pickAddCall(candidates ...rpc.AddCallCandidate) rpc.AddCallCandidate {
+// pickAddCall keeps, in order: a live in-range option nearest its band's
+// target, a closed-market option whose last delta was in range, then a
+// closed-market option without a delta. Earlier candidates win ties.
+func pickAddCall(side addSide, candidates ...rpc.AddCallCandidate) rpc.AddCallCandidate {
 	var best, unqualified *rpc.AddCallCandidate
 	closer := func(a, b *rpc.AddCallCandidate) bool {
-		target := addDeltaBandFor(a.Contract).Target
-		return b == nil || math.Abs(*a.Quote.Delta-target) < math.Abs(*b.Quote.Delta-target)
+		target := side.bandFor(a.Contract).Target
+		return b == nil || math.Abs(side.size(*a.Quote.Delta)-target) < math.Abs(side.size(*b.Quote.Delta)-target)
 	}
 	for i := range candidates {
 		c := &candidates[i]
 		switch {
-		case eligibleAddCall(*c, time.Now()):
+		case eligibleAddCall(side, *c, time.Now()):
 			if best == nil || best.Planning != nil || closer(c, best) {
 				best = c
 			}
@@ -297,7 +312,7 @@ func pickAddCall(candidates ...rpc.AddCallCandidate) rpc.AddCallCandidate {
 		best = unqualified
 	}
 	if best == nil {
-		return rpc.AddCallCandidate{Unavailable: "No eligible call"}
+		return rpc.AddCallCandidate{Unavailable: "No eligible " + side.noun()}
 	}
 	return *best
 }
@@ -309,8 +324,14 @@ func pickAddCall(candidates ...rpc.AddCallCandidate) rpc.AddCallCandidate {
 // repeats the first when no quote returned one (a missed quote window). The
 // better call of the two rounds is kept, so a miss in one cannot empty the
 // row. It also says what each round took, in milliseconds.
-func selectAddCallAimed(spot, stockIV float64, dte int, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate, near func(float64) ([]ibkr.ResolvedOrderContract, error)) (rpc.AddCallCandidate, string, error) {
-	band := addDeltaBandForDTE(dte)
+func selectAddCallAimed(side addSide, spot, stockIV float64, dte int, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate, near func(float64) ([]ibkr.ResolvedOrderContract, error)) (rpc.AddCallCandidate, string, error) {
+	band := side.bandForDTE(dte)
+	// The aim formula solves for a call's delta; a put of delta -d sits
+	// where the call's delta is 1-d.
+	aim := band.Target
+	if side.right == "P" {
+		aim = 1 - band.Target
+	}
 	notes := []string{}
 	round := func(ref float64) (rpc.AddCallCandidate, float64, error) {
 		started := time.Now()
@@ -320,60 +341,39 @@ func selectAddCallAimed(spot, stockIV float64, dte int, quote func(ibkr.Resolved
 			return rpc.AddCallCandidate{}, 0, err
 		}
 		started = time.Now()
-		row, iv := selectAddCallNear(calls, ref, quote)
+		row, iv := selectAddCallNear(side, calls, ref, quote)
 		notes = append(notes, fmt.Sprintf("resolve=%d,quote=%d", looked.Milliseconds(), time.Since(started).Milliseconds()))
 		return row, iv, nil
 	}
 	ref := spot
 	if band.Target < .5 && stockIV > 0 {
-		ref = addAimStrike(spot, stockIV, dte, band.Target)
+		ref = addAimStrike(spot, stockIV, dte, aim)
 	}
 	first, iv, err := round(ref)
 	// A closed market has no live call; its planning row stands as found.
-	if err != nil || eligibleAddCall(first, time.Now()) || selectableAddPlanningCall(first) {
+	if err != nil || eligibleAddCall(side, first, time.Now()) || selectableAddPlanningCall(first) {
 		return first, strings.Join(notes, "+"), err
 	}
 	if iv > 0 {
-		ref = addAimStrike(spot, iv, dte, band.Target)
+		ref = addAimStrike(spot, iv, dte, aim)
 	}
 	second, _, err := round(ref)
 	if err != nil {
 		return first, strings.Join(notes, "+"), nil
 	}
-	return pickAddCall(first, second), strings.Join(notes, "+"), nil
+	return pickAddCall(side, first, second), strings.Join(notes, "+"), nil
 }
 
-// addDeltaBand is the owner's call delta range by days to expiry.
-// Owner, 2026-10-22 20:34 CEST: "decrease delta for longer run times. we can
-// try max 0.5 for 30 days, 0.4 for 60 and 120 days." The 14-day range keeps
-// 0.50–0.70; the floors are 0.15 under each cap. Target is where selection
-// aims: the cap for the longer horizons, at the money for 14 days.
+// addDeltaBand is one horizon's delta range and the delta selection aims
+// at, as the opportunity policy's [add] table sets them (addSide); a put's
+// is written without its sign.
 type addDeltaBand struct{ Min, Max, Target float64 }
-
-func addDeltaBandForDTE(dte int) addDeltaBand {
-	switch {
-	case dte <= 21:
-		return addDeltaBand{.5, .7, .5}
-	case dte <= 45:
-		return addDeltaBand{.35, .5, .5}
-	default:
-		return addDeltaBand{.25, .4, .4}
-	}
-}
-
-// addDeltaBandFor reads a contract's band from its expiry. A contract
-// without a readable expiry keeps the original, highest range.
-func addDeltaBandFor(c *rpc.ContractParams) addDeltaBand {
-	if c == nil {
-		return addDeltaBandForDTE(0)
-	}
-	_, dte := addHorizonExpiry([]rpc.SetupOptionExpiry{{Date: c.Expiry}}, 0, 0, 10000, time.Now())
-	return addDeltaBandForDTE(dte)
-}
 
 func (b addDeltaBand) holds(delta float64) bool { return delta >= b.Min && delta <= b.Max }
 
-func (b addDeltaBand) rpc() *rpc.AddDeltaBand { return &rpc.AddDeltaBand{Min: b.Min, Max: b.Max} }
+func (b addDeltaBand) rpc() *rpc.AddDeltaBand {
+	return &rpc.AddDeltaBand{Min: b.Min, Max: b.Max, Target: b.Target}
+}
 
 // addAimStrike estimates the strike whose call delta is the target, from
 // Black-Scholes with zero rates: delta = N(d1).
@@ -422,8 +422,8 @@ func addPriceRules(ctx context.Context, c *ibkr.Connector, binding ibkr.Connecto
 	}
 	return out
 }
-func (s *Server) addCallMarket(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, expiry string, strike float64, class *addClassSession) rpc.AddCallCandidate {
-	row := rpc.AddCallCandidate{Unavailable: "Exact call evidence unavailable"}
+func (s *Server) addCallMarket(ctx context.Context, side addSide, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, expiry string, strike float64, class *addClassSession) rpc.AddCallCandidate {
+	row := rpc.AddCallCandidate{Unavailable: "Exact " + side.noun() + " evidence unavailable"}
 	if class.calendar.mode == "unavailable" {
 		return rpc.AddCallCandidate{Unavailable: "Options calendar unavailable"}
 	}
@@ -431,23 +431,23 @@ func (s *Server) addCallMarket(ctx context.Context, c *ibkr.Connector, binding i
 	if err != nil || parsed.Before(time.Now().Add(7*24*time.Hour)) || !positiveFinite(strike) {
 		return row
 	}
-	requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: strike, Right: "C", Multiplier: 100, TradingClass: under.Symbol}
+	requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: strike, Right: side.right, Multiplier: 100, TradingClass: under.Symbol}
 	exact, err := c.ResolveOrderContractForSession(ctx, binding, requested, 5*time.Second)
-	if err != nil || ibkr.ValidateSetupCallResolution(exact, under, expiry, strike) != nil {
+	if err != nil || ibkr.ValidateSetupOptionResolution(exact, under, expiry, strike, side.right) != nil {
 		return row
 	}
-	row = s.addResolvedCallForSession(ctx, c, binding, under, exact, class.of(exact))
+	row = s.addResolvedCallForSession(ctx, side, c, binding, under, exact, class.of(exact))
 	if row.Planning != nil && !selectableAddPlanningCall(row) {
-		return rpc.AddCallCandidate{Unavailable: "Call delta outside its range"}
+		return rpc.AddCallCandidate{Unavailable: side.Noun() + " delta outside its range"}
 	}
 	return row
 }
 
-func (s *Server) addResolvedCallMarket(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
-	row := rpc.AddCallCandidate{Unavailable: "Exact call evidence unavailable"}
+func (s *Server) addResolvedCallMarket(ctx context.Context, side addSide, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+	row := rpc.AddCallCandidate{Unavailable: "Exact " + side.noun() + " evidence unavailable"}
 	call := exact.Contract
 	parsed, err := time.Parse("20060102", call.Expiry)
-	if err != nil || parsed.Before(time.Now().Add(7*24*time.Hour)) || !positiveFinite(call.Strike) || !c.SessionCurrent(binding) || ibkr.ValidateSetupCallResolution(exact, under, call.Expiry, call.Strike) != nil {
+	if err != nil || parsed.Before(time.Now().Add(7*24*time.Hour)) || !positiveFinite(call.Strike) || !c.SessionCurrent(binding) || ibkr.ValidateSetupOptionResolution(exact, under, call.Expiry, call.Strike, side.right) != nil {
 		return row
 	}
 	contract := setupOptionContract(exact.Contract)
@@ -455,14 +455,14 @@ func (s *Server) addResolvedCallMarket(ctx context.Context, c *ibkr.Connector, b
 	row.Contract = &contract
 	row.PriceIncrements = addPriceRules(ctx, c, binding, exact)
 	row.Quote = s.setupCallQuote(ctx, c, binding, contract)
-	if eligibleAddCall(row, time.Now()) {
+	if eligibleAddCall(side, row, time.Now()) {
 		row.Unavailable = ""
 	}
 	return row
 }
-func eligibleAddCall(row rpc.AddCallCandidate, now time.Time) bool {
+func eligibleAddCall(side addSide, row rpc.AddCallCandidate, now time.Time) bool {
 	q := row.Quote
-	return row.Planning == nil && row.Contract != nil && len(row.PriceIncrements) > 0 && q != nil && q.Status == rpc.SetupQuoteQuoted && q.DataType == rpc.MarketDataLive && q.ModelDataType == rpc.MarketDataLive && q.Delta != nil && addDeltaBandFor(row.Contract).holds(*q.Delta) && q.IV != nil && *q.IV > 0 && !q.AsOf.IsZero() && !q.ModelAsOf.IsZero() && !q.AsOf.After(now.Add(time.Second)) && !q.ModelAsOf.After(now.Add(time.Second)) && now.Sub(q.AsOf) <= 15*time.Second && now.Sub(q.ModelAsOf) <= 15*time.Second
+	return row.Planning == nil && row.Contract != nil && len(row.PriceIncrements) > 0 && q != nil && q.Status == rpc.SetupQuoteQuoted && q.DataType == rpc.MarketDataLive && q.ModelDataType == rpc.MarketDataLive && q.Delta != nil && side.holds(row.Contract, *q.Delta) && q.IV != nil && *q.IV > 0 && !q.AsOf.IsZero() && !q.ModelAsOf.IsZero() && !q.AsOf.After(now.Add(time.Second)) && !q.ModelAsOf.After(now.Add(time.Second)) && now.Sub(q.AsOf) <= 15*time.Second && now.Sub(q.ModelAsOf) <= 15*time.Second
 }
 
 type addOptionsCalendarState struct {
@@ -577,14 +577,14 @@ func selectableAddPlanningCall(row rpc.AddCallCandidate) bool {
 	return row.Contract != nil && row.Planning != nil && (row.Planning.DeltaStatus == "in_range" || row.Planning.DeltaStatus == "unavailable")
 }
 
-func addPlanningObservation(q *rpc.SetupOptionQuote, call *rpc.ContractParams) *rpc.AddCallPlanning {
+func addPlanningObservation(side addSide, q *rpc.SetupOptionQuote, call *rpc.ContractParams) *rpc.AddCallPlanning {
 	p := &rpc.AddCallPlanning{DeltaStatus: "unavailable"}
 	if q == nil {
 		return p
 	}
 	if q.Delta != nil {
 		p.DeltaStatus = "out_of_range"
-		if addDeltaBandFor(call).holds(*q.Delta) {
+		if side.holds(call, *q.Delta) {
 			p.DeltaStatus = "in_range"
 		}
 	}
@@ -594,20 +594,20 @@ func addPlanningObservation(q *rpc.SetupOptionQuote, call *rpc.ContractParams) *
 	return p
 }
 
-func (s *Server) addResolvedCallForSession(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, exact ibkr.ResolvedOrderContract, session addOptionsCalendarState) rpc.AddCallCandidate {
+func (s *Server) addResolvedCallForSession(ctx context.Context, side addSide, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, exact ibkr.ResolvedOrderContract, session addOptionsCalendarState) rpc.AddCallCandidate {
 	if session.mode == "live" {
-		return s.addResolvedCallMarket(ctx, c, binding, under, exact)
+		return s.addResolvedCallMarket(ctx, side, c, binding, under, exact)
 	}
 	call := exact.Contract
 	date, err := time.Parse("20060102", call.Expiry)
-	if session.mode != "planning" || err != nil || date.Before(time.Now().Add(7*24*time.Hour)) || !c.SessionCurrent(binding) || ibkr.ValidateSetupCallResolution(exact, under, call.Expiry, call.Strike) != nil {
-		return rpc.AddCallCandidate{Unavailable: "Exact call evidence unavailable"}
+	if session.mode != "planning" || err != nil || date.Before(time.Now().Add(7*24*time.Hour)) || !c.SessionCurrent(binding) || ibkr.ValidateSetupOptionResolution(exact, under, call.Expiry, call.Strike, side.right) != nil {
+		return rpc.AddCallCandidate{Unavailable: "Exact " + side.noun() + " evidence unavailable"}
 	}
 	contract := setupOptionContract(call)
 	contract.MinTick = exact.MinTick
 	row := rpc.AddCallCandidate{Contract: &contract, PriceIncrements: addPriceRules(ctx, c, binding, exact)}
 	row.Quote = s.addPlanningCallQuote(ctx, c, binding, contract)
-	row.Planning = addPlanningObservation(row.Quote, row.Contract)
+	row.Planning = addPlanningObservation(side, row.Quote, row.Contract)
 	if row.Planning.Price == nil {
 		row.Unavailable = "Planning price unavailable"
 	}
@@ -661,16 +661,16 @@ func addParallel(n, slots int, read func(int)) {
 // addNearestExpiryCalls resolves the listed strikes nearest spot as fully
 // specified contracts, as TWS does, instead of waiting for the broker to list
 // every call in the expiry. Only broker-resolved contracts are returned.
-func (s *Server) addNearestExpiryCalls(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, listing map[string][]ibkr.ExpiryClassedStrikes, expiry string, spot float64) []ibkr.ResolvedOrderContract {
+func (s *Server) addNearestExpiryCalls(ctx context.Context, side addSide, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, under ibkr.Contract, listing map[string][]ibkr.ExpiryClassedStrikes, expiry string, spot float64) []ibkr.ResolvedOrderContract {
 	listed, err := setupListedStrikes(listing, under.Symbol, expiry)
 	if err != nil {
 		return nil
 	}
 	return nearestResolvedCalls(listed, spot, func(k float64) (ibkr.ResolvedOrderContract, error) {
-		requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: k, Right: "C", Multiplier: 100, TradingClass: under.Symbol}
+		requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: k, Right: side.right, Multiplier: 100, TradingClass: under.Symbol}
 		exact, err := c.ResolveOrderContractForSession(ctx, binding, requested, 5*time.Second)
 		if err == nil {
-			err = ibkr.ValidateSetupCallResolution(exact, under, expiry, k)
+			err = ibkr.ValidateSetupOptionResolution(exact, under, expiry, k, side.right)
 		}
 		return exact, err
 	})
@@ -706,8 +706,8 @@ func nearestResolvedCalls(listed []float64, spot float64, resolve func(float64) 
 	}
 	return out
 }
-func validAddCallSelection(c rpc.ContractParams, symbol string) bool {
-	return c.Symbol == symbol && c.SecType == "OPT" && c.Right == "C" && c.Multiplier == 100 && c.ConID > 0 && c.Currency == "USD" && c.Exchange == "SMART" && c.TradingClass != "" && positiveFinite(c.Strike)
+func validAddCallSelection(side addSide, c rpc.ContractParams, symbol string) bool {
+	return c.Symbol == symbol && c.SecType == "OPT" && c.Right == side.right && c.Multiplier == 100 && c.ConID > 0 && c.Currency == "USD" && c.Exchange == "SMART" && c.TradingClass != "" && positiveFinite(c.Strike)
 }
 func sameAddCall(a, b rpc.ContractParams) bool {
 	return a.ConID == b.ConID && a.Symbol == b.Symbol && a.SecType == b.SecType && a.Expiry == b.Expiry && a.Strike == b.Strike && a.Right == b.Right && a.TradingClass == b.TradingClass && a.Multiplier == b.Multiplier && a.Currency == b.Currency && a.Exchange == b.Exchange

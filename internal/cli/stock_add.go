@@ -168,16 +168,17 @@ func addBlockerKindLabel(kind string) string {
 
 // runAddMarket adapts one bounded read-only request; stdin carries no authority.
 func runAddMarket(ctx context.Context, env *Env, args []string) int {
-	fs := describedFlagSet(env, "add market", "Read stock quotes and discover or refresh exact long calls; no orders placed", "canary add market [--json] < request.json")
+	fs := describedFlagSet(env, "add market", "Read stock quotes and discover or refresh exact long calls or protective puts; no orders placed", "canary add market [--json] < request.json")
 	usage := fs.Usage
 	fs.Usage = func() {
 		usage()
 		renderAddRequestHelp(env, []string{
 			"Stdin: one JSON object; unknown fields and extra objects are rejected. Output is always JSON, with or without --json.",
 			"underlying (required): stock contract with symbol, sec_type STK, currency and exchange SMART; con_id is optional when known.",
-			"discover (optional boolean): discover call candidates for USD stocks. selected (optional contract): refresh one exact call returned by discovery.",
-			"refresh (optional array): up to four {horizon_days, contract} objects; unique horizons 14, 30, 60 or 120. Do not combine refresh with discover. selected and refresh contracts must be exact USD SMART calls for the underlying, with con_id, expiry, strike, right C, multiplier 100 and trading_class.",
-			"Options require USD. Read option_mode and per-call planning or unavailable evidence: planning prices are not executable quotes. Use the returned exact contract for call-plan.",
+			"right (optional): C (default) for calls, P for protective puts. Puts come back in puts with put_cover: the shares held, the shares long puts cover and the contracts that still fit.",
+			"discover (optional boolean): discover candidates for USD stocks, one per horizon of the opportunity policy's [add] table. selected (optional contract): refresh one exact contract returned by discovery.",
+			"refresh (optional array): {horizon_days, contract} objects, one per horizon of that side at most, with unique horizons from the [add] table (calls 14, 30, 60 and 120 by default; puts 30, 60, 90 and 120). Do not combine refresh with discover. selected and refresh contracts must be exact USD SMART options for the underlying with the request's right, con_id, expiry, strike, multiplier 100 and trading_class.",
+			"Options require USD. Read option_mode and each row's planning or unavailable evidence: planning prices are not executable quotes. A row's delta_band is written without the sign; a put's quote delta keeps it. Use the returned exact contract for call-plan.",
 		}, `canary add market --json <<'JSON'
 {
   "underlying": {
@@ -211,13 +212,14 @@ JSON`)
 }
 
 func runAddCallPlan(ctx context.Context, env *Env, args []string) int {
-	fs := describedFlagSet(env, "add call-plan", "Size an exact long call using broker fee evidence; no orders placed", "canary add call-plan [--json] < request.json")
+	fs := describedFlagSet(env, "add call-plan", "Size an exact long call or protective put using broker fee evidence; no orders placed", "canary add call-plan [--json] < request.json")
 	usage := fs.Usage
 	fs.Usage = func() {
 		usage()
 		renderAddRequestHelp(env, []string{
 			"Stdin: one JSON object; unknown fields and extra objects are rejected. Output is always JSON, with or without --json.",
-			"contract (required): copy the exact contract returned by add market. It must be a USD SMART call: sec_type OPT, right C, multiplier 100, positive con_id, trading_class and expiry YYYYMMDD more than seven days away; retain symbol and strike.",
+			"contract (required): copy the exact contract returned by add market. It must be a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id, trading_class and expiry YYYYMMDD more than seven days away; retain symbol and strike.",
+			"A put is sized within the held shares it may still protect; cover_capped says that held the size.",
 			"limit_price (required): positive premium per underlying share in USD. budget (required): positive total USD debit including the broker fee bound, at most 1000000000.",
 			"round_size (optional boolean, default false): round to the nearest five contracts, retaining one or two. Rounding can exceed budget; inspect over_budget, debit, quantity and fee_bound in the result.",
 			"The options session must be open. Sizing returns no submission token and reserves no money. An exact order preview and separate owner confirmation are required to place an order.",

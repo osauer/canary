@@ -13,6 +13,7 @@ func effectiveOpportunityPolicy(p opportunityPolicy) rpc.Fingerprint {
 	p.Kind, p.SchemaVersion, p.PolicyVersion, p.Profile = opportunityPolicyKind, 0, 0, ""
 	p.Authority.ExerciseReduceOnly = false            // retired; code owns close/reduce-only
 	p.Buckets.OptionExercise.AllowNoOptionBid = false // retired; a bid is required
+	p.Add = opportunityAddPolicy{}                    // picks suggestions; no exercise authority
 	return effectivePolicyFingerprint(p)
 }
 

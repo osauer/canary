@@ -2,7 +2,7 @@ package rpc
 
 import "time"
 
-// MethodAddCallPlan sizes a long call against an owner budget, without submission.
+// MethodAddCallPlan sizes a long call, or a protective put, against an owner budget, without submission.
 const MethodAddCallPlan = "add.call-plan"
 
 // AddCallPlanParams contains exact intended terms and the owner's debit ceiling.
@@ -25,7 +25,10 @@ type AddCallPlanResult struct {
 	Debit      float64        `json:"debit"`
 	// HeldToCap says the option cap in force ([order_limits].
 	// max_option_contracts, OptionCap) held the budget's size.
-	HeldToCap bool      `json:"held_to_cap,omitempty"`
-	OptionCap int       `json:"option_cap,omitempty"`
-	AsOf      time.Time `json:"as_of"`
+	HeldToCap bool `json:"held_to_cap,omitempty"`
+	OptionCap int  `json:"option_cap,omitempty"`
+	// CoverCapped says a put was held to the shares it may still protect
+	// (AddPutCover.RoomContracts).
+	CoverCapped bool      `json:"cover_capped,omitempty"`
+	AsOf        time.Time `json:"as_of"`
 }

@@ -35,6 +35,8 @@ type opportunityPolicy struct {
 
 	Authority opportunityPolicyAuthority `toml:"authority" json:"authority"`
 	Buckets   opportunityPolicyBuckets   `toml:"buckets" json:"buckets"`
+	// Add sets the horizons and delta bands of the options Add offers: `calls` and `puts`, each a list of `{ days, dte = [min, max], delta = [min, max], target }`, put deltas without their sign. Canary writes its defaults where the file has none. Edits apply at the next reload without a higher policy_version; the table grants no order authority and never pauses option exercise.
+	Add opportunityAddPolicy `toml:"add" json:"add"`
 }
 
 type opportunityPolicyAuthority struct {
@@ -274,6 +276,7 @@ func defaultOpportunityPolicy() opportunityPolicy {
 				RequireAmericanStyle: true,
 			},
 		},
+		Add: defaultOpportunityAddPolicy(),
 	}
 }
 
@@ -289,6 +292,19 @@ func applyOpportunityPolicyDefaults(p *opportunityPolicy, md *toml.MetaData) {
 	}
 	if p.Profile == "" {
 		p.Profile = p.PolicyID
+	}
+	// A side the file does not list uses Canary's; one it lists but cannot
+	// use is reported and Add keeps Canary's (addSide), so a band edit never
+	// pauses exercise.
+	addDefaults := defaultOpportunityAddPolicy()
+	if md == nil || !md.IsDefined("add", "calls") {
+		p.Add.Calls = addDefaults.Calls
+	}
+	if md == nil || !md.IsDefined("add", "puts") {
+		p.Add.Puts = addDefaults.Puts
+	}
+	if err := validateOpportunityAddPolicy(p.Add); err != nil {
+		p.diagnostics = append(p.diagnostics, rpc.PolicyDiagnostic{Key: "add", Feature: "add", Message: err.Error() + "; Add uses Canary's defaults until this is fixed"})
 	}
 	if p.SchemaVersion == 2 {
 		return
