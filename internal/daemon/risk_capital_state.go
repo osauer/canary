@@ -160,13 +160,17 @@ type riskCapitalStore struct {
 	// rows to one per (reason, account) per process.
 	scopeRejectionsJournaled map[string]bool
 	legacyHasUnscopedSafety  bool
+	// warnf reports a save that failed, once per episode, and the first save
+	// after it; the daemon's logger, absent in some tests.
+	warnf      func(format string, args ...any)
+	saveFailed bool
 }
 
 func (s *Server) installRiskCapitalStore() {
 	if s == nil {
 		return
 	}
-	s.riskCapital = &riskCapitalStore{now: s.now}
+	s.riskCapital = &riskCapitalStore{now: s.now, warnf: s.warnf}
 }
 
 func (st *riskCapitalStore) bindCore(ctx context.Context, core *corestore.Store) error {
@@ -639,6 +643,10 @@ func (st *riskCapitalStore) persistLocked(force bool) error {
 				st.committedCapitalEvents = append([]capitalEventV1(nil), st.capitalEvents...)
 				st.pendingEvents = nil
 				st.lastPersistAt = st.now()
+				if st.saveFailed {
+					st.saveFailed = false
+					st.warn("risk capital state saves again at revision %d", saved.Revision)
+				}
 				return nil
 			}
 		}
@@ -657,6 +665,23 @@ func (st *riskCapitalStore) persistLocked(force bool) error {
 		st.pendingEvents = nil
 		if err == nil {
 			err = fmt.Errorf("encode risk capital SQLite document")
+		}
+		// A conflict means the database holds another revision than the one
+		// this store last saved: a save it lost, or another writer. The
+		// database is the authority, so reload it; kept, the stale revision
+		// failed every later save until a restart (live 2026-10-30, nine
+		// hours). The change is dropped and the next one is judged on the
+		// saved state.
+		if _, conflict := errors.AsType[*corestore.RevisionConflictError](err); conflict {
+			scope := st.scope
+			st.scopeKey = ""
+			if reloadErr := st.selectScopeLocked(scope); reloadErr != nil {
+				err = errors.Join(err, fmt.Errorf("reload saved risk capital state: %w", reloadErr))
+			}
+		}
+		if !st.saveFailed {
+			st.saveFailed = true
+			st.warn("risk capital state could not be saved; the change is dropped and the next one is judged on the saved state: %v", err)
 		}
 		return fmt.Errorf("persist risk capital state in SQLite: %w", err)
 	}
@@ -2116,5 +2141,11 @@ func (s *Server) journalRiskPolicyTransition(prev, next string, c *risk.Constitu
 		// Legacy unit/import helper only. A started daemon always binds the
 		// risk capital store before policy reload can emit transitions.
 		appendRiskPolicyJournal(entry)
+	}
+}
+
+func (st *riskCapitalStore) warn(format string, args ...any) {
+	if st.warnf != nil {
+		st.warnf(format, args...)
 	}
 }

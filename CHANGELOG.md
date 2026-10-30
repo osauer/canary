@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The project adheres to 
 - An accepted preview that only reduces or closes a position no longer shows its product class as enabled. IBKR lets an account close what it can no longer open, so only an opening preview shows the permission.
 - Selling part of a share line that a stop covers only in part now counts the uncovered shares as sold first. Plans and the forced reduction had counted the stop's loss falling with every share sold, though it stays whole until the sale reaches the covered shares.
 - The index hedge plan counts hedge sales already working as sold. It had sized on the held book alone and could offer a sale that placement then refused as past neutral.
+- After a daemon restart that lost its last save, Canary could stop saving its drawdown and capital state until the next restart. It warned every few seconds, and the high-water mark stayed where it was. It now reloads the saved state when that happens and saves again. It warns once when saving fails and once when saving works again.
 
 ## v3.30.0 — 2026-10-29 12:50 CET
 
