@@ -2,7 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.30.1 — Unreleased
+## v3.31.0 — 2026-10-30 09:03 CET
+
+### What's new
+
+Add now offers protective puts for shares you hold, and the call and put
+bands it uses live in your opportunity policy, where you can change them.
+You can lift the volatility budget from Desk's console after confirming on
+your paired device. The daemon no longer crashes when another program reads
+its database, recovers from a lost save without a restart, and keeps its
+database log from staying at its largest size. Standard binaries and all MCP
+tools remain read-only.
 
 ### Added
 
@@ -27,6 +37,7 @@ All notable changes to this project are documented here. The project adheres to 
 - After a daemon restart that lost its last save, Canary could stop saving its drawdown and capital state until the next restart. It warned every few seconds, and the high-water mark stayed where it was. It now reloads the saved state when that happens and saves again. It warns once when saving fails and once when saving works again.
 - The daily futures permission check could show futures enabled while you held a short Micro S&P future. Its one-contract buy then closed the short, and IBKR accepts a close the account may no longer open. With a short held, the check now previews a sale, which opens.
 - A quote for a stock IBKR no longer knows asked IBKR for its daily history six times every five minutes. IBKR's "Unknown contract" answer now counts as having no definition for the contract: Canary asks once, tries a renewed identity, and asks again for that quote after thirty minutes.
+- The daemon's database log (`daemon.db-wal`) could stay at its largest size until the next restart. It is now cut back to 64 MiB after each checkpoint, and the daily statement refresh writes about a third less to it.
 
 ## v3.30.0 — 2026-10-29 12:50 CET
 
