@@ -78,12 +78,10 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	}
 	// Populate the cache even when SQLite already has this inventory, so a
 	// cold refresh does not keep allocating full XML on every retry.
-	statements, err := s.retainedFlex.parseLocked(ctx, files)
-	if err != nil {
+	if _, err := s.retainedFlex.parseLocked(ctx, files); err != nil {
 		return err
 	}
 	if statementProjectionInventoryMatches(recorded, files) {
-		s.writeHoldingsDenylist(statements)
 		return nil
 	}
 	fileRecords, days, records, recordVersions, err := buildStatementProjection(files, s.statementProjectionNow(), selection.ActiveQueryFingerprint)
@@ -93,7 +91,6 @@ func (s *Server) refreshStatementProjection(ctx context.Context) error {
 	if err := s.coreStore.ReplaceStatementProjection(ctx, projectionScope, fileRecords, days, records, recordVersions); err != nil {
 		return fmt.Errorf("replace statement projection: %w", err)
 	}
-	s.writeHoldingsDenylist(statements)
 	return nil
 }
 

@@ -390,8 +390,9 @@ type Server struct {
 	productionStateDatabase bool
 	disableMacroSources     bool
 	persistenceLock         *persistenceLock
-	// accountData writes the account-data gate's files (account_data_files.go).
-	accountData        accountDataFiles
+	// outsideOpeners names other processes holding daemon.db open
+	// (outside_sqlite_opener.go).
+	outsideOpeners     outsideOpenerWatch
 	authorityCloseOnce sync.Once
 	authorityCloseErr  error
 
@@ -1613,7 +1614,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startMarketTapeCollection(serverCtx)
 	s.startChainRecorder(serverCtx)
 	s.startDataHealthChecks(serverCtx)
-	s.startAccountDataFiles(serverCtx)
+	s.startOutsideOpenerWatch(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
 	go s.runAccountPnLAuthorityLoop(serverCtx)
 	go s.runAccountIntradayLoop(serverCtx)

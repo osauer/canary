@@ -46,12 +46,11 @@ func (h holdings) available() bool { return h.source != holdingsUnavailable }
 // held is set once by main before classification; tests set it directly.
 var held = holdings{source: holdingsUnavailable}
 
-// loadHoldings reads the holdings file the daemon writes for the
-// account-data gate (internal/daemon/account_data_files.go): the latest Flex
-// position report per account. The monitor never opens daemon.db itself: an
-// outside SQLite opener resets a live daemon's shared memory if the daemon's
-// lock on it is lost (crash of 2026-10-29). Without the file the list is
-// unavailable.
+// loadHoldings reads the account-data gate's private copy of the daemon's
+// positions, refreshed whenever the gate runs. The monitor never opens
+// daemon.db itself: an outside SQLite opener resets a live daemon's shared
+// memory if the daemon's lock on it is lost (crash of 2026-10-29). Without
+// the copy the list is unavailable.
 func loadHoldings(cache string) holdings {
 	if tickers, ok := cacheHoldings(cache); ok {
 		return newHoldings(holdingsFromCache, tickers)

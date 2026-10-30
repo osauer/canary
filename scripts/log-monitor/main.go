@@ -222,7 +222,7 @@ func main() {
 	flag.DurationVar(&opts.staleAfter, "stale-after", 24*time.Hour, "flag log coverage unverified after this inactivity; zero disables")
 	flag.StringVar(&opts.daemonMirror, "daemon-mirror-status", "", "sync record of the mirror that copies -daemon-log from another machine; empty for a local log")
 	flag.DurationVar(&opts.mirrorStaleAfter, "mirror-stale-after", 20*time.Minute, "flag mirrored log coverage unverified when the last completed sync is older; zero disables")
-	flag.StringVar(&opts.holdingsCache, "holdings-cache", filepath.Join(xdgDir("XDG_CACHE_HOME", home, ".cache"), "ibkr", "holdings-denylist"), "the holdings file the daemon writes for the account-data gate: the current holdings a report must not name")
+	flag.StringVar(&opts.holdingsCache, "holdings-cache", filepath.Join(xdgDir("XDG_CACHE_HOME", home, ".cache"), "ibkr", "holdings-denylist"), "the account-data gate's private copy of the current holdings a report must not name")
 	flag.DurationVar(&opts.engine.before, "incident-before", opts.engine.before, "attribute lines this long before an incident's first anchor to it")
 	flag.DurationVar(&opts.engine.after, "incident-after", opts.engine.after, "attribute lines this long after an incident's last anchor to it")
 	flag.DurationVar(&opts.engine.restartEdge, "restart-edge", opts.engine.restartEdge, "attribute lines this soon after a daemon start to the restart")

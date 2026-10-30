@@ -409,9 +409,9 @@ func TestDefinitionNoticeNamesItsContractButNeverAHolding(t *testing.T) {
 	}
 }
 
-// TestHoldingsComeFromTheDaemonsFile reads the holdings file the daemon
-// writes for the account-data gate, and reports unavailable without it.
-func TestHoldingsComeFromTheDaemonsFile(t *testing.T) {
+// TestHoldingsComeFromTheGateCache reads the account-data gate's private
+// copy of the holdings, and reports unavailable without it.
+func TestHoldingsComeFromTheGateCache(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "holdings-denylist")
 	writeTestFile(t, cache, "# as of 2026-09-29\nSYNTHQ\nsyntha\n")

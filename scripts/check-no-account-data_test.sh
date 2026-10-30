@@ -77,7 +77,7 @@ mkdir -p "$XDG_CACHE_HOME/ibkr"
 printf '%s\n' '# as of 2026-01-02' ZQXW QZ Q SPY > "$XDG_CACHE_HOME/ibkr/holdings-denylist"
 stage fixture.txt 'zqxw ZQXWV AZQXW ZQXW_2 qz QZX; Q and A; SPY puts'
 gate || fail "a non-token, lowercase, single-letter or instrument use was flagged"
-expect "holdings checked against the daemon's holdings file, positions as of 2026-01-02"
+expect "holdings checked against the private cache (no daemon store at"
 expect "2 held ticker(s) not checked"
 
 stage a.go 'Symbol: "ZQXW"'
@@ -180,37 +180,75 @@ repo="$index_repo"
 
 # The gate never opens daemon.db: only the daemon may, because an outside
 # SQLite opener resets a live daemon's shared memory if the daemon's lock on
-# it is lost. A sqlite3 first on PATH records any call.
+# it is lost. It asks the running daemon through `go run
+# ./scripts/account-data`, which never starts one. A go first on PATH stands
+# in for that reader: it prints $reader_rows and exits $reader_code. A
+# sqlite3 beside it records any call.
 db="$XDG_STATE_HOME/ibkr/daemon.db"
 cache="$XDG_CACHE_HOME/ibkr/holdings-denylist"
-money="$XDG_CACHE_HOME/ibkr/money-denylist"
-mkdir -p "${db%/*}" "$test_root/sqlite-bin"
+mkdir -p "${db%/*}" "$test_root/fake-bin"
 printf 'not a database\n' >"$db"
-printf '#!/bin/sh\necho "$*" >>"%s"\nexit 1\n' "$test_root/sqlite-calls" >"$test_root/sqlite-bin/sqlite3"
-chmod +x "$test_root/sqlite-bin/sqlite3"
-export PATH="$test_root/sqlite-bin:$PATH"
+printf '#!/bin/sh\necho "$*" >>"%s"\nexit 1\n' "$test_root/sqlite-calls" >"$test_root/fake-bin/sqlite3"
+printf '#!/bin/sh\n[ "$*" = "run ./scripts/account-data" ] || exit 99\ncat "%s"\nexit "$(cat "%s")"\n' \
+	"$test_root/reader-rows" "$test_root/reader-code" >"$test_root/fake-bin/go"
+chmod +x "$test_root/fake-bin/sqlite3" "$test_root/fake-bin/go"
+export PATH="$test_root/fake-bin:$PATH"
+reader() { printf '%s\n' "$2" >"$test_root/reader-rows"; echo "$1" >"$test_root/reader-code"; }
+held_rows='holdings|available|2026-02-02
+held|ZQXNEW
+held|ZQXOPT
+held|ZQXOPT1
+held|ZQXB
+held|ZQXB'
+book='money|available
+nlv|618034.27|2026-02-02'
+cash='cash|314159.26|
+cash|298765.43|
+cash|-271828.18|
+cash|7153.86|
+cash|950.25|
+cash|40000|'
 
-# A machine with a daemon store but no holdings file never skips; without
-# the money file the money check says so loudly until the daemon writes it.
-rm -f "$cache" "$money"
+# No daemon and no cache on a machine with a daemon store: the holdings
+# check fails, the money check skips loudly.
+rm -f "$cache"
+reader 2 ''
 stage fixture.txt 'safe fixture DU1234567'
-! gate || fail "a daemon store without the holdings file skipped the check"
-expect "the daemon has not written"
+! gate || fail "a daemon store without a reachable daemon or cache skipped the holdings check"
+expect "no daemon reachable"
 expect "never skips the holdings check"
-expect "money check SKIPPED — the daemon has not written"
+expect "money check SKIPPED — no daemon reachable"
 
-# The daemon's holdings file is the latest Flex position report per account,
-# adjusted option roots and their underlyings included
-# (internal/daemon/account_data_files_test.go builds it).
-printf '%s\n' '# as of 2026-02-02' ZQXB ZQXNEW ZQXOPT ZQXOPT1 >"$cache"
+# The running daemon's positions are the denylist, option roots and
+# underlyings included; the gate keeps a private copy for when the daemon
+# is down.
+reader 0 "$held_rows
+$book
+$cash"
 stage fixture.txt 'closed ZQXOLD, traded ZQXTRD'
-gate || fail "a ticker outside the holdings file was flagged"
-expect "holdings checked against the daemon's holdings file, positions as of 2026-02-02"
+gate || fail "a ticker the daemon does not hold was flagged"
+expect "holdings checked against the running daemon, positions as of 2026-02-02"
+[ "$(grep -v '^#' "$cache" | tr '\n' ' ')" = "ZQXB ZQXNEW ZQXOPT ZQXOPT1 " ] || fail "cache does not hold the daemon's positions"
+[ -n "$(find "$cache" -perm 600)" ] || fail "cache is not private (0600)"
 stage fixture.txt 'close the ZQXOPT calls'
-! gate || fail "an option underlying in the holdings file was accepted"
+! gate || fail "an option underlying the daemon holds was accepted"
 withheld ZQXOPT
 
+# A daemon that is down or cannot reach the broker leaves the private copy
+# in force; an empty answer from a disconnected broker proves nothing.
+reader 2 ''
+! gate || fail "the private copy was not used without a daemon"
+expect "holdings checked against the private cache (no daemon reachable)"
+reader 0 'holdings|unavailable|not_connected
+money|unavailable|not_connected'
+! gate || fail "the private copy was not used without broker data"
+expect "holdings checked against the private cache (the daemon has no broker data: not_connected)"
+expect "money check SKIPPED — the daemon has no live account data (not_connected)"
+
 # A failed holdings grep fails the check rather than passing it.
+reader 0 "$held_rows
+$book
+$cash"
 mkdir -p "$test_root/bin"
 printf '#!/bin/sh\ncase " $* " in *" grep --cached -I "*) exit 128 ;; esac\nexec %s "$@"\n' "$(command -v git)" >"$test_root/bin/git"
 chmod +x "$test_root/bin/git"
@@ -218,35 +256,18 @@ stage fixture.txt 'safe fixture DU1234567'
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed holdings grep passed"
 expect "git grep failed"
 
-# A dated report without a ticker means the daemon's file changed shape:
-# fail rather than skip. A daemon without a Flex position report has no
-# private holdings data.
-printf '%s\n' '# as of 2026-02-02' >"$cache"
-! gate || fail "a holdings file naming no ticker was accepted"
-expect "names no ticker"
-printf '%s\n' '# no Flex position report' >"$cache"
-gate || fail "a daemon without a Flex position report was rejected"
-expect "holdings check SKIPPED — no private holdings data (the daemon holds no Flex position report)"
-printf '%s\n' '# as of 2026-02-02' ZQXB ZQXNEW ZQXOPT ZQXOPT1 >"$cache"
-
-# Money figures from the daemon's money file: the live account's NLV and the
-# live proposal snapshot's cash rows (a paper book or an older document never
-# reaches it). The synthetic book: NLV 618,034.27; cash 314,159.26 (settled
-# 298,765.43), -271,828.18 (borrowed) and 7,153.86; two balances below four
-# significant digits.
-book='nlv|618034.27|2026-02-02'
-cash='cash|314159.26|
-cash|298765.43|
-cash|-271828.18|
-cash|7153.86|
-cash|950.25|
-cash|40000|'
-printf '%s\n' 'cash|314159.26|' >"$money"
-gate || fail "a money file without a live book was rejected"
-expect "money check SKIPPED — the daemon's money file holds no live net liquidation value"
-printf '%s\n%s\n' "$book" "$cash" >"$money"
+# A flat live book has nothing to check and says so; a paper account is not
+# the live book.
+reader 0 'holdings|available|2026-02-02
+money|paper|'
+gate || fail "a flat book or a paper account was rejected"
+expect "the running daemon reports no current holdings"
+expect "money check SKIPPED — the connected account is not the live book"
+reader 0 "$held_rows
+$book
+$cash"
 gate || fail "the live book was rejected on a clean tree"
-expect "money figures checked against the daemon's money file, NLV as of 2026-02-02"
+expect "money figures checked against the running daemon, NLV as of 2026-02-02"
 
 # Each row is staged alone; a flagged row fails without echoing a figure.
 # Without origin/main every file is unpublished, so rounded spellings
@@ -337,26 +358,26 @@ grep -qx 'check-no-account-data: CHANGELOG.md names a money figure of the live b
 	fail "only the unreleased changelog line should be named"
 git -C "$repo" checkout --quiet HEAD -- CHANGELOG.md
 
-# A failed money grep fails the check; a live account without an NLV means
-# the daemon's file changed shape: fail rather than skip. A snapshot without
-# cash (sweep off, ledger catching up after a fill) leaves cash unchecked
-# and says so. A money file the gate cannot read fails it.
+# A failed money grep fails the check; a live account whose NLV the broker
+# did not send means the read changed shape: fail rather than skip. A book
+# without observed cash leaves cash unchecked and says so.
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed money grep passed"
 expect "git grep failed; the money check did not run"
-printf '%s\n' 'nlv|missing|2026-02-02' >"$money"
+reader 0 "$held_rows
+money|available
+nlv|missing|2026-02-02"
 ! gate || fail "a live book without a readable NLV was accepted"
 expect "has no net liquidation value"
-printf '%s\n' "$book" >"$money"
+reader 0 "$held_rows
+$book"
 gate || fail "a cash ledger gap failed the gate"
 expect "cash balances not checked"
-chmod 000 "$money"
-! gate || fail "an unreadable money file passed the money check"
-expect "cannot read money figures"
-chmod 600 "$money"
 
 # Outgoing messages use the same live-money spellings and boundary rules
 # as unpublished files, including rounded figures. Only SHA and line escape.
-printf '%s\n%s\n' "$book" "$cash" >"$money"
+reader 0 "$held_rows
+$book
+$cash"
 repo="$message_repo"
 git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
 message_commit 'Synthetic subject
