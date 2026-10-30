@@ -2,13 +2,35 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.32.0 — Unreleased
+## v3.32.0 — 2026-10-30 18:52 CET
+
+### What's new
+
+Protective puts now account for puts already ordered and shares already
+scheduled for sale before they qualify as protection. The mandate measures
+an index hedge against the index funds it protects, and statement refreshes
+stop storing duplicate copies of unchanged rows. Older supported databases
+can complete their upgrade and start the daemon. Standard binaries and all
+MCP tools remain read-only.
 
 ### Changed
 
-- The mandate's index gap now moves SPY, the other broad index funds and a Micro S&P hedge together, and the gap cap applies to their net loss. A hedge lowers the index gap loss and can cure a breached index line instead of adding a breach of its own; it breaches only when it hedges past neutral, and a sale is refused for the gap cap only when it adds or worsens a breach.
-- A daily statement refresh no longer credits every unchanged year-to-date row to the newest Flex report. A row stays on the report that first showed it and moves only when its content changes, so `canary recon equity` names that report for each day and each refresh writes less to the database. Statement date and coverage records still follow the newest report.
-- The database no longer stores a fresh copy of every unchanged statement row each time the daily Flex report arrives; a row is stored again only when its content changes. On the first start after the update the daemon removes the copies it stored before and compacts the database, which can take about a minute on a large one.
+- The mandate's index gap now moves broad index funds and their index futures hedge together and applies the gap cap to their net loss. A hedge can reduce the measured index gap; hedging past neutral remains constrained.
+- Daily statement refreshes no longer reassign every unchanged row to the newest Flex report. Statement dates and coverage still follow the newest report.
+- The database stores each distinct statement-row version once. The first start after upgrading removes duplicate copies and compacts the database, so startup can take longer for a large database; distinct corrections and retained original reports are preserved.
+
+### Fixed
+
+- Multiple put purchases can no longer reuse the same shares to bypass option-addition limits. Pending put buys and share sales, including stops, reserve that coverage; uncertain order or fill evidence prevents the exemption. Properly covered puts remain eligible under the existing rules, and no policy limit changes.
+- Add's put sizing now uses the same remaining share coverage as the order checks, including working orders. When that evidence cannot be read, Add reports coverage as unavailable.
+- Upgrading an older supported database no longer stops daemon startup with `prepared schema maintenance has invalid target version`.
+- Order and policy guides now describe the opening direction of daily permission checks, protective-put coverage, and the reload rules for Add's selection bands. Earlier storage notes now distinguish removal of Canary's own database readers from protection against arbitrary readers, and a WAL reset from a checkpoint.
+
+### Security
+
+- Updated the relay development tooling's undici dependency to 7.30.1, addressing five upstream advisories affecting response parsing, TLS, WebSockets and caching.
+- Selecting a paper account can no longer replace the saved live-account holdings list used by the repository privacy check.
+- Broker messages reject out-of-range message codes and empty frames before sending bytes. FINRA publication discovery validates complete link targets, and website copy checks decode character entities once.
 
 ## v3.31.0 — 2026-10-30 09:03 CET
 
@@ -17,10 +39,10 @@ All notable changes to this project are documented here. The project adheres to 
 Add now offers protective puts for shares you hold, and the call and put
 bands it uses live in your opportunity policy, where you can change them.
 You can lift the volatility budget from Desk's console after confirming on
-your paired device. The daemon no longer crashes when another program reads
-its database, recovers from a lost save without a restart, and keeps its
-database log from staying at its largest size. Standard binaries and all MCP
-tools remain read-only.
+your paired device. Canary's own privacy check and log monitor no longer
+open the daemon's database. The daemon recovers from a lost save without a
+restart and limits the database log retained after a reset. Standard
+binaries and all MCP tools remain read-only.
 
 ### Added
 
@@ -35,7 +57,7 @@ tools remain read-only.
 
 ### Fixed
 
-- The daemon could crash with a bus error while another program read its database, as it did on 2026-10-29. Canary's own pre-commit account-data check and log monitor no longer open `daemon.db`; the check asks the running daemon instead. Nothing but the daemon opens the database now, and the daemon warns once, naming the process, if anything else does.
+- Canary's pre-commit account-data check and log monitor no longer open `daemon.db`; the check asks the running daemon instead. The daemon warns once, naming the process, if another program opens the database. This removes the known Canary readers; it does not prevent arbitrary external readers.
 - Buying a put that protects shares you hold is no longer refused as an option addition when the book's premium is over its budget. Such a put counts as a hedge as long as your long puts on the name cover no more shares than you hold.
 - A strategy or mandate line whose daily history IBKR refuses for want of a market data permission is no longer asked for every 15 minutes and after every reconnect or restart. Canary warns once, says to add the exchange's market data subscription at IBKR, and asks again once each trading session.
 - Futures that IBKR once refused for want of permission no longer stay refused after you enable them. The daily check can be turned down for another reason, such as its price; that answer no longer confirms the old refusal, so the index hedge's own preview asks IBKR again.
@@ -45,7 +67,7 @@ tools remain read-only.
 - After a daemon restart that lost its last save, Canary could stop saving its drawdown and capital state until the next restart. It warned every few seconds, and the high-water mark stayed where it was. It now reloads the saved state when that happens and saves again. It warns once when saving fails and once when saving works again.
 - The daily futures permission check could show futures enabled while you held a short Micro S&P future. Its one-contract buy then closed the short, and IBKR accepts a close the account may no longer open. With a short held, the check now previews a sale, which opens.
 - A quote for a stock IBKR no longer knows asked IBKR for its daily history six times every five minutes. IBKR's "Unknown contract" answer now counts as having no definition for the contract: Canary asks once, tries a renewed identity, and asks again for that quote after thirty minutes.
-- The daemon's database log (`daemon.db-wal`) could stay at its largest size until the next restart. It is now cut back to 64 MiB after each checkpoint, and the daily statement refresh writes about a third less to it.
+- The daemon limits the database log (`daemon.db-wal`) retained after a WAL reset to 64 MiB. Active readers or transactions can keep it larger between resets; a checkpoint alone does not guarantee a smaller file. The daily statement refresh also writes less to the log.
 
 ## v3.30.0 — 2026-10-29 12:50 CET
 

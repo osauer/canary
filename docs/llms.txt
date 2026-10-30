@@ -1,12 +1,19 @@
 # Canary
 
-Updated: 2026-10-30 09:03 CET
+Updated: 2026-10-30 18:52 CET
+
+Version 3.32 counts working put purchases and share sales before a put can
+qualify as protection, nets an index hedge against the index funds it
+protects, and stores each distinct statement-row version once. Older
+supported databases can complete their upgrade. The release also updates
+the relay development tooling's vulnerable dependency and strengthens
+source validation and the repository privacy check.
 
 Version 3.31 adds protective puts to Add, with the call and put bands in
 the opportunity policy. The volatility budget can be lifted from Desk's
-console after a confirmation on the paired device. The daemon no longer
-crashes when another program reads its database and recovers from a lost
-save without a restart.
+console after a confirmation on the paired device. Canary's own privacy
+check and log monitor no longer open the daemon's database. The daemon
+also recovers from a lost save without a restart.
 
 Version 3.30 lets you close an index hedge from Canary: `canary proposals
 reduce --con-id ID --include-hedges` buys back held Micro E-mini S&P 500
