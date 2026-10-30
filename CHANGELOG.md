@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The project adheres to 
 - The index hedge plan counts hedge sales already working as sold. It had sized on the held book alone and could offer a sale that placement then refused as past neutral.
 - After a daemon restart that lost its last save, Canary could stop saving its drawdown and capital state until the next restart. It warned every few seconds, and the high-water mark stayed where it was. It now reloads the saved state when that happens and saves again. It warns once when saving fails and once when saving works again.
 - The daily futures permission check could show futures enabled while you held a short Micro S&P future. Its one-contract buy then closed the short, and IBKR accepts a close the account may no longer open. With a short held, the check now previews a sale, which opens.
+- A quote for a stock IBKR no longer knows asked IBKR for its daily history six times every five minutes. IBKR's "Unknown contract" answer now counts as having no definition for the contract: Canary asks once, tries a renewed identity, and asks again for that quote after thirty minutes.
 
 ## v3.30.0 — 2026-10-29 12:50 CET
 

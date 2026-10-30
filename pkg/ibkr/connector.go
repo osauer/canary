@@ -1121,7 +1121,15 @@ func (e *HistoricalRequestError) Error() string {
 // contract-details miss carries, so callers classify both alike. The code
 // alone decides, as the redacted form of this error keeps no message.
 func (e *HistoricalRequestError) Is(target error) bool {
-	return target == ErrContractNoDefinition && e.Code == 200
+	return target == ErrContractNoDefinition && (e.Code == 200 || historicalUnknownContract(e))
+}
+
+// historicalUnknownContract reports IBKR's code 162 "Unknown contract": the
+// history service no longer knows the contract, the same verdict as a code
+// 200 (WHLR, 2026-10-29, asked six times every five minutes as a route
+// failure).
+func historicalUnknownContract(e *HistoricalRequestError) bool {
+	return e != nil && e.Code == 162 && strings.Contains(strings.ToUpper(e.Message), "UNKNOWN CONTRACT")
 }
 
 // HistoricalDataValidationError reports a connector-authored validation
@@ -8145,6 +8153,8 @@ func classifyHistoricalRequestFailure(err *HistoricalRequestError) string {
 			return HistoricalFailureNoData
 		case strings.Contains(upperMessage, "PACING"):
 			return HistoricalFailurePacing
+		case historicalUnknownContract(err):
+			return HistoricalFailureContractUnavailable
 		}
 	}
 	return HistoricalFailureProtocolRejected
@@ -8509,7 +8519,8 @@ func shouldRetryHistorical(err error) bool {
 	if hErr, ok := errors.AsType[*HistoricalRequestError](err); ok {
 		switch hErr.Code {
 		case 162:
-			return true
+			// Another route cannot find a contract the broker does not know.
+			return !historicalUnknownContract(hErr)
 		}
 	}
 	return false
