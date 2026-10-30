@@ -62,6 +62,26 @@
     .canary-answers h3 { font-size: 19px; font-weight: 500; margin: 0 0 8px; }
     .canary-answers p { margin: 0 0 26px; max-width: 54ch; }
     .canary-answers p:last-child { margin-bottom: 0; }
+    .canary-intro.hero { padding-block: 36px 32px; }
+    .canary-intro .proof a { color: var(--ink); }
+    .canary-intro .lead, .canary-intro .sub { max-width: 54ch; }
+    .audiences { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding-block: 0 48px; }
+    .audience { display: flex; flex-direction: column; border-top: 2px solid var(--moss); padding-top: 22px; }
+    .audience h2 { font: 400 32px/1.08 var(--serif); letter-spacing: -.01em; margin: 10px 0 14px; max-width: 16ch; }
+    .audience p:not(.kicker) { font-size: 16px; margin: 0 0 10px; max-width: 42ch; }
+    .audience .needs { color: var(--muted); font-size: 14px; }
+    .audience .needs a, .audience p a { color: inherit; }
+    .audience-actions { padding-top: 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+    .audience-actions .text-link { margin-top: 0; }
+    .audience .button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: var(--moss); color: var(--paper); font-weight: 600; text-decoration: none; }
+    .audience .button:hover { background: var(--moss-deep); }
+    .audience .button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+    .recent { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 36px; }
+    .recent li { border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 16px; }
+    .recent b { display: block; color: var(--ink); font-weight: 500; margin-bottom: 6px; }
+    .recent small { display: block; margin-top: 8px; font-size: 13px; }
+    @media (max-width: 1100px) { .audiences { grid-template-columns: 1fr 1fr; } .audiences .audience:last-child { grid-column: 1 / -1; } .recent { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 760px) { .audiences, .recent { grid-template-columns: 1fr; gap: 32px; } .audience h2 { font-size: 30px; } }
   </style>
 </head>
 <body>
@@ -81,15 +101,43 @@
       <div><p class="kicker">Open source · Go</p><h1 id="hero-title">Canary</h1></div>
       <div class="intro-copy">
         <p class="lead">Portfolio, risk and order tools for Interactive Brokers.</p>
-        <p class="sub">Canary connects to your broker, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Your shell, AI assistant and phone all read the same figures.</p>
-        <p class="note"><a href="https://github.com/osauer/canary/releases/latest">Latest release and release notes →</a></p>
-        <div class="actions">
-          <a class="text-link gh-link" href="https://github.com/osauer/canary"><svg class="gh" viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>View on GitHub<span class="arrow" aria-hidden="true">↗</span></a>
-          <a class="text-link" href="#install">Install<span class="arrow" aria-hidden="true">↓</span></a>
-        </div>
-        <p class="proof"><span>Read-only MCP tools</span> · <span>Signed releases</span> · <span>No telemetry</span> · <span>MIT licence</span></p>
-        <p class="note">Canary CLI is the broker engine. <a href="/desk/">Canary Desk</a> adds the schedule, the AI analyst and the console on top. Works with Interactive Brokers through IB Gateway or TWS.</p>
+        <p class="sub">Canary connects to your Interactive Brokers account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and your phone all read the same figures.</p>
+        <p class="proof"><span>A private project</span> · <span>MIT licence</span> · <span>Signed releases</span> · <span>No telemetry</span> · <span><a href="https://github.com/osauer/canary">GitHub</a> · <a href="https://github.com/osauer/canary/releases/latest">Release notes</a></span></p>
       </div>
+    </section>
+
+    <section class="wrap audiences" aria-label="Where to start">
+      <article class="audience" aria-labelledby="aud-claude-title">
+        <p class="kicker">For Claude Desktop</p>
+        <h2 id="aud-claude-title">Ask Claude about your IBKR account.</h2>
+        <p>Add Canary to Claude Desktop on your Mac and ask in your own words how your holdings did today, which risk rules need attention or what the market is doing. Claude can read your account. It cannot place, change or cancel an order.</p>
+        <p class="needs">You need an IBKR Pro account, and IB Gateway or TWS (Interactive Brokers’ desktop software) running on the same Mac with its API switched on. The setup guide shows how.</p>
+        <div class="audience-actions">
+          <a class="button" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download for Claude Desktop</a>
+          <a class="text-link" href="claude-desktop-interactive-brokers/">Setup, step by step<span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </article>
+      <article class="audience" aria-labelledby="aud-eng-title">
+        <p class="kicker">For engineers</p>
+        <h2 id="aud-eng-title">Build your trading system on it.</h2>
+        <p>A local daemon holds the IBKR connection, your risk policy and the order journal. Every CLI command returns JSON, so the CLI is your API. Go programs can use the daemon client or speak the TWS protocol directly, with no vendor SDK.</p>
+        <p class="needs">Orders go through one path, in the opt-in trading build, where Canary checks each one against your limits. <a href="/desk/">Canary Desk</a>, a private project, is built this way.</p>
+        <div class="audience-actions">
+          <a class="text-link" href="docs/internals/architecture.html">Read the architecture<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/reference/cli.html">CLI reference<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/operate/orders.html">Orders and the trading build<span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </article>
+      <article class="audience" aria-labelledby="aud-agent-title">
+        <p class="kicker">For AI agents</p>
+        <h2 id="aud-agent-title">Read IBKR data through typed tools.</h2>
+        <p>If you are an agent, start with <a href="llms.txt">llms.txt</a>: what Canary is, what its tools return and where their limits are. Figures carry their source and age. A figure Canary cannot confirm is reported as missing, never as zero.</p>
+        <p class="needs">All MCP tools are read-only. They cannot preview or send an order, or change a limit. The <a href="mcp-server.json">server manifest</a> lists how to install them.</p>
+        <div class="audience-actions">
+          <a class="text-link" href="llms.txt">llms.txt<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/reference/mcp-tools.html">MCP tool reference<span class="arrow" aria-hidden="true">→</span></a>
+        </div>
+      </article>
     </section>
     <div class="wrap full-screen">
       <figure class="screen narrow terminal-shot">
@@ -117,9 +165,24 @@
       <article>
         <span class="number" aria-hidden="true">04</span>
         <h2>Orders within your limits</h2>
-        <p>The opt-in trading edition sends the orders you confirm or pre-authorise by rule, and shrinks or cancels its own stops when you hold fewer shares. Standard downloads are read-only.</p>
+        <p>The opt-in trading build sends the orders you confirm or pre-authorise by rule, and shrinks or cancels its own stops when you hold fewer shares. Standard downloads are read-only.</p>
       </article>
     </section>
+    <section class="wrap section" aria-labelledby="recent-title">
+      <div class="features-head"><p class="kicker">Recent releases</p><h2 id="recent-title">What shipped lately.</h2></div>
+      <ul class="recent">
+        <li><b>A risk budget for the whole book</b>Set a loss budget for the account, measured by historical simulation. While the book is over it, Canary refuses orders that add risk. <code>canary mandate</code> shows the room left.<small>v3.22</small></li>
+        <li><b>Plans before orders</b>Reduction plans compare an index fall and rise, the loss room left and quoted trading costs. Stock-entry reviews can add protection for the new shares. A plan never places an order.<small>v3.27 to v3.29</small></li>
+        <li><b>An index hedge in whole contracts</b>Canary sizes a Micro E-mini S&amp;P 500 hedge against the modelled index-fall loss. In the trading build you can sell it and buy it back through the same confirmed, gated order path as every other order.<small>v3.29 and v3.30</small></li>
+        <li><b>What the account may trade</b>Canary learns from IBKR which product classes the account may trade, and refuses an opening order in a class IBKR does not allow before it reaches the broker.<small>v3.29.1</small></li>
+        <li><b>Strategies run in shadow first</b>Machine strategies live in a register in your risk policy. Each runs in shadow until you write its stage. Then each monthly decision becomes a proposal. You confirm each one on your device, or confirm once for a standing mandate with its own limits.<small>v3.23 to v3.25</small></li>
+        <li><b>A scorecard for your decisions</b>Every position change is scored against the market and its sector fund, with the cost of each fill counted.<small>v3.22 and v3.24</small></li>
+        <li><b>Bonds and bills</b>Trading builds order bills and bonds by ISIN or CUSIP. Canary reports each bond's yield, duration and rate risk.<small>v3.19</small></li>
+        <li><b>A plain check of your Gateway setup</b><code>canary status</code> names each TWS or IB Gateway setting that differs from what Canary needs. Canary never changes a setting.<small>v3.26</small></li>
+        <li><b>A look back</b>Replay how an option exit would have played out, and read the account's value through the day. A replay is not a forecast.<small>v3.28</small></li>
+      </ul>
+    </section>
+
     <section class="wrap section install-row" id="install" aria-labelledby="install-title">
       <div>
         <p class="kicker">Get started</p>
@@ -156,8 +219,8 @@ canary setup claude-desktop
         <p>Canary works with Interactive Brokers through a local TWS or IB Gateway session. Market data depends on your IBKR subscriptions.</p>
         <h3>Can Canary submit orders?</h3>
         <p>Yes, through the optional trading build and its approval checks. Standard downloads and all MCP tools are read-only. See the <a href="docs/operate/orders.html">order guide</a>.</p>
-        <h3>Does Canary work with TWS and IB Gateway 10.50?</h3>
-        <p>Version 3.21.0 includes 10.50 compatibility fixes. Live checks passed on TWS; Gateway 10.50 still needs end-to-end validation. See the <a href="releases/3.21.0/#compatibility">compatibility details</a>.</p>
+        <h3>Which TWS or IB Gateway settings does Canary need?</h3>
+        <p>Run <code>canary status</code>. Its Gateway setup line names each setting that differs from what Canary needs, in plain words. Canary reads the settings once after each connect and never changes one. See <a href="docs/start/troubleshooting.html">troubleshooting</a>.</p>
       </div>
     </section>
 
@@ -225,9 +288,9 @@ canary setup claude-desktop
       <div>
         <p class="kicker">Policy check</p>
         <h2 id="policy-title">Limits that fit<br>the account.</h2>
-        <p>Canary acts on numbers you set, from rule thresholds to order sizes and cash reserves. It now prints every one in force with its source and meaning, and reads them against each other and against your account. Each value that does not fit gets a reason and, where one applies, a suggested fix.</p>
+        <p>Canary acts on numbers you set, from rule thresholds to order sizes and cash reserves. It prints every one in force with its source and meaning, and reads them against each other and against your account. Each value that does not fit gets a reason and, where one applies, a suggested fix.</p>
         <p>Order limits follow the account. The cap on a single order’s value moves with the account’s worth (its net liquidation value), between a floor and a ceiling you set. A temporary larger cap takes one override, which Canary records in its journal.</p>
-        <p>In trading builds, a protective stop is no longer refused by that cap or by the short-sale check, as long as it sells no more than the stock or ETF you hold, counting your other working sell orders. When you hold fewer shares than one of Canary’s own stops would sell, Canary shrinks or cancels that stop on its own.</p>
+        <p>In trading builds, neither that cap nor the short-sale check refuses a protective stop, as long as it sells no more than the stock or ETF you hold, counting your other working sell orders. When you hold fewer shares than one of Canary’s own stops would sell, Canary shrinks or cancels that stop on its own.</p>
         <p class="note">The check only reads; you change a limit by editing your files. Stops you placed by hand are never changed, and standard downloads stay read-only.</p>
         <a class="text-link" href="docs/understand/policy.html#check-a-policy-for-plausibility">How the policy check works<span class="arrow" aria-hidden="true">→</span></a>
       </div>
@@ -287,10 +350,10 @@ canary setup claude-desktop
       <div>
         <p class="kicker">Cash sweep</p>
         <h2 id="sweep-title">Idle cash,<br>under your rules.</h2>
-        <p>Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments and a cash reserve ahead of new purchases, and the reserve now follows the account’s net liquidation value and planned needs.</p>
+        <p>Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments and a cash reserve ahead of new purchases, and the reserve follows the account’s net liquidation value and planned needs.</p>
         <p>Before any purchase, the plan shows the bill’s order minimum, the fee bounds and the estimated gain after spread, fees and the cash interest you give up. Each purchase stays between a minimum and a maximum size, so none is too small to earn back its commission. You choose which currency comes first.</p>
-        <p>Desk shows the plan; Canary checks the cash, bill, price, fees and authority. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.</p>
-        <p class="note">Off by default. Commissioning needs a calibrated policy and current settlement evidence. Bills can lose value if sold before maturity.</p>
+        <p>Canary makes the plan and checks the cash, bill, price, fees and authority; Canary Desk, if you use it, shows the plan. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.</p>
+        <p class="note">Off by default. Turning it on needs calibrated reserves in your policy and current settlement records. Bills can lose value if sold before maturity.</p>
         <a class="text-link" href="docs/operate/cash.html#cash-sweep">Read the sweep controls<span class="arrow" aria-hidden="true">→</span></a>
       </div>
       <div class="cash-story">
@@ -314,7 +377,7 @@ canary setup claude-desktop
         <div class="fx-bridge" aria-label="FX contribution plus other profit and loss equals portfolio value change after external cash flows">
           <span><b>FX contribution</b>Currency effect</span><span class="operator" aria-hidden="true">+</span><span><b>Other P&amp;L</b>Prices, income and fees</span><span class="operator" aria-hidden="true">=</span><span><b>Portfolio change</b>After external cash flows</span>
         </div>
-        <p>Available in Canary v3.16.0 and in Desk’s private runtime. <code>canary reporting fx --json</code> and <code>canary_reporting_fx</code> return the same result. Missing days stay visible, and an incomplete period shows no total. This is valuation attribution, kept apart from realised Forex lot P&amp;L.</p>
+        <p>Since v3.16. <code>canary reporting fx --json</code> and <code>canary_reporting_fx</code> return the same result. Missing days stay visible, and an incomplete period shows no total. This is valuation attribution, kept apart from realised Forex lot P&amp;L.</p>
         <a class="text-link" href="docs/start/reporting.html#fx-contribution">How FX is measured<span class="arrow" aria-hidden="true">→</span></a>
       </div>
     </section>
@@ -327,7 +390,7 @@ canary setup claude-desktop
         <h2 id="lending-title">Your shares on loan.<br>The fees they earned.</h2>
         <p>Canary reads managed stock loans and customer net fees from retained IBKR statements. Positions on loan carry a dated annotation, and the fee history expands when you need it.</p>
         <p><code>canary lending fees --json</code> and <code>canary_lending_fees</code> return the same bounded, read-only history. Missing sections, partial periods and a complete record of zero earnings stay distinct.</p>
-        <p class="note">Available in Canary v3.16.0. Fees stay separate from account P&amp;L, and their link to payouts and P&amp;L is not yet proved. Commissioning an account still needs a populated report.</p>
+        <p class="note">Since v3.16. Fees stay separate from account P&amp;L, because how they tie to payouts and P&amp;L has not been confirmed. An account needs a statement report that contains lending data before this shows anything.</p>
         <a class="text-link" href="docs/understand/edge.html#stock-lending-income">How lending is reported<span class="arrow" aria-hidden="true">→</span></a>
       </div>
       <figure class="lending-ledger"><div class="ledger">
@@ -448,8 +511,8 @@ canary setup claude-desktop
       <div class="features-head"><p class="kicker">Full features</p><h2 id="features-title">What’s inside.</h2></div>
       <div class="features-grid four">
       <div class="feature-group"><h3>Market context</h3><ul><li><b>Market regime</b>Eight readings in six groups, read into one stage: VIX term structure and VVIX, breadth, credit spreads, funding, the yen and dealer gamma computed from SPX options.</li><li><b>Breadth</b>S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.</li><li><b>Stress signal</b>An early warning when the regime turns.</li><li><b>Market events</b>Reg SHO threshold lists, Nasdaq halts, borrow availability and borrow fees.</li><li><b>Borrowing research · v3.17</b>Dated borrowing fees with price and liquidity, a wider US screen and FINRA short interest.</li><li><b>Calendars</b>US stocks and options, Xetra, London, Tokyo and Hong Kong, plus official economic releases.</li></ul></div>
-      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation.</li><li><b>Watchlist and setups · v3.17</b>Up to 20 names, read bar by bar for volume turns, with a dated quote for the exact call you choose.</li><li><b>Entry markouts · v3.17</b>Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
-      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Policy check · v3.18</b>Every limit in force with its source and meaning, and a check that names each value that does not add up.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with a reserve that follows the account, your currency order and a reason for every plan.</li><li><b>Sweep economics</b>Order minimums and maximums, fee bounds and the net gain after spread, fees and forgone cash interest, before any purchase. No bill buys while any currency is borrowed.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Order limits · v3.18</b>A cap on each order’s value that follows net liquidation value, between a floor and a ceiling you set.</li><li><b>Protective stops · v3.18</b>In trading builds, Canary shrinks or cancels its own stops when you hold fewer shares than they would sell. Stops you placed by hand are never changed.</li><li><b>Trading edition</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
+      <div class="feature-group"><h3>Your book</h3><ul><li><b>Positions and exposure</b>Stocks, options and bonds, with sector allocation. Bonds show yield, duration and rate risk.</li><li><b>Watchlist and setups · v3.17</b>Up to 20 names, read bar by bar for volume turns, with a dated quote for the exact call you choose.</li><li><b>Entry markouts · v3.17</b>Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.</li><li><b>Performance</b>A statement-based return series, net of cash flows.</li><li><b>FX contribution · v3.16</b>Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.</li><li><b>Lending observations · v3.16</b>Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.</li><li><b>Edge</b>What your trades delivered compared with leaving the position alone.</li><li><b>Decision scorecard · v3.22</b>Every position change scored against the market and its sector fund, with each fill’s cost.</li><li><b>Option-exit replay · v3.28</b>How an option exit would have played out, from history. Not a forecast.</li><li><b>Reconciliation</b>Figures checked against broker statements. Gaps stay visible.</li></ul></div>
+      <div class="feature-group"><h3>Rules and protection</h3><ul><li><b>Risk rulebook</b>Your limits, checked every minute.</li><li><b>Risk budget · v3.22</b>A loss budget for the whole book, measured by historical simulation. Orders that add risk wait while the book is over it.</li><li><b>Reduction plans · v3.29</b>Each plan compares an index fall and rise, the loss room left and quoted trading costs.</li><li><b>Index hedge · v3.29</b>A Micro E-mini S&amp;P 500 hedge sized in whole contracts, placed and bought back only through the gated trading path.</li><li><b>Broker permissions · v3.29.1</b>Opening orders in a product class IBKR does not allow the account are refused before they reach the broker.</li><li><b>Policy check · v3.18</b>Every limit in force with its source and meaning, and a check that names each value that does not add up.</li><li><b>Protection proposals</b>Stops, exits, trims and budget cuts, each with its reason.</li><li><b>Cash sweep</b>Same-currency bills for surplus cash, with a reserve that follows the account, your currency order and a reason for every plan.</li><li><b>Sweep economics</b>Order minimums and maximums, fee bounds and the net gain after spread, fees and forgone cash interest, before any purchase. No bill buys while any currency is borrowed.</li><li><b>Settlement evidence</b>Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.</li><li><b>Order limits · v3.18</b>A cap on each order’s value that follows net liquidation value, between a floor and a ceiling you set.</li><li><b>Protective stops · v3.18</b>In trading builds, Canary shrinks or cancels its own stops when you hold fewer shares than they would sell. Stops you placed by hand are never changed.</li><li><b>Trading build</b>Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks.</li></ul></div>
       <div class="feature-group"><h3>Where you use it</h3><ul><li><b>Command line</b>One binary for macOS and Linux. Every command speaks JSON.</li><li><b>AI assistants</b>Read-only MCP tools for Claude and other hosts.</li><li><b>Your phone</b>A paired app with live updates and opt-in notifications.</li><li><b>Go library</b>The TWS protocol, spoken natively in Go, with no vendor SDK.</li></ul></div>
       </div>
     </section>
