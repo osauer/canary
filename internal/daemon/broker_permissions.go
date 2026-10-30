@@ -317,7 +317,7 @@ func (s *Server) startBrokerPermissionChecks(ctx context.Context) {
 
 // checkBrokerPermissions checks futures when due: a WhatIf to buy one Micro
 // S&P contract at half its price, a limit that cannot fill, that the broker
-// evaluates and never works. It reports whether it checked.
+// evaluates and never works; with a short held, to sell one at twice it. It reports whether it checked.
 func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingStatus) bool {
 	scope, now := s.currentBrokerStateScope(), s.nowUTC()
 	class := rpc.BrokerPermissionFutures
@@ -341,8 +341,19 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 	if err != nil || contract.ConID == 0 {
 		return unanswered(fmt.Sprintf("no Micro S&P contract read: %v", err))
 	}
-	draft := rpc.OrderDraft{Action: rpc.OrderActionBuy, Contract: contract, Quantity: 1, OrderType: rpc.OrderTypeLMT,
-		LimitPrice: brokerPermissionCheckPrice(hedgeQuotePrice(quote)), TIF: rpc.OrderTIFDay, OrderRef: brokerPermissionCheckOrderRef}
+	// The check must open: IBKR accepts a close the account may no longer
+	// open, so with a short held the buy would show futures enabled
+	// whatever the permission. A sale adds to the short instead.
+	action, price := rpc.OrderActionBuy, brokerPermissionCheckPrice(hedgeQuotePrice(quote))
+	position, err := s.capturePreviewOrderPositionAuthority(readCtx, status, contract, action, 1)
+	if err != nil {
+		return unanswered(fmt.Sprintf("the held %s position could not be read: %v", contract.LocalSymbol, err))
+	}
+	if isRiskReducing(position.Impact.Effect) {
+		action, price = rpc.OrderActionSell, brokerPermissionCheckSellPrice(hedgeQuotePrice(quote))
+	}
+	draft := rpc.OrderDraft{Action: action, Contract: contract, Quantity: 1, OrderType: rpc.OrderTypeLMT,
+		LimitPrice: price, TIF: rpc.OrderTIFDay, OrderRef: brokerPermissionCheckOrderRef}
 	w, err := s.fetchPreviewWhatIfBound(readCtx, status, draft, orderPreviewDefaultWait, nil)
 	if err != nil {
 		return unanswered(err.Error())
@@ -362,4 +373,10 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 // at least one tick: a buy limit far below the market.
 func brokerPermissionCheckPrice(price float64) float64 {
 	return max(0.25, math.Floor(price/2/0.25)*0.25)
+}
+
+// brokerPermissionCheckSellPrice is twice the future's price on its 0.25
+// tick: a sell limit far above the market.
+func brokerPermissionCheckSellPrice(price float64) float64 {
+	return max(0.25, math.Ceil(price*2/0.25)*0.25)
 }

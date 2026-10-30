@@ -23,6 +23,8 @@ func brokerPermissionRig(t *testing.T, answer func() rpc.OrderWhatIfResult) (*Se
 	s.reduceHedgeFutureForTest = func(context.Context) (rpc.ContractParams, *rpc.Quote, error) {
 		return testMESContract, &rpc.Quote{Mark: &mark}, nil
 	}
+	// Flat in the check's contract, so its buy opens.
+	s.orderPreviewPositionImpact = fixedPreviewPosition(0, 1, rpc.OrderPositionEffectOpen)
 	calls := 0
 	s.orderPreviewWhatIf = func(_ context.Context, d rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
 		calls++
@@ -228,5 +230,51 @@ func TestBrokerPermissionAcceptedCloseShowsNothing(t *testing.T) {
 	fresh.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectClose, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
 	if v := fresh.handleTradingStatus().BrokerPermissions; len(v) != 1 {
 		t.Fatalf("an accepted close showed a class: %+v", v)
+	}
+}
+
+// With a short Micro S&P held, the daily check's one-contract buy closes or
+// reduces it, and IBKR accepts a close the account may no longer open, so
+// its acceptance showed futures enabled whatever the permission. The check
+// then sells one contract far above the market: adding to the short opens,
+// so the answer still shows the permission.
+func TestFuturesCheckWithAShortHeldPreviewsAnOpeningSale(t *testing.T) {
+	s, _, _ := brokerPermissionRig(t, func() rpc.OrderWhatIfResult {
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true}
+	})
+	s.orderPreviewPositionImpact = func(_ context.Context, _ rpc.ContractParams, action string, qty int) (rpc.OrderPositionImpact, error) {
+		after := -2.0 + float64(qty)
+		if action == rpc.OrderActionSell {
+			after = -2.0 - float64(qty)
+		}
+		return rpc.OrderPositionImpact{Before: -2, After: after, Effect: classifyPositionEffect(-2, after)}, nil
+	}
+	var sent []rpc.OrderDraft
+	s.orderPreviewWhatIf = func(_ context.Context, d rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
+		sent = append(sent, d)
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true}, nil
+	}
+	if !s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true}) {
+		t.Fatal("the check did not run")
+	}
+	if len(sent) != 1 || sent[0].Action != rpc.OrderActionSell || sent[0].Quantity != 1 || sent[0].LimitPrice != 13600 {
+		t.Fatalf("check drafts = %+v, want one sale of one contract at twice the price", sent)
+	}
+}
+
+// A check whose holding cannot be read does not guess an opening order: it
+// says why and retries.
+func TestFuturesCheckWithoutTheHoldingSaysWhy(t *testing.T) {
+	s, calls, _ := brokerPermissionRig(t, func() rpc.OrderWhatIfResult {
+		return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true}
+	})
+	s.orderPreviewPositionImpact = func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error) {
+		return rpc.OrderPositionImpact{}, errors.New("portfolio stream not current")
+	}
+	if s.checkBrokerPermissions(t.Context(), rpc.TradingStatus{CanPreview: true}) || *calls != 0 {
+		t.Fatalf("a check without the holding ran %d WhatIfs", *calls)
+	}
+	if st := s.brokerPermissions.state(s.currentBrokerStateScope(), rpc.BrokerPermissionFutures); st.State != rpc.BrokerPermissionUnknown || !strings.Contains(st.Detail, "portfolio stream not current") {
+		t.Fatalf("after the check = %+v, want unknown with the reason", st)
 	}
 }
