@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -135,54 +137,213 @@ VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`, scopeKey, record.RecordKey,
 				return fmt.Errorf("append statement metadata version: %w", err)
 			}
 		}
-		// These are current projections only. Deleting/replacing them never
-		// touches the immutable version tables above.
-		if _, err := tx.ExecContext(ctx, `DELETE FROM statement_equity_days WHERE scope_key=?`, scopeKey); err != nil {
-			return fmt.Errorf("replace current statement days: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM statement_records WHERE scope_key=?`, scopeKey); err != nil {
-			return fmt.Errorf("replace current statement records: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM statement_metadata WHERE scope_key=?`, scopeKey); err != nil {
-			return fmt.Errorf("replace current statement metadata: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM statement_files WHERE scope_key=?`, scopeKey); err != nil {
-			return fmt.Errorf("replace current statement inventory: %w", err)
-		}
+		// These are current projections only. Reconciling them never touches
+		// the immutable version tables above.
+		fileRows := make([]currentRow, 0, len(files))
 		for _, file := range files {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_files
-(scope_key,file_key,size_bytes,sha256,status,statement_generated_at,ingested_at,updated_at)
-VALUES(?,?,?,?,?,?,?,?)`, scopeKey, file.FileKey, file.SizeBytes, file.SHA256[:], file.Status, nullableTime(file.StatementGeneratedAt), nullableTime(file.IngestedAt), stamp); err != nil {
-				return fmt.Errorf("write current statement inventory: %w", err)
-			}
+			fileRows = append(fileRows, currentRow{key: []any{file.FileKey},
+				values: []any{file.SizeBytes, file.SHA256[:], file.Status, nullableTime(file.StatementGeneratedAt), nullableTime(file.IngestedAt)}})
 		}
+		dayRows := make([]currentRow, 0, len(days))
 		for _, day := range days {
 			file := fileByKey[day.StatementFileKey]
-			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_equity_days
-(scope_key,account_key,day,equity_base_text,statement_file_key,statement_file_sha256,generated_at,raw_json,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?)`, scopeKey, day.AccountKey, day.Day, day.EquityBaseText, day.StatementFileKey, file.SHA256[:], formatTime(day.GeneratedAt), day.RawJSON, stamp); err != nil {
-				return fmt.Errorf("write current statement equity-day winner: %w", err)
-			}
+			dayRows = append(dayRows, currentRow{key: []any{day.AccountKey, day.Day},
+				values: []any{day.EquityBaseText, day.StatementFileKey, file.SHA256[:], formatTime(day.GeneratedAt), day.RawJSON}})
 		}
+		recordRows := make([]currentRow, 0, len(currentRecords))
 		for _, record := range currentRecords {
 			file := fileByKey[record.StatementFileKey]
-			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_records
-(scope_key,record_kind,record_key,account_key,effective_at,statement_file_key,statement_file_sha256,generated_at,raw_json,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?)`, scopeKey, record.Kind, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, stamp); err != nil {
-				return fmt.Errorf("write current statement record: %w", err)
-			}
+			recordRows = append(recordRows, currentRow{key: []any{record.Kind, record.RecordKey},
+				values: []any{record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON}})
 		}
+		metadataRows := make([]currentRow, 0, len(currentMetadata))
 		for _, record := range currentMetadata {
 			file := fileByKey[record.StatementFileKey]
-			if _, err := tx.ExecContext(ctx, `INSERT INTO statement_metadata
-(scope_key,record_key,account_key,effective_at,statement_file_key,statement_file_sha256,generated_at,raw_json,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?)`, scopeKey, record.RecordKey, record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON, stamp); err != nil {
-				return fmt.Errorf("write current statement metadata: %w", err)
+			metadataRows = append(metadataRows, currentRow{key: []any{record.RecordKey},
+				values: []any{record.AccountKey, formatTime(record.EffectiveAt), record.StatementFileKey, file.SHA256[:], formatTime(record.GeneratedAt), record.RawJSON}})
+		}
+		children := []struct {
+			table currentTable
+			rows  []currentRow
+		}{
+			{statementEquityDaysTable, dayRows},
+			{statementRecordsTable, recordRows},
+			{statementMetadataTable, metadataRows},
+		}
+		// Foreign keys hold after every statement: a row whose file version
+		// leaves the inventory is deleted first and written back once the new
+		// version exists. A row moving to another retained file is updated.
+		inventory := make(map[string]bool, len(files))
+		for _, file := range files {
+			inventory[encodeCurrentValues([]any{file.FileKey, file.SHA256[:]})] = true
+		}
+		for _, child := range children {
+			if err := retractCurrentTx(ctx, tx, scopeKey, child.table, inventory); err != nil {
+				return err
+			}
+		}
+		if err := reconcileCurrentTx(ctx, tx, scopeKey, statementFilesTable, fileRows, stamp); err != nil {
+			return err
+		}
+		for _, child := range children {
+			if err := reconcileCurrentTx(ctx, tx, scopeKey, child.table, child.rows, stamp); err != nil {
+				return err
 			}
 		}
 		_, err := advanceHeadTx(ctx, tx, 0, now)
 		return err
 	})
+}
+
+// currentTable names one current-winner projection: the columns that identify
+// a row within its scope, the content columns a refresh compares, and the
+// subset of those that references a statement_files version.
+type currentTable struct {
+	name, label  string
+	keys, values []string
+	refs         []string
+}
+
+var (
+	statementFilesTable = currentTable{name: "statement_files", label: "statement inventory",
+		keys: []string{"file_key"}, values: []string{"size_bytes", "sha256", "status", "statement_generated_at", "ingested_at"}}
+	statementEquityDaysTable = currentTable{name: "statement_equity_days", label: "statement equity-day winner",
+		keys: []string{"account_key", "day"}, values: []string{"equity_base_text", "statement_file_key", "statement_file_sha256", "generated_at", "raw_json"},
+		refs: []string{"statement_file_key", "statement_file_sha256"}}
+	statementRecordsTable = currentTable{name: "statement_records", label: "statement record",
+		keys: []string{"record_kind", "record_key"}, values: []string{"account_key", "effective_at", "statement_file_key", "statement_file_sha256", "generated_at", "raw_json"},
+		refs: []string{"statement_file_key", "statement_file_sha256"}}
+	statementMetadataTable = currentTable{name: "statement_metadata", label: "statement metadata",
+		keys: []string{"record_key"}, values: []string{"account_key", "effective_at", "statement_file_key", "statement_file_sha256", "generated_at", "raw_json"},
+		refs: []string{"statement_file_key", "statement_file_sha256"}}
+)
+
+// currentRow holds one desired row as SQL arguments, in currentTable column order.
+type currentRow struct{ key, values []any }
+
+// storedRow is one existing current row, encoded for comparison.
+type storedRow struct {
+	key          []any
+	values, refs string
+}
+
+func (t currentTable) where() string {
+	return "scope_key=? AND " + strings.Join(t.keys, "=? AND ") + "=?"
+}
+
+// refsOf encodes the referencing columns of values, which are in t.values order.
+func (t currentTable) refsOf(values []any) string {
+	picked := make([]any, 0, len(t.refs))
+	for _, ref := range t.refs {
+		picked = append(picked, values[slices.Index(t.values, ref)])
+	}
+	return encodeCurrentValues(picked)
+}
+
+func loadCurrentTx(ctx context.Context, tx *sql.Tx, scopeKey string, table currentTable) (map[string]storedRow, error) {
+	columns := append(slices.Clone(table.keys), table.values...)
+	cursor, err := tx.QueryContext(ctx, `SELECT `+strings.Join(columns, ",")+` FROM `+table.name+` WHERE scope_key=?`, scopeKey)
+	if err != nil {
+		return nil, fmt.Errorf("read current %s: %w", table.label, err)
+	}
+	defer cursor.Close()
+	stored := map[string]storedRow{}
+	for cursor.Next() {
+		row := make([]any, len(columns))
+		dest := make([]any, len(columns))
+		for i := range row {
+			dest[i] = &row[i]
+		}
+		if err := cursor.Scan(dest...); err != nil {
+			return nil, fmt.Errorf("read current %s: %w", table.label, err)
+		}
+		values := row[len(table.keys):]
+		stored[encodeCurrentValues(row[:len(table.keys)])] = storedRow{key: row[:len(table.keys)], values: encodeCurrentValues(values), refs: table.refsOf(values)}
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, fmt.Errorf("read current %s: %w", table.label, err)
+	}
+	return stored, nil
+}
+
+func deleteCurrentTx(ctx context.Context, tx *sql.Tx, scopeKey string, table currentTable, stored map[string]storedRow, keys []string) error {
+	slices.Sort(keys)
+	for _, key := range keys {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table.name+` WHERE `+table.where(), append([]any{scopeKey}, stored[key].key...)...); err != nil {
+			return fmt.Errorf("retract current %s: %w", table.label, err)
+		}
+	}
+	return nil
+}
+
+// retractCurrentTx deletes the rows of table that reference a file version
+// outside inventory, so that version can be replaced or removed;
+// reconcileCurrentTx writes back any of them that remain current.
+func retractCurrentTx(ctx context.Context, tx *sql.Tx, scopeKey string, table currentTable, inventory map[string]bool) error {
+	stored, err := loadCurrentTx(ctx, tx, scopeKey, table)
+	if err != nil {
+		return err
+	}
+	var gone []string
+	for key, row := range stored {
+		if !inventory[row.refs] {
+			gone = append(gone, key)
+		}
+	}
+	return deleteCurrentTx(ctx, tx, scopeKey, table, stored, gone)
+}
+
+// reconcileCurrentTx makes table's rows for scopeKey equal rows. It inserts
+// new keys, updates changed rows in place and deletes absent keys; unchanged
+// rows are not written. Rewriting the whole projection on every Flex file
+// held one transaction of the table's full size in the WAL.
+func reconcileCurrentTx(ctx context.Context, tx *sql.Tx, scopeKey string, table currentTable, rows []currentRow, stamp string) error {
+	stored, err := loadCurrentTx(ctx, tx, scopeKey, table)
+	if err != nil {
+		return err
+	}
+	columns := append(slices.Clone(table.keys), table.values...)
+	update := `UPDATE ` + table.name + ` SET ` + strings.Join(table.values, "=?,") + `=?,updated_at=? WHERE ` + table.where()
+	insert := `INSERT INTO ` + table.name + ` (scope_key,` + strings.Join(columns, ",") + `,updated_at) VALUES(?` + strings.Repeat(",?", len(columns)+1) + `)`
+	for _, row := range rows {
+		key := encodeCurrentValues(row.key)
+		old, found := stored[key]
+		delete(stored, key)
+		switch {
+		case !found:
+			args := append(append(append([]any{scopeKey}, row.key...), row.values...), stamp)
+			if _, err := tx.ExecContext(ctx, insert, args...); err != nil {
+				return fmt.Errorf("write current %s: %w", table.label, err)
+			}
+		case old.values != encodeCurrentValues(row.values):
+			args := append(append(append(slices.Clone(row.values), stamp), scopeKey), row.key...)
+			if _, err := tx.ExecContext(ctx, update, args...); err != nil {
+				return fmt.Errorf("write current %s: %w", table.label, err)
+			}
+		}
+	}
+	return deleteCurrentTx(ctx, tx, scopeKey, table, stored, slices.Collect(maps.Keys(stored)))
+}
+
+// encodeCurrentValues gives one comparable string for SQL values, keeping the
+// type so a TEXT and a BLOB with equal bytes never compare equal.
+func encodeCurrentValues(values []any) string {
+	var b strings.Builder
+	for _, v := range values {
+		switch v := v.(type) {
+		case nil:
+			b.WriteString("n;")
+		case []byte:
+			fmt.Fprintf(&b, "b%d:%s;", len(v), v)
+		case string:
+			fmt.Fprintf(&b, "s%d:%s;", len(v), v)
+		case int64:
+			fmt.Fprintf(&b, "i%d;", v)
+		default:
+			fmt.Fprintf(&b, "%T:%v;", v, v)
+		}
+	}
+	return b.String()
 }
 
 // LoadStatementRecords returns current typed Flex records ordered by kind,
@@ -411,7 +572,7 @@ func loadStatementEquityDaysQuery(ctx context.Context, q statementRowsQueryer, s
 		args = append(args, toDay)
 	}
 	args = append(args, limit)
-	rows, err := q.QueryContext(ctx, `SELECT equity_day_id,account_key,day,equity_base_text,statement_file_key,statement_file_sha256,generated_at,raw_json FROM statement_equity_days WHERE `+strings.Join(clauses, " AND ")+` ORDER BY day,equity_day_id LIMIT ?`, args...)
+	rows, err := q.QueryContext(ctx, `SELECT equity_day_id,account_key,day,equity_base_text,statement_file_key,statement_file_sha256,generated_at,raw_json FROM statement_equity_days WHERE `+strings.Join(clauses, " AND ")+` ORDER BY day,account_key,equity_day_id LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}

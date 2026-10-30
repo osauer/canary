@@ -239,3 +239,86 @@ func TestStatementRecordVersionsAreAppendOnly(t *testing.T) {
 		}
 	}
 }
+
+// A refresh rewrites only the current rows it changes. Unchanged winners keep
+// their row and stamp, so a daily Flex file no longer rewrites the whole
+// projection in one transaction; the visible result is the same as a full
+// replacement, including a restated file and a retracted row.
+func TestStatementProjectionRefreshLeavesUnchangedRowsInPlace(t *testing.T) {
+	store, _ := openTestStore(t)
+	ctx := t.Context()
+	generated := time.Date(2026, time.October, 29, 6, 0, 0, 0, time.UTC)
+	fileA := StatementFileRecord{FileKey: "flex-a.xml", SHA256: sha256.Sum256([]byte("a-v1")), Status: "valid"}
+	fileB := StatementFileRecord{FileKey: "flex-b.xml", SHA256: sha256.Sum256([]byte("b-v1")), Status: "valid"}
+	trade := func(key string, file StatementFileRecord, raw string) StatementRecord {
+		return StatementRecord{Kind: StatementRecordTrade, RecordKey: key, AccountKey: "DUEDGE", EffectiveAt: generated.Add(-time.Hour),
+			StatementFileKey: file.FileKey, StatementFileSHA256: file.SHA256, GeneratedAt: generated, RawJSON: []byte(raw)}
+	}
+	day := func(account string, file StatementFileRecord, equity string) StatementEquityDayRecord {
+		return StatementEquityDayRecord{AccountKey: account, Day: "2026-10-28", EquityBaseText: equity,
+			StatementFileKey: file.FileKey, StatementFileSHA256: file.SHA256, GeneratedAt: generated, RawJSON: []byte(`{"version":1}`)}
+	}
+	first := []StatementRecord{trade("t1", fileA, `{"p":1}`), trade("t2", fileA, `{"p":2}`), trade("t3", fileA, `{"p":3}`), trade("t4", fileB, `{"p":4}`), trade("t6", fileA, `{"p":6}`)}
+	if err := store.ReplaceStatementProjection(ctx, "statements", []StatementFileRecord{fileA, fileB}, []StatementEquityDayRecord{day("DUA", fileA, "1"), day("DUB", fileB, "2")}, first, nil); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.LoadStatementRecords(ctx, "statements", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stampBefore string
+	if err := store.db.QueryRowContext(ctx, `SELECT updated_at FROM statement_records WHERE record_key='t1'`).Scan(&stampBefore); err != nil {
+		t.Fatal(err)
+	}
+
+	fileB.SHA256 = sha256.Sum256([]byte("b-v2"))
+	fileC := StatementFileRecord{FileKey: "flex-c.xml", SHA256: sha256.Sum256([]byte("c-v1")), Status: "valid"}
+	second := []StatementRecord{trade("t1", fileA, `{"p":1}`), trade("t2", fileA, `{"p":20}`), trade("t4", fileB, `{"p":4}`), trade("t5", fileA, `{"p":5}`), trade("t6", fileC, `{"p":6}`)}
+	time.Sleep(2 * time.Millisecond)
+	if err := store.ReplaceStatementProjection(ctx, "statements", []StatementFileRecord{fileA, fileB, fileC}, []StatementEquityDayRecord{day("DUB", fileB, "3"), day("DUA", fileA, "1")}, second, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := store.LoadStatementRecords(ctx, "statements", nil, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]StatementRecord{}
+	for _, record := range after {
+		got[record.RecordKey] = record
+	}
+	if len(after) != 5 || got["t3"].RecordKey != "" || string(got["t2"].RawJSON) != `{"p":20}` || string(got["t5"].RawJSON) != `{"p":5}` || got["t4"].StatementFileSHA256 != fileB.SHA256 {
+		t.Fatalf("current records after refresh = %+v", after)
+	}
+	ids := map[string]int64{}
+	for _, record := range before {
+		ids[record.RecordKey] = record.ID
+	}
+	if got["t1"].ID != ids["t1"] {
+		t.Fatalf("unchanged record was rewritten: id %d -> %d", ids["t1"], got["t1"].ID)
+	}
+	if got["t6"].ID != ids["t6"] || got["t6"].StatementFileKey != fileC.FileKey || got["t6"].StatementFileSHA256 != fileC.SHA256 {
+		t.Fatalf("record moving to a newer file was not updated in place: before id %d, after %+v", ids["t6"], got["t6"])
+	}
+	var stampAfter string
+	if err := store.db.QueryRowContext(ctx, `SELECT updated_at FROM statement_records WHERE record_key='t1'`).Scan(&stampAfter); err != nil {
+		t.Fatal(err)
+	}
+	if stampAfter != stampBefore {
+		t.Fatalf("unchanged record stamp moved: %s -> %s", stampBefore, stampAfter)
+	}
+	days, err := store.LoadStatementEquityDays(ctx, "statements", "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(days) != 2 || days[0].AccountKey != "DUA" || days[1].AccountKey != "DUB" || days[1].EquityBaseText != "3" || days[1].StatementFileSHA256 != fileB.SHA256 {
+		t.Fatalf("current equity days after refresh = %+v", days)
+	}
+	files, err := store.LoadStatementFiles(ctx, "statements")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 3 || files[1].SHA256 != fileB.SHA256 {
+		t.Fatalf("current files after refresh = %+v", files)
+	}
+}
