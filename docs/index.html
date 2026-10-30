@@ -62,16 +62,27 @@
     .canary-answers h3 { font-size: 19px; font-weight: 500; margin: 0 0 8px; }
     .canary-answers p { margin: 0 0 26px; max-width: 54ch; }
     .canary-answers p:last-child { margin-bottom: 0; }
-    .canary-intro.hero { padding-block: 36px 32px; }
-    .canary-intro .proof a { color: var(--ink); }
-    .canary-intro .lead, .canary-intro .sub { max-width: 54ch; }
-    .audiences { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding-block: 0 48px; }
-    .audience { display: flex; flex-direction: column; border-top: 2px solid var(--moss); padding-top: 22px; }
-    .audience h2 { font: 400 32px/1.08 var(--serif); letter-spacing: -.01em; margin: 10px 0 14px; max-width: 16ch; }
-    .audience p:not(.kicker) { font-size: 16px; margin: 0 0 10px; max-width: 42ch; }
+    .canary-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 64px; align-items: center; padding-block: 48px 56px; }
+    .hero-lockup { display: flex; align-items: center; gap: 14px; }
+    .hero-lockup .kicker { margin: 0; }
+    .hero-mark { width: 52px; height: 52px; border-radius: 12px; }
+    .canary-hero h1 { font: 400 clamp(72px, 7.4vw, 112px)/.9 var(--serif); letter-spacing: -.035em; margin: 22px 0 0; }
+    .canary-hero .lead { margin-top: 22px; max-width: none; }
+    .canary-hero .sub { margin-top: 14px; color: var(--muted); max-width: 48ch; }
+    .canary-hero .proof { margin-top: 20px; font-size: 13px; color: var(--ink); }
+    .canary-hero .proof span { white-space: nowrap; }
+    .canary-hero .proof a { color: var(--ink); }
+    .hero-film { margin: 0; }
+    .hero-film video { display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; background: #1a1f2e; box-shadow: var(--shadow); }
+    .hero-film figcaption { margin-top: 10px; font-size: 13px; color: var(--muted); }
+    .audiences { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; padding-block: 0 56px; }
+    .audience { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; padding: 26px 26px 26px; background: color-mix(in srgb, var(--ink) 3%, var(--paper)); }
+    .audience .kicker { margin: 0; color: var(--moss-deep); }
+    .audience h2 { font: 400 30px/1.1 var(--serif); letter-spacing: -.01em; margin: 10px 0 14px; max-width: 16ch; }
+    .audience p:not(.kicker) { font-size: 16px; margin: 0 0 12px; }
     .audience .needs { color: var(--muted); font-size: 14px; }
     .audience .needs a, .audience p a { color: inherit; }
-    .audience-actions { padding-top: 6px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+    .audience-actions { padding-top: 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
     .audience-actions .text-link { margin-top: 0; }
     .audience .button { display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: var(--moss); color: var(--paper); font-weight: 600; text-decoration: none; }
     .audience .button:hover { background: var(--moss-deep); }
@@ -80,8 +91,8 @@
     .recent li { border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 16px; }
     .recent b { display: block; color: var(--ink); font-weight: 500; margin-bottom: 6px; }
     .recent small { display: block; margin-top: 8px; font-size: 13px; }
-    @media (max-width: 1100px) { .audiences { grid-template-columns: 1fr 1fr; } .audiences .audience:last-child { grid-column: 1 / -1; } .recent { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 760px) { .audiences, .recent { grid-template-columns: 1fr; gap: 32px; } .audience h2 { font-size: 30px; } }
+    @media (max-width: 1100px) { .canary-hero { gap: 36px; } .audiences { grid-template-columns: 1fr 1fr; } .audiences .audience:last-child { grid-column: 1 / -1; } .recent { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 760px) { .canary-hero { grid-template-columns: 1fr; gap: 28px; padding-block: 36px 40px; } .canary-hero h1 { font-size: 72px; } .audiences, .recent { grid-template-columns: 1fr; gap: 20px; } .audience { padding: 20px; } .audience h2 { font-size: 28px; } }
   </style>
 </head>
 <body>
@@ -97,45 +108,53 @@
     </nav>
   </header>
   <main id="main" tabindex="-1">
-    <section class="wrap hero project-intro canary-intro" aria-labelledby="hero-title">
-      <div><p class="kicker">Open source · Go</p><h1 id="hero-title">Canary</h1></div>
-      <div class="intro-copy">
+    <section class="wrap hero canary-hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <div class="hero-lockup"><img class="hero-mark" src="social/canary-icon.png" width="192" height="192" alt=""><p class="kicker">Open source · Go</p></div>
+        <h1 id="hero-title">Canary</h1>
         <p class="lead">Portfolio, risk and order tools for Interactive Brokers.</p>
-        <p class="sub">Canary connects to your Interactive Brokers account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and your phone all read the same figures.</p>
-        <p class="proof"><span>A private project</span> · <span>MIT licence</span> · <span>Signed releases</span> · <span>No telemetry</span> · <span><a href="https://github.com/osauer/canary">GitHub</a> · <a href="https://github.com/osauer/canary/releases/latest">Release notes</a></span></p>
+        <p class="sub">Canary connects to your IBKR account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and the paired phone app all read the same figures.</p>
+        <p class="proof"><span>MIT licence ·</span> <span>Signed releases ·</span> <span>No telemetry ·</span> <span>A private project ·</span> <span><a href="https://github.com/osauer/canary">GitHub</a> ·</span> <span><a href="https://github.com/osauer/canary/releases/latest">Release notes</a></span></p>
       </div>
+      <figure class="hero-film">
+        <video controls playsinline preload="none" poster="media/canary-status-meeting-poster.jpg" width="1920" height="1080" aria-label="The Status Meeting, an animated short film about a trader saved by a canary alert">
+          <source src="media/canary-status-meeting.mp4" type="video/mp4">
+          <a href="media/canary-status-meeting.mp4">Watch the film (MP4)</a>
+        </video>
+        <figcaption>The Status Meeting: a trader saved by a canary alert. Under a minute, with sound. Synthetic figures.</figcaption>
+      </figure>
     </section>
 
     <section class="wrap audiences" aria-label="Where to start">
       <article class="audience" aria-labelledby="aud-claude-title">
         <p class="kicker">For Claude Desktop</p>
         <h2 id="aud-claude-title">Ask Claude about your IBKR account.</h2>
-        <p>Add Canary to Claude Desktop on your Mac and ask in your own words how your holdings did today, which risk rules need attention or what the market is doing. Claude can read your account. It cannot place, change or cancel an order.</p>
-        <p class="needs">You need an IBKR Pro account, and IB Gateway or TWS (Interactive Brokers’ desktop software) running on the same Mac with its API switched on. The setup guide shows how.</p>
+        <p>Add Canary to Claude Desktop on your Mac, then ask how your holdings did today, which risk rules need attention or what the market is doing. Claude can read your account. It cannot place, change or cancel an order.</p>
+        <p class="needs">Needs an IBKR Pro account, and IB Gateway or TWS (Interactive Brokers’ desktop software) running on your Mac with its API turned on.</p>
         <div class="audience-actions">
-          <a class="button" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download for Claude Desktop</a>
-          <a class="text-link" href="claude-desktop-interactive-brokers/">Setup, step by step<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="button" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download for Claude Desktop on Mac</a>
+          <a class="text-link" href="claude-desktop-interactive-brokers/">Setup guide<span class="arrow" aria-hidden="true">→</span></a>
         </div>
       </article>
       <article class="audience" aria-labelledby="aud-eng-title">
         <p class="kicker">For engineers</p>
         <h2 id="aud-eng-title">Build your trading system on it.</h2>
-        <p>A local daemon holds the IBKR connection, your risk policy and the order journal. Every CLI command returns JSON, so the CLI is your API. Go programs can use the daemon client or speak the TWS protocol directly, with no vendor SDK.</p>
-        <p class="needs">Orders go through one path, in the opt-in trading build, where Canary checks each one against your limits. <a href="/desk/">Canary Desk</a>, a private project, is built this way.</p>
+        <p>A local daemon holds the IBKR connection, your risk policy and the order journal. Every CLI command returns JSON, so the CLI is your API. Go programs can use the daemon client, or the TWS protocol with no vendor SDK.</p>
+        <p class="needs">Orders go through one path, in the opt-in trading build, that checks each against your limits and your confirmation. <a href="/desk/">Canary Desk</a>, a private project, is built this way.</p>
         <div class="audience-actions">
-          <a class="text-link" href="docs/internals/architecture.html">Read the architecture<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/internals/architecture.html">Architecture<span class="arrow" aria-hidden="true">→</span></a>
           <a class="text-link" href="docs/reference/cli.html">CLI reference<span class="arrow" aria-hidden="true">→</span></a>
-          <a class="text-link" href="docs/operate/orders.html">Orders and the trading build<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/operate/orders.html">Trading build<span class="arrow" aria-hidden="true">→</span></a>
         </div>
       </article>
       <article class="audience" aria-labelledby="aud-agent-title">
         <p class="kicker">For AI agents</p>
         <h2 id="aud-agent-title">Read IBKR data through typed tools.</h2>
-        <p>If you are an agent, start with <a href="llms.txt">llms.txt</a>: what Canary is, what its tools return and where their limits are. Figures carry their source and age. A figure Canary cannot confirm is reported as missing, never as zero.</p>
-        <p class="needs">All MCP tools are read-only. They cannot preview or send an order, or change a limit. The <a href="mcp-server.json">server manifest</a> lists how to install them.</p>
+        <p>Start with <a href="llms.txt">llms.txt</a>: what Canary is, what its tools return and where their limits are. Figures carry their source and age. What Canary cannot confirm is reported as missing, never as zero.</p>
+        <p class="needs">Every MCP tool is read-only: it cannot preview or send an order, or change a limit. Install details are in the <a href="mcp-server.json">server manifest</a>.</p>
         <div class="audience-actions">
           <a class="text-link" href="llms.txt">llms.txt<span class="arrow" aria-hidden="true">→</span></a>
-          <a class="text-link" href="docs/reference/mcp-tools.html">MCP tool reference<span class="arrow" aria-hidden="true">→</span></a>
+          <a class="text-link" href="docs/reference/mcp-tools.html">MCP tools<span class="arrow" aria-hidden="true">→</span></a>
         </div>
       </article>
     </section>
